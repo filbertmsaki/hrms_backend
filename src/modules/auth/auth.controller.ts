@@ -12,6 +12,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import type { Request as ExpressRequest } from 'express';
+import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { RegisterDto } from './dtos/register.dto';
 import { LoginDto } from './dtos/login.dto';
 import { RefreshTokenDto } from './dtos/refresh-token.dto';
@@ -20,6 +21,7 @@ import { ForgotPasswordDto } from './dtos/forgot-password.dto';
 import { ResetPasswordDto } from './dtos/reset-password.dto';
 import { Complete2FALoginDto } from './dtos/complete-2fa-login.dto';
 import { ResendVerificationDto } from './dtos/resend-verification.dto';
+import { SwitchCompanyDto } from './dtos/switch-company.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -50,6 +52,16 @@ export class AuthController {
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   async refresh(@Body() dto: RefreshTokenDto) {
     return this.authService.refreshTokens(dto);
+  }
+
+  @Post('switch-company')
+  @UseGuards(AuthGuard('jwt'))
+  @SkipThrottle()
+  async switchCompany(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: SwitchCompanyDto,
+  ) {
+    return this.authService.switchCompany(req.user.id, dto.company_id, req.ip);
   }
 
   @Get('verify-email')

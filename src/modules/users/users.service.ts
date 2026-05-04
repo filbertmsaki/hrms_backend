@@ -5,46 +5,158 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { MoreThan, Repository } from 'typeorm';
-import { User } from './entities/user.entity';
+import { EntityManager, MoreThan, Repository } from 'typeorm';
+
+import { PaginationDto } from 'src/common/dto/pagination.dto';
+import { comparePasswords, hashPassword } from 'src/common/utils/hash.util';
+import { CompaniesService } from '../companies/companies.service';
 import { CreateUserDto } from './dtos/create-user.dto';
 import { UpdateUserDto } from './dtos/update-user.dto';
-import { comparePasswords, hashPassword } from 'src/common/utils/hash.util';
 import { UserProfileDto } from './dtos/user-profile-dto';
-import { PaginationDto, SortDirection } from 'src/common/dto/pagination.dto';
+import { User } from './entities/user.entity';
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectRepository(User)
-    private userRepository: Repository<User>,
+    private readonly userRepository: Repository<User>,
+    private readonly companiesService: CompaniesService,
   ) {}
 
-  async create(createUserDto: CreateUserDto): Promise<User> {
-    const existing = await this.userRepository.findOne({
-      where: [{ email: createUserDto.email }, { phone: createUserDto.phone }],
-    });
-
-    if (existing) {
-      throw new ConflictException('Email or phone already in use');
+  private extractRoleIds(
+    roles?: Array<{ id?: number } | number>,
+  ): number[] | undefined {
+    if (!roles?.length) {
+      return undefined;
     }
 
-    const hashedPassword = await hashPassword(createUserDto.password);
+    const roleIds = roles
+      .map((role) => (typeof role === 'number' ? role : role?.id))
+      .filter((roleId): roleId is number => typeof roleId === 'number');
 
-    const user = this.userRepository.create({
-      ...createUserDto,
-      password: hashedPassword,
-      status: createUserDto.status ?? 'active',
+    return roleIds.length ? roleIds : undefined;
+  }
+
+  private async findOrFail(id: number): Promise<User> {
+    const user = await this.userRepository.findOne({
+      where: { id },
+      relations: ['roles', 'permissions'],
     });
 
-    return this.userRepository.save(user);
+    if (!user) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+
+    return user;
   }
+
+  async generateUserNo(manager?: EntityManager): Promise<string> {
+    const repository = manager?.getRepository(User) ?? this.userRepository;
+    const year = new Date().getFullYear();
+    const prefix = `USER-${year}-`;
+
+    const qb = repository
+      .createQueryBuilder('user')
+      .where('user.user_no LIKE :prefix', { prefix: `${prefix}%` })
+      .orderBy('user.user_no', 'DESC')
+      .limit(1);
+
+    const lastUser = await qb.getOne();
+
+    let nextNumber = 1;
+    if (lastUser?.user_no) {
+      const numPart = lastUser.user_no.substring(prefix.length);
+      const parsed = Number(numPart);
+      if (!isNaN(parsed)) {
+        nextNumber = parsed + 1;
+      }
+    }
+
+    return `${prefix}${String(nextNumber).padStart(5, '0')}`;
+  }
+
+  async createForCompany(
+    companyId: number,
+    createUserDto: CreateUserDto,
+  ): Promise<UserProfileDto | { message: string; user: UserProfileDto }> {
+    const { roles, password, ...userData } = createUserDto;
+    const existingByEmail = await this.userRepository.findOne({
+      where: { email: userData.email },
+    });
+    const existingByPhone = await this.userRepository.findOne({
+      where: { phone: userData.phone },
+    });
+
+    if (
+      existingByEmail &&
+      existingByPhone &&
+      existingByEmail.id !== existingByPhone.id
+    ) {
+      throw new ConflictException(
+        'Email and phone belong to different existing users',
+      );
+    }
+
+    const existingUser = existingByEmail ?? existingByPhone;
+    const roleIds = this.extractRoleIds(roles as Array<{ id?: number }>);
+
+    if (existingUser) {
+      if (existingByEmail && existingByEmail.phone !== userData.phone) {
+        throw new ConflictException(
+          'This email already exists with a different phone number',
+        );
+      }
+
+      if (existingByPhone && existingByPhone.email !== userData.email) {
+        throw new ConflictException(
+          'This phone number already exists with a different email address',
+        );
+      }
+
+      const currentMembership = await this.companiesService
+        .findCompanyUserContext(companyId, existingUser.id)
+        .catch(() => null);
+
+      if (currentMembership) {
+        throw new ConflictException('User already belongs to this company');
+      }
+
+      await this.companiesService.addUserToCompany(existingUser.id, companyId, {
+        roleIds,
+      });
+
+      return {
+        message: 'Existing user added to company successfully',
+        user: await this.findProfileInCompany(existingUser.id, companyId),
+      };
+    }
+
+    const hashedPassword = await hashPassword(password);
+    const user = this.userRepository.create({
+      ...userData,
+      password: hashedPassword,
+      user_no: userData.user_no ?? (await this.generateUserNo()),
+      status: userData.status ?? 'active',
+      user_type: 'COMPANY_USER',
+      is_email_verified: true,
+    });
+
+    const savedUser = await this.userRepository.save(user);
+
+    await this.companiesService.addUserToCompany(savedUser.id, companyId, {
+      roleIds,
+    });
+
+    return this.findProfileInCompany(savedUser.id, companyId);
+  }
+
   async findByEmailWithRelations(email: string): Promise<User | null> {
     return this.userRepository.findOne({
       where: { email },
       relations: ['roles', 'roles.permissions', 'permissions'],
     });
   }
+
   async findByEmailForAuth(email: string): Promise<User | null> {
     return this.userRepository.findOne({
       where: { email },
@@ -53,6 +165,7 @@ export class UsersService {
         'email',
         'password',
         'status',
+        'user_type',
         'first_name',
         'last_name',
         'user_no',
@@ -72,70 +185,8 @@ export class UsersService {
     });
   }
 
-  async findAllPaginated(query: PaginationDto) {
-    const {
-      page = 1,
-      limit = 20,
-      sortBy = 'created_at',
-      sortOrder = SortDirection.DESC,
-      search,
-    } = query;
-
-    const qb = this.userRepository
-      .createQueryBuilder('user')
-      .leftJoinAndSelect('user.roles', 'roles')
-      .leftJoinAndSelect('roles.permissions', 'rolePermissions')
-      .leftJoinAndSelect('user.permissions', 'permissions');
-
-    if (search?.trim()) {
-      const term = `%${search.trim()}%`;
-      qb.andWhere(
-        '(user.first_name ILIKE :term OR ' +
-          'user.last_name ILIKE :term OR ' +
-          'user.email ILIKE :term OR ' +
-          'user.phone ILIKE :term OR ' +
-          'user.user_no ILIKE :term)',
-        { term },
-      );
-    }
-
-    const allowedSortFields = [
-      'id',
-      'user_no',
-      'first_name',
-      'last_name',
-      'email',
-      'phone',
-      'status',
-      'created_at',
-      'updated_at',
-    ];
-
-    let safeSortBy = 'created_at';
-    if (allowedSortFields.includes(sortBy)) {
-      safeSortBy = sortBy;
-    }
-
-    const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
-
-    qb.orderBy(`user.${safeSortBy}`, direction);
-
-    const skip = (page - 1) * limit;
-
-    const [items, total] = await qb.skip(skip).take(limit).getManyAndCount();
-
-    return {
-      data: items,
-      meta: {
-        totalItems: total,
-        itemCount: items.length,
-        itemsPerPage: limit,
-        totalPages: Math.ceil(total / limit),
-        currentPage: page,
-        hasNextPage: page * limit < total,
-        hasPreviousPage: page > 1,
-      },
-    };
+  async findAllPaginatedInCompany(companyId: number, query: PaginationDto) {
+    return this.companiesService.findCompanyUsersPaginated(companyId, query);
   }
 
   async findByIdWithRelations(id: number): Promise<User | null> {
@@ -146,44 +197,19 @@ export class UsersService {
   }
 
   async findById(id: number): Promise<User> {
-    const user = await this.userRepository.findOne({
-      where: { id },
-      relations: ['roles', 'permissions'],
-    });
-
-    if (!user) {
-      throw new NotFoundException(`User with ID ${id} not found`);
-    }
-
-    return user;
+    return this.findOrFail(id);
   }
 
-  async findProfileById(id: number): Promise<UserProfileDto> {
-    const user = await this.userRepository.findOne({
-      where: { id },
-      relations: ['roles', 'roles.permissions', 'permissions'],
-    });
-
-    if (!user) {
-      throw new NotFoundException(`User with ID ${id} not found`);
-    }
-
-    const roleNames =
-      user.roles?.map((r) => r.name || r.display_name || r.id.toString()) ?? [];
-
-    const permissionKeys = new Set<string>();
-
-    // Direct permissions
-    user.permissions?.forEach((p) => {
-      permissionKeys.add(p.name || p.display_name || p.id.toString());
-    });
-
-    // Inherited from roles
-    user.roles?.forEach((role) => {
-      role.permissions?.forEach((p) => {
-        permissionKeys.add(p.name || p.display_name || p.id.toString());
-      });
-    });
+  async findMyProfileById(
+    id: number,
+    companyId: number,
+  ): Promise<UserProfileDto> {
+    const user = await this.findOrFail(id);
+    const currentCompany = await this.companiesService.findCompanyUserContext(
+      companyId,
+      id,
+    );
+    const companies = await this.companiesService.listUserCompanies(id);
 
     return new UserProfileDto({
       id: user.id,
@@ -193,14 +219,56 @@ export class UsersService {
       phone: user.phone,
       email: user.email,
       status: user.status,
+      user_type: user.user_type,
       is_email_verified: user.is_email_verified,
       is_two_factor_enabled: user.is_two_factor_enabled,
       last_login_at: user.last_login_at,
       last_login_ip: user.last_login_ip,
       created_at: user.created_at,
       updated_at: user.updated_at,
-      roles: roleNames,
-      permissions: [...permissionKeys],
+      roles: currentCompany.roles,
+      permissions: currentCompany.permissions,
+      current_company: {
+        id: currentCompany.companyId,
+        name: currentCompany.companyName,
+        slug: currentCompany.companySlug,
+      },
+      companies,
+    });
+  }
+
+  async findProfileInCompany(
+    id: number,
+    companyId: number,
+  ): Promise<UserProfileDto> {
+    const user = await this.findOrFail(id);
+    const companyContext = await this.companiesService.findCompanyUserContext(
+      companyId,
+      id,
+    );
+
+    return new UserProfileDto({
+      id: user.id,
+      user_no: user.user_no,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      phone: user.phone,
+      email: user.email,
+      status: user.status,
+      user_type: user.user_type,
+      is_email_verified: user.is_email_verified,
+      is_two_factor_enabled: user.is_two_factor_enabled,
+      last_login_at: user.last_login_at,
+      last_login_ip: user.last_login_ip,
+      created_at: user.created_at,
+      updated_at: user.updated_at,
+      roles: companyContext.roles,
+      permissions: companyContext.permissions,
+      current_company: {
+        id: companyContext.companyId,
+        name: companyContext.companyName,
+        slug: companyContext.companySlug,
+      },
     });
   }
 
@@ -222,6 +290,7 @@ export class UsersService {
   async existsByUserNo(userNo: string): Promise<boolean> {
     return !!(await this.findByUserNo(userNo));
   }
+
   async updateLastLogin(
     id: number,
     lastLoginAt: Date,
@@ -238,9 +307,23 @@ export class UsersService {
   }
 
   async update(id: number, updateUserDto: UpdateUserDto): Promise<User> {
-    const user = await this.findById(id);
-    Object.assign(user, updateUserDto);
+    const user = await this.findOrFail(id);
+    const { roles, ...safeUpdate } = updateUserDto as UpdateUserDto & {
+      roles?: unknown;
+    };
+    void roles;
+    Object.assign(user, safeUpdate);
     return this.userRepository.save(user);
+  }
+
+  async updateInCompany(
+    companyId: number,
+    id: number,
+    updateUserDto: UpdateUserDto,
+  ): Promise<UserProfileDto> {
+    await this.companiesService.findCompanyUserContext(companyId, id);
+    await this.update(id, updateUserDto);
+    return this.findProfileInCompany(id, companyId);
   }
 
   async changePassword(
@@ -250,13 +333,17 @@ export class UsersService {
   ): Promise<{ message: string }> {
     const user = await this.userRepository.findOne({
       where: { id: userId },
-      select: ['password'],
+      select: ['id', 'password'],
     });
 
-    if (!user) throw new NotFoundException('User not found');
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
 
     const isMatch = await comparePasswords(oldPassword, user.password);
-    if (!isMatch) throw new UnauthorizedException('Current password incorrect');
+    if (!isMatch) {
+      throw new UnauthorizedException('Current password incorrect');
+    }
 
     const hashed = await hashPassword(newPassword);
     await this.userRepository.update(userId, { password: hashed });
@@ -325,52 +412,28 @@ export class UsersService {
     });
   }
 
-  // ──────────────────────────────────────────────────────────────
-  // RELATION MANAGEMENT (Roles)
-  // ──────────────────────────────────────────────────────────────
-  async assignRole(userId: number, roleId: number): Promise<User> {
-    const user = await this.userRepository.findOne({
-      where: { id: userId },
-      relations: ['roles'],
-    });
-
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    // Prevent duplicate assignment
-    if (!user.roles.some((r) => r.id === roleId)) {
-      // In real apps, you should fetch the role entity first
-      // Here we assume role exists and we use reference
-      user.roles = [...(user.roles || []), { id: roleId } as any];
-      await this.userRepository.save(user);
-    }
-
-    return this.findById(userId);
+  async assignRoleInCompany(
+    companyId: number,
+    userId: number,
+    roleId: number,
+  ): Promise<UserProfileDto> {
+    await this.companiesService.assignRole(companyId, userId, roleId);
+    return this.findProfileInCompany(userId, companyId);
   }
 
-  async revokeRole(userId: number, roleId: number): Promise<User> {
-    const user = await this.userRepository.findOne({
-      where: { id: userId },
-      relations: ['roles'],
-    });
-
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    user.roles = user.roles?.filter((r) => r.id !== roleId) || [];
-    await this.userRepository.save(user);
-
-    return this.findById(userId);
+  async revokeRoleInCompany(
+    companyId: number,
+    userId: number,
+    roleId: number,
+  ): Promise<UserProfileDto> {
+    await this.companiesService.revokeRole(companyId, userId, roleId);
+    return this.findProfileInCompany(userId, companyId);
   }
 
-  // ──────────────────────────────────────────────────────────────
-  // DELETE
-  // ──────────────────────────────────────────────────────────────
-  async remove(id: number): Promise<void> {
-    const user = await this.findById(id);
-    await this.userRepository.softRemove(user); // soft delete
-    // or: await this.userRepository.remove(user); // hard delete
+  async removeFromCompany(
+    companyId: number,
+    userId: number,
+  ): Promise<{ message: string }> {
+    return this.companiesService.removeUserFromCompany(companyId, userId);
   }
 }

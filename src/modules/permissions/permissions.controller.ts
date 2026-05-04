@@ -32,9 +32,9 @@ export class PermissionsController {
 
   @Post()
   @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('admin')                        // Only users with 'admin' role
-  @Permissions('permissions:create')     // And explicit permission
-  @ApiOperation({ summary: 'Create a new permission (admin only)' })
+  @Roles('OWNER')
+  @Permissions('permissions:create')
+  @ApiOperation({ summary: 'Create a new permission (owner only)' })
   @ApiResponse({ status: 201, description: 'Permission created' })
   @ApiResponse({ status: 403, description: 'Forbidden - insufficient permissions' })
   create(@Body() createPermissionDto: CreatePermissionDto) {
@@ -62,9 +62,9 @@ export class PermissionsController {
 
   @Patch(':id')
   @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('admin')
+  @Roles('OWNER')
   @Permissions('permissions:update')
-  @ApiOperation({ summary: 'Update a permission (admin only)' })
+  @ApiOperation({ summary: 'Update a permission (owner only)' })
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updatePermissionDto: UpdatePermissionDto,
@@ -74,9 +74,9 @@ export class PermissionsController {
 
   @Delete(':id')
   @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('admin')
+  @Roles('OWNER')
   @Permissions('permissions:delete')
-  @ApiOperation({ summary: 'Delete a permission (admin only)' })
+  @ApiOperation({ summary: 'Delete a permission (owner only)' })
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.permissionsService.remove(id);
   }

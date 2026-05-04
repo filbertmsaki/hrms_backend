@@ -1,208 +1,386 @@
-// src/database/seeds/001-initial-rbac.seed.ts
-import { DataSource } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Seeder, SeederFactoryManager } from 'typeorm-extension';
-import * as bcrypt from 'bcrypt';
-import { Role } from '../../modules/roles/entities/role.entity';
+import { hashPassword } from '../../common/utils/hash.util';
+import { Company } from '../../modules/companies/entities/company.entity';
+import { CompanyUser } from '../../modules/companies/entities/company-user.entity';
+import { CompanyUserRole } from '../../modules/companies/entities/company-user-role.entity';
 import { Permission } from '../../modules/permissions/entities/permission.entity';
+import { Role } from '../../modules/roles/entities/role.entity';
 import { User } from '../../modules/users/entities/user.entity';
+
+type PermissionSeed = {
+  name: string;
+  displayName: string;
+  description: string;
+};
+
+type RoleSeed = {
+  name: string;
+  displayName: string;
+  description: string;
+  permissionNames: string[];
+};
+
+type SeedUserConfig = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  password: string;
+  userNo: string;
+  userType: 'OWNER' | 'COMPANY_USER';
+};
+
+const permissionSeeds: PermissionSeed[] = [
+  // Requested platform-level permissions.
+  {
+    name: 'create_company',
+    displayName: 'Create company',
+    description: 'Allow creating a new company tenant',
+  },
+  {
+    name: 'view_companies',
+    displayName: 'View companies',
+    description: 'Allow viewing companies across the platform',
+  },
+  {
+    name: 'update_company',
+    displayName: 'Update company',
+    description: 'Allow updating company details',
+  },
+  {
+    name: 'delete_company',
+    displayName: 'Delete company',
+    description: 'Allow deleting a company',
+  },
+  {
+    name: 'create_company_admin',
+    displayName: 'Create company administrator',
+    description: 'Allow provisioning the first administrator for a company',
+  },
+
+  // Requested company-level permissions.
+  {
+    name: 'view_company_dashboard',
+    displayName: 'View company dashboard',
+    description: 'Allow viewing the company dashboard',
+  },
+  {
+    name: 'manage_company_users',
+    displayName: 'Manage company users',
+    description: 'Allow managing users within a company',
+  },
+  {
+    name: 'create_company_user',
+    displayName: 'Create company user',
+    description: 'Allow creating users within a company',
+  },
+  {
+    name: 'update_company_user',
+    displayName: 'Update company user',
+    description: 'Allow updating users within a company',
+  },
+  {
+    name: 'delete_company_user',
+    displayName: 'Delete company user',
+    description: 'Allow deleting users within a company',
+  },
+  {
+    name: 'view_company_data',
+    displayName: 'View company data',
+    description: 'Allow reading company-owned data',
+  },
+  {
+    name: 'update_company_data',
+    displayName: 'Update company data',
+    description: 'Allow updating company-owned data',
+  },
+
+  // Compatibility permissions used by the existing guards/controllers.
+  {
+    name: 'companies:create',
+    displayName: 'Create companies',
+    description: 'Compatibility permission for company creation endpoints',
+  },
+  {
+    name: 'companies:read',
+    displayName: 'Read companies',
+    description: 'Compatibility permission for company listing endpoints',
+  },
+  {
+    name: 'companies:update',
+    displayName: 'Update companies',
+    description: 'Compatibility permission for company update endpoints',
+  },
+  {
+    name: 'companies:delete',
+    displayName: 'Delete companies',
+    description: 'Compatibility permission for company delete endpoints',
+  },
+  {
+    name: 'users:read',
+    displayName: 'Read users',
+    description: 'Compatibility permission for user listing endpoints',
+  },
+  {
+    name: 'users:create',
+    displayName: 'Create users',
+    description: 'Compatibility permission for user creation endpoints',
+  },
+  {
+    name: 'users:update',
+    displayName: 'Update users',
+    description: 'Compatibility permission for user update endpoints',
+  },
+  {
+    name: 'users:delete',
+    displayName: 'Delete users',
+    description: 'Compatibility permission for user delete endpoints',
+  },
+  {
+    name: 'users:assign-role',
+    displayName: 'Assign user roles',
+    description: 'Compatibility permission for role assignment endpoints',
+  },
+  {
+    name: 'users:revoke-role',
+    displayName: 'Revoke user roles',
+    description: 'Compatibility permission for role revocation endpoints',
+  },
+  {
+    name: 'roles:read',
+    displayName: 'Read roles',
+    description: 'Compatibility permission for role listing endpoints',
+  },
+  {
+    name: 'roles:create',
+    displayName: 'Create roles',
+    description: 'Compatibility permission for role creation endpoints',
+  },
+  {
+    name: 'roles:update',
+    displayName: 'Update roles',
+    description: 'Compatibility permission for role update endpoints',
+  },
+  {
+    name: 'roles:delete',
+    displayName: 'Delete roles',
+    description: 'Compatibility permission for role delete endpoints',
+  },
+  {
+    name: 'permissions:read',
+    displayName: 'Read permissions',
+    description: 'Compatibility permission for permission listing endpoints',
+  },
+  {
+    name: 'permissions:create',
+    displayName: 'Create permissions',
+    description: 'Compatibility permission for permission creation endpoints',
+  },
+  {
+    name: 'permissions:update',
+    displayName: 'Update permissions',
+    description: 'Compatibility permission for permission update endpoints',
+  },
+  {
+    name: 'permissions:delete',
+    displayName: 'Delete permissions',
+    description: 'Compatibility permission for permission delete endpoints',
+  },
+];
+
+const roleSeeds: RoleSeed[] = [
+  {
+    name: 'OWNER',
+    displayName: 'Platform Owner',
+    description: 'Global platform-level owner with no company membership',
+    permissionNames: [
+      'create_company',
+      'view_companies',
+      'update_company',
+      'delete_company',
+      'create_company_admin',
+      'companies:create',
+      'companies:read',
+      'companies:update',
+      'companies:delete',
+      'roles:read',
+      'roles:create',
+      'roles:update',
+      'roles:delete',
+      'permissions:read',
+      'permissions:create',
+      'permissions:update',
+      'permissions:delete',
+    ],
+  },
+  {
+    name: 'ADMINISTRATOR',
+    displayName: 'Company Administrator',
+    description: 'Administrator with full access limited to their own company',
+    permissionNames: [
+      'view_company_dashboard',
+      'manage_company_users',
+      'create_company_user',
+      'update_company_user',
+      'delete_company_user',
+      'view_company_data',
+      'update_company_data',
+      'users:read',
+      'users:create',
+      'users:update',
+      'users:delete',
+      'users:assign-role',
+      'users:revoke-role',
+      'roles:read',
+      'permissions:read',
+    ],
+  },
+  {
+    name: 'USER',
+    displayName: 'Company User',
+    description: 'Regular company user with read-only company access',
+    permissionNames: ['view_company_data'],
+  },
+  {
+    name: 'VIEWER',
+    displayName: 'Viewer',
+    description:
+      'Compatibility role mirroring the default read-only company user access',
+    permissionNames: ['view_company_data'],
+  },
+];
 
 export default class InitialRbacSeeder implements Seeder {
   public async run(
     dataSource: DataSource,
     factoryManager: SeederFactoryManager,
   ): Promise<void> {
+    void factoryManager;
+
     const queryRunner = dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
-      const permissionRepo = dataSource.getRepository(Permission);
-      const roleRepo = dataSource.getRepository(Role);
-      const userRepo = dataSource.getRepository(User);
+      const manager = queryRunner.manager;
+      const permissionRepo = manager.getRepository(Permission);
+      const roleRepo = manager.getRepository(Role);
+      const userRepo = manager.getRepository(User);
+      const companyRepo = manager.getRepository(Company);
+      const companyUserRepo = manager.getRepository(CompanyUser);
+      const companyUserRoleRepo = manager.getRepository(CompanyUserRole);
 
-      // ─────────────────────────────────────────────────────────────
-      // 1. Create Permissions
-      // ─────────────────────────────────────────────────────────────
-      const permissionsToCreate = [
-        // User management
-        { name: 'users:read', displayName: 'View users list' },
-        { name: 'users:create', displayName: 'Create new user' },
-        { name: 'users:update', displayName: 'Update user information' },
-        { name: 'users:delete', displayName: 'Delete user' },
-        { name: 'users:change-role', displayName: 'Assign/change user roles' },
-        { name: 'users:reset-password', displayName: 'Reset user password' },
+      const ownerConfig: SeedUserConfig = {
+        firstName: process.env.INITIAL_OWNER_FIRST_NAME ?? 'Platform',
+        lastName: process.env.INITIAL_OWNER_LAST_NAME ?? 'Owner',
+        email: process.env.INITIAL_OWNER_EMAIL ?? 'owner@platform.local',
+        phone: process.env.INITIAL_OWNER_PHONE ?? '+255700000001',
+        password: process.env.INITIAL_OWNER_PASSWORD ?? 'Owner123!',
+        userNo: process.env.INITIAL_OWNER_USER_NO ?? 'OWNER-00001',
+        userType: 'OWNER',
+      };
 
-        // Role & Permission management
-        { name: 'roles:read', displayName: 'View roles' },
-        { name: 'roles:create', displayName: 'Create new roles' },
-        { name: 'roles:update', displayName: 'Edit existing roles' },
-        { name: 'roles:delete', displayName: 'Delete roles' },
+      const companyName = process.env.DEFAULT_COMPANY_NAME ?? 'Sample Company';
+      const companySlug = process.env.DEFAULT_COMPANY_SLUG ?? 'sample-company';
 
-        { name: 'permissions:read', displayName: 'View permissions list' },
-        { name: 'permissions:create', displayName: 'Create new permissions' },
-        { name: 'permissions:update', displayName: 'Edit permissions' },
-        { name: 'permissions:delete', displayName: 'Delete permissions' },
-        { name: 'roles:assign',    displayName: 'Assign roles to users' },
+      const adminConfig: SeedUserConfig = {
+        firstName: process.env.INITIAL_COMPANY_ADMIN_FIRST_NAME ?? 'Company',
+        lastName: process.env.INITIAL_COMPANY_ADMIN_LAST_NAME ?? 'Admin',
+        email:
+          process.env.INITIAL_COMPANY_ADMIN_EMAIL ?? 'admin@sample-company.local',
+        phone: process.env.INITIAL_COMPANY_ADMIN_PHONE ?? '+255700000002',
+        password:
+          process.env.INITIAL_COMPANY_ADMIN_PASSWORD ?? 'Admin123!',
+        userNo: process.env.INITIAL_COMPANY_ADMIN_USER_NO ?? 'ADMIN-00001',
+        userType: 'COMPANY_USER',
+      };
 
-        // System / Settings
-        { name: 'settings:read', displayName: 'View system settings' },
-        { name: 'settings:manage', displayName: 'Change system settings' },
-
-        // Audit / Logs
-        { name: 'logs:read', displayName: 'View system logs & activity' },
-        { name: 'logs:export', displayName: 'Export logs' },
-
-        // Example business domain permissions
-        { name: 'products:read', displayName: 'View products' },
-        { name: 'products:manage', displayName: 'Manage products' },
-      ];
-
-      const createdPermissions: Permission[] = [];
-
-      for (const p of permissionsToCreate) {
-        let permission = await permissionRepo.findOneBy({ name: p.name });
-
-        if (!permission) {
-          permission = permissionRepo.create({
-            name: p.name,
-            display_name: p.displayName,
-            description: `Permission to ${p.displayName.toLowerCase()}`,
-          });
-          await permissionRepo.save(permission);
-        }
-
-        createdPermissions.push(permission);
-      }
-
-      console.log(`→ Created/found ${createdPermissions.length} permissions`);
-
-      // ─────────────────────────────────────────────────────────────
-      // 2. Create Roles
-      // ─────────────────────────────────────────────────────────────
-      const rolesData = [
-        {
-          name: 'super_admin',
-          displayName: 'Super Administrator',
-          description: 'Full unrestricted access',
-          permissionNames: permissionsToCreate.map((p) => p.name),
-        },
-        {
-          name: 'admin',
-          displayName: 'Administrator',
-          description: 'Most privileges, except dangerous system changes',
-          permissionNames: permissionsToCreate
-            .map((p) => p.name)
-            .filter(
-              (name) =>
-                !['settings:manage', 'logs:export'].includes(name) ||
-                name.startsWith('users:') ||
-                name.startsWith('roles:') ||
-                name.startsWith('permissions:'),
-            ),
-        },
-        {
-          name: 'manager',
-          displayName: 'Content / Business Manager',
-          description: 'Manage content and business data',
-          permissionNames: [
-            'users:read',
-            'products:read',
-            'products:manage',
-            'logs:read',
-          ],
-        },
-        {
-          name: 'support',
-          displayName: 'Customer Support',
-          description: 'Help users, view data, limited changes',
-          permissionNames: [
-            'users:read',
-            'users:update',
-            'users:reset-password',
-            'products:read',
-            'logs:read',
-          ],
-        },
-        {
-          name: 'viewer',
-          displayName: 'Read-only User',
-          description: 'Can only view data',
-          permissionNames: ['users:read', 'products:read', 'logs:read'],
-        },
-      ];
-
-      const createdRoles: Role[] = [];
-
-      for (const r of rolesData) {
-        let role = await roleRepo.findOne({
-          where: { name: r.name },
-          relations: ['permissions'],
-        });
-
-        if (!role) {
-          role = roleRepo.create({
-            name: r.name,
-            display_name: r.displayName,
-            description: r.description,
-          });
-        }
-
-        // Assign permissions
-        role.permissions = createdPermissions.filter((p) =>
-          r.permissionNames.includes(p.name),
-        );
-
-        await roleRepo.save(role);
-        createdRoles.push(role);
-
-        console.log(
-          `→ Role '${r.name}' - ${role.permissions.length} permissions`,
+      if (
+        ownerConfig.email.toLowerCase() === adminConfig.email.toLowerCase() ||
+        ownerConfig.phone === adminConfig.phone
+      ) {
+        throw new Error(
+          'OWNER and company administrator must use different email addresses and phone numbers',
         );
       }
 
-      // ─────────────────────────────────────────────────────────────
-      // 3. Create Super Admin user (if not exists)
-      // ─────────────────────────────────────────────────────────────
-      const superAdminEmail = 'filbert@alliance.co.tz';
+      // 1. Seed permissions first so roles can be attached safely.
+      const permissionsByName = await this.syncPermissions(
+        permissionRepo,
+        permissionSeeds,
+      );
 
-      const existingAdmin = await userRepo.findOne({
-        where: { email: superAdminEmail },
-        relations: ['roles'],
-      });
+      // 2. Seed roles with their permission mappings.
+      const rolesByName = await this.syncRoles(
+        roleRepo,
+        roleSeeds,
+        permissionsByName,
+      );
 
-      if (!existingAdmin) {
-        const password = 'Admin123!';
-        const hashedPassword = await bcrypt.hash(password, 12);
+      const ownerRole = this.requireRole(rolesByName, 'OWNER');
+      const adminRole = this.requireRole(rolesByName, 'ADMINISTRATOR');
 
-        const adminUser = userRepo.create({
-          user_no: 'ADM-00001',
-          first_name: 'System',
-          last_name: 'Administrator',
-          phone: '+255700000001',
-          email: superAdminEmail,
-          password: hashedPassword,
-          status: 'active',
-          roles: [createdRoles.find((r) => r.name === 'super_admin')!],
-        });
+      // 3. Create or normalize the global OWNER user.
+      const ownerUser = await this.findUserByIdentity(
+        userRepo,
+        ownerConfig.email,
+        ownerConfig.phone,
+      );
 
-        await userRepo.save(adminUser);
+      const savedOwner = await this.ensureOwnerUser(
+        userRepo,
+        ownerUser,
+        ownerConfig,
+        ownerRole,
+      );
 
-        console.log(`
-╔════════════════════════════════════════════════════════════╗
-║                  SUPER ADMIN ACCOUNT CREATED               ║
-║                                                            ║
-║  Email:    ${superAdminEmail.padEnd(40)} ║
-║  Password: ${password.padEnd(40)} ║
-║                                                            ║
-║          !!! CHANGE PASSWORD IMMEDIATELY !!!               ║
-╚════════════════════════════════════════════════════════════╝
-`);
-      } else {
-        console.log('→ Super admin already exists, skipping creation');
-      }
+      // In this schema, "company_id = null" is represented by having no
+      // company membership row at all for the OWNER user.
+      await companyUserRepo.delete({ user_id: savedOwner.id });
+
+      // 4. Create one default company/tenant for sample tenant data.
+      const defaultCompany = await this.ensureCompany(
+        companyRepo,
+        companyName,
+        companySlug,
+      );
+
+      // 5. Create or normalize the default company administrator user.
+      const adminUser = await this.findUserByIdentity(
+        userRepo,
+        adminConfig.email,
+        adminConfig.phone,
+      );
+
+      const savedAdmin = await this.ensureCompanyUser(
+        userRepo,
+        adminUser,
+        adminConfig,
+      );
+
+      // 6. Link the administrator to the sample company and make that
+      // membership their default tenant context.
+      const membership = await this.ensureCompanyMembership(
+        companyUserRepo,
+        defaultCompany.id,
+        savedAdmin.id,
+      );
+
+      // 7. Assign the tenant-scoped ADMINISTRATOR role through the
+      // company membership table, not through global role_user.
+      await this.ensureMembershipRole(
+        companyUserRoleRepo,
+        membership.id,
+        adminRole.id,
+      );
 
       await queryRunner.commitTransaction();
-      console.log('\n★ Initial RBAC seeding completed successfully ★\n');
+
+      console.log('Multi-tenant seed completed successfully');
+      console.log(`OWNER: ${savedOwner.email}`);
+      console.log(`COMPANY: ${defaultCompany.name} (${defaultCompany.slug})`);
+      console.log(`ADMIN: ${savedAdmin.email}`);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       console.error('Seeding failed:', error);
@@ -210,5 +388,272 @@ export default class InitialRbacSeeder implements Seeder {
     } finally {
       await queryRunner.release();
     }
+  }
+
+  private async syncPermissions(
+    permissionRepo: Repository<Permission>,
+    definitions: PermissionSeed[],
+  ): Promise<Map<string, Permission>> {
+    const permissionsByName = new Map<string, Permission>();
+
+    for (const definition of definitions) {
+      let permission = await permissionRepo.findOne({
+        where: { name: definition.name },
+      });
+
+      if (!permission) {
+        permission = permissionRepo.create({
+          name: definition.name,
+          display_name: definition.displayName,
+          description: definition.description,
+        });
+      } else {
+        permission.display_name = definition.displayName;
+        permission.description = definition.description;
+      }
+
+      permission = await permissionRepo.save(permission);
+      permissionsByName.set(permission.name, permission);
+    }
+
+    return permissionsByName;
+  }
+
+  private async syncRoles(
+    roleRepo: Repository<Role>,
+    definitions: RoleSeed[],
+    permissionsByName: Map<string, Permission>,
+  ): Promise<Map<string, Role>> {
+    const rolesByName = new Map<string, Role>();
+
+    for (const definition of definitions) {
+      let role = await roleRepo.findOne({
+        where: { name: definition.name },
+        relations: ['permissions'],
+      });
+
+      if (!role) {
+        role = roleRepo.create({
+          name: definition.name,
+          display_name: definition.displayName,
+          description: definition.description,
+        });
+      } else {
+        role.display_name = definition.displayName;
+        role.description = definition.description;
+      }
+
+      role.permissions = definition.permissionNames.map((permissionName) => {
+        const permission = permissionsByName.get(permissionName);
+
+        if (!permission) {
+          throw new Error(`Permission "${permissionName}" is missing`);
+        }
+
+        return permission;
+      });
+
+      role = await roleRepo.save(role);
+      rolesByName.set(role.name, role);
+    }
+
+    return rolesByName;
+  }
+
+  private requireRole(rolesByName: Map<string, Role>, roleName: string): Role {
+    const role = rolesByName.get(roleName);
+
+    if (!role) {
+      throw new Error(`Role "${roleName}" could not be resolved`);
+    }
+
+    return role;
+  }
+
+  private async findUserByIdentity(
+    userRepo: Repository<User>,
+    email: string,
+    phone: string,
+  ): Promise<User | null> {
+    const userByEmail = await userRepo.findOne({
+      where: { email },
+      relations: ['roles'],
+    });
+    const userByPhone = await userRepo.findOne({
+      where: { phone },
+      relations: ['roles'],
+    });
+
+    if (userByEmail && userByPhone && userByEmail.id !== userByPhone.id) {
+      throw new Error(
+        `Email ${email} and phone ${phone} belong to different users`,
+      );
+    }
+
+    return userByEmail ?? userByPhone;
+  }
+
+  private async ensureOwnerUser(
+    userRepo: Repository<User>,
+    existingUser: User | null,
+    config: SeedUserConfig,
+    ownerRole: Role,
+  ): Promise<User> {
+    let user = existingUser;
+
+    if (!user) {
+      user = userRepo.create({
+        user_no: config.userNo,
+        first_name: config.firstName,
+        last_name: config.lastName,
+        phone: config.phone,
+        email: config.email,
+        password: await hashPassword(config.password),
+        status: 'active',
+        user_type: config.userType,
+        is_email_verified: true,
+        roles: [ownerRole],
+      });
+    } else {
+      user.first_name = config.firstName;
+      user.last_name = config.lastName;
+      user.status = 'active';
+      user.user_type = 'OWNER';
+      user.is_email_verified = true;
+      user.roles = this.mergeRole(user.roles, ownerRole);
+    }
+
+    return userRepo.save(user);
+  }
+
+  private async ensureCompanyUser(
+    userRepo: Repository<User>,
+    existingUser: User | null,
+    config: SeedUserConfig,
+  ): Promise<User> {
+    if (existingUser?.user_type === 'OWNER') {
+      throw new Error(
+        `User ${config.email} is already marked as OWNER and cannot also be a company administrator`,
+      );
+    }
+
+    let user = existingUser;
+
+    if (!user) {
+      user = userRepo.create({
+        user_no: config.userNo,
+        first_name: config.firstName,
+        last_name: config.lastName,
+        phone: config.phone,
+        email: config.email,
+        password: await hashPassword(config.password),
+        status: 'active',
+        user_type: config.userType,
+        is_email_verified: true,
+      });
+    } else {
+      user.first_name = config.firstName;
+      user.last_name = config.lastName;
+      user.status = 'active';
+      user.user_type = 'COMPANY_USER';
+      user.is_email_verified = true;
+    }
+
+    return userRepo.save(user);
+  }
+
+  private async ensureCompany(
+    companyRepo: Repository<Company>,
+    companyName: string,
+    companySlug: string,
+  ): Promise<Company> {
+    let company = await companyRepo.findOne({
+      where: { slug: companySlug },
+    });
+
+    if (!company) {
+      company = companyRepo.create({
+        name: companyName,
+        slug: companySlug,
+        status: 'active',
+        metadata: {
+          seeded: true,
+          purpose: 'default-sample-company',
+        },
+      });
+    } else {
+      company.name = companyName;
+      company.status = 'active';
+      company.metadata = {
+        ...(company.metadata ?? {}),
+        seeded: true,
+        purpose: 'default-sample-company',
+      };
+    }
+
+    return companyRepo.save(company);
+  }
+
+  private async ensureCompanyMembership(
+    companyUserRepo: Repository<CompanyUser>,
+    companyId: number,
+    userId: number,
+  ): Promise<CompanyUser> {
+    await companyUserRepo.update({ user_id: userId }, { is_default: false });
+
+    let membership = await companyUserRepo.findOne({
+      where: {
+        company_id: companyId,
+        user_id: userId,
+      },
+    });
+
+    if (!membership) {
+      membership = companyUserRepo.create({
+        company_id: companyId,
+        user_id: userId,
+        status: 'active',
+        is_default: true,
+      });
+    } else {
+      membership.status = 'active';
+      membership.is_default = true;
+    }
+
+    return companyUserRepo.save(membership);
+  }
+
+  private async ensureMembershipRole(
+    companyUserRoleRepo: Repository<CompanyUserRole>,
+    companyUserId: number,
+    roleId: number,
+  ): Promise<CompanyUserRole> {
+    const existingAssignment = await companyUserRoleRepo.findOne({
+      where: {
+        company_user_id: companyUserId,
+        role_id: roleId,
+      },
+    });
+
+    if (existingAssignment) {
+      return existingAssignment;
+    }
+
+    return companyUserRoleRepo.save(
+      companyUserRoleRepo.create({
+        company_user_id: companyUserId,
+        role_id: roleId,
+      }),
+    );
+  }
+
+  private mergeRole(existingRoles: Role[] | undefined, role: Role): Role[] {
+    const roles = existingRoles ?? [];
+
+    if (roles.some((existingRole) => existingRole.id === role.id)) {
+      return roles;
+    }
+
+    return [...roles, role];
   }
 }

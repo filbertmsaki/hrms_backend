@@ -32,9 +32,9 @@ export class RolesController {
 
   @Post()
   @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('super_admin')
+  @Roles('OWNER')
   @Permissions('roles:create')
-  @ApiOperation({ summary: 'Create a new role (admin only)' })
+  @ApiOperation({ summary: 'Create a new role (owner only)' })
   @ApiResponse({ status: 201, description: 'Role created successfully' })
   @ApiResponse({ status: 403, description: 'Forbidden - insufficient permissions' })
   create(@Body() createRoleDto: CreateRoleDto) {
@@ -62,9 +62,9 @@ export class RolesController {
 
   @Patch(':id')
   @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('super_admin')
+  @Roles('OWNER')
   @Permissions('roles:update')
-  @ApiOperation({ summary: 'Update a role (admin only)' })
+  @ApiOperation({ summary: 'Update a role (owner only)' })
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateRoleDto: UpdateRoleDto,
@@ -75,9 +75,9 @@ export class RolesController {
 
   @Delete(':id')
   @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('super_admin')
+  @Roles('OWNER')
   @Permissions('roles:delete')
-  @ApiOperation({ summary: 'Delete a role (admin only)' })
+  @ApiOperation({ summary: 'Delete a role (owner only)' })
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.rolesService.remove(id);
   }

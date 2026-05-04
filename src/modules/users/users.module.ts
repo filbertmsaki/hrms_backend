@@ -4,11 +4,17 @@ import { User } from './entities/user.entity';
 import { UsersService } from './users.service';
 import { UsersController } from './users.controller';
 import { TwoFaModule } from '../auth/2fa/2fa.module';
+import { CompaniesModule } from '../companies/companies.module';
+import { TenantGuard } from '../../common/guards/tenant.guard';
 
 @Module({
-  imports: [forwardRef(() => TwoFaModule), TypeOrmModule.forFeature([User])],
+  imports: [
+    forwardRef(() => TwoFaModule),
+    TypeOrmModule.forFeature([User]),
+    CompaniesModule,
+  ],
   controllers: [UsersController],
-  providers: [UsersService],
+  providers: [UsersService, TenantGuard],
   exports: [UsersService, TypeOrmModule],
 })
 export class UsersModule {}

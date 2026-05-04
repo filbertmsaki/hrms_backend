@@ -2,18 +2,16 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import type { StringValue } from 'ms';
 
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 
+import { CompaniesModule } from '../companies/companies.module';
 import { UsersModule } from '../users/users.module';
-import { User } from '../users/entities/user.entity';
 import { TokenBlacklistService } from './token-blacklist.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
-import { Role } from '../roles/entities/role.entity';
 import { MailModule } from '../mail/mail.module';
 import { TwoFaModule } from './2fa/2fa.module';
 
@@ -24,7 +22,7 @@ import { TwoFaModule } from './2fa/2fa.module';
       defaultStrategy: 'jwt',
       session: false,
     }),
-    TypeOrmModule.forFeature([User, Role]),
+    CompaniesModule,
     UsersModule,
     MailModule,
     TwoFaModule,

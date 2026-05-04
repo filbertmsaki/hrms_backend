@@ -1,21 +1,27 @@
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
 import type { StringValue } from 'ms';
-import { EntityManager, Repository } from 'typeorm';
 
+import {
+  AuthScope,
+  UserType,
+} from '../../common/interfaces/authenticated-user.interface';
 import { comparePasswords, hashPassword } from '../../common/utils/hash.util';
+import { CompaniesService } from '../companies/companies.service';
+import {
+  CompanyMembershipContext,
+  CompanySummary,
+} from '../companies/interfaces/company-membership-context.interface';
 import { MailService } from '../mail/mail.service';
-import { Role } from '../roles/entities/role.entity';
 import { User } from '../users/entities/user.entity';
 import { UsersService } from '../users/users.service';
 import { TwoFaService } from './2fa/2fa.service';
@@ -30,6 +36,12 @@ import { TokenBlacklistService } from './token-blacklist.service';
 type AccessTokenPayload = {
   sub: number;
   email: string;
+  scope: AuthScope;
+  userType: UserType;
+  companyId?: number;
+  companySlug?: string;
+  companyName?: string;
+  membershipId?: number;
   roles: string[];
   permissions: string[];
   type: 'access';
@@ -41,14 +53,28 @@ type AccessTokenPayload = {
 
 type RefreshTokenPayload = {
   sub: number;
+  scope: AuthScope;
+  userType: UserType;
+  companyId?: number;
+  membershipId?: number;
   type: 'refresh';
 };
 
 type TwoFactorTempTokenPayload = {
   sub: number;
   email: string;
+  scope: AuthScope;
+  userType: UserType;
+  companyId?: number;
   temp: true;
   type: '2fa-temp';
+};
+
+type PlatformAccessContext = {
+  scope: 'platform';
+  userType: 'OWNER';
+  roles: string[];
+  permissions: string[];
 };
 
 @Injectable()
@@ -60,12 +86,7 @@ export class AuthService {
     private readonly tokenBlacklistService: TokenBlacklistService,
     private readonly mailService: MailService,
     private readonly twoFaService: TwoFaService,
-
-    @InjectRepository(User)
-    private readonly userRepository: Repository<User>,
-
-    @InjectRepository(Role)
-    private readonly roleRepository: Repository<Role>,
+    private readonly companiesService: CompaniesService,
   ) {}
 
   async validateUser(email: string, pass: string) {
@@ -76,7 +97,6 @@ export class AuthService {
     }
 
     const match = await comparePasswords(pass, user.password);
-
     if (!match) {
       return null;
     }
@@ -101,15 +121,71 @@ export class AuthService {
       'ENABLE_EMAIL_VERIFICATION',
       true,
     );
-    const requiresVerification =
-      isVerificationEnabled && !user.is_email_verified;
-
-    if (requiresVerification) {
+    if (isVerificationEnabled && !user.is_email_verified) {
       return {
         requiresEmailVerification: true,
         message: 'Please verify your email address before continuing.',
         userId: user.id,
         email: user.email,
+      };
+    }
+
+    if (this.isOwnerUser(user)) {
+      const platformContext = this.buildPlatformAccessContext(user as User);
+      const is2FAEnabled = await this.twoFaService.is2FARequired(user.id);
+
+      if (is2FAEnabled) {
+        const tempToken = this.jwtService.sign<TwoFactorTempTokenPayload>(
+          {
+            sub: user.id,
+            email: user.email,
+            scope: 'platform',
+            userType: 'OWNER',
+            temp: true,
+            type: '2fa-temp',
+          },
+          {
+            secret: this.getAccessTokenSecret(),
+            expiresIn: '5m' as StringValue,
+          },
+        );
+
+        return {
+          requires2FA: true,
+          tempToken,
+          message: 'Password verified. Please provide your 2FA code.',
+        };
+      }
+
+      await this.usersService.updateLastLogin(user.id, new Date(), ip ?? null);
+      return this.generatePlatformAuthResponse(user as User, platformContext);
+    }
+
+    const companies = await this.companiesService.listUserCompanies(user.id);
+    if (!companies.length) {
+      throw new ForbiddenException(
+        'You do not belong to any active company in this system.',
+      );
+    }
+
+    let activeCompany: CompanySummary | undefined;
+    if (loginDto.company_id) {
+      activeCompany = companies.find(
+        (company) => company.companyId === loginDto.company_id,
+      );
+
+      if (!activeCompany) {
+        throw new UnauthorizedException(
+          'You do not have access to the selected company',
+        );
+      }
+    } else if (companies.length === 1) {
+      activeCompany = companies[0];
+    } else {
+      return {
+        requiresCompanySelection: true,
+        message: 'Select a company to continue.',
+        companies,
       };
     }
 
@@ -119,26 +195,35 @@ export class AuthService {
         {
           sub: user.id,
           email: user.email,
+          scope: 'company',
+          userType: 'COMPANY_USER',
+          companyId: activeCompany.companyId,
           temp: true,
           type: '2fa-temp',
         },
         {
           secret: this.getAccessTokenSecret(),
-          expiresIn: '5m',
+          expiresIn: '5m' as StringValue,
         },
       );
 
       return {
         requires2FA: true,
         tempToken,
-        email: user.email,
-        message: 'Password correct. Please provide your 2FA code.',
+        company: activeCompany,
+        companies,
+        message: 'Password verified. Please provide your 2FA code.',
       };
     }
 
     await this.usersService.updateLastLogin(user.id, new Date(), ip ?? null);
+    await this.companiesService.touchMembership(activeCompany.membershipId);
 
-    return this.generateAuthResponse(user as User);
+    return this.generateCompanyAuthResponse(
+      user as User,
+      activeCompany,
+      companies,
+    );
   }
 
   async complete2FALogin(tempToken: string, code: string, ip?: string) {
@@ -159,11 +244,7 @@ export class AuthService {
         throw new UnauthorizedException('Invalid 2FA code');
       }
 
-      const user = await this.usersService.findByIdWithRelations(payload.sub);
-      if (!user) {
-        throw new UnauthorizedException('User not found');
-      }
-
+      const user = await this.usersService.findById(payload.sub);
       if (user.status !== 'active') {
         throw new ForbiddenException(
           'Your account is inactive. Please contact an administrator.',
@@ -172,13 +253,48 @@ export class AuthService {
 
       await this.usersService.updateLastLogin(user.id, new Date(), ip ?? null);
 
-      return this.generateAuthResponse(user);
+      if (payload.scope === 'platform') {
+        if (!this.isOwnerUser(user) || payload.userType !== 'OWNER') {
+          throw new UnauthorizedException('Invalid platform login context');
+        }
+
+        return this.generatePlatformAuthResponse(
+          user,
+          this.buildPlatformAccessContext(user),
+        );
+      }
+
+      if (this.isOwnerUser(user) || payload.userType !== 'COMPANY_USER') {
+        throw new UnauthorizedException('Invalid company login context');
+      }
+
+      if (!payload.companyId) {
+        throw new UnauthorizedException('Company context is missing');
+      }
+
+      const companyContext = await this.companiesService.getMembershipContext(
+        payload.sub,
+        payload.companyId,
+      );
+      const companies = await this.companiesService.listUserCompanies(
+        payload.sub,
+      );
+
+      await this.companiesService.touchMembership(companyContext.membershipId);
+
+      return this.generateCompanyAuthResponse(user, companyContext, companies);
     } catch (error) {
       if (
         error instanceof UnauthorizedException ||
         error instanceof ForbiddenException
       ) {
         throw error;
+      }
+
+      if (error instanceof NotFoundException) {
+        throw new UnauthorizedException(
+          'Company access is no longer available',
+        );
       }
 
       if (this.isJwtError(error)) {
@@ -191,114 +307,43 @@ export class AuthService {
     }
   }
 
+  async switchCompany(userId: number, companyId: number, ip?: string) {
+    const user = await this.usersService.findById(userId);
+    if (user.status !== 'active') {
+      throw new ForbiddenException(
+        'Your account is inactive. Please contact an administrator.',
+      );
+    }
+
+    if (this.isOwnerUser(user)) {
+      throw new ForbiddenException('OWNER users do not use company context');
+    }
+
+    let companyContext: CompanyMembershipContext;
+    try {
+      companyContext = await this.companiesService.getMembershipContext(
+        userId,
+        companyId,
+      );
+    } catch {
+      throw new UnauthorizedException(
+        'You do not have access to the selected company',
+      );
+    }
+    const companies = await this.companiesService.listUserCompanies(userId);
+
+    await this.usersService.updateLastLogin(userId, new Date(), ip ?? null);
+    await this.companiesService.touchMembership(companyContext.membershipId);
+
+    return this.generateCompanyAuthResponse(user, companyContext, companies);
+  }
+
   async register(registerDto: RegisterDto) {
-    const { email, phone, password, first_name, last_name, ...rest } =
-      registerDto;
+    void registerDto;
 
-    const existing = await this.userRepository.findOne({
-      where: [{ email }, { phone }],
-    });
-
-    if (existing) {
-      throw new ConflictException(
-        existing.email === email
-          ? 'Email already in use'
-          : 'Phone already in use',
-      );
-    }
-
-    const hashedPassword = await hashPassword(password);
-    const defaultRole = await this.roleRepository.findOne({
-      where: { name: 'viewer' },
-    });
-
-    if (!defaultRole) {
-      throw new InternalServerErrorException('Default "viewer" role not found');
-    }
-
-    const isVerificationEnabled = this.isFeatureEnabled(
-      'ENABLE_EMAIL_VERIFICATION',
-      true,
+    throw new ForbiddenException(
+      'Self-service registration is disabled. The OWNER must create companies and their first administrator.',
     );
-
-    const savedUser = await this.userRepository.manager.transaction(
-      async (manager) => {
-        const userNo = await this.generateUserNo(manager);
-
-        const newUser = manager.create(User, {
-          email,
-          phone,
-          password: hashedPassword,
-          first_name,
-          last_name,
-          roles: [defaultRole],
-          is_email_verified: false,
-          status: 'active',
-          user_no: userNo,
-          ...rest,
-        });
-        const insertedUser = await manager.save(newUser);
-
-        if (!isVerificationEnabled) {
-          return insertedUser;
-        }
-
-        const verificationToken = randomUUID();
-        const expires = new Date();
-        expires.setHours(
-          expires.getHours() +
-            Number(
-              this.configService.get<string>(
-                'EMAIL_VERIFICATION_EXPIRY_HOURS',
-              ) ?? 24,
-            ),
-        );
-
-        await manager.update(
-          User,
-          { id: insertedUser.id },
-          {
-            email_verification_token: verificationToken,
-            email_verification_expires: expires,
-          },
-        );
-
-        return { ...insertedUser, email_verification_token: verificationToken };
-      },
-    );
-
-    if (isVerificationEnabled) {
-      if (!savedUser.email_verification_token) {
-        throw new InternalServerErrorException(
-          'Verification token could not be generated.',
-        );
-      }
-
-      const verifyLink = this.buildFrontendAuthUrl(
-        `auth/verify-email?token=${encodeURIComponent(
-          savedUser.email_verification_token,
-        )}`,
-      );
-
-      try {
-        await this.mailService.sendEmailVerification(
-          savedUser.email,
-          savedUser.first_name ?? 'User',
-          verifyLink,
-        );
-      } catch (err) {
-        console.error('Failed to send verification email:', err);
-      }
-
-      return {
-        message:
-          'Registration successful! Please check your email to verify your account.',
-        requiresVerification: true,
-        userId: savedUser.id,
-      };
-    }
-
-    return this.generateAuthResponse(savedUser as User);
   }
 
   async refreshTokens(refreshTokenDto: RefreshTokenDto) {
@@ -316,40 +361,82 @@ export class AuthService {
         },
       );
 
-      if (payload.type !== 'refresh' || !payload.sub) {
+      if (
+        payload.type !== 'refresh' ||
+        !payload.sub ||
+        !payload.scope ||
+        !payload.userType
+      ) {
         throw new UnauthorizedException('Invalid refresh token');
       }
 
-      const user = await this.usersService.findByIdWithRelations(payload.sub);
-      if (!user) {
-        throw new UnauthorizedException('User not found');
-      }
-
+      const user = await this.usersService.findById(payload.sub);
       if (user.status !== 'active') {
         throw new ForbiddenException(
           'Your account is inactive. Please contact an administrator.',
         );
       }
 
-      const tokens = this.generateTokenPair(user);
+      if (payload.scope === 'platform') {
+        if (!this.isOwnerUser(user) || payload.userType !== 'OWNER') {
+          throw new UnauthorizedException('Invalid platform refresh token');
+        }
+
+        await this.tokenBlacklistService.addToBlacklist(
+          refreshToken,
+          this.getTokenBlacklistTtlSeconds(refreshToken, 60),
+        );
+
+        return this.generatePlatformAuthResponse(
+          user,
+          this.buildPlatformAccessContext(user),
+        );
+      }
+
+      if (
+        this.isOwnerUser(user) ||
+        payload.userType !== 'COMPANY_USER' ||
+        !payload.companyId ||
+        !payload.membershipId
+      ) {
+        throw new UnauthorizedException(
+          'Refresh token company context is invalid',
+        );
+      }
+
+      const companyContext = await this.companiesService.getMembershipContext(
+        payload.sub,
+        payload.companyId,
+      );
+
+      if (companyContext.membershipId !== payload.membershipId) {
+        throw new UnauthorizedException(
+          'Refresh token company context is invalid',
+        );
+      }
+
+      const companies = await this.companiesService.listUserCompanies(
+        payload.sub,
+      );
 
       await this.tokenBlacklistService.addToBlacklist(
         refreshToken,
         this.getTokenBlacklistTtlSeconds(refreshToken, 60),
       );
 
-      return {
-        access_token: tokens.accessToken,
-        access_expires_at: tokens.accessExpiresAt,
-        refresh_token: tokens.refreshToken,
-        refresh_expires_at: tokens.refreshExpiresAt,
-      };
+      return this.generateCompanyAuthResponse(user, companyContext, companies);
     } catch (error) {
       if (
         error instanceof UnauthorizedException ||
         error instanceof ForbiddenException
       ) {
         throw error;
+      }
+
+      if (error instanceof NotFoundException) {
+        throw new UnauthorizedException(
+          'Company access is no longer available',
+        );
       }
 
       if (this.isJwtError(error)) {
@@ -386,7 +473,7 @@ export class AuthService {
       { sub: user.id, type: 'password_reset' },
       {
         secret: this.getResetTokenSecret(),
-        expiresIn: '60m',
+        expiresIn: '60m' as StringValue,
       },
     );
 
@@ -421,15 +508,13 @@ export class AuthService {
       await this.usersService.updatePassword(payload.sub, hashed);
 
       const user = await this.usersService.findById(payload.sub);
-      if (user) {
-        try {
-          await this.mailService.sendPasswordChangedSuccessEmail(
-            user.email,
-            user.first_name,
-          );
-        } catch (err) {
-          console.error('Failed to send password changed success email:', err);
-        }
+      try {
+        await this.mailService.sendPasswordChangedSuccessEmail(
+          user.email,
+          user.first_name,
+        );
+      } catch (err) {
+        console.error('Failed to send password changed success email:', err);
       }
 
       return { message: 'Password has been reset successfully' };
@@ -461,7 +546,6 @@ export class AuthService {
     }
 
     const user = await this.usersService.findByVerificationToken(token.trim());
-
     if (!user) {
       throw new BadRequestException('Invalid or expired verification token');
     }
@@ -531,39 +615,47 @@ export class AuthService {
     return { message: 'A new verification email has been sent.' };
   }
 
-  private async generateUserNo(manager: EntityManager): Promise<string> {
-    const year = new Date().getFullYear();
-    const prefix = `USER-${year}-`;
-
-    const qb = manager
-      .createQueryBuilder(User, 'user')
-      .where('user.user_no LIKE :prefix', { prefix: `${prefix}%` })
-      .orderBy('user.user_no', 'DESC')
-      .limit(1)
-      .setLock('pessimistic_write');
-
-    const lastUser = await qb.getOne();
-
-    let nextNumber = 1;
-
-    if (lastUser?.user_no) {
-      const numPart = lastUser.user_no.substring(prefix.length);
-      const parsed = Number(numPart);
-      if (!isNaN(parsed)) {
-        nextNumber = parsed + 1;
-      }
-    }
-
-    const padded = String(nextNumber).padStart(5, '0');
-    return `${prefix}${padded}`;
+  private isOwnerUser(user: Pick<User, 'user_type'>): boolean {
+    return user.user_type === 'OWNER';
   }
 
-  private generateAuthResponse(user: User) {
-    const roles = user.roles?.map((role) => role.name) ?? [];
-    const permissions = this.getEffectivePermissions(user);
-    const tokens = this.generateTokenPair(user, roles, permissions);
+  private getDirectPermissions(user: User): string[] {
+    const permissions = new Set<string>();
+
+    user.permissions?.forEach((permission) => {
+      if (permission?.name) {
+        permissions.add(permission.name);
+      }
+    });
+
+    user.roles?.forEach((role) => {
+      role.permissions?.forEach((permission) => {
+        if (permission?.name) {
+          permissions.add(permission.name);
+        }
+      });
+    });
+
+    return Array.from(permissions);
+  }
+
+  private buildPlatformAccessContext(user: User): PlatformAccessContext {
+    return {
+      scope: 'platform',
+      userType: 'OWNER',
+      roles: user.roles?.map((role) => role.name) ?? [],
+      permissions: this.getDirectPermissions(user),
+    };
+  }
+
+  private generatePlatformAuthResponse(
+    user: User,
+    platformContext: PlatformAccessContext,
+  ) {
+    const tokens = this.generatePlatformTokenPair(user, platformContext);
 
     return {
+      scope: platformContext.scope,
       access_token: tokens.accessToken,
       access_expires_at: tokens.accessExpiresAt,
       refresh_token: tokens.refreshToken,
@@ -573,23 +665,61 @@ export class AuthService {
         email: user.email,
         first_name: user.first_name,
         last_name: user.last_name,
-        roles,
-        permissions,
+        user_type: user.user_type,
+        roles: platformContext.roles,
+        permissions: platformContext.permissions,
         isTwoFactorEnabled: user.is_two_factor_enabled,
       },
     };
   }
 
-  private buildAccessTokenPayload(
+  private generateCompanyAuthResponse(
     user: User,
-    roles = user.roles?.map((role) => role.name) ?? [],
-    permissions = this.getEffectivePermissions(user),
+    companyContext: CompanySummary,
+    companies: CompanySummary[],
+  ) {
+    const tokens = this.generateCompanyTokenPair(user, companyContext);
+
+    return {
+      scope: 'company' as const,
+      access_token: tokens.accessToken,
+      access_expires_at: tokens.accessExpiresAt,
+      refresh_token: tokens.refreshToken,
+      refresh_expires_at: tokens.refreshExpiresAt,
+      company: {
+        id: companyContext.companyId,
+        name: companyContext.companyName,
+        slug: companyContext.companySlug,
+      },
+      companies,
+      user: {
+        id: user.id,
+        email: user.email,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        user_type: user.user_type,
+        roles: companyContext.roles,
+        permissions: companyContext.permissions,
+        isTwoFactorEnabled: user.is_two_factor_enabled,
+      },
+    };
+  }
+
+  private buildCompanyAccessTokenPayload(
+    user: User,
+    companyContext: CompanySummary,
   ): AccessTokenPayload {
     return {
       sub: user.id,
       email: user.email,
-      roles,
-      permissions,
+      scope: 'company',
+      userType: 'COMPANY_USER',
+      companyId: companyContext.companyId,
+      companySlug: companyContext.companySlug,
+      companyName: companyContext.companyName,
+      membershipId: companyContext.membershipId,
+      roles: companyContext.roles,
+      permissions: companyContext.permissions,
       type: 'access',
       iss: this.configService.get<string>('JWT_ISSUER') ?? 'your-app',
       aud:
@@ -599,15 +729,30 @@ export class AuthService {
     };
   }
 
-  private generateTokenPair(
+  private buildPlatformAccessTokenPayload(
     user: User,
-    roles = user.roles?.map((role) => role.name) ?? [],
-    permissions = this.getEffectivePermissions(user),
-  ) {
-    const accessPayload = this.buildAccessTokenPayload(
+    platformContext: PlatformAccessContext,
+  ): AccessTokenPayload {
+    return {
+      sub: user.id,
+      email: user.email,
+      scope: platformContext.scope,
+      userType: platformContext.userType,
+      roles: platformContext.roles,
+      permissions: platformContext.permissions,
+      type: 'access',
+      iss: this.configService.get<string>('JWT_ISSUER') ?? 'your-app',
+      aud:
+        this.configService.get<string>('JWT_AUDIENCE') ?? 'your-frontend-app',
+      sessionId: randomUUID(),
+      device: 'web',
+    };
+  }
+
+  private generateCompanyTokenPair(user: User, companyContext: CompanySummary) {
+    const accessPayload = this.buildCompanyAccessTokenPayload(
       user,
-      roles,
-      permissions,
+      companyContext,
     );
     const accessToken = this.jwtService.sign(accessPayload, {
       secret: this.getAccessTokenSecret(),
@@ -617,6 +762,44 @@ export class AuthService {
     const refreshToken = this.jwtService.sign<RefreshTokenPayload>(
       {
         sub: user.id,
+        scope: 'company',
+        userType: 'COMPANY_USER',
+        companyId: companyContext.companyId,
+        membershipId: companyContext.membershipId,
+        type: 'refresh',
+      },
+      {
+        secret: this.getRefreshTokenSecret(),
+        expiresIn: this.getRefreshTokenExpiration(),
+      },
+    );
+
+    return {
+      accessToken,
+      accessExpiresAt: this.getTokenExpiryTimestamp(accessToken),
+      refreshToken,
+      refreshExpiresAt: this.getTokenExpiryTimestamp(refreshToken),
+    };
+  }
+
+  private generatePlatformTokenPair(
+    user: User,
+    platformContext: PlatformAccessContext,
+  ) {
+    const accessPayload = this.buildPlatformAccessTokenPayload(
+      user,
+      platformContext,
+    );
+    const accessToken = this.jwtService.sign(accessPayload, {
+      secret: this.getAccessTokenSecret(),
+      expiresIn: this.getAccessTokenExpiration(),
+    });
+
+    const refreshToken = this.jwtService.sign<RefreshTokenPayload>(
+      {
+        sub: user.id,
+        scope: 'platform',
+        userType: 'OWNER',
         type: 'refresh',
       },
       {
@@ -721,19 +904,5 @@ export class AuthService {
       'JsonWebTokenError',
       'NotBeforeError',
     ].includes(error.name);
-  }
-
-  private getEffectivePermissions(user: User): string[] {
-    const perms = new Set<string>();
-
-    if (user.permissions?.length > 0) {
-      user.permissions.forEach((permission) => perms.add(permission.name));
-    } else if (user.roles?.length > 0) {
-      user.roles.forEach((role) => {
-        role.permissions?.forEach((permission) => perms.add(permission.name));
-      });
-    }
-
-    return Array.from(perms);
   }
 }

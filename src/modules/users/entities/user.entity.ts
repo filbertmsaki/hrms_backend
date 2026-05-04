@@ -42,6 +42,9 @@ export class User {
   @Column({ default: 'active', length: 20 })
   status: string;
 
+  @Column({ type: 'varchar', length: 20, default: 'COMPANY_USER' })
+  user_type: string;
+
   @Column({ default: false })
   is_email_verified: boolean;
 

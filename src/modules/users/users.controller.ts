@@ -25,6 +25,8 @@ import { UpdateUserDto } from './dtos/update-user.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { TenantGuard } from '../../common/guards/tenant.guard';
+import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import type { Request as ExpressRequest } from 'express';
 
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -37,7 +39,7 @@ import { PaginationDto } from 'src/common/dto/pagination.dto';
 @ApiTags('Users')
 @ApiBearerAuth()
 @Controller('users')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), TenantGuard)
 export class UsersController {
   constructor(
     private readonly usersService: UsersService,
@@ -47,15 +49,15 @@ export class UsersController {
   @Get('me')
   @ApiOperation({ summary: 'Get current authenticated user profile' })
   @ApiResponse({ status: 200, description: 'User profile retrieved' })
-  async getMe(@Req() req: ExpressRequest & { user: { id: number } }) {
-    return this.usersService.findProfileById(req.user.id);
+  async getMe(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.usersService.findMyProfileById(req.user.id, req.user.companyId!);
   }
 
   @Patch('me')
   @ApiOperation({ summary: 'Update current authenticated user profile' })
   @ApiResponse({ status: 200, description: 'Profile updated successfully' })
   async updateMe(
-    @Req() req: ExpressRequest & { user: { id: number } },
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() updateUserDto: UpdateUserDto,
   ) {
     return this.usersService.update(req.user.id, updateUserDto);
@@ -66,7 +68,7 @@ export class UsersController {
   @ApiResponse({ status: 200, description: 'Password changed successfully' })
   @ApiResponse({ status: 401, description: 'Current password incorrect' })
   async changeMyPassword(
-    @Req() req: ExpressRequest & { user: { id: number } },
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: ChangePasswordDto,
   ) {
     return this.usersService.changePassword(
@@ -85,24 +87,39 @@ export class UsersController {
     status: 403,
     description: 'Forbidden - insufficient permissions',
   })
-  create(@Body() createUserDto: CreateUserDto) {
-    return this.usersService.create(createUserDto);
+  create(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() createUserDto: CreateUserDto,
+  ) {
+    return this.usersService.createForCompany(
+      req.user.companyId!,
+      createUserDto,
+    );
   }
 
   @Get()
   @UseGuards(PermissionsGuard)
   @Permissions('users:read')
   @ApiOperation({ summary: 'Get all users' })
-  async findAll(@Query() query: PaginationDto) {
-    return this.usersService.findAllPaginated(query);
+  async findAll(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: PaginationDto,
+  ) {
+    return this.usersService.findAllPaginatedInCompany(
+      req.user.companyId!,
+      query,
+    );
   }
 
   @Get(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('users:read')
   @ApiOperation({ summary: 'Get user by ID' })
-  findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.usersService.findById(id);
+  findOne(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.usersService.findProfileInCompany(id, req.user.companyId!);
   }
 
   @Patch(':id')
@@ -110,65 +127,84 @@ export class UsersController {
   @Permissions('users:update')
   @ApiOperation({ summary: 'Update user information' })
   update(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
     @Body() updateUserDto: UpdateUserDto,
   ) {
-    return this.usersService.update(id, updateUserDto);
+    return this.usersService.updateInCompany(
+      req.user.companyId!,
+      id,
+      updateUserDto,
+    );
   }
 
   @Delete(':id')
   @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('admin')
+  @Roles('ADMINISTRATOR')
   @Permissions('users:delete')
-  @ApiOperation({ summary: 'Delete a user (admin only)' })
-  remove(@Param('id', ParseIntPipe) id: number) {
-    return this.usersService.remove(id);
+  @ApiOperation({ summary: 'Delete a user (company administrator only)' })
+  remove(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.usersService.removeFromCompany(req.user.companyId!, id);
   }
 
   @Post(':userId/roles/:roleId')
   @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('admin')
+  @Roles('ADMINISTRATOR')
   @Permissions('users:assign-role')
-  @ApiOperation({ summary: 'Assign a role to a user (admin only)' })
+  @ApiOperation({
+    summary: 'Assign a role to a user (company administrator only)',
+  })
   assignRole(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('userId', ParseIntPipe) userId: number,
     @Param('roleId', ParseIntPipe) roleId: number,
   ) {
-    return this.usersService.assignRole(userId, roleId);
+    return this.usersService.assignRoleInCompany(
+      req.user.companyId!,
+      userId,
+      roleId,
+    );
   }
 
   @Delete(':userId/roles/:roleId')
   @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('admin')
+  @Roles('ADMINISTRATOR')
   @Permissions('users:revoke-role')
-  @ApiOperation({ summary: 'Revoke a role from a user (admin only)' })
+  @ApiOperation({
+    summary: 'Revoke a role from a user (company administrator only)',
+  })
   revokeRole(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('userId', ParseIntPipe) userId: number,
     @Param('roleId', ParseIntPipe) roleId: number,
   ) {
-    return this.usersService.revokeRole(userId, roleId);
+    return this.usersService.revokeRoleInCompany(
+      req.user.companyId!,
+      userId,
+      roleId,
+    );
   }
 
   @Post('2fa/setup')
-  @UseGuards(AuthGuard('jwt'))
-  async setup2FA(@Req() req: ExpressRequest & { user: { id: number } }) {
+  async setup2FA(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
     return this.twoFaService.generate2FASetup(req.user.id);
   }
 
   // Verify & activate 2FA
   @Post('2fa/verify')
-  @UseGuards(AuthGuard('jwt'))
   async verify2FA(
-    @Req() req: ExpressRequest & { user: { id: number } },
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: Verify2FaDto,
   ) {
     return this.twoFaService.verifyAndActivate2FA(req.user.id, dto.token);
   }
 
   @Post('2fa/disable')
-  @UseGuards(AuthGuard('jwt'))
   async disable2FA(
-    @Req() req: ExpressRequest & { user: { id: number } },
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: Verify2FaDto,
   ) {
     return this.twoFaService.disable2FA(req.user.id, dto.token);
@@ -176,7 +212,7 @@ export class UsersController {
 
   @Post('2fa/backup-codes/regenerate')
   async regenerateBackupCodes(
-    @Req() req: ExpressRequest & { user: { id: number } },
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: Verify2FaDto,
   ) {
     return this.twoFaService.regenerateBackupCodes(req.user.id, dto.token);
