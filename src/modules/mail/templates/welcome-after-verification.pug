@@ -1,0 +1,28 @@
+doctype html
+html(lang="en")
+  head
+    meta(charset="UTF-8")
+    meta(name="viewport" content="width=device-width, initial-scale=1.0")
+    title Welcome to #{appName}
+  body(style="font-family: Arial, sans-serif; margin:0; padding:0; background:#f4f4f4;")
+    table(width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#f4f4f4")
+      tr
+        td(align="center" style="padding:40px 20px;")
+          table(width="600" border="0" cellspacing="0" cellpadding="0" bgcolor="#ffffff" style="border-radius:8px; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,0.1);")
+            tr
+              td(align="center" bgcolor="#4CAF50" style="padding:40px 20px; color:white;")
+                h1(style="margin:0; font-size:32px;") Welcome aboard!
+            tr
+              td(style="padding:40px 50px; color:#333; line-height:1.6; font-size:16px;")
+                p Hello #{name},
+                p Thank you for verifying your email and joining #{appName}!
+                p Your account is now fully active. You can log in and start exploring.
+                p(style="text-align:center; margin:40px 0;")
+                  a(href=loginUrl style="background-color:#4CAF50; color:white; padding:16px 40px; text-decoration:none; border-radius:6px; font-size:18px; font-weight:bold; display:inline-block;")
+                    | Log In Now
+                p We're excited to have you with us. If you have any questions, feel free to reach out.
+            tr
+              td(align="center" style="padding:30px 20px; background:#f8f9fa; font-size:14px; color:#666;")
+                p © #{year} #{appName}. All rights reserved.
+                p This is an automated welcome message — please do not reply.
+                p Questions? Contact us at #{supportEmail}
