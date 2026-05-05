@@ -32,7 +32,22 @@ import { TenantGuard } from './common/guards/tenant.guard';
         },
       ],
     }),
-    TypeOrmModule.forRoot(typeOrmConfig),
+    TypeOrmModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        type: 'mysql',
+        host: configService.get<string>('DB_HOST', 'localhost'),
+        port: configService.get<number>('DB_PORT', 3306),
+        username: configService.get<string>('DB_USERNAME', 'root'),
+        password: configService.get<string>('DB_PASSWORD', ''),
+        database: configService.get<string>('DB_NAME', 'hrms_db'),
+
+        entities: [__dirname + '/**/*.entity{.ts,.js}'],
+        synchronize: false,
+        logging: configService.get<string>('NODE_ENV') === 'development',
+      }),
+    }),
     AuthModule,
     UsersModule,
     CompaniesModule,
