@@ -22,11 +22,7 @@ export class CreateCompanyDto {
   @IsOptional()
   @Transform(({ value }) => {
     if (typeof value !== 'string') return value;
-    return value.trim().toLowerCase();
-  })
-  @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, {
-    message:
-      'Company slug must use lowercase letters, numbers, and hyphens only',
+    return value.trim();
   })
   company_slug?: string;
 

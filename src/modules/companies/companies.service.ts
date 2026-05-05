@@ -12,6 +12,7 @@ import { User } from '../users/entities/user.entity';
 import { Permission } from '../permissions/entities/permission.entity';
 import { Repository } from 'typeorm';
 import { EntityManager } from 'typeorm';
+import { QueryFailedError } from 'typeorm';
 import { Company } from './entities/company.entity';
 import { CompanyUser } from './entities/company-user.entity';
 import { CompanyUserRole } from './entities/company-user-role.entity';
@@ -76,10 +77,67 @@ export class CompaniesService {
   private slugify(value: string): string {
     return value
       .trim()
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .slice(0, 120);
+  }
+
+  private buildSlugCandidate(baseSlug: string, suffix: number): string {
+    if (suffix === 0) {
+      return baseSlug;
+    }
+
+    const suffixText = `-${suffix}`;
+    const maxBaseLength = Math.max(1, 120 - suffixText.length);
+    const trimmedBase = baseSlug.slice(0, maxBaseLength).replace(/-+$/g, '');
+    const safeBase = trimmedBase || 'company';
+
+    return `${safeBase}${suffixText}`;
+  }
+
+  private async generateUniqueCompanySlug(
+    name: string,
+    manager?: EntityManager,
+  ): Promise<string> {
+    const companyRepository = this.getCompanyRepository(manager);
+    const baseSlug = this.slugify(name);
+
+    if (!baseSlug) {
+      throw new BadRequestException('Company slug could not be generated');
+    }
+
+    let suffix = 0;
+    while (true) {
+      const candidateSlug = this.buildSlugCandidate(baseSlug, suffix);
+      const existing = await companyRepository.findOne({
+        where: { slug: candidateSlug },
+        select: ['id'],
+      });
+
+      if (!existing) {
+        return candidateSlug;
+      }
+
+      suffix += 1;
+    }
+  }
+
+  private isDuplicateEntryError(error: unknown): boolean {
+    if (!(error instanceof QueryFailedError)) {
+      return false;
+    }
+
+    const driverError = (error as QueryFailedError & {
+      driverError?: { code?: string | number };
+    }).driverError;
+
+    return (
+      driverError?.code === 'ER_DUP_ENTRY' ||
+      String(driverError?.code ?? '') === '1062'
+    );
   }
 
   private getMembershipPermissions(membership: CompanyUser): string[] {
@@ -136,38 +194,37 @@ export class CompaniesService {
     return `${prefix}${String(nextNumber || 1).padStart(5, '0')}`;
   }
 
-  async createCompany(
-    name: string,
-    slug?: string,
-    manager?: EntityManager,
-  ): Promise<Company> {
+  async createCompany(name: string, manager?: EntityManager): Promise<Company> {
     const companyRepository = this.getCompanyRepository(manager);
-    const normalizedSlug = this.slugify(slug || name);
+    const normalizedName = name.trim();
 
-    if (!normalizedSlug) {
-      throw new BadRequestException('Company slug could not be generated');
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const uniqueSlug = await this.generateUniqueCompanySlug(
+        normalizedName,
+        manager,
+      );
+      const company = companyRepository.create({
+        name: normalizedName,
+        slug: uniqueSlug,
+        status: 'active',
+      });
+
+      try {
+        return await companyRepository.save(company);
+      } catch (error) {
+        if (this.isDuplicateEntryError(error)) {
+          continue;
+        }
+        throw error;
+      }
     }
 
-    const existing = await companyRepository.findOne({
-      where: { slug: normalizedSlug },
-    });
-    if (existing) {
-      throw new ConflictException('Company slug already exists');
-    }
-
-    const company = companyRepository.create({
-      name: name.trim(),
-      slug: normalizedSlug,
-      status: 'active',
-    });
-
-    return companyRepository.save(company);
+    throw new ConflictException('Unable to generate a unique company slug');
   }
 
   async createCompanyWithAdministrator(createCompanyDto: CreateCompanyDto) {
     const {
       company_name,
-      company_slug,
       admin_first_name,
       admin_last_name,
       admin_email,
@@ -190,7 +247,7 @@ export class CompaniesService {
         );
       }
 
-      const company = await this.createCompany(company_name, company_slug, manager);
+      const company = await this.createCompany(company_name, manager);
       const hashedPassword = await hashPassword(admin_password);
       const userNo = await this.generateUserNo(manager);
 

@@ -282,7 +282,6 @@ export default class InitialRbacSeeder implements Seeder {
       };
 
       const companyName = process.env.DEFAULT_COMPANY_NAME ?? 'Alliance Insurance Corporation Ltd';
-      const companySlug = process.env.DEFAULT_COMPANY_SLUG ?? 'aicl';
 
       const adminConfig: SeedUserConfig = {
         firstName: process.env.INITIAL_COMPANY_ADMIN_FIRST_NAME ?? 'Inocent',
@@ -343,7 +342,6 @@ export default class InitialRbacSeeder implements Seeder {
       const defaultCompany = await this.ensureCompany(
         companyRepo,
         companyName,
-        companySlug,
       );
 
       // 5. Create or normalize the default company administrator user.
@@ -565,16 +563,20 @@ export default class InitialRbacSeeder implements Seeder {
   private async ensureCompany(
     companyRepo: Repository<Company>,
     companyName: string,
-    companySlug: string,
   ): Promise<Company> {
+    const normalizedCompanyName = companyName.trim();
     let company = await companyRepo.findOne({
-      where: { slug: companySlug },
+      where: { name: normalizedCompanyName },
     });
 
     if (!company) {
+      const uniqueSlug = await this.generateUniqueCompanySlug(
+        companyRepo,
+        normalizedCompanyName,
+      );
       company = companyRepo.create({
-        name: companyName,
-        slug: companySlug,
+        name: normalizedCompanyName,
+        slug: uniqueSlug,
         status: 'active',
         metadata: {
           seeded: true,
@@ -582,7 +584,7 @@ export default class InitialRbacSeeder implements Seeder {
         },
       });
     } else {
-      company.name = companyName;
+      company.name = normalizedCompanyName;
       company.status = 'active';
       company.metadata = {
         ...(company.metadata ?? {}),
@@ -592,6 +594,56 @@ export default class InitialRbacSeeder implements Seeder {
     }
 
     return companyRepo.save(company);
+  }
+
+  private slugifyCompanyName(value: string): string {
+    return value
+      .trim()
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 120);
+  }
+
+  private buildSlugCandidate(baseSlug: string, suffix: number): string {
+    if (suffix === 0) {
+      return baseSlug;
+    }
+
+    const suffixText = `-${suffix}`;
+    const maxBaseLength = Math.max(1, 120 - suffixText.length);
+    const trimmedBase = baseSlug.slice(0, maxBaseLength).replace(/-+$/g, '');
+    const safeBase = trimmedBase || 'company';
+
+    return `${safeBase}${suffixText}`;
+  }
+
+  private async generateUniqueCompanySlug(
+    companyRepo: Repository<Company>,
+    companyName: string,
+  ): Promise<string> {
+    const baseSlug = this.slugifyCompanyName(companyName);
+
+    if (!baseSlug) {
+      throw new Error('Company slug could not be generated from company name');
+    }
+
+    let suffix = 0;
+    while (true) {
+      const slugCandidate = this.buildSlugCandidate(baseSlug, suffix);
+      const existingCompany = await companyRepo.findOne({
+        where: { slug: slugCandidate },
+        select: ['id'],
+      });
+
+      if (!existingCompany) {
+        return slugCandidate;
+      }
+
+      suffix += 1;
+    }
   }
 
   private async ensureCompanyMembership(
