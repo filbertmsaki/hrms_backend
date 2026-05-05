@@ -272,23 +272,23 @@ export default class InitialRbacSeeder implements Seeder {
       const companyUserRoleRepo = manager.getRepository(CompanyUserRole);
 
       const ownerConfig: SeedUserConfig = {
-        firstName: process.env.INITIAL_OWNER_FIRST_NAME ?? 'Platform',
-        lastName: process.env.INITIAL_OWNER_LAST_NAME ?? 'Owner',
-        email: process.env.INITIAL_OWNER_EMAIL ?? 'owner@platform.local',
+        firstName: process.env.INITIAL_OWNER_FIRST_NAME ?? 'Filbert',
+        lastName: process.env.INITIAL_OWNER_LAST_NAME ?? 'Msaki',
+        email: process.env.INITIAL_OWNER_EMAIL ?? 'filbert@alliance.co.tz',
         phone: process.env.INITIAL_OWNER_PHONE ?? '+255700000001',
         password: process.env.INITIAL_OWNER_PASSWORD ?? 'Owner123!',
         userNo: process.env.INITIAL_OWNER_USER_NO ?? 'OWNER-00001',
         userType: 'OWNER',
       };
 
-      const companyName = process.env.DEFAULT_COMPANY_NAME ?? 'Sample Company';
-      const companySlug = process.env.DEFAULT_COMPANY_SLUG ?? 'sample-company';
+      const companyName = process.env.DEFAULT_COMPANY_NAME ?? 'Alliance Insurance Corporation Ltd';
+      const companySlug = process.env.DEFAULT_COMPANY_SLUG ?? 'aicl';
 
       const adminConfig: SeedUserConfig = {
-        firstName: process.env.INITIAL_COMPANY_ADMIN_FIRST_NAME ?? 'Company',
-        lastName: process.env.INITIAL_COMPANY_ADMIN_LAST_NAME ?? 'Admin',
+        firstName: process.env.INITIAL_COMPANY_ADMIN_FIRST_NAME ?? 'Inocent',
+        lastName: process.env.INITIAL_COMPANY_ADMIN_LAST_NAME ?? 'Nuruva',
         email:
-          process.env.INITIAL_COMPANY_ADMIN_EMAIL ?? 'admin@sample-company.local',
+          process.env.INITIAL_COMPANY_ADMIN_EMAIL ?? 'inocent@alliance.co.tz',
         phone: process.env.INITIAL_COMPANY_ADMIN_PHONE ?? '+255700000002',
         password:
           process.env.INITIAL_COMPANY_ADMIN_PASSWORD ?? 'Admin123!',
@@ -359,7 +359,7 @@ export default class InitialRbacSeeder implements Seeder {
         adminConfig,
       );
 
-      // 6. Link the administrator to the sample company and make that
+      // 6. Link the administrator to the Alliance Insurance Corporation Ltd and make that
       // membership their default tenant context.
       const membership = await this.ensureCompanyMembership(
         companyUserRepo,
@@ -578,7 +578,7 @@ export default class InitialRbacSeeder implements Seeder {
         status: 'active',
         metadata: {
           seeded: true,
-          purpose: 'default-sample-company',
+          purpose: 'default-aicl',
         },
       });
     } else {
@@ -587,7 +587,7 @@ export default class InitialRbacSeeder implements Seeder {
       company.metadata = {
         ...(company.metadata ?? {}),
         seeded: true,
-        purpose: 'default-sample-company',
+        purpose: 'default-aicl',
       };
     }
 
