@@ -4,7 +4,6 @@ import {
   IsNotEmpty,
   MinLength,
   IsString,
-  IsOptional,
   IsStrongPassword,
   Matches,
 } from 'class-validator';
@@ -83,19 +82,12 @@ export class RegisterDto {
   @IsNotEmpty()
   @Transform(({ value }) => {
     if (typeof value !== 'string') return value;
-    return value.trim();
-  })
-  company_name: string;
-
-  @IsString()
-  @IsOptional()
-  @Transform(({ value }) => {
-    if (typeof value !== 'string') return value;
     return value.trim().toLowerCase();
   })
   @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, {
     message:
       'Company slug must use lowercase letters, numbers, and hyphens only',
   })
-  company_slug?: string;
+  company_slug: string;
+
 }

@@ -300,6 +300,20 @@ export class CompaniesService {
     });
   }
 
+  async findActiveCompanyBySlug(
+    slug: string,
+    manager?: EntityManager,
+  ): Promise<Company | null> {
+    const companyRepository = this.getCompanyRepository(manager);
+
+    return companyRepository.findOne({
+      where: {
+        slug: slug.trim().toLowerCase(),
+        status: 'active',
+      },
+    });
+  }
+
   async findAllCompanies() {
     const companies = await this.companyRepository
       .createQueryBuilder('company')
