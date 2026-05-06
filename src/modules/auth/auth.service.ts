@@ -168,26 +168,7 @@ export class AuthService {
       );
     }
 
-    let activeCompany: CompanySummary | undefined;
-    if (loginDto.company_id) {
-      activeCompany = companies.find(
-        (company) => company.companyId === loginDto.company_id,
-      );
-
-      if (!activeCompany) {
-        throw new UnauthorizedException(
-          'You do not have access to the selected company',
-        );
-      }
-    } else if (companies.length === 1) {
-      activeCompany = companies[0];
-    } else {
-      return {
-        requiresCompanySelection: true,
-        message: 'Select a company to continue.',
-        companies,
-      };
-    }
+    const activeCompany = this.resolveActiveCompany(companies);
 
     const is2FAEnabled = await this.twoFaService.is2FARequired(user.id);
     if (is2FAEnabled) {
@@ -217,12 +198,19 @@ export class AuthService {
     }
 
     await this.usersService.updateLastLogin(user.id, new Date(), ip ?? null);
-    await this.companiesService.touchMembership(activeCompany.membershipId);
+    const activeCompanyContext =
+      await this.companiesService.setActiveMembership(
+        user.id,
+        activeCompany.companyId,
+      );
+    const availableCompanies = await this.companiesService.listUserCompanies(
+      user.id,
+    );
 
     return this.generateCompanyAuthResponse(
       user as User,
-      activeCompany,
-      companies,
+      activeCompanyContext,
+      availableCompanies,
     );
   }
 
@@ -272,15 +260,13 @@ export class AuthService {
         throw new UnauthorizedException('Company context is missing');
       }
 
-      const companyContext = await this.companiesService.getMembershipContext(
+      const companyContext = await this.companiesService.setActiveMembership(
         payload.sub,
         payload.companyId,
       );
       const companies = await this.companiesService.listUserCompanies(
         payload.sub,
       );
-
-      await this.companiesService.touchMembership(companyContext.membershipId);
 
       return this.generateCompanyAuthResponse(user, companyContext, companies);
     } catch (error) {
@@ -321,7 +307,7 @@ export class AuthService {
 
     let companyContext: CompanyMembershipContext;
     try {
-      companyContext = await this.companiesService.getMembershipContext(
+      companyContext = await this.companiesService.setActiveMembership(
         userId,
         companyId,
       );
@@ -330,10 +316,9 @@ export class AuthService {
         'You do not have access to the selected company',
       );
     }
-    const companies = await this.companiesService.listUserCompanies(userId);
 
     await this.usersService.updateLastLogin(userId, new Date(), ip ?? null);
-    await this.companiesService.touchMembership(companyContext.membershipId);
+    const companies = await this.companiesService.listUserCompanies(userId);
 
     return this.generateCompanyAuthResponse(user, companyContext, companies);
   }
@@ -684,6 +669,10 @@ export class AuthService {
       roles: user.roles?.map((role) => role.name) ?? [],
       permissions: this.getDirectPermissions(user),
     };
+  }
+
+  private resolveActiveCompany(companies: CompanySummary[]): CompanySummary {
+    return companies.find((company) => company.isDefault) ?? companies[0];
   }
 
   private generatePlatformAuthResponse(

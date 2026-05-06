@@ -1,4 +1,5 @@
 import { Type } from 'class-transformer';
+import { ApiHideProperty } from '@nestjs/swagger';
 import {
   IsEmail,
   IsInt,
@@ -17,6 +18,7 @@ export class LoginDto {
   @MinLength(6)
   password: string;
 
+  @ApiHideProperty()
   @Type(() => Number)
   @IsInt()
   @Min(1)

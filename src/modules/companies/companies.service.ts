@@ -375,6 +375,7 @@ export class CompaniesService {
       },
       order: {
         is_default: 'DESC',
+        last_accessed_at: 'DESC',
         company: {
           name: 'ASC',
         },
@@ -420,6 +421,26 @@ export class CompaniesService {
       ...this.mapMembershipSummary(membership),
       status: membership.status,
     };
+  }
+
+  async setActiveMembership(
+    userId: number,
+    companyId: number,
+    manager?: EntityManager,
+  ): Promise<CompanyMembershipContext> {
+    const companyUserRepository = this.getCompanyUserRepository(manager);
+    const membership = await this.getMembershipContext(userId, companyId, manager);
+
+    await companyUserRepository.update(
+      { user_id: userId, status: 'active' },
+      { is_default: false },
+    );
+    await companyUserRepository.update(membership.membershipId, {
+      is_default: true,
+      last_accessed_at: new Date(),
+    });
+
+    return this.getMembershipContext(userId, companyId, manager);
   }
 
   async addUserToCompany(
