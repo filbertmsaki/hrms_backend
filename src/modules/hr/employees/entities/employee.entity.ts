@@ -14,8 +14,15 @@ import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { Branch } from '../../branches/entities/branch.entity';
 import { Department } from '../../departments/entities/department.entity';
 import { Position } from '../../positions/entities/position.entity';
+import { EmploymentStatusEnum } from '../enums/employment-status.enum';
+import { EmploymentTypeEnum } from '../enums/employment-type.enum';
+import { EmployeeAddress } from './employee-address.entity';
+import { EmployeeBankAccount } from './employee-bank-account.entity';
+import { EmployeeContact } from './employee-contact.entity';
 import { EmployeeDepartment } from './employee-department.entity';
 import { EmployeeDocument } from './employee-document.entity';
+import { EmployeeIdentification } from './employee-identification.entity';
+import { EmployeeRelative } from './employee-relative.entity';
 
 @Entity('employees')
 @Unique('UQ_employee_company_user', ['company_user_id'])
@@ -53,48 +60,6 @@ export class Employee {
   @Column({ type: 'varchar', length: 100, nullable: true })
   nationality: string | null;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  national_id_no: string | null;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  passport_no: string | null;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  tax_id_no: string | null;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  social_security_no: string | null;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  work_email: string | null;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  personal_email: string | null;
-
-  @Column({ type: 'varchar', length: 30, nullable: true })
-  phone: string | null;
-
-  @Column({ type: 'varchar', length: 30, nullable: true })
-  alternate_phone: string | null;
-
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  address_line_1: string | null;
-
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  address_line_2: string | null;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  city: string | null;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  state: string | null;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  country: string | null;
-
-  @Column({ type: 'varchar', length: 30, nullable: true })
-  postal_code: string | null;
-
   @Column({ type: 'text', nullable: true })
   profile_photo_url: string | null;
 
@@ -107,11 +72,19 @@ export class Employee {
   @Column({ type: 'int', nullable: true })
   position_id: number | null;
 
-  @Column({ default: 'onboarding', length: 30 })
-  employment_status: string;
+  @Column({
+    type: 'enum',
+    enum: EmploymentStatusEnum,
+    default: EmploymentStatusEnum.ONBOARDING,
+  })
+  employment_status: EmploymentStatusEnum;
 
-  @Column({ default: 'full_time', length: 30 })
-  employment_type: string;
+  @Column({
+    type: 'enum',
+    enum: EmploymentTypeEnum,
+    default: EmploymentTypeEnum.FULL_TIME,
+  })
+  employment_type: EmploymentTypeEnum;
 
   @Column({ type: 'date', nullable: true })
   hire_date: string | null;
@@ -127,21 +100,6 @@ export class Employee {
 
   @Column({ type: 'int', nullable: true })
   reports_to: number | null;
-
-  @Column({ type: 'varchar', length: 150, nullable: true })
-  emergency_contact_name: string | null;
-
-  @Column({ type: 'varchar', length: 30, nullable: true })
-  emergency_contact_phone: string | null;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  emergency_contact_relationship: string | null;
-
-  @Column({ type: 'varchar', length: 120, nullable: true })
-  bank_name: string | null;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  bank_account_no: string | null;
 
   @Column({ type: 'text', nullable: true })
   exit_reason: string | null;
@@ -199,6 +157,39 @@ export class Employee {
     },
   )
   department_assignments: EmployeeDepartment[];
+
+  @OneToMany(() => EmployeeContact, (employeeContact) => employeeContact.employee, {
+    cascade: true,
+  })
+  contacts: EmployeeContact[];
+
+  @OneToMany(() => EmployeeAddress, (employeeAddress) => employeeAddress.employee, {
+    cascade: true,
+  })
+  addresses: EmployeeAddress[];
+
+  @OneToMany(() => EmployeeRelative, (employeeRelative) => employeeRelative.employee, {
+    cascade: true,
+  })
+  relatives: EmployeeRelative[];
+
+  @OneToMany(
+    () => EmployeeIdentification,
+    (employeeIdentification) => employeeIdentification.employee,
+    {
+      cascade: true,
+    },
+  )
+  identifications: EmployeeIdentification[];
+
+  @OneToMany(
+    () => EmployeeBankAccount,
+    (employeeBankAccount) => employeeBankAccount.employee,
+    {
+      cascade: true,
+    },
+  )
+  bank_accounts: EmployeeBankAccount[];
 
   @OneToMany(
     () => EmployeeDocument,

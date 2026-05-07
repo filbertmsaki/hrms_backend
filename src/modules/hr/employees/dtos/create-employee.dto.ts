@@ -1,11 +1,9 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  ArrayUnique,
   IsArray,
   IsDateString,
-  IsEmail,
-  IsIn,
+  IsEnum,
   IsInt,
   IsNotEmpty,
   IsObject,
@@ -13,7 +11,14 @@ import {
   IsString,
   ValidateNested,
 } from 'class-validator';
+import { EmployeeAddressInputDto } from './employee-address-input.dto';
+import { EmployeeBankAccountInputDto } from './employee-bank-account-input.dto';
+import { EmployeeContactInputDto } from './employee-contact-input.dto';
 import { EmployeeDepartmentInputDto } from './employee-department-input.dto';
+import { EmployeeIdentificationInputDto } from './employee-identification-input.dto';
+import { EmployeeRelativeInputDto } from './employee-relative-input.dto';
+import { EmploymentStatusEnum } from '../enums/employment-status.enum';
+import { EmploymentTypeEnum } from '../enums/employment-type.enum';
 
 export class CreateEmployeeDto {
   @Type(() => Number)
@@ -58,62 +63,6 @@ export class CreateEmployeeDto {
 
   @IsString()
   @IsOptional()
-  national_id_no?: string;
-
-  @IsString()
-  @IsOptional()
-  passport_no?: string;
-
-  @IsString()
-  @IsOptional()
-  tax_id_no?: string;
-
-  @IsString()
-  @IsOptional()
-  social_security_no?: string;
-
-  @IsEmail()
-  @IsOptional()
-  work_email?: string;
-
-  @IsEmail()
-  @IsOptional()
-  personal_email?: string;
-
-  @IsString()
-  @IsOptional()
-  phone?: string;
-
-  @IsString()
-  @IsOptional()
-  alternate_phone?: string;
-
-  @IsString()
-  @IsOptional()
-  address_line_1?: string;
-
-  @IsString()
-  @IsOptional()
-  address_line_2?: string;
-
-  @IsString()
-  @IsOptional()
-  city?: string;
-
-  @IsString()
-  @IsOptional()
-  state?: string;
-
-  @IsString()
-  @IsOptional()
-  country?: string;
-
-  @IsString()
-  @IsOptional()
-  postal_code?: string;
-
-  @IsString()
-  @IsOptional()
   profile_photo_url?: string;
 
   @ApiPropertyOptional({ type: Number })
@@ -135,32 +84,18 @@ export class CreateEmployeeDto {
   position_id?: number;
 
   @ApiPropertyOptional({
-    enum: ['onboarding', 'active', 'suspended', 'terminated', 'exited'],
+    enum: EmploymentStatusEnum,
   })
-  @IsIn(['onboarding', 'active', 'suspended', 'terminated', 'exited'])
+  @IsEnum(EmploymentStatusEnum)
   @IsOptional()
-  employment_status?: string;
+  employment_status?: EmploymentStatusEnum;
 
   @ApiPropertyOptional({
-    enum: [
-      'full_time',
-      'part_time',
-      'contract',
-      'intern',
-      'consultant',
-      'temporary',
-    ],
+    enum: EmploymentTypeEnum,
   })
-  @IsIn([
-    'full_time',
-    'part_time',
-    'contract',
-    'intern',
-    'consultant',
-    'temporary',
-  ])
+  @IsEnum(EmploymentTypeEnum)
   @IsOptional()
-  employment_type?: string;
+  employment_type?: EmploymentTypeEnum;
 
   @IsDateString()
   @IsOptional()
@@ -186,26 +121,6 @@ export class CreateEmployeeDto {
 
   @IsString()
   @IsOptional()
-  emergency_contact_name?: string;
-
-  @IsString()
-  @IsOptional()
-  emergency_contact_phone?: string;
-
-  @IsString()
-  @IsOptional()
-  emergency_contact_relationship?: string;
-
-  @IsString()
-  @IsOptional()
-  bank_name?: string;
-
-  @IsString()
-  @IsOptional()
-  bank_account_no?: string;
-
-  @IsString()
-  @IsOptional()
   exit_reason?: string;
 
   @IsString()
@@ -217,9 +132,38 @@ export class CreateEmployeeDto {
   metadata?: Record<string, unknown>;
 
   @IsArray()
-  @ArrayUnique((department: EmployeeDepartmentInputDto) => department.department_id)
   @ValidateNested({ each: true })
   @Type(() => EmployeeDepartmentInputDto)
   @IsOptional()
   departments?: EmployeeDepartmentInputDto[];
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => EmployeeContactInputDto)
+  @IsOptional()
+  contacts?: EmployeeContactInputDto[];
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => EmployeeAddressInputDto)
+  @IsOptional()
+  addresses?: EmployeeAddressInputDto[];
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => EmployeeRelativeInputDto)
+  @IsOptional()
+  relatives?: EmployeeRelativeInputDto[];
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => EmployeeIdentificationInputDto)
+  @IsOptional()
+  identifications?: EmployeeIdentificationInputDto[];
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => EmployeeBankAccountInputDto)
+  @IsOptional()
+  bank_accounts?: EmployeeBankAccountInputDto[];
 }

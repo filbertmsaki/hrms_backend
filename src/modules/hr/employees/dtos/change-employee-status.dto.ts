@@ -1,12 +1,13 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsDateString, IsIn, IsOptional, IsString } from 'class-validator';
+import { IsDateString, IsEnum, IsOptional, IsString } from 'class-validator';
+import { EmploymentStatusEnum } from '../enums/employment-status.enum';
 
 export class ChangeEmployeeStatusDto {
   @ApiPropertyOptional({
-    enum: ['onboarding', 'active', 'suspended', 'terminated', 'exited'],
+    enum: EmploymentStatusEnum,
   })
-  @IsIn(['onboarding', 'active', 'suspended', 'terminated', 'exited'])
-  employment_status: string;
+  @IsEnum(EmploymentStatusEnum)
+  employment_status: EmploymentStatusEnum;
 
   @IsDateString()
   @IsOptional()

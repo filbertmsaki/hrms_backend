@@ -1,11 +1,12 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsInt, IsOptional } from 'class-validator';
 import { PaginationDto } from '../../../../common/dto/pagination.dto';
+import { EmploymentStatusEnum } from '../enums/employment-status.enum';
 
 export class EmployeeQueryDto extends PaginationDto {
-  @IsString()
+  @IsEnum(EmploymentStatusEnum)
   @IsOptional()
-  employment_status?: string;
+  employment_status?: EmploymentStatusEnum;
 
   @Type(() => Number)
   @IsInt()

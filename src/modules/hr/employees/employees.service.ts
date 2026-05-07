@@ -7,21 +7,12 @@ import {
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
-import { hashPassword } from '../../../common/utils/hash.util';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import { hashPassword } from '../../../common/utils/hash.util';
 import { CompaniesService } from '../../companies/companies.service';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
-import { CompanyUserPermission } from '../../companies/entities/company-user-permission.entity';
-import { CompanyUserRole } from '../../companies/entities/company-user-role.entity';
 import { User } from '../../users/entities/user.entity';
 import { UsersService } from '../../users/users.service';
-import { AddEmployeeDocumentDto } from './dtos/add-employee-document.dto';
-import { ChangeEmployeeStatusDto } from './dtos/change-employee-status.dto';
-import { CreateEmployeeDto } from './dtos/create-employee.dto';
-import { EmployeeDepartmentInputDto } from './dtos/employee-department-input.dto';
-import { EmployeeQueryDto } from './dtos/employee-query.dto';
-import { OnboardEmployeeDto } from './dtos/onboard-employee.dto';
-import { UpdateEmployeeDto } from './dtos/update-employee.dto';
 import { Branch } from '../branches/entities/branch.entity';
 import { Department } from '../departments/entities/department.entity';
 import { Position } from '../positions/entities/position.entity';
@@ -31,11 +22,37 @@ import {
   getMembershipPermissions,
   getMembershipRoles,
 } from '../shared/hr.utils';
+import { AddEmployeeDocumentDto } from './dtos/add-employee-document.dto';
+import { ChangeEmployeeStatusDto } from './dtos/change-employee-status.dto';
+import { CreateEmployeeDto } from './dtos/create-employee.dto';
+import { EmployeeAddressInputDto } from './dtos/employee-address-input.dto';
+import { EmployeeBankAccountInputDto } from './dtos/employee-bank-account-input.dto';
+import { EmployeeContactInputDto } from './dtos/employee-contact-input.dto';
+import { EmployeeDepartmentInputDto } from './dtos/employee-department-input.dto';
+import { EmployeeIdentificationInputDto } from './dtos/employee-identification-input.dto';
+import { EmployeeQueryDto } from './dtos/employee-query.dto';
+import { EmployeeRelativeInputDto } from './dtos/employee-relative-input.dto';
+import { OnboardEmployeeDto } from './dtos/onboard-employee.dto';
+import { UpdateEmployeeDto } from './dtos/update-employee.dto';
+import { ContactTypeEnum } from './enums/contact-type.enum';
+import { EmploymentStatusEnum } from './enums/employment-status.enum';
+import { EmploymentTypeEnum } from './enums/employment-type.enum';
+import { IdentificationTypeEnum } from './enums/identification-type.enum';
+import { EmployeeAddress } from './entities/employee-address.entity';
+import { EmployeeBankAccount } from './entities/employee-bank-account.entity';
+import { EmployeeContact } from './entities/employee-contact.entity';
 import { EmployeeDepartment } from './entities/employee-department.entity';
 import { EmployeeDocument } from './entities/employee-document.entity';
+import { EmployeeIdentification } from './entities/employee-identification.entity';
+import { EmployeeRelative } from './entities/employee-relative.entity';
 import { Employee } from './entities/employee.entity';
 
 type EmployeeMutationDto = CreateEmployeeDto | UpdateEmployeeDto | OnboardEmployeeDto;
+
+type EmployeeProfileCollectionsDto = Pick<
+  CreateEmployeeDto,
+  'contacts' | 'addresses' | 'relatives' | 'identifications' | 'bank_accounts'
+>;
 
 @Injectable()
 export class EmployeesService {
@@ -48,6 +65,16 @@ export class EmployeesService {
     private readonly employeeDepartmentRepository: Repository<EmployeeDepartment>,
     @InjectRepository(EmployeeDocument)
     private readonly employeeDocumentRepository: Repository<EmployeeDocument>,
+    @InjectRepository(EmployeeContact)
+    private readonly employeeContactRepository: Repository<EmployeeContact>,
+    @InjectRepository(EmployeeAddress)
+    private readonly employeeAddressRepository: Repository<EmployeeAddress>,
+    @InjectRepository(EmployeeRelative)
+    private readonly employeeRelativeRepository: Repository<EmployeeRelative>,
+    @InjectRepository(EmployeeIdentification)
+    private readonly employeeIdentificationRepository: Repository<EmployeeIdentification>,
+    @InjectRepository(EmployeeBankAccount)
+    private readonly employeeBankAccountRepository: Repository<EmployeeBankAccount>,
     @InjectRepository(CompanyUser)
     private readonly companyUserRepository: Repository<CompanyUser>,
     @InjectRepository(User)
@@ -79,7 +106,46 @@ export class EmployeesService {
   private getEmployeeDocumentRepository(
     manager?: EntityManager,
   ): Repository<EmployeeDocument> {
-    return manager?.getRepository(EmployeeDocument) ?? this.employeeDocumentRepository;
+    return (
+      manager?.getRepository(EmployeeDocument) ??
+      this.employeeDocumentRepository
+    );
+  }
+
+  private getEmployeeContactRepository(
+    manager?: EntityManager,
+  ): Repository<EmployeeContact> {
+    return manager?.getRepository(EmployeeContact) ?? this.employeeContactRepository;
+  }
+
+  private getEmployeeAddressRepository(
+    manager?: EntityManager,
+  ): Repository<EmployeeAddress> {
+    return manager?.getRepository(EmployeeAddress) ?? this.employeeAddressRepository;
+  }
+
+  private getEmployeeRelativeRepository(
+    manager?: EntityManager,
+  ): Repository<EmployeeRelative> {
+    return manager?.getRepository(EmployeeRelative) ?? this.employeeRelativeRepository;
+  }
+
+  private getEmployeeIdentificationRepository(
+    manager?: EntityManager,
+  ): Repository<EmployeeIdentification> {
+    return (
+      manager?.getRepository(EmployeeIdentification) ??
+      this.employeeIdentificationRepository
+    );
+  }
+
+  private getEmployeeBankAccountRepository(
+    manager?: EntityManager,
+  ): Repository<EmployeeBankAccount> {
+    return (
+      manager?.getRepository(EmployeeBankAccount) ??
+      this.employeeBankAccountRepository
+    );
   }
 
   private getCompanyUserRepository(
@@ -106,6 +172,69 @@ export class EmployeesService {
     manager?: EntityManager,
   ): Repository<Position> {
     return manager?.getRepository(Position) ?? this.positionRepository;
+  }
+
+  private normalizeOptionalString(value: unknown): string | null {
+    if (typeof value !== 'string') {
+      return null;
+    }
+
+    const trimmed = value.trim();
+    return trimmed.length ? trimmed : null;
+  }
+
+  private buildEmployeeDisplayName(
+    employee: Pick<Employee, 'first_name' | 'middle_name' | 'last_name'>,
+  ): string {
+    return [employee.first_name, employee.middle_name, employee.last_name]
+      .map((value) => this.normalizeOptionalString(value))
+      .filter((value): value is string => Boolean(value))
+      .join(' ');
+  }
+
+  private sortPrimaryFirst<T extends { id: number; is_primary: boolean }>(
+    items?: T[] | null,
+  ): T[] {
+    return [...(items ?? [])].sort((left, right) => {
+      if (left.is_primary !== right.is_primary) {
+        return Number(right.is_primary) - Number(left.is_primary);
+      }
+
+      return left.id - right.id;
+    });
+  }
+
+  private ensureSinglePrimary(
+    items: Array<{ is_primary?: boolean }>,
+    message: string,
+  ): void {
+    const primaryCount = items.filter((item) => item.is_primary).length;
+    if (primaryCount > 1) {
+      throw new BadRequestException(message);
+    }
+  }
+
+  private ensureSinglePrimaryPerGroup<T>(
+    items: T[],
+    getGroupKey: (item: T) => string,
+    message: string,
+  ): void {
+    const primaryCounts = new Map<string, number>();
+
+    items.forEach((item) => {
+      if (!(item as { is_primary?: boolean }).is_primary) {
+        return;
+      }
+
+      const key = getGroupKey(item);
+      primaryCounts.set(key, (primaryCounts.get(key) ?? 0) + 1);
+    });
+
+    for (const count of primaryCounts.values()) {
+      if (count > 1) {
+        throw new BadRequestException(message);
+      }
+    }
   }
 
   private mapBranch(branch?: Branch | null) {
@@ -213,6 +342,85 @@ export class EmployeesService {
     };
   }
 
+  private mapContact(contact: EmployeeContact) {
+    return {
+      id: contact.id,
+      employee_id: contact.employee_id,
+      contact_type: contact.contact_type,
+      phone_number: contact.phone_number,
+      email: contact.email,
+      is_primary: contact.is_primary,
+      is_verified: contact.is_verified,
+      notes: contact.notes,
+      created_at: contact.created_at,
+      updated_at: contact.updated_at,
+    };
+  }
+
+  private mapAddress(address: EmployeeAddress) {
+    return {
+      id: address.id,
+      employee_id: address.employee_id,
+      address_line_1: address.address_line_1,
+      address_line_2: address.address_line_2,
+      city: address.city,
+      state: address.state,
+      country: address.country,
+      postal_code: address.postal_code,
+      address_type: address.address_type,
+      is_primary: address.is_primary,
+      created_at: address.created_at,
+      updated_at: address.updated_at,
+    };
+  }
+
+  private mapRelative(relative: EmployeeRelative) {
+    return {
+      id: relative.id,
+      employee_id: relative.employee_id,
+      full_name: relative.full_name,
+      relationship: relative.relationship,
+      phone: relative.phone,
+      email: relative.email,
+      address: relative.address,
+      occupation: relative.occupation,
+      is_emergency_contact: relative.is_emergency_contact,
+      is_primary: relative.is_primary,
+      created_at: relative.created_at,
+      updated_at: relative.updated_at,
+    };
+  }
+
+  private mapIdentification(identification: EmployeeIdentification) {
+    return {
+      id: identification.id,
+      employee_id: identification.employee_id,
+      identification_type: identification.identification_type,
+      identification_number: identification.identification_number,
+      issued_country: identification.issued_country,
+      expiry_date: identification.expiry_date,
+      is_primary: identification.is_primary,
+      created_at: identification.created_at,
+      updated_at: identification.updated_at,
+    };
+  }
+
+  private mapBankAccount(bankAccount: EmployeeBankAccount) {
+    return {
+      id: bankAccount.id,
+      employee_id: bankAccount.employee_id,
+      bank_name: bankAccount.bank_name,
+      account_name: bankAccount.account_name,
+      account_number: bankAccount.account_number,
+      branch_name: bankAccount.branch_name,
+      swift_code: bankAccount.swift_code,
+      mobile_money_provider: bankAccount.mobile_money_provider,
+      is_primary: bankAccount.is_primary,
+      created_at: bankAccount.created_at,
+      updated_at: bankAccount.updated_at,
+    };
+  }
+
   private mapEmployee(employee: Employee, includeDocuments = false) {
     return {
       id: employee.id,
@@ -226,20 +434,6 @@ export class EmployeesService {
       date_of_birth: employee.date_of_birth,
       marital_status: employee.marital_status,
       nationality: employee.nationality,
-      national_id_no: employee.national_id_no,
-      passport_no: employee.passport_no,
-      tax_id_no: employee.tax_id_no,
-      social_security_no: employee.social_security_no,
-      work_email: employee.work_email,
-      personal_email: employee.personal_email,
-      phone: employee.phone,
-      alternate_phone: employee.alternate_phone,
-      address_line_1: employee.address_line_1,
-      address_line_2: employee.address_line_2,
-      city: employee.city,
-      state: employee.state,
-      country: employee.country,
-      postal_code: employee.postal_code,
       profile_photo_url: employee.profile_photo_url,
       primary_branch_id: employee.primary_branch_id,
       primary_department_id: employee.primary_department_id,
@@ -251,11 +445,6 @@ export class EmployeesService {
       confirmation_date: employee.confirmation_date,
       exit_date: employee.exit_date,
       reports_to: employee.reports_to,
-      emergency_contact_name: employee.emergency_contact_name,
-      emergency_contact_phone: employee.emergency_contact_phone,
-      emergency_contact_relationship: employee.emergency_contact_relationship,
-      bank_name: employee.bank_name,
-      bank_account_no: employee.bank_account_no,
       exit_reason: employee.exit_reason,
       notes: employee.notes,
       metadata: employee.metadata,
@@ -280,6 +469,21 @@ export class EmployeesService {
           is_primary: assignment.is_primary,
           department: this.mapDepartment(assignment.department),
         })) ?? [],
+      contacts: this.sortPrimaryFirst(employee.contacts).map((contact) =>
+        this.mapContact(contact),
+      ),
+      addresses: this.sortPrimaryFirst(employee.addresses).map((address) =>
+        this.mapAddress(address),
+      ),
+      relatives: this.sortPrimaryFirst(employee.relatives).map((relative) =>
+        this.mapRelative(relative),
+      ),
+      identifications: this.sortPrimaryFirst(
+        employee.identifications,
+      ).map((identification) => this.mapIdentification(identification)),
+      bank_accounts: this.sortPrimaryFirst(employee.bank_accounts).map(
+        (bankAccount) => this.mapBankAccount(bankAccount),
+      ),
       company_user: this.mapMembership(employee.company_user),
       documents: includeDocuments
         ? employee.documents?.map((document) => this.mapDocument(document)) ?? []
@@ -362,6 +566,11 @@ export class EmployeesService {
             parent: true,
           },
         },
+        contacts: true,
+        addresses: true,
+        relatives: true,
+        identifications: true,
+        bank_accounts: true,
         documents: {
           uploaded_by: {
             user: true,
@@ -435,7 +644,11 @@ export class EmployeesService {
     }
 
     if (typeof primaryDepartmentId === 'number') {
-      if (!normalized.some((input) => input.department_id === primaryDepartmentId)) {
+      if (
+        !normalized.some(
+          (input) => input.department_id === primaryDepartmentId,
+        )
+      ) {
         normalized.push({
           department_id: primaryDepartmentId,
           is_primary: true,
@@ -456,6 +669,190 @@ export class EmployeesService {
     }
 
     if (primaryInputs.length === 0 && normalized.length === 1) {
+      normalized[0].is_primary = true;
+    }
+
+    return normalized;
+  }
+
+  private normalizeContactInputs(
+    contacts: EmployeeContactInputDto[],
+  ): EmployeeContactInputDto[] {
+    const normalized = contacts.map((contact) => ({
+      contact_type: contact.contact_type,
+      phone_number: this.normalizeOptionalString(contact.phone_number) ?? undefined,
+      email:
+        this.normalizeOptionalString(contact.email)?.toLowerCase() ?? undefined,
+      is_primary: contact.is_primary ?? false,
+      is_verified: contact.is_verified ?? false,
+      notes: this.normalizeOptionalString(contact.notes) ?? undefined,
+    }));
+
+    normalized.forEach((contact) => {
+      if (!contact.phone_number && !contact.email) {
+        throw new BadRequestException(
+          'Each employee contact must include at least a phone number or an email address',
+        );
+      }
+    });
+
+    this.ensureSinglePrimaryPerGroup(
+      normalized,
+      (contact) => contact.contact_type,
+      'Only one primary contact is allowed per contact type',
+    );
+
+    const grouped = new Map<ContactTypeEnum, EmployeeContactInputDto[]>();
+    normalized.forEach((contact) => {
+      const items = grouped.get(contact.contact_type) ?? [];
+      items.push(contact);
+      grouped.set(contact.contact_type, items);
+    });
+
+    grouped.forEach((items) => {
+      if (items.length === 1 && !items[0].is_primary) {
+        items[0].is_primary = true;
+      }
+    });
+
+    return normalized;
+  }
+
+  private normalizeAddressInputs(
+    addresses: EmployeeAddressInputDto[],
+  ): EmployeeAddressInputDto[] {
+    const normalized = addresses.map((address) => ({
+      address_line_1: this.normalizeOptionalString(address.address_line_1) ?? undefined,
+      address_line_2: this.normalizeOptionalString(address.address_line_2) ?? undefined,
+      city: this.normalizeOptionalString(address.city) ?? undefined,
+      state: this.normalizeOptionalString(address.state) ?? undefined,
+      country: this.normalizeOptionalString(address.country) ?? undefined,
+      postal_code: this.normalizeOptionalString(address.postal_code) ?? undefined,
+      address_type: address.address_type,
+      is_primary: address.is_primary ?? false,
+    }));
+
+    normalized.forEach((address) => {
+      if (
+        !address.address_line_1 &&
+        !address.address_line_2 &&
+        !address.city &&
+        !address.state &&
+        !address.country &&
+        !address.postal_code
+      ) {
+        throw new BadRequestException(
+          'Each employee address must include at least one address field',
+        );
+      }
+    });
+
+    this.ensureSinglePrimary(
+      normalized,
+      'Only one primary address is allowed per employee',
+    );
+
+    if (normalized.length === 1 && !normalized[0].is_primary) {
+      normalized[0].is_primary = true;
+    }
+
+    return normalized;
+  }
+
+  private normalizeRelativeInputs(
+    relatives: EmployeeRelativeInputDto[],
+  ): EmployeeRelativeInputDto[] {
+    const normalized = relatives.map((relative) => ({
+      full_name: relative.full_name.trim(),
+      relationship: relative.relationship.trim(),
+      phone: this.normalizeOptionalString(relative.phone) ?? undefined,
+      email:
+        this.normalizeOptionalString(relative.email)?.toLowerCase() ?? undefined,
+      address: this.normalizeOptionalString(relative.address) ?? undefined,
+      occupation: this.normalizeOptionalString(relative.occupation) ?? undefined,
+      is_emergency_contact: relative.is_emergency_contact ?? false,
+      is_primary: relative.is_primary ?? false,
+    }));
+
+    this.ensureSinglePrimary(
+      normalized,
+      'Only one primary relative or emergency contact is allowed per employee',
+    );
+
+    if (normalized.length === 1 && !normalized[0].is_primary) {
+      normalized[0].is_primary = true;
+    }
+
+    return normalized;
+  }
+
+  private normalizeIdentificationInputs(
+    identifications: EmployeeIdentificationInputDto[],
+  ): EmployeeIdentificationInputDto[] {
+    const normalized = identifications.map((identification) => ({
+      identification_type: identification.identification_type,
+      identification_number: identification.identification_number.trim(),
+      issued_country:
+        this.normalizeOptionalString(identification.issued_country) ?? undefined,
+      expiry_date: identification.expiry_date,
+      is_primary: identification.is_primary ?? false,
+    }));
+
+    this.ensureSinglePrimaryPerGroup(
+      normalized,
+      (identification) => identification.identification_type,
+      'Only one primary identification is allowed per identification type',
+    );
+
+    const grouped = new Map<IdentificationTypeEnum, EmployeeIdentificationInputDto[]>();
+    normalized.forEach((identification) => {
+      const items = grouped.get(identification.identification_type) ?? [];
+      items.push(identification);
+      grouped.set(identification.identification_type, items);
+    });
+
+    grouped.forEach((items) => {
+      if (items.length === 1 && !items[0].is_primary) {
+        items[0].is_primary = true;
+      }
+    });
+
+    return normalized;
+  }
+
+  private normalizeBankAccountInputs(
+    bankAccounts: EmployeeBankAccountInputDto[],
+    employee: Pick<Employee, 'first_name' | 'middle_name' | 'last_name'>,
+  ): EmployeeBankAccountInputDto[] {
+    const employeeName = this.buildEmployeeDisplayName(employee);
+    const normalized = bankAccounts.map((bankAccount) => ({
+      bank_name: this.normalizeOptionalString(bankAccount.bank_name) ?? undefined,
+      account_name:
+        this.normalizeOptionalString(bankAccount.account_name) ??
+        (employeeName || undefined),
+      account_number: bankAccount.account_number.trim(),
+      branch_name: this.normalizeOptionalString(bankAccount.branch_name) ?? undefined,
+      swift_code: this.normalizeOptionalString(bankAccount.swift_code) ?? undefined,
+      mobile_money_provider:
+        this.normalizeOptionalString(bankAccount.mobile_money_provider) ??
+        undefined,
+      is_primary: bankAccount.is_primary ?? false,
+    }));
+
+    normalized.forEach((bankAccount) => {
+      if (!bankAccount.bank_name && !bankAccount.mobile_money_provider) {
+        throw new BadRequestException(
+          'Each bank account must include either a bank name or a mobile money provider',
+        );
+      }
+    });
+
+    this.ensureSinglePrimary(
+      normalized,
+      'Only one primary bank account is allowed per employee',
+    );
+
+    if (normalized.length === 1 && !normalized[0].is_primary) {
       normalized[0].is_primary = true;
     }
 
@@ -585,7 +982,9 @@ export class EmployeesService {
     });
 
     if (departmentsById.length !== normalized.length) {
-      throw new NotFoundException('One or more employee departments were not found');
+      throw new NotFoundException(
+        'One or more employee departments were not found',
+      );
     }
 
     const entityMap = new Map(
@@ -630,20 +1029,6 @@ export class EmployeesService {
       'date_of_birth',
       'marital_status',
       'nationality',
-      'national_id_no',
-      'passport_no',
-      'tax_id_no',
-      'social_security_no',
-      'work_email',
-      'personal_email',
-      'phone',
-      'alternate_phone',
-      'address_line_1',
-      'address_line_2',
-      'city',
-      'state',
-      'country',
-      'postal_code',
       'profile_photo_url',
       'employment_status',
       'employment_type',
@@ -651,11 +1036,6 @@ export class EmployeesService {
       'probation_end_date',
       'confirmation_date',
       'exit_date',
-      'emergency_contact_name',
-      'emergency_contact_phone',
-      'emergency_contact_relationship',
-      'bank_name',
-      'bank_account_no',
       'exit_reason',
       'notes',
       'metadata',
@@ -710,22 +1090,170 @@ export class EmployeesService {
     );
   }
 
+  private async saveEmployeeContacts(
+    employeeId: number,
+    contacts: EmployeeContactInputDto[],
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repository = this.getEmployeeContactRepository(manager);
+    await repository.delete({ employee_id: employeeId });
+
+    if (!contacts.length) {
+      return;
+    }
+
+    await repository.save(
+      contacts.map((contact) =>
+        repository.create({
+          employee_id: employeeId,
+          contact_type: contact.contact_type,
+          phone_number: contact.phone_number ?? null,
+          email: contact.email ?? null,
+          is_primary: contact.is_primary ?? false,
+          is_verified: contact.is_verified ?? false,
+          notes: contact.notes ?? null,
+        }),
+      ),
+    );
+  }
+
+  private async saveEmployeeAddresses(
+    employeeId: number,
+    addresses: EmployeeAddressInputDto[],
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repository = this.getEmployeeAddressRepository(manager);
+    await repository.delete({ employee_id: employeeId });
+
+    if (!addresses.length) {
+      return;
+    }
+
+    await repository.save(
+      addresses.map((address) =>
+        repository.create({
+          employee_id: employeeId,
+          address_line_1: address.address_line_1 ?? null,
+          address_line_2: address.address_line_2 ?? null,
+          city: address.city ?? null,
+          state: address.state ?? null,
+          country: address.country ?? null,
+          postal_code: address.postal_code ?? null,
+          address_type: address.address_type,
+          is_primary: address.is_primary ?? false,
+        }),
+      ),
+    );
+  }
+
+  private async saveEmployeeRelatives(
+    employeeId: number,
+    relatives: EmployeeRelativeInputDto[],
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repository = this.getEmployeeRelativeRepository(manager);
+    await repository.delete({ employee_id: employeeId });
+
+    if (!relatives.length) {
+      return;
+    }
+
+    await repository.save(
+      relatives.map((relative) =>
+        repository.create({
+          employee_id: employeeId,
+          full_name: relative.full_name,
+          relationship: relative.relationship,
+          phone: relative.phone ?? null,
+          email: relative.email ?? null,
+          address: relative.address ?? null,
+          occupation: relative.occupation ?? null,
+          is_emergency_contact: relative.is_emergency_contact ?? false,
+          is_primary: relative.is_primary ?? false,
+        }),
+      ),
+    );
+  }
+
+  private async saveEmployeeIdentifications(
+    employeeId: number,
+    identifications: EmployeeIdentificationInputDto[],
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repository = this.getEmployeeIdentificationRepository(manager);
+    await repository.delete({ employee_id: employeeId });
+
+    if (!identifications.length) {
+      return;
+    }
+
+    await repository.save(
+      identifications.map((identification) =>
+        repository.create({
+          employee_id: employeeId,
+          identification_type: identification.identification_type,
+          identification_number: identification.identification_number,
+          issued_country: identification.issued_country ?? null,
+          expiry_date: identification.expiry_date ?? null,
+          is_primary: identification.is_primary ?? false,
+        }),
+      ),
+    );
+  }
+
+  private async saveEmployeeBankAccounts(
+    employeeId: number,
+    bankAccounts: EmployeeBankAccountInputDto[],
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repository = this.getEmployeeBankAccountRepository(manager);
+    await repository.delete({ employee_id: employeeId });
+
+    if (!bankAccounts.length) {
+      return;
+    }
+
+    await repository.save(
+      bankAccounts.map((bankAccount) =>
+        repository.create({
+          employee_id: employeeId,
+          bank_name: bankAccount.bank_name ?? null,
+          account_name: bankAccount.account_name ?? null,
+          account_number: bankAccount.account_number,
+          branch_name: bankAccount.branch_name ?? null,
+          swift_code: bankAccount.swift_code ?? null,
+          mobile_money_provider: bankAccount.mobile_money_provider ?? null,
+          is_primary: bankAccount.is_primary ?? false,
+        }),
+      ),
+    );
+  }
+
   private normalizeStatusFields(
-    dto: Partial<Pick<Employee, 'employment_status' | 'exit_date' | 'exit_reason'>>,
+    dto: Partial<
+      Pick<Employee, 'employment_status' | 'exit_date' | 'exit_reason'>
+    >,
   ): Partial<Pick<Employee, 'employment_status' | 'exit_date' | 'exit_reason'>> {
     const normalized = { ...dto };
 
     if (
       normalized.employment_status &&
-      ['terminated', 'exited'].includes(normalized.employment_status) &&
-      !normalized.exit_date
+      [
+        EmploymentStatusEnum.TERMINATED,
+        EmploymentStatusEnum.EXITED,
+      ].includes(normalized.employment_status)
     ) {
-      normalized.exit_date = new Date().toISOString().slice(0, 10);
+      if (!normalized.exit_date) {
+        normalized.exit_date = new Date().toISOString().slice(0, 10);
+      }
     }
 
     if (
       normalized.employment_status &&
-      !['terminated', 'exited'].includes(normalized.employment_status)
+      ![
+        EmploymentStatusEnum.TERMINATED,
+        EmploymentStatusEnum.EXITED,
+      ].includes(normalized.employment_status)
     ) {
       normalized.exit_date = null;
       if (normalized.exit_reason === undefined) {
@@ -751,7 +1279,12 @@ export class EmployeesService {
 
     const branch =
       'primary_branch_id' in dto
-        ? await this.resolveBranch(companyId, dto.primary_branch_id, actor, manager)
+        ? await this.resolveBranch(
+            companyId,
+            dto.primary_branch_id,
+            actor,
+            manager,
+          )
         : employee.primary_branch ?? null;
 
     const { assignments, primaryDepartment } =
@@ -819,10 +1352,59 @@ export class EmployeesService {
       employee.primary_branch_id = primaryDepartment.branch_id;
     }
 
+    const normalizedContacts =
+      'contacts' in dto && dto.contacts !== undefined
+        ? this.normalizeContactInputs(dto.contacts)
+        : undefined;
+    const normalizedAddresses =
+      'addresses' in dto && dto.addresses !== undefined
+        ? this.normalizeAddressInputs(dto.addresses)
+        : undefined;
+    const normalizedRelatives =
+      'relatives' in dto && dto.relatives !== undefined
+        ? this.normalizeRelativeInputs(dto.relatives)
+        : undefined;
+    const normalizedIdentifications =
+      'identifications' in dto && dto.identifications !== undefined
+        ? this.normalizeIdentificationInputs(dto.identifications)
+        : undefined;
+    const normalizedBankAccounts =
+      'bank_accounts' in dto && dto.bank_accounts !== undefined
+        ? this.normalizeBankAccountInputs(dto.bank_accounts, employee)
+        : undefined;
+
     const saved = await this.getEmployeeRepository(manager).save(employee);
 
     if ('departments' in dto || 'primary_department_id' in dto) {
       await this.saveDepartmentAssignments(saved.id, assignments, manager);
+    }
+
+    if (normalizedContacts !== undefined) {
+      await this.saveEmployeeContacts(saved.id, normalizedContacts, manager);
+    }
+
+    if (normalizedAddresses !== undefined) {
+      await this.saveEmployeeAddresses(saved.id, normalizedAddresses, manager);
+    }
+
+    if (normalizedRelatives !== undefined) {
+      await this.saveEmployeeRelatives(saved.id, normalizedRelatives, manager);
+    }
+
+    if (normalizedIdentifications !== undefined) {
+      await this.saveEmployeeIdentifications(
+        saved.id,
+        normalizedIdentifications,
+        manager,
+      );
+    }
+
+    if (normalizedBankAccounts !== undefined) {
+      await this.saveEmployeeBankAccounts(
+        saved.id,
+        normalizedBankAccounts,
+        manager,
+      );
     }
 
     return saved.id;
@@ -872,11 +1454,18 @@ export class EmployeesService {
             parent: true,
           },
         },
+        contacts: true,
+        addresses: true,
+        relatives: true,
+        identifications: true,
+        bank_accounts: true,
       },
     });
 
     const byId = new Map(employees.map((employee) => [employee.id, employee]));
-    return ids.map((id) => byId.get(id)).filter((employee): employee is Employee => Boolean(employee));
+    return ids
+      .map((id) => byId.get(id))
+      .filter((employee): employee is Employee => Boolean(employee));
   }
 
   async onboard(
@@ -977,8 +1566,10 @@ export class EmployeesService {
         employee_no: onboardEmployeeDto.employee_no,
         first_name: onboardEmployeeDto.first_name,
         last_name: onboardEmployeeDto.last_name,
-        employment_status: onboardEmployeeDto.employment_status ?? 'onboarding',
-        employment_type: onboardEmployeeDto.employment_type ?? 'full_time',
+        employment_status:
+          onboardEmployeeDto.employment_status ?? EmploymentStatusEnum.ONBOARDING,
+        employment_type:
+          onboardEmployeeDto.employment_type ?? EmploymentTypeEnum.FULL_TIME,
       });
 
       return this.persistEmployee(
@@ -1032,8 +1623,10 @@ export class EmployeesService {
         employee_no: createEmployeeDto.employee_no,
         first_name: createEmployeeDto.first_name,
         last_name: createEmployeeDto.last_name,
-        employment_status: createEmployeeDto.employment_status ?? 'onboarding',
-        employment_type: createEmployeeDto.employment_type ?? 'full_time',
+        employment_status:
+          createEmployeeDto.employment_status ?? EmploymentStatusEnum.ONBOARDING,
+        employment_type:
+          createEmployeeDto.employment_type ?? EmploymentTypeEnum.FULL_TIME,
       });
 
       return this.persistEmployee(
@@ -1077,11 +1670,12 @@ export class EmployeesService {
       .innerJoin('membership.user', 'user')
       .leftJoin('employee.department_assignments', 'departmentAssignments')
       .leftJoin('departmentAssignments.department', 'department')
+      .leftJoin('employee.contacts', 'contact')
       .where('membership.company_id = :companyId', { companyId });
 
-    if (employment_status?.trim()) {
+    if (employment_status) {
       qb.andWhere('employee.employment_status = :employmentStatus', {
-        employmentStatus: employment_status.trim(),
+        employmentStatus: employment_status,
       });
     }
 
@@ -1107,7 +1701,17 @@ export class EmployeesService {
     if (search?.trim()) {
       const term = `%${search.trim()}%`;
       qb.andWhere(
-        '(employee.employee_no LIKE :term OR employee.first_name LIKE :term OR employee.last_name LIKE :term OR employee.preferred_name LIKE :term OR user.email LIKE :term OR user.phone LIKE :term OR user.user_no LIKE :term)',
+        '(' +
+          'employee.employee_no LIKE :term OR ' +
+          'employee.first_name LIKE :term OR ' +
+          'employee.last_name LIKE :term OR ' +
+          'employee.preferred_name LIKE :term OR ' +
+          'user.email LIKE :term OR ' +
+          'user.phone LIKE :term OR ' +
+          'user.user_no LIKE :term OR ' +
+          'contact.email LIKE :term OR ' +
+          'contact.phone_number LIKE :term' +
+          ')',
         { term },
       );
     }
@@ -1199,6 +1803,11 @@ export class EmployeesService {
               parent: true,
             },
           },
+          contacts: true,
+          addresses: true,
+          relatives: true,
+          identifications: true,
+          bank_accounts: true,
         },
       });
 

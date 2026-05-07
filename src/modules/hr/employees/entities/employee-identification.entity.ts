@@ -1,0 +1,59 @@
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from 'typeorm';
+import { IdentificationTypeEnum } from '../enums/identification-type.enum';
+import { Employee } from './employee.entity';
+
+@Entity('employee_identifications')
+@Index('IDX_employee_identification_employee', ['employee_id'])
+@Index('IDX_employee_identification_type', ['identification_type'])
+@Index(
+  'UQ_employee_identification_employee_type_number',
+  ['employee_id', 'identification_type', 'identification_number'],
+  { unique: true },
+)
+export class EmployeeIdentification {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  employee_id: number;
+
+  @Column({
+    type: 'enum',
+    enum: IdentificationTypeEnum,
+    default: IdentificationTypeEnum.OTHER,
+  })
+  identification_type: IdentificationTypeEnum;
+
+  @Column({ type: 'varchar', length: 120 })
+  identification_number: string;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  issued_country: string | null;
+
+  @Column({ type: 'date', nullable: true })
+  expiry_date: string | null;
+
+  @Column({ default: false })
+  is_primary: boolean;
+
+  @CreateDateColumn()
+  created_at: Date;
+
+  @UpdateDateColumn()
+  updated_at: Date;
+
+  @ManyToOne(() => Employee, (employee) => employee.identifications, {
+    onDelete: 'CASCADE',
+  })
+  @JoinColumn({ name: 'employee_id' })
+  employee: Employee;
+}
