@@ -187,6 +187,101 @@ const permissionSeeds: PermissionSeed[] = [
     displayName: 'Delete permissions',
     description: 'Compatibility permission for permission delete endpoints',
   },
+  {
+    name: 'branches:read',
+    displayName: 'Read branches',
+    description: 'Allow listing and viewing company branches',
+  },
+  {
+    name: 'branches:create',
+    displayName: 'Create branches',
+    description: 'Allow creating company branches',
+  },
+  {
+    name: 'branches:update',
+    displayName: 'Update branches',
+    description: 'Allow updating company branches',
+  },
+  {
+    name: 'branches:delete',
+    displayName: 'Delete branches',
+    description: 'Allow deleting company branches',
+  },
+  {
+    name: 'branches:manage-access',
+    displayName: 'Manage branch access',
+    description: 'Allow granting and revoking branch-level access for company users',
+  },
+  {
+    name: 'departments:read',
+    displayName: 'Read departments',
+    description: 'Allow listing and viewing company departments',
+  },
+  {
+    name: 'departments:create',
+    displayName: 'Create departments',
+    description: 'Allow creating company departments',
+  },
+  {
+    name: 'departments:update',
+    displayName: 'Update departments',
+    description: 'Allow updating company departments',
+  },
+  {
+    name: 'departments:delete',
+    displayName: 'Delete departments',
+    description: 'Allow deleting company departments',
+  },
+  {
+    name: 'positions:read',
+    displayName: 'Read positions',
+    description: 'Allow listing and viewing company positions',
+  },
+  {
+    name: 'positions:create',
+    displayName: 'Create positions',
+    description: 'Allow creating company positions',
+  },
+  {
+    name: 'positions:update',
+    displayName: 'Update positions',
+    description: 'Allow updating company positions',
+  },
+  {
+    name: 'positions:delete',
+    displayName: 'Delete positions',
+    description: 'Allow deleting company positions',
+  },
+  {
+    name: 'employees:read',
+    displayName: 'Read employees',
+    description: 'Allow listing and viewing employee profiles',
+  },
+  {
+    name: 'employees:create',
+    displayName: 'Create employees',
+    description: 'Allow creating employee profiles for existing company users',
+  },
+  {
+    name: 'employees:update',
+    displayName: 'Update employees',
+    description: 'Allow updating employee profiles and documents',
+  },
+  {
+    name: 'employees:delete',
+    displayName: 'Delete employees',
+    description: 'Allow deleting employee profiles',
+  },
+  {
+    name: 'employees:onboard',
+    displayName: 'Onboard employees',
+    description: 'Allow onboarding employees by creating the user and HR profile',
+  },
+  {
+    name: 'employees:change-status',
+    displayName: 'Change employee status',
+    description: 'Allow managing employee lifecycle statuses',
+  },
 ];
 
 const roleSeeds: RoleSeed[] = [
@@ -234,6 +329,25 @@ const roleSeeds: RoleSeed[] = [
       'users:revoke-role',
       'roles:read',
       'permissions:read',
+      'branches:read',
+      'branches:create',
+      'branches:update',
+      'branches:delete',
+      'branches:manage-access',
+      'departments:read',
+      'departments:create',
+      'departments:update',
+      'departments:delete',
+      'positions:read',
+      'positions:create',
+      'positions:update',
+      'positions:delete',
+      'employees:read',
+      'employees:create',
+      'employees:update',
+      'employees:delete',
+      'employees:onboard',
+      'employees:change-status',
     ],
   },
   {

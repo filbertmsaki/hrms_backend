@@ -5,6 +5,7 @@ import {
   JoinColumn,
   ManyToOne,
   OneToMany,
+  OneToOne,
   PrimaryGeneratedColumn,
   Unique,
   UpdateDateColumn,
@@ -13,6 +14,8 @@ import { User } from '../../users/entities/user.entity';
 import { Company } from './company.entity';
 import { CompanyUserRole } from './company-user-role.entity';
 import { CompanyUserPermission } from './company-user-permission.entity';
+import { CompanyUserBranchAccess } from '../../hr/branches/entities/company-user-branch-access.entity';
+import { Employee } from '../../hr/employees/entities/employee.entity';
 
 @Entity('company_users')
 @Unique('UQ_company_users_company_user', ['company_id', 'user_id'])
@@ -64,4 +67,16 @@ export class CompanyUser {
     },
   )
   permission_assignments: CompanyUserPermission[];
+
+  @OneToMany(
+    () => CompanyUserBranchAccess,
+    (assignment) => assignment.company_user,
+    {
+      cascade: true,
+    },
+  )
+  branch_accesses: CompanyUserBranchAccess[];
+
+  @OneToOne(() => Employee, (employee) => employee.company_user)
+  employee: Employee | null;
 }

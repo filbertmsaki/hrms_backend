@@ -13,6 +13,7 @@ import { PermissionsModule } from './modules/permissions/permissions.module';
 import { UserRolesModule } from './modules/user-roles/user-roles.module';
 import { MailModule } from './modules/mail/mail.module';
 import { CompaniesModule } from './modules/companies/companies.module';
+import { HrModule } from './modules/hr/hr.module';
 import { TenantGuard } from './common/guards/tenant.guard';
 
 @Module({
@@ -55,6 +56,7 @@ import { TenantGuard } from './common/guards/tenant.guard';
     PermissionsModule,
     UserRolesModule,
     MailModule,
+    HrModule,
   ],
   controllers: [AppController],
   providers: [
