@@ -12,9 +12,6 @@ import { Employee } from './employee.entity';
 
 @Entity('employee_bank_accounts')
 @Index('IDX_employee_bank_account_employee', ['employee_id'])
-@Index('UQ_employee_bank_account_single_primary', ['primary_employee_key'], {
-  unique: true,
-})
 export class EmployeeBankAccount {
   @PrimaryGeneratedColumn()
   id: number;
@@ -42,17 +39,6 @@ export class EmployeeBankAccount {
 
   @Column({ default: false })
   is_primary: boolean;
-
-  @Column({
-    type: 'int',
-    nullable: true,
-    asExpression: "CASE WHEN `is_primary` = 1 THEN `employee_id` ELSE NULL END",
-    generatedType: 'STORED',
-    insert: false,
-    update: false,
-    select: false,
-  })
-  primary_employee_key: number | null;
 
   @CreateDateColumn()
   created_at: Date;

@@ -14,11 +14,6 @@ import { Employee } from './employee.entity';
 @Entity('employee_contacts')
 @Index('IDX_employee_contact_employee', ['employee_id'])
 @Index('IDX_employee_contact_type', ['contact_type'])
-@Index(
-  'UQ_employee_contact_primary_per_type',
-  ['employee_id', 'primary_contact_type_key'],
-  { unique: true },
-)
 export class EmployeeContact {
   @PrimaryGeneratedColumn()
   id: number;
@@ -47,19 +42,6 @@ export class EmployeeContact {
 
   @Column({ type: 'text', nullable: true })
   notes: string | null;
-
-  @Column({
-    type: 'varchar',
-    length: 50,
-    nullable: true,
-    asExpression:
-      "CASE WHEN `is_primary` = 1 THEN `contact_type` ELSE NULL END",
-    generatedType: 'STORED',
-    insert: false,
-    update: false,
-    select: false,
-  })
-  primary_contact_type_key: string | null;
 
   @CreateDateColumn()
   created_at: Date;

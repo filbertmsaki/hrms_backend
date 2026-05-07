@@ -26,9 +26,9 @@ import { OnboardEmployeeDto } from './dtos/onboard-employee.dto';
 import { UpdateEmployeeDto } from './dtos/update-employee.dto';
 import { EmployeesService } from './employees.service';
 
-@ApiTags('HR Employees')
+@ApiTags('Employees')
 @ApiBearerAuth()
-@Controller('hr/employees')
+@Controller('employees')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class EmployeesController {
   constructor(private readonly employeesService: EmployeesService) {}
