@@ -1,4 +1,5 @@
-import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreatePermissionDto {
   @IsString()
@@ -12,4 +13,13 @@ export class CreatePermissionDto {
   @IsString()
   @IsOptional()
   description?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Marks the permission as system-generated and protected from non-owner mutations',
+    default: false,
+  })
+  @IsBoolean()
+  @IsOptional()
+  is_system_generated?: boolean;
 }

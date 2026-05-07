@@ -7,6 +7,7 @@ import {
   ManyToMany,
   JoinTable,
 } from 'typeorm';
+import { ApiProperty } from '@nestjs/swagger';
 import { User } from '../../users/entities/user.entity';
 import { Permission } from '../../permissions/entities/permission.entity';
 
@@ -23,6 +24,14 @@ export class Role {
 
   @Column({ type: 'text', nullable: true })
   description: string;
+
+  @ApiProperty({
+    description:
+      'Whether this role is system-generated and protected from non-owner mutations',
+    default: false,
+  })
+  @Column({ default: false })
+  is_system_generated: boolean;
 
   @CreateDateColumn()
   created_at: Date;

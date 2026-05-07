@@ -8,8 +8,10 @@ import {
   Delete,
   ParseIntPipe,
   UseGuards,
+  Req,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import type { Request as ExpressRequest } from 'express';
 
 import { RolesService } from './roles.service';
 import { CreateRoleDto } from './dtos/create-role.dto';
@@ -21,6 +23,7 @@ import { PermissionsGuard } from '../../common/guards/permissions.guard';
 
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
+import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 
 @ApiTags('Roles')
 @ApiBearerAuth()
@@ -37,8 +40,11 @@ export class RolesController {
   @ApiOperation({ summary: 'Create a new role (owner only)' })
   @ApiResponse({ status: 201, description: 'Role created successfully' })
   @ApiResponse({ status: 403, description: 'Forbidden - insufficient permissions' })
-  create(@Body() createRoleDto: CreateRoleDto) {
-    return this.rolesService.create(createRoleDto);
+  create(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() createRoleDto: CreateRoleDto,
+  ) {
+    return this.rolesService.create(createRoleDto, req.user);
   }
 
 
@@ -65,11 +71,17 @@ export class RolesController {
   @Roles('OWNER')
   @Permissions('roles:update')
   @ApiOperation({ summary: 'Update a role (owner only)' })
+  @ApiResponse({
+    status: 403,
+    description:
+      'Forbidden - system-generated roles can only be modified by OWNER users',
+  })
   update(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
     @Body() updateRoleDto: UpdateRoleDto,
   ) {
-    return this.rolesService.update(id, updateRoleDto);
+    return this.rolesService.update(id, updateRoleDto, req.user);
   }
 
 
@@ -78,7 +90,15 @@ export class RolesController {
   @Roles('OWNER')
   @Permissions('roles:delete')
   @ApiOperation({ summary: 'Delete a role (owner only)' })
-  remove(@Param('id', ParseIntPipe) id: number) {
-    return this.rolesService.remove(id);
+  @ApiResponse({
+    status: 403,
+    description:
+      'Forbidden - system-generated roles can only be modified by OWNER users',
+  })
+  remove(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.rolesService.remove(id, req.user);
   }
 }

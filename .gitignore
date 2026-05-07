@@ -3,6 +3,8 @@
 /node_modules
 /build
 
+src/database/migrations
+
 # Logs
 logs
 *.log
@@ -11,7 +13,6 @@ pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
-/src/database/migrations
 
 # OS
 .DS_Store

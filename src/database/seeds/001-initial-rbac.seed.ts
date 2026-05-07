@@ -404,11 +404,14 @@ export default class InitialRbacSeeder implements Seeder {
           name: definition.name,
           display_name: definition.displayName,
           description: definition.description,
+          is_system_generated: true,
         });
       } else {
         permission.display_name = definition.displayName;
         permission.description = definition.description;
       }
+
+      permission.is_system_generated = true;
 
       permission = await permissionRepo.save(permission);
       permissionsByName.set(permission.name, permission);
@@ -435,11 +438,14 @@ export default class InitialRbacSeeder implements Seeder {
           name: definition.name,
           display_name: definition.displayName,
           description: definition.description,
+          is_system_generated: true,
         });
       } else {
         role.display_name = definition.displayName;
         role.description = definition.description;
       }
+
+      role.is_system_generated = true;
 
       role.permissions = definition.permissionNames.map((permissionName) => {
         const permission = permissionsByName.get(permissionName);

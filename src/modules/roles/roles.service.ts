@@ -1,6 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
+import {
+  assertCanCreateSystemGeneratedRbacRecord,
+  assertCanMutateSystemGeneratedRbacRecord,
+} from '../../common/utils/system-generated-rbac.util';
 import { Role } from './entities/role.entity';
 import { CreateRoleDto } from './dtos/create-role.dto';
 import { UpdateRoleDto } from './dtos/update-role.dto';
@@ -12,8 +17,21 @@ export class RolesService {
     private rolesRepository: Repository<Role>,
   ) {}
 
-  async create(createRoleDto: CreateRoleDto): Promise<Role> {
-    const role = this.rolesRepository.create(createRoleDto);
+  async create(
+    createRoleDto: CreateRoleDto,
+    actor?: AuthenticatedUser,
+  ): Promise<Role> {
+    assertCanCreateSystemGeneratedRbacRecord(
+      actor,
+      createRoleDto.is_system_generated,
+      'role',
+    );
+
+    const role = this.rolesRepository.create({
+      ...createRoleDto,
+      is_system_generated: createRoleDto.is_system_generated ?? false,
+    });
+
     return this.rolesRepository.save(role);
   }
 
@@ -42,14 +60,25 @@ export class RolesService {
     return role;
   }
 
-  async update(id: number, updateRoleDto: UpdateRoleDto): Promise<Role> {
+  async update(
+    id: number,
+    updateRoleDto: UpdateRoleDto,
+    actor?: AuthenticatedUser,
+  ): Promise<Role> {
     const role = await this.findOne(id);
+    assertCanMutateSystemGeneratedRbacRecord(actor, role, 'role');
+    assertCanCreateSystemGeneratedRbacRecord(
+      actor,
+      updateRoleDto.is_system_generated,
+      'role',
+    );
     Object.assign(role, updateRoleDto);
     return this.rolesRepository.save(role);
   }
 
-  async remove(id: number): Promise<void> {
+  async remove(id: number, actor?: AuthenticatedUser): Promise<void> {
     const role = await this.findOne(id);
+    assertCanMutateSystemGeneratedRbacRecord(actor, role, 'role');
     await this.rolesRepository.remove(role);
   }
 }
