@@ -8,7 +8,6 @@ import {
   ALLIANCE_BRANCHES,
   ALLIANCE_COMPANY_METADATA,
   ALLIANCE_COMPANY_NAME,
-  ALLIANCE_COMPANY_SLUG,
   ALLIANCE_DEPARTMENTS,
   ALLIANCE_POSITIONS,
 } from './company-structure.constants';
@@ -33,7 +32,7 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
 
       const companyName =
         process.env.DEFAULT_COMPANY_NAME ?? ALLIANCE_COMPANY_NAME;
-      const company = await this.ensureCompany(companyRepo, companyName);
+      const company = await this.findExistingCompany(companyRepo, companyName);
 
       await this.syncBranches(branchRepo, company.id, ALLIANCE_BRANCHES);
       await this.syncDepartments(departmentRepo, company.id, ALLIANCE_DEPARTMENTS);
@@ -50,32 +49,23 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     }
   }
 
-  private async ensureCompany(
+  private async findExistingCompany(
     companyRepo: Repository<Company>,
     companyName: string,
   ): Promise<Company> {
     const normalizedName = companyName.trim();
-    let company = await companyRepo.findOne({
+
+    const company = await companyRepo.findOne({
       where: { name: normalizedName },
     });
 
     if (!company) {
-      company = companyRepo.create({
-        name: normalizedName,
-        slug: ALLIANCE_COMPANY_SLUG,
-        status: 'active',
-        metadata: ALLIANCE_COMPANY_METADATA,
-      });
-    } else {
-      company.name = normalizedName;
-      company.status = 'active';
-      company.metadata = {
-        ...(company.metadata ?? {}),
-        ...ALLIANCE_COMPANY_METADATA,
-      };
+      throw new Error(
+        'Default company not found. Please run 001-initial-rbac.seed.ts first to create the Alliance company.',
+      );
     }
 
-    return companyRepo.save(company);
+    return company;
   }
 
   private async syncBranches(

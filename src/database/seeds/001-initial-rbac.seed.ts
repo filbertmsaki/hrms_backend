@@ -7,6 +7,7 @@ import { CompanyUserRole } from '../../modules/companies/entities/company-user-r
 import { Permission } from '../../modules/permissions/entities/permission.entity';
 import { Role } from '../../modules/roles/entities/role.entity';
 import { User } from '../../modules/users/entities/user.entity';
+import { ALLIANCE_COMPANY_NAME } from './company-structure.constants';
 
 type PermissionSeed = {
   name: string;
@@ -395,7 +396,7 @@ export default class InitialRbacSeeder implements Seeder {
         userType: 'OWNER',
       };
 
-      const companyName = process.env.DEFAULT_COMPANY_NAME ?? 'Alliance Insurance Corporation Ltd';
+      const companyName = process.env.DEFAULT_COMPANY_NAME ?? ALLIANCE_COMPANY_NAME;
 
       const adminConfig: SeedUserConfig = {
         firstName: process.env.INITIAL_COMPANY_ADMIN_FIRST_NAME ?? 'Inocent',
