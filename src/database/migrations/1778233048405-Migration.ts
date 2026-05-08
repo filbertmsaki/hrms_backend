@@ -1,12 +1,11 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
-export class Migration1778230655591 implements MigrationInterface {
-    name = 'Migration1778230655591'
+export class Migration1778233048405 implements MigrationInterface {
+    name = 'Migration1778233048405'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`CREATE TABLE \`permissions\` (\`id\` int NOT NULL AUTO_INCREMENT, \`name\` varchar(100) NOT NULL, \`display_name\` varchar(100) NOT NULL, \`description\` text NULL, \`company_id\` int NULL, \`company_scope_key\` int AS (COALESCE(\`company_id\`, 0)) STORED, \`is_system_generated\` tinyint NOT NULL DEFAULT 0, \`created_at\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), \`updated_at\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6), UNIQUE INDEX \`UQ_permission_scope_name\` (\`company_scope_key\`, \`name\`), INDEX \`IDX_permission_company\` (\`company_id\`), PRIMARY KEY (\`id\`)) ENGINE=InnoDB`);
-        await queryRunner.query(`INSERT INTO \`hrms_db\`.\`typeorm_metadata\`(\`database\`, \`schema\`, \`table\`, \`type\`, \`name\`, \`value\`) VALUES (DEFAULT, ?, ?, ?, ?, ?)`, ["hrms_db","permissions","GENERATED_COLUMN","company_scope_key","COALESCE(`company_id`, 0)"]);
         await queryRunner.query(`CREATE TABLE \`company_user_roles\` (\`id\` int NOT NULL AUTO_INCREMENT, \`company_user_id\` int NOT NULL, \`role_id\` int NOT NULL, \`created_at\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), UNIQUE INDEX \`UQ_company_user_roles_membership_role\` (\`company_user_id\`, \`role_id\`), PRIMARY KEY (\`id\`)) ENGINE=InnoDB`);
+        await queryRunner.query(`CREATE TABLE \`permissions\` (\`id\` int NOT NULL AUTO_INCREMENT, \`name\` varchar(100) NOT NULL, \`display_name\` varchar(100) NOT NULL, \`description\` text NULL, \`is_system_generated\` tinyint NOT NULL DEFAULT 0, \`created_at\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), \`updated_at\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6), UNIQUE INDEX \`UQ_permission_name\` (\`name\`), PRIMARY KEY (\`id\`)) ENGINE=InnoDB`);
         await queryRunner.query(`CREATE TABLE \`company_user_permissions\` (\`id\` int NOT NULL AUTO_INCREMENT, \`company_user_id\` int NOT NULL, \`permission_id\` int NOT NULL, \`created_at\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), UNIQUE INDEX \`UQ_company_user_permissions_membership_permission\` (\`company_user_id\`, \`permission_id\`), PRIMARY KEY (\`id\`)) ENGINE=InnoDB`);
         await queryRunner.query(`CREATE TABLE \`positions\` (\`id\` int NOT NULL AUTO_INCREMENT, \`company_id\` int NOT NULL, \`name\` varchar(100) NOT NULL, \`code\` varchar(50) NULL, \`category\` varchar(50) NULL, \`level\` int NULL, \`is_manager\` tinyint NOT NULL DEFAULT 0, \`description\` text NULL, \`status\` varchar(20) NOT NULL DEFAULT 'active', \`created_at\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), \`updated_at\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6), INDEX \`IDX_position_company\` (\`company_id\`), PRIMARY KEY (\`id\`)) ENGINE=InnoDB`);
         await queryRunner.query(`CREATE TABLE \`employee_addresses\` (\`id\` int NOT NULL AUTO_INCREMENT, \`employee_id\` int NOT NULL, \`address_line_1\` varchar(255) NULL, \`address_line_2\` varchar(255) NULL, \`city\` varchar(100) NULL, \`state\` varchar(100) NULL, \`country\` varchar(100) NULL, \`postal_code\` varchar(30) NULL, \`address_type\` enum ('home', 'temporary', 'work', 'mailing', 'other') NOT NULL DEFAULT 'home', \`is_primary\` tinyint NOT NULL DEFAULT 0, \`created_at\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), \`updated_at\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6), INDEX \`IDX_employee_address_type\` (\`address_type\`), INDEX \`IDX_employee_address_employee\` (\`employee_id\`), PRIMARY KEY (\`id\`)) ENGINE=InnoDB`);
@@ -28,7 +27,6 @@ export class Migration1778230655591 implements MigrationInterface {
         await queryRunner.query(`CREATE TABLE \`permission_role\` (\`rolesId\` int NOT NULL, \`permissionsId\` int NOT NULL, INDEX \`IDX_ad249cf4f60be340850d7429e2\` (\`rolesId\`), INDEX \`IDX_f131407a830249c1b575316321\` (\`permissionsId\`), PRIMARY KEY (\`rolesId\`, \`permissionsId\`)) ENGINE=InnoDB`);
         await queryRunner.query(`CREATE TABLE \`role_user\` (\`usersId\` int NOT NULL, \`rolesId\` int NOT NULL, INDEX \`IDX_788a980aa4fa89a8859419146a\` (\`usersId\`), INDEX \`IDX_eb446d431a1abb9801e6ade445\` (\`rolesId\`), PRIMARY KEY (\`usersId\`, \`rolesId\`)) ENGINE=InnoDB`);
         await queryRunner.query(`CREATE TABLE \`permission_user\` (\`usersId\` int NOT NULL, \`permissionsId\` int NOT NULL, INDEX \`IDX_eebf5c79455539db169da54830\` (\`usersId\`), INDEX \`IDX_fe30ce4377c9320e2b8a23c836\` (\`permissionsId\`), PRIMARY KEY (\`usersId\`, \`permissionsId\`)) ENGINE=InnoDB`);
-        await queryRunner.query(`ALTER TABLE \`permissions\` ADD CONSTRAINT \`FK_f32f6763d9a198b6dabef50db13\` FOREIGN KEY (\`company_id\`) REFERENCES \`companies\`(\`id\`) ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE \`company_user_roles\` ADD CONSTRAINT \`FK_74ec3aa89216198cb0cfd6edc24\` FOREIGN KEY (\`company_user_id\`) REFERENCES \`company_users\`(\`id\`) ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE \`company_user_roles\` ADD CONSTRAINT \`FK_c1314bc5a97bc33594274eba554\` FOREIGN KEY (\`role_id\`) REFERENCES \`roles\`(\`id\`) ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE \`company_user_permissions\` ADD CONSTRAINT \`FK_42b8ee52319678d53cbfaf3f057\` FOREIGN KEY (\`company_user_id\`) REFERENCES \`company_users\`(\`id\`) ON DELETE CASCADE ON UPDATE NO ACTION`);
@@ -100,7 +98,6 @@ export class Migration1778230655591 implements MigrationInterface {
         await queryRunner.query(`ALTER TABLE \`company_user_permissions\` DROP FOREIGN KEY \`FK_42b8ee52319678d53cbfaf3f057\``);
         await queryRunner.query(`ALTER TABLE \`company_user_roles\` DROP FOREIGN KEY \`FK_c1314bc5a97bc33594274eba554\``);
         await queryRunner.query(`ALTER TABLE \`company_user_roles\` DROP FOREIGN KEY \`FK_74ec3aa89216198cb0cfd6edc24\``);
-        await queryRunner.query(`ALTER TABLE \`permissions\` DROP FOREIGN KEY \`FK_f32f6763d9a198b6dabef50db13\``);
         await queryRunner.query(`DROP INDEX \`IDX_fe30ce4377c9320e2b8a23c836\` ON \`permission_user\``);
         await queryRunner.query(`DROP INDEX \`IDX_eebf5c79455539db169da54830\` ON \`permission_user\``);
         await queryRunner.query(`DROP TABLE \`permission_user\``);
@@ -154,12 +151,10 @@ export class Migration1778230655591 implements MigrationInterface {
         await queryRunner.query(`DROP TABLE \`positions\``);
         await queryRunner.query(`DROP INDEX \`UQ_company_user_permissions_membership_permission\` ON \`company_user_permissions\``);
         await queryRunner.query(`DROP TABLE \`company_user_permissions\``);
+        await queryRunner.query(`DROP INDEX \`UQ_permission_name\` ON \`permissions\``);
+        await queryRunner.query(`DROP TABLE \`permissions\``);
         await queryRunner.query(`DROP INDEX \`UQ_company_user_roles_membership_role\` ON \`company_user_roles\``);
         await queryRunner.query(`DROP TABLE \`company_user_roles\``);
-        await queryRunner.query(`DELETE FROM \`hrms_db\`.\`typeorm_metadata\` WHERE \`type\` = ? AND \`name\` = ? AND \`schema\` = ? AND \`table\` = ?`, ["GENERATED_COLUMN","company_scope_key","hrms_db","permissions"]);
-        await queryRunner.query(`DROP INDEX \`IDX_permission_company\` ON \`permissions\``);
-        await queryRunner.query(`DROP INDEX \`UQ_permission_scope_name\` ON \`permissions\``);
-        await queryRunner.query(`DROP TABLE \`permissions\``);
     }
 
 }

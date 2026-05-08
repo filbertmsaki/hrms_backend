@@ -38,7 +38,6 @@ export class RolesService {
       .createQueryBuilder('role')
       .leftJoinAndSelect('role.company', 'company')
       .leftJoinAndSelect('role.permissions', 'permission')
-      .leftJoinAndSelect('permission.company', 'permissionCompany')
       .distinct(true);
   }
 
@@ -78,8 +77,6 @@ export class RolesService {
 
   private async resolvePermissions(
     permissionIds: number[],
-    roleCompanyId: number | null,
-    actor?: AuthenticatedUser,
   ): Promise<Permission[]> {
     const ids = Array.from(new Set(permissionIds));
 
@@ -91,29 +88,10 @@ export class RolesService {
       .createQueryBuilder('permission')
       .where('permission.id IN (:...ids)', { ids });
 
-    if (roleCompanyId === null) {
-      query.andWhere('permission.company_id IS NULL');
-    } else {
-      query.andWhere(
-        '(permission.company_id IS NULL OR permission.company_id = :companyId)',
-        { companyId: roleCompanyId },
-      );
-    }
-
-    if (!hasOwnerRole(actor)) {
-      const companyActor = ensureCompanyScopedActor(actor);
-      query.andWhere(
-        '(permission.company_id IS NULL OR permission.company_id = :actorCompanyId)',
-        { actorCompanyId: companyActor.companyId },
-      );
-    }
-
     const permissions = await query.getMany();
 
     if (permissions.length !== ids.length) {
-      throw new NotFoundException(
-        'One or more permissions were not found or are outside the allowed scope',
-      );
+      throw new NotFoundException('One or more permissions were not found');
     }
 
     return permissions;
@@ -165,8 +143,6 @@ export class RolesService {
 
     const permissions = await this.resolvePermissions(
       createRoleDto.permission_ids ?? [],
-      companyId,
-      actor,
     );
 
     const role = this.rolesRepository.create({
@@ -204,7 +180,7 @@ export class RolesService {
         name,
         company_id: companyId === null ? IsNull() : companyId,
       },
-      relations: ['company', 'permissions', 'permissions.company'],
+      relations: ['company', 'permissions'],
     });
 
     if (!role) {
@@ -242,8 +218,6 @@ export class RolesService {
     if (updateRoleDto.permission_ids !== undefined) {
       role.permissions = await this.resolvePermissions(
         updateRoleDto.permission_ids,
-        updatedCompanyId,
-        actor,
       );
     }
 

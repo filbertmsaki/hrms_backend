@@ -215,13 +215,13 @@ const permissionSeeds: PermissionSeed[] = [
     name: 'permissions:update',
     displayName: 'Update permissions',
     description: 'Compatibility permission for permission update endpoints',
-    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
+    scopes: GLOBAL_SCOPE,
   },
   {
     name: 'permissions:delete',
     displayName: 'Delete permissions',
     description: 'Compatibility permission for permission delete endpoints',
-    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
+    scopes: GLOBAL_SCOPE,
   },
   {
     name: 'branches:read',
@@ -389,8 +389,6 @@ const roleSeeds: RoleSeed[] = [
       'roles:update',
       'roles:delete',
       'permissions:read',
-      'permissions:update',
-      'permissions:delete',
       'branches:read',
       'branches:create',
       'branches:update',
@@ -484,16 +482,15 @@ export default class InitialRbacSeeder implements Seeder {
 
       const defaultCompany = await this.ensureCompany(companyRepo, companyName);
 
-      const permissionsByScopeAndName = await this.syncPermissions(
+      const permissionsByName = await this.syncPermissions(
         permissionRepo,
         permissionSeeds,
-        defaultCompany.id,
       );
 
       const rolesByScopeAndName = await this.syncRoles(
         roleRepo,
         roleSeeds,
-        permissionsByScopeAndName,
+        permissionsByName,
         defaultCompany.id,
       );
 
@@ -572,52 +569,39 @@ export default class InitialRbacSeeder implements Seeder {
   private async syncPermissions(
     permissionRepo: Repository<Permission>,
     definitions: PermissionSeed[],
-    defaultCompanyId: number,
   ): Promise<Map<string, Permission>> {
-    const permissionsByScopeAndName = new Map<string, Permission>();
+    const permissionsByName = new Map<string, Permission>();
 
     for (const definition of definitions) {
-      for (const scope of definition.scopes) {
-        const companyId = this.resolveScopeCompanyId(scope, defaultCompanyId);
+      let permission = await permissionRepo.findOne({
+        where: { name: definition.name },
+      });
 
-        let permission = await permissionRepo.findOne({
-          where: {
-            name: definition.name,
-            company_id: companyId === null ? IsNull() : companyId,
-          },
+      if (!permission) {
+        permission = permissionRepo.create({
+          name: definition.name,
+          display_name: definition.displayName,
+          description: definition.description,
+          is_system_generated: true,
         });
-
-        if (!permission) {
-          permission = permissionRepo.create({
-            name: definition.name,
-            display_name: definition.displayName,
-            description: definition.description,
-            company_id: companyId,
-            is_system_generated: true,
-          });
-        } else {
-          permission.display_name = definition.displayName;
-          permission.description = definition.description;
-          permission.company_id = companyId;
-        }
-
-        permission.is_system_generated = true;
-
-        permission = await permissionRepo.save(permission);
-        permissionsByScopeAndName.set(
-          this.buildScopeKey(permission.name, companyId),
-          permission,
-        );
+      } else {
+        permission.display_name = definition.displayName;
+        permission.description = definition.description;
       }
+
+      permission.is_system_generated = true;
+
+      permission = await permissionRepo.save(permission);
+      permissionsByName.set(permission.name, permission);
     }
 
-    return permissionsByScopeAndName;
+    return permissionsByName;
   }
 
   private async syncRoles(
     roleRepo: Repository<Role>,
     definitions: RoleSeed[],
-    permissionsByScopeAndName: Map<string, Permission>,
+    permissionsByName: Map<string, Permission>,
     defaultCompanyId: number,
   ): Promise<Map<string, Role>> {
     const rolesByScopeAndName = new Map<string, Role>();
@@ -650,9 +634,7 @@ export default class InitialRbacSeeder implements Seeder {
 
         role.is_system_generated = true;
         role.permissions = definition.permissionNames.map((permissionName) => {
-          const permission = permissionsByScopeAndName.get(
-            this.buildScopeKey(permissionName, companyId),
-          );
+          const permission = permissionsByName.get(permissionName);
 
           if (!permission) {
             throw new Error(

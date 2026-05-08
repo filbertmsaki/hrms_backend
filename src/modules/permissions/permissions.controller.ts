@@ -70,12 +70,12 @@ export class PermissionsController {
   }
 
   @Patch(':id')
-  @UseGuards(PermissionsGuard)
-  @Permissions('permissions:update')
+  @UseGuards(RolesGuard)
+  @Roles('OWNER')
   @ApiOperation({ summary: 'Update a permission' })
   @ApiResponse({
     status: 403,
-    description: 'Forbidden - this resource can not be modified',
+    description: 'Forbidden - only OWNER users can update permissions',
   })
   update(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -86,12 +86,12 @@ export class PermissionsController {
   }
 
   @Delete(':id')
-  @UseGuards(PermissionsGuard)
-  @Permissions('permissions:delete')
+  @UseGuards(RolesGuard)
+  @Roles('OWNER')
   @ApiOperation({ summary: 'Delete a permission' })
   @ApiResponse({
     status: 403,
-    description: 'Forbidden - this resource can not be modified',
+    description: 'Forbidden - only OWNER users can delete permissions',
   })
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },

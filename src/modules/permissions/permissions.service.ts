@@ -7,10 +7,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import {
-  assertCanManageScopedRbacRecord,
-  ensureCompanyScopedActor,
-} from '../../common/utils/scoped-rbac.util';
-import {
   assertCanMutateSystemGeneratedRbacRecord,
   hasOwnerRole,
 } from '../../common/utils/system-generated-rbac.util';
@@ -26,27 +22,18 @@ export class PermissionsService {
   ) {}
 
   private createBaseQuery() {
-    return this.permissionsRepository
-      .createQueryBuilder('permission')
-      .leftJoinAndSelect('permission.company', 'company')
-      .distinct(true);
+    return this.permissionsRepository.createQueryBuilder('permission');
   }
 
   private async findAccessiblePermissionOrFail(
     id: number,
     actor?: AuthenticatedUser,
   ): Promise<Permission> {
-    const query = this.createBaseQuery().where('permission.id = :id', { id });
+    void actor;
 
-    if (!hasOwnerRole(actor)) {
-      const companyActor = ensureCompanyScopedActor(actor);
-      query.andWhere(
-        '(permission.company_id IS NULL OR permission.company_id = :companyId)',
-        { companyId: companyActor.companyId },
-      );
-    }
-
-    const permission = await query.getOne();
+    const permission = await this.createBaseQuery()
+      .where('permission.id = :id', { id })
+      .getOne();
 
     if (!permission) {
       throw new NotFoundException('Permission not found');
@@ -69,7 +56,6 @@ export class PermissionsService {
       name: createPermissionDto.name,
       display_name: createPermissionDto.display_name,
       description: createPermissionDto.description ?? null,
-      company_id: null,
       is_system_generated: false,
     });
 
@@ -77,19 +63,17 @@ export class PermissionsService {
   }
 
   async findAll(actor?: AuthenticatedUser): Promise<Permission[]> {
-    const query = this.createBaseQuery().orderBy('permission.name', 'ASC');
+    void actor;
 
+    return this.createBaseQuery().orderBy('permission.name', 'ASC').getMany();
+  }
+
+  private assertCanManagePermissions(actor?: AuthenticatedUser): void {
     if (!hasOwnerRole(actor)) {
-      const companyActor = ensureCompanyScopedActor(actor);
-      query.where(
-        '(permission.company_id IS NULL OR permission.company_id = :companyId)',
-        {
-          companyId: companyActor.companyId,
-        },
+      throw new ForbiddenException(
+        'Only users with the OWNER role can modify permissions',
       );
     }
-
-    return query.getMany();
   }
 
   async findOne(id: number, actor?: AuthenticatedUser): Promise<Permission> {
@@ -101,6 +85,8 @@ export class PermissionsService {
     updatePermissionDto: UpdatePermissionDto,
     actor?: AuthenticatedUser,
   ): Promise<Permission> {
+    this.assertCanManagePermissions(actor);
+
     const permission = await this.findAccessiblePermissionOrFail(id, actor);
 
     assertCanMutateSystemGeneratedRbacRecord(
@@ -108,7 +94,6 @@ export class PermissionsService {
       permission,
       'permission',
     );
-    assertCanManageScopedRbacRecord(actor, permission, 'permission');
 
     permission.name = updatePermissionDto.name ?? permission.name;
     permission.display_name =
@@ -122,6 +107,8 @@ export class PermissionsService {
   }
 
   async remove(id: number, actor?: AuthenticatedUser): Promise<void> {
+    this.assertCanManagePermissions(actor);
+
     const permission = await this.findAccessiblePermissionOrFail(id, actor);
 
     assertCanMutateSystemGeneratedRbacRecord(
@@ -129,7 +116,6 @@ export class PermissionsService {
       permission,
       'permission',
     );
-    assertCanManageScopedRbacRecord(actor, permission, 'permission');
 
     await this.permissionsRepository.remove(permission);
   }
