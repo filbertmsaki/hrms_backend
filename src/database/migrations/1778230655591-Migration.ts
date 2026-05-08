@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
-export class Migration1778229423510 implements MigrationInterface {
-    name = 'Migration1778229423510'
+export class Migration1778230655591 implements MigrationInterface {
+    name = 'Migration1778230655591'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
         await queryRunner.query(`CREATE TABLE \`permissions\` (\`id\` int NOT NULL AUTO_INCREMENT, \`name\` varchar(100) NOT NULL, \`display_name\` varchar(100) NOT NULL, \`description\` text NULL, \`company_id\` int NULL, \`company_scope_key\` int AS (COALESCE(\`company_id\`, 0)) STORED, \`is_system_generated\` tinyint NOT NULL DEFAULT 0, \`created_at\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), \`updated_at\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6), UNIQUE INDEX \`UQ_permission_scope_name\` (\`company_scope_key\`, \`name\`), INDEX \`IDX_permission_company\` (\`company_id\`), PRIMARY KEY (\`id\`)) ENGINE=InnoDB`);

@@ -19,7 +19,9 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
 import { Permissions } from '../../common/decorators/permissions.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { CreatePermissionDto } from './dtos/create-permission.dto';
 import { UpdatePermissionDto } from './dtos/update-permission.dto';
@@ -33,13 +35,13 @@ export class PermissionsController {
   constructor(private readonly permissionsService: PermissionsService) {}
 
   @Post()
-  @UseGuards(PermissionsGuard)
-  @Permissions('permissions:create')
+  @UseGuards(RolesGuard)
+  @Roles('OWNER')
   @ApiOperation({ summary: 'Create a new permission' })
   @ApiResponse({ status: 201, description: 'Permission created' })
   @ApiResponse({
     status: 403,
-    description: 'Forbidden - insufficient permissions',
+    description: 'Forbidden - only OWNER users can create permissions',
   })
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -73,8 +75,7 @@ export class PermissionsController {
   @ApiOperation({ summary: 'Update a permission' })
   @ApiResponse({
     status: 403,
-    description:
-      'Forbidden - system-generated permissions can only be modified by OWNER users',
+    description: 'Forbidden - insufficient access to modify this permission',
   })
   update(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -90,8 +91,7 @@ export class PermissionsController {
   @ApiOperation({ summary: 'Delete a permission' })
   @ApiResponse({
     status: 403,
-    description:
-      'Forbidden - system-generated permissions can only be modified by OWNER users',
+    description: 'Forbidden - insufficient access to modify this permission',
   })
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },

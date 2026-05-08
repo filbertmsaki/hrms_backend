@@ -209,7 +209,7 @@ const permissionSeeds: PermissionSeed[] = [
     name: 'permissions:create',
     displayName: 'Create permissions',
     description: 'Compatibility permission for permission creation endpoints',
-    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
+    scopes: GLOBAL_SCOPE,
   },
   {
     name: 'permissions:update',
@@ -389,7 +389,6 @@ const roleSeeds: RoleSeed[] = [
       'roles:update',
       'roles:delete',
       'permissions:read',
-      'permissions:create',
       'permissions:update',
       'permissions:delete',
       'branches:read',
