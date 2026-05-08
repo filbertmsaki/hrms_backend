@@ -31,8 +31,6 @@ export function assertCanMutateSystemGeneratedRbacRecord(
   resource: 'role' | 'permission',
 ): void {
   if (record.is_system_generated && !hasOwnerRole(actor)) {
-    throw new ForbiddenException(
-      `System-generated ${resource} "${record.name}" can only be modified by users with the OWNER role`,
-    );
+    throw new ForbiddenException('This resource can not be modified');
   }
 }

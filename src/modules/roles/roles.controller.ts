@@ -73,8 +73,7 @@ export class RolesController {
   @ApiOperation({ summary: 'Update a role' })
   @ApiResponse({
     status: 403,
-    description:
-      'Forbidden - system-generated roles can only be modified by OWNER users',
+    description: 'Forbidden - this resource can not be modified',
   })
   update(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -90,8 +89,7 @@ export class RolesController {
   @ApiOperation({ summary: 'Delete a role' })
   @ApiResponse({
     status: 403,
-    description:
-      'Forbidden - system-generated roles can only be modified by OWNER users',
+    description: 'Forbidden - this resource can not be modified',
   })
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },

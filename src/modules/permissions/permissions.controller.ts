@@ -75,7 +75,7 @@ export class PermissionsController {
   @ApiOperation({ summary: 'Update a permission' })
   @ApiResponse({
     status: 403,
-    description: 'Forbidden - insufficient access to modify this permission',
+    description: 'Forbidden - this resource can not be modified',
   })
   update(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -91,7 +91,7 @@ export class PermissionsController {
   @ApiOperation({ summary: 'Delete a permission' })
   @ApiResponse({
     status: 403,
-    description: 'Forbidden - insufficient access to modify this permission',
+    description: 'Forbidden - this resource can not be modified',
   })
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
