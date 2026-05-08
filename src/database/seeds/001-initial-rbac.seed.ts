@@ -1,4 +1,4 @@
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, IsNull, Repository } from 'typeorm';
 import { Seeder, SeederFactoryManager } from 'typeorm-extension';
 import { hashPassword } from '../../common/utils/hash.util';
 import { Company } from '../../modules/companies/entities/company.entity';
@@ -9,10 +9,13 @@ import { Role } from '../../modules/roles/entities/role.entity';
 import { User } from '../../modules/users/entities/user.entity';
 import { ALLIANCE_COMPANY_NAME } from './company-structure.constants';
 
+type SeedScope = 'global' | 'default_company';
+
 type PermissionSeed = {
   name: string;
   displayName: string;
   description: string;
+  scopes: SeedScope[];
 };
 
 type RoleSeed = {
@@ -20,6 +23,7 @@ type RoleSeed = {
   displayName: string;
   description: string;
   permissionNames: string[];
+  scopes: SeedScope[];
 };
 
 type SeedUserConfig = {
@@ -32,256 +36,306 @@ type SeedUserConfig = {
   userType: 'OWNER' | 'COMPANY_USER';
 };
 
+const GLOBAL_SCOPE: SeedScope[] = ['global'];
+const GLOBAL_AND_DEFAULT_COMPANY_SCOPES: SeedScope[] = [
+  'global',
+  'default_company',
+];
+
 const permissionSeeds: PermissionSeed[] = [
-  // Requested platform-level permissions.
   {
     name: 'create_company',
     displayName: 'Create company',
     description: 'Allow creating a new company tenant',
+    scopes: GLOBAL_SCOPE,
   },
   {
     name: 'view_companies',
     displayName: 'View companies',
     description: 'Allow viewing companies across the platform',
+    scopes: GLOBAL_SCOPE,
   },
   {
     name: 'update_company',
     displayName: 'Update company',
     description: 'Allow updating company details',
+    scopes: GLOBAL_SCOPE,
   },
   {
     name: 'delete_company',
     displayName: 'Delete company',
     description: 'Allow deleting a company',
+    scopes: GLOBAL_SCOPE,
   },
   {
     name: 'create_company_admin',
     displayName: 'Create company administrator',
     description: 'Allow provisioning the first administrator for a company',
+    scopes: GLOBAL_SCOPE,
   },
-
-  // Requested company-level permissions.
   {
     name: 'view_company_dashboard',
     displayName: 'View company dashboard',
     description: 'Allow viewing the company dashboard',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'manage_company_users',
     displayName: 'Manage company users',
     description: 'Allow managing users within a company',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'create_company_user',
     displayName: 'Create company user',
     description: 'Allow creating users within a company',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'update_company_user',
     displayName: 'Update company user',
     description: 'Allow updating users within a company',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'delete_company_user',
     displayName: 'Delete company user',
     description: 'Allow deleting users within a company',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'view_company_data',
     displayName: 'View company data',
     description: 'Allow reading company-owned data',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'update_company_data',
     displayName: 'Update company data',
     description: 'Allow updating company-owned data',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
-
-  // Compatibility permissions used by the existing guards/controllers.
   {
     name: 'companies:create',
     displayName: 'Create companies',
     description: 'Compatibility permission for company creation endpoints',
+    scopes: GLOBAL_SCOPE,
   },
   {
     name: 'companies:read',
     displayName: 'Read companies',
     description: 'Compatibility permission for company listing endpoints',
+    scopes: GLOBAL_SCOPE,
   },
   {
     name: 'companies:update',
     displayName: 'Update companies',
     description: 'Compatibility permission for company update endpoints',
+    scopes: GLOBAL_SCOPE,
   },
   {
     name: 'companies:delete',
     displayName: 'Delete companies',
     description: 'Compatibility permission for company delete endpoints',
+    scopes: GLOBAL_SCOPE,
   },
   {
     name: 'users:read',
     displayName: 'Read users',
     description: 'Compatibility permission for user listing endpoints',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'users:create',
     displayName: 'Create users',
     description: 'Compatibility permission for user creation endpoints',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'users:update',
     displayName: 'Update users',
     description: 'Compatibility permission for user update endpoints',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'users:delete',
     displayName: 'Delete users',
     description: 'Compatibility permission for user delete endpoints',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'users:assign-role',
     displayName: 'Assign user roles',
     description: 'Compatibility permission for role assignment endpoints',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'users:revoke-role',
     displayName: 'Revoke user roles',
     description: 'Compatibility permission for role revocation endpoints',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'roles:read',
     displayName: 'Read roles',
     description: 'Compatibility permission for role listing endpoints',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'roles:create',
     displayName: 'Create roles',
     description: 'Compatibility permission for role creation endpoints',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'roles:update',
     displayName: 'Update roles',
     description: 'Compatibility permission for role update endpoints',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'roles:delete',
     displayName: 'Delete roles',
     description: 'Compatibility permission for role delete endpoints',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'permissions:read',
     displayName: 'Read permissions',
     description: 'Compatibility permission for permission listing endpoints',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'permissions:create',
     displayName: 'Create permissions',
     description: 'Compatibility permission for permission creation endpoints',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'permissions:update',
     displayName: 'Update permissions',
     description: 'Compatibility permission for permission update endpoints',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'permissions:delete',
     displayName: 'Delete permissions',
     description: 'Compatibility permission for permission delete endpoints',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'branches:read',
     displayName: 'Read branches',
     description: 'Allow listing and viewing company branches',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'branches:create',
     displayName: 'Create branches',
     description: 'Allow creating company branches',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'branches:update',
     displayName: 'Update branches',
     description: 'Allow updating company branches',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'branches:delete',
     displayName: 'Delete branches',
     description: 'Allow deleting company branches',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'branches:manage-access',
     displayName: 'Manage branch access',
     description: 'Allow granting and revoking branch-level access for company users',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'departments:read',
     displayName: 'Read departments',
     description: 'Allow listing and viewing company departments',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'departments:create',
     displayName: 'Create departments',
     description: 'Allow creating company departments',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'departments:update',
     displayName: 'Update departments',
     description: 'Allow updating company departments',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'departments:delete',
     displayName: 'Delete departments',
     description: 'Allow deleting company departments',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'positions:read',
     displayName: 'Read positions',
     description: 'Allow listing and viewing company positions',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'positions:create',
     displayName: 'Create positions',
     description: 'Allow creating company positions',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'positions:update',
     displayName: 'Update positions',
     description: 'Allow updating company positions',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'positions:delete',
     displayName: 'Delete positions',
     description: 'Allow deleting company positions',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'employees:read',
     displayName: 'Read employees',
     description: 'Allow listing and viewing employee profiles',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'employees:create',
     displayName: 'Create employees',
     description: 'Allow creating employee profiles for existing company users',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'employees:update',
     displayName: 'Update employees',
     description: 'Allow updating employee profiles and documents',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'employees:delete',
     displayName: 'Delete employees',
     description: 'Allow deleting employee profiles',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'employees:onboard',
     displayName: 'Onboard employees',
     description: 'Allow onboarding employees by creating the user and HR profile',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'employees:change-status',
     displayName: 'Change employee status',
     description: 'Allow managing employee lifecycle statuses',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
 ];
 
@@ -290,6 +344,7 @@ const roleSeeds: RoleSeed[] = [
     name: 'OWNER',
     displayName: 'Platform Owner',
     description: 'Global platform-level owner with no company membership',
+    scopes: GLOBAL_SCOPE,
     permissionNames: [
       'create_company',
       'view_companies',
@@ -314,6 +369,7 @@ const roleSeeds: RoleSeed[] = [
     name: 'ADMINISTRATOR',
     displayName: 'Company Administrator',
     description: 'Administrator with full access limited to their own company',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
     permissionNames: [
       'view_company_dashboard',
       'manage_company_users',
@@ -329,7 +385,13 @@ const roleSeeds: RoleSeed[] = [
       'users:assign-role',
       'users:revoke-role',
       'roles:read',
+      'roles:create',
+      'roles:update',
+      'roles:delete',
       'permissions:read',
+      'permissions:create',
+      'permissions:update',
+      'permissions:delete',
       'branches:read',
       'branches:create',
       'branches:update',
@@ -355,6 +417,7 @@ const roleSeeds: RoleSeed[] = [
     name: 'USER',
     displayName: 'Company User',
     description: 'Regular company user with read-only company access',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
     permissionNames: ['view_company_data'],
   },
   {
@@ -362,6 +425,7 @@ const roleSeeds: RoleSeed[] = [
     displayName: 'Viewer',
     description:
       'Compatibility role mirroring the default read-only company user access',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
     permissionNames: ['view_company_data'],
   },
 ];
@@ -396,7 +460,8 @@ export default class InitialRbacSeeder implements Seeder {
         userType: 'OWNER',
       };
 
-      const companyName = process.env.DEFAULT_COMPANY_NAME ?? ALLIANCE_COMPANY_NAME;
+      const companyName =
+        process.env.DEFAULT_COMPANY_NAME ?? ALLIANCE_COMPANY_NAME;
 
       const adminConfig: SeedUserConfig = {
         firstName: process.env.INITIAL_COMPANY_ADMIN_FIRST_NAME ?? 'Inocent',
@@ -404,8 +469,7 @@ export default class InitialRbacSeeder implements Seeder {
         email:
           process.env.INITIAL_COMPANY_ADMIN_EMAIL ?? 'inocent@alliance.co.tz',
         phone: process.env.INITIAL_COMPANY_ADMIN_PHONE ?? '+255700000002',
-        password:
-          process.env.INITIAL_COMPANY_ADMIN_PASSWORD ?? 'Admin123!',
+        password: process.env.INITIAL_COMPANY_ADMIN_PASSWORD ?? 'Admin123!',
         userNo: process.env.INITIAL_COMPANY_ADMIN_USER_NO ?? 'ADMIN-00001',
         userType: 'COMPANY_USER',
       };
@@ -419,23 +483,28 @@ export default class InitialRbacSeeder implements Seeder {
         );
       }
 
-      // 1. Seed permissions first so roles can be attached safely.
-      const permissionsByName = await this.syncPermissions(
+      const defaultCompany = await this.ensureCompany(companyRepo, companyName);
+
+      const permissionsByScopeAndName = await this.syncPermissions(
         permissionRepo,
         permissionSeeds,
+        defaultCompany.id,
       );
 
-      // 2. Seed roles with their permission mappings.
-      const rolesByName = await this.syncRoles(
+      const rolesByScopeAndName = await this.syncRoles(
         roleRepo,
         roleSeeds,
-        permissionsByName,
+        permissionsByScopeAndName,
+        defaultCompany.id,
       );
 
-      const ownerRole = this.requireRole(rolesByName, 'OWNER');
-      const adminRole = this.requireRole(rolesByName, 'ADMINISTRATOR');
+      const ownerRole = this.requireRole(rolesByScopeAndName, 'OWNER', null);
+      const adminRole = this.requireRole(
+        rolesByScopeAndName,
+        'ADMINISTRATOR',
+        defaultCompany.id,
+      );
 
-      // 3. Create or normalize the global OWNER user.
       const ownerUser = await this.findUserByIdentity(
         userRepo,
         ownerConfig.email,
@@ -449,17 +518,8 @@ export default class InitialRbacSeeder implements Seeder {
         ownerRole,
       );
 
-      // In this schema, "company_id = null" is represented by having no
-      // company membership row at all for the OWNER user.
       await companyUserRepo.delete({ user_id: savedOwner.id });
 
-      // 4. Create one default company/tenant for sample tenant data.
-      const defaultCompany = await this.ensureCompany(
-        companyRepo,
-        companyName,
-      );
-
-      // 5. Create or normalize the default company administrator user.
       const adminUser = await this.findUserByIdentity(
         userRepo,
         adminConfig.email,
@@ -472,16 +532,12 @@ export default class InitialRbacSeeder implements Seeder {
         adminConfig,
       );
 
-      // 6. Link the administrator to the Alliance Insurance Corporation Ltd and make that
-      // membership their default tenant context.
       const membership = await this.ensureCompanyMembership(
         companyUserRepo,
         defaultCompany.id,
         savedAdmin.id,
       );
 
-      // 7. Assign the tenant-scoped ADMINISTRATOR role through the
-      // company membership table, not through global role_user.
       await this.ensureMembershipRole(
         companyUserRoleRepo,
         membership.id,
@@ -503,84 +559,125 @@ export default class InitialRbacSeeder implements Seeder {
     }
   }
 
+  private buildScopeKey(name: string, companyId: number | null): string {
+    return `${companyId ?? 'global'}::${name}`;
+  }
+
+  private resolveScopeCompanyId(
+    scope: SeedScope,
+    defaultCompanyId: number,
+  ): number | null {
+    return scope === 'default_company' ? defaultCompanyId : null;
+  }
+
   private async syncPermissions(
     permissionRepo: Repository<Permission>,
     definitions: PermissionSeed[],
+    defaultCompanyId: number,
   ): Promise<Map<string, Permission>> {
-    const permissionsByName = new Map<string, Permission>();
+    const permissionsByScopeAndName = new Map<string, Permission>();
 
     for (const definition of definitions) {
-      let permission = await permissionRepo.findOne({
-        where: { name: definition.name },
-      });
+      for (const scope of definition.scopes) {
+        const companyId = this.resolveScopeCompanyId(scope, defaultCompanyId);
 
-      if (!permission) {
-        permission = permissionRepo.create({
-          name: definition.name,
-          display_name: definition.displayName,
-          description: definition.description,
-          is_system_generated: true,
+        let permission = await permissionRepo.findOne({
+          where: {
+            name: definition.name,
+            company_id: companyId === null ? IsNull() : companyId,
+          },
         });
-      } else {
-        permission.display_name = definition.displayName;
-        permission.description = definition.description;
+
+        if (!permission) {
+          permission = permissionRepo.create({
+            name: definition.name,
+            display_name: definition.displayName,
+            description: definition.description,
+            company_id: companyId,
+            is_system_generated: true,
+          });
+        } else {
+          permission.display_name = definition.displayName;
+          permission.description = definition.description;
+          permission.company_id = companyId;
+        }
+
+        permission.is_system_generated = true;
+
+        permission = await permissionRepo.save(permission);
+        permissionsByScopeAndName.set(
+          this.buildScopeKey(permission.name, companyId),
+          permission,
+        );
       }
-
-      permission.is_system_generated = true;
-
-      permission = await permissionRepo.save(permission);
-      permissionsByName.set(permission.name, permission);
     }
 
-    return permissionsByName;
+    return permissionsByScopeAndName;
   }
 
   private async syncRoles(
     roleRepo: Repository<Role>,
     definitions: RoleSeed[],
-    permissionsByName: Map<string, Permission>,
+    permissionsByScopeAndName: Map<string, Permission>,
+    defaultCompanyId: number,
   ): Promise<Map<string, Role>> {
-    const rolesByName = new Map<string, Role>();
+    const rolesByScopeAndName = new Map<string, Role>();
 
     for (const definition of definitions) {
-      let role = await roleRepo.findOne({
-        where: { name: definition.name },
-        relations: ['permissions'],
-      });
+      for (const scope of definition.scopes) {
+        const companyId = this.resolveScopeCompanyId(scope, defaultCompanyId);
 
-      if (!role) {
-        role = roleRepo.create({
-          name: definition.name,
-          display_name: definition.displayName,
-          description: definition.description,
-          is_system_generated: true,
+        let role = await roleRepo.findOne({
+          where: {
+            name: definition.name,
+            company_id: companyId === null ? IsNull() : companyId,
+          },
+          relations: ['permissions'],
         });
-      } else {
-        role.display_name = definition.displayName;
-        role.description = definition.description;
-      }
 
-      role.is_system_generated = true;
-
-      role.permissions = definition.permissionNames.map((permissionName) => {
-        const permission = permissionsByName.get(permissionName);
-
-        if (!permission) {
-          throw new Error(`Permission "${permissionName}" is missing`);
+        if (!role) {
+          role = roleRepo.create({
+            name: definition.name,
+            display_name: definition.displayName,
+            description: definition.description,
+            company_id: companyId,
+            is_system_generated: true,
+          });
+        } else {
+          role.display_name = definition.displayName;
+          role.description = definition.description;
+          role.company_id = companyId;
         }
 
-        return permission;
-      });
+        role.is_system_generated = true;
+        role.permissions = definition.permissionNames.map((permissionName) => {
+          const permission = permissionsByScopeAndName.get(
+            this.buildScopeKey(permissionName, companyId),
+          );
 
-      role = await roleRepo.save(role);
-      rolesByName.set(role.name, role);
+          if (!permission) {
+            throw new Error(
+              `Permission "${permissionName}" is missing for scope "${scope}"`,
+            );
+          }
+
+          return permission;
+        });
+
+        role = await roleRepo.save(role);
+        rolesByScopeAndName.set(this.buildScopeKey(role.name, companyId), role);
+      }
     }
 
-    return rolesByName;
+    return rolesByScopeAndName;
   }
 
-  private requireRole(rolesByName: Map<string, Role>, roleName: string): Role {
-    const role = rolesByName.get(roleName);
+  private requireRole(
+    rolesByScopeAndName: Map<string, Role>,
+    roleName: string,
+    companyId: number | null,
+  ): Role {
+    const role = rolesByScopeAndName.get(this.buildScopeKey(roleName, companyId));
 
     if (!role) {
       throw new Error(`Role "${roleName}" could not be resolved`);

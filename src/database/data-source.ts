@@ -5,7 +5,7 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 
 export const AppDataSource = new DataSource({
-  type: 'mysql',
+  type: 'mariadb',
   host: process.env.DB_HOST || 'localhost',
   port: Number(process.env.DB_PORT) || 3306,
   username: process.env.DB_USERNAME || 'root',
@@ -14,7 +14,7 @@ export const AppDataSource = new DataSource({
 
   entities: ['src/**/*.entity{.ts,.js}'],
 
- migrations: ['src/database/migrations/*{.ts,.js}'],
+  migrations: ['src/database/migrations/*{.ts,.js}'],
   migrationsTableName: 'migrations',
 
   seeds: ['src/database/seeds/*.seed.ts'],

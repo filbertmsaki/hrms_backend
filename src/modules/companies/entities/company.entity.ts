@@ -6,6 +6,8 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { Permission } from '../../permissions/entities/permission.entity';
+import { Role } from '../../roles/entities/role.entity';
 import { CompanyUser } from './company-user.entity';
 
 @Entity('companies')
@@ -33,4 +35,10 @@ export class Company {
 
   @OneToMany(() => CompanyUser, (membership) => membership.company)
   memberships: CompanyUser[];
+
+  @OneToMany(() => Role, (role) => role.company)
+  roles: Role[];
+
+  @OneToMany(() => Permission, (permission) => permission.company)
+  permissions: Permission[];
 }

@@ -1,5 +1,12 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
 export class CreatePermissionDto {
   @IsString()
@@ -13,6 +20,16 @@ export class CreatePermissionDto {
   @IsString()
   @IsOptional()
   description?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Company scope for the permission. Omit for company users; owners can create global or company-scoped permissions.',
+    type: Number,
+  })
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  company_id?: number;
 
   @ApiPropertyOptional({
     description:

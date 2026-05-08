@@ -1,29 +1,53 @@
+import { ApiProperty } from '@nestjs/swagger';
 import {
-  Entity,
-  PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
-  UpdateDateColumn,
-  ManyToMany,
+  Entity,
+  Index,
+  JoinColumn,
   JoinTable,
+  ManyToMany,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
 } from 'typeorm';
-import { ApiProperty } from '@nestjs/swagger';
-import { User } from '../../users/entities/user.entity';
+import { Company } from '../../companies/entities/company.entity';
 import { Permission } from '../../permissions/entities/permission.entity';
+import { User } from '../../users/entities/user.entity';
 
 @Entity('roles')
+@Index('IDX_role_company', ['company_id'])
+@Index('UQ_role_scope_name', ['company_scope_key', 'name'], { unique: true })
 export class Role {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ unique: true, length: 50 })
+  @Column({ length: 50 })
   name: string;
 
   @Column({ length: 100 })
   display_name: string;
 
   @Column({ type: 'text', nullable: true })
-  description: string;
+  description: string | null;
+
+  @ApiProperty({
+    description: 'Owning company for company-scoped roles. Null means global.',
+    nullable: true,
+    required: false,
+  })
+  @Column({ type: 'int', nullable: true })
+  company_id: number | null;
+
+  @Column({
+    type: 'int',
+    asExpression: 'COALESCE(`company_id`, 0)',
+    generatedType: 'STORED',
+    select: false,
+    insert: false,
+    update: false,
+  })
+  company_scope_key: number;
 
   @ApiProperty({
     description:
@@ -38,6 +62,13 @@ export class Role {
 
   @UpdateDateColumn()
   updated_at: Date;
+
+  @ManyToOne(() => Company, (company) => company.roles, {
+    nullable: true,
+    onDelete: 'CASCADE',
+  })
+  @JoinColumn({ name: 'company_id' })
+  company: Company | null;
 
   @ManyToMany(() => User, (user) => user.roles)
   users: User[];

@@ -1,45 +1,46 @@
 import {
-  Controller,
-  Get,
-  Post,
   Body,
-  Patch,
-  Param,
+  Controller,
   Delete,
+  Get,
+  Param,
   ParseIntPipe,
-  UseGuards,
+  Patch,
+  Post,
   Req,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
-
-import { PermissionsService } from './permissions.service';
+import { Permissions } from '../../common/decorators/permissions.decorator';
+import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { CreatePermissionDto } from './dtos/create-permission.dto';
 import { UpdatePermissionDto } from './dtos/update-permission.dto';
-
-import { AuthGuard } from '@nestjs/passport';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { PermissionsGuard } from '../../common/guards/permissions.guard';
-
-import { Roles } from '../../common/decorators/roles.decorator';
-import { Permissions } from '../../common/decorators/permissions.decorator';
-import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
+import { PermissionsService } from './permissions.service';
 
 @ApiTags('Permissions')
 @ApiBearerAuth()
 @Controller('permissions')
-@UseGuards(AuthGuard('jwt')) 
+@UseGuards(AuthGuard('jwt'))
 export class PermissionsController {
   constructor(private readonly permissionsService: PermissionsService) {}
 
-
   @Post()
-  @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('OWNER')
+  @UseGuards(PermissionsGuard)
   @Permissions('permissions:create')
-  @ApiOperation({ summary: 'Create a new permission (owner only)' })
+  @ApiOperation({ summary: 'Create a new permission' })
   @ApiResponse({ status: 201, description: 'Permission created' })
-  @ApiResponse({ status: 403, description: 'Forbidden - insufficient permissions' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - insufficient permissions',
+  })
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() createPermissionDto: CreatePermissionDto,
@@ -47,30 +48,29 @@ export class PermissionsController {
     return this.permissionsService.create(createPermissionDto, req.user);
   }
 
-
   @Get()
   @UseGuards(PermissionsGuard)
   @Permissions('permissions:read')
-  @ApiOperation({ summary: 'Get all permissions' })
-  findAll() {
-    return this.permissionsService.findAll();
+  @ApiOperation({ summary: 'Get permissions visible to the current actor' })
+  findAll(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.permissionsService.findAll(req.user);
   }
-
 
   @Get(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('permissions:read')
   @ApiOperation({ summary: 'Get permission by ID' })
-  findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.permissionsService.findOne(id);
+  findOne(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.permissionsService.findOne(id, req.user);
   }
 
-
   @Patch(':id')
-  @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('OWNER')
+  @UseGuards(PermissionsGuard)
   @Permissions('permissions:update')
-  @ApiOperation({ summary: 'Update a permission (owner only)' })
+  @ApiOperation({ summary: 'Update a permission' })
   @ApiResponse({
     status: 403,
     description:
@@ -85,10 +85,9 @@ export class PermissionsController {
   }
 
   @Delete(':id')
-  @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('OWNER')
+  @UseGuards(PermissionsGuard)
   @Permissions('permissions:delete')
-  @ApiOperation({ summary: 'Delete a permission (owner only)' })
+  @ApiOperation({ summary: 'Delete a permission' })
   @ApiResponse({
     status: 403,
     description:

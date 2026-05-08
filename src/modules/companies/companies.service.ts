@@ -70,6 +70,77 @@ export class CompaniesService {
     return manager?.getRepository(Role) ?? this.roleRepository;
   }
 
+  private async findRoleByNameForCompany(
+    name: string,
+    companyId: number,
+    manager?: EntityManager,
+  ): Promise<Role | null> {
+    const roleRepository = this.getRoleRepository(manager);
+
+    return roleRepository
+      .createQueryBuilder('role')
+      .where('role.name = :name', { name })
+      .andWhere('(role.company_id = :companyId OR role.company_id IS NULL)', {
+        companyId,
+      })
+      .orderBy('CASE WHEN role.company_id = :companyId THEN 0 ELSE 1 END', 'ASC')
+      .addOrderBy('role.id', 'ASC')
+      .setParameter('companyId', companyId)
+      .getOne();
+  }
+
+  private async resolveRolesByIdsForCompany(
+    roleIds: number[],
+    companyId: number,
+    manager?: EntityManager,
+  ): Promise<Role[]> {
+    const uniqueRoleIds = Array.from(new Set(roleIds));
+
+    if (!uniqueRoleIds.length) {
+      return [];
+    }
+
+    const roleRepository = this.getRoleRepository(manager);
+    const roles = await roleRepository.find({
+      where: uniqueRoleIds.map((id) => ({ id })),
+    });
+
+    if (
+      roles.length !== uniqueRoleIds.length ||
+      roles.some(
+        (role) => role.company_id !== null && role.company_id !== companyId,
+      )
+    ) {
+      throw new NotFoundException('One or more requested roles were not found');
+    }
+
+    const byId = new Map(roles.map((role) => [role.id, role]));
+    return uniqueRoleIds.map((roleId) => byId.get(roleId)!);
+  }
+
+  private async resolveRolesByNamesForCompany(
+    roleNames: string[],
+    companyId: number,
+    manager?: EntityManager,
+  ): Promise<Role[]> {
+    const uniqueRoleNames = Array.from(new Set(roleNames));
+    const roles: Role[] = [];
+
+    for (const roleName of uniqueRoleNames) {
+      const role = await this.findRoleByNameForCompany(roleName, companyId, manager);
+
+      if (!role) {
+        throw new NotFoundException(
+          `Role "${roleName}" was not found for this company`,
+        );
+      }
+
+      roles.push(role);
+    }
+
+    return roles;
+  }
+
   private getUserRepository(manager?: EntityManager): Repository<User> {
     return manager?.getRepository(User) ?? this.userRepository;
   }
@@ -525,21 +596,20 @@ export class CompaniesService {
     });
 
     if (options?.roleNames?.length) {
-      const namedRoles = await roleRepository.find({
-        where: options.roleNames.map((name) => ({ name })),
-      });
-      if (namedRoles.length !== options.roleNames.length) {
-        throw new NotFoundException(
-          'One or more requested roles were not found',
-        );
-      }
+      const namedRoles = await this.resolveRolesByNamesForCompany(
+        options.roleNames,
+        companyId,
+        manager,
+      );
       namedRoles.forEach((role) => roleIds.add(role.id));
     }
 
     if (!roleIds.size) {
-      const viewerRole = await roleRepository.findOne({
-        where: { name: 'VIEWER' },
-      });
+      const viewerRole = await this.findRoleByNameForCompany(
+        'VIEWER',
+        companyId,
+        manager,
+      );
 
       if (!viewerRole) {
         throw new NotFoundException('Default viewer role not found');
@@ -548,13 +618,11 @@ export class CompaniesService {
       roleIds.add(viewerRole.id);
     }
 
-    const resolvedRoles = await roleRepository.find({
-      where: Array.from(roleIds).map((id) => ({ id })),
-    });
-
-    if (resolvedRoles.length !== roleIds.size) {
-      throw new NotFoundException('One or more requested roles were not found');
-    }
+    const resolvedRoles = await this.resolveRolesByIdsForCompany(
+      Array.from(roleIds),
+      companyId,
+      manager,
+    );
 
     for (const roleId of roleIds) {
       const existingAssignment = await companyUserRoleRepository.findOne({
@@ -595,7 +663,7 @@ export class CompaniesService {
     }
 
     const role = await this.roleRepository.findOne({ where: { id: roleId } });
-    if (!role) {
+    if (!role || (role.company_id !== null && role.company_id !== companyId)) {
       throw new NotFoundException('Role not found');
     }
 
