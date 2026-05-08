@@ -65,7 +65,7 @@ export class Role {
 
   @ManyToOne(() => Company, (company) => company.roles, {
     nullable: true,
-    onDelete: 'CASCADE',
+    createForeignKeyConstraints: false,
   })
   @JoinColumn({ name: 'company_id' })
   company: Company | null;
