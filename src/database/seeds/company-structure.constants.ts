@@ -4,12 +4,15 @@ export interface CompanyBranchSeed {
   city: string;
   country: string;
   status?: string;
+  managerPositionCode: string; // Position code of the employee who manages this branch
 }
 
 export interface CompanyDepartmentSeed {
   name: string;
   code: string;
   description: string;
+  branchCode: string; // The branch this department belongs to (by code)
+  managerPositionCode: string; // Position code of the employee who manages this department
 }
 
 export interface CompanyPositionSeed {
@@ -19,6 +22,18 @@ export interface CompanyPositionSeed {
   level: number | null;
   isManager: boolean;
   description: string;
+}
+
+export interface CompanyEmployeeSeed {
+  employeeNo: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  positionCode: string;
+  primaryBranchCode: string;
+  primaryDepartmentCode: string;
+  reportsToEmployeeNo: string | null; // null for CEO/GM
 }
 
 export const ALLIANCE_COMPANY_NAME = 'Alliance Insurance Corporation Ltd';
@@ -36,6 +51,7 @@ export const ALLIANCE_BRANCHES: CompanyBranchSeed[] = [
     city: 'Dar es Salaam',
     country: 'Tanzania',
     status: 'active',
+    managerPositionCode: 'CEO',
   },
   {
     name: 'Arusha',
@@ -43,6 +59,7 @@ export const ALLIANCE_BRANCHES: CompanyBranchSeed[] = [
     city: 'Arusha',
     country: 'Tanzania',
     status: 'active',
+    managerPositionCode: 'BRANCH_MANAGER',
   },
   {
     name: 'Moshi',
@@ -50,6 +67,7 @@ export const ALLIANCE_BRANCHES: CompanyBranchSeed[] = [
     city: 'Moshi',
     country: 'Tanzania',
     status: 'active',
+    managerPositionCode: 'BRANCH_MANAGER',
   },
   {
     name: 'Mwanza',
@@ -57,6 +75,7 @@ export const ALLIANCE_BRANCHES: CompanyBranchSeed[] = [
     city: 'Mwanza',
     country: 'Tanzania',
     status: 'active',
+    managerPositionCode: 'BRANCH_MANAGER',
   },
   {
     name: 'Zanzibar',
@@ -64,6 +83,7 @@ export const ALLIANCE_BRANCHES: CompanyBranchSeed[] = [
     city: 'Zanzibar',
     country: 'Tanzania',
     status: 'active',
+    managerPositionCode: 'BRANCH_MANAGER',
   },
 ];
 
@@ -72,41 +92,57 @@ export const ALLIANCE_DEPARTMENTS: CompanyDepartmentSeed[] = [
     name: 'Admin',
     code: 'ADMIN',
     description: 'Corporate administration, facilities, and executive support.',
+    branchCode: 'HQ',
+    managerPositionCode: 'OPERATIONS_MANAGER',
   },
   {
     name: 'HR',
     code: 'HR',
     description: 'Human resources, talent management, and employee services.',
+    branchCode: 'HQ',
+    managerPositionCode: 'HR_MANAGER',
   },
   {
     name: 'Accounts',
     code: 'ACCOUNTS',
     description: 'Financial accounting, reporting, and treasury operations.',
+    branchCode: 'HQ',
+    managerPositionCode: 'FINANCE_MANAGER',
   },
   {
     name: 'Claims',
     code: 'CLAIMS',
     description: 'Claims intake, investigation, adjudication, and settlement.',
+    branchCode: 'HQ',
+    managerPositionCode: 'CLAIMS_MANAGER',
   },
   {
     name: 'Underwriting',
     code: 'UNDERWRITING',
     description: 'Risk evaluation, policy issuance, and underwriting analysis.',
+    branchCode: 'HQ',
+    managerPositionCode: 'UNDERWRITING_MANAGER',
   },
   {
     name: 'Bancassurance',
     code: 'BANCASSURANCE',
     description: 'Bank distribution, partner management, and bancassurance sales.',
+    branchCode: 'HQ',
+    managerPositionCode: 'BANCASSURANCE_RELATIONSHIP_MANAGER',
   },
   {
     name: 'General Business',
     code: 'GENERAL_BUSINESS',
     description: 'Sales, marketing, and customer service for general insurance business.',
+    branchCode: 'HQ',
+    managerPositionCode: 'GENERAL_MANAGER',
   },
   {
     name: 'IT',
     code: 'IT',
     description: 'Information technology, systems, infrastructure, and digital services.',
+    branchCode: 'HQ',
+    managerPositionCode: 'IT_MANAGER',
   },
 ];
 
@@ -358,5 +394,151 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     level: 2,
     isManager: false,
     description: 'Develops and maintains software applications for insurance operations.',
+  },
+];
+
+export const ALLIANCE_EMPLOYEES: CompanyEmployeeSeed[] = [
+  {
+    employeeNo: 'AICL-0001',
+    firstName: 'Abdul',
+    lastName: 'Mwapela',
+    email: 'abdul.mwapela@alliance.co.tz',
+    phone: '+255700000010',
+    positionCode: 'CEO',
+    primaryBranchCode: 'HQ',
+    primaryDepartmentCode: 'Admin',
+    reportsToEmployeeNo: null,
+  },
+  {
+    employeeNo: 'AICL-0002',
+    firstName: 'Grace',
+    lastName: 'Mhina',
+    email: 'grace.mhina@alliance.co.tz',
+    phone: '+255700000020',
+    positionCode: 'GENERAL_MANAGER',
+    primaryBranchCode: 'HQ',
+    primaryDepartmentCode: 'General Business',
+    reportsToEmployeeNo: 'AICL-0001',
+  },
+  {
+    employeeNo: 'AICL-0003',
+    firstName: 'Juma',
+    lastName: 'Kilima',
+    email: 'juma.kilima@alliance.co.tz',
+    phone: '+255700000030',
+    positionCode: 'HR_MANAGER',
+    primaryBranchCode: 'HQ',
+    primaryDepartmentCode: 'HR',
+    reportsToEmployeeNo: 'AICL-0002',
+  },
+  {
+    employeeNo: 'AICL-0004',
+    firstName: 'Asha',
+    lastName: 'Mfaume',
+    email: 'asha.mfaume@alliance.co.tz',
+    phone: '+255700000040',
+    positionCode: 'FINANCE_MANAGER',
+    primaryBranchCode: 'HQ',
+    primaryDepartmentCode: 'Accounts',
+    reportsToEmployeeNo: 'AICL-0002',
+  },
+  {
+    employeeNo: 'AICL-0005',
+    firstName: 'Hamza',
+    lastName: 'Salum',
+    email: 'hamza.salum@alliance.co.tz',
+    phone: '+255700000050',
+    positionCode: 'CLAIMS_MANAGER',
+    primaryBranchCode: 'HQ',
+    primaryDepartmentCode: 'Claims',
+    reportsToEmployeeNo: 'AICL-0002',
+  },
+  {
+    employeeNo: 'AICL-0006',
+    firstName: 'Mariam',
+    lastName: 'Kassim',
+    email: 'mariam.kassim@alliance.co.tz',
+    phone: '+255700000060',
+    positionCode: 'UNDERWRITING_MANAGER',
+    primaryBranchCode: 'HQ',
+    primaryDepartmentCode: 'Underwriting',
+    reportsToEmployeeNo: 'AICL-0002',
+  },
+  {
+    employeeNo: 'AICL-0007',
+    firstName: 'Salim',
+    lastName: 'Omar',
+    email: 'salim.omar@alliance.co.tz',
+    phone: '+255700000070',
+    positionCode: 'BANCASSURANCE_RELATIONSHIP_MANAGER',
+    primaryBranchCode: 'HQ',
+    primaryDepartmentCode: 'Bancassurance',
+    reportsToEmployeeNo: 'AICL-0002',
+  },
+  {
+    employeeNo: 'AICL-0008',
+    firstName: 'Neema',
+    lastName: 'John',
+    email: 'neema.john@alliance.co.tz',
+    phone: '+255700000080',
+    positionCode: 'IT_MANAGER',
+    primaryBranchCode: 'HQ',
+    primaryDepartmentCode: 'IT',
+    reportsToEmployeeNo: 'AICL-0002',
+  },
+  {
+    employeeNo: 'AICL-0009',
+    firstName: 'Emmanuel',
+    lastName: 'Lema',
+    email: 'emmanuel.lema@alliance.co.tz',
+    phone: '+255700000090',
+    positionCode: 'OPERATIONS_MANAGER',
+    primaryBranchCode: 'HQ',
+    primaryDepartmentCode: 'Admin',
+    reportsToEmployeeNo: 'AICL-0001',
+  },
+  {
+    employeeNo: 'AICL-0010',
+    firstName: 'Amina',
+    lastName: 'Hassan',
+    email: 'amina.hassan@alliance.co.tz',
+    phone: '+255700000100',
+    positionCode: 'BRANCH_MANAGER',
+    primaryBranchCode: 'Arusha',
+    primaryDepartmentCode: 'General Business',
+    reportsToEmployeeNo: 'AICL-0002',
+  },
+  {
+    employeeNo: 'AICL-0011',
+    firstName: 'Baraka',
+    lastName: 'Moshi',
+    email: 'baraka.moshi@alliance.co.tz',
+    phone: '+255700000110',
+    positionCode: 'BRANCH_MANAGER',
+    primaryBranchCode: 'Moshi',
+    primaryDepartmentCode: 'General Business',
+    reportsToEmployeeNo: 'AICL-0002',
+  },
+  {
+    employeeNo: 'AICL-0012',
+    firstName: 'Diana',
+    lastName: 'Mwanza',
+    email: 'diana.mwanza@alliance.co.tz',
+    phone: '+255700000120',
+    positionCode: 'BRANCH_MANAGER',
+    primaryBranchCode: 'Mwanza',
+    primaryDepartmentCode: 'General Business',
+    reportsToEmployeeNo: 'AICL-0002',
+  },
+  {
+    employeeNo: 'AICL-0013',
+    firstName: 'Fatma',
+    lastName: 'Abdallah',
+    email: 'fatma.abdallah@alliance.co.tz',
+    phone: '+255700000130',
+    positionCode: 'BRANCH_MANAGER',
+    primaryBranchCode: 'Zanzibar',
+    primaryDepartmentCode: 'General Business',
+    reportsToEmployeeNo: 'AICL-0002',
   },
 ];
