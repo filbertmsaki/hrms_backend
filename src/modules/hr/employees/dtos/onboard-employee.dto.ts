@@ -13,7 +13,7 @@ import {
 import { CreateEmployeeDto } from './create-employee.dto';
 
 export class OnboardEmployeeDto extends OmitType(CreateEmployeeDto, [
-  'user_id',
+  'company_user_id',
 ] as const) {
   @IsEmail()
   @IsNotEmpty()

@@ -1,0 +1,338 @@
+{
+  "tests": [
+    {
+      "name": "Create employee with existing company_user_id",
+      "method": "POST",
+      "endpoint": "/employees",
+      "description": "Create employee for an existing company user (already in system)",
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer <JWT_TOKEN>"
+      },
+      "payload": {
+        "company_user_id": 5,
+        "employee_no": "EMP-2024-001",
+        "first_name": "John",
+        "middle_name": "Michael",
+        "last_name": "Doe",
+        "preferred_name": "John",
+        "gender": "Male",
+        "date_of_birth": "1990-05-15",
+        "marital_status": "Single",
+        "nationality": "American",
+        "primary_branch_id": 1,
+        "primary_department_id": 2,
+        "position_id": 3,
+        "employment_status": "onboarding",
+        "employment_type": "full_time",
+        "hire_date": "2024-05-11",
+        "probation_end_date": "2024-08-11",
+        "contacts": [
+          {
+            "contact_type": "personal",
+            "phone_number": "+1-555-0101",
+            "email": "john.doe@company.com",
+            "is_primary": true,
+            "is_verified": false
+          }
+        ],
+        "addresses": [
+          {
+            "address_type": "residential",
+            "street": "123 Main Street",
+            "city": "New York",
+            "state": "NY",
+            "postal_code": "10001",
+            "country": "USA",
+            "is_primary": true
+          }
+        ]
+      },
+      "expectedStatus": 201,
+      "expectedResponse": {
+        "id": 1,
+        "company_user_id": 5,
+        "employee_no": "EMP-2024-001",
+        "first_name": "John",
+        "last_name": "Doe",
+        "employment_status": "onboarding",
+        "employment_type": "full_time"
+      }
+    },
+    {
+      "name": "Create employee with new user (from contacts)",
+      "method": "POST",
+      "endpoint": "/employees",
+      "description": "Create employee by providing email/phone in contacts. System will lookup or create user automatically.",
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer <JWT_TOKEN>"
+      },
+      "payload": {
+        "employee_no": "EMP-2024-002",
+        "first_name": "Jane",
+        "middle_name": "Marie",
+        "last_name": "Smith",
+        "preferred_name": "Jane",
+        "gender": "Female",
+        "date_of_birth": "1992-03-22",
+        "marital_status": "Married",
+        "nationality": "Canadian",
+        "primary_branch_id": 2,
+        "primary_department_id": 3,
+        "position_id": 4,
+        "employment_status": "onboarding",
+        "employment_type": "full_time",
+        "hire_date": "2024-06-01",
+        "contacts": [
+          {
+            "contact_type": "personal",
+            "phone_number": "+1-555-0102",
+            "email": "jane.smith@company.com",
+            "is_primary": true,
+            "is_verified": false
+          }
+        ],
+        "addresses": [
+          {
+            "address_type": "residential",
+            "street": "456 Oak Avenue",
+            "city": "Toronto",
+            "state": "ON",
+            "postal_code": "M5H 2N2",
+            "country": "Canada",
+            "is_primary": true
+          }
+        ],
+        "identifications": [
+          {
+            "identification_type": "passport",
+            "identification_number": "CD123456",
+            "issued_country": "Canada",
+            "expiry_date": "2034-06-15",
+            "is_primary": true
+          }
+        ]
+      },
+      "expectedStatus": 201,
+      "expectedResponse": {
+        "id": 2,
+        "company_user_id": null,
+        "employee_no": "EMP-2024-002",
+        "first_name": "Jane",
+        "last_name": "Smith",
+        "employment_status": "onboarding",
+        "employment_type": "full_time"
+      }
+    },
+    {
+      "name": "Create employee - reuse existing user by email",
+      "method": "POST",
+      "endpoint": "/employees",
+      "description": "Create employee for existing user using their email. System finds existing user and creates company membership if needed.",
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer <JWT_TOKEN>"
+      },
+      "payload": {
+        "employee_no": "EMP-2024-003",
+        "first_name": "Robert",
+        "last_name": "Johnson",
+        "gender": "Male",
+        "date_of_birth": "1988-07-10",
+        "primary_branch_id": 1,
+        "employment_status": "onboarding",
+        "employment_type": "contract",
+        "hire_date": "2024-05-20",
+        "contacts": [
+          {
+            "contact_type": "personal",
+            "phone_number": "+1-555-0103",
+            "email": "robert.johnson@existing-domain.com",
+            "is_primary": true,
+            "is_verified": true
+          }
+        ]
+      },
+      "expectedStatus": 201,
+      "notes": "If email exists in system, that user is reused. If phone also exists but belongs to same user, reused. Otherwise conflict error."
+    },
+    {
+      "name": "Error - missing contact details",
+      "method": "POST",
+      "endpoint": "/employees",
+      "description": "Error case: no company_user_id provided and contacts missing email/phone",
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer <JWT_TOKEN>"
+      },
+      "payload": {
+        "employee_no": "EMP-2024-ERROR-1",
+        "first_name": "Error",
+        "last_name": "Test",
+        "employment_status": "onboarding",
+        "contacts": [
+          {
+            "contact_type": "personal"
+          }
+        ]
+      },
+      "expectedStatus": 400,
+      "expectedError": "Employee contact details must include an email and phone number"
+    },
+    {
+      "name": "Error - email/phone conflict",
+      "method": "POST",
+      "endpoint": "/employees",
+      "description": "Error case: email and phone belong to different existing users",
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer <JWT_TOKEN>"
+      },
+      "payload": {
+        "employee_no": "EMP-2024-ERROR-2",
+        "first_name": "Conflict",
+        "last_name": "User",
+        "contacts": [
+          {
+            "contact_type": "personal",
+            "phone_number": "+1-555-9999",
+            "email": "different.user@company.com",
+            "is_primary": true
+          }
+        ]
+      },
+      "expectedStatus": 409,
+      "expectedError": "Email and phone belong to different existing users"
+    },
+    {
+      "name": "Error - company user already has employee profile",
+      "method": "POST",
+      "endpoint": "/employees",
+      "description": "Error case: trying to create employee for company user who already has one",
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer <JWT_TOKEN>"
+      },
+      "payload": {
+        "company_user_id": 1,
+        "employee_no": "EMP-2024-DUP",
+        "first_name": "Already",
+        "last_name": "Employee",
+        "contacts": [
+          {
+            "contact_type": "personal",
+            "phone_number": "+1-555-5555",
+            "email": "already.employee@company.com",
+            "is_primary": true
+          }
+        ]
+      },
+      "expectedStatus": 409,
+      "expectedError": "This company user already has an employee profile"
+    },
+    {
+      "name": "Complete employee creation with all fields",
+      "method": "POST",
+      "endpoint": "/employees",
+      "description": "Comprehensive example with all available fields",
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer <JWT_TOKEN>"
+      },
+      "payload": {
+        "employee_no": "EMP-2024-FULL",
+        "first_name": "Michael",
+        "middle_name": "David",
+        "last_name": "Williams",
+        "preferred_name": "Mike",
+        "gender": "Male",
+        "date_of_birth": "1985-12-08",
+        "marital_status": "Married",
+        "nationality": "British",
+        "profile_photo_url": "https://example.com/photos/michael-williams.jpg",
+        "primary_branch_id": 1,
+        "primary_department_id": 2,
+        "position_id": 5,
+        "employment_status": "onboarding",
+        "employment_type": "full_time",
+        "hire_date": "2024-06-15",
+        "probation_end_date": "2024-09-15",
+        "confirmation_date": null,
+        "reports_to": 2,
+        "notes": "Senior developer with 10 years of experience",
+        "metadata": {
+          "internal_code": "DEV-MW-001",
+          "recruitment_source": "LinkedIn"
+        },
+        "contacts": [
+          {
+            "contact_type": "personal",
+            "phone_number": "+44-7911-123456",
+            "email": "michael.williams@company.com",
+            "is_primary": true,
+            "is_verified": false,
+            "notes": "Primary contact"
+          },
+          {
+            "contact_type": "work",
+            "phone_number": "+44-20-7946-0958",
+            "email": "m.williams@company-internal.com",
+            "is_primary": false,
+            "notes": "Internal extension"
+          }
+        ],
+        "addresses": [
+          {
+            "address_type": "residential",
+            "street": "789 Elm Street, Apt 5B",
+            "city": "London",
+            "state": "England",
+            "postal_code": "SW1A 1AA",
+            "country": "United Kingdom",
+            "is_primary": true
+          },
+          {
+            "address_type": "temporary",
+            "street": "999 Business Plaza",
+            "city": "Manchester",
+            "state": "England",
+            "postal_code": "M1 1AE",
+            "country": "United Kingdom",
+            "is_primary": false
+          }
+        ],
+        "departments": [
+          {
+            "department_id": 2,
+            "is_primary": true
+          },
+          {
+            "department_id": 5,
+            "is_primary": false
+          }
+        ],
+        "identifications": [
+          {
+            "identification_type": "passport",
+            "identification_number": "GB123456789",
+            "issued_country": "United Kingdom",
+            "expiry_date": "2032-05-20",
+            "is_primary": true
+          }
+        ],
+        "bank_accounts": [
+          {
+            "bank_name": "HSBC",
+            "account_name": "Michael D Williams",
+            "account_number": "12345678",
+            "branch_name": "London Main",
+            "swift_code": "HBUKGB4B",
+            "is_primary": true
+          }
+        ]
+      },
+      "expectedStatus": 201
+    }
+  ]
+}

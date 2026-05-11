@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { randomBytes } from 'crypto';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
@@ -516,6 +517,158 @@ export class EmployeesService {
         },
       },
     });
+  }
+
+  private async findMembershipByCompanyUserId(
+    companyId: number,
+    companyUserId: number,
+    manager?: EntityManager,
+  ): Promise<CompanyUser | null> {
+    const repository = this.getCompanyUserRepository(manager);
+
+    return repository.findOne({
+      where: {
+        id: companyUserId,
+        company_id: companyId,
+        status: 'active',
+      },
+      relations: {
+        user: true,
+        role_assignments: {
+          role: {
+            permissions: true,
+          },
+        },
+        permission_assignments: {
+          permission: true,
+        },
+      },
+    });
+  }
+
+  private getPrimaryContactValue(
+    contacts: EmployeeContactInputDto[] | undefined,
+    field: 'email' | 'phone_number',
+  ): string | null {
+    if (!contacts?.length) {
+      return null;
+    }
+
+    const primaryContact = contacts.find(
+      (contact) => contact.is_primary && contact[field],
+    );
+
+    if (primaryContact?.[field]) {
+      return primaryContact[field] as string;
+    }
+
+    const anyContact = contacts.find((contact) => contact[field]);
+    return anyContact?.[field] ?? null;
+  }
+
+  private async resolveCompanyMembershipForEmployeeCreation(
+    companyId: number,
+    createEmployeeDto: CreateEmployeeDto,
+    manager?: EntityManager,
+  ): Promise<CompanyUser> {
+    const companyUserId = createEmployeeDto.company_user_id;
+    const userRepository = this.getUserRepository(manager);
+
+    if (companyUserId) {
+      const membership = await this.findMembershipByCompanyUserId(
+        companyId,
+        companyUserId,
+        manager,
+      );
+
+      if (!membership) {
+        throw new NotFoundException(
+          'Active company membership not found for the requested company user',
+        );
+      }
+
+      return membership;
+    }
+
+    const email = this.getPrimaryContactValue(
+      createEmployeeDto.contacts,
+      'email',
+    );
+    const phone = this.getPrimaryContactValue(
+      createEmployeeDto.contacts,
+      'phone_number',
+    );
+
+    if (!email || !phone) {
+      throw new BadRequestException(
+        'Employee contact details must include an email and phone number',
+      );
+    }
+
+    const existingByEmail = await userRepository.findOne({
+      where: { email },
+    });
+    const existingByPhone = await userRepository.findOne({
+      where: { phone },
+    });
+
+    if (
+      existingByEmail &&
+      existingByPhone &&
+      existingByEmail.id !== existingByPhone.id
+    ) {
+      throw new ConflictException(
+        'Email and phone belong to different existing users',
+      );
+    }
+
+    if (existingByEmail && existingByEmail.phone !== phone) {
+      throw new ConflictException(
+        'This email already exists with a different phone number',
+      );
+    }
+
+    if (existingByPhone && existingByPhone.email !== email) {
+      throw new ConflictException(
+        'This phone number already exists with a different email address',
+      );
+    }
+
+    const user =
+      existingByEmail ??
+      existingByPhone ??
+      (await userRepository.save(
+        userRepository.create({
+          user_no: await this.usersService.generateUserNo(manager),
+          first_name: createEmployeeDto.first_name,
+          last_name: createEmployeeDto.last_name,
+          phone,
+          email,
+          password: await hashPassword(
+            randomBytes(16).toString('hex'),
+          ),
+          status: 'active',
+          user_type: 'COMPANY_USER',
+          is_email_verified: true,
+        }),
+      ));
+
+    let membership = await this.findMembershipByUserId(
+      companyId,
+      user.id,
+      manager,
+    );
+
+    if (!membership) {
+      await this.companiesService.addUserToCompany(user.id, companyId, undefined, manager);
+      membership = await this.findMembershipByUserId(companyId, user.id, manager);
+    }
+
+    if (!membership) {
+      throw new NotFoundException('Company membership could not be created');
+    }
+
+    return membership;
   }
 
   private async findEmployeeByIdOrFail(
@@ -1589,28 +1742,23 @@ export class EmployeesService {
     createEmployeeDto: CreateEmployeeDto,
     actor: AuthenticatedUser,
   ) {
-    const membership = await this.findMembershipByUserId(
-      companyId,
-      createEmployeeDto.user_id,
-    );
-
-    if (!membership) {
-      throw new NotFoundException(
-        'Active company membership not found for the requested user',
-      );
-    }
-
-    const existingEmployee = await this.employeeRepository.findOne({
-      where: { company_user_id: membership.id },
-    });
-
-    if (existingEmployee) {
-      throw new ConflictException(
-        'This company user already has an employee profile',
-      );
-    }
-
     const employeeId = await this.dataSource.transaction(async (manager) => {
+      const membership = await this.resolveCompanyMembershipForEmployeeCreation(
+        companyId,
+        createEmployeeDto,
+        manager,
+      );
+
+      const existingEmployee = await this.getEmployeeRepository(manager).findOne({
+        where: { company_user_id: membership.id },
+      });
+
+      if (existingEmployee) {
+        throw new ConflictException(
+          'This company user already has an employee profile',
+        );
+      }
+
       await this.assertUniqueEmployeeNumber(
         companyId,
         createEmployeeDto.employee_no,
