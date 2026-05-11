@@ -1,0 +1,59 @@
+doctype html
+html(lang="en")
+  head
+    meta(charset="UTF-8")
+    meta(name="viewport", content="width=device-width, initial-scale=1.0")
+    title Verify Your Email
+    style.
+      body { font-family: 'Segoe UI', Arial, sans-serif; background-color: #f6f9fc; margin: 0; padding: 0; }
+      .container { max-width: 600px; margin: 40px auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+      .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 20px; text-align: center; color: white; }
+      .content { padding: 50px 40px; color: #333; line-height: 1.7; }
+      .button {
+        display: inline-block;
+        background: #667eea;
+        color: white;
+        font-weight: bold;
+        padding: 16px 36px;
+        text-decoration: none;
+        border-radius: 50px;
+        margin: 30px 0;
+        font-size: 16px;
+        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        transition: all 0.3s;
+      }
+      .button:hover { transform: translateY(-3px); box-shadow: 0 10px 25px rgba(102, 126, 234, 0.5); }
+      .footer { background: #f8f9fa; padding: 30px; text-align: center; color: #888; font-size: 14px; }
+      ul { padding-left: 20px; }
+      li { margin: 8px 0; }
+  body
+    table.container
+      tr
+        td.header
+          h1 Welcome to #{appName}!
+          p Verify your email to get started
+      tr
+        td.content
+          h2 Hello #{name},
+          p Thank you for registering with us! Please verify your email address to activate your account and enjoy full access.
+          
+          p.text-center
+            a.button(href=verificationLink) Verify Email Address
+          
+          p If the button doesn't work, copy and paste this link into your browser:
+          p
+            a(href=verificationLink style="color:#667eea; word-break:break-all;") #{verificationLink}
+          
+          p This link will expire in 24 hours for security reasons.
+          
+          br
+          p Best regards,
+          p #[strong #{appName} Team]
+
+      tr
+        td.footer
+          p © #{year} #{appName}. All rights reserved.
+          if supportEmail
+            p Need help? Contact us at 
+              a(href=`mailto:${supportEmail}` style="color:#667eea;") #{supportEmail}
+          p This is an automated message — please do not reply directly.

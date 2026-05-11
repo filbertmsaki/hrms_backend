@@ -1,0 +1,202 @@
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  JoinColumn,
+  ManyToOne,
+  OneToMany,
+  OneToOne,
+  PrimaryGeneratedColumn,
+  Unique,
+  UpdateDateColumn,
+} from 'typeorm';
+import { CompanyUser } from '../../../companies/entities/company-user.entity';
+import { Branch } from '../../branches/entities/branch.entity';
+import { Department } from '../../departments/entities/department.entity';
+import { Position } from '../../positions/entities/position.entity';
+import { EmploymentStatusEnum } from '../enums/employment-status.enum';
+import { EmploymentTypeEnum } from '../enums/employment-type.enum';
+import { EmployeeAddress } from './employee-address.entity';
+import { EmployeeBankAccount } from './employee-bank-account.entity';
+import { EmployeeContact } from './employee-contact.entity';
+import { EmployeeDepartment } from './employee-department.entity';
+import { EmployeeDocument } from './employee-document.entity';
+import { EmployeeIdentification } from './employee-identification.entity';
+import { EmployeeRelative } from './employee-relative.entity';
+
+@Entity('employees')
+@Unique('UQ_employee_company_user', ['company_user_id'])
+export class Employee {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  company_user_id: number;
+
+  @Column({ length: 50 })
+  employee_no: string;
+
+  @Column({ length: 100 })
+  first_name: string;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  middle_name: string | null;
+
+  @Column({ length: 100 })
+  last_name: string;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  preferred_name: string | null;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  gender: string | null;
+
+  @Column({ type: 'date', nullable: true })
+  date_of_birth: string | null;
+
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  marital_status: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  nationality: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  profile_photo_url: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  primary_branch_id: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  primary_department_id: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  position_id: number | null;
+
+  @Column({
+    type: 'enum',
+    enum: EmploymentStatusEnum,
+    default: EmploymentStatusEnum.ONBOARDING,
+  })
+  employment_status: EmploymentStatusEnum;
+
+  @Column({
+    type: 'enum',
+    enum: EmploymentTypeEnum,
+    default: EmploymentTypeEnum.FULL_TIME,
+  })
+  employment_type: EmploymentTypeEnum;
+
+  @Column({ type: 'date', nullable: true })
+  hire_date: string | null;
+
+  @Column({ type: 'date', nullable: true })
+  probation_end_date: string | null;
+
+  @Column({ type: 'date', nullable: true })
+  confirmation_date: string | null;
+
+  @Column({ type: 'date', nullable: true })
+  exit_date: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  reports_to: number | null;
+
+  @Column({ type: 'text', nullable: true })
+  exit_reason: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  notes: string | null;
+
+  @Column({ type: 'json', nullable: true })
+  metadata: Record<string, unknown> | null;
+
+  @CreateDateColumn()
+  created_at: Date;
+
+  @UpdateDateColumn()
+  updated_at: Date;
+
+  @OneToOne(() => CompanyUser, (companyUser) => companyUser.employee, {
+    onDelete: 'CASCADE',
+  })
+  @JoinColumn({ name: 'company_user_id' })
+  company_user: CompanyUser;
+
+  @ManyToOne(() => Branch, (branch) => branch.primary_employees, {
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'primary_branch_id' })
+  primary_branch: Branch | null;
+
+  @ManyToOne(() => Department, (department) => department.primary_employees, {
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'primary_department_id' })
+  primary_department: Department | null;
+
+  @ManyToOne(() => Position, (position) => position.employees, {
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'position_id' })
+  position: Position | null;
+
+  @ManyToOne(() => Employee, (employee) => employee.direct_reports, {
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'reports_to' })
+  manager: Employee | null;
+
+  @OneToMany(() => Employee, (employee) => employee.manager)
+  direct_reports: Employee[];
+
+  @OneToMany(
+    () => EmployeeDepartment,
+    (employeeDepartment) => employeeDepartment.employee,
+    {
+      cascade: true,
+    },
+  )
+  department_assignments: EmployeeDepartment[];
+
+  @OneToMany(() => EmployeeContact, (employeeContact) => employeeContact.employee, {
+    cascade: true,
+  })
+  contacts: EmployeeContact[];
+
+  @OneToMany(() => EmployeeAddress, (employeeAddress) => employeeAddress.employee, {
+    cascade: true,
+  })
+  addresses: EmployeeAddress[];
+
+  @OneToMany(() => EmployeeRelative, (employeeRelative) => employeeRelative.employee, {
+    cascade: true,
+  })
+  relatives: EmployeeRelative[];
+
+  @OneToMany(
+    () => EmployeeIdentification,
+    (employeeIdentification) => employeeIdentification.employee,
+    {
+      cascade: true,
+    },
+  )
+  identifications: EmployeeIdentification[];
+
+  @OneToMany(
+    () => EmployeeBankAccount,
+    (employeeBankAccount) => employeeBankAccount.employee,
+    {
+      cascade: true,
+    },
+  )
+  bank_accounts: EmployeeBankAccount[];
+
+  @OneToMany(
+    () => EmployeeDocument,
+    (employeeDocument) => employeeDocument.employee,
+    {
+      cascade: true,
+    },
+  )
+  documents: EmployeeDocument[];
+}
