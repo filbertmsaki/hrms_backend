@@ -21,12 +21,6 @@ import { EmploymentStatusEnum } from '../enums/employment-status.enum';
 import { EmploymentTypeEnum } from '../enums/employment-type.enum';
 
 export class CreateEmployeeDto {
-  @ApiPropertyOptional({ type: Number })
-  @Type(() => Number)
-  @IsInt()
-  @IsOptional()
-  company_user_id?: number;
-
   @IsString()
   @IsNotEmpty()
   employee_no: string;

@@ -590,24 +590,7 @@ export class EmployeesService {
     createEmployeeDto: CreateEmployeeDto,
     manager?: EntityManager,
   ): Promise<CompanyUser> {
-    const companyUserId = createEmployeeDto.company_user_id;
     const userRepository = this.getUserRepository(manager);
-
-    if (companyUserId) {
-      const membership = await this.findMembershipByCompanyUserId(
-        companyId,
-        companyUserId,
-        manager,
-      );
-
-      if (!membership) {
-        throw new NotFoundException(
-          'Active company membership not found for the requested company user',
-        );
-      }
-
-      return membership;
-    }
 
     const email = this.getPrimaryContactValue(
       createEmployeeDto.contacts,
