@@ -25,7 +25,12 @@ import {
 } from '../shared/hr.utils';
 import { AddEmployeeDocumentDto } from './dtos/add-employee-document.dto';
 import { ChangeEmployeeStatusDto } from './dtos/change-employee-status.dto';
+import { CreateEmployeeAddressDto } from './dtos/create-employee-address.dto';
+import { CreateEmployeeBankAccountDto } from './dtos/create-employee-bank-account.dto';
+import { CreateEmployeeContactDto } from './dtos/create-employee-contact.dto';
 import { CreateEmployeeDto } from './dtos/create-employee.dto';
+import { CreateEmployeeIdentificationDto } from './dtos/create-employee-identification.dto';
+import { CreateEmployeeRelativeDto } from './dtos/create-employee-relative.dto';
 import { EmployeeAddressInputDto } from './dtos/employee-address-input.dto';
 import { EmployeeBankAccountInputDto } from './dtos/employee-bank-account-input.dto';
 import { EmployeeContactInputDto } from './dtos/employee-contact-input.dto';
@@ -34,7 +39,12 @@ import { EmployeeIdentificationInputDto } from './dtos/employee-identification-i
 import { EmployeeQueryDto } from './dtos/employee-query.dto';
 import { EmployeeRelativeInputDto } from './dtos/employee-relative-input.dto';
 import { OnboardEmployeeDto } from './dtos/onboard-employee.dto';
+import { UpdateEmployeeAddressDto } from './dtos/update-employee-address.dto';
+import { UpdateEmployeeBankAccountDto } from './dtos/update-employee-bank-account.dto';
+import { UpdateEmployeeContactDto } from './dtos/update-employee-contact.dto';
 import { UpdateEmployeeDto } from './dtos/update-employee.dto';
+import { UpdateEmployeeIdentificationDto } from './dtos/update-employee-identification.dto';
+import { UpdateEmployeeRelativeDto } from './dtos/update-employee-relative.dto';
 import { ContactTypeEnum } from './enums/contact-type.enum';
 import { EmploymentStatusEnum } from './enums/employment-status.enum';
 import { EmploymentTypeEnum } from './enums/employment-type.enum';
@@ -48,7 +58,10 @@ import { EmployeeIdentification } from './entities/employee-identification.entit
 import { EmployeeRelative } from './entities/employee-relative.entity';
 import { Employee } from './entities/employee.entity';
 
-type EmployeeMutationDto = CreateEmployeeDto | UpdateEmployeeDto | OnboardEmployeeDto;
+type EmployeeMutationDto =
+  | CreateEmployeeDto
+  | UpdateEmployeeDto
+  | OnboardEmployeeDto;
 
 type EmployeeProfileCollectionsDto = Pick<
   CreateEmployeeDto,
@@ -116,19 +129,26 @@ export class EmployeesService {
   private getEmployeeContactRepository(
     manager?: EntityManager,
   ): Repository<EmployeeContact> {
-    return manager?.getRepository(EmployeeContact) ?? this.employeeContactRepository;
+    return (
+      manager?.getRepository(EmployeeContact) ?? this.employeeContactRepository
+    );
   }
 
   private getEmployeeAddressRepository(
     manager?: EntityManager,
   ): Repository<EmployeeAddress> {
-    return manager?.getRepository(EmployeeAddress) ?? this.employeeAddressRepository;
+    return (
+      manager?.getRepository(EmployeeAddress) ?? this.employeeAddressRepository
+    );
   }
 
   private getEmployeeRelativeRepository(
     manager?: EntityManager,
   ): Repository<EmployeeRelative> {
-    return manager?.getRepository(EmployeeRelative) ?? this.employeeRelativeRepository;
+    return (
+      manager?.getRepository(EmployeeRelative) ??
+      this.employeeRelativeRepository
+    );
   }
 
   private getEmployeeIdentificationRepository(
@@ -169,9 +189,7 @@ export class EmployeesService {
     return manager?.getRepository(Department) ?? this.departmentRepository;
   }
 
-  private getPositionRepository(
-    manager?: EntityManager,
-  ): Repository<Position> {
+  private getPositionRepository(manager?: EntityManager): Repository<Position> {
     return manager?.getRepository(Position) ?? this.positionRepository;
   }
 
@@ -479,15 +497,16 @@ export class EmployeesService {
       relatives: this.sortPrimaryFirst(employee.relatives).map((relative) =>
         this.mapRelative(relative),
       ),
-      identifications: this.sortPrimaryFirst(
-        employee.identifications,
-      ).map((identification) => this.mapIdentification(identification)),
+      identifications: this.sortPrimaryFirst(employee.identifications).map(
+        (identification) => this.mapIdentification(identification),
+      ),
       bank_accounts: this.sortPrimaryFirst(employee.bank_accounts).map(
         (bankAccount) => this.mapBankAccount(bankAccount),
       ),
       company_user: this.mapMembership(employee.company_user),
       documents: includeDocuments
-        ? employee.documents?.map((document) => this.mapDocument(document)) ?? []
+        ? (employee.documents?.map((document) => this.mapDocument(document)) ??
+          [])
         : undefined,
     };
   }
@@ -644,9 +663,7 @@ export class EmployeesService {
           last_name: createEmployeeDto.last_name,
           phone,
           email,
-          password: await hashPassword(
-            randomBytes(16).toString('hex'),
-          ),
+          password: await hashPassword(randomBytes(16).toString('hex')),
           status: 'active',
           user_type: 'COMPANY_USER',
           is_email_verified: true,
@@ -660,8 +677,17 @@ export class EmployeesService {
     );
 
     if (!membership) {
-      await this.companiesService.addUserToCompany(user.id, companyId, undefined, manager);
-      membership = await this.findMembershipByUserId(companyId, user.id, manager);
+      await this.companiesService.addUserToCompany(
+        user.id,
+        companyId,
+        undefined,
+        manager,
+      );
+      membership = await this.findMembershipByUserId(
+        companyId,
+        user.id,
+        manager,
+      );
     }
 
     if (!membership) {
@@ -798,9 +824,7 @@ export class EmployeesService {
 
     if (typeof primaryDepartmentId === 'number') {
       if (
-        !normalized.some(
-          (input) => input.department_id === primaryDepartmentId,
-        )
+        !normalized.some((input) => input.department_id === primaryDepartmentId)
       ) {
         normalized.push({
           department_id: primaryDepartmentId,
@@ -833,7 +857,8 @@ export class EmployeesService {
   ): EmployeeContactInputDto[] {
     const normalized = contacts.map((contact) => ({
       contact_type: contact.contact_type,
-      phone_number: this.normalizeOptionalString(contact.phone_number) ?? undefined,
+      phone_number:
+        this.normalizeOptionalString(contact.phone_number) ?? undefined,
       email:
         this.normalizeOptionalString(contact.email)?.toLowerCase() ?? undefined,
       is_primary: contact.is_primary ?? false,
@@ -875,12 +900,15 @@ export class EmployeesService {
     addresses: EmployeeAddressInputDto[],
   ): EmployeeAddressInputDto[] {
     const normalized = addresses.map((address) => ({
-      address_line_1: this.normalizeOptionalString(address.address_line_1) ?? undefined,
-      address_line_2: this.normalizeOptionalString(address.address_line_2) ?? undefined,
+      address_line_1:
+        this.normalizeOptionalString(address.address_line_1) ?? undefined,
+      address_line_2:
+        this.normalizeOptionalString(address.address_line_2) ?? undefined,
       city: this.normalizeOptionalString(address.city) ?? undefined,
       state: this.normalizeOptionalString(address.state) ?? undefined,
       country: this.normalizeOptionalString(address.country) ?? undefined,
-      postal_code: this.normalizeOptionalString(address.postal_code) ?? undefined,
+      postal_code:
+        this.normalizeOptionalString(address.postal_code) ?? undefined,
       address_type: address.address_type,
       is_primary: address.is_primary ?? false,
     }));
@@ -920,9 +948,11 @@ export class EmployeesService {
       relationship: relative.relationship.trim(),
       phone: this.normalizeOptionalString(relative.phone) ?? undefined,
       email:
-        this.normalizeOptionalString(relative.email)?.toLowerCase() ?? undefined,
+        this.normalizeOptionalString(relative.email)?.toLowerCase() ??
+        undefined,
       address: this.normalizeOptionalString(relative.address) ?? undefined,
-      occupation: this.normalizeOptionalString(relative.occupation) ?? undefined,
+      occupation:
+        this.normalizeOptionalString(relative.occupation) ?? undefined,
       is_emergency_contact: relative.is_emergency_contact ?? false,
       is_primary: relative.is_primary ?? false,
     }));
@@ -946,7 +976,8 @@ export class EmployeesService {
       identification_type: identification.identification_type,
       identification_number: identification.identification_number.trim(),
       issued_country:
-        this.normalizeOptionalString(identification.issued_country) ?? undefined,
+        this.normalizeOptionalString(identification.issued_country) ??
+        undefined,
       expiry_date: identification.expiry_date,
       is_primary: identification.is_primary ?? false,
     }));
@@ -957,7 +988,10 @@ export class EmployeesService {
       'Only one primary identification is allowed per identification type',
     );
 
-    const grouped = new Map<IdentificationTypeEnum, EmployeeIdentificationInputDto[]>();
+    const grouped = new Map<
+      IdentificationTypeEnum,
+      EmployeeIdentificationInputDto[]
+    >();
     normalized.forEach((identification) => {
       const items = grouped.get(identification.identification_type) ?? [];
       items.push(identification);
@@ -979,13 +1013,16 @@ export class EmployeesService {
   ): EmployeeBankAccountInputDto[] {
     const employeeName = this.buildEmployeeDisplayName(employee);
     const normalized = bankAccounts.map((bankAccount) => ({
-      bank_name: this.normalizeOptionalString(bankAccount.bank_name) ?? undefined,
+      bank_name:
+        this.normalizeOptionalString(bankAccount.bank_name) ?? undefined,
       account_name:
         this.normalizeOptionalString(bankAccount.account_name) ??
         (employeeName || undefined),
       account_number: bankAccount.account_number.trim(),
-      branch_name: this.normalizeOptionalString(bankAccount.branch_name) ?? undefined,
-      swift_code: this.normalizeOptionalString(bankAccount.swift_code) ?? undefined,
+      branch_name:
+        this.normalizeOptionalString(bankAccount.branch_name) ?? undefined,
+      swift_code:
+        this.normalizeOptionalString(bankAccount.swift_code) ?? undefined,
       mobile_money_provider:
         this.normalizeOptionalString(bankAccount.mobile_money_provider) ??
         undefined,
@@ -1146,7 +1183,10 @@ export class EmployeesService {
 
     for (const department of departmentsById) {
       if (department.branch_id) {
-        await this.hrAccessService.assertCanAccessBranch(actor, department.branch_id);
+        await this.hrAccessService.assertCanAccessBranch(
+          actor,
+          department.branch_id,
+        );
       }
     }
 
@@ -1196,8 +1236,9 @@ export class EmployeesService {
 
     for (const field of directFields) {
       if (field in dto) {
-        (payload as Record<string, unknown>)[field] =
-          (dto as Record<string, unknown>)[field];
+        (payload as Record<string, unknown>)[field] = (
+          dto as Record<string, unknown>
+        )[field];
       }
     }
 
@@ -1386,15 +1427,16 @@ export class EmployeesService {
     dto: Partial<
       Pick<Employee, 'employment_status' | 'exit_date' | 'exit_reason'>
     >,
-  ): Partial<Pick<Employee, 'employment_status' | 'exit_date' | 'exit_reason'>> {
+  ): Partial<
+    Pick<Employee, 'employment_status' | 'exit_date' | 'exit_reason'>
+  > {
     const normalized = { ...dto };
 
     if (
       normalized.employment_status &&
-      [
-        EmploymentStatusEnum.TERMINATED,
-        EmploymentStatusEnum.EXITED,
-      ].includes(normalized.employment_status)
+      [EmploymentStatusEnum.TERMINATED, EmploymentStatusEnum.EXITED].includes(
+        normalized.employment_status,
+      )
     ) {
       if (!normalized.exit_date) {
         normalized.exit_date = new Date().toISOString().slice(0, 10);
@@ -1403,10 +1445,9 @@ export class EmployeesService {
 
     if (
       normalized.employment_status &&
-      ![
-        EmploymentStatusEnum.TERMINATED,
-        EmploymentStatusEnum.EXITED,
-      ].includes(normalized.employment_status)
+      ![EmploymentStatusEnum.TERMINATED, EmploymentStatusEnum.EXITED].includes(
+        normalized.employment_status,
+      )
     ) {
       normalized.exit_date = null;
       if (normalized.exit_reason === undefined) {
@@ -1438,7 +1479,7 @@ export class EmployeesService {
             actor,
             manager,
           )
-        : employee.primary_branch ?? null;
+        : (employee.primary_branch ?? null);
 
     const { assignments, primaryDepartment } =
       'departments' in dto || 'primary_department_id' in dto
@@ -1462,7 +1503,7 @@ export class EmployeesService {
     const position =
       'position_id' in dto
         ? await this.resolvePosition(companyId, dto.position_id, manager)
-        : employee.position ?? null;
+        : (employee.position ?? null);
 
     const managerEmployee =
       'reports_to' in dto
@@ -1473,7 +1514,7 @@ export class EmployeesService {
             employee.id || undefined,
             manager,
           )
-        : employee.manager ?? null;
+        : (employee.manager ?? null);
 
     if ('employee_no' in dto && dto.employee_no) {
       await this.assertUniqueEmployeeNumber(
@@ -1649,13 +1690,19 @@ export class EmployeesService {
       const existingUser = existingByEmail ?? existingByPhone;
 
       if (existingUser) {
-        if (existingByEmail && existingByEmail.phone !== onboardEmployeeDto.phone) {
+        if (
+          existingByEmail &&
+          existingByEmail.phone !== onboardEmployeeDto.phone
+        ) {
           throw new ConflictException(
             'This email already exists with a different phone number',
           );
         }
 
-        if (existingByPhone && existingByPhone.email !== onboardEmployeeDto.email) {
+        if (
+          existingByPhone &&
+          existingByPhone.email !== onboardEmployeeDto.email
+        ) {
           throw new ConflictException(
             'This phone number already exists with a different email address',
           );
@@ -1678,7 +1725,11 @@ export class EmployeesService {
           }),
         ));
 
-      let membership = await this.findMembershipByUserId(companyId, user.id, manager);
+      let membership = await this.findMembershipByUserId(
+        companyId,
+        user.id,
+        manager,
+      );
 
       if (!membership) {
         await this.companiesService.addUserToCompany(
@@ -1690,14 +1741,20 @@ export class EmployeesService {
           manager,
         );
 
-        membership = await this.findMembershipByUserId(companyId, user.id, manager);
+        membership = await this.findMembershipByUserId(
+          companyId,
+          user.id,
+          manager,
+        );
       }
 
       if (!membership) {
         throw new NotFoundException('Company membership could not be created');
       }
 
-      const existingEmployee = await this.getEmployeeRepository(manager).findOne({
+      const existingEmployee = await this.getEmployeeRepository(
+        manager,
+      ).findOne({
         where: { company_user_id: membership.id },
       });
 
@@ -1720,7 +1777,8 @@ export class EmployeesService {
         first_name: onboardEmployeeDto.first_name,
         last_name: onboardEmployeeDto.last_name,
         employment_status:
-          onboardEmployeeDto.employment_status ?? EmploymentStatusEnum.ONBOARDING,
+          onboardEmployeeDto.employment_status ??
+          EmploymentStatusEnum.ONBOARDING,
         employment_type:
           onboardEmployeeDto.employment_type ?? EmploymentTypeEnum.FULL_TIME,
       });
@@ -1749,7 +1807,9 @@ export class EmployeesService {
         manager,
       );
 
-      const existingEmployee = await this.getEmployeeRepository(manager).findOne({
+      const existingEmployee = await this.getEmployeeRepository(
+        manager,
+      ).findOne({
         where: { company_user_id: membership.id },
       });
 
@@ -1772,7 +1832,8 @@ export class EmployeesService {
         first_name: createEmployeeDto.first_name,
         last_name: createEmployeeDto.last_name,
         employment_status:
-          createEmployeeDto.employment_status ?? EmploymentStatusEnum.ONBOARDING,
+          createEmployeeDto.employment_status ??
+          EmploymentStatusEnum.ONBOARDING,
         employment_type:
           createEmployeeDto.employment_type ?? EmploymentTypeEnum.FULL_TIME,
       });
@@ -1929,48 +1990,53 @@ export class EmployeesService {
     updateEmployeeDto: UpdateEmployeeDto,
     actor: AuthenticatedUser,
   ) {
-    const existingEmployee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    const existingEmployee = await this.findEmployeeByIdOrFail(
+      companyId,
+      employeeId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, existingEmployee);
 
-    const updatedEmployeeId = await this.dataSource.transaction(async (manager) => {
-      const employee = await this.getEmployeeRepository(manager).findOne({
-        where: { id: employeeId },
-        relations: {
-          primary_branch: true,
-          primary_department: {
-            branch: true,
-            parent: true,
-          },
-          position: true,
-          manager: {
-            company_user: true,
-          },
-          department_assignments: {
-            department: {
+    const updatedEmployeeId = await this.dataSource.transaction(
+      async (manager) => {
+        const employee = await this.getEmployeeRepository(manager).findOne({
+          where: { id: employeeId },
+          relations: {
+            primary_branch: true,
+            primary_department: {
               branch: true,
               parent: true,
             },
+            position: true,
+            manager: {
+              company_user: true,
+            },
+            department_assignments: {
+              department: {
+                branch: true,
+                parent: true,
+              },
+            },
+            contacts: true,
+            addresses: true,
+            relatives: true,
+            identifications: true,
+            bank_accounts: true,
           },
-          contacts: true,
-          addresses: true,
-          relatives: true,
-          identifications: true,
-          bank_accounts: true,
-        },
-      });
+        });
 
-      if (!employee) {
-        throw new NotFoundException('Employee not found');
-      }
+        if (!employee) {
+          throw new NotFoundException('Employee not found');
+        }
 
-      return this.persistEmployee(
-        companyId,
-        employee,
-        updateEmployeeDto,
-        actor,
-        manager,
-      );
-    });
+        return this.persistEmployee(
+          companyId,
+          employee,
+          updateEmployeeDto,
+          actor,
+          manager,
+        );
+      },
+    );
 
     return this.findOne(companyId, updatedEmployeeId, actor);
   }
@@ -2039,6 +2105,455 @@ export class EmployeesService {
 
     await this.employeeDocumentRepository.remove(document);
     return { message: 'Employee document deleted successfully' };
+  }
+
+  // ──────────────────────────────────────────────
+  //  CONTACT MANAGEMENT
+  // ──────────────────────────────────────────────
+
+  async addContact(
+    companyId: number,
+    employeeId: number,
+    dto: CreateEmployeeContactDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const repository = this.getEmployeeContactRepository();
+    const contact = await repository.save(
+      repository.create({
+        employee_id: employee.id,
+        contact_type: dto.contact_type,
+        phone_number: this.normalizeOptionalString(dto.phone_number),
+        email: this.normalizeOptionalString(dto.email)?.toLowerCase() ?? null,
+        is_primary: dto.is_primary ?? false,
+        is_verified: dto.is_verified ?? false,
+        notes: this.normalizeOptionalString(dto.notes),
+      }),
+    );
+
+    return this.mapContact(contact);
+  }
+
+  async updateContact(
+    companyId: number,
+    employeeId: number,
+    contactId: number,
+    dto: UpdateEmployeeContactDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const repository = this.getEmployeeContactRepository();
+    const contact = await repository.findOne({
+      where: { id: contactId, employee_id: employee.id },
+    });
+
+    if (!contact) {
+      throw new NotFoundException('Employee contact not found');
+    }
+
+    if (dto.contact_type !== undefined) contact.contact_type = dto.contact_type;
+    if (dto.phone_number !== undefined)
+      contact.phone_number = this.normalizeOptionalString(dto.phone_number);
+    if (dto.email !== undefined)
+      contact.email =
+        this.normalizeOptionalString(dto.email)?.toLowerCase() ?? null;
+    if (dto.is_primary !== undefined) contact.is_primary = dto.is_primary;
+    if (dto.is_verified !== undefined) contact.is_verified = dto.is_verified;
+    if (dto.notes !== undefined)
+      contact.notes = this.normalizeOptionalString(dto.notes);
+
+    const saved = await repository.save(contact);
+    return this.mapContact(saved);
+  }
+
+  async removeContact(
+    companyId: number,
+    employeeId: number,
+    contactId: number,
+    actor: AuthenticatedUser,
+  ): Promise<{ message: string }> {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const repository = this.getEmployeeContactRepository();
+    const contact = await repository.findOne({
+      where: { id: contactId, employee_id: employee.id },
+    });
+
+    if (!contact) {
+      throw new NotFoundException('Employee contact not found');
+    }
+
+    await repository.remove(contact);
+    return { message: 'Employee contact deleted successfully' };
+  }
+
+  // ──────────────────────────────────────────────
+  //  ADDRESS MANAGEMENT
+  // ──────────────────────────────────────────────
+
+  async addAddress(
+    companyId: number,
+    employeeId: number,
+    dto: CreateEmployeeAddressDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const repository = this.getEmployeeAddressRepository();
+    const address = await repository.save(
+      repository.create({
+        employee_id: employee.id,
+        address_line_1: this.normalizeOptionalString(dto.address_line_1),
+        address_line_2: this.normalizeOptionalString(dto.address_line_2),
+        city: this.normalizeOptionalString(dto.city),
+        state: this.normalizeOptionalString(dto.state),
+        country: this.normalizeOptionalString(dto.country),
+        postal_code: this.normalizeOptionalString(dto.postal_code),
+        address_type: dto.address_type,
+        is_primary: dto.is_primary ?? false,
+      }),
+    );
+
+    return this.mapAddress(address);
+  }
+
+  async updateAddress(
+    companyId: number,
+    employeeId: number,
+    addressId: number,
+    dto: UpdateEmployeeAddressDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const repository = this.getEmployeeAddressRepository();
+    const address = await repository.findOne({
+      where: { id: addressId, employee_id: employee.id },
+    });
+
+    if (!address) {
+      throw new NotFoundException('Employee address not found');
+    }
+
+    if (dto.address_line_1 !== undefined)
+      address.address_line_1 = this.normalizeOptionalString(dto.address_line_1);
+    if (dto.address_line_2 !== undefined)
+      address.address_line_2 = this.normalizeOptionalString(dto.address_line_2);
+    if (dto.city !== undefined)
+      address.city = this.normalizeOptionalString(dto.city);
+    if (dto.state !== undefined)
+      address.state = this.normalizeOptionalString(dto.state);
+    if (dto.country !== undefined)
+      address.country = this.normalizeOptionalString(dto.country);
+    if (dto.postal_code !== undefined)
+      address.postal_code = this.normalizeOptionalString(dto.postal_code);
+    if (dto.address_type !== undefined) address.address_type = dto.address_type;
+    if (dto.is_primary !== undefined) address.is_primary = dto.is_primary;
+
+    const saved = await repository.save(address);
+    return this.mapAddress(saved);
+  }
+
+  async removeAddress(
+    companyId: number,
+    employeeId: number,
+    addressId: number,
+    actor: AuthenticatedUser,
+  ): Promise<{ message: string }> {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const repository = this.getEmployeeAddressRepository();
+    const address = await repository.findOne({
+      where: { id: addressId, employee_id: employee.id },
+    });
+
+    if (!address) {
+      throw new NotFoundException('Employee address not found');
+    }
+
+    await repository.remove(address);
+    return { message: 'Employee address deleted successfully' };
+  }
+
+  // ──────────────────────────────────────────────
+  //  RELATIVE MANAGEMENT
+  // ──────────────────────────────────────────────
+
+  async addRelative(
+    companyId: number,
+    employeeId: number,
+    dto: CreateEmployeeRelativeDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const repository = this.getEmployeeRelativeRepository();
+    const relative = await repository.save(
+      repository.create({
+        employee_id: employee.id,
+        full_name: dto.full_name.trim(),
+        relationship: dto.relationship.trim(),
+        phone: this.normalizeOptionalString(dto.phone),
+        email: this.normalizeOptionalString(dto.email)?.toLowerCase() ?? null,
+        address: this.normalizeOptionalString(dto.address),
+        occupation: this.normalizeOptionalString(dto.occupation),
+        is_emergency_contact: dto.is_emergency_contact ?? false,
+        is_primary: dto.is_primary ?? false,
+      }),
+    );
+
+    return this.mapRelative(relative);
+  }
+
+  async updateRelative(
+    companyId: number,
+    employeeId: number,
+    relativeId: number,
+    dto: UpdateEmployeeRelativeDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const repository = this.getEmployeeRelativeRepository();
+    const relative = await repository.findOne({
+      where: { id: relativeId, employee_id: employee.id },
+    });
+
+    if (!relative) {
+      throw new NotFoundException('Employee relative not found');
+    }
+
+    if (dto.full_name !== undefined) relative.full_name = dto.full_name.trim();
+    if (dto.relationship !== undefined)
+      relative.relationship = dto.relationship.trim();
+    if (dto.phone !== undefined)
+      relative.phone = this.normalizeOptionalString(dto.phone);
+    if (dto.email !== undefined)
+      relative.email =
+        this.normalizeOptionalString(dto.email)?.toLowerCase() ?? null;
+    if (dto.address !== undefined)
+      relative.address = this.normalizeOptionalString(dto.address);
+    if (dto.occupation !== undefined)
+      relative.occupation = this.normalizeOptionalString(dto.occupation);
+    if (dto.is_emergency_contact !== undefined)
+      relative.is_emergency_contact = dto.is_emergency_contact;
+    if (dto.is_primary !== undefined) relative.is_primary = dto.is_primary;
+
+    const saved = await repository.save(relative);
+    return this.mapRelative(saved);
+  }
+
+  async removeRelative(
+    companyId: number,
+    employeeId: number,
+    relativeId: number,
+    actor: AuthenticatedUser,
+  ): Promise<{ message: string }> {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const repository = this.getEmployeeRelativeRepository();
+    const relative = await repository.findOne({
+      where: { id: relativeId, employee_id: employee.id },
+    });
+
+    if (!relative) {
+      throw new NotFoundException('Employee relative not found');
+    }
+
+    await repository.remove(relative);
+    return { message: 'Employee relative deleted successfully' };
+  }
+
+  // ──────────────────────────────────────────────
+  //  IDENTIFICATION MANAGEMENT
+  // ──────────────────────────────────────────────
+
+  async addIdentification(
+    companyId: number,
+    employeeId: number,
+    dto: CreateEmployeeIdentificationDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const repository = this.getEmployeeIdentificationRepository();
+    const identification = await repository.save(
+      repository.create({
+        employee_id: employee.id,
+        identification_type: dto.identification_type,
+        identification_number: dto.identification_number.trim(),
+        issued_country: this.normalizeOptionalString(dto.issued_country),
+        expiry_date: dto.expiry_date ?? null,
+        is_primary: dto.is_primary ?? false,
+      }),
+    );
+
+    return this.mapIdentification(identification);
+  }
+
+  async updateIdentification(
+    companyId: number,
+    employeeId: number,
+    identificationId: number,
+    dto: UpdateEmployeeIdentificationDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const repository = this.getEmployeeIdentificationRepository();
+    const identification = await repository.findOne({
+      where: { id: identificationId, employee_id: employee.id },
+    });
+
+    if (!identification) {
+      throw new NotFoundException('Employee identification not found');
+    }
+
+    if (dto.identification_type !== undefined)
+      identification.identification_type = dto.identification_type;
+    if (dto.identification_number !== undefined)
+      identification.identification_number = dto.identification_number.trim();
+    if (dto.issued_country !== undefined)
+      identification.issued_country = this.normalizeOptionalString(
+        dto.issued_country,
+      );
+    if (dto.expiry_date !== undefined)
+      identification.expiry_date = dto.expiry_date ?? null;
+    if (dto.is_primary !== undefined)
+      identification.is_primary = dto.is_primary;
+
+    const saved = await repository.save(identification);
+    return this.mapIdentification(saved);
+  }
+
+  async removeIdentification(
+    companyId: number,
+    employeeId: number,
+    identificationId: number,
+    actor: AuthenticatedUser,
+  ): Promise<{ message: string }> {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const repository = this.getEmployeeIdentificationRepository();
+    const identification = await repository.findOne({
+      where: { id: identificationId, employee_id: employee.id },
+    });
+
+    if (!identification) {
+      throw new NotFoundException('Employee identification not found');
+    }
+
+    await repository.remove(identification);
+    return { message: 'Employee identification deleted successfully' };
+  }
+
+  // ──────────────────────────────────────────────
+  //  BANK ACCOUNT MANAGEMENT
+  // ──────────────────────────────────────────────
+
+  async addBankAccount(
+    companyId: number,
+    employeeId: number,
+    dto: CreateEmployeeBankAccountDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const employeeName = this.buildEmployeeDisplayName(employee);
+    const repository = this.getEmployeeBankAccountRepository();
+    const bankAccount = await repository.save(
+      repository.create({
+        employee_id: employee.id,
+        bank_name: this.normalizeOptionalString(dto.bank_name),
+        account_name:
+          this.normalizeOptionalString(dto.account_name) ?? employeeName,
+        account_number: dto.account_number.trim(),
+        branch_name: this.normalizeOptionalString(dto.branch_name),
+        swift_code: this.normalizeOptionalString(dto.swift_code),
+        mobile_money_provider: this.normalizeOptionalString(
+          dto.mobile_money_provider,
+        ),
+        is_primary: dto.is_primary ?? false,
+      }),
+    );
+
+    return this.mapBankAccount(bankAccount);
+  }
+
+  async updateBankAccount(
+    companyId: number,
+    employeeId: number,
+    bankAccountId: number,
+    dto: UpdateEmployeeBankAccountDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const repository = this.getEmployeeBankAccountRepository();
+    const bankAccount = await repository.findOne({
+      where: { id: bankAccountId, employee_id: employee.id },
+    });
+
+    if (!bankAccount) {
+      throw new NotFoundException('Employee bank account not found');
+    }
+
+    if (dto.bank_name !== undefined)
+      bankAccount.bank_name = this.normalizeOptionalString(dto.bank_name);
+    if (dto.account_name !== undefined)
+      bankAccount.account_name = this.normalizeOptionalString(dto.account_name);
+    if (dto.account_number !== undefined)
+      bankAccount.account_number = dto.account_number.trim();
+    if (dto.branch_name !== undefined)
+      bankAccount.branch_name = this.normalizeOptionalString(dto.branch_name);
+    if (dto.swift_code !== undefined)
+      bankAccount.swift_code = this.normalizeOptionalString(dto.swift_code);
+    if (dto.mobile_money_provider !== undefined)
+      bankAccount.mobile_money_provider = this.normalizeOptionalString(
+        dto.mobile_money_provider,
+      );
+    if (dto.is_primary !== undefined) bankAccount.is_primary = dto.is_primary;
+
+    const saved = await repository.save(bankAccount);
+    return this.mapBankAccount(saved);
+  }
+
+  async removeBankAccount(
+    companyId: number,
+    employeeId: number,
+    bankAccountId: number,
+    actor: AuthenticatedUser,
+  ): Promise<{ message: string }> {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const repository = this.getEmployeeBankAccountRepository();
+    const bankAccount = await repository.findOne({
+      where: { id: bankAccountId, employee_id: employee.id },
+    });
+
+    if (!bankAccount) {
+      throw new NotFoundException('Employee bank account not found');
+    }
+
+    await repository.remove(bankAccount);
+    return { message: 'Employee bank account deleted successfully' };
   }
 
   async remove(
