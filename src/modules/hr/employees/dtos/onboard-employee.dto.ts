@@ -1,4 +1,3 @@
-import { OmitType } from '@nestjs/mapped-types';
 import { Type } from 'class-transformer';
 import {
   ArrayUnique,
@@ -12,9 +11,7 @@ import {
 } from 'class-validator';
 import { CreateEmployeeDto } from './create-employee.dto';
 
-export class OnboardEmployeeDto extends OmitType(CreateEmployeeDto, [
-  'company_user_id',
-] as const) {
+export class OnboardEmployeeDto extends CreateEmployeeDto {
   @IsEmail()
   @IsNotEmpty()
   email: string;
