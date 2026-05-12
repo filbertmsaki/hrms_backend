@@ -15,7 +15,7 @@ package-lock.json
 
 # OS
 .DS_Store
-/src/database/migrations
+/src/database/migrations/*
 
 # Tests
 /coverage

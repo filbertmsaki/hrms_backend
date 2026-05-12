@@ -21,7 +21,10 @@ import { EmployeeBankAccount } from './employee-bank-account.entity';
 import { EmployeeContact } from './employee-contact.entity';
 import { EmployeeDepartment } from './employee-department.entity';
 import { EmployeeDocument } from './employee-document.entity';
+import { EmployeeExperience } from './employee-experience.entity';
 import { EmployeeIdentification } from './employee-identification.entity';
+import { EmployeeAcademicQualification } from './employee-academic-qualification.entity';
+import { EmployeeProfessionalQualification } from './employee-professional-qualification.entity';
 import { EmployeeRelative } from './employee-relative.entity';
 
 @Entity('employees')
@@ -158,19 +161,31 @@ export class Employee {
   )
   department_assignments: EmployeeDepartment[];
 
-  @OneToMany(() => EmployeeContact, (employeeContact) => employeeContact.employee, {
-    cascade: true,
-  })
+  @OneToMany(
+    () => EmployeeContact,
+    (employeeContact) => employeeContact.employee,
+    {
+      cascade: true,
+    },
+  )
   contacts: EmployeeContact[];
 
-  @OneToMany(() => EmployeeAddress, (employeeAddress) => employeeAddress.employee, {
-    cascade: true,
-  })
+  @OneToMany(
+    () => EmployeeAddress,
+    (employeeAddress) => employeeAddress.employee,
+    {
+      cascade: true,
+    },
+  )
   addresses: EmployeeAddress[];
 
-  @OneToMany(() => EmployeeRelative, (employeeRelative) => employeeRelative.employee, {
-    cascade: true,
-  })
+  @OneToMany(
+    () => EmployeeRelative,
+    (employeeRelative) => employeeRelative.employee,
+    {
+      cascade: true,
+    },
+  )
   relatives: EmployeeRelative[];
 
   @OneToMany(
@@ -199,4 +214,31 @@ export class Employee {
     },
   )
   documents: EmployeeDocument[];
+
+  @OneToMany(
+    () => EmployeeAcademicQualification,
+    (academicQualification) => academicQualification.employee,
+    {
+      cascade: true,
+    },
+  )
+  academic_qualifications: EmployeeAcademicQualification[];
+
+  @OneToMany(
+    () => EmployeeProfessionalQualification,
+    (professionalQualification) => professionalQualification.employee,
+    {
+      cascade: true,
+    },
+  )
+  professional_qualifications: EmployeeProfessionalQualification[];
+
+  @OneToMany(
+    () => EmployeeExperience,
+    (experienceDetail) => experienceDetail.employee,
+    {
+      cascade: true,
+    },
+  )
+  experience_details: EmployeeExperience[];
 }

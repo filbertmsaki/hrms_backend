@@ -12,10 +12,13 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { EmployeeAddressInputDto } from './employee-address-input.dto';
+import { EmployeeAcademicQualificationInputDto } from './employee-academic-qualification-input.dto';
 import { EmployeeBankAccountInputDto } from './employee-bank-account-input.dto';
 import { EmployeeContactInputDto } from './employee-contact-input.dto';
 import { EmployeeDepartmentInputDto } from './employee-department-input.dto';
+import { EmployeeExperienceInputDto } from './employee-experience-input.dto';
 import { EmployeeIdentificationInputDto } from './employee-identification-input.dto';
+import { EmployeeProfessionalQualificationInputDto } from './employee-professional-qualification-input.dto';
 import { EmployeeRelativeInputDto } from './employee-relative-input.dto';
 import { EmploymentStatusEnum } from '../enums/employment-status.enum';
 import { EmploymentTypeEnum } from '../enums/employment-type.enum';
@@ -162,4 +165,22 @@ export class CreateEmployeeDto {
   @Type(() => EmployeeBankAccountInputDto)
   @IsOptional()
   bank_accounts?: EmployeeBankAccountInputDto[];
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => EmployeeAcademicQualificationInputDto)
+  @IsOptional()
+  academic_qualifications?: EmployeeAcademicQualificationInputDto[];
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => EmployeeProfessionalQualificationInputDto)
+  @IsOptional()
+  professional_qualifications?: EmployeeProfessionalQualificationInputDto[];
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => EmployeeExperienceInputDto)
+  @IsOptional()
+  experience_details?: EmployeeExperienceInputDto[];
 }

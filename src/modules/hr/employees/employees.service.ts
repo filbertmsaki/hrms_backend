@@ -26,24 +26,33 @@ import {
 import { AddEmployeeDocumentDto } from './dtos/add-employee-document.dto';
 import { ChangeEmployeeStatusDto } from './dtos/change-employee-status.dto';
 import { CreateEmployeeAddressDto } from './dtos/create-employee-address.dto';
+import { CreateEmployeeAcademicQualificationDto } from './dtos/create-employee-academic-qualification.dto';
 import { CreateEmployeeBankAccountDto } from './dtos/create-employee-bank-account.dto';
 import { CreateEmployeeContactDto } from './dtos/create-employee-contact.dto';
 import { CreateEmployeeDto } from './dtos/create-employee.dto';
+import { CreateEmployeeExperienceDto } from './dtos/create-employee-experience.dto';
 import { CreateEmployeeIdentificationDto } from './dtos/create-employee-identification.dto';
+import { CreateEmployeeProfessionalQualificationDto } from './dtos/create-employee-professional-qualification.dto';
 import { CreateEmployeeRelativeDto } from './dtos/create-employee-relative.dto';
 import { EmployeeAddressInputDto } from './dtos/employee-address-input.dto';
+import { EmployeeAcademicQualificationInputDto } from './dtos/employee-academic-qualification-input.dto';
 import { EmployeeBankAccountInputDto } from './dtos/employee-bank-account-input.dto';
 import { EmployeeContactInputDto } from './dtos/employee-contact-input.dto';
 import { EmployeeDepartmentInputDto } from './dtos/employee-department-input.dto';
+import { EmployeeExperienceInputDto } from './dtos/employee-experience-input.dto';
 import { EmployeeIdentificationInputDto } from './dtos/employee-identification-input.dto';
+import { EmployeeProfessionalQualificationInputDto } from './dtos/employee-professional-qualification-input.dto';
 import { EmployeeQueryDto } from './dtos/employee-query.dto';
 import { EmployeeRelativeInputDto } from './dtos/employee-relative-input.dto';
 import { OnboardEmployeeDto } from './dtos/onboard-employee.dto';
 import { UpdateEmployeeAddressDto } from './dtos/update-employee-address.dto';
+import { UpdateEmployeeAcademicQualificationDto } from './dtos/update-employee-academic-qualification.dto';
 import { UpdateEmployeeBankAccountDto } from './dtos/update-employee-bank-account.dto';
 import { UpdateEmployeeContactDto } from './dtos/update-employee-contact.dto';
 import { UpdateEmployeeDto } from './dtos/update-employee.dto';
+import { UpdateEmployeeExperienceDto } from './dtos/update-employee-experience.dto';
 import { UpdateEmployeeIdentificationDto } from './dtos/update-employee-identification.dto';
+import { UpdateEmployeeProfessionalQualificationDto } from './dtos/update-employee-professional-qualification.dto';
 import { UpdateEmployeeRelativeDto } from './dtos/update-employee-relative.dto';
 import { ContactTypeEnum } from './enums/contact-type.enum';
 import { EmploymentStatusEnum } from './enums/employment-status.enum';
@@ -54,7 +63,10 @@ import { EmployeeBankAccount } from './entities/employee-bank-account.entity';
 import { EmployeeContact } from './entities/employee-contact.entity';
 import { EmployeeDepartment } from './entities/employee-department.entity';
 import { EmployeeDocument } from './entities/employee-document.entity';
+import { EmployeeExperience } from './entities/employee-experience.entity';
 import { EmployeeIdentification } from './entities/employee-identification.entity';
+import { EmployeeAcademicQualification } from './entities/employee-academic-qualification.entity';
+import { EmployeeProfessionalQualification } from './entities/employee-professional-qualification.entity';
 import { EmployeeRelative } from './entities/employee-relative.entity';
 import { Employee } from './entities/employee.entity';
 
@@ -65,7 +77,14 @@ type EmployeeMutationDto =
 
 type EmployeeProfileCollectionsDto = Pick<
   CreateEmployeeDto,
-  'contacts' | 'addresses' | 'relatives' | 'identifications' | 'bank_accounts'
+  | 'contacts'
+  | 'addresses'
+  | 'relatives'
+  | 'identifications'
+  | 'bank_accounts'
+  | 'academic_qualifications'
+  | 'professional_qualifications'
+  | 'experience_details'
 >;
 
 @Injectable()
@@ -89,6 +108,12 @@ export class EmployeesService {
     private readonly employeeIdentificationRepository: Repository<EmployeeIdentification>,
     @InjectRepository(EmployeeBankAccount)
     private readonly employeeBankAccountRepository: Repository<EmployeeBankAccount>,
+    @InjectRepository(EmployeeAcademicQualification)
+    private readonly employeeAcademicQualificationRepository: Repository<EmployeeAcademicQualification>,
+    @InjectRepository(EmployeeProfessionalQualification)
+    private readonly employeeProfessionalQualificationRepository: Repository<EmployeeProfessionalQualification>,
+    @InjectRepository(EmployeeExperience)
+    private readonly employeeExperienceRepository: Repository<EmployeeExperience>,
     @InjectRepository(CompanyUser)
     private readonly companyUserRepository: Repository<CompanyUser>,
     @InjectRepository(User)
@@ -169,6 +194,33 @@ export class EmployeesService {
     );
   }
 
+  private getEmployeeAcademicQualificationRepository(
+    manager?: EntityManager,
+  ): Repository<EmployeeAcademicQualification> {
+    return (
+      manager?.getRepository(EmployeeAcademicQualification) ??
+      this.employeeAcademicQualificationRepository
+    );
+  }
+
+  private getEmployeeProfessionalQualificationRepository(
+    manager?: EntityManager,
+  ): Repository<EmployeeProfessionalQualification> {
+    return (
+      manager?.getRepository(EmployeeProfessionalQualification) ??
+      this.employeeProfessionalQualificationRepository
+    );
+  }
+
+  private getEmployeeExperienceRepository(
+    manager?: EntityManager,
+  ): Repository<EmployeeExperience> {
+    return (
+      manager?.getRepository(EmployeeExperience) ??
+      this.employeeExperienceRepository
+    );
+  }
+
   private getCompanyUserRepository(
     manager?: EntityManager,
   ): Repository<CompanyUser> {
@@ -200,6 +252,16 @@ export class EmployeesService {
 
     const trimmed = value.trim();
     return trimmed.length ? trimmed : null;
+  }
+
+  private assertDateOrder(
+    startDate: string,
+    endDate: string,
+    message: string,
+  ): void {
+    if (new Date(startDate) > new Date(endDate)) {
+      throw new BadRequestException(message);
+    }
   }
 
   private buildEmployeeDisplayName(
@@ -440,6 +502,83 @@ export class EmployeesService {
     };
   }
 
+  private mapAcademicQualification(
+    academicQualification: EmployeeAcademicQualification,
+  ) {
+    return {
+      id: academicQualification.id,
+      employee_id: academicQualification.employee_id,
+      country_of_residence: academicQualification.country_of_residence,
+      education_level: academicQualification.education_level,
+      institution_name: academicQualification.institution_name,
+      degree_or_certificate: academicQualification.degree_or_certificate,
+      field_of_study: academicQualification.field_of_study,
+      start_date: academicQualification.start_date,
+      end_date: academicQualification.end_date,
+      academic_certificate_document_url:
+        academicQualification.academic_certificate_document_url,
+      uploaded_by_company_user_id:
+        academicQualification.uploaded_by_company_user_id,
+      uploaded_at: academicQualification.uploaded_at,
+      updated_at: academicQualification.updated_at,
+      uploaded_by: academicQualification.uploaded_by?.user
+        ? {
+            id: academicQualification.uploaded_by.user.id,
+            user_no: academicQualification.uploaded_by.user.user_no,
+            first_name: academicQualification.uploaded_by.user.first_name,
+            last_name: academicQualification.uploaded_by.user.last_name,
+            email: academicQualification.uploaded_by.user.email,
+          }
+        : null,
+    };
+  }
+
+  private mapProfessionalQualification(
+    professionalQualification: EmployeeProfessionalQualification,
+  ) {
+    return {
+      id: professionalQualification.id,
+      employee_id: professionalQualification.employee_id,
+      country_of_residence: professionalQualification.country_of_residence,
+      institution_name: professionalQualification.institution_name,
+      programme_name: professionalQualification.programme_name,
+      issuing_organization: professionalQualification.issuing_organization,
+      issue_date: professionalQualification.issue_date,
+      expiry_date: professionalQualification.expiry_date,
+      professional_certificate_document_url:
+        professionalQualification.professional_certificate_document_url,
+      uploaded_by_company_user_id:
+        professionalQualification.uploaded_by_company_user_id,
+      uploaded_at: professionalQualification.uploaded_at,
+      updated_at: professionalQualification.updated_at,
+      uploaded_by: professionalQualification.uploaded_by?.user
+        ? {
+            id: professionalQualification.uploaded_by.user.id,
+            user_no: professionalQualification.uploaded_by.user.user_no,
+            first_name: professionalQualification.uploaded_by.user.first_name,
+            last_name: professionalQualification.uploaded_by.user.last_name,
+            email: professionalQualification.uploaded_by.user.email,
+          }
+        : null,
+    };
+  }
+
+  private mapExperienceDetail(experienceDetail: EmployeeExperience) {
+    return {
+      id: experienceDetail.id,
+      employee_id: experienceDetail.employee_id,
+      company_name: experienceDetail.company_name,
+      job_title: experienceDetail.job_title,
+      responsibilities_description:
+        experienceDetail.responsibilities_description,
+      start_date: experienceDetail.start_date,
+      end_date: experienceDetail.end_date,
+      currently_working: experienceDetail.currently_working,
+      created_at: experienceDetail.created_at,
+      updated_at: experienceDetail.updated_at,
+    };
+  }
+
   private mapEmployee(employee: Employee, includeDocuments = false) {
     return {
       id: employee.id,
@@ -503,6 +642,18 @@ export class EmployeesService {
       bank_accounts: this.sortPrimaryFirst(employee.bank_accounts).map(
         (bankAccount) => this.mapBankAccount(bankAccount),
       ),
+      academic_qualifications:
+        employee.academic_qualifications?.map((academicQualification) =>
+          this.mapAcademicQualification(academicQualification),
+        ) ?? [],
+      professional_qualifications:
+        employee.professional_qualifications?.map((professionalQualification) =>
+          this.mapProfessionalQualification(professionalQualification),
+        ) ?? [],
+      experience_details:
+        employee.experience_details?.map((experienceDetail) =>
+          this.mapExperienceDetail(experienceDetail),
+        ) ?? [],
       company_user: this.mapMembership(employee.company_user),
       documents: includeDocuments
         ? (employee.documents?.map((document) => this.mapDocument(document)) ??
@@ -733,6 +884,17 @@ export class EmployeesService {
         relatives: true,
         identifications: true,
         bank_accounts: true,
+        academic_qualifications: {
+          uploaded_by: {
+            user: true,
+          },
+        },
+        professional_qualifications: {
+          uploaded_by: {
+            user: true,
+          },
+        },
+        experience_details: true,
         documents: {
           uploaded_by: {
             user: true,
@@ -1028,6 +1190,101 @@ export class EmployeesService {
     if (normalized.length === 1 && !normalized[0].is_primary) {
       normalized[0].is_primary = true;
     }
+
+    return normalized;
+  }
+
+  private normalizeAcademicQualificationInputs(
+    academicQualifications: EmployeeAcademicQualificationInputDto[],
+  ): EmployeeAcademicQualificationInputDto[] {
+    const normalized = academicQualifications.map((academicQualification) => ({
+      country_of_residence: academicQualification.country_of_residence.trim(),
+      education_level: academicQualification.education_level.trim(),
+      institution_name: academicQualification.institution_name.trim(),
+      degree_or_certificate: academicQualification.degree_or_certificate.trim(),
+      field_of_study: academicQualification.field_of_study.trim(),
+      start_date: academicQualification.start_date,
+      end_date: academicQualification.end_date,
+      academic_certificate_document_url:
+        academicQualification.academic_certificate_document_url.trim(),
+    }));
+
+    normalized.forEach((academicQualification) => {
+      this.assertDateOrder(
+        academicQualification.start_date,
+        academicQualification.end_date,
+        'Academic qualification end_date cannot be before start_date',
+      );
+    });
+
+    return normalized;
+  }
+
+  private normalizeProfessionalQualificationInputs(
+    professionalQualifications: EmployeeProfessionalQualificationInputDto[],
+  ): EmployeeProfessionalQualificationInputDto[] {
+    const normalized = professionalQualifications.map(
+      (professionalQualification) => ({
+        country_of_residence:
+          professionalQualification.country_of_residence.trim(),
+        institution_name: professionalQualification.institution_name.trim(),
+        programme_name: professionalQualification.programme_name.trim(),
+        issuing_organization:
+          professionalQualification.issuing_organization.trim(),
+        issue_date: professionalQualification.issue_date,
+        expiry_date: professionalQualification.expiry_date,
+        professional_certificate_document_url:
+          professionalQualification.professional_certificate_document_url.trim(),
+      }),
+    );
+
+    normalized.forEach((professionalQualification) => {
+      if (professionalQualification.expiry_date) {
+        this.assertDateOrder(
+          professionalQualification.issue_date,
+          professionalQualification.expiry_date,
+          'Professional qualification expiry_date cannot be before issue_date',
+        );
+      }
+    });
+
+    return normalized;
+  }
+
+  private normalizeExperienceInputs(
+    experienceDetails: EmployeeExperienceInputDto[],
+  ): EmployeeExperienceInputDto[] {
+    const normalized = experienceDetails.map((experienceDetail) => {
+      const currentlyWorking = experienceDetail.currently_working ?? false;
+
+      return {
+        company_name: experienceDetail.company_name.trim(),
+        job_title: experienceDetail.job_title.trim(),
+        responsibilities_description:
+          experienceDetail.responsibilities_description.trim(),
+        start_date: experienceDetail.start_date,
+        end_date: currentlyWorking ? undefined : experienceDetail.end_date,
+        currently_working: currentlyWorking,
+      };
+    });
+
+    normalized.forEach((experienceDetail) => {
+      if (experienceDetail.currently_working) {
+        return;
+      }
+
+      if (!experienceDetail.end_date) {
+        throw new BadRequestException(
+          'Experience end_date is required when currently_working is false',
+        );
+      }
+
+      this.assertDateOrder(
+        experienceDetail.start_date,
+        experienceDetail.end_date,
+        'Experience end_date cannot be before start_date',
+      );
+    });
 
     return normalized;
   }
@@ -1406,6 +1663,98 @@ export class EmployeesService {
     );
   }
 
+  private async saveEmployeeAcademicQualifications(
+    employeeId: number,
+    academicQualifications: EmployeeAcademicQualificationInputDto[],
+    actor: AuthenticatedUser,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repository = this.getEmployeeAcademicQualificationRepository(manager);
+    await repository.delete({ employee_id: employeeId });
+
+    if (!academicQualifications.length) {
+      return;
+    }
+
+    await repository.save(
+      academicQualifications.map((academicQualification) =>
+        repository.create({
+          employee_id: employeeId,
+          country_of_residence: academicQualification.country_of_residence,
+          education_level: academicQualification.education_level,
+          institution_name: academicQualification.institution_name,
+          degree_or_certificate: academicQualification.degree_or_certificate,
+          field_of_study: academicQualification.field_of_study,
+          start_date: academicQualification.start_date,
+          end_date: academicQualification.end_date,
+          academic_certificate_document_url:
+            academicQualification.academic_certificate_document_url,
+          uploaded_by_company_user_id: actor.companyMembershipId ?? null,
+        }),
+      ),
+    );
+  }
+
+  private async saveEmployeeProfessionalQualifications(
+    employeeId: number,
+    professionalQualifications: EmployeeProfessionalQualificationInputDto[],
+    actor: AuthenticatedUser,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repository =
+      this.getEmployeeProfessionalQualificationRepository(manager);
+    await repository.delete({ employee_id: employeeId });
+
+    if (!professionalQualifications.length) {
+      return;
+    }
+
+    await repository.save(
+      professionalQualifications.map((professionalQualification) =>
+        repository.create({
+          employee_id: employeeId,
+          country_of_residence: professionalQualification.country_of_residence,
+          institution_name: professionalQualification.institution_name,
+          programme_name: professionalQualification.programme_name,
+          issuing_organization: professionalQualification.issuing_organization,
+          issue_date: professionalQualification.issue_date,
+          expiry_date: professionalQualification.expiry_date ?? null,
+          professional_certificate_document_url:
+            professionalQualification.professional_certificate_document_url,
+          uploaded_by_company_user_id: actor.companyMembershipId ?? null,
+        }),
+      ),
+    );
+  }
+
+  private async saveEmployeeExperienceDetails(
+    employeeId: number,
+    experienceDetails: EmployeeExperienceInputDto[],
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repository = this.getEmployeeExperienceRepository(manager);
+    await repository.delete({ employee_id: employeeId });
+
+    if (!experienceDetails.length) {
+      return;
+    }
+
+    await repository.save(
+      experienceDetails.map((experienceDetail) =>
+        repository.create({
+          employee_id: employeeId,
+          company_name: experienceDetail.company_name,
+          job_title: experienceDetail.job_title,
+          responsibilities_description:
+            experienceDetail.responsibilities_description,
+          start_date: experienceDetail.start_date,
+          end_date: experienceDetail.end_date ?? null,
+          currently_working: experienceDetail.currently_working ?? false,
+        }),
+      ),
+    );
+  }
+
   private normalizeStatusFields(
     dto: Partial<
       Pick<Employee, 'employment_status' | 'exit_date' | 'exit_reason'>
@@ -1549,6 +1898,22 @@ export class EmployeesService {
       'bank_accounts' in dto && dto.bank_accounts !== undefined
         ? this.normalizeBankAccountInputs(dto.bank_accounts, employee)
         : undefined;
+    const normalizedAcademicQualifications =
+      'academic_qualifications' in dto &&
+      dto.academic_qualifications !== undefined
+        ? this.normalizeAcademicQualificationInputs(dto.academic_qualifications)
+        : undefined;
+    const normalizedProfessionalQualifications =
+      'professional_qualifications' in dto &&
+      dto.professional_qualifications !== undefined
+        ? this.normalizeProfessionalQualificationInputs(
+            dto.professional_qualifications,
+          )
+        : undefined;
+    const normalizedExperienceDetails =
+      'experience_details' in dto && dto.experience_details !== undefined
+        ? this.normalizeExperienceInputs(dto.experience_details)
+        : undefined;
 
     const saved = await this.getEmployeeRepository(manager).save(employee);
 
@@ -1580,6 +1945,32 @@ export class EmployeesService {
       await this.saveEmployeeBankAccounts(
         saved.id,
         normalizedBankAccounts,
+        manager,
+      );
+    }
+
+    if (normalizedAcademicQualifications !== undefined) {
+      await this.saveEmployeeAcademicQualifications(
+        saved.id,
+        normalizedAcademicQualifications,
+        actor,
+        manager,
+      );
+    }
+
+    if (normalizedProfessionalQualifications !== undefined) {
+      await this.saveEmployeeProfessionalQualifications(
+        saved.id,
+        normalizedProfessionalQualifications,
+        actor,
+        manager,
+      );
+    }
+
+    if (normalizedExperienceDetails !== undefined) {
+      await this.saveEmployeeExperienceDetails(
+        saved.id,
+        normalizedExperienceDetails,
         manager,
       );
     }
@@ -1636,6 +2027,17 @@ export class EmployeesService {
         relatives: true,
         identifications: true,
         bank_accounts: true,
+        academic_qualifications: {
+          uploaded_by: {
+            user: true,
+          },
+        },
+        professional_qualifications: {
+          uploaded_by: {
+            user: true,
+          },
+        },
+        experience_details: true,
       },
     });
 
@@ -2004,6 +2406,9 @@ export class EmployeesService {
             relatives: true,
             identifications: true,
             bank_accounts: true,
+            academic_qualifications: true,
+            professional_qualifications: true,
+            experience_details: true,
           },
         });
 
@@ -2537,6 +2942,460 @@ export class EmployeesService {
 
     await repository.remove(bankAccount);
     return { message: 'Employee bank account deleted successfully' };
+  }
+
+  async listAcademicQualifications(
+    companyId: number,
+    employeeId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const repository = this.getEmployeeAcademicQualificationRepository();
+    const qualifications = await repository.find({
+      where: { employee_id: employee.id },
+      relations: {
+        uploaded_by: {
+          user: true,
+        },
+      },
+      order: { id: 'ASC' },
+    });
+
+    return qualifications.map((qualification) =>
+      this.mapAcademicQualification(qualification),
+    );
+  }
+
+  async addAcademicQualification(
+    companyId: number,
+    employeeId: number,
+    dto: CreateEmployeeAcademicQualificationDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    this.assertDateOrder(
+      dto.start_date,
+      dto.end_date,
+      'Academic qualification end_date cannot be before start_date',
+    );
+
+    const repository = this.getEmployeeAcademicQualificationRepository();
+    const qualification = await repository.save(
+      repository.create({
+        employee_id: employee.id,
+        country_of_residence: dto.country_of_residence.trim(),
+        education_level: dto.education_level.trim(),
+        institution_name: dto.institution_name.trim(),
+        degree_or_certificate: dto.degree_or_certificate.trim(),
+        field_of_study: dto.field_of_study.trim(),
+        start_date: dto.start_date,
+        end_date: dto.end_date,
+        academic_certificate_document_url:
+          dto.academic_certificate_document_url.trim(),
+        uploaded_by_company_user_id: actor.companyMembershipId ?? null,
+      }),
+    );
+
+    const saved = await repository.findOneOrFail({
+      where: { id: qualification.id },
+      relations: {
+        uploaded_by: {
+          user: true,
+        },
+      },
+    });
+
+    return this.mapAcademicQualification(saved);
+  }
+
+  async updateAcademicQualification(
+    companyId: number,
+    employeeId: number,
+    academicQualificationId: number,
+    dto: UpdateEmployeeAcademicQualificationDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const repository = this.getEmployeeAcademicQualificationRepository();
+    const qualification = await repository.findOne({
+      where: { id: academicQualificationId, employee_id: employee.id },
+      relations: {
+        uploaded_by: {
+          user: true,
+        },
+      },
+    });
+
+    if (!qualification) {
+      throw new NotFoundException('Employee academic qualification not found');
+    }
+
+    if (dto.country_of_residence !== undefined) {
+      qualification.country_of_residence = dto.country_of_residence.trim();
+    }
+    if (dto.education_level !== undefined) {
+      qualification.education_level = dto.education_level.trim();
+    }
+    if (dto.institution_name !== undefined) {
+      qualification.institution_name = dto.institution_name.trim();
+    }
+    if (dto.degree_or_certificate !== undefined) {
+      qualification.degree_or_certificate = dto.degree_or_certificate.trim();
+    }
+    if (dto.field_of_study !== undefined) {
+      qualification.field_of_study = dto.field_of_study.trim();
+    }
+    if (dto.start_date !== undefined) {
+      qualification.start_date = dto.start_date;
+    }
+    if (dto.end_date !== undefined) {
+      qualification.end_date = dto.end_date;
+    }
+    if (dto.academic_certificate_document_url !== undefined) {
+      qualification.academic_certificate_document_url =
+        dto.academic_certificate_document_url.trim();
+      qualification.uploaded_by_company_user_id =
+        actor.companyMembershipId ?? null;
+    }
+
+    this.assertDateOrder(
+      qualification.start_date,
+      qualification.end_date,
+      'Academic qualification end_date cannot be before start_date',
+    );
+
+    const saved = await repository.save(qualification);
+    return this.mapAcademicQualification(saved);
+  }
+
+  async removeAcademicQualification(
+    companyId: number,
+    employeeId: number,
+    academicQualificationId: number,
+    actor: AuthenticatedUser,
+  ): Promise<{ message: string }> {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const repository = this.getEmployeeAcademicQualificationRepository();
+    const qualification = await repository.findOne({
+      where: { id: academicQualificationId, employee_id: employee.id },
+    });
+
+    if (!qualification) {
+      throw new NotFoundException('Employee academic qualification not found');
+    }
+
+    await repository.remove(qualification);
+    return { message: 'Employee academic qualification deleted successfully' };
+  }
+
+  async listProfessionalQualifications(
+    companyId: number,
+    employeeId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const repository = this.getEmployeeProfessionalQualificationRepository();
+    const qualifications = await repository.find({
+      where: { employee_id: employee.id },
+      relations: {
+        uploaded_by: {
+          user: true,
+        },
+      },
+      order: { id: 'ASC' },
+    });
+
+    return qualifications.map((qualification) =>
+      this.mapProfessionalQualification(qualification),
+    );
+  }
+
+  async addProfessionalQualification(
+    companyId: number,
+    employeeId: number,
+    dto: CreateEmployeeProfessionalQualificationDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    if (dto.expiry_date) {
+      this.assertDateOrder(
+        dto.issue_date,
+        dto.expiry_date,
+        'Professional qualification expiry_date cannot be before issue_date',
+      );
+    }
+
+    const repository = this.getEmployeeProfessionalQualificationRepository();
+    const qualification = await repository.save(
+      repository.create({
+        employee_id: employee.id,
+        country_of_residence: dto.country_of_residence.trim(),
+        institution_name: dto.institution_name.trim(),
+        programme_name: dto.programme_name.trim(),
+        issuing_organization: dto.issuing_organization.trim(),
+        issue_date: dto.issue_date,
+        expiry_date: dto.expiry_date ?? null,
+        professional_certificate_document_url:
+          dto.professional_certificate_document_url.trim(),
+        uploaded_by_company_user_id: actor.companyMembershipId ?? null,
+      }),
+    );
+
+    const saved = await repository.findOneOrFail({
+      where: { id: qualification.id },
+      relations: {
+        uploaded_by: {
+          user: true,
+        },
+      },
+    });
+
+    return this.mapProfessionalQualification(saved);
+  }
+
+  async updateProfessionalQualification(
+    companyId: number,
+    employeeId: number,
+    professionalQualificationId: number,
+    dto: UpdateEmployeeProfessionalQualificationDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const repository = this.getEmployeeProfessionalQualificationRepository();
+    const qualification = await repository.findOne({
+      where: { id: professionalQualificationId, employee_id: employee.id },
+      relations: {
+        uploaded_by: {
+          user: true,
+        },
+      },
+    });
+
+    if (!qualification) {
+      throw new NotFoundException(
+        'Employee professional qualification not found',
+      );
+    }
+
+    if (dto.country_of_residence !== undefined) {
+      qualification.country_of_residence = dto.country_of_residence.trim();
+    }
+    if (dto.institution_name !== undefined) {
+      qualification.institution_name = dto.institution_name.trim();
+    }
+    if (dto.programme_name !== undefined) {
+      qualification.programme_name = dto.programme_name.trim();
+    }
+    if (dto.issuing_organization !== undefined) {
+      qualification.issuing_organization = dto.issuing_organization.trim();
+    }
+    if (dto.issue_date !== undefined) {
+      qualification.issue_date = dto.issue_date;
+    }
+    if (dto.expiry_date !== undefined) {
+      qualification.expiry_date = dto.expiry_date ?? null;
+    }
+    if (dto.professional_certificate_document_url !== undefined) {
+      qualification.professional_certificate_document_url =
+        dto.professional_certificate_document_url.trim();
+      qualification.uploaded_by_company_user_id =
+        actor.companyMembershipId ?? null;
+    }
+
+    if (qualification.expiry_date) {
+      this.assertDateOrder(
+        qualification.issue_date,
+        qualification.expiry_date,
+        'Professional qualification expiry_date cannot be before issue_date',
+      );
+    }
+
+    const saved = await repository.save(qualification);
+    return this.mapProfessionalQualification(saved);
+  }
+
+  async removeProfessionalQualification(
+    companyId: number,
+    employeeId: number,
+    professionalQualificationId: number,
+    actor: AuthenticatedUser,
+  ): Promise<{ message: string }> {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const repository = this.getEmployeeProfessionalQualificationRepository();
+    const qualification = await repository.findOne({
+      where: { id: professionalQualificationId, employee_id: employee.id },
+    });
+
+    if (!qualification) {
+      throw new NotFoundException(
+        'Employee professional qualification not found',
+      );
+    }
+
+    await repository.remove(qualification);
+    return {
+      message: 'Employee professional qualification deleted successfully',
+    };
+  }
+
+  async listExperienceDetails(
+    companyId: number,
+    employeeId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const repository = this.getEmployeeExperienceRepository();
+    const experienceDetails = await repository.find({
+      where: { employee_id: employee.id },
+      order: { start_date: 'DESC', id: 'DESC' },
+    });
+
+    return experienceDetails.map((experienceDetail) =>
+      this.mapExperienceDetail(experienceDetail),
+    );
+  }
+
+  async addExperienceDetail(
+    companyId: number,
+    employeeId: number,
+    dto: CreateEmployeeExperienceDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const currentlyWorking = dto.currently_working ?? false;
+    const endDate = currentlyWorking ? null : dto.end_date;
+
+    if (!currentlyWorking && !endDate) {
+      throw new BadRequestException(
+        'Experience end_date is required when currently_working is false',
+      );
+    }
+
+    if (endDate) {
+      this.assertDateOrder(
+        dto.start_date,
+        endDate,
+        'Experience end_date cannot be before start_date',
+      );
+    }
+
+    const repository = this.getEmployeeExperienceRepository();
+    const experienceDetail = await repository.save(
+      repository.create({
+        employee_id: employee.id,
+        company_name: dto.company_name.trim(),
+        job_title: dto.job_title.trim(),
+        responsibilities_description: dto.responsibilities_description.trim(),
+        start_date: dto.start_date,
+        end_date: endDate,
+        currently_working: currentlyWorking,
+      }),
+    );
+
+    return this.mapExperienceDetail(experienceDetail);
+  }
+
+  async updateExperienceDetail(
+    companyId: number,
+    employeeId: number,
+    experienceDetailId: number,
+    dto: UpdateEmployeeExperienceDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const repository = this.getEmployeeExperienceRepository();
+    const experienceDetail = await repository.findOne({
+      where: { id: experienceDetailId, employee_id: employee.id },
+    });
+
+    if (!experienceDetail) {
+      throw new NotFoundException('Employee experience detail not found');
+    }
+
+    if (dto.company_name !== undefined) {
+      experienceDetail.company_name = dto.company_name.trim();
+    }
+    if (dto.job_title !== undefined) {
+      experienceDetail.job_title = dto.job_title.trim();
+    }
+    if (dto.responsibilities_description !== undefined) {
+      experienceDetail.responsibilities_description =
+        dto.responsibilities_description.trim();
+    }
+    if (dto.start_date !== undefined) {
+      experienceDetail.start_date = dto.start_date;
+    }
+    if (dto.currently_working !== undefined) {
+      experienceDetail.currently_working = dto.currently_working;
+    }
+
+    const isCurrentlyWorking = experienceDetail.currently_working;
+    if (isCurrentlyWorking) {
+      experienceDetail.end_date = null;
+    } else if (dto.end_date !== undefined) {
+      experienceDetail.end_date = dto.end_date;
+    }
+
+    if (!experienceDetail.currently_working && !experienceDetail.end_date) {
+      throw new BadRequestException(
+        'Experience end_date is required when currently_working is false',
+      );
+    }
+
+    if (experienceDetail.end_date) {
+      this.assertDateOrder(
+        experienceDetail.start_date,
+        experienceDetail.end_date,
+        'Experience end_date cannot be before start_date',
+      );
+    }
+
+    const saved = await repository.save(experienceDetail);
+    return this.mapExperienceDetail(saved);
+  }
+
+  async removeExperienceDetail(
+    companyId: number,
+    employeeId: number,
+    experienceDetailId: number,
+    actor: AuthenticatedUser,
+  ): Promise<{ message: string }> {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const repository = this.getEmployeeExperienceRepository();
+    const experienceDetail = await repository.findOne({
+      where: { id: experienceDetailId, employee_id: employee.id },
+    });
+
+    if (!experienceDetail) {
+      throw new NotFoundException('Employee experience detail not found');
+    }
+
+    await repository.remove(experienceDetail);
+    return { message: 'Employee experience detail deleted successfully' };
   }
 
   async remove(

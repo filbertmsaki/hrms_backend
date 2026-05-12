@@ -21,18 +21,24 @@ import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user
 import { AddEmployeeDocumentDto } from './dtos/add-employee-document.dto';
 import { ChangeEmployeeStatusDto } from './dtos/change-employee-status.dto';
 import { CreateEmployeeAddressDto } from './dtos/create-employee-address.dto';
+import { CreateEmployeeAcademicQualificationDto } from './dtos/create-employee-academic-qualification.dto';
 import { CreateEmployeeBankAccountDto } from './dtos/create-employee-bank-account.dto';
 import { CreateEmployeeContactDto } from './dtos/create-employee-contact.dto';
 import { CreateEmployeeDto } from './dtos/create-employee.dto';
+import { CreateEmployeeExperienceDto } from './dtos/create-employee-experience.dto';
 import { CreateEmployeeIdentificationDto } from './dtos/create-employee-identification.dto';
+import { CreateEmployeeProfessionalQualificationDto } from './dtos/create-employee-professional-qualification.dto';
 import { CreateEmployeeRelativeDto } from './dtos/create-employee-relative.dto';
 import { EmployeeQueryDto } from './dtos/employee-query.dto';
 import { OnboardEmployeeDto } from './dtos/onboard-employee.dto';
 import { UpdateEmployeeAddressDto } from './dtos/update-employee-address.dto';
+import { UpdateEmployeeAcademicQualificationDto } from './dtos/update-employee-academic-qualification.dto';
 import { UpdateEmployeeBankAccountDto } from './dtos/update-employee-bank-account.dto';
 import { UpdateEmployeeContactDto } from './dtos/update-employee-contact.dto';
 import { UpdateEmployeeDto } from './dtos/update-employee.dto';
+import { UpdateEmployeeExperienceDto } from './dtos/update-employee-experience.dto';
 import { UpdateEmployeeIdentificationDto } from './dtos/update-employee-identification.dto';
+import { UpdateEmployeeProfessionalQualificationDto } from './dtos/update-employee-professional-qualification.dto';
 import { UpdateEmployeeRelativeDto } from './dtos/update-employee-relative.dto';
 import { EmployeesService } from './employees.service';
 
@@ -47,7 +53,8 @@ export class EmployeesController {
   @UseGuards(PermissionsGuard)
   @Permissions('employees:onboard')
   @ApiOperation({
-    summary: 'Onboard a new employee by creating the company user and HR profile',
+    summary:
+      'Onboard a new employee by creating the company user and HR profile',
   })
   onboard(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -345,7 +352,9 @@ export class EmployeesController {
   @Post(':employeeId/identifications')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Add an identification document to an employee profile' })
+  @ApiOperation({
+    summary: 'Add an identification document to an employee profile',
+  })
   addIdentification(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -448,6 +457,220 @@ export class EmployeesController {
       req.user.companyId!,
       employeeId,
       bankAccountId,
+      req.user,
+    );
+  }
+
+  @Get(':employeeId/academic-qualifications')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:read')
+  @ApiOperation({ summary: 'List academic qualifications for an employee' })
+  listAcademicQualifications(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+  ) {
+    return this.employeesService.listAcademicQualifications(
+      req.user.companyId!,
+      employeeId,
+      req.user,
+    );
+  }
+
+  @Post(':employeeId/academic-qualifications')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:update')
+  @ApiOperation({
+    summary: 'Add an academic qualification to an employee profile',
+  })
+  addAcademicQualification(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Body() dto: CreateEmployeeAcademicQualificationDto,
+  ) {
+    return this.employeesService.addAcademicQualification(
+      req.user.companyId!,
+      employeeId,
+      dto,
+      req.user,
+    );
+  }
+
+  @Patch(':employeeId/academic-qualifications/:academicQualificationId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:update')
+  @ApiOperation({ summary: 'Update an academic qualification' })
+  updateAcademicQualification(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('academicQualificationId', ParseIntPipe)
+    academicQualificationId: number,
+    @Body() dto: UpdateEmployeeAcademicQualificationDto,
+  ) {
+    return this.employeesService.updateAcademicQualification(
+      req.user.companyId!,
+      employeeId,
+      academicQualificationId,
+      dto,
+      req.user,
+    );
+  }
+
+  @Delete(':employeeId/academic-qualifications/:academicQualificationId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:update')
+  @ApiOperation({ summary: 'Remove an academic qualification' })
+  removeAcademicQualification(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('academicQualificationId', ParseIntPipe)
+    academicQualificationId: number,
+  ) {
+    return this.employeesService.removeAcademicQualification(
+      req.user.companyId!,
+      employeeId,
+      academicQualificationId,
+      req.user,
+    );
+  }
+
+  @Get(':employeeId/professional-qualifications')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:read')
+  @ApiOperation({ summary: 'List professional qualifications for an employee' })
+  listProfessionalQualifications(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+  ) {
+    return this.employeesService.listProfessionalQualifications(
+      req.user.companyId!,
+      employeeId,
+      req.user,
+    );
+  }
+
+  @Post(':employeeId/professional-qualifications')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:update')
+  @ApiOperation({
+    summary: 'Add a professional qualification to an employee profile',
+  })
+  addProfessionalQualification(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Body() dto: CreateEmployeeProfessionalQualificationDto,
+  ) {
+    return this.employeesService.addProfessionalQualification(
+      req.user.companyId!,
+      employeeId,
+      dto,
+      req.user,
+    );
+  }
+
+  @Patch(':employeeId/professional-qualifications/:professionalQualificationId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:update')
+  @ApiOperation({ summary: 'Update a professional qualification' })
+  updateProfessionalQualification(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('professionalQualificationId', ParseIntPipe)
+    professionalQualificationId: number,
+    @Body() dto: UpdateEmployeeProfessionalQualificationDto,
+  ) {
+    return this.employeesService.updateProfessionalQualification(
+      req.user.companyId!,
+      employeeId,
+      professionalQualificationId,
+      dto,
+      req.user,
+    );
+  }
+
+  @Delete(
+    ':employeeId/professional-qualifications/:professionalQualificationId',
+  )
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:update')
+  @ApiOperation({ summary: 'Remove a professional qualification' })
+  removeProfessionalQualification(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('professionalQualificationId', ParseIntPipe)
+    professionalQualificationId: number,
+  ) {
+    return this.employeesService.removeProfessionalQualification(
+      req.user.companyId!,
+      employeeId,
+      professionalQualificationId,
+      req.user,
+    );
+  }
+
+  @Get(':employeeId/experience-details')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:read')
+  @ApiOperation({ summary: 'List experience details for an employee' })
+  listExperienceDetails(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+  ) {
+    return this.employeesService.listExperienceDetails(
+      req.user.companyId!,
+      employeeId,
+      req.user,
+    );
+  }
+
+  @Post(':employeeId/experience-details')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:update')
+  @ApiOperation({ summary: 'Add an experience detail to an employee profile' })
+  addExperienceDetail(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Body() dto: CreateEmployeeExperienceDto,
+  ) {
+    return this.employeesService.addExperienceDetail(
+      req.user.companyId!,
+      employeeId,
+      dto,
+      req.user,
+    );
+  }
+
+  @Patch(':employeeId/experience-details/:experienceDetailId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:update')
+  @ApiOperation({ summary: 'Update an employee experience detail' })
+  updateExperienceDetail(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('experienceDetailId', ParseIntPipe) experienceDetailId: number,
+    @Body() dto: UpdateEmployeeExperienceDto,
+  ) {
+    return this.employeesService.updateExperienceDetail(
+      req.user.companyId!,
+      employeeId,
+      experienceDetailId,
+      dto,
+      req.user,
+    );
+  }
+
+  @Delete(':employeeId/experience-details/:experienceDetailId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:update')
+  @ApiOperation({ summary: 'Remove an employee experience detail' })
+  removeExperienceDetail(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('experienceDetailId', ParseIntPipe) experienceDetailId: number,
+  ) {
+    return this.employeesService.removeExperienceDetail(
+      req.user.companyId!,
+      employeeId,
+      experienceDetailId,
       req.user,
     );
   }
