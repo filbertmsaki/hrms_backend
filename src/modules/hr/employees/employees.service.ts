@@ -2345,7 +2345,9 @@ export class EmployeesService {
 
     const total = await qb.getCount();
     const rawIds = await qb
+      .addSelect(`employee.${safeSortBy}`, 'sort_value')
       .orderBy(`employee.${safeSortBy}`, direction)
+      .addOrderBy('employee.id', 'DESC')
       .offset(skip)
       .limit(limit)
       .getRawMany<{ id: string }>();
