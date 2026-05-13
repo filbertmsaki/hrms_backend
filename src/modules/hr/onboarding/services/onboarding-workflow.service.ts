@@ -8,7 +8,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { CompanyUserRole } from '../../../companies/entities/company-user-role.entity';
-import { Employee } from '../../employees/entities/employee.entity';
+import { EmployeePositionStatusEnum } from '../../employees/enums/employee-position-status.enum';
+import { EmployeePosition } from '../../employees/entities/employee-position.entity';
 import { OnboardingApprovalStatusEnum } from '../enums/onboarding-approval-status.enum';
 import { OnboardingApproverTypeEnum } from '../enums/onboarding-approver-type.enum';
 import { OnboardingRecordStatusEnum } from '../enums/onboarding-record-status.enum';
@@ -39,8 +40,8 @@ export class OnboardingWorkflowService {
     private readonly companyUserRepository: Repository<CompanyUser>,
     @InjectRepository(CompanyUserRole)
     private readonly companyUserRoleRepository: Repository<CompanyUserRole>,
-    @InjectRepository(Employee)
-    private readonly employeeRepository: Repository<Employee>,
+    @InjectRepository(EmployeePosition)
+    private readonly employeePositionRepository: Repository<EmployeePosition>,
   ) {}
 
   private getWorkflowRepository(manager?: EntityManager): Repository<OnboardingWorkflow> {
@@ -75,8 +76,12 @@ export class OnboardingWorkflowService {
     return manager?.getRepository(CompanyUserRole) ?? this.companyUserRoleRepository;
   }
 
-  private getEmployeeRepository(manager?: EntityManager): Repository<Employee> {
-    return manager?.getRepository(Employee) ?? this.employeeRepository;
+  private getEmployeePositionRepository(
+    manager?: EntityManager,
+  ): Repository<EmployeePosition> {
+    return (
+      manager?.getRepository(EmployeePosition) ?? this.employeePositionRepository
+    );
   }
 
   async resolveWorkflow(
@@ -163,14 +168,43 @@ export class OnboardingWorkflowService {
       return [];
     }
 
-    const employees = await this.getEmployeeRepository(manager)
-      .createQueryBuilder('employee')
+    const assignments = this.getEmployeePositionRepository(manager)
+      .createQueryBuilder('employeePosition')
+      .innerJoin('employeePosition.employee', 'employee')
       .innerJoin('employee.company_user', 'membership')
-      .where('employee.position_id = :positionId', { positionId: step.position_id })
+      .innerJoin('employeePosition.position', 'position')
+      .where('employeePosition.company_id = :companyId', { companyId })
+      .andWhere('employeePosition.position_id = :positionId', {
+        positionId: step.position_id,
+      })
+      .andWhere('employeePosition.status = :assignmentStatus', {
+        assignmentStatus: EmployeePositionStatusEnum.ACTIVE,
+      })
+      .andWhere('(employeePosition.end_date IS NULL OR employeePosition.end_date >= CURDATE())')
       .andWhere('membership.company_id = :companyId', { companyId })
       .andWhere('membership.status = :status', { status: 'active' })
       .select('membership.id', 'company_user_id')
-      .getRawMany<{ company_user_id: number }>();
+      .groupBy('membership.id');
+
+    if (step.assigned_branch_id) {
+      assignments.andWhere(
+        '(position.branch_id = :branchId OR employee.primary_branch_id = :branchId)',
+        {
+          branchId: step.assigned_branch_id,
+        },
+      );
+    }
+
+    if (step.assigned_department_id) {
+      assignments.andWhere(
+        '(position.department_id = :departmentId OR employee.primary_department_id = :departmentId)',
+        {
+          departmentId: step.assigned_department_id,
+        },
+      );
+    }
+
+    const employees = await assignments.getRawMany<{ company_user_id: number }>();
 
     return employees.map((entry) => Number(entry.company_user_id));
   }

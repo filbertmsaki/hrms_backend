@@ -14,6 +14,16 @@ export class LeaveWorkflowStepInputDto {
   @IsInt()
   approval_level: number;
 
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  assigned_branch_id?: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  assigned_department_id?: number;
+
   @IsEnum(LeaveApproverTypeEnum)
   approver_type: LeaveApproverTypeEnum;
 

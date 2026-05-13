@@ -10,6 +10,7 @@ import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { Role } from '../../roles/entities/role.entity';
+import { Branch } from '../branches/entities/branch.entity';
 import { Document } from '../documents/entities/document.entity';
 import { DocumentEntityTypeEnum } from '../documents/enums/document-entity-type.enum';
 import { DocumentModuleEnum } from '../documents/enums/document-module.enum';
@@ -82,6 +83,8 @@ export class OnboardingService {
     private readonly departmentRepository: Repository<Department>,
     @InjectRepository(Position)
     private readonly positionRepository: Repository<Position>,
+    @InjectRepository(Branch)
+    private readonly branchRepository: Repository<Branch>,
     @InjectRepository(CompanyUser)
     private readonly companyUserRepository: Repository<CompanyUser>,
     @InjectRepository(Role)
@@ -134,6 +137,10 @@ export class OnboardingService {
     return manager?.getRepository(Position) ?? this.positionRepository;
   }
 
+  private getBranchRepository(manager?: EntityManager): Repository<Branch> {
+    return manager?.getRepository(Branch) ?? this.branchRepository;
+  }
+
   private getCompanyUserRepository(manager?: EntityManager): Repository<CompanyUser> {
     return manager?.getRepository(CompanyUser) ?? this.companyUserRepository;
   }
@@ -175,7 +182,7 @@ export class OnboardingService {
       relations: {
         company_user: true,
         primary_department: true,
-        position: true,
+        primary_position: true,
       },
     });
 
@@ -274,6 +281,9 @@ export class OnboardingService {
     steps: OnboardingWorkflowStepInputDto[],
     manager?: EntityManager,
   ): Promise<void> {
+    const branchIds = steps
+      .map((step) => step.assigned_branch_id)
+      .filter((value): value is number => typeof value === 'number');
     const departmentIds = steps
       .map((step) => step.assigned_department_id)
       .filter((value): value is number => typeof value === 'number');
@@ -286,6 +296,18 @@ export class OnboardingService {
     const roleIds = steps
       .map((step) => step.role_id)
       .filter((value): value is number => typeof value === 'number');
+
+    if (branchIds.length) {
+      const branches = await this.getBranchRepository(manager).count({
+        where: {
+          id: In([...new Set(branchIds)]),
+          company_id: companyId,
+        },
+      });
+      if (branches !== new Set(branchIds).size) {
+        throw new BadRequestException('One or more assigned branches are invalid');
+      }
+    }
 
     if (departmentIds.length) {
       const departments = await this.getDepartmentRepository(manager).count({
@@ -335,6 +357,53 @@ export class OnboardingService {
     }
 
     for (const step of steps) {
+      if (step.assigned_branch_id && step.assigned_department_id) {
+        const department = await this.getDepartmentRepository(manager).findOne({
+          where: {
+            id: step.assigned_department_id,
+            company_id: companyId,
+          },
+        });
+
+        if (
+          department?.branch_id &&
+          department.branch_id !== step.assigned_branch_id
+        ) {
+          throw new BadRequestException(
+            `Department ${step.assigned_department_id} does not belong to branch ${step.assigned_branch_id}`,
+          );
+        }
+      }
+
+      if (step.position_id) {
+        const position = await this.getPositionRepository(manager).findOne({
+          where: {
+            id: step.position_id,
+            company_id: companyId,
+          },
+        });
+
+        if (
+          position?.branch_id &&
+          step.assigned_branch_id &&
+          position.branch_id !== step.assigned_branch_id
+        ) {
+          throw new BadRequestException(
+            `Position ${step.position_id} does not belong to branch ${step.assigned_branch_id}`,
+          );
+        }
+
+        if (
+          position?.department_id &&
+          step.assigned_department_id &&
+          position.department_id !== step.assigned_department_id
+        ) {
+          throw new BadRequestException(
+            `Position ${step.position_id} does not belong to department ${step.assigned_department_id}`,
+          );
+        }
+      }
+
       if (step.approver_type === OnboardingApproverTypeEnum.ROLE && !step.role_id) {
         throw new BadRequestException('role_id is required for role approver type');
       }
@@ -379,6 +448,7 @@ export class OnboardingService {
       task_title: entity.task_title,
       task_description: entity.task_description,
       task_type: entity.task_type,
+      assigned_branch_id: entity.assigned_branch_id,
       assigned_department_id: entity.assigned_department_id,
       approver_type: entity.approver_type,
       role_id: entity.role_id,
@@ -537,6 +607,8 @@ export class OnboardingService {
       task_title: dto.task_title ?? existingStep.task_title ?? undefined,
       task_description: dto.task_description ?? existingStep.task_description ?? undefined,
       task_type: dto.task_type ?? existingStep.task_type,
+      assigned_branch_id:
+        dto.assigned_branch_id ?? existingStep.assigned_branch_id ?? undefined,
       assigned_department_id:
         dto.assigned_department_id ?? existingStep.assigned_department_id ?? undefined,
       approver_type: dto.approver_type ?? existingStep.approver_type,
@@ -662,10 +734,10 @@ export class OnboardingService {
                   name: entity.employee.primary_department.name,
                 }
               : null,
-            position: entity.employee.position
+            position: entity.employee.primary_position
               ? {
-                  id: entity.employee.position.id,
-                  name: entity.employee.position.name,
+                  id: entity.employee.primary_position.id,
+                  name: entity.employee.primary_position.name,
                 }
               : null,
           }
@@ -793,7 +865,7 @@ export class OnboardingService {
         employee: {
           company_user: true,
           primary_department: true,
-          position: true,
+          primary_position: true,
         },
         workflow: true,
         tasks: true,
@@ -847,6 +919,7 @@ export class OnboardingService {
             task_title: this.normalizeOptionalString(step.task_title),
             task_description: this.normalizeOptionalString(step.task_description),
             task_type: step.task_type ?? OnboardingTaskTypeEnum.GENERAL,
+            assigned_branch_id: step.assigned_branch_id ?? null,
             assigned_department_id: step.assigned_department_id ?? null,
             approver_type: step.approver_type,
             role_id: step.role_id ?? null,
@@ -996,6 +1069,7 @@ export class OnboardingService {
               task_title: this.normalizeOptionalString(step.task_title),
               task_description: this.normalizeOptionalString(step.task_description),
               task_type: step.task_type ?? OnboardingTaskTypeEnum.GENERAL,
+              assigned_branch_id: step.assigned_branch_id ?? null,
               assigned_department_id: step.assigned_department_id ?? null,
               approver_type: step.approver_type,
               role_id: step.role_id ?? null,
@@ -1071,6 +1145,7 @@ export class OnboardingService {
           task_title: this.normalizeOptionalString(dto.task_title),
           task_description: this.normalizeOptionalString(dto.task_description),
           task_type: dto.task_type ?? OnboardingTaskTypeEnum.GENERAL,
+          assigned_branch_id: dto.assigned_branch_id ?? null,
           assigned_department_id: dto.assigned_department_id ?? null,
           approver_type: dto.approver_type,
           role_id: roleId,
@@ -1149,6 +1224,9 @@ export class OnboardingService {
       }
       if (dto.assigned_department_id !== undefined) {
         existingStep.assigned_department_id = dto.assigned_department_id ?? null;
+      }
+      if (dto.assigned_branch_id !== undefined) {
+        existingStep.assigned_branch_id = dto.assigned_branch_id ?? null;
       }
       if (dto.approver_type !== undefined) {
         existingStep.approver_type = dto.approver_type;
@@ -1337,7 +1415,11 @@ export class OnboardingService {
       return requestRepository.findOneOrFail({
         where: { id: created.id },
         relations: {
-          employee: { company_user: true, primary_department: true, position: true },
+          employee: {
+            company_user: true,
+            primary_department: true,
+            primary_position: true,
+          },
           workflow: true,
           tasks: true,
           approvals: { approver: { user: true }, workflow_step: true },
@@ -1437,7 +1519,11 @@ export class OnboardingService {
       return repository.findOneOrFail({
         where: { id: current.id },
         relations: {
-          employee: { company_user: true, primary_department: true, position: true },
+          employee: {
+            company_user: true,
+            primary_department: true,
+            primary_position: true,
+          },
           workflow: true,
           tasks: true,
           approvals: { approver: { user: true }, workflow_step: true },
@@ -1488,7 +1574,7 @@ export class OnboardingService {
       .leftJoinAndSelect('request.employee', 'employee')
       .leftJoinAndSelect('employee.company_user', 'membership')
       .leftJoinAndSelect('employee.primary_department', 'department')
-      .leftJoinAndSelect('employee.position', 'position')
+      .leftJoinAndSelect('employee.primary_position', 'position')
       .leftJoinAndSelect('request.workflow', 'workflow')
       .leftJoinAndSelect('request.tasks', 'tasks')
       .leftJoinAndSelect('request.approvals', 'approvals')
@@ -1642,7 +1728,11 @@ export class OnboardingService {
       return requestRepository.findOneOrFail({
         where: { id: current.id },
         relations: {
-          employee: { company_user: true, primary_department: true, position: true },
+          employee: {
+            company_user: true,
+            primary_department: true,
+            primary_position: true,
+          },
           workflow: true,
           tasks: true,
           approvals: { approver: { user: true }, workflow_step: true },
@@ -1897,7 +1987,11 @@ export class OnboardingService {
       return this.getOnboardingRequestRepository(manager).findOneOrFail({
         where: { id: onboardingRequestId, company_id: companyId },
         relations: {
-          employee: { company_user: true, primary_department: true, position: true },
+          employee: {
+            company_user: true,
+            primary_department: true,
+            primary_position: true,
+          },
           workflow: true,
           tasks: true,
           approvals: { approver: { user: true }, workflow_step: true },

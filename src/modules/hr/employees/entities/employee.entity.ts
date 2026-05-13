@@ -12,6 +12,7 @@ import {
 } from 'typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { Branch } from '../../branches/entities/branch.entity';
+import { Designation } from '../../designations/entities/designation.entity';
 import { Department } from '../../departments/entities/department.entity';
 import { Position } from '../../positions/entities/position.entity';
 import { EmploymentStatusEnum } from '../enums/employment-status.enum';
@@ -19,8 +20,10 @@ import { EmploymentTypeEnum } from '../enums/employment-type.enum';
 import { EmployeeAddress } from './employee-address.entity';
 import { EmployeeBankAccount } from './employee-bank-account.entity';
 import { EmployeeContact } from './employee-contact.entity';
+import { EmployeeDesignation } from './employee-designation.entity';
 import { EmployeeDepartment } from './employee-department.entity';
 import { EmployeeDocument } from './employee-document.entity';
+import { EmployeePosition } from './employee-position.entity';
 import { EmployeeExperience } from './employee-experience.entity';
 import { EmployeeIdentification } from './employee-identification.entity';
 import { EmployeeAcademicQualification } from './employee-academic-qualification.entity';
@@ -73,7 +76,10 @@ export class Employee {
   primary_department_id: number | null;
 
   @Column({ type: 'int', nullable: true })
-  position_id: number | null;
+  primary_position_id: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  primary_designation_id: number | null;
 
   @Column({
     type: 'enum',
@@ -137,11 +143,21 @@ export class Employee {
   @JoinColumn({ name: 'primary_department_id' })
   primary_department: Department | null;
 
-  @ManyToOne(() => Position, (position) => position.employees, {
+  @ManyToOne(() => Position, (position) => position.primary_employees, {
     onDelete: 'SET NULL',
   })
-  @JoinColumn({ name: 'position_id' })
-  position: Position | null;
+  @JoinColumn({ name: 'primary_position_id' })
+  primary_position: Position | null;
+
+  @ManyToOne(
+    () => Designation,
+    (designation) => designation.primary_employees,
+    {
+      onDelete: 'SET NULL',
+    },
+  )
+  @JoinColumn({ name: 'primary_designation_id' })
+  primary_designation: Designation | null;
 
   @ManyToOne(() => Employee, (employee) => employee.direct_reports, {
     onDelete: 'SET NULL',
@@ -160,6 +176,24 @@ export class Employee {
     },
   )
   department_assignments: EmployeeDepartment[];
+
+  @OneToMany(
+    () => EmployeePosition,
+    (employeePosition) => employeePosition.employee,
+    {
+      cascade: true,
+    },
+  )
+  position_assignments: EmployeePosition[];
+
+  @OneToMany(
+    () => EmployeeDesignation,
+    (employeeDesignation) => employeeDesignation.employee,
+    {
+      cascade: true,
+    },
+  )
+  designation_assignments: EmployeeDesignation[];
 
   @OneToMany(
     () => EmployeeContact,

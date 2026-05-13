@@ -38,7 +38,11 @@ export class PositionsController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() createPositionDto: CreatePositionDto,
   ) {
-    return this.positionsService.create(req.user.companyId!, createPositionDto);
+    return this.positionsService.create(
+      req.user.companyId!,
+      createPositionDto,
+      req.user,
+    );
   }
 
   @Get()
@@ -49,7 +53,7 @@ export class PositionsController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: PositionQueryDto,
   ) {
-    return this.positionsService.findAll(req.user.companyId!, query);
+    return this.positionsService.findAll(req.user.companyId!, query, req.user);
   }
 
   @Get(':id')
@@ -60,7 +64,7 @@ export class PositionsController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.positionsService.findOne(req.user.companyId!, id);
+    return this.positionsService.findOne(req.user.companyId!, id, req.user);
   }
 
   @Patch(':id')
@@ -76,6 +80,7 @@ export class PositionsController {
       req.user.companyId!,
       id,
       updatePositionDto,
+      req.user,
     );
   }
 
@@ -87,6 +92,6 @@ export class PositionsController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.positionsService.remove(req.user.companyId!, id);
+    return this.positionsService.remove(req.user.companyId!, id, req.user);
   }
 }

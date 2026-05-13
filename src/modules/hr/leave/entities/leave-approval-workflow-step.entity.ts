@@ -11,6 +11,8 @@ import {
 } from 'typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { Role } from '../../../roles/entities/role.entity';
+import { Branch } from '../../branches/entities/branch.entity';
+import { Department } from '../../departments/entities/department.entity';
 import { Position } from '../../positions/entities/position.entity';
 import { LeaveApprovalActionTypeEnum } from '../enums/leave-approval-action-type.enum';
 import { LeaveApproverTypeEnum } from '../enums/leave-approver-type.enum';
@@ -23,6 +25,8 @@ import { LeaveRequestApproval } from './leave-request-approval.entity';
 @Index('IDX_leave_workflow_step_role', ['role_id'])
 @Index('IDX_leave_workflow_step_position', ['position_id'])
 @Index('IDX_leave_workflow_step_company_user', ['company_user_id'])
+@Index('IDX_leave_workflow_step_branch', ['assigned_branch_id'])
+@Index('IDX_leave_workflow_step_department', ['assigned_department_id'])
 export class LeaveApprovalWorkflowStep {
   @PrimaryGeneratedColumn()
   id: number;
@@ -38,6 +42,12 @@ export class LeaveApprovalWorkflowStep {
     enum: LeaveApproverTypeEnum,
   })
   approver_type: LeaveApproverTypeEnum;
+
+  @Column({ type: 'int', nullable: true })
+  assigned_branch_id: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  assigned_department_id: number | null;
 
   @Column({ type: 'int', nullable: true })
   role_id: number | null;
@@ -73,6 +83,14 @@ export class LeaveApprovalWorkflowStep {
   @ManyToOne(() => Role, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'role_id' })
   role: Role | null;
+
+  @ManyToOne(() => Branch, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'assigned_branch_id' })
+  assigned_branch: Branch | null;
+
+  @ManyToOne(() => Department, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'assigned_department_id' })
+  assigned_department: Department | null;
 
   @ManyToOne(() => Position, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'position_id' })

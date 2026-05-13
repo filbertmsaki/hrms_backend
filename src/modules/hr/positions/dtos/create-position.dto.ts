@@ -17,9 +17,29 @@ export class CreatePositionDto {
   @IsOptional()
   code?: string;
 
-  @IsString()
+  @ApiPropertyOptional({ type: Number })
+  @Type(() => Number)
+  @IsInt()
   @IsOptional()
-  category?: string;
+  branch_id?: number;
+
+  @ApiPropertyOptional({ type: Number })
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  department_id?: number;
+
+  @ApiPropertyOptional({ type: Number })
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  designation_id?: number;
+
+  @ApiPropertyOptional({ type: Number })
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  reports_to_position_id?: number;
 
   @ApiPropertyOptional({ type: Number })
   @Type(() => Number)
@@ -32,6 +52,18 @@ export class CreatePositionDto {
   @IsBoolean()
   @IsOptional()
   is_manager?: boolean;
+
+  @ApiPropertyOptional({ default: 1 })
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  headcount?: number;
+
+  @ApiPropertyOptional({ default: true })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  is_active?: boolean;
 
   @IsString()
   @IsOptional()

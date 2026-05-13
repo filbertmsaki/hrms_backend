@@ -3,8 +3,10 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { CompanyUserRole } from '../../companies/entities/company-user-role.entity';
 import { Role } from '../../roles/entities/role.entity';
+import { Branch } from '../branches/entities/branch.entity';
 import { Department } from '../departments/entities/department.entity';
 import { Employee } from '../employees/entities/employee.entity';
+import { EmployeePosition } from '../employees/entities/employee-position.entity';
 import { Position } from '../positions/entities/position.entity';
 import { HrSharedModule } from '../shared/hr-shared.module';
 import { LeaveController } from './leave.controller';
@@ -42,6 +44,8 @@ import { LeaveWorkflowService } from './services/leave-workflow.service';
       Holiday,
       LeaveAuditLog,
       Employee,
+      EmployeePosition,
+      Branch,
       Department,
       Position,
       CompanyUser,

@@ -12,8 +12,10 @@ import {
 } from 'typeorm';
 import { Company } from '../../../companies/entities/company.entity';
 import { Branch } from '../../branches/entities/branch.entity';
+import { Designation } from '../../designations/entities/designation.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { EmployeeDepartment } from '../../employees/entities/employee-department.entity';
+import { Position } from '../../positions/entities/position.entity';
 
 @Entity('departments')
 @Index('IDX_department_company', ['company_id'])
@@ -77,4 +79,10 @@ export class Department {
 
   @OneToMany(() => Employee, (employee) => employee.primary_department)
   primary_employees: Employee[];
+
+  @OneToMany(() => Designation, (designation) => designation.department)
+  designations: Designation[];
+
+  @OneToMany(() => Position, (position) => position.department)
+  positions: Position[];
 }

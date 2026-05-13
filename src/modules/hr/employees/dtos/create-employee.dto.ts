@@ -80,6 +80,22 @@ export class CreateEmployeeDto {
   @Type(() => Number)
   @IsInt()
   @IsOptional()
+  primary_position_id?: number;
+
+  @ApiPropertyOptional({ type: Number })
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  primary_designation_id?: number;
+
+  @ApiPropertyOptional({
+    type: Number,
+    description:
+      'Deprecated. Use primary_position_id. Kept temporarily for backward compatibility.',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
   position_id?: number;
 
   @ApiPropertyOptional({

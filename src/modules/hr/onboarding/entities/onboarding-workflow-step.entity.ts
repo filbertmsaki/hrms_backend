@@ -10,6 +10,7 @@ import {
   Unique,
 } from 'typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
+import { Branch } from '../../branches/entities/branch.entity';
 import { Role } from '../../../roles/entities/role.entity';
 import { Department } from '../../departments/entities/department.entity';
 import { Position } from '../../positions/entities/position.entity';
@@ -26,6 +27,7 @@ import { OnboardingWorkflow } from './onboarding-workflow.entity';
 @Index('IDX_onboarding_workflow_step_role', ['role_id'])
 @Index('IDX_onboarding_workflow_step_position', ['position_id'])
 @Index('IDX_onboarding_workflow_step_company_user', ['company_user_id'])
+@Index('IDX_onboarding_workflow_step_branch', ['assigned_branch_id'])
 @Index('IDX_onboarding_workflow_step_department', ['assigned_department_id'])
 export class OnboardingWorkflowStep {
   @PrimaryGeneratedColumn()
@@ -52,6 +54,9 @@ export class OnboardingWorkflowStep {
     default: OnboardingTaskTypeEnum.GENERAL,
   })
   task_type: OnboardingTaskTypeEnum;
+
+  @Column({ type: 'int', nullable: true })
+  assigned_branch_id: number | null;
 
   @Column({ type: 'int', nullable: true })
   assigned_department_id: number | null;
@@ -95,6 +100,10 @@ export class OnboardingWorkflowStep {
   @ManyToOne(() => Department, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'assigned_department_id' })
   assigned_department: Department | null;
+
+  @ManyToOne(() => Branch, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'assigned_branch_id' })
+  assigned_branch: Branch | null;
 
   @ManyToOne(() => Role, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'role_id' })

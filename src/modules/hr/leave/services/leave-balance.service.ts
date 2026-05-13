@@ -63,14 +63,14 @@ export class LeaveBalanceService {
 
   private calculatePolicyPriority(
     policy: LeavePolicy,
-    employee: Pick<Employee, 'primary_department_id' | 'position_id'>,
+    employee: Pick<Employee, 'primary_department_id' | 'primary_position_id'>,
   ): number {
     const departmentMatch =
       policy.applicable_department_id !== null &&
       policy.applicable_department_id === employee.primary_department_id;
     const positionMatch =
       policy.applicable_position_id !== null &&
-      policy.applicable_position_id === employee.position_id;
+      policy.applicable_position_id === employee.primary_position_id;
 
     if (departmentMatch && positionMatch) {
       return 4;
@@ -93,7 +93,7 @@ export class LeaveBalanceService {
 
   private async resolvePolicyQuota(
     companyId: number,
-    employee: Pick<Employee, 'primary_department_id' | 'position_id'>,
+    employee: Pick<Employee, 'primary_department_id' | 'primary_position_id'>,
     leaveTypeId: number,
     manager?: EntityManager,
   ): Promise<{ annualQuotaDays: number } | null> {
@@ -142,7 +142,10 @@ export class LeaveBalanceService {
 
   async ensureBalanceForEmployee(
     companyId: number,
-    employee: Pick<Employee, 'id' | 'primary_department_id' | 'position_id'>,
+    employee: Pick<
+      Employee,
+      'id' | 'primary_department_id' | 'primary_position_id'
+    >,
     leaveTypeId: number,
     fiscalYear: string,
     manager?: EntityManager,

@@ -14,6 +14,7 @@ import { Company } from '../../../companies/entities/company.entity';
 import { CompanyUserBranchAccess } from './company-user-branch-access.entity';
 import { Department } from '../../departments/entities/department.entity';
 import { Employee } from '../../employees/entities/employee.entity';
+import { Position } from '../../positions/entities/position.entity';
 
 @Entity('branches')
 @Index('IDX_branch_company', ['company_id'])
@@ -58,6 +59,9 @@ export class Branch {
 
   @OneToMany(() => Employee, (employee) => employee.primary_branch)
   primary_employees: Employee[];
+
+  @OneToMany(() => Position, (position) => position.branch)
+  positions: Position[];
 
   @OneToMany(() => CompanyUserBranchAccess, (access) => access.branch)
   access_assignments: CompanyUserBranchAccess[];

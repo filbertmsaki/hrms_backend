@@ -52,6 +52,7 @@ import { LeaveBalanceService } from './services/leave-balance.service';
 import { LeavePdfService } from './services/leave-pdf.service';
 import { LeaveWorkflowService } from './services/leave-workflow.service';
 import { Employee } from '../employees/entities/employee.entity';
+import { Branch } from '../branches/entities/branch.entity';
 import { Department } from '../departments/entities/department.entity';
 import { Position } from '../positions/entities/position.entity';
 
@@ -86,6 +87,8 @@ export class LeaveService {
     private readonly holidayRepository: Repository<Holiday>,
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
+    @InjectRepository(Branch)
+    private readonly branchRepository: Repository<Branch>,
     @InjectRepository(Department)
     private readonly departmentRepository: Repository<Department>,
     @InjectRepository(Position)
@@ -132,7 +135,7 @@ export class LeaveService {
       relations: {
         company_user: true,
         primary_department: true,
-        position: true,
+        primary_position: true,
       },
     });
 
@@ -314,7 +317,7 @@ export class LeaveService {
         policy.applicable_department_id === employee.primary_department_id;
       const positionMatched =
         policy.applicable_position_id !== null &&
-        policy.applicable_position_id === employee.position_id;
+        policy.applicable_position_id === employee.primary_position_id;
 
       if (departmentMatched && positionMatched) score = 4;
       else if (positionMatched) score = 3;
@@ -417,6 +420,8 @@ export class LeaveService {
         entity.steps?.map((step) => ({
           id: step.id,
           approval_level: step.approval_level,
+          assigned_branch_id: step.assigned_branch_id,
+          assigned_department_id: step.assigned_department_id,
           approver_type: step.approver_type,
           role_id: step.role_id,
           position_id: step.position_id,
@@ -476,10 +481,10 @@ export class LeaveService {
                   name: entity.employee.primary_department.name,
                 }
               : null,
-            position: entity.employee.position
+            position: entity.employee.primary_position
               ? {
-                  id: entity.employee.position.id,
-                  name: entity.employee.position.name,
+                  id: entity.employee.primary_position.id,
+                  name: entity.employee.primary_position.name,
                 }
               : null,
           }
@@ -978,6 +983,44 @@ export class LeaveService {
     }
 
     for (const step of dto.steps ?? []) {
+      if (step.assigned_branch_id) {
+        const branch = await this.branchRepository.findOne({
+          where: {
+            id: step.assigned_branch_id,
+            company_id: companyId,
+          },
+        });
+        if (!branch) {
+          throw new NotFoundException(
+            `Branch ${step.assigned_branch_id} is not available in this company`,
+          );
+        }
+      }
+
+      if (step.assigned_department_id) {
+        const department = await this.departmentRepository.findOne({
+          where: {
+            id: step.assigned_department_id,
+            company_id: companyId,
+          },
+        });
+        if (!department) {
+          throw new NotFoundException(
+            `Department ${step.assigned_department_id} is not available in this company`,
+          );
+        }
+
+        if (
+          step.assigned_branch_id &&
+          department.branch_id &&
+          department.branch_id !== step.assigned_branch_id
+        ) {
+          throw new BadRequestException(
+            `Department ${step.assigned_department_id} does not belong to branch ${step.assigned_branch_id}`,
+          );
+        }
+      }
+
       if (step.role_id) {
         const role = await this.roleRepository.findOne({
           where: {
@@ -999,6 +1042,26 @@ export class LeaveService {
         if (!position) {
           throw new NotFoundException(
             `Position ${step.position_id} is not available in this company`,
+          );
+        }
+
+        if (
+          step.assigned_branch_id &&
+          position.branch_id &&
+          position.branch_id !== step.assigned_branch_id
+        ) {
+          throw new BadRequestException(
+            `Position ${step.position_id} does not belong to branch ${step.assigned_branch_id}`,
+          );
+        }
+
+        if (
+          step.assigned_department_id &&
+          position.department_id &&
+          position.department_id !== step.assigned_department_id
+        ) {
+          throw new BadRequestException(
+            `Position ${step.position_id} does not belong to department ${step.assigned_department_id}`,
           );
         }
       }
@@ -1053,6 +1116,8 @@ export class LeaveService {
           stepRepository.create({
             workflow_id: workflow.id,
             approval_level: step.approval_level,
+            assigned_branch_id: step.assigned_branch_id ?? null,
+            assigned_department_id: step.assigned_department_id ?? null,
             approver_type: step.approver_type,
             role_id: step.role_id ?? null,
             position_id: step.position_id ?? null,
@@ -1179,6 +1244,8 @@ export class LeaveService {
             stepRepository.create({
               workflow_id: workflow.id,
               approval_level: step.approval_level,
+              assigned_branch_id: step.assigned_branch_id ?? null,
+              assigned_department_id: step.assigned_department_id ?? null,
               approver_type: step.approver_type,
               role_id: step.role_id ?? null,
               position_id: step.position_id ?? null,
@@ -1549,7 +1616,7 @@ export class LeaveService {
       return repository.findOneOrFail({
         where: { id: created.id },
         relations: {
-          employee: { primary_department: true, position: true },
+          employee: { primary_department: true, primary_position: true },
           leave_type: true,
           approvals: { approver: { user: true }, workflow_step: true },
           medical_detail: true,
@@ -1594,7 +1661,7 @@ export class LeaveService {
       .leftJoinAndSelect('leaveRequest.employee', 'employee')
       .leftJoinAndSelect('employee.company_user', 'membership')
       .leftJoinAndSelect('employee.primary_department', 'department')
-      .leftJoinAndSelect('employee.position', 'position')
+      .leftJoinAndSelect('employee.primary_position', 'position')
       .leftJoinAndSelect('leaveRequest.leave_type', 'leaveType')
       .leftJoinAndSelect('leaveRequest.approvals', 'approvals')
       .leftJoinAndSelect('approvals.approver', 'approvalMembership')
@@ -1664,7 +1731,11 @@ export class LeaveService {
         company_id: companyId,
       },
       relations: {
-        employee: { primary_department: true, position: true, company_user: true },
+        employee: {
+          primary_department: true,
+          primary_position: true,
+          company_user: true,
+        },
         leave_type: true,
         approvals: { approver: { user: true }, workflow_step: true },
         medical_detail: true,
@@ -1723,7 +1794,7 @@ export class LeaveService {
       return manager.getRepository(LeaveRequest).findOneOrFail({
         where: { id: leaveRequest.id },
         relations: {
-          employee: { primary_department: true, position: true },
+          employee: { primary_department: true, primary_position: true },
           leave_type: true,
           approvals: { approver: { user: true }, workflow_step: true },
           medical_detail: true,
@@ -1955,7 +2026,11 @@ export class LeaveService {
       },
       relations: {
         company: true,
-        employee: { primary_department: true, position: true, company_user: true },
+        employee: {
+          primary_department: true,
+          primary_position: true,
+          company_user: true,
+        },
         leave_type: true,
         approvals: { approver: { user: true }, workflow_step: true },
       },
@@ -1982,7 +2057,7 @@ export class LeaveService {
       employee_no: leaveRequest.employee.employee_no,
       employee_name: this.buildEmployeeName(leaveRequest.employee),
       department_name: leaveRequest.employee.primary_department?.name ?? null,
-      position_name: leaveRequest.employee.position?.name ?? null,
+      position_name: leaveRequest.employee.primary_position?.name ?? null,
       leave_type_name: leaveRequest.leave_type.name,
       start_date: leaveRequest.start_date,
       end_date: leaveRequest.end_date,

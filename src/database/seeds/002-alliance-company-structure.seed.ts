@@ -1,13 +1,18 @@
-import { DataSource, QueryDeepPartialEntity, Repository } from 'typeorm';
+import { DataSource, IsNull, QueryDeepPartialEntity, Repository } from 'typeorm';
 import { Seeder, SeederFactoryManager } from 'typeorm-extension';
 import { hashPassword } from '../../common/utils/hash.util';
+import { Designation } from '../../modules/hr/designations/entities/designation.entity';
 import { Branch } from '../../modules/hr/branches/entities/branch.entity';
 import { ContactTypeEnum } from '../../modules/hr/employees/enums/contact-type.enum';
 import { Department } from '../../modules/hr/departments/entities/department.entity';
+import { EmployeeDesignation } from '../../modules/hr/employees/entities/employee-designation.entity';
 import { Position } from '../../modules/hr/positions/entities/position.entity';
 import { Employee } from '../../modules/hr/employees/entities/employee.entity';
 import { EmployeeContact } from '../../modules/hr/employees/entities/employee-contact.entity';
 import { EmployeeDepartment } from '../../modules/hr/employees/entities/employee-department.entity';
+import { EmployeePosition } from '../../modules/hr/employees/entities/employee-position.entity';
+import { EmployeePositionAssignmentTypeEnum } from '../../modules/hr/employees/enums/employee-position-assignment-type.enum';
+import { EmployeePositionStatusEnum } from '../../modules/hr/employees/enums/employee-position-status.enum';
 import { Company } from '../../modules/companies/entities/company.entity';
 import { CompanyUser } from '../../modules/companies/entities/company-user.entity';
 import { User } from '../../modules/users/entities/user.entity';
@@ -35,12 +40,15 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       const companyRepo = manager.getRepository(Company);
       const branchRepo = manager.getRepository(Branch);
       const departmentRepo = manager.getRepository(Department);
+      const designationRepo = manager.getRepository(Designation);
       const positionRepo = manager.getRepository(Position);
       const userRepo = manager.getRepository(User);
       const companyUserRepo = manager.getRepository(CompanyUser);
       const employeeRepo = manager.getRepository(Employee);
       const employeeContactRepo = manager.getRepository(EmployeeContact);
       const employeeDepartmentRepo = manager.getRepository(EmployeeDepartment);
+      const employeePositionRepo = manager.getRepository(EmployeePosition);
+      const employeeDesignationRepo = manager.getRepository(EmployeeDesignation);
 
       const companyName =
         process.env.DEFAULT_COMPANY_NAME ?? ALLIANCE_COMPANY_NAME;
@@ -64,8 +72,10 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       // 3. Sync positions (returns map of position code -> entity)
       const positionByCode = await this.syncPositions(
         positionRepo,
+        designationRepo,
         company.id,
         ALLIANCE_POSITIONS,
+        departmentByCode,
       );
 
       // 4. Sync employees with manager and department assignments
@@ -75,6 +85,8 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
         userRepo,
         employeeContactRepo,
         employeeDepartmentRepo,
+        employeePositionRepo,
+        employeeDesignationRepo,
         company.id,
         ALLIANCE_EMPLOYEES,
         branchByCode,
@@ -272,9 +284,22 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
 
   private async syncPositions(
     positionRepo: Repository<Position>,
+    designationRepo: Repository<Designation>,
     companyId: number,
     definitions: typeof ALLIANCE_POSITIONS,
+    departmentByCode: Map<string, Department>,
   ): Promise<Map<string, Position>> {
+    const categoryToDepartmentCode: Record<string, string> = {
+      Administration: 'ADMIN',
+      HR: 'HR',
+      Accounts: 'ACCOUNTS',
+      Claims: 'CLAIMS',
+      Underwriting: 'UNDERWRITING',
+      Bancassurance: 'BANCASSURANCE',
+      'General Business': 'GENERAL_BUSINESS',
+      IT: 'IT',
+    };
+
     const existingPositions = await positionRepo.find({
       where: { company_id: companyId },
     });
@@ -291,15 +316,48 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
 
     for (const definition of definitions) {
       const existing = existingByName.get(definition.name.toLowerCase());
+      const departmentCode = categoryToDepartmentCode[definition.category] ?? null;
+      const department = departmentCode
+        ? departmentByCode.get(departmentCode.toLowerCase()) ?? null
+        : null;
+
+      let designation = await designationRepo.findOne({
+        where: {
+          company_id: companyId,
+          name: definition.name,
+          department_id: department ? department.id : IsNull(),
+        },
+      });
+
+      if (!designation) {
+        designation = await designationRepo.save(
+          designationRepo.create({
+            company_id: companyId,
+            department_id: department?.id ?? null,
+            name: definition.name,
+            code: null,
+            hierarchy_level: definition.level ?? null,
+            grade_level: null,
+            is_managerial: definition.isManager,
+            description: definition.description,
+            status: 'active',
+          }),
+        );
+      }
 
       if (!existing) {
         missingPositions.push({
           company_id: companyId,
+          branch_id: department?.branch_id ?? null,
+          department_id: department?.id ?? null,
+          designation_id: designation.id,
+          reports_to_position_id: null,
           name: definition.name,
           code: definition.code,
-          category: definition.category,
           level: definition.level,
           is_manager: definition.isManager,
+          headcount: 1,
+          is_active: true,
           description: definition.description,
           status: 'active',
         });
@@ -308,7 +366,9 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
 
       if (
         existing.code !== definition.code ||
-        existing.category !== definition.category ||
+        existing.branch_id !== (department?.branch_id ?? null) ||
+        existing.department_id !== (department?.id ?? null) ||
+        existing.designation_id !== designation.id ||
         existing.level !== definition.level ||
         existing.is_manager !== definition.isManager ||
         existing.description !== definition.description ||
@@ -316,10 +376,14 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       ) {
         updatedPositions.push({
           id: existing.id,
+          branch_id: department?.branch_id ?? null,
+          department_id: department?.id ?? null,
+          designation_id: designation.id,
           code: definition.code,
-          category: definition.category,
           level: definition.level,
           is_manager: definition.isManager,
+          headcount: 1,
+          is_active: true,
           description: definition.description,
           status: 'active',
         });
@@ -355,6 +419,8 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     userRepo: Repository<User>,
     employeeContactRepo: Repository<EmployeeContact>,
     employeeDepartmentRepo: Repository<EmployeeDepartment>,
+    employeePositionRepo: Repository<EmployeePosition>,
+    employeeDesignationRepo: Repository<EmployeeDesignation>,
     companyId: number,
     definitions: typeof ALLIANCE_EMPLOYEES,
     branchByCode: Map<string, Branch>,
@@ -500,7 +566,8 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       employee.last_name = definition.lastName;
       employee.primary_branch_id = branch.id;
       employee.primary_department_id = department.id;
-      employee.position_id = position.id;
+      employee.primary_position_id = position.id;
+      employee.primary_designation_id = position.designation_id ?? null;
       employee.employment_status = 'active' as any;
       employee.employment_type = 'full_time' as any;
       employee.hire_date = '2025-01-01';
@@ -525,6 +592,31 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       deptAssignment.department_id = department.id;
       deptAssignment.is_primary = true;
       await employeeDepartmentRepo.save(deptAssignment);
+
+      const positionAssignment = new EmployeePosition();
+      positionAssignment.company_id = companyId;
+      positionAssignment.employee_id = saved.id;
+      positionAssignment.position_id = position.id;
+      positionAssignment.designation_id = position.designation_id ?? null;
+      positionAssignment.is_primary = true;
+      positionAssignment.start_date = employee.hire_date!;
+      positionAssignment.end_date = null;
+      positionAssignment.assignment_type = EmployeePositionAssignmentTypeEnum.PRIMARY;
+      positionAssignment.status = EmployeePositionStatusEnum.ACTIVE;
+      positionAssignment.notes = 'Seeded primary assignment';
+      await employeePositionRepo.save(positionAssignment);
+
+      if (position.designation_id) {
+        const designationAssignment = new EmployeeDesignation();
+        designationAssignment.company_id = companyId;
+        designationAssignment.employee_id = saved.id;
+        designationAssignment.designation_id = position.designation_id;
+        designationAssignment.start_date = employee.hire_date!;
+        designationAssignment.end_date = null;
+        designationAssignment.is_current = true;
+        designationAssignment.remarks = 'Seeded primary designation';
+        await employeeDesignationRepo.save(designationAssignment);
+      }
     }
 
     // Update any pre-existing employees whose reports_to needs setting

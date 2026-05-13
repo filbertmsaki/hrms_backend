@@ -15,6 +15,7 @@ import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { User } from '../../users/entities/user.entity';
 import { UsersService } from '../../users/users.service';
 import { Branch } from '../branches/entities/branch.entity';
+import { Designation } from '../designations/entities/designation.entity';
 import { Department } from '../departments/entities/department.entity';
 import { Position } from '../positions/entities/position.entity';
 import { HrAccessService } from '../shared/hr-access.service';
@@ -54,14 +55,18 @@ import { UpdateEmployeeIdentificationDto } from './dtos/update-employee-identifi
 import { UpdateEmployeeProfessionalQualificationDto } from './dtos/update-employee-professional-qualification.dto';
 import { UpdateEmployeeRelativeDto } from './dtos/update-employee-relative.dto';
 import { ContactTypeEnum } from './enums/contact-type.enum';
+import { EmployeePositionAssignmentTypeEnum } from './enums/employee-position-assignment-type.enum';
+import { EmployeePositionStatusEnum } from './enums/employee-position-status.enum';
 import { EmploymentStatusEnum } from './enums/employment-status.enum';
 import { EmploymentTypeEnum } from './enums/employment-type.enum';
 import { IdentificationTypeEnum } from './enums/identification-type.enum';
 import { EmployeeAddress } from './entities/employee-address.entity';
 import { EmployeeBankAccount } from './entities/employee-bank-account.entity';
 import { EmployeeContact } from './entities/employee-contact.entity';
+import { EmployeeDesignation } from './entities/employee-designation.entity';
 import { EmployeeDepartment } from './entities/employee-department.entity';
 import { EmployeeDocument } from './entities/employee-document.entity';
+import { EmployeePosition } from './entities/employee-position.entity';
 import { EmployeeExperience } from './entities/employee-experience.entity';
 import { EmployeeIdentification } from './entities/employee-identification.entity';
 import { EmployeeAcademicQualification } from './entities/employee-academic-qualification.entity';
@@ -122,6 +127,12 @@ export class EmployeesService {
     private readonly departmentRepository: Repository<Department>,
     @InjectRepository(Position)
     private readonly positionRepository: Repository<Position>,
+    @InjectRepository(Designation)
+    private readonly designationRepository: Repository<Designation>,
+    @InjectRepository(EmployeePosition)
+    private readonly employeePositionRepository: Repository<EmployeePosition>,
+    @InjectRepository(EmployeeDesignation)
+    private readonly employeeDesignationRepository: Repository<EmployeeDesignation>,
     private readonly companiesService: CompaniesService,
     private readonly usersService: UsersService,
     private readonly hrAccessService: HrAccessService,
@@ -241,6 +252,29 @@ export class EmployeesService {
 
   private getPositionRepository(manager?: EntityManager): Repository<Position> {
     return manager?.getRepository(Position) ?? this.positionRepository;
+  }
+
+  private getDesignationRepository(
+    manager?: EntityManager,
+  ): Repository<Designation> {
+    return manager?.getRepository(Designation) ?? this.designationRepository;
+  }
+
+  private getEmployeePositionRepository(
+    manager?: EntityManager,
+  ): Repository<EmployeePosition> {
+    return (
+      manager?.getRepository(EmployeePosition) ?? this.employeePositionRepository
+    );
+  }
+
+  private getEmployeeDesignationRepository(
+    manager?: EntityManager,
+  ): Repository<EmployeeDesignation> {
+    return (
+      manager?.getRepository(EmployeeDesignation) ??
+      this.employeeDesignationRepository
+    );
   }
 
   private normalizeOptionalString(value: unknown): string | null {
@@ -363,11 +397,33 @@ export class EmployeesService {
       id: position.id,
       name: position.name,
       code: position.code,
-      category: position.category,
+      branch_id: position.branch_id,
+      department_id: position.department_id,
+      designation_id: position.designation_id,
+      reports_to_position_id: position.reports_to_position_id,
       level: position.level,
       is_manager: position.is_manager,
+      headcount: position.headcount,
+      is_active: position.is_active,
       description: position.description,
       status: position.status,
+    };
+  }
+
+  private mapDesignation(designation?: Designation | null) {
+    if (!designation) {
+      return null;
+    }
+
+    return {
+      id: designation.id,
+      name: designation.name,
+      code: designation.code,
+      department_id: designation.department_id,
+      hierarchy_level: designation.hierarchy_level,
+      grade_level: designation.grade_level,
+      is_managerial: designation.is_managerial,
+      status: designation.status,
     };
   }
 
@@ -593,7 +649,9 @@ export class EmployeesService {
       profile_photo_url: employee.profile_photo_url,
       primary_branch_id: employee.primary_branch_id,
       primary_department_id: employee.primary_department_id,
-      position_id: employee.position_id,
+      primary_position_id: employee.primary_position_id,
+      primary_designation_id: employee.primary_designation_id,
+      position_id: employee.primary_position_id,
       employment_status: employee.employment_status,
       employment_type: employee.employment_type,
       hire_date: employee.hire_date,
@@ -608,7 +666,9 @@ export class EmployeesService {
       updated_at: employee.updated_at,
       primary_branch: this.mapBranch(employee.primary_branch),
       primary_department: this.mapDepartment(employee.primary_department),
-      position: this.mapPosition(employee.position),
+      primary_position: this.mapPosition(employee.primary_position),
+      primary_designation: this.mapDesignation(employee.primary_designation),
+      position: this.mapPosition(employee.primary_position),
       manager: employee.manager
         ? {
             id: employee.manager.id,
@@ -624,6 +684,30 @@ export class EmployeesService {
           department_id: assignment.department_id,
           is_primary: assignment.is_primary,
           department: this.mapDepartment(assignment.department),
+        })) ?? [],
+      position_assignments:
+        employee.position_assignments?.map((assignment) => ({
+          id: assignment.id,
+          position_id: assignment.position_id,
+          designation_id: assignment.designation_id,
+          is_primary: assignment.is_primary,
+          start_date: assignment.start_date,
+          end_date: assignment.end_date,
+          assignment_type: assignment.assignment_type,
+          status: assignment.status,
+          notes: assignment.notes,
+          position: this.mapPosition(assignment.position),
+          designation: this.mapDesignation(assignment.designation),
+        })) ?? [],
+      designation_assignments:
+        employee.designation_assignments?.map((assignment) => ({
+          id: assignment.id,
+          designation_id: assignment.designation_id,
+          start_date: assignment.start_date,
+          end_date: assignment.end_date,
+          is_current: assignment.is_current,
+          remarks: assignment.remarks,
+          designation: this.mapDesignation(assignment.designation),
         })) ?? [],
       contacts: this.sortPrimaryFirst(employee.contacts).map((contact) =>
         this.mapContact(contact),
@@ -857,7 +941,8 @@ export class EmployeesService {
           branch: true,
           parent: true,
         },
-        position: true,
+        primary_position: true,
+        primary_designation: true,
         manager: {
           company_user: {
             user: true,
@@ -876,6 +961,13 @@ export class EmployeesService {
             branch: true,
             parent: true,
           },
+        },
+        position_assignments: {
+          position: true,
+          designation: true,
+        },
+        designation_assignments: {
+          designation: true,
         },
         contacts: true,
         addresses: true,
@@ -1315,6 +1407,7 @@ export class EmployeesService {
   private async resolvePosition(
     companyId: number,
     positionId: number | null | undefined,
+    actor: AuthenticatedUser,
     manager?: EntityManager,
   ): Promise<Position | null> {
     if (!positionId) {
@@ -1332,7 +1425,45 @@ export class EmployeesService {
       throw new NotFoundException('Position not found');
     }
 
+    if (position.branch_id) {
+      await this.hrAccessService.assertCanAccessBranch(actor, position.branch_id);
+    }
+
     return position;
+  }
+
+  private async resolveDesignation(
+    companyId: number,
+    designationId: number | null | undefined,
+    actor: AuthenticatedUser,
+    manager?: EntityManager,
+  ): Promise<Designation | null> {
+    if (!designationId) {
+      return null;
+    }
+
+    const designation = await this.getDesignationRepository(manager).findOne({
+      where: {
+        id: designationId,
+        company_id: companyId,
+      },
+      relations: {
+        department: true,
+      },
+    });
+
+    if (!designation) {
+      throw new NotFoundException('Designation not found');
+    }
+
+    if (designation.department?.branch_id) {
+      await this.hrAccessService.assertCanAccessBranch(
+        actor,
+        designation.department.branch_id,
+      );
+    }
+
+    return designation;
   }
 
   private async resolveManager(
@@ -1445,7 +1576,8 @@ export class EmployeesService {
     dto: Record<string, unknown>,
     branch: Branch | null,
     primaryDepartment: Department | null,
-    position: Position | null,
+    primaryPosition: Position | null,
+    primaryDesignation: Designation | null,
     managerEmployee: Employee | null,
   ): Partial<Employee> {
     const payload: Partial<Employee> = {};
@@ -1488,8 +1620,12 @@ export class EmployeesService {
       payload.primary_department_id = primaryDepartment?.id ?? null;
     }
 
-    if ('position_id' in dto) {
-      payload.position_id = position?.id ?? null;
+    if ('primary_position_id' in dto || 'position_id' in dto) {
+      payload.primary_position_id = primaryPosition?.id ?? null;
+    }
+
+    if ('primary_designation_id' in dto) {
+      payload.primary_designation_id = primaryDesignation?.id ?? null;
     }
 
     if ('reports_to' in dto) {
@@ -1519,6 +1655,142 @@ export class EmployeesService {
           is_primary: assignment.is_primary,
         }),
       ),
+    );
+  }
+
+  private getTodayDate(): string {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  private async syncPrimaryPositionAssignments(
+    companyId: number,
+    employee: Employee,
+    primaryPosition: Position | null,
+    primaryDesignation: Designation | null,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repository = this.getEmployeePositionRepository(manager);
+    const today = this.getTodayDate();
+
+    await repository
+      .createQueryBuilder()
+      .update(EmployeePosition)
+      .set({
+        is_primary: false,
+        status: EmployeePositionStatusEnum.COMPLETED,
+        end_date: today,
+      })
+      .where('company_id = :companyId', { companyId })
+      .andWhere('employee_id = :employeeId', { employeeId: employee.id })
+      .andWhere('is_primary = :isPrimary', { isPrimary: true })
+      .andWhere('status = :status', { status: EmployeePositionStatusEnum.ACTIVE })
+      .andWhere('end_date IS NULL')
+      .execute();
+
+    if (!primaryPosition) {
+      return;
+    }
+
+    const existingQuery = repository
+      .createQueryBuilder('employeePosition')
+      .where('employeePosition.company_id = :companyId', { companyId })
+      .andWhere('employeePosition.employee_id = :employeeId', {
+        employeeId: employee.id,
+      })
+      .andWhere('employeePosition.position_id = :positionId', {
+        positionId: primaryPosition.id,
+      })
+      .andWhere('employeePosition.is_primary = :isPrimary', { isPrimary: true })
+      .andWhere('employeePosition.status = :status', {
+        status: EmployeePositionStatusEnum.ACTIVE,
+      })
+      .andWhere('employeePosition.end_date IS NULL');
+
+    if (primaryDesignation?.id) {
+      existingQuery.andWhere('employeePosition.designation_id = :designationId', {
+        designationId: primaryDesignation.id,
+      });
+    } else {
+      existingQuery.andWhere('employeePosition.designation_id IS NULL');
+    }
+
+    const existing = await existingQuery.getOne();
+
+    if (existing) {
+      return;
+    }
+
+    await repository.save(
+      repository.create({
+        company_id: companyId,
+        employee_id: employee.id,
+        position_id: primaryPosition.id,
+        designation_id: primaryDesignation?.id ?? null,
+        is_primary: true,
+        start_date: employee.hire_date ?? today,
+        end_date: null,
+        assignment_type: EmployeePositionAssignmentTypeEnum.PRIMARY,
+        status: EmployeePositionStatusEnum.ACTIVE,
+        notes: 'Auto-synced from employee primary position',
+      }),
+    );
+  }
+
+  private async syncPrimaryDesignationAssignments(
+    companyId: number,
+    employee: Employee,
+    primaryDesignation: Designation | null,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repository = this.getEmployeeDesignationRepository(manager);
+    const today = this.getTodayDate();
+
+    await repository
+      .createQueryBuilder()
+      .update(EmployeeDesignation)
+      .set({
+        is_current: false,
+        end_date: today,
+      })
+      .where('company_id = :companyId', { companyId })
+      .andWhere('employee_id = :employeeId', { employeeId: employee.id })
+      .andWhere('is_current = :isCurrent', { isCurrent: true })
+      .andWhere('end_date IS NULL')
+      .execute();
+
+    if (!primaryDesignation) {
+      return;
+    }
+
+    const existing = await repository
+      .createQueryBuilder('employeeDesignation')
+      .where('employeeDesignation.company_id = :companyId', { companyId })
+      .andWhere('employeeDesignation.employee_id = :employeeId', {
+        employeeId: employee.id,
+      })
+      .andWhere('employeeDesignation.designation_id = :designationId', {
+        designationId: primaryDesignation.id,
+      })
+      .andWhere('employeeDesignation.is_current = :isCurrent', {
+        isCurrent: true,
+      })
+      .andWhere('employeeDesignation.end_date IS NULL')
+      .getOne();
+
+    if (existing) {
+      return;
+    }
+
+    await repository.save(
+      repository.create({
+        company_id: companyId,
+        employee_id: employee.id,
+        designation_id: primaryDesignation.id,
+        start_date: employee.hire_date ?? today,
+        end_date: null,
+        is_current: true,
+        remarks: 'Auto-synced from employee primary designation',
+      }),
     );
   }
 
@@ -1830,10 +2102,62 @@ export class EmployeesService {
             primaryDepartment: employee.primary_department ?? null,
           };
 
-    const position =
-      'position_id' in dto
-        ? await this.resolvePosition(companyId, dto.position_id, manager)
-        : (employee.position ?? null);
+    const requestedPrimaryPositionId =
+      'primary_position_id' in dto
+        ? dto.primary_position_id
+        : 'position_id' in dto
+          ? dto.position_id
+          : undefined;
+
+    const primaryPosition =
+      requestedPrimaryPositionId !== undefined
+        ? await this.resolvePosition(
+            companyId,
+            requestedPrimaryPositionId,
+            actor,
+            manager,
+          )
+        : (employee.primary_position ?? null);
+
+    const primaryDesignation =
+      'primary_designation_id' in dto
+        ? await this.resolveDesignation(
+            companyId,
+            dto.primary_designation_id,
+            actor,
+            manager,
+          )
+        : (employee.primary_designation ?? null);
+
+    if (
+      primaryPosition?.department_id &&
+      primaryDepartment?.id &&
+      primaryPosition.department_id !== primaryDepartment.id
+    ) {
+      throw new BadRequestException(
+        'primary_position_id does not belong to the selected primary_department_id',
+      );
+    }
+
+    if (
+      primaryPosition?.branch_id &&
+      branch?.id &&
+      primaryPosition.branch_id !== branch.id
+    ) {
+      throw new BadRequestException(
+        'primary_position_id does not belong to the selected primary_branch_id',
+      );
+    }
+
+    if (
+      primaryDesignation?.department_id &&
+      primaryDepartment?.id &&
+      primaryDesignation.department_id !== primaryDepartment.id
+    ) {
+      throw new BadRequestException(
+        'primary_designation_id does not belong to the selected primary_department_id',
+      );
+    }
 
     const managerEmployee =
       'reports_to' in dto
@@ -1862,7 +2186,8 @@ export class EmployeesService {
       },
       branch,
       primaryDepartment,
-      position,
+      primaryPosition,
+      primaryDesignation,
       managerEmployee,
     );
 
@@ -1917,6 +2242,26 @@ export class EmployeesService {
 
     if ('departments' in dto || 'primary_department_id' in dto) {
       await this.saveDepartmentAssignments(saved.id, assignments, manager);
+    }
+
+    if (
+      'primary_position_id' in dto ||
+      'position_id' in dto ||
+      'primary_designation_id' in dto
+    ) {
+      await this.syncPrimaryPositionAssignments(
+        companyId,
+        saved,
+        primaryPosition,
+        primaryDesignation,
+        manager,
+      );
+      await this.syncPrimaryDesignationAssignments(
+        companyId,
+        saved,
+        primaryDesignation,
+        manager,
+      );
     }
 
     if (normalizedContacts !== undefined) {
@@ -2008,7 +2353,8 @@ export class EmployeesService {
           branch: true,
           parent: true,
         },
-        position: true,
+        primary_position: true,
+        primary_designation: true,
         manager: {
           company_user: {
             user: true,
@@ -2019,6 +2365,13 @@ export class EmployeesService {
             branch: true,
             parent: true,
           },
+        },
+        position_assignments: {
+          position: true,
+          designation: true,
+        },
+        designation_assignments: {
+          designation: true,
         },
         contacts: true,
         addresses: true,
@@ -2114,6 +2467,8 @@ export class EmployeesService {
       employment_status,
       branch_id,
       department_id,
+      primary_position_id,
+      primary_designation_id,
       position_id,
     } = query;
 
@@ -2151,9 +2506,22 @@ export class EmployeesService {
       });
     }
 
-    if (typeof position_id === 'number') {
-      qb.andWhere('employee.position_id = :positionId', {
-        positionId: position_id,
+    const effectivePrimaryPositionId =
+      typeof primary_position_id === 'number'
+        ? primary_position_id
+        : typeof position_id === 'number'
+          ? position_id
+          : null;
+
+    if (typeof effectivePrimaryPositionId === 'number') {
+      qb.andWhere('employee.primary_position_id = :positionId', {
+        positionId: effectivePrimaryPositionId,
+      });
+    }
+
+    if (typeof primary_designation_id === 'number') {
+      qb.andWhere('employee.primary_designation_id = :designationId', {
+        designationId: primary_designation_id,
       });
     }
 
@@ -2258,7 +2626,8 @@ export class EmployeesService {
               branch: true,
               parent: true,
             },
-            position: true,
+            primary_position: true,
+            primary_designation: true,
             manager: {
               company_user: true,
             },
@@ -2267,6 +2636,13 @@ export class EmployeesService {
                 branch: true,
                 parent: true,
               },
+            },
+            position_assignments: {
+              position: true,
+              designation: true,
+            },
+            designation_assignments: {
+              designation: true,
             },
             contacts: true,
             addresses: true,

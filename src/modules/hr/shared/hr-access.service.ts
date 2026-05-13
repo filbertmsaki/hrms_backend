@@ -65,7 +65,13 @@ export class HrAccessService {
 
   async assertCanAccessEmployee(
     actor: AuthenticatedUser,
-    employee: Pick<Employee, 'primary_branch_id' | 'department_assignments'>,
+    employee: Pick<
+      Employee,
+      | 'primary_branch_id'
+      | 'department_assignments'
+      | 'primary_department'
+      | 'primary_position'
+    >,
   ): Promise<void> {
     const branchIds = await this.getAccessibleBranchIds(actor);
 
@@ -78,10 +84,19 @@ export class HrAccessService {
         ?.map((assignment) => assignment.department?.branch_id)
         .filter((branchId): branchId is number => typeof branchId === 'number') ??
       [];
+    const primaryDepartmentBranchId =
+      employee.primary_department?.branch_id ?? null;
+    const primaryPositionBranchId = employee.primary_position?.branch_id ?? null;
 
     const hasAccess =
       (employee.primary_branch_id
         ? branchIds.includes(employee.primary_branch_id)
+        : false) ||
+      (primaryDepartmentBranchId
+        ? branchIds.includes(primaryDepartmentBranchId)
+        : false) ||
+      (primaryPositionBranchId
+        ? branchIds.includes(primaryPositionBranchId)
         : false) ||
       departmentBranchIds.some((branchId) => branchIds.includes(branchId));
 
