@@ -44,7 +44,6 @@ import { EmployeeIdentificationInputDto } from './dtos/employee-identification-i
 import { EmployeeProfessionalQualificationInputDto } from './dtos/employee-professional-qualification-input.dto';
 import { EmployeeQueryDto } from './dtos/employee-query.dto';
 import { EmployeeRelativeInputDto } from './dtos/employee-relative-input.dto';
-import { OnboardEmployeeDto } from './dtos/onboard-employee.dto';
 import { UpdateEmployeeAddressDto } from './dtos/update-employee-address.dto';
 import { UpdateEmployeeAcademicQualificationDto } from './dtos/update-employee-academic-qualification.dto';
 import { UpdateEmployeeBankAccountDto } from './dtos/update-employee-bank-account.dto';
@@ -72,8 +71,7 @@ import { Employee } from './entities/employee.entity';
 
 type EmployeeMutationDto =
   | CreateEmployeeDto
-  | UpdateEmployeeDto
-  | OnboardEmployeeDto;
+  | UpdateEmployeeDto;
 
 type EmployeeProfileCollectionsDto = Pick<
   CreateEmployeeDto,
@@ -2045,139 +2043,6 @@ export class EmployeesService {
     return ids
       .map((id) => byId.get(id))
       .filter((employee): employee is Employee => Boolean(employee));
-  }
-
-  async onboard(
-    companyId: number,
-    onboardEmployeeDto: OnboardEmployeeDto,
-    actor: AuthenticatedUser,
-  ) {
-    const employeeId = await this.dataSource.transaction(async (manager) => {
-      const userRepository = this.getUserRepository(manager);
-
-      const existingByEmail = await userRepository.findOne({
-        where: { email: onboardEmployeeDto.email },
-      });
-      const existingByPhone = await userRepository.findOne({
-        where: { phone: onboardEmployeeDto.phone },
-      });
-
-      if (
-        existingByEmail &&
-        existingByPhone &&
-        existingByEmail.id !== existingByPhone.id
-      ) {
-        throw new ConflictException(
-          'Email and phone belong to different existing users',
-        );
-      }
-
-      const existingUser = existingByEmail ?? existingByPhone;
-
-      if (existingUser) {
-        if (
-          existingByEmail &&
-          existingByEmail.phone !== onboardEmployeeDto.phone
-        ) {
-          throw new ConflictException(
-            'This email already exists with a different phone number',
-          );
-        }
-
-        if (
-          existingByPhone &&
-          existingByPhone.email !== onboardEmployeeDto.email
-        ) {
-          throw new ConflictException(
-            'This phone number already exists with a different email address',
-          );
-        }
-      }
-
-      const user =
-        existingUser ??
-        (await userRepository.save(
-          userRepository.create({
-            user_no: await this.usersService.generateUserNo(manager),
-            first_name: onboardEmployeeDto.first_name,
-            last_name: onboardEmployeeDto.last_name,
-            phone: onboardEmployeeDto.phone,
-            email: onboardEmployeeDto.email,
-            password: await hashPassword(onboardEmployeeDto.password),
-            status: onboardEmployeeDto.user_status ?? 'active',
-            user_type: 'COMPANY_USER',
-            is_email_verified: true,
-          }),
-        ));
-
-      let membership = await this.findMembershipByUserId(
-        companyId,
-        user.id,
-        manager,
-      );
-
-      if (!membership) {
-        await this.companiesService.addUserToCompany(
-          user.id,
-          companyId,
-          {
-            roleIds: onboardEmployeeDto.role_ids,
-          },
-          manager,
-        );
-
-        membership = await this.findMembershipByUserId(
-          companyId,
-          user.id,
-          manager,
-        );
-      }
-
-      if (!membership) {
-        throw new NotFoundException('Company membership could not be created');
-      }
-
-      const existingEmployee = await this.getEmployeeRepository(
-        manager,
-      ).findOne({
-        where: { company_user_id: membership.id },
-      });
-
-      if (existingEmployee) {
-        throw new ConflictException(
-          'This company user already has an employee profile',
-        );
-      }
-
-      await this.assertUniqueEmployeeNumber(
-        companyId,
-        onboardEmployeeDto.employee_no,
-        undefined,
-        manager,
-      );
-
-      const employee = this.getEmployeeRepository(manager).create({
-        company_user_id: membership.id,
-        employee_no: onboardEmployeeDto.employee_no,
-        first_name: onboardEmployeeDto.first_name,
-        last_name: onboardEmployeeDto.last_name,
-        employment_status:
-          onboardEmployeeDto.employment_status ??
-          EmploymentStatusEnum.ONBOARDING,
-        employment_type:
-          onboardEmployeeDto.employment_type ?? EmploymentTypeEnum.FULL_TIME,
-      });
-
-      return this.persistEmployee(
-        companyId,
-        employee,
-        onboardEmployeeDto,
-        actor,
-        manager,
-      );
-    });
-
-    return this.findOne(companyId, employeeId, actor);
   }
 
   async create(

@@ -37,6 +37,7 @@ type SeedUserConfig = {
 };
 
 const GLOBAL_SCOPE: SeedScope[] = ['global'];
+const DEFAULT_COMPANY_SCOPE: SeedScope[] = ['default_company'];
 const GLOBAL_AND_DEFAULT_COMPANY_SCOPES: SeedScope[] = [
   'global',
   'default_company',
@@ -326,12 +327,6 @@ const permissionSeeds: PermissionSeed[] = [
     scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
-    name: 'employees:onboard',
-    displayName: 'Onboard employees',
-    description: 'Allow onboarding employees by creating the user and HR profile',
-    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
-  },
-  {
     name: 'employees:change-status',
     displayName: 'Change employee status',
     description: 'Allow managing employee lifecycle statuses',
@@ -591,7 +586,7 @@ const roleSeeds: RoleSeed[] = [
     name: 'ADMINISTRATOR',
     displayName: 'Company Administrator',
     description: 'Administrator with full access limited to their own company',
-    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
+    scopes: DEFAULT_COMPANY_SCOPE,
     permissionNames: [
       'view_company_dashboard',
       'manage_company_users',
@@ -628,7 +623,6 @@ const roleSeeds: RoleSeed[] = [
       'employees:create',
       'employees:update',
       'employees:delete',
-      'employees:onboard',
       'employees:change-status',
       'leave_types:read',
       'leave_types:create',
@@ -673,7 +667,7 @@ const roleSeeds: RoleSeed[] = [
     name: 'USER',
     displayName: 'Company User',
     description: 'Regular company user with read-only company access',
-    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
+    scopes: DEFAULT_COMPANY_SCOPE,
     permissionNames: ['view_company_data'],
   },
   {
@@ -681,7 +675,7 @@ const roleSeeds: RoleSeed[] = [
     displayName: 'Viewer',
     description:
       'Compatibility role mirroring the default read-only company user access',
-    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
+    scopes: DEFAULT_COMPANY_SCOPE,
     permissionNames: ['view_company_data'],
   },
 ];

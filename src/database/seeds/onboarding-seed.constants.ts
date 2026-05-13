@@ -20,7 +20,7 @@ export type OnboardingRoleUserSeed = {
 export const ONBOARDING_ROLE_HIERARCHY_SEEDS: OnboardingRoleHierarchySeed[] = [
   {
     level: 1,
-    name: 'ONB_L1_INTERN_TRAINEE',
+    name: 'INTERN_TRAINEE',
     display_name: 'Intern / Trainee',
     slug: 'intern-trainee',
     description:
@@ -28,7 +28,7 @@ export const ONBOARDING_ROLE_HIERARCHY_SEEDS: OnboardingRoleHierarchySeed[] = [
   },
   {
     level: 2,
-    name: 'ONB_L2_JUNIOR_EMPLOYEE_HR_OFFICER',
+    name: 'HR_OFFICER',
     display_name: 'Junior Employee / HR Officer',
     slug: 'junior-employee-hr-officer',
     description:
@@ -36,7 +36,7 @@ export const ONBOARDING_ROLE_HIERARCHY_SEEDS: OnboardingRoleHierarchySeed[] = [
   },
   {
     level: 3,
-    name: 'ONB_L3_MID_LEVEL_EMPLOYEE_IT_ADMIN',
+    name: 'IT_ADMINISTRATOR',
     display_name: 'Mid-Level Employee / IT Administrator',
     slug: 'mid-level-employee-it-admin',
     description:
@@ -44,7 +44,7 @@ export const ONBOARDING_ROLE_HIERARCHY_SEEDS: OnboardingRoleHierarchySeed[] = [
   },
   {
     level: 4,
-    name: 'ONB_L4_SENIOR_EMPLOYEE',
+    name: 'SENIOR_EMPLOYEE',
     display_name: 'Senior Employee',
     slug: 'senior-employee',
     description:
@@ -52,7 +52,7 @@ export const ONBOARDING_ROLE_HIERARCHY_SEEDS: OnboardingRoleHierarchySeed[] = [
   },
   {
     level: 5,
-    name: 'ONB_L5_MANAGER_HEAD_HR_MANAGER',
+    name: 'HR_MANAGER',
     display_name: 'Manager / Head of Department / HR Manager',
     slug: 'manager-head-of-department-hr-manager',
     description:
@@ -62,7 +62,7 @@ export const ONBOARDING_ROLE_HIERARCHY_SEEDS: OnboardingRoleHierarchySeed[] = [
 
 export const ONBOARDING_ROLE_USER_SEEDS: OnboardingRoleUserSeed[] = [
   {
-    role_name: 'ONB_L1_INTERN_TRAINEE',
+    role_name: 'INTERN_TRAINEE',
     user_no: 'ONB-USER-0001',
     first_name: 'Intern',
     last_name: 'User',
@@ -70,7 +70,7 @@ export const ONBOARDING_ROLE_USER_SEEDS: OnboardingRoleUserSeed[] = [
     phone: '+255799000001',
   },
   {
-    role_name: 'ONB_L2_JUNIOR_EMPLOYEE_HR_OFFICER',
+    role_name: 'HR_OFFICER',
     user_no: 'ONB-USER-0002',
     first_name: 'Junior',
     last_name: 'User',
@@ -78,7 +78,7 @@ export const ONBOARDING_ROLE_USER_SEEDS: OnboardingRoleUserSeed[] = [
     phone: '+255799000002',
   },
   {
-    role_name: 'ONB_L3_MID_LEVEL_EMPLOYEE_IT_ADMIN',
+    role_name: 'IT_ADMINISTRATOR',
     user_no: 'ONB-USER-0003',
     first_name: 'Mid',
     last_name: 'User',
@@ -86,7 +86,7 @@ export const ONBOARDING_ROLE_USER_SEEDS: OnboardingRoleUserSeed[] = [
     phone: '+255799000003',
   },
   {
-    role_name: 'ONB_L4_SENIOR_EMPLOYEE',
+    role_name: 'SENIOR_EMPLOYEE',
     user_no: 'ONB-USER-0004',
     first_name: 'Senior',
     last_name: 'User',
@@ -94,7 +94,7 @@ export const ONBOARDING_ROLE_USER_SEEDS: OnboardingRoleUserSeed[] = [
     phone: '+255799000004',
   },
   {
-    role_name: 'ONB_L5_MANAGER_HEAD_HR_MANAGER',
+    role_name: 'HR_MANAGER',
     user_no: 'ONB-USER-0005',
     first_name: 'Manager',
     last_name: 'User',

@@ -30,7 +30,6 @@ import { CreateEmployeeIdentificationDto } from './dtos/create-employee-identifi
 import { CreateEmployeeProfessionalQualificationDto } from './dtos/create-employee-professional-qualification.dto';
 import { CreateEmployeeRelativeDto } from './dtos/create-employee-relative.dto';
 import { EmployeeQueryDto } from './dtos/employee-query.dto';
-import { OnboardEmployeeDto } from './dtos/onboard-employee.dto';
 import { UpdateEmployeeAddressDto } from './dtos/update-employee-address.dto';
 import { UpdateEmployeeAcademicQualificationDto } from './dtos/update-employee-academic-qualification.dto';
 import { UpdateEmployeeBankAccountDto } from './dtos/update-employee-bank-account.dto';
@@ -48,24 +47,6 @@ import { EmployeesService } from './employees.service';
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class EmployeesController {
   constructor(private readonly employeesService: EmployeesService) {}
-
-  @Post('onboard')
-  @UseGuards(PermissionsGuard)
-  @Permissions('employees:onboard')
-  @ApiOperation({
-    summary:
-      'Onboard a new employee by creating the company user and HR profile',
-  })
-  onboard(
-    @Req() req: ExpressRequest & { user: AuthenticatedUser },
-    @Body() onboardEmployeeDto: OnboardEmployeeDto,
-  ) {
-    return this.employeesService.onboard(
-      req.user.companyId!,
-      onboardEmployeeDto,
-      req.user,
-    );
-  }
 
   @Post()
   @UseGuards(PermissionsGuard)
