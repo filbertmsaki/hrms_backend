@@ -7,6 +7,7 @@ import {
   ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
+  Unique,
   UpdateDateColumn,
 } from 'typeorm';
 import { Company } from '../../../companies/entities/company.entity';
@@ -17,6 +18,7 @@ import { EmployeeDepartment } from '../../employees/entities/employee-department
 @Entity('departments')
 @Index('IDX_department_company', ['company_id'])
 @Index('IDX_department_branch', ['branch_id'])
+@Unique('UQ_department_code_company', ['company_id', 'code'])
 export class Department {
   @PrimaryGeneratedColumn()
   id: number;

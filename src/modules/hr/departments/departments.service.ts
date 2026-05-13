@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -13,6 +14,7 @@ import { CreateDepartmentDto } from './dtos/create-department.dto';
 import { DepartmentQueryDto } from './dtos/department-query.dto';
 import { UpdateDepartmentDto } from './dtos/update-department.dto';
 import { HrAccessService } from '../shared/hr-access.service';
+import { CodeGeneratorService } from '../shared/code-generator.service';
 import { buildPaginationMeta } from '../shared/hr.utils';
 
 @Injectable()
@@ -23,6 +25,7 @@ export class DepartmentsService {
     @InjectRepository(Branch)
     private readonly branchRepository: Repository<Branch>,
     private readonly hrAccessService: HrAccessService,
+    private readonly codeGeneratorService: CodeGeneratorService,
   ) {}
 
   private mapDepartment(department: Department) {
@@ -124,8 +127,16 @@ export class DepartmentsService {
       }
     }
 
+    const code = await this.codeGeneratorService.resolveCode(
+      this.departmentRepository,
+      companyId,
+      createDepartmentDto.code,
+      { prefix: 'DEP-', minDigits: 4 },
+    );
+
     const department = this.departmentRepository.create({
       ...createDepartmentDto,
+      code,
       company_id: companyId,
       branch_id: branch?.id ?? null,
       parent_id: parent?.id ?? null,
@@ -268,6 +279,22 @@ export class DepartmentsService {
 
     if (parent?.branch_id) {
       await this.hrAccessService.assertCanAccessBranch(actor, parent.branch_id);
+    }
+
+    // If code is being updated, validate uniqueness
+    if (updateDepartmentDto.code && updateDepartmentDto.code !== department.code) {
+      const isUnique = await this.codeGeneratorService.validateCodeUnique(
+        this.departmentRepository,
+        companyId,
+        updateDepartmentDto.code,
+        departmentId,
+      );
+      if (!isUnique) {
+        throw new ConflictException(
+          `Code "${updateDepartmentDto.code}" already exists. Please use a different code.`,
+        );
+      }
+      department.code = updateDepartmentDto.code;
     }
 
     Object.assign(department, {

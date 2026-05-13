@@ -7,6 +7,7 @@ import {
   ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
+  Unique,
   UpdateDateColumn,
 } from 'typeorm';
 import { Company } from '../../../companies/entities/company.entity';
@@ -14,6 +15,7 @@ import { Employee } from '../../employees/entities/employee.entity';
 
 @Entity('positions')
 @Index('IDX_position_company', ['company_id'])
+@Unique('UQ_position_code_company', ['company_id', 'code'])
 export class Position {
   @PrimaryGeneratedColumn()
   id: number;

@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -11,6 +12,7 @@ import { BranchQueryDto } from './dtos/branch-query.dto';
 import { CreateBranchDto } from './dtos/create-branch.dto';
 import { UpdateBranchDto } from './dtos/update-branch.dto';
 import { HrAccessService } from '../shared/hr-access.service';
+import { CodeGeneratorService } from '../shared/code-generator.service';
 import { buildPaginationMeta } from '../shared/hr.utils';
 import { Branch } from './entities/branch.entity';
 import { CompanyUserBranchAccess } from './entities/company-user-branch-access.entity';
@@ -25,6 +27,7 @@ export class BranchesService {
     @InjectRepository(CompanyUserBranchAccess)
     private readonly branchAccessRepository: Repository<CompanyUserBranchAccess>,
     private readonly hrAccessService: HrAccessService,
+    private readonly codeGeneratorService: CodeGeneratorService,
   ) {}
 
   private mapBranch(branch: Branch) {
@@ -81,8 +84,16 @@ export class BranchesService {
     companyId: number,
     createBranchDto: CreateBranchDto,
   ): Promise<ReturnType<BranchesService['mapBranch']>> {
+    const code = await this.codeGeneratorService.resolveCode(
+      this.branchRepository,
+      companyId,
+      createBranchDto.code,
+      { prefix: 'BR-', minDigits: 4 },
+    );
+
     const branch = this.branchRepository.create({
       ...createBranchDto,
+      code,
       company_id: companyId,
       status: createBranchDto.status ?? 'active',
     });
@@ -183,6 +194,23 @@ export class BranchesService {
   ) {
     const branch = await this.findBranchOrFail(companyId, branchId);
     await this.hrAccessService.assertCanAccessBranch(actor, branch.id);
+
+    // If code is being updated, validate uniqueness
+    if (updateBranchDto.code && updateBranchDto.code !== branch.code) {
+      const isUnique = await this.codeGeneratorService.validateCodeUnique(
+        this.branchRepository,
+        companyId,
+        updateBranchDto.code,
+        branchId,
+      );
+      if (!isUnique) {
+        throw new ConflictException(
+          `Code "${updateBranchDto.code}" already exists. Please use a different code.`,
+        );
+      }
+      branch.code = updateBranchDto.code;
+    }
+
     Object.assign(branch, updateBranchDto);
     return this.mapBranch(await this.branchRepository.save(branch));
   }

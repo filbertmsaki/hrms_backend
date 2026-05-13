@@ -1,10 +1,15 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { PositionQueryDto } from './dtos/position-query.dto';
 import { CreatePositionDto } from './dtos/create-position.dto';
 import { UpdatePositionDto } from './dtos/update-position.dto';
+import { CodeGeneratorService } from '../shared/code-generator.service';
 import { buildPaginationMeta } from '../shared/hr.utils';
 import { Position } from './entities/position.entity';
 
@@ -13,6 +18,7 @@ export class PositionsService {
   constructor(
     @InjectRepository(Position)
     private readonly positionRepository: Repository<Position>,
+    private readonly codeGeneratorService: CodeGeneratorService,
   ) {}
 
   private mapPosition(position: Position) {
@@ -47,8 +53,16 @@ export class PositionsService {
   }
 
   async create(companyId: number, createPositionDto: CreatePositionDto) {
+    const code = await this.codeGeneratorService.resolveCode(
+      this.positionRepository,
+      companyId,
+      createPositionDto.code,
+      { prefix: 'POS-', minDigits: 4 },
+    );
+
     const position = this.positionRepository.create({
       ...createPositionDto,
+      code,
       company_id: companyId,
       is_manager: createPositionDto.is_manager ?? false,
       status: createPositionDto.status ?? 'active',
@@ -128,6 +142,23 @@ export class PositionsService {
     updatePositionDto: UpdatePositionDto,
   ) {
     const position = await this.findPositionOrFail(companyId, positionId);
+
+    // If code is being updated, validate uniqueness
+    if (updatePositionDto.code && updatePositionDto.code !== position.code) {
+      const isUnique = await this.codeGeneratorService.validateCodeUnique(
+        this.positionRepository,
+        companyId,
+        updatePositionDto.code,
+        positionId,
+      );
+      if (!isUnique) {
+        throw new ConflictException(
+          `Code "${updatePositionDto.code}" already exists. Please use a different code.`,
+        );
+      }
+      position.code = updatePositionDto.code;
+    }
+
     Object.assign(position, updatePositionDto);
     return this.mapPosition(await this.positionRepository.save(position));
   }
