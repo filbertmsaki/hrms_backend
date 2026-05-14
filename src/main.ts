@@ -36,7 +36,7 @@ async function bootstrap() {
     .setVersion('1.0')
     .setContact('HRMS Backend Team', 'https://example.com', 'support@example.com')
     .setLicense('UNLICENSED', '')
-    .addServer('', 'Application API Base Path')
+    .addServer('/', 'Application API Base Path')
     .addBearerAuth()
     .addTag('Auth', 'Authentication and session APIs')
     .addTag('Users', 'System user management APIs')
