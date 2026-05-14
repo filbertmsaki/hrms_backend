@@ -11,7 +11,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
 import { Permissions } from '../../../common/decorators/permissions.decorator';
@@ -40,6 +40,18 @@ import { UpdateEmployeeIdentificationDto } from './dtos/update-employee-identifi
 import { UpdateEmployeeProfessionalQualificationDto } from './dtos/update-employee-professional-qualification.dto';
 import { UpdateEmployeeRelativeDto } from './dtos/update-employee-relative.dto';
 import { EmployeesService } from './employees.service';
+import {
+  ApiCreateOperation,
+  ApiDeleteOperation,
+  ApiGetOneOperation,
+  ApiListOperation,
+  ApiUpdateOperation,
+  ApiOperationSummary,
+  ApiAuthRequired,
+  ApiSuccessResponse,
+  ApiValidationErrorResponse,
+  ApiNotFoundResponse,
+} from '../../../docs/swagger-decorators';
 
 @ApiTags('Employees')
 @ApiBearerAuth()
@@ -48,12 +60,14 @@ import { EmployeesService } from './employees.service';
 export class EmployeesController {
   constructor(private readonly employeesService: EmployeesService) {}
 
+  // ════════════════════════════════════════════
+  //  CORE PROFILE CRUD
+  // ════════════════════════════════════════════
+
   @Post()
   @UseGuards(PermissionsGuard)
   @Permissions('employees:create')
-  @ApiOperation({
-    summary: 'Create an HR employee profile for an existing company user',
-  })
+  @ApiCreateOperation('Employee', 'Create an employee profile for a company user')
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() createEmployeeDto: CreateEmployeeDto,
@@ -68,7 +82,7 @@ export class EmployeesController {
   @Get()
   @UseGuards(PermissionsGuard)
   @Permissions('employees:read')
-  @ApiOperation({ summary: 'List employees in the active company' })
+  @ApiListOperation('Employee', 'List employees in the active company')
   findAll(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: EmployeeQueryDto,
@@ -79,7 +93,7 @@ export class EmployeesController {
   @Get(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:read')
-  @ApiOperation({ summary: 'Get a full employee profile by ID' })
+  @ApiGetOneOperation('Employee', 'Get a full employee profile by ID')
   findOne(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -90,7 +104,7 @@ export class EmployeesController {
   @Patch(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Update an employee profile' })
+  @ApiUpdateOperation('Employee', 'Update an employee profile')
   update(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -107,7 +121,14 @@ export class EmployeesController {
   @Patch(':id/status')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:change-status')
-  @ApiOperation({ summary: 'Update an employee lifecycle status' })
+  @ApiOperationSummary(
+    'Change employee lifecycle status',
+    'Updates the employment status (e.g. active, terminated, resigned) of an employee.',
+  )
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiNotFoundResponse('Employee')
+  @ApiSuccessResponse(200, 'Employee status updated')
   changeStatus(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -121,10 +142,32 @@ export class EmployeesController {
     );
   }
 
+  @Delete(':id')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:delete')
+  @ApiDeleteOperation('Employee', 'Delete an employee profile')
+  remove(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.employeesService.remove(req.user.companyId!, id, req.user);
+  }
+
+  // ════════════════════════════════════════════
+  //  DOCUMENTS
+  // ════════════════════════════════════════════
+
   @Post(':id/documents')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Attach a document to an employee profile' })
+  @ApiOperationSummary(
+    'Attach a document to an employee profile',
+    'Adds a new document record linked to the specified employee.',
+  )
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiNotFoundResponse('Employee')
+  @ApiSuccessResponse(201, 'Document attached successfully')
   addDocument(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -141,7 +184,13 @@ export class EmployeesController {
   @Delete(':employeeId/documents/:documentId')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Remove an employee document' })
+  @ApiOperationSummary(
+    'Remove an employee document',
+    'Permanently removes a document record from an employee profile.',
+  )
+  @ApiAuthRequired()
+  @ApiNotFoundResponse('Employee or Document')
+  @ApiSuccessResponse(200, 'Document removed successfully')
   removeDocument(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -155,14 +204,17 @@ export class EmployeesController {
     );
   }
 
-  // ──────────────────────────────────────────────
-  //  CONTACT ENDPOINTS
-  // ──────────────────────────────────────────────
+  // ════════════════════════════════════════════
+  //  CONTACTS
+  // ════════════════════════════════════════════
 
   @Post(':employeeId/contacts')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Add a contact to an employee profile' })
+  @ApiOperationSummary('Add a contact to an employee profile')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(201, 'Contact added successfully')
   addContact(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -179,7 +231,10 @@ export class EmployeesController {
   @Patch(':employeeId/contacts/:contactId')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Update an employee contact' })
+  @ApiOperationSummary('Update an employee contact')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(200, 'Contact updated successfully')
   updateContact(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -198,7 +253,9 @@ export class EmployeesController {
   @Delete(':employeeId/contacts/:contactId')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Remove an employee contact' })
+  @ApiOperationSummary('Remove an employee contact')
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'Contact removed successfully')
   removeContact(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -212,14 +269,17 @@ export class EmployeesController {
     );
   }
 
-  // ──────────────────────────────────────────────
-  //  ADDRESS ENDPOINTS
-  // ──────────────────────────────────────────────
+  // ════════════════════════════════════════════
+  //  ADDRESSES
+  // ════════════════════════════════════════════
 
   @Post(':employeeId/addresses')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Add an address to an employee profile' })
+  @ApiOperationSummary('Add an address to an employee profile')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(201, 'Address added successfully')
   addAddress(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -236,7 +296,10 @@ export class EmployeesController {
   @Patch(':employeeId/addresses/:addressId')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Update an employee address' })
+  @ApiOperationSummary('Update an employee address')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(200, 'Address updated successfully')
   updateAddress(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -255,7 +318,9 @@ export class EmployeesController {
   @Delete(':employeeId/addresses/:addressId')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Remove an employee address' })
+  @ApiOperationSummary('Remove an employee address')
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'Address removed successfully')
   removeAddress(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -269,14 +334,17 @@ export class EmployeesController {
     );
   }
 
-  // ──────────────────────────────────────────────
-  //  RELATIVE ENDPOINTS
-  // ──────────────────────────────────────────────
+  // ════════════════════════════════════════════
+  //  RELATIVES
+  // ════════════════════════════════════════════
 
   @Post(':employeeId/relatives')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Add a relative to an employee profile' })
+  @ApiOperationSummary('Add a relative to an employee profile')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(201, 'Relative added successfully')
   addRelative(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -293,7 +361,10 @@ export class EmployeesController {
   @Patch(':employeeId/relatives/:relativeId')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Update an employee relative' })
+  @ApiOperationSummary('Update an employee relative')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(200, 'Relative updated successfully')
   updateRelative(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -312,7 +383,9 @@ export class EmployeesController {
   @Delete(':employeeId/relatives/:relativeId')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Remove an employee relative' })
+  @ApiOperationSummary('Remove an employee relative')
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'Relative removed successfully')
   removeRelative(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -326,16 +399,17 @@ export class EmployeesController {
     );
   }
 
-  // ──────────────────────────────────────────────
-  //  IDENTIFICATION ENDPOINTS
-  // ──────────────────────────────────────────────
+  // ════════════════════════════════════════════
+  //  IDENTIFICATIONS
+  // ════════════════════════════════════════════
 
   @Post(':employeeId/identifications')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({
-    summary: 'Add an identification document to an employee profile',
-  })
+  @ApiOperationSummary('Add an identification document to an employee profile')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(201, 'Identification added successfully')
   addIdentification(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -352,7 +426,10 @@ export class EmployeesController {
   @Patch(':employeeId/identifications/:identificationId')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Update an employee identification' })
+  @ApiOperationSummary('Update an employee identification')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(200, 'Identification updated successfully')
   updateIdentification(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -371,7 +448,9 @@ export class EmployeesController {
   @Delete(':employeeId/identifications/:identificationId')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Remove an employee identification' })
+  @ApiOperationSummary('Remove an employee identification')
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'Identification removed successfully')
   removeIdentification(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -385,14 +464,17 @@ export class EmployeesController {
     );
   }
 
-  // ──────────────────────────────────────────────
-  //  BANK ACCOUNT ENDPOINTS
-  // ──────────────────────────────────────────────
+  // ════════════════════════════════════════════
+  //  BANK ACCOUNTS
+  // ════════════════════════════════════════════
 
   @Post(':employeeId/bank-accounts')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Add a bank account to an employee profile' })
+  @ApiOperationSummary('Add a bank account to an employee profile')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(201, 'Bank account added successfully')
   addBankAccount(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -409,7 +491,10 @@ export class EmployeesController {
   @Patch(':employeeId/bank-accounts/:bankAccountId')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Update an employee bank account' })
+  @ApiOperationSummary('Update an employee bank account')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(200, 'Bank account updated successfully')
   updateBankAccount(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -428,7 +513,9 @@ export class EmployeesController {
   @Delete(':employeeId/bank-accounts/:bankAccountId')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Remove an employee bank account' })
+  @ApiOperationSummary('Remove an employee bank account')
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'Bank account removed successfully')
   removeBankAccount(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -442,10 +529,16 @@ export class EmployeesController {
     );
   }
 
+  // ════════════════════════════════════════════
+  //  ACADEMIC QUALIFICATIONS
+  // ════════════════════════════════════════════
+
   @Get(':employeeId/academic-qualifications')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:read')
-  @ApiOperation({ summary: 'List academic qualifications for an employee' })
+  @ApiOperationSummary('List academic qualifications for an employee')
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'Academic qualifications retrieved')
   listAcademicQualifications(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -460,9 +553,10 @@ export class EmployeesController {
   @Post(':employeeId/academic-qualifications')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({
-    summary: 'Add an academic qualification to an employee profile',
-  })
+  @ApiOperationSummary('Add an academic qualification to an employee profile')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(201, 'Academic qualification added successfully')
   addAcademicQualification(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -479,7 +573,10 @@ export class EmployeesController {
   @Patch(':employeeId/academic-qualifications/:academicQualificationId')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Update an academic qualification' })
+  @ApiOperationSummary('Update an academic qualification')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(200, 'Academic qualification updated successfully')
   updateAcademicQualification(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -499,7 +596,9 @@ export class EmployeesController {
   @Delete(':employeeId/academic-qualifications/:academicQualificationId')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Remove an academic qualification' })
+  @ApiOperationSummary('Remove an academic qualification')
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'Academic qualification removed successfully')
   removeAcademicQualification(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -514,10 +613,16 @@ export class EmployeesController {
     );
   }
 
+  // ════════════════════════════════════════════
+  //  PROFESSIONAL QUALIFICATIONS
+  // ════════════════════════════════════════════
+
   @Get(':employeeId/professional-qualifications')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:read')
-  @ApiOperation({ summary: 'List professional qualifications for an employee' })
+  @ApiOperationSummary('List professional qualifications for an employee')
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'Professional qualifications retrieved')
   listProfessionalQualifications(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -532,9 +637,10 @@ export class EmployeesController {
   @Post(':employeeId/professional-qualifications')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({
-    summary: 'Add a professional qualification to an employee profile',
-  })
+  @ApiOperationSummary('Add a professional qualification to an employee profile')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(201, 'Professional qualification added successfully')
   addProfessionalQualification(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -551,7 +657,10 @@ export class EmployeesController {
   @Patch(':employeeId/professional-qualifications/:professionalQualificationId')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Update a professional qualification' })
+  @ApiOperationSummary('Update a professional qualification')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(200, 'Professional qualification updated successfully')
   updateProfessionalQualification(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -568,12 +677,12 @@ export class EmployeesController {
     );
   }
 
-  @Delete(
-    ':employeeId/professional-qualifications/:professionalQualificationId',
-  )
+  @Delete(':employeeId/professional-qualifications/:professionalQualificationId')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Remove a professional qualification' })
+  @ApiOperationSummary('Remove a professional qualification')
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'Professional qualification removed successfully')
   removeProfessionalQualification(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -588,10 +697,16 @@ export class EmployeesController {
     );
   }
 
+  // ════════════════════════════════════════════
+  //  EXPERIENCE DETAILS
+  // ════════════════════════════════════════════
+
   @Get(':employeeId/experience-details')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:read')
-  @ApiOperation({ summary: 'List experience details for an employee' })
+  @ApiOperationSummary('List experience details for an employee')
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'Experience details retrieved')
   listExperienceDetails(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -606,7 +721,10 @@ export class EmployeesController {
   @Post(':employeeId/experience-details')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Add an experience detail to an employee profile' })
+  @ApiOperationSummary('Add an experience detail to an employee profile')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(201, 'Experience detail added successfully')
   addExperienceDetail(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -623,7 +741,10 @@ export class EmployeesController {
   @Patch(':employeeId/experience-details/:experienceDetailId')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Update an employee experience detail' })
+  @ApiOperationSummary('Update an employee experience detail')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(200, 'Experience detail updated successfully')
   updateExperienceDetail(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -642,7 +763,9 @@ export class EmployeesController {
   @Delete(':employeeId/experience-details/:experienceDetailId')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Remove an employee experience detail' })
+  @ApiOperationSummary('Remove an employee experience detail')
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'Experience detail removed successfully')
   removeExperienceDetail(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -654,16 +777,5 @@ export class EmployeesController {
       experienceDetailId,
       req.user,
     );
-  }
-
-  @Delete(':id')
-  @UseGuards(PermissionsGuard)
-  @Permissions('employees:delete')
-  @ApiOperation({ summary: 'Delete an employee profile' })
-  remove(
-    @Req() req: ExpressRequest & { user: AuthenticatedUser },
-    @Param('id', ParseIntPipe) id: number,
-  ) {
-    return this.employeesService.remove(req.user.companyId!, id, req.user);
   }
 }

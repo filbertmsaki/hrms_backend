@@ -11,7 +11,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
 import { Permissions } from '../../../common/decorators/permissions.decorator';
@@ -22,6 +22,13 @@ import { CreateEmployeeDesignationDto } from './dtos/create-employee-designation
 import { EmployeeDesignationQueryDto } from './dtos/employee-designation-query.dto';
 import { UpdateEmployeeDesignationDto } from './dtos/update-employee-designation.dto';
 import { EmployeeDesignationsService } from './employee-designations.service';
+import {
+  ApiCreateOperation,
+  ApiGetOneOperation,
+  ApiListOperation,
+  ApiUpdateOperation,
+  ApiDeleteOperation,
+} from '../../../docs/swagger-decorators';
 
 @ApiTags('Employee Designations')
 @ApiBearerAuth()
@@ -35,7 +42,7 @@ export class EmployeeDesignationsController {
   @Post()
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Create an employee designation assignment' })
+  @ApiCreateOperation('Employee Designation', 'Create an employee designation assignment')
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: CreateEmployeeDesignationDto,
@@ -46,7 +53,7 @@ export class EmployeeDesignationsController {
   @Get()
   @UseGuards(PermissionsGuard)
   @Permissions('employees:read')
-  @ApiOperation({ summary: 'List employee designation assignments' })
+  @ApiListOperation('Employee Designation', 'List employee designation assignments')
   findAll(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: EmployeeDesignationQueryDto,
@@ -57,7 +64,7 @@ export class EmployeeDesignationsController {
   @Get(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:read')
-  @ApiOperation({ summary: 'Get one employee designation assignment' })
+  @ApiGetOneOperation('Employee Designation', 'Get one employee designation assignment')
   findOne(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -68,7 +75,7 @@ export class EmployeeDesignationsController {
   @Patch(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Update an employee designation assignment' })
+  @ApiUpdateOperation('Employee Designation', 'Update an employee designation assignment')
   update(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -85,7 +92,7 @@ export class EmployeeDesignationsController {
   @Delete(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Delete an employee designation assignment' })
+  @ApiDeleteOperation('Employee Designation', 'Delete an employee designation assignment')
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,

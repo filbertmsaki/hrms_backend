@@ -12,7 +12,6 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
-  ApiOperation,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
@@ -26,6 +25,13 @@ import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.in
 import { CreatePermissionDto } from './dtos/create-permission.dto';
 import { UpdatePermissionDto } from './dtos/update-permission.dto';
 import { PermissionsService } from './permissions.service';
+import {
+  ApiCreateOperation,
+  ApiDeleteOperation,
+  ApiGetOneOperation,
+  ApiListOperation,
+  ApiUpdateOperation,
+} from '../../docs/swagger-decorators';
 
 @ApiTags('Permissions')
 @ApiBearerAuth()
@@ -37,12 +43,7 @@ export class PermissionsController {
   @Post()
   @UseGuards(RolesGuard)
   @Roles('OWNER')
-  @ApiOperation({ summary: 'Create a new permission' })
-  @ApiResponse({ status: 201, description: 'Permission created' })
-  @ApiResponse({
-    status: 403,
-    description: 'Forbidden - only OWNER users can create permissions',
-  })
+  @ApiCreateOperation('Permission', 'Create a new permission (OWNER only)')
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() createPermissionDto: CreatePermissionDto,
@@ -53,7 +54,7 @@ export class PermissionsController {
   @Get()
   @UseGuards(PermissionsGuard)
   @Permissions('permissions:read')
-  @ApiOperation({ summary: 'Get permissions visible to the current actor' })
+  @ApiListOperation('Permission', 'Get all permissions visible to the current actor')
   findAll(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
     return this.permissionsService.findAll(req.user);
   }
@@ -61,7 +62,7 @@ export class PermissionsController {
   @Get(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('permissions:read')
-  @ApiOperation({ summary: 'Get permission by ID' })
+  @ApiGetOneOperation('Permission', 'Get a permission by ID')
   findOne(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -72,11 +73,7 @@ export class PermissionsController {
   @Patch(':id')
   @UseGuards(RolesGuard)
   @Roles('OWNER')
-  @ApiOperation({ summary: 'Update a permission' })
-  @ApiResponse({
-    status: 403,
-    description: 'Forbidden - only OWNER users can update permissions',
-  })
+  @ApiUpdateOperation('Permission', 'Update a permission (OWNER only)')
   update(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -88,11 +85,7 @@ export class PermissionsController {
   @Delete(':id')
   @UseGuards(RolesGuard)
   @Roles('OWNER')
-  @ApiOperation({ summary: 'Delete a permission' })
-  @ApiResponse({
-    status: 403,
-    description: 'Forbidden - only OWNER users can delete permissions',
-  })
+  @ApiDeleteOperation('Permission', 'Delete a permission (OWNER only)')
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,

@@ -11,7 +11,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
 import { Permissions } from '../../../common/decorators/permissions.decorator';
@@ -22,6 +22,13 @@ import { CreateEmployeePositionDto } from './dtos/create-employee-position.dto';
 import { EmployeePositionQueryDto } from './dtos/employee-position-query.dto';
 import { UpdateEmployeePositionDto } from './dtos/update-employee-position.dto';
 import { EmployeePositionsService } from './employee-positions.service';
+import {
+  ApiCreateOperation,
+  ApiGetOneOperation,
+  ApiListOperation,
+  ApiUpdateOperation,
+  ApiDeleteOperation,
+} from '../../../docs/swagger-decorators';
 
 @ApiTags('Employee Positions')
 @ApiBearerAuth()
@@ -33,7 +40,7 @@ export class EmployeePositionsController {
   @Post()
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Create an employee position assignment' })
+  @ApiCreateOperation('Employee Position', 'Create an employee position assignment')
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: CreateEmployeePositionDto,
@@ -44,7 +51,7 @@ export class EmployeePositionsController {
   @Get()
   @UseGuards(PermissionsGuard)
   @Permissions('employees:read')
-  @ApiOperation({ summary: 'List employee position assignments' })
+  @ApiListOperation('Employee Position', 'List employee position assignments')
   findAll(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: EmployeePositionQueryDto,
@@ -55,7 +62,7 @@ export class EmployeePositionsController {
   @Get(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:read')
-  @ApiOperation({ summary: 'Get one employee position assignment' })
+  @ApiGetOneOperation('Employee Position', 'Get one employee position assignment')
   findOne(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -66,7 +73,7 @@ export class EmployeePositionsController {
   @Patch(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Update an employee position assignment' })
+  @ApiUpdateOperation('Employee Position', 'Update an employee position assignment')
   update(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -78,7 +85,7 @@ export class EmployeePositionsController {
   @Delete(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperation({ summary: 'Delete an employee position assignment' })
+  @ApiDeleteOperation('Employee Position', 'Delete an employee position assignment')
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,

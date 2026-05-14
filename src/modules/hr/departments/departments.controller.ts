@@ -11,7 +11,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
 import { Permissions } from '../../../common/decorators/permissions.decorator';
@@ -22,6 +22,13 @@ import { CreateDepartmentDto } from './dtos/create-department.dto';
 import { DepartmentQueryDto } from './dtos/department-query.dto';
 import { UpdateDepartmentDto } from './dtos/update-department.dto';
 import { DepartmentsService } from './departments.service';
+import {
+  ApiCreateOperation,
+  ApiGetOneOperation,
+  ApiListOperation,
+  ApiUpdateOperation,
+  ApiDeleteOperation,
+} from '../../../docs/swagger-decorators';
 
 @ApiTags('Departments')
 @ApiBearerAuth()
@@ -33,7 +40,7 @@ export class DepartmentsController {
   @Post()
   @UseGuards(PermissionsGuard)
   @Permissions('departments:create')
-  @ApiOperation({ summary: 'Create a department in the active company' })
+  @ApiCreateOperation('Department', 'Create a department in the active company')
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() createDepartmentDto: CreateDepartmentDto,
@@ -48,7 +55,7 @@ export class DepartmentsController {
   @Get()
   @UseGuards(PermissionsGuard)
   @Permissions('departments:read')
-  @ApiOperation({ summary: 'List departments in the active company' })
+  @ApiListOperation('Department', 'List departments in the active company')
   findAll(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: DepartmentQueryDto,
@@ -59,7 +66,7 @@ export class DepartmentsController {
   @Get(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('departments:read')
-  @ApiOperation({ summary: 'Get a department by ID' })
+  @ApiGetOneOperation('Department', 'Get a department by ID')
   findOne(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -70,7 +77,7 @@ export class DepartmentsController {
   @Patch(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('departments:update')
-  @ApiOperation({ summary: 'Update a department' })
+  @ApiUpdateOperation('Department', 'Update a department')
   update(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -87,7 +94,7 @@ export class DepartmentsController {
   @Delete(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('departments:delete')
-  @ApiOperation({ summary: 'Delete a department' })
+  @ApiDeleteOperation('Department', 'Delete a department')
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,

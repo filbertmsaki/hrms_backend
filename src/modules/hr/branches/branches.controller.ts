@@ -11,7 +11,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
 import { Permissions } from '../../../common/decorators/permissions.decorator';
@@ -22,6 +22,16 @@ import { BranchQueryDto } from './dtos/branch-query.dto';
 import { CreateBranchDto } from './dtos/create-branch.dto';
 import { UpdateBranchDto } from './dtos/update-branch.dto';
 import { BranchesService } from './branches.service';
+import {
+  ApiCreateOperation,
+  ApiGetOneOperation,
+  ApiListOperation,
+  ApiUpdateOperation,
+  ApiDeleteOperation,
+  ApiOperationSummary,
+  ApiAuthRequired,
+  ApiSuccessResponse,
+} from '../../../docs/swagger-decorators';
 
 @ApiTags('Branches')
 @ApiBearerAuth()
@@ -30,10 +40,14 @@ import { BranchesService } from './branches.service';
 export class BranchesController {
   constructor(private readonly branchesService: BranchesService) {}
 
+  // ────────────────────────────────
+  //  Create
+  // ────────────────────────────────
+
   @Post()
   @UseGuards(PermissionsGuard)
   @Permissions('branches:create')
-  @ApiOperation({ summary: 'Create a branch in the active company' })
+  @ApiCreateOperation('Branch', 'Create a new branch in the active company')
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() createBranchDto: CreateBranchDto,
@@ -41,10 +55,14 @@ export class BranchesController {
     return this.branchesService.create(req.user.companyId!, createBranchDto);
   }
 
+  // ────────────────────────────────
+  //  List All
+  // ────────────────────────────────
+
   @Get()
   @UseGuards(PermissionsGuard)
   @Permissions('branches:read')
-  @ApiOperation({ summary: 'List branches available in the active company' })
+  @ApiListOperation('Branch', 'List branches in the active company')
   findAll(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: BranchQueryDto,
@@ -52,10 +70,14 @@ export class BranchesController {
     return this.branchesService.findAll(req.user.companyId!, query, req.user);
   }
 
+  // ────────────────────────────────
+  //  Get One
+  // ────────────────────────────────
+
   @Get(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('branches:read')
-  @ApiOperation({ summary: 'Get a branch by ID' })
+  @ApiGetOneOperation('Branch', 'Get a branch by ID')
   findOne(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -63,10 +85,14 @@ export class BranchesController {
     return this.branchesService.findOne(req.user.companyId!, id, req.user);
   }
 
+  // ────────────────────────────────
+  //  Update
+  // ────────────────────────────────
+
   @Patch(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('branches:update')
-  @ApiOperation({ summary: 'Update a branch' })
+  @ApiUpdateOperation('Branch', 'Update a branch')
   update(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -80,10 +106,14 @@ export class BranchesController {
     );
   }
 
+  // ────────────────────────────────
+  //  Delete
+  // ────────────────────────────────
+
   @Delete(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('branches:delete')
-  @ApiOperation({ summary: 'Delete a branch' })
+  @ApiDeleteOperation('Branch', 'Delete a branch')
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -91,10 +121,19 @@ export class BranchesController {
     return this.branchesService.remove(req.user.companyId!, id, req.user);
   }
 
+  // ────────────────────────────────
+  //  Extra: List Branch Access
+  // ────────────────────────────────
+
   @Get(':id/access')
   @UseGuards(PermissionsGuard)
   @Permissions('branches:manage-access')
-  @ApiOperation({ summary: 'List branch access assignments for a branch' })
+  @ApiOperationSummary(
+    'List branch access assignments',
+    'Returns all company users who have been granted access to this branch.',
+  )
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'Branch access list retrieved')
   listAccessAssignments(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -102,10 +141,19 @@ export class BranchesController {
     return this.branchesService.listAccessAssignments(req.user.companyId!, id);
   }
 
+  // ────────────────────────────────
+  //  Extra: Grant Access
+  // ────────────────────────────────
+
   @Post(':branchId/access/:userId')
   @UseGuards(PermissionsGuard)
   @Permissions('branches:manage-access')
-  @ApiOperation({ summary: 'Grant a company user access to a branch' })
+  @ApiOperationSummary(
+    'Grant a company user access to a branch',
+    'Assigns branch access to a specific company user.',
+  )
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'Branch access granted')
   grantAccess(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('branchId', ParseIntPipe) branchId: number,
@@ -118,10 +166,19 @@ export class BranchesController {
     );
   }
 
+  // ────────────────────────────────
+  //  Extra: Revoke Access
+  // ────────────────────────────────
+
   @Delete(':branchId/access/:userId')
   @UseGuards(PermissionsGuard)
   @Permissions('branches:manage-access')
-  @ApiOperation({ summary: 'Revoke a company user branch access assignment' })
+  @ApiOperationSummary(
+    'Revoke a company user branch access assignment',
+    'Removes branch access previously granted to a company user.',
+  )
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'Branch access revoked')
   revokeAccess(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('branchId', ParseIntPipe) branchId: number,

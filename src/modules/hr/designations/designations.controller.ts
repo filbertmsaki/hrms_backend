@@ -11,7 +11,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
 import { Permissions } from '../../../common/decorators/permissions.decorator';
@@ -22,6 +22,13 @@ import { CreateDesignationDto } from './dtos/create-designation.dto';
 import { DesignationQueryDto } from './dtos/designation-query.dto';
 import { UpdateDesignationDto } from './dtos/update-designation.dto';
 import { DesignationsService } from './designations.service';
+import {
+  ApiCreateOperation,
+  ApiGetOneOperation,
+  ApiListOperation,
+  ApiUpdateOperation,
+  ApiDeleteOperation,
+} from '../../../docs/swagger-decorators';
 
 @ApiTags('Designations')
 @ApiBearerAuth()
@@ -33,7 +40,7 @@ export class DesignationsController {
   @Post()
   @UseGuards(PermissionsGuard)
   @Permissions('designations:create')
-  @ApiOperation({ summary: 'Create a designation in the active company' })
+  @ApiCreateOperation('Designation', 'Create a designation in the active company')
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() createDesignationDto: CreateDesignationDto,
@@ -48,7 +55,7 @@ export class DesignationsController {
   @Get()
   @UseGuards(PermissionsGuard)
   @Permissions('designations:read')
-  @ApiOperation({ summary: 'List designations in the active company' })
+  @ApiListOperation('Designation', 'List designations in the active company')
   findAll(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: DesignationQueryDto,
@@ -59,7 +66,7 @@ export class DesignationsController {
   @Get(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('designations:read')
-  @ApiOperation({ summary: 'Get a designation by ID' })
+  @ApiGetOneOperation('Designation', 'Get a designation by ID')
   findOne(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -70,7 +77,7 @@ export class DesignationsController {
   @Patch(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('designations:update')
-  @ApiOperation({ summary: 'Update a designation' })
+  @ApiUpdateOperation('Designation', 'Update a designation')
   update(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -87,7 +94,7 @@ export class DesignationsController {
   @Delete(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('designations:delete')
-  @ApiOperation({ summary: 'Delete a designation' })
+  @ApiDeleteOperation('Designation', 'Delete a designation')
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,

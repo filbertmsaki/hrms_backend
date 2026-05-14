@@ -12,8 +12,6 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
-  ApiOperation,
-  ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
@@ -24,6 +22,16 @@ import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.in
 import { CreateRoleDto } from './dtos/create-role.dto';
 import { UpdateRoleDto } from './dtos/update-role.dto';
 import { RolesService } from './roles.service';
+import {
+  ApiCreateOperation,
+  ApiDeleteOperation,
+  ApiGetOneOperation,
+  ApiListOperation,
+  ApiOperationSummary,
+  ApiUpdateOperation,
+  ApiAuthRequired,
+  ApiSuccessResponse,
+} from '../../docs/swagger-decorators';
 
 @ApiTags('Roles')
 @ApiBearerAuth()
@@ -35,12 +43,7 @@ export class RolesController {
   @Post()
   @UseGuards(PermissionsGuard)
   @Permissions('roles:create')
-  @ApiOperation({ summary: 'Create a new role' })
-  @ApiResponse({ status: 201, description: 'Role created successfully' })
-  @ApiResponse({
-    status: 403,
-    description: 'Forbidden - insufficient permissions',
-  })
+  @ApiCreateOperation('Role', 'Create a new role with optional permissions')
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() createRoleDto: CreateRoleDto,
@@ -51,7 +54,7 @@ export class RolesController {
   @Get()
   @UseGuards(PermissionsGuard)
   @Permissions('roles:read')
-  @ApiOperation({ summary: 'Get roles visible to the current actor' })
+  @ApiListOperation('Role', 'Get all roles visible to the current actor')
   findAll(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
     return this.rolesService.findAll(req.user);
   }
@@ -59,7 +62,7 @@ export class RolesController {
   @Get(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('roles:read')
-  @ApiOperation({ summary: 'Get role by ID' })
+  @ApiGetOneOperation('Role', 'Get a role by ID')
   findOne(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -70,11 +73,7 @@ export class RolesController {
   @Patch(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('roles:update')
-  @ApiOperation({ summary: 'Update a role' })
-  @ApiResponse({
-    status: 403,
-    description: 'Forbidden - this resource can not be modified',
-  })
+  @ApiUpdateOperation('Role', 'Update a role and its permission assignments')
   update(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -86,11 +85,7 @@ export class RolesController {
   @Delete(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('roles:delete')
-  @ApiOperation({ summary: 'Delete a role' })
-  @ApiResponse({
-    status: 403,
-    description: 'Forbidden - this resource can not be modified',
-  })
+  @ApiDeleteOperation('Role', 'Delete a role')
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,

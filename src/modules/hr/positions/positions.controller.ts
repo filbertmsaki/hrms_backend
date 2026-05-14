@@ -11,7 +11,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
 import { Permissions } from '../../../common/decorators/permissions.decorator';
@@ -22,6 +22,13 @@ import { CreatePositionDto } from './dtos/create-position.dto';
 import { PositionQueryDto } from './dtos/position-query.dto';
 import { UpdatePositionDto } from './dtos/update-position.dto';
 import { PositionsService } from './positions.service';
+import {
+  ApiCreateOperation,
+  ApiGetOneOperation,
+  ApiListOperation,
+  ApiUpdateOperation,
+  ApiDeleteOperation,
+} from '../../../docs/swagger-decorators';
 
 @ApiTags('Positions')
 @ApiBearerAuth()
@@ -33,7 +40,7 @@ export class PositionsController {
   @Post()
   @UseGuards(PermissionsGuard)
   @Permissions('positions:create')
-  @ApiOperation({ summary: 'Create a position in the active company' })
+  @ApiCreateOperation('Position', 'Create a position in the active company')
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() createPositionDto: CreatePositionDto,
@@ -48,7 +55,7 @@ export class PositionsController {
   @Get()
   @UseGuards(PermissionsGuard)
   @Permissions('positions:read')
-  @ApiOperation({ summary: 'List positions in the active company' })
+  @ApiListOperation('Position', 'List positions in the active company')
   findAll(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: PositionQueryDto,
@@ -59,7 +66,7 @@ export class PositionsController {
   @Get(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('positions:read')
-  @ApiOperation({ summary: 'Get a position by ID' })
+  @ApiGetOneOperation('Position', 'Get a position by ID')
   findOne(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -70,7 +77,7 @@ export class PositionsController {
   @Patch(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('positions:update')
-  @ApiOperation({ summary: 'Update a position' })
+  @ApiUpdateOperation('Position', 'Update a position')
   update(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -87,7 +94,7 @@ export class PositionsController {
   @Delete(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('positions:delete')
-  @ApiOperation({ summary: 'Delete a position' })
+  @ApiDeleteOperation('Position', 'Delete a position')
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
