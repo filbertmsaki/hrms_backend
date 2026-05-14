@@ -42,7 +42,7 @@ import { UpdateLeaveWorkflowDto } from './dtos/update-leave-workflow.dto';
 import { UpsertLeaveMedicalDetailDto } from './dtos/upsert-leave-medical-detail.dto';
 import { LeaveService } from './leave.service';
 
-@ApiTags('Leave Management')
+@ApiTags('Leave')
 @ApiBearerAuth()
 @Controller('leave')
 @UseGuards(AuthGuard('jwt'), TenantGuard)

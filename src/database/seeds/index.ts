@@ -7,6 +7,8 @@ import OnboardingRoleHierarchySeeder from './004-onboarding-role-hierarchy.seed'
 import OnboardingCompanyUsersSeeder from './005-onboarding-company-users.seed';
 import OnboardingWorkflowSeeder from './006-onboarding-workflow.seed';
 import OnboardingWorkflowStepsSeeder from './007-onboarding-workflow-steps.seed';
+import OffboardingWorkflowSeeder from './008-offboarding-workflow.seed';
+import OffboardingWorkflowStepsSeeder from './009-offboarding-workflow-steps.seed';
 // import CountriesSeeder from './002-countries.seed';
 // import CategoriesSeeder from './003-categories.seed';
 // ... import other seeders here
@@ -19,6 +21,8 @@ const seeders = [
   OnboardingCompanyUsersSeeder,
   OnboardingWorkflowSeeder,
   OnboardingWorkflowStepsSeeder,
+  OffboardingWorkflowSeeder,
+  OffboardingWorkflowStepsSeeder,
   // CountriesSeeder,
   // CategoriesSeeder,
   // Add new seeders here ↑

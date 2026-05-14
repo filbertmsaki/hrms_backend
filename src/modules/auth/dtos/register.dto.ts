@@ -1,4 +1,5 @@
 import { Transform, TransformFnParams } from 'class-transformer';
+import { ApiProperty } from '@nestjs/swagger';
 import {
   IsEmail,
   IsNotEmpty,
@@ -9,6 +10,10 @@ import {
 } from 'class-validator';
 
 export class RegisterDto {
+  @ApiProperty({
+    description: 'Given name of the account owner.',
+    example: 'Amina',
+  })
   @IsString()
   @IsNotEmpty()
   @Transform(({ value }) => {
@@ -25,6 +30,10 @@ export class RegisterDto {
   })
   first_name: string;
 
+  @ApiProperty({
+    description: 'Family name of the account owner.',
+    example: 'Moshi',
+  })
   @IsString()
   @IsNotEmpty()
   @Transform(({ value }) => {
@@ -41,10 +50,20 @@ export class RegisterDto {
   })
   last_name: string;
 
+  @ApiProperty({
+    description: 'Unique login email for the new account.',
+    example: 'amina.moshi@acme.co.tz',
+  })
   @IsEmail()
   @IsNotEmpty()
   email: string;
 
+  @ApiProperty({
+    description:
+      'Strong password with uppercase, lowercase, number, and special character.',
+    example: 'P@ssw0rd#2026',
+    minLength: 8,
+  })
   @IsNotEmpty()
   @MinLength(8)
   @IsStrongPassword(
@@ -63,6 +82,11 @@ export class RegisterDto {
   )
   password: string;
 
+  @ApiProperty({
+    description:
+      'Tanzanian phone format: 0XXXXXXXXX, 255XXXXXXXXX, or +255XXXXXXXXX.',
+    example: '+255712345678',
+  })
   @IsString()
   @IsNotEmpty({ message: 'Phone number is required' })
   @Transform(({ value }: TransformFnParams) => {
@@ -78,6 +102,10 @@ export class RegisterDto {
   })
   phone: string;
 
+  @ApiProperty({
+    description: 'Unique tenant slug used in URLs and tenant resolution.',
+    example: 'acme-hr',
+  })
   @IsString()
   @IsNotEmpty()
   @Transform(({ value }) => {
@@ -89,5 +117,4 @@ export class RegisterDto {
       'Company slug must use lowercase letters, numbers, and hyphens only',
   })
   company_slug: string;
-
 }

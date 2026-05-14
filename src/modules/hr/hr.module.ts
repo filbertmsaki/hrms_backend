@@ -7,6 +7,7 @@ import { EmployeePositionsModule } from './employee-positions/employee-positions
 import { EmployeesModule } from './employees/employees.module';
 import { LeaveModule } from './leave/leave.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
+import { OffboardingModule } from './offboarding/offboarding.module';
 import { PositionsModule } from './positions/positions.module';
 
 @Module({
@@ -20,6 +21,7 @@ import { PositionsModule } from './positions/positions.module';
     EmployeeDesignationsModule,
     LeaveModule,
     OnboardingModule,
+    OffboardingModule,
   ],
 })
 export class HrModule {}

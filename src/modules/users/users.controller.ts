@@ -14,8 +14,6 @@ import {
 import {
   ApiTags,
   ApiBearerAuth,
-  ApiOperation,
-  ApiResponse,
 } from '@nestjs/swagger';
 
 import { UsersService } from './users.service';
@@ -35,6 +33,14 @@ import { TwoFaService } from '../auth/2fa/2fa.service';
 import { Verify2FaDto } from '../auth/2fa/dto/verify-2fa.dto';
 import { ChangePasswordDto } from './dtos/change-password.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
+import {
+  ApiAuthRequired,
+  ApiConflictResponse,
+  ApiNotFoundResponse,
+  ApiOperationSummary,
+  ApiSuccessResponse,
+  ApiValidationErrorResponse,
+} from '../../docs/swagger-decorators';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -47,15 +53,18 @@ export class UsersController {
   ) {}
 
   @Get('me')
-  @ApiOperation({ summary: 'Get current authenticated user profile' })
-  @ApiResponse({ status: 200, description: 'User profile retrieved' })
+  @ApiOperationSummary('Get my profile')
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'User profile retrieved')
   async getMe(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
     return this.usersService.findMyProfileById(req.user.id, req.user.companyId!);
   }
 
   @Patch('me')
-  @ApiOperation({ summary: 'Update current authenticated user profile' })
-  @ApiResponse({ status: 200, description: 'Profile updated successfully' })
+  @ApiOperationSummary('Update my profile')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(200, 'Profile updated successfully')
   async updateMe(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() updateUserDto: UpdateUserDto,
@@ -64,9 +73,10 @@ export class UsersController {
   }
 
   @Post('me/change-password')
-  @ApiOperation({ summary: 'Change current user password' })
-  @ApiResponse({ status: 200, description: 'Password changed successfully' })
-  @ApiResponse({ status: 401, description: 'Current password incorrect' })
+  @ApiOperationSummary('Change my password')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(200, 'Password changed successfully')
   async changeMyPassword(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: ChangePasswordDto,
@@ -81,12 +91,11 @@ export class UsersController {
   @Post()
   @UseGuards(RolesGuard, PermissionsGuard)
   @Permissions('users:create')
-  @ApiOperation({ summary: 'Create a new user' })
-  @ApiResponse({ status: 201, description: 'User created successfully' })
-  @ApiResponse({
-    status: 403,
-    description: 'Forbidden - insufficient permissions',
-  })
+  @ApiOperationSummary('Create user')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiConflictResponse('User')
+  @ApiSuccessResponse(201, 'User created successfully')
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() createUserDto: CreateUserDto,
@@ -100,7 +109,9 @@ export class UsersController {
   @Get()
   @UseGuards(PermissionsGuard)
   @Permissions('users:read')
-  @ApiOperation({ summary: 'Get all users' })
+  @ApiOperationSummary('Get all users')
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'Users retrieved successfully')
   async findAll(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: PaginationDto,
@@ -114,7 +125,10 @@ export class UsersController {
   @Get(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('users:read')
-  @ApiOperation({ summary: 'Get user by ID' })
+  @ApiOperationSummary('Get one user by ID')
+  @ApiAuthRequired()
+  @ApiNotFoundResponse('User')
+  @ApiSuccessResponse(200, 'User retrieved successfully')
   findOne(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -125,7 +139,11 @@ export class UsersController {
   @Patch(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('users:update')
-  @ApiOperation({ summary: 'Update user information' })
+  @ApiOperationSummary('Update user')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiNotFoundResponse('User')
+  @ApiSuccessResponse(200, 'User updated successfully')
   update(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -142,7 +160,10 @@ export class UsersController {
   @UseGuards(RolesGuard, PermissionsGuard)
   @Roles('ADMINISTRATOR')
   @Permissions('users:delete')
-  @ApiOperation({ summary: 'Delete a user (company administrator only)' })
+  @ApiOperationSummary('Delete user')
+  @ApiAuthRequired()
+  @ApiNotFoundResponse('User')
+  @ApiSuccessResponse(200, 'User deleted successfully')
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -154,9 +175,10 @@ export class UsersController {
   @UseGuards(RolesGuard, PermissionsGuard)
   @Roles('ADMINISTRATOR')
   @Permissions('users:assign-role')
-  @ApiOperation({
-    summary: 'Assign a role to a user (company administrator only)',
-  })
+  @ApiOperationSummary('Assign role to user')
+  @ApiAuthRequired()
+  @ApiNotFoundResponse('User or role')
+  @ApiSuccessResponse(200, 'Role assigned successfully')
   assignRole(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('userId', ParseIntPipe) userId: number,
@@ -173,9 +195,10 @@ export class UsersController {
   @UseGuards(RolesGuard, PermissionsGuard)
   @Roles('ADMINISTRATOR')
   @Permissions('users:revoke-role')
-  @ApiOperation({
-    summary: 'Revoke a role from a user (company administrator only)',
-  })
+  @ApiOperationSummary('Revoke role from user')
+  @ApiAuthRequired()
+  @ApiNotFoundResponse('Role assignment')
+  @ApiSuccessResponse(200, 'Role revoked successfully')
   revokeRole(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('userId', ParseIntPipe) userId: number,
@@ -189,12 +212,19 @@ export class UsersController {
   }
 
   @Post('2fa/setup')
+  @ApiOperationSummary('Setup 2FA')
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, '2FA setup generated')
   async setup2FA(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
     return this.twoFaService.generate2FASetup(req.user.id);
   }
 
   // Verify & activate 2FA
   @Post('2fa/verify')
+  @ApiOperationSummary('Verify and activate 2FA')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(200, '2FA enabled successfully')
   async verify2FA(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: Verify2FaDto,
@@ -203,6 +233,10 @@ export class UsersController {
   }
 
   @Post('2fa/disable')
+  @ApiOperationSummary('Disable 2FA')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(200, '2FA disabled successfully')
   async disable2FA(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: Verify2FaDto,
@@ -211,6 +245,10 @@ export class UsersController {
   }
 
   @Post('2fa/backup-codes/regenerate')
+  @ApiOperationSummary('Regenerate 2FA backup codes')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(200, 'Backup codes regenerated')
   async regenerateBackupCodes(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: Verify2FaDto,

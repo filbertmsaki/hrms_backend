@@ -35,7 +35,7 @@ import { UploadDocumentDto } from './dtos/upload-document.dto';
 import { VerifyDocumentDto } from './dtos/verify-document.dto';
 import { OnboardingService } from './onboarding.service';
 
-@ApiTags('Onboarding Management')
+@ApiTags('Onboarding')
 @ApiBearerAuth()
 @Controller('onboarding')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
