@@ -21,6 +21,7 @@ import { CreateLeavePolicyDto } from './dtos/create-leave-policy.dto';
 import { CreateLeaveRequestDto } from './dtos/create-leave-request.dto';
 import { CreateLeaveTypeDto } from './dtos/create-leave-type.dto';
 import { CreateLeaveWorkflowDto } from './dtos/create-leave-workflow.dto';
+import { CreateLeaveWorkflowStepDto } from './dtos/create-leave-workflow-step.dto';
 import { HolidayQueryDto } from './dtos/holiday-query.dto';
 import { LeaveApprovalActionDto } from './dtos/leave-approval-action.dto';
 import { LeaveBalanceQueryDto } from './dtos/leave-balance-query.dto';
@@ -32,8 +33,10 @@ import { UpdateHolidayDto } from './dtos/update-holiday.dto';
 import { UpdateLeavePolicyDto } from './dtos/update-leave-policy.dto';
 import { UpdateLeaveTypeDto } from './dtos/update-leave-type.dto';
 import { UpdateLeaveWorkflowDto } from './dtos/update-leave-workflow.dto';
+import { UpdateLeaveWorkflowStepDto } from './dtos/update-leave-workflow-step.dto';
 import { UpsertLeaveMedicalDetailDto } from './dtos/upsert-leave-medical-detail.dto';
 import { LeaveAccrualMethodEnum } from './enums/leave-accrual-method.enum';
+import { LeaveApproverTypeEnum } from './enums/leave-approver-type.enum';
 import { LeaveGenderRestrictionEnum } from './enums/leave-gender-restriction.enum';
 import { LeaveRecordStatusEnum } from './enums/leave-record-status.enum';
 import { LeaveStatusEnum } from './enums/leave-status.enum';
@@ -79,6 +82,8 @@ export class LeaveService {
     private readonly leaveRequestRepository: Repository<LeaveRequest>,
     @InjectRepository(LeaveApprovalWorkflow)
     private readonly leaveApprovalWorkflowRepository: Repository<LeaveApprovalWorkflow>,
+    @InjectRepository(LeaveApprovalWorkflowStep)
+    private readonly leaveApprovalWorkflowStepRepository: Repository<LeaveApprovalWorkflowStep>,
     @InjectRepository(LeaveMedicalDetail)
     private readonly leaveMedicalDetailRepository: Repository<LeaveMedicalDetail>,
     @InjectRepository(LeaveDocument)
@@ -416,19 +421,24 @@ export class LeaveService {
       status: entity.status,
       created_at: entity.created_at,
       updated_at: entity.updated_at,
-      steps:
-        entity.steps?.map((step) => ({
-          id: step.id,
-          approval_level: step.approval_level,
-          assigned_branch_id: step.assigned_branch_id,
-          assigned_department_id: step.assigned_department_id,
-          approver_type: step.approver_type,
-          role_id: step.role_id,
-          position_id: step.position_id,
-          company_user_id: step.company_user_id,
-          action_type: step.action_type,
-          is_required: step.is_required,
-        })) ?? [],
+      steps: entity.steps?.map((step) => this.mapLeaveWorkflowStep(step)) ?? [],
+    };
+  }
+
+  private mapLeaveWorkflowStep(entity: LeaveApprovalWorkflowStep) {
+    return {
+      id: entity.id,
+      workflow_id: entity.workflow_id,
+      approval_level: entity.approval_level,
+      assigned_branch_id: entity.assigned_branch_id,
+      assigned_department_id: entity.assigned_department_id,
+      approver_type: entity.approver_type,
+      role_id: entity.role_id,
+      position_id: entity.position_id,
+      company_user_id: entity.company_user_id,
+      action_type: entity.action_type,
+      is_required: entity.is_required,
+      created_at: entity.created_at,
     };
   }
 
@@ -974,6 +984,179 @@ export class LeaveService {
     }
   }
 
+  private async findLeaveWorkflowOrFail(
+    companyId: number,
+    workflowId: number,
+    manager?: EntityManager,
+  ): Promise<LeaveApprovalWorkflow> {
+    const repository =
+      manager?.getRepository(LeaveApprovalWorkflow) ??
+      this.leaveApprovalWorkflowRepository;
+    const workflow = await repository.findOne({
+      where: { id: workflowId, company_id: companyId },
+    });
+
+    if (!workflow) {
+      throw new NotFoundException('Leave workflow not found');
+    }
+
+    return workflow;
+  }
+
+  private async findLeaveWorkflowStepOrFail(
+    workflowId: number,
+    stepId: number,
+    manager?: EntityManager,
+  ): Promise<LeaveApprovalWorkflowStep> {
+    const repository =
+      manager?.getRepository(LeaveApprovalWorkflowStep) ??
+      this.leaveApprovalWorkflowStepRepository;
+    const step = await repository.findOne({
+      where: {
+        id: stepId,
+        workflow_id: workflowId,
+      },
+    });
+
+    if (!step) {
+      throw new NotFoundException('Leave workflow step not found');
+    }
+
+    return step;
+  }
+
+  private async ensureWorkflowLevelIsUnique(
+    workflowId: number,
+    approvalLevel: number,
+    exceptStepId?: number,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repository =
+      manager?.getRepository(LeaveApprovalWorkflowStep) ??
+      this.leaveApprovalWorkflowStepRepository;
+    const existing = await repository.findOne({
+      where: {
+        workflow_id: workflowId,
+        approval_level: approvalLevel,
+      },
+      select: ['id'],
+    });
+
+    if (existing && existing.id !== exceptStepId) {
+      throw new ConflictException(
+        `Approval level ${approvalLevel} already exists in this workflow`,
+      );
+    }
+  }
+
+  private async validateWorkflowStepReferences(
+    companyId: number,
+    step: {
+      assigned_branch_id?: number | null;
+      assigned_department_id?: number | null;
+      role_id?: number | null;
+      position_id?: number | null;
+      company_user_id?: number | null;
+    },
+  ): Promise<void> {
+    if (step.assigned_branch_id) {
+      const branch = await this.branchRepository.findOne({
+        where: {
+          id: step.assigned_branch_id,
+          company_id: companyId,
+        },
+      });
+      if (!branch) {
+        throw new NotFoundException(
+          `Branch ${step.assigned_branch_id} is not available in this company`,
+        );
+      }
+    }
+
+    if (step.assigned_department_id) {
+      const department = await this.departmentRepository.findOne({
+        where: {
+          id: step.assigned_department_id,
+          company_id: companyId,
+        },
+      });
+      if (!department) {
+        throw new NotFoundException(
+          `Department ${step.assigned_department_id} is not available in this company`,
+        );
+      }
+
+      if (
+        step.assigned_branch_id &&
+        department.branch_id &&
+        department.branch_id !== step.assigned_branch_id
+      ) {
+        throw new BadRequestException(
+          `Department ${step.assigned_department_id} does not belong to branch ${step.assigned_branch_id}`,
+        );
+      }
+    }
+
+    if (step.role_id) {
+      const role = await this.roleRepository.findOne({
+        where: {
+          id: step.role_id,
+          company_id: companyId,
+        },
+      });
+      if (!role) {
+        throw new NotFoundException(
+          `Role ${step.role_id} is not available in this company`,
+        );
+      }
+    }
+
+    if (step.position_id) {
+      const position = await this.positionRepository.findOne({
+        where: { id: step.position_id, company_id: companyId },
+      });
+      if (!position) {
+        throw new NotFoundException(
+          `Position ${step.position_id} is not available in this company`,
+        );
+      }
+
+      if (
+        step.assigned_branch_id &&
+        position.branch_id &&
+        position.branch_id !== step.assigned_branch_id
+      ) {
+        throw new BadRequestException(
+          `Position ${step.position_id} does not belong to branch ${step.assigned_branch_id}`,
+        );
+      }
+
+      if (
+        step.assigned_department_id &&
+        position.department_id &&
+        position.department_id !== step.assigned_department_id
+      ) {
+        throw new BadRequestException(
+          `Position ${step.position_id} does not belong to department ${step.assigned_department_id}`,
+        );
+      }
+    }
+
+    if (step.company_user_id) {
+      const membership = await this.companyUserRepository.findOne({
+        where: {
+          id: step.company_user_id,
+          company_id: companyId,
+        },
+      });
+      if (!membership) {
+        throw new NotFoundException(
+          `Company user ${step.company_user_id} is not available in this company`,
+        );
+      }
+    }
+  }
+
   private async validateWorkflowReferences(
     companyId: number,
     dto: CreateLeaveWorkflowDto | UpdateLeaveWorkflowDto,
@@ -983,102 +1166,7 @@ export class LeaveService {
     }
 
     for (const step of dto.steps ?? []) {
-      if (step.assigned_branch_id) {
-        const branch = await this.branchRepository.findOne({
-          where: {
-            id: step.assigned_branch_id,
-            company_id: companyId,
-          },
-        });
-        if (!branch) {
-          throw new NotFoundException(
-            `Branch ${step.assigned_branch_id} is not available in this company`,
-          );
-        }
-      }
-
-      if (step.assigned_department_id) {
-        const department = await this.departmentRepository.findOne({
-          where: {
-            id: step.assigned_department_id,
-            company_id: companyId,
-          },
-        });
-        if (!department) {
-          throw new NotFoundException(
-            `Department ${step.assigned_department_id} is not available in this company`,
-          );
-        }
-
-        if (
-          step.assigned_branch_id &&
-          department.branch_id &&
-          department.branch_id !== step.assigned_branch_id
-        ) {
-          throw new BadRequestException(
-            `Department ${step.assigned_department_id} does not belong to branch ${step.assigned_branch_id}`,
-          );
-        }
-      }
-
-      if (step.role_id) {
-        const role = await this.roleRepository.findOne({
-          where: {
-            id: step.role_id,
-            company_id: companyId,
-          },
-        });
-        if (!role) {
-          throw new NotFoundException(
-            `Role ${step.role_id} is not available in this company`,
-          );
-        }
-      }
-
-      if (step.position_id) {
-        const position = await this.positionRepository.findOne({
-          where: { id: step.position_id, company_id: companyId },
-        });
-        if (!position) {
-          throw new NotFoundException(
-            `Position ${step.position_id} is not available in this company`,
-          );
-        }
-
-        if (
-          step.assigned_branch_id &&
-          position.branch_id &&
-          position.branch_id !== step.assigned_branch_id
-        ) {
-          throw new BadRequestException(
-            `Position ${step.position_id} does not belong to branch ${step.assigned_branch_id}`,
-          );
-        }
-
-        if (
-          step.assigned_department_id &&
-          position.department_id &&
-          position.department_id !== step.assigned_department_id
-        ) {
-          throw new BadRequestException(
-            `Position ${step.position_id} does not belong to department ${step.assigned_department_id}`,
-          );
-        }
-      }
-
-      if (step.company_user_id) {
-        const membership = await this.companyUserRepository.findOne({
-          where: {
-            id: step.company_user_id,
-            company_id: companyId,
-          },
-        });
-        if (!membership) {
-          throw new NotFoundException(
-            `Company user ${step.company_user_id} is not available in this company`,
-          );
-        }
-      }
+      await this.validateWorkflowStepReferences(companyId, step);
     }
   }
 
@@ -1296,6 +1384,215 @@ export class LeaveService {
       actor,
     });
     return { message: 'Leave workflow deleted successfully' };
+  }
+
+  async createLeaveWorkflowStep(
+    companyId: number,
+    workflowId: number,
+    dto: CreateLeaveWorkflowStepDto,
+    actor: AuthenticatedUser,
+  ) {
+    await this.findLeaveWorkflowOrFail(companyId, workflowId);
+
+    const approverType = dto.approver_type;
+    const stepPayload = {
+      assigned_branch_id: dto.assigned_branch_id ?? null,
+      assigned_department_id: dto.assigned_department_id ?? null,
+      role_id:
+        approverType === LeaveApproverTypeEnum.ROLE ? (dto.role_id ?? null) : null,
+      position_id:
+        approverType === LeaveApproverTypeEnum.POSITION
+          ? (dto.position_id ?? null)
+          : null,
+      company_user_id:
+        approverType === LeaveApproverTypeEnum.COMPANY_USER
+          ? (dto.company_user_id ?? null)
+          : null,
+    };
+
+    await this.validateWorkflowStepReferences(companyId, stepPayload);
+    await this.ensureWorkflowLevelIsUnique(workflowId, dto.approval_level);
+
+    const created = await this.dataSource.transaction(async (manager) => {
+      await this.findLeaveWorkflowOrFail(companyId, workflowId, manager);
+      await this.ensureWorkflowLevelIsUnique(
+        workflowId,
+        dto.approval_level,
+        undefined,
+        manager,
+      );
+
+      const repository = manager.getRepository(LeaveApprovalWorkflowStep);
+      return repository.save(
+        repository.create({
+          workflow_id: workflowId,
+          approval_level: dto.approval_level,
+          assigned_branch_id: stepPayload.assigned_branch_id,
+          assigned_department_id: stepPayload.assigned_department_id,
+          approver_type: dto.approver_type,
+          role_id: stepPayload.role_id,
+          position_id: stepPayload.position_id,
+          company_user_id: stepPayload.company_user_id,
+          action_type: dto.action_type,
+          is_required: dto.is_required ?? true,
+        }),
+      );
+    });
+
+    await this.leaveAuditService.log({
+      company_id: companyId,
+      action: 'leave_workflow_step.created',
+      entity_name: 'leave_workflow_step',
+      entity_id: created.id,
+      actor,
+      payload: this.mapLeaveWorkflowStep(created),
+    });
+
+    return this.mapLeaveWorkflowStep(created);
+  }
+
+  async findAllLeaveWorkflowSteps(companyId: number, workflowId: number) {
+    await this.findLeaveWorkflowOrFail(companyId, workflowId);
+    const steps = await this.leaveApprovalWorkflowStepRepository.find({
+      where: { workflow_id: workflowId },
+      order: { approval_level: 'ASC', id: 'ASC' },
+    });
+
+    return {
+      data: steps.map((step) => this.mapLeaveWorkflowStep(step)),
+    };
+  }
+
+  async findOneLeaveWorkflowStep(
+    companyId: number,
+    workflowId: number,
+    stepId: number,
+  ) {
+    await this.findLeaveWorkflowOrFail(companyId, workflowId);
+    const step = await this.findLeaveWorkflowStepOrFail(workflowId, stepId);
+    return this.mapLeaveWorkflowStep(step);
+  }
+
+  async updateLeaveWorkflowStep(
+    companyId: number,
+    workflowId: number,
+    stepId: number,
+    dto: UpdateLeaveWorkflowStepDto,
+    actor: AuthenticatedUser,
+  ) {
+    await this.findLeaveWorkflowOrFail(companyId, workflowId);
+    const existing = await this.findLeaveWorkflowStepOrFail(workflowId, stepId);
+
+    const nextApproverType = dto.approver_type ?? existing.approver_type;
+    const nextPayload = {
+      assigned_branch_id:
+        dto.assigned_branch_id !== undefined
+          ? (dto.assigned_branch_id ?? null)
+          : existing.assigned_branch_id,
+      assigned_department_id:
+        dto.assigned_department_id !== undefined
+          ? (dto.assigned_department_id ?? null)
+          : existing.assigned_department_id,
+      role_id:
+        nextApproverType === LeaveApproverTypeEnum.ROLE
+          ? dto.role_id !== undefined
+            ? (dto.role_id ?? null)
+            : dto.approver_type !== undefined
+              ? null
+              : existing.role_id
+          : null,
+      position_id:
+        nextApproverType === LeaveApproverTypeEnum.POSITION
+          ? dto.position_id !== undefined
+            ? (dto.position_id ?? null)
+            : dto.approver_type !== undefined
+              ? null
+              : existing.position_id
+          : null,
+      company_user_id:
+        nextApproverType === LeaveApproverTypeEnum.COMPANY_USER
+          ? dto.company_user_id !== undefined
+            ? (dto.company_user_id ?? null)
+            : dto.approver_type !== undefined
+              ? null
+              : existing.company_user_id
+          : null,
+    };
+
+    if (dto.approval_level !== undefined) {
+      await this.ensureWorkflowLevelIsUnique(workflowId, dto.approval_level, stepId);
+    }
+    await this.validateWorkflowStepReferences(companyId, nextPayload);
+
+    const updated = await this.dataSource.transaction(async (manager) => {
+      await this.findLeaveWorkflowOrFail(companyId, workflowId, manager);
+      const step = await this.findLeaveWorkflowStepOrFail(workflowId, stepId, manager);
+
+      if (dto.approval_level !== undefined) {
+        await this.ensureWorkflowLevelIsUnique(
+          workflowId,
+          dto.approval_level,
+          stepId,
+          manager,
+        );
+        step.approval_level = dto.approval_level;
+      }
+
+      if (dto.assigned_branch_id !== undefined) {
+        step.assigned_branch_id = nextPayload.assigned_branch_id;
+      }
+      if (dto.assigned_department_id !== undefined) {
+        step.assigned_department_id = nextPayload.assigned_department_id;
+      }
+      if (dto.approver_type !== undefined) {
+        step.approver_type = nextApproverType;
+      }
+      if (dto.action_type !== undefined) {
+        step.action_type = dto.action_type;
+      }
+      if (dto.is_required !== undefined) {
+        step.is_required = dto.is_required;
+      }
+
+      step.role_id = nextPayload.role_id;
+      step.position_id = nextPayload.position_id;
+      step.company_user_id = nextPayload.company_user_id;
+
+      return manager.getRepository(LeaveApprovalWorkflowStep).save(step);
+    });
+
+    await this.leaveAuditService.log({
+      company_id: companyId,
+      action: 'leave_workflow_step.updated',
+      entity_name: 'leave_workflow_step',
+      entity_id: updated.id,
+      actor,
+      payload: this.mapLeaveWorkflowStep(updated),
+    });
+
+    return this.mapLeaveWorkflowStep(updated);
+  }
+
+  async removeLeaveWorkflowStep(
+    companyId: number,
+    workflowId: number,
+    stepId: number,
+    actor: AuthenticatedUser,
+  ) {
+    await this.findLeaveWorkflowOrFail(companyId, workflowId);
+    const step = await this.findLeaveWorkflowStepOrFail(workflowId, stepId);
+
+    await this.leaveApprovalWorkflowStepRepository.remove(step);
+    await this.leaveAuditService.log({
+      company_id: companyId,
+      action: 'leave_workflow_step.deleted',
+      entity_name: 'leave_workflow_step',
+      entity_id: step.id,
+      actor,
+      payload: this.mapLeaveWorkflowStep(step),
+    });
+
+    return { message: 'Leave workflow step deleted successfully' };
   }
 
   async createHoliday(companyId: number, dto: CreateHolidayDto, actor: AuthenticatedUser) {

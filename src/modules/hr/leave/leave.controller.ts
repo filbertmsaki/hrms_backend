@@ -28,6 +28,7 @@ import { CreateLeavePolicyDto } from './dtos/create-leave-policy.dto';
 import { CreateLeaveRequestDto } from './dtos/create-leave-request.dto';
 import { CreateLeaveTypeDto } from './dtos/create-leave-type.dto';
 import { CreateLeaveWorkflowDto } from './dtos/create-leave-workflow.dto';
+import { CreateLeaveWorkflowStepDto } from './dtos/create-leave-workflow-step.dto';
 import { HolidayQueryDto } from './dtos/holiday-query.dto';
 import { LeaveApprovalActionDto } from './dtos/leave-approval-action.dto';
 import { LeaveBalanceQueryDto } from './dtos/leave-balance-query.dto';
@@ -39,6 +40,7 @@ import { UpdateHolidayDto } from './dtos/update-holiday.dto';
 import { UpdateLeavePolicyDto } from './dtos/update-leave-policy.dto';
 import { UpdateLeaveTypeDto } from './dtos/update-leave-type.dto';
 import { UpdateLeaveWorkflowDto } from './dtos/update-leave-workflow.dto';
+import { UpdateLeaveWorkflowStepDto } from './dtos/update-leave-workflow-step.dto';
 import { UpsertLeaveMedicalDetailDto } from './dtos/upsert-leave-medical-detail.dto';
 import { LeaveService } from './leave.service';
 
@@ -215,6 +217,86 @@ export class LeaveController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.leaveService.removeLeaveWorkflow(req.user.companyId!, id, req.user);
+  }
+
+  @Post('workflows/:workflowId/steps')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_workflows:create')
+  @ApiOperation({ summary: 'Create leave workflow step' })
+  createLeaveWorkflowStep(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('workflowId', ParseIntPipe) workflowId: number,
+    @Body() dto: CreateLeaveWorkflowStepDto,
+  ) {
+    return this.leaveService.createLeaveWorkflowStep(
+      req.user.companyId!,
+      workflowId,
+      dto,
+      req.user,
+    );
+  }
+
+  @Get('workflows/:workflowId/steps')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_workflows:read')
+  @ApiOperation({ summary: 'List leave workflow steps' })
+  listLeaveWorkflowSteps(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('workflowId', ParseIntPipe) workflowId: number,
+  ) {
+    return this.leaveService.findAllLeaveWorkflowSteps(req.user.companyId!, workflowId);
+  }
+
+  @Get('workflows/:workflowId/steps/:stepId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_workflows:read')
+  @ApiOperation({ summary: 'Get leave workflow step by id' })
+  getLeaveWorkflowStep(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('workflowId', ParseIntPipe) workflowId: number,
+    @Param('stepId', ParseIntPipe) stepId: number,
+  ) {
+    return this.leaveService.findOneLeaveWorkflowStep(
+      req.user.companyId!,
+      workflowId,
+      stepId,
+    );
+  }
+
+  @Patch('workflows/:workflowId/steps/:stepId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_workflows:update')
+  @ApiOperation({ summary: 'Update leave workflow step' })
+  updateLeaveWorkflowStep(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('workflowId', ParseIntPipe) workflowId: number,
+    @Param('stepId', ParseIntPipe) stepId: number,
+    @Body() dto: UpdateLeaveWorkflowStepDto,
+  ) {
+    return this.leaveService.updateLeaveWorkflowStep(
+      req.user.companyId!,
+      workflowId,
+      stepId,
+      dto,
+      req.user,
+    );
+  }
+
+  @Delete('workflows/:workflowId/steps/:stepId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_workflows:delete')
+  @ApiOperation({ summary: 'Delete leave workflow step' })
+  removeLeaveWorkflowStep(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('workflowId', ParseIntPipe) workflowId: number,
+    @Param('stepId', ParseIntPipe) stepId: number,
+  ) {
+    return this.leaveService.removeLeaveWorkflowStep(
+      req.user.companyId!,
+      workflowId,
+      stepId,
+      req.user,
+    );
   }
 
   @Post('holidays')
