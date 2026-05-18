@@ -1,6 +1,12 @@
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { CompaniesService } from '../../companies/companies.service';
@@ -21,6 +27,8 @@ type JwtAccessPayload = {
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
+  private readonly logger = new Logger(JwtStrategy.name);
+
   constructor(
     private configService: ConfigService,
     private blacklistService: TokenBlacklistService,
@@ -58,7 +66,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     try {
       user = await this.usersService.findById(payload.sub);
-    } catch {
+    } catch (error) {
+      if (!(error instanceof NotFoundException)) {
+        this.logger.error(
+          `Failed to load user ${payload.sub} during token validation`,
+          error instanceof Error ? error.stack : undefined,
+        );
+        throw new InternalServerErrorException('Failed to validate session');
+      }
+
       throw new UnauthorizedException('User account is no longer available');
     }
 
@@ -124,7 +140,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         roles: companyContext.roles,
         permissions: companyContext.permissions,
       };
-    } catch {
+    } catch (error) {
+      if (!(error instanceof NotFoundException)) {
+        this.logger.error(
+          `Failed to load membership context for user ${payload.sub} in company ${payload.companyId}`,
+          error instanceof Error ? error.stack : undefined,
+        );
+        throw new InternalServerErrorException('Failed to validate session');
+      }
+
       throw new UnauthorizedException('Company access is no longer available');
     }
   }
