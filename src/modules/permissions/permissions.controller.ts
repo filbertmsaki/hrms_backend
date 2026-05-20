@@ -34,7 +34,7 @@ import {
 } from '../../docs/swagger-decorators';
 
 @ApiTags('Permissions')
-@ApiBearerAuth()
+@ApiBearerAuth('access-token')
 @Controller('permissions')
 @UseGuards(AuthGuard('jwt'))
 export class PermissionsController {

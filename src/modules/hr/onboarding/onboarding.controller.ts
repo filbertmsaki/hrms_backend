@@ -36,7 +36,7 @@ import { VerifyDocumentDto } from './dtos/verify-document.dto';
 import { OnboardingService } from './onboarding.service';
 
 @ApiTags('Onboarding')
-@ApiBearerAuth()
+@ApiBearerAuth('access-token')
 @Controller('onboarding')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class OnboardingController {
@@ -350,3 +350,4 @@ export class OnboardingController {
     return this.onboardingService.getOnboardingAuditLogs(req.user.companyId!, id, req.user);
   }
 }
+

@@ -34,7 +34,7 @@ import {
 } from '../../docs/swagger-decorators';
 
 @ApiTags('Roles')
-@ApiBearerAuth()
+@ApiBearerAuth('access-token')
 @Controller('roles')
 @UseGuards(AuthGuard('jwt'))
 export class RolesController {

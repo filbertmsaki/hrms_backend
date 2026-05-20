@@ -45,7 +45,7 @@ import { UpsertLeaveMedicalDetailDto } from './dtos/upsert-leave-medical-detail.
 import { LeaveService } from './leave.service';
 
 @ApiTags('Leave')
-@ApiBearerAuth()
+@ApiBearerAuth('access-token')
 @Controller('leave')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class LeaveController {
@@ -467,3 +467,4 @@ export class LeaveController {
     res.send(buffer);
   }
 }
+

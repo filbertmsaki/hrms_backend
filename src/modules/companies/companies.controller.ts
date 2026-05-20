@@ -19,7 +19,7 @@ import {
 } from '../../docs/swagger-decorators';
 
 @ApiTags('Companies')
-@ApiBearerAuth()
+@ApiBearerAuth('access-token')
 @Controller('companies')
 @UseGuards(AuthGuard('jwt'))
 export class CompaniesController {

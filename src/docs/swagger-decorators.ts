@@ -42,7 +42,7 @@ export function ApiOperationSummary(
 
 export function ApiAuthRequired(): MethodDecorator {
   return applyDecorators(
-    ApiBearerAuth(),
+    ApiBearerAuth('access-token'),
     ApiResponse({
       status: 401,
       description: 'Unauthorized. Provide a valid Bearer access token.',

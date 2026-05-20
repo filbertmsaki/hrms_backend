@@ -34,7 +34,7 @@ import {
 } from '../../../docs/swagger-decorators';
 
 @ApiTags('Branches')
-@ApiBearerAuth()
+@ApiBearerAuth('access-token')
 @Controller('branches')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class BranchesController {

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AttendanceModule } from './attendance/attendance.module';
 import { BranchesModule } from './branches/branches.module';
 import { DesignationsModule } from './designations/designations.module';
 import { DepartmentsModule } from './departments/departments.module';
@@ -12,6 +13,7 @@ import { PositionsModule } from './positions/positions.module';
 
 @Module({
   imports: [
+    AttendanceModule,
     BranchesModule,
     DepartmentsModule,
     DesignationsModule,

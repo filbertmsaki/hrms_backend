@@ -31,7 +31,7 @@ import {
 } from '../../../docs/swagger-decorators';
 
 @ApiTags('Employee Designations')
-@ApiBearerAuth()
+@ApiBearerAuth('access-token')
 @Controller('employee-designations')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class EmployeeDesignationsController {

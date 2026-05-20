@@ -39,7 +39,7 @@ import { UploadOffboardingDocumentDto } from './dtos/upload-offboarding-document
 import { OffboardingService } from './offboarding.service';
 
 @ApiTags('Offboarding')
-@ApiBearerAuth()
+@ApiBearerAuth('access-token')
 @Controller('offboarding')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class OffboardingController {
@@ -476,3 +476,4 @@ export class OffboardingController {
     return this.offboardingService.getAuditLogs(req.user.companyId!, id, req.user);
   }
 }
+
