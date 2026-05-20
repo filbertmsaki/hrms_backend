@@ -5,10 +5,12 @@ import {
   Index,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { Company } from '../../../companies/entities/company.entity';
+import { Company } from '../../../../companies/entities/company.entity';
+import { AttendanceCheckpoint } from '../../checkpoints/entities/attendance-checkpoint.entity';
 import { AttendanceHolidayPolicyModeEnum } from '../enums/attendance-holiday-policy-mode.enum';
 import { AttendanceRoundingModeEnum } from '../enums/attendance-rounding-mode.enum';
 
@@ -125,4 +127,10 @@ export class AttendancePolicy {
   @ManyToOne(() => Company, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'company_id' })
   company: Company;
+
+  @OneToMany(() => AttendanceCheckpoint, (checkpoint) => checkpoint.policySet)
+  checkpoints: AttendanceCheckpoint[];
 }
+
+
+

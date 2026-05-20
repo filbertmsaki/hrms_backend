@@ -155,3 +155,6 @@ export class CreateAttendancePolicyDto {
   @IsOptional()
   ignore_missing_checkout_if_hours_valid?: boolean;
 }
+
+
+

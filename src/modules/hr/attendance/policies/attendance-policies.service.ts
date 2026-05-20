@@ -6,11 +6,11 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { SortDirection } from '../../../common/dto/pagination.dto';
+import { SortDirection } from '../../../../common/dto/pagination.dto';
 import { AttendancePolicyQueryDto } from './dtos/attendance-policy-query.dto';
 import { CreateAttendancePolicyDto } from './dtos/create-attendance-policy.dto';
 import { UpdateAttendancePolicyDto } from './dtos/update-attendance-policy.dto';
-import { buildPaginationMeta } from '../shared/hr.utils';
+import { buildPaginationMeta } from '../../shared/hr.utils';
 import { AttendancePolicy } from './entities/attendance-policy.entity';
 
 @Injectable()
@@ -304,3 +304,6 @@ export class AttendancePoliciesService {
     return { message: 'Attendance policy deleted successfully' };
   }
 }
+
+
+

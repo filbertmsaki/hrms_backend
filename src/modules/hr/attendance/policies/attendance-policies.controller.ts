@@ -14,10 +14,10 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
-import { Permissions } from '../../../common/decorators/permissions.decorator';
-import { PermissionsGuard } from '../../../common/guards/permissions.guard';
-import { TenantGuard } from '../../../common/guards/tenant.guard';
-import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import { Permissions } from '../../../../common/decorators/permissions.decorator';
+import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
+import { TenantGuard } from '../../../../common/guards/tenant.guard';
+import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import {
   ApiCreateOperation,
   ApiDeleteOperation,
@@ -25,7 +25,7 @@ import {
   ApiListOperation,
   ApiUpdateOperation,
   ApiActionOperation,
-} from '../../../docs/swagger-decorators';
+} from '../../../../docs/swagger-decorators';
 import { AttendancePolicyQueryDto } from './dtos/attendance-policy-query.dto';
 import { CreateAttendancePolicyDto } from './dtos/create-attendance-policy.dto';
 import { UpdateAttendancePolicyDto } from './dtos/update-attendance-policy.dto';
@@ -117,3 +117,7 @@ export class AttendancePoliciesController {
     return this.attendancePoliciesService.remove(req.user.companyId!, id);
   }
 }
+
+
+
+
