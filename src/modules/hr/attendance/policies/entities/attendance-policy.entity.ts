@@ -20,9 +20,6 @@ import { AttendanceRoundingModeEnum } from '../enums/attendance-rounding-mode.en
 @Index('UQ_attendance_policy_company_name', ['company_id', 'name'], {
   unique: true,
 })
-@Index('UQ_attendance_policy_active_scope', ['active_company_key'], {
-  unique: true,
-})
 export class AttendancePolicy {
   @PrimaryGeneratedColumn()
   id: number;
@@ -106,17 +103,6 @@ export class AttendancePolicy {
 
   @Column({ default: true })
   ignore_missing_checkout_if_hours_valid: boolean;
-
-  @Column({
-    type: 'int',
-    asExpression: 'CASE WHEN `is_active` = 1 THEN `company_id` ELSE NULL END',
-    generatedType: 'STORED',
-    select: false,
-    insert: false,
-    update: false,
-    nullable: true,
-  })
-  active_company_key: number | null;
 
   @CreateDateColumn()
   created_at: Date;
