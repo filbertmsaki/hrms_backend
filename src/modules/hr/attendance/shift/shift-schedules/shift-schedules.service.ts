@@ -1,10 +1,10 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { SortDirection } from '../../../../common/dto/pagination.dto';
-import { buildPaginationMeta } from '../../shared/hr.utils';
-import { AttendanceHoliday } from '../../attendance/holidays/entities/holiday.entity';
-import { Employee } from '../../employees/entities/employee.entity';
+import { SortDirection } from '../../../../../common/dto/pagination.dto';
+import { buildPaginationMeta } from '../../../shared/hr.utils';
+import { AttendanceHoliday } from '../../holidays/entities/holiday.entity';
+import { Employee } from '../../../employees/entities/employee.entity';
 import { Shift } from '../shifts/entities/shift.entity';
 import { ShiftSchedule } from './entities/shift-schedule.entity';
 import { CreateShiftScheduleDto } from './dtos/create-shift-schedule.dto';

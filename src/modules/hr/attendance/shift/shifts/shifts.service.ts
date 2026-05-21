@@ -1,10 +1,10 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { SortDirection } from '../../../../common/dto/pagination.dto';
-import { buildPaginationMeta } from '../../shared/hr.utils';
-import { Branch } from '../../branches/entities/branch.entity';
-import { Department } from '../../departments/entities/department.entity';
+import { SortDirection } from '../../../../../common/dto/pagination.dto';
+import { buildPaginationMeta } from '../../../shared/hr.utils';
+import { Branch } from '../../../branches/entities/branch.entity';
+import { Department } from '../../../departments/entities/department.entity';
 import { Shift } from './entities/shift.entity';
 import { CreateShiftDto } from './dtos/create-shift.dto';
 import { UpdateShiftDto } from './dtos/update-shift.dto';

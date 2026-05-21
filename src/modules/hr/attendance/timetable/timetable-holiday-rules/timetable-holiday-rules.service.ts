@@ -1,9 +1,9 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { SortDirection } from '../../../../common/dto/pagination.dto';
-import { buildPaginationMeta } from '../../shared/hr.utils';
-import { HolidayGroup } from '../../attendance/holidays/entities/holiday-group.entity';
+import { SortDirection } from '../../../../../common/dto/pagination.dto';
+import { buildPaginationMeta } from '../../../shared/hr.utils';
+import { HolidayGroup } from '../../holidays/entities/holiday-group.entity';
 import { Timetable } from '../timetables/entities/timetable.entity';
 import { TimetableHolidayRule } from './entities/timetable-holiday-rule.entity';
 import { CreateTimetableHolidayRuleDto } from './dtos/create-timetable-holiday-rule.dto';

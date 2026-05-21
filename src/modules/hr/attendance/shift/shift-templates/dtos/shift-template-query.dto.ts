@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEnum, IsOptional } from 'class-validator';
-import { PaginationDto } from '../../../../../common/dto/pagination.dto';
+import { PaginationDto } from '../../../../../../common/dto/pagination.dto';
 import { ShiftTemplateStatusEnum } from '../enums/shift-template-status.enum';
 import { ShiftTemplateTypeEnum } from '../enums/shift-template-type.enum';
 

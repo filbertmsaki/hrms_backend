@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Branch } from '../branches/entities/branch.entity';
-import { Department } from '../departments/entities/department.entity';
-import { Employee } from '../employees/entities/employee.entity';
-import { AttendanceHoliday } from '../attendance/holidays/entities/holiday.entity';
+import { Branch } from '../../branches/entities/branch.entity';
+import { Department } from '../../departments/entities/department.entity';
+import { Employee } from '../../employees/entities/employee.entity';
+import { AttendanceHoliday } from '../holidays/entities/holiday.entity';
 import { Shift } from './shifts/entities/shift.entity';
 import { ShiftBreak } from './shift-breaks/entities/shift-break.entity';
 import { ShiftOvertimeRule } from './shift-overtime-rules/entities/shift-overtime-rule.entity';

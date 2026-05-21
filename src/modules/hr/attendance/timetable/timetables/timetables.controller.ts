@@ -14,17 +14,17 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request as ExpressRequest } from 'express';
-import { Permissions } from '../../../../common/decorators/permissions.decorator';
-import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
-import { TenantGuard } from '../../../../common/guards/tenant.guard';
-import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
+import { Permissions } from '../../../../../common/decorators/permissions.decorator';
+import { PermissionsGuard } from '../../../../../common/guards/permissions.guard';
+import { TenantGuard } from '../../../../../common/guards/tenant.guard';
+import { AuthenticatedUser } from '../../../../../common/interfaces/authenticated-user.interface';
 import {
   ApiCreateOperation,
   ApiDeleteOperation,
   ApiGetOneOperation,
   ApiListOperation,
   ApiUpdateOperation,
-} from '../../../../docs/swagger-decorators';
+} from '../../../../../docs/swagger-decorators';
 import { TimetablesService } from './timetables.service';
 import { CreateTimetableDto } from './dtos/create-timetable.dto';
 import { UpdateTimetableDto } from './dtos/update-timetable.dto';

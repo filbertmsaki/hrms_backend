@@ -2,11 +2,11 @@ import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query,
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request as ExpressRequest } from 'express';
-import { Permissions } from '../../../../common/decorators/permissions.decorator';
-import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
-import { TenantGuard } from '../../../../common/guards/tenant.guard';
-import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
-import { ApiCreateOperation, ApiDeleteOperation, ApiGetOneOperation, ApiListOperation, ApiUpdateOperation } from '../../../../docs/swagger-decorators';
+import { Permissions } from '../../../../../common/decorators/permissions.decorator';
+import { PermissionsGuard } from '../../../../../common/guards/permissions.guard';
+import { TenantGuard } from '../../../../../common/guards/tenant.guard';
+import { AuthenticatedUser } from '../../../../../common/interfaces/authenticated-user.interface';
+import { ApiCreateOperation, ApiDeleteOperation, ApiGetOneOperation, ApiListOperation, ApiUpdateOperation } from '../../../../../docs/swagger-decorators';
 import { TimetableGeneratedSchedulesService } from './timetable-generated-schedules.service';
 import { CreateTimetableGeneratedScheduleDto } from './dtos/create-timetable-generated-schedule.dto';
 import { UpdateTimetableGeneratedScheduleDto } from './dtos/update-timetable-generated-schedule.dto';

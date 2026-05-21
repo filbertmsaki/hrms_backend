@@ -1,9 +1,9 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { SortDirection } from '../../../../common/dto/pagination.dto';
-import { buildPaginationMeta } from '../../shared/hr.utils';
-import { Branch } from '../../branches/entities/branch.entity';
+import { SortDirection } from '../../../../../common/dto/pagination.dto';
+import { buildPaginationMeta } from '../../../shared/hr.utils';
+import { Branch } from '../../../branches/entities/branch.entity';
 import { Timetable } from './entities/timetable.entity';
 import { CreateTimetableDto } from './dtos/create-timetable.dto';
 import { UpdateTimetableDto } from './dtos/update-timetable.dto';

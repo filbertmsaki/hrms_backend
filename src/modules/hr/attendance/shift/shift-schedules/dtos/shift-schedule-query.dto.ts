@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer';
 import { IsDateString, IsInt, IsOptional, Min } from 'class-validator';
-import { PaginationDto } from '../../../../../common/dto/pagination.dto';
+import { PaginationDto } from '../../../../../../common/dto/pagination.dto';
 
 export class ShiftScheduleQueryDto extends PaginationDto {
   @Type(() => Number)

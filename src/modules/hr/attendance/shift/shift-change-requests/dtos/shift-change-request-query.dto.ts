@@ -1,7 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsDateString, IsEnum, IsInt, IsOptional, Min } from 'class-validator';
-import { PaginationDto } from '../../../../../common/dto/pagination.dto';
+import { PaginationDto } from '../../../../../../common/dto/pagination.dto';
 import { ShiftChangeRequestStatusEnum } from '../enums/shift-change-request-status.enum';
 
 export class ShiftChangeRequestQueryDto extends PaginationDto {

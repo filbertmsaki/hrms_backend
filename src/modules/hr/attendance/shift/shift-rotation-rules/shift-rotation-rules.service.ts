@@ -1,8 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { SortDirection } from '../../../../common/dto/pagination.dto';
-import { buildPaginationMeta } from '../../shared/hr.utils';
+import { SortDirection } from '../../../../../common/dto/pagination.dto';
+import { buildPaginationMeta } from '../../../shared/hr.utils';
 import { Shift } from '../shifts/entities/shift.entity';
 import { ShiftRotationGroup } from '../shift-rotation-groups/entities/shift-rotation-group.entity';
 import { ShiftRotationRule } from './entities/shift-rotation-rule.entity';

@@ -2,11 +2,11 @@ import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query,
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request as ExpressRequest } from 'express';
-import { Permissions } from '../../../../common/decorators/permissions.decorator';
-import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
-import { TenantGuard } from '../../../../common/guards/tenant.guard';
-import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
-import { ApiCreateOperation, ApiDeleteOperation, ApiGetOneOperation, ApiListOperation, ApiUpdateOperation } from '../../../../docs/swagger-decorators';
+import { Permissions } from '../../../../../common/decorators/permissions.decorator';
+import { PermissionsGuard } from '../../../../../common/guards/permissions.guard';
+import { TenantGuard } from '../../../../../common/guards/tenant.guard';
+import { AuthenticatedUser } from '../../../../../common/interfaces/authenticated-user.interface';
+import { ApiCreateOperation, ApiDeleteOperation, ApiGetOneOperation, ApiListOperation, ApiUpdateOperation } from '../../../../../docs/swagger-decorators';
 import { TimetableRotationsService } from './timetable-rotations.service';
 import { CreateTimetableRotationDto } from './dtos/create-timetable-rotation.dto';
 import { UpdateTimetableRotationDto } from './dtos/update-timetable-rotation.dto';

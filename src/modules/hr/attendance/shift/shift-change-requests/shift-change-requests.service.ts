@@ -1,9 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { SortDirection } from '../../../../common/dto/pagination.dto';
-import { buildPaginationMeta } from '../../shared/hr.utils';
-import { Employee } from '../../employees/entities/employee.entity';
+import { SortDirection } from '../../../../../common/dto/pagination.dto';
+import { buildPaginationMeta } from '../../../shared/hr.utils';
+import { Employee } from '../../../employees/entities/employee.entity';
 import { Shift } from '../shifts/entities/shift.entity';
 import { ShiftChangeRequestStatusEnum } from './enums/shift-change-request-status.enum';
 import { ShiftChangeRequest } from './entities/shift-change-request.entity';

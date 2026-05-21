@@ -1,8 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { SortDirection } from '../../../../common/dto/pagination.dto';
-import { buildPaginationMeta } from '../../shared/hr.utils';
+import { SortDirection } from '../../../../../common/dto/pagination.dto';
+import { buildPaginationMeta } from '../../../shared/hr.utils';
 import { Timetable } from '../timetables/entities/timetable.entity';
 import { TimetableRotation } from '../timetable-rotations/entities/timetable-rotation.entity';
 import { TimetableRotationRule } from './entities/timetable-rotation-rule.entity';

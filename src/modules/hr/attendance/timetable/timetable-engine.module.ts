@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Branch } from '../branches/entities/branch.entity';
-import { Employee } from '../employees/entities/employee.entity';
-import { HolidayGroup } from '../attendance/holidays/entities/holiday-group.entity';
-import { AttendanceHoliday } from '../attendance/holidays/entities/holiday.entity';
+import { Branch } from '../../branches/entities/branch.entity';
+import { Employee } from '../../employees/entities/employee.entity';
+import { HolidayGroup } from '../holidays/entities/holiday-group.entity';
+import { AttendanceHoliday } from '../holidays/entities/holiday.entity';
 import { Timetable } from './timetables/entities/timetable.entity';
 import { TimetableDay } from './timetable-days/entities/timetable-day.entity';
 import { TimetableShiftRule } from './timetable-shift-rules/entities/timetable-shift-rule.entity';
