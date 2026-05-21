@@ -35,17 +35,24 @@ async function getLatestMigrationFile(): Promise<MigrationFile | null> {
   };
 }
 
+// In TypeORM migration files, SQL identifiers are wrapped in backticks that are
+// escaped as \` inside the JS template literal, so the raw file contains \`name\`.
+// The regex \\\` matches that two-character sequence (backslash + backtick).
+// [^\\`]+ matches the identifier itself (no backslash or backtick).
+
 function buildSafeDropFk(
   originalLine: string,
   tableName: string,
   fkName: string,
 ): string {
   const indent = originalLine.match(/^(\s*)/)?.[1] ?? '';
+  // Use fkName in the hasTable variable to avoid redeclaration when the same
+  // table appears in multiple DROP FOREIGN KEY statements in one migration.
   return (
-    `${indent}const __hasTable_${tableName} = await queryRunner.query(` +
+    `${indent}const __tbl_${fkName} = await queryRunner.query(` +
     '`SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? LIMIT 1`, ' +
     `['${tableName}']);\n` +
-    `${indent}if (__hasTable_${tableName}.length) {\n` +
+    `${indent}if (__tbl_${fkName}.length) {\n` +
     `${indent}  const __hasFk_${fkName} = await queryRunner.query(` +
     '`SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = ? LIMIT 1`, ' +
     `['${tableName}', '${fkName}']);\n` +
@@ -73,11 +80,13 @@ function buildSafeAddFk(
 }
 
 function patchMigrationContent(content: string): string {
+  // Matches: await queryRunner.query(`ALTER TABLE \`table\` DROP FOREIGN KEY \`FK_name\``);
   const dropRegex =
-    /(^\s*await queryRunner\.query\(`ALTER TABLE `([^`]+)` DROP FOREIGN KEY `([^`]+)`\);)/gm;
+    /(^\s*await queryRunner\.query\(`ALTER TABLE \\\`([^\\`]+)\\\` DROP FOREIGN KEY \\\`([^\\`]+)\\\``\);)/gm;
 
+  // Matches: await queryRunner.query(`ALTER TABLE \`table\` ADD CONSTRAINT \`FK_name\` FOREIGN KEY ...`);
   const addRegex =
-    /(^\s*await queryRunner\.query\(`ALTER TABLE `([^`]+)` ADD CONSTRAINT `([^`]+)` FOREIGN KEY[^`]*`\);)/gm;
+    /(^\s*await queryRunner\.query\(`ALTER TABLE \\\`([^\\`]+)\\\` ADD CONSTRAINT \\\`([^\\`]+)\\\` FOREIGN KEY .+`\);)/gm;
 
   let didPatch = false;
 
@@ -109,12 +118,12 @@ async function main() {
   const patched = patchMigrationContent(raw);
 
   if (patched === raw) {
-    console.log(`No DROP FOREIGN KEY statements found in ${migration.name}.`);
+    console.log(`No FOREIGN KEY statements found to patch in ${migration.name}.`);
     return;
   }
 
   await fs.writeFile(migration.filePath, patched, 'utf8');
-  console.log(`Patched ${migration.name} with safe DROP FOREIGN KEY guards.`);
+  console.log(`Patched ${migration.name} with safe FOREIGN KEY guards.`);
 }
 
 main().catch((error) => {
