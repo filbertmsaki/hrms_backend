@@ -4,15 +4,13 @@ export interface CompanyBranchSeed {
   city: string;
   country: string;
   status?: string;
-  managerPositionCode: string; // Position code of the employee who manages this branch
 }
 
 export interface CompanyDepartmentSeed {
   name: string;
   code: string;
   description: string;
-  branchCode: string; // The branch this department belongs to (by code)
-  managerPositionCode: string; // Position code of the employee who manages this department
+  branchCode: string;
 }
 
 export interface CompanyPositionSeed {
@@ -51,7 +49,6 @@ export const ALLIANCE_BRANCHES: CompanyBranchSeed[] = [
     city: 'Dar es Salaam',
     country: 'Tanzania',
     status: 'active',
-    managerPositionCode: 'CEO',
   },
   {
     name: 'Arusha',
@@ -59,7 +56,6 @@ export const ALLIANCE_BRANCHES: CompanyBranchSeed[] = [
     city: 'Arusha',
     country: 'Tanzania',
     status: 'active',
-    managerPositionCode: 'BRANCH_MANAGER',
   },
   {
     name: 'Moshi',
@@ -67,7 +63,6 @@ export const ALLIANCE_BRANCHES: CompanyBranchSeed[] = [
     city: 'Moshi',
     country: 'Tanzania',
     status: 'active',
-    managerPositionCode: 'BRANCH_MANAGER',
   },
   {
     name: 'Mwanza',
@@ -75,7 +70,6 @@ export const ALLIANCE_BRANCHES: CompanyBranchSeed[] = [
     city: 'Mwanza',
     country: 'Tanzania',
     status: 'active',
-    managerPositionCode: 'BRANCH_MANAGER',
   },
   {
     name: 'Zanzibar',
@@ -83,7 +77,6 @@ export const ALLIANCE_BRANCHES: CompanyBranchSeed[] = [
     city: 'Zanzibar',
     country: 'Tanzania',
     status: 'active',
-    managerPositionCode: 'BRANCH_MANAGER',
   },
 ];
 
@@ -93,56 +86,48 @@ export const ALLIANCE_DEPARTMENTS: CompanyDepartmentSeed[] = [
     code: 'ADMIN',
     description: 'Corporate administration, facilities, and executive support.',
     branchCode: 'HQ',
-    managerPositionCode: 'OPERATIONS_MANAGER',
   },
   {
     name: 'HR',
     code: 'HR',
     description: 'Human resources, talent management, and employee services.',
     branchCode: 'HQ',
-    managerPositionCode: 'HR_MANAGER',
   },
   {
     name: 'Accounts',
     code: 'ACCOUNTS',
     description: 'Financial accounting, reporting, and treasury operations.',
     branchCode: 'HQ',
-    managerPositionCode: 'FINANCE_MANAGER',
   },
   {
     name: 'Claims',
     code: 'CLAIMS',
     description: 'Claims intake, investigation, adjudication, and settlement.',
     branchCode: 'HQ',
-    managerPositionCode: 'CLAIMS_MANAGER',
   },
   {
     name: 'Underwriting',
     code: 'UNDERWRITING',
     description: 'Risk evaluation, policy issuance, and underwriting analysis.',
     branchCode: 'HQ',
-    managerPositionCode: 'UNDERWRITING_MANAGER',
   },
   {
     name: 'Bancassurance',
     code: 'BANCASSURANCE',
     description: 'Bank distribution, partner management, and bancassurance sales.',
     branchCode: 'HQ',
-    managerPositionCode: 'BANCASSURANCE_RELATIONSHIP_MANAGER',
   },
   {
     name: 'General Business',
     code: 'GENERAL_BUSINESS',
     description: 'Sales, marketing, and customer service for general insurance business.',
     branchCode: 'HQ',
-    managerPositionCode: 'GENERAL_MANAGER',
   },
   {
     name: 'IT',
     code: 'IT',
     description: 'Information technology, systems, infrastructure, and digital services.',
     branchCode: 'HQ',
-    managerPositionCode: 'IT_MANAGER',
   },
 ];
 

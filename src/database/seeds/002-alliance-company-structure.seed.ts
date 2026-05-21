@@ -1,28 +1,52 @@
-import { DataSource, IsNull, QueryDeepPartialEntity, Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Seeder, SeederFactoryManager } from 'typeorm-extension';
 import { hashPassword } from '../../common/utils/hash.util';
-import { Designation } from '../../modules/hr/designations/entities/designation.entity';
-import { Branch } from '../../modules/hr/branches/entities/branch.entity';
-import { ContactTypeEnum } from '../../modules/hr/employees/enums/contact-type.enum';
-import { Department } from '../../modules/hr/departments/entities/department.entity';
-import { EmployeeDesignation } from '../../modules/hr/employees/entities/employee-designation.entity';
-import { Position } from '../../modules/hr/positions/entities/position.entity';
-import { Employee } from '../../modules/hr/employees/entities/employee.entity';
-import { EmployeeContact } from '../../modules/hr/employees/entities/employee-contact.entity';
-import { EmployeeDepartment } from '../../modules/hr/employees/entities/employee-department.entity';
-import { EmployeePosition } from '../../modules/hr/employees/entities/employee-position.entity';
-import { EmployeePositionAssignmentTypeEnum } from '../../modules/hr/employees/enums/employee-position-assignment-type.enum';
-import { EmployeePositionStatusEnum } from '../../modules/hr/employees/enums/employee-position-status.enum';
 import { Company } from '../../modules/companies/entities/company.entity';
 import { CompanyUser } from '../../modules/companies/entities/company-user.entity';
+import { Branch } from '../../modules/hr/branches/entities/branch.entity';
+import { Designation } from '../../modules/hr/designations/entities/designation.entity';
+import { Department } from '../../modules/hr/departments/entities/department.entity';
+import { ContactTypeEnum } from '../../modules/hr/employees/enums/contact-type.enum';
+import { EmployeePositionAssignmentTypeEnum } from '../../modules/hr/employees/enums/employee-position-assignment-type.enum';
+import { EmployeePositionStatusEnum } from '../../modules/hr/employees/enums/employee-position-status.enum';
+import { EmploymentStatusEnum } from '../../modules/hr/employees/enums/employment-status.enum';
+import { EmploymentTypeEnum } from '../../modules/hr/employees/enums/employment-type.enum';
+import { EmployeeContact } from '../../modules/hr/employees/entities/employee-contact.entity';
+import { EmployeeDesignation } from '../../modules/hr/employees/entities/employee-designation.entity';
+import { EmployeeDepartment } from '../../modules/hr/employees/entities/employee-department.entity';
+import { EmployeePosition } from '../../modules/hr/employees/entities/employee-position.entity';
+import { Employee } from '../../modules/hr/employees/entities/employee.entity';
+import { Position } from '../../modules/hr/positions/entities/position.entity';
 import { User } from '../../modules/users/entities/user.entity';
+import {
+  ALLIANCE_EMPLOYEE_DEFAULT_HIRE_DATE,
+  ALLIANCE_EMPLOYEE_DEFAULT_PASSWORD,
+  ALLIANCE_EMPLOYEE_HR_SEEDS,
+  CompanyEmployeeHrSeed,
+} from './company-hr-structure.constants';
 import {
   ALLIANCE_BRANCHES,
   ALLIANCE_COMPANY_NAME,
   ALLIANCE_DEPARTMENTS,
   ALLIANCE_EMPLOYEES,
   ALLIANCE_POSITIONS,
+  CompanyDepartmentSeed,
+  CompanyEmployeeSeed,
+  CompanyPositionSeed,
 } from './company-structure.constants';
+
+type EntityMap<T> = Map<string, T>;
+
+const POSITION_CATEGORY_TO_DEPARTMENT_CODE: Record<string, string> = {
+  Administration: 'ADMIN',
+  HR: 'HR',
+  Accounts: 'ACCOUNTS',
+  Claims: 'CLAIMS',
+  Underwriting: 'UNDERWRITING',
+  Bancassurance: 'BANCASSURANCE',
+  'General Business': 'GENERAL_BUSINESS',
+  IT: 'IT',
+};
 
 export default class AllianceCompanyStructureSeeder implements Seeder {
   public async run(
@@ -50,55 +74,39 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       const employeePositionRepo = manager.getRepository(EmployeePosition);
       const employeeDesignationRepo = manager.getRepository(EmployeeDesignation);
 
-      const companyName =
-        process.env.DEFAULT_COMPANY_NAME ?? ALLIANCE_COMPANY_NAME;
-      const company = await this.findExistingCompany(companyRepo, companyName);
-
-      // 1. Sync branches (returns map of branch code -> entity)
-      const branchByCode = await this.syncBranches(
-        branchRepo,
-        company.id,
-        ALLIANCE_BRANCHES,
-      );
-
-      // 2. Sync departments with branch_id references
-      const departmentByCode = await this.syncDepartments(
+      const company = await this.findExistingCompany(companyRepo);
+      const branchMap = await this.syncBranches(branchRepo, company.id);
+      const departmentMap = await this.syncDepartments(
         departmentRepo,
         company.id,
-        ALLIANCE_DEPARTMENTS,
-        branchByCode,
+        branchMap,
       );
-
-      // 3. Sync positions (returns map of position code -> entity)
-      const positionByCode = await this.syncPositions(
-        positionRepo,
+      const positionMap = await this.syncPositions(
         designationRepo,
+        positionRepo,
         company.id,
-        ALLIANCE_POSITIONS,
-        departmentByCode,
+        departmentMap,
       );
 
-      // 4. Sync employees with manager and department assignments
       await this.syncEmployees(
-        employeeRepo,
-        companyUserRepo,
         userRepo,
+        companyUserRepo,
+        employeeRepo,
         employeeContactRepo,
         employeeDepartmentRepo,
         employeePositionRepo,
         employeeDesignationRepo,
         company.id,
-        ALLIANCE_EMPLOYEES,
-        branchByCode,
-        departmentByCode,
-        positionByCode,
+        branchMap,
+        departmentMap,
+        positionMap,
       );
 
       await queryRunner.commitTransaction();
-      console.log(`Seeded company structure for ${company.name}`);
+      console.log(`[Seeder][AllianceCompanyStructure] Completed for ${company.name}`);
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      console.error('Alliance structure seeding failed:', error);
+      console.error('[Seeder][AllianceCompanyStructure] Failed:', error);
       throw error;
     } finally {
       await queryRunner.release();
@@ -107,12 +115,13 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
 
   private async findExistingCompany(
     companyRepo: Repository<Company>,
-    companyName: string,
   ): Promise<Company> {
-    const normalizedName = companyName.trim();
+    const companyName = (
+      process.env.DEFAULT_COMPANY_NAME ?? ALLIANCE_COMPANY_NAME
+    ).trim();
 
     const company = await companyRepo.findOne({
-      where: { name: normalizedName },
+      where: { name: companyName },
     });
 
     if (!company) {
@@ -127,512 +136,540 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
   private async syncBranches(
     branchRepo: Repository<Branch>,
     companyId: number,
-    definitions: typeof ALLIANCE_BRANCHES,
-  ): Promise<Map<string, Branch>> {
+  ): Promise<EntityMap<Branch>> {
     const existingBranches = await branchRepo.find({
       where: { company_id: companyId },
     });
+    const branchMap = new Map<string, Branch>();
 
-    const existingByName = new Map(
-      existingBranches.map((branch) => [branch.name.toLowerCase(), branch]),
-    );
+    for (const seed of ALLIANCE_BRANCHES) {
+      let branch =
+        existingBranches.find(
+          (item) => this.normalizeKey(item.code) === this.normalizeKey(seed.code),
+        ) ??
+        existingBranches.find(
+          (item) => this.normalizeKey(item.name) === this.normalizeKey(seed.name),
+        ) ??
+        null;
 
-    const missingBranches = [] as QueryDeepPartialEntity<Branch>[];
-    const updatedBranches = [] as QueryDeepPartialEntity<Branch>[];
-
-    for (const definition of definitions) {
-      const existing = existingByName.get(definition.name.toLowerCase());
-      const status = definition.status ?? 'active';
-
-      if (!existing) {
-        missingBranches.push({
+      if (!branch) {
+        branch = branchRepo.create({
           company_id: companyId,
-          name: definition.name,
-          code: definition.code,
-          city: definition.city,
-          country: definition.country,
-          status,
-        });
-        continue;
-      }
-
-      if (
-        existing.code !== definition.code ||
-        existing.city !== definition.city ||
-        existing.country !== definition.country ||
-        existing.status !== status
-      ) {
-        updatedBranches.push({
-          id: existing.id,
-          code: definition.code,
-          city: definition.city,
-          country: definition.country,
-          status,
         });
       }
+
+      branch.name = seed.name;
+      branch.code = seed.code;
+      branch.city = seed.city;
+      branch.country = seed.country;
+      branch.status = seed.status ?? 'active';
+
+      branch = await branchRepo.save(branch);
+      branchMap.set(this.normalizeKey(seed.code), branch);
+      branchMap.set(this.normalizeKey(seed.name), branch);
     }
 
-    if (missingBranches.length > 0) {
-      await branchRepo.insert(missingBranches);
-    }
-
-    if (updatedBranches.length > 0) {
-      await branchRepo.save(updatedBranches as Branch[]);
-    }
-
-    // Re-fetch all branches and return them indexed by code
-    const allBranches = await branchRepo.find({
-      where: { company_id: companyId },
-    });
-
-    const byCode = new Map<string, Branch>();
-    for (const branch of allBranches) {
-      if (branch.code) {
-        byCode.set(branch.code.toLowerCase(), branch);
-      }
-      byCode.set(branch.name.toLowerCase(), branch);
-    }
-
-    return byCode;
+    return branchMap;
   }
 
   private async syncDepartments(
     departmentRepo: Repository<Department>,
     companyId: number,
-    definitions: typeof ALLIANCE_DEPARTMENTS,
-    branchByCode: Map<string, Branch>,
-  ): Promise<Map<string, Department>> {
+    branchMap: EntityMap<Branch>,
+  ): Promise<EntityMap<Department>> {
     const existingDepartments = await departmentRepo.find({
       where: { company_id: companyId },
     });
+    const departmentMap = new Map<string, Department>();
 
-    const existingByName = new Map(
-      existingDepartments.map((department) => [
-        department.name.toLowerCase(),
-        department,
-      ]),
-    );
+    for (const seed of ALLIANCE_DEPARTMENTS) {
+      const branch = this.getRequiredBranch(branchMap, seed.branchCode, seed.name);
 
-    const missingDepartments = [] as QueryDeepPartialEntity<Department>[];
-    const updatedDepartments = [] as QueryDeepPartialEntity<Department>[];
+      let department =
+        existingDepartments.find(
+          (item) => this.normalizeKey(item.code) === this.normalizeKey(seed.code),
+        ) ??
+        existingDepartments.find(
+          (item) => this.normalizeKey(item.name) === this.normalizeKey(seed.name),
+        ) ??
+        null;
 
-    for (const definition of definitions) {
-      const existing = existingByName.get(definition.name.toLowerCase());
-
-      // Resolve branch_id from the mapped branch
-      const branch =
-        branchByCode.get(definition.branchCode.toLowerCase()) ??
-        branchByCode.get(definition.branchCode);
-      if (!branch) {
-        throw new Error(
-          `Branch "${definition.branchCode}" not found for department "${definition.name}". ` +
-            'Ensure branches are seeded before departments.',
-        );
-      }
-
-      if (!existing) {
-        missingDepartments.push({
+      if (!department) {
+        department = departmentRepo.create({
           company_id: companyId,
-          branch_id: branch.id,
-          name: definition.name,
-          code: definition.code,
-          description: definition.description,
-          status: 'active',
-        });
-        continue;
-      }
-
-      if (
-        existing.code !== definition.code ||
-        existing.description !== definition.description ||
-        existing.branch_id !== branch.id ||
-        existing.status !== 'active'
-      ) {
-        updatedDepartments.push({
-          id: existing.id,
-          code: definition.code,
-          branch_id: branch.id,
-          description: definition.description,
-          status: 'active',
         });
       }
+
+      department.branch_id = branch.id;
+      department.parent_id = null;
+      department.name = seed.name;
+      department.code = seed.code;
+      department.description = seed.description;
+      department.status = 'active';
+
+      department = await departmentRepo.save(department);
+      departmentMap.set(this.normalizeKey(seed.code), department);
+      departmentMap.set(this.normalizeKey(seed.name), department);
     }
 
-    if (missingDepartments.length > 0) {
-      await departmentRepo.insert(missingDepartments);
-    }
-
-    if (updatedDepartments.length > 0) {
-      await departmentRepo.save(updatedDepartments as Department[]);
-    }
-
-    // Re-fetch all departments and return them indexed by code
-    const allDepartments = await departmentRepo.find({
-      where: { company_id: companyId },
-    });
-
-    const byCode = new Map<string, Department>();
-    for (const dept of allDepartments) {
-      if (dept.code) {
-        byCode.set(dept.code.toLowerCase(), dept);
-      }
-      byCode.set(dept.name.toLowerCase(), dept);
-    }
-
-    return byCode;
+    return departmentMap;
   }
 
   private async syncPositions(
-    positionRepo: Repository<Position>,
     designationRepo: Repository<Designation>,
+    positionRepo: Repository<Position>,
     companyId: number,
-    definitions: typeof ALLIANCE_POSITIONS,
-    departmentByCode: Map<string, Department>,
-  ): Promise<Map<string, Position>> {
-    const categoryToDepartmentCode: Record<string, string> = {
-      Administration: 'ADMIN',
-      HR: 'HR',
-      Accounts: 'ACCOUNTS',
-      Claims: 'CLAIMS',
-      Underwriting: 'UNDERWRITING',
-      Bancassurance: 'BANCASSURANCE',
-      'General Business': 'GENERAL_BUSINESS',
-      IT: 'IT',
-    };
-
+    departmentMap: EntityMap<Department>,
+  ): Promise<EntityMap<Position>> {
+    const existingDesignations = await designationRepo.find({
+      where: { company_id: companyId },
+    });
     const existingPositions = await positionRepo.find({
       where: { company_id: companyId },
     });
+    const positionMap = new Map<string, Position>();
 
-    const existingByName = new Map(
-      existingPositions.map((position) => [
-        position.name.toLowerCase(),
-        position,
-      ]),
-    );
-
-    const missingPositions = [] as QueryDeepPartialEntity<Position>[];
-    const updatedPositions = [] as QueryDeepPartialEntity<Position>[];
-
-    for (const definition of definitions) {
-      const existing = existingByName.get(definition.name.toLowerCase());
-      const departmentCode = categoryToDepartmentCode[definition.category] ?? null;
+    for (const seed of ALLIANCE_POSITIONS) {
+      const departmentCode = POSITION_CATEGORY_TO_DEPARTMENT_CODE[seed.category] ?? null;
       const department = departmentCode
-        ? departmentByCode.get(departmentCode.toLowerCase()) ?? null
+        ? this.getRequiredDepartmentByCode(departmentMap, departmentCode, seed.name)
         : null;
 
-      let designation = await designationRepo.findOne({
-        where: {
-          company_id: companyId,
-          name: definition.name,
-          department_id: department ? department.id : IsNull(),
-        },
-      });
+      let designation =
+        existingDesignations.find(
+          (item) => this.normalizeKey(item.code) === this.normalizeKey(seed.code),
+        ) ??
+        existingDesignations.find(
+          (item) =>
+            this.normalizeKey(item.name) === this.normalizeKey(seed.name) &&
+            item.department_id === (department?.id ?? null),
+        ) ??
+        null;
 
       if (!designation) {
-        designation = await designationRepo.save(
-          designationRepo.create({
-            company_id: companyId,
-            department_id: department?.id ?? null,
-            name: definition.name,
-            code: null,
-            hierarchy_level: definition.level ?? null,
-            grade_level: null,
-            is_managerial: definition.isManager,
-            description: definition.description,
-            status: 'active',
-          }),
-        );
-      }
-
-      if (!existing) {
-        missingPositions.push({
+        designation = designationRepo.create({
           company_id: companyId,
-          branch_id: department?.branch_id ?? null,
-          department_id: department?.id ?? null,
-          designation_id: designation.id,
-          reports_to_position_id: null,
-          name: definition.name,
-          code: definition.code,
-          level: definition.level,
-          is_manager: definition.isManager,
-          headcount: 1,
-          is_active: true,
-          description: definition.description,
-          status: 'active',
         });
-        continue;
+        existingDesignations.push(designation);
       }
 
-      if (
-        existing.code !== definition.code ||
-        existing.branch_id !== (department?.branch_id ?? null) ||
-        existing.department_id !== (department?.id ?? null) ||
-        existing.designation_id !== designation.id ||
-        existing.level !== definition.level ||
-        existing.is_manager !== definition.isManager ||
-        existing.description !== definition.description ||
-        existing.status !== 'active'
-      ) {
-        updatedPositions.push({
-          id: existing.id,
-          branch_id: department?.branch_id ?? null,
-          department_id: department?.id ?? null,
-          designation_id: designation.id,
-          code: definition.code,
-          level: definition.level,
-          is_manager: definition.isManager,
-          headcount: 1,
-          is_active: true,
-          description: definition.description,
-          status: 'active',
+      designation.department_id = department?.id ?? null;
+      designation.name = seed.name;
+      designation.code = seed.code;
+      designation.hierarchy_level = seed.level;
+      designation.grade_level = null;
+      designation.is_managerial = seed.isManager;
+      designation.description = seed.description;
+      designation.status = 'active';
+
+      designation = await designationRepo.save(designation);
+
+      let position =
+        existingPositions.find(
+          (item) => this.normalizeKey(item.code) === this.normalizeKey(seed.code),
+        ) ??
+        existingPositions.find(
+          (item) => this.normalizeKey(item.name) === this.normalizeKey(seed.name),
+        ) ??
+        null;
+
+      if (!position) {
+        position = positionRepo.create({
+          company_id: companyId,
         });
+        existingPositions.push(position);
       }
+
+      position.branch_id = department?.branch_id ?? null;
+      position.department_id = department?.id ?? null;
+      position.designation_id = designation.id;
+      position.reports_to_position_id = null;
+      position.name = seed.name;
+      position.code = seed.code;
+      position.level = seed.level;
+      position.is_manager = seed.isManager;
+      position.headcount = 1;
+      position.is_active = true;
+      position.description = seed.description;
+      position.status = 'active';
+
+      position = await positionRepo.save(position);
+      positionMap.set(this.normalizeKey(seed.code), position);
     }
 
-    if (missingPositions.length > 0) {
-      await positionRepo.insert(missingPositions);
-    }
-
-    if (updatedPositions.length > 0) {
-      await positionRepo.save(updatedPositions as Position[]);
-    }
-
-    // Re-fetch all positions and return them indexed by code
-    const allPositions = await positionRepo.find({
-      where: { company_id: companyId },
-    });
-
-    const byCode = new Map<string, Position>();
-    for (const position of allPositions) {
-      if (position.code) {
-        byCode.set(position.code.toLowerCase(), position);
-      }
-    }
-
-    return byCode;
+    return positionMap;
   }
 
   private async syncEmployees(
-    employeeRepo: Repository<Employee>,
-    companyUserRepo: Repository<CompanyUser>,
     userRepo: Repository<User>,
+    companyUserRepo: Repository<CompanyUser>,
+    employeeRepo: Repository<Employee>,
     employeeContactRepo: Repository<EmployeeContact>,
     employeeDepartmentRepo: Repository<EmployeeDepartment>,
     employeePositionRepo: Repository<EmployeePosition>,
     employeeDesignationRepo: Repository<EmployeeDesignation>,
     companyId: number,
-    definitions: typeof ALLIANCE_EMPLOYEES,
-    branchByCode: Map<string, Branch>,
-    departmentByCode: Map<string, Department>,
-    positionByCode: Map<string, Position>,
+    branchMap: EntityMap<Branch>,
+    departmentMap: EntityMap<Department>,
+    positionMap: EntityMap<Position>,
   ): Promise<void> {
-    // Remove existing employee-seeded contacts and department assignments first
-    // (clean slate approach for employee seed data)
+    const hrSeedMap = new Map<string, CompanyEmployeeHrSeed>(
+      ALLIANCE_EMPLOYEE_HR_SEEDS.map((seed) => [seed.employeeNo, seed]),
+    );
+
     const existingEmployees = await employeeRepo.find({
       where: { company_user: { company_id: companyId } },
       relations: ['company_user'],
     });
-
-    // Build a map of existing employee_no -> employee
-    const existingByEmployeeNo = new Map(
-      existingEmployees.map((e) => [e.employee_no, e]),
+    const employeeByNo = new Map(
+      existingEmployees.map((employee) => [employee.employee_no, employee]),
     );
 
-    // Build a map of employee_no -> Employee for resolving manager references
-    const employeeByNo = new Map(existingByEmployeeNo);
+    for (const seed of ALLIANCE_EMPLOYEES) {
+      const user = await this.ensureUser(userRepo, seed);
+      const membership = await this.ensureMembership(companyUserRepo, companyId, user.id);
+      const branch = this.getRequiredBranch(
+        branchMap,
+        seed.primaryBranchCode,
+        seed.employeeNo,
+      );
+      const department = this.getRequiredDepartment(
+        departmentMap,
+        seed.primaryDepartmentCode,
+        seed.employeeNo,
+      );
+      const position = this.getRequiredPosition(positionMap, seed.positionCode, seed.employeeNo);
 
-    for (const definition of definitions) {
-      const existing = existingByEmployeeNo.get(definition.employeeNo);
-      if (existing) {
-        employeeByNo.set(definition.employeeNo, existing);
-      }
-    }
-
-    // First pass: ensure all users and company memberships exist
-    for (const definition of definitions) {
-      if (existingByEmployeeNo.has(definition.employeeNo)) {
-        continue; // Employee already exists
-      }
-
-      // Find or create user
-      let user = await userRepo.findOne({
-        where: [
-          { email: definition.email },
-          { phone: definition.phone },
-        ],
-      });
-
-      if (!user) {
-        user = userRepo.create({
-          user_no: definition.employeeNo,
-          first_name: definition.firstName,
-          last_name: definition.lastName,
-          phone: definition.phone,
-          email: definition.email,
-          password: await hashPassword('Employee123!'),
-          status: 'active',
-          user_type: 'COMPANY_USER',
-          is_email_verified: true,
+      let employee = employeeByNo.get(seed.employeeNo) ?? null;
+      if (!employee) {
+        employee = employeeRepo.create({
+          company_user_id: membership.id,
         });
-        user = await userRepo.save(user);
       }
 
-      // Find or create company membership
-      let membership = await companyUserRepo.findOne({
-        where: { company_id: companyId, user_id: user.id },
-      });
-
-      if (!membership) {
-        membership = companyUserRepo.create({
-          company_id: companyId,
-          user_id: user.id,
-          status: 'active',
-          is_default: false,
-        });
-        membership = await companyUserRepo.save(membership);
-      }
-    }
-
-    // Second pass: create or update employees
-    for (const definition of definitions) {
-      if (existingByEmployeeNo.has(definition.employeeNo)) {
-        continue; // Employee already exists
-      }
-
-      const user = await userRepo.findOne({
-        where: [
-          { email: definition.email },
-          { phone: definition.phone },
-        ],
-      });
-
-      if (!user) {
-        throw new Error(`User not found for employee ${definition.employeeNo}`);
-      }
-
-      const membership = await companyUserRepo.findOne({
-        where: { company_id: companyId, user_id: user.id },
-      });
-
-      if (!membership) {
-        throw new Error(
-          `Company membership not found for user ${definition.employeeNo}`,
-        );
-      }
-
-      const branch =
-        branchByCode.get(definition.primaryBranchCode.toLowerCase()) ??
-        branchByCode.get(definition.primaryBranchCode);
-      if (!branch) {
-        throw new Error(
-          `Branch "${definition.primaryBranchCode}" not found for employee ${definition.employeeNo}`,
-        );
-      }
-
-      const department =
-        departmentByCode.get(definition.primaryDepartmentCode.toLowerCase()) ??
-        departmentByCode.get(definition.primaryDepartmentCode);
-      if (!department) {
-        throw new Error(
-          `Department "${definition.primaryDepartmentCode}" not found for employee ${definition.employeeNo}`,
-        );
-      }
-
-      const position = positionByCode.get(definition.positionCode.toLowerCase());
-      if (!position) {
-        throw new Error(
-          `Position "${definition.positionCode}" not found for employee ${definition.employeeNo}`,
-        );
-      }
-
-      // Resolve manager reference
-      let reportsTo: number | null = null;
-      if (definition.reportsToEmployeeNo) {
-        const managerEmployee = employeeByNo.get(definition.reportsToEmployeeNo);
-        if (!managerEmployee) {
-          throw new Error(
-            `Manager "${definition.reportsToEmployeeNo}" not found for employee ${definition.employeeNo}. ` +
-              'Ensure the manager is defined before their direct reports.',
-          );
-        }
-        reportsTo = managerEmployee.id;
-      }
-
-      const employee = new Employee();
       employee.company_user_id = membership.id;
-      employee.employee_no = definition.employeeNo;
-      employee.first_name = definition.firstName;
-      employee.last_name = definition.lastName;
+      employee.employee_no = seed.employeeNo;
+      employee.first_name = seed.firstName;
+      employee.middle_name = null;
+      employee.last_name = seed.lastName;
+      employee.preferred_name = null;
+      employee.gender = null;
+      employee.date_of_birth = null;
+      employee.marital_status = null;
+      employee.nationality = null;
+      employee.profile_photo_url = null;
       employee.primary_branch_id = branch.id;
       employee.primary_department_id = department.id;
       employee.primary_position_id = position.id;
       employee.primary_designation_id = position.designation_id ?? null;
-      employee.employment_status = 'active' as any;
-      employee.employment_type = 'full_time' as any;
-      employee.hire_date = '2025-01-01';
-      employee.reports_to = reportsTo;
+      employee.employment_status = EmploymentStatusEnum.ACTIVE;
+      employee.employment_type = EmploymentTypeEnum.FULL_TIME;
+      employee.hire_date = ALLIANCE_EMPLOYEE_DEFAULT_HIRE_DATE;
+      employee.probation_end_date = null;
+      employee.confirmation_date = null;
+      employee.exit_date = null;
+      employee.exit_reason = null;
+      employee.notes = 'Seeded Alliance company structure employee';
+      employee.metadata = {
+        seeded: true,
+      };
 
-      const saved = await employeeRepo.save(employee);
-      employeeByNo.set(definition.employeeNo, saved);
+      employee = await employeeRepo.save(employee);
+      employeeByNo.set(seed.employeeNo, employee);
 
-      // Create a work contact for the employee
-      const contact = new EmployeeContact();
-      contact.employee_id = saved.id;
-      contact.contact_type = ContactTypeEnum.WORK;
-      contact.phone_number = definition.phone;
-      contact.email = definition.email;
-      contact.is_primary = true;
-      contact.is_verified = true;
-      await employeeContactRepo.save(contact);
-
-      // Create department assignment
-      const deptAssignment = new EmployeeDepartment();
-      deptAssignment.employee_id = saved.id;
-      deptAssignment.department_id = department.id;
-      deptAssignment.is_primary = true;
-      await employeeDepartmentRepo.save(deptAssignment);
-
-      const positionAssignment = new EmployeePosition();
-      positionAssignment.company_id = companyId;
-      positionAssignment.employee_id = saved.id;
-      positionAssignment.position_id = position.id;
-      positionAssignment.designation_id = position.designation_id ?? null;
-      positionAssignment.is_primary = true;
-      positionAssignment.start_date = employee.hire_date!;
-      positionAssignment.end_date = null;
-      positionAssignment.assignment_type = EmployeePositionAssignmentTypeEnum.PRIMARY;
-      positionAssignment.status = EmployeePositionStatusEnum.ACTIVE;
-      positionAssignment.notes = 'Seeded primary assignment';
-      await employeePositionRepo.save(positionAssignment);
-
-      if (position.designation_id) {
-        const designationAssignment = new EmployeeDesignation();
-        designationAssignment.company_id = companyId;
-        designationAssignment.employee_id = saved.id;
-        designationAssignment.designation_id = position.designation_id;
-        designationAssignment.start_date = employee.hire_date!;
-        designationAssignment.end_date = null;
-        designationAssignment.is_current = true;
-        designationAssignment.remarks = 'Seeded primary designation';
-        await employeeDesignationRepo.save(designationAssignment);
-      }
+      await this.ensureWorkContact(employeeContactRepo, employee.id, seed);
+      await this.ensureDepartmentAssignments(
+        employeeDepartmentRepo,
+        employee.id,
+        department.id,
+        hrSeedMap.get(seed.employeeNo),
+        departmentMap,
+      );
+      await this.ensurePositionAssignment(
+        employeePositionRepo,
+        companyId,
+        employee.id,
+        position.id,
+        position.designation_id ?? null,
+      );
+      await this.ensureDesignationAssignment(
+        employeeDesignationRepo,
+        companyId,
+        employee.id,
+        position.designation_id ?? null,
+      );
     }
 
-    // Update any pre-existing employees whose reports_to needs setting
-    for (const definition of definitions) {
-      if (!definition.reportsToEmployeeNo) continue;
-
-      const employee = existingByEmployeeNo.get(definition.employeeNo);
-      if (!employee) continue;
-
-      const managerEmployee = employeeByNo.get(definition.reportsToEmployeeNo);
-      if (!managerEmployee) continue;
-
-      if (employee.reports_to !== managerEmployee.id) {
-        employee.reports_to = managerEmployee.id;
-        await employeeRepo.save(employee);
+    for (const seed of ALLIANCE_EMPLOYEES) {
+      const employee = employeeByNo.get(seed.employeeNo);
+      if (!employee) {
+        continue;
       }
+
+      employee.reports_to = seed.reportsToEmployeeNo
+        ? employeeByNo.get(seed.reportsToEmployeeNo)?.id ?? null
+        : null;
+
+      await employeeRepo.save(employee);
     }
+  }
+
+  private async ensureUser(
+    userRepo: Repository<User>,
+    seed: CompanyEmployeeSeed,
+  ): Promise<User> {
+    const user =
+      (await userRepo.findOne({
+        where: [{ email: seed.email }, { phone: seed.phone }],
+      })) ?? userRepo.create();
+
+    user.user_no = seed.employeeNo;
+    user.first_name = seed.firstName;
+    user.last_name = seed.lastName;
+    user.phone = seed.phone;
+    user.email = seed.email;
+    user.status = 'active';
+    user.user_type = 'COMPANY_USER';
+    user.is_email_verified = true;
+
+    if (!user.password) {
+      user.password = await hashPassword(ALLIANCE_EMPLOYEE_DEFAULT_PASSWORD);
+    }
+
+    return userRepo.save(user);
+  }
+
+  private async ensureMembership(
+    companyUserRepo: Repository<CompanyUser>,
+    companyId: number,
+    userId: number,
+  ): Promise<CompanyUser> {
+    let membership = await companyUserRepo.findOne({
+      where: { company_id: companyId, user_id: userId },
+    });
+
+    if (!membership) {
+      membership = companyUserRepo.create({
+        company_id: companyId,
+        user_id: userId,
+      });
+    }
+
+    membership.status = 'active';
+    if (membership.is_default === null || membership.is_default === undefined) {
+      membership.is_default = false;
+    }
+
+    return companyUserRepo.save(membership);
+  }
+
+  private async ensureWorkContact(
+    employeeContactRepo: Repository<EmployeeContact>,
+    employeeId: number,
+    seed: CompanyEmployeeSeed,
+  ): Promise<void> {
+    const contacts = await employeeContactRepo.find({
+      where: {
+        employee_id: employeeId,
+        contact_type: ContactTypeEnum.WORK,
+      },
+      order: { id: 'ASC' },
+    });
+
+    await employeeContactRepo.update(
+      {
+        employee_id: employeeId,
+        contact_type: ContactTypeEnum.WORK,
+      },
+      { is_primary: false },
+    );
+
+    const contact = contacts[0] ?? employeeContactRepo.create();
+    contact.employee_id = employeeId;
+    contact.contact_type = ContactTypeEnum.WORK;
+    contact.phone_number = seed.phone;
+    contact.email = seed.email;
+    contact.is_primary = true;
+    contact.is_verified = true;
+    contact.notes = 'Seeded primary work contact';
+
+    await employeeContactRepo.save(contact);
+  }
+
+  private async ensureDepartmentAssignments(
+    employeeDepartmentRepo: Repository<EmployeeDepartment>,
+    employeeId: number,
+    primaryDepartmentId: number,
+    hrSeed: CompanyEmployeeHrSeed | undefined,
+    departmentMap: EntityMap<Department>,
+  ): Promise<void> {
+    await employeeDepartmentRepo.update({ employee_id: employeeId }, { is_primary: false });
+
+    const departmentIds = [
+      primaryDepartmentId,
+      ...((hrSeed?.secondaryDepartmentCodes ?? []).map((code) =>
+        this.getRequiredDepartmentByCode(
+          departmentMap,
+          code,
+          hrSeed?.employeeNo ?? `employee_id=${employeeId}`,
+        ).id,
+      )),
+    ];
+
+    for (const [index, departmentId] of departmentIds.entries()) {
+      let assignment = await employeeDepartmentRepo.findOne({
+        where: {
+          employee_id: employeeId,
+          department_id: departmentId,
+        },
+      });
+
+      if (!assignment) {
+        assignment = employeeDepartmentRepo.create({
+          employee_id: employeeId,
+          department_id: departmentId,
+        });
+      }
+
+      assignment.is_primary = index === 0;
+      await employeeDepartmentRepo.save(assignment);
+    }
+  }
+
+  private async ensurePositionAssignment(
+    employeePositionRepo: Repository<EmployeePosition>,
+    companyId: number,
+    employeeId: number,
+    positionId: number,
+    designationId: number | null,
+  ): Promise<void> {
+    await employeePositionRepo.update(
+      { employee_id: employeeId },
+      {
+        is_primary: false,
+        assignment_type: EmployeePositionAssignmentTypeEnum.SECONDARY,
+        status: EmployeePositionStatusEnum.INACTIVE,
+        end_date: ALLIANCE_EMPLOYEE_DEFAULT_HIRE_DATE,
+      },
+    );
+
+    let assignment = await employeePositionRepo.findOne({
+      where: {
+        company_id: companyId,
+        employee_id: employeeId,
+        position_id: positionId,
+      },
+    });
+
+    if (!assignment) {
+      assignment = employeePositionRepo.create({
+        company_id: companyId,
+        employee_id: employeeId,
+        position_id: positionId,
+      });
+    }
+
+    assignment.designation_id = designationId;
+    assignment.is_primary = true;
+    assignment.start_date = ALLIANCE_EMPLOYEE_DEFAULT_HIRE_DATE;
+    assignment.end_date = null;
+    assignment.assignment_type = EmployeePositionAssignmentTypeEnum.PRIMARY;
+    assignment.status = EmployeePositionStatusEnum.ACTIVE;
+    assignment.notes = 'Seeded primary position assignment';
+
+    await employeePositionRepo.save(assignment);
+  }
+
+  private async ensureDesignationAssignment(
+    employeeDesignationRepo: Repository<EmployeeDesignation>,
+    companyId: number,
+    employeeId: number,
+    designationId: number | null,
+  ): Promise<void> {
+    if (!designationId) {
+      return;
+    }
+
+    await employeeDesignationRepo.update(
+      { employee_id: employeeId },
+      {
+        is_current: false,
+        end_date: ALLIANCE_EMPLOYEE_DEFAULT_HIRE_DATE,
+      },
+    );
+
+    let assignment = await employeeDesignationRepo.findOne({
+      where: {
+        company_id: companyId,
+        employee_id: employeeId,
+        designation_id: designationId,
+      },
+    });
+
+    if (!assignment) {
+      assignment = employeeDesignationRepo.create({
+        company_id: companyId,
+        employee_id: employeeId,
+        designation_id: designationId,
+      });
+    }
+
+    assignment.start_date = ALLIANCE_EMPLOYEE_DEFAULT_HIRE_DATE;
+    assignment.end_date = null;
+    assignment.is_current = true;
+    assignment.remarks = 'Seeded primary designation assignment';
+
+    await employeeDesignationRepo.save(assignment);
+  }
+
+  private getRequiredBranch(
+    branchMap: EntityMap<Branch>,
+    branchKey: string,
+    context: string,
+  ): Branch {
+    const branch = branchMap.get(this.normalizeKey(branchKey));
+    if (!branch) {
+      throw new Error(`Branch "${branchKey}" not found for ${context}.`);
+    }
+
+    return branch;
+  }
+
+  private getRequiredDepartment(
+    departmentMap: EntityMap<Department>,
+    departmentKey: string,
+    context: string,
+  ): Department {
+    const department = departmentMap.get(this.normalizeKey(departmentKey));
+    if (!department) {
+      throw new Error(`Department "${departmentKey}" not found for ${context}.`);
+    }
+
+    return department;
+  }
+
+  private getRequiredDepartmentByCode(
+    departmentMap: EntityMap<Department>,
+    departmentCode: string,
+    context: string,
+  ): Department {
+    return this.getRequiredDepartment(departmentMap, departmentCode, context);
+  }
+
+  private getRequiredPosition(
+    positionMap: EntityMap<Position>,
+    positionCode: string,
+    context: string,
+  ): Position {
+    const position = positionMap.get(this.normalizeKey(positionCode));
+    if (!position) {
+      throw new Error(`Position "${positionCode}" not found for ${context}.`);
+    }
+
+    return position;
+  }
+
+  private normalizeKey(value: string | null | undefined): string {
+    return (value ?? '').trim().toLowerCase();
   }
 }
