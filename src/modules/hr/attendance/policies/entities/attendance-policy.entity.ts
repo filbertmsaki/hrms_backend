@@ -27,7 +27,7 @@ export class AttendancePolicy {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'int' })
+   @Column()
   company_id: number;
 
   @Column({ length: 255 })
