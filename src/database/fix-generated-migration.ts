@@ -56,14 +56,39 @@ function buildSafeDropFk(
   );
 }
 
+function buildSafeAddFk(
+  originalLine: string,
+  tableName: string,
+  fkName: string,
+): string {
+  const indent = originalLine.match(/^(\s*)/)?.[1] ?? '';
+  return (
+    `${indent}const __hasFkAdd_${fkName} = await queryRunner.query(` +
+    '`SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = ? LIMIT 1`, ' +
+    `['${tableName}', '${fkName}']);\n` +
+    `${indent}if (!__hasFkAdd_${fkName}.length) {\n` +
+    `${indent}  ${originalLine.trim()}\n` +
+    `${indent}}`
+  );
+}
+
 function patchMigrationContent(content: string): string {
-  const regex =
+  const dropRegex =
     /(^\s*await queryRunner\.query\(`ALTER TABLE `([^`]+)` DROP FOREIGN KEY `([^`]+)`\);)/gm;
 
+  const addRegex =
+    /(^\s*await queryRunner\.query\(`ALTER TABLE `([^`]+)` ADD CONSTRAINT `([^`]+)` FOREIGN KEY[^`]*`\);)/gm;
+
   let didPatch = false;
-  const next = content.replace(regex, (full, line, tableName, fkName) => {
+
+  let next = content.replace(dropRegex, (full, line, tableName, fkName) => {
     didPatch = true;
     return buildSafeDropFk(line, tableName, fkName);
+  });
+
+  next = next.replace(addRegex, (full, line, tableName, fkName) => {
+    didPatch = true;
+    return buildSafeAddFk(line, tableName, fkName);
   });
 
   if (!didPatch) {
