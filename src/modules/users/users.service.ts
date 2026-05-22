@@ -11,6 +11,8 @@ import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { comparePasswords, hashPassword } from 'src/common/utils/hash.util';
 import { CompaniesService } from '../companies/companies.service';
 import { CompanyUser } from '../companies/entities/company-user.entity';
+import { Permission } from '../permissions/entities/permission.entity';
+import { Role } from '../roles/entities/role.entity';
 import { CreateUserDto } from './dtos/create-user.dto';
 import { UpdateUserDto } from './dtos/update-user.dto';
 import { UserProfileDto } from './dtos/user-profile-dto';
@@ -21,6 +23,10 @@ export class UsersService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(Role)
+    private readonly roleRepository: Repository<Role>,
+    @InjectRepository(Permission)
+    private readonly permissionRepository: Repository<Permission>,
     private readonly companiesService: CompaniesService,
   ) {}
 
@@ -51,36 +57,116 @@ export class UsersService {
     return user;
   }
 
-  private getMembershipRoles(membership: CompanyUser): string[] {
-    const roleNames = new Set<string>();
+  private getMembershipRoleEntities(membership: CompanyUser) {
+    const roleMap = new Map<number, Role>();
 
     membership.role_assignments?.forEach((assignment) => {
-      if (assignment.role?.name) {
-        roleNames.add(assignment.role.name);
+      if (assignment.role?.id) {
+        roleMap.set(assignment.role.id, assignment.role);
       }
     });
 
-    return Array.from(roleNames);
+    return Array.from(roleMap.values()).map((role) => ({
+      id: role.id,
+      name: role.name,
+      display_name: role.display_name,
+      description: role.description,
+      company_id: role.company_id,
+      is_system_generated: role.is_system_generated,
+      created_at: role.created_at,
+      updated_at: role.updated_at,
+    }));
   }
 
-  private getMembershipPermissions(membership: CompanyUser): string[] {
-    const permissions = new Set<string>();
+  private getMembershipPermissionEntities(membership: CompanyUser) {
+    const permissionMap = new Map<number, Permission>();
 
     membership.permission_assignments?.forEach((assignment) => {
-      if (assignment.permission?.name) {
-        permissions.add(assignment.permission.name);
+      if (assignment.permission?.id) {
+        permissionMap.set(assignment.permission.id, assignment.permission);
       }
     });
 
     membership.role_assignments?.forEach((assignment) => {
       assignment.role?.permissions?.forEach((permission) => {
-        if (permission?.name) {
-          permissions.add(permission.name);
+        if (permission?.id) {
+          permissionMap.set(permission.id, permission);
         }
       });
     });
 
-    return Array.from(permissions);
+    return Array.from(permissionMap.values()).map((permission) => ({
+      id: permission.id,
+      name: permission.name,
+      display_name: permission.display_name,
+      description: permission.description,
+      is_system_generated: permission.is_system_generated,
+      created_at: permission.created_at,
+      updated_at: permission.updated_at,
+    }));
+  }
+
+  private async resolveRoleEntitiesByNames(
+    roleNames: string[],
+    companyId: number,
+  ) {
+    if (!roleNames.length) {
+      return [];
+    }
+
+    const uniqueNames = Array.from(new Set(roleNames.map((name) => name.trim())));
+    const roles = await this.roleRepository
+      .createQueryBuilder('role')
+      .where('role.name IN (:...roleNames)', { roleNames: uniqueNames })
+      .andWhere('(role.company_id = :companyId OR role.company_id IS NULL)', {
+        companyId,
+      })
+      .getMany();
+
+    const roleMap = new Map<number, Role>();
+    roles.forEach((role) => {
+      roleMap.set(role.id, role);
+    });
+
+    return Array.from(roleMap.values()).map((role) => ({
+      id: role.id,
+      name: role.name,
+      display_name: role.display_name,
+      description: role.description,
+      company_id: role.company_id,
+      is_system_generated: role.is_system_generated,
+      created_at: role.created_at,
+      updated_at: role.updated_at,
+    }));
+  }
+
+  private async resolvePermissionEntitiesByNames(permissionNames: string[]) {
+    if (!permissionNames.length) {
+      return [];
+    }
+
+    const uniqueNames = Array.from(
+      new Set(permissionNames.map((name) => name.trim())),
+    );
+
+    const permissions = await this.permissionRepository.find({
+      where: uniqueNames.map((name) => ({ name })),
+    });
+
+    const permissionMap = new Map<number, Permission>();
+    permissions.forEach((permission) => {
+      permissionMap.set(permission.id, permission);
+    });
+
+    return Array.from(permissionMap.values()).map((permission) => ({
+      id: permission.id,
+      name: permission.name,
+      display_name: permission.display_name,
+      description: permission.description,
+      is_system_generated: permission.is_system_generated,
+      created_at: permission.created_at,
+      updated_at: permission.updated_at,
+    }));
   }
 
   private async findActiveMembershipWithDetails(
@@ -269,12 +355,12 @@ export class UsersService {
     );
     const membership = await this.findActiveMembershipWithDetails(id, companyId);
 
-    const membershipRoles = membership
-      ? this.getMembershipRoles(membership)
-      : currentCompany.roles;
-    const membershipPermissions = membership
-      ? this.getMembershipPermissions(membership)
-      : currentCompany.permissions;
+    const roleEntities = membership
+      ? this.getMembershipRoleEntities(membership)
+      : await this.resolveRoleEntitiesByNames(currentCompany.roles, companyId);
+    const permissionEntities = membership
+      ? this.getMembershipPermissionEntities(membership)
+      : await this.resolvePermissionEntitiesByNames(currentCompany.permissions);
 
     return new UserProfileDto({
       id: user.id,
@@ -292,8 +378,8 @@ export class UsersService {
       last_login_ip: user.last_login_ip,
       created_at: user.created_at,
       updated_at: user.updated_at,
-      roles: membershipRoles,
-      permissions: membershipPermissions,
+      roles: roleEntities,
+      permissions: permissionEntities,
       active_company: membership?.company
         ? {
             id: membership.company.id,
@@ -331,12 +417,12 @@ export class UsersService {
     );
     const membership = await this.findActiveMembershipWithDetails(id, companyId);
 
-    const membershipRoles = membership
-      ? this.getMembershipRoles(membership)
-      : companyContext.roles;
-    const membershipPermissions = membership
-      ? this.getMembershipPermissions(membership)
-      : companyContext.permissions;
+    const roleEntities = membership
+      ? this.getMembershipRoleEntities(membership)
+      : await this.resolveRoleEntitiesByNames(companyContext.roles, companyId);
+    const permissionEntities = membership
+      ? this.getMembershipPermissionEntities(membership)
+      : await this.resolvePermissionEntitiesByNames(companyContext.permissions);
 
     return new UserProfileDto({
       id: user.id,
@@ -354,8 +440,8 @@ export class UsersService {
       last_login_ip: user.last_login_ip,
       created_at: user.created_at,
       updated_at: user.updated_at,
-      roles: membershipRoles,
-      permissions: membershipPermissions,
+      roles: roleEntities,
+      permissions: permissionEntities,
       active_company: membership?.company
         ? {
             id: membership.company.id,

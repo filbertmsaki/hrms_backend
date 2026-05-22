@@ -3,6 +3,8 @@ import { Seeder, SeederFactoryManager } from 'typeorm-extension';
 import { hashPassword } from '../../common/utils/hash.util';
 import { Company } from '../../modules/companies/entities/company.entity';
 import { CompanyUser } from '../../modules/companies/entities/company-user.entity';
+import { CompanyUserPermission } from '../../modules/companies/entities/company-user-permission.entity';
+import { CompanyUserRole } from '../../modules/companies/entities/company-user-role.entity';
 import { Branch } from '../../modules/hr/branches/entities/branch.entity';
 import { Designation } from '../../modules/hr/designations/entities/designation.entity';
 import { Department } from '../../modules/hr/departments/entities/department.entity';
@@ -17,6 +19,8 @@ import { EmployeeDepartment } from '../../modules/hr/employees/entities/employee
 import { EmployeePosition } from '../../modules/hr/employees/entities/employee-position.entity';
 import { Employee } from '../../modules/hr/employees/entities/employee.entity';
 import { Position } from '../../modules/hr/positions/entities/position.entity';
+import { Permission } from '../../modules/permissions/entities/permission.entity';
+import { Role } from '../../modules/roles/entities/role.entity';
 import { User } from '../../modules/users/entities/user.entity';
 import {
   ALLIANCE_EMPLOYEE_DEFAULT_HIRE_DATE,
@@ -68,6 +72,10 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       const positionRepo = manager.getRepository(Position);
       const userRepo = manager.getRepository(User);
       const companyUserRepo = manager.getRepository(CompanyUser);
+      const roleRepo = manager.getRepository(Role);
+      const permissionRepo = manager.getRepository(Permission);
+      const companyUserRoleRepo = manager.getRepository(CompanyUserRole);
+      const companyUserPermissionRepo = manager.getRepository(CompanyUserPermission);
       const employeeRepo = manager.getRepository(Employee);
       const employeeContactRepo = manager.getRepository(EmployeeContact);
       const employeeDepartmentRepo = manager.getRepository(EmployeeDepartment);
@@ -91,6 +99,10 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       await this.syncEmployees(
         userRepo,
         companyUserRepo,
+        roleRepo,
+        permissionRepo,
+        companyUserRoleRepo,
+        companyUserPermissionRepo,
         employeeRepo,
         employeeContactRepo,
         employeeDepartmentRepo,
@@ -303,6 +315,10 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
   private async syncEmployees(
     userRepo: Repository<User>,
     companyUserRepo: Repository<CompanyUser>,
+    roleRepo: Repository<Role>,
+    permissionRepo: Repository<Permission>,
+    companyUserRoleRepo: Repository<CompanyUserRole>,
+    companyUserPermissionRepo: Repository<CompanyUserPermission>,
     employeeRepo: Repository<Employee>,
     employeeContactRepo: Repository<EmployeeContact>,
     employeeDepartmentRepo: Repository<EmployeeDepartment>,
@@ -313,6 +329,9 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     departmentMap: EntityMap<Department>,
     positionMap: EntityMap<Position>,
   ): Promise<void> {
+    const roleMap = await this.resolveRoleMap(roleRepo, companyId);
+    const permissionMap = await this.resolvePermissionMap(permissionRepo);
+
     const hrSeedMap = new Map<string, CompanyEmployeeHrSeed>(
       ALLIANCE_EMPLOYEE_HR_SEEDS.map((seed) => [seed.employeeNo, seed]),
     );
@@ -328,6 +347,14 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     for (const seed of ALLIANCE_EMPLOYEES) {
       const user = await this.ensureUser(userRepo, seed);
       const membership = await this.ensureMembership(companyUserRepo, companyId, user.id);
+      await this.ensureMembershipAccess(
+        companyUserRoleRepo,
+        companyUserPermissionRepo,
+        membership.id,
+        seed,
+        roleMap,
+        permissionMap,
+      );
       const branch = this.getRequiredBranch(
         branchMap,
         seed.primaryBranchCode,
@@ -461,6 +488,158 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     }
 
     return companyUserRepo.save(membership);
+  }
+
+  private async resolveRoleMap(
+    roleRepo: Repository<Role>,
+    companyId: number,
+  ): Promise<Map<string, Role>> {
+    const requiredRoleNamesForQuery = new Set<string>();
+    const requiredRoleNamesNormalized = new Set<string>();
+
+    ALLIANCE_EMPLOYEES.forEach((seed) => {
+      const roleNames = seed.roleNames?.length ? seed.roleNames : ['USER'];
+      roleNames.forEach((roleName) => {
+        requiredRoleNamesForQuery.add(roleName.trim());
+        requiredRoleNamesNormalized.add(this.normalizeKey(roleName));
+      });
+    });
+
+    if (!requiredRoleNamesForQuery.size) {
+      return new Map<string, Role>();
+    }
+
+    const roles = await roleRepo
+      .createQueryBuilder('role')
+      .where('role.name IN (:...roleNames)', {
+        roleNames: Array.from(requiredRoleNamesForQuery),
+      })
+      .andWhere('(role.company_id = :companyId OR role.company_id IS NULL)', {
+        companyId,
+      })
+      .getMany();
+
+    const roleMap = new Map<string, Role>();
+
+    roles.forEach((role) => {
+      const key = this.normalizeKey(role.name);
+      const existing = roleMap.get(key);
+
+      if (!existing || (existing.company_id === null && role.company_id === companyId)) {
+        roleMap.set(key, role);
+      }
+    });
+
+    for (const roleName of requiredRoleNamesNormalized) {
+      if (!roleMap.has(roleName)) {
+        throw new Error(
+          `Role "${roleName}" was not found for company_id=${companyId}. Run 001-initial-rbac.seed.ts first.`,
+        );
+      }
+    }
+
+    return roleMap;
+  }
+
+  private async resolvePermissionMap(
+    permissionRepo: Repository<Permission>,
+  ): Promise<Map<string, Permission>> {
+    const requiredPermissionNamesForQuery = new Set<string>();
+    const requiredPermissionNamesNormalized = new Set<string>();
+
+    ALLIANCE_EMPLOYEES.forEach((seed) => {
+      seed.permissionNames?.forEach((permissionName) => {
+        requiredPermissionNamesForQuery.add(permissionName.trim());
+        requiredPermissionNamesNormalized.add(this.normalizeKey(permissionName));
+      });
+    });
+
+    if (!requiredPermissionNamesForQuery.size) {
+      return new Map<string, Permission>();
+    }
+
+    const permissions = await permissionRepo.find({
+      where: Array.from(requiredPermissionNamesForQuery).map((permissionName) => ({
+        name: permissionName,
+      })),
+    });
+
+    const permissionMap = new Map<string, Permission>();
+    permissions.forEach((permission) => {
+      permissionMap.set(this.normalizeKey(permission.name), permission);
+    });
+
+    for (const permissionName of requiredPermissionNamesNormalized) {
+      if (!permissionMap.has(permissionName)) {
+        throw new Error(
+          `Permission "${permissionName}" was not found. Run 001-initial-rbac.seed.ts first.`,
+        );
+      }
+    }
+
+    return permissionMap;
+  }
+
+  private async ensureMembershipAccess(
+    companyUserRoleRepo: Repository<CompanyUserRole>,
+    companyUserPermissionRepo: Repository<CompanyUserPermission>,
+    companyUserId: number,
+    seed: CompanyEmployeeSeed,
+    roleMap: Map<string, Role>,
+    permissionMap: Map<string, Permission>,
+  ): Promise<void> {
+    const roleNames = seed.roleNames?.length ? seed.roleNames : ['USER'];
+    const permissionNames = seed.permissionNames ?? [];
+
+    for (const roleName of roleNames) {
+      const role = roleMap.get(this.normalizeKey(roleName));
+      if (!role) {
+        throw new Error(
+          `Role "${roleName}" not found while assigning access for employee_no=${seed.employeeNo}.`,
+        );
+      }
+
+      const existingRoleAssignment = await companyUserRoleRepo.findOne({
+        where: {
+          company_user_id: companyUserId,
+          role_id: role.id,
+        },
+      });
+
+      if (!existingRoleAssignment) {
+        await companyUserRoleRepo.save(
+          companyUserRoleRepo.create({
+            company_user_id: companyUserId,
+            role_id: role.id,
+          }),
+        );
+      }
+    }
+
+    for (const permissionName of permissionNames) {
+      const permission = permissionMap.get(this.normalizeKey(permissionName));
+      if (!permission) {
+        throw new Error(
+          `Permission "${permissionName}" not found while assigning access for employee_no=${seed.employeeNo}.`,
+        );
+      }
+
+      const existingPermissionAssignment = await companyUserPermissionRepo.findOne({
+        where: {
+          company_user_id: companyUserId,
+          permission_id: permission.id,
+        },
+      });
+
+      if (!existingPermissionAssignment) {
+        await companyUserPermissionRepo.save(
+          companyUserPermissionRepo.create({
+            company_user_id: companyUserId,
+            permission_id: permission.id,
+          }),
+        );
+      }
+    }
   }
 
   private async ensureWorkContact(

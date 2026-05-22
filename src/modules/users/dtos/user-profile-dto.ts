@@ -32,10 +32,50 @@ export class UserProfileDto {
   @ApiProperty({ example: '2026-05-14T09:15:00.000Z' })
   updated_at: Date;
 
-  @ApiProperty({ type: [String], example: ['ADMINISTRATOR'] })
-  roles: string[];
-  @ApiProperty({ type: [String], example: ['users:create', 'users:read'] })
-  permissions: string[];
+  @ApiPropertyOptional({
+    type: [Object],
+    example: [
+      {
+        id: 1,
+        name: 'ADMINISTRATOR',
+        display_name: 'Administrator',
+        description: 'Company administrator role',
+        company_id: 1,
+        is_system_generated: true,
+      },
+    ],
+  })
+  roles?: Array<{
+    id: number;
+    name: string;
+    display_name: string;
+    description: string | null;
+    company_id: number | null;
+    is_system_generated: boolean;
+    created_at: Date;
+    updated_at: Date;
+  }>;
+  @ApiPropertyOptional({
+    type: [Object],
+    example: [
+      {
+        id: 10,
+        name: 'users:read',
+        display_name: 'Read users',
+        description: 'Allow reading user records',
+        is_system_generated: true,
+      },
+    ],
+  })
+  permissions?: Array<{
+    id: number;
+    name: string;
+    display_name: string;
+    description: string | null;
+    is_system_generated: boolean;
+    created_at: Date;
+    updated_at: Date;
+  }>;
   @ApiPropertyOptional({
     example: {
       id: 2,
@@ -60,8 +100,6 @@ export class UserProfileDto {
       user_id: 12,
       status: 'active',
       is_default: true,
-      roles: ['ADMINISTRATOR'],
-      permissions: ['users:read'],
     },
   })
   active_company_membership?: {

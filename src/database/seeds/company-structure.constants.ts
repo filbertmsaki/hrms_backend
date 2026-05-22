@@ -32,6 +32,8 @@ export interface CompanyEmployeeSeed {
   primaryBranchCode: string;
   primaryDepartmentCode: string;
   reportsToEmployeeNo: string | null; // null for CEO/GM
+  roleNames?: string[];
+  permissionNames?: string[];
 }
 
 export const ALLIANCE_COMPANY_NAME = 'Alliance Insurance Corporation Ltd';
@@ -393,6 +395,7 @@ export const ALLIANCE_EMPLOYEES: CompanyEmployeeSeed[] = [
     primaryBranchCode: 'HQ',
     primaryDepartmentCode: 'Admin',
     reportsToEmployeeNo: null,
+    roleNames: ['ADMINISTRATOR'],
   },
   {
     employeeNo: 'AICL-0002',
@@ -404,6 +407,7 @@ export const ALLIANCE_EMPLOYEES: CompanyEmployeeSeed[] = [
     primaryBranchCode: 'HQ',
     primaryDepartmentCode: 'General Business',
     reportsToEmployeeNo: 'AICL-0001',
+    roleNames: ['ADMINISTRATOR'],
   },
   {
     employeeNo: 'AICL-0003',
@@ -415,6 +419,16 @@ export const ALLIANCE_EMPLOYEES: CompanyEmployeeSeed[] = [
     primaryBranchCode: 'HQ',
     primaryDepartmentCode: 'HR',
     reportsToEmployeeNo: 'AICL-0002',
+    roleNames: ['USER'],
+    permissionNames: [
+      'employees:read',
+      'employees:update',
+      'departments:read',
+      'positions:read',
+      'designations:read',
+      'onboarding_requests:read',
+      'onboarding_requests:approve',
+    ],
   },
   {
     employeeNo: 'AICL-0004',
@@ -426,6 +440,12 @@ export const ALLIANCE_EMPLOYEES: CompanyEmployeeSeed[] = [
     primaryBranchCode: 'HQ',
     primaryDepartmentCode: 'Accounts',
     reportsToEmployeeNo: 'AICL-0002',
+    roleNames: ['USER'],
+    permissionNames: [
+      'view_company_dashboard',
+      'leave_balances:read',
+      'leave_requests:read',
+    ],
   },
   {
     employeeNo: 'AICL-0005',
@@ -437,6 +457,12 @@ export const ALLIANCE_EMPLOYEES: CompanyEmployeeSeed[] = [
     primaryBranchCode: 'HQ',
     primaryDepartmentCode: 'Claims',
     reportsToEmployeeNo: 'AICL-0002',
+    roleNames: ['USER'],
+    permissionNames: [
+      'employees:read',
+      'leave_requests:read',
+      'attendance_holidays:read',
+    ],
   },
   {
     employeeNo: 'AICL-0006',
@@ -448,6 +474,12 @@ export const ALLIANCE_EMPLOYEES: CompanyEmployeeSeed[] = [
     primaryBranchCode: 'HQ',
     primaryDepartmentCode: 'Underwriting',
     reportsToEmployeeNo: 'AICL-0002',
+    roleNames: ['USER'],
+    permissionNames: [
+      'employees:read',
+      'leave_requests:read',
+      'attendance_policies:read',
+    ],
   },
   {
     employeeNo: 'AICL-0007',
@@ -459,6 +491,12 @@ export const ALLIANCE_EMPLOYEES: CompanyEmployeeSeed[] = [
     primaryBranchCode: 'HQ',
     primaryDepartmentCode: 'Bancassurance',
     reportsToEmployeeNo: 'AICL-0002',
+    roleNames: ['USER'],
+    permissionNames: [
+      'employees:read',
+      'leave_requests:read',
+      'attendance_policies:read',
+    ],
   },
   {
     employeeNo: 'AICL-0008',
@@ -470,6 +508,13 @@ export const ALLIANCE_EMPLOYEES: CompanyEmployeeSeed[] = [
     primaryBranchCode: 'HQ',
     primaryDepartmentCode: 'IT',
     reportsToEmployeeNo: 'AICL-0002',
+    roleNames: ['USER'],
+    permissionNames: [
+      'employees:read',
+      'attendance_devices:read',
+      'attendance_checkpoints:read',
+      'attendance_device_sync_logs:read',
+    ],
   },
   {
     employeeNo: 'AICL-0009',
@@ -481,6 +526,13 @@ export const ALLIANCE_EMPLOYEES: CompanyEmployeeSeed[] = [
     primaryBranchCode: 'HQ',
     primaryDepartmentCode: 'Admin',
     reportsToEmployeeNo: 'AICL-0001',
+    roleNames: ['USER'],
+    permissionNames: [
+      'employees:read',
+      'departments:read',
+      'positions:read',
+      'attendance_settings:read',
+    ],
   },
   {
     employeeNo: 'AICL-0010',
@@ -492,6 +544,12 @@ export const ALLIANCE_EMPLOYEES: CompanyEmployeeSeed[] = [
     primaryBranchCode: 'Arusha',
     primaryDepartmentCode: 'General Business',
     reportsToEmployeeNo: 'AICL-0002',
+    roleNames: ['USER'],
+    permissionNames: [
+      'employees:read',
+      'leave_requests:read',
+      'attendance_holidays:read',
+    ],
   },
   {
     employeeNo: 'AICL-0011',
@@ -503,6 +561,12 @@ export const ALLIANCE_EMPLOYEES: CompanyEmployeeSeed[] = [
     primaryBranchCode: 'Moshi',
     primaryDepartmentCode: 'General Business',
     reportsToEmployeeNo: 'AICL-0002',
+    roleNames: ['USER'],
+    permissionNames: [
+      'employees:read',
+      'leave_requests:read',
+      'attendance_holidays:read',
+    ],
   },
   {
     employeeNo: 'AICL-0012',
@@ -514,6 +578,12 @@ export const ALLIANCE_EMPLOYEES: CompanyEmployeeSeed[] = [
     primaryBranchCode: 'Mwanza',
     primaryDepartmentCode: 'General Business',
     reportsToEmployeeNo: 'AICL-0002',
+    roleNames: ['USER'],
+    permissionNames: [
+      'employees:read',
+      'leave_requests:read',
+      'attendance_holidays:read',
+    ],
   },
   {
     employeeNo: 'AICL-0013',
@@ -525,5 +595,11 @@ export const ALLIANCE_EMPLOYEES: CompanyEmployeeSeed[] = [
     primaryBranchCode: 'Zanzibar',
     primaryDepartmentCode: 'General Business',
     reportsToEmployeeNo: 'AICL-0002',
+    roleNames: ['USER'],
+    permissionNames: [
+      'employees:read',
+      'leave_requests:read',
+      'attendance_holidays:read',
+    ],
   },
 ];
