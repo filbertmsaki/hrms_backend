@@ -10,6 +10,8 @@ export interface AuthenticatedUser {
   companyName?: string;
   companySlug?: string;
   companyMembershipId?: number;
+  employeeId?: number;
+  employeeNo?: string;
   roles: string[];
   permissions: string[];
 }

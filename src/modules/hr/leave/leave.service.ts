@@ -151,6 +151,91 @@ export class LeaveService {
     return employee;
   }
 
+  private async findEmployeeIdByMembership(
+    companyId: number,
+    companyMembershipId: number,
+  ): Promise<number | null> {
+    const entry = await this.employeeRepository
+      .createQueryBuilder('employee')
+      .innerJoin('employee.company_user', 'membership')
+      .where('employee.company_user_id = :companyMembershipId', {
+        companyMembershipId,
+      })
+      .andWhere('membership.company_id = :companyId', { companyId })
+      .select('employee.id', 'id')
+      .getRawOne<{ id: number }>();
+
+    return entry ? Number(entry.id) : null;
+  }
+
+  private async resolveActorEmployeeIdOrFail(
+    companyId: number,
+    actor: AuthenticatedUser,
+  ): Promise<number> {
+    if (!actor.companyMembershipId) {
+      throw new ForbiddenException('Active company membership is required');
+    }
+
+    const actorEmployeeId = await this.findEmployeeIdByMembership(
+      companyId,
+      actor.companyMembershipId,
+    );
+
+    if (!actorEmployeeId) {
+      throw new NotFoundException('Employee not found');
+    }
+
+    return actorEmployeeId;
+  }
+
+  private async resolveScopedEmployeeId(
+    companyId: number,
+    requestedEmployeeId: number | undefined,
+    actor: AuthenticatedUser,
+  ): Promise<number | null> {
+    if (typeof requestedEmployeeId === 'number') {
+      return requestedEmployeeId;
+    }
+
+    if (this.hrAccessService.hasCompanyWideBranchAccess(actor)) {
+      return null;
+    }
+
+    if (!actor.companyMembershipId) {
+      throw new ForbiddenException('Active company membership is required');
+    }
+
+    const actorEmployeeId = await this.findEmployeeIdByMembership(
+      companyId,
+      actor.companyMembershipId,
+    );
+
+    if (!actorEmployeeId) {
+      throw new ForbiddenException(
+        'Employee profile not found for current user',
+      );
+    }
+
+    return actorEmployeeId;
+  }
+
+  private async assertCanAccessEmployeeById(
+    companyId: number,
+    employeeId: number,
+    actor: AuthenticatedUser,
+  ): Promise<void> {
+    const employee = await this.findEmployeeOrFail(companyId, employeeId);
+    const isOwnEmployee =
+      typeof actor.companyMembershipId === 'number' &&
+      employee.company_user_id === actor.companyMembershipId;
+
+    if (isOwnEmployee) {
+      return;
+    }
+
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+  }
+
   private async findLeaveTypeOrFail(
     companyId: number,
     leaveTypeId: number,
@@ -1713,6 +1798,11 @@ export class LeaveService {
   ) {
     const { page = 1, limit = 20, sortBy = 'updated_at', sortOrder, employee_id, leave_type_id, fiscal_year } =
       query;
+    const scopedEmployeeId = await this.resolveScopedEmployeeId(
+      companyId,
+      employee_id,
+      actor,
+    );
 
     const qb = this.leaveBalanceRepository
       .createQueryBuilder('leaveBalance')
@@ -1721,8 +1811,10 @@ export class LeaveService {
       .innerJoinAndSelect('leaveBalance.leave_type', 'leaveType')
       .where('membership.company_id = :companyId', { companyId });
 
-    if (typeof employee_id === 'number') {
-      qb.andWhere('leaveBalance.employee_id = :employeeId', { employeeId: employee_id });
+    if (typeof scopedEmployeeId === 'number') {
+      qb.andWhere('leaveBalance.employee_id = :employeeId', {
+        employeeId: scopedEmployeeId,
+      });
     }
     if (typeof leave_type_id === 'number') {
       qb.andWhere('leaveBalance.leave_type_id = :leaveTypeId', { leaveTypeId: leave_type_id });
@@ -1742,9 +1834,8 @@ export class LeaveService {
       .take(limit)
       .getManyAndCount();
 
-    if (typeof employee_id === 'number') {
-      const employee = await this.findEmployeeOrFail(companyId, employee_id);
-      await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+    if (typeof scopedEmployeeId === 'number') {
+      await this.assertCanAccessEmployeeById(companyId, scopedEmployeeId, actor);
     }
 
     return {
@@ -1952,6 +2043,11 @@ export class LeaveService {
       from_date,
       to_date,
     } = query;
+    const scopedEmployeeId = await this.resolveScopedEmployeeId(
+      companyId,
+      employee_id,
+      actor,
+    );
 
     const qb = this.leaveRequestRepository
       .createQueryBuilder('leaveRequest')
@@ -1969,8 +2065,10 @@ export class LeaveService {
     if (status?.trim()) {
       qb.andWhere('leaveRequest.status = :status', { status: status.trim() });
     }
-    if (typeof employee_id === 'number') {
-      qb.andWhere('leaveRequest.employee_id = :employeeId', { employeeId: employee_id });
+    if (typeof scopedEmployeeId === 'number') {
+      qb.andWhere('leaveRequest.employee_id = :employeeId', {
+        employeeId: scopedEmployeeId,
+      });
     }
     if (typeof leave_type_id === 'number') {
       qb.andWhere('leaveRequest.leave_type_id = :leaveTypeId', { leaveTypeId: leave_type_id });
@@ -2006,15 +2104,31 @@ export class LeaveService {
       .take(limit)
       .getManyAndCount();
 
-    if (typeof employee_id === 'number') {
-      const employee = await this.findEmployeeOrFail(companyId, employee_id);
-      await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+    if (typeof scopedEmployeeId === 'number') {
+      await this.assertCanAccessEmployeeById(companyId, scopedEmployeeId, actor);
     }
 
     return {
       data: items.map((item) => this.mapLeaveRequest(item)),
       meta: buildPaginationMeta(total, items.length, limit, page),
     };
+  }
+
+  async findMyLeaveRequests(
+    companyId: number,
+    query: LeaveRequestQueryDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employeeId = await this.resolveActorEmployeeIdOrFail(companyId, actor);
+
+    return this.findAllLeaveRequests(
+      companyId,
+      {
+        ...query,
+        employee_id: employeeId,
+      },
+      actor,
+    );
   }
 
   async findOneLeaveRequest(
@@ -2043,7 +2157,14 @@ export class LeaveService {
       throw new NotFoundException('Leave request not found');
     }
 
-    await this.hrAccessService.assertCanAccessEmployee(actor, leaveRequest.employee);
+    const isOwnEmployee =
+      typeof actor.companyMembershipId === 'number' &&
+      leaveRequest.employee.company_user_id === actor.companyMembershipId;
+
+    if (!isOwnEmployee) {
+      await this.hrAccessService.assertCanAccessEmployee(actor, leaveRequest.employee);
+    }
+
     return this.mapLeaveRequest(leaveRequest);
   }
 

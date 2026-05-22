@@ -20,6 +20,8 @@ type JwtAccessPayload = {
   scope?: 'platform' | 'company';
   userType?: 'OWNER' | 'COMPANY_USER';
   companyId?: number;
+  employeeId?: number;
+  employeeNo?: string;
   roles?: string[];
   permissions?: string[];
   type?: string;
@@ -137,6 +139,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         companyName: companyContext.companyName,
         companySlug: companyContext.companySlug,
         companyMembershipId: companyContext.membershipId,
+        employeeId: companyContext.employeeId ?? undefined,
+        employeeNo: companyContext.employeeNo ?? undefined,
         roles: companyContext.roles,
         permissions: companyContext.permissions,
       };

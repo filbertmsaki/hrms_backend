@@ -388,6 +388,15 @@ export class LeaveController {
     return this.leaveService.findAllLeaveRequests(req.user.companyId!, query, req.user);
   }
 
+  @Get('requests/me')
+  @ApiOperation({ summary: 'List my leave requests' })
+  listMyLeaveRequests(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: LeaveRequestQueryDto,
+  ) {
+    return this.leaveService.findMyLeaveRequests(req.user.companyId!, query, req.user);
+  }
+
   @Get('requests/:id')
   @UseGuards(PermissionsGuard)
   @Permissions('leave_requests:read')

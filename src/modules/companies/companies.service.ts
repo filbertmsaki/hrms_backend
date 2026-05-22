@@ -237,6 +237,8 @@ export class CompaniesService {
       companyName: membership.company.name,
       companySlug: membership.company.slug,
       membershipId: membership.id,
+      employeeId: membership.employee?.id ?? null,
+      employeeNo: membership.employee?.employee_no ?? null,
       isDefault: membership.is_default,
       roles:
         membership.role_assignments?.map(
@@ -435,6 +437,7 @@ export class CompaniesService {
       },
       relations: {
         company: true,
+        employee: true,
         role_assignments: {
           role: {
             permissions: true,
@@ -473,6 +476,7 @@ export class CompaniesService {
       },
       relations: {
         company: true,
+        employee: true,
         role_assignments: {
           role: {
             permissions: true,

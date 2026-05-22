@@ -42,6 +42,8 @@ type AccessTokenPayload = {
   companySlug?: string;
   companyName?: string;
   membershipId?: number;
+  employeeId?: number;
+  employeeNo?: string;
   roles: string[];
   permissions: string[];
   type: 'access';
@@ -725,6 +727,9 @@ export class AuthService {
         first_name: user.first_name,
         last_name: user.last_name,
         user_type: user.user_type,
+        employee_id: companyContext.employeeId,
+        employee_no: companyContext.employeeNo,
+        my_employee_url: '/employees/my-employee',
         roles: companyContext.roles,
         permissions: companyContext.permissions,
         isTwoFactorEnabled: user.is_two_factor_enabled,
@@ -745,6 +750,8 @@ export class AuthService {
       companySlug: companyContext.companySlug,
       companyName: companyContext.companyName,
       membershipId: companyContext.membershipId,
+      employeeId: companyContext.employeeId ?? undefined,
+      employeeNo: companyContext.employeeNo ?? undefined,
       roles: companyContext.roles,
       permissions: companyContext.permissions,
       type: 'access',
