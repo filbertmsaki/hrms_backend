@@ -90,6 +90,21 @@ export class EmployeesController {
     return this.employeesService.findAll(req.user.companyId!, query, req.user);
   }
 
+  @Get('me')
+  @ApiOperationSummary(
+    'Get my employee profile',
+    'Returns the full employee profile of the currently authenticated company user.',
+  )
+  @ApiAuthRequired()
+  @ApiNotFoundResponse('Employee')
+  @ApiSuccessResponse(200, 'Employee profile retrieved successfully')
+  findMe(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.employeesService.findMyProfile(
+      req.user.companyId!,
+      req.user.id,
+    );
+  }
+
   @Get(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:read')

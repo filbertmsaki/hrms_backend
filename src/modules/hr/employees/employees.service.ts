@@ -21,8 +21,6 @@ import { Position } from '../positions/entities/position.entity';
 import { HrAccessService } from '../shared/hr-access.service';
 import {
   buildPaginationMeta,
-  getMembershipPermissions,
-  getMembershipRoles,
 } from '../shared/hr.utils';
 import { AddEmployeeDocumentDto } from './dtos/add-employee-document.dto';
 import { ChangeEmployeeStatusDto } from './dtos/change-employee-status.dto';
@@ -438,8 +436,32 @@ export class EmployeesService {
       user_id: membership.user_id,
       status: membership.status,
       is_default: membership.is_default,
-      roles: getMembershipRoles(membership),
-      permissions: getMembershipPermissions(membership),
+      user: membership.user
+        ? {
+            id: membership.user.id,
+            user_no: membership.user.user_no,
+            first_name: membership.user.first_name,
+            last_name: membership.user.last_name,
+            phone: membership.user.phone,
+            email: membership.user.email,
+            status: membership.user.status,
+            user_type: membership.user.user_type,
+          }
+        : null,
+    };
+  }
+
+  private mapMembershipWithoutAccessDetails(membership?: CompanyUser | null) {
+    if (!membership) {
+      return null;
+    }
+
+    return {
+      id: membership.id,
+      company_id: membership.company_id,
+      user_id: membership.user_id,
+      status: membership.status,
+      is_default: membership.is_default,
       user: membership.user
         ? {
             id: membership.user.id,
@@ -675,7 +697,9 @@ export class EmployeesService {
             employee_no: employee.manager.employee_no,
             first_name: employee.manager.first_name,
             last_name: employee.manager.last_name,
-            company_user: this.mapMembership(employee.manager.company_user),
+            company_user: this.mapMembershipWithoutAccessDetails(
+              employee.manager.company_user,
+            ),
           }
         : null,
       departments:
@@ -946,14 +970,6 @@ export class EmployeesService {
         manager: {
           company_user: {
             user: true,
-            role_assignments: {
-              role: {
-                permissions: true,
-              },
-            },
-            permission_assignments: {
-              permission: true,
-            },
           },
         },
         department_assignments: {
@@ -2451,6 +2467,30 @@ export class EmployeesService {
     });
 
     return this.findOne(companyId, employeeId, actor);
+  }
+
+  async findMyProfile(companyId: number, userId: number) {
+    const membership = await this.findMembershipByUserId(companyId, userId);
+
+    if (!membership) {
+      throw new NotFoundException('Active company membership not found');
+    }
+
+    const employeeMembership = await this.employeeRepository.findOne({
+      where: { company_user_id: membership.id },
+      select: ['id'],
+    });
+
+    if (!employeeMembership) {
+      throw new NotFoundException('Employee not found');
+    }
+
+    const employee = await this.findEmployeeByIdOrFail(
+      companyId,
+      employeeMembership.id,
+    );
+
+    return this.mapEmployee(employee, true);
   }
 
   async findAll(
