@@ -8,15 +8,24 @@ import { CompanyUserRole } from '../../modules/companies/entities/company-user-r
 import { Branch } from '../../modules/hr/branches/entities/branch.entity';
 import { Designation } from '../../modules/hr/designations/entities/designation.entity';
 import { Department } from '../../modules/hr/departments/entities/department.entity';
+import { AddressTypeEnum } from '../../modules/hr/employees/enums/address-type.enum';
 import { ContactTypeEnum } from '../../modules/hr/employees/enums/contact-type.enum';
 import { EmployeePositionAssignmentTypeEnum } from '../../modules/hr/employees/enums/employee-position-assignment-type.enum';
 import { EmployeePositionStatusEnum } from '../../modules/hr/employees/enums/employee-position-status.enum';
 import { EmploymentStatusEnum } from '../../modules/hr/employees/enums/employment-status.enum';
 import { EmploymentTypeEnum } from '../../modules/hr/employees/enums/employment-type.enum';
+import { IdentificationTypeEnum } from '../../modules/hr/employees/enums/identification-type.enum';
+import { EmployeeAcademicQualification } from '../../modules/hr/employees/entities/employee-academic-qualification.entity';
+import { EmployeeAddress } from '../../modules/hr/employees/entities/employee-address.entity';
+import { EmployeeBankAccount } from '../../modules/hr/employees/entities/employee-bank-account.entity';
 import { EmployeeContact } from '../../modules/hr/employees/entities/employee-contact.entity';
 import { EmployeeDesignation } from '../../modules/hr/employees/entities/employee-designation.entity';
 import { EmployeeDepartment } from '../../modules/hr/employees/entities/employee-department.entity';
+import { EmployeeExperience } from '../../modules/hr/employees/entities/employee-experience.entity';
+import { EmployeeIdentification } from '../../modules/hr/employees/entities/employee-identification.entity';
 import { EmployeePosition } from '../../modules/hr/employees/entities/employee-position.entity';
+import { EmployeeProfessionalQualification } from '../../modules/hr/employees/entities/employee-professional-qualification.entity';
+import { EmployeeRelative } from '../../modules/hr/employees/entities/employee-relative.entity';
 import { Employee } from '../../modules/hr/employees/entities/employee.entity';
 import { Position } from '../../modules/hr/positions/entities/position.entity';
 import { Permission } from '../../modules/permissions/entities/permission.entity';
@@ -78,6 +87,17 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       const companyUserPermissionRepo = manager.getRepository(CompanyUserPermission);
       const employeeRepo = manager.getRepository(Employee);
       const employeeContactRepo = manager.getRepository(EmployeeContact);
+      const employeeAddressRepo = manager.getRepository(EmployeeAddress);
+      const employeeBankAccountRepo = manager.getRepository(EmployeeBankAccount);
+      const employeeRelativeRepo = manager.getRepository(EmployeeRelative);
+      const employeeIdentificationRepo = manager.getRepository(EmployeeIdentification);
+      const employeeAcademicQualificationRepo = manager.getRepository(
+        EmployeeAcademicQualification,
+      );
+      const employeeProfessionalQualificationRepo = manager.getRepository(
+        EmployeeProfessionalQualification,
+      );
+      const employeeExperienceRepo = manager.getRepository(EmployeeExperience);
       const employeeDepartmentRepo = manager.getRepository(EmployeeDepartment);
       const employeePositionRepo = manager.getRepository(EmployeePosition);
       const employeeDesignationRepo = manager.getRepository(EmployeeDesignation);
@@ -105,6 +125,13 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
         companyUserPermissionRepo,
         employeeRepo,
         employeeContactRepo,
+        employeeAddressRepo,
+        employeeBankAccountRepo,
+        employeeRelativeRepo,
+        employeeIdentificationRepo,
+        employeeAcademicQualificationRepo,
+        employeeProfessionalQualificationRepo,
+        employeeExperienceRepo,
         employeeDepartmentRepo,
         employeePositionRepo,
         employeeDesignationRepo,
@@ -321,6 +348,13 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     companyUserPermissionRepo: Repository<CompanyUserPermission>,
     employeeRepo: Repository<Employee>,
     employeeContactRepo: Repository<EmployeeContact>,
+    employeeAddressRepo: Repository<EmployeeAddress>,
+    employeeBankAccountRepo: Repository<EmployeeBankAccount>,
+    employeeRelativeRepo: Repository<EmployeeRelative>,
+    employeeIdentificationRepo: Repository<EmployeeIdentification>,
+    employeeAcademicQualificationRepo: Repository<EmployeeAcademicQualification>,
+    employeeProfessionalQualificationRepo: Repository<EmployeeProfessionalQualification>,
+    employeeExperienceRepo: Repository<EmployeeExperience>,
     employeeDepartmentRepo: Repository<EmployeeDepartment>,
     employeePositionRepo: Repository<EmployeePosition>,
     employeeDesignationRepo: Repository<EmployeeDesignation>,
@@ -366,6 +400,7 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
         seed.employeeNo,
       );
       const position = this.getRequiredPosition(positionMap, seed.positionCode, seed.employeeNo);
+      const sequence = this.getEmployeeSequence(seed.employeeNo);
 
       let employee = employeeByNo.get(seed.employeeNo) ?? null;
       if (!employee) {
@@ -377,13 +412,13 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       employee.company_user_id = membership.id;
       employee.employee_no = seed.employeeNo;
       employee.first_name = seed.firstName;
-      employee.middle_name = null;
+      employee.middle_name = this.generateMiddleName(seed.firstName);
       employee.last_name = seed.lastName;
-      employee.preferred_name = null;
-      employee.gender = null;
-      employee.date_of_birth = null;
-      employee.marital_status = null;
-      employee.nationality = null;
+      employee.preferred_name = seed.firstName;
+      employee.gender = sequence % 2 === 0 ? 'female' : 'male';
+      employee.date_of_birth = this.buildDate(1986 + (sequence % 8), sequence, sequence + 7);
+      employee.marital_status = sequence % 3 === 0 ? 'married' : 'single';
+      employee.nationality = 'Tanzanian';
       employee.profile_photo_url = null;
       employee.primary_branch_id = branch.id;
       employee.primary_department_id = department.id;
@@ -399,12 +434,41 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       employee.notes = 'Seeded Alliance company structure employee';
       employee.metadata = {
         seeded: true,
+        fullProfileSeeded: true,
       };
 
       employee = await employeeRepo.save(employee);
       employeeByNo.set(seed.employeeNo, employee);
 
       await this.ensureWorkContact(employeeContactRepo, employee.id, seed);
+      await this.ensurePersonalContact(employeeContactRepo, employee.id, seed, sequence);
+      await this.ensurePrimaryAddress(employeeAddressRepo, employee.id, sequence);
+      await this.ensurePrimaryRelative(employeeRelativeRepo, employee.id, seed, sequence);
+      await this.ensurePrimaryIdentification(
+        employeeIdentificationRepo,
+        employee.id,
+        seed,
+        sequence,
+      );
+      await this.ensurePrimaryBankAccount(
+        employeeBankAccountRepo,
+        employee.id,
+        seed,
+        sequence,
+      );
+      await this.ensureAcademicQualification(
+        employeeAcademicQualificationRepo,
+        employee.id,
+        membership.id,
+        sequence,
+      );
+      await this.ensureProfessionalQualification(
+        employeeProfessionalQualificationRepo,
+        employee.id,
+        membership.id,
+        sequence,
+      );
+      await this.ensureExperienceDetail(employeeExperienceRepo, employee.id, sequence);
       await this.ensureDepartmentAssignments(
         employeeDepartmentRepo,
         employee.id,
@@ -445,16 +509,82 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     userRepo: Repository<User>,
     seed: CompanyEmployeeSeed,
   ): Promise<User> {
-    const user =
-      (await userRepo.findOne({
-        where: [{ email: seed.email }, { phone: seed.phone }],
-      })) ?? userRepo.create();
+    const [userByNo, userByEmail, userByPhone] = await Promise.all([
+      userRepo.findOne({
+        where: { user_no: seed.employeeNo },
+        select: [
+          'id',
+          'user_no',
+          'first_name',
+          'last_name',
+          'phone',
+          'email',
+          'password',
+          'status',
+          'user_type',
+          'is_email_verified',
+        ],
+      }),
+      userRepo.findOne({
+        where: { email: seed.email },
+        select: [
+          'id',
+          'user_no',
+          'first_name',
+          'last_name',
+          'phone',
+          'email',
+          'password',
+          'status',
+          'user_type',
+          'is_email_verified',
+        ],
+      }),
+      userRepo.findOne({
+        where: { phone: seed.phone },
+        select: [
+          'id',
+          'user_no',
+          'first_name',
+          'last_name',
+          'phone',
+          'email',
+          'password',
+          'status',
+          'user_type',
+          'is_email_verified',
+        ],
+      }),
+    ]);
 
-    user.user_no = seed.employeeNo;
+    const user = userByNo ?? userByEmail ?? userByPhone ?? userRepo.create();
+
+    const resolvedIds = new Set(
+      [userByNo?.id, userByEmail?.id, userByPhone?.id].filter(
+        (id): id is number => typeof id === 'number',
+      ),
+    );
+
+    if (resolvedIds.size > 1) {
+      console.warn(
+        `[Seeder][AllianceCompanyStructure] Conflicting user identifiers for ${seed.employeeNo}; reusing user id=${user.id}.`,
+      );
+    }
+
+    if (!userByNo || userByNo.id === user.id) {
+      user.user_no = seed.employeeNo;
+    }
     user.first_name = seed.firstName;
     user.last_name = seed.lastName;
-    user.phone = seed.phone;
-    user.email = seed.email;
+
+    if (!userByPhone || userByPhone.id === user.id) {
+      user.phone = seed.phone;
+    }
+
+    if (!userByEmail || userByEmail.id === user.id) {
+      user.email = seed.email;
+    }
+
     user.status = 'active';
     user.user_type = 'COMPANY_USER';
     user.is_email_verified = true;
@@ -675,6 +805,237 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     await employeeContactRepo.save(contact);
   }
 
+  private async ensurePersonalContact(
+    employeeContactRepo: Repository<EmployeeContact>,
+    employeeId: number,
+    seed: CompanyEmployeeSeed,
+    sequence: number,
+  ): Promise<void> {
+    const contacts = await employeeContactRepo.find({
+      where: {
+        employee_id: employeeId,
+        contact_type: ContactTypeEnum.PERSONAL,
+      },
+      order: { id: 'ASC' },
+    });
+
+    const contact = contacts[0] ?? employeeContactRepo.create();
+    contact.employee_id = employeeId;
+    contact.contact_type = ContactTypeEnum.PERSONAL;
+    contact.phone_number = `+255711${String(sequence).padStart(6, '0')}`;
+    contact.email = this.buildPersonalEmail(seed);
+    contact.is_primary = false;
+    contact.is_verified = true;
+    contact.notes = 'Seeded personal contact';
+
+    await employeeContactRepo.save(contact);
+  }
+
+  private async ensurePrimaryAddress(
+    employeeAddressRepo: Repository<EmployeeAddress>,
+    employeeId: number,
+    sequence: number,
+  ): Promise<void> {
+    const addresses = await employeeAddressRepo.find({
+      where: { employee_id: employeeId, address_type: AddressTypeEnum.HOME },
+      order: { id: 'ASC' },
+    });
+
+    await employeeAddressRepo.update(
+      { employee_id: employeeId, address_type: AddressTypeEnum.HOME },
+      { is_primary: false },
+    );
+
+    const address = addresses[0] ?? employeeAddressRepo.create();
+    address.employee_id = employeeId;
+    address.address_type = AddressTypeEnum.HOME;
+    address.address_line_1 = `House ${100 + sequence}, Mikocheni`;
+    address.address_line_2 = 'Kinondoni District';
+    address.city = 'Dar es Salaam';
+    address.state = 'Dar es Salaam';
+    address.country = 'Tanzania';
+    address.postal_code = `11${String(sequence).padStart(3, '0')}`;
+    address.is_primary = true;
+
+    await employeeAddressRepo.save(address);
+  }
+
+  private async ensurePrimaryRelative(
+    employeeRelativeRepo: Repository<EmployeeRelative>,
+    employeeId: number,
+    seed: CompanyEmployeeSeed,
+    sequence: number,
+  ): Promise<void> {
+    const relatives = await employeeRelativeRepo.find({
+      where: { employee_id: employeeId },
+      order: { id: 'ASC' },
+    });
+
+    await employeeRelativeRepo.update({ employee_id: employeeId }, { is_primary: false });
+
+    const relative = relatives[0] ?? employeeRelativeRepo.create();
+    relative.employee_id = employeeId;
+    relative.full_name = `Asha ${seed.lastName}`;
+    relative.relationship = 'Sibling';
+    relative.phone = `+255756${String(sequence).padStart(6, '0')}`;
+    relative.email = `relative.${this.slugify(seed.firstName)}.${this.slugify(seed.lastName)}@mail.com`;
+    relative.address = 'Dar es Salaam, Tanzania';
+    relative.occupation = 'Business Owner';
+    relative.is_emergency_contact = true;
+    relative.is_primary = true;
+
+    await employeeRelativeRepo.save(relative);
+  }
+
+  private async ensurePrimaryIdentification(
+    employeeIdentificationRepo: Repository<EmployeeIdentification>,
+    employeeId: number,
+    seed: CompanyEmployeeSeed,
+    sequence: number,
+  ): Promise<void> {
+    const identifications = await employeeIdentificationRepo.find({
+      where: { employee_id: employeeId, identification_type: IdentificationTypeEnum.NATIONAL_ID },
+      order: { id: 'ASC' },
+    });
+
+    await employeeIdentificationRepo.update(
+      { employee_id: employeeId, identification_type: IdentificationTypeEnum.NATIONAL_ID },
+      { is_primary: false },
+    );
+
+    const identification = identifications[0] ?? employeeIdentificationRepo.create();
+    identification.employee_id = employeeId;
+    identification.identification_type = IdentificationTypeEnum.NATIONAL_ID;
+    identification.identification_number = `NIDA${String(sequence).padStart(8, '0')}`;
+    identification.issued_country = 'Tanzania';
+    identification.expiry_date = null;
+    identification.is_primary = true;
+
+    await employeeIdentificationRepo.save(identification);
+
+    const taxIdentifications = await employeeIdentificationRepo.find({
+      where: { employee_id: employeeId, identification_type: IdentificationTypeEnum.TAX_ID },
+      order: { id: 'ASC' },
+    });
+
+    const taxIdentification = taxIdentifications[0] ?? employeeIdentificationRepo.create();
+    taxIdentification.employee_id = employeeId;
+    taxIdentification.identification_type = IdentificationTypeEnum.TAX_ID;
+    taxIdentification.identification_number = `TIN${String(20000000 + sequence)}`;
+    taxIdentification.issued_country = 'Tanzania';
+    taxIdentification.expiry_date = null;
+    taxIdentification.is_primary = false;
+
+    await employeeIdentificationRepo.save(taxIdentification);
+  }
+
+  private async ensurePrimaryBankAccount(
+    employeeBankAccountRepo: Repository<EmployeeBankAccount>,
+    employeeId: number,
+    seed: CompanyEmployeeSeed,
+    sequence: number,
+  ): Promise<void> {
+    const bankAccounts = await employeeBankAccountRepo.find({
+      where: { employee_id: employeeId },
+      order: { id: 'ASC' },
+    });
+
+    await employeeBankAccountRepo.update({ employee_id: employeeId }, { is_primary: false });
+
+    const account = bankAccounts[0] ?? employeeBankAccountRepo.create();
+    account.employee_id = employeeId;
+    account.bank_name = 'NMB Bank';
+    account.account_name = `${seed.firstName} ${seed.lastName}`;
+    account.account_number = `010${String(sequence).padStart(9, '0')}`;
+    account.branch_name = 'Samora Branch';
+    account.swift_code = 'NMIBTZTZ';
+    account.mobile_money_provider = 'M-Pesa';
+    account.is_primary = true;
+
+    await employeeBankAccountRepo.save(account);
+  }
+
+  private async ensureAcademicQualification(
+    employeeAcademicQualificationRepo: Repository<EmployeeAcademicQualification>,
+    employeeId: number,
+    uploadedByCompanyUserId: number,
+    sequence: number,
+  ): Promise<void> {
+    const records = await employeeAcademicQualificationRepo.find({
+      where: { employee_id: employeeId },
+      order: { id: 'ASC' },
+    });
+
+    const record = records[0] ?? employeeAcademicQualificationRepo.create();
+    const startYear = 2006 + (sequence % 6);
+    const endYear = startYear + 3;
+
+    record.employee_id = employeeId;
+    record.country_of_residence = 'Tanzania';
+    record.education_level = 'Bachelor';
+    record.institution_name = 'University of Dar es Salaam';
+    record.degree_or_certificate = 'Bachelor Degree';
+    record.field_of_study = 'Business Administration';
+    record.start_date = `${startYear}-10-01`;
+    record.end_date = `${endYear}-07-15`;
+    record.academic_certificate_document_url = `https://seed-docs.alliance.co.tz/academic/${employeeId}.pdf`;
+    record.uploaded_by_company_user_id = uploadedByCompanyUserId;
+
+    await employeeAcademicQualificationRepo.save(record);
+  }
+
+  private async ensureProfessionalQualification(
+    employeeProfessionalQualificationRepo: Repository<EmployeeProfessionalQualification>,
+    employeeId: number,
+    uploadedByCompanyUserId: number,
+    sequence: number,
+  ): Promise<void> {
+    const records = await employeeProfessionalQualificationRepo.find({
+      where: { employee_id: employeeId },
+      order: { id: 'ASC' },
+    });
+
+    const record = records[0] ?? employeeProfessionalQualificationRepo.create();
+    const issueYear = 2018 + (sequence % 6);
+
+    record.employee_id = employeeId;
+    record.country_of_residence = 'Tanzania';
+    record.institution_name = 'College of Insurance and Actuarial Studies';
+    record.programme_name = 'Insurance Operations';
+    record.issuing_organization = 'Tanzania Insurance Institute';
+    record.issue_date = `${issueYear}-09-01`;
+    record.expiry_date = null;
+    record.professional_certificate_document_url = `https://seed-docs.alliance.co.tz/professional/${employeeId}.pdf`;
+    record.uploaded_by_company_user_id = uploadedByCompanyUserId;
+
+    await employeeProfessionalQualificationRepo.save(record);
+  }
+
+  private async ensureExperienceDetail(
+    employeeExperienceRepo: Repository<EmployeeExperience>,
+    employeeId: number,
+    sequence: number,
+  ): Promise<void> {
+    const experiences = await employeeExperienceRepo.find({
+      where: { employee_id: employeeId },
+      order: { id: 'ASC' },
+    });
+
+    const experience = experiences[0] ?? employeeExperienceRepo.create();
+    const startYear = 2012 + (sequence % 8);
+
+    experience.employee_id = employeeId;
+    experience.company_name = 'Tanzania Assurance Group';
+    experience.job_title = 'Associate Officer';
+    experience.responsibilities_description =
+      'Handled daily policy servicing, customer support, and internal reporting tasks.';
+    experience.start_date = `${startYear}-01-15`;
+    experience.end_date = `${startYear + 2}-12-20`;
+    experience.currently_working = false;
+
+    await employeeExperienceRepo.save(experience);
+  }
+
   private async ensureDepartmentAssignments(
     employeeDepartmentRepo: Repository<EmployeeDepartment>,
     employeeId: number,
@@ -846,6 +1207,30 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     }
 
     return position;
+  }
+
+  private getEmployeeSequence(employeeNo: string): number {
+    const numericPart = employeeNo.replace(/\D/g, '');
+    const parsed = Number(numericPart);
+    return Number.isNaN(parsed) ? 1 : parsed;
+  }
+
+  private generateMiddleName(firstName: string): string {
+    return `${firstName.charAt(0).toUpperCase()}.`;
+  }
+
+  private buildDate(year: number, monthSeed: number, daySeed: number): string {
+    const month = String(((monthSeed - 1) % 12) + 1).padStart(2, '0');
+    const day = String(((daySeed - 1) % 28) + 1).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  private slugify(value: string): string {
+    return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  }
+
+  private buildPersonalEmail(seed: CompanyEmployeeSeed): string {
+    return `${this.slugify(seed.firstName)}.${this.slugify(seed.lastName)}.personal@alliance.co.tz`;
   }
 
   private normalizeKey(value: string | null | undefined): string {
