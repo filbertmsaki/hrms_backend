@@ -67,12 +67,17 @@ export class HrAccessService {
     actor: AuthenticatedUser,
     employee: Pick<
       Employee,
+      | 'id'
       | 'primary_branch_id'
       | 'department_assignments'
       | 'primary_department'
       | 'primary_position'
     >,
   ): Promise<void> {
+    if (actor.employeeId && actor.employeeId === employee.id) {
+      return;
+    }
+
     const branchIds = await this.getAccessibleBranchIds(actor);
 
     if (branchIds === null) {

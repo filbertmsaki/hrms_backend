@@ -1534,9 +1534,15 @@ const roleSeeds: RoleSeed[] = [
   {
     name: 'USER',
     displayName: 'Company User',
-    description: 'Regular company user with read-only company access',
+    description:
+      'Regular company user with access to view company data and manage their user profile',
     scopes: DEFAULT_COMPANY_SCOPE,
-    permissionNames: ['view_company_data'],
+    permissionNames: [
+      'view_company_data',
+      'users:update',
+      'employees:read',
+      'employees:update',
+    ],
   },
   {
     name: 'VIEWER',

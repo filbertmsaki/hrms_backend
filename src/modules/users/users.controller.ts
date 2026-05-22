@@ -10,6 +10,7 @@ import {
   UseGuards,
   Req,
   Query,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -51,6 +52,14 @@ export class UsersController {
     private readonly usersService: UsersService,
     private readonly twoFaService: TwoFaService,
   ) {}
+
+  private isPrivilegedCompanyUser(
+    req: ExpressRequest & { user: AuthenticatedUser },
+  ): boolean {
+    return (
+      req.user.roles.includes('ADMINISTRATOR') || req.user.roles.includes('OWNER')
+    );
+  }
 
   // ────────────────────────────────
   //  Self-service: Get My Profile
@@ -167,6 +176,10 @@ export class UsersController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: PaginationDto,
   ) {
+    if (!this.isPrivilegedCompanyUser(req)) {
+      throw new ForbiddenException('You can only read your own user profile');
+    }
+
     return this.usersService.findAllPaginatedInCompany(
       req.user.companyId!,
       query,
@@ -192,6 +205,10 @@ export class UsersController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
+    if (!this.isPrivilegedCompanyUser(req) && req.user.id !== id) {
+      throw new ForbiddenException('You can only read your own user profile');
+    }
+
     return this.usersService.findProfileInCompany(id, req.user.companyId!);
   }
 
@@ -216,6 +233,10 @@ export class UsersController {
     @Param('id', ParseIntPipe) id: number,
     @Body() updateUserDto: UpdateUserDto,
   ) {
+    if (!this.isPrivilegedCompanyUser(req) && req.user.id !== id) {
+      throw new ForbiddenException('You can only update your own user profile');
+    }
+
     return this.usersService.updateInCompany(
       req.user.companyId!,
       id,
