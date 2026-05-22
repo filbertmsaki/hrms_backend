@@ -10,6 +10,7 @@ import { EntityManager, MoreThan, Repository } from 'typeorm';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { comparePasswords, hashPassword } from 'src/common/utils/hash.util';
 import { CompaniesService } from '../companies/companies.service';
+import { CompanyUser } from '../companies/entities/company-user.entity';
 import { CreateUserDto } from './dtos/create-user.dto';
 import { UpdateUserDto } from './dtos/update-user.dto';
 import { UserProfileDto } from './dtos/user-profile-dto';
@@ -48,6 +49,63 @@ export class UsersService {
     }
 
     return user;
+  }
+
+  private getMembershipRoles(membership: CompanyUser): string[] {
+    const roleNames = new Set<string>();
+
+    membership.role_assignments?.forEach((assignment) => {
+      if (assignment.role?.name) {
+        roleNames.add(assignment.role.name);
+      }
+    });
+
+    return Array.from(roleNames);
+  }
+
+  private getMembershipPermissions(membership: CompanyUser): string[] {
+    const permissions = new Set<string>();
+
+    membership.permission_assignments?.forEach((assignment) => {
+      if (assignment.permission?.name) {
+        permissions.add(assignment.permission.name);
+      }
+    });
+
+    membership.role_assignments?.forEach((assignment) => {
+      assignment.role?.permissions?.forEach((permission) => {
+        if (permission?.name) {
+          permissions.add(permission.name);
+        }
+      });
+    });
+
+    return Array.from(permissions);
+  }
+
+  private async findActiveMembershipWithDetails(
+    userId: number,
+    companyId: number,
+  ): Promise<CompanyUser | null> {
+    const membershipRepository =
+      this.userRepository.manager.getRepository(CompanyUser);
+
+    return membershipRepository
+      .createQueryBuilder('membership')
+      .innerJoinAndSelect('membership.company', 'company')
+      .leftJoinAndSelect('membership.role_assignments', 'roleAssignments')
+      .leftJoinAndSelect('roleAssignments.role', 'role')
+      .leftJoinAndSelect('role.permissions', 'rolePermissions')
+      .leftJoinAndSelect(
+        'membership.permission_assignments',
+        'permissionAssignments',
+      )
+      .leftJoinAndSelect('permissionAssignments.permission', 'permission')
+      .where('membership.user_id = :userId', { userId })
+      .andWhere('membership.company_id = :companyId', { companyId })
+      .andWhere('membership.status = :activeStatus', { activeStatus: 'active' })
+      .andWhere('company.status = :companyStatus', { companyStatus: 'active' })
+      .getOne();
   }
 
   async generateUserNo(manager?: EntityManager): Promise<string> {
@@ -209,7 +267,14 @@ export class UsersService {
       companyId,
       id,
     );
-    const companies = await this.companiesService.listUserCompanies(id);
+    const membership = await this.findActiveMembershipWithDetails(id, companyId);
+
+    const membershipRoles = membership
+      ? this.getMembershipRoles(membership)
+      : currentCompany.roles;
+    const membershipPermissions = membership
+      ? this.getMembershipPermissions(membership)
+      : currentCompany.permissions;
 
     return new UserProfileDto({
       id: user.id,
@@ -222,18 +287,36 @@ export class UsersService {
       user_type: user.user_type,
       is_email_verified: user.is_email_verified,
       is_two_factor_enabled: user.is_two_factor_enabled,
+      email_verification_expires: user.email_verification_expires,
       last_login_at: user.last_login_at,
       last_login_ip: user.last_login_ip,
       created_at: user.created_at,
       updated_at: user.updated_at,
-      roles: currentCompany.roles,
-      permissions: currentCompany.permissions,
-      current_company: {
-        id: currentCompany.companyId,
-        name: currentCompany.companyName,
-        slug: currentCompany.companySlug,
-      },
-      companies,
+      roles: membershipRoles,
+      permissions: membershipPermissions,
+      active_company: membership?.company
+        ? {
+            id: membership.company.id,
+            name: membership.company.name,
+            slug: membership.company.slug,
+            status: membership.company.status,
+            metadata: membership.company.metadata,
+            created_at: membership.company.created_at,
+            updated_at: membership.company.updated_at,
+          }
+        : null,
+      active_company_membership: membership
+        ? {
+            id: membership.id,
+            company_id: membership.company_id,
+            user_id: membership.user_id,
+            status: membership.status,
+            is_default: membership.is_default,
+            last_accessed_at: membership.last_accessed_at,
+            created_at: membership.created_at,
+            updated_at: membership.updated_at,
+          }
+        : null,
     });
   }
 
@@ -246,6 +329,14 @@ export class UsersService {
       companyId,
       id,
     );
+    const membership = await this.findActiveMembershipWithDetails(id, companyId);
+
+    const membershipRoles = membership
+      ? this.getMembershipRoles(membership)
+      : companyContext.roles;
+    const membershipPermissions = membership
+      ? this.getMembershipPermissions(membership)
+      : companyContext.permissions;
 
     return new UserProfileDto({
       id: user.id,
@@ -258,17 +349,36 @@ export class UsersService {
       user_type: user.user_type,
       is_email_verified: user.is_email_verified,
       is_two_factor_enabled: user.is_two_factor_enabled,
+      email_verification_expires: user.email_verification_expires,
       last_login_at: user.last_login_at,
       last_login_ip: user.last_login_ip,
       created_at: user.created_at,
       updated_at: user.updated_at,
-      roles: companyContext.roles,
-      permissions: companyContext.permissions,
-      current_company: {
-        id: companyContext.companyId,
-        name: companyContext.companyName,
-        slug: companyContext.companySlug,
-      },
+      roles: membershipRoles,
+      permissions: membershipPermissions,
+      active_company: membership?.company
+        ? {
+            id: membership.company.id,
+            name: membership.company.name,
+            slug: membership.company.slug,
+            status: membership.company.status,
+            metadata: membership.company.metadata,
+            created_at: membership.company.created_at,
+            updated_at: membership.company.updated_at,
+          }
+        : null,
+      active_company_membership: membership
+        ? {
+            id: membership.id,
+            company_id: membership.company_id,
+            user_id: membership.user_id,
+            status: membership.status,
+            is_default: membership.is_default,
+            last_accessed_at: membership.last_accessed_at,
+            created_at: membership.created_at,
+            updated_at: membership.updated_at,
+          }
+        : null,
     });
   }
 

@@ -21,6 +21,8 @@ export class UserProfileDto {
   is_email_verified: boolean;
   @ApiProperty({ example: false })
   is_two_factor_enabled: boolean;
+  @ApiPropertyOptional({ example: '2026-06-01T00:00:00.000Z', nullable: true })
+  email_verification_expires?: Date | null;
   @ApiPropertyOptional({ example: '2026-05-13T08:30:00.000Z', nullable: true })
   last_login_at: Date | null;
   @ApiPropertyOptional({ example: '197.250.10.22', nullable: true })
@@ -35,36 +37,43 @@ export class UserProfileDto {
   @ApiProperty({ type: [String], example: ['users:create', 'users:read'] })
   permissions: string[];
   @ApiPropertyOptional({
-    example: { id: 2, name: 'Acme Ltd', slug: 'acme-ltd' },
+    example: {
+      id: 2,
+      name: 'Acme Ltd',
+      slug: 'acme-ltd',
+      status: 'active',
+    },
   })
-  current_company?: {
+  active_company?: {
     id: number;
     name: string;
     slug: string;
-  };
+    status: string;
+    metadata?: Record<string, unknown> | null;
+    created_at?: Date;
+    updated_at?: Date;
+  } | null;
   @ApiPropertyOptional({
-    type: [Object],
-    example: [
-      {
-        companyId: 2,
-        companyName: 'Acme Ltd',
-        companySlug: 'acme-ltd',
-        membershipId: 6,
-        isDefault: true,
-        roles: ['ADMINISTRATOR'],
-        permissions: ['users:create', 'users:read'],
-      },
-    ],
+    example: {
+      id: 6,
+      company_id: 2,
+      user_id: 12,
+      status: 'active',
+      is_default: true,
+      roles: ['ADMINISTRATOR'],
+      permissions: ['users:read'],
+    },
   })
-  companies?: Array<{
-    companyId: number;
-    companyName: string;
-    companySlug: string;
-    membershipId: number;
-    isDefault: boolean;
-    roles: string[];
-    permissions: string[];
-  }>;
+  active_company_membership?: {
+    id: number;
+    company_id: number;
+    user_id: number;
+    status: string;
+    is_default: boolean;
+    last_accessed_at: Date | null;
+    created_at: Date;
+    updated_at: Date;
+  } | null;
 
   constructor(partial: Partial<UserProfileDto>) {
     Object.assign(this, partial);
