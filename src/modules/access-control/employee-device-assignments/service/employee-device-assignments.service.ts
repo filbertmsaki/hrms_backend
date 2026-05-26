@@ -1,0 +1,123 @@
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { In, Repository } from 'typeorm';
+import { CompanyUser } from '../../../companies/entities/company-user.entity';
+import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
+import { Employee } from '../../../hr/employees/entities/employee.entity';
+import { AssignEmployeeDevicesDto } from '../dto/assign-employee-devices.dto';
+import { EmployeeDeviceAssignment } from '../entity/employee-device-assignment.entity';
+import { EmployeeDeviceAssignmentSyncStatusEnum } from '../enum/employee-device-assignment-sync-status.enum';
+
+@Injectable()
+export class EmployeeDeviceAssignmentsService {
+  constructor(
+    @InjectRepository(EmployeeDeviceAssignment)
+    private readonly assignmentRepository: Repository<EmployeeDeviceAssignment>,
+    @InjectRepository(Employee)
+    private readonly employeeRepository: Repository<Employee>,
+    @InjectRepository(AttendanceDevice)
+    private readonly attendanceDeviceRepository: Repository<AttendanceDevice>,
+  ) {}
+
+  async assignDevices(companyId: number, employeeId: number, dto: AssignEmployeeDevicesDto) {
+    await this.ensureEmployee(companyId, employeeId);
+
+    const uniqueDeviceIds = [...new Set(dto.device_ids)];
+    const devices = await this.attendanceDeviceRepository.find({
+      where: {
+        id: In(uniqueDeviceIds),
+        companyId,
+      },
+      select: ['id', 'integrationType', 'vendorName'],
+    });
+
+    if (devices.length !== uniqueDeviceIds.length) {
+      throw new BadRequestException('One or more device_ids do not belong to the active company');
+    }
+
+    const nonHikvision = devices.find(
+      (device) =>
+        (device.integrationType || '').toLowerCase() !== 'hikvision' &&
+        !(device.vendorName || '').toLowerCase().includes('hikvision'),
+    );
+
+    if (nonHikvision) {
+      throw new BadRequestException(`Device ${nonHikvision.id} is not a Hikvision integration`);
+    }
+
+    let created = 0;
+    let updated = 0;
+
+    for (const deviceId of uniqueDeviceIds) {
+      const existing = await this.assignmentRepository.findOne({
+        where: { employeeId, deviceId },
+      });
+
+      if (existing) {
+        existing.syncStatus = EmployeeDeviceAssignmentSyncStatusEnum.PENDING;
+        await this.assignmentRepository.save(existing);
+        updated += 1;
+        continue;
+      }
+
+      const entity = this.assignmentRepository.create({
+        employeeId,
+        deviceId,
+        syncStatus: EmployeeDeviceAssignmentSyncStatusEnum.PENDING,
+        metadata: null,
+        lastSyncedAt: null,
+      });
+      await this.assignmentRepository.save(entity);
+      created += 1;
+    }
+
+    return {
+      message: 'Employee device assignments saved successfully',
+      employee_id: employeeId,
+      created,
+      updated,
+    };
+  }
+
+  async removeAssignment(companyId: number, employeeId: number, deviceId: number) {
+    await this.ensureEmployee(companyId, employeeId);
+
+    const assignment = await this.assignmentRepository.findOne({
+      where: { employeeId, deviceId },
+    });
+
+    if (!assignment) {
+      throw new NotFoundException('Employee device assignment not found');
+    }
+
+    await this.assignmentRepository.remove(assignment);
+
+    return {
+      message: 'Employee device assignment removed successfully',
+      employee_id: employeeId,
+      device_id: deviceId,
+    };
+  }
+
+  async listAssignments(employeeId: number): Promise<EmployeeDeviceAssignment[]> {
+    return this.assignmentRepository.find({ where: { employeeId } });
+  }
+
+  private async ensureEmployee(companyId: number, employeeId: number): Promise<void> {
+    const employee = await this.employeeRepository
+      .createQueryBuilder('employee')
+      .innerJoin(CompanyUser, 'companyUser', 'companyUser.id = employee.company_user_id')
+      .where('employee.id = :employeeId', { employeeId })
+      .andWhere('companyUser.company_id = :companyId', { companyId })
+      .select(['employee.id'])
+      .getOne();
+
+    if (!employee) {
+      throw new NotFoundException('Employee not found for active company');
+    }
+  }
+}

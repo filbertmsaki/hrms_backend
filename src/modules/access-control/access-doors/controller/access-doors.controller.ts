@@ -22,11 +22,11 @@ import {
   Min,
 } from 'class-validator';
 import type { Request as ExpressRequest } from 'express';
-import { SortDirection } from '../../../../../../common/dto/pagination.dto';
-import { Permissions } from '../../../../../../common/decorators/permissions.decorator';
-import { PermissionsGuard } from '../../../../../../common/guards/permissions.guard';
-import { TenantGuard } from '../../../../../../common/guards/tenant.guard';
-import { AuthenticatedUser } from '../../../../../../common/interfaces/authenticated-user.interface';
+import { SortDirection } from '../../../../common/dto/pagination.dto';
+import { Permissions } from '../../../../common/decorators/permissions.decorator';
+import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
+import { TenantGuard } from '../../../../common/guards/tenant.guard';
+import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import {
   ApiActionOperation,
   ApiCreateOperation,
@@ -34,7 +34,7 @@ import {
   ApiGetOneOperation,
   ApiListOperation,
   ApiUpdateOperation,
-} from '../../../../../../docs/swagger-decorators';
+} from '../../../../docs/swagger-decorators';
 import { AccessDoorSyncStatusEnum } from '../enum/access-door-sync-status.enum';
 import { AccessDoorsService } from '../service/access-doors.service';
 import { CreateAccessDoorDto } from '../dto/create-access-door.dto';

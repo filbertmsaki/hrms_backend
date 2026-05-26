@@ -1,0 +1,365 @@
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { In, Repository } from 'typeorm';
+import { SortDirection } from '../../../../common/dto/pagination.dto';
+import { buildPaginationMeta } from '../../../hr/shared/hr.utils';
+import { Branch } from '../../../hr/branches/entities/branch.entity';
+import { CompanyUser } from '../../../companies/entities/company-user.entity';
+import { Employee } from '../../../hr/employees/entities/employee.entity';
+import { AccessDoor } from '../../access-doors/entity/access-door.entity';
+import { AccessGroupDoor } from '../../access-group-doors/entity/access-group-door.entity';
+import { AccessGroupEmployee } from '../../access-group-employees/entity/access-group-employee.entity';
+import { AccessScheduleTemplate } from '../../access-schedule-templates/entity/access-schedule-template.entity';
+import { AccessControlSyncService } from '../../service/access-control-sync.service';
+import { AssignAccessGroupDoorsDto } from '../dto/assign-access-group-doors.dto';
+import { AssignAccessGroupEmployeesDto } from '../dto/assign-access-group-employees.dto';
+import { CreateAccessGroupDto } from '../dto/create-access-group.dto';
+import { UpdateAccessGroupDto } from '../dto/update-access-group.dto';
+import { AccessGroup } from '../entity/access-group.entity';
+import { AccessGroupStatusEnum } from '../enum/access-group-status.enum';
+
+type AccessGroupQuery = {
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: SortDirection;
+  branch_id?: number;
+  status?: AccessGroupStatusEnum;
+  search?: string;
+};
+
+@Injectable()
+export class AccessGroupsService {
+  constructor(
+    @InjectRepository(AccessGroup)
+    private readonly groupRepository: Repository<AccessGroup>,
+    @InjectRepository(Branch)
+    private readonly branchRepository: Repository<Branch>,
+    @InjectRepository(AccessScheduleTemplate)
+    private readonly scheduleTemplateRepository: Repository<AccessScheduleTemplate>,
+    @InjectRepository(AccessDoor)
+    private readonly accessDoorRepository: Repository<AccessDoor>,
+    @InjectRepository(AccessGroupDoor)
+    private readonly accessGroupDoorRepository: Repository<AccessGroupDoor>,
+    @InjectRepository(AccessGroupEmployee)
+    private readonly accessGroupEmployeeRepository: Repository<AccessGroupEmployee>,
+    @InjectRepository(Employee)
+    private readonly employeeRepository: Repository<Employee>,
+    private readonly accessControlSyncService: AccessControlSyncService,
+  ) {}
+
+  async create(companyId: number, dto: CreateAccessGroupDto) {
+    await this.ensureBranch(companyId, dto.branch_id);
+    await this.ensureScheduleTemplate(companyId, dto.schedule_template_id);
+
+    const duplicate = await this.groupRepository.findOne({
+      where: {
+        companyId,
+        name: dto.name.trim(),
+      },
+      select: ['id'],
+      withDeleted: true,
+    });
+
+    if (duplicate) {
+      throw new ConflictException('Group name already exists in the active company');
+    }
+
+    const entity = this.groupRepository.create({
+      companyId,
+      branchId: dto.branch_id ?? null,
+      name: dto.name.trim(),
+      scheduleTemplateId: dto.schedule_template_id,
+      status: dto.status ?? AccessGroupStatusEnum.ACTIVE,
+      metadata: dto.metadata ?? null,
+    });
+
+    return this.map(await this.groupRepository.save(entity));
+  }
+
+  async findAll(companyId: number, query: AccessGroupQuery) {
+    const {
+      page = 1,
+      limit = 20,
+      sortBy = 'created_at',
+      sortOrder = SortDirection.DESC,
+      branch_id,
+      status,
+      search,
+    } = query;
+
+    const qb = this.groupRepository
+      .createQueryBuilder('group')
+      .where('group.company_id = :companyId', { companyId });
+
+    if (branch_id) {
+      qb.andWhere('group.branch_id = :branchId', { branchId: branch_id });
+    }
+
+    if (status) {
+      qb.andWhere('group.status = :status', { status });
+    }
+
+    if (search?.trim()) {
+      qb.andWhere('group.name LIKE :term', { term: `%${search.trim()}%` });
+    }
+
+    const allowedSortFields = ['created_at', 'updated_at', 'name', 'status'];
+    const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'created_at';
+    const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
+
+    const [items, total] = await qb
+      .orderBy(`group.${safeSortBy}`, direction)
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    return {
+      data: items.map((item) => this.map(item)),
+      meta: buildPaginationMeta(total, items.length, limit, page),
+    };
+  }
+
+  async findOne(companyId: number, id: number) {
+    const item = await this.findOrFail(companyId, id);
+
+    const [doors, employees] = await Promise.all([
+      this.accessGroupDoorRepository
+        .createQueryBuilder('groupDoor')
+        .where('groupDoor.access_group_id = :groupId', { groupId: item.id })
+        .select(['groupDoor.door_id'])
+        .getRawMany<{ groupDoor_door_id: number }>(),
+      this.accessGroupEmployeeRepository
+        .createQueryBuilder('groupEmployee')
+        .where('groupEmployee.access_group_id = :groupId', { groupId: item.id })
+        .select(['groupEmployee.employee_id'])
+        .getRawMany<{ groupEmployee_employee_id: number }>(),
+    ]);
+
+    return {
+      ...this.map(item),
+      door_ids: doors.map((entry) => Number(entry.groupDoor_door_id)),
+      employee_ids: employees.map((entry) => Number(entry.groupEmployee_employee_id)),
+    };
+  }
+
+  async update(companyId: number, id: number, dto: UpdateAccessGroupDto) {
+    const item = await this.findOrFail(companyId, id);
+
+    if (dto.branch_id !== undefined) {
+      await this.ensureBranch(companyId, dto.branch_id);
+      item.branchId = dto.branch_id ?? null;
+    }
+
+    if (dto.schedule_template_id !== undefined) {
+      await this.ensureScheduleTemplate(companyId, dto.schedule_template_id);
+      item.scheduleTemplateId = dto.schedule_template_id;
+    }
+
+    if (dto.name !== undefined) {
+      const duplicate = await this.groupRepository.findOne({
+        where: {
+          companyId,
+          name: dto.name.trim(),
+        },
+        select: ['id'],
+      });
+      if (duplicate && duplicate.id !== item.id) {
+        throw new ConflictException('Group name already exists in the active company');
+      }
+      item.name = dto.name.trim();
+    }
+
+    if (dto.status !== undefined) item.status = dto.status;
+    if (dto.metadata !== undefined) item.metadata = dto.metadata;
+
+    return this.map(await this.groupRepository.save(item));
+  }
+
+  async remove(companyId: number, id: number): Promise<{ message: string }> {
+    const item = await this.findOrFail(companyId, id);
+    await this.groupRepository.softRemove(item);
+    return { message: 'Access group deleted successfully' };
+  }
+
+  async assignDoors(companyId: number, groupId: number, dto: AssignAccessGroupDoorsDto) {
+    await this.findOrFail(companyId, groupId);
+
+    const uniqueDoorIds = [...new Set(dto.door_ids)];
+    const doors = await this.accessDoorRepository.find({
+      where: { id: In(uniqueDoorIds), companyId },
+      select: ['id'],
+    });
+
+    if (doors.length !== uniqueDoorIds.length) {
+      throw new BadRequestException('One or more door_ids do not belong to the active company');
+    }
+
+    let created = 0;
+    for (const doorId of uniqueDoorIds) {
+      const existing = await this.accessGroupDoorRepository.findOne({
+        where: { accessGroupId: groupId, doorId },
+      });
+
+      if (existing) {
+        continue;
+      }
+
+      await this.accessGroupDoorRepository.save(
+        this.accessGroupDoorRepository.create({
+          accessGroupId: groupId,
+          doorId,
+        }),
+      );
+      created += 1;
+    }
+
+    return {
+      message: 'Group doors assigned successfully',
+      group_id: groupId,
+      created,
+    };
+  }
+
+  async removeDoor(companyId: number, groupId: number, doorId: number) {
+    await this.findOrFail(companyId, groupId);
+
+    const existing = await this.accessGroupDoorRepository.findOne({
+      where: { accessGroupId: groupId, doorId },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Group door assignment not found');
+    }
+
+    await this.accessGroupDoorRepository.remove(existing);
+
+    return {
+      message: 'Group door removed successfully',
+      group_id: groupId,
+      door_id: doorId,
+    };
+  }
+
+  async assignEmployees(companyId: number, groupId: number, dto: AssignAccessGroupEmployeesDto) {
+    await this.findOrFail(companyId, groupId);
+
+    const uniqueEmployeeIds = [...new Set(dto.employee_ids)];
+    const employees = await this.employeeRepository
+      .createQueryBuilder('employee')
+      .innerJoin(CompanyUser, 'companyUser', 'companyUser.id = employee.company_user_id')
+      .where('employee.id IN (:...employeeIds)', { employeeIds: uniqueEmployeeIds })
+      .andWhere('companyUser.company_id = :companyId', { companyId })
+      .select(['employee.id'])
+      .getMany();
+
+    if (employees.length !== uniqueEmployeeIds.length) {
+      throw new BadRequestException('One or more employee_ids do not belong to the active company');
+    }
+
+    let created = 0;
+    for (const employeeId of uniqueEmployeeIds) {
+      const existing = await this.accessGroupEmployeeRepository.findOne({
+        where: { accessGroupId: groupId, employeeId },
+      });
+
+      if (existing) {
+        continue;
+      }
+
+      await this.accessGroupEmployeeRepository.save(
+        this.accessGroupEmployeeRepository.create({
+          accessGroupId: groupId,
+          employeeId,
+        }),
+      );
+
+      created += 1;
+    }
+
+    return {
+      message: 'Group employees assigned successfully',
+      group_id: groupId,
+      created,
+    };
+  }
+
+  async removeEmployee(companyId: number, groupId: number, employeeId: number) {
+    await this.findOrFail(companyId, groupId);
+
+    const existing = await this.accessGroupEmployeeRepository.findOne({
+      where: { accessGroupId: groupId, employeeId },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Group employee assignment not found');
+    }
+
+    await this.accessGroupEmployeeRepository.remove(existing);
+
+    return {
+      message: 'Group employee removed successfully',
+      group_id: groupId,
+      employee_id: employeeId,
+    };
+  }
+
+  async syncGroup(companyId: number, groupId: number) {
+    return this.accessControlSyncService.syncGroup(companyId, groupId);
+  }
+
+  private async findOrFail(companyId: number, id: number): Promise<AccessGroup> {
+    const item = await this.groupRepository.findOne({ where: { id, companyId } });
+    if (!item) {
+      throw new NotFoundException('Access group not found');
+    }
+
+    return item;
+  }
+
+  private async ensureBranch(companyId: number, branchId?: number | null): Promise<void> {
+    if (!branchId) {
+      return;
+    }
+
+    const branch = await this.branchRepository.findOne({
+      where: { id: branchId, company_id: companyId },
+      select: ['id'],
+    });
+
+    if (!branch) {
+      throw new BadRequestException('branch_id does not belong to the active company');
+    }
+  }
+
+  private async ensureScheduleTemplate(companyId: number, scheduleTemplateId: number): Promise<void> {
+    const template = await this.scheduleTemplateRepository.findOne({
+      where: { id: scheduleTemplateId, companyId },
+      select: ['id'],
+    });
+
+    if (!template) {
+      throw new BadRequestException('schedule_template_id does not belong to the active company');
+    }
+  }
+
+  private map(item: AccessGroup) {
+    return {
+      id: item.id,
+      company_id: item.companyId,
+      branch_id: item.branchId,
+      name: item.name,
+      schedule_template_id: item.scheduleTemplateId,
+      status: item.status,
+      metadata: item.metadata,
+      created_at: item.createdAt,
+      updated_at: item.updatedAt,
+      deleted_at: item.deletedAt,
+    };
+  }
+}

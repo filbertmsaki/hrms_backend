@@ -11,8 +11,8 @@ import DigestFetch from 'digest-fetch';
 import { XMLParser } from 'fast-xml-parser';
 import { Repository } from 'typeorm';
 import { AttendanceDevice } from '../hr/attendance/devices/entities/attendance-device.entity';
-import { AccessDoorSyncStatusEnum } from '../hr/attendance/devices/doors/enum/access-door-sync-status.enum';
-import { AccessDoor } from '../hr/attendance/devices/doors/entity/access-door.entity';
+import { AccessDoorSyncStatusEnum } from '../access-control/access-doors/enum/access-door-sync-status.enum';
+import { AccessDoor } from '../access-control/access-doors/entity/access-door.entity';
 
 type RemoteDoorCommand = 'open' | 'close' | 'alwaysOpen' | 'alwaysClose';
 

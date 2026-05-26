@@ -14,7 +14,7 @@ import { MailModule } from './modules/mail/mail.module';
 import { CompaniesModule } from './modules/companies/companies.module';
 import { HrModule } from './modules/hr/hr.module';
 import { HikvisionModule } from './modules/hikvision/hikvision.module';
-import { AccessDoorsModule } from './modules/hr/attendance/devices/doors/access-doors.module';
+import { AccessControlModule } from './modules/access-control/access-control.module';
 import { TenantGuard } from './common/guards/tenant.guard';
 
 @Module({
@@ -59,7 +59,7 @@ import { TenantGuard } from './common/guards/tenant.guard';
     MailModule,
     HrModule,
     HikvisionModule,
-    AccessDoorsModule,
+    AccessControlModule,
   ],
   controllers: [AppController],
   providers: [

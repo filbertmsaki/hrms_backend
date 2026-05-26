@@ -10,9 +10,9 @@ import {
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
-import { Company } from '../../../../../companies/entities/company.entity';
-import { Branch } from '../../../../branches/entities/branch.entity';
-import { AttendanceDevice } from '../../entities/attendance-device.entity';
+import { Company } from '../../../companies/entities/company.entity';
+import { Branch } from '../../../hr/branches/entities/branch.entity';
+import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
 import { AccessDoorSyncStatusEnum } from '../enum/access-door-sync-status.enum';
 
 @Entity('access_doors')

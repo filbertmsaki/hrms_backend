@@ -6,11 +6,11 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { SortDirection } from '../../../../../../common/dto/pagination.dto';
-import { Branch } from '../../../../branches/entities/branch.entity';
-import { AttendanceDevice } from '../../entities/attendance-device.entity';
-import { buildPaginationMeta } from '../../../../shared/hr.utils';
-import { HikvisionDoorSyncService } from '../../../../../hikvision/hikvision-door.service';
+import { SortDirection } from '../../../../common/dto/pagination.dto';
+import { Branch } from '../../../hr/branches/entities/branch.entity';
+import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
+import { buildPaginationMeta } from '../../../hr/shared/hr.utils';
+import { HikvisionDoorSyncService } from '../../../hikvision/hikvision-door.service';
 import { AccessDoorSyncStatusEnum } from '../enum/access-door-sync-status.enum';
 import { AccessDoor } from '../entity/access-door.entity';
 import { CreateAccessDoorDto } from '../dto/create-access-door.dto';
