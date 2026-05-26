@@ -19,6 +19,7 @@ import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import {
+  ApiActionOperation,
   ApiCreateOperation,
   ApiDeleteOperation,
   ApiGetOneOperation,
@@ -80,6 +81,20 @@ export class AttendanceDevicesController {
     @Body() dto: UpdateAttendanceDeviceDto,
   ) {
     return this.attendanceDevicesService.update(req.user.companyId!, id, dto);
+  }
+
+  @Post(':id/sync')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_devices:update')
+  @ApiActionOperation(
+    'Sync Attendance Device Data',
+    'Manually sync device information and capabilities into the attendance device record',
+  )
+  syncDeviceData(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.attendanceDevicesService.syncDeviceData(req.user.companyId!, id);
   }
 
   @Delete(':id')

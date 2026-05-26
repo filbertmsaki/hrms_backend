@@ -23,6 +23,7 @@ import { HolidayGroup } from './holidays/entities/holiday-group.entity';
 import { AttendanceHoliday } from './holidays/entities/holiday.entity';
 import { Branch } from '../branches/entities/branch.entity';
 import { HikvisionModule } from './hikvision/hikvision.module';
+import { HikvisionModule as DeviceManagementHikvisionModule } from '../../hikvision/hikvision.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { HikvisionModule } from './hikvision/hikvision.module';
       Branch,
     ]),
     HikvisionModule,
+    DeviceManagementHikvisionModule,
   ],
   controllers: [
     AttendancePoliciesController,

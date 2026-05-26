@@ -1,7 +1,14 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  HttpException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
+import { HikvisionService as DeviceManagementHikvisionService } from '../../../hikvision/hikvision.service';
 import { Branch } from '../../branches/entities/branch.entity';
 import { buildPaginationMeta } from '../../shared/hr.utils';
 import { AttendanceDevice } from './entities/attendance-device.entity';
@@ -16,6 +23,7 @@ export class AttendanceDevicesService {
     private readonly attendanceDeviceRepository: Repository<AttendanceDevice>,
     @InjectRepository(Branch)
     private readonly branchRepository: Repository<Branch>,
+    private readonly deviceManagementHikvisionService: DeviceManagementHikvisionService,
   ) {}
 
   private map(item: AttendanceDevice) {
@@ -116,7 +124,19 @@ export class AttendanceDevicesService {
       }),
     );
 
-    return this.map(created);
+    if (this.shouldAutoSyncHikvision(created)) {
+      try {
+        await this.deviceManagementHikvisionService.syncDevice(companyId, created.id);
+      } catch (error) {
+        await this.attendanceDeviceRepository.softRemove(created);
+        throw new BadRequestException(
+          `Hikvision sync failed during create. Device creation was rolled back. ${this.extractSyncErrorMessage(error)}`,
+        );
+      }
+    }
+
+    const finalCreated = await this.findOrFail(companyId, created.id);
+    return this.map(finalCreated);
   }
 
   async findAll(companyId: number, query: AttendanceDeviceQueryDto) {
@@ -193,6 +213,7 @@ export class AttendanceDevicesService {
 
   async update(companyId: number, id: number, dto: UpdateAttendanceDeviceDto) {
     const item = await this.findOrFail(companyId, id);
+    const snapshotBeforeUpdate = this.captureDeviceSnapshot(item);
 
     if (dto.branch_id !== undefined) {
       await this.ensureBranch(companyId, dto.branch_id);
@@ -236,13 +257,109 @@ export class AttendanceDevicesService {
       item.locationDescription = dto.location_description?.trim() || null;
     if (dto.metadata !== undefined) item.metadata = dto.metadata;
 
-    return this.map(await this.attendanceDeviceRepository.save(item));
+    const saved = await this.attendanceDeviceRepository.save(item);
+
+    if (this.shouldAutoSyncHikvision(saved)) {
+      try {
+        await this.deviceManagementHikvisionService.syncDevice(companyId, saved.id);
+      } catch (error) {
+        const restored = this.attendanceDeviceRepository.create(snapshotBeforeUpdate);
+        await this.attendanceDeviceRepository.save(restored);
+        throw new BadRequestException(
+          `Hikvision sync failed during update. Backend values were restored. ${this.extractSyncErrorMessage(error)}`,
+        );
+      }
+    }
+
+    const finalUpdated = await this.findOrFail(companyId, saved.id);
+    return this.map(finalUpdated);
   }
 
   async remove(companyId: number, id: number): Promise<{ message: string }> {
     const item = await this.findOrFail(companyId, id);
     await this.attendanceDeviceRepository.softRemove(item);
     return { message: 'Attendance device deleted successfully' };
+  }
+
+  async syncDeviceData(companyId: number, id: number) {
+    const item = await this.findOrFail(companyId, id);
+    if (!this.shouldAutoSyncHikvision(item)) {
+      throw new BadRequestException(
+        'Manual sync is currently supported only for Hikvision devices',
+      );
+    }
+
+    const syncResult = await this.deviceManagementHikvisionService.syncDevice(companyId, id);
+    const refreshed = await this.findOrFail(companyId, id);
+
+    return {
+      message: 'Attendance device manual sync completed successfully',
+      synced_fields: syncResult.synced_fields ?? [],
+      device: this.map(refreshed),
+    };
+  }
+
+  private shouldAutoSyncHikvision(
+    device: Pick<AttendanceDevice, 'integrationType' | 'vendorName' | 'authType'>,
+  ): boolean {
+    const integrationType = (device.integrationType || '').trim().toLowerCase();
+    const vendorName = (device.vendorName || '').trim().toLowerCase();
+    const isHikvision = integrationType === 'hikvision' || vendorName.includes('hikvision');
+    return isHikvision;
+  }
+
+  private extractSyncErrorMessage(error: unknown): string {
+    if (error instanceof HttpException) {
+      const response = error.getResponse();
+      if (typeof response === 'string') {
+        return response;
+      }
+      if (response && typeof response === 'object') {
+        const message = (response as { message?: unknown }).message;
+        if (Array.isArray(message)) {
+          return message.join(', ');
+        }
+        if (typeof message === 'string') {
+          return message;
+        }
+      }
+      return error.message;
+    }
+
+    return (error as { message?: string } | null)?.message || 'Unknown sync error';
+  }
+
+  private captureDeviceSnapshot(device: AttendanceDevice): AttendanceDevice {
+    return this.attendanceDeviceRepository.create({
+      id: device.id,
+      companyId: device.companyId,
+      branchId: device.branchId,
+      deviceName: device.deviceName,
+      deviceCode: device.deviceCode,
+      deviceSerialNumber: device.deviceSerialNumber,
+      deviceModel: device.deviceModel,
+      ipAddress: device.ipAddress,
+      port: device.port,
+      protocol: device.protocol,
+      vendorName: device.vendorName,
+      integrationType: device.integrationType,
+      authType: device.authType,
+      apiUsername: device.apiUsername,
+      apiPassword: device.apiPassword,
+      syncMode: device.syncMode,
+      status: device.status,
+      isActive: device.isActive,
+      lastSyncAt: device.lastSyncAt,
+      lastHeartbeatAt: device.lastHeartbeatAt,
+      lastListenerAt: device.lastListenerAt,
+      firmwareVersion: device.firmwareVersion,
+      macAddress: device.macAddress,
+      deviceType: device.deviceType,
+      timezone: device.timezone,
+      locationDescription: device.locationDescription,
+      metadata: device.metadata,
+      deletedAt: device.deletedAt,
+    });
   }
 }
 
