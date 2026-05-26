@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsIP,
@@ -42,6 +43,24 @@ export class CreateAttendanceDeviceDto {
   @MaxLength(20)
   protocol: string;
 
+  @ApiPropertyOptional({ example: 'Hikvision' })
+  @IsString()
+  @MaxLength(80)
+  @IsOptional()
+  vendor_name?: string;
+
+  @ApiPropertyOptional({ example: 'hikvision' })
+  @IsString()
+  @MaxLength(40)
+  @IsOptional()
+  integration_type?: string;
+
+  @ApiPropertyOptional({ example: 'digest' })
+  @IsString()
+  @MaxLength(40)
+  @IsOptional()
+  auth_type?: string;
+
   @IsString()
   @MaxLength(120)
   api_username: string;
@@ -59,9 +78,33 @@ export class CreateAttendanceDeviceDto {
   @IsOptional()
   status?: AttendanceDeviceStatusEnum;
 
+  @ApiPropertyOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  is_active?: boolean;
+
   @IsString()
   @MaxLength(100)
   timezone: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @MaxLength(120)
+  @IsOptional()
+  firmware_version?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @MaxLength(64)
+  @IsOptional()
+  mac_address?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @MaxLength(80)
+  @IsOptional()
+  device_type?: string;
 
   @ApiPropertyOptional()
   @Type(() => Number)

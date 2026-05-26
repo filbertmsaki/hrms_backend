@@ -9,6 +9,7 @@ import OnboardingWorkflowSeeder from './006-onboarding-workflow.seed';
 import OnboardingWorkflowStepsSeeder from './007-onboarding-workflow-steps.seed';
 import OffboardingWorkflowSeeder from './008-offboarding-workflow.seed';
 import OffboardingWorkflowStepsSeeder from './009-offboarding-workflow-steps.seed';
+import HikvisionDeviceSeeder from '../../modules/hr/attendance/hikvision/seeders/hikvision-device.seeder';
 // import CountriesSeeder from './002-countries.seed';
 // import CategoriesSeeder from './003-categories.seed';
 // ... import other seeders here
@@ -23,6 +24,7 @@ const seeders = [
   OnboardingWorkflowStepsSeeder,
   OffboardingWorkflowSeeder,
   OffboardingWorkflowStepsSeeder,
+  HikvisionDeviceSeeder,
   // CountriesSeeder,
   // CategoriesSeeder,
   // Add new seeders here ↑

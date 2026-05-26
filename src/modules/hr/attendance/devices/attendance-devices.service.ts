@@ -30,11 +30,19 @@ export class AttendanceDevicesService {
       ip_address: item.ipAddress,
       port: item.port,
       protocol: item.protocol,
+      vendor_name: item.vendorName,
+      integration_type: item.integrationType,
+      auth_type: item.authType,
       api_username: item.apiUsername,
       sync_mode: item.syncMode,
       status: item.status,
+      is_active: item.isActive,
       last_sync_at: item.lastSyncAt,
       last_heartbeat_at: item.lastHeartbeatAt,
+      last_listener_at: item.lastListenerAt,
+      firmware_version: item.firmwareVersion,
+      mac_address: item.macAddress,
+      device_type: item.deviceType,
       timezone: item.timezone,
       location_description: item.locationDescription,
       metadata: item.metadata,
@@ -91,10 +99,17 @@ export class AttendanceDevicesService {
         ipAddress: dto.ip_address,
         port: dto.port,
         protocol: dto.protocol.trim(),
+        vendorName: dto.vendor_name?.trim() || null,
+        integrationType: dto.integration_type?.trim() || 'generic',
+        authType: dto.auth_type?.trim() || 'none',
         apiUsername: dto.api_username.trim(),
         apiPassword: dto.api_password,
         syncMode: dto.sync_mode,
         status: dto.status,
+        isActive: dto.is_active ?? true,
+        firmwareVersion: dto.firmware_version?.trim() || null,
+        macAddress: dto.mac_address?.trim() || null,
+        deviceType: dto.device_type?.trim() || null,
         timezone: dto.timezone.trim(),
         locationDescription: dto.location_description?.trim() || null,
         metadata: dto.metadata ?? null,
@@ -112,6 +127,8 @@ export class AttendanceDevicesService {
       sortOrder = SortDirection.DESC,
       status,
       branch_id,
+      vendor_name,
+      integration_type,
       search,
     } = query;
 
@@ -125,6 +142,18 @@ export class AttendanceDevicesService {
 
     if (branch_id) {
       qb.andWhere('attendanceDevice.branch_id = :branchId', { branchId: branch_id });
+    }
+
+    if (vendor_name?.trim()) {
+      qb.andWhere('LOWER(attendanceDevice.vendor_name) LIKE :vendor', {
+        vendor: `%${vendor_name.trim().toLowerCase()}%`,
+      });
+    }
+
+    if (integration_type?.trim()) {
+      qb.andWhere('LOWER(attendanceDevice.integration_type) = :integrationType', {
+        integrationType: integration_type.trim().toLowerCase(),
+      });
     }
 
     if (search?.trim()) {
@@ -190,10 +219,18 @@ export class AttendanceDevicesService {
     if (dto.ip_address !== undefined) item.ipAddress = dto.ip_address;
     if (dto.port !== undefined) item.port = dto.port;
     if (dto.protocol !== undefined) item.protocol = dto.protocol.trim();
+    if (dto.vendor_name !== undefined) item.vendorName = dto.vendor_name?.trim() || null;
+    if (dto.integration_type !== undefined) item.integrationType = dto.integration_type.trim();
+    if (dto.auth_type !== undefined) item.authType = dto.auth_type.trim();
     if (dto.api_username !== undefined) item.apiUsername = dto.api_username.trim();
     if (dto.api_password !== undefined) item.apiPassword = dto.api_password;
     if (dto.sync_mode !== undefined) item.syncMode = dto.sync_mode;
     if (dto.status !== undefined) item.status = dto.status;
+    if (dto.is_active !== undefined) item.isActive = dto.is_active;
+    if (dto.firmware_version !== undefined)
+      item.firmwareVersion = dto.firmware_version?.trim() || null;
+    if (dto.mac_address !== undefined) item.macAddress = dto.mac_address?.trim() || null;
+    if (dto.device_type !== undefined) item.deviceType = dto.device_type?.trim() || null;
     if (dto.timezone !== undefined) item.timezone = dto.timezone.trim();
     if (dto.location_description !== undefined)
       item.locationDescription = dto.location_description?.trim() || null;

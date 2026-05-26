@@ -16,6 +16,7 @@ import { AttendanceDeviceStatusEnum } from '../enums/attendance-device-status.en
 import { AttendanceDeviceSyncModeEnum } from '../enums/attendance-device-sync-mode.enum';
 import { AttendanceCheckpoint } from '../../checkpoints/entities/attendance-checkpoint.entity';
 import { AttendanceDeviceSyncLog } from '../../sync-logs/entities/attendance-device-sync-log.entity';
+import { AttendanceLog as HikvisionAttendanceLog } from '../../hikvision/entities/attendance-log.entity';
 
 @Entity('attendance_devices')
 @Index('IDX_attendance_devices_company_id', ['companyId'])
@@ -23,6 +24,9 @@ import { AttendanceDeviceSyncLog } from '../../sync-logs/entities/attendance-dev
 @Index('IDX_attendance_devices_device_code', ['deviceCode'], { unique: true })
 @Index('IDX_attendance_devices_status', ['status'])
 @Index('IDX_attendance_devices_company_status', ['companyId', 'status'])
+@Index('IDX_attendance_devices_is_active', ['isActive'])
+@Index('IDX_attendance_devices_vendor_name', ['vendorName'])
+@Index('IDX_attendance_devices_integration_type', ['integrationType'])
 export class AttendanceDevice {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -54,6 +58,15 @@ export class AttendanceDevice {
   @Column({ name: 'protocol', type: 'varchar', length: 20 })
   protocol: string;
 
+  @Column({ name: 'vendor_name', type: 'varchar', length: 80, nullable: true })
+  vendorName: string | null;
+
+  @Column({ name: 'integration_type', type: 'varchar', length: 40, default: 'generic' })
+  integrationType: string;
+
+  @Column({ name: 'auth_type', type: 'varchar', length: 40, default: 'none' })
+  authType: string;
+
   @Column({ name: 'api_username', type: 'varchar', length: 120 })
   apiUsername: string;
 
@@ -76,11 +89,26 @@ export class AttendanceDevice {
   })
   status: AttendanceDeviceStatusEnum;
 
+  @Column({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean;
+
   @Column({ name: 'last_sync_at', type: 'timestamp', nullable: true })
   lastSyncAt: Date | null;
 
   @Column({ name: 'last_heartbeat_at', type: 'timestamp', nullable: true })
   lastHeartbeatAt: Date | null;
+
+  @Column({ name: 'last_listener_at', type: 'timestamp', nullable: true })
+  lastListenerAt: Date | null;
+
+  @Column({ name: 'firmware_version', type: 'varchar', length: 120, nullable: true })
+  firmwareVersion: string | null;
+
+  @Column({ name: 'mac_address', type: 'varchar', length: 64, nullable: true })
+  macAddress: string | null;
+
+  @Column({ name: 'device_type', type: 'varchar', length: 80, nullable: true })
+  deviceType: string | null;
 
   @Column({ name: 'timezone', type: 'varchar', length: 100 })
   timezone: string;
@@ -113,6 +141,9 @@ export class AttendanceDevice {
 
   @OneToMany(() => AttendanceCheckpoint, (checkpoint) => checkpoint.device)
   checkpoints: AttendanceCheckpoint[];
+
+  @OneToMany(() => HikvisionAttendanceLog, (attendanceLog) => attendanceLog.device)
+  hikvisionAttendanceLogs: HikvisionAttendanceLog[];
 }
 
 
