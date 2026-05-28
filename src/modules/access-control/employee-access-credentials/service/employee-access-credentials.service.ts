@@ -1,11 +1,14 @@
 import {
+  BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
+import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
 import { Employee } from '../../../hr/employees/entities/employee.entity';
+import { EmployeeDeviceAssignment } from '../../employee-device-assignments/entity/employee-device-assignment.entity';
 import { CreateEmployeeAccessCredentialDto } from '../dto/create-employee-access-credential.dto';
 import { UpdateEmployeeAccessCredentialDto } from '../dto/update-employee-access-credential.dto';
 import { EmployeeAccessCredential } from '../entity/employee-access-credential.entity';
@@ -17,6 +20,10 @@ export class EmployeeAccessCredentialsService {
     private readonly credentialRepository: Repository<EmployeeAccessCredential>,
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
+    @InjectRepository(AttendanceDevice)
+    private readonly attendanceDeviceRepository: Repository<AttendanceDevice>,
+    @InjectRepository(EmployeeDeviceAssignment)
+    private readonly employeeDeviceAssignmentRepository: Repository<EmployeeDeviceAssignment>,
   ) {}
 
   async createOrReplace(
@@ -34,8 +41,14 @@ export class EmployeeAccessCredentialsService {
       item = this.credentialRepository.create({ companyId, employeeId });
     }
 
+    const resolvedDeviceId = await this.resolveAndValidateDeviceId(
+      companyId,
+      employee.id,
+      dto.device_id ?? item.deviceId ?? null,
+    );
+
     item.employeeNo = employee.employee_no;
-    item.deviceId = dto.device_id ?? item.deviceId ?? null;
+    item.deviceId = resolvedDeviceId;
     item.credentialType = dto.credential_type ?? item.credentialType ?? 'CARD';
     item.credentialNo = dto.credential_no ?? item.credentialNo ?? null;
     item.credentialStatus = dto.credential_status ?? item.credentialStatus ?? 'ACTIVE';
@@ -63,8 +76,14 @@ export class EmployeeAccessCredentialsService {
       throw new NotFoundException('Employee access credentials not found');
     }
 
+    const resolvedDeviceId = await this.resolveAndValidateDeviceId(
+      companyId,
+      employee.id,
+      dto.device_id ?? item.deviceId ?? null,
+    );
+
     item.employeeNo = employee.employee_no;
-    if (dto.device_id !== undefined) item.deviceId = dto.device_id ?? null;
+    item.deviceId = resolvedDeviceId;
     if (dto.credential_type !== undefined) item.credentialType = dto.credential_type;
     if (dto.credential_no !== undefined) item.credentialNo = dto.credential_no ?? null;
     if (dto.credential_status !== undefined) item.credentialStatus = dto.credential_status;
@@ -140,5 +159,38 @@ export class EmployeeAccessCredentialsService {
       created_at: item.createdAt,
       updated_at: item.updatedAt,
     };
+  }
+
+  private async resolveAndValidateDeviceId(
+    companyId: number,
+    employeeId: number,
+    requestedDeviceId: number | null,
+  ): Promise<number | null> {
+    let deviceId = requestedDeviceId;
+
+    if (!deviceId) {
+      const assignment = await this.employeeDeviceAssignmentRepository.findOne({
+        where: { companyId, employeeId },
+        select: ['deviceId'],
+      });
+      deviceId = assignment?.deviceId ?? null;
+    }
+
+    if (!deviceId) {
+      return null;
+    }
+
+    const device = await this.attendanceDeviceRepository.findOne({
+      where: { id: deviceId, companyId },
+      select: ['id'],
+    });
+
+    if (!device) {
+      throw new BadRequestException(
+        `device_id ${deviceId} does not exist for this company. Assign employee to a valid device first.`,
+      );
+    }
+
+    return deviceId;
   }
 }
