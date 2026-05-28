@@ -911,15 +911,16 @@ export class AccessControlSyncService {
     try {
       const organization = await this.resolveOrganization(companyId, employee, group);
       if (organization?.hikvisionGroupNo) {
-        await this.hikvisionAccessControlService.putGroupCfg(
+        const groupCfgResponse = await this.hikvisionAccessControlService.putGroupCfg(
           companyId,
           deviceId,
           organization.hikvisionGroupNo,
           { name: organization.name },
         );
+        this.ensureHikvisionSuccess('PutGroupCfg', groupCfgResponse);
       }
 
-      await this.hikvisionAccessControlService.putUserRightPlanTemplate(
+      const templateResponse = await this.hikvisionAccessControlService.putUserRightPlanTemplate(
         companyId,
         deviceId,
         scheduleTemplate.hikvisionTemplateNo,
@@ -931,6 +932,7 @@ export class AccessControlSyncService {
           },
         },
       );
+      this.ensureHikvisionSuccess('PutUserRightPlanTemplate', templateResponse);
 
       if (weekPlan) {
         const weekPlanCfg = weekPlanSegments.map((segment) => ({
@@ -943,7 +945,7 @@ export class AccessControlSyncService {
           },
         }));
 
-        await this.hikvisionAccessControlService.putUserRightWeekPlanCfg(
+        const weekPlanResponse = await this.hikvisionAccessControlService.putUserRightWeekPlanCfg(
           companyId,
           deviceId,
           weekPlan.hikvisionPlanNo,
@@ -954,6 +956,7 @@ export class AccessControlSyncService {
             },
           },
         );
+        this.ensureHikvisionSuccess('PutUserRightWeekPlanCfg', weekPlanResponse);
       }
 
       const doorNos = doors.map((door) => door.doorNo).sort((a, b) => a - b);
@@ -974,6 +977,7 @@ export class AccessControlSyncService {
           employeeNoList: [{ employeeNo }],
         },
       });
+      this.ensureHikvisionSuccess('SearchUserInfo', searchResponse);
 
       const userExists = this.searchResultContainsEmployeeNo(searchResponse.parsed, employeeNo);
 
@@ -989,9 +993,19 @@ export class AccessControlSyncService {
       };
 
       if (userExists) {
-        await this.hikvisionAccessControlService.modifyUserInfo(companyId, deviceId, userInfoPayload);
+        const modifyResponse = await this.hikvisionAccessControlService.modifyUserInfo(
+          companyId,
+          deviceId,
+          userInfoPayload,
+        );
+        this.ensureHikvisionSuccess('ModifyUserInfo', modifyResponse);
       } else {
-        await this.hikvisionAccessControlService.recordUserInfo(companyId, deviceId, userInfoPayload);
+        const recordResponse = await this.hikvisionAccessControlService.recordUserInfo(
+          companyId,
+          deviceId,
+          userInfoPayload,
+        );
+        this.ensureHikvisionSuccess('RecordUserInfo', recordResponse);
       }
 
       if (credentials?.cardNo) {
@@ -1003,6 +1017,7 @@ export class AccessControlSyncService {
             cardNo: credentials.cardNo,
           },
         });
+        this.ensureHikvisionSuccess('SearchCardInfo', cardSearch);
 
         const cardExists = this.searchResultContainsCardNo(cardSearch.parsed, credentials.cardNo);
         const cardPayload = {
@@ -1014,9 +1029,19 @@ export class AccessControlSyncService {
         };
 
         if (cardExists) {
-          await this.hikvisionAccessControlService.modifyCardInfo(companyId, deviceId, cardPayload);
+          const cardModifyResponse = await this.hikvisionAccessControlService.modifyCardInfo(
+            companyId,
+            deviceId,
+            cardPayload,
+          );
+          this.ensureHikvisionSuccess('ModifyCardInfo', cardModifyResponse);
         } else {
-          await this.hikvisionAccessControlService.recordCardInfo(companyId, deviceId, cardPayload);
+          const cardRecordResponse = await this.hikvisionAccessControlService.recordCardInfo(
+            companyId,
+            deviceId,
+            cardPayload,
+          );
+          this.ensureHikvisionSuccess('RecordCardInfo', cardRecordResponse);
         }
       }
 
@@ -1024,11 +1049,12 @@ export class AccessControlSyncService {
         const metadata = this.toObject(credentials.metadata);
         const fingerprintPayload = this.toObject(metadata.fingerprint_payload);
         if (Object.keys(fingerprintPayload).length) {
-          await this.hikvisionAccessControlService.setupFingerprint(
+          const fingerprintResponse = await this.hikvisionAccessControlService.setupFingerprint(
             companyId,
             deviceId,
             fingerprintPayload,
           );
+          this.ensureHikvisionSuccess('SetFingerprint', fingerprintResponse);
         }
       }
 
@@ -1323,5 +1349,107 @@ export class AccessControlSyncService {
   private formatWeekDay(value: string): string {
     const normalized = String(value ?? '').trim().toLowerCase();
     return normalized ? `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}` : 'Monday';
+  }
+
+  private ensureHikvisionSuccess(
+    operation: string,
+    response: {
+      ok: boolean;
+      status: number;
+      parsed: Record<string, unknown> | string;
+      raw: string;
+    },
+  ) {
+    if (!response.ok) {
+      throw new BadRequestException(
+        `${operation} failed with HTTP ${response.status}`,
+      );
+    }
+
+    const failureReason = this.extractHikvisionFailureReason(response.parsed);
+    if (failureReason) {
+      throw new BadRequestException(`${operation} failed: ${failureReason}`);
+    }
+  }
+
+  private extractHikvisionFailureReason(payload: unknown): string | null {
+    if (!payload || typeof payload !== 'object') {
+      return null;
+    }
+
+    const root = payload as Record<string, unknown>;
+    const statusString = this.findFirstStringDeep(root, ['statusString', 'statusStrg', 'status']);
+    const statusCode = this.findFirstStringDeep(root, ['statusCode']);
+    const subStatusCode = this.findFirstStringDeep(root, ['subStatusCode']);
+    const errorCode = this.findFirstStringDeep(root, ['errorCode']);
+    const errorMessage = this.findFirstStringDeep(root, ['errorMsg', 'errorMessage', 'message']);
+
+    const hasStatusEnvelope =
+      Boolean(statusString) || Boolean(statusCode) || Boolean(subStatusCode) || Boolean(errorCode);
+    if (!hasStatusEnvelope) {
+      return null;
+    }
+
+    const normalizedStatusString = statusString.toLowerCase();
+    const normalizedSubStatus = subStatusCode.toLowerCase();
+    const normalizedErrorCode = errorCode.toLowerCase();
+    const normalizedStatusCode = statusCode.toLowerCase();
+
+    const successSubStatus = new Set(['ok', 'success', 'none']);
+    const successStatusString = new Set(['ok', 'success', 'successful', 'enabled', 'completed']);
+    const successStatusCode = new Set(['1', '200']);
+
+    if (normalizedSubStatus && !successSubStatus.has(normalizedSubStatus)) {
+      return `${subStatusCode}${errorMessage ? ` (${errorMessage})` : ''}`;
+    }
+
+    if (normalizedStatusString && !successStatusString.has(normalizedStatusString)) {
+      return `${statusString}${errorMessage ? ` (${errorMessage})` : ''}`;
+    }
+
+    if (normalizedErrorCode && normalizedErrorCode !== '0' && normalizedErrorCode !== '1') {
+      return `${errorCode}${errorMessage ? ` (${errorMessage})` : ''}`;
+    }
+
+    if (normalizedStatusCode && !successStatusCode.has(normalizedStatusCode)) {
+      return `${statusCode}${errorMessage ? ` (${errorMessage})` : ''}`;
+    }
+
+    return null;
+  }
+
+  private findFirstStringDeep(source: Record<string, unknown>, candidateKeys: string[]): string {
+    const keySet = new Set(candidateKeys.map((key) => key.toLowerCase()));
+    const stack: unknown[] = [source];
+    let depth = 0;
+
+    while (stack.length && depth < 8) {
+      const node = stack.shift();
+      if (Array.isArray(node)) {
+        stack.push(...node);
+        depth += 1;
+        continue;
+      }
+
+      if (!node || typeof node !== 'object') {
+        depth += 1;
+        continue;
+      }
+
+      const record = node as Record<string, unknown>;
+      for (const [key, value] of Object.entries(record)) {
+        if (keySet.has(key.toLowerCase())) {
+          const normalized = String(value ?? '').trim();
+          if (normalized) {
+            return normalized;
+          }
+        }
+      }
+
+      stack.push(...Object.values(record));
+      depth += 1;
+    }
+
+    return '';
   }
 }
