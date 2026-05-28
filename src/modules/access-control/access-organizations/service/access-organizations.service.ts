@@ -46,12 +46,23 @@ export class AccessOrganizationsService {
     await this.ensureBranch(companyId, dto.branch_id);
     await this.ensureDepartment(companyId, dto.department_id);
 
+    const orgName = (dto.org_name ?? dto.name ?? '').trim();
+    if (!orgName) {
+      throw new BadRequestException('org_name is required');
+    }
+
     const entity = this.organizationRepository.create({
       companyId,
       branchId: dto.branch_id ?? null,
       departmentId: dto.department_id ?? null,
-      hikvisionGroupNo: dto.hikvision_group_no.trim(),
-      name: dto.name.trim(),
+      deviceId: dto.device_id ?? null,
+      parentId: dto.parent_id ?? null,
+      hikvisionGroupNo: dto.hikvision_group_no?.trim() || null,
+      hikvisionOrgIndex: dto.hikvision_org_index?.trim() || dto.hikvision_group_no?.trim() || null,
+      orgName,
+      name: orgName,
+      orgCode: dto.org_code?.trim() || null,
+      description: dto.description ?? null,
       syncStatus: AccessOrganizationSyncStatusEnum.PENDING,
       metadata: dto.metadata ?? null,
     });
@@ -131,12 +142,23 @@ export class AccessOrganizationsService {
     }
 
     if (dto.hikvision_group_no !== undefined) {
-      item.hikvisionGroupNo = dto.hikvision_group_no.trim();
+      item.hikvisionGroupNo = dto.hikvision_group_no?.trim() || null;
     }
 
-    if (dto.name !== undefined) {
-      item.name = dto.name.trim();
+    if (dto.hikvision_org_index !== undefined) {
+      item.hikvisionOrgIndex = dto.hikvision_org_index?.trim() || null;
     }
+
+    if (dto.name !== undefined || dto.org_name !== undefined) {
+      const orgName = (dto.org_name ?? dto.name ?? '').trim();
+      item.name = orgName || item.name;
+      item.orgName = orgName || item.orgName;
+    }
+
+    if (dto.org_code !== undefined) item.orgCode = dto.org_code?.trim() || null;
+    if (dto.description !== undefined) item.description = dto.description ?? null;
+    if (dto.device_id !== undefined) item.deviceId = dto.device_id ?? null;
+    if (dto.parent_id !== undefined) item.parentId = dto.parent_id ?? null;
 
     if (dto.metadata !== undefined) {
       item.metadata = dto.metadata;
@@ -160,6 +182,15 @@ export class AccessOrganizationsService {
 
     for (const deviceId of targetDeviceIds) {
       try {
+        if (!organization.hikvisionGroupNo) {
+          results.push({
+            device_id: deviceId,
+            status: 'FAILED',
+            reason: 'hikvision_group_no is required for device sync',
+          });
+          continue;
+        }
+
         const response = await this.hikvisionAccessControlService.putGroupCfg(
           companyId,
           deviceId,
@@ -271,8 +302,12 @@ export class AccessOrganizationsService {
         entity.companyId = companyId;
         entity.branchId = existing?.branchId ?? device.branchId ?? null;
         entity.departmentId = existing?.departmentId ?? null;
+        entity.deviceId = existing?.deviceId ?? deviceId;
+        entity.parentId = existing?.parentId ?? null;
         entity.hikvisionGroupNo = groupNoText;
+        entity.hikvisionOrgIndex = groupNoText;
         entity.name = groupName;
+        entity.orgName = groupName;
         entity.syncStatus = AccessOrganizationSyncStatusEnum.SYNCED;
         entity.metadata = {
           ...(existing?.metadata ?? {}),
@@ -328,8 +363,17 @@ export class AccessOrganizationsService {
       company_id: item.companyId,
       branch_id: item.branchId,
       department_id: item.departmentId,
+      device_id: item.deviceId,
+      parent_id: item.parentId,
+      hikvision_org_index: item.hikvisionOrgIndex,
       hikvision_group_no: item.hikvisionGroupNo,
       name: item.name,
+      org_name: item.orgName,
+      org_code: item.orgCode,
+      description: item.description,
+      source: item.source,
+      is_active: item.isActive,
+      last_synced_at: item.lastSyncedAt,
       sync_status: item.syncStatus,
       metadata: item.metadata,
       created_at: item.createdAt,

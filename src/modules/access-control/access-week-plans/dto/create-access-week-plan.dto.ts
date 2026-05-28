@@ -1,28 +1,96 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsObject, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
-import { AccessDayOfWeekEnum } from '../enum/access-day-of-week.enum';
+import {
+  IsArray,
+  IsInt,
+  IsObject,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 
-export class CreateAccessWeekPlanDto {
+class AccessWeekPlanSegmentTimeDto {
+  @IsString()
+  @Matches(/^\d{2}:\d{2}:\d{2}$/)
+  beginTime: string;
+
+  @IsString()
+  @Matches(/^\d{2}:\d{2}:\d{2}$/)
+  endTime: string;
+}
+
+class AccessWeekPlanSegmentDto {
+  @IsString()
+  week: string;
+
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  schedule_template_id: number;
+  @Max(8)
+  @IsOptional()
+  id?: number;
+
+  @ApiPropertyOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(8)
+  @IsOptional()
+  segment_no?: number;
+
+  @ApiPropertyOptional()
+  @Type(() => Boolean)
+  @IsOptional()
+  enable?: boolean;
+
+  @ValidateNested()
+  @Type(() => AccessWeekPlanSegmentTimeDto)
+  TimeSegment: AccessWeekPlanSegmentTimeDto;
+}
+
+export class CreateAccessWeekPlanDto {
+  @ApiPropertyOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  branch_id?: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  device_id: number;
 
   @IsString()
   @MaxLength(50)
   hikvision_plan_no: string;
 
-  @IsEnum(AccessDayOfWeekEnum)
-  day_of_week: AccessDayOfWeekEnum;
-
+  @ApiPropertyOptional()
   @IsString()
-  @Matches(/^\d{2}:\d{2}:\d{2}$/)
-  start_time: string;
+  @MaxLength(150)
+  @IsOptional()
+  name?: string;
 
+  @ApiPropertyOptional()
+  @Type(() => Boolean)
+  @IsOptional()
+  enable?: boolean;
+
+  @ApiPropertyOptional()
   @IsString()
-  @Matches(/^\d{2}:\d{2}:\d{2}$/)
-  end_time: string;
+  @IsOptional()
+  description?: string;
+
+  @ApiPropertyOptional({ type: [AccessWeekPlanSegmentDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AccessWeekPlanSegmentDto)
+  @IsOptional()
+  segments?: AccessWeekPlanSegmentDto[];
 
   @ApiPropertyOptional({ description: 'Arbitrary metadata JSON object' })
   @IsObject()

@@ -13,6 +13,7 @@ import {
 import { Company } from '../../../companies/entities/company.entity';
 import { Branch } from '../../../hr/branches/entities/branch.entity';
 import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
+import { AccessDoorSourceEnum } from '../enum/access-door-source.enum';
 import { AccessDoorSyncStatusEnum } from '../enum/access-door-sync-status.enum';
 
 @Entity('access_doors')
@@ -20,7 +21,7 @@ import { AccessDoorSyncStatusEnum } from '../enum/access-door-sync-status.enum';
 @Index('IDX_access_doors_branch_id', ['branchId'])
 @Index('IDX_access_doors_device_id', ['deviceId'])
 @Index('IDX_access_doors_sync_status', ['syncStatus'])
-@Unique('UQ_access_doors_company_device_door', ['companyId', 'deviceId', 'doorNo'])
+@Unique('UQ_access_doors_device_door', ['deviceId', 'doorNo'])
 export class AccessDoor {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -39,6 +40,29 @@ export class AccessDoor {
 
   @Column({ name: 'door_name', type: 'varchar', length: 150 })
   doorName: string;
+
+  @Column({ name: 'door_code', type: 'varchar', length: 100, nullable: true })
+  doorCode: string | null;
+
+  @Column({ name: 'relay_no', type: 'int', nullable: true })
+  relayNo: number | null;
+
+  @Column({ name: 'lock_type', type: 'varchar', length: 100, nullable: true })
+  lockType: string | null;
+
+  @Column({ name: 'door_status', type: 'varchar', length: 50, nullable: true })
+  doorStatus: string | null;
+
+  @Column({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean;
+
+  @Column({
+    name: 'source',
+    type: 'enum',
+    enum: AccessDoorSourceEnum,
+    default: AccessDoorSourceEnum.MANUAL,
+  })
+  source: AccessDoorSourceEnum;
 
   @Column({ name: 'magnetic_type', type: 'varchar', length: 50, nullable: true })
   magneticType: string | null;

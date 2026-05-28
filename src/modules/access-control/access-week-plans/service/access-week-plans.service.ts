@@ -1,26 +1,43 @@
-import {
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import { buildPaginationMeta } from '../../../hr/shared/hr.utils';
 import { HikvisionAccessControlService } from '../../../hikvision/hikvision-access-control.service';
-import { AccessScheduleTemplate } from '../../access-schedule-templates/entity/access-schedule-template.entity';
-import { AccessWeekPlan } from '../entity/access-week-plan.entity';
+import { AccessWeekPlanSegment } from '../../access-week-plan-segments/entity/access-week-plan-segment.entity';
 import { CreateAccessWeekPlanDto } from '../dto/create-access-week-plan.dto';
 import { UpdateAccessWeekPlanDto } from '../dto/update-access-week-plan.dto';
+import { AccessWeekPlan } from '../entity/access-week-plan.entity';
 import { AccessDayOfWeekEnum } from '../enum/access-day-of-week.enum';
+import { AccessWeekPlanSourceEnum } from '../enum/access-week-plan-source.enum';
 
 type AccessWeekPlanQuery = {
   page?: number;
   limit?: number;
   sortBy?: string;
   sortOrder?: SortDirection;
-  schedule_template_id?: number;
+  device_id?: number;
   search?: string;
+};
+
+type SegmentInput = {
+  week: string;
+  id?: number;
+  segment_no?: number;
+  enable?: boolean;
+  TimeSegment: {
+    beginTime: string;
+    endTime: string;
+  };
+};
+
+type NormalizedSegment = {
+  weekDay: AccessDayOfWeekEnum;
+  segmentNo: number;
+  enable: boolean;
+  beginTime: string;
+  endTime: string;
+  metadata?: Record<string, unknown> | null;
 };
 
 @Injectable()
@@ -28,26 +45,34 @@ export class AccessWeekPlansService {
   constructor(
     @InjectRepository(AccessWeekPlan)
     private readonly weekPlanRepository: Repository<AccessWeekPlan>,
-    @InjectRepository(AccessScheduleTemplate)
-    private readonly scheduleTemplateRepository: Repository<AccessScheduleTemplate>,
+    @InjectRepository(AccessWeekPlanSegment)
+    private readonly segmentRepository: Repository<AccessWeekPlanSegment>,
     private readonly hikvisionAccessControlService: HikvisionAccessControlService,
   ) {}
 
   async create(companyId: number, dto: CreateAccessWeekPlanDto) {
-    await this.ensureTemplate(companyId, dto.schedule_template_id);
-    await this.ensureUniquePlan(companyId, dto.schedule_template_id, dto.hikvision_plan_no, dto.day_of_week);
+    const hikvisionPlanNo = dto.hikvision_plan_no.trim();
+    await this.ensureUniquePlan(companyId, dto.device_id, hikvisionPlanNo);
 
-    const entity = this.weekPlanRepository.create({
-      companyId,
-      scheduleTemplateId: dto.schedule_template_id,
-      hikvisionPlanNo: dto.hikvision_plan_no.trim(),
-      dayOfWeek: dto.day_of_week,
-      startTime: dto.start_time,
-      endTime: dto.end_time,
-      metadata: dto.metadata ?? null,
-    });
+    const entity = await this.weekPlanRepository.save(
+      this.weekPlanRepository.create({
+        companyId,
+        branchId: dto.branch_id ?? null,
+        deviceId: dto.device_id,
+        hikvisionPlanNo,
+        name: dto.name?.trim() || null,
+        enable: dto.enable ?? true,
+        description: dto.description ?? null,
+        source: AccessWeekPlanSourceEnum.MANUAL,
+        metadata: dto.metadata ?? null,
+      }),
+    );
 
-    return this.map(await this.weekPlanRepository.save(entity));
+    if (dto.segments?.length) {
+      await this.replaceSegments(entity.id, this.normalizeSegmentsFromDto(dto.segments));
+    }
+
+    return this.findOne(companyId, entity.id);
   }
 
   async findAll(companyId: number, query: AccessWeekPlanQuery) {
@@ -56,7 +81,7 @@ export class AccessWeekPlansService {
       limit = 20,
       sortBy = 'created_at',
       sortOrder = SortDirection.DESC,
-      schedule_template_id,
+      device_id,
       search,
     } = query;
 
@@ -64,19 +89,17 @@ export class AccessWeekPlansService {
       .createQueryBuilder('weekPlan')
       .where('weekPlan.company_id = :companyId', { companyId });
 
-    if (schedule_template_id) {
-      qb.andWhere('weekPlan.schedule_template_id = :scheduleTemplateId', {
-        scheduleTemplateId: schedule_template_id,
-      });
+    if (device_id) {
+      qb.andWhere('weekPlan.device_id = :deviceId', { deviceId: device_id });
     }
 
     if (search?.trim()) {
-      qb.andWhere('(weekPlan.hikvision_plan_no LIKE :term OR weekPlan.day_of_week LIKE :term)', {
+      qb.andWhere('(weekPlan.hikvision_plan_no LIKE :term OR weekPlan.name LIKE :term)', {
         term: `%${search.trim()}%`,
       });
     }
 
-    const allowedSortFields = ['created_at', 'updated_at', 'hikvision_plan_no', 'day_of_week'];
+    const allowedSortFields = ['created_at', 'updated_at', 'hikvision_plan_no', 'name'];
     const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'created_at';
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
@@ -86,30 +109,42 @@ export class AccessWeekPlansService {
       .take(limit)
       .getManyAndCount();
 
+    const mapped = await this.mapManyWithSegments(items);
+
     return {
-      data: items.map((item) => this.map(item)),
+      data: mapped,
       meta: buildPaginationMeta(total, items.length, limit, page),
     };
   }
 
+  async findOne(companyId: number, id: number) {
+    const item = await this.findOrFail(companyId, id);
+    const segments = await this.segmentRepository.find({ where: { weekPlanId: item.id } });
+    return this.map(item, segments);
+  }
+
   async update(companyId: number, id: number, dto: UpdateAccessWeekPlanDto) {
     const item = await this.findOrFail(companyId, id);
-
-    const nextTemplateId = dto.schedule_template_id ?? item.scheduleTemplateId;
+    const nextDeviceId = dto.device_id ?? item.deviceId;
     const nextPlanNo = dto.hikvision_plan_no?.trim() ?? item.hikvisionPlanNo;
-    const nextDay = dto.day_of_week ?? item.dayOfWeek;
 
-    await this.ensureTemplate(companyId, nextTemplateId);
-    await this.ensureUniquePlan(companyId, nextTemplateId, nextPlanNo, nextDay, item.id);
+    await this.ensureUniquePlan(companyId, nextDeviceId, nextPlanNo, item.id);
 
-    item.scheduleTemplateId = nextTemplateId;
+    item.deviceId = nextDeviceId;
     item.hikvisionPlanNo = nextPlanNo;
-    if (dto.day_of_week !== undefined) item.dayOfWeek = dto.day_of_week;
-    if (dto.start_time !== undefined) item.startTime = dto.start_time;
-    if (dto.end_time !== undefined) item.endTime = dto.end_time;
+    if (dto.branch_id !== undefined) item.branchId = dto.branch_id ?? null;
+    if (dto.name !== undefined) item.name = dto.name?.trim() || null;
+    if (dto.enable !== undefined) item.enable = dto.enable;
+    if (dto.description !== undefined) item.description = dto.description ?? null;
     if (dto.metadata !== undefined) item.metadata = dto.metadata;
 
-    return this.map(await this.weekPlanRepository.save(item));
+    await this.weekPlanRepository.save(item);
+
+    if (dto.segments !== undefined) {
+      await this.replaceSegments(item.id, this.normalizeSegmentsFromDto(dto.segments ?? []));
+    }
+
+    return this.findOne(companyId, item.id);
   }
 
   async remove(companyId: number, id: number): Promise<{ message: string }> {
@@ -120,21 +155,12 @@ export class AccessWeekPlansService {
 
   async syncWeekPlanToDevice(companyId: number, id: number, deviceId: number) {
     const item = await this.findOrFail(companyId, id);
+    const segments = await this.segmentRepository.find({ where: { weekPlanId: item.id } });
 
     const payload = {
       UserRightWeekPlanCfg: {
         weekPlanNo: item.hikvisionPlanNo,
-        weekPlan: [
-          {
-            dayOfWeek: item.dayOfWeek,
-            timeSegment: [
-              {
-                startTime: item.startTime,
-                endTime: item.endTime,
-              },
-            ],
-          },
-        ],
+        WeekPlanCfg: this.mapSegmentsForHikvisionPayload(segments),
       },
     };
 
@@ -145,6 +171,7 @@ export class AccessWeekPlansService {
       payload,
     );
 
+    item.lastSyncedAt = new Date();
     item.metadata = {
       ...(item.metadata ?? {}),
       hikvision: {
@@ -153,135 +180,103 @@ export class AccessWeekPlansService {
         last_push_status: response.status,
       },
     };
-
     await this.weekPlanRepository.save(item);
 
     return {
       message: response.ok ? 'Week plan synced to device successfully' : 'Week plan sync failed',
       week_plan_id: item.id,
       device_id: deviceId,
+      pushed_segments: segments.length,
       status: response.status,
       ok: response.ok,
     };
   }
 
-  async syncWeekPlansFromDevice(
-    companyId: number,
-    deviceId: number,
-    scheduleTemplateId: number,
-  ) {
-    await this.ensureTemplate(companyId, scheduleTemplateId);
-
+  async syncWeekPlansFromDevice(companyId: number, deviceId: number, hikvisionPlanNo?: string) {
     let synced = 0;
     let skipped = 0;
     let failed = 0;
     const results: Array<{ plan_no: string; status: 'SYNCED' | 'SKIPPED' | 'FAILED'; reason?: string }> = [];
 
-    for (let planNo = 1; planNo <= 64; planNo += 1) {
-      const planNoText = String(planNo);
+    const planNumbers = hikvisionPlanNo?.trim()
+      ? [hikvisionPlanNo.trim()]
+      : Array.from({ length: 51 }, (_, index) => String(index));
 
+    for (const fallbackPlanNo of planNumbers) {
       try {
         const response = await this.hikvisionAccessControlService.getUserRightWeekPlanCfg(
           companyId,
           deviceId,
-          planNoText,
+          fallbackPlanNo,
         );
 
         if (!response.ok) {
           if (this.isSkippable(response.raw)) {
             skipped += 1;
-            results.push({ plan_no: planNoText, status: 'SKIPPED', reason: 'invalidID/notSupport' });
+            results.push({ plan_no: fallbackPlanNo, status: 'SKIPPED', reason: 'invalidID/notSupport' });
             continue;
           }
 
           failed += 1;
-          results.push({ plan_no: planNoText, status: 'FAILED', reason: `status=${response.status}` });
+          results.push({ plan_no: fallbackPlanNo, status: 'FAILED', reason: `status=${response.status}` });
           continue;
         }
 
         const parsed = this.toObject(response.parsed);
-        const weekPlanCfg = this.toObject(parsed.UserRightWeekPlanCfg ?? parsed);
+        const cfg = this.toObject(parsed.UserRightWeekPlanCfg ?? parsed);
         const resolvedPlanNo = String(
-          weekPlanCfg.weekPlanNo ?? weekPlanCfg.planNo ?? weekPlanCfg.weekPlanID ?? planNoText,
+          cfg.weekPlanNo ?? cfg.planNo ?? cfg.weekPlanID ?? fallbackPlanNo,
         ).trim();
+        const normalizedSegments = this.extractSegmentsFromHikvisionCfg(cfg);
 
-        const entries = this.toArray(
-          weekPlanCfg.WeekPlanCfg ?? weekPlanCfg.weekPlan ?? weekPlanCfg.weekPlanCfg ?? [],
-        );
-
-        if (!entries.length) {
+        if (!normalizedSegments.length) {
           skipped += 1;
-          results.push({ plan_no: resolvedPlanNo, status: 'SKIPPED', reason: 'no week plan segments' });
+          results.push({ plan_no: resolvedPlanNo, status: 'SKIPPED', reason: 'no valid segments' });
           continue;
         }
 
-        let syncedEntries = 0;
-        for (const entry of entries) {
-          const item = this.toObject(entry);
-          const dayOfWeek = this.normalizeDayOfWeek(item.week ?? item.dayOfWeek ?? item.day);
-          if (!dayOfWeek) {
-            continue;
-          }
+        let weekPlan = await this.weekPlanRepository.findOne({
+          where: { companyId, deviceId, hikvisionPlanNo: resolvedPlanNo },
+          withDeleted: true,
+        });
 
-          const segments = this.toArray(item.TimeSegment ?? item.timeSegment ?? item.segment);
-          const firstSegment = this.toObject(segments[0] ?? item.TimeSegment ?? item.timeSegment ?? {});
-          const startTime = this.normalizeTimeValue(
-            firstSegment.beginTime ?? firstSegment.startTime ?? firstSegment.start,
-          );
-          const endTime = this.normalizeTimeValue(
-            firstSegment.endTime ?? firstSegment.stopTime ?? firstSegment.end,
-          );
-
-          if (!startTime || !endTime) {
-            continue;
-          }
-
-          const existing = await this.weekPlanRepository.findOne({
-            where: {
-              companyId,
-              scheduleTemplateId,
-              hikvisionPlanNo: resolvedPlanNo,
-              dayOfWeek,
-            },
-            withDeleted: true,
+        if (!weekPlan) {
+          weekPlan = this.weekPlanRepository.create({
+            companyId,
+            deviceId,
+            hikvisionPlanNo: resolvedPlanNo,
+            source: AccessWeekPlanSourceEnum.DEVICE_SYNC,
+            enable: this.toBoolean(cfg.enable, true),
+            isSystemDefault: false,
           });
-
-          const entity = existing ?? this.weekPlanRepository.create();
-          entity.companyId = companyId;
-          entity.scheduleTemplateId = scheduleTemplateId;
-          entity.hikvisionPlanNo = resolvedPlanNo;
-          entity.dayOfWeek = dayOfWeek;
-          entity.startTime = startTime;
-          entity.endTime = endTime;
-          entity.metadata = {
-            ...(existing?.metadata ?? {}),
-            hikvision: {
-              ...this.toObject((existing?.metadata ?? {}).hikvision),
-              last_pull_at: new Date().toISOString(),
-              last_pull_status: response.status,
-            },
-          };
-
-          if (existing?.deletedAt) {
-            await this.weekPlanRepository.recover(existing);
-          }
-
-          await this.weekPlanRepository.save(entity);
-          syncedEntries += 1;
         }
 
-        if (syncedEntries === 0) {
-          skipped += 1;
-          results.push({ plan_no: resolvedPlanNo, status: 'SKIPPED', reason: 'no valid day/time entries' });
-          continue;
+        if (weekPlan.deletedAt) {
+          await this.weekPlanRepository.recover(weekPlan);
         }
+
+        weekPlan.name = String(cfg.name ?? cfg.weekPlanName ?? weekPlan.name ?? '').trim() || weekPlan.name;
+        weekPlan.enable = this.toBoolean(cfg.enable, weekPlan.enable ?? true);
+        weekPlan.lastSyncedAt = new Date();
+        weekPlan.metadata = {
+          ...(weekPlan.metadata ?? {}),
+          hikvision: {
+            ...this.toObject((weekPlan.metadata ?? {}).hikvision),
+            last_pull_at: new Date().toISOString(),
+            last_pull_status: response.status,
+            raw: parsed,
+          },
+        };
+
+        const saved = await this.weekPlanRepository.save(weekPlan);
+        await this.replaceSegments(saved.id, normalizedSegments);
 
         synced += 1;
         results.push({ plan_no: resolvedPlanNo, status: 'SYNCED' });
       } catch (error) {
         failed += 1;
         results.push({
-          plan_no: planNoText,
+          plan_no: fallbackPlanNo,
           status: 'FAILED',
           reason: (error as Error).message,
         });
@@ -291,7 +286,6 @@ export class AccessWeekPlansService {
     return {
       message: 'Week plans sync-from-device completed',
       device_id: deviceId,
-      schedule_template_id: scheduleTemplateId,
       synced,
       skipped,
       failed,
@@ -299,37 +293,15 @@ export class AccessWeekPlansService {
     };
   }
 
-  private async ensureTemplate(companyId: number, scheduleTemplateId: number): Promise<void> {
-    const template = await this.scheduleTemplateRepository.findOne({
-      where: { id: scheduleTemplateId, companyId },
-      select: ['id'],
-    });
-
-    if (!template) {
-      throw new NotFoundException('schedule_template_id not found');
-    }
-  }
-
-  private async ensureUniquePlan(
-    companyId: number,
-    scheduleTemplateId: number,
-    planNo: string,
-    dayOfWeek: string,
-    currentId?: number,
-  ) {
+  private async ensureUniquePlan(companyId: number, deviceId: number, planNo: string, currentId?: number) {
     const existing = await this.weekPlanRepository.findOne({
-      where: {
-        companyId,
-        scheduleTemplateId,
-        hikvisionPlanNo: planNo,
-        dayOfWeek: dayOfWeek as any,
-      },
-      select: ['id'],
+      where: { companyId, deviceId, hikvisionPlanNo: planNo },
       withDeleted: true,
+      select: ['id'],
     });
 
     if (existing && existing.id !== currentId) {
-      throw new ConflictException('Duplicate week plan for schedule_template_id + hikvision_plan_no + day_of_week');
+      throw new ConflictException('Duplicate week plan for device_id + hikvision_plan_no');
     }
   }
 
@@ -342,20 +314,244 @@ export class AccessWeekPlansService {
     return item;
   }
 
-  private map(item: AccessWeekPlan) {
+  private async replaceSegments(weekPlanId: number, segments: NormalizedSegment[]) {
+    await this.segmentRepository.delete({ weekPlanId });
+
+    if (!segments.length) {
+      return;
+    }
+
+    const entities = segments.map((segment) =>
+      this.segmentRepository.create({
+        weekPlanId,
+        weekDay: segment.weekDay,
+        segmentNo: segment.segmentNo,
+        enable: segment.enable,
+        beginTime: segment.beginTime,
+        endTime: segment.endTime,
+        metadata: segment.metadata ?? null,
+      }),
+    );
+
+    await this.segmentRepository.save(entities);
+  }
+
+  private async mapManyWithSegments(items: AccessWeekPlan[]) {
+    if (!items.length) {
+      return [];
+    }
+
+    const segments = await this.segmentRepository.find({
+      where: {
+        weekPlanId: In(items.map((item) => item.id)),
+      },
+    });
+
+    const segmentMap = new Map<number, AccessWeekPlanSegment[]>();
+    for (const segment of segments) {
+      if (!segmentMap.has(segment.weekPlanId)) {
+        segmentMap.set(segment.weekPlanId, []);
+      }
+      segmentMap.get(segment.weekPlanId)!.push(segment);
+    }
+
+    return items.map((item) => this.map(item, segmentMap.get(item.id) ?? []));
+  }
+
+  private map(item: AccessWeekPlan, segments: AccessWeekPlanSegment[]) {
     return {
       id: item.id,
       company_id: item.companyId,
-      schedule_template_id: item.scheduleTemplateId,
+      branch_id: item.branchId,
+      device_id: item.deviceId,
       hikvision_plan_no: item.hikvisionPlanNo,
-      day_of_week: item.dayOfWeek,
-      start_time: item.startTime,
-      end_time: item.endTime,
+      name: item.name,
+      enable: item.enable,
+      description: item.description,
+      source: item.source,
+      is_system_default: item.isSystemDefault,
+      last_synced_at: item.lastSyncedAt,
       metadata: item.metadata,
       created_at: item.createdAt,
       updated_at: item.updatedAt,
       deleted_at: item.deletedAt,
+      segments: this.mapSegmentsForApi(segments),
     };
+  }
+
+  private mapSegmentsForApi(segments: AccessWeekPlanSegment[]) {
+    return [...segments]
+      .sort((a, b) => this.dayOrder(a.weekDay) - this.dayOrder(b.weekDay) || a.segmentNo - b.segmentNo)
+      .map((segment) => ({
+        week: this.formatDay(segment.weekDay),
+        id: segment.segmentNo,
+        enable: segment.enable,
+        TimeSegment: {
+          beginTime: segment.beginTime,
+          endTime: segment.endTime,
+        },
+        metadata: segment.metadata,
+      }));
+  }
+
+  private mapSegmentsForHikvisionPayload(segments: AccessWeekPlanSegment[]) {
+    return [...segments]
+      .sort((a, b) => this.dayOrder(a.weekDay) - this.dayOrder(b.weekDay) || a.segmentNo - b.segmentNo)
+      .map((segment) => ({
+        week: this.formatDay(segment.weekDay),
+        id: segment.segmentNo,
+        enable: segment.enable,
+        TimeSegment: {
+          beginTime: segment.beginTime,
+          endTime: segment.endTime,
+        },
+      }));
+  }
+
+  private normalizeSegmentsFromDto(segments: SegmentInput[]): NormalizedSegment[] {
+    const dedupe = new Map<string, NormalizedSegment>();
+
+    for (const segment of segments) {
+      const weekDay = this.normalizeDayOfWeek(segment.week);
+      const segmentNo = Number(segment.id ?? segment.segment_no);
+      const beginTime = this.normalizeTimeValue(segment.TimeSegment?.beginTime);
+      const endTime = this.normalizeTimeValue(segment.TimeSegment?.endTime);
+
+      if (!weekDay || !segmentNo || segmentNo < 1 || segmentNo > 8 || !beginTime || !endTime) {
+        continue;
+      }
+
+      const key = `${weekDay}|${segmentNo}`;
+      dedupe.set(key, {
+        weekDay,
+        segmentNo,
+        enable: segment.enable ?? true,
+        beginTime,
+        endTime,
+      });
+    }
+
+    return [...dedupe.values()].sort(
+      (a, b) => this.dayOrder(a.weekDay) - this.dayOrder(b.weekDay) || a.segmentNo - b.segmentNo,
+    );
+  }
+
+  private extractSegmentsFromHikvisionCfg(cfg: Record<string, unknown>): NormalizedSegment[] {
+    const entries = this.toArray(cfg.WeekPlanCfg ?? cfg.weekPlan ?? cfg.weekPlanCfg ?? []);
+    const dedupe = new Map<string, NormalizedSegment>();
+
+    for (const entry of entries) {
+      const item = this.toObject(entry);
+      const weekDay = this.normalizeDayOfWeek(item.week ?? item.dayOfWeek ?? item.day);
+      if (!weekDay) {
+        continue;
+      }
+
+      const entryEnable = this.toBoolean(item.enable, true);
+      const timeCandidates = this.toArray(item.TimeSegment ?? item.timeSegment ?? item.segment);
+      const resolvedTimeCandidates =
+        timeCandidates.length > 0 ? timeCandidates : [{ beginTime: item.beginTime, endTime: item.endTime }];
+
+      for (let i = 0; i < resolvedTimeCandidates.length; i += 1) {
+        const segmentObj = this.toObject(resolvedTimeCandidates[i]);
+        const segmentNo = Number(segmentObj.id ?? segmentObj.segmentNo ?? item.id ?? i + 1);
+        const beginTime = this.normalizeTimeValue(
+          segmentObj.beginTime ?? segmentObj.startTime ?? segmentObj.start ?? item.beginTime ?? item.startTime,
+        );
+        const endTime = this.normalizeTimeValue(
+          segmentObj.endTime ?? segmentObj.stopTime ?? segmentObj.end ?? item.endTime ?? item.stopTime,
+        );
+
+        if (!segmentNo || segmentNo < 1 || segmentNo > 8 || !beginTime || !endTime) {
+          continue;
+        }
+
+        const key = `${weekDay}|${segmentNo}`;
+        dedupe.set(key, {
+          weekDay,
+          segmentNo,
+          enable: this.toBoolean(segmentObj.enable, entryEnable),
+          beginTime,
+          endTime,
+          metadata: {
+            raw_entry: item,
+            raw_segment: segmentObj,
+          },
+        });
+      }
+    }
+
+    return [...dedupe.values()].sort(
+      (a, b) => this.dayOrder(a.weekDay) - this.dayOrder(b.weekDay) || a.segmentNo - b.segmentNo,
+    );
+  }
+
+  private normalizeDayOfWeek(value: unknown): AccessDayOfWeekEnum | null {
+    const normalized = String(value ?? '').trim().toUpperCase();
+    const map: Record<string, AccessDayOfWeekEnum> = {
+      MONDAY: AccessDayOfWeekEnum.MONDAY,
+      TUESDAY: AccessDayOfWeekEnum.TUESDAY,
+      WEDNESDAY: AccessDayOfWeekEnum.WEDNESDAY,
+      THURSDAY: AccessDayOfWeekEnum.THURSDAY,
+      FRIDAY: AccessDayOfWeekEnum.FRIDAY,
+      SATURDAY: AccessDayOfWeekEnum.SATURDAY,
+      SUNDAY: AccessDayOfWeekEnum.SUNDAY,
+    };
+    return map[normalized] ?? null;
+  }
+
+  private normalizeTimeValue(value: unknown): string | null {
+    const normalized = String(value ?? '').trim();
+    if (!normalized) {
+      return null;
+    }
+
+    if (/^\d{2}:\d{2}:\d{2}$/.test(normalized)) {
+      return normalized;
+    }
+
+    if (/^\d{2}:\d{2}$/.test(normalized)) {
+      return `${normalized}:00`;
+    }
+
+    return null;
+  }
+
+  private dayOrder(day: AccessDayOfWeekEnum) {
+    switch (day) {
+      case AccessDayOfWeekEnum.MONDAY:
+        return 1;
+      case AccessDayOfWeekEnum.TUESDAY:
+        return 2;
+      case AccessDayOfWeekEnum.WEDNESDAY:
+        return 3;
+      case AccessDayOfWeekEnum.THURSDAY:
+        return 4;
+      case AccessDayOfWeekEnum.FRIDAY:
+        return 5;
+      case AccessDayOfWeekEnum.SATURDAY:
+        return 6;
+      case AccessDayOfWeekEnum.SUNDAY:
+      default:
+        return 7;
+    }
+  }
+
+  private formatDay(day: AccessDayOfWeekEnum) {
+    return day.charAt(0) + day.slice(1).toLowerCase();
+  }
+
+  private toBoolean(value: unknown, fallback: boolean): boolean {
+    if (typeof value === 'boolean') {
+      return value;
+    }
+    if (value === 'true' || value === '1' || value === 1) {
+      return true;
+    }
+    if (value === 'false' || value === '0' || value === 0) {
+      return false;
+    }
+    return fallback;
   }
 
   private toObject(value: unknown): Record<string, unknown> {
@@ -381,37 +577,5 @@ export class AccessWeekPlansService {
   private isSkippable(body: string): boolean {
     const lowered = (body || '').toLowerCase();
     return lowered.includes('invalidid') || lowered.includes('notsupport') || lowered.includes('invalid id');
-  }
-
-  private normalizeDayOfWeek(value: unknown): AccessDayOfWeekEnum | null {
-    const normalized = String(value ?? '').trim().toUpperCase();
-    const map: Record<string, AccessDayOfWeekEnum> = {
-      MONDAY: AccessDayOfWeekEnum.MONDAY,
-      TUESDAY: AccessDayOfWeekEnum.TUESDAY,
-      WEDNESDAY: AccessDayOfWeekEnum.WEDNESDAY,
-      THURSDAY: AccessDayOfWeekEnum.THURSDAY,
-      FRIDAY: AccessDayOfWeekEnum.FRIDAY,
-      SATURDAY: AccessDayOfWeekEnum.SATURDAY,
-      SUNDAY: AccessDayOfWeekEnum.SUNDAY,
-    };
-
-    return map[normalized] ?? null;
-  }
-
-  private normalizeTimeValue(value: unknown): string | null {
-    const normalized = String(value ?? '').trim();
-    if (!normalized) {
-      return null;
-    }
-
-    if (/^\d{2}:\d{2}:\d{2}$/.test(normalized)) {
-      return normalized;
-    }
-
-    if (/^\d{2}:\d{2}$/.test(normalized)) {
-      return `${normalized}:00`;
-    }
-
-    return null;
   }
 }

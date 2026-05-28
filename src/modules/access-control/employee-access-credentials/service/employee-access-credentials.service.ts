@@ -24,7 +24,7 @@ export class EmployeeAccessCredentialsService {
     employeeId: number,
     dto: CreateEmployeeAccessCredentialDto,
   ) {
-    await this.ensureEmployee(companyId, employeeId);
+    const employee = await this.findEmployeeOrFail(companyId, employeeId);
 
     let item = await this.credentialRepository.findOne({
       where: { companyId, employeeId },
@@ -34,6 +34,11 @@ export class EmployeeAccessCredentialsService {
       item = this.credentialRepository.create({ companyId, employeeId });
     }
 
+    item.employeeNo = employee.employee_no;
+    item.deviceId = dto.device_id ?? item.deviceId ?? null;
+    item.credentialType = dto.credential_type ?? item.credentialType ?? 'CARD';
+    item.credentialNo = dto.credential_no ?? item.credentialNo ?? null;
+    item.credentialStatus = dto.credential_status ?? item.credentialStatus ?? 'ACTIVE';
     item.cardNo = dto.card_no?.trim() || null;
     item.pinPassword = dto.pin_password?.trim() || null;
     item.fingerprintCount = dto.fingerprint_count ?? 0;
@@ -46,7 +51,7 @@ export class EmployeeAccessCredentialsService {
   }
 
   async update(companyId: number, employeeId: number, dto: UpdateEmployeeAccessCredentialDto) {
-    await this.ensureEmployee(companyId, employeeId);
+    const employee = await this.findEmployeeOrFail(companyId, employeeId);
     const item = await this.credentialRepository.findOne({
       where: { companyId, employeeId },
     });
@@ -55,6 +60,11 @@ export class EmployeeAccessCredentialsService {
       throw new NotFoundException('Employee access credentials not found');
     }
 
+    item.employeeNo = employee.employee_no;
+    if (dto.device_id !== undefined) item.deviceId = dto.device_id ?? null;
+    if (dto.credential_type !== undefined) item.credentialType = dto.credential_type;
+    if (dto.credential_no !== undefined) item.credentialNo = dto.credential_no ?? null;
+    if (dto.credential_status !== undefined) item.credentialStatus = dto.credential_status;
     if (dto.card_no !== undefined) item.cardNo = dto.card_no?.trim() || null;
     if (dto.pin_password !== undefined) item.pinPassword = dto.pin_password?.trim() || null;
     if (dto.fingerprint_count !== undefined) item.fingerprintCount = dto.fingerprint_count;
@@ -75,7 +85,7 @@ export class EmployeeAccessCredentialsService {
   }
 
   async findOne(companyId: number, employeeId: number) {
-    await this.ensureEmployee(companyId, employeeId);
+    await this.findEmployeeOrFail(companyId, employeeId);
     const item = await this.credentialRepository.findOne({
       where: { companyId, employeeId },
     });
@@ -87,18 +97,20 @@ export class EmployeeAccessCredentialsService {
     return this.map(item);
   }
 
-  private async ensureEmployee(companyId: number, employeeId: number): Promise<void> {
+  private async findEmployeeOrFail(companyId: number, employeeId: number): Promise<Employee> {
     const employee = await this.employeeRepository
       .createQueryBuilder('employee')
       .innerJoin(CompanyUser, 'companyUser', 'companyUser.id = employee.company_user_id')
       .where('employee.id = :employeeId', { employeeId })
       .andWhere('companyUser.company_id = :companyId', { companyId })
-      .select(['employee.id'])
+      .select(['employee.id', 'employee.employee_no'])
       .getOne();
 
     if (!employee) {
       throw new NotFoundException('Employee not found for active company');
     }
+
+    return employee;
   }
 
   private map(item: EmployeeAccessCredential) {
@@ -106,6 +118,11 @@ export class EmployeeAccessCredentialsService {
       id: item.id,
       company_id: item.companyId,
       employee_id: item.employeeId,
+      employee_no: item.employeeNo,
+      device_id: item.deviceId,
+      credential_type: item.credentialType,
+      credential_no: item.credentialNo,
+      credential_status: item.credentialStatus,
       card_no: item.cardNo,
       pin_password: item.pinPassword,
       fingerprint_count: item.fingerprintCount,

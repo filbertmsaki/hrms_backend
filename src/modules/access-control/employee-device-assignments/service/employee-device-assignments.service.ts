@@ -24,7 +24,7 @@ export class EmployeeDeviceAssignmentsService {
   ) {}
 
   async assignDevices(companyId: number, employeeId: number, dto: AssignEmployeeDevicesDto) {
-    await this.ensureEmployee(companyId, employeeId);
+    const employee = await this.findEmployeeOrFail(companyId, employeeId);
 
     const uniqueDeviceIds = [...new Set(dto.device_ids)];
     const devices = await this.attendanceDeviceRepository.find({
@@ -58,6 +58,8 @@ export class EmployeeDeviceAssignmentsService {
       });
 
       if (existing) {
+        existing.companyId = companyId;
+        existing.employeeNo = employee.employee_no;
         existing.syncStatus = EmployeeDeviceAssignmentSyncStatusEnum.PENDING;
         await this.assignmentRepository.save(existing);
         updated += 1;
@@ -65,7 +67,9 @@ export class EmployeeDeviceAssignmentsService {
       }
 
       const entity = this.assignmentRepository.create({
+        companyId,
         employeeId,
+        employeeNo: employee.employee_no,
         deviceId,
         syncStatus: EmployeeDeviceAssignmentSyncStatusEnum.PENDING,
         metadata: null,
@@ -84,7 +88,7 @@ export class EmployeeDeviceAssignmentsService {
   }
 
   async removeAssignment(companyId: number, employeeId: number, deviceId: number) {
-    await this.ensureEmployee(companyId, employeeId);
+    await this.findEmployeeOrFail(companyId, employeeId);
 
     const assignment = await this.assignmentRepository.findOne({
       where: { employeeId, deviceId },
@@ -107,17 +111,19 @@ export class EmployeeDeviceAssignmentsService {
     return this.assignmentRepository.find({ where: { employeeId } });
   }
 
-  private async ensureEmployee(companyId: number, employeeId: number): Promise<void> {
+  private async findEmployeeOrFail(companyId: number, employeeId: number): Promise<Employee> {
     const employee = await this.employeeRepository
       .createQueryBuilder('employee')
       .innerJoin(CompanyUser, 'companyUser', 'companyUser.id = employee.company_user_id')
       .where('employee.id = :employeeId', { employeeId })
       .andWhere('companyUser.company_id = :companyId', { companyId })
-      .select(['employee.id'])
+      .select(['employee.id', 'employee.employee_no'])
       .getOne();
 
     if (!employee) {
       throw new NotFoundException('Employee not found for active company');
     }
+
+    return employee;
   }
 }

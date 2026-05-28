@@ -17,13 +17,50 @@ export class CreateAccessOrganizationDto {
   @IsOptional()
   department_id?: number | null;
 
+  @ApiPropertyOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  device_id?: number | null;
+
+  @ApiPropertyOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  parent_id?: number | null;
+
+  @ApiPropertyOptional()
   @IsString()
   @MaxLength(50)
-  hikvision_group_no: string;
+  @IsOptional()
+  hikvision_org_index?: string;
+
+  @IsString()
+  @MaxLength(50)
+  @IsOptional()
+  hikvision_group_no?: string;
 
   @IsString()
   @MaxLength(150)
-  name: string;
+  @IsOptional()
+  name?: string;
+
+  @IsString()
+  @MaxLength(150)
+  org_name: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @MaxLength(100)
+  @IsOptional()
+  org_code?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  description?: string;
 
   @ApiPropertyOptional({ description: 'Arbitrary metadata JSON object' })
   @IsObject()

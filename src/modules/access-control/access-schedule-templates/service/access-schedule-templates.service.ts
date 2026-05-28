@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -8,9 +9,13 @@ import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import { buildPaginationMeta } from '../../../hr/shared/hr.utils';
 import { HikvisionAccessControlService } from '../../../hikvision/hikvision-access-control.service';
+import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
+import { AccessWeekPlan } from '../../access-week-plans/entity/access-week-plan.entity';
+import { AccessWeekPlanSourceEnum } from '../../access-week-plans/enum/access-week-plan-source.enum';
 import { AccessScheduleTemplate } from '../entity/access-schedule-template.entity';
 import { CreateAccessScheduleTemplateDto } from '../dto/create-access-schedule-template.dto';
 import { UpdateAccessScheduleTemplateDto } from '../dto/update-access-schedule-template.dto';
+import { AccessScheduleTemplateSourceEnum } from '../enum/access-schedule-template-source.enum';
 import { AccessScheduleTemplateStatusEnum } from '../enum/access-schedule-template-status.enum';
 import { AccessScheduleTemplateTypeEnum } from '../enum/access-schedule-template-type.enum';
 
@@ -29,16 +34,33 @@ export class AccessScheduleTemplatesService {
   constructor(
     @InjectRepository(AccessScheduleTemplate)
     private readonly templateRepository: Repository<AccessScheduleTemplate>,
+    @InjectRepository(AccessWeekPlan)
+    private readonly weekPlanRepository: Repository<AccessWeekPlan>,
+    @InjectRepository(AttendanceDevice)
+    private readonly attendanceDeviceRepository: Repository<AttendanceDevice>,
     private readonly hikvisionAccessControlService: HikvisionAccessControlService,
   ) {}
 
   async create(companyId: number, dto: CreateAccessScheduleTemplateDto) {
-    await this.ensureUniqueTemplateNo(companyId, dto.hikvision_template_no);
+    const device = await this.ensureDevice(companyId, dto.device_id);
+    await this.ensureUniqueTemplateNo(companyId, dto.device_id, dto.hikvision_template_no);
+    await this.ensureWeekPlanBelongsToDevice(companyId, dto.week_plan_id, dto.device_id);
+
+    const templateName = (dto.template_name ?? dto.name ?? '').trim();
+    if (!templateName) {
+      throw new NotFoundException('template_name is required');
+    }
 
     const entity = this.templateRepository.create({
       companyId,
-      name: dto.name.trim(),
+      branchId: dto.branch_id ?? device.branchId ?? null,
+      deviceId: dto.device_id,
+      name: templateName,
+      templateName,
       hikvisionTemplateNo: dto.hikvision_template_no.trim(),
+      weekPlanId: dto.week_plan_id,
+      hikvisionWeekPlanNo: dto.hikvision_week_plan_no.trim(),
+      holidayGroupNo: dto.holiday_group_no?.trim() || null,
       scheduleType: dto.schedule_type ?? AccessScheduleTemplateTypeEnum.DOOR,
       status: dto.status ?? AccessScheduleTemplateStatusEnum.ACTIVE,
       metadata: dto.metadata ?? null,
@@ -100,14 +122,33 @@ export class AccessScheduleTemplatesService {
 
   async update(companyId: number, id: number, dto: UpdateAccessScheduleTemplateDto) {
     const item = await this.findOrFail(companyId, id);
+    const nextDeviceId = dto.device_id ?? item.deviceId;
+    const nextTemplateNo = (dto.hikvision_template_no ?? item.hikvisionTemplateNo).trim();
+
+    await this.ensureDevice(companyId, nextDeviceId);
+    await this.ensureUniqueTemplateNo(companyId, nextDeviceId, nextTemplateNo, item.id);
 
     if (dto.hikvision_template_no !== undefined) {
-      await this.ensureUniqueTemplateNo(companyId, dto.hikvision_template_no, item.id);
-      item.hikvisionTemplateNo = dto.hikvision_template_no.trim();
+      item.hikvisionTemplateNo = nextTemplateNo;
     }
 
-    if (dto.name !== undefined) {
-      item.name = dto.name.trim();
+    if (dto.name !== undefined || dto.template_name !== undefined) {
+      const name = (dto.template_name ?? dto.name ?? '').trim();
+      item.name = name;
+      item.templateName = name;
+    }
+
+    if (dto.branch_id !== undefined) item.branchId = dto.branch_id ?? null;
+    if (dto.device_id !== undefined) item.deviceId = dto.device_id;
+    if (dto.week_plan_id !== undefined) {
+      await this.ensureWeekPlanBelongsToDevice(companyId, dto.week_plan_id, nextDeviceId);
+      item.weekPlanId = dto.week_plan_id;
+    }
+    if (dto.hikvision_week_plan_no !== undefined) {
+      item.hikvisionWeekPlanNo = dto.hikvision_week_plan_no.trim();
+    }
+    if (dto.holiday_group_no !== undefined) {
+      item.holidayGroupNo = dto.holiday_group_no?.trim() || null;
     }
 
     if (dto.schedule_type !== undefined) {
@@ -171,6 +212,7 @@ export class AccessScheduleTemplatesService {
   }
 
   async syncTemplatesFromDevice(companyId: number, deviceId: number) {
+    const device = await this.ensureDevice(companyId, deviceId);
     let synced = 0;
     let skipped = 0;
     let failed = 0;
@@ -219,15 +261,47 @@ export class AccessScheduleTemplatesService {
             templateCfg.planTemplateName ?? templateCfg.templateName ?? templateCfg.name ?? '',
           ).trim() || `Template ${hikvisionTemplateNo}`;
 
+        const hikvisionWeekPlanNo = String(templateCfg.weekPlanNo ?? templateCfg.weekPlanID ?? '0').trim();
+
+        let weekPlan = await this.weekPlanRepository.findOne({
+          where: {
+            companyId,
+            deviceId,
+            hikvisionPlanNo: hikvisionWeekPlanNo,
+          },
+        });
+
+        if (!weekPlan) {
+          weekPlan = await this.weekPlanRepository.save(
+            this.weekPlanRepository.create({
+              companyId,
+              branchId: device.branchId ?? null,
+              deviceId,
+              hikvisionPlanNo: hikvisionWeekPlanNo,
+              name: `Week Plan ${hikvisionWeekPlanNo}`,
+              enable: true,
+              source: AccessWeekPlanSourceEnum.DEVICE_SYNC,
+              isSystemDefault: false,
+            }),
+          );
+        }
+
         const existing = await this.templateRepository.findOne({
-          where: { companyId, hikvisionTemplateNo },
+          where: { companyId, deviceId, hikvisionTemplateNo },
           withDeleted: true,
         });
 
         const entity = existing ?? this.templateRepository.create();
         entity.companyId = companyId;
+        entity.branchId = existing?.branchId ?? device.branchId ?? null;
+        entity.deviceId = deviceId;
+        entity.weekPlanId = weekPlan.id;
+        entity.hikvisionWeekPlanNo = hikvisionWeekPlanNo;
         entity.hikvisionTemplateNo = hikvisionTemplateNo;
         entity.name = templateName;
+        entity.templateName = templateName;
+        entity.enable = this.toBoolean(templateCfg.enable, true);
+        entity.source = AccessScheduleTemplateSourceEnum.DEVICE_SYNC;
         entity.scheduleType = this.normalizeScheduleType(
           templateCfg.templateType ?? templateCfg.scheduleType,
         );
@@ -270,11 +344,12 @@ export class AccessScheduleTemplatesService {
 
   private async ensureUniqueTemplateNo(
     companyId: number,
+    deviceId: number,
     templateNo: string,
     currentId?: number,
   ) {
     const existing = await this.templateRepository.findOne({
-      where: { companyId, hikvisionTemplateNo: templateNo.trim() },
+      where: { companyId, deviceId, hikvisionTemplateNo: templateNo.trim() },
       select: ['id'],
       withDeleted: true,
     });
@@ -293,14 +368,52 @@ export class AccessScheduleTemplatesService {
     return item;
   }
 
+  private async ensureDevice(companyId: number, deviceId: number): Promise<AttendanceDevice> {
+    const device = await this.attendanceDeviceRepository.findOne({
+      where: { id: deviceId, companyId },
+      select: ['id', 'branchId'],
+    });
+
+    if (!device) {
+      throw new BadRequestException('device_id does not belong to the active company');
+    }
+
+    return device;
+  }
+
+  private async ensureWeekPlanBelongsToDevice(
+    companyId: number,
+    weekPlanId: number,
+    deviceId: number,
+  ): Promise<void> {
+    const weekPlan = await this.weekPlanRepository.findOne({
+      where: { id: weekPlanId, companyId, deviceId },
+      select: ['id'],
+    });
+
+    if (!weekPlan) {
+      throw new BadRequestException('week_plan_id does not belong to the provided device/company');
+    }
+  }
+
   private map(item: AccessScheduleTemplate) {
     return {
       id: item.id,
       company_id: item.companyId,
+      branch_id: item.branchId,
+      device_id: item.deviceId,
       name: item.name,
+      template_name: item.templateName,
       hikvision_template_no: item.hikvisionTemplateNo,
+      week_plan_id: item.weekPlanId,
+      hikvision_week_plan_no: item.hikvisionWeekPlanNo,
+      holiday_group_no: item.holidayGroupNo,
+      enable: item.enable,
       schedule_type: item.scheduleType,
       status: item.status,
+      source: item.source,
+      is_system_default: item.isSystemDefault,
+      last_synced_at: item.lastSyncedAt,
       metadata: item.metadata,
       created_at: item.createdAt,
       updated_at: item.updatedAt,
@@ -328,5 +441,19 @@ export class AccessScheduleTemplatesService {
     }
 
     return AccessScheduleTemplateTypeEnum.DOOR;
+  }
+
+  private toBoolean(value: unknown, fallback: boolean): boolean {
+    if (typeof value === 'boolean') {
+      return value;
+    }
+    if (value === 'true' || value === '1' || value === 1) {
+      return true;
+    }
+    if (value === 'false' || value === '0' || value === 0) {
+      return false;
+    }
+
+    return fallback;
   }
 }

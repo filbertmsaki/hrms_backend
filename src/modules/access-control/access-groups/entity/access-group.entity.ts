@@ -12,15 +12,18 @@ import {
 } from 'typeorm';
 import { Company } from '../../../companies/entities/company.entity';
 import { Branch } from '../../../hr/branches/entities/branch.entity';
+import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
 import { AccessGroupDoor } from '../../access-group-doors/entity/access-group-door.entity';
 import { AccessGroupEmployee } from '../../access-group-employees/entity/access-group-employee.entity';
-import { AccessScheduleTemplate } from '../../access-schedule-templates/entity/access-schedule-template.entity';
+import { AccessGroupSourceEnum } from '../enum/access-group-source.enum';
 import { AccessGroupStatusEnum } from '../enum/access-group-status.enum';
 
 @Entity('access_groups')
 @Index('IDX_access_groups_company_id', ['companyId'])
 @Index('IDX_access_groups_branch_id', ['branchId'])
+@Index('IDX_access_groups_device_id', ['deviceId'])
 @Index('IDX_access_groups_schedule_template_id', ['scheduleTemplateId'])
+@Index('IDX_access_groups_grouping_key', ['groupingKey'])
 export class AccessGroup {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -31,11 +34,20 @@ export class AccessGroup {
   @Column({ name: 'branch_id', type: 'int', nullable: true })
   branchId: number | null;
 
-  @Column({ name: 'name', type: 'varchar', length: 150 })
+  @Column({ name: 'device_id', type: 'int', nullable: true })
+  deviceId: number | null;
+
+  @Column({ name: 'group_name', type: 'varchar', length: 150 })
   name: string;
 
-  @Column({ name: 'schedule_template_id', type: 'int' })
-  scheduleTemplateId: number;
+  @Column({ name: 'group_code', type: 'varchar', length: 100, nullable: true })
+  groupCode: string | null;
+
+  @Column({ name: 'description', type: 'text', nullable: true })
+  description: string | null;
+
+  @Column({ name: 'schedule_template_id', type: 'int', nullable: true })
+  scheduleTemplateId: number | null;
 
   @Column({
     name: 'status',
@@ -44,6 +56,26 @@ export class AccessGroup {
     default: AccessGroupStatusEnum.ACTIVE,
   })
   status: AccessGroupStatusEnum;
+
+  @Column({
+    name: 'source',
+    type: 'enum',
+    enum: AccessGroupSourceEnum,
+    default: AccessGroupSourceEnum.BACKEND,
+  })
+  source: AccessGroupSourceEnum;
+
+  @Column({ name: 'grouping_key', type: 'varchar', length: 255, nullable: true })
+  groupingKey: string | null;
+
+  @Column({ name: 'is_virtual', type: 'boolean', default: true })
+  isVirtual: boolean;
+
+  @Column({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean;
+
+  @Column({ name: 'last_synced_at', type: 'timestamp', nullable: true })
+  lastSyncedAt: Date | null;
 
   @Column({ name: 'metadata', type: 'json', nullable: true })
   metadata: Record<string, unknown> | null;
@@ -65,11 +97,9 @@ export class AccessGroup {
   @JoinColumn({ name: 'branch_id' })
   branch: Branch | null;
 
-  @ManyToOne(() => AccessScheduleTemplate, (template) => template.groups, {
-    onDelete: 'CASCADE',
-  })
-  @JoinColumn({ name: 'schedule_template_id' })
-  scheduleTemplate: AccessScheduleTemplate;
+  @ManyToOne(() => AttendanceDevice, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'device_id' })
+  device: AttendanceDevice | null;
 
   @OneToMany(() => AccessGroupDoor, (groupDoor) => groupDoor.accessGroup)
   doors: AccessGroupDoor[];
@@ -77,4 +107,3 @@ export class AccessGroup {
   @OneToMany(() => AccessGroupEmployee, (groupEmployee) => groupEmployee.accessGroup)
   employees: AccessGroupEmployee[];
 }
-

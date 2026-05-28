@@ -6,17 +6,24 @@ import {
   Index,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
+  Unique,
   UpdateDateColumn,
 } from 'typeorm';
 import { Company } from '../../../companies/entities/company.entity';
+import { Branch } from '../../../hr/branches/entities/branch.entity';
+import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
 import { AccessScheduleTemplate } from '../../access-schedule-templates/entity/access-schedule-template.entity';
-import { AccessDayOfWeekEnum } from '../enum/access-day-of-week.enum';
+import { AccessWeekPlanSourceEnum } from '../enum/access-week-plan-source.enum';
+import { AccessWeekPlanSegment } from '../../access-week-plan-segments/entity/access-week-plan-segment.entity';
 
 @Entity('access_week_plans')
 @Index('IDX_access_week_plans_company_id', ['companyId'])
-@Index('IDX_access_week_plans_template_id', ['scheduleTemplateId'])
+@Index('IDX_access_week_plans_branch_id', ['branchId'])
+@Index('IDX_access_week_plans_device_id', ['deviceId'])
 @Index('IDX_access_week_plans_plan_no', ['hikvisionPlanNo'])
+@Unique('UQ_access_week_plans_device_plan_no', ['deviceId', 'hikvisionPlanNo'])
 export class AccessWeekPlan {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -24,24 +31,37 @@ export class AccessWeekPlan {
   @Column({ name: 'company_id', type: 'int' })
   companyId: number;
 
-  @Column({ name: 'schedule_template_id', type: 'int' })
-  scheduleTemplateId: number;
+  @Column({ name: 'branch_id', type: 'int', nullable: true })
+  branchId: number | null;
+
+  @Column({ name: 'device_id', type: 'int' })
+  deviceId: number;
 
   @Column({ name: 'hikvision_plan_no', type: 'varchar', length: 50 })
   hikvisionPlanNo: string;
 
+  @Column({ name: 'name', type: 'varchar', length: 150, nullable: true })
+  name: string | null;
+
+  @Column({ name: 'enable', type: 'boolean', default: true })
+  enable: boolean;
+
+  @Column({ name: 'description', type: 'text', nullable: true })
+  description: string | null;
+
   @Column({
-    name: 'day_of_week',
+    name: 'source',
     type: 'enum',
-    enum: AccessDayOfWeekEnum,
+    enum: AccessWeekPlanSourceEnum,
+    default: AccessWeekPlanSourceEnum.MANUAL,
   })
-  dayOfWeek: AccessDayOfWeekEnum;
+  source: AccessWeekPlanSourceEnum;
 
-  @Column({ name: 'start_time', type: 'varchar', length: 8 })
-  startTime: string;
+  @Column({ name: 'is_system_default', type: 'boolean', default: false })
+  isSystemDefault: boolean;
 
-  @Column({ name: 'end_time', type: 'varchar', length: 8 })
-  endTime: string;
+  @Column({ name: 'last_synced_at', type: 'timestamp', nullable: true })
+  lastSyncedAt: Date | null;
 
   @Column({ name: 'metadata', type: 'json', nullable: true })
   metadata: Record<string, unknown> | null;
@@ -59,10 +79,17 @@ export class AccessWeekPlan {
   @JoinColumn({ name: 'company_id' })
   company: Company;
 
-  @ManyToOne(() => AccessScheduleTemplate, (template) => template.weekPlans, {
-    onDelete: 'CASCADE',
-  })
-  @JoinColumn({ name: 'schedule_template_id' })
-  scheduleTemplate: AccessScheduleTemplate;
-}
+  @ManyToOne(() => Branch, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'branch_id' })
+  branch: Branch | null;
 
+  @ManyToOne(() => AttendanceDevice, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'device_id' })
+  device: AttendanceDevice;
+
+  @OneToMany(() => AccessScheduleTemplate, (template) => template.weekPlan)
+  templates: AccessScheduleTemplate[];
+
+  @OneToMany(() => AccessWeekPlanSegment, (segment) => segment.weekPlan)
+  segments: AccessWeekPlanSegment[];
+}

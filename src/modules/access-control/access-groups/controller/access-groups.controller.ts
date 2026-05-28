@@ -200,4 +200,26 @@ export class AccessGroupsController {
   ) {
     return this.groupsService.syncGroup(req.user.companyId!, id);
   }
+
+  @Get(':id/employees')
+  @UseGuards(PermissionsGuard)
+  @Permissions('access_groups:read')
+  @ApiActionOperation('Group Employees', 'List employees assigned to one access group')
+  listEmployees(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.groupsService.listGroupEmployees(req.user.companyId!, id);
+  }
+
+  @Get(':id/doors')
+  @UseGuards(PermissionsGuard)
+  @Permissions('access_groups:read')
+  @ApiActionOperation('Group Doors', 'List doors and templates assigned to one access group')
+  listDoors(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.groupsService.listGroupDoors(req.user.companyId!, id);
+  }
 }

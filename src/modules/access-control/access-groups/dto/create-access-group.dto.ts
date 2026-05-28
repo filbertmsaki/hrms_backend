@@ -4,9 +4,32 @@ import { IsEnum, IsInt, IsObject, IsOptional, IsString, MaxLength, Min } from 'c
 import { AccessGroupStatusEnum } from '../enum/access-group-status.enum';
 
 export class CreateAccessGroupDto {
+  @ApiPropertyOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  device_id?: number | null;
+
   @IsString()
   @MaxLength(150)
-  name: string;
+  @IsOptional()
+  name?: string;
+
+  @IsString()
+  @MaxLength(150)
+  group_name: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @MaxLength(100)
+  @IsOptional()
+  group_code?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  description?: string;
 
   @ApiPropertyOptional()
   @Type(() => Number)
@@ -18,7 +41,8 @@ export class CreateAccessGroupDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  schedule_template_id: number;
+  @IsOptional()
+  schedule_template_id?: number;
 
   @ApiPropertyOptional({ enum: AccessGroupStatusEnum })
   @IsEnum(AccessGroupStatusEnum)

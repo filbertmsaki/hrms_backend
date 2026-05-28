@@ -11,8 +11,11 @@ import { AccessGroupEmployee } from '../access-group-employees/entity/access-gro
 import { AccessOrganization } from '../access-organizations/entity/access-organization.entity';
 import { AccessScheduleTemplate } from '../access-schedule-templates/entity/access-schedule-template.entity';
 import { AccessWeekPlan } from '../access-week-plans/entity/access-week-plan.entity';
+import { AccessWeekPlanSegment } from '../access-week-plan-segments/entity/access-week-plan-segment.entity';
 import { EmployeeAccessCredential } from '../employee-access-credentials/entity/employee-access-credential.entity';
 import { EmployeeDeviceAssignment } from '../employee-device-assignments/entity/employee-device-assignment.entity';
+import { EmployeeDeviceRightPlan } from '../employee-device-right-plans/entity/employee-device-right-plan.entity';
+import { HikvisionSyncLog } from '../hikvision-sync-logs/entity/hikvision-sync-log.entity';
 import { AccessGroupsController } from './controller/access-groups.controller';
 import { AccessGroup } from './entity/access-group.entity';
 import { AccessGroupsService } from './service/access-groups.service';
@@ -30,9 +33,12 @@ import { AccessControlSyncService } from '../service/access-control-sync.service
       Employee,
       CompanyUser,
       AccessWeekPlan,
+      AccessWeekPlanSegment,
       AccessOrganization,
       EmployeeAccessCredential,
       EmployeeDeviceAssignment,
+      EmployeeDeviceRightPlan,
+      HikvisionSyncLog,
       AttendanceDevice,
     ]),
     HikvisionModule,

@@ -11,16 +11,25 @@ import { AttendanceDevice } from '../../hr/attendance/devices/entities/attendanc
 import { Employee } from '../../hr/employees/entities/employee.entity';
 import { HikvisionAccessControlService } from '../../hikvision/hikvision-access-control.service';
 import { AccessDoor } from '../access-doors/entity/access-door.entity';
+import { AccessDoorSourceEnum } from '../access-doors/enum/access-door-source.enum';
+import { AccessDoorSyncStatusEnum } from '../access-doors/enum/access-door-sync-status.enum';
 import { AccessGroupDoor } from '../access-group-doors/entity/access-group-door.entity';
 import { AccessGroupEmployee } from '../access-group-employees/entity/access-group-employee.entity';
 import { AccessGroupStatusEnum } from '../access-groups/enum/access-group-status.enum';
 import { AccessGroup } from '../access-groups/entity/access-group.entity';
+import { AccessGroupSourceEnum } from '../access-groups/enum/access-group-source.enum';
 import { AccessOrganization } from '../access-organizations/entity/access-organization.entity';
 import { AccessScheduleTemplate } from '../access-schedule-templates/entity/access-schedule-template.entity';
 import { AccessWeekPlan } from '../access-week-plans/entity/access-week-plan.entity';
+import { AccessWeekPlanSegment } from '../access-week-plan-segments/entity/access-week-plan-segment.entity';
 import { EmployeeAccessCredential } from '../employee-access-credentials/entity/employee-access-credential.entity';
 import { EmployeeDeviceAssignment } from '../employee-device-assignments/entity/employee-device-assignment.entity';
 import { EmployeeDeviceAssignmentSyncStatusEnum } from '../employee-device-assignments/enum/employee-device-assignment-sync-status.enum';
+import { EmployeeDeviceRightPlan } from '../employee-device-right-plans/entity/employee-device-right-plan.entity';
+import { HikvisionSyncLog } from '../hikvision-sync-logs/entity/hikvision-sync-log.entity';
+import { HikvisionSyncLogDirectionEnum } from '../hikvision-sync-logs/enum/hikvision-sync-log-direction.enum';
+import { HikvisionSyncLogStatusEnum } from '../hikvision-sync-logs/enum/hikvision-sync-log-status.enum';
+import { HikvisionSyncLogTypeEnum } from '../hikvision-sync-logs/enum/hikvision-sync-log-type.enum';
 
 @Injectable()
 export class AccessControlSyncService {
@@ -39,12 +48,18 @@ export class AccessControlSyncService {
     private readonly accessScheduleTemplateRepository: Repository<AccessScheduleTemplate>,
     @InjectRepository(AccessWeekPlan)
     private readonly accessWeekPlanRepository: Repository<AccessWeekPlan>,
+    @InjectRepository(AccessWeekPlanSegment)
+    private readonly accessWeekPlanSegmentRepository: Repository<AccessWeekPlanSegment>,
     @InjectRepository(AccessOrganization)
     private readonly accessOrganizationRepository: Repository<AccessOrganization>,
     @InjectRepository(EmployeeAccessCredential)
     private readonly employeeAccessCredentialRepository: Repository<EmployeeAccessCredential>,
     @InjectRepository(EmployeeDeviceAssignment)
     private readonly employeeDeviceAssignmentRepository: Repository<EmployeeDeviceAssignment>,
+    @InjectRepository(EmployeeDeviceRightPlan)
+    private readonly employeeDeviceRightPlanRepository: Repository<EmployeeDeviceRightPlan>,
+    @InjectRepository(HikvisionSyncLog)
+    private readonly hikvisionSyncLogRepository: Repository<HikvisionSyncLog>,
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
     @InjectRepository(AttendanceDevice)
@@ -88,19 +103,21 @@ export class AccessControlSyncService {
     });
 
     const scheduleTemplate = await this.accessScheduleTemplateRepository.findOne({
-      where: { id: group.scheduleTemplateId, companyId },
+      where: { id: group.scheduleTemplateId ?? -1, companyId },
     });
 
     if (!scheduleTemplate) {
       throw new NotFoundException('Schedule template not found for group');
     }
 
-    const weekPlans = await this.accessWeekPlanRepository.find({
-      where: {
-        companyId,
-        scheduleTemplateId: scheduleTemplate.id,
-      },
+    const weekPlan = await this.accessWeekPlanRepository.findOne({
+      where: { id: scheduleTemplate.weekPlanId, companyId },
     });
+    const weekPlanSegments = weekPlan
+      ? await this.accessWeekPlanSegmentRepository.find({
+          where: { weekPlanId: weekPlan.id },
+        })
+      : [];
 
     const doorMapByDevice = new Map<number, AccessDoor[]>();
     for (const door of doors) {
@@ -113,6 +130,15 @@ export class AccessControlSyncService {
     const results: Array<Record<string, unknown>> = [];
 
     for (const groupEmployee of groupEmployeeAssignments) {
+      if (!groupEmployee.employeeId) {
+        results.push({
+          employee_id: null,
+          status: 'SKIPPED',
+          reason: 'group employee does not have employee_id',
+        });
+        continue;
+      }
+
       const employee = await this.findEmployeeOrFail(companyId, groupEmployee.employeeId);
       const credentials = await this.employeeAccessCredentialRepository.findOne({
         where: { companyId, employeeId: employee.id },
@@ -138,7 +164,8 @@ export class AccessControlSyncService {
           companyId,
           group,
           scheduleTemplate,
-          weekPlans,
+          weekPlan,
+          weekPlanSegments,
           employee,
           credentials,
           deviceId,
@@ -255,11 +282,409 @@ export class AccessControlSyncService {
     };
   }
 
+  async syncDevice(companyId: number, deviceId: number) {
+    const startedAt = new Date();
+    const results = {
+      doors: await this.syncDeviceDoors(companyId, deviceId),
+      week_plans: await this.syncDeviceWeekPlans(companyId, deviceId),
+      templates: await this.syncDeviceTemplates(companyId, deviceId),
+      users: await this.syncDeviceUsers(companyId, deviceId),
+      virtual_groups: await this.generateVirtualGroups(companyId, deviceId),
+    };
+
+    await this.hikvisionSyncLogRepository.save(
+      this.hikvisionSyncLogRepository.create({
+        companyId,
+        deviceId,
+        syncType: HikvisionSyncLogTypeEnum.FULL,
+        direction: HikvisionSyncLogDirectionEnum.PULL,
+        status: HikvisionSyncLogStatusEnum.SUCCESS,
+        startedAt,
+        completedAt: new Date(),
+        recordsReceived: 0,
+        recordsProcessed: 0,
+        recordsCreated: 0,
+        recordsUpdated: 0,
+        recordsFailed: 0,
+        metadata: results as Record<string, unknown>,
+      }),
+    );
+
+    return {
+      message: 'Full device sync workflow completed',
+      device_id: deviceId,
+      results,
+    };
+  }
+
+  async syncDeviceDoors(companyId: number, deviceId: number) {
+    let synced = 0;
+    for (let doorNo = 1; doorNo <= 32; doorNo += 1) {
+      const response = await this.hikvisionAccessControlService.getDoorConfiguration(
+        companyId,
+        deviceId,
+        doorNo,
+      );
+
+      if (!response.ok) {
+        continue;
+      }
+
+      const parsed = this.toObject(response.parsed);
+      const doorParam = this.toObject(parsed.DoorParam ?? parsed);
+      const doorName =
+        String(doorParam.doorName ?? doorParam.name ?? `Door ${doorNo}`).trim() || `Door ${doorNo}`;
+
+      let door = await this.accessDoorRepository.findOne({
+        where: { companyId, deviceId, doorNo },
+      });
+
+      if (!door) {
+        door = this.accessDoorRepository.create({
+          companyId,
+          deviceId,
+          doorNo,
+          doorName,
+          source: AccessDoorSourceEnum.DEVICE_SYNC,
+          syncStatus: AccessDoorSyncStatusEnum.SYNCED,
+        });
+      } else {
+        door.doorName = doorName;
+      }
+
+      door.lastSyncedAt = new Date();
+      door.metadata = {
+        ...(door.metadata ?? {}),
+        hikvision: {
+          ...(this.toObject((door.metadata ?? {}).hikvision)),
+          pulled_at: new Date().toISOString(),
+          raw: parsed,
+        },
+      };
+
+      await this.accessDoorRepository.save(door);
+      synced += 1;
+    }
+
+    return {
+      message: 'Door pull completed',
+      device_id: deviceId,
+      synced,
+    };
+  }
+
+  async syncDeviceWeekPlans(companyId: number, deviceId: number) {
+    const syncedPlanNos: string[] = [];
+    for (let planNo = 1; planNo <= 64; planNo += 1) {
+      const planNoText = String(planNo);
+      const response = await this.hikvisionAccessControlService.getUserRightWeekPlanCfg(
+        companyId,
+        deviceId,
+        planNoText,
+      );
+      if (!response.ok) {
+        continue;
+      }
+
+      const parsed = this.toObject(response.parsed);
+      const cfg = this.toObject(parsed.UserRightWeekPlanCfg ?? parsed);
+      const resolvedPlanNo = String(cfg.weekPlanNo ?? planNoText);
+
+      let weekPlan = await this.accessWeekPlanRepository.findOne({
+        where: { companyId, deviceId, hikvisionPlanNo: resolvedPlanNo },
+      });
+
+      if (!weekPlan) {
+        weekPlan = this.accessWeekPlanRepository.create({
+          companyId,
+          deviceId,
+          hikvisionPlanNo: resolvedPlanNo,
+          source: 'DEVICE_SYNC' as any,
+          enable: true,
+          isSystemDefault: false,
+        });
+      }
+
+      weekPlan.lastSyncedAt = new Date();
+      weekPlan.metadata = {
+        ...(weekPlan.metadata ?? {}),
+        hikvision: {
+          pulled_at: new Date().toISOString(),
+          raw: parsed,
+        },
+      };
+
+      await this.accessWeekPlanRepository.save(weekPlan);
+      syncedPlanNos.push(resolvedPlanNo);
+    }
+
+    return {
+      message: 'Week plan pull completed',
+      device_id: deviceId,
+      synced: syncedPlanNos.length,
+      plan_nos: syncedPlanNos,
+    };
+  }
+
+  async syncDeviceTemplates(companyId: number, deviceId: number) {
+    const syncedTemplateNos: string[] = [];
+    for (let templateNo = 1; templateNo <= 64; templateNo += 1) {
+      const templateNoText = String(templateNo);
+      const response = await this.hikvisionAccessControlService.getUserRightPlanTemplate(
+        companyId,
+        deviceId,
+        templateNoText,
+      );
+      if (!response.ok) {
+        continue;
+      }
+
+      const parsed = this.toObject(response.parsed);
+      const cfg = this.toObject(parsed.UserRightPlanTemplate ?? parsed);
+      const hikvisionTemplateNo = String(cfg.planTemplateNo ?? templateNoText);
+      const templateName = String(cfg.planTemplateName ?? `Template ${hikvisionTemplateNo}`);
+      const hikvisionWeekPlanNo = String(cfg.weekPlanNo ?? '1');
+
+      let weekPlan = await this.accessWeekPlanRepository.findOne({
+        where: { companyId, deviceId, hikvisionPlanNo: hikvisionWeekPlanNo },
+      });
+      if (!weekPlan) {
+        weekPlan = await this.accessWeekPlanRepository.save(
+          this.accessWeekPlanRepository.create({
+            companyId,
+            deviceId,
+            hikvisionPlanNo: hikvisionWeekPlanNo,
+            enable: true,
+            source: 'DEVICE_SYNC' as any,
+            isSystemDefault: false,
+          }),
+        );
+      }
+
+      let template = await this.accessScheduleTemplateRepository.findOne({
+        where: { companyId, deviceId, hikvisionTemplateNo },
+      });
+      if (!template) {
+        template = this.accessScheduleTemplateRepository.create({
+          companyId,
+          deviceId,
+          hikvisionTemplateNo,
+          templateName,
+          weekPlanId: weekPlan.id,
+          hikvisionWeekPlanNo,
+          source: 'DEVICE_SYNC' as any,
+          enable: true,
+          name: templateName,
+        });
+      }
+
+      template.name = templateName;
+      template.templateName = templateName;
+      template.weekPlanId = weekPlan.id;
+      template.hikvisionWeekPlanNo = hikvisionWeekPlanNo;
+      template.lastSyncedAt = new Date();
+      template.metadata = {
+        ...(template.metadata ?? {}),
+        hikvision: {
+          pulled_at: new Date().toISOString(),
+          raw: parsed,
+        },
+      };
+
+      await this.accessScheduleTemplateRepository.save(template);
+      syncedTemplateNos.push(hikvisionTemplateNo);
+    }
+
+    return {
+      message: 'Template pull completed',
+      device_id: deviceId,
+      synced: syncedTemplateNos.length,
+      template_nos: syncedTemplateNos,
+    };
+  }
+
+  async syncDeviceUsers(companyId: number, deviceId: number) {
+    const payload = {
+      UserInfoSearchCond: {
+        searchID: `full-user-sync-${Date.now()}`,
+        searchResultPosition: 0,
+        maxResults: 500,
+      },
+    };
+
+    const response = await this.hikvisionAccessControlService.searchUserInfo(companyId, deviceId, payload);
+    const users = this.extractUsersFromSearch(response.parsed);
+
+    let processed = 0;
+    for (const user of users) {
+      const employeeNo = String(user.employeeNo ?? '').trim();
+      if (!employeeNo) {
+        continue;
+      }
+
+      const employee = await this.employeeRepository
+        .createQueryBuilder('employee')
+        .where('employee.employee_no = :employeeNo', { employeeNo })
+        .getOne();
+
+      const org = await this.resolveOrCreateOrganizationFromUser(companyId, deviceId, user);
+
+      let assignment = await this.employeeDeviceAssignmentRepository.findOne({
+        where: { deviceId, employeeNo },
+      });
+
+      if (!assignment) {
+        assignment = this.employeeDeviceAssignmentRepository.create({
+          companyId,
+          employeeId: employee?.id ?? null,
+          employeeNo,
+          deviceId,
+          organizationId: org?.id ?? null,
+          syncStatus: EmployeeDeviceAssignmentSyncStatusEnum.SYNCED,
+        });
+      }
+
+      assignment.employeeId = employee?.id ?? assignment.employeeId ?? null;
+      assignment.organizationId = org?.id ?? assignment.organizationId ?? null;
+      assignment.hikvisionUserType = String(user.userType ?? assignment.hikvisionUserType ?? '');
+      assignment.userVerifyMode = String(user.userVerifyMode ?? assignment.userVerifyMode ?? '');
+      assignment.doorRight = String(user.doorRight ?? assignment.doorRight ?? '');
+      assignment.lastSyncedAt = new Date();
+      assignment.syncStatus = EmployeeDeviceAssignmentSyncStatusEnum.SYNCED;
+      assignment.metadata = {
+        ...(assignment.metadata ?? {}),
+        hikvision_raw_user: user,
+      };
+
+      const savedAssignment = await this.employeeDeviceAssignmentRepository.save(assignment);
+      await this.syncAssignmentRightPlans(companyId, deviceId, savedAssignment, user);
+      processed += 1;
+    }
+
+    return {
+      message: 'User pull completed',
+      device_id: deviceId,
+      processed,
+    };
+  }
+
+  async generateVirtualGroups(companyId: number, deviceId: number) {
+    const rightPlans = await this.employeeDeviceRightPlanRepository.find({
+      where: { deviceId },
+      relations: ['assignment'],
+    });
+
+    const grouped = new Map<string, EmployeeDeviceRightPlan[]>();
+    for (const plan of rightPlans) {
+      const key = `device:${deviceId}|door:${plan.doorNo}|template:${plan.hikvisionTemplateNo}`;
+      if (!grouped.has(key)) {
+        grouped.set(key, []);
+      }
+      grouped.get(key)!.push(plan);
+    }
+
+    const results: Array<Record<string, unknown>> = [];
+    for (const [key, plans] of grouped.entries()) {
+      const sample = plans[0];
+      let group = await this.accessGroupRepository.findOne({
+        where: { companyId, groupingKey: key },
+      });
+
+      if (!group) {
+        group = await this.accessGroupRepository.save(
+          this.accessGroupRepository.create({
+            companyId,
+            deviceId,
+            name: `ALL ACCESS D${sample.doorNo} T${sample.hikvisionTemplateNo}`,
+            source: AccessGroupSourceEnum.IVMS_VIRTUAL,
+            groupingKey: key,
+            isVirtual: true,
+            isActive: true,
+            status: AccessGroupStatusEnum.ACTIVE,
+          }),
+        );
+      }
+
+      for (const plan of plans) {
+        const assignment = plan.assignment;
+        if (!assignment) {
+          continue;
+        }
+
+        const door = await this.accessDoorRepository.findOne({
+          where: { companyId, deviceId, doorNo: plan.doorNo },
+        });
+        const template = await this.accessScheduleTemplateRepository.findOne({
+          where: { companyId, deviceId, hikvisionTemplateNo: plan.hikvisionTemplateNo },
+        });
+
+        if (door && template) {
+          const existingDoor = await this.accessGroupDoorRepository.findOne({
+            where: {
+              accessGroupId: group.id,
+              deviceId,
+              doorNo: plan.doorNo,
+              hikvisionTemplateNo: plan.hikvisionTemplateNo,
+            },
+          });
+
+          if (!existingDoor) {
+            await this.accessGroupDoorRepository.save(
+              this.accessGroupDoorRepository.create({
+                accessGroupId: group.id,
+                deviceId,
+                doorId: door.id,
+                doorNo: plan.doorNo,
+                scheduleTemplateId: template.id,
+                hikvisionTemplateNo: plan.hikvisionTemplateNo,
+              }),
+            );
+          }
+        }
+
+        const existingEmployee = await this.accessGroupEmployeeRepository.findOne({
+          where: {
+            accessGroupId: group.id,
+            employeeNo: assignment.employeeNo,
+            deviceId,
+          },
+        });
+
+        if (!existingEmployee) {
+          await this.accessGroupEmployeeRepository.save(
+            this.accessGroupEmployeeRepository.create({
+              accessGroupId: group.id,
+              employeeId: assignment.employeeId,
+              employeeNo: assignment.employeeNo,
+              employeeName: assignment.employeeNo,
+              deviceId,
+              organizationId: assignment.organizationId,
+              source: 'DEVICE_SYNC' as any,
+              assignedAt: new Date(),
+            }),
+          );
+        }
+      }
+
+      results.push({
+        grouping_key: key,
+        members: plans.length,
+      });
+    }
+
+    return {
+      message: 'Virtual access groups generated',
+      device_id: deviceId,
+      groups: results,
+    };
+  }
+
   private async syncEmployeeToDevice(params: {
     companyId: number;
     group: AccessGroup;
     scheduleTemplate: AccessScheduleTemplate;
-    weekPlans: AccessWeekPlan[];
+    weekPlan: AccessWeekPlan | null;
+    weekPlanSegments: AccessWeekPlanSegment[];
     employee: Employee;
     credentials: EmployeeAccessCredential | null;
     deviceId: number;
@@ -269,7 +694,8 @@ export class AccessControlSyncService {
       companyId,
       group,
       scheduleTemplate,
-      weekPlans,
+      weekPlan,
+      weekPlanSegments,
       employee,
       credentials,
       deviceId,
@@ -278,7 +704,7 @@ export class AccessControlSyncService {
 
     try {
       const organization = await this.resolveOrganization(companyId, employee, group);
-      if (organization) {
+      if (organization?.hikvisionGroupNo) {
         await this.hikvisionAccessControlService.putGroupCfg(
           companyId,
           deviceId,
@@ -300,7 +726,17 @@ export class AccessControlSyncService {
         },
       );
 
-      for (const weekPlan of weekPlans) {
+      if (weekPlan) {
+        const weekPlanCfg = weekPlanSegments.map((segment) => ({
+          week: this.formatWeekDay(segment.weekDay),
+          id: segment.segmentNo,
+          enable: segment.enable,
+          TimeSegment: {
+            beginTime: segment.beginTime,
+            endTime: segment.endTime,
+          },
+        }));
+
         await this.hikvisionAccessControlService.putUserRightWeekPlanCfg(
           companyId,
           deviceId,
@@ -308,17 +744,7 @@ export class AccessControlSyncService {
           {
             UserRightWeekPlanCfg: {
               weekPlanNo: weekPlan.hikvisionPlanNo,
-              weekPlan: [
-                {
-                  dayOfWeek: weekPlan.dayOfWeek,
-                  timeSegment: [
-                    {
-                      startTime: weekPlan.startTime,
-                      endTime: weekPlan.endTime,
-                    },
-                  ],
-                },
-              ],
+              WeekPlanCfg: weekPlanCfg,
             },
           },
         );
@@ -502,6 +928,104 @@ export class AccessControlSyncService {
     await this.employeeDeviceAssignmentRepository.save(item);
   }
 
+  private extractUsersFromSearch(payload: unknown): Array<Record<string, unknown>> {
+    const data = this.toObject(payload);
+    const search = this.toObject(data.UserInfoSearch ?? data.UserInfoSearchResult ?? data);
+    const list = search.UserInfo ?? search.UserInfoList ?? search.userInfoList ?? [];
+    if (Array.isArray(list)) {
+      return list.map((item) => this.toObject(item));
+    }
+
+    if (list && typeof list === 'object') {
+      return [this.toObject(list)];
+    }
+
+    return [];
+  }
+
+  private async resolveOrCreateOrganizationFromUser(
+    companyId: number,
+    deviceId: number,
+    user: Record<string, unknown>,
+  ): Promise<AccessOrganization | null> {
+    const orgIndex = String(user.orgIndex ?? user.groupNo ?? '').trim() || null;
+    const orgName = String(user.orgName ?? '').trim() || null;
+
+    if (!orgIndex && !orgName) {
+      return null;
+    }
+
+    const fallbackName = orgName ?? 'Default Organization';
+    let organization = await this.accessOrganizationRepository.findOne({
+      where: orgIndex
+        ? { companyId, hikvisionOrgIndex: orgIndex }
+        : { companyId, orgName: fallbackName },
+    });
+
+    if (!organization) {
+      organization = this.accessOrganizationRepository.create({
+        companyId,
+        deviceId,
+        orgName: fallbackName,
+        name: fallbackName,
+        hikvisionOrgIndex: orgIndex,
+        hikvisionGroupNo: orgIndex,
+        source: 'DEVICE_SYNC' as any,
+      });
+    } else {
+      organization.deviceId = organization.deviceId ?? deviceId;
+      organization.orgName = organization.orgName || fallbackName;
+      organization.name = organization.name || fallbackName;
+      organization.hikvisionOrgIndex = organization.hikvisionOrgIndex ?? orgIndex;
+      organization.hikvisionGroupNo = organization.hikvisionGroupNo ?? orgIndex;
+    }
+
+    return this.accessOrganizationRepository.save(organization);
+  }
+
+  private async syncAssignmentRightPlans(
+    companyId: number,
+    deviceId: number,
+    assignment: EmployeeDeviceAssignment,
+    user: Record<string, unknown>,
+  ) {
+    const rawRightPlan = user.RightPlan ?? user.rightPlan ?? [];
+    const rightPlans = Array.isArray(rawRightPlan) ? rawRightPlan : [rawRightPlan];
+
+    await this.employeeDeviceRightPlanRepository.delete({
+      employeeDeviceAssignmentId: assignment.id,
+    });
+
+    for (const entry of rightPlans) {
+      const row = this.toObject(entry);
+      const doorNo = Number(row.doorNo ?? row.doorID ?? 0);
+      const hikvisionTemplateNo = String(row.planTemplateNo ?? row.templateNo ?? '').trim();
+      if (!doorNo || !hikvisionTemplateNo) {
+        continue;
+      }
+
+      const door = await this.accessDoorRepository.findOne({
+        where: { companyId, deviceId, doorNo },
+      });
+      const template = await this.accessScheduleTemplateRepository.findOne({
+        where: { companyId, deviceId, hikvisionTemplateNo },
+      });
+
+      await this.employeeDeviceRightPlanRepository.save(
+        this.employeeDeviceRightPlanRepository.create({
+          employeeDeviceAssignmentId: assignment.id,
+          employeeNo: assignment.employeeNo,
+          deviceId,
+          doorId: door?.id ?? null,
+          doorNo,
+          scheduleTemplateId: template?.id ?? null,
+          hikvisionTemplateNo,
+          metadata: row,
+        }),
+      );
+    }
+  }
+
   private async findEmployeeOrFail(companyId: number, employeeId: number): Promise<Employee> {
     const employee = await this.employeeRepository
       .createQueryBuilder('employee')
@@ -523,5 +1047,10 @@ export class AccessControlSyncService {
     }
 
     return value as Record<string, unknown>;
+  }
+
+  private formatWeekDay(value: string): string {
+    const normalized = String(value ?? '').trim().toLowerCase();
+    return normalized ? `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}` : 'Monday';
   }
 }

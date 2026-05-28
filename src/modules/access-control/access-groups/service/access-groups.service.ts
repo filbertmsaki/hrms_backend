@@ -55,12 +55,18 @@ export class AccessGroupsService {
 
   async create(companyId: number, dto: CreateAccessGroupDto) {
     await this.ensureBranch(companyId, dto.branch_id);
-    await this.ensureScheduleTemplate(companyId, dto.schedule_template_id);
+    if (dto.schedule_template_id) {
+      await this.ensureScheduleTemplate(companyId, dto.schedule_template_id);
+    }
+    const groupName = (dto.group_name ?? dto.name ?? '').trim();
+    if (!groupName) {
+      throw new BadRequestException('group_name is required');
+    }
 
     const duplicate = await this.groupRepository.findOne({
       where: {
         companyId,
-        name: dto.name.trim(),
+        name: groupName,
       },
       select: ['id'],
       withDeleted: true,
@@ -73,8 +79,11 @@ export class AccessGroupsService {
     const entity = this.groupRepository.create({
       companyId,
       branchId: dto.branch_id ?? null,
-      name: dto.name.trim(),
-      scheduleTemplateId: dto.schedule_template_id,
+      deviceId: dto.device_id ?? null,
+      name: groupName,
+      scheduleTemplateId: dto.schedule_template_id ?? null,
+      groupCode: dto.group_code ?? null,
+      description: dto.description ?? null,
       status: dto.status ?? AccessGroupStatusEnum.ACTIVE,
       metadata: dto.metadata ?? null,
     });
@@ -157,24 +166,31 @@ export class AccessGroupsService {
     }
 
     if (dto.schedule_template_id !== undefined) {
-      await this.ensureScheduleTemplate(companyId, dto.schedule_template_id);
-      item.scheduleTemplateId = dto.schedule_template_id;
+      if (dto.schedule_template_id) {
+        await this.ensureScheduleTemplate(companyId, dto.schedule_template_id);
+      }
+      item.scheduleTemplateId = dto.schedule_template_id ?? null;
     }
 
-    if (dto.name !== undefined) {
+    const nextName = dto.group_name ?? dto.name;
+    if (nextName !== undefined) {
+      const normalized = nextName.trim();
       const duplicate = await this.groupRepository.findOne({
         where: {
           companyId,
-          name: dto.name.trim(),
+          name: normalized,
         },
         select: ['id'],
       });
       if (duplicate && duplicate.id !== item.id) {
         throw new ConflictException('Group name already exists in the active company');
       }
-      item.name = dto.name.trim();
+      item.name = normalized;
     }
 
+    if (dto.device_id !== undefined) item.deviceId = dto.device_id ?? null;
+    if (dto.group_code !== undefined) item.groupCode = dto.group_code ?? null;
+    if (dto.description !== undefined) item.description = dto.description ?? null;
     if (dto.status !== undefined) item.status = dto.status;
     if (dto.metadata !== undefined) item.metadata = dto.metadata;
 
@@ -190,7 +206,16 @@ export class AccessGroupsService {
   async assignDoors(companyId: number, groupId: number, dto: AssignAccessGroupDoorsDto) {
     await this.findOrFail(companyId, groupId);
 
-    const uniqueDoorIds = [...new Set(dto.door_ids)];
+    const normalizedItems =
+      dto.items?.length
+        ? dto.items
+        : (dto.door_ids ?? []).map((doorId) => ({
+            door_id: doorId,
+            schedule_template_id: 0,
+            device_id: undefined,
+          }));
+
+    const uniqueDoorIds = [...new Set(normalizedItems.map((item) => item.door_id))];
     const doors = await this.accessDoorRepository.find({
       where: { id: In(uniqueDoorIds), companyId },
       select: ['id'],
@@ -201,9 +226,40 @@ export class AccessGroupsService {
     }
 
     let created = 0;
-    for (const doorId of uniqueDoorIds) {
+    for (const assignment of normalizedItems) {
+      const doorId = assignment.door_id;
+      const door = await this.accessDoorRepository.findOne({
+        where: { id: doorId, companyId },
+      });
+      if (!door) {
+        continue;
+      }
+
+      let templateId = assignment.schedule_template_id || null;
+      if (!templateId) {
+        const group = await this.findOrFail(companyId, groupId);
+        templateId = group.scheduleTemplateId ?? null;
+      }
+      if (!templateId) {
+        throw new BadRequestException(
+          'schedule_template_id is required (either per item or on the group)',
+        );
+      }
+
+      const template = await this.scheduleTemplateRepository.findOne({
+        where: { id: templateId, companyId },
+      });
+      if (!template) {
+        throw new BadRequestException(`Invalid schedule_template_id: ${templateId}`);
+      }
+
       const existing = await this.accessGroupDoorRepository.findOne({
-        where: { accessGroupId: groupId, doorId },
+        where: {
+          accessGroupId: groupId,
+          deviceId: assignment.device_id ?? door.deviceId,
+          doorNo: door.doorNo,
+          hikvisionTemplateNo: template.hikvisionTemplateNo,
+        },
       });
 
       if (existing) {
@@ -213,7 +269,11 @@ export class AccessGroupsService {
       await this.accessGroupDoorRepository.save(
         this.accessGroupDoorRepository.create({
           accessGroupId: groupId,
+          deviceId: assignment.device_id ?? door.deviceId,
           doorId,
+          doorNo: door.doorNo,
+          scheduleTemplateId: template.id,
+          hikvisionTemplateNo: template.hikvisionTemplateNo,
         }),
       );
       created += 1;
@@ -229,11 +289,11 @@ export class AccessGroupsService {
   async removeDoor(companyId: number, groupId: number, doorId: number) {
     await this.findOrFail(companyId, groupId);
 
-    const existing = await this.accessGroupDoorRepository.findOne({
+    const existing = await this.accessGroupDoorRepository.find({
       where: { accessGroupId: groupId, doorId },
     });
 
-    if (!existing) {
+    if (!existing.length) {
       throw new NotFoundException('Group door assignment not found');
     }
 
@@ -264,8 +324,13 @@ export class AccessGroupsService {
 
     let created = 0;
     for (const employeeId of uniqueEmployeeIds) {
+      const employee = await this.employeeRepository.findOne({ where: { id: employeeId } });
+      if (!employee) {
+        continue;
+      }
+
       const existing = await this.accessGroupEmployeeRepository.findOne({
-        where: { accessGroupId: groupId, employeeId },
+        where: { accessGroupId: groupId, employeeNo: employee.employee_no },
       });
 
       if (existing) {
@@ -276,6 +341,9 @@ export class AccessGroupsService {
         this.accessGroupEmployeeRepository.create({
           accessGroupId: groupId,
           employeeId,
+          employeeNo: employee.employee_no,
+          employeeName: `${employee.first_name} ${employee.last_name}`.trim(),
+          deviceId: null,
         }),
       );
 
@@ -292,11 +360,11 @@ export class AccessGroupsService {
   async removeEmployee(companyId: number, groupId: number, employeeId: number) {
     await this.findOrFail(companyId, groupId);
 
-    const existing = await this.accessGroupEmployeeRepository.findOne({
+    const existing = await this.accessGroupEmployeeRepository.find({
       where: { accessGroupId: groupId, employeeId },
     });
 
-    if (!existing) {
+    if (!existing.length) {
       throw new NotFoundException('Group employee assignment not found');
     }
 
@@ -311,6 +379,58 @@ export class AccessGroupsService {
 
   async syncGroup(companyId: number, groupId: number) {
     return this.accessControlSyncService.syncGroup(companyId, groupId);
+  }
+
+  async listGroupDoors(companyId: number, groupId: number) {
+    await this.findOrFail(companyId, groupId);
+    const rows = await this.accessGroupDoorRepository.find({
+      where: { accessGroupId: groupId },
+      relations: ['door', 'scheduleTemplate'],
+    });
+
+    return {
+      group_id: groupId,
+      data: rows.map((row) => ({
+        id: row.id,
+        access_group_id: row.accessGroupId,
+        door_id: row.doorId,
+        device_id: row.deviceId,
+        door_no: row.doorNo,
+        schedule_template_id: row.scheduleTemplateId,
+        hikvision_template_no: row.hikvisionTemplateNo,
+        metadata: row.metadata,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+      })),
+    };
+  }
+
+  async listGroupEmployees(companyId: number, groupId: number) {
+    await this.findOrFail(companyId, groupId);
+    const rows = await this.accessGroupEmployeeRepository.find({
+      where: { accessGroupId: groupId },
+      relations: ['employee', 'organization'],
+    });
+
+    return {
+      group_id: groupId,
+      data: rows.map((row) => ({
+        id: row.id,
+        access_group_id: row.accessGroupId,
+        employee_id: row.employeeId,
+        employee_no: row.employeeNo,
+        employee_name: row.employeeName,
+        organization_id: row.organizationId,
+        device_id: row.deviceId,
+        status: row.status,
+        source: row.source,
+        assigned_at: row.assignedAt,
+        removed_at: row.removedAt,
+        metadata: row.metadata,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+      })),
+    };
   }
 
   private async findOrFail(companyId: number, id: number): Promise<AccessGroup> {
@@ -353,9 +473,17 @@ export class AccessGroupsService {
       id: item.id,
       company_id: item.companyId,
       branch_id: item.branchId,
+      device_id: item.deviceId,
       name: item.name,
+      group_name: item.name,
+      group_code: item.groupCode,
+      description: item.description,
       schedule_template_id: item.scheduleTemplateId,
       status: item.status,
+      source: item.source,
+      grouping_key: item.groupingKey,
+      is_virtual: item.isVirtual,
+      is_active: item.isActive,
       metadata: item.metadata,
       created_at: item.createdAt,
       updated_at: item.updatedAt,

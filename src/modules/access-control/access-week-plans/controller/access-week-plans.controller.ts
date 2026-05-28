@@ -32,7 +32,6 @@ import { CreateAccessWeekPlanDto } from '../dto/create-access-week-plan.dto';
 import { SyncAccessWeekPlanDto } from '../dto/sync-access-week-plan.dto';
 import { SyncWeekPlansFromDeviceDto } from '../dto/sync-week-plans-from-device.dto';
 import { UpdateAccessWeekPlanDto } from '../dto/update-access-week-plan.dto';
-import { AccessDayOfWeekEnum } from '../enum/access-day-of-week.enum';
 import { AccessWeekPlansService } from '../service/access-week-plans.service';
 
 class AccessWeekPlanQueryDto {
@@ -65,12 +64,7 @@ class AccessWeekPlanQueryDto {
   @IsInt()
   @Min(1)
   @IsOptional()
-  schedule_template_id?: number;
-
-  @ApiPropertyOptional({ enum: AccessDayOfWeekEnum })
-  @IsEnum(AccessDayOfWeekEnum)
-  @IsOptional()
-  day_of_week?: AccessDayOfWeekEnum;
+  device_id?: number;
 
   @ApiPropertyOptional()
   @IsString()
@@ -105,6 +99,17 @@ export class AccessWeekPlansController {
     @Query() query: AccessWeekPlanQueryDto,
   ) {
     return this.weekPlansService.findAll(req.user.companyId!, query);
+  }
+
+  @Get(':id')
+  @UseGuards(PermissionsGuard)
+  @Permissions('access_week_plans:read')
+  @ApiActionOperation('Get Week Plan', 'Get one access week plan by ID')
+  findOne(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.weekPlansService.findOne(req.user.companyId!, id);
   }
 
   @Patch(':id')
@@ -157,7 +162,7 @@ export class AccessWeekPlansController {
     return this.weekPlansService.syncWeekPlansFromDevice(
       req.user.companyId!,
       deviceId,
-      dto.schedule_template_id,
+      dto.hikvision_plan_no,
     );
   }
 }
