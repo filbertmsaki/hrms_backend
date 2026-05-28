@@ -189,6 +189,10 @@ export class HikvisionAccessControlService {
     return this.requestJsonPut(companyId, deviceId, '/ISAPI/AccessControl/UserInfo/Modify?format=json', payload);
   }
 
+  async setupUserInfo(companyId: number, deviceId: number, payload: Record<string, unknown>) {
+    return this.requestJsonPut(companyId, deviceId, '/ISAPI/AccessControl/UserInfo/SetUp?format=json', payload);
+  }
+
   async deleteUserInfo(companyId: number, deviceId: number, payload: Record<string, unknown>) {
     return this.requestJsonPut(companyId, deviceId, '/ISAPI/AccessControl/UserInfo/Delete?format=json', payload);
   }
@@ -372,7 +376,11 @@ export class HikvisionAccessControlService {
     const normalizedMethod = String(method).toUpperCase();
 
     if (normalizedPath.includes('/userinfo/search')) return DeviceCommandTypeEnum.SEARCH_USERS;
-    if (normalizedPath.includes('/userinfo/record') || normalizedPath.includes('/userinfo/modify'))
+    if (
+      normalizedPath.includes('/userinfo/record') ||
+      normalizedPath.includes('/userinfo/modify') ||
+      normalizedPath.includes('/userinfo/setup')
+    )
       return DeviceCommandTypeEnum.SET_USER;
     if (normalizedPath.includes('/userinfo/delete')) return DeviceCommandTypeEnum.DELETE_USER;
     if (normalizedPath.includes('/cardinfo/search')) return DeviceCommandTypeEnum.GET_CARD;

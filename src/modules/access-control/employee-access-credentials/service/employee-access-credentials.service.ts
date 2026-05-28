@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
 import { Employee } from '../../../hr/employees/entities/employee.entity';
@@ -12,6 +12,7 @@ import { EmployeeDeviceAssignment } from '../../employee-device-assignments/enti
 import { CreateEmployeeAccessCredentialDto } from '../dto/create-employee-access-credential.dto';
 import { UpdateEmployeeAccessCredentialDto } from '../dto/update-employee-access-credential.dto';
 import { EmployeeAccessCredential } from '../entity/employee-access-credential.entity';
+import { EmployeeAccessCredentialTypeEnum } from '../enum/employee-access-credential-type.enum';
 
 @Injectable()
 export class EmployeeAccessCredentialsService {
@@ -33,29 +34,40 @@ export class EmployeeAccessCredentialsService {
   ) {
     const employee = await this.findEmployeeOrFail(companyId, employeeId);
 
-    let item = await this.credentialRepository.findOne({
-      where: { companyId, employeeId },
-    });
-
-    if (!item) {
-      item = this.credentialRepository.create({ companyId, employeeId });
-    }
-
     const resolvedDeviceId = await this.resolveAndValidateDeviceId(
       companyId,
       employee.id,
-      dto.device_id ?? item.deviceId ?? null,
+      dto.device_id ?? null,
     );
+    const credentialType = dto.credential_type ?? EmployeeAccessCredentialTypeEnum.CARD;
+
+    let item = await this.credentialRepository.findOne({
+      where: {
+        companyId,
+        employeeId,
+        deviceId: resolvedDeviceId ?? IsNull(),
+        credentialType,
+      },
+    });
+
+    if (!item) {
+      item = this.credentialRepository.create({
+        companyId,
+        employeeId,
+        deviceId: resolvedDeviceId,
+        credentialType,
+      });
+    }
 
     item.employeeNo = employee.employee_no;
     item.deviceId = resolvedDeviceId;
-    item.credentialType = dto.credential_type ?? item.credentialType ?? 'CARD';
+    item.credentialType = credentialType;
     item.credentialNo = dto.credential_no ?? item.credentialNo ?? null;
     item.credentialStatus = dto.credential_status ?? item.credentialStatus ?? 'ACTIVE';
     item.cardNo = dto.card_no?.trim() || null;
     if (dto.pin_password !== undefined) {
       item.passwordSet = Boolean(dto.pin_password?.trim());
-      item.pinPassword = null;
+      item.pinPassword = dto.pin_password?.trim() || null;
     }
     item.fingerprintCount = dto.fingerprint_count ?? 0;
     item.faceCount = dto.face_count ?? 0;
@@ -90,7 +102,7 @@ export class EmployeeAccessCredentialsService {
     if (dto.card_no !== undefined) item.cardNo = dto.card_no?.trim() || null;
     if (dto.pin_password !== undefined) {
       item.passwordSet = Boolean(dto.pin_password?.trim());
-      item.pinPassword = null;
+      item.pinPassword = dto.pin_password?.trim() || null;
     }
     if (dto.fingerprint_count !== undefined) item.fingerprintCount = dto.fingerprint_count;
     if (dto.face_count !== undefined) item.faceCount = dto.face_count;

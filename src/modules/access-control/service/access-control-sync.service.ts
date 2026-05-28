@@ -25,6 +25,7 @@ import { AccessWeekPlan } from '../access-week-plans/entity/access-week-plan.ent
 import { AccessWeekPlanSegment } from '../access-week-plan-segments/entity/access-week-plan-segment.entity';
 import { EmployeeAccessCredential } from '../employee-access-credentials/entity/employee-access-credential.entity';
 import { EmployeeAccessCredentialStatusEnum } from '../employee-access-credentials/enum/employee-access-credential-status.enum';
+import { EmployeeAccessCredentialTypeEnum } from '../employee-access-credentials/enum/employee-access-credential-type.enum';
 import { EmployeeDeviceAssignment } from '../employee-device-assignments/entity/employee-device-assignment.entity';
 import { EmployeeDeviceAssignmentSyncStatusEnum } from '../employee-device-assignments/enum/employee-device-assignment-sync-status.enum';
 import { EmployeeDeviceRightPlan } from '../employee-device-right-plans/entity/employee-device-right-plan.entity';
@@ -175,7 +176,7 @@ export class AccessControlSyncService {
       }
 
       const employee = await this.findEmployeeOrFail(companyId, groupEmployee.employeeId);
-      const credentials = await this.employeeAccessCredentialRepository.findOne({
+      const credentials = await this.employeeAccessCredentialRepository.find({
         where: { companyId, employeeId: employee.id },
       });
 
@@ -183,6 +184,9 @@ export class AccessControlSyncService {
         where: { employeeId: employee.id },
       });
       const assignedDeviceIds = new Set(employeeAssignments.map((item) => item.deviceId));
+      const assignmentByDeviceId = new Map(
+        employeeAssignments.map((assignment) => [assignment.deviceId, assignment]),
+      );
 
       for (const assignmentEntry of doorTemplateMap.values()) {
         const deviceId = assignmentEntry.deviceId;
@@ -213,6 +217,7 @@ export class AccessControlSyncService {
           credentials,
           deviceId,
           doors: deviceDoors,
+          assignment: assignmentByDeviceId.get(deviceId) ?? null,
         });
 
         results.push(syncResult);
@@ -232,14 +237,25 @@ export class AccessControlSyncService {
     const memberships = await this.accessGroupEmployeeRepository.find({
       where: { employeeId },
     });
+    
 
     const groupIds = [...new Set(memberships.map((item) => item.accessGroupId))];
+
+
 
     const results: Array<Record<string, unknown>> = [];
     for (const groupId of groupIds) {
       try {
         const response = await this.syncGroup(companyId, groupId);
-        results.push({ group_id: groupId, status: 'SYNCED', response });
+        const groupResults = Array.isArray(response.results) ? response.results : [];
+        const hasFailedResult = groupResults.some(
+          (result) => this.toObject(result).status === 'FAILED',
+        );
+        results.push({
+          group_id: groupId,
+          status: hasFailedResult ? 'FAILED' : 'SYNCED',
+          response,
+        });
       } catch (error) {
         results.push({
           group_id: groupId,
@@ -892,73 +908,24 @@ export class AccessControlSyncService {
     weekPlan: AccessWeekPlan | null;
     weekPlanSegments: AccessWeekPlanSegment[];
     employee: Employee;
-    credentials: EmployeeAccessCredential | null;
+    credentials: EmployeeAccessCredential[];
     deviceId: number;
     doors: AccessDoor[];
+    assignment: EmployeeDeviceAssignment | null;
   }): Promise<Record<string, unknown>> {
     const {
       companyId,
       group,
       scheduleTemplate,
       weekPlan,
-      weekPlanSegments,
       employee,
       credentials,
       deviceId,
       doors,
+      assignment,
     } = params;
 
     try {
-      const organization = await this.resolveOrganization(companyId, employee, group);
-      if (organization?.hikvisionGroupNo) {
-        const groupCfgResponse = await this.hikvisionAccessControlService.putGroupCfg(
-          companyId,
-          deviceId,
-          organization.hikvisionGroupNo,
-          { name: organization.name },
-        );
-        this.ensureHikvisionSuccess('PutGroupCfg', groupCfgResponse);
-      }
-
-      const templateResponse = await this.hikvisionAccessControlService.putUserRightPlanTemplate(
-        companyId,
-        deviceId,
-        scheduleTemplate.hikvisionTemplateNo,
-        {
-          UserRightPlanTemplate: {
-            planTemplateNo: scheduleTemplate.hikvisionTemplateNo,
-            planTemplateName: scheduleTemplate.name,
-            templateType: scheduleTemplate.scheduleType,
-          },
-        },
-      );
-      this.ensureHikvisionSuccess('PutUserRightPlanTemplate', templateResponse);
-
-      if (weekPlan) {
-        const weekPlanCfg = weekPlanSegments.map((segment) => ({
-          week: this.formatWeekDay(segment.weekDay),
-          id: segment.segmentNo,
-          enable: segment.enable,
-          TimeSegment: {
-            beginTime: segment.beginTime,
-            endTime: segment.endTime,
-          },
-        }));
-
-        const weekPlanResponse = await this.hikvisionAccessControlService.putUserRightWeekPlanCfg(
-          companyId,
-          deviceId,
-          weekPlan.hikvisionPlanNo,
-          {
-            UserRightWeekPlanCfg: {
-              weekPlanNo: weekPlan.hikvisionPlanNo,
-              WeekPlanCfg: weekPlanCfg,
-            },
-          },
-        );
-        this.ensureHikvisionSuccess('PutUserRightWeekPlanCfg', weekPlanResponse);
-      }
-
       const doorNos = doors.map((door) => door.doorNo).sort((a, b) => a - b);
       const doorRight = doorNos.join(',');
       const rightPlan = doorNos.map((doorNo) => ({
@@ -968,95 +935,36 @@ export class AccessControlSyncService {
 
       const employeeNo = employee.employee_no;
       const userName = `${employee.first_name} ${employee.last_name}`.trim();
-
-      const searchResponse = await this.hikvisionAccessControlService.searchUserInfo(companyId, deviceId, {
-        UserInfoSearchCond: {
-          searchID: `search-${Date.now()}-${employee.id}`,
-          searchResultPosition: 0,
-          maxResults: 10,
-          employeeNoList: [{ employeeNo }],
-        },
-      });
-      this.ensureHikvisionSuccess('SearchUserInfo', searchResponse);
-
-      const userExists = this.searchResultContainsEmployeeNo(searchResponse.parsed, employeeNo);
+      const credentialBundle = this.buildCredentialBundle(credentials, deviceId);
 
       const userInfoPayload = {
         UserInfo: {
           employeeNo,
           name: userName,
           userType: 'normal',
-          ...(organization ? { groupNo: organization.hikvisionGroupNo } : {}),
+          ...(credentialBundle.password ? { password: credentialBundle.password } : {}),
+          userVerifyMode: credentialBundle.userVerifyMode,
+          Valid: {
+            enable: assignment?.validEnabled ?? true,
+            beginTime: this.formatHikvisionDateTime(
+              assignment?.validBeginTime ?? this.startOfToday(),
+            ),
+            endTime: this.formatHikvisionDateTime(
+              assignment?.validEndTime ?? this.endOfDate(this.addYears(new Date(), 10)),
+            ),
+            timeType: 'local',
+          },
           doorRight,
           RightPlan: rightPlan,
         },
       };
 
-      if (userExists) {
-        const modifyResponse = await this.hikvisionAccessControlService.modifyUserInfo(
-          companyId,
-          deviceId,
-          userInfoPayload,
-        );
-        this.ensureHikvisionSuccess('ModifyUserInfo', modifyResponse);
-      } else {
-        const recordResponse = await this.hikvisionAccessControlService.recordUserInfo(
-          companyId,
-          deviceId,
-          userInfoPayload,
-        );
-        this.ensureHikvisionSuccess('RecordUserInfo', recordResponse);
-      }
-
-      if (credentials?.cardNo) {
-        const cardSearch = await this.hikvisionAccessControlService.searchCardInfo(companyId, deviceId, {
-          CardInfoSearchCond: {
-            searchID: `card-search-${Date.now()}-${employee.id}`,
-            searchResultPosition: 0,
-            maxResults: 10,
-            cardNo: credentials.cardNo,
-          },
-        });
-        this.ensureHikvisionSuccess('SearchCardInfo', cardSearch);
-
-        const cardExists = this.searchResultContainsCardNo(cardSearch.parsed, credentials.cardNo);
-        const cardPayload = {
-          CardInfo: {
-            cardNo: credentials.cardNo,
-            employeeNo,
-            cardType: 'normalCard',
-          },
-        };
-
-        if (cardExists) {
-          const cardModifyResponse = await this.hikvisionAccessControlService.modifyCardInfo(
-            companyId,
-            deviceId,
-            cardPayload,
-          );
-          this.ensureHikvisionSuccess('ModifyCardInfo', cardModifyResponse);
-        } else {
-          const cardRecordResponse = await this.hikvisionAccessControlService.recordCardInfo(
-            companyId,
-            deviceId,
-            cardPayload,
-          );
-          this.ensureHikvisionSuccess('RecordCardInfo', cardRecordResponse);
-        }
-      }
-
-      if (credentials?.hasFingerprint) {
-        const metadata = this.toObject(credentials.metadata);
-        const fingerprintPayload = this.toObject(metadata.fingerprint_payload);
-        if (Object.keys(fingerprintPayload).length) {
-          const fingerprintResponse = await this.hikvisionAccessControlService.setupFingerprint(
-            companyId,
-            deviceId,
-            fingerprintPayload,
-          );
-          this.ensureHikvisionSuccess('SetFingerprint', fingerprintResponse);
-        }
-      }
+      const setupResponse = await this.hikvisionAccessControlService.setupUserInfo(
+        companyId,
+        deviceId,
+        userInfoPayload,
+      );
+      this.ensureHikvisionSuccess('SetUpUserInfo', setupResponse);
 
       await this.saveEmployeeDeviceSyncStatus(employee.id, deviceId, {
         syncStatus: EmployeeDeviceAssignmentSyncStatusEnum.SYNCED,
@@ -1085,8 +993,9 @@ export class AccessControlSyncService {
         },
         response_payload: {
           user_sync: 'OK',
-          card_sync: credentials?.cardNo ? 'OK' : 'SKIPPED',
-          fingerprint_sync: credentials?.hasFingerprint ? 'OK_OR_SKIPPED' : 'SKIPPED',
+          password_sync: credentialBundle.password ? 'OK' : 'SKIPPED',
+          fingerprint_mode: credentialBundle.hasFingerprint ? 'ENABLED' : 'SKIPPED',
+          user_verify_mode: credentialBundle.userVerifyMode,
         },
         old_values: null,
         new_values: {
@@ -1141,32 +1050,6 @@ export class AccessControlSyncService {
         reason: (error as Error).message,
       };
     }
-  }
-
-  private async resolveOrganization(
-    companyId: number,
-    employee: Employee,
-    group: AccessGroup,
-  ): Promise<AccessOrganization | null> {
-    if (employee.primary_department_id) {
-      const byDepartment = await this.accessOrganizationRepository.findOne({
-        where: { companyId, departmentId: employee.primary_department_id },
-      });
-      if (byDepartment) {
-        return byDepartment;
-      }
-    }
-
-    if (group.branchId) {
-      const byBranch = await this.accessOrganizationRepository.findOne({
-        where: { companyId, branchId: group.branchId },
-      });
-      if (byBranch) {
-        return byBranch;
-      }
-    }
-
-    return null;
   }
 
   private searchResultContainsEmployeeNo(payload: unknown, employeeNo: string): boolean {
@@ -1351,6 +1234,106 @@ export class AccessControlSyncService {
     return normalized ? `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}` : 'Monday';
   }
 
+  private buildCredentialBundle(credentials: EmployeeAccessCredential[], deviceId: number) {
+    const relevantCredentials = credentials.filter(
+      (credential) => credential.deviceId === null || credential.deviceId === deviceId,
+    );
+
+    const passwordCredential = relevantCredentials.find(
+      (credential) =>
+        credential.credentialStatus === EmployeeAccessCredentialStatusEnum.ACTIVE &&
+        (credential.credentialType === EmployeeAccessCredentialTypeEnum.PASSWORD ||
+          credential.credentialType === EmployeeAccessCredentialTypeEnum.PIN) &&
+        Boolean(credential.pinPassword),
+    );
+
+    const cardCredential = relevantCredentials.find(
+      (credential) =>
+        credential.credentialStatus === EmployeeAccessCredentialStatusEnum.ACTIVE &&
+        credential.credentialType === EmployeeAccessCredentialTypeEnum.CARD &&
+        Boolean(credential.cardNo),
+    );
+
+    const fingerprintCredential = relevantCredentials.find(
+      (credential) =>
+        credential.credentialStatus === EmployeeAccessCredentialStatusEnum.ACTIVE &&
+        (credential.credentialType === EmployeeAccessCredentialTypeEnum.FINGERPRINT ||
+          credential.hasFingerprint),
+    );
+
+    const password = passwordCredential?.pinPassword?.trim() || null;
+    const cardNo = cardCredential?.cardNo?.trim() || null;
+    const hasFingerprint = Boolean(fingerprintCredential?.hasFingerprint || fingerprintCredential);
+
+    return {
+      password,
+      cardNo,
+      hasFingerprint,
+      fingerprintCredential: fingerprintCredential ?? null,
+      userVerifyMode: this.resolveUserVerifyMode(Boolean(password), hasFingerprint, Boolean(cardNo)),
+    };
+  }
+
+  private resolveUserVerifyMode(
+    hasPassword: boolean,
+    hasFingerprint: boolean,
+    hasCard: boolean,
+  ): string {
+    if (hasFingerprint && hasCard && hasPassword) {
+      return 'fpAndCardAndPw';
+    }
+
+    if (hasFingerprint && hasPassword) {
+      return 'fpAndPw';
+    }
+
+    if (hasCard && hasPassword) {
+      return 'cardAndPw';
+    }
+
+    if (hasFingerprint && hasCard) {
+      return 'fpAndCard';
+    }
+
+    if (hasFingerprint) {
+      return 'fp';
+    }
+
+    if (hasCard) {
+      return 'card';
+    }
+
+    return 'cardOrFpOrPw';
+  }
+
+  private startOfToday(): Date {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    return date;
+  }
+
+  private endOfDate(date: Date): Date {
+    const value = new Date(date);
+    value.setHours(23, 59, 59, 0);
+    return value;
+  }
+
+  private addYears(date: Date, years: number): Date {
+    const value = new Date(date);
+    value.setFullYear(value.getFullYear() + years);
+    return value;
+  }
+
+  private formatHikvisionDateTime(date: Date): string {
+    const pad = (value: number) => String(value).padStart(2, '0');
+    return [
+      date.getFullYear(),
+      pad(date.getMonth() + 1),
+      pad(date.getDate()),
+    ].join('-')
+      + `T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  }
+
   private ensureHikvisionSuccess(
     operation: string,
     response: {
@@ -1361,8 +1344,10 @@ export class AccessControlSyncService {
     },
   ) {
     if (!response.ok) {
+      const detail = this.extractHikvisionFailureReason(response.parsed)
+        ?? this.formatHikvisionErrorDetail(response.parsed || response.raw);
       throw new BadRequestException(
-        `${operation} failed with HTTP ${response.status}`,
+        `${operation} failed with HTTP ${response.status}${detail ? `: ${detail}` : ''}`,
       );
     }
 
@@ -1370,6 +1355,20 @@ export class AccessControlSyncService {
     if (failureReason) {
       throw new BadRequestException(`${operation} failed: ${failureReason}`);
     }
+  }
+
+  private formatHikvisionErrorDetail(payload: unknown): string | null {
+    if (!payload) {
+      return null;
+    }
+
+    const text = typeof payload === 'string' ? payload : JSON.stringify(payload);
+    const normalized = text.replace(/\s+/g, ' ').trim();
+    if (!normalized) {
+      return null;
+    }
+
+    return normalized.length > 500 ? `${normalized.slice(0, 500)}...` : normalized;
   }
 
   private extractHikvisionFailureReason(payload: unknown): string | null {
