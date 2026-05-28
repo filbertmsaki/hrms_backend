@@ -1,5 +1,6 @@
 import {
   Controller,
+  Delete,
   Param,
   ParseIntPipe,
   Post,
@@ -32,6 +33,38 @@ export class AccessControlSyncController {
     @Param('employeeId', ParseIntPipe) employeeId: number,
   ) {
     return this.accessControlSyncService.syncEmployee(req.user.companyId!, employeeId);
+  }
+
+  @Post('employees/:employeeId/devices/:deviceId/disable-access')
+  @UseGuards(PermissionsGuard)
+  @Permissions('access_control_sync:execute')
+  @ApiActionOperation('Disable Employee Access', 'Disable access rights for one employee on one device')
+  disableEmployeeAccess(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+  ) {
+    return this.accessControlSyncService.disableEmployeeAccess(
+      req.user.companyId!,
+      employeeId,
+      deviceId,
+    );
+  }
+
+  @Delete('employees/:employeeId/devices/:deviceId/delete-user')
+  @UseGuards(PermissionsGuard)
+  @Permissions('access_control_sync:execute')
+  @ApiActionOperation('Delete Employee From Device', 'Delete one employee from one device')
+  deleteEmployeeFromDevice(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+  ) {
+    return this.accessControlSyncService.deleteEmployeeFromDevice(
+      req.user.companyId!,
+      employeeId,
+      deviceId,
+    );
   }
 
   @Post('sync/full-device/:deviceId')

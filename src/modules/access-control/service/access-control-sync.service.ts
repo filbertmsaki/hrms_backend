@@ -15,6 +15,7 @@ import { AccessDoorSourceEnum } from '../access-doors/enum/access-door-source.en
 import { AccessDoorSyncStatusEnum } from '../access-doors/enum/access-door-sync-status.enum';
 import { AccessGroupDoor } from '../access-group-doors/entity/access-group-door.entity';
 import { AccessGroupEmployee } from '../access-group-employees/entity/access-group-employee.entity';
+import { AccessGroupEmployeeStatusEnum } from '../access-group-employees/enum/access-group-employee-status.enum';
 import { AccessGroupStatusEnum } from '../access-groups/enum/access-group-status.enum';
 import { AccessGroup } from '../access-groups/entity/access-group.entity';
 import { AccessGroupSourceEnum } from '../access-groups/enum/access-group-source.enum';
@@ -23,9 +24,13 @@ import { AccessScheduleTemplate } from '../access-schedule-templates/entity/acce
 import { AccessWeekPlan } from '../access-week-plans/entity/access-week-plan.entity';
 import { AccessWeekPlanSegment } from '../access-week-plan-segments/entity/access-week-plan-segment.entity';
 import { EmployeeAccessCredential } from '../employee-access-credentials/entity/employee-access-credential.entity';
+import { EmployeeAccessCredentialStatusEnum } from '../employee-access-credentials/enum/employee-access-credential-status.enum';
 import { EmployeeDeviceAssignment } from '../employee-device-assignments/entity/employee-device-assignment.entity';
 import { EmployeeDeviceAssignmentSyncStatusEnum } from '../employee-device-assignments/enum/employee-device-assignment-sync-status.enum';
 import { EmployeeDeviceRightPlan } from '../employee-device-right-plans/entity/employee-device-right-plan.entity';
+import { EmployeeDeviceAccessActionEnum } from '../employee-device-access-audit-logs/enum/employee-device-access-action.enum';
+import { EmployeeDeviceAccessAuditStatusEnum } from '../employee-device-access-audit-logs/enum/employee-device-access-audit-status.enum';
+import { EmployeeDeviceAccessAuditLogService } from '../employee-device-access-audit-logs/service/employee-device-access-audit-log.service';
 import { HikvisionSyncLog } from '../hikvision-sync-logs/entity/hikvision-sync-log.entity';
 import { HikvisionSyncLogDirectionEnum } from '../hikvision-sync-logs/enum/hikvision-sync-log-direction.enum';
 import { HikvisionSyncLogStatusEnum } from '../hikvision-sync-logs/enum/hikvision-sync-log-status.enum';
@@ -65,12 +70,12 @@ export class AccessControlSyncService {
     @InjectRepository(AttendanceDevice)
     private readonly attendanceDeviceRepository: Repository<AttendanceDevice>,
     private readonly hikvisionAccessControlService: HikvisionAccessControlService,
+    private readonly employeeDeviceAccessAuditLogService: EmployeeDeviceAccessAuditLogService,
   ) {}
 
   async syncGroup(companyId: number, groupId: number) {
     const group = await this.accessGroupRepository.findOne({
       where: { id: groupId, companyId },
-      relations: ['scheduleTemplate'],
     });
 
     if (!group) {
@@ -97,34 +102,64 @@ export class AccessControlSyncService {
       throw new BadRequestException('Group has no assigned employees');
     }
 
-    const doorIds = groupDoorAssignments.map((item) => item.doorId);
-    const doors = await this.accessDoorRepository.find({
-      where: { id: In(doorIds), companyId },
-    });
+    const doorIds = [...new Set(groupDoorAssignments.map((item) => item.doorId))];
+    const templateIds = [...new Set(groupDoorAssignments.map((item) => item.scheduleTemplateId))];
 
-    const scheduleTemplate = await this.accessScheduleTemplateRepository.findOne({
-      where: { id: group.scheduleTemplateId ?? -1, companyId },
-    });
+    const [doors, templates] = await Promise.all([
+      this.accessDoorRepository.find({
+        where: { id: In(doorIds), companyId },
+      }),
+      this.accessScheduleTemplateRepository.find({
+        where: { id: In(templateIds), companyId },
+      }),
+    ]);
 
-    if (!scheduleTemplate) {
-      throw new NotFoundException('Schedule template not found for group');
-    }
+    const doorById = new Map(doors.map((door) => [door.id, door]));
+    const templateById = new Map(templates.map((template) => [template.id, template]));
 
-    const weekPlan = await this.accessWeekPlanRepository.findOne({
-      where: { id: scheduleTemplate.weekPlanId, companyId },
+    const weekPlanIds = [...new Set(templates.map((template) => template.weekPlanId))];
+    const weekPlans = await this.accessWeekPlanRepository.find({
+      where: { id: In(weekPlanIds), companyId },
     });
-    const weekPlanSegments = weekPlan
+    const weekPlanById = new Map(weekPlans.map((weekPlan) => [weekPlan.id, weekPlan]));
+
+    const weekPlanSegments = weekPlanIds.length
       ? await this.accessWeekPlanSegmentRepository.find({
-          where: { weekPlanId: weekPlan.id },
+          where: { weekPlanId: In(weekPlanIds) },
         })
       : [];
-
-    const doorMapByDevice = new Map<number, AccessDoor[]>();
-    for (const door of doors) {
-      if (!doorMapByDevice.has(door.deviceId)) {
-        doorMapByDevice.set(door.deviceId, []);
+    const weekPlanSegmentsByPlanId = new Map<number, AccessWeekPlanSegment[]>();
+    for (const segment of weekPlanSegments) {
+      if (!weekPlanSegmentsByPlanId.has(segment.weekPlanId)) {
+        weekPlanSegmentsByPlanId.set(segment.weekPlanId, []);
       }
-      doorMapByDevice.get(door.deviceId)!.push(door);
+      weekPlanSegmentsByPlanId.get(segment.weekPlanId)!.push(segment);
+    }
+
+    const doorTemplateMap = new Map<
+      string,
+      { deviceId: number; template: AccessScheduleTemplate; doors: AccessDoor[] }
+    >();
+    for (const assignment of groupDoorAssignments) {
+      const door = doorById.get(assignment.doorId);
+      const template = templateById.get(assignment.scheduleTemplateId);
+      if (!door || !template) {
+        continue;
+      }
+
+      const key = `${door.deviceId}|${template.id}`;
+      if (!doorTemplateMap.has(key)) {
+        doorTemplateMap.set(key, {
+          deviceId: door.deviceId,
+          template,
+          doors: [],
+        });
+      }
+      doorTemplateMap.get(key)!.doors.push(door);
+    }
+
+    if (!doorTemplateMap.size) {
+      throw new NotFoundException('No valid door/template assignments found for group');
     }
 
     const results: Array<Record<string, unknown>> = [];
@@ -149,11 +184,17 @@ export class AccessControlSyncService {
       });
       const assignedDeviceIds = new Set(employeeAssignments.map((item) => item.deviceId));
 
-      for (const [deviceId, deviceDoors] of doorMapByDevice.entries()) {
+      for (const assignmentEntry of doorTemplateMap.values()) {
+        const deviceId = assignmentEntry.deviceId;
+        const scheduleTemplate = assignmentEntry.template;
+        const weekPlan = weekPlanById.get(scheduleTemplate.weekPlanId) ?? null;
+        const deviceDoors = assignmentEntry.doors;
+
         if (assignedDeviceIds.size > 0 && !assignedDeviceIds.has(deviceId)) {
           results.push({
             employee_id: employee.id,
             device_id: deviceId,
+            schedule_template_id: scheduleTemplate.id,
             status: 'SKIPPED',
             reason: 'employee not assigned to this device',
           });
@@ -165,7 +206,9 @@ export class AccessControlSyncService {
           group,
           scheduleTemplate,
           weekPlan,
-          weekPlanSegments,
+          weekPlanSegments: weekPlan
+            ? (weekPlanSegmentsByPlanId.get(weekPlan.id) ?? [])
+            : [],
           employee,
           credentials,
           deviceId,
@@ -280,6 +323,169 @@ export class AccessControlSyncService {
       total_groups: groups.length,
       results,
     };
+  }
+
+  async disableEmployeeAccess(companyId: number, employeeId: number, deviceId: number) {
+    const employee = await this.findEmployeeOrFail(companyId, employeeId);
+    const assignment = await this.employeeDeviceAssignmentRepository.findOne({
+      where: { employeeId: employee.id, deviceId },
+    });
+    if (!assignment) {
+      throw new NotFoundException('Employee is not assigned to the target device');
+    }
+
+    try {
+      const payload = {
+        UserInfo: {
+          employeeNo: employee.employee_no,
+          Valid: {
+            enable: false,
+          },
+        },
+      };
+      await this.hikvisionAccessControlService.modifyUserInfo(companyId, deviceId, payload);
+
+      assignment.syncStatus = EmployeeDeviceAssignmentSyncStatusEnum.SYNCED;
+      assignment.metadata = {
+        ...(assignment.metadata ?? {}),
+        access_disabled: true,
+        disabled_at: new Date().toISOString(),
+      };
+      assignment.lastSyncedAt = new Date();
+      await this.employeeDeviceAssignmentRepository.save(assignment);
+
+      await this.employeeDeviceRightPlanRepository.delete({
+        employeeDeviceAssignmentId: assignment.id,
+      });
+
+      await this.accessGroupEmployeeRepository
+        .createQueryBuilder()
+        .update(AccessGroupEmployee)
+        .set({
+          status: AccessGroupEmployeeStatusEnum.REMOVED,
+          removedAt: new Date(),
+        })
+        .where('employee_id = :employeeId', { employeeId: employee.id })
+        .andWhere('device_id = :deviceId', { deviceId })
+        .execute();
+
+      await this.employeeDeviceAccessAuditLogService.create({
+        company_id: companyId,
+        employee_id: employee.id,
+        employee_no: employee.employee_no,
+        employee_name: `${employee.first_name} ${employee.last_name}`.trim(),
+        device_id: deviceId,
+        action: EmployeeDeviceAccessActionEnum.DISABLE_ACCESS,
+        status: EmployeeDeviceAccessAuditStatusEnum.SUCCESS,
+        request_payload: payload,
+        new_values: {
+          assignment_sync_status: assignment.syncStatus,
+          right_plans_removed: true,
+        },
+      });
+
+      return {
+        message: 'Employee access disabled on device',
+        employee_id: employeeId,
+        device_id: deviceId,
+      };
+    } catch (error) {
+      await this.employeeDeviceAccessAuditLogService.create({
+        company_id: companyId,
+        employee_id: employee.id,
+        employee_no: employee.employee_no,
+        employee_name: `${employee.first_name} ${employee.last_name}`.trim(),
+        device_id: deviceId,
+        action: EmployeeDeviceAccessActionEnum.DISABLE_ACCESS,
+        status: EmployeeDeviceAccessAuditStatusEnum.FAILED,
+        error_message: (error as Error).message,
+      });
+      throw error;
+    }
+  }
+
+  async deleteEmployeeFromDevice(companyId: number, employeeId: number, deviceId: number) {
+    const employee = await this.findEmployeeOrFail(companyId, employeeId);
+    const assignment = await this.employeeDeviceAssignmentRepository.findOne({
+      where: { employeeId: employee.id, deviceId },
+    });
+    if (!assignment) {
+      throw new NotFoundException('Employee is not assigned to the target device');
+    }
+
+    const payload = {
+      UserInfoDelCond: {
+        EmployeeNoList: [
+          {
+            employeeNo: employee.employee_no,
+          },
+        ],
+      },
+    };
+
+    try {
+      await this.hikvisionAccessControlService.deleteUserInfo(companyId, deviceId, payload);
+
+      assignment.syncStatus = EmployeeDeviceAssignmentSyncStatusEnum.REMOVED;
+      assignment.lastSyncedAt = new Date();
+      assignment.metadata = {
+        ...(assignment.metadata ?? {}),
+        removed_from_device: true,
+        removed_at: new Date().toISOString(),
+      };
+      await this.employeeDeviceAssignmentRepository.save(assignment);
+
+      await this.employeeDeviceRightPlanRepository.delete({
+        employeeDeviceAssignmentId: assignment.id,
+      });
+
+      await this.credentialRepositoryMarkRemoved(companyId, employee.id, deviceId);
+
+      await this.accessGroupEmployeeRepository
+        .createQueryBuilder()
+        .update(AccessGroupEmployee)
+        .set({
+          status: AccessGroupEmployeeStatusEnum.REMOVED,
+          removedAt: new Date(),
+        })
+        .where('employee_id = :employeeId', { employeeId: employee.id })
+        .andWhere('device_id = :deviceId', { deviceId })
+        .execute();
+
+      await this.employeeDeviceAccessAuditLogService.create({
+        company_id: companyId,
+        employee_id: employee.id,
+        employee_no: employee.employee_no,
+        employee_name: `${employee.first_name} ${employee.last_name}`.trim(),
+        device_id: deviceId,
+        action: EmployeeDeviceAccessActionEnum.DELETE_USER,
+        status: EmployeeDeviceAccessAuditStatusEnum.SUCCESS,
+        request_payload: payload,
+        new_values: {
+          assignment_sync_status: EmployeeDeviceAssignmentSyncStatusEnum.REMOVED,
+          credentials_marked: EmployeeAccessCredentialStatusEnum.DELETED,
+        },
+      });
+
+      return {
+        message: 'Employee removed from device',
+        employee_id: employeeId,
+        device_id: deviceId,
+      };
+    } catch (error) {
+      await this.employeeDeviceAccessAuditLogService.create({
+        company_id: companyId,
+        employee_id: employee.id,
+        employee_no: employee.employee_no,
+        employee_name: `${employee.first_name} ${employee.last_name}`.trim(),
+        device_id: deviceId,
+        action: EmployeeDeviceAccessActionEnum.DELETE_USER,
+        status: EmployeeDeviceAccessAuditStatusEnum.FAILED,
+        request_payload: payload,
+        error_message: (error as Error).message,
+      });
+      throw error;
+    }
   }
 
   async syncDevice(companyId: number, deviceId: number) {
@@ -835,6 +1041,34 @@ export class AccessControlSyncService {
         },
       });
 
+      await this.employeeDeviceAccessAuditLogService.create({
+        company_id: companyId,
+        branch_id: group.branchId,
+        employee_id: employee.id,
+        employee_no: employee.employee_no,
+        employee_name: `${employee.first_name} ${employee.last_name}`.trim(),
+        device_id: deviceId,
+        action: EmployeeDeviceAccessActionEnum.SYNC_ACCESS_GROUP,
+        status: EmployeeDeviceAccessAuditStatusEnum.SUCCESS,
+        request_payload: {
+          group_id: group.id,
+          schedule_template_id: scheduleTemplate.id,
+          week_plan_id: weekPlan?.id ?? null,
+          door_nos: doorNos,
+          user_info: userInfoPayload,
+        },
+        response_payload: {
+          user_sync: 'OK',
+          card_sync: credentials?.cardNo ? 'OK' : 'SKIPPED',
+          fingerprint_sync: credentials?.hasFingerprint ? 'OK_OR_SKIPPED' : 'SKIPPED',
+        },
+        old_values: null,
+        new_values: {
+          sync_status: EmployeeDeviceAssignmentSyncStatusEnum.SYNCED,
+          door_right: doorRight,
+        },
+      });
+
       return {
         employee_id: employee.id,
         device_id: deviceId,
@@ -853,6 +1087,26 @@ export class AccessControlSyncService {
       this.logger.warn(
         `Failed syncing employee ${employee.id} to device ${deviceId}: ${(error as Error).message}`,
       );
+
+      await this.employeeDeviceAccessAuditLogService.create({
+        company_id: companyId,
+        branch_id: group.branchId,
+        employee_id: employee.id,
+        employee_no: employee.employee_no,
+        employee_name: `${employee.first_name} ${employee.last_name}`.trim(),
+        device_id: deviceId,
+        action: EmployeeDeviceAccessActionEnum.SYNC_ACCESS_GROUP,
+        status: EmployeeDeviceAccessAuditStatusEnum.FAILED,
+        request_payload: {
+          group_id: group.id,
+          schedule_template_id: scheduleTemplate.id,
+          week_plan_id: weekPlan?.id ?? null,
+        },
+        error_message: (error as Error).message,
+        new_values: {
+          sync_status: EmployeeDeviceAssignmentSyncStatusEnum.FAILED,
+        },
+      });
 
       return {
         employee_id: employee.id,
@@ -926,6 +1180,23 @@ export class AccessControlSyncService {
     };
 
     await this.employeeDeviceAssignmentRepository.save(item);
+  }
+
+  private async credentialRepositoryMarkRemoved(companyId: number, employeeId: number, deviceId: number) {
+    const rows = await this.employeeAccessCredentialRepository.find({
+      where: { companyId, employeeId, deviceId },
+    });
+
+    for (const row of rows) {
+      row.credentialStatus = EmployeeAccessCredentialStatusEnum.DELETED;
+      row.lastSyncedAt = new Date();
+      row.metadata = {
+        ...(row.metadata ?? {}),
+        removed_from_device: true,
+        removed_at: new Date().toISOString(),
+      };
+      await this.employeeAccessCredentialRepository.save(row);
+    }
   }
 
   private extractUsersFromSearch(payload: unknown): Array<Record<string, unknown>> {

@@ -40,7 +40,10 @@ export class EmployeeAccessCredentialsService {
     item.credentialNo = dto.credential_no ?? item.credentialNo ?? null;
     item.credentialStatus = dto.credential_status ?? item.credentialStatus ?? 'ACTIVE';
     item.cardNo = dto.card_no?.trim() || null;
-    item.pinPassword = dto.pin_password?.trim() || null;
+    if (dto.pin_password !== undefined) {
+      item.passwordSet = Boolean(dto.pin_password?.trim());
+      item.pinPassword = null;
+    }
     item.fingerprintCount = dto.fingerprint_count ?? 0;
     item.faceCount = dto.face_count ?? 0;
     item.hasFingerprint = dto.has_fingerprint ?? (item.fingerprintCount > 0);
@@ -66,7 +69,10 @@ export class EmployeeAccessCredentialsService {
     if (dto.credential_no !== undefined) item.credentialNo = dto.credential_no ?? null;
     if (dto.credential_status !== undefined) item.credentialStatus = dto.credential_status;
     if (dto.card_no !== undefined) item.cardNo = dto.card_no?.trim() || null;
-    if (dto.pin_password !== undefined) item.pinPassword = dto.pin_password?.trim() || null;
+    if (dto.pin_password !== undefined) {
+      item.passwordSet = Boolean(dto.pin_password?.trim());
+      item.pinPassword = null;
+    }
     if (dto.fingerprint_count !== undefined) item.fingerprintCount = dto.fingerprint_count;
     if (dto.face_count !== undefined) item.faceCount = dto.face_count;
     if (dto.has_fingerprint !== undefined) item.hasFingerprint = dto.has_fingerprint;
@@ -124,7 +130,8 @@ export class EmployeeAccessCredentialsService {
       credential_no: item.credentialNo,
       credential_status: item.credentialStatus,
       card_no: item.cardNo,
-      pin_password: item.pinPassword,
+      pin_password: null,
+      password_set: item.passwordSet,
       fingerprint_count: item.fingerprintCount,
       face_count: item.faceCount,
       has_fingerprint: item.hasFingerprint,

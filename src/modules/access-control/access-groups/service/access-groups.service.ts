@@ -55,9 +55,6 @@ export class AccessGroupsService {
 
   async create(companyId: number, dto: CreateAccessGroupDto) {
     await this.ensureBranch(companyId, dto.branch_id);
-    if (dto.schedule_template_id) {
-      await this.ensureScheduleTemplate(companyId, dto.schedule_template_id);
-    }
     const groupName = (dto.group_name ?? dto.name ?? '').trim();
     if (!groupName) {
       throw new BadRequestException('group_name is required');
@@ -81,7 +78,6 @@ export class AccessGroupsService {
       branchId: dto.branch_id ?? null,
       deviceId: dto.device_id ?? null,
       name: groupName,
-      scheduleTemplateId: dto.schedule_template_id ?? null,
       groupCode: dto.group_code ?? null,
       description: dto.description ?? null,
       status: dto.status ?? AccessGroupStatusEnum.ACTIVE,
@@ -165,13 +161,6 @@ export class AccessGroupsService {
       item.branchId = dto.branch_id ?? null;
     }
 
-    if (dto.schedule_template_id !== undefined) {
-      if (dto.schedule_template_id) {
-        await this.ensureScheduleTemplate(companyId, dto.schedule_template_id);
-      }
-      item.scheduleTemplateId = dto.schedule_template_id ?? null;
-    }
-
     const nextName = dto.group_name ?? dto.name;
     if (nextName !== undefined) {
       const normalized = nextName.trim();
@@ -206,14 +195,12 @@ export class AccessGroupsService {
   async assignDoors(companyId: number, groupId: number, dto: AssignAccessGroupDoorsDto) {
     await this.findOrFail(companyId, groupId);
 
-    const normalizedItems =
-      dto.items?.length
-        ? dto.items
-        : (dto.door_ids ?? []).map((doorId) => ({
-            door_id: doorId,
-            schedule_template_id: 0,
-            device_id: undefined,
-          }));
+    if (!dto.items?.length) {
+      throw new BadRequestException(
+        'items with door_id and schedule_template_id are required for group door assignment',
+      );
+    }
+    const normalizedItems = dto.items;
 
     const uniqueDoorIds = [...new Set(normalizedItems.map((item) => item.door_id))];
     const doors = await this.accessDoorRepository.find({
@@ -237,13 +224,7 @@ export class AccessGroupsService {
 
       let templateId = assignment.schedule_template_id || null;
       if (!templateId) {
-        const group = await this.findOrFail(companyId, groupId);
-        templateId = group.scheduleTemplateId ?? null;
-      }
-      if (!templateId) {
-        throw new BadRequestException(
-          'schedule_template_id is required (either per item or on the group)',
-        );
+        throw new BadRequestException('schedule_template_id is required for each door item');
       }
 
       const template = await this.scheduleTemplateRepository.findOne({
@@ -478,7 +459,6 @@ export class AccessGroupsService {
       group_name: item.name,
       group_code: item.groupCode,
       description: item.description,
-      schedule_template_id: item.scheduleTemplateId,
       status: item.status,
       source: item.source,
       grouping_key: item.groupingKey,

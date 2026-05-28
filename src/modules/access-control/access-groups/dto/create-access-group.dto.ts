@@ -38,12 +38,6 @@ export class CreateAccessGroupDto {
   @IsOptional()
   branch_id?: number | null;
 
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @IsOptional()
-  schedule_template_id?: number;
-
   @ApiPropertyOptional({ enum: AccessGroupStatusEnum })
   @IsEnum(AccessGroupStatusEnum)
   @IsOptional()

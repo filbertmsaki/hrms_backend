@@ -1,0 +1,28 @@
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { HikvisionModule } from '../../hikvision/hikvision.module';
+import { EmployeeAccessCredential } from '../employee-access-credentials/entity/employee-access-credential.entity';
+import { EmployeeDeviceAccessAuditLogsModule } from '../employee-device-access-audit-logs/employee-device-access-audit-logs.module';
+import { EmployeeBiometricCaptureSessionsController } from './controller/employee-biometric-capture-sessions.controller';
+import { EmployeeBiometricCaptureSession } from './entity/employee-biometric-capture-session.entity';
+import { EmployeeBiometricCaptureSessionService } from './service/employee-biometric-capture-session.service';
+import { Employee } from '../../hr/employees/entities/employee.entity';
+import { AttendanceDevice } from '../../hr/attendance/devices/entities/attendance-device.entity';
+
+@Module({
+  imports: [
+    TypeOrmModule.forFeature([
+      EmployeeBiometricCaptureSession,
+      Employee,
+      AttendanceDevice,
+      EmployeeAccessCredential,
+    ]),
+    HikvisionModule,
+    EmployeeDeviceAccessAuditLogsModule,
+  ],
+  controllers: [EmployeeBiometricCaptureSessionsController],
+  providers: [EmployeeBiometricCaptureSessionService],
+  exports: [EmployeeBiometricCaptureSessionService],
+})
+export class EmployeeBiometricCaptureSessionsModule {}
+

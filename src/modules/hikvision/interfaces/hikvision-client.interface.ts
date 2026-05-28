@@ -12,6 +12,11 @@ export interface HikvisionRequestOptions {
   body?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
+  logOptions?: {
+    commandType?: string;
+    correlationId?: string;
+    createdByCompanyUserId?: number | null;
+  };
 }
 
 export interface HikvisionHttpResponse {

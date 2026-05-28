@@ -6,6 +6,9 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AttendanceDevice } from '../hr/attendance/devices/entities/attendance-device.entity';
+import { DeviceCommandLogService } from './device-command-logs/service/device-command-log.service';
+import { DeviceCommandHttpMethodEnum } from './device-command-logs/enum/device-command-http-method.enum';
+import { DeviceCommandTypeEnum } from './device-command-logs/enum/device-command-type.enum';
 import { HikvisionDigestClient } from './helpers/hikvision-digest.client';
 import { HikvisionParserHelper } from './helpers/hikvision-parser.helper';
 import {
@@ -14,6 +17,11 @@ import {
 } from './interfaces/hikvision-client.interface';
 
 export type HikvisionRemoteDoorCommand = 'open' | 'close' | 'alwaysOpen' | 'alwaysClose';
+type DeviceRequestLogOptions = {
+  commandType?: DeviceCommandTypeEnum;
+  correlationId?: string;
+  createdByCompanyUserId?: number | null;
+};
 
 @Injectable()
 export class HikvisionAccessControlService {
@@ -22,6 +30,7 @@ export class HikvisionAccessControlService {
     private readonly attendanceDeviceRepository: Repository<AttendanceDevice>,
     private readonly digestClient: HikvisionDigestClient,
     private readonly parserHelper: HikvisionParserHelper,
+    private readonly deviceCommandLogService: DeviceCommandLogService,
   ) {}
 
   async getDeviceInfo(companyId: number, deviceId: number) {
@@ -87,6 +96,7 @@ export class HikvisionAccessControlService {
         method: 'PUT',
         headers: { 'Content-Type': 'application/xml', Accept: 'application/json, application/xml' },
         body: xml,
+        logOptions: { commandType: DeviceCommandTypeEnum.REMOTE_OPEN_DOOR },
       },
     );
   }
@@ -247,6 +257,30 @@ export class HikvisionAccessControlService {
   }> {
     const device = await this.findHikvisionDeviceOrFail(companyId, deviceId);
     const credentials = this.buildCredentialsFromDevice(device);
+    const requestMethod = (options.method ?? 'GET').toUpperCase() as DeviceCommandHttpMethodEnum;
+    const requestBody = this.parseRequestBody(options.body);
+    const logOptions = options.logOptions as DeviceRequestLogOptions | undefined;
+    const commandType = logOptions?.commandType ?? this.inferCommandType(requestMethod, path);
+
+    let commandLogId: number | null = null;
+    try {
+      const commandLog = await this.deviceCommandLogService.create({
+        company_id: companyId,
+        branch_id: device.branchId ?? null,
+        device_id: deviceId,
+        command_type: commandType,
+        http_method: requestMethod,
+        endpoint: path,
+        request_body: requestBody,
+        correlation_id: logOptions?.correlationId ?? null,
+        created_by_company_user_id: logOptions?.createdByCompanyUserId ?? null,
+      });
+      commandLogId = commandLog.id;
+    } catch {
+      commandLogId = null;
+    }
+
+    try {
     const response = await this.digestClient.request(credentials, path, {
       method: options.method ?? 'GET',
       headers: options.headers,
@@ -264,12 +298,36 @@ export class HikvisionAccessControlService {
       }
     }
 
+      if (commandLogId) {
+        if (response.ok) {
+          await this.deviceCommandLogService.markSuccess(commandLogId, {
+            httpStatus: response.status,
+            responseBody: this.toObject(parsed, response.body),
+          });
+        } else {
+          await this.deviceCommandLogService.markFailed(
+            commandLogId,
+            `Device responded with HTTP ${response.status}`,
+            {
+              httpStatus: response.status,
+              responseBody: this.toObject(parsed, response.body),
+            },
+          );
+        }
+      }
+
     return {
       status: response.status,
       ok: response.ok,
       raw: response.body,
       parsed,
     };
+    } catch (error) {
+      if (commandLogId) {
+        await this.deviceCommandLogService.markFailed(commandLogId, (error as Error).message, null);
+      }
+      throw error;
+    }
   }
 
   private async requestJsonPost(
@@ -285,6 +343,7 @@ export class HikvisionAccessControlService {
         Accept: 'application/json, application/xml',
       },
       body: JSON.stringify(payload),
+      logOptions: { commandType: this.inferCommandType('POST', path) },
     });
   }
 
@@ -301,7 +360,86 @@ export class HikvisionAccessControlService {
         Accept: 'application/json, application/xml',
       },
       body: JSON.stringify(payload),
+      logOptions: { commandType: this.inferCommandType('PUT', path) },
     });
+  }
+
+  private inferCommandType(
+    method: DeviceCommandHttpMethodEnum | string,
+    path: string,
+  ): DeviceCommandTypeEnum {
+    const normalizedPath = path.toLowerCase();
+    const normalizedMethod = String(method).toUpperCase();
+
+    if (normalizedPath.includes('/userinfo/search')) return DeviceCommandTypeEnum.SEARCH_USERS;
+    if (normalizedPath.includes('/userinfo/record') || normalizedPath.includes('/userinfo/modify'))
+      return DeviceCommandTypeEnum.SET_USER;
+    if (normalizedPath.includes('/userinfo/delete')) return DeviceCommandTypeEnum.DELETE_USER;
+    if (normalizedPath.includes('/cardinfo/search')) return DeviceCommandTypeEnum.GET_CARD;
+    if (normalizedPath.includes('/cardinfo/record') || normalizedPath.includes('/cardinfo/modify'))
+      return DeviceCommandTypeEnum.SET_CARD;
+    if (normalizedPath.includes('/cardinfo/delete')) return DeviceCommandTypeEnum.DELETE_CARD;
+    if (normalizedPath.includes('/capturefingerprint')) return DeviceCommandTypeEnum.CAPTURE_FINGERPRINT;
+    if (normalizedPath.includes('/fingerprint/setup')) return DeviceCommandTypeEnum.SET_FINGERPRINT;
+    if (normalizedPath.includes('/fingerprint/delete')) return DeviceCommandTypeEnum.DELETE_FINGERPRINT;
+    if (normalizedPath.includes('/userrightweekplancfg')) {
+      return normalizedMethod === 'GET'
+        ? DeviceCommandTypeEnum.GET_WEEK_PLAN
+        : DeviceCommandTypeEnum.SET_WEEK_PLAN;
+    }
+    if (normalizedPath.includes('/userrightplantemplate')) {
+      return normalizedMethod === 'GET'
+        ? DeviceCommandTypeEnum.GET_TEMPLATE
+        : DeviceCommandTypeEnum.SET_TEMPLATE;
+    }
+    if (normalizedPath.includes('/door/param')) {
+      return normalizedMethod === 'GET' ? DeviceCommandTypeEnum.GET_DOOR : DeviceCommandTypeEnum.SET_DOOR;
+    }
+    if (normalizedPath.includes('/remotecontrol/door')) return DeviceCommandTypeEnum.REMOTE_OPEN_DOOR;
+    if (normalizedPath.includes('/accesscontrol/acsworkstatus')) return DeviceCommandTypeEnum.OTHER;
+    if (normalizedPath.includes('/accesscontrol/capabilities')) return DeviceCommandTypeEnum.OTHER;
+
+    if (normalizedMethod === 'GET') return DeviceCommandTypeEnum.GET_USER;
+    return DeviceCommandTypeEnum.OTHER;
+  }
+
+  private parseRequestBody(body: unknown): Record<string, unknown> | null {
+    if (body === null || body === undefined) {
+      return null;
+    }
+
+    if (typeof body === 'string') {
+      const trimmed = body.trim();
+      if (!trimmed) {
+        return null;
+      }
+
+      try {
+        const parsed = JSON.parse(trimmed) as unknown;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          return parsed as Record<string, unknown>;
+        }
+      } catch {
+        return { raw: trimmed };
+      }
+      return { raw: trimmed };
+    }
+
+    if (typeof body === 'object' && !Array.isArray(body)) {
+      return body as Record<string, unknown>;
+    }
+
+    return { raw: String(body) };
+  }
+
+  private toObject(
+    parsed: Record<string, unknown> | string,
+    rawBody: string,
+  ): Record<string, unknown> {
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed;
+    }
+    return { raw: parsed || rawBody };
   }
 
   private buildDoorParamXml(payload: Record<string, unknown>): string {

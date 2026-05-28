@@ -22,7 +22,6 @@ import { AccessGroupStatusEnum } from '../enum/access-group-status.enum';
 @Index('IDX_access_groups_company_id', ['companyId'])
 @Index('IDX_access_groups_branch_id', ['branchId'])
 @Index('IDX_access_groups_device_id', ['deviceId'])
-@Index('IDX_access_groups_schedule_template_id', ['scheduleTemplateId'])
 @Index('IDX_access_groups_grouping_key', ['groupingKey'])
 export class AccessGroup {
   @PrimaryGeneratedColumn({ name: 'id' })
@@ -45,9 +44,6 @@ export class AccessGroup {
 
   @Column({ name: 'description', type: 'text', nullable: true })
   description: string | null;
-
-  @Column({ name: 'schedule_template_id', type: 'int', nullable: true })
-  scheduleTemplateId: number | null;
 
   @Column({
     name: 'status',
