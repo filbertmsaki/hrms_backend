@@ -771,6 +771,18 @@ const permissionSeeds: PermissionSeed[] = [
     scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
+    name: 'hikvision_attendance:read',
+    displayName: 'Read Hikvision attendance logs',
+    description: 'Allow listing and viewing Hikvision attendance logs and capabilities',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
+  },
+  {
+    name: 'hikvision_attendance:sync',
+    displayName: 'Sync Hikvision attendance',
+    description: 'Allow pulling and syncing Hikvision attendance events from devices',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
+  },
+  {
     name: 'attendance_checkpoints:read',
     displayName: 'Read attendance checkpoints',
     description: 'Allow listing and viewing attendance checkpoints',
@@ -1597,6 +1609,8 @@ const roleSeeds: RoleSeed[] = [
       'employee_device_assignments:create',
       'employee_device_assignments:delete',
       'access_control_sync:execute',
+      'hikvision_attendance:read',
+      'hikvision_attendance:sync',
       'attendance_checkpoints:read',
       'attendance_checkpoints:create',
       'attendance_checkpoints:update',

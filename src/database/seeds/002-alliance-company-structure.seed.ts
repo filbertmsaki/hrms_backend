@@ -377,6 +377,9 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     const employeeByNo = new Map(
       existingEmployees.map((employee) => [employee.employee_no, employee]),
     );
+    const employeeByCompanyUserId = new Map(
+      existingEmployees.map((employee) => [employee.company_user_id, employee]),
+    );
 
     for (const seed of ALLIANCE_EMPLOYEES) {
       const user = await this.ensureUser(userRepo, seed);
@@ -402,7 +405,10 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       const position = this.getRequiredPosition(positionMap, seed.positionCode, seed.employeeNo);
       const sequence = this.getEmployeeSequence(seed.employeeNo);
 
-      let employee = employeeByNo.get(seed.employeeNo) ?? null;
+      let employee =
+        employeeByCompanyUserId.get(membership.id) ??
+        employeeByNo.get(seed.employeeNo) ??
+        null;
       if (!employee) {
         employee = employeeRepo.create({
           company_user_id: membership.id,
@@ -439,6 +445,7 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
 
       employee = await employeeRepo.save(employee);
       employeeByNo.set(seed.employeeNo, employee);
+      employeeByCompanyUserId.set(membership.id, employee);
 
       await this.ensureWorkContact(employeeContactRepo, employee.id, seed);
       await this.ensurePersonalContact(employeeContactRepo, employee.id, seed, sequence);

@@ -240,11 +240,52 @@ export class HikvisionAccessControlService {
   }
 
   async postAcsEvent(companyId: number, deviceId: number, payload: Record<string, unknown>) {
-    return this.requestJsonPost(
+    return this.searchAcsEvents(companyId, deviceId, payload);
+  }
+
+  async getAcsEventCapabilities(companyId: number, deviceId: number) {
+    return this.requestToDevice(
+      companyId,
+      deviceId,
+      '/ISAPI/AccessControl/AcsEvent/capabilities?format=json',
+      {
+        headers: { Accept: 'application/json, application/xml' },
+        logOptions: { commandType: DeviceCommandTypeEnum.SEARCH_ACS_EVENTS },
+      },
+    );
+  }
+
+  async getAcsEventTotalNum(companyId: number, deviceId: number, payload: Record<string, unknown>) {
+    return this.requestToDevice(
+      companyId,
+      deviceId,
+      '/ISAPI/AccessControl/AcsEventTotalNum?format=json',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, application/xml',
+        },
+        body: JSON.stringify(payload),
+        logOptions: { commandType: DeviceCommandTypeEnum.SEARCH_ACS_EVENTS },
+      },
+    );
+  }
+
+  async searchAcsEvents(companyId: number, deviceId: number, payload: Record<string, unknown>) {
+    return this.requestToDevice(
       companyId,
       deviceId,
       '/ISAPI/AccessControl/AcsEvent?format=json',
-      payload,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, application/xml',
+        },
+        body: JSON.stringify(payload),
+        logOptions: { commandType: DeviceCommandTypeEnum.SEARCH_ACS_EVENTS },
+      },
     );
   }
 
@@ -390,6 +431,12 @@ export class HikvisionAccessControlService {
     if (normalizedPath.includes('/capturefingerprint')) return DeviceCommandTypeEnum.CAPTURE_FINGERPRINT;
     if (normalizedPath.includes('/fingerprint/setup')) return DeviceCommandTypeEnum.SET_FINGERPRINT;
     if (normalizedPath.includes('/fingerprint/delete')) return DeviceCommandTypeEnum.DELETE_FINGERPRINT;
+    if (
+      normalizedPath.includes('/accesscontrol/acsevent') ||
+      normalizedPath.includes('/accesscontrol/acseventtotalnum')
+    ) {
+      return DeviceCommandTypeEnum.SEARCH_ACS_EVENTS;
+    }
     if (normalizedPath.includes('/userrightweekplancfg')) {
       return normalizedMethod === 'GET'
         ? DeviceCommandTypeEnum.GET_WEEK_PLAN

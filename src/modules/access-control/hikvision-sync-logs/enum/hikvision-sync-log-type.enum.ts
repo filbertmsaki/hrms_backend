@@ -1,4 +1,5 @@
 export enum HikvisionSyncLogTypeEnum {
+  ATTENDANCE = 'ATTENDANCE',
   USERS = 'USERS',
   CARDS = 'CARDS',
   FINGERPRINTS = 'FINGERPRINTS',
@@ -9,4 +10,3 @@ export enum HikvisionSyncLogTypeEnum {
   ACCESS_GROUPS = 'ACCESS_GROUPS',
   FULL = 'FULL',
 }
-

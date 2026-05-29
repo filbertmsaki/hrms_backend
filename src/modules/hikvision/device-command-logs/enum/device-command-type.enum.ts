@@ -1,4 +1,5 @@
 export enum DeviceCommandTypeEnum {
+  SEARCH_ACS_EVENTS = 'SEARCH_ACS_EVENTS',
   GET_USER = 'GET_USER',
   SEARCH_USERS = 'SEARCH_USERS',
   SET_USER = 'SET_USER',
@@ -19,4 +20,3 @@ export enum DeviceCommandTypeEnum {
   SYNC_FULL = 'SYNC_FULL',
   OTHER = 'OTHER',
 }
-
