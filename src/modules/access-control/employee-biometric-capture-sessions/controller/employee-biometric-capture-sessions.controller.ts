@@ -127,6 +127,7 @@ export class EmployeeBiometricCaptureSessionsController {
     @Param('fingerprintId') fingerprintId: string,
     @Query('deviceId') deviceId: string,
     @Query('deleteFromDevice') deleteFromDevice?: string,
+    @Query('cardReaderNo') cardReaderNo?: string,
   ) {
     return this.sessionService.deleteFingerprint(
       req.user.companyId!,
@@ -134,6 +135,7 @@ export class EmployeeBiometricCaptureSessionsController {
       fingerprintId,
       Number(deviceId),
       deleteFromDevice !== 'false',
+      cardReaderNo ? Number(cardReaderNo) : 1,
       {
         performedByCompanyUserId: req.user.companyMembershipId,
         performedByUserId: req.user.id,

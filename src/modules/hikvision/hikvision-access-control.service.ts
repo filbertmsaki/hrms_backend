@@ -231,10 +231,10 @@ export class HikvisionAccessControlService {
   }
 
   async deleteFingerprint(companyId: number, deviceId: number, payload: Record<string, unknown>) {
-    return this.requestJsonPut(
+    return this.requestJsonPost(
       companyId,
       deviceId,
-      '/ISAPI/AccessControl/FingerPrint/Delete?format=json',
+      '/ISAPI/AccessControl/FingerPrint/SetUp?format=json',
       payload,
     );
   }

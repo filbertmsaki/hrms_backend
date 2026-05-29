@@ -560,6 +560,7 @@ export class EmployeeBiometricCaptureSessionService {
     fingerprintIdRaw: string,
     deviceId: number,
     deleteFromDevice: boolean,
+    cardReaderNo = 1,
     actor: {
       performedByCompanyUserId?: number;
       performedByUserId?: number;
@@ -580,15 +581,23 @@ export class EmployeeBiometricCaptureSessionService {
     let responsePayload: Record<string, unknown> | null = null;
     if (deleteFromDevice) {
       const payload = {
-        FingerPrintDelCond: {
+        FingerPrintCfg: {
           employeeNo: employee.employee_no,
+          enableCardReader: [cardReaderNo],
           fingerPrintID: fingerprintId.number,
+          deleteFingerPrint: true,
+          fingerType: 'normalFP',
         },
       };
       const response = await this.hikvisionAccessControlService.deleteFingerprint(companyId, device.id, payload);
       responsePayload = this.toObject(response.parsed);
-      if (!response.ok) {
-        throw new BadRequestException(`Delete fingerprint failed with status ${response.status}`);
+      const deleteStatus = this.extractFingerprintSetupStatus(response.parsed, cardReaderNo);
+      const hasDeviceStatusList = deleteStatus.cardReaderRecvStatus !== null;
+      if (!response.ok || (hasDeviceStatusList && !deleteStatus.success)) {
+        const reason = response.ok
+          ? deleteStatus.reason ?? 'Delete fingerprint failed'
+          : this.extractDeviceErrorMessage(response.parsed, `Delete fingerprint failed with status ${response.status}`);
+        throw new BadRequestException(reason);
       }
     }
 
@@ -613,7 +622,11 @@ export class EmployeeBiometricCaptureSessionService {
       device_id: device.id,
       action: EmployeeDeviceAccessActionEnum.DELETE_FINGERPRINT,
       status: EmployeeDeviceAccessAuditStatusEnum.SUCCESS,
-      request_payload: { fingerprint_id: fingerprintId.value, delete_from_device: deleteFromDevice },
+      request_payload: {
+        fingerprint_id: fingerprintId.value,
+        delete_from_device: deleteFromDevice,
+        card_reader_no: cardReaderNo,
+      },
       response_payload: responsePayload,
       performed_by_company_user_id: actor.performedByCompanyUserId ?? null,
       performed_by_user_id: actor.performedByUserId ?? null,
@@ -1001,7 +1014,8 @@ export class EmployeeBiometricCaptureSessionService {
     const row = statusList
       .map((item) => this.toObject(item))
       .find((item) => Number(item.id ?? cardReaderNo) === cardReaderNo) ?? this.toObject(statusList[0]);
-    const cardReaderRecvStatus = Number(row.cardReaderRecvStatus ?? row.status ?? 0);
+    const rawStatus = row.cardReaderRecvStatus ?? row.status;
+    const cardReaderRecvStatus = rawStatus === undefined || rawStatus === null ? null : Number(rawStatus);
     const success = cardReaderRecvStatus === 1;
 
     return {
@@ -1011,6 +1025,23 @@ export class EmployeeBiometricCaptureSessionService {
         ? null
         : `Fingerprint upload failed for card reader ${cardReaderNo} with status ${cardReaderRecvStatus || 'unknown'}`,
     };
+  }
+
+  private extractDeviceErrorMessage(payload: unknown, fallback: string) {
+    const data = this.toObject(payload);
+    const candidates = [
+      data.errorMsg,
+      data.errorMessage,
+      data.statusString,
+      data.subStatusCode,
+      this.toObject(data.ResponseStatus).statusString,
+      this.toObject(data.ResponseStatus).subStatusCode,
+    ];
+    const detail = candidates
+      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      .join(' - ');
+
+    return detail ? `${fallback}: ${detail}` : fallback;
   }
 
   private normalizeFingerprintId(value?: string | null) {
