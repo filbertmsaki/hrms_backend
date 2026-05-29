@@ -22,7 +22,6 @@ import { AttendanceSetting } from './settings/entities/attendance-setting.entity
 import { HolidayGroup } from './holidays/entities/holiday-group.entity';
 import { AttendanceHoliday } from './holidays/entities/holiday.entity';
 import { Branch } from '../branches/entities/branch.entity';
-import { HikvisionModule } from './hikvision/hikvision.module';
 import { HikvisionModule as DeviceManagementHikvisionModule } from '../../hikvision/hikvision.module';
 
 @Module({
@@ -37,7 +36,6 @@ import { HikvisionModule as DeviceManagementHikvisionModule } from '../../hikvis
       AttendanceDeviceSyncLog,
       Branch,
     ]),
-    HikvisionModule,
     DeviceManagementHikvisionModule,
   ],
   controllers: [

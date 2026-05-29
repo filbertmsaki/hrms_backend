@@ -16,7 +16,6 @@ import { AttendanceDeviceStatusEnum } from '../enums/attendance-device-status.en
 import { AttendanceDeviceSyncModeEnum } from '../enums/attendance-device-sync-mode.enum';
 import { AttendanceCheckpoint } from '../../checkpoints/entities/attendance-checkpoint.entity';
 import { AttendanceDeviceSyncLog } from '../../sync-logs/entities/attendance-device-sync-log.entity';
-import { AttendanceLog as HikvisionAttendanceLog } from '../../hikvision/entities/attendance-log.entity';
 
 @Entity('attendance_devices')
 @Index('IDX_attendance_devices_company_id', ['companyId'])
@@ -141,9 +140,6 @@ export class AttendanceDevice {
 
   @OneToMany(() => AttendanceCheckpoint, (checkpoint) => checkpoint.device)
   checkpoints: AttendanceCheckpoint[];
-
-  @OneToMany(() => HikvisionAttendanceLog, (attendanceLog) => attendanceLog.device)
-  hikvisionAttendanceLogs: HikvisionAttendanceLog[];
 }
 
 
