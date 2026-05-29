@@ -167,10 +167,46 @@ export class EmployeeAccessCredentialsService {
       face_count: item.faceCount,
       has_fingerprint: item.hasFingerprint,
       has_face: item.hasFace,
-      metadata: item.metadata,
+      metadata: this.maskSensitivePayload(item.metadata),
       created_at: item.createdAt,
       updated_at: item.updatedAt,
     };
+  }
+
+  private maskSensitivePayload<T>(payload: T): T {
+    if (payload === null || payload === undefined) {
+      return payload;
+    }
+
+    const sensitiveKeys = new Set([
+      'api_password',
+      'password',
+      'pin_password',
+      'fingerprintdata',
+      'fingerdata',
+      'finger_data',
+      'biometricdata',
+      'face_data',
+      'raw_biometric_data',
+      'fingertemplate',
+    ]);
+
+    const recurse = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map((item) => recurse(item));
+      if (!value || typeof value !== 'object') return value;
+
+      const output: Record<string, unknown> = {};
+      for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+        if (sensitiveKeys.has(key.toLowerCase())) {
+          output[key] = '***MASKED***';
+          continue;
+        }
+        output[key] = recurse(raw);
+      }
+      return output;
+    };
+
+    return recurse(payload) as T;
   }
 
   private async resolveAndValidateDeviceId(

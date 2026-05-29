@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
@@ -19,7 +20,9 @@ import { TenantGuard } from '../../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { ApiActionOperation, ApiGetOneOperation, ApiListOperation } from '../../../../docs/swagger-decorators';
 import { QueryBiometricCaptureSessionDto } from '../dto/query-biometric-capture-session.dto';
+import { SaveCapturedFingerprintDto } from '../dto/save-captured-fingerprint.dto';
 import { StartFingerprintCaptureDto } from '../dto/start-fingerprint-capture.dto';
+import { SyncFingerprintDto } from '../dto/sync-fingerprint.dto';
 import { EmployeeBiometricCaptureSessionService } from '../service/employee-biometric-capture-session.service';
 
 @ApiTags('Access Control Biometric Sessions')
@@ -44,6 +47,100 @@ export class EmployeeBiometricCaptureSessionsController {
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
     });
+  }
+
+  @Post('employees/:employeeId/fingerprints/capture')
+  @UseGuards(PermissionsGuard)
+  @Permissions('access_control_sync:execute')
+  @ApiActionOperation('Capture Fingerprint', 'Capture fingerprint from device and save it in backend')
+  captureFingerprint(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Body() dto: StartFingerprintCaptureDto,
+  ) {
+    return this.sessionService.captureFingerprintOnly(req.user.companyId!, employeeId, dto, {
+      performedByCompanyUserId: req.user.companyMembershipId,
+      performedByUserId: req.user.id,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+  }
+
+  @Post('employees/:employeeId/fingerprints')
+  @UseGuards(PermissionsGuard)
+  @Permissions('access_control_sync:execute')
+  @ApiActionOperation('Save Fingerprint', 'Save an already captured fingerprint payload in backend')
+  saveFingerprint(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Body() dto: SaveCapturedFingerprintDto,
+  ) {
+    return this.sessionService.saveCapturedFingerprint(req.user.companyId!, employeeId, dto, {
+      performedByCompanyUserId: req.user.companyMembershipId,
+      performedByUserId: req.user.id,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+  }
+
+  @Post('employees/:employeeId/fingerprints/:fingerprintId/sync')
+  @UseGuards(PermissionsGuard)
+  @Permissions('access_control_sync:execute')
+  @ApiActionOperation('Sync Fingerprint', 'Upload an already saved fingerprint to Hikvision device')
+  syncFingerprint(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('fingerprintId') fingerprintId: string,
+    @Body() dto: SyncFingerprintDto,
+  ) {
+    return this.sessionService.syncFingerprintToDevice(req.user.companyId!, employeeId, fingerprintId, dto, {
+      performedByCompanyUserId: req.user.companyMembershipId,
+      performedByUserId: req.user.id,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+  }
+
+  @Get('employees/:employeeId/fingerprints')
+  @UseGuards(PermissionsGuard)
+  @Permissions('access_control_sync:execute')
+  @ApiListOperation('Employee Fingerprints', 'List saved fingerprints for one employee')
+  getEmployeeFingerprints(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Query('deviceId') deviceId?: string,
+  ) {
+    return this.sessionService.findEmployeeFingerprints(
+      req.user.companyId!,
+      employeeId,
+      deviceId ? Number(deviceId) : undefined,
+    );
+  }
+
+  @Delete('employees/:employeeId/fingerprints/:fingerprintId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('access_control_sync:execute')
+  @ApiActionOperation('Delete Fingerprint', 'Delete fingerprint from backend and device when supported')
+  deleteFingerprint(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('fingerprintId') fingerprintId: string,
+    @Query('deviceId') deviceId: string,
+    @Query('deleteFromDevice') deleteFromDevice?: string,
+  ) {
+    return this.sessionService.deleteFingerprint(
+      req.user.companyId!,
+      employeeId,
+      fingerprintId,
+      Number(deviceId),
+      deleteFromDevice !== 'false',
+      {
+        performedByCompanyUserId: req.user.companyMembershipId,
+        performedByUserId: req.user.id,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      },
+    );
   }
 
   @Get('biometric-sessions')
@@ -79,4 +176,3 @@ export class EmployeeBiometricCaptureSessionsController {
     return this.sessionService.cancel(req.user.companyId!, id);
   }
 }
-

@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class StartFingerprintCaptureDto {
   @Type(() => Number)
@@ -17,5 +17,15 @@ export class StartFingerprintCaptureDto {
   @Min(1)
   @IsOptional()
   card_reader_no?: number;
-}
 
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  min_quality?: number;
+
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  overwrite?: boolean;
+}
