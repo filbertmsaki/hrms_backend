@@ -28,6 +28,7 @@ import {
 } from '../../../../docs/swagger-decorators';
 import { AttendanceDevicesService } from './attendance-devices.service';
 import { AttendanceDeviceQueryDto } from './dtos/attendance-device-query.dto';
+import { AttendanceDeviceEmployeesQueryDto } from './dtos/attendance-device-employees-query.dto';
 import { CreateAttendanceDeviceDto } from './dtos/create-attendance-device.dto';
 import { UpdateAttendanceDeviceDto } from './dtos/update-attendance-device.dto';
 
@@ -69,6 +70,25 @@ export class AttendanceDevicesController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.attendanceDevicesService.findOne(req.user.companyId!, id);
+  }
+
+  @Get(':id/employees')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_devices:read')
+  @ApiListOperation(
+    'Attendance Device Employees',
+    'List employees currently assigned/synced for one attendance device',
+  )
+  findDeviceEmployees(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Query() query: AttendanceDeviceEmployeesQueryDto,
+  ) {
+    return this.attendanceDevicesService.findDeviceEmployees(
+      req.user.companyId!,
+      id,
+      query,
+    );
   }
 
   @Patch(':id')

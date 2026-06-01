@@ -24,6 +24,7 @@ import { AttendanceHoliday } from './holidays/entities/holiday.entity';
 import { Branch } from '../branches/entities/branch.entity';
 import { HikvisionModule as DeviceManagementHikvisionModule } from '../../hikvision/hikvision.module';
 import { AttendanceProcessingModule } from './processing/attendance-processing.module';
+import { EmployeeDeviceAssignment } from '../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { AttendanceProcessingModule } from './processing/attendance-processing.m
       AttendanceDevice,
       AttendanceDeviceSyncLog,
       Branch,
+      EmployeeDeviceAssignment,
     ]),
     DeviceManagementHikvisionModule,
     AttendanceProcessingModule,

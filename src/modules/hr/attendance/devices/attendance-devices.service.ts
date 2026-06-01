@@ -8,10 +8,12 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
+import { EmployeeDeviceAssignment } from '../../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
 import { HikvisionService as DeviceManagementHikvisionService } from '../../../hikvision/hikvision.service';
 import { Branch } from '../../branches/entities/branch.entity';
 import { buildPaginationMeta } from '../../shared/hr.utils';
 import { AttendanceDevice } from './entities/attendance-device.entity';
+import { AttendanceDeviceEmployeesQueryDto } from './dtos/attendance-device-employees-query.dto';
 import { AttendanceDeviceQueryDto } from './dtos/attendance-device-query.dto';
 import { CreateAttendanceDeviceDto } from './dtos/create-attendance-device.dto';
 import { UpdateAttendanceDeviceDto } from './dtos/update-attendance-device.dto';
@@ -21,6 +23,8 @@ export class AttendanceDevicesService {
   constructor(
     @InjectRepository(AttendanceDevice)
     private readonly attendanceDeviceRepository: Repository<AttendanceDevice>,
+    @InjectRepository(EmployeeDeviceAssignment)
+    private readonly employeeDeviceAssignmentRepository: Repository<EmployeeDeviceAssignment>,
     @InjectRepository(Branch)
     private readonly branchRepository: Repository<Branch>,
     private readonly deviceManagementHikvisionService: DeviceManagementHikvisionService,
@@ -211,6 +215,76 @@ export class AttendanceDevicesService {
     return this.map(await this.findOrFail(companyId, id));
   }
 
+  async findDeviceEmployees(
+    companyId: number,
+    deviceId: number,
+    query: AttendanceDeviceEmployeesQueryDto,
+  ) {
+    await this.findOrFail(companyId, deviceId);
+
+    const {
+      page = 1,
+      limit = 20,
+      sortBy = 'created_at',
+      sortOrder = SortDirection.DESC,
+      search,
+      sync_status,
+    } = query;
+
+    const qb = this.employeeDeviceAssignmentRepository
+      .createQueryBuilder('assignment')
+      .leftJoinAndSelect('assignment.employee', 'employee')
+      .where('assignment.device_id = :deviceId', { deviceId })
+      .andWhere('assignment.company_id = :companyId', { companyId });
+
+    if (sync_status) {
+      qb.andWhere('assignment.sync_status = :syncStatus', { syncStatus: sync_status });
+    }
+
+    if (search?.trim()) {
+      const term = `%${search.trim()}%`;
+      qb.andWhere(
+        `(
+          assignment.employee_no LIKE :term
+          OR employee.first_name LIKE :term
+          OR employee.last_name LIKE :term
+          OR CONCAT(COALESCE(employee.first_name, ''), ' ', COALESCE(employee.last_name, '')) LIKE :term
+        )`,
+        { term },
+      );
+    }
+
+    const allowedSortFields = [
+      'created_at',
+      'updated_at',
+      'employee_no',
+      'sync_status',
+      'last_synced_at',
+    ];
+    const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'created_at';
+    const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
+
+    const sortFieldMap: Record<string, string> = {
+      created_at: 'created_at',
+      updated_at: 'updated_at',
+      employee_no: 'employee_no',
+      sync_status: 'sync_status',
+      last_synced_at: 'last_synced_at',
+    };
+
+    const [items, total] = await qb
+      .orderBy(`assignment.${sortFieldMap[safeSortBy]}`, direction)
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    return {
+      device_id: deviceId,
+      data: items.map((item) => this.mapDeviceEmployeeAssignment(item)),
+      meta: buildPaginationMeta(total, items.length, limit, page),
+    };
+  }
+
   async update(companyId: number, id: number, dto: UpdateAttendanceDeviceDto) {
     const item = await this.findOrFail(companyId, id);
     const snapshotBeforeUpdate = this.captureDeviceSnapshot(item);
@@ -296,6 +370,35 @@ export class AttendanceDevicesService {
       message: 'Attendance device manual sync completed successfully',
       synced_fields: syncResult.synced_fields ?? [],
       device: this.map(refreshed),
+    };
+  }
+
+  private mapDeviceEmployeeAssignment(item: EmployeeDeviceAssignment) {
+    const employeeName =
+      [item.employee?.first_name, item.employee?.last_name]
+        .filter((value) => Boolean(value))
+        .join(' ')
+        .trim() || null;
+
+    return {
+      id: item.id,
+      company_id: item.companyId,
+      device_id: item.deviceId,
+      employee_id: item.employeeId,
+      employee_no: item.employeeNo,
+      employee_name: employeeName,
+      hikvision_user_type: item.hikvisionUserType,
+      user_verify_mode: item.userVerifyMode,
+      valid_begin_time: item.validBeginTime,
+      valid_end_time: item.validEndTime,
+      valid_enabled: item.validEnabled,
+      door_right: item.doorRight,
+      sync_status: item.syncStatus,
+      last_synced_at: item.lastSyncedAt,
+      metadata: item.metadata,
+      created_at: item.createdAt,
+      updated_at: item.updatedAt,
+      deleted_at: item.deletedAt,
     };
   }
 
