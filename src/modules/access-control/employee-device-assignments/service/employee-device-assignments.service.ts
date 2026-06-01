@@ -12,6 +12,7 @@ import { EmployeeDeviceIdentity } from '../../../hr/attendance/processing/entiti
 import { AssignEmployeeDevicesDto } from '../dto/assign-employee-devices.dto';
 import { EmployeeDeviceAssignment } from '../entity/employee-device-assignment.entity';
 import { EmployeeDeviceAssignmentSyncStatusEnum } from '../enum/employee-device-assignment-sync-status.enum';
+import { AccessControlSyncService } from '../../service/access-control-sync.service';
 
 @Injectable()
 export class EmployeeDeviceAssignmentsService {
@@ -24,6 +25,7 @@ export class EmployeeDeviceAssignmentsService {
     private readonly attendanceDeviceRepository: Repository<AttendanceDevice>,
     @InjectRepository(EmployeeDeviceIdentity)
     private readonly employeeDeviceIdentityRepository: Repository<EmployeeDeviceIdentity>,
+    private readonly accessControlSyncService: AccessControlSyncService,
   ) {}
 
   async assignDevices(companyId: number, employeeId: number, dto: AssignEmployeeDevicesDto) {
@@ -84,11 +86,14 @@ export class EmployeeDeviceAssignmentsService {
       created += 1;
     }
 
+    const syncResponse = await this.accessControlSyncService.syncEmployee(companyId, employeeId);
+
     return {
-      message: 'Employee device assignments saved successfully',
+      message: 'Employee device assignments saved and sync triggered successfully',
       employee_id: employeeId,
       created,
       updated,
+      sync: syncResponse,
     };
   }
 
@@ -103,13 +108,20 @@ export class EmployeeDeviceAssignmentsService {
       throw new NotFoundException('Employee device assignment not found');
     }
 
+    const deleteResponse = await this.accessControlSyncService.deleteEmployeeFromDevice(
+      companyId,
+      employeeId,
+      deviceId,
+    );
+
     await this.assignmentRepository.remove(assignment);
     await this.deactivateDeviceIdentity(companyId, employee.id, deviceId);
 
     return {
-      message: 'Employee device assignment removed successfully',
+      message: 'Employee removed from device and assignment deleted successfully',
       employee_id: employeeId,
       device_id: deviceId,
+      device_delete: deleteResponse,
     };
   }
 
