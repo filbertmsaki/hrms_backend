@@ -72,6 +72,16 @@ export class AttendanceDevicesService {
     return item;
   }
 
+  private async ensureDeviceExistsInDatabase(companyId: number, deviceId: number): Promise<void> {
+    const exists = await this.attendanceDeviceRepository.exists({
+      where: { id: deviceId, companyId },
+    });
+
+    if (!exists) {
+      throw new NotFoundException('Attendance device not found');
+    }
+  }
+
   private async ensureBranch(companyId: number, branchId?: number | null): Promise<void> {
     if (!branchId) {
       return;
@@ -220,7 +230,8 @@ export class AttendanceDevicesService {
     deviceId: number,
     query: AttendanceDeviceEmployeesQueryDto,
   ) {
-    await this.findOrFail(companyId, deviceId);
+    // This endpoint is intentionally DB-only and must not query the physical device.
+    await this.ensureDeviceExistsInDatabase(companyId, deviceId);
 
     const {
       page = 1,
