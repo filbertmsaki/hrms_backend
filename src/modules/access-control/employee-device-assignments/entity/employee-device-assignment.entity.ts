@@ -26,6 +26,7 @@ import { EmployeeDeviceAssignmentSyncStatusEnum } from '../enum/employee-device-
 @Index('IDX_employee_device_assignments_organization_id', ['organizationId'])
 @Index('IDX_employee_device_assignments_sync_status', ['syncStatus'])
 @Unique('UQ_employee_device_assignments_device_employee_no', ['deviceId', 'employeeNo'])
+@Unique('UQ_employee_device_assignments_employee_device', ['employeeId', 'deviceId'])
 export class EmployeeDeviceAssignment {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;

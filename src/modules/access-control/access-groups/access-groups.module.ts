@@ -17,6 +17,7 @@ import { EmployeeDeviceAssignment } from '../employee-device-assignments/entity/
 import { EmployeeDeviceRightPlan } from '../employee-device-right-plans/entity/employee-device-right-plan.entity';
 import { HikvisionSyncLog } from '../hikvision-sync-logs/entity/hikvision-sync-log.entity';
 import { EmployeeDeviceAccessAuditLog } from '../employee-device-access-audit-logs/entity/employee-device-access-audit-log.entity';
+import { EmployeeDeviceIdentity } from '../../hr/attendance/processing/entities/employee-device-identity.entity';
 import { AccessGroupsController } from './controller/access-groups.controller';
 import { AccessGroup } from './entity/access-group.entity';
 import { AccessGroupsService } from './service/access-groups.service';
@@ -43,6 +44,7 @@ import { EmployeeDeviceAccessAuditLogService } from '../employee-device-access-a
       HikvisionSyncLog,
       AttendanceDevice,
       EmployeeDeviceAccessAuditLog,
+      EmployeeDeviceIdentity,
     ]),
     HikvisionModule,
   ],

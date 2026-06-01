@@ -8,6 +8,7 @@ import { In, Repository } from 'typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
 import { Employee } from '../../../hr/employees/entities/employee.entity';
+import { EmployeeDeviceIdentity } from '../../../hr/attendance/processing/entities/employee-device-identity.entity';
 import { AssignEmployeeDevicesDto } from '../dto/assign-employee-devices.dto';
 import { EmployeeDeviceAssignment } from '../entity/employee-device-assignment.entity';
 import { EmployeeDeviceAssignmentSyncStatusEnum } from '../enum/employee-device-assignment-sync-status.enum';
@@ -21,6 +22,8 @@ export class EmployeeDeviceAssignmentsService {
     private readonly employeeRepository: Repository<Employee>,
     @InjectRepository(AttendanceDevice)
     private readonly attendanceDeviceRepository: Repository<AttendanceDevice>,
+    @InjectRepository(EmployeeDeviceIdentity)
+    private readonly employeeDeviceIdentityRepository: Repository<EmployeeDeviceIdentity>,
   ) {}
 
   async assignDevices(companyId: number, employeeId: number, dto: AssignEmployeeDevicesDto) {
@@ -62,6 +65,7 @@ export class EmployeeDeviceAssignmentsService {
         existing.employeeNo = employee.employee_no;
         existing.syncStatus = EmployeeDeviceAssignmentSyncStatusEnum.PENDING;
         await this.assignmentRepository.save(existing);
+        await this.upsertDeviceIdentity(companyId, employee.id, employee.employee_no, deviceId);
         updated += 1;
         continue;
       }
@@ -76,6 +80,7 @@ export class EmployeeDeviceAssignmentsService {
         lastSyncedAt: null,
       });
       await this.assignmentRepository.save(entity);
+      await this.upsertDeviceIdentity(companyId, employee.id, employee.employee_no, deviceId);
       created += 1;
     }
 
@@ -88,7 +93,7 @@ export class EmployeeDeviceAssignmentsService {
   }
 
   async removeAssignment(companyId: number, employeeId: number, deviceId: number) {
-    await this.findEmployeeOrFail(companyId, employeeId);
+    const employee = await this.findEmployeeOrFail(companyId, employeeId);
 
     const assignment = await this.assignmentRepository.findOne({
       where: { employeeId, deviceId },
@@ -99,6 +104,7 @@ export class EmployeeDeviceAssignmentsService {
     }
 
     await this.assignmentRepository.remove(assignment);
+    await this.deactivateDeviceIdentity(companyId, employee.id, deviceId);
 
     return {
       message: 'Employee device assignment removed successfully',
@@ -125,5 +131,53 @@ export class EmployeeDeviceAssignmentsService {
     }
 
     return employee;
+  }
+
+  private async upsertDeviceIdentity(
+    companyId: number,
+    employeeId: number,
+    employeeNo: string,
+    deviceId: number,
+  ) {
+    const normalizedEmployeeNo = employeeNo.trim();
+    if (!normalizedEmployeeNo) return;
+
+    let identity = await this.employeeDeviceIdentityRepository.findOne({
+      where: { companyId, employeeId, deviceId },
+    });
+
+    if (!identity) {
+      identity = await this.employeeDeviceIdentityRepository.findOne({
+        where: { companyId, deviceId, employeeNo: normalizedEmployeeNo },
+      });
+    }
+
+    if (!identity) {
+      identity = this.employeeDeviceIdentityRepository.create({
+        companyId,
+        employeeId,
+        employeeNo: normalizedEmployeeNo,
+        deviceId,
+        isActive: true,
+      });
+    } else {
+      identity.companyId = companyId;
+      identity.employeeId = employeeId;
+      identity.employeeNo = normalizedEmployeeNo;
+      identity.deviceId = deviceId;
+      identity.isActive = true;
+    }
+
+    await this.employeeDeviceIdentityRepository.save(identity);
+  }
+
+  private async deactivateDeviceIdentity(companyId: number, employeeId: number, deviceId: number) {
+    const identity = await this.employeeDeviceIdentityRepository.findOne({
+      where: { companyId, employeeId, deviceId, isActive: true },
+    });
+
+    if (!identity) return;
+    identity.isActive = false;
+    await this.employeeDeviceIdentityRepository.save(identity);
   }
 }

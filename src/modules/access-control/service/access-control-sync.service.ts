@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { AttendanceDevice } from '../../hr/attendance/devices/entities/attendance-device.entity';
+import { EmployeeDeviceIdentity } from '../../hr/attendance/processing/entities/employee-device-identity.entity';
 import { Employee } from '../../hr/employees/entities/employee.entity';
 import { HikvisionAccessControlService } from '../../hikvision/hikvision-access-control.service';
 import { AccessDoor } from '../access-doors/entity/access-door.entity';
@@ -70,6 +71,8 @@ export class AccessControlSyncService {
     private readonly employeeRepository: Repository<Employee>,
     @InjectRepository(AttendanceDevice)
     private readonly attendanceDeviceRepository: Repository<AttendanceDevice>,
+    @InjectRepository(EmployeeDeviceIdentity)
+    private readonly employeeDeviceIdentityRepository: Repository<EmployeeDeviceIdentity>,
     private readonly hikvisionAccessControlService: HikvisionAccessControlService,
     private readonly employeeDeviceAccessAuditLogService: EmployeeDeviceAccessAuditLogService,
   ) {}
@@ -351,9 +354,10 @@ export class AccessControlSyncService {
     }
 
     try {
+      const deviceEmployeeNo = this.resolveDeviceEmployeeNo(employee, assignment);
       const payload = {
         UserInfo: {
-          employeeNo: employee.employee_no,
+          employeeNo: deviceEmployeeNo,
           Valid: {
             enable: false,
           },
@@ -433,7 +437,7 @@ export class AccessControlSyncService {
       UserInfoDelCond: {
         EmployeeNoList: [
           {
-            employeeNo: employee.employee_no,
+            employeeNo: this.resolveDeviceEmployeeNo(employee, assignment),
           },
         ],
       },
@@ -751,9 +755,18 @@ export class AccessControlSyncService {
 
       const org = await this.resolveOrCreateOrganizationFromUser(companyId, deviceId, user);
 
-      let assignment = await this.employeeDeviceAssignmentRepository.findOne({
-        where: { deviceId, employeeNo },
-      });
+      let assignment: EmployeeDeviceAssignment | null = null;
+      if (employee?.id) {
+        assignment = await this.employeeDeviceAssignmentRepository.findOne({
+          where: { deviceId, employeeId: employee.id },
+        });
+      }
+
+      if (!assignment) {
+        assignment = await this.employeeDeviceAssignmentRepository.findOne({
+          where: { deviceId, employeeNo },
+        });
+      }
 
       if (!assignment) {
         assignment = this.employeeDeviceAssignmentRepository.create({
@@ -779,6 +792,12 @@ export class AccessControlSyncService {
       };
 
       const savedAssignment = await this.employeeDeviceAssignmentRepository.save(assignment);
+      await this.upsertDeviceIdentity(
+        companyId,
+        employee?.id ?? null,
+        savedAssignment.employeeNo,
+        deviceId,
+      );
       await this.syncAssignmentRightPlans(companyId, deviceId, savedAssignment, user);
       processed += 1;
     }
@@ -924,6 +943,7 @@ export class AccessControlSyncService {
       doors,
       assignment,
     } = params;
+    const employeeNo = this.resolveDeviceEmployeeNo(employee, assignment);
 
     try {
       const doorNos = doors.map((door) => door.doorNo).sort((a, b) => a - b);
@@ -933,7 +953,6 @@ export class AccessControlSyncService {
         planTemplateNo: scheduleTemplate.hikvisionTemplateNo,
       }));
 
-      const employeeNo = employee.employee_no;
       const userName = `${employee.first_name} ${employee.last_name}`.trim();
       const credentialBundle = this.buildCredentialBundle(credentials, deviceId);
 
@@ -966,7 +985,7 @@ export class AccessControlSyncService {
       );
       this.ensureHikvisionSuccess('SetUpUserInfo', setupResponse);
 
-      await this.saveEmployeeDeviceSyncStatus(employee.id, deviceId, {
+      await this.saveEmployeeDeviceSyncStatus(companyId, employee.id, employeeNo, deviceId, {
         syncStatus: EmployeeDeviceAssignmentSyncStatusEnum.SYNCED,
         metadata: {
           last_group_id: group.id,
@@ -1010,7 +1029,7 @@ export class AccessControlSyncService {
         status: 'SYNCED',
       };
     } catch (error) {
-      await this.saveEmployeeDeviceSyncStatus(employee.id, deviceId, {
+      await this.saveEmployeeDeviceSyncStatus(companyId, employee.id, employeeNo, deviceId, {
         syncStatus: EmployeeDeviceAssignmentSyncStatusEnum.FAILED,
         metadata: {
           last_group_id: group.id,
@@ -1063,7 +1082,9 @@ export class AccessControlSyncService {
   }
 
   private async saveEmployeeDeviceSyncStatus(
+    companyId: number,
     employeeId: number,
+    employeeNo: string,
     deviceId: number,
     input: {
       syncStatus: EmployeeDeviceAssignmentSyncStatusEnum;
@@ -1076,11 +1097,16 @@ export class AccessControlSyncService {
 
     if (!item) {
       item = this.employeeDeviceAssignmentRepository.create({
+        companyId,
         employeeId,
+        employeeNo,
         deviceId,
       });
     }
 
+    item.companyId = companyId;
+    item.employeeId = employeeId;
+    item.employeeNo = employeeNo;
     item.syncStatus = input.syncStatus;
     item.lastSyncedAt = new Date();
     item.metadata = {
@@ -1089,6 +1115,53 @@ export class AccessControlSyncService {
     };
 
     await this.employeeDeviceAssignmentRepository.save(item);
+  }
+
+  private resolveDeviceEmployeeNo(employee: Employee, assignment: EmployeeDeviceAssignment | null): string {
+    const fromAssignment = assignment?.employeeNo?.trim();
+    if (fromAssignment) {
+      return fromAssignment;
+    }
+    return employee.employee_no;
+  }
+
+  private async upsertDeviceIdentity(
+    companyId: number,
+    employeeId: number | null,
+    deviceEmployeeNo: string,
+    deviceId: number,
+  ) {
+    if (!employeeId) return;
+    const normalizedEmployeeNo = String(deviceEmployeeNo ?? '').trim();
+    if (!normalizedEmployeeNo) return;
+
+    let identity = await this.employeeDeviceIdentityRepository.findOne({
+      where: { companyId, employeeId, deviceId },
+    });
+
+    if (!identity) {
+      identity = await this.employeeDeviceIdentityRepository.findOne({
+        where: { companyId, deviceId, employeeNo: normalizedEmployeeNo },
+      });
+    }
+
+    if (!identity) {
+      identity = this.employeeDeviceIdentityRepository.create({
+        companyId,
+        employeeId,
+        employeeNo: normalizedEmployeeNo,
+        deviceId,
+        isActive: true,
+      });
+    } else {
+      identity.companyId = companyId;
+      identity.employeeId = employeeId;
+      identity.employeeNo = normalizedEmployeeNo;
+      identity.deviceId = deviceId;
+      identity.isActive = true;
+    }
+
+    await this.employeeDeviceIdentityRepository.save(identity);
   }
 
   private async credentialRepositoryMarkRemoved(companyId: number, employeeId: number, deviceId: number) {

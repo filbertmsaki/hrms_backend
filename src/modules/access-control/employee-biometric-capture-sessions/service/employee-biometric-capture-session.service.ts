@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
 import { Employee } from '../../../hr/employees/entities/employee.entity';
+import { EmployeeDeviceIdentity } from '../../../hr/attendance/processing/entities/employee-device-identity.entity';
 import { HikvisionAccessControlService } from '../../../hikvision/hikvision-access-control.service';
 import { DeviceCommandLogService } from '../../../hikvision/device-command-logs/service/device-command-log.service';
 import { buildPaginationMeta } from '../../../hr/shared/hr.utils';
@@ -14,6 +15,7 @@ import { EmployeeAccessCredentialTypeEnum } from '../../employee-access-credenti
 import { EmployeeDeviceAccessActionEnum } from '../../employee-device-access-audit-logs/enum/employee-device-access-action.enum';
 import { EmployeeDeviceAccessAuditStatusEnum } from '../../employee-device-access-audit-logs/enum/employee-device-access-audit-status.enum';
 import { EmployeeDeviceAccessAuditLogService } from '../../employee-device-access-audit-logs/service/employee-device-access-audit-log.service';
+import { EmployeeDeviceAssignment } from '../../employee-device-assignments/entity/employee-device-assignment.entity';
 import { CreateBiometricCaptureSessionDto } from '../dto/create-biometric-capture-session.dto';
 import { QueryBiometricCaptureSessionDto } from '../dto/query-biometric-capture-session.dto';
 import { SaveCapturedFingerprintDto } from '../dto/save-captured-fingerprint.dto';
@@ -36,6 +38,10 @@ export class EmployeeBiometricCaptureSessionService {
     private readonly deviceRepository: Repository<AttendanceDevice>,
     @InjectRepository(EmployeeAccessCredential)
     private readonly credentialRepository: Repository<EmployeeAccessCredential>,
+    @InjectRepository(EmployeeDeviceAssignment)
+    private readonly assignmentRepository: Repository<EmployeeDeviceAssignment>,
+    @InjectRepository(EmployeeDeviceIdentity)
+    private readonly identityRepository: Repository<EmployeeDeviceIdentity>,
     private readonly hikvisionAccessControlService: HikvisionAccessControlService,
     private readonly deviceCommandLogService: DeviceCommandLogService,
     private readonly auditLogService: EmployeeDeviceAccessAuditLogService,
@@ -195,9 +201,16 @@ export class EmployeeBiometricCaptureSessionService {
         syncStatus: 'CAPTURED',
       });
 
+      const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(
+        companyId,
+        employee.id,
+        device.id,
+        employee.employee_no,
+      );
+
       const setupPayload = {
         FingerPrintCfg: {
-          employeeNo: employee.employee_no,
+          employeeNo: deviceEmployeeNo,
           enableCardReader: [dto.card_reader_no ?? 1],
           fingerPrintID: fingerprintIdNumber,
           fingerType: 'normalFP',
@@ -476,8 +489,15 @@ export class EmployeeBiometricCaptureSessionService {
       throw new BadRequestException('Saved fingerprint is missing fingerData');
     }
 
-    const setupPayload = this.buildFingerprintSetupPayload(
+    const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(
+      companyId,
+      employee.id,
+      device.id,
       employee.employee_no,
+    );
+
+    const setupPayload = this.buildFingerprintSetupPayload(
+      deviceEmployeeNo,
       fingerprintId.number,
       fingerData,
       dto.card_reader_no ?? 1,
@@ -580,9 +600,15 @@ export class EmployeeBiometricCaptureSessionService {
 
     let responsePayload: Record<string, unknown> | null = null;
     if (deleteFromDevice) {
+      const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(
+        companyId,
+        employee.id,
+        device.id,
+        employee.employee_no,
+      );
       const payload = {
         FingerPrintCfg: {
-          employeeNo: employee.employee_no,
+          employeeNo: deviceEmployeeNo,
           enableCardReader: [cardReaderNo],
           fingerPrintID: fingerprintId.number,
           deleteFingerPrint: true,
@@ -1110,6 +1136,36 @@ export class EmployeeBiometricCaptureSessionService {
     }
 
     return employee;
+  }
+
+  private async resolveDeviceEmployeeNo(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    fallbackEmployeeNo: string,
+  ): Promise<string> {
+    const assignment = await this.assignmentRepository.findOne({
+      where: { companyId, employeeId, deviceId },
+      select: ['employeeNo'],
+    });
+
+    const assignmentEmployeeNo = assignment?.employeeNo?.trim();
+    if (assignmentEmployeeNo) {
+      return assignmentEmployeeNo;
+    }
+
+    const identity = await this.identityRepository.findOne({
+      where: { companyId, employeeId, deviceId, isActive: true },
+      select: ['employeeNo'],
+      order: { updatedAt: 'DESC' },
+    });
+
+    const identityEmployeeNo = identity?.employeeNo?.trim();
+    if (identityEmployeeNo) {
+      return identityEmployeeNo;
+    }
+
+    return fallbackEmployeeNo;
   }
 
   private extractFingerprintCapture(payload: unknown): {

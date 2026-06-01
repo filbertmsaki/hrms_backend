@@ -1,0 +1,22 @@
+export type ResolvedAttendanceSchedule = {
+  employeeId: number;
+  scheduleDate: string;
+  source: string;
+  timezone: string;
+  shiftId: number | null;
+  timetableId: number | null;
+  branchId: number | null;
+  isOffDay: boolean;
+  isHoliday: boolean;
+  holidayId: number | null;
+  scheduleStartAt: Date | null;
+  scheduleEndAt: Date | null;
+  lateAfterMinutes: number;
+  graceInMinutes: number;
+  graceOutMinutes: number;
+  earlyLeaveAfterMinutes: number;
+  allowOvertime: boolean;
+  overtimeStartAfterMinutes: number;
+  maxOvertimeMinutes: number;
+  requiresCheckout: boolean;
+};

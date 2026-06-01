@@ -1,0 +1,9 @@
+export enum AttendanceDailyStatusEnum {
+  PRESENT = 'PRESENT',
+  ABSENT = 'ABSENT',
+  INCOMPLETE = 'INCOMPLETE',
+  OFF_DAY = 'OFF_DAY',
+  HOLIDAY = 'HOLIDAY',
+  ON_LEAVE = 'ON_LEAVE',
+  BUSINESS_TRIP = 'BUSINESS_TRIP',
+}
