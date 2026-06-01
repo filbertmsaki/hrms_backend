@@ -192,11 +192,11 @@ export class AttendanceDevicesService {
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
     const sortFieldMap: Record<string, string> = {
-      created_at: 'created_at',
-      updated_at: 'updated_at',
-      device_name: 'device_name',
+      created_at: 'createdAt',
+      updated_at: 'updatedAt',
+      device_name: 'deviceName',
       status: 'status',
-      last_sync_at: 'last_sync_at',
+      last_sync_at: 'lastSyncAt',
     };
 
     const [items, total] = await qb
@@ -265,11 +265,11 @@ export class AttendanceDevicesService {
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
     const sortFieldMap: Record<string, string> = {
-      created_at: 'created_at',
-      updated_at: 'updated_at',
-      employee_no: 'employee_no',
-      sync_status: 'sync_status',
-      last_synced_at: 'last_synced_at',
+      created_at: 'createdAt',
+      updated_at: 'updatedAt',
+      employee_no: 'employeeNo',
+      sync_status: 'syncStatus',
+      last_synced_at: 'lastSyncedAt',
     };
 
     const [items, total] = await qb
