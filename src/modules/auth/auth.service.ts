@@ -421,28 +421,34 @@ export class AuthService {
       if (
         this.isOwnerUser(user) ||
         payload.userType !== 'COMPANY_USER' ||
-        !payload.companyId ||
-        !payload.membershipId
+        !payload.companyId
       ) {
         throw new UnauthorizedException(
           'Refresh token company context is invalid',
         );
       }
 
-      const companyContext = await this.companiesService.getMembershipContext(
-        payload.sub,
-        payload.companyId,
-      );
+      const companies = await this.companiesService.listUserCompanies(payload.sub);
 
-      if (companyContext.membershipId !== payload.membershipId) {
-        throw new UnauthorizedException(
-          'Refresh token company context is invalid',
-        );
+      if (!companies.length) {
+        throw new UnauthorizedException('Company access is no longer available');
       }
 
-      const companies = await this.companiesService.listUserCompanies(
-        payload.sub,
-      );
+      let companyContext: CompanySummary;
+
+      try {
+        companyContext = await this.companiesService.getMembershipContext(
+          payload.sub,
+          payload.companyId,
+        );
+      } catch (error) {
+        if (!(error instanceof NotFoundException)) {
+          throw error;
+        }
+
+        companyContext =
+          companies.find((company) => company.isDefault) ?? companies[0];
+      }
 
       await this.tokenBlacklistService.addToBlacklist(
         refreshToken,

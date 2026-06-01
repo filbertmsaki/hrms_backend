@@ -20,6 +20,9 @@ type JwtAccessPayload = {
   scope?: 'platform' | 'company';
   userType?: 'OWNER' | 'COMPANY_USER';
   companyId?: number;
+  companyName?: string;
+  companySlug?: string;
+  membershipId?: number;
   employeeId?: number;
   employeeNo?: string;
   roles?: string[];
@@ -131,8 +134,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       );
 
       return {
-        id: payload.sub,
-        email: payload.email,
+        id: user.id,
+        email: user.email,
         scope: 'company',
         userType: 'COMPANY_USER',
         companyId: companyContext.companyId,
@@ -145,15 +148,38 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         permissions: companyContext.permissions,
       };
     } catch (error) {
-      if (!(error instanceof NotFoundException)) {
-        this.logger.error(
-          `Failed to load membership context for user ${payload.sub} in company ${payload.companyId}`,
-          error instanceof Error ? error.stack : undefined,
+      if (error instanceof NotFoundException) {
+        // Keep current access token usable until expiry when non-security DB
+        // changes temporarily break membership context resolution.
+        if (!payload.membershipId) {
+          throw new UnauthorizedException('Company access is no longer available');
+        }
+
+        this.logger.warn(
+          `Falling back to token company context for user ${payload.sub} in company ${payload.companyId}`,
         );
-        throw new InternalServerErrorException('Failed to validate session');
+
+        return {
+          id: user.id,
+          email: user.email,
+          scope: 'company',
+          userType: 'COMPANY_USER',
+          companyId: payload.companyId,
+          companyName: payload.companyName,
+          companySlug: payload.companySlug,
+          companyMembershipId: payload.membershipId,
+          employeeId: payload.employeeId ?? undefined,
+          employeeNo: payload.employeeNo ?? undefined,
+          roles: payload.roles ?? [],
+          permissions: payload.permissions ?? [],
+        };
       }
 
-      throw new UnauthorizedException('Company access is no longer available');
+      this.logger.error(
+        `Failed to load membership context for user ${payload.sub} in company ${payload.companyId}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new InternalServerErrorException('Failed to validate session');
     }
   }
 }
