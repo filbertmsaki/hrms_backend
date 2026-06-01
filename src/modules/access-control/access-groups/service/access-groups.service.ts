@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import { buildPaginationMeta } from '../../../hr/shared/hr.utils';
 import { Branch } from '../../../hr/branches/entities/branch.entity';
@@ -14,6 +14,7 @@ import { Employee } from '../../../hr/employees/entities/employee.entity';
 import { AccessDoor } from '../../access-doors/entity/access-door.entity';
 import { AccessGroupDoor } from '../../access-group-doors/entity/access-group-door.entity';
 import { AccessGroupEmployee } from '../../access-group-employees/entity/access-group-employee.entity';
+import { EmployeeDeviceAssignment } from '../../employee-device-assignments/entity/employee-device-assignment.entity';
 import { AccessScheduleTemplate } from '../../access-schedule-templates/entity/access-schedule-template.entity';
 import { AccessControlSyncService } from '../../service/access-control-sync.service';
 import { AssignAccessGroupDoorsDto } from '../dto/assign-access-group-doors.dto';
@@ -50,6 +51,8 @@ export class AccessGroupsService {
     private readonly accessGroupEmployeeRepository: Repository<AccessGroupEmployee>,
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
+    @InjectRepository(EmployeeDeviceAssignment)
+    private readonly employeeDeviceAssignmentRepository: Repository<EmployeeDeviceAssignment>,
     private readonly accessControlSyncService: AccessControlSyncService,
   ) {}
 
@@ -288,7 +291,7 @@ export class AccessGroupsService {
   }
 
   async assignEmployees(companyId: number, groupId: number, dto: AssignAccessGroupEmployeesDto) {
-    await this.findOrFail(companyId, groupId);
+    const group = await this.findOrFail(companyId, groupId);
 
     const uniqueEmployeeIds = [...new Set(dto.employee_ids)];
     const employees = await this.employeeRepository
@@ -310,8 +313,22 @@ export class AccessGroupsService {
         continue;
       }
 
+      const assignment = await this.employeeDeviceAssignmentRepository.findOne({
+        where: {
+          companyId,
+          employeeId,
+          ...(group.deviceId !== null ? { deviceId: group.deviceId } : {}),
+        },
+        order: { updatedAt: 'DESC' },
+      });
+      const resolvedDeviceId = group.deviceId ?? assignment?.deviceId ?? null;
+
       const existing = await this.accessGroupEmployeeRepository.findOne({
-        where: { accessGroupId: groupId, employeeNo: employee.employee_no },
+        where: {
+          accessGroupId: groupId,
+          employeeNo: employee.employee_no,
+          deviceId: resolvedDeviceId === null ? IsNull() : resolvedDeviceId,
+        },
       });
 
       if (existing) {
@@ -324,7 +341,8 @@ export class AccessGroupsService {
           employeeId,
           employeeNo: employee.employee_no,
           employeeName: `${employee.first_name} ${employee.last_name}`.trim(),
-          deviceId: null,
+          organizationId: assignment?.organizationId ?? null,
+          deviceId: resolvedDeviceId,
         }),
       );
 

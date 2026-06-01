@@ -904,6 +904,19 @@ export class AccessControlSyncService {
               assignedAt: new Date(),
             }),
           );
+        } else {
+          let shouldSave = false;
+          if (existingEmployee.organizationId !== assignment.organizationId) {
+            existingEmployee.organizationId = assignment.organizationId;
+            shouldSave = true;
+          }
+          if (!existingEmployee.employeeId && assignment.employeeId) {
+            existingEmployee.employeeId = assignment.employeeId;
+            shouldSave = true;
+          }
+          if (shouldSave) {
+            await this.accessGroupEmployeeRepository.save(existingEmployee);
+          }
         }
       }
 
