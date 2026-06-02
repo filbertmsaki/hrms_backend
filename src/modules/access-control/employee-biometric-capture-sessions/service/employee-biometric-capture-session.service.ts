@@ -168,7 +168,7 @@ export class EmployeeBiometricCaptureSessionService {
           company_id: companyId,
           branch_id: device.branchId ?? null,
           employee_id: employee.id,
-          employee_no: employee.employee_no,
+          employee_no: session.employeeNo,
           employee_name: `${employee.first_name} ${employee.last_name}`.trim(),
           device_id: device.id,
           action: EmployeeDeviceAccessActionEnum.CAPTURE_FINGERPRINT,
@@ -191,6 +191,7 @@ export class EmployeeBiometricCaptureSessionService {
       await this.saveFingerprintCredential({
         companyId,
         employee,
+        deviceEmployeeNo: session.employeeNo,
         deviceId: device.id,
         fingerprintId,
         fingerData: capturedFingerData,
@@ -201,12 +202,7 @@ export class EmployeeBiometricCaptureSessionService {
         syncStatus: 'CAPTURED',
       });
 
-      const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(
-        companyId,
-        employee.id,
-        device.id,
-        employee.employee_no,
-      );
+      const deviceEmployeeNo = session.employeeNo;
 
       const setupPayload = {
         FingerPrintCfg: {
@@ -284,7 +280,7 @@ export class EmployeeBiometricCaptureSessionService {
           company_id: companyId,
           branch_id: device.branchId ?? null,
           employee_id: employee.id,
-          employee_no: employee.employee_no,
+          employee_no: deviceEmployeeNo,
           employee_name: `${employee.first_name} ${employee.last_name}`.trim(),
           device_id: device.id,
           action: EmployeeDeviceAccessActionEnum.SET_FINGERPRINT,
@@ -332,6 +328,7 @@ export class EmployeeBiometricCaptureSessionService {
     const employee = await this.findEmployeeOrFail(companyId, employeeId);
     const device = await this.findDeviceOrFail(companyId, dto.device_id);
     const fingerprintId = this.normalizeFingerprintId(dto.fingerprint_id);
+    const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(companyId, employee.id, device.id);
     await this.assertFingerprintSlotAvailable(
       companyId,
       employee.id,
@@ -350,7 +347,7 @@ export class EmployeeBiometricCaptureSessionService {
         companyId,
         branchId: device.branchId ?? null,
         employeeId: employee.id,
-        employeeNo: employee.employee_no,
+        employeeNo: deviceEmployeeNo,
         employeeName: `${employee.first_name} ${employee.last_name}`.trim(),
         deviceId: device.id,
         captureType: EmployeeBiometricCaptureTypeEnum.FINGERPRINT,
@@ -383,12 +380,13 @@ export class EmployeeBiometricCaptureSessionService {
     const capturedFingerData = capture.fingerData;
 
     this.validateFingerprintQuality(capture.fingerPrintQuality, dto.min_quality);
-    await this.saveFingerprintCredential({
-      companyId,
-      employee,
-      deviceId: device.id,
-      fingerprintId: fingerprintId.value,
-      fingerData: capturedFingerData,
+      await this.saveFingerprintCredential({
+        companyId,
+        employee,
+        deviceEmployeeNo,
+        deviceId: device.id,
+        fingerprintId: fingerprintId.value,
+        fingerData: capturedFingerData,
       fingerNo: capture.fingerNo,
       fingerPrintQuality: capture.fingerPrintQuality,
       sessionId: session.id,
@@ -423,11 +421,13 @@ export class EmployeeBiometricCaptureSessionService {
     const employee = await this.findEmployeeOrFail(companyId, employeeId);
     const device = await this.findDeviceOrFail(companyId, dto.device_id);
     const fingerprintId = this.normalizeFingerprintId(dto.fingerprint_id);
+    const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(companyId, employee.id, device.id);
     this.validateFingerprintQuality(dto.finger_print_quality, dto.min_quality);
 
     await this.saveFingerprintCredential({
       companyId,
       employee,
+      deviceEmployeeNo,
       deviceId: device.id,
       fingerprintId: fingerprintId.value,
       fingerData: dto.finger_data,
@@ -442,7 +442,7 @@ export class EmployeeBiometricCaptureSessionService {
       company_id: companyId,
       branch_id: device.branchId ?? null,
       employee_id: employee.id,
-      employee_no: employee.employee_no,
+      employee_no: deviceEmployeeNo,
       employee_name: `${employee.first_name} ${employee.last_name}`.trim(),
       device_id: device.id,
       action: EmployeeDeviceAccessActionEnum.CAPTURE_FINGERPRINT,
@@ -489,12 +489,7 @@ export class EmployeeBiometricCaptureSessionService {
       throw new BadRequestException('Saved fingerprint is missing fingerData');
     }
 
-    const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(
-      companyId,
-      employee.id,
-      device.id,
-      employee.employee_no,
-    );
+    const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(companyId, employee.id, device.id);
 
     const setupPayload = this.buildFingerprintSetupPayload(
       deviceEmployeeNo,
@@ -530,7 +525,7 @@ export class EmployeeBiometricCaptureSessionService {
       company_id: companyId,
       branch_id: device.branchId ?? null,
       employee_id: employee.id,
-      employee_no: employee.employee_no,
+      employee_no: deviceEmployeeNo,
       employee_name: `${employee.first_name} ${employee.last_name}`.trim(),
       device_id: device.id,
       action: EmployeeDeviceAccessActionEnum.SET_FINGERPRINT,
@@ -600,12 +595,7 @@ export class EmployeeBiometricCaptureSessionService {
 
     let responsePayload: Record<string, unknown> | null = null;
     if (deleteFromDevice) {
-      const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(
-        companyId,
-        employee.id,
-        device.id,
-        employee.employee_no,
-      );
+      const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(companyId, employee.id, device.id);
       const payload = {
         FingerPrintCfg: {
           employeeNo: deviceEmployeeNo,
@@ -643,7 +633,7 @@ export class EmployeeBiometricCaptureSessionService {
       company_id: companyId,
       branch_id: device.branchId ?? null,
       employee_id: employee.id,
-      employee_no: employee.employee_no,
+      employee_no: credential.employeeNo,
       employee_name: `${employee.first_name} ${employee.last_name}`.trim(),
       device_id: device.id,
       action: EmployeeDeviceAccessActionEnum.DELETE_FINGERPRINT,
@@ -870,9 +860,11 @@ export class EmployeeBiometricCaptureSessionService {
     fingerPrintQuality: number | null,
     syncStatus: string,
   ) {
+    const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(companyId, employee.id, deviceId);
     const credential = await this.saveFingerprintCredential({
       companyId,
       employee,
+      deviceEmployeeNo,
       deviceId,
       fingerprintId,
       fingerData,
@@ -894,6 +886,7 @@ export class EmployeeBiometricCaptureSessionService {
   private async saveFingerprintCredential(input: {
     companyId: number;
     employee: Employee;
+    deviceEmployeeNo: string;
     deviceId: number;
     fingerprintId: string;
     fingerData: string;
@@ -930,7 +923,7 @@ export class EmployeeBiometricCaptureSessionService {
       credential = this.credentialRepository.create({
         companyId: input.companyId,
         employeeId: input.employee.id,
-        employeeNo: input.employee.employee_no,
+        employeeNo: input.deviceEmployeeNo,
         deviceId: input.deviceId,
         credentialType: EmployeeAccessCredentialTypeEnum.FINGERPRINT,
         credentialNo: input.fingerprintId,
@@ -939,7 +932,7 @@ export class EmployeeBiometricCaptureSessionService {
       });
     }
 
-    credential.employeeNo = input.employee.employee_no;
+    credential.employeeNo = input.deviceEmployeeNo;
     credential.credentialNo = input.fingerprintId;
     credential.fingerprintId = input.fingerprintId;
     credential.fingerprintCount = 1;
@@ -1142,7 +1135,6 @@ export class EmployeeBiometricCaptureSessionService {
     companyId: number,
     employeeId: number,
     deviceId: number,
-    fallbackEmployeeNo: string,
   ): Promise<string> {
     const assignment = await this.assignmentRepository.findOne({
       where: { companyId, employeeId, deviceId },
@@ -1165,7 +1157,9 @@ export class EmployeeBiometricCaptureSessionService {
       return identityEmployeeNo;
     }
 
-    return fallbackEmployeeNo;
+    throw new NotFoundException(
+      `Employee ${employeeId} does not have a Hikvision employee number for device ${deviceId}`,
+    );
   }
 
   private extractFingerprintCapture(payload: unknown): {

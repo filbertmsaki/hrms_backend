@@ -753,26 +753,17 @@ export class AccessControlSyncService {
       if (!employeeNo) {
         continue;
       }
-
-      const employee = await this.employeeRepository
-        .createQueryBuilder('employee')
-        .where('employee.employee_no = :employeeNo', { employeeNo })
-        .getOne();
-
       const org = await this.resolveOrCreateOrganizationFromUser(companyId, deviceId, user);
-
-      let assignment: EmployeeDeviceAssignment | null = null;
-      if (employee?.id) {
-        assignment = await this.employeeDeviceAssignmentRepository.findOne({
-          where: { deviceId, employeeId: employee.id },
-        });
-      }
-
-      if (!assignment) {
-        assignment = await this.employeeDeviceAssignmentRepository.findOne({
-          where: { deviceId, employeeNo },
-        });
-      }
+      let assignment = await this.employeeDeviceAssignmentRepository.findOne({
+        where: { companyId, deviceId, employeeNo },
+      });
+      const identity = await this.employeeDeviceIdentityRepository.findOne({
+        where: { companyId, deviceId, employeeNo, isActive: true },
+      });
+      const mappedEmployeeId = assignment?.employeeId ?? identity?.employeeId ?? null;
+      const employee = mappedEmployeeId
+        ? await this.employeeRepository.findOne({ where: { id: mappedEmployeeId } })
+        : null;
 
       if (!assignment) {
         assignment = this.employeeDeviceAssignmentRepository.create({
@@ -1141,7 +1132,10 @@ export class AccessControlSyncService {
     if (fromAssignment) {
       return fromAssignment;
     }
-    return employee.employee_no;
+
+    throw new BadRequestException(
+      `Employee ${employee.id} is missing a device-specific Hikvision employee number for this assignment`,
+    );
   }
 
   private async upsertDeviceIdentity(

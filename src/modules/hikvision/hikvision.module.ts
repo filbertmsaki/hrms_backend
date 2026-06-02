@@ -1,9 +1,16 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { CompanyUser } from '../companies/entities/company-user.entity';
+import { AccessDoor } from '../access-control/access-doors/entity/access-door.entity';
+import { AccessScheduleTemplate } from '../access-control/access-schedule-templates/entity/access-schedule-template.entity';
+import { EmployeeAccessCredential } from '../access-control/employee-access-credentials/entity/employee-access-credential.entity';
+import { EmployeeDeviceAssignment } from '../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
+import { EmployeeDeviceRightPlan } from '../access-control/employee-device-right-plans/entity/employee-device-right-plan.entity';
+import { HikvisionSyncLog } from '../access-control/hikvision-sync-logs/entity/hikvision-sync-log.entity';
 import { Branch } from '../hr/branches/entities/branch.entity';
 import { AttendanceDevice } from '../hr/attendance/devices/entities/attendance-device.entity';
-import { AccessDoor } from '../access-control/access-doors/entity/access-door.entity';
-import { HikvisionSyncLog } from '../access-control/hikvision-sync-logs/entity/hikvision-sync-log.entity';
+import { EmployeeDeviceIdentity } from '../hr/attendance/processing/entities/employee-device-identity.entity';
+import { Employee } from '../hr/employees/entities/employee.entity';
 import { DeviceCommandLog } from './device-command-logs/entity/device-command-log.entity';
 import { DeviceCommandLogService } from './device-command-logs/service/device-command-log.service';
 import { HikvisionAccessControlService } from './hikvision-access-control.service';
@@ -11,6 +18,7 @@ import { HikvisionAttendanceController } from './hikvision-attendance.controller
 import { HikvisionAttendanceSyncService } from './hikvision-attendance-sync.service';
 import { HikvisionDoorSyncService } from './hikvision-door.service';
 import { HikvisionService } from './hikvision.service';
+import { HikvisionUserManagementService } from './hikvision-user-management.service';
 import { HikvisionAttendanceLog } from './entities/hikvision-attendance-log.entity';
 import { HikvisionDigestClient } from './helpers/hikvision-digest.client';
 import { HikvisionParserHelper } from './helpers/hikvision-parser.helper';
@@ -20,7 +28,14 @@ import { HikvisionParserHelper } from './helpers/hikvision-parser.helper';
     TypeOrmModule.forFeature([
       AttendanceDevice,
       Branch,
+      CompanyUser,
+      Employee,
+      EmployeeDeviceIdentity,
       AccessDoor,
+      AccessScheduleTemplate,
+      EmployeeAccessCredential,
+      EmployeeDeviceAssignment,
+      EmployeeDeviceRightPlan,
       DeviceCommandLog,
       HikvisionAttendanceLog,
       HikvisionSyncLog,
@@ -32,6 +47,7 @@ import { HikvisionParserHelper } from './helpers/hikvision-parser.helper';
     HikvisionDoorSyncService,
     HikvisionAccessControlService,
     HikvisionAttendanceSyncService,
+    HikvisionUserManagementService,
     DeviceCommandLogService,
     HikvisionDigestClient,
     HikvisionParserHelper,
@@ -41,6 +57,7 @@ import { HikvisionParserHelper } from './helpers/hikvision-parser.helper';
     HikvisionDoorSyncService,
     HikvisionAccessControlService,
     HikvisionAttendanceSyncService,
+    HikvisionUserManagementService,
     DeviceCommandLogService,
   ],
 })

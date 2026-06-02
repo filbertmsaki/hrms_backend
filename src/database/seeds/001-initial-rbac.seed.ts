@@ -753,9 +753,21 @@ const permissionSeeds: PermissionSeed[] = [
     scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
+    name: 'employee_device_assignments:read',
+    displayName: 'Read employee device assignments',
+    description: 'Allow viewing employee device assignments and Hikvision device users',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
+  },
+  {
     name: 'employee_device_assignments:create',
     displayName: 'Create employee device assignments',
     description: 'Allow assigning employees to devices',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
+  },
+  {
+    name: 'employee_device_assignments:update',
+    displayName: 'Update employee device assignments',
+    description: 'Allow updating employee device assignments and device user details',
     scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
@@ -1630,7 +1642,9 @@ const roleSeeds: RoleSeed[] = [
       'employee_access_credentials:read',
       'employee_access_credentials:create',
       'employee_access_credentials:update',
+      'employee_device_assignments:read',
       'employee_device_assignments:create',
+      'employee_device_assignments:update',
       'employee_device_assignments:delete',
       'access_control_sync:execute',
       'hikvision_attendance:read',
