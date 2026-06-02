@@ -1,5 +1,9 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AccessGroupDoor } from '../access-group-doors/entity/access-group-door.entity';
+import { AccessGroupEmployee } from '../access-group-employees/entity/access-group-employee.entity';
+import { AccessGroup } from '../access-groups/entity/access-group.entity';
+import { AccessScheduleTemplate } from '../access-schedule-templates/entity/access-schedule-template.entity';
 import { EmployeeAccessCredential } from '../employee-access-credentials/entity/employee-access-credential.entity';
 import { EmployeeDeviceRightPlan } from '../employee-device-right-plans/entity/employee-device-right-plan.entity';
 import { AttendanceDevice } from '../../hr/attendance/devices/entities/attendance-device.entity';
@@ -19,6 +23,10 @@ import { HikvisionModule } from '../../hikvision/hikvision.module';
       EmployeeDeviceIdentity,
       EmployeeDeviceRightPlan,
       EmployeeAccessCredential,
+      AccessGroup,
+      AccessGroupDoor,
+      AccessGroupEmployee,
+      AccessScheduleTemplate,
     ]),
     HikvisionModule,
   ],

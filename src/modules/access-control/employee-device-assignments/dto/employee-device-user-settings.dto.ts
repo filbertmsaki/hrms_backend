@@ -1,20 +1,22 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  IsArray,
   IsBoolean,
   IsDateString,
   IsInt,
   IsObject,
   IsOptional,
-  IsString,
-  MaxLength,
   Min,
-  ValidateNested,
 } from 'class-validator';
-import { EmployeeDeviceUserRightPlanDto } from './employee-device-user-right-plan.dto';
+import { ApiProperty } from '@nestjs/swagger';
 
 export class EmployeeDeviceUserSettingsDto {
+  @ApiProperty()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  access_group_id: number;
+
   @ApiPropertyOptional()
   @Type(() => Boolean)
   @IsBoolean()
@@ -30,19 +32,6 @@ export class EmployeeDeviceUserSettingsDto {
   @IsDateString()
   @IsOptional()
   valid_end_time?: string;
-
-  @ApiPropertyOptional()
-  @IsString()
-  @MaxLength(255)
-  @IsOptional()
-  door_right?: string | null;
-
-  @ApiPropertyOptional({ type: () => [EmployeeDeviceUserRightPlanDto] })
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => EmployeeDeviceUserRightPlanDto)
-  @IsOptional()
-  right_plan?: EmployeeDeviceUserRightPlanDto[];
 
   @ApiPropertyOptional()
   @Type(() => Boolean)

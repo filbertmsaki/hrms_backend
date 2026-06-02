@@ -18,11 +18,18 @@ import { AttendanceDeviceStatusEnum } from '../../../hr/attendance/devices/enums
 import { Employee } from '../../../hr/employees/entities/employee.entity';
 import { EmploymentStatusEnum } from '../../../hr/employees/enums/employment-status.enum';
 import { EmployeeDeviceIdentity } from '../../../hr/attendance/processing/entities/employee-device-identity.entity';
+import { AccessGroupDoor } from '../../access-group-doors/entity/access-group-door.entity';
+import { AccessGroupEmployee } from '../../access-group-employees/entity/access-group-employee.entity';
+import { AccessGroupEmployeeSourceEnum } from '../../access-group-employees/enum/access-group-employee-source.enum';
+import { AccessGroupEmployeeStatusEnum } from '../../access-group-employees/enum/access-group-employee-status.enum';
+import { AccessGroup } from '../../access-groups/entity/access-group.entity';
+import { AccessGroupStatusEnum } from '../../access-groups/enum/access-group-status.enum';
+import { AccessScheduleTemplate } from '../../access-schedule-templates/entity/access-schedule-template.entity';
+import { AccessScheduleTemplateStatusEnum } from '../../access-schedule-templates/enum/access-schedule-template-status.enum';
 import { EmployeeAccessCredential } from '../../employee-access-credentials/entity/employee-access-credential.entity';
 import { EmployeeAccessCredentialStatusEnum } from '../../employee-access-credentials/enum/employee-access-credential-status.enum';
 import { EmployeeAccessCredentialTypeEnum } from '../../employee-access-credentials/enum/employee-access-credential-type.enum';
 import { AssignEmployeeDevicesDto } from '../dto/assign-employee-devices.dto';
-import { EmployeeDeviceUserRightPlanDto } from '../dto/employee-device-user-right-plan.dto';
 import { HikvisionUserSearchQueryDto } from '../dto/hikvision-user-search-query.dto';
 import { UpdateEmployeeDeviceUserDto } from '../dto/update-employee-device-user.dto';
 import { EmployeeDeviceAssignment } from '../entity/employee-device-assignment.entity';
@@ -35,16 +42,34 @@ type CredentialBundle = {
 };
 
 type AssignmentSettings = {
+  accessGroupId: number;
+  accessGroupName: string;
+  organizationId: number | null;
   validEnabled: boolean;
   validBeginTime: Date | null;
   validEndTime: Date | null;
   doorRight: string;
-  rightPlan: EmployeeDeviceUserRightPlanDto[];
+  rightPlan: ResolvedRightPlan[];
   localUiRight: boolean;
   closeDelayEnabled: boolean;
   maxOpenDoorTime: number;
   openDoorTime: number;
   metadata: Record<string, unknown> | null;
+};
+
+type ResolvedRightPlan = {
+  doorNo: number;
+  planTemplateNo: string;
+  doorId: number | null;
+  scheduleTemplateId: number | null;
+  metadata: Record<string, unknown> | null;
+};
+
+type AccessGroupContext = {
+  group: AccessGroup;
+  membership: AccessGroupEmployee | null;
+  doorRight: string;
+  rightPlan: ResolvedRightPlan[];
 };
 
 @Injectable()
@@ -64,6 +89,14 @@ export class EmployeeDeviceAssignmentsService {
     private readonly rightPlanRepository: Repository<EmployeeDeviceRightPlan>,
     @InjectRepository(EmployeeAccessCredential)
     private readonly credentialRepository: Repository<EmployeeAccessCredential>,
+    @InjectRepository(AccessGroup)
+    private readonly accessGroupRepository: Repository<AccessGroup>,
+    @InjectRepository(AccessGroupDoor)
+    private readonly accessGroupDoorRepository: Repository<AccessGroupDoor>,
+    @InjectRepository(AccessGroupEmployee)
+    private readonly accessGroupEmployeeRepository: Repository<AccessGroupEmployee>,
+    @InjectRepository(AccessScheduleTemplate)
+    private readonly accessScheduleTemplateRepository: Repository<AccessScheduleTemplate>,
     private readonly hikvisionUserManagementService: HikvisionUserManagementService,
   ) {}
 
@@ -104,7 +137,12 @@ export class EmployeeDeviceAssignmentsService {
       }
 
       try {
-        const settings = this.resolveSettingsFromInput(dto);
+        const settings = await this.resolveSettingsFromInput(
+          companyId,
+          employee,
+          device,
+          dto,
+        );
         const deviceEmployeeNo = await this.resolveAvailableDeviceEmployeeNo(companyId, device.id);
         const payload = await this.buildDeviceUserPayload(
           companyId,
@@ -204,8 +242,8 @@ export class EmployeeDeviceAssignmentsService {
       );
     }
 
-    const currentRightPlan = await this.loadRightPlanRows(assignment.id);
-    const settings = this.resolveSettingsForUpdate(assignment, currentRightPlan, dto);
+    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId);
+    const settings = await this.resolveSettingsForUpdate(companyId, employee, device, assignment, dto);
     const payload = await this.buildDeviceUserPayload(
       companyId,
       employee,
@@ -227,6 +265,13 @@ export class EmployeeDeviceAssignmentsService {
 
     const saved = await this.assignmentRepository.save(assignment);
     await this.replaceRightPlans(deviceId, saved, settings.rightPlan);
+    await this.upsertAccessGroupEmployeeMembership(
+      settings.accessGroupId,
+      employee,
+      deviceId,
+      saved.employeeNo,
+      settings.organizationId,
+    );
 
     return {
       message: 'Employee device user modified successfully',
@@ -364,9 +409,9 @@ export class EmployeeDeviceAssignmentsService {
 
   async resyncUser(companyId: number, employeeId: number, deviceId: number) {
     const employee = await this.findEmployeeOrFail(companyId, employeeId, true);
-    await this.findHikvisionDeviceOrFail(companyId, deviceId);
+    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId);
     const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employee.id, deviceId);
-    const settings = this.resolveSettingsFromAssignment(assignment, await this.loadRightPlanRows(assignment.id));
+    const settings = await this.resolveSettingsFromAssignment(companyId, employee, device, assignment);
     const payload = await this.buildDeviceUserPayload(
       companyId,
       employee,
@@ -391,10 +436,20 @@ export class EmployeeDeviceAssignmentsService {
     assignment.metadata = this.mergeMetadata(assignment.metadata, {
       hikvision: {
         last_resync_at: new Date().toISOString(),
+        access_group_id: settings.accessGroupId,
+        access_group_name: settings.accessGroupName,
         resync_operation: deviceState.exists ? 'UPDATE' : 'CREATE',
       },
     });
     const saved = await this.assignmentRepository.save(assignment);
+    await this.replaceRightPlans(deviceId, saved, settings.rightPlan);
+    await this.upsertAccessGroupEmployeeMembership(
+      settings.accessGroupId,
+      employee,
+      deviceId,
+      saved.employeeNo,
+      settings.organizationId,
+    );
 
     return {
       message: 'Employee device user resynced successfully',
@@ -516,13 +571,28 @@ export class EmployeeDeviceAssignmentsService {
     return this.mapAssignment(assignment);
   }
 
-  private resolveSettingsFromInput(input: UpdateEmployeeDeviceUserDto): AssignmentSettings {
+  private async resolveSettingsFromInput(
+    companyId: number,
+    employee: Employee,
+    device: AttendanceDevice,
+    input: UpdateEmployeeDeviceUserDto,
+  ): Promise<AssignmentSettings> {
+    const groupContext = await this.resolveAccessGroupContext(
+      companyId,
+      employee.id,
+      device,
+      input.access_group_id,
+    );
+
     return {
+      accessGroupId: groupContext.group.id,
+      accessGroupName: groupContext.group.name,
+      organizationId: groupContext.membership?.organizationId ?? null,
       validEnabled: input.valid_enabled ?? true,
       validBeginTime: this.toNullableDate(input.valid_begin_time),
       validEndTime: this.toNullableDate(input.valid_end_time),
-      doorRight: input.door_right?.trim() || '',
-      rightPlan: input.right_plan ?? [],
+      doorRight: groupContext.doorRight,
+      rightPlan: groupContext.rightPlan,
       localUiRight: input.local_ui_right ?? false,
       closeDelayEnabled: input.close_delay_enabled ?? false,
       maxOpenDoorTime: input.max_open_door_time ?? 0,
@@ -531,12 +601,24 @@ export class EmployeeDeviceAssignmentsService {
     };
   }
 
-  private resolveSettingsForUpdate(
+  private async resolveSettingsForUpdate(
+    companyId: number,
+    employee: Employee,
+    device: AttendanceDevice,
     assignment: EmployeeDeviceAssignment,
-    currentRightPlan: EmployeeDeviceUserRightPlanDto[],
     input: UpdateEmployeeDeviceUserDto,
-  ): AssignmentSettings {
+  ): Promise<AssignmentSettings> {
+    const groupContext = await this.resolveAccessGroupContext(
+      companyId,
+      employee.id,
+      device,
+      input.access_group_id,
+    );
+
     return {
+      accessGroupId: groupContext.group.id,
+      accessGroupName: groupContext.group.name,
+      organizationId: groupContext.membership?.organizationId ?? assignment.organizationId ?? null,
       validEnabled: input.valid_enabled ?? assignment.validEnabled ?? true,
       validBeginTime:
         input.valid_begin_time !== undefined
@@ -546,11 +628,8 @@ export class EmployeeDeviceAssignmentsService {
         input.valid_end_time !== undefined
           ? this.toNullableDate(input.valid_end_time)
           : assignment.validEndTime,
-      doorRight:
-        input.door_right !== undefined
-          ? input.door_right?.trim() || ''
-          : assignment.doorRight?.trim() || '',
-      rightPlan: input.right_plan ?? currentRightPlan,
+      doorRight: groupContext.doorRight,
+      rightPlan: groupContext.rightPlan,
       localUiRight: input.local_ui_right ?? assignment.localUiRight ?? false,
       closeDelayEnabled:
         input.close_delay_enabled ?? assignment.closeDelayEnabled ?? false,
@@ -577,6 +656,7 @@ export class EmployeeDeviceAssignmentsService {
         employeeId: employee.id,
         employeeNo: deviceEmployeeNo,
         deviceId,
+        organizationId: settings.organizationId,
         validEnabled: settings.validEnabled,
         validBeginTime: settings.validBeginTime,
         validEndTime: settings.validEndTime,
@@ -590,6 +670,8 @@ export class EmployeeDeviceAssignmentsService {
         metadata: this.mergeMetadata(settings.metadata, {
           hikvision: {
             hikvision_employee_no: deviceEmployeeNo,
+            access_group_id: settings.accessGroupId,
+            access_group_name: settings.accessGroupName,
             last_device_registration_at: now.toISOString(),
           },
         }),
@@ -599,6 +681,13 @@ export class EmployeeDeviceAssignmentsService {
     try {
       await this.replaceRightPlans(deviceId, assignment, settings.rightPlan);
       await this.upsertDeviceIdentity(companyId, employee.id, assignment.employeeNo, deviceId);
+      await this.upsertAccessGroupEmployeeMembership(
+        settings.accessGroupId,
+        employee,
+        deviceId,
+        assignment.employeeNo,
+        settings.organizationId,
+      );
       return assignment;
     } catch (error) {
       await this.assignmentRepository.delete({ id: assignment.id });
@@ -607,16 +696,29 @@ export class EmployeeDeviceAssignmentsService {
     }
   }
 
-  private resolveSettingsFromAssignment(
+  private async resolveSettingsFromAssignment(
+    companyId: number,
+    employee: Employee,
+    device: AttendanceDevice,
     assignment: EmployeeDeviceAssignment,
-    rightPlan: EmployeeDeviceUserRightPlanDto[],
-  ): AssignmentSettings {
+  ): Promise<AssignmentSettings> {
+    const accessGroupId = await this.resolveStoredAccessGroupId(companyId, employee.id, device.id, assignment);
+    const groupContext = await this.resolveAccessGroupContext(
+      companyId,
+      employee.id,
+      device,
+      accessGroupId,
+    );
+
     return {
+      accessGroupId: groupContext.group.id,
+      accessGroupName: groupContext.group.name,
+      organizationId: groupContext.membership?.organizationId ?? assignment.organizationId ?? null,
       validEnabled: assignment.validEnabled ?? true,
       validBeginTime: assignment.validBeginTime,
       validEndTime: assignment.validEndTime,
-      doorRight: assignment.doorRight?.trim() || '',
-      rightPlan,
+      doorRight: groupContext.doorRight,
+      rightPlan: groupContext.rightPlan,
       localUiRight: assignment.localUiRight ?? false,
       closeDelayEnabled: assignment.closeDelayEnabled ?? false,
       maxOpenDoorTime: assignment.maxOpenDoorTime ?? 0,
@@ -649,7 +751,10 @@ export class EmployeeDeviceAssignmentsService {
         time_type: 'local',
       },
       door_right: settings.doorRight,
-      right_plan: settings.rightPlan,
+      right_plan: settings.rightPlan.map((plan) => ({
+        door_no: plan.doorNo,
+        plan_template_no: plan.planTemplateNo,
+      })),
       ...(credentials.password ? { password: credentials.password } : {}),
       user_verify_mode: credentials.userVerifyMode,
       local_ui_right: settings.localUiRight,
@@ -790,10 +895,221 @@ export class EmployeeDeviceAssignmentsService {
     return String(sequence).padStart(8, '0');
   }
 
+  private async resolveAccessGroupContext(
+    companyId: number,
+    employeeId: number,
+    device: AttendanceDevice,
+    accessGroupId: number,
+  ): Promise<AccessGroupContext> {
+    const group = await this.accessGroupRepository.findOne({
+      where: { id: accessGroupId, companyId },
+    });
+
+    if (!group) {
+      throw new NotFoundException('Access group not found');
+    }
+
+    if (!group.isActive || group.status !== AccessGroupStatusEnum.ACTIVE) {
+      throw new BadRequestException('Selected access group is inactive');
+    }
+
+    if (group.deviceId !== null && group.deviceId !== device.id) {
+      throw new BadRequestException(
+        `Access group ${group.id} is not assigned to device ${device.id}`,
+      );
+    }
+
+    if (
+      group.branchId !== null &&
+      device.branchId !== null &&
+      group.branchId !== device.branchId
+    ) {
+      throw new BadRequestException(
+        `Access group ${group.id} does not belong to device branch ${device.branchId}`,
+      );
+    }
+
+    const groupDoors = await this.accessGroupDoorRepository.find({
+      where: [
+        { accessGroupId: group.id, deviceId: device.id },
+        { accessGroupId: group.id, deviceId: IsNull() },
+      ],
+      order: { doorNo: 'ASC', id: 'ASC' },
+    });
+
+    if (!groupDoors.length) {
+      throw new BadRequestException(
+        `Access group ${group.id} has no doors configured for device ${device.id}`,
+      );
+    }
+
+    const templateIds = [...new Set(groupDoors.map((item) => item.scheduleTemplateId))];
+    if (!templateIds.length) {
+      throw new BadRequestException(
+        `Access group ${group.id} has no schedule template configured`,
+      );
+    }
+
+    const templates = await this.accessScheduleTemplateRepository.find({
+      where: {
+        id: In(templateIds),
+        companyId,
+        status: AccessScheduleTemplateStatusEnum.ACTIVE,
+      },
+    });
+    const templateById = new Map(templates.map((item) => [item.id, item]));
+
+    const rightPlanMap = new Map<string, ResolvedRightPlan>();
+    for (const groupDoor of groupDoors) {
+      const template = templateById.get(groupDoor.scheduleTemplateId);
+      if (!template) {
+        throw new BadRequestException(
+          `Access group ${group.id} contains a door assignment without an active schedule template`,
+        );
+      }
+
+      if (template.deviceId !== null && template.deviceId !== device.id) {
+        throw new BadRequestException(
+          `Schedule template ${template.id} is not assigned to device ${device.id}`,
+        );
+      }
+
+      const plan: ResolvedRightPlan = {
+        doorNo: groupDoor.doorNo,
+        planTemplateNo: template.hikvisionTemplateNo.trim(),
+        doorId: groupDoor.doorId,
+        scheduleTemplateId: template.id,
+        metadata: {
+          source: 'ACCESS_GROUP',
+          access_group_id: group.id,
+          access_group_door_id: groupDoor.id,
+          schedule_template_id: template.id,
+        },
+      };
+      rightPlanMap.set(`${plan.doorNo}:${plan.planTemplateNo}`, plan);
+    }
+
+    const rightPlan = [...rightPlanMap.values()];
+
+    const doorRight = [...new Set(rightPlan.map((item) => item.doorNo))]
+      .sort((left, right) => left - right)
+      .join(',');
+
+    if (!doorRight) {
+      throw new BadRequestException(`Access group ${group.id} produced no valid Hikvision doors`);
+    }
+
+    const membership = await this.findActiveAccessGroupMembership(companyId, employeeId, device.id);
+
+    return {
+      group,
+      membership: membership?.accessGroupId === group.id ? membership : null,
+      doorRight,
+      rightPlan,
+    };
+  }
+
+  private async resolveStoredAccessGroupId(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    assignment: EmployeeDeviceAssignment,
+  ): Promise<number> {
+    const hikvisionMetadata = this.toObject(this.toObject(assignment.metadata).hikvision);
+    const fromMetadata = Number(hikvisionMetadata.access_group_id);
+    if (Number.isInteger(fromMetadata) && fromMetadata > 0) {
+      return fromMetadata;
+    }
+
+    const membership = await this.findActiveAccessGroupMembership(companyId, employeeId, deviceId);
+    if (membership) {
+      return membership.accessGroupId;
+    }
+
+    throw new BadRequestException(
+      `Employee ${employeeId} does not have an assigned access group for device ${deviceId}`,
+    );
+  }
+
+  private async findActiveAccessGroupMembership(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+  ): Promise<AccessGroupEmployee | null> {
+    return this.accessGroupEmployeeRepository
+      .createQueryBuilder('membership')
+      .innerJoinAndSelect('membership.accessGroup', 'accessGroup')
+      .where('membership.employee_id = :employeeId', { employeeId })
+      .andWhere('membership.device_id = :deviceId', { deviceId })
+      .andWhere('membership.status = :status', {
+        status: AccessGroupEmployeeStatusEnum.ACTIVE,
+      })
+      .andWhere('accessGroup.company_id = :companyId', { companyId })
+      .orderBy('membership.updated_at', 'DESC')
+      .getOne();
+  }
+
+  private async upsertAccessGroupEmployeeMembership(
+    accessGroupId: number,
+    employee: Employee,
+    deviceId: number,
+    deviceEmployeeNo: string,
+    organizationId: number | null,
+  ) {
+    const now = new Date();
+    const existingRows = await this.accessGroupEmployeeRepository.find({
+      where: { employeeId: employee.id, deviceId },
+    });
+
+    for (const row of existingRows) {
+      if (row.accessGroupId === accessGroupId) {
+        continue;
+      }
+
+      row.status = AccessGroupEmployeeStatusEnum.REMOVED;
+      row.removedAt = now;
+      await this.accessGroupEmployeeRepository.save(row);
+    }
+
+    let membership = existingRows.find((row) => row.accessGroupId === accessGroupId) ?? null;
+    if (!membership) {
+      membership = this.accessGroupEmployeeRepository.create({
+        accessGroupId,
+        employeeId: employee.id,
+        employeeNo: deviceEmployeeNo,
+        employeeName: this.buildEmployeeDisplayName(employee),
+        organizationId,
+        deviceId,
+        assignedAt: now,
+        status: AccessGroupEmployeeStatusEnum.ACTIVE,
+        source: AccessGroupEmployeeSourceEnum.MANUAL,
+        metadata: null,
+      });
+    } else {
+      membership.employeeNo = deviceEmployeeNo;
+      membership.employeeName = this.buildEmployeeDisplayName(employee);
+      membership.organizationId = organizationId;
+      membership.deviceId = deviceId;
+      membership.status = AccessGroupEmployeeStatusEnum.ACTIVE;
+      membership.source = AccessGroupEmployeeSourceEnum.MANUAL;
+      membership.assignedAt = membership.assignedAt ?? now;
+      membership.removedAt = null;
+    }
+
+    membership.metadata = this.mergeMetadata(membership.metadata, {
+      hikvision: {
+        device_employee_no: deviceEmployeeNo,
+        last_assignment_sync_at: now.toISOString(),
+      },
+    });
+
+    await this.accessGroupEmployeeRepository.save(membership);
+  }
+
   private async replaceRightPlans(
     deviceId: number,
     assignment: EmployeeDeviceAssignment,
-    rightPlans: EmployeeDeviceUserRightPlanDto[],
+    rightPlans: ResolvedRightPlan[],
   ) {
     await this.rightPlanRepository.delete({
       employeeDeviceAssignmentId: assignment.id,
@@ -805,34 +1121,21 @@ export class EmployeeDeviceAssignmentsService {
           employeeDeviceAssignmentId: assignment.id,
           employeeNo: assignment.employeeNo,
           deviceId,
-          doorId: null,
-          doorNo: plan.door_no,
-          scheduleTemplateId: null,
-          hikvisionTemplateNo: plan.plan_template_no.trim(),
-          metadata: {
-            source: 'EMPLOYEE_DEVICE_ASSIGNMENT',
-          },
+          doorId: plan.doorId,
+          doorNo: plan.doorNo,
+          scheduleTemplateId: plan.scheduleTemplateId,
+          hikvisionTemplateNo: plan.planTemplateNo.trim(),
+          metadata: plan.metadata,
         }),
       );
     }
-  }
-
-  private async loadRightPlanRows(assignmentId: number): Promise<EmployeeDeviceUserRightPlanDto[]> {
-    const rows = await this.rightPlanRepository.find({
-      where: { employeeDeviceAssignmentId: assignmentId },
-      order: { doorNo: 'ASC', id: 'ASC' },
-    });
-
-    return rows.map((row) => ({
-      door_no: row.doorNo,
-      plan_template_no: row.hikvisionTemplateNo,
-    }));
   }
 
   private applySettingsToAssignment(
     assignment: EmployeeDeviceAssignment,
     settings: AssignmentSettings,
   ) {
+    assignment.organizationId = settings.organizationId;
     assignment.validEnabled = settings.validEnabled;
     assignment.validBeginTime = settings.validBeginTime;
     assignment.validEndTime = settings.validEndTime;
@@ -841,7 +1144,12 @@ export class EmployeeDeviceAssignmentsService {
     assignment.closeDelayEnabled = settings.closeDelayEnabled;
     assignment.maxOpenDoorTime = settings.maxOpenDoorTime;
     assignment.openDoorTime = settings.openDoorTime;
-    assignment.metadata = settings.metadata;
+    assignment.metadata = this.mergeMetadata(settings.metadata, {
+      hikvision: {
+        access_group_id: settings.accessGroupId,
+        access_group_name: settings.accessGroupName,
+      },
+    });
   }
 
   private async upsertDeviceIdentity(
@@ -949,12 +1257,19 @@ export class EmployeeDeviceAssignmentsService {
   }
 
   private mapAssignment(item: EmployeeDeviceAssignment) {
+    const hikvisionMetadata = this.toObject(this.toObject(item.metadata).hikvision);
+
     return {
       id: item.id,
       company_id: item.companyId,
       employee_id: item.employeeId,
       employee_no: item.employeeNo,
       hikvision_employee_no: item.employeeNo,
+      access_group_id: Number(hikvisionMetadata.access_group_id) || null,
+      access_group_name:
+        typeof hikvisionMetadata.access_group_name === 'string'
+          ? hikvisionMetadata.access_group_name
+          : null,
       device_id: item.deviceId,
       organization_id: item.organizationId,
       valid_begin_time: item.validBeginTime,

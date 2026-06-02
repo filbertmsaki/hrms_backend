@@ -52,7 +52,7 @@ export class EmployeeDeviceAssignmentsController {
   @Permissions('employee_device_assignments:create')
   @ApiActionOperation(
     'Assign Employee Devices',
-    'Register one HR employee on one or many Hikvision devices and create assignment records only after device success',
+    'Register one HR employee on one or many Hikvision devices using one access group as the permission source',
   )
   assignDevices(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -67,7 +67,7 @@ export class EmployeeDeviceAssignmentsController {
   @Permissions('employee_device_assignments:create')
   @ApiActionOperation(
     'Register Device User',
-    'Create/register the linked employee as a Hikvision user on one device',
+    'Create/register the linked employee as a Hikvision user on one device using the selected access group',
   )
   registerUser(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -88,7 +88,7 @@ export class EmployeeDeviceAssignmentsController {
   @Permissions('employee_device_assignments:update')
   @ApiUpdateOperation(
     'Modify Device User',
-    'Modify the Hikvision device user first, then update the linked assignment in the database',
+    'Modify the Hikvision device user first using the selected access group, then update the linked assignment in the database',
   )
   modifyUser(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -212,7 +212,7 @@ export class EmployeeDeviceAssignmentsController {
   @Permissions('employee_device_assignments:update')
   @ApiActionOperation(
     'Resync Device User',
-    'Rebuild the Hikvision user from HR employee data and assignment settings, then sync it to the device',
+    'Rebuild the Hikvision user from HR employee data and the stored access group permissions, then sync it to the device',
   )
   resyncUser(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
