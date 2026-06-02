@@ -23,7 +23,6 @@ import { AttendanceDeviceSyncLog } from '../../sync-logs/entities/attendance-dev
 @Index('IDX_attendance_devices_device_code', ['deviceCode'], { unique: true })
 @Index('IDX_attendance_devices_status', ['status'])
 @Index('IDX_attendance_devices_company_status', ['companyId', 'status'])
-@Index('IDX_attendance_devices_is_active', ['isActive'])
 @Index('IDX_attendance_devices_vendor_name', ['vendorName'])
 @Index('IDX_attendance_devices_integration_type', ['integrationType'])
 export class AttendanceDevice {
@@ -42,20 +41,20 @@ export class AttendanceDevice {
   @Column({ name: 'device_code', type: 'varchar', length: 100, unique: true })
   deviceCode: string;
 
-  @Column({ name: 'device_serial_number', type: 'varchar', length: 150 })
-  deviceSerialNumber: string;
+  @Column({ name: 'device_serial_number', type: 'varchar', length: 150, nullable: true })
+  deviceSerialNumber: string | null;
 
-  @Column({ name: 'device_model', type: 'varchar', length: 120 })
-  deviceModel: string;
+  @Column({ name: 'device_model', type: 'varchar', length: 120, nullable: true })
+  deviceModel: string | null;
 
   @Column({ name: 'ip_address', type: 'varchar', length: 64 })
   ipAddress: string;
 
-  @Column({ name: 'port', type: 'int' })
-  port: number;
+  @Column({ name: 'port', type: 'int', nullable: true })
+  port: number | null;
 
-  @Column({ name: 'protocol', type: 'varchar', length: 20 })
-  protocol: string;
+  @Column({ name: 'protocol', type: 'varchar', length: 20, nullable: true })
+  protocol: string | null;
 
   @Column({ name: 'vendor_name', type: 'varchar', length: 80, nullable: true })
   vendorName: string | null;
@@ -88,9 +87,6 @@ export class AttendanceDevice {
   })
   status: AttendanceDeviceStatusEnum;
 
-  @Column({ name: 'is_active', type: 'boolean', default: true })
-  isActive: boolean;
-
   @Column({ name: 'last_sync_at', type: 'timestamp', nullable: true })
   lastSyncAt: Date | null;
 
@@ -109,8 +105,8 @@ export class AttendanceDevice {
   @Column({ name: 'device_type', type: 'varchar', length: 80, nullable: true })
   deviceType: string | null;
 
-  @Column({ name: 'timezone', type: 'varchar', length: 100 })
-  timezone: string;
+  @Column({ name: 'timezone', type: 'varchar', length: 100, nullable: true })
+  timezone: string | null;
 
   @Column({ name: 'location_description', type: 'varchar', length: 255, nullable: true })
   locationDescription: string | null;

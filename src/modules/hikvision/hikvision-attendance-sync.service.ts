@@ -792,7 +792,7 @@ export class HikvisionAttendanceSyncService {
       throw new BadRequestException('Requested device is not configured as Hikvision');
     }
 
-    if (requireActive && (!device.isActive || device.status !== AttendanceDeviceStatusEnum.ACTIVE)) {
+    if (requireActive && device.status !== AttendanceDeviceStatusEnum.ACTIVE) {
       throw new BadRequestException('Device is inactive');
     }
 

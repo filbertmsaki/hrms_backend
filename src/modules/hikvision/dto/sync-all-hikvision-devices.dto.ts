@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsInt, IsOptional, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsOptional, Min } from 'class-validator';
+import { AttendanceDeviceStatusEnum } from '../../hr/attendance/devices/enums/attendance-device-status.enum';
 
 export class SyncAllHikvisionDevicesDto {
   @ApiPropertyOptional()
@@ -10,11 +11,10 @@ export class SyncAllHikvisionDevicesDto {
   @IsOptional()
   branch_id?: number;
 
-  @ApiPropertyOptional()
-  @Type(() => Boolean)
-  @IsBoolean()
+  @ApiPropertyOptional({ enum: AttendanceDeviceStatusEnum })
+  @IsEnum(AttendanceDeviceStatusEnum)
   @IsOptional()
-  is_active?: boolean;
+  status?: AttendanceDeviceStatusEnum;
 
   @ApiPropertyOptional({
     description: 'If true, continue syncing other devices when one fails',

@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { AttendanceDeviceStatusEnum } from '../../hr/attendance/devices/enums/attendance-device-status.enum';
 
 export class HikvisionDeviceQueryDto {
   @ApiPropertyOptional()
@@ -10,11 +11,10 @@ export class HikvisionDeviceQueryDto {
   @IsOptional()
   branch_id?: number;
 
-  @ApiPropertyOptional()
-  @Type(() => Boolean)
-  @IsBoolean()
+  @ApiPropertyOptional({ enum: AttendanceDeviceStatusEnum })
+  @IsEnum(AttendanceDeviceStatusEnum)
   @IsOptional()
-  is_active?: boolean;
+  status?: AttendanceDeviceStatusEnum;
 
   @ApiPropertyOptional({ description: 'Search by device name, code, serial or IP address' })
   @IsString()

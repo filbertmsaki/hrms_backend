@@ -58,7 +58,6 @@ export default class HikvisionDeviceSeeder implements Seeder {
     device.firmwareVersion = 'V1.3.41';
     device.macAddress = 'BC:5E:33:54:C0:A2';
     device.deviceType = 'ACS';
-    device.isActive = true;
 
     await deviceRepository.save(device);
     console.log(

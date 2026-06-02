@@ -534,6 +534,10 @@ export class HikvisionAccessControlService {
   }
 
   private buildCredentialsFromDevice(device: AttendanceDevice): HikvisionConnectionCredentials {
+    if (!device.ipAddress) {
+      throw new BadRequestException('Missing ip_address for this device');
+    }
+
     if (!device.apiUsername || !device.apiPassword) {
       throw new BadRequestException('Missing Hikvision credentials for this device');
     }

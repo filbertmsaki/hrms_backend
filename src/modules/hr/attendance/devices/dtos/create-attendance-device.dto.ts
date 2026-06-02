@@ -1,7 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  IsBoolean,
   IsEnum,
   IsInt,
   IsIP,
@@ -15,33 +14,47 @@ import { AttendanceDeviceStatusEnum } from '../enums/attendance-device-status.en
 import { AttendanceDeviceSyncModeEnum } from '../enums/attendance-device-sync-mode.enum';
 
 export class CreateAttendanceDeviceDto {
+  @ApiPropertyOptional({ nullable: true })
   @IsString()
   @MaxLength(150)
-  device_name: string;
+  @IsOptional()
+  device_name?: string | null;
 
+  @ApiPropertyOptional({ nullable: true })
   @IsString()
   @MaxLength(100)
-  device_code: string;
+  @IsOptional()
+  device_code?: string | null;
 
+  @ApiPropertyOptional({ nullable: true })
   @IsString()
   @MaxLength(150)
-  device_serial_number: string;
+  @IsOptional()
+  device_serial_number?: string | null;
 
+  @ApiPropertyOptional({ nullable: true })
   @IsString()
   @MaxLength(120)
-  device_model: string;
+  @IsOptional()
+  device_model?: string | null;
 
+  @ApiPropertyOptional({ nullable: true })
   @IsIP()
-  ip_address: string;
+  @IsOptional()
+  ip_address?: string | null;
 
+  @ApiPropertyOptional({ nullable: true })
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  port: number;
+  @IsOptional()
+  port?: number | null;
 
+  @ApiPropertyOptional({ nullable: true })
   @IsString()
   @MaxLength(20)
-  protocol: string;
+  @IsOptional()
+  protocol?: string | null;
 
   @ApiPropertyOptional({ example: 'Hikvision' })
   @IsString()
@@ -55,11 +68,11 @@ export class CreateAttendanceDeviceDto {
   @IsOptional()
   integration_type?: string;
 
-  @ApiPropertyOptional({ example: 'digest' })
+  @ApiPropertyOptional({ example: 'digest', nullable: true })
   @IsString()
   @MaxLength(40)
   @IsOptional()
-  auth_type?: string;
+  auth_type?: string | null;
 
   @IsString()
   @MaxLength(120)
@@ -73,20 +86,16 @@ export class CreateAttendanceDeviceDto {
   @IsOptional()
   sync_mode?: AttendanceDeviceSyncModeEnum;
 
-  @ApiPropertyOptional({ enum: AttendanceDeviceStatusEnum })
+  @ApiPropertyOptional({ enum: AttendanceDeviceStatusEnum, nullable: true })
   @IsEnum(AttendanceDeviceStatusEnum)
   @IsOptional()
-  status?: AttendanceDeviceStatusEnum;
+  status?: AttendanceDeviceStatusEnum | null;
 
-  @ApiPropertyOptional()
-  @Type(() => Boolean)
-  @IsBoolean()
-  @IsOptional()
-  is_active?: boolean;
-
+  @ApiPropertyOptional({ nullable: true })
   @IsString()
   @MaxLength(100)
-  timezone: string;
+  @IsOptional()
+  timezone?: string | null;
 
   @ApiPropertyOptional()
   @IsString()
@@ -94,19 +103,19 @@ export class CreateAttendanceDeviceDto {
   @IsOptional()
   firmware_version?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ nullable: true })
   @IsString()
   @MaxLength(64)
   @IsOptional()
-  mac_address?: string;
+  mac_address?: string | null;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ nullable: true })
   @IsString()
   @MaxLength(80)
   @IsOptional()
-  device_type?: string;
+  device_type?: string | null;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ nullable: true })
   @Type(() => Number)
   @IsInt()
   @Min(1)

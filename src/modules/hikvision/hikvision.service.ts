@@ -85,15 +85,11 @@ export class HikvisionService {
       apiUsername: dto.username.trim(),
       apiPassword: dto.password,
       syncMode: AttendanceDeviceSyncModeEnum.PULL,
-      status:
-        dto.is_active === false
-          ? AttendanceDeviceStatusEnum.INACTIVE
-          : AttendanceDeviceStatusEnum.ACTIVE,
-      isActive: dto.is_active ?? true,
+      status: dto.status ?? AttendanceDeviceStatusEnum.ACTIVE,
       lastSyncAt: new Date(),
       firmwareVersion: snapshot.mappedFields.firmwareVersion || null,
       macAddress: snapshot.mappedFields.macAddress || null,
-      deviceType: snapshot.mappedFields.deviceType || null,
+      deviceType: snapshot.mappedFields.deviceType || 'unknown',
       timezone,
       locationDescription: dto.location_description?.trim() || null,
       metadata: this.buildMergedMetadata(null, snapshot, dto.metadata ?? null),
@@ -122,12 +118,7 @@ export class HikvisionService {
     if (dto.device_name !== undefined) device.deviceName = dto.device_name.trim();
     if (dto.username !== undefined) device.apiUsername = dto.username.trim();
     if (dto.password !== undefined) device.apiPassword = dto.password;
-    if (dto.is_active !== undefined) {
-      device.isActive = dto.is_active;
-      device.status = dto.is_active
-        ? AttendanceDeviceStatusEnum.ACTIVE
-        : AttendanceDeviceStatusEnum.INACTIVE;
-    }
+    if (dto.status !== undefined) device.status = dto.status;
     if (dto.timezone !== undefined) device.timezone = dto.timezone.trim();
     if (dto.location_description !== undefined) {
       device.locationDescription = dto.location_description?.trim() || null;
@@ -137,8 +128,14 @@ export class HikvisionService {
     }
 
     if (dto.ip_address !== undefined || dto.port !== undefined || dto.protocol !== undefined) {
+      const currentIpAddress = device.ipAddress;
+
+      if (!dto.ip_address && !currentIpAddress) {
+        throw new BadRequestException('ip_address is required before updating connection settings');
+      }
+
       const target = this.normalizeConnectionTarget(
-        dto.ip_address ?? device.ipAddress,
+        dto.ip_address ?? currentIpAddress!,
         dto.port ?? device.port,
         dto.protocol ?? device.protocol,
       );
@@ -186,8 +183,8 @@ export class HikvisionService {
       qb.andWhere('device.branch_id = :branchId', { branchId: query.branch_id });
     }
 
-    if (query.is_active !== undefined) {
-      qb.andWhere('device.is_active = :isActive', { isActive: query.is_active });
+    if (query.status !== undefined) {
+      qb.andWhere('device.status = :status', { status: query.status });
     }
 
     if (query.search?.trim()) {
@@ -646,8 +643,8 @@ export class HikvisionService {
       qb.andWhere('device.branch_id = :branchId', { branchId: dto.branch_id });
     }
 
-    if (dto.is_active !== undefined) {
-      qb.andWhere('device.is_active = :isActive', { isActive: dto.is_active });
+    if (dto.status !== undefined) {
+      qb.andWhere('device.status = :status', { status: dto.status });
     }
 
     return qb.getMany();
@@ -687,6 +684,10 @@ export class HikvisionService {
   }
 
   private buildCredentialsFromDevice(device: AttendanceDevice): HikvisionConnectionCredentials {
+    if (!device.ipAddress) {
+      throw new BadRequestException('Missing ip_address for this device');
+    }
+
     if (!device.apiUsername || !device.apiPassword) {
       throw new BadRequestException('Missing Hikvision credentials for this device');
     }
@@ -700,7 +701,7 @@ export class HikvisionService {
     };
   }
 
-  private resolvePort(port?: number, protocol = 'http'): number {
+  private resolvePort(port?: number | null, protocol = 'http'): number {
     if (port && Number.isFinite(port) && port > 0) {
       return port;
     }
@@ -713,7 +714,7 @@ export class HikvisionService {
     return protocol === 'https' ? 443 : 80;
   }
 
-  private resolveProtocol(protocol?: string): string {
+  private resolveProtocol(protocol?: string | null): string {
     const envDefault = (
       this.configService.get<string>('HIKVISION_DEFAULT_PROTOCOL') ?? 'http'
     ).trim().toLowerCase();
@@ -739,8 +740,8 @@ export class HikvisionService {
 
   private normalizeConnectionTarget(
     rawAddress: string,
-    port?: number,
-    protocol?: string,
+    port?: number | null,
+    protocol?: string | null,
   ): { ipAddress: string; port: number; protocol: string } {
     const parsed = this.parseConnectionTarget(rawAddress);
     const normalizedProtocol = this.resolveProtocol(protocol ?? parsed.protocol);
@@ -911,7 +912,6 @@ export class HikvisionService {
       api_username: device.apiUsername,
       sync_mode: device.syncMode,
       status: device.status,
-      is_active: device.isActive,
       last_sync_at: device.lastSyncAt,
       last_heartbeat_at: device.lastHeartbeatAt,
       firmware_version: device.firmwareVersion,

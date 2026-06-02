@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { AttendanceHoliday } from '../holidays/entities/holiday.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { AttendanceDevice } from '../devices/entities/attendance-device.entity';
+import { AttendanceDeviceStatusEnum } from '../devices/enums/attendance-device-status.enum';
 import { ShiftAssignmentStatusEnum } from '../shift/shift-assignments/enums/shift-assignment-status.enum';
 import { ShiftAssignment } from '../shift/shift-assignments/entities/shift-assignment.entity';
 import { ShiftAttendanceRule } from '../shift/shift-attendance-rules/entities/shift-attendance-rule.entity';
@@ -490,7 +491,7 @@ export class AttendanceScheduleResolverService {
 
   private async resolveDefaultDeviceTimezone(companyId: number): Promise<string | null> {
     const device = await this.deviceRepository.findOne({
-      where: { companyId, isActive: true },
+      where: { companyId, status: AttendanceDeviceStatusEnum.ACTIVE },
       order: { updatedAt: 'DESC' },
     });
 

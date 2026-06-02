@@ -1,7 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  IsBoolean,
+  IsEnum,
   IsInt,
   IsObject,
   IsOptional,
@@ -9,6 +9,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
+import { AttendanceDeviceStatusEnum } from '../../hr/attendance/devices/enums/attendance-device-status.enum';
 
 export class CreateHikvisionDeviceDto {
   @ApiPropertyOptional({ example: 'Main Gate Reader' })
@@ -54,11 +55,10 @@ export class CreateHikvisionDeviceDto {
   @IsOptional()
   branch_id?: number | null;
 
-  @ApiPropertyOptional({ default: true })
-  @Type(() => Boolean)
-  @IsBoolean()
+  @ApiPropertyOptional({ enum: AttendanceDeviceStatusEnum })
+  @IsEnum(AttendanceDeviceStatusEnum)
   @IsOptional()
-  is_active?: boolean;
+  status?: AttendanceDeviceStatusEnum;
 
   @ApiPropertyOptional({ example: 'Africa/Dar_es_Salaam' })
   @IsString()

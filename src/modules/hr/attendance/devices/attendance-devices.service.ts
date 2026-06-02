@@ -17,6 +17,7 @@ import { AttendanceDeviceEmployeesQueryDto } from './dtos/attendance-device-empl
 import { AttendanceDeviceQueryDto } from './dtos/attendance-device-query.dto';
 import { CreateAttendanceDeviceDto } from './dtos/create-attendance-device.dto';
 import { UpdateAttendanceDeviceDto } from './dtos/update-attendance-device.dto';
+import { AttendanceDeviceStatusEnum } from './enums/attendance-device-status.enum';
 
 @Injectable()
 export class AttendanceDevicesService {
@@ -48,7 +49,6 @@ export class AttendanceDevicesService {
       api_username: item.apiUsername,
       sync_mode: item.syncMode,
       status: item.status,
-      is_active: item.isActive,
       last_sync_at: item.lastSyncAt,
       last_heartbeat_at: item.lastHeartbeatAt,
       last_listener_at: item.lastListenerAt,
@@ -100,39 +100,31 @@ export class AttendanceDevicesService {
   async create(companyId: number, dto: CreateAttendanceDeviceDto) {
     await this.ensureBranch(companyId, dto.branch_id);
 
-    const existing = await this.attendanceDeviceRepository.findOne({
-      where: { deviceCode: dto.device_code },
-      select: ['id'],
-      withDeleted: true,
-    });
-
-    if (existing) {
-      throw new ConflictException('device_code already exists');
-    }
+    const normalizedDeviceCode = await this.resolveDeviceCode(companyId, dto.device_code);
+    const resolvedStatus = this.resolveDeviceStatus(dto.status);
 
     const created = await this.attendanceDeviceRepository.save(
       this.attendanceDeviceRepository.create({
         companyId,
         branchId: dto.branch_id ?? null,
-        deviceName: dto.device_name.trim(),
-        deviceCode: dto.device_code.trim(),
-        deviceSerialNumber: dto.device_serial_number.trim(),
-        deviceModel: dto.device_model.trim(),
-        ipAddress: dto.ip_address,
-        port: dto.port,
-        protocol: dto.protocol.trim(),
+        deviceName: this.resolveDeviceName(dto.device_name, normalizedDeviceCode),
+        deviceCode: normalizedDeviceCode,
+        deviceSerialNumber: dto.device_serial_number?.trim() || null,
+        deviceModel: dto.device_model?.trim() || null,
+        ipAddress: this.resolveIpAddress(dto.ip_address),
+        port: dto.port ?? null,
+        protocol: dto.protocol?.trim() || null,
         vendorName: dto.vendor_name?.trim() || null,
         integrationType: dto.integration_type?.trim() || 'generic',
-        authType: dto.auth_type?.trim() || 'none',
+        authType: this.resolveAuthType(dto.auth_type),
         apiUsername: dto.api_username.trim(),
         apiPassword: dto.api_password,
         syncMode: dto.sync_mode,
-        status: dto.status,
-        isActive: dto.is_active ?? true,
+        status: resolvedStatus,
         firmwareVersion: dto.firmware_version?.trim() || null,
         macAddress: dto.mac_address?.trim() || null,
         deviceType: dto.device_type?.trim() || null,
-        timezone: dto.timezone.trim(),
+        timezone: dto.timezone?.trim() || null,
         locationDescription: dto.location_description?.trim() || null,
         metadata: dto.metadata ?? null,
       }),
@@ -306,38 +298,31 @@ export class AttendanceDevicesService {
     }
 
     if (dto.device_code !== undefined) {
-      const code = dto.device_code.trim();
-      const existing = await this.attendanceDeviceRepository.findOne({
-        where: { deviceCode: code },
-        select: ['id'],
-        withDeleted: true,
-      });
-      if (existing && existing.id !== item.id) {
-        throw new ConflictException('device_code already exists');
-      }
-      item.deviceCode = code;
+      item.deviceCode = await this.resolveDeviceCode(companyId, dto.device_code, item.id);
     }
 
-    if (dto.device_name !== undefined) item.deviceName = dto.device_name.trim();
+    if (dto.device_name !== undefined) {
+      item.deviceName = this.resolveDeviceName(dto.device_name, item.deviceCode);
+    }
     if (dto.device_serial_number !== undefined)
-      item.deviceSerialNumber = dto.device_serial_number.trim();
-    if (dto.device_model !== undefined) item.deviceModel = dto.device_model.trim();
-    if (dto.ip_address !== undefined) item.ipAddress = dto.ip_address;
-    if (dto.port !== undefined) item.port = dto.port;
-    if (dto.protocol !== undefined) item.protocol = dto.protocol.trim();
+      item.deviceSerialNumber = dto.device_serial_number?.trim() || null;
+    if (dto.device_model !== undefined) item.deviceModel = dto.device_model?.trim() || null;
+    if (dto.ip_address !== undefined) item.ipAddress = this.resolveIpAddress(dto.ip_address);
+    if (dto.port !== undefined) item.port = dto.port ?? null;
+    if (dto.protocol !== undefined) item.protocol = dto.protocol?.trim() || null;
     if (dto.vendor_name !== undefined) item.vendorName = dto.vendor_name?.trim() || null;
-    if (dto.integration_type !== undefined) item.integrationType = dto.integration_type.trim();
-    if (dto.auth_type !== undefined) item.authType = dto.auth_type.trim();
+    if (dto.integration_type !== undefined)
+      item.integrationType = dto.integration_type?.trim() || 'generic';
+    if (dto.auth_type !== undefined) item.authType = this.resolveAuthType(dto.auth_type);
     if (dto.api_username !== undefined) item.apiUsername = dto.api_username.trim();
     if (dto.api_password !== undefined) item.apiPassword = dto.api_password;
     if (dto.sync_mode !== undefined) item.syncMode = dto.sync_mode;
-    if (dto.status !== undefined) item.status = dto.status;
-    if (dto.is_active !== undefined) item.isActive = dto.is_active;
+    if (dto.status !== undefined) item.status = this.resolveDeviceStatus(dto.status);
     if (dto.firmware_version !== undefined)
       item.firmwareVersion = dto.firmware_version?.trim() || null;
     if (dto.mac_address !== undefined) item.macAddress = dto.mac_address?.trim() || null;
     if (dto.device_type !== undefined) item.deviceType = dto.device_type?.trim() || null;
-    if (dto.timezone !== undefined) item.timezone = dto.timezone.trim();
+    if (dto.timezone !== undefined) item.timezone = dto.timezone?.trim() || null;
     if (dto.location_description !== undefined)
       item.locationDescription = dto.location_description?.trim() || null;
     if (dto.metadata !== undefined) item.metadata = dto.metadata;
@@ -443,6 +428,61 @@ export class AttendanceDevicesService {
     return (error as { message?: string } | null)?.message || 'Unknown sync error';
   }
 
+  private async resolveDeviceCode(
+    companyId: number,
+    preferredCode?: string | null,
+    currentId?: number,
+  ): Promise<string> {
+    if (preferredCode?.trim()) {
+      const normalized = preferredCode.trim();
+      const existing = await this.attendanceDeviceRepository.findOne({
+        where: { deviceCode: normalized },
+        select: ['id'],
+        withDeleted: true,
+      });
+
+      if (existing && existing.id !== currentId) {
+        throw new ConflictException('device_code already exists');
+      }
+
+      return normalized;
+    }
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const candidate = `ATD-${companyId}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+      const existing = await this.attendanceDeviceRepository.findOne({
+        where: { deviceCode: candidate },
+        select: ['id'],
+        withDeleted: true,
+      });
+
+      if (!existing || existing.id === currentId) {
+        return candidate;
+      }
+    }
+
+    throw new ConflictException('Could not generate a unique device_code, please provide one');
+  }
+
+  private resolveDeviceName(value: string | null | undefined, deviceCode: string): string {
+    const normalized = value?.trim();
+    return normalized || `Attendance Device ${deviceCode}`;
+  }
+
+  private resolveIpAddress(value: string | null | undefined): string {
+    return value?.trim() || '0.0.0.0';
+  }
+
+  private resolveAuthType(value: string | null | undefined): string {
+    return value?.trim() || 'none';
+  }
+
+  private resolveDeviceStatus(
+    value: AttendanceDeviceStatusEnum | null | undefined,
+  ): AttendanceDeviceStatusEnum {
+    return value ?? AttendanceDeviceStatusEnum.INACTIVE;
+  }
+
   private captureDeviceSnapshot(device: AttendanceDevice): AttendanceDevice {
     return this.attendanceDeviceRepository.create({
       id: device.id,
@@ -462,7 +502,6 @@ export class AttendanceDevicesService {
       apiPassword: device.apiPassword,
       syncMode: device.syncMode,
       status: device.status,
-      isActive: device.isActive,
       lastSyncAt: device.lastSyncAt,
       lastHeartbeatAt: device.lastHeartbeatAt,
       lastListenerAt: device.lastListenerAt,
