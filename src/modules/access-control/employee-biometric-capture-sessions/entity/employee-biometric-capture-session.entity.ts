@@ -43,8 +43,8 @@ export class EmployeeBiometricCaptureSession {
   @Column({ name: 'employee_name', type: 'varchar', length: 200, nullable: true })
   employeeName: string | null;
 
-  @Column({ name: 'device_id', type: 'int' })
-  deviceId: number;
+  @Column({ name: 'device_id', type: 'int', nullable: true })
+  deviceId: number | null;
 
   @Column({
     name: 'capture_type',
@@ -118,9 +118,9 @@ export class EmployeeBiometricCaptureSession {
   @JoinColumn({ name: 'employee_id' })
   employee: Employee | null;
 
-  @ManyToOne(() => AttendanceDevice, { onDelete: 'CASCADE' })
+  @ManyToOne(() => AttendanceDevice, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'device_id' })
-  device: AttendanceDevice;
+  device: AttendanceDevice | null;
 
   @ManyToOne(() => CompanyUser, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'performed_by_company_user_id' })

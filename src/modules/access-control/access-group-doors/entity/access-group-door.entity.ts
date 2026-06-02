@@ -35,8 +35,8 @@ export class AccessGroupDoor {
   @Column({ name: 'door_id', type: 'int' })
   doorId: number;
 
-  @Column({ name: 'device_id', type: 'int' })
-  deviceId: number;
+  @Column({ name: 'device_id', type: 'int', nullable: true })
+  deviceId: number | null;
 
   @Column({ name: 'door_no', type: 'int' })
   doorNo: number;
@@ -64,9 +64,9 @@ export class AccessGroupDoor {
   @JoinColumn({ name: 'door_id' })
   door: AccessDoor;
 
-  @ManyToOne(() => AttendanceDevice, { onDelete: 'CASCADE' })
+  @ManyToOne(() => AttendanceDevice, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'device_id' })
-  device: AttendanceDevice;
+  device: AttendanceDevice | null;
 
   @ManyToOne(() => AccessScheduleTemplate, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'schedule_template_id' })

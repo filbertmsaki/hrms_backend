@@ -32,8 +32,8 @@ export class AccessDoor {
   @Column({ name: 'branch_id', type: 'int', nullable: true })
   branchId: number | null;
 
-  @Column({ name: 'device_id', type: 'int' })
-  deviceId: number;
+  @Column({ name: 'device_id', type: 'int', nullable: true })
+  deviceId: number | null;
 
   @Column({ name: 'door_no', type: 'int' })
   doorNo: number;
@@ -122,7 +122,7 @@ export class AccessDoor {
   @JoinColumn({ name: 'branch_id' })
   branch: Branch | null;
 
-  @ManyToOne(() => AttendanceDevice, { onDelete: 'CASCADE' })
+  @ManyToOne(() => AttendanceDevice, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'device_id' })
-  device: AttendanceDevice;
+  device: AttendanceDevice | null;
 }

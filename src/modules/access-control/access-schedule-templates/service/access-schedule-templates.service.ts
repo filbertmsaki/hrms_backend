@@ -125,6 +125,10 @@ export class AccessScheduleTemplatesService {
     const nextDeviceId = dto.device_id ?? item.deviceId;
     const nextTemplateNo = (dto.hikvision_template_no ?? item.hikvisionTemplateNo).trim();
 
+    if (nextDeviceId === null) {
+      throw new BadRequestException('device_id is required to update a schedule template');
+    }
+
     await this.ensureDevice(companyId, nextDeviceId);
     await this.ensureUniqueTemplateNo(companyId, nextDeviceId, nextTemplateNo, item.id);
 

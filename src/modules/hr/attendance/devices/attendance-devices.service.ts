@@ -142,7 +142,7 @@ export class AttendanceDevicesService {
       try {
         await this.deviceManagementHikvisionService.syncDevice(companyId, created.id);
       } catch (error) {
-        await this.attendanceDeviceRepository.softRemove(created);
+        await this.attendanceDeviceRepository.delete(created.id);
         throw new BadRequestException(
           `Hikvision sync failed during create. Device creation was rolled back. ${this.extractSyncErrorMessage(error)}`,
         );
@@ -362,7 +362,7 @@ export class AttendanceDevicesService {
 
   async remove(companyId: number, id: number): Promise<{ message: string }> {
     const item = await this.findOrFail(companyId, id);
-    await this.attendanceDeviceRepository.softRemove(item);
+    await this.attendanceDeviceRepository.delete(item.id);
     return { message: 'Attendance device deleted successfully' };
   }
 

@@ -26,8 +26,8 @@ export class HikvisionSyncLog {
   @Column({ name: 'company_id', type: 'int' })
   companyId: number;
 
-  @Column({ name: 'device_id', type: 'int' })
-  deviceId: number;
+  @Column({ name: 'device_id', type: 'int', nullable: true })
+  deviceId: number | null;
 
   @Column({ name: 'sync_type', type: 'enum', enum: HikvisionSyncLogTypeEnum })
   syncType: HikvisionSyncLogTypeEnum;
@@ -72,8 +72,8 @@ export class HikvisionSyncLog {
   @JoinColumn({ name: 'company_id' })
   company: Company;
 
-  @ManyToOne(() => AttendanceDevice, { onDelete: 'CASCADE' })
+  @ManyToOne(() => AttendanceDevice, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'device_id' })
-  device: AttendanceDevice;
+  device: AttendanceDevice | null;
 }
 

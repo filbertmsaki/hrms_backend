@@ -132,6 +132,10 @@ export class AccessDoorsService {
     const nextDeviceId = dto.device_id ?? item.deviceId;
     const nextDoorNo = dto.door_no ?? item.doorNo;
 
+    if (nextDeviceId === null) {
+      throw new BadRequestException('device_id is required to update an access door');
+    }
+
     const device = await this.ensureDevice(companyId, nextDeviceId);
     const branchId = dto.branch_id !== undefined ? dto.branch_id : item.branchId ?? device.branchId ?? null;
     await this.ensureBranch(companyId, branchId);

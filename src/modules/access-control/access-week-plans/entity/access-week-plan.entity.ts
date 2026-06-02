@@ -34,8 +34,8 @@ export class AccessWeekPlan {
   @Column({ name: 'branch_id', type: 'int', nullable: true })
   branchId: number | null;
 
-  @Column({ name: 'device_id', type: 'int' })
-  deviceId: number;
+  @Column({ name: 'device_id', type: 'int', nullable: true })
+  deviceId: number | null;
 
   @Column({ name: 'hikvision_plan_no', type: 'varchar', length: 50 })
   hikvisionPlanNo: string;
@@ -83,9 +83,9 @@ export class AccessWeekPlan {
   @JoinColumn({ name: 'branch_id' })
   branch: Branch | null;
 
-  @ManyToOne(() => AttendanceDevice, { onDelete: 'CASCADE' })
+  @ManyToOne(() => AttendanceDevice, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'device_id' })
-  device: AttendanceDevice;
+  device: AttendanceDevice | null;
 
   @OneToMany(() => AccessScheduleTemplate, (template) => template.weekPlan)
   templates: AccessScheduleTemplate[];

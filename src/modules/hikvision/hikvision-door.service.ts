@@ -120,7 +120,10 @@ export class HikvisionDoorSyncService {
   }
 
   async syncDoorToDevice(companyId: number, door: AccessDoor) {
-    const device = await this.findHikvisionDeviceOrFail(companyId, door.deviceId);
+    const device = await this.findHikvisionDeviceOrFail(
+      companyId,
+      this.ensureDoorHasDeviceId(door),
+    );
     const xml = this.buildDoorPutXml(door);
 
     const response = await this.requestToDevice(
@@ -167,7 +170,10 @@ export class HikvisionDoorSyncService {
   }
 
   async getDoorConfiguration(companyId: number, door: AccessDoor) {
-    const device = await this.findHikvisionDeviceOrFail(companyId, door.deviceId);
+    const device = await this.findHikvisionDeviceOrFail(
+      companyId,
+      this.ensureDoorHasDeviceId(door),
+    );
     const response = await this.requestToDevice(
       device,
       'GET',
@@ -191,7 +197,10 @@ export class HikvisionDoorSyncService {
   }
 
   async remoteControlDoor(companyId: number, door: AccessDoor, command: RemoteDoorCommand) {
-    const device = await this.findHikvisionDeviceOrFail(companyId, door.deviceId);
+    const device = await this.findHikvisionDeviceOrFail(
+      companyId,
+      this.ensureDoorHasDeviceId(door),
+    );
     const xml = this.buildRemoteDoorCommandXml(command);
     const response = await this.requestToDevice(
       device,
@@ -246,6 +255,14 @@ export class HikvisionDoorSyncService {
     }
 
     return device;
+  }
+
+  private ensureDoorHasDeviceId(door: AccessDoor): number {
+    if (door.deviceId === null) {
+      throw new BadRequestException('This door is no longer linked to a device');
+    }
+
+    return door.deviceId;
   }
 
   private async requestToDevice(

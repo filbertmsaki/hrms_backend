@@ -34,8 +34,8 @@ export class DeviceCommandLog {
   @Column({ name: 'branch_id', type: 'int', nullable: true })
   branchId: number | null;
 
-  @Column({ name: 'device_id', type: 'int' })
-  deviceId: number;
+  @Column({ name: 'device_id', type: 'int', nullable: true })
+  deviceId: number | null;
 
   @Column({
     name: 'command_type',
@@ -101,9 +101,9 @@ export class DeviceCommandLog {
   @JoinColumn({ name: 'branch_id' })
   branch: Branch | null;
 
-  @ManyToOne(() => AttendanceDevice, { onDelete: 'CASCADE' })
+  @ManyToOne(() => AttendanceDevice, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'device_id' })
-  device: AttendanceDevice;
+  device: AttendanceDevice | null;
 
   @ManyToOne(() => CompanyUser, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'created_by_company_user_id' })

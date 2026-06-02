@@ -40,8 +40,8 @@ export class EmployeeDeviceAssignment {
   @Column({ name: 'employee_no', type: 'varchar', length: 100 })
   employeeNo: string;
 
-  @Column({ name: 'device_id', type: 'int' })
-  deviceId: number;
+  @Column({ name: 'device_id', type: 'int', nullable: true })
+  deviceId: number | null;
 
   @Column({ name: 'organization_id', type: 'int', nullable: true })
   organizationId: number | null;
@@ -107,9 +107,9 @@ export class EmployeeDeviceAssignment {
   @JoinColumn({ name: 'employee_id' })
   employee: Employee | null;
 
-  @ManyToOne(() => AttendanceDevice, { onDelete: 'CASCADE' })
+  @ManyToOne(() => AttendanceDevice, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'device_id' })
-  device: AttendanceDevice;
+  device: AttendanceDevice | null;
 
   @ManyToOne(() => AccessOrganization, (organization) => organization.employeeDeviceAssignments, {
     nullable: true,

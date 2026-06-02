@@ -147,7 +147,7 @@ export class AccessControlSyncService {
     for (const assignment of groupDoorAssignments) {
       const door = doorById.get(assignment.doorId);
       const template = templateById.get(assignment.scheduleTemplateId);
-      if (!door || !template) {
+      if (!door || !template || door.deviceId === null) {
         continue;
       }
 
@@ -186,9 +186,15 @@ export class AccessControlSyncService {
       const employeeAssignments = await this.employeeDeviceAssignmentRepository.find({
         where: { employeeId: employee.id },
       });
-      const assignedDeviceIds = new Set(employeeAssignments.map((item) => item.deviceId));
+      const assignedDeviceIds = new Set(
+        employeeAssignments
+          .map((item) => item.deviceId)
+          .filter((deviceId): deviceId is number => deviceId !== null),
+      );
       const assignmentByDeviceId = new Map(
-        employeeAssignments.map((assignment) => [assignment.deviceId, assignment]),
+        employeeAssignments
+          .filter((assignment): assignment is EmployeeDeviceAssignment & { deviceId: number } => assignment.deviceId !== null)
+          .map((assignment) => [assignment.deviceId, assignment]),
       );
 
       for (const assignmentEntry of doorTemplateMap.values()) {

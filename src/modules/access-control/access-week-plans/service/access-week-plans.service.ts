@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
@@ -127,6 +127,10 @@ export class AccessWeekPlansService {
     const item = await this.findOrFail(companyId, id);
     const nextDeviceId = dto.device_id ?? item.deviceId;
     const nextPlanNo = dto.hikvision_plan_no?.trim() ?? item.hikvisionPlanNo;
+
+    if (nextDeviceId === null) {
+      throw new BadRequestException('device_id is required to update a week plan');
+    }
 
     await this.ensureUniquePlan(companyId, nextDeviceId, nextPlanNo, item.id);
 

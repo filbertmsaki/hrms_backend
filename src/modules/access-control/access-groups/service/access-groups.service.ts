@@ -237,10 +237,17 @@ export class AccessGroupsService {
         throw new BadRequestException(`Invalid schedule_template_id: ${templateId}`);
       }
 
+      const resolvedDeviceId = assignment.device_id ?? door.deviceId;
+      if (resolvedDeviceId === null) {
+        throw new BadRequestException(
+          `door_id ${doorId} is no longer linked to a device; provide a valid device_id`,
+        );
+      }
+
       const existing = await this.accessGroupDoorRepository.findOne({
         where: {
           accessGroupId: groupId,
-          deviceId: assignment.device_id ?? door.deviceId,
+          deviceId: resolvedDeviceId,
           doorNo: door.doorNo,
           hikvisionTemplateNo: template.hikvisionTemplateNo,
         },
@@ -253,7 +260,7 @@ export class AccessGroupsService {
       await this.accessGroupDoorRepository.save(
         this.accessGroupDoorRepository.create({
           accessGroupId: groupId,
-          deviceId: assignment.device_id ?? door.deviceId,
+          deviceId: resolvedDeviceId,
           doorId,
           doorNo: door.doorNo,
           scheduleTemplateId: template.id,
