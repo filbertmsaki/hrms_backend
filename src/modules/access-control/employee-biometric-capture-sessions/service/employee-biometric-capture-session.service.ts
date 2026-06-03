@@ -382,7 +382,7 @@ export class EmployeeBiometricCaptureSessionService {
         branch_id: device.branchId ?? null,
         device_id: device.id,
         command_type: DeviceCommandTypeEnum.SET_FINGERPRINT,
-        http_method: 'PUT' as any,
+        http_method: 'POST' as any,
         endpoint: '/ISAPI/AccessControl/FingerPrint/SetUp?format=json',
         request_body: setupPayload,
         correlation_id: correlationId,
