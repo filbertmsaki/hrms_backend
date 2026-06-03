@@ -36,4 +36,15 @@ export class SaveCapturedFingerprintDto {
   @IsBoolean()
   @IsOptional()
   overwrite?: boolean;
+
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  sync_to_device?: boolean;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  card_reader_no?: number;
 }

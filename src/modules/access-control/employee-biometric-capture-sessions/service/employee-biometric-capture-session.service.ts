@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
@@ -26,6 +30,15 @@ import { EmployeeBiometricCaptureSession } from '../entity/employee-biometric-ca
 import { EmployeeBiometricCaptureStatusEnum } from '../enum/employee-biometric-capture-status.enum';
 import { EmployeeBiometricCaptureTypeEnum } from '../enum/employee-biometric-capture-type.enum';
 import { DeviceCommandTypeEnum } from '../../../hikvision/device-command-logs/enum/device-command-type.enum';
+
+type FingerprintActor = {
+  performedByCompanyUserId?: number;
+  performedByUserId?: number;
+  ipAddress?: string;
+  userAgent?: string;
+};
+
+const MAX_FINGERPRINTS_PER_EMPLOYEE = 10;
 
 @Injectable()
 export class EmployeeBiometricCaptureSessionService {
@@ -70,24 +83,152 @@ export class EmployeeBiometricCaptureSessionService {
     return this.map(await this.sessionRepository.save(entity));
   }
 
+  async captureFingerprintForAssignment(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    dto: Omit<StartFingerprintCaptureDto, 'device_id'>,
+    actor: FingerprintActor = {},
+  ) {
+    await this.findAssignmentOrFail(companyId, employeeId, deviceId);
+    return this.captureFingerprintOnly(
+      companyId,
+      employeeId,
+      {
+        ...dto,
+        device_id: deviceId,
+      },
+      actor,
+    );
+  }
+
+  async createFingerprintForAssignment(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    dto: Omit<SaveCapturedFingerprintDto, 'device_id'>,
+    actor: FingerprintActor = {},
+  ) {
+    await this.findAssignmentOrFail(companyId, employeeId, deviceId);
+    return this.saveCapturedFingerprint(
+      companyId,
+      employeeId,
+      {
+        ...dto,
+        device_id: deviceId,
+      },
+      actor,
+    );
+  }
+
+  async modifyFingerprintForAssignment(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    fingerprintId: string,
+    dto: Omit<SaveCapturedFingerprintDto, 'device_id' | 'fingerprint_id'>,
+    actor: FingerprintActor = {},
+  ) {
+    await this.findAssignmentOrFail(companyId, employeeId, deviceId);
+    return this.saveCapturedFingerprint(
+      companyId,
+      employeeId,
+      {
+        ...dto,
+        device_id: deviceId,
+        fingerprint_id: fingerprintId,
+        overwrite: dto.overwrite ?? true,
+      },
+      actor,
+    );
+  }
+
+  async syncFingerprintForAssignment(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    fingerprintId: string,
+    dto: Omit<SyncFingerprintDto, 'device_id'> = {},
+    actor: FingerprintActor = {},
+  ) {
+    await this.findAssignmentOrFail(companyId, employeeId, deviceId);
+    return this.syncFingerprintToDevice(
+      companyId,
+      employeeId,
+      fingerprintId,
+      {
+        ...dto,
+        device_id: deviceId,
+      },
+      actor,
+    );
+  }
+
+  async enableFingerprintForAssignment(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    fingerprintId: string,
+    actor: FingerprintActor = {},
+  ) {
+    await this.findAssignmentOrFail(companyId, employeeId, deviceId);
+    return this.setFingerprintEnabledState(
+      companyId,
+      employeeId,
+      deviceId,
+      fingerprintId,
+      true,
+      actor,
+    );
+  }
+
+  async disableFingerprintForAssignment(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    fingerprintId: string,
+    actor: FingerprintActor = {},
+  ) {
+    await this.findAssignmentOrFail(companyId, employeeId, deviceId);
+    return this.setFingerprintEnabledState(
+      companyId,
+      employeeId,
+      deviceId,
+      fingerprintId,
+      false,
+      actor,
+    );
+  }
+
+  async deleteFingerprintForAssignment(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    fingerprintId: string,
+    cardReaderNo = 1,
+    actor: FingerprintActor = {},
+  ) {
+    await this.findAssignmentOrFail(companyId, employeeId, deviceId);
+    return this.deleteFingerprint(
+      companyId,
+      employeeId,
+      fingerprintId,
+      deviceId,
+      true,
+      cardReaderNo,
+      actor,
+    );
+  }
+
   async startFingerprintCapture(
     companyId: number,
     employeeId: number,
     dto: StartFingerprintCaptureDto,
-    actor: {
-      performedByCompanyUserId?: number;
-      performedByUserId?: number;
-      ipAddress?: string;
-      userAgent?: string;
-    } = {},
+    actor: FingerprintActor = {},
   ) {
     const employee = await this.findEmployeeOrFail(companyId, employeeId);
-    const device = await this.deviceRepository.findOne({
-      where: { id: dto.device_id, companyId },
-    });
-    if (!device) {
-      throw new NotFoundException('Device not found');
-    }
+    const device = await this.findDeviceOrFail(companyId, dto.device_id);
+    const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(companyId, employee.id, device.id);
 
     const fingerprintId = (dto.fingerprint_id ?? '1').trim() || '1';
     const fingerprintIdNumber = Number(fingerprintId);
@@ -97,7 +238,6 @@ export class EmployeeBiometricCaptureSessionService {
     await this.assertFingerprintSlotAvailable(
       companyId,
       employee.id,
-      device.id,
       fingerprintId,
       Boolean(dto.overwrite),
     );
@@ -112,7 +252,7 @@ export class EmployeeBiometricCaptureSessionService {
         companyId,
         branchId: device.branchId ?? null,
         employeeId: employee.id,
-        employeeNo: employee.employee_no,
+        employeeNo: deviceEmployeeNo,
         employeeName: `${employee.first_name} ${employee.last_name}`.trim(),
         deviceId: device.id,
         captureType: EmployeeBiometricCaptureTypeEnum.FINGERPRINT,
@@ -191,8 +331,8 @@ export class EmployeeBiometricCaptureSessionService {
       await this.saveFingerprintCredential({
         companyId,
         employee,
-        deviceEmployeeNo: session.employeeNo,
-        deviceId: device.id,
+        deviceEmployeeNo,
+        sourceDeviceId: device.id,
         fingerprintId,
         fingerData: capturedFingerData,
         fingerNo: capture.fingerNo,
@@ -201,8 +341,6 @@ export class EmployeeBiometricCaptureSessionService {
         overwrite: Boolean(dto.overwrite),
         syncStatus: 'CAPTURED',
       });
-
-      const deviceEmployeeNo = session.employeeNo;
 
       const setupPayload = {
         FingerPrintCfg: {
@@ -220,7 +358,7 @@ export class EmployeeBiometricCaptureSessionService {
         branch_id: device.branchId ?? null,
         device_id: device.id,
         command_type: DeviceCommandTypeEnum.SET_FINGERPRINT,
-        http_method: 'POST' as any,
+        http_method: 'PUT' as any,
         endpoint: '/ISAPI/AccessControl/FingerPrint/SetUp?format=json',
         request_body: setupPayload,
         correlation_id: correlationId,
@@ -318,12 +456,7 @@ export class EmployeeBiometricCaptureSessionService {
     companyId: number,
     employeeId: number,
     dto: StartFingerprintCaptureDto,
-    actor: {
-      performedByCompanyUserId?: number;
-      performedByUserId?: number;
-      ipAddress?: string;
-      userAgent?: string;
-    } = {},
+    actor: FingerprintActor = {},
   ) {
     const employee = await this.findEmployeeOrFail(companyId, employeeId);
     const device = await this.findDeviceOrFail(companyId, dto.device_id);
@@ -332,7 +465,6 @@ export class EmployeeBiometricCaptureSessionService {
     await this.assertFingerprintSlotAvailable(
       companyId,
       employee.id,
-      device.id,
       fingerprintId.value,
       Boolean(dto.overwrite),
     );
@@ -380,13 +512,13 @@ export class EmployeeBiometricCaptureSessionService {
     const capturedFingerData = capture.fingerData;
 
     this.validateFingerprintQuality(capture.fingerPrintQuality, dto.min_quality);
-      await this.saveFingerprintCredential({
-        companyId,
-        employee,
-        deviceEmployeeNo,
-        deviceId: device.id,
-        fingerprintId: fingerprintId.value,
-        fingerData: capturedFingerData,
+    await this.saveFingerprintCredential({
+      companyId,
+      employee,
+      deviceEmployeeNo,
+      sourceDeviceId: device.id,
+      fingerprintId: fingerprintId.value,
+      fingerData: capturedFingerData,
       fingerNo: capture.fingerNo,
       fingerPrintQuality: capture.fingerPrintQuality,
       sessionId: session.id,
@@ -404,6 +536,19 @@ export class EmployeeBiometricCaptureSessionService {
       },
     });
 
+    if (dto.sync_to_device) {
+      await this.syncFingerprintToDevice(
+        companyId,
+        employeeId,
+        fingerprintId.value,
+        {
+          device_id: device.id,
+          card_reader_no: dto.card_reader_no,
+        },
+        actor,
+      );
+    }
+
     return this.findOne(companyId, session.id);
   }
 
@@ -411,12 +556,7 @@ export class EmployeeBiometricCaptureSessionService {
     companyId: number,
     employeeId: number,
     dto: SaveCapturedFingerprintDto,
-    actor: {
-      performedByCompanyUserId?: number;
-      performedByUserId?: number;
-      ipAddress?: string;
-      userAgent?: string;
-    } = {},
+    actor: FingerprintActor = {},
   ) {
     const employee = await this.findEmployeeOrFail(companyId, employeeId);
     const device = await this.findDeviceOrFail(companyId, dto.device_id);
@@ -428,7 +568,7 @@ export class EmployeeBiometricCaptureSessionService {
       companyId,
       employee,
       deviceEmployeeNo,
-      deviceId: device.id,
+      sourceDeviceId: device.id,
       fingerprintId: fingerprintId.value,
       fingerData: dto.finger_data,
       fingerNo: dto.finger_no ?? fingerprintId.number,
@@ -458,6 +598,19 @@ export class EmployeeBiometricCaptureSessionService {
       user_agent: actor.userAgent ?? null,
     });
 
+    if (dto.sync_to_device) {
+      await this.syncFingerprintToDevice(
+        companyId,
+        employeeId,
+        fingerprintId.value,
+        {
+          device_id: device.id,
+          card_reader_no: dto.card_reader_no,
+        },
+        actor,
+      );
+    }
+
     return this.findEmployeeFingerprints(companyId, employeeId, device.id);
   }
 
@@ -466,12 +619,7 @@ export class EmployeeBiometricCaptureSessionService {
     employeeId: number,
     fingerprintIdRaw: string,
     dto: SyncFingerprintDto,
-    actor: {
-      performedByCompanyUserId?: number;
-      performedByUserId?: number;
-      ipAddress?: string;
-      userAgent?: string;
-    } = {},
+    actor: FingerprintActor = {},
   ) {
     const employee = await this.findEmployeeOrFail(companyId, employeeId);
     const device = await this.findDeviceOrFail(companyId, dto.device_id);
@@ -479,7 +627,6 @@ export class EmployeeBiometricCaptureSessionService {
     const credential = await this.findFingerprintCredentialOrFail(
       companyId,
       employee.id,
-      device.id,
       fingerprintId.value,
     );
     const metadata = this.toObject(credential.metadata);
@@ -515,11 +662,26 @@ export class EmployeeBiometricCaptureSessionService {
         sync_status: syncStatus,
         last_sync_at: new Date().toISOString(),
       },
+      device_syncs: this.updateFingerprintDeviceSync(
+        this.toObject(metadata.device_syncs),
+        device.id,
+        {
+          device_id: device.id,
+          employee_no: deviceEmployeeNo,
+          card_reader_no: dto.card_reader_no ?? 1,
+          enabled: Boolean(
+            this.toObject(this.toObject(metadata.device_syncs)[String(device.id)]).enabled ?? true,
+          ),
+          sync_status: syncStatus,
+          last_synced_at: new Date().toISOString(),
+          last_error_message: syncStatus === 'SYNCED' ? null : syncErrorMessage,
+        },
+      ),
       setup_response: this.maskSensitivePayload(this.toObject(setupResponse.parsed)),
     };
     credential.metadata = updatedMetadata;
     credential.lastSyncedAt = new Date();
-    await this.credentialRepository.save(credential);
+    const saved = await this.credentialRepository.save(credential);
 
     await this.auditLogService.create({
       company_id: companyId,
@@ -545,7 +707,7 @@ export class EmployeeBiometricCaptureSessionService {
       throw new BadRequestException(syncErrorMessage);
     }
 
-    return this.mapFingerprintCredential(credential);
+    return this.mapFingerprintCredential(saved, device.id);
   }
 
   async findEmployeeFingerprints(companyId: number, employeeId: number, deviceId?: number) {
@@ -561,12 +723,18 @@ export class EmployeeBiometricCaptureSessionService {
         deleted: EmployeeAccessCredentialStatusEnum.DELETED,
       });
 
-    if (deviceId) {
-      qb.andWhere('credential.device_id = :deviceId', { deviceId });
-    }
-
     const rows = await qb.orderBy('credential.created_at', 'DESC').getMany();
-    return rows.map((row) => this.mapFingerprintCredential(row));
+    return rows
+      .filter((row) => {
+        if (!deviceId) {
+          return true;
+        }
+
+        const metadata = this.toObject(row.metadata);
+        const deviceSyncs = this.toObject(metadata.device_syncs);
+        return row.deviceId === deviceId || Boolean(deviceSyncs[String(deviceId)]);
+      })
+      .map((row) => this.mapFingerprintCredential(row, deviceId));
   }
 
   async deleteFingerprint(
@@ -576,12 +744,7 @@ export class EmployeeBiometricCaptureSessionService {
     deviceId: number,
     deleteFromDevice: boolean,
     cardReaderNo = 1,
-    actor: {
-      performedByCompanyUserId?: number;
-      performedByUserId?: number;
-      ipAddress?: string;
-      userAgent?: string;
-    } = {},
+    actor: FingerprintActor = {},
   ) {
     const employee = await this.findEmployeeOrFail(companyId, employeeId);
     const device = await this.findDeviceOrFail(companyId, deviceId);
@@ -589,22 +752,17 @@ export class EmployeeBiometricCaptureSessionService {
     const credential = await this.findFingerprintCredentialOrFail(
       companyId,
       employee.id,
-      device.id,
       fingerprintId.value,
     );
 
     let responsePayload: Record<string, unknown> | null = null;
+    const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(companyId, employee.id, device.id);
     if (deleteFromDevice) {
-      const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(companyId, employee.id, device.id);
-      const payload = {
-        FingerPrintCfg: {
-          employeeNo: deviceEmployeeNo,
-          enableCardReader: [cardReaderNo],
-          fingerPrintID: fingerprintId.number,
-          deleteFingerPrint: true,
-          fingerType: 'normalFP',
-        },
-      };
+      const payload = this.buildFingerprintDeletePayload(
+        deviceEmployeeNo,
+        fingerprintId.number,
+        cardReaderNo,
+      );
       const response = await this.hikvisionAccessControlService.deleteFingerprint(companyId, device.id, payload);
       responsePayload = this.toObject(response.parsed);
       const deleteStatus = this.extractFingerprintSetupStatus(response.parsed, cardReaderNo);
@@ -617,23 +775,36 @@ export class EmployeeBiometricCaptureSessionService {
       }
     }
 
-    credential.credentialStatus = EmployeeAccessCredentialStatusEnum.DELETED;
+    const metadata = this.toObject(credential.metadata);
+    const fingerprint = this.toObject(metadata.fingerprint);
+    const deviceSyncs = this.toObject(metadata.device_syncs);
     credential.metadata = {
-      ...(credential.metadata ?? {}),
+      ...metadata,
       fingerprint: {
-        ...this.toObject(this.toObject(credential.metadata).fingerprint),
+        ...fingerprint,
         sync_status: 'DELETED',
         deleted_at: new Date().toISOString(),
+        last_updated_at: new Date().toISOString(),
       },
+      device_syncs: this.updateFingerprintDeviceSync(deviceSyncs, device.id, {
+        device_id: device.id,
+        employee_no: deviceEmployeeNo,
+        enabled: false,
+        sync_status: 'DELETED',
+        deleted_at: new Date().toISOString(),
+        last_synced_at: new Date().toISOString(),
+        card_reader_no: cardReaderNo,
+      }),
       delete_response: responsePayload,
     };
-    await this.credentialRepository.save(credential);
+    credential.lastSyncedAt = new Date();
+    const saved = await this.credentialRepository.save(credential);
 
     await this.auditLogService.create({
       company_id: companyId,
       branch_id: device.branchId ?? null,
       employee_id: employee.id,
-      employee_no: credential.employeeNo,
+      employee_no: deviceEmployeeNo,
       employee_name: `${employee.first_name} ${employee.last_name}`.trim(),
       device_id: device.id,
       action: EmployeeDeviceAccessActionEnum.DELETE_FINGERPRINT,
@@ -650,7 +821,7 @@ export class EmployeeBiometricCaptureSessionService {
       user_agent: actor.userAgent ?? null,
     });
 
-    return this.mapFingerprintCredential(credential);
+    return this.mapFingerprintCredential(saved, device.id);
   }
 
   async findAll(companyId: number, query: QueryBiometricCaptureSessionDto) {
@@ -865,7 +1036,7 @@ export class EmployeeBiometricCaptureSessionService {
       companyId,
       employee,
       deviceEmployeeNo,
-      deviceId,
+      sourceDeviceId: deviceId,
       fingerprintId,
       fingerData,
       fingerNo: Number(fingerprintId),
@@ -876,7 +1047,19 @@ export class EmployeeBiometricCaptureSessionService {
     });
 
     credential.metadata = {
-      ...(credential.metadata ?? {}),
+      ...this.toObject(credential.metadata),
+      device_syncs: this.updateFingerprintDeviceSync(
+        this.toObject(this.toObject(credential.metadata).device_syncs),
+        deviceId,
+        {
+          device_id: deviceId,
+          employee_no: deviceEmployeeNo,
+          enabled: true,
+          sync_status: syncStatus,
+          card_reader_no: 1,
+          last_synced_at: new Date().toISOString(),
+        },
+      ),
       setup_response: this.maskSensitivePayload(setupResponsePayload),
     };
 
@@ -887,7 +1070,7 @@ export class EmployeeBiometricCaptureSessionService {
     companyId: number;
     employee: Employee;
     deviceEmployeeNo: string;
-    deviceId: number;
+    sourceDeviceId: number;
     fingerprintId: string;
     fingerData: string;
     fingerNo: number | null;
@@ -904,27 +1087,22 @@ export class EmployeeBiometricCaptureSessionService {
     await this.assertFingerprintSlotAvailable(
       input.companyId,
       input.employee.id,
-      input.deviceId,
       input.fingerprintId,
       input.overwrite,
     );
 
-    let credential = await this.credentialRepository.findOne({
-      where: {
-        companyId: input.companyId,
-        employeeId: input.employee.id,
-        deviceId: input.deviceId,
-        credentialType: EmployeeAccessCredentialTypeEnum.FINGERPRINT,
-        credentialNo: input.fingerprintId,
-      },
-    });
+    let credential = await this.findFingerprintCredential(
+      input.companyId,
+      input.employee.id,
+      input.fingerprintId,
+    );
 
     if (!credential) {
       credential = this.credentialRepository.create({
         companyId: input.companyId,
         employeeId: input.employee.id,
         employeeNo: input.deviceEmployeeNo,
-        deviceId: input.deviceId,
+        deviceId: input.sourceDeviceId,
         credentialType: EmployeeAccessCredentialTypeEnum.FINGERPRINT,
         credentialNo: input.fingerprintId,
         credentialStatus: EmployeeAccessCredentialStatusEnum.ACTIVE,
@@ -933,6 +1111,7 @@ export class EmployeeBiometricCaptureSessionService {
     }
 
     credential.employeeNo = input.deviceEmployeeNo;
+    credential.deviceId = credential.deviceId ?? input.sourceDeviceId;
     credential.credentialNo = input.fingerprintId;
     credential.fingerprintId = input.fingerprintId;
     credential.fingerprintCount = 1;
@@ -942,6 +1121,7 @@ export class EmployeeBiometricCaptureSessionService {
     credential.credentialStatus = EmployeeAccessCredentialStatusEnum.ACTIVE;
     const existingMetadata = this.toObject(credential.metadata);
     const existingFingerprint = this.toObject(existingMetadata.fingerprint);
+    const existingDeviceSyncs = this.toObject(existingMetadata.device_syncs);
     credential.metadata = {
       ...existingMetadata,
       fingerprint: {
@@ -951,9 +1131,23 @@ export class EmployeeBiometricCaptureSessionService {
         finger_no: input.fingerNo,
         finger_print_quality: input.fingerPrintQuality,
         finger_data: fingerData,
+        is_enabled: true,
         sync_status: input.syncStatus,
         last_updated_at: new Date().toISOString(),
       },
+      // One backend fingerprint record can be synchronized to many devices, so
+      // device-specific employee numbers and sync states live under device_syncs.
+      device_syncs: this.updateFingerprintDeviceSync(
+        existingDeviceSyncs,
+        input.sourceDeviceId,
+        {
+          device_id: input.sourceDeviceId,
+          employee_no: input.deviceEmployeeNo,
+          enabled: true,
+          sync_status: input.syncStatus,
+          last_updated_at: new Date().toISOString(),
+        },
+      ),
     };
 
     return this.credentialRepository.save(credential);
@@ -962,44 +1156,33 @@ export class EmployeeBiometricCaptureSessionService {
   private async assertFingerprintSlotAvailable(
     companyId: number,
     employeeId: number,
-    deviceId: number,
     fingerprintId: string,
     overwrite: boolean,
   ) {
-    const existing = await this.credentialRepository.findOne({
-      where: {
-        companyId,
-        employeeId,
-        deviceId,
-        credentialType: EmployeeAccessCredentialTypeEnum.FINGERPRINT,
-        credentialNo: fingerprintId,
-        credentialStatus: EmployeeAccessCredentialStatusEnum.ACTIVE,
-      },
-    });
+    const existing = await this.findFingerprintCredential(companyId, employeeId, fingerprintId);
 
     if (existing && !overwrite) {
       throw new BadRequestException(
-        `Fingerprint slot ${fingerprintId} already exists for this employee and device`,
+        `Fingerprint slot ${fingerprintId} already exists for this employee`,
       );
+    }
+
+    if (!existing) {
+      const count = await this.countActiveEmployeeFingerprints(companyId, employeeId);
+      if (count >= MAX_FINGERPRINTS_PER_EMPLOYEE) {
+        throw new BadRequestException(
+          `An employee can have at most ${MAX_FINGERPRINTS_PER_EMPLOYEE} saved fingerprints`,
+        );
+      }
     }
   }
 
   private async findFingerprintCredentialOrFail(
     companyId: number,
     employeeId: number,
-    deviceId: number,
     fingerprintId: string,
   ) {
-    const credential = await this.credentialRepository.findOne({
-      where: {
-        companyId,
-        employeeId,
-        deviceId,
-        credentialType: EmployeeAccessCredentialTypeEnum.FINGERPRINT,
-        credentialNo: fingerprintId,
-        credentialStatus: EmployeeAccessCredentialStatusEnum.ACTIVE,
-      },
-    });
+    const credential = await this.findFingerprintCredential(companyId, employeeId, fingerprintId);
 
     if (!credential) {
       throw new NotFoundException('Fingerprint credential not found');
@@ -1024,6 +1207,153 @@ export class EmployeeBiometricCaptureSessionService {
         checkEmployeeNo: true,
       },
     };
+  }
+
+  private buildFingerprintDeletePayload(
+    employeeNo: string,
+    fingerprintId: number,
+    cardReaderNo: number,
+  ) {
+    return {
+      FingerPrintCfg: {
+        employeeNo,
+        enableCardReader: [cardReaderNo],
+        fingerPrintID: fingerprintId,
+        deleteFingerPrint: true,
+        fingerType: 'normalFP',
+      },
+    };
+  }
+
+  private async setFingerprintEnabledState(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    fingerprintIdRaw: string,
+    enabled: boolean,
+    actor: FingerprintActor,
+  ) {
+    const employee = await this.findEmployeeOrFail(companyId, employeeId);
+    const device = await this.findDeviceOrFail(companyId, deviceId);
+    const fingerprintId = this.normalizeFingerprintId(fingerprintIdRaw);
+    const credential = await this.findFingerprintCredentialOrFail(
+      companyId,
+      employee.id,
+      fingerprintId.value,
+    );
+    const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(companyId, employee.id, device.id);
+    const metadata = this.toObject(credential.metadata);
+    const fingerprint = this.toObject(metadata.fingerprint);
+    const deviceSyncs = this.toObject(metadata.device_syncs);
+
+    credential.metadata = {
+      ...metadata,
+      fingerprint: {
+        ...fingerprint,
+        is_enabled: enabled,
+        last_updated_at: new Date().toISOString(),
+      },
+      device_syncs: this.updateFingerprintDeviceSync(deviceSyncs, device.id, {
+        device_id: device.id,
+        employee_no: deviceEmployeeNo,
+        enabled,
+        sync_status: String(
+          this.toObject(deviceSyncs[String(device.id)]).sync_status ?? fingerprint.sync_status ?? 'SAVED',
+        ),
+        last_updated_at: new Date().toISOString(),
+      }),
+    };
+
+    const saved = await this.credentialRepository.save(credential);
+
+    await this.auditLogService.create({
+      company_id: companyId,
+      branch_id: device.branchId ?? null,
+      employee_id: employee.id,
+      employee_no: deviceEmployeeNo,
+      employee_name: `${employee.first_name} ${employee.last_name}`.trim(),
+      device_id: device.id,
+      action: EmployeeDeviceAccessActionEnum.SET_FINGERPRINT,
+      status: EmployeeDeviceAccessAuditStatusEnum.SUCCESS,
+      request_payload: {
+        fingerprint_id: fingerprintId.value,
+        enabled,
+      },
+      response_payload: null,
+      performed_by_company_user_id: actor.performedByCompanyUserId ?? null,
+      performed_by_user_id: actor.performedByUserId ?? null,
+      ip_address: actor.ipAddress ?? null,
+      user_agent: actor.userAgent ?? null,
+    });
+
+    return this.mapFingerprintCredential(saved, device.id);
+  }
+
+  private async findFingerprintCredential(
+    companyId: number,
+    employeeId: number,
+    fingerprintId: string,
+  ) {
+    return this.credentialRepository
+      .createQueryBuilder('credential')
+      .where('credential.company_id = :companyId', { companyId })
+      .andWhere('credential.employee_id = :employeeId', { employeeId })
+      .andWhere('credential.credential_type = :type', {
+        type: EmployeeAccessCredentialTypeEnum.FINGERPRINT,
+      })
+      .andWhere('credential.credential_no = :fingerprintId', { fingerprintId })
+      .andWhere('credential.credential_status != :deleted', {
+        deleted: EmployeeAccessCredentialStatusEnum.DELETED,
+      })
+      .orderBy('credential.created_at', 'ASC')
+      .getOne();
+  }
+
+  private async countActiveEmployeeFingerprints(companyId: number, employeeId: number) {
+    const raw = await this.credentialRepository
+      .createQueryBuilder('credential')
+      .select('COUNT(credential.id)', 'count')
+      .where('credential.company_id = :companyId', { companyId })
+      .andWhere('credential.employee_id = :employeeId', { employeeId })
+      .andWhere('credential.credential_type = :type', {
+        type: EmployeeAccessCredentialTypeEnum.FINGERPRINT,
+      })
+      .andWhere('credential.credential_status != :deleted', {
+        deleted: EmployeeAccessCredentialStatusEnum.DELETED,
+      })
+      .getRawOne<{ count?: string }>();
+
+    return Number(raw?.count ?? 0);
+  }
+
+  private updateFingerprintDeviceSync(
+    existing: Record<string, unknown>,
+    deviceId: number,
+    patch: Record<string, unknown>,
+  ) {
+    const key = String(deviceId);
+    return {
+      ...existing,
+      [key]: {
+        ...this.toObject(existing[key]),
+        ...patch,
+      },
+    };
+  }
+
+  private async findAssignmentOrFail(companyId: number, employeeId: number, deviceId: number) {
+    const assignment = await this.assignmentRepository.findOne({
+      where: { companyId, employeeId, deviceId },
+      select: ['id', 'employeeNo'],
+    });
+
+    if (!assignment) {
+      throw new NotFoundException(
+        `Employee ${employeeId} is not assigned to device ${deviceId}`,
+      );
+    }
+
+    return assignment;
   }
 
   private extractFingerprintSetupStatus(payload: unknown, cardReaderNo: number) {
@@ -1095,21 +1425,32 @@ export class EmployeeBiometricCaptureSessionService {
     return device;
   }
 
-  private mapFingerprintCredential(item: EmployeeAccessCredential) {
+  private mapFingerprintCredential(item: EmployeeAccessCredential, deviceId?: number) {
     const metadata = this.toObject(item.metadata);
     const fingerprint = this.toObject(metadata.fingerprint);
+    const deviceSyncs = this.toObject(metadata.device_syncs);
+    const scopedDeviceSync = deviceId ? this.toObject(deviceSyncs[String(deviceId)]) : {};
+    const activeDeviceSyncs = Object.values(deviceSyncs)
+      .map((value) => this.toObject(value))
+      .filter((value) => value.sync_status !== 'DELETED');
+
     return {
       id: item.id,
       company_id: item.companyId,
       employee_id: item.employeeId,
-      employee_no: item.employeeNo,
-      device_id: item.deviceId,
+      employee_no: String(scopedDeviceSync.employee_no ?? item.employeeNo ?? '').trim() || null,
+      device_id: deviceId ?? item.deviceId,
+      source_device_id: item.deviceId,
       fingerprint_id: item.fingerprintId ?? item.credentialNo,
       finger_no: fingerprint.finger_no ?? null,
       finger_type: 'normalFP',
       finger_print_quality: fingerprint.finger_print_quality ?? null,
       has_fingerprint: item.hasFingerprint,
-      sync_status: fingerprint.sync_status ?? null,
+      enabled: Boolean(scopedDeviceSync.enabled ?? fingerprint.is_enabled ?? true),
+      sync_status: scopedDeviceSync.sync_status ?? fingerprint.sync_status ?? null,
+      synced_device_ids: activeDeviceSyncs
+        .map((value) => Number(value.device_id))
+        .filter((value) => Number.isInteger(value) && value > 0),
       last_synced_at: item.lastSyncedAt,
       created_at: item.createdAt,
       updated_at: item.updatedAt,

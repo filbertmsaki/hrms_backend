@@ -13,6 +13,7 @@ import { EmployeeDeviceAssignment } from './entity/employee-device-assignment.en
 import { EmployeeDeviceAssignmentsController } from './controller/employee-device-assignments.controller';
 import { EmployeeDeviceAssignmentsService } from './service/employee-device-assignments.service';
 import { HikvisionModule } from '../../hikvision/hikvision.module';
+import { EmployeeBiometricCaptureSessionsModule } from '../employee-biometric-capture-sessions/employee-biometric-capture-sessions.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { HikvisionModule } from '../../hikvision/hikvision.module';
       AccessScheduleTemplate,
     ]),
     HikvisionModule,
+    EmployeeBiometricCaptureSessionsModule,
   ],
   controllers: [EmployeeDeviceAssignmentsController],
   providers: [EmployeeDeviceAssignmentsService],

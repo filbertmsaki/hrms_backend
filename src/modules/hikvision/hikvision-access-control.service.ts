@@ -222,7 +222,7 @@ export class HikvisionAccessControlService {
   }
 
   async setupFingerprint(companyId: number, deviceId: number, payload: Record<string, unknown>) {
-    return this.requestJsonPost(
+    return this.requestJsonPut(
       companyId,
       deviceId,
       '/ISAPI/AccessControl/FingerPrint/SetUp?format=json',
@@ -230,11 +230,19 @@ export class HikvisionAccessControlService {
     );
   }
 
+  async createFingerprint(companyId: number, deviceId: number, payload: Record<string, unknown>) {
+    return this.setupFingerprint(companyId, deviceId, payload);
+  }
+
+  async modifyFingerprint(companyId: number, deviceId: number, payload: Record<string, unknown>) {
+    return this.setupFingerprint(companyId, deviceId, payload);
+  }
+
   async deleteFingerprint(companyId: number, deviceId: number, payload: Record<string, unknown>) {
-    return this.requestJsonPost(
+    return this.requestJsonPut(
       companyId,
       deviceId,
-      '/ISAPI/AccessControl/FingerPrint/SetUp?format=json',
+      '/ISAPI/AccessControl/FingerPrint/Delete?format=json',
       payload,
     );
   }

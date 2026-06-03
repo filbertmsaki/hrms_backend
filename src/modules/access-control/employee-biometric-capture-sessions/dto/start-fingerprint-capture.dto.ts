@@ -28,4 +28,9 @@ export class StartFingerprintCaptureDto {
   @IsBoolean()
   @IsOptional()
   overwrite?: boolean;
+
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  sync_to_device?: boolean;
 }

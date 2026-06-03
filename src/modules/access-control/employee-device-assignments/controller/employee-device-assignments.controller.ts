@@ -25,9 +25,14 @@ import {
   ApiUpdateOperation,
 } from '../../../../docs/swagger-decorators';
 import { AssignEmployeeDevicesDto } from '../dto/assign-employee-devices.dto';
+import { CaptureEmployeeDeviceFingerprintDto } from '../dto/capture-employee-device-fingerprint.dto';
+import { DeleteEmployeeDeviceFingerprintDto } from '../dto/delete-employee-device-fingerprint.dto';
 import { DeleteEmployeeDevicePasswordDto } from '../dto/delete-employee-device-password.dto';
 import { HikvisionUserSearchQueryDto } from '../dto/hikvision-user-search-query.dto';
+import { SaveEmployeeDeviceFingerprintDto } from '../dto/save-employee-device-fingerprint.dto';
 import { SetEmployeeDevicePasswordDto } from '../dto/set-employee-device-password.dto';
+import { SyncEmployeeDeviceFingerprintDto } from '../dto/sync-employee-device-fingerprint.dto';
+import { UpdateEmployeeDeviceFingerprintDto } from '../dto/update-employee-device-fingerprint.dto';
 import { UpdateEmployeeDeviceUserDto } from '../dto/update-employee-device-user.dto';
 import { EmployeeDeviceAssignmentsService } from '../service/employee-device-assignments.service';
 
@@ -131,6 +136,245 @@ export class EmployeeDeviceAssignmentsController {
     @Param('deviceId', ParseIntPipe) deviceId: number,
   ) {
     return this.assignmentsService.getUser(req.user.companyId!, employeeId, deviceId);
+  }
+
+  @Get(':employeeId/devices/:deviceId/users/fingerprints')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_device_assignments:read')
+  @ApiListOperation(
+    'List Device Fingerprints',
+    'List backend-managed fingerprints for one employee-device assignment',
+  )
+  listFingerprints(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+  ) {
+    return this.assignmentsService.listFingerprints(req.user.companyId!, employeeId, deviceId);
+  }
+
+  @Post(':employeeId/devices/:deviceId/users/fingerprints/capture')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_device_assignments:update')
+  @ApiActionOperation(
+    'Capture Device Fingerprint',
+    'Capture one fingerprint from the assigned Hikvision device and save it in the backend source of truth',
+  )
+  captureFingerprint(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+    @Body() dto: CaptureEmployeeDeviceFingerprintDto,
+  ) {
+    return this.assignmentsService.captureFingerprint(
+      req.user.companyId!,
+      employeeId,
+      deviceId,
+      dto,
+      {
+        performedByCompanyUserId: req.user.companyMembershipId,
+        performedByUserId: req.user.id,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      },
+    );
+  }
+
+  @Post(':employeeId/devices/:deviceId/users/fingerprints')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_device_assignments:update')
+  @ApiActionOperation(
+    'Create Device Fingerprint',
+    'Save a backend fingerprint template and optionally synchronize it to the assigned device',
+  )
+  createFingerprint(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+    @Body() dto: SaveEmployeeDeviceFingerprintDto,
+  ) {
+    return this.assignmentsService.createFingerprint(
+      req.user.companyId!,
+      employeeId,
+      deviceId,
+      dto,
+      {
+        performedByCompanyUserId: req.user.companyMembershipId,
+        performedByUserId: req.user.id,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      },
+    );
+  }
+
+  @Patch(':employeeId/devices/:deviceId/users/fingerprints/:fingerprintId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_device_assignments:update')
+  @ApiUpdateOperation(
+    'Modify Device Fingerprint',
+    'Update the backend fingerprint template and optionally resynchronize it to the assigned device',
+  )
+  modifyFingerprint(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+    @Param('fingerprintId') fingerprintId: string,
+    @Body() dto: UpdateEmployeeDeviceFingerprintDto,
+  ) {
+    return this.assignmentsService.modifyFingerprint(
+      req.user.companyId!,
+      employeeId,
+      deviceId,
+      fingerprintId,
+      dto,
+      {
+        performedByCompanyUserId: req.user.companyMembershipId,
+        performedByUserId: req.user.id,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      },
+    );
+  }
+
+  @Post(':employeeId/devices/:deviceId/users/fingerprints/:fingerprintId/sync')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_device_assignments:update')
+  @ApiActionOperation(
+    'Sync Device Fingerprint',
+    'Synchronize a saved backend fingerprint to the assigned Hikvision device',
+  )
+  syncFingerprint(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+    @Param('fingerprintId') fingerprintId: string,
+    @Body() dto: SyncEmployeeDeviceFingerprintDto,
+  ) {
+    return this.assignmentsService.syncFingerprint(
+      req.user.companyId!,
+      employeeId,
+      deviceId,
+      fingerprintId,
+      dto,
+      {
+        performedByCompanyUserId: req.user.companyMembershipId,
+        performedByUserId: req.user.id,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      },
+    );
+  }
+
+  @Post(':employeeId/devices/:deviceId/users/fingerprints/:fingerprintId/resync')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_device_assignments:update')
+  @ApiActionOperation(
+    'Resync Device Fingerprint',
+    'Resynchronize one saved backend fingerprint to the assigned Hikvision device',
+  )
+  resyncFingerprint(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+    @Param('fingerprintId') fingerprintId: string,
+    @Body() dto: SyncEmployeeDeviceFingerprintDto,
+  ) {
+    return this.assignmentsService.resyncFingerprint(
+      req.user.companyId!,
+      employeeId,
+      deviceId,
+      fingerprintId,
+      dto,
+      {
+        performedByCompanyUserId: req.user.companyMembershipId,
+        performedByUserId: req.user.id,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      },
+    );
+  }
+
+  @Patch(':employeeId/devices/:deviceId/users/fingerprints/:fingerprintId/disable')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_device_assignments:update')
+  @ApiActionOperation(
+    'Disable Device Fingerprint',
+    'Disable one assignment fingerprint locally without deleting it from the backend source of truth',
+  )
+  disableFingerprint(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+    @Param('fingerprintId') fingerprintId: string,
+  ) {
+    return this.assignmentsService.disableFingerprint(
+      req.user.companyId!,
+      employeeId,
+      deviceId,
+      fingerprintId,
+      {
+        performedByCompanyUserId: req.user.companyMembershipId,
+        performedByUserId: req.user.id,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      },
+    );
+  }
+
+  @Patch(':employeeId/devices/:deviceId/users/fingerprints/:fingerprintId/enable')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_device_assignments:update')
+  @ApiActionOperation(
+    'Enable Device Fingerprint',
+    'Re-enable one saved fingerprint for the employee-device assignment',
+  )
+  enableFingerprint(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+    @Param('fingerprintId') fingerprintId: string,
+  ) {
+    return this.assignmentsService.enableFingerprint(
+      req.user.companyId!,
+      employeeId,
+      deviceId,
+      fingerprintId,
+      {
+        performedByCompanyUserId: req.user.companyMembershipId,
+        performedByUserId: req.user.id,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      },
+    );
+  }
+
+  @Delete(':employeeId/devices/:deviceId/users/fingerprints/:fingerprintId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_device_assignments:delete')
+  @ApiDeleteOperation(
+    'Delete Device Fingerprint',
+    'Delete one fingerprint from the assigned device first, then update the backend sync state',
+  )
+  deleteFingerprint(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+    @Param('fingerprintId') fingerprintId: string,
+    @Body() dto: DeleteEmployeeDeviceFingerprintDto,
+  ) {
+    return this.assignmentsService.deleteFingerprint(
+      req.user.companyId!,
+      employeeId,
+      deviceId,
+      fingerprintId,
+      dto,
+      {
+        performedByCompanyUserId: req.user.companyMembershipId,
+        performedByUserId: req.user.id,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      },
+    );
   }
 
   @Patch(':employeeId/devices/:deviceId/users/disable')

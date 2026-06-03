@@ -30,9 +30,15 @@ import { AccessScheduleTemplateStatusEnum } from '../../access-schedule-template
 import { EmployeeAccessCredential } from '../../employee-access-credentials/entity/employee-access-credential.entity';
 import { EmployeeAccessCredentialStatusEnum } from '../../employee-access-credentials/enum/employee-access-credential-status.enum';
 import { EmployeeAccessCredentialTypeEnum } from '../../employee-access-credentials/enum/employee-access-credential-type.enum';
+import { EmployeeBiometricCaptureSessionService } from '../../employee-biometric-capture-sessions/service/employee-biometric-capture-session.service';
 import { AssignEmployeeDevicesDto } from '../dto/assign-employee-devices.dto';
+import { CaptureEmployeeDeviceFingerprintDto } from '../dto/capture-employee-device-fingerprint.dto';
+import { DeleteEmployeeDeviceFingerprintDto } from '../dto/delete-employee-device-fingerprint.dto';
 import { HikvisionUserSearchQueryDto } from '../dto/hikvision-user-search-query.dto';
+import { SaveEmployeeDeviceFingerprintDto } from '../dto/save-employee-device-fingerprint.dto';
 import { UpdateEmployeeDeviceUserDto } from '../dto/update-employee-device-user.dto';
+import { UpdateEmployeeDeviceFingerprintDto } from '../dto/update-employee-device-fingerprint.dto';
+import { SyncEmployeeDeviceFingerprintDto } from '../dto/sync-employee-device-fingerprint.dto';
 import { EmployeeDeviceAssignment } from '../entity/employee-device-assignment.entity';
 import { EmployeeDeviceAssignmentSyncStatusEnum } from '../enum/employee-device-assignment-sync-status.enum';
 import { EmployeeDeviceRightPlan } from '../../employee-device-right-plans/entity/employee-device-right-plan.entity';
@@ -81,6 +87,13 @@ type PasswordState = {
   user_verify_mode: string | null;
 };
 
+type AssignmentActor = {
+  performedByCompanyUserId?: number;
+  performedByUserId?: number;
+  ipAddress?: string;
+  userAgent?: string;
+};
+
 @Injectable()
 export class EmployeeDeviceAssignmentsService {
   private readonly logger = new Logger(EmployeeDeviceAssignmentsService.name);
@@ -107,6 +120,7 @@ export class EmployeeDeviceAssignmentsService {
     @InjectRepository(AccessScheduleTemplate)
     private readonly accessScheduleTemplateRepository: Repository<AccessScheduleTemplate>,
     private readonly hikvisionUserManagementService: HikvisionUserManagementService,
+    private readonly biometricCaptureSessionService: EmployeeBiometricCaptureSessionService,
   ) {}
 
   async assignDevices(companyId: number, employeeId: number, dto: AssignEmployeeDevicesDto) {
@@ -434,6 +448,155 @@ export class EmployeeDeviceAssignmentsService {
       assignment: await this.findAssignmentDetailsOrFail(saved.id),
       device_result: result.device_response,
     };
+  }
+
+  async listFingerprints(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+  ) {
+    await this.findAssignmentByEmployeeOrFail(companyId, employeeId, deviceId);
+    return this.biometricCaptureSessionService.findEmployeeFingerprints(
+      companyId,
+      employeeId,
+      deviceId,
+    );
+  }
+
+  async captureFingerprint(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    dto: CaptureEmployeeDeviceFingerprintDto,
+    actor: AssignmentActor = {},
+  ) {
+    return this.biometricCaptureSessionService.captureFingerprintForAssignment(
+      companyId,
+      employeeId,
+      deviceId,
+      dto,
+      actor,
+    );
+  }
+
+  async createFingerprint(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    dto: SaveEmployeeDeviceFingerprintDto,
+    actor: AssignmentActor = {},
+  ) {
+    return this.biometricCaptureSessionService.createFingerprintForAssignment(
+      companyId,
+      employeeId,
+      deviceId,
+      dto,
+      actor,
+    );
+  }
+
+  async modifyFingerprint(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    fingerprintId: string,
+    dto: UpdateEmployeeDeviceFingerprintDto,
+    actor: AssignmentActor = {},
+  ) {
+    return this.biometricCaptureSessionService.modifyFingerprintForAssignment(
+      companyId,
+      employeeId,
+      deviceId,
+      fingerprintId,
+      dto,
+      actor,
+    );
+  }
+
+  async syncFingerprint(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    fingerprintId: string,
+    dto: SyncEmployeeDeviceFingerprintDto,
+    actor: AssignmentActor = {},
+  ) {
+    return this.biometricCaptureSessionService.syncFingerprintForAssignment(
+      companyId,
+      employeeId,
+      deviceId,
+      fingerprintId,
+      dto,
+      actor,
+    );
+  }
+
+  async resyncFingerprint(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    fingerprintId: string,
+    dto: SyncEmployeeDeviceFingerprintDto,
+    actor: AssignmentActor = {},
+  ) {
+    return this.syncFingerprint(
+      companyId,
+      employeeId,
+      deviceId,
+      fingerprintId,
+      dto,
+      actor,
+    );
+  }
+
+  async enableFingerprint(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    fingerprintId: string,
+    actor: AssignmentActor = {},
+  ) {
+    return this.biometricCaptureSessionService.enableFingerprintForAssignment(
+      companyId,
+      employeeId,
+      deviceId,
+      fingerprintId,
+      actor,
+    );
+  }
+
+  async disableFingerprint(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    fingerprintId: string,
+    actor: AssignmentActor = {},
+  ) {
+    return this.biometricCaptureSessionService.disableFingerprintForAssignment(
+      companyId,
+      employeeId,
+      deviceId,
+      fingerprintId,
+      actor,
+    );
+  }
+
+  async deleteFingerprint(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    fingerprintId: string,
+    dto: DeleteEmployeeDeviceFingerprintDto,
+    actor: AssignmentActor = {},
+  ) {
+    return this.biometricCaptureSessionService.deleteFingerprintForAssignment(
+      companyId,
+      employeeId,
+      deviceId,
+      fingerprintId,
+      dto.card_reader_no ?? 1,
+      actor,
+    );
   }
 
   async removeDoorPermissionOnly(companyId: number, employeeId: number, deviceId: number) {
