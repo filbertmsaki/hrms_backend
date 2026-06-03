@@ -8,6 +8,7 @@ import { IsNull, Repository } from 'typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
 import { Employee } from '../../../hr/employees/entities/employee.entity';
+import { HikvisionUserManagementService } from '../../../hikvision/hikvision-user-management.service';
 import { EmployeeDeviceAssignment } from '../../employee-device-assignments/entity/employee-device-assignment.entity';
 import { CreateEmployeeAccessCredentialDto } from '../dto/create-employee-access-credential.dto';
 import { UpdateEmployeeAccessCredentialDto } from '../dto/update-employee-access-credential.dto';
@@ -25,6 +26,7 @@ export class EmployeeAccessCredentialsService {
     private readonly attendanceDeviceRepository: Repository<AttendanceDevice>,
     @InjectRepository(EmployeeDeviceAssignment)
     private readonly employeeDeviceAssignmentRepository: Repository<EmployeeDeviceAssignment>,
+    private readonly hikvisionUserManagementService: HikvisionUserManagementService,
   ) {}
 
   async createOrReplace(
@@ -73,7 +75,13 @@ export class EmployeeAccessCredentialsService {
     item.faceCount = dto.face_count ?? 0;
     item.hasFingerprint = dto.has_fingerprint ?? (item.fingerprintCount > 0);
     item.hasFace = dto.has_face ?? (item.faceCount > 0);
-    item.metadata = dto.metadata ?? item.metadata ?? null;
+    item.metadata = await this.resolveCredentialMetadata(
+      companyId,
+      resolvedDeviceId,
+      credentialType,
+      dto.user_verify_mode,
+      dto.metadata ?? item.metadata ?? null,
+    );
 
     return this.map(await this.credentialRepository.save(item));
   }
@@ -108,7 +116,13 @@ export class EmployeeAccessCredentialsService {
     if (dto.face_count !== undefined) item.faceCount = dto.face_count;
     if (dto.has_fingerprint !== undefined) item.hasFingerprint = dto.has_fingerprint;
     if (dto.has_face !== undefined) item.hasFace = dto.has_face;
-    if (dto.metadata !== undefined) item.metadata = dto.metadata;
+    item.metadata = await this.resolveCredentialMetadata(
+      companyId,
+      resolvedDeviceId,
+      item.credentialType,
+      dto.user_verify_mode,
+      dto.metadata !== undefined ? dto.metadata : item.metadata,
+    );
 
     if (dto.has_fingerprint === undefined && dto.fingerprint_count !== undefined) {
       item.hasFingerprint = dto.fingerprint_count > 0;
@@ -167,6 +181,7 @@ export class EmployeeAccessCredentialsService {
       face_count: item.faceCount,
       has_fingerprint: item.hasFingerprint,
       has_face: item.hasFace,
+      user_verify_mode: this.extractCredentialUserVerifyMode(item),
       metadata: this.maskSensitivePayload(item.metadata),
       created_at: item.createdAt,
       updated_at: item.updatedAt,
@@ -240,5 +255,80 @@ export class EmployeeAccessCredentialsService {
     }
 
     return deviceId;
+  }
+
+  private async resolveCredentialMetadata(
+    companyId: number,
+    deviceId: number | null,
+    credentialType: EmployeeAccessCredentialTypeEnum,
+    explicitUserVerifyMode: string | null | undefined,
+    metadata: Record<string, unknown> | null,
+  ) {
+    const baseMetadata = this.toObject(metadata);
+    const hikvisionMetadata = this.toObject(baseMetadata.hikvision);
+    const currentUserVerifyMode = this.toNullableString(
+      explicitUserVerifyMode ?? hikvisionMetadata.user_verify_mode,
+    );
+
+    if (!deviceId && currentUserVerifyMode) {
+      throw new BadRequestException(
+        'device_id or an existing employee-device assignment is required to validate user_verify_mode',
+      );
+    }
+
+    let resolvedUserVerifyMode = currentUserVerifyMode;
+    if (deviceId) {
+      resolvedUserVerifyMode = await this.hikvisionUserManagementService.resolveSupportedUserVerifyMode(
+        companyId,
+        deviceId,
+        currentUserVerifyMode,
+        this.buildCredentialUserVerifyModeCandidates(credentialType),
+        'employee access credential',
+      );
+    }
+
+    return {
+      ...baseMetadata,
+      hikvision: {
+        ...hikvisionMetadata,
+        user_verify_mode: resolvedUserVerifyMode,
+      },
+    };
+  }
+
+  private buildCredentialUserVerifyModeCandidates(
+    credentialType: EmployeeAccessCredentialTypeEnum,
+  ): string[] {
+    switch (credentialType) {
+      case EmployeeAccessCredentialTypeEnum.PASSWORD:
+      case EmployeeAccessCredentialTypeEnum.PIN:
+        return ['cardOrFpOrPw', 'cardAndPw', 'fpAndPw', 'fpAndCardAndPw'];
+      case EmployeeAccessCredentialTypeEnum.CARD:
+        return ['cardOrFpOrPw', 'cardAndPw', 'fpAndCard', 'fpAndCardAndPw', 'fpOrCard', 'card'];
+      case EmployeeAccessCredentialTypeEnum.FINGERPRINT:
+        return ['cardOrFpOrPw', 'fpAndPw', 'fpAndCard', 'fpAndCardAndPw', 'fpOrCard', 'fp'];
+      default:
+        return ['cardOrFpOrPw'];
+    }
+  }
+
+  private extractCredentialUserVerifyMode(item: EmployeeAccessCredential): string | null {
+    return this.toNullableString(this.toObject(this.toObject(item.metadata).hikvision).user_verify_mode);
+  }
+
+  private toObject(value: unknown): Record<string, unknown> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return {};
+    }
+    return value as Record<string, unknown>;
+  }
+
+  private toNullableString(value: unknown): string | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+
+    const normalized = String(value).trim();
+    return normalized ? normalized : null;
   }
 }

@@ -361,11 +361,13 @@ export class HikvisionService {
     ]);
     const mappedFields = this.extractMappedFields(deviceInfoRoot, capabilitiesRoot);
     const mappedSourceKeys = this.getMappedSourceKeys();
+    const supportedUserVerifyModes = this.extractSupportedUserVerifyModes(capabilitiesRoot);
 
     return {
       deviceInfo: deviceInfoRoot,
       accessControlCapabilities: capabilitiesRoot,
       mappedFields,
+      supportedUserVerifyModes,
       metadataExtras: {
         device_info: this.stripMappedKeysDeep(deviceInfoRoot, mappedSourceKeys),
         access_control_capabilities: this.stripMappedKeysDeep(capabilitiesRoot, mappedSourceKeys),
@@ -519,6 +521,7 @@ export class HikvisionService {
       hikvision: {
         ...existingHikvision,
         last_synced_at: new Date().toISOString(),
+        supported_user_verify_modes: snapshot.supportedUserVerifyModes,
         metadata_extras: snapshot.metadataExtras,
         mapped_column_keys: this.getMappedFieldKeys(snapshot.mappedFields),
       },
@@ -894,7 +897,51 @@ export class HikvisionService {
     return true;
   }
 
+  private extractSupportedUserVerifyModes(capabilities: Record<string, unknown>): string[] {
+    const modes: string[] = [];
+
+    const visit = (node: unknown): void => {
+      if (!node) return;
+
+      if (Array.isArray(node)) {
+        for (const item of node) {
+          visit(item);
+        }
+        return;
+      }
+
+      if (typeof node !== 'object') {
+        return;
+      }
+
+      const record = node as Record<string, unknown>;
+      for (const [key, value] of Object.entries(record)) {
+        if (key.toLowerCase() === 'userverifymode') {
+          const valueRoot =
+            value && typeof value === 'object' && !Array.isArray(value)
+              ? (value as Record<string, unknown>)
+              : {};
+          const raw = [valueRoot['@opt'], valueRoot.opt, valueRoot.options, valueRoot.option]
+            .map((item) => (item === null || item === undefined ? '' : String(item).trim()))
+            .find((item) => item.length > 0);
+
+          if (raw) {
+            modes.push(...raw.split(',').map((item) => item.trim()));
+          }
+        }
+
+        visit(value);
+      }
+    };
+
+    visit(capabilities);
+
+    return [...new Set(modes.filter((item) => item.length > 0))];
+  }
+
   private mapDevice(device: AttendanceDevice) {
+    const hikvisionMetadata = this.toObject(this.toObject(device.metadata).hikvision);
+
     return {
       id: device.id,
       company_id: device.companyId,
@@ -919,6 +966,9 @@ export class HikvisionService {
       device_type: device.deviceType,
       timezone: device.timezone,
       location_description: device.locationDescription,
+      supported_user_verify_modes: Array.isArray(hikvisionMetadata.supported_user_verify_modes)
+        ? hikvisionMetadata.supported_user_verify_modes
+        : [],
       metadata: device.metadata,
       created_at: device.createdAt,
       updated_at: device.updatedAt,

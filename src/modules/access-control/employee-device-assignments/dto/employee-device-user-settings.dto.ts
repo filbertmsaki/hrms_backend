@@ -6,6 +6,8 @@ import {
   IsInt,
   IsObject,
   IsOptional,
+  IsString,
+  MaxLength,
   Min,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
@@ -58,6 +60,12 @@ export class EmployeeDeviceUserSettingsDto {
   @Min(0)
   @IsOptional()
   open_door_time?: number;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @MaxLength(120)
+  @IsOptional()
+  user_verify_mode?: string;
 
   @ApiPropertyOptional({ description: 'Arbitrary metadata JSON object' })
   @IsObject()

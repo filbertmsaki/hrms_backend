@@ -965,6 +965,17 @@ export class AccessControlSyncService {
 
       const userName = `${employee.first_name} ${employee.last_name}`.trim();
       const credentialBundle = this.buildCredentialBundle(credentials, deviceId);
+      const userVerifyMode = await this.resolveSupportedUserVerifyModeForDevice(
+        companyId,
+        deviceId,
+        credentialBundle.explicitUserVerifyMode,
+        this.buildUserVerifyModeCandidates(
+          Boolean(credentialBundle.password),
+          credentialBundle.hasFingerprint,
+          Boolean(credentialBundle.cardNo),
+        ),
+        'access-control sync',
+      );
 
       const userInfoPayload = {
         UserInfo: {
@@ -972,7 +983,7 @@ export class AccessControlSyncService {
           name: userName,
           userType: 'normal',
           ...(credentialBundle.password ? { password: credentialBundle.password } : {}),
-          userVerifyMode: credentialBundle.userVerifyMode,
+          userVerifyMode,
           Valid: {
             enable: assignment?.validEnabled ?? true,
             beginTime: this.formatHikvisionDateTime(
@@ -1024,7 +1035,7 @@ export class AccessControlSyncService {
           user_sync: 'OK',
           password_sync: credentialBundle.password ? 'OK' : 'SKIPPED',
           fingerprint_mode: credentialBundle.hasFingerprint ? 'ENABLED' : 'SKIPPED',
-          user_verify_mode: credentialBundle.userVerifyMode,
+          user_verify_mode: userVerifyMode,
         },
         old_values: null,
         new_values: {
@@ -1315,6 +1326,15 @@ export class AccessControlSyncService {
     return value as Record<string, unknown>;
   }
 
+  private toNullableString(value: unknown): string | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+
+    const normalized = String(value).trim();
+    return normalized ? normalized : null;
+  }
+
   private formatWeekDay(value: string): string {
     const normalized = String(value ?? '').trim().toLowerCase();
     return normalized ? `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}` : 'Monday';
@@ -1350,12 +1370,17 @@ export class AccessControlSyncService {
     const password = passwordCredential?.pinPassword?.trim() || null;
     const cardNo = cardCredential?.cardNo?.trim() || null;
     const hasFingerprint = Boolean(fingerprintCredential?.hasFingerprint || fingerprintCredential);
+    const explicitUserVerifyMode =
+      this.extractCredentialUserVerifyMode(passwordCredential)
+      ?? this.extractCredentialUserVerifyMode(cardCredential)
+      ?? this.extractCredentialUserVerifyMode(fingerprintCredential);
 
     return {
       password,
       cardNo,
       hasFingerprint,
       fingerprintCredential: fingerprintCredential ?? null,
+      explicitUserVerifyMode,
       userVerifyMode: this.resolveUserVerifyMode(Boolean(password), hasFingerprint, Boolean(cardNo)),
     };
   }
@@ -1365,31 +1390,99 @@ export class AccessControlSyncService {
     hasFingerprint: boolean,
     hasCard: boolean,
   ): string {
+    return this.buildUserVerifyModeCandidates(hasPassword, hasFingerprint, hasCard)[0] ?? 'cardOrFpOrPw';
+  }
+
+  private buildUserVerifyModeCandidates(
+    hasPassword: boolean,
+    hasFingerprint: boolean,
+    hasCard: boolean,
+  ): string[] {
     if (hasFingerprint && hasCard && hasPassword) {
-      return 'fpAndCardAndPw';
+      return ['fpAndCardAndPw', 'cardOrFpOrPw'];
     }
-
     if (hasFingerprint && hasPassword) {
-      return 'fpAndPw';
+      return ['fpAndPw', 'cardOrFpOrPw', 'fpAndCardAndPw'];
     }
-
     if (hasCard && hasPassword) {
-      return 'cardAndPw';
+      return ['cardAndPw', 'cardOrFpOrPw', 'fpAndCardAndPw'];
     }
-
     if (hasFingerprint && hasCard) {
-      return 'fpAndCard';
+      return ['fpAndCard', 'fpOrCard', 'cardOrFpOrPw'];
     }
-
     if (hasFingerprint) {
-      return 'fp';
+      return ['fp', 'fpOrCard', 'cardOrFpOrPw'];
     }
-
     if (hasCard) {
-      return 'card';
+      return ['card', 'fpOrCard', 'cardOrFpOrPw'];
+    }
+    if (hasPassword) {
+      return ['cardOrFpOrPw', 'cardAndPw', 'fpAndPw', 'fpAndCardAndPw'];
+    }
+    return ['cardOrFpOrPw'];
+  }
+
+  private async resolveSupportedUserVerifyModeForDevice(
+    companyId: number,
+    deviceId: number,
+    explicitUserVerifyMode: string | null,
+    candidateModes: string[],
+    context: string,
+  ): Promise<string> {
+    const device = await this.attendanceDeviceRepository.findOne({
+      where: { id: deviceId, companyId },
+      select: ['id', 'companyId', 'metadata'],
+    });
+    if (!device) {
+      throw new NotFoundException('Device not found for verification-mode validation');
     }
 
-    return 'cardOrFpOrPw';
+    const supportedModes = this.extractSupportedUserVerifyModesFromDeviceMetadata(device.metadata);
+    const normalizedExplicit = this.toNullableString(explicitUserVerifyMode);
+    if (normalizedExplicit) {
+      if (supportedModes.length > 0 && !supportedModes.includes(normalizedExplicit)) {
+        throw new BadRequestException(
+          `Selected user_verify_mode "${normalizedExplicit}" is not supported by device ${deviceId} for ${context}. Supported modes: ${supportedModes.join(', ')}`,
+        );
+      }
+      return normalizedExplicit;
+    }
+
+    const normalizedCandidates = [...new Set(candidateModes.map((item) => String(item).trim()).filter(Boolean))];
+    if (supportedModes.length === 0) {
+      return normalizedCandidates[0] ?? 'cardOrFpOrPw';
+    }
+
+    const matched = normalizedCandidates.find((item) => supportedModes.includes(item));
+    if (matched) {
+      return matched;
+    }
+
+    throw new BadRequestException(
+      `Device ${deviceId} does not support any valid user_verify_mode for ${context}. Supported modes: ${supportedModes.join(', ')}`,
+    );
+  }
+
+  private extractSupportedUserVerifyModesFromDeviceMetadata(
+    metadata: Record<string, unknown> | null,
+  ): string[] {
+    const hikvisionMetadata = this.toObject(this.toObject(metadata).hikvision);
+    const rawModes = hikvisionMetadata.supported_user_verify_modes;
+    if (!Array.isArray(rawModes)) {
+      return [];
+    }
+
+    return [...new Set(rawModes.map((item) => String(item ?? '').trim()).filter(Boolean))];
+  }
+
+  private extractCredentialUserVerifyMode(
+    credential: EmployeeAccessCredential | null | undefined,
+  ): string | null {
+    if (!credential) {
+      return null;
+    }
+
+    return this.toNullableString(this.toObject(this.toObject(credential.metadata).hikvision).user_verify_mode);
   }
 
   private startOfToday(): Date {

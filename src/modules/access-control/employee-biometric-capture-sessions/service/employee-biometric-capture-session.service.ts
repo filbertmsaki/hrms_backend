@@ -4,12 +4,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
 import { Employee } from '../../../hr/employees/entities/employee.entity';
 import { EmployeeDeviceIdentity } from '../../../hr/attendance/processing/entities/employee-device-identity.entity';
 import { HikvisionAccessControlService } from '../../../hikvision/hikvision-access-control.service';
+import { HikvisionUserManagementService } from '../../../hikvision/hikvision-user-management.service';
 import { DeviceCommandLogService } from '../../../hikvision/device-command-logs/service/device-command-log.service';
 import { buildPaginationMeta } from '../../../hr/shared/hr.utils';
 import { EmployeeAccessCredential } from '../../employee-access-credentials/entity/employee-access-credential.entity';
@@ -56,6 +57,7 @@ export class EmployeeBiometricCaptureSessionService {
     @InjectRepository(EmployeeDeviceIdentity)
     private readonly identityRepository: Repository<EmployeeDeviceIdentity>,
     private readonly hikvisionAccessControlService: HikvisionAccessControlService,
+    private readonly hikvisionUserManagementService: HikvisionUserManagementService,
     private readonly deviceCommandLogService: DeviceCommandLogService,
     private readonly auditLogService: EmployeeDeviceAccessAuditLogService,
   ) {}
@@ -325,6 +327,12 @@ export class EmployeeBiometricCaptureSessionService {
         throw new NotFoundException(errorMessage);
       }
       const capturedFingerData = capture.fingerData;
+      const resolvedUserVerifyMode = await this.resolveFingerprintUserVerifyMode(
+        companyId,
+        employee.id,
+        device.id,
+        dto.user_verify_mode,
+      );
 
       this.validateFingerprintQuality(capture.fingerPrintQuality, dto.min_quality);
 
@@ -340,6 +348,7 @@ export class EmployeeBiometricCaptureSessionService {
         sessionId: session.id,
         overwrite: Boolean(dto.overwrite),
         syncStatus: 'CAPTURED',
+        userVerifyMode: resolvedUserVerifyMode,
       });
 
       const setupPayload = {
@@ -352,6 +361,21 @@ export class EmployeeBiometricCaptureSessionService {
           checkEmployeeNo: true,
         },
       };
+
+      const userModeResponse = await this.hikvisionAccessControlService.modifyUserInfo(companyId, device.id, {
+        UserInfo: {
+          employeeNo: deviceEmployeeNo,
+          userVerifyMode: resolvedUserVerifyMode,
+        },
+      });
+      if (!userModeResponse.ok) {
+        throw new BadRequestException(
+          this.extractDeviceErrorMessage(
+            userModeResponse.parsed,
+            `Failed to set user_verify_mode on device ${device.id} before fingerprint setup`,
+          ),
+        );
+      }
 
       const setupCommandLog = await this.deviceCommandLogService.create({
         company_id: companyId,
@@ -510,6 +534,12 @@ export class EmployeeBiometricCaptureSessionService {
       throw new BadRequestException(message);
     }
     const capturedFingerData = capture.fingerData;
+    const resolvedUserVerifyMode = await this.resolveFingerprintUserVerifyMode(
+      companyId,
+      employee.id,
+      device.id,
+      dto.user_verify_mode,
+    );
 
     this.validateFingerprintQuality(capture.fingerPrintQuality, dto.min_quality);
     await this.saveFingerprintCredential({
@@ -524,6 +554,7 @@ export class EmployeeBiometricCaptureSessionService {
       sessionId: session.id,
       overwrite: Boolean(dto.overwrite),
       syncStatus: 'CAPTURED',
+      userVerifyMode: resolvedUserVerifyMode,
     });
 
     await this.markSuccess(session.id, {
@@ -562,6 +593,12 @@ export class EmployeeBiometricCaptureSessionService {
     const device = await this.findDeviceOrFail(companyId, dto.device_id);
     const fingerprintId = this.normalizeFingerprintId(dto.fingerprint_id);
     const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(companyId, employee.id, device.id);
+    const resolvedUserVerifyMode = await this.resolveFingerprintUserVerifyMode(
+      companyId,
+      employee.id,
+      device.id,
+      dto.user_verify_mode,
+    );
     this.validateFingerprintQuality(dto.finger_print_quality, dto.min_quality);
 
     await this.saveFingerprintCredential({
@@ -576,6 +613,7 @@ export class EmployeeBiometricCaptureSessionService {
       sessionId: null,
       overwrite: Boolean(dto.overwrite),
       syncStatus: 'SAVED',
+      userVerifyMode: resolvedUserVerifyMode,
     });
 
     await this.auditLogService.create({
@@ -637,6 +675,27 @@ export class EmployeeBiometricCaptureSessionService {
     }
 
     const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(companyId, employee.id, device.id);
+    const resolvedUserVerifyMode = await this.resolveFingerprintUserVerifyMode(
+      companyId,
+      employee.id,
+      device.id,
+      this.toNullableString(dto.user_verify_mode) ?? this.toNullableString(this.toObject(metadata.hikvision).user_verify_mode),
+    );
+
+    const userModeResponse = await this.hikvisionAccessControlService.modifyUserInfo(companyId, device.id, {
+      UserInfo: {
+        employeeNo: deviceEmployeeNo,
+        userVerifyMode: resolvedUserVerifyMode,
+      },
+    });
+    if (!userModeResponse.ok) {
+      throw new BadRequestException(
+        this.extractDeviceErrorMessage(
+          userModeResponse.parsed,
+          `Failed to set user_verify_mode on device ${device.id} before fingerprint sync`,
+        ),
+      );
+    }
 
     const setupPayload = this.buildFingerprintSetupPayload(
       deviceEmployeeNo,
@@ -672,11 +731,16 @@ export class EmployeeBiometricCaptureSessionService {
           enabled: Boolean(
             this.toObject(this.toObject(metadata.device_syncs)[String(device.id)]).enabled ?? true,
           ),
+          user_verify_mode: resolvedUserVerifyMode,
           sync_status: syncStatus,
           last_synced_at: new Date().toISOString(),
           last_error_message: syncStatus === 'SYNCED' ? null : syncErrorMessage,
         },
       ),
+      hikvision: {
+        ...this.toObject(metadata.hikvision),
+        user_verify_mode: resolvedUserVerifyMode,
+      },
       setup_response: this.maskSensitivePayload(this.toObject(setupResponse.parsed)),
     };
     credential.metadata = updatedMetadata;
@@ -1044,6 +1108,7 @@ export class EmployeeBiometricCaptureSessionService {
       sessionId,
       overwrite: true,
       syncStatus,
+      userVerifyMode: null,
     });
 
     credential.metadata = {
@@ -1078,6 +1143,7 @@ export class EmployeeBiometricCaptureSessionService {
     sessionId: number | null;
     overwrite: boolean;
     syncStatus: string;
+    userVerifyMode: string | null | undefined;
   }) {
     const fingerData = input.fingerData.trim();
     if (!fingerData) {
@@ -1122,6 +1188,7 @@ export class EmployeeBiometricCaptureSessionService {
     const existingMetadata = this.toObject(credential.metadata);
     const existingFingerprint = this.toObject(existingMetadata.fingerprint);
     const existingDeviceSyncs = this.toObject(existingMetadata.device_syncs);
+    const existingHikvision = this.toObject(existingMetadata.hikvision);
     credential.metadata = {
       ...existingMetadata,
       fingerprint: {
@@ -1135,6 +1202,12 @@ export class EmployeeBiometricCaptureSessionService {
         sync_status: input.syncStatus,
         last_updated_at: new Date().toISOString(),
       },
+      hikvision: {
+        ...existingHikvision,
+        user_verify_mode:
+          this.toNullableString(input.userVerifyMode) ??
+          this.toNullableString(existingHikvision.user_verify_mode),
+      },
       // One backend fingerprint record can be synchronized to many devices, so
       // device-specific employee numbers and sync states live under device_syncs.
       device_syncs: this.updateFingerprintDeviceSync(
@@ -1145,6 +1218,7 @@ export class EmployeeBiometricCaptureSessionService {
           employee_no: input.deviceEmployeeNo,
           enabled: true,
           sync_status: input.syncStatus,
+          user_verify_mode: this.toNullableString(input.userVerifyMode),
           last_updated_at: new Date().toISOString(),
         },
       ),
@@ -1356,6 +1430,62 @@ export class EmployeeBiometricCaptureSessionService {
     return assignment;
   }
 
+  private async resolveFingerprintUserVerifyMode(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    explicitUserVerifyMode?: string | null,
+  ): Promise<string> {
+    const credentials = await this.credentialRepository.find({
+      where: [
+        { companyId, employeeId, deviceId },
+        { companyId, employeeId, deviceId: IsNull() as any },
+      ],
+    });
+
+    const activeCredentials = credentials.filter(
+      (credential) => credential.credentialStatus === EmployeeAccessCredentialStatusEnum.ACTIVE,
+    );
+    const hasPassword = activeCredentials.some(
+      (credential) =>
+        (credential.credentialType === EmployeeAccessCredentialTypeEnum.PASSWORD
+          || credential.credentialType === EmployeeAccessCredentialTypeEnum.PIN)
+        && Boolean(credential.pinPassword?.trim()),
+    );
+    const hasCard = activeCredentials.some(
+      (credential) =>
+        credential.credentialType === EmployeeAccessCredentialTypeEnum.CARD
+        && Boolean(credential.cardNo?.trim()),
+    );
+
+    return this.hikvisionUserManagementService.resolveSupportedUserVerifyMode(
+      companyId,
+      deviceId,
+      explicitUserVerifyMode,
+      this.buildFingerprintUserVerifyModeCandidates(hasPassword, hasCard),
+      'fingerprint synchronization',
+    );
+  }
+
+  private buildFingerprintUserVerifyModeCandidates(
+    hasPassword: boolean,
+    hasCard: boolean,
+  ): string[] {
+    if (hasPassword && hasCard) {
+      return ['fpAndCardAndPw', 'fpAndPw', 'fpAndCard', 'cardOrFpOrPw'];
+    }
+
+    if (hasPassword) {
+      return ['fpAndPw', 'cardOrFpOrPw', 'fpAndCardAndPw'];
+    }
+
+    if (hasCard) {
+      return ['fpAndCard', 'fpOrCard', 'cardOrFpOrPw', 'fp'];
+    }
+
+    return ['fp', 'fpOrCard', 'cardOrFpOrPw'];
+  }
+
   private extractFingerprintSetupStatus(payload: unknown, cardReaderNo: number) {
     const root = this.toObject(payload);
     const status = this.toObject(root.FingerPrintStatus ?? root);
@@ -1446,6 +1576,9 @@ export class EmployeeBiometricCaptureSessionService {
       finger_type: 'normalFP',
       finger_print_quality: fingerprint.finger_print_quality ?? null,
       has_fingerprint: item.hasFingerprint,
+      user_verify_mode:
+        this.toNullableString(scopedDeviceSync.user_verify_mode)
+        ?? this.toNullableString(this.toObject(metadata.hikvision).user_verify_mode),
       enabled: Boolean(scopedDeviceSync.enabled ?? fingerprint.is_enabled ?? true),
       sync_status: scopedDeviceSync.sync_status ?? fingerprint.sync_status ?? null,
       synced_device_ids: activeDeviceSyncs
@@ -1540,6 +1673,15 @@ export class EmployeeBiometricCaptureSessionService {
   private toNullableInteger(value: unknown): number | null {
     const parsed = Number(value);
     return Number.isInteger(parsed) ? parsed : null;
+  }
+
+  private toNullableString(value: unknown): string | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+
+    const normalized = String(value).trim();
+    return normalized ? normalized : null;
   }
 
   private toObject(value: unknown): Record<string, unknown> {

@@ -51,4 +51,10 @@ export class SaveEmployeeDeviceFingerprintDto {
   @Min(1)
   @IsOptional()
   card_reader_no?: number;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @MaxLength(120)
+  @IsOptional()
+  user_verify_mode?: string;
 }

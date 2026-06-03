@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class SyncEmployeeDeviceFingerprintDto {
   @ApiPropertyOptional()
@@ -9,4 +9,10 @@ export class SyncEmployeeDeviceFingerprintDto {
   @Min(1)
   @IsOptional()
   card_reader_no?: number;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @MaxLength(120)
+  @IsOptional()
+  user_verify_mode?: string;
 }

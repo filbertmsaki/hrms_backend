@@ -34,4 +34,10 @@ export class CaptureEmployeeDeviceFingerprintDto {
   @IsBoolean()
   @IsOptional()
   sync_to_device?: boolean;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @MaxLength(120)
+  @IsOptional()
+  user_verify_mode?: string;
 }

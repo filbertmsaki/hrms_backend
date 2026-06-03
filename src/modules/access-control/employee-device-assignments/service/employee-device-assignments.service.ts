@@ -45,6 +45,10 @@ import { EmployeeDeviceRightPlan } from '../../employee-device-right-plans/entit
 
 type CredentialBundle = {
   password: string | null;
+  hasPassword: boolean;
+  hasCard: boolean;
+  hasFingerprint: boolean;
+  explicitUserVerifyMode: string | null;
   userVerifyMode: string;
 };
 
@@ -174,6 +178,7 @@ export class EmployeeDeviceAssignmentsService {
           deviceEmployeeNo,
           settings,
         );
+        settings.userVerifyMode = payload.user_verify_mode ?? settings.userVerifyMode;
 
         // Device registration must succeed first so the assignment table remains a pure
         // reflection of successful employee-device links.
@@ -274,6 +279,7 @@ export class EmployeeDeviceAssignmentsService {
       assignment.employeeNo,
       settings,
     );
+    settings.userVerifyMode = payload.user_verify_mode ?? settings.userVerifyMode;
 
     await this.hikvisionUserManagementService.updateUserOnDevice(companyId, deviceId, payload);
 
@@ -661,6 +667,7 @@ export class EmployeeDeviceAssignmentsService {
       assignment.employeeNo,
       settings,
     );
+    settings.userVerifyMode = payload.user_verify_mode ?? settings.userVerifyMode;
     const deviceState = await this.hikvisionUserManagementService.getUserByEmployeeNumber(
       companyId,
       deviceId,
@@ -830,7 +837,7 @@ export class EmployeeDeviceAssignmentsService {
       accessGroupId: groupContext.group.id,
       accessGroupName: groupContext.group.name,
       organizationId: groupContext.membership?.organizationId ?? null,
-      userVerifyMode: null,
+      userVerifyMode: this.toNullableString(input.user_verify_mode),
       validEnabled: input.valid_enabled ?? true,
       validBeginTime: this.toNullableDate(input.valid_begin_time),
       validEndTime: this.toNullableDate(input.valid_end_time),
@@ -862,7 +869,8 @@ export class EmployeeDeviceAssignmentsService {
       accessGroupId: groupContext.group.id,
       accessGroupName: groupContext.group.name,
       organizationId: groupContext.membership?.organizationId ?? assignment.organizationId ?? null,
-      userVerifyMode: assignment.userVerifyMode ?? null,
+      userVerifyMode:
+        this.toNullableString(input.user_verify_mode) ?? assignment.userVerifyMode ?? null,
       validEnabled: input.valid_enabled ?? assignment.validEnabled ?? true,
       validBeginTime:
         input.valid_begin_time !== undefined
@@ -982,6 +990,17 @@ export class EmployeeDeviceAssignmentsService {
     settings: AssignmentSettings,
   ): Promise<HikvisionDeviceUserInput> {
     const credentials = await this.buildCredentialBundle(companyId, employee.id, deviceId);
+    const resolvedUserVerifyMode = await this.hikvisionUserManagementService.resolveSupportedUserVerifyMode(
+      companyId,
+      deviceId,
+      settings.userVerifyMode ?? credentials.explicitUserVerifyMode,
+      this.buildUserVerifyModeCandidates(
+        credentials.hasPassword,
+        credentials.hasFingerprint,
+        credentials.hasCard,
+      ),
+      'employee device assignment',
+    );
 
     return {
       employee_no: deviceEmployeeNo,
@@ -1003,7 +1022,7 @@ export class EmployeeDeviceAssignmentsService {
         plan_template_no: plan.planTemplateNo,
       })),
       ...(credentials.password ? { password: credentials.password } : {}),
-      user_verify_mode: settings.userVerifyMode ?? credentials.userVerifyMode,
+      user_verify_mode: resolvedUserVerifyMode,
       local_ui_right: settings.localUiRight,
       close_delay_enabled: settings.closeDelayEnabled,
       max_open_door_time: settings.maxOpenDoorTime,
@@ -1050,9 +1069,17 @@ export class EmployeeDeviceAssignmentsService {
     const hasFingerprint = Boolean(
       fingerprintCredential?.hasFingerprint || fingerprintCredential,
     );
+    const explicitUserVerifyMode =
+      this.extractCredentialUserVerifyMode(passwordCredential)
+      ?? this.extractCredentialUserVerifyMode(cardCredential)
+      ?? this.extractCredentialUserVerifyMode(fingerprintCredential);
 
     return {
       password: passwordCredential?.pinPassword?.trim() || null,
+      hasPassword,
+      hasCard,
+      hasFingerprint,
+      explicitUserVerifyMode,
       userVerifyMode: this.resolveUserVerifyMode(hasPassword, hasFingerprint, hasCard),
     };
   }
@@ -1062,14 +1089,46 @@ export class EmployeeDeviceAssignmentsService {
     hasFingerprint: boolean,
     hasCard: boolean,
   ): string {
-    if (hasFingerprint && hasCard && hasPassword) return 'fpAndCardAndPw';
-    if (hasFingerprint && hasPassword) return 'fpAndPw';
-    if (hasCard && hasPassword) return 'cardAndPw';
-    if (hasFingerprint && hasCard) return 'fpAndCard';
-    if (hasFingerprint) return 'fp';
-    if (hasCard) return 'card';
-    if (hasPassword) return 'pw';
-    return 'cardOrFpOrPw';
+    return this.buildUserVerifyModeCandidates(hasPassword, hasFingerprint, hasCard)[0] ?? 'cardOrFpOrPw';
+  }
+
+  private buildUserVerifyModeCandidates(
+    hasPassword: boolean,
+    hasFingerprint: boolean,
+    hasCard: boolean,
+  ): string[] {
+    if (hasFingerprint && hasCard && hasPassword) {
+      return ['fpAndCardAndPw', 'cardOrFpOrPw'];
+    }
+    if (hasFingerprint && hasPassword) {
+      return ['fpAndPw', 'cardOrFpOrPw', 'fpAndCardAndPw'];
+    }
+    if (hasCard && hasPassword) {
+      return ['cardAndPw', 'cardOrFpOrPw', 'fpAndCardAndPw'];
+    }
+    if (hasFingerprint && hasCard) {
+      return ['fpAndCard', 'fpOrCard', 'cardOrFpOrPw'];
+    }
+    if (hasFingerprint) {
+      return ['fp', 'fpOrCard', 'cardOrFpOrPw'];
+    }
+    if (hasCard) {
+      return ['card', 'fpOrCard', 'cardOrFpOrPw'];
+    }
+    if (hasPassword) {
+      return ['cardOrFpOrPw', 'cardAndPw', 'fpAndPw', 'fpAndCardAndPw'];
+    }
+    return ['cardOrFpOrPw'];
+  }
+
+  private extractCredentialUserVerifyMode(
+    credential: EmployeeAccessCredential | null | undefined,
+  ): string | null {
+    if (!credential) {
+      return null;
+    }
+
+    return this.toNullableString(this.toObject(this.toObject(credential.metadata).hikvision).user_verify_mode);
   }
 
   private async resolveAvailableDeviceEmployeeNo(companyId: number, deviceId: number): Promise<string> {
@@ -1561,6 +1620,7 @@ export class EmployeeDeviceAssignmentsService {
   private mapAssignment(item: EmployeeDeviceAssignment) {
     const hikvisionMetadata = this.toObject(this.toObject(item.metadata).hikvision);
     const passwordState = this.extractPasswordState(item);
+    const deviceHikvisionMetadata = this.toObject(this.toObject(item.device?.metadata).hikvision);
 
     return {
       id: item.id,
@@ -1589,6 +1649,9 @@ export class EmployeeDeviceAssignmentsService {
       password_sync_status: passwordState.password_sync_status,
       password_last_synced_at: passwordState.password_last_synced_at,
       user_verify_mode: passwordState.user_verify_mode ?? item.userVerifyMode,
+      supported_user_verify_modes: Array.isArray(deviceHikvisionMetadata.supported_user_verify_modes)
+        ? deviceHikvisionMetadata.supported_user_verify_modes
+        : [],
       metadata: this.maskSensitivePayload(item.metadata),
       right_plan:
         item.rightPlans?.map((plan) => ({

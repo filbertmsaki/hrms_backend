@@ -47,4 +47,9 @@ export class SaveCapturedFingerprintDto {
   @Min(1)
   @IsOptional()
   card_reader_no?: number;
+
+  @IsString()
+  @MaxLength(120)
+  @IsOptional()
+  user_verify_mode?: string;
 }

@@ -157,6 +157,15 @@ type BackendUserBundle = {
   credentials: EmployeeAccessCredential[];
 };
 
+type CredentialBundle = {
+  password: string | null;
+  hasPassword: boolean;
+  hasCard: boolean;
+  hasFingerprint: boolean;
+  explicitUserVerifyMode: string | null;
+  userVerifyMode: string;
+};
+
 @Injectable()
 export class HikvisionUserManagementService {
   private readonly logger = new Logger(HikvisionUserManagementService.name);
@@ -189,7 +198,20 @@ export class HikvisionUserManagementService {
     input: HikvisionDeviceUserInput,
   ) {
     const device = await this.findHikvisionDeviceOrFail(companyId, deviceId, true);
+    const resolvedUserVerifyMode =
+      input.user_verify_mode !== undefined
+        ? await this.resolveSupportedUserVerifyMode(
+            companyId,
+            device.id,
+            input.user_verify_mode,
+            this.buildUserVerifyModeCandidates(Boolean(this.toNullableString(input.password)), false, false),
+            'manual device user creation',
+          )
+        : undefined;
     const payload = this.buildManualUserPayload(input);
+    if (resolvedUserVerifyMode) {
+      payload.UserInfo.userVerifyMode = resolvedUserVerifyMode;
+    }
 
     const response = await this.requestWithRetry(
       `create-user:${device.id}:${payload.UserInfo.employeeNo}`,
@@ -215,7 +237,24 @@ export class HikvisionUserManagementService {
     input: HikvisionDeviceUserInput,
   ) {
     const device = await this.findHikvisionDeviceOrFail(companyId, deviceId, true);
+    const resolvedUserVerifyMode =
+      input.user_verify_mode !== undefined
+        ? await this.resolveSupportedUserVerifyMode(
+            companyId,
+            device.id,
+            input.user_verify_mode,
+            this.buildUserVerifyModeCandidates(
+              input.password !== undefined && input.password !== '',
+              false,
+              false,
+            ),
+            'manual device user update',
+          )
+        : undefined;
     const payload = this.buildManualUserUpdatePayload(input);
+    if (resolvedUserVerifyMode !== undefined) {
+      payload.UserInfo.userVerifyMode = resolvedUserVerifyMode;
+    }
 
     const response = await this.requestWithRetry(
       `update-user:${device.id}:${payload.UserInfo.employeeNo}`,
@@ -391,6 +430,76 @@ export class HikvisionUserManagementService {
     };
   }
 
+  async getSupportedUserVerifyModes(companyId: number, deviceId: number): Promise<string[]> {
+    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId, false);
+    const storedModes = this.extractSupportedUserVerifyModesFromDeviceMetadata(device.metadata);
+    if (storedModes.length > 0) {
+      return storedModes;
+    }
+
+    try {
+      const response = await this.hikvisionAccessControlService.getAccessControlCapabilities(
+        companyId,
+        device.id,
+      );
+      const capabilitiesRoot = this.toObject(
+        this.toObject(response.parsed).AccessControl
+          ?? this.toObject(response.parsed).AccessControlCapability
+          ?? response.parsed,
+      );
+      const supportedModes = this.extractSupportedUserVerifyModesFromCapabilities(capabilitiesRoot);
+      if (supportedModes.length > 0) {
+        device.metadata = this.mergeMetadata(device.metadata, {
+          hikvision: {
+            supported_user_verify_modes: supportedModes,
+            last_capabilities_refresh_at: new Date().toISOString(),
+          },
+        });
+        await this.attendanceDeviceRepository.save(device);
+      }
+      return supportedModes;
+    } catch (error) {
+      this.logger.warn(
+        `Unable to refresh supported Hikvision userVerifyMode values for device ${device.id}: ${(error as Error).message}`,
+      );
+      return [];
+    }
+  }
+
+  async resolveSupportedUserVerifyMode(
+    companyId: number,
+    deviceId: number,
+    explicitUserVerifyMode: string | null | undefined,
+    candidateModes: string[],
+    context: string,
+  ): Promise<string> {
+    const normalizedExplicit = this.toNullableString(explicitUserVerifyMode);
+    const supportedModes = await this.getSupportedUserVerifyModes(companyId, deviceId);
+
+    if (normalizedExplicit) {
+      if (supportedModes.length > 0 && !supportedModes.includes(normalizedExplicit)) {
+        throw new BadRequestException(
+          `Selected user_verify_mode "${normalizedExplicit}" is not supported by device ${deviceId} for ${context}. Supported modes: ${supportedModes.join(', ')}`,
+        );
+      }
+      return normalizedExplicit;
+    }
+
+    const normalizedCandidates = [...new Set(candidateModes.map((item) => String(item).trim()).filter(Boolean))];
+    if (supportedModes.length === 0) {
+      return normalizedCandidates[0] ?? 'cardOrFpOrPw';
+    }
+
+    const matchedMode = normalizedCandidates.find((item) => supportedModes.includes(item));
+    if (matchedMode) {
+      return matchedMode;
+    }
+
+    throw new BadRequestException(
+      `Device ${deviceId} does not support any valid user_verify_mode for ${context}. Supported modes: ${supportedModes.join(', ')}`,
+    );
+  }
+
   async syncUserFromBackendToDevice(companyId: number, deviceId: number, employeeId: number) {
     const startedAt = new Date();
     const device = await this.findHikvisionDeviceOrFail(companyId, deviceId, true);
@@ -399,7 +508,7 @@ export class HikvisionUserManagementService {
       // The device employeeNo is the stable foreign key on Hikvision, so we resolve it
       // first and then build the rest of the payload around that identifier.
       const bundle = await this.buildBackendUserBundle(companyId, device.id, employeeId);
-      const payload = this.buildBackendUserPayload(bundle);
+      const payload = await this.buildBackendUserPayload(bundle);
       const userInfo = this.toObject(payload.UserInfo);
       const validInfo = this.toObject(userInfo.Valid);
       const syncedEmployeeNo = this.normalizeEmployeeNo(
@@ -942,7 +1051,7 @@ export class HikvisionUserManagementService {
     };
   }
 
-  private buildBackendUserPayload(bundle: BackendUserBundle): { UserInfo: Record<string, unknown> } {
+  private async buildBackendUserPayload(bundle: BackendUserBundle): Promise<{ UserInfo: Record<string, unknown> }> {
     const employeeNo = this.resolveDeviceEmployeeNo(bundle.assignment);
     const credentialBundle = this.buildCredentialBundle(bundle.credentials);
     const rightPlan = this.buildRightPlanPayload(bundle.assignment, bundle.rightPlans);
@@ -954,6 +1063,17 @@ export class HikvisionUserManagementService {
       this.toNullableString(metadataRoot.user_type) ||
       this.toNullableString(metadataRoot.userType);
     const userType = bundle.assignment.hikvisionUserType || metadataUserType || 'normal';
+    const resolvedUserVerifyMode = await this.resolveSupportedUserVerifyMode(
+      bundle.device.companyId,
+      bundle.device.id,
+      bundle.assignment.userVerifyMode ?? credentialBundle.explicitUserVerifyMode,
+      this.buildUserVerifyModeCandidates(
+        credentialBundle.hasPassword,
+        credentialBundle.hasFingerprint,
+        credentialBundle.hasCard,
+      ),
+      'backend-to-device user synchronization',
+    );
 
     return {
       UserInfo: {
@@ -973,10 +1093,7 @@ export class HikvisionUserManagementService {
         ...(doorRight ? { doorRight } : {}),
         ...(rightPlan.length ? { RightPlan: rightPlan } : {}),
         ...(credentialBundle.password ? { password: credentialBundle.password } : {}),
-        userVerifyMode:
-          bundle.assignment.userVerifyMode ||
-          credentialBundle.userVerifyMode ||
-          'cardOrFpOrPw',
+        userVerifyMode: resolvedUserVerifyMode,
         localUIRight: bundle.assignment.localUiRight ?? false,
         closeDelayEnabled: bundle.assignment.closeDelayEnabled ?? false,
         maxOpenDoorTime: bundle.assignment.maxOpenDoorTime ?? 0,
@@ -1265,9 +1382,17 @@ export class HikvisionUserManagementService {
     const hasFingerprint = Boolean(
       fingerprintCredential?.hasFingerprint || fingerprintCredential,
     );
+    const explicitUserVerifyMode =
+      this.extractCredentialUserVerifyMode(passwordCredential)
+      ?? this.extractCredentialUserVerifyMode(cardCredential)
+      ?? this.extractCredentialUserVerifyMode(fingerprintCredential);
 
     return {
       password: passwordCredential?.pinPassword?.trim() || null,
+      hasPassword,
+      hasCard,
+      hasFingerprint,
+      explicitUserVerifyMode,
       userVerifyMode: this.resolveUserVerifyMode(hasPassword, hasFingerprint, hasCard),
     };
   }
@@ -1339,14 +1464,7 @@ export class HikvisionUserManagementService {
     hasFingerprint: boolean,
     hasCard: boolean,
   ): string {
-    if (hasFingerprint && hasCard && hasPassword) return 'fpAndCardAndPw';
-    if (hasFingerprint && hasPassword) return 'fpAndPw';
-    if (hasCard && hasPassword) return 'cardAndPw';
-    if (hasFingerprint && hasCard) return 'fpAndCard';
-    if (hasFingerprint) return 'fp';
-    if (hasCard) return 'card';
-    if (hasPassword) return 'pw';
-    return 'cardOrFpOrPw';
+    return this.buildUserVerifyModeCandidates(hasPassword, hasFingerprint, hasCard)[0] ?? 'cardOrFpOrPw';
   }
 
   private async resolvePasswordUserVerifyMode(
@@ -1356,15 +1474,6 @@ export class HikvisionUserManagementService {
     hasPassword: boolean,
     explicitUserVerifyMode?: string,
   ): Promise<string> {
-    const normalizedExplicit = this.toNullableString(explicitUserVerifyMode);
-    if (normalizedExplicit) {
-      return normalizedExplicit;
-    }
-
-    if (hasPassword) {
-      return 'cardOrFpOrPw';
-    }
-
     const credentials = await this.employeeAccessCredentialRepository.find({
       where: [
         { companyId, employeeId, deviceId },
@@ -1385,12 +1494,63 @@ export class HikvisionUserManagementService {
         credential.credentialType === EmployeeAccessCredentialTypeEnum.FINGERPRINT ||
         credential.hasFingerprint,
     );
+    const candidateModes = hasPassword
+      ? this.buildUserVerifyModeCandidates(true, hasFingerprint, hasCard)
+      : this.buildUserVerifyModeCandidates(false, hasFingerprint, hasCard);
 
-    if (hasFingerprint || hasCard) {
-      return 'fpOrCard';
+    return this.resolveSupportedUserVerifyMode(
+      companyId,
+      deviceId,
+      explicitUserVerifyMode,
+      candidateModes,
+      hasPassword ? 'password synchronization' : 'password removal',
+    );
+  }
+
+  private buildUserVerifyModeCandidates(
+    hasPassword: boolean,
+    hasFingerprint: boolean,
+    hasCard: boolean,
+  ): string[] {
+    if (hasFingerprint && hasCard && hasPassword) {
+      return ['fpAndCardAndPw', 'cardOrFpOrPw'];
     }
 
-    return 'cardOrFpOrPw';
+    if (hasFingerprint && hasPassword) {
+      return ['fpAndPw', 'cardOrFpOrPw', 'fpAndCardAndPw'];
+    }
+
+    if (hasCard && hasPassword) {
+      return ['cardAndPw', 'cardOrFpOrPw', 'fpAndCardAndPw'];
+    }
+
+    if (hasFingerprint && hasCard) {
+      return ['fpAndCard', 'fpOrCard', 'cardOrFpOrPw'];
+    }
+
+    if (hasFingerprint) {
+      return ['fp', 'fpOrCard', 'cardOrFpOrPw'];
+    }
+
+    if (hasCard) {
+      return ['card', 'fpOrCard', 'cardOrFpOrPw'];
+    }
+
+    if (hasPassword) {
+      return ['cardOrFpOrPw', 'cardAndPw', 'fpAndPw', 'fpAndCardAndPw'];
+    }
+
+    return ['cardOrFpOrPw'];
+  }
+
+  private extractCredentialUserVerifyMode(
+    credential: EmployeeAccessCredential | null | undefined,
+  ): string | null {
+    if (!credential) {
+      return null;
+    }
+
+    return this.toNullableString(this.toObject(this.toObject(credential.metadata).hikvision).user_verify_mode);
   }
 
   private async resolveBackendSyncTargets(
@@ -1918,6 +2078,62 @@ export class HikvisionUserManagementService {
       throw new BadRequestException('plan_template_no is required');
     }
     return normalized;
+  }
+
+  private extractSupportedUserVerifyModesFromDeviceMetadata(
+    metadata: Record<string, unknown> | null | undefined,
+  ): string[] {
+    const hikvisionMetadata = this.toObject(this.toObject(metadata).hikvision);
+    const rawModes = hikvisionMetadata.supported_user_verify_modes;
+    if (!Array.isArray(rawModes)) {
+      return [];
+    }
+
+    return [...new Set(rawModes.map((item) => String(item ?? '').trim()).filter(Boolean))];
+  }
+
+  private extractSupportedUserVerifyModesFromCapabilities(
+    capabilities: Record<string, unknown>,
+  ): string[] {
+    const modes: string[] = [];
+
+    const visit = (node: unknown): void => {
+      if (!node) return;
+
+      if (Array.isArray(node)) {
+        for (const item of node) {
+          visit(item);
+        }
+        return;
+      }
+
+      if (typeof node !== 'object') {
+        return;
+      }
+
+      const record = node as Record<string, unknown>;
+      for (const [key, value] of Object.entries(record)) {
+        if (key.toLowerCase() === 'userverifymode') {
+          const root =
+            value && typeof value === 'object' && !Array.isArray(value)
+              ? (value as Record<string, unknown>)
+              : {};
+          const raw = [root['@opt'], root.opt, root.options, root.option]
+            .map((item) => (item === null || item === undefined ? '' : String(item).trim()))
+            .find((item) => item.length > 0);
+
+          if (raw) {
+            modes.push(...raw.split(',').map((item) => item.trim()));
+          }
+        }
+
+        visit(value);
+      }
+    };
+
+    visit(capabilities);
+
+    return [...new Set(modes.filter(Boolean))];
   }
 
   private ensurePositiveInteger(value: unknown, fieldName: string): number {

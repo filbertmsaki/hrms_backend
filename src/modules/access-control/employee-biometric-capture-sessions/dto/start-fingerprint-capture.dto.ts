@@ -33,4 +33,9 @@ export class StartFingerprintCaptureDto {
   @IsBoolean()
   @IsOptional()
   sync_to_device?: boolean;
+
+  @IsString()
+  @MaxLength(120)
+  @IsOptional()
+  user_verify_mode?: string;
 }

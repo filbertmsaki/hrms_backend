@@ -32,6 +32,8 @@ export class AttendanceDevicesService {
   ) {}
 
   private map(item: AttendanceDevice) {
+    const hikvisionMetadata = this.toObject(this.toObject(item.metadata).hikvision);
+
     return {
       id: item.id,
       company_id: item.companyId,
@@ -57,11 +59,21 @@ export class AttendanceDevicesService {
       device_type: item.deviceType,
       timezone: item.timezone,
       location_description: item.locationDescription,
+      supported_user_verify_modes: Array.isArray(hikvisionMetadata.supported_user_verify_modes)
+        ? hikvisionMetadata.supported_user_verify_modes
+        : [],
       metadata: item.metadata,
       created_at: item.createdAt,
       updated_at: item.updatedAt,
       deleted_at: item.deletedAt,
     };
+  }
+
+  private toObject(value: unknown): Record<string, unknown> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return {};
+    }
+    return value as Record<string, unknown>;
   }
 
   private async findOrFail(companyId: number, id: number): Promise<AttendanceDevice> {

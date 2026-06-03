@@ -15,4 +15,5 @@ export interface HikvisionSyncSnapshot {
   accessControlCapabilities: Record<string, unknown>;
   mappedFields: HikvisionMappedDeviceFields;
   metadataExtras: Record<string, unknown>;
+  supportedUserVerifyModes: string[];
 }

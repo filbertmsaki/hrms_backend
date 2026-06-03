@@ -70,4 +70,10 @@ export class CreateEmployeeAccessCredentialDto {
   @IsObject()
   @IsOptional()
   metadata?: Record<string, unknown>;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @MaxLength(120)
+  @IsOptional()
+  user_verify_mode?: string;
 }
