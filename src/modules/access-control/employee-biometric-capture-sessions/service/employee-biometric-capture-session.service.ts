@@ -1292,12 +1292,13 @@ export class EmployeeBiometricCaptureSessionService {
     cardReaderNo: number,
   ) {
     return {
-      FingerPrintCfg: {
-        employeeNo,
-        enableCardReader: [cardReaderNo],
-        fingerPrintID: fingerprintId,
-        deleteFingerPrint: true,
-        fingerType: 'normalFP',
+      FingerPrintDelete: {
+        mode: 'byEmployeeNo',
+        EmployeeNoDetail: {
+          employeeNo,
+          enableCardReader: [cardReaderNo],
+          fingerPrintID: [fingerprintId],
+        },
       },
     };
   }
