@@ -235,6 +235,89 @@ export class HikvisionUserManagementService {
     };
   }
 
+  async createUserPassword(
+    companyId: number,
+    deviceId: number,
+    employeeId: number,
+    password: string,
+    userVerifyMode?: string,
+  ) {
+    return this.syncUserPassword(
+      companyId,
+      deviceId,
+      employeeId,
+      password,
+      userVerifyMode,
+      'CREATE',
+    );
+  }
+
+  async modifyUserPassword(
+    companyId: number,
+    deviceId: number,
+    employeeId: number,
+    password: string,
+    userVerifyMode?: string,
+  ) {
+    return this.syncUserPassword(
+      companyId,
+      deviceId,
+      employeeId,
+      password,
+      userVerifyMode,
+      'MODIFY',
+    );
+  }
+
+  async deleteUserPassword(
+    companyId: number,
+    deviceId: number,
+    employeeId: number,
+    userVerifyMode?: string,
+  ) {
+    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId, true);
+    const assignment = await this.findAssignmentOrFail(companyId, device.id, employeeId);
+    const resolvedUserVerifyMode = await this.resolvePasswordUserVerifyMode(
+      companyId,
+      employeeId,
+      device.id,
+      false,
+      userVerifyMode,
+    );
+    const payload = this.buildManualUserUpdatePayload({
+      employee_no: assignment.employeeNo,
+      password: '',
+      user_verify_mode: resolvedUserVerifyMode,
+    });
+
+    try {
+      const response = await this.requestWithRetry(
+        `delete-user-password:${device.id}:${assignment.employeeNo}`,
+        () => this.hikvisionAccessControlService.modifyUserInfo(companyId, device.id, payload),
+      );
+      this.ensureHikvisionSuccess('DeleteUserPassword', response);
+      this.logger.log(
+        `Deleted Hikvision password for assignment employee ${employeeId} on device ${device.id}`,
+      );
+
+      return {
+        message: 'User password deleted on Hikvision device successfully',
+        device_id: device.id,
+        employee_id: employeeId,
+        employee_no: assignment.employeeNo,
+        password_enabled: false,
+        user_verify_mode: resolvedUserVerifyMode,
+        device_response: this.toObject(response.parsed),
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to delete Hikvision password for assignment employee ${employeeId} on device ${device.id}: ${(error as Error).message}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw error;
+    }
+  }
+
   async deleteUserFromDevice(companyId: number, deviceId: number, employeeNo: string) {
     const device = await this.findHikvisionDeviceOrFail(companyId, deviceId, true);
     const normalizedEmployeeNo = this.normalizeEmployeeNo(employeeNo);
@@ -984,7 +1067,7 @@ export class HikvisionUserManagementService {
       }));
     }
     if (input.password !== undefined) {
-      payload.password = this.toNullableString(input.password);
+      payload.password = input.password === '' ? '' : this.toNullableString(input.password);
     }
     if (input.user_verify_mode !== undefined) {
       payload.userVerifyMode = this.toNullableString(input.user_verify_mode);
@@ -1189,6 +1272,68 @@ export class HikvisionUserManagementService {
     };
   }
 
+  private async syncUserPassword(
+    companyId: number,
+    deviceId: number,
+    employeeId: number,
+    password: string,
+    userVerifyMode: string | undefined,
+    operation: 'CREATE' | 'MODIFY',
+  ) {
+    const normalizedPassword = String(password ?? '').trim();
+    if (!normalizedPassword) {
+      throw new BadRequestException('password is required');
+    }
+
+    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId, true);
+    const assignment = await this.findAssignmentOrFail(companyId, device.id, employeeId);
+    const resolvedUserVerifyMode = await this.resolvePasswordUserVerifyMode(
+      companyId,
+      employeeId,
+      device.id,
+      true,
+      userVerifyMode,
+    );
+    const payload = this.buildManualUserUpdatePayload({
+      employee_no: assignment.employeeNo,
+      password: normalizedPassword,
+      user_verify_mode: resolvedUserVerifyMode,
+    });
+
+    try {
+      const response = await this.requestWithRetry(
+        `${operation.toLowerCase()}-user-password:${device.id}:${assignment.employeeNo}`,
+        () => this.hikvisionAccessControlService.modifyUserInfo(companyId, device.id, payload),
+      );
+      this.ensureHikvisionSuccess(
+        operation === 'CREATE' ? 'CreateUserPassword' : 'ModifyUserPassword',
+        response,
+      );
+      this.logger.log(
+        `${operation === 'CREATE' ? 'Created' : 'Modified'} Hikvision password for assignment employee ${employeeId} on device ${device.id}`,
+      );
+
+      return {
+        message:
+          operation === 'CREATE'
+            ? 'User password created on Hikvision device successfully'
+            : 'User password modified on Hikvision device successfully',
+        device_id: device.id,
+        employee_id: employeeId,
+        employee_no: assignment.employeeNo,
+        password_enabled: true,
+        user_verify_mode: resolvedUserVerifyMode,
+        device_response: this.toObject(response.parsed),
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to ${operation.toLowerCase()} Hikvision password for assignment employee ${employeeId} on device ${device.id}: ${(error as Error).message}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw error;
+    }
+  }
+
   private resolveUserVerifyMode(
     hasPassword: boolean,
     hasFingerprint: boolean,
@@ -1201,6 +1346,50 @@ export class HikvisionUserManagementService {
     if (hasFingerprint) return 'fp';
     if (hasCard) return 'card';
     if (hasPassword) return 'pw';
+    return 'cardOrFpOrPw';
+  }
+
+  private async resolvePasswordUserVerifyMode(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    hasPassword: boolean,
+    explicitUserVerifyMode?: string,
+  ): Promise<string> {
+    const normalizedExplicit = this.toNullableString(explicitUserVerifyMode);
+    if (normalizedExplicit) {
+      return normalizedExplicit;
+    }
+
+    if (hasPassword) {
+      return 'cardOrFpOrPw';
+    }
+
+    const credentials = await this.employeeAccessCredentialRepository.find({
+      where: [
+        { companyId, employeeId, deviceId },
+        { companyId, employeeId, deviceId: IsNull() },
+      ],
+    });
+    const activeCredentials = credentials.filter(
+      (credential) =>
+        credential.credentialStatus === EmployeeAccessCredentialStatusEnum.ACTIVE,
+    );
+    const hasCard = activeCredentials.some(
+      (credential) =>
+        credential.credentialType === EmployeeAccessCredentialTypeEnum.CARD &&
+        Boolean(credential.cardNo?.trim()),
+    );
+    const hasFingerprint = activeCredentials.some(
+      (credential) =>
+        credential.credentialType === EmployeeAccessCredentialTypeEnum.FINGERPRINT ||
+        credential.hasFingerprint,
+    );
+
+    if (hasFingerprint || hasCard) {
+      return 'fpOrCard';
+    }
+
     return 'cardOrFpOrPw';
   }
 
@@ -1384,6 +1573,32 @@ export class HikvisionUserManagementService {
     });
 
     return assignment?.employee ?? null;
+  }
+
+  private async findAssignmentOrFail(
+    companyId: number,
+    deviceId: number,
+    employeeId: number,
+  ): Promise<EmployeeDeviceAssignment> {
+    const assignment = await this.employeeDeviceAssignmentRepository.findOne({
+      where: {
+        companyId,
+        deviceId,
+        employeeId,
+      },
+    });
+
+    if (!assignment) {
+      throw new NotFoundException('Employee device assignment not found');
+    }
+
+    if (!this.toNullableString(assignment.employeeNo)) {
+      throw new BadRequestException(
+        `Employee device assignment ${assignment.id} is missing a Hikvision employee number`,
+      );
+    }
+
+    return assignment;
   }
 
   private async upsertDeviceIdentity(

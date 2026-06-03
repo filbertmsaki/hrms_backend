@@ -25,7 +25,9 @@ import {
   ApiUpdateOperation,
 } from '../../../../docs/swagger-decorators';
 import { AssignEmployeeDevicesDto } from '../dto/assign-employee-devices.dto';
+import { DeleteEmployeeDevicePasswordDto } from '../dto/delete-employee-device-password.dto';
 import { HikvisionUserSearchQueryDto } from '../dto/hikvision-user-search-query.dto';
+import { SetEmployeeDevicePasswordDto } from '../dto/set-employee-device-password.dto';
 import { UpdateEmployeeDeviceUserDto } from '../dto/update-employee-device-user.dto';
 import { EmployeeDeviceAssignmentsService } from '../service/employee-device-assignments.service';
 
@@ -166,6 +168,71 @@ export class EmployeeDeviceAssignmentsController {
       req.user.companyId!,
       employeeId,
       deviceId,
+    );
+  }
+
+  @Post(':employeeId/devices/:deviceId/users/password')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_device_assignments:update')
+  @ApiActionOperation(
+    'Create Device Password',
+    'Create a Hikvision password or PIN for the linked employee-device assignment',
+  )
+  createUserPassword(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+    @Body() dto: SetEmployeeDevicePasswordDto,
+  ) {
+    return this.assignmentsService.createUserPassword(
+      req.user.companyId!,
+      employeeId,
+      deviceId,
+      dto.password,
+      dto.user_verify_mode,
+    );
+  }
+
+  @Patch(':employeeId/devices/:deviceId/users/password')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_device_assignments:update')
+  @ApiActionOperation(
+    'Modify Device Password',
+    'Modify a Hikvision password or PIN for the linked employee-device assignment',
+  )
+  modifyUserPassword(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+    @Body() dto: SetEmployeeDevicePasswordDto,
+  ) {
+    return this.assignmentsService.modifyUserPassword(
+      req.user.companyId!,
+      employeeId,
+      deviceId,
+      dto.password,
+      dto.user_verify_mode,
+    );
+  }
+
+  @Delete(':employeeId/devices/:deviceId/users/password')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_device_assignments:update')
+  @ApiDeleteOperation(
+    'Delete Device Password',
+    'Delete the Hikvision password or PIN on the device first, then update the local assignment state',
+  )
+  deleteUserPassword(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+    @Body() dto: DeleteEmployeeDevicePasswordDto,
+  ) {
+    return this.assignmentsService.deleteUserPassword(
+      req.user.companyId!,
+      employeeId,
+      deviceId,
+      dto.user_verify_mode,
     );
   }
 

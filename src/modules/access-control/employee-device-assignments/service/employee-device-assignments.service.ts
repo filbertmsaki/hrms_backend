@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Repository } from 'typeorm';
+import { hashPassword } from '../../../../common/utils/hash.util';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import {
   HikvisionDeviceUserInput,
@@ -45,6 +46,7 @@ type AssignmentSettings = {
   accessGroupId: number;
   accessGroupName: string;
   organizationId: number | null;
+  userVerifyMode: string | null;
   validEnabled: boolean;
   validBeginTime: Date | null;
   validEndTime: Date | null;
@@ -70,6 +72,13 @@ type AccessGroupContext = {
   membership: AccessGroupEmployee | null;
   doorRight: string;
   rightPlan: ResolvedRightPlan[];
+};
+
+type PasswordState = {
+  password_enabled: boolean;
+  password_sync_status: string | null;
+  password_last_synced_at: string | null;
+  user_verify_mode: string | null;
 };
 
 @Injectable()
@@ -357,6 +366,76 @@ export class EmployeeDeviceAssignmentsService {
     };
   }
 
+  async createUserPassword(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    password: string,
+    userVerifyMode?: string,
+  ) {
+    return this.syncUserPassword(
+      companyId,
+      employeeId,
+      deviceId,
+      password,
+      userVerifyMode,
+      'CREATE',
+    );
+  }
+
+  async modifyUserPassword(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    password: string,
+    userVerifyMode?: string,
+  ) {
+    return this.syncUserPassword(
+      companyId,
+      employeeId,
+      deviceId,
+      password,
+      userVerifyMode,
+      'MODIFY',
+    );
+  }
+
+  async deleteUserPassword(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    userVerifyMode?: string,
+  ) {
+    const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employeeId, deviceId);
+    const result = await this.hikvisionUserManagementService.deleteUserPassword(
+      companyId,
+      deviceId,
+      employeeId,
+      userVerifyMode,
+    );
+
+    assignment.userVerifyMode = result.user_verify_mode;
+    assignment.syncStatus = EmployeeDeviceAssignmentSyncStatusEnum.SYNCED;
+    assignment.lastSyncedAt = new Date();
+    assignment.metadata = this.mergeMetadata(assignment.metadata, {
+      hikvision: {
+        device_password_hash: null,
+        password_enabled: false,
+        password_sync_status: 'SYNCED',
+        password_last_synced_at: new Date().toISOString(),
+        user_verify_mode: result.user_verify_mode,
+      },
+    });
+
+    const saved = await this.assignmentRepository.save(assignment);
+
+    return {
+      message: 'Employee device password deleted successfully',
+      assignment: await this.findAssignmentDetailsOrFail(saved.id),
+      device_result: result.device_response,
+    };
+  }
+
   async removeDoorPermissionOnly(companyId: number, employeeId: number, deviceId: number) {
     const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employeeId, deviceId);
 
@@ -588,6 +667,7 @@ export class EmployeeDeviceAssignmentsService {
       accessGroupId: groupContext.group.id,
       accessGroupName: groupContext.group.name,
       organizationId: groupContext.membership?.organizationId ?? null,
+      userVerifyMode: null,
       validEnabled: input.valid_enabled ?? true,
       validBeginTime: this.toNullableDate(input.valid_begin_time),
       validEndTime: this.toNullableDate(input.valid_end_time),
@@ -619,6 +699,7 @@ export class EmployeeDeviceAssignmentsService {
       accessGroupId: groupContext.group.id,
       accessGroupName: groupContext.group.name,
       organizationId: groupContext.membership?.organizationId ?? assignment.organizationId ?? null,
+      userVerifyMode: assignment.userVerifyMode ?? null,
       validEnabled: input.valid_enabled ?? assignment.validEnabled ?? true,
       validBeginTime:
         input.valid_begin_time !== undefined
@@ -657,6 +738,7 @@ export class EmployeeDeviceAssignmentsService {
         employeeNo: deviceEmployeeNo,
         deviceId,
         organizationId: settings.organizationId,
+        userVerifyMode: settings.userVerifyMode,
         validEnabled: settings.validEnabled,
         validBeginTime: settings.validBeginTime,
         validEndTime: settings.validEndTime,
@@ -672,6 +754,7 @@ export class EmployeeDeviceAssignmentsService {
             hikvision_employee_no: deviceEmployeeNo,
             access_group_id: settings.accessGroupId,
             access_group_name: settings.accessGroupName,
+            user_verify_mode: settings.userVerifyMode,
             last_device_registration_at: now.toISOString(),
           },
         }),
@@ -714,6 +797,7 @@ export class EmployeeDeviceAssignmentsService {
       accessGroupId: groupContext.group.id,
       accessGroupName: groupContext.group.name,
       organizationId: groupContext.membership?.organizationId ?? assignment.organizationId ?? null,
+      userVerifyMode: assignment.userVerifyMode ?? null,
       validEnabled: assignment.validEnabled ?? true,
       validBeginTime: assignment.validBeginTime,
       validEndTime: assignment.validEndTime,
@@ -756,7 +840,7 @@ export class EmployeeDeviceAssignmentsService {
         plan_template_no: plan.planTemplateNo,
       })),
       ...(credentials.password ? { password: credentials.password } : {}),
-      user_verify_mode: credentials.userVerifyMode,
+      user_verify_mode: settings.userVerifyMode ?? credentials.userVerifyMode,
       local_ui_right: settings.localUiRight,
       close_delay_enabled: settings.closeDelayEnabled,
       max_open_door_time: settings.maxOpenDoorTime,
@@ -1136,6 +1220,7 @@ export class EmployeeDeviceAssignmentsService {
     settings: AssignmentSettings,
   ) {
     assignment.organizationId = settings.organizationId;
+    assignment.userVerifyMode = settings.userVerifyMode;
     assignment.validEnabled = settings.validEnabled;
     assignment.validBeginTime = settings.validBeginTime;
     assignment.validEndTime = settings.validEndTime;
@@ -1148,6 +1233,7 @@ export class EmployeeDeviceAssignmentsService {
       hikvision: {
         access_group_id: settings.accessGroupId,
         access_group_name: settings.accessGroupName,
+        user_verify_mode: settings.userVerifyMode,
       },
     });
   }
@@ -1225,6 +1311,59 @@ export class EmployeeDeviceAssignmentsService {
     }
   }
 
+  private async syncUserPassword(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    password: string,
+    userVerifyMode: string | undefined,
+    operation: 'CREATE' | 'MODIFY',
+  ) {
+    const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employeeId, deviceId);
+    // Password sync is device-first: we only persist the hashed local state after Hikvision
+    // confirms the password update, so local metadata never gets ahead of the device.
+    const result =
+      operation === 'CREATE'
+        ? await this.hikvisionUserManagementService.createUserPassword(
+            companyId,
+            deviceId,
+            employeeId,
+            password,
+            userVerifyMode,
+          )
+        : await this.hikvisionUserManagementService.modifyUserPassword(
+            companyId,
+            deviceId,
+            employeeId,
+            password,
+            userVerifyMode,
+          );
+
+    assignment.userVerifyMode = result.user_verify_mode;
+    assignment.syncStatus = EmployeeDeviceAssignmentSyncStatusEnum.SYNCED;
+    assignment.lastSyncedAt = new Date();
+    assignment.metadata = this.mergeMetadata(assignment.metadata, {
+      hikvision: {
+        device_password_hash: await hashPassword(password),
+        password_enabled: true,
+        password_sync_status: 'SYNCED',
+        password_last_synced_at: new Date().toISOString(),
+        user_verify_mode: result.user_verify_mode,
+      },
+    });
+
+    const saved = await this.assignmentRepository.save(assignment);
+
+    return {
+      message:
+        operation === 'CREATE'
+          ? 'Employee device password created successfully'
+          : 'Employee device password modified successfully',
+      assignment: await this.findAssignmentDetailsOrFail(saved.id),
+      device_result: result.device_response,
+    };
+  }
+
   private buildEmployeeDisplayName(employee: Employee): string {
     const preferred = employee.preferred_name?.trim();
     if (preferred) {
@@ -1258,6 +1397,7 @@ export class EmployeeDeviceAssignmentsService {
 
   private mapAssignment(item: EmployeeDeviceAssignment) {
     const hikvisionMetadata = this.toObject(this.toObject(item.metadata).hikvision);
+    const passwordState = this.extractPasswordState(item);
 
     return {
       id: item.id,
@@ -1282,7 +1422,11 @@ export class EmployeeDeviceAssignmentsService {
       open_door_time: item.openDoorTime,
       sync_status: item.syncStatus,
       last_synced_at: item.lastSyncedAt,
-      metadata: item.metadata,
+      password_enabled: passwordState.password_enabled,
+      password_sync_status: passwordState.password_sync_status,
+      password_last_synced_at: passwordState.password_last_synced_at,
+      user_verify_mode: passwordState.user_verify_mode ?? item.userVerifyMode,
+      metadata: this.maskSensitivePayload(item.metadata),
       right_plan:
         item.rightPlans?.map((plan) => ({
           id: plan.id,
@@ -1304,6 +1448,16 @@ export class EmployeeDeviceAssignmentsService {
       created_at: item.createdAt,
       updated_at: item.updatedAt,
       deleted_at: item.deletedAt,
+    };
+  }
+
+  private extractPasswordState(item: EmployeeDeviceAssignment): PasswordState {
+    const hikvisionMetadata = this.toObject(this.toObject(item.metadata).hikvision);
+    return {
+      password_enabled: Boolean(hikvisionMetadata.password_enabled),
+      password_sync_status: this.toNullableString(hikvisionMetadata.password_sync_status),
+      password_last_synced_at: this.toNullableString(hikvisionMetadata.password_last_synced_at),
+      user_verify_mode: this.toNullableString(hikvisionMetadata.user_verify_mode),
     };
   }
 
@@ -1330,11 +1484,55 @@ export class EmployeeDeviceAssignmentsService {
     };
   }
 
+  private maskSensitivePayload<T>(payload: T): T {
+    if (payload === null || payload === undefined) {
+      return payload;
+    }
+
+    const sensitiveKeys = new Set([
+      'password',
+      'pin_password',
+      'device_password_hash',
+      'password_hash',
+    ]);
+
+    const recurse = (value: unknown): unknown => {
+      if (Array.isArray(value)) {
+        return value.map((item) => recurse(item));
+      }
+
+      if (!value || typeof value !== 'object') {
+        return value;
+      }
+
+      const output: Record<string, unknown> = {};
+      for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+        if (sensitiveKeys.has(key.toLowerCase())) {
+          output[key] = '***MASKED***';
+          continue;
+        }
+        output[key] = recurse(raw);
+      }
+      return output;
+    };
+
+    return recurse(payload) as T;
+  }
+
   private toObject(value: unknown): Record<string, unknown> {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       return {};
     }
     return value as Record<string, unknown>;
+  }
+
+  private toNullableString(value: unknown): string | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+
+    const normalized = String(value).trim();
+    return normalized ? normalized : null;
   }
 
   private toNullableDate(value: unknown): Date | null {
