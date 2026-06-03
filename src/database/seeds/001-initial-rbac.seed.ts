@@ -753,6 +753,12 @@ const permissionSeeds: PermissionSeed[] = [
     scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
+    name: 'employee_access_credentials:delete',
+    displayName: 'Delete employee access credentials',
+    description: 'Allow deleting employee access credentials',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
+  },
+  {
     name: 'employee_device_assignments:read',
     displayName: 'Read employee device assignments',
     description: 'Allow viewing employee device assignments and Hikvision device users',
@@ -1642,6 +1648,7 @@ const roleSeeds: RoleSeed[] = [
       'employee_access_credentials:read',
       'employee_access_credentials:create',
       'employee_access_credentials:update',
+      'employee_access_credentials:delete',
       'employee_device_assignments:read',
       'employee_device_assignments:create',
       'employee_device_assignments:update',
