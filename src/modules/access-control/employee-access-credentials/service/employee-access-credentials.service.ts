@@ -10,10 +10,24 @@ import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attend
 import { Employee } from '../../../hr/employees/entities/employee.entity';
 import { HikvisionUserManagementService } from '../../../hikvision/hikvision-user-management.service';
 import { EmployeeDeviceAssignment } from '../../employee-device-assignments/entity/employee-device-assignment.entity';
-import { CreateEmployeeAccessCredentialDto } from '../dto/create-employee-access-credential.dto';
-import { UpdateEmployeeAccessCredentialDto } from '../dto/update-employee-access-credential.dto';
 import { EmployeeAccessCredential } from '../entity/employee-access-credential.entity';
+import { EmployeeAccessCredentialStatusEnum } from '../enum/employee-access-credential-status.enum';
 import { EmployeeAccessCredentialTypeEnum } from '../enum/employee-access-credential-type.enum';
+
+type EmployeeAccessCredentialInput = {
+  credential_type?: EmployeeAccessCredentialTypeEnum;
+  credential_no?: string | null;
+  device_id?: number | null;
+  card_no?: string | null;
+  pin_password?: string | null;
+  fingerprint_count?: number;
+  face_count?: number;
+  has_fingerprint?: boolean;
+  has_face?: boolean;
+  credential_status?: EmployeeAccessCredentialStatusEnum;
+  metadata?: Record<string, unknown>;
+  user_verify_mode?: string;
+};
 
 @Injectable()
 export class EmployeeAccessCredentialsService {
@@ -32,7 +46,7 @@ export class EmployeeAccessCredentialsService {
   async createOrReplace(
     companyId: number,
     employeeId: number,
-    dto: CreateEmployeeAccessCredentialDto,
+    dto: EmployeeAccessCredentialInput,
   ) {
     const employee = await this.findEmployeeOrFail(companyId, employeeId);
 
@@ -86,7 +100,7 @@ export class EmployeeAccessCredentialsService {
     return this.map(await this.credentialRepository.save(item));
   }
 
-  async update(companyId: number, employeeId: number, dto: UpdateEmployeeAccessCredentialDto) {
+  async update(companyId: number, employeeId: number, dto: Partial<EmployeeAccessCredentialInput>) {
     const employee = await this.findEmployeeOrFail(companyId, employeeId);
     const item = await this.credentialRepository.findOne({
       where: { companyId, employeeId },
