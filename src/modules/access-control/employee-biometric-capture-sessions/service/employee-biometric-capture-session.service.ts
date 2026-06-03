@@ -542,6 +542,9 @@ export class EmployeeBiometricCaptureSessionService {
     );
 
     this.validateFingerprintQuality(capture.fingerPrintQuality, dto.min_quality);
+
+    // Capture always stores the fingerprint in the backend first so the backend
+    // remains the source of truth even when device synchronization is optional.
     await this.saveFingerprintCredential({
       companyId,
       employee,

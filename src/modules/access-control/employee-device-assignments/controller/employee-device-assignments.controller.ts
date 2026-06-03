@@ -26,12 +26,15 @@ import {
 } from '../../../../docs/swagger-decorators';
 import { AssignEmployeeDevicesDto } from '../dto/assign-employee-devices.dto';
 import { CaptureEmployeeDeviceFingerprintDto } from '../dto/capture-employee-device-fingerprint.dto';
+import { CreateEmployeeDeviceCardDto } from '../dto/create-employee-device-card.dto';
 import { DeleteEmployeeDeviceFingerprintDto } from '../dto/delete-employee-device-fingerprint.dto';
 import { DeleteEmployeeDevicePasswordDto } from '../dto/delete-employee-device-password.dto';
 import { HikvisionUserSearchQueryDto } from '../dto/hikvision-user-search-query.dto';
 import { SaveEmployeeDeviceFingerprintDto } from '../dto/save-employee-device-fingerprint.dto';
 import { SetEmployeeDevicePasswordDto } from '../dto/set-employee-device-password.dto';
+import { SyncEmployeeDeviceCardDto } from '../dto/sync-employee-device-card.dto';
 import { SyncEmployeeDeviceFingerprintDto } from '../dto/sync-employee-device-fingerprint.dto';
+import { UpdateEmployeeDeviceCardDto } from '../dto/update-employee-device-card.dto';
 import { UpdateEmployeeDeviceFingerprintDto } from '../dto/update-employee-device-fingerprint.dto';
 import { UpdateEmployeeDeviceUserDto } from '../dto/update-employee-device-user.dto';
 import { EmployeeDeviceAssignmentsService } from '../service/employee-device-assignments.service';
@@ -151,6 +154,187 @@ export class EmployeeDeviceAssignmentsController {
     @Param('deviceId', ParseIntPipe) deviceId: number,
   ) {
     return this.assignmentsService.listFingerprints(req.user.companyId!, employeeId, deviceId);
+  }
+
+  @Get(':employeeId/devices/:deviceId/users/cards')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_device_assignments:read')
+  @ApiListOperation(
+    'List Device Cards',
+    'List backend-managed cards for one employee-device assignment',
+  )
+  listCards(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+  ) {
+    return this.assignmentsService.listCards(req.user.companyId!, employeeId, deviceId);
+  }
+
+  @Post(':employeeId/devices/:deviceId/users/cards')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_device_assignments:update')
+  @ApiActionOperation(
+    'Create Device Card',
+    'Create or reuse one backend card for the employee and optionally synchronize it to the assigned Hikvision device',
+  )
+  createCard(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+    @Body() dto: CreateEmployeeDeviceCardDto,
+  ) {
+    return this.assignmentsService.createCard(
+      req.user.companyId!,
+      employeeId,
+      deviceId,
+      dto,
+      {
+        performedByCompanyUserId: req.user.companyMembershipId,
+        performedByUserId: req.user.id,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      },
+    );
+  }
+
+  @Patch(':employeeId/devices/:deviceId/users/cards/:cardId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_device_assignments:update')
+  @ApiUpdateOperation(
+    'Modify Device Card',
+    'Modify one backend card and optionally resynchronize it to the assigned Hikvision device',
+  )
+  modifyCard(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+    @Param('cardId', ParseIntPipe) cardId: number,
+    @Body() dto: UpdateEmployeeDeviceCardDto,
+  ) {
+    return this.assignmentsService.modifyCard(
+      req.user.companyId!,
+      employeeId,
+      deviceId,
+      cardId,
+      dto,
+      {
+        performedByCompanyUserId: req.user.companyMembershipId,
+        performedByUserId: req.user.id,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      },
+    );
+  }
+
+  @Post(':employeeId/devices/:deviceId/users/cards/:cardId/sync')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_device_assignments:update')
+  @ApiActionOperation(
+    'Sync Device Card',
+    'Synchronize one saved backend card to the assigned Hikvision device so the same employee card can be reused across devices',
+  )
+  syncCard(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+    @Param('cardId', ParseIntPipe) cardId: number,
+    @Body() dto: SyncEmployeeDeviceCardDto,
+  ) {
+    return this.assignmentsService.syncCard(
+      req.user.companyId!,
+      employeeId,
+      deviceId,
+      cardId,
+      dto,
+      {
+        performedByCompanyUserId: req.user.companyMembershipId,
+        performedByUserId: req.user.id,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      },
+    );
+  }
+
+  @Patch(':employeeId/devices/:deviceId/users/cards/:cardId/disable')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_device_assignments:update')
+  @ApiActionOperation(
+    'Disable Device Card',
+    'Disable one backend card for this assignment without deleting it from the backend source of truth',
+  )
+  disableCard(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+    @Param('cardId', ParseIntPipe) cardId: number,
+  ) {
+    return this.assignmentsService.disableCard(
+      req.user.companyId!,
+      employeeId,
+      deviceId,
+      cardId,
+      {
+        performedByCompanyUserId: req.user.companyMembershipId,
+        performedByUserId: req.user.id,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      },
+    );
+  }
+
+  @Patch(':employeeId/devices/:deviceId/users/cards/:cardId/enable')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_device_assignments:update')
+  @ApiActionOperation(
+    'Enable Device Card',
+    'Re-enable one backend card and synchronize it to the assigned Hikvision device',
+  )
+  enableCard(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+    @Param('cardId', ParseIntPipe) cardId: number,
+  ) {
+    return this.assignmentsService.enableCard(
+      req.user.companyId!,
+      employeeId,
+      deviceId,
+      cardId,
+      {
+        performedByCompanyUserId: req.user.companyMembershipId,
+        performedByUserId: req.user.id,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      },
+    );
+  }
+
+  @Delete(':employeeId/devices/:deviceId/users/cards/:cardId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_device_assignments:delete')
+  @ApiDeleteOperation(
+    'Delete Device Card',
+    'Delete one saved card from the assigned Hikvision device first, then deactivate it locally',
+  )
+  deleteCard(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+    @Param('cardId', ParseIntPipe) cardId: number,
+  ) {
+    return this.assignmentsService.deleteCard(
+      req.user.companyId!,
+      employeeId,
+      deviceId,
+      cardId,
+      {
+        performedByCompanyUserId: req.user.companyMembershipId,
+        performedByUserId: req.user.id,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      },
+    );
   }
 
   @Post(':employeeId/devices/:deviceId/users/fingerprints/capture')

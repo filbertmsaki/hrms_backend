@@ -205,6 +205,10 @@ export class HikvisionAccessControlService {
     return this.requestJsonPost(companyId, deviceId, '/ISAPI/AccessControl/CardInfo/Record?format=json', payload);
   }
 
+  async setupCardInfo(companyId: number, deviceId: number, payload: Record<string, unknown>) {
+    return this.requestJsonPut(companyId, deviceId, '/ISAPI/AccessControl/CardInfo/SetUp?format=json', payload);
+  }
+
   async modifyCardInfo(companyId: number, deviceId: number, payload: Record<string, unknown>) {
     return this.requestJsonPut(companyId, deviceId, '/ISAPI/AccessControl/CardInfo/Modify?format=json', payload);
   }
@@ -433,7 +437,11 @@ export class HikvisionAccessControlService {
       return DeviceCommandTypeEnum.SET_USER;
     if (normalizedPath.includes('/userinfo/delete')) return DeviceCommandTypeEnum.DELETE_USER;
     if (normalizedPath.includes('/cardinfo/search')) return DeviceCommandTypeEnum.GET_CARD;
-    if (normalizedPath.includes('/cardinfo/record') || normalizedPath.includes('/cardinfo/modify'))
+    if (
+      normalizedPath.includes('/cardinfo/record') ||
+      normalizedPath.includes('/cardinfo/modify') ||
+      normalizedPath.includes('/cardinfo/setup')
+    )
       return DeviceCommandTypeEnum.SET_CARD;
     if (normalizedPath.includes('/cardinfo/delete')) return DeviceCommandTypeEnum.DELETE_CARD;
     if (normalizedPath.includes('/capturefingerprint')) return DeviceCommandTypeEnum.CAPTURE_FINGERPRINT;

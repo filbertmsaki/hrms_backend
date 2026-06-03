@@ -28,15 +28,19 @@ import { AccessGroupStatusEnum } from '../../access-groups/enum/access-group-sta
 import { AccessScheduleTemplate } from '../../access-schedule-templates/entity/access-schedule-template.entity';
 import { AccessScheduleTemplateStatusEnum } from '../../access-schedule-templates/enum/access-schedule-template-status.enum';
 import { EmployeeAccessCredential } from '../../employee-access-credentials/entity/employee-access-credential.entity';
+import { EmployeeAccessCredentialSourceEnum } from '../../employee-access-credentials/enum/employee-access-credential-source.enum';
 import { EmployeeAccessCredentialStatusEnum } from '../../employee-access-credentials/enum/employee-access-credential-status.enum';
 import { EmployeeAccessCredentialTypeEnum } from '../../employee-access-credentials/enum/employee-access-credential-type.enum';
 import { EmployeeBiometricCaptureSessionService } from '../../employee-biometric-capture-sessions/service/employee-biometric-capture-session.service';
 import { AssignEmployeeDevicesDto } from '../dto/assign-employee-devices.dto';
 import { CaptureEmployeeDeviceFingerprintDto } from '../dto/capture-employee-device-fingerprint.dto';
+import { CreateEmployeeDeviceCardDto } from '../dto/create-employee-device-card.dto';
 import { DeleteEmployeeDeviceFingerprintDto } from '../dto/delete-employee-device-fingerprint.dto';
 import { HikvisionUserSearchQueryDto } from '../dto/hikvision-user-search-query.dto';
 import { SaveEmployeeDeviceFingerprintDto } from '../dto/save-employee-device-fingerprint.dto';
+import { SyncEmployeeDeviceCardDto } from '../dto/sync-employee-device-card.dto';
 import { UpdateEmployeeDeviceUserDto } from '../dto/update-employee-device-user.dto';
+import { UpdateEmployeeDeviceCardDto } from '../dto/update-employee-device-card.dto';
 import { UpdateEmployeeDeviceFingerprintDto } from '../dto/update-employee-device-fingerprint.dto';
 import { SyncEmployeeDeviceFingerprintDto } from '../dto/sync-employee-device-fingerprint.dto';
 import { EmployeeDeviceAssignment } from '../entity/employee-device-assignment.entity';
@@ -453,6 +457,317 @@ export class EmployeeDeviceAssignmentsService {
       message: 'Employee device password deleted successfully',
       assignment: await this.findAssignmentDetailsOrFail(saved.id),
       device_result: result.device_response,
+    };
+  }
+
+  async listCards(companyId: number, employeeId: number, deviceId: number) {
+    await this.findAssignmentByEmployeeOrFail(companyId, employeeId, deviceId);
+    return this.findEmployeeCards(companyId, employeeId, deviceId);
+  }
+
+  async createCard(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    dto: CreateEmployeeDeviceCardDto,
+    actor: AssignmentActor = {},
+  ) {
+    const employee = await this.findEmployeeOrFail(companyId, employeeId, true);
+    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId);
+    const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employee.id, device.id);
+    const cardNo = this.normalizeCardNo(dto.card_no);
+    const cardType = this.normalizeCardType(dto.card_type);
+    const syncToDevice = dto.sync_to_device ?? true;
+
+    await this.assertCardNumberAvailable(companyId, employee.id, cardNo);
+
+    let credential = await this.findReusableCardByNo(companyId, employee.id, cardNo);
+    if (!credential) {
+      credential = this.credentialRepository.create({
+        companyId,
+        employeeId: employee.id,
+        employeeNo: assignment.employeeNo,
+        deviceId: null,
+        credentialType: EmployeeAccessCredentialTypeEnum.CARD,
+        credentialNo: cardNo,
+        cardNo,
+        credentialStatus: EmployeeAccessCredentialStatusEnum.ACTIVE,
+        source: EmployeeAccessCredentialSourceEnum.MANUAL,
+      });
+    }
+
+    credential = await this.saveCardCredentialState(credential, {
+      employee,
+      assignment,
+      cardNo,
+      cardType,
+      enabled: true,
+      syncStatus: syncToDevice ? 'PENDING' : 'SAVED',
+      syncError: null,
+      userVerifyMode: dto.user_verify_mode ?? null,
+    });
+
+    const syncResult = syncToDevice
+      ? await this.syncStoredCardCredential(
+          companyId,
+          employee,
+          device,
+          assignment,
+          credential,
+          {
+            card_type: cardType,
+            user_verify_mode: dto.user_verify_mode,
+          },
+          actor,
+          'CREATE',
+        )
+      : { card: this.mapCardCredential(credential, device.id), device_result: null, synced: false };
+
+    return {
+      message: 'Employee card processed successfully',
+      card: syncResult.card,
+      device_result: syncResult.device_result,
+    };
+  }
+
+  async modifyCard(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    cardId: number,
+    dto: UpdateEmployeeDeviceCardDto,
+    actor: AssignmentActor = {},
+  ) {
+    const employee = await this.findEmployeeOrFail(companyId, employeeId, true);
+    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId);
+    const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employee.id, device.id);
+    const credential = await this.findCardCredentialOrFail(companyId, employee.id, cardId);
+    const nextCardNo = dto.card_no !== undefined ? this.normalizeCardNo(dto.card_no) : this.normalizeCardNo(credential.cardNo);
+    const nextCardType = this.normalizeCardType(dto.card_type ?? this.readCardType(credential));
+    const syncToDevice = dto.sync_to_device ?? true;
+    const previousCardNo = this.normalizeCardNo(credential.cardNo);
+
+    await this.assertCardNumberAvailable(companyId, employee.id, nextCardNo, credential.id);
+
+    const updated = await this.saveCardCredentialState(credential, {
+      employee,
+      assignment,
+      cardNo: nextCardNo,
+      cardType: nextCardType,
+      enabled: credential.credentialStatus !== EmployeeAccessCredentialStatusEnum.INACTIVE,
+      syncStatus: syncToDevice ? 'PENDING' : 'SAVED',
+      syncError: null,
+      userVerifyMode:
+        dto.user_verify_mode
+        ?? this.extractCredentialUserVerifyMode(credential),
+    });
+
+    const syncResult = syncToDevice
+      ? await this.syncStoredCardCredential(
+          companyId,
+          employee,
+          device,
+          assignment,
+          updated,
+          {
+            card_type: nextCardType,
+            user_verify_mode: dto.user_verify_mode,
+          },
+          actor,
+          'MODIFY',
+          previousCardNo !== nextCardNo ? previousCardNo : null,
+        )
+      : { card: this.mapCardCredential(updated, device.id), device_result: null, synced: false };
+
+    return {
+      message: 'Employee card updated successfully',
+      card: syncResult.card,
+      device_result: syncResult.device_result,
+    };
+  }
+
+  async syncCard(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    cardId: number,
+    dto: SyncEmployeeDeviceCardDto,
+    actor: AssignmentActor = {},
+  ) {
+    const employee = await this.findEmployeeOrFail(companyId, employeeId, true);
+    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId);
+    const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employee.id, device.id);
+    const credential = await this.findCardCredentialOrFail(companyId, employee.id, cardId);
+
+    const updated = await this.saveCardCredentialState(credential, {
+      employee,
+      assignment,
+      cardNo: this.normalizeCardNo(credential.cardNo),
+      cardType: this.normalizeCardType(dto.card_type ?? this.readCardType(credential)),
+      enabled: credential.credentialStatus === EmployeeAccessCredentialStatusEnum.ACTIVE,
+      syncStatus: 'PENDING',
+      syncError: null,
+      userVerifyMode: dto.user_verify_mode ?? this.extractCredentialUserVerifyMode(credential),
+    });
+
+    const syncResult = await this.syncStoredCardCredential(
+      companyId,
+      employee,
+      device,
+      assignment,
+      updated,
+      dto,
+      actor,
+      'SYNC',
+    );
+
+    return {
+      message: 'Employee card synchronization completed',
+      card: syncResult.card,
+      device_result: syncResult.device_result,
+    };
+  }
+
+  async disableCard(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    cardId: number,
+    actor: AssignmentActor = {},
+  ) {
+    const employee = await this.findEmployeeOrFail(companyId, employeeId, true);
+    const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employee.id, deviceId);
+    const credential = await this.findCardCredentialOrFail(companyId, employee.id, cardId);
+
+    const updated = await this.saveCardCredentialState(credential, {
+      employee,
+      assignment,
+      cardNo: this.normalizeCardNo(credential.cardNo),
+      cardType: this.readCardType(credential),
+      enabled: false,
+      syncStatus: 'DISABLED_LOCAL_ONLY',
+      syncError: null,
+      userVerifyMode: this.extractCredentialUserVerifyMode(credential),
+      deviceSyncStatus: 'DISABLED_LOCAL_ONLY',
+    });
+
+    await this.logCardAudit(companyId, employee, deviceId, assignment.employeeNo, {
+      action: 'DISABLE',
+      cardNo: this.normalizeCardNo(credential.cardNo),
+      cardType: this.readCardType(credential),
+      status: 'SUCCESS',
+      actor,
+    });
+
+    return {
+      message: 'Employee card disabled locally. The card remains on the device until it is deleted.',
+      card: this.mapCardCredential(updated, deviceId),
+    };
+  }
+
+  async enableCard(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    cardId: number,
+    actor: AssignmentActor = {},
+  ) {
+    const employee = await this.findEmployeeOrFail(companyId, employeeId, true);
+    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId);
+    const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employee.id, device.id);
+    const credential = await this.findCardCredentialOrFail(companyId, employee.id, cardId);
+
+    const updated = await this.saveCardCredentialState(credential, {
+      employee,
+      assignment,
+      cardNo: this.normalizeCardNo(credential.cardNo),
+      cardType: this.readCardType(credential),
+      enabled: true,
+      syncStatus: 'PENDING',
+      syncError: null,
+      userVerifyMode: this.extractCredentialUserVerifyMode(credential),
+    });
+
+    const syncResult = await this.syncStoredCardCredential(
+      companyId,
+      employee,
+      device,
+      assignment,
+      updated,
+      {
+        card_type: this.readCardType(updated),
+        user_verify_mode: this.extractCredentialUserVerifyMode(updated) ?? undefined,
+      },
+      actor,
+      'ENABLE',
+    );
+
+    return {
+      message: 'Employee card enabled successfully',
+      card: syncResult.card,
+      device_result: syncResult.device_result,
+    };
+  }
+
+  async deleteCard(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    cardId: number,
+    actor: AssignmentActor = {},
+  ) {
+    const employee = await this.findEmployeeOrFail(companyId, employeeId, true);
+    const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employee.id, deviceId);
+    const credential = await this.findCardCredentialOrFail(companyId, employee.id, cardId);
+    const cardNo = this.normalizeCardNo(credential.cardNo);
+    const deviceResult = await this.hikvisionUserManagementService.deleteCard(
+      companyId,
+      deviceId,
+      employee.id,
+      cardNo,
+    );
+
+    credential.credentialStatus = EmployeeAccessCredentialStatusEnum.DELETED;
+    credential.lastSyncedAt = new Date();
+    credential.metadata = this.mergeCardMetadata(credential.metadata, {
+      card: {
+        card_no: cardNo,
+        card_type: this.readCardType(credential),
+        is_enabled: false,
+        sync_status: 'DELETED',
+        sync_error: null,
+        deleted_at: new Date().toISOString(),
+        last_updated_at: new Date().toISOString(),
+      },
+      device_syncs: {
+        [String(deviceId)]: {
+          device_id: deviceId,
+          employee_no: assignment.employeeNo,
+          card_no: cardNo,
+          card_type: this.readCardType(credential),
+          enabled: false,
+          sync_status: 'DELETED',
+          sync_error: null,
+          last_synced_at: new Date().toISOString(),
+          deleted_at: new Date().toISOString(),
+          last_updated_at: new Date().toISOString(),
+        },
+      },
+    });
+
+    const saved = await this.credentialRepository.save(credential);
+    await this.logCardAudit(companyId, employee, deviceId, assignment.employeeNo, {
+      action: 'DELETE',
+      cardNo,
+      cardType: this.readCardType(saved),
+      status: 'SUCCESS',
+      actor,
+    });
+
+    return {
+      message: 'Employee card deleted successfully',
+      card: this.mapCardCredential(saved, deviceId),
+      device_result: deviceResult.device_response,
     };
   }
 
@@ -1584,6 +1899,428 @@ export class EmployeeDeviceAssignmentsService {
       assignment: await this.findAssignmentDetailsOrFail(saved.id),
       device_result: result.device_response,
     };
+  }
+
+  private async findEmployeeCards(companyId: number, employeeId: number, deviceId?: number) {
+    const cards = await this.credentialRepository.find({
+      where: { companyId, employeeId, credentialType: EmployeeAccessCredentialTypeEnum.CARD },
+      order: { createdAt: 'ASC' },
+    });
+
+    return cards
+      .filter((item) => item.credentialStatus !== EmployeeAccessCredentialStatusEnum.DELETED)
+      .map((item) => this.mapCardCredential(item, deviceId));
+  }
+
+  private async findReusableCardByNo(
+    companyId: number,
+    employeeId: number,
+    cardNo: string,
+  ): Promise<EmployeeAccessCredential | null> {
+    return this.credentialRepository
+      .createQueryBuilder('credential')
+      .where('credential.company_id = :companyId', { companyId })
+      .andWhere('credential.employee_id = :employeeId', { employeeId })
+      .andWhere('credential.credential_type = :credentialType', {
+        credentialType: EmployeeAccessCredentialTypeEnum.CARD,
+      })
+      .andWhere('credential.card_no = :cardNo', { cardNo })
+      .andWhere('credential.credential_status != :deleted', {
+        deleted: EmployeeAccessCredentialStatusEnum.DELETED,
+      })
+      .orderBy('credential.created_at', 'ASC')
+      .getOne();
+  }
+
+  private async findCardCredentialOrFail(
+    companyId: number,
+    employeeId: number,
+    cardId: number,
+  ): Promise<EmployeeAccessCredential> {
+    const credential = await this.credentialRepository.findOne({
+      where: {
+        id: cardId,
+        companyId,
+        employeeId,
+        credentialType: EmployeeAccessCredentialTypeEnum.CARD,
+      },
+    });
+
+    if (!credential || credential.credentialStatus === EmployeeAccessCredentialStatusEnum.DELETED) {
+      throw new NotFoundException('Employee card not found');
+    }
+
+    return credential;
+  }
+
+  private async assertCardNumberAvailable(
+    companyId: number,
+    employeeId: number,
+    cardNo: string,
+    excludeCardId?: number,
+  ) {
+    const existing = await this.credentialRepository
+      .createQueryBuilder('credential')
+      .where('credential.company_id = :companyId', { companyId })
+      .andWhere('credential.credential_type = :credentialType', {
+        credentialType: EmployeeAccessCredentialTypeEnum.CARD,
+      })
+      .andWhere('credential.card_no = :cardNo', { cardNo })
+      .andWhere('credential.credential_status != :deleted', {
+        deleted: EmployeeAccessCredentialStatusEnum.DELETED,
+      })
+      .orderBy('credential.created_at', 'ASC')
+      .getOne();
+
+    if (!existing) {
+      return;
+    }
+
+    if (excludeCardId && existing.id === excludeCardId) {
+      return;
+    }
+
+    if (existing.employeeId === employeeId) {
+      return;
+    }
+
+    throw new ConflictException(`Card number ${this.maskCardNo(cardNo)} is already assigned`);
+  }
+
+  private async saveCardCredentialState(
+    credential: EmployeeAccessCredential,
+    input: {
+      employee: Employee;
+      assignment: EmployeeDeviceAssignment;
+      cardNo: string;
+      cardType: string;
+      enabled: boolean;
+      syncStatus: string;
+      syncError: string | null;
+      userVerifyMode: string | null;
+      deviceSyncStatus?: string;
+    },
+  ) {
+    credential.companyId = input.assignment.companyId;
+    credential.employeeId = input.employee.id;
+    credential.employeeNo = credential.employeeNo?.trim() || input.assignment.employeeNo;
+    credential.deviceId = null;
+    credential.credentialType = EmployeeAccessCredentialTypeEnum.CARD;
+    credential.credentialNo = input.cardNo;
+    credential.cardNo = input.cardNo;
+    credential.credentialStatus = input.enabled
+      ? EmployeeAccessCredentialStatusEnum.ACTIVE
+      : EmployeeAccessCredentialStatusEnum.INACTIVE;
+    credential.source = credential.source ?? EmployeeAccessCredentialSourceEnum.MANUAL;
+
+    const existingDeviceSyncs = this.toObject(this.toObject(credential.metadata).device_syncs);
+    credential.metadata = this.mergeCardMetadata(credential.metadata, {
+      card: {
+        card_no: input.cardNo,
+        card_type: input.cardType,
+        is_enabled: input.enabled,
+        sync_status: input.syncStatus,
+        sync_error: input.syncError,
+        last_updated_at: new Date().toISOString(),
+      },
+      hikvision: {
+        user_verify_mode: input.userVerifyMode,
+      },
+      device_syncs: {
+        [String(input.assignment.deviceId)]: {
+          ...this.toObject(existingDeviceSyncs[String(input.assignment.deviceId)]),
+          device_id: input.assignment.deviceId,
+          employee_no: input.assignment.employeeNo,
+          card_no: input.cardNo,
+          card_type: input.cardType,
+          enabled: input.enabled,
+          sync_status: input.deviceSyncStatus ?? input.syncStatus,
+          sync_error: input.syncError,
+          last_updated_at: new Date().toISOString(),
+        },
+      },
+    });
+
+    return this.credentialRepository.save(credential);
+  }
+
+  private async syncStoredCardCredential(
+    companyId: number,
+    employee: Employee,
+    device: AttendanceDevice,
+    assignment: EmployeeDeviceAssignment,
+    credential: EmployeeAccessCredential,
+    input: {
+      card_type?: string;
+      user_verify_mode?: string;
+    },
+    actor: AssignmentActor,
+    mode: 'CREATE' | 'MODIFY' | 'SYNC' | 'ENABLE',
+    previousCardNo?: string | null,
+  ): Promise<{
+    card: Record<string, unknown>;
+    device_result: Record<string, unknown> | null;
+    synced: boolean;
+  }> {
+    const cardNo = this.normalizeCardNo(credential.cardNo);
+    const cardType = this.normalizeCardType(input.card_type ?? this.readCardType(credential));
+    const scopedDeviceSync = this.toObject(this.toObject(credential.metadata).device_syncs)[String(device.id)];
+    const currentDeviceSync = this.toObject(scopedDeviceSync);
+    const useModifyOnly =
+      mode === 'MODIFY'
+      && this.toNullableString(currentDeviceSync.sync_status) === 'SYNCED'
+      && (!previousCardNo || previousCardNo === cardNo);
+
+    try {
+      const result =
+        useModifyOnly
+          ? await this.hikvisionUserManagementService.modifyCard(companyId, device.id, employee.id, {
+              card_no: cardNo,
+              card_type: cardType,
+              user_verify_mode: input.user_verify_mode,
+            })
+          : await this.hikvisionUserManagementService.syncCard(companyId, device.id, employee.id, {
+              card_no: cardNo,
+              card_type: cardType,
+              user_verify_mode: input.user_verify_mode,
+            });
+
+      if (previousCardNo && previousCardNo !== cardNo) {
+        try {
+          await this.hikvisionUserManagementService.deleteCard(
+            companyId,
+            device.id,
+            employee.id,
+            previousCardNo,
+          );
+        } catch (cleanupError) {
+          this.logger.warn(
+            `New card ${this.maskCardNo(cardNo)} synced to device ${device.id}, but old card ${this.maskCardNo(previousCardNo)} could not be removed: ${(cleanupError as Error).message}`,
+          );
+        }
+      }
+
+      credential.lastSyncedAt = new Date();
+      credential.metadata = this.mergeCardMetadata(credential.metadata, {
+        card: {
+          card_no: cardNo,
+          card_type: cardType,
+          is_enabled: true,
+          sync_status: 'SYNCED',
+          sync_error: null,
+          last_synced_at: new Date().toISOString(),
+          last_updated_at: new Date().toISOString(),
+        },
+        hikvision: {
+          user_verify_mode: result.user_verify_mode,
+        },
+        device_syncs: {
+          [String(device.id)]: {
+            device_id: device.id,
+            employee_no: assignment.employeeNo,
+            card_no: cardNo,
+            card_type: cardType,
+            enabled: true,
+            sync_status: 'SYNCED',
+            sync_error: null,
+            user_verify_mode: result.user_verify_mode,
+            last_synced_at: new Date().toISOString(),
+            last_updated_at: new Date().toISOString(),
+          },
+        },
+      });
+      const saved = await this.credentialRepository.save(credential);
+
+      await this.logCardAudit(companyId, employee, device.id, assignment.employeeNo, {
+        action: mode,
+        cardNo,
+        cardType,
+        status: 'SUCCESS',
+        actor,
+      });
+
+      return {
+        card: this.mapCardCredential(saved, device.id),
+        device_result: result.device_response,
+        synced: true,
+      };
+    } catch (error) {
+      credential.metadata = this.mergeCardMetadata(credential.metadata, {
+        card: {
+          card_no: cardNo,
+          card_type: cardType,
+          is_enabled: credential.credentialStatus === EmployeeAccessCredentialStatusEnum.ACTIVE,
+          sync_status: 'FAILED',
+          sync_error: (error as Error).message,
+          last_updated_at: new Date().toISOString(),
+        },
+        device_syncs: {
+          [String(device.id)]: {
+            device_id: device.id,
+            employee_no: assignment.employeeNo,
+            card_no: cardNo,
+            card_type: cardType,
+            enabled: credential.credentialStatus === EmployeeAccessCredentialStatusEnum.ACTIVE,
+            sync_status: 'FAILED',
+            sync_error: (error as Error).message,
+            last_updated_at: new Date().toISOString(),
+          },
+        },
+      });
+      const saved = await this.credentialRepository.save(credential);
+
+      await this.logCardAudit(companyId, employee, device.id, assignment.employeeNo, {
+        action: mode,
+        cardNo,
+        cardType,
+        status: 'FAILED',
+        actor,
+        errorMessage: (error as Error).message,
+      });
+
+      return {
+        card: this.mapCardCredential(saved, device.id),
+        device_result: null,
+        synced: false,
+      };
+    }
+  }
+
+  private async logCardAudit(
+    companyId: number,
+    employee: Employee,
+    deviceId: number,
+    deviceEmployeeNo: string,
+    input: {
+      action: 'CREATE' | 'MODIFY' | 'SYNC' | 'ENABLE' | 'DISABLE' | 'DELETE';
+      cardNo: string;
+      cardType: string;
+      status: 'SUCCESS' | 'FAILED';
+      actor: AssignmentActor;
+      errorMessage?: string;
+    },
+  ) {
+    const action =
+      input.action === 'DELETE'
+        ? 'DELETE_CARD'
+        : 'SET_CARD';
+
+    await this.logger.log(
+      `${input.status} ${action} for employee ${employee.id} on device ${deviceId} using card ${this.maskCardNo(input.cardNo)}`,
+    );
+  }
+
+  private readCardType(credential: EmployeeAccessCredential): string {
+    return (
+      this.toNullableString(this.toObject(this.toObject(credential.metadata).card).card_type)
+      ?? 'normalCard'
+    );
+  }
+
+  private mapCardCredential(item: EmployeeAccessCredential, deviceId?: number) {
+    const metadata = this.toObject(item.metadata);
+    const card = this.toObject(metadata.card);
+    const deviceSyncs = this.toObject(metadata.device_syncs);
+    const scopedDeviceSync = deviceId ? this.toObject(deviceSyncs[String(deviceId)]) : {};
+    const activeDeviceSyncs = Object.values(deviceSyncs)
+      .map((value) => this.toObject(value))
+      .filter((value) => value.sync_status !== 'DELETED');
+
+    return {
+      id: item.id,
+      company_id: item.companyId,
+      employee_id: item.employeeId,
+      employee_no: this.toNullableString(scopedDeviceSync.employee_no) ?? null,
+      device_id: deviceId ?? null,
+      card_no: item.cardNo,
+      card_type: this.toNullableString(scopedDeviceSync.card_type) ?? this.toNullableString(card.card_type) ?? 'normalCard',
+      enabled:
+        typeof scopedDeviceSync.enabled === 'boolean'
+          ? Boolean(scopedDeviceSync.enabled)
+          : item.credentialStatus === EmployeeAccessCredentialStatusEnum.ACTIVE,
+      sync_status:
+        this.toNullableString(scopedDeviceSync.sync_status)
+        ?? this.toNullableString(card.sync_status),
+      sync_error:
+        this.toNullableString(scopedDeviceSync.sync_error)
+        ?? this.toNullableString(card.sync_error),
+      user_verify_mode:
+        this.toNullableString(scopedDeviceSync.user_verify_mode)
+        ?? this.extractCredentialUserVerifyMode(item),
+      synced_device_ids: activeDeviceSyncs
+        .filter((value) => this.toNullableString(value.sync_status) === 'SYNCED')
+        .map((value) => Number(value.device_id))
+        .filter((value) => Number.isInteger(value) && value > 0),
+      last_synced_at:
+        this.toNullableString(scopedDeviceSync.last_synced_at)
+        ?? card.last_synced_at
+        ?? item.lastSyncedAt,
+      created_at: item.createdAt,
+      updated_at: item.updatedAt,
+    };
+  }
+
+  private mergeCardMetadata(
+    existing: Record<string, unknown> | null,
+    patch: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const safeExisting = this.toObject(existing);
+    const safePatch = this.toObject(patch);
+    const existingCard = this.toObject(safeExisting.card);
+    const patchCard = this.toObject(safePatch.card);
+    const existingHikvision = this.toObject(safeExisting.hikvision);
+    const patchHikvision = this.toObject(safePatch.hikvision);
+    const existingDeviceSyncs = this.toObject(safeExisting.device_syncs);
+    const patchDeviceSyncs = this.toObject(safePatch.device_syncs);
+
+    const mergedDeviceSyncs: Record<string, unknown> = { ...existingDeviceSyncs };
+    for (const [key, value] of Object.entries(patchDeviceSyncs)) {
+      mergedDeviceSyncs[key] = {
+        ...this.toObject(existingDeviceSyncs[key]),
+        ...this.toObject(value),
+      };
+    }
+
+    return {
+      ...safeExisting,
+      ...safePatch,
+      card: {
+        ...existingCard,
+        ...patchCard,
+      },
+      hikvision: {
+        ...existingHikvision,
+        ...patchHikvision,
+      },
+      device_syncs: mergedDeviceSyncs,
+    };
+  }
+
+  private normalizeCardNo(value: unknown): string {
+    const normalized = String(value ?? '').trim();
+    if (!normalized) {
+      throw new BadRequestException('card_no is required');
+    }
+
+    return normalized;
+  }
+
+  private normalizeCardType(value: unknown): string {
+    const normalized = String(value ?? 'normalCard').trim();
+    return normalized || 'normalCard';
+  }
+
+  private maskCardNo(value: string): string {
+    const normalized = String(value ?? '').trim();
+    if (!normalized) {
+      return '';
+    }
+
+    if (normalized.length <= 4) {
+      return '*'.repeat(normalized.length);
+    }
+
+    return `${'*'.repeat(normalized.length - 4)}${normalized.slice(-4)}`;
   }
 
   private buildEmployeeDisplayName(employee: Employee): string {

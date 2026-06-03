@@ -52,6 +52,13 @@ export type HikvisionDeviceUserInput = {
   metadata?: Record<string, unknown> | null;
 };
 
+export type HikvisionDeviceCardInput = {
+  card_no: string;
+  card_type?: string | null;
+  user_verify_mode?: string | null;
+  check_employee_no?: boolean | null;
+};
+
 export type HikvisionUserSearchOptions = {
   search_id?: string;
   search_result_position?: number;
@@ -351,6 +358,75 @@ export class HikvisionUserManagementService {
     } catch (error) {
       this.logger.error(
         `Failed to delete Hikvision password for assignment employee ${employeeId} on device ${device.id}: ${(error as Error).message}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw error;
+    }
+  }
+
+  async createCard(
+    companyId: number,
+    deviceId: number,
+    employeeId: number,
+    input: HikvisionDeviceCardInput,
+  ) {
+    return this.syncCardInternal(companyId, deviceId, employeeId, input, 'CREATE');
+  }
+
+  async modifyCard(
+    companyId: number,
+    deviceId: number,
+    employeeId: number,
+    input: HikvisionDeviceCardInput,
+  ) {
+    return this.syncCardInternal(companyId, deviceId, employeeId, input, 'MODIFY');
+  }
+
+  async syncCard(
+    companyId: number,
+    deviceId: number,
+    employeeId: number,
+    input: HikvisionDeviceCardInput,
+  ) {
+    return this.syncCardInternal(companyId, deviceId, employeeId, input, 'UPSERT');
+  }
+
+  async deleteCard(
+    companyId: number,
+    deviceId: number,
+    employeeId: number,
+    cardNo: string,
+  ) {
+    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId, true);
+    const assignment = await this.findAssignmentOrFail(companyId, device.id, employeeId);
+    const normalizedCardNo = this.normalizeCardNo(cardNo);
+    const payload = {
+      CardInfoDelCond: {
+        CardNoList: [{ cardNo: normalizedCardNo }],
+      },
+    };
+
+    try {
+      const response = await this.requestWithRetry(
+        `delete-card:${device.id}:${assignment.employeeNo}:${normalizedCardNo}`,
+        () => this.hikvisionAccessControlService.deleteCardInfo(companyId, device.id, payload),
+      );
+      this.ensureHikvisionSuccess('DeleteCard', response);
+      this.logger.log(
+        `Deleted Hikvision card ${this.maskCardNo(normalizedCardNo)} for assignment employee ${employeeId} on device ${device.id}`,
+      );
+
+      return {
+        message: 'Card deleted on Hikvision device successfully',
+        device_id: device.id,
+        employee_id: employeeId,
+        employee_no: assignment.employeeNo,
+        card_no: normalizedCardNo,
+        device_response: this.toObject(response.parsed),
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to delete Hikvision card ${this.maskCardNo(normalizedCardNo)} for assignment employee ${employeeId} on device ${device.id}: ${(error as Error).message}`,
         error instanceof Error ? error.stack : undefined,
       );
       throw error;
@@ -1397,6 +1473,90 @@ export class HikvisionUserManagementService {
     };
   }
 
+  private async syncCardInternal(
+    companyId: number,
+    deviceId: number,
+    employeeId: number,
+    input: HikvisionDeviceCardInput,
+    operation: 'CREATE' | 'MODIFY' | 'UPSERT',
+  ) {
+    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId, true);
+    const assignment = await this.findAssignmentOrFail(companyId, device.id, employeeId);
+    const normalizedCardNo = this.normalizeCardNo(input.card_no);
+    const cardType = this.normalizeCardType(input.card_type);
+    const resolvedUserVerifyMode = await this.resolveCardUserVerifyMode(
+      companyId,
+      employeeId,
+      device.id,
+      input.user_verify_mode,
+    );
+    const payload = this.buildCardPayload(assignment.employeeNo, normalizedCardNo, cardType, input);
+    const setUserModePayload = this.buildManualUserUpdatePayload({
+      employee_no: assignment.employeeNo,
+      user_verify_mode: resolvedUserVerifyMode,
+    });
+
+    const execute = async (
+      mode: 'CREATE' | 'MODIFY',
+    ): Promise<HikvisionHttpResult> => {
+      const response = await this.requestWithRetry(
+        `${mode.toLowerCase()}-card:${device.id}:${assignment.employeeNo}:${normalizedCardNo}`,
+        () =>
+          mode === 'CREATE'
+            ? this.hikvisionAccessControlService.setupCardInfo(companyId, device.id, payload)
+            : this.hikvisionAccessControlService.modifyCardInfo(companyId, device.id, payload),
+      );
+      this.ensureHikvisionSuccess(mode === 'CREATE' ? 'CreateCard' : 'ModifyCard', response);
+      return response;
+    };
+
+    try {
+      await this.requestWithRetry(
+        `set-card-user-mode:${device.id}:${assignment.employeeNo}`,
+        () => this.hikvisionAccessControlService.modifyUserInfo(companyId, device.id, setUserModePayload),
+      ).then((response) => this.ensureHikvisionSuccess('SetCardUserVerifyMode', response));
+
+      let response: HikvisionHttpResult;
+      let actualOperation: 'CREATE' | 'MODIFY' = operation === 'MODIFY' ? 'MODIFY' : 'CREATE';
+
+      if (operation === 'UPSERT') {
+        try {
+          response = await execute('CREATE');
+          actualOperation = 'CREATE';
+        } catch (error) {
+          response = await execute('MODIFY');
+          actualOperation = 'MODIFY';
+        }
+      } else {
+        response = await execute(actualOperation);
+      }
+
+      this.logger.log(
+        `${actualOperation === 'CREATE' ? 'Created' : 'Modified'} Hikvision card ${this.maskCardNo(normalizedCardNo)} for assignment employee ${employeeId} on device ${device.id}`,
+      );
+
+      return {
+        message:
+          actualOperation === 'CREATE'
+            ? 'Card created on Hikvision device successfully'
+            : 'Card modified on Hikvision device successfully',
+        device_id: device.id,
+        employee_id: employeeId,
+        employee_no: assignment.employeeNo,
+        card_no: normalizedCardNo,
+        card_type: cardType,
+        user_verify_mode: resolvedUserVerifyMode,
+        device_response: this.toObject(response.parsed),
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to ${operation.toLowerCase()} Hikvision card ${this.maskCardNo(normalizedCardNo)} for assignment employee ${employeeId} on device ${device.id}: ${(error as Error).message}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw error;
+    }
+  }
+
   private async syncUserPassword(
     companyId: number,
     deviceId: number,
@@ -1505,6 +1665,58 @@ export class HikvisionUserManagementService {
       candidateModes,
       hasPassword ? 'password synchronization' : 'password removal',
     );
+  }
+
+  private async resolveCardUserVerifyMode(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    explicitUserVerifyMode?: string | null,
+  ): Promise<string> {
+    const credentials = await this.employeeAccessCredentialRepository.find({
+      where: [
+        { companyId, employeeId, deviceId },
+        { companyId, employeeId, deviceId: IsNull() },
+      ],
+    });
+    const activeCredentials = credentials.filter(
+      (credential) => credential.credentialStatus === EmployeeAccessCredentialStatusEnum.ACTIVE,
+    );
+    const hasPassword = activeCredentials.some(
+      (credential) =>
+        (credential.credentialType === EmployeeAccessCredentialTypeEnum.PASSWORD
+          || credential.credentialType === EmployeeAccessCredentialTypeEnum.PIN)
+        && Boolean(credential.pinPassword?.trim()),
+    );
+    const hasFingerprint = activeCredentials.some(
+      (credential) =>
+        credential.credentialType === EmployeeAccessCredentialTypeEnum.FINGERPRINT ||
+        credential.hasFingerprint,
+    );
+
+    return this.resolveSupportedUserVerifyMode(
+      companyId,
+      deviceId,
+      explicitUserVerifyMode,
+      this.buildUserVerifyModeCandidates(hasPassword, hasFingerprint, true),
+      'card synchronization',
+    );
+  }
+
+  private buildCardPayload(
+    employeeNo: string,
+    cardNo: string,
+    cardType: string,
+    input: HikvisionDeviceCardInput,
+  ) {
+    return {
+      CardInfo: {
+        employeeNo,
+        cardNo,
+        cardType,
+        checkEmployeeNo: input.check_employee_no ?? true,
+      },
+    };
   }
 
   private buildUserVerifyModeCandidates(
@@ -2072,6 +2284,19 @@ export class HikvisionUserManagementService {
     return normalized;
   }
 
+  private normalizeCardNo(value: unknown): string {
+    const normalized = String(value ?? '').trim();
+    if (!normalized) {
+      throw new BadRequestException('card_no is required');
+    }
+    return normalized;
+  }
+
+  private normalizeCardType(value: unknown): string {
+    const normalized = String(value ?? 'normalCard').trim();
+    return normalized || 'normalCard';
+  }
+
   private normalizeTemplateNo(value: unknown): string {
     const normalized = String(value ?? '').trim();
     if (!normalized) {
@@ -2186,6 +2411,15 @@ export class HikvisionUserManagementService {
     if (!normalized) return null;
     const parsed = new Date(normalized);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  private maskCardNo(value: string): string {
+    const normalized = String(value ?? '').trim();
+    if (normalized.length <= 4) {
+      return normalized ? '*'.repeat(normalized.length) : '';
+    }
+
+    return `${'*'.repeat(Math.max(normalized.length - 4, 0))}${normalized.slice(-4)}`;
   }
 
   private startOfToday(): Date {
