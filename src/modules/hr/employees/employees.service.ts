@@ -5,7 +5,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { randomBytes } from 'crypto';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
@@ -903,7 +902,7 @@ export class EmployeesService {
           last_name: createEmployeeDto.last_name,
           phone,
           email,
-          password: await hashPassword(randomBytes(16).toString('hex')),
+          password: await hashPassword('Employee123!'),
           status: 'active',
           user_type: 'COMPANY_USER',
           is_email_verified: true,

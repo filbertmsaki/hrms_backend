@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CompanyUser } from '../companies/entities/company-user.entity';
 import { AccessDoor } from '../access-control/access-doors/entity/access-door.entity';
@@ -24,6 +25,9 @@ import { HikvisionUserManagementService } from './hikvision-user-management.serv
 import { HikvisionAttendanceLog } from './entities/hikvision-attendance-log.entity';
 import { HikvisionDigestClient } from './helpers/hikvision-digest.client';
 import { HikvisionParserHelper } from './helpers/hikvision-parser.helper';
+import { HIKVISION_SYNC_QUEUE } from './hikvision-sync-job.constants';
+import { HikvisionSyncJobsService } from './hikvision-sync-jobs.service';
+import { HikvisionSyncProcessor } from './hikvision-sync.processor';
 
 @Module({
   imports: [
@@ -42,6 +46,9 @@ import { HikvisionParserHelper } from './helpers/hikvision-parser.helper';
       HikvisionAttendanceLog,
       HikvisionSyncLog,
     ]),
+    BullModule.registerQueue({
+      name: HIKVISION_SYNC_QUEUE,
+    }),
   ],
   controllers: [HikvisionAttendanceController, HikvisionPeopleCredentialSyncController],
   providers: [
@@ -54,6 +61,8 @@ import { HikvisionParserHelper } from './helpers/hikvision-parser.helper';
     DeviceCommandLogService,
     HikvisionDigestClient,
     HikvisionParserHelper,
+    HikvisionSyncJobsService,
+    HikvisionSyncProcessor,
   ],
   exports: [
     HikvisionService,
@@ -63,6 +72,7 @@ import { HikvisionParserHelper } from './helpers/hikvision-parser.helper';
     HikvisionPeopleCredentialSyncService,
     HikvisionUserManagementService,
     DeviceCommandLogService,
+    HikvisionSyncJobsService,
   ],
 })
 export class HikvisionModule {}
