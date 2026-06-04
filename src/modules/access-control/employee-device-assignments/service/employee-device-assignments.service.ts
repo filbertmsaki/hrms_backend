@@ -839,7 +839,7 @@ export class EmployeeDeviceAssignmentsService {
     employeeId: number,
     deviceId: number,
     fingerprintId: string,
-    dto: SyncEmployeeDeviceFingerprintDto,
+    dto: SyncEmployeeDeviceFingerprintDto = {},
     actor: AssignmentActor = {},
   ) {
     return this.biometricCaptureSessionService.syncFingerprintForAssignment(
@@ -857,7 +857,7 @@ export class EmployeeDeviceAssignmentsService {
     employeeId: number,
     deviceId: number,
     fingerprintId: string,
-    dto: SyncEmployeeDeviceFingerprintDto,
+    dto: SyncEmployeeDeviceFingerprintDto = {},
     actor: AssignmentActor = {},
   ) {
     return this.syncFingerprint(

@@ -432,7 +432,7 @@ export class EmployeeDeviceAssignmentsController {
     @Param('employeeId', ParseIntPipe) employeeId: number,
     @Param('deviceId', ParseIntPipe) deviceId: number,
     @Param('fingerprintId') fingerprintId: string,
-    @Body() dto: SyncEmployeeDeviceFingerprintDto,
+    @Body() dto: SyncEmployeeDeviceFingerprintDto = {},
   ) {
     return this.assignmentsService.syncFingerprint(
       req.user.companyId!,
@@ -461,7 +461,7 @@ export class EmployeeDeviceAssignmentsController {
     @Param('employeeId', ParseIntPipe) employeeId: number,
     @Param('deviceId', ParseIntPipe) deviceId: number,
     @Param('fingerprintId') fingerprintId: string,
-    @Body() dto: SyncEmployeeDeviceFingerprintDto,
+    @Body() dto: SyncEmployeeDeviceFingerprintDto = {},
   ) {
     return this.assignmentsService.resyncFingerprint(
       req.user.companyId!,

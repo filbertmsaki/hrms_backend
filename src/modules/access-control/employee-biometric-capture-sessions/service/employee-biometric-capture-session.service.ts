@@ -530,13 +530,16 @@ export class EmployeeBiometricCaptureSessionService {
 
     const assignment = await this.findAssignmentOrFail(companyId, employee.id, device.id);
     const deviceEmployeeNo = assignment.employeeNo.trim();
-    const cardReaderNo = dto.card_reader_no ?? 1;
+    const cardReaderNo = this.resolveStoredFingerprintCardReaderNo(
+      metadata,
+      device.id,
+      assignment.metadata,
+    );
     const resolvedUserVerifyMode = await this.resolveConfiguredFingerprintUserVerifyMode(
       companyId,
       device.id,
       assignment.userVerifyMode ?? null,
       metadata,
-      dto.user_verify_mode,
     );
 
     if (resolvedUserVerifyMode) {
