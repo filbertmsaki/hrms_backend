@@ -23,11 +23,25 @@ import { EmployeeAccessCredentialTypeEnum } from '../enum/employee-access-creden
 @Index('IDX_employee_access_credentials_employee_no', ['employeeNo'])
 @Index('IDX_employee_access_credentials_device_id', ['deviceId'])
 @Index('IDX_employee_access_credentials_card_no', ['cardNo'])
+@Index('IDX_employee_access_credentials_fingerprint_id', ['fingerprintId'])
+@Index('IDX_employee_access_credentials_card_reader_no', ['cardReaderNo'])
 @Unique('UQ_employee_access_credentials_emp_no_device_type_credential', [
   'employeeNo',
   'deviceId',
   'credentialType',
   'credentialNo',
+])
+@Unique('UQ_employee_access_credentials_device_type_card_no', [
+  'deviceId',
+  'credentialType',
+  'cardNo',
+])
+@Unique('UQ_eac_dev_emp_type_fp_reader', [
+  'deviceId',
+  'employeeNo',
+  'credentialType',
+  'fingerprintId',
+  'cardReaderNo',
 ])
 export class EmployeeAccessCredential {
   @PrimaryGeneratedColumn({ name: 'id' })
@@ -63,6 +77,9 @@ export class EmployeeAccessCredential {
 
   @Column({ name: 'fingerprint_id', type: 'varchar', length: 100, nullable: true })
   fingerprintId: string | null;
+
+  @Column({ name: 'card_reader_no', type: 'int', nullable: true })
+  cardReaderNo: number | null;
 
   @Column({ name: 'face_id', type: 'varchar', length: 100, nullable: true })
   faceId: string | null;

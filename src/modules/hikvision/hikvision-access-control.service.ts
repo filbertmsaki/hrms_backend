@@ -181,6 +181,10 @@ export class HikvisionAccessControlService {
     return this.requestJsonPost(companyId, deviceId, '/ISAPI/AccessControl/UserInfo/Search?format=json', payload);
   }
 
+  async searchUsers(companyId: number, deviceId: number, payload: Record<string, unknown>) {
+    return this.searchUserInfo(companyId, deviceId, payload);
+  }
+
   async recordUserInfo(companyId: number, deviceId: number, payload: Record<string, unknown>) {
     return this.requestJsonPost(companyId, deviceId, '/ISAPI/AccessControl/UserInfo/Record?format=json', payload);
   }
@@ -199,6 +203,10 @@ export class HikvisionAccessControlService {
 
   async searchCardInfo(companyId: number, deviceId: number, payload: Record<string, unknown>) {
     return this.requestJsonPost(companyId, deviceId, '/ISAPI/AccessControl/CardInfo/Search?format=json', payload);
+  }
+
+  async searchCards(companyId: number, deviceId: number, payload: Record<string, unknown>) {
+    return this.searchCardInfo(companyId, deviceId, payload);
   }
 
   async recordCardInfo(companyId: number, deviceId: number, payload: Record<string, unknown>) {
@@ -247,6 +255,15 @@ export class HikvisionAccessControlService {
       companyId,
       deviceId,
       '/ISAPI/AccessControl/FingerPrint/Delete?format=json',
+      payload,
+    );
+  }
+
+  async uploadFingerprint(companyId: number, deviceId: number, payload: Record<string, unknown>) {
+    return this.requestJsonPost(
+      companyId,
+      deviceId,
+      '/ISAPI/AccessControl/FingerPrintUpload?format=json',
       payload,
     );
   }

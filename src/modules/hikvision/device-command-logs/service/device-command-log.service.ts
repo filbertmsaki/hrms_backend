@@ -141,6 +141,8 @@ export class DeviceCommandLogService {
       'pin_password',
       'fingerprint',
       'fingerprintdata',
+      'fingerdata',
+      'finger_print_data',
       'biometricdata',
       'face_data',
       'raw_biometric_data',
@@ -196,4 +198,3 @@ export class DeviceCommandLogService {
     };
   }
 }
-

@@ -17,6 +17,8 @@ import { HikvisionAccessControlService } from './hikvision-access-control.servic
 import { HikvisionAttendanceController } from './hikvision-attendance.controller';
 import { HikvisionAttendanceSyncService } from './hikvision-attendance-sync.service';
 import { HikvisionDoorSyncService } from './hikvision-door.service';
+import { HikvisionPeopleCredentialSyncController } from './hikvision-people-credential-sync.controller';
+import { HikvisionPeopleCredentialSyncService } from './hikvision-people-credential-sync.service';
 import { HikvisionService } from './hikvision.service';
 import { HikvisionUserManagementService } from './hikvision-user-management.service';
 import { HikvisionAttendanceLog } from './entities/hikvision-attendance-log.entity';
@@ -41,12 +43,13 @@ import { HikvisionParserHelper } from './helpers/hikvision-parser.helper';
       HikvisionSyncLog,
     ]),
   ],
-  controllers: [HikvisionAttendanceController],
+  controllers: [HikvisionAttendanceController, HikvisionPeopleCredentialSyncController],
   providers: [
     HikvisionService,
     HikvisionDoorSyncService,
     HikvisionAccessControlService,
     HikvisionAttendanceSyncService,
+    HikvisionPeopleCredentialSyncService,
     HikvisionUserManagementService,
     DeviceCommandLogService,
     HikvisionDigestClient,
@@ -57,6 +60,7 @@ import { HikvisionParserHelper } from './helpers/hikvision-parser.helper';
     HikvisionDoorSyncService,
     HikvisionAccessControlService,
     HikvisionAttendanceSyncService,
+    HikvisionPeopleCredentialSyncService,
     HikvisionUserManagementService,
     DeviceCommandLogService,
   ],

@@ -10,6 +10,7 @@ import { SortDirection } from '../../common/dto/pagination.dto';
 import { AttendanceDevice } from '../hr/attendance/devices/entities/attendance-device.entity';
 import { AttendanceDeviceStatusEnum } from '../hr/attendance/devices/enums/attendance-device-status.enum';
 import { buildPaginationMeta } from '../hr/shared/hr.utils';
+import { buildAttendanceDeviceSearchId } from '../access-control/attendance-devices/utils/attendance-device-search-id.util';
 import { HikvisionSyncLog } from '../access-control/hikvision-sync-logs/entity/hikvision-sync-log.entity';
 import { HikvisionSyncLogDirectionEnum } from '../access-control/hikvision-sync-logs/enum/hikvision-sync-log-direction.enum';
 import { HikvisionSyncLogStatusEnum } from '../access-control/hikvision-sync-logs/enum/hikvision-sync-log-status.enum';
@@ -139,7 +140,7 @@ export class HikvisionAttendanceSyncService {
       this.ensurePositiveInteger(maxResults, 'maxResults'),
     );
 
-    const searchID = `${Date.now()}`;
+    const searchID = buildAttendanceDeviceSearchId('acs_event_date', deviceId);
     return this.syncByCondition(companyId, device, {
       searchID,
       searchResultPosition: 0,
@@ -169,7 +170,11 @@ export class HikvisionAttendanceSyncService {
       this.ensurePositiveInteger(maxResults, 'maxResults'),
     );
 
-    const searchID = `${Date.now()}`;
+    const searchID = buildAttendanceDeviceSearchId(
+      'acs_event_employee',
+      deviceId,
+      normalizedEmployeeNo,
+    );
     return this.syncByCondition(companyId, device, {
       searchID,
       searchResultPosition: 0,
@@ -595,7 +600,7 @@ export class HikvisionAttendanceSyncService {
     }
 
     return {
-      searchID: payload.searchID?.trim() || '1',
+      searchID: buildAttendanceDeviceSearchId(payload.searchID?.trim() || 'acs_event', deviceId),
       searchResultPosition,
       maxResults,
       major: payload.major ?? 5,

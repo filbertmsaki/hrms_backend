@@ -19,6 +19,7 @@ import { EmployeeDeviceAssignment } from '../../employee-device-assignments/enti
 @Index('IDX_employee_device_right_plans_device_id', ['deviceId'])
 @Index('IDX_employee_device_right_plans_door_id', ['doorId'])
 @Index('IDX_employee_device_right_plans_schedule_template_id', ['scheduleTemplateId'])
+@Index('IDX_employee_device_right_plans_is_active', ['isActive'])
 @Unique('UQ_employee_device_right_plans_assignment_door_template', [
   'employeeDeviceAssignmentId',
   'doorNo',
@@ -49,6 +50,9 @@ export class EmployeeDeviceRightPlan {
   @Column({ name: 'hikvision_template_no', type: 'varchar', length: 50 })
   hikvisionTemplateNo: string;
 
+  @Column({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean;
+
   @Column({ name: 'metadata', type: 'json', nullable: true })
   metadata: Record<string, unknown> | null;
 
@@ -72,4 +76,3 @@ export class EmployeeDeviceRightPlan {
   @JoinColumn({ name: 'schedule_template_id' })
   scheduleTemplate: AccessScheduleTemplate | null;
 }
-

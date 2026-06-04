@@ -1222,6 +1222,7 @@ export class EmployeeDeviceAssignmentsService {
         companyId,
         employeeId: employee.id,
         employeeNo: deviceEmployeeNo,
+        employeeName: this.buildEmployeeDisplayName(employee),
         deviceId,
         organizationId: settings.organizationId,
         userVerifyMode: settings.userVerifyMode,
@@ -2363,6 +2364,7 @@ export class EmployeeDeviceAssignmentsService {
       company_id: item.companyId,
       employee_id: item.employeeId,
       employee_no: item.employeeNo,
+      employee_name: item.employeeName,
       hikvision_employee_no: item.employeeNo,
       access_group_id: Number(hikvisionMetadata.access_group_id) || null,
       access_group_name:

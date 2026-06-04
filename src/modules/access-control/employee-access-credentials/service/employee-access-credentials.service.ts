@@ -211,6 +211,7 @@ export class EmployeeAccessCredentialsService {
       'api_password',
       'password',
       'pin_password',
+      'encrypted_fingerprint_template',
       'fingerprintdata',
       'fingerdata',
       'finger_data',

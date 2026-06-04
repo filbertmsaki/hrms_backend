@@ -23,6 +23,7 @@ import { AttendanceDevice } from '../hr/attendance/devices/entities/attendance-d
 import { AttendanceDeviceStatusEnum } from '../hr/attendance/devices/enums/attendance-device-status.enum';
 import { EmployeeDeviceIdentity } from '../hr/attendance/processing/entities/employee-device-identity.entity';
 import { Employee } from '../hr/employees/entities/employee.entity';
+import { buildAttendanceDeviceSearchId } from '../access-control/attendance-devices/utils/attendance-device-search-id.util';
 import { normalizeHikvisionError } from './helpers/hikvision-error.helper';
 import { HikvisionAccessControlService } from './hikvision-access-control.service';
 
@@ -1014,6 +1015,7 @@ export class HikvisionUserManagementService {
         companyId,
         employeeId: employee?.id ?? null,
         employeeNo: user.employee_no,
+        employeeName: user.name,
         deviceId,
       });
     }
@@ -1021,6 +1023,7 @@ export class HikvisionUserManagementService {
     assignment.companyId = companyId;
     assignment.employeeId = employee?.id ?? assignment.employeeId ?? null;
     assignment.employeeNo = user.employee_no;
+    assignment.employeeName = user.name ?? assignment.employeeName ?? null;
     assignment.deviceId = deviceId;
     assignment.hikvisionUserType = user.user_type;
     assignment.userVerifyMode = user.user_verify_mode;
@@ -1288,7 +1291,10 @@ export class HikvisionUserManagementService {
 
     return {
       UserInfoSearchCond: {
-        searchID: options.search_id?.trim() || `${Date.now()}`,
+        searchID: buildAttendanceDeviceSearchId(
+          options.search_id?.trim() || 'sync_users',
+          employeeNos[0] ?? 'all',
+        ),
         searchResultPosition: this.ensureNonNegativeInteger(
           options.search_result_position ?? 0,
           'search_result_position',
