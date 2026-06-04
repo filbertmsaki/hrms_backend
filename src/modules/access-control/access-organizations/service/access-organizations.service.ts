@@ -170,7 +170,7 @@ export class AccessOrganizationsService {
 
   async remove(companyId: number, id: number): Promise<{ message: string }> {
     const item = await this.findOrFail(companyId, id);
-    await this.organizationRepository.softRemove(item);
+    await this.organizationRepository.remove(item);
     return { message: 'Access organization deleted successfully' };
   }
 
@@ -295,7 +295,6 @@ export class AccessOrganizationsService {
             companyId,
             hikvisionGroupNo: groupNoText,
           },
-          withDeleted: true,
         });
 
         const entity = existing ?? this.organizationRepository.create();
@@ -317,10 +316,6 @@ export class AccessOrganizationsService {
             last_pull_status: response.status,
           },
         };
-
-        if (existing?.deletedAt) {
-          await this.organizationRepository.recover(existing);
-        }
 
         await this.organizationRepository.save(entity);
         synced += 1;

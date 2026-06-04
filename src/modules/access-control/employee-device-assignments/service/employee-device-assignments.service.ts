@@ -1486,7 +1486,6 @@ export class EmployeeDeviceAssignmentsService {
     const assignments = await this.assignmentRepository.find({
       where: { companyId },
       select: ['employeeNo'],
-      withDeleted: true,
     });
 
     const identities = await this.employeeDeviceIdentityRepository.find({

@@ -69,7 +69,6 @@ export class AccessGroupsService {
         name: groupName,
       },
       select: ['id'],
-      withDeleted: true,
     });
 
     if (duplicate) {
@@ -191,7 +190,7 @@ export class AccessGroupsService {
 
   async remove(companyId: number, id: number): Promise<{ message: string }> {
     const item = await this.findOrFail(companyId, id);
-    await this.groupRepository.softRemove(item);
+    await this.groupRepository.remove(item);
     return { message: 'Access group deleted successfully' };
   }
 

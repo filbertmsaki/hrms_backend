@@ -171,7 +171,7 @@ export class AccessDoorsService {
 
   async remove(companyId: number, id: number): Promise<{ message: string }> {
     const item = await this.findOrFail(companyId, id);
-    await this.accessDoorRepository.softRemove(item);
+    await this.accessDoorRepository.remove(item);
     return { message: 'Access door deleted successfully' };
   }
 
@@ -277,7 +277,6 @@ export class AccessDoorsService {
     const existing = await this.accessDoorRepository.findOne({
       where: { companyId, deviceId, doorNo },
       select: ['id'],
-      withDeleted: true,
     });
     if (existing && existing.id !== currentId) {
       throw new ConflictException('door_no already exists for this device');

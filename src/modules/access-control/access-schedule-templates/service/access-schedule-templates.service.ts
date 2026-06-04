@@ -172,7 +172,7 @@ export class AccessScheduleTemplatesService {
 
   async remove(companyId: number, id: number): Promise<{ message: string }> {
     const item = await this.findOrFail(companyId, id);
-    await this.templateRepository.softRemove(item);
+    await this.templateRepository.remove(item);
     return { message: 'Access schedule template deleted successfully' };
   }
 
@@ -292,7 +292,6 @@ export class AccessScheduleTemplatesService {
 
         const existing = await this.templateRepository.findOne({
           where: { companyId, deviceId, hikvisionTemplateNo },
-          withDeleted: true,
         });
 
         const entity = existing ?? this.templateRepository.create();
@@ -318,10 +317,6 @@ export class AccessScheduleTemplatesService {
             last_pull_status: response.status,
           },
         };
-
-        if (existing?.deletedAt) {
-          await this.templateRepository.recover(existing);
-        }
 
         await this.templateRepository.save(entity);
         synced += 1;
@@ -355,7 +350,6 @@ export class AccessScheduleTemplatesService {
     const existing = await this.templateRepository.findOne({
       where: { companyId, deviceId, hikvisionTemplateNo: templateNo.trim() },
       select: ['id'],
-      withDeleted: true,
     });
 
     if (existing && existing.id !== currentId) {

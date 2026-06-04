@@ -1,43 +1,17 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, Min } from 'class-validator';
 
 export class CaptureEmployeeDeviceFingerprintDto {
-  @ApiPropertyOptional()
-  @IsString()
-  @MaxLength(100)
-  @IsOptional()
-  fingerprint_id?: string;
-
-  @ApiPropertyOptional()
+  @ApiProperty({ description: 'Fingerprint slot number to capture from the device' })
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @IsOptional()
-  card_reader_no?: number;
-
-  @ApiPropertyOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @IsOptional()
-  min_quality?: number;
-
-  @ApiPropertyOptional()
-  @Type(() => Boolean)
-  @IsBoolean()
-  @IsOptional()
-  overwrite?: boolean;
+  finger_no: number;
 
   @ApiPropertyOptional()
   @Type(() => Boolean)
   @IsBoolean()
   @IsOptional()
   sync_to_device?: boolean;
-
-  @ApiPropertyOptional()
-  @IsString()
-  @MaxLength(120)
-  @IsOptional()
-  user_verify_mode?: string;
 }

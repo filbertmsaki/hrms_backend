@@ -153,7 +153,7 @@ export class AccessWeekPlansService {
 
   async remove(companyId: number, id: number): Promise<{ message: string }> {
     const item = await this.findOrFail(companyId, id);
-    await this.weekPlanRepository.softRemove(item);
+    await this.weekPlanRepository.remove(item);
     return { message: 'Access week plan deleted successfully' };
   }
 
@@ -241,7 +241,6 @@ export class AccessWeekPlansService {
 
         let weekPlan = await this.weekPlanRepository.findOne({
           where: { companyId, deviceId, hikvisionPlanNo: resolvedPlanNo },
-          withDeleted: true,
         });
 
         if (!weekPlan) {
@@ -253,10 +252,6 @@ export class AccessWeekPlansService {
             enable: this.toBoolean(cfg.enable, true),
             isSystemDefault: false,
           });
-        }
-
-        if (weekPlan.deletedAt) {
-          await this.weekPlanRepository.recover(weekPlan);
         }
 
         weekPlan.name = String(cfg.name ?? cfg.weekPlanName ?? weekPlan.name ?? '').trim() || weekPlan.name;
@@ -300,7 +295,6 @@ export class AccessWeekPlansService {
   private async ensureUniquePlan(companyId: number, deviceId: number, planNo: string, currentId?: number) {
     const existing = await this.weekPlanRepository.findOne({
       where: { companyId, deviceId, hikvisionPlanNo: planNo },
-      withDeleted: true,
       select: ['id'],
     });
 
