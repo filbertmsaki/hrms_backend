@@ -9,10 +9,12 @@ import { EmployeeBiometricCaptureSessionsModule } from './employee-biometric-cap
 import { EmployeeAccessCredentialsModule } from './employee-access-credentials/employee-access-credentials.module';
 import { EmployeeDeviceAccessAuditLogsModule } from './employee-device-access-audit-logs/employee-device-access-audit-logs.module';
 import { EmployeeDeviceAssignmentsModule } from './employee-device-assignments/employee-device-assignments.module';
+import { AccessControlAttendanceDevicesModule } from './attendance-devices/attendance-devices.module';
 
 @Module({
   imports: [
     AccessDoorsModule,
+    AccessControlAttendanceDevicesModule,
     AccessOrganizationsModule,
     AccessScheduleTemplatesModule,
     AccessWeekPlansModule,
