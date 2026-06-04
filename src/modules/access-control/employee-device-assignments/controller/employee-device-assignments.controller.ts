@@ -26,11 +26,11 @@ import {
 } from '../../../../docs/swagger-decorators';
 import { AssignEmployeeDevicesDto } from '../dto/assign-employee-devices.dto';
 import { CaptureEmployeeDeviceFingerprintDto } from '../dto/capture-employee-device-fingerprint.dto';
+import { CreateEmployeeDeviceFingerprintFromRecordDto } from '../dto/create-employee-device-fingerprint-from-record.dto';
 import { CreateEmployeeDeviceCardDto } from '../dto/create-employee-device-card.dto';
 import { DeleteEmployeeDeviceFingerprintDto } from '../dto/delete-employee-device-fingerprint.dto';
 import { DeleteEmployeeDevicePasswordDto } from '../dto/delete-employee-device-password.dto';
 import { HikvisionUserSearchQueryDto } from '../dto/hikvision-user-search-query.dto';
-import { SaveEmployeeDeviceFingerprintDto } from '../dto/save-employee-device-fingerprint.dto';
 import { SetEmployeeDevicePasswordDto } from '../dto/set-employee-device-password.dto';
 import { SyncEmployeeDeviceCardDto } from '../dto/sync-employee-device-card.dto';
 import { SyncEmployeeDeviceFingerprintDto } from '../dto/sync-employee-device-fingerprint.dto';
@@ -369,13 +369,13 @@ export class EmployeeDeviceAssignmentsController {
   @Permissions('employee_device_assignments:update')
   @ApiActionOperation(
     'Create Device Fingerprint',
-    'Save a backend fingerprint template and optionally synchronize it to the assigned device',
+    'Create a fingerprint on the assigned Hikvision device using an existing backend capture record',
   )
   createFingerprint(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
     @Param('deviceId', ParseIntPipe) deviceId: number,
-    @Body() dto: SaveEmployeeDeviceFingerprintDto,
+    @Body() dto: CreateEmployeeDeviceFingerprintFromRecordDto,
   ) {
     return this.assignmentsService.createFingerprint(
       req.user.companyId!,

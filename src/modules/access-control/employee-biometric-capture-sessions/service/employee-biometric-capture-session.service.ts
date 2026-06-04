@@ -108,17 +108,18 @@ export class EmployeeBiometricCaptureSessionService {
     companyId: number,
     employeeId: number,
     deviceId: number,
-    dto: Omit<SaveCapturedFingerprintDto, 'device_id'>,
+    dto: {
+      fingerprint_id: string;
+      overwrite?: boolean;
+    },
     actor: FingerprintActor = {},
   ) {
     await this.findAssignmentOrFail(companyId, employeeId, deviceId);
-    return this.saveCapturedFingerprint(
+    return this.createFingerprintOnDeviceFromStoredRecord(
       companyId,
       employeeId,
-      {
-        ...dto,
-        device_id: deviceId,
-      },
+      deviceId,
+      dto,
       actor,
     );
   }
@@ -304,6 +305,7 @@ export class EmployeeBiometricCaptureSessionService {
       fingerData: capturedFingerData,
       fingerNo: capture.fingerNo,
       fingerPrintQuality: capture.fingerPrintQuality,
+      minQuality: 60,
       sessionId: session.id,
       overwrite: false,
       syncStatus: 'CAPTURED',
@@ -373,6 +375,67 @@ export class EmployeeBiometricCaptureSessionService {
     };
   }
 
+  async createFingerprintOnDeviceFromStoredRecord(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    dto: {
+      fingerprint_id: string;
+      overwrite?: boolean;
+    },
+    actor: FingerprintActor = {},
+  ) {
+    const employee = await this.findEmployeeOrFail(companyId, employeeId);
+    const device = await this.findDeviceOrFail(companyId, deviceId);
+    const assignment = await this.findAssignmentOrFail(companyId, employee.id, device.id);
+    const fingerprintRecord = await this.findFingerprintCredentialByRecordIdOrFail(
+      companyId,
+      employee.id,
+      dto.fingerprint_id,
+    );
+    const metadata = this.toObject(fingerprintRecord.metadata);
+    const fingerprint = this.toObject(metadata.fingerprint);
+    const storedFingerprintId = this.toNullableString(
+      fingerprintRecord.fingerprintId ?? fingerprintRecord.credentialNo ?? fingerprint.fingerprint_id,
+    );
+    const storedFingerData = this.toNullableString(fingerprint.finger_data);
+
+    if (!storedFingerprintId) {
+      throw new BadRequestException('Stored fingerprint record is missing fingerprint_id');
+    }
+    if (!storedFingerData) {
+      throw new BadRequestException('Stored fingerprint record is missing finger_data');
+    }
+
+    const storedQuality = this.toNullableInteger(fingerprint.finger_print_quality);
+    const storedMinQuality = this.resolveStoredFingerprintMinQuality(metadata);
+    this.validateFingerprintQuality(storedQuality, storedMinQuality);
+
+    const cardReaderNo = this.resolveStoredFingerprintCardReaderNo(
+      metadata,
+      device.id,
+      assignment.metadata,
+    );
+
+    const syncResult = await this.syncFingerprintToDevice(
+      companyId,
+      employee.id,
+      storedFingerprintId,
+      {
+        device_id: device.id,
+        card_reader_no: cardReaderNo,
+      },
+      actor,
+    );
+
+    return {
+      message: 'Stored fingerprint synchronized to device successfully',
+      fingerprint_record_id: fingerprintRecord.id,
+      overwrite: Boolean(dto.overwrite),
+      sync_result: syncResult,
+    };
+  }
+
   async saveCapturedFingerprint(
     companyId: number,
     employeeId: number,
@@ -400,6 +463,7 @@ export class EmployeeBiometricCaptureSessionService {
       fingerData: dto.finger_data,
       fingerNo: dto.finger_no ?? fingerprintId.number,
       fingerPrintQuality: dto.finger_print_quality,
+      minQuality: dto.min_quality,
       sessionId: null,
       overwrite: Boolean(dto.overwrite),
       syncStatus: 'SAVED',
@@ -997,6 +1061,7 @@ export class EmployeeBiometricCaptureSessionService {
       fingerData,
       fingerNo: Number(fingerprintId),
       fingerPrintQuality,
+      minQuality: 60,
       sessionId,
       overwrite: true,
       syncStatus,
@@ -1032,6 +1097,7 @@ export class EmployeeBiometricCaptureSessionService {
     fingerData: string;
     fingerNo: number | null;
     fingerPrintQuality: number | null;
+    minQuality?: number | null;
     sessionId: number | null;
     overwrite: boolean;
     syncStatus: string;
@@ -1089,6 +1155,7 @@ export class EmployeeBiometricCaptureSessionService {
         fingerprint_id: input.fingerprintId,
         finger_no: input.fingerNo,
         finger_print_quality: input.fingerPrintQuality,
+        min_quality: input.minQuality ?? existingFingerprint.min_quality ?? 60,
         finger_data: fingerData,
         is_enabled: true,
         sync_status: input.syncStatus,
@@ -1155,6 +1222,53 @@ export class EmployeeBiometricCaptureSessionService {
     }
 
     return credential;
+  }
+
+  private async findFingerprintCredentialByRecordIdOrFail(
+    companyId: number,
+    employeeId: number,
+    fingerprintRecordId: string,
+  ) {
+    const parsedId = Number(fingerprintRecordId);
+    if (!Number.isInteger(parsedId) || parsedId < 1) {
+      throw new BadRequestException('fingerprint_id must be a valid fingerprint record id');
+    }
+
+    const credential = await this.credentialRepository.findOne({
+      where: {
+        id: parsedId,
+        companyId,
+        employeeId,
+        credentialType: EmployeeAccessCredentialTypeEnum.FINGERPRINT,
+      },
+    });
+
+    if (!credential || credential.credentialStatus === EmployeeAccessCredentialStatusEnum.DELETED) {
+      throw new NotFoundException('Fingerprint record not found');
+    }
+
+    return credential;
+  }
+
+  private resolveStoredFingerprintMinQuality(metadata: Record<string, unknown>) {
+    const fingerprint = this.toObject(metadata.fingerprint);
+    const storedMinQuality = this.toNullableInteger(fingerprint.min_quality);
+    return storedMinQuality ?? 60;
+  }
+
+  private resolveStoredFingerprintCardReaderNo(
+    fingerprintMetadata: Record<string, unknown>,
+    deviceId: number,
+    assignmentMetadata?: Record<string, unknown> | null,
+  ) {
+    const deviceSync = this.toObject(
+      this.toObject(fingerprintMetadata.device_syncs)[String(deviceId)],
+    );
+    const assignmentHikvision = this.toObject(this.toObject(assignmentMetadata).hikvision);
+    const cardReaderNo = this.toNullableInteger(
+      deviceSync.card_reader_no ?? assignmentHikvision.card_reader_no,
+    );
+    return cardReaderNo ?? 1;
   }
 
   private buildFingerprintSetupPayload(

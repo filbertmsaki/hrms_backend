@@ -34,10 +34,10 @@ import { EmployeeAccessCredentialTypeEnum } from '../../employee-access-credenti
 import { EmployeeBiometricCaptureSessionService } from '../../employee-biometric-capture-sessions/service/employee-biometric-capture-session.service';
 import { AssignEmployeeDevicesDto } from '../dto/assign-employee-devices.dto';
 import { CaptureEmployeeDeviceFingerprintDto } from '../dto/capture-employee-device-fingerprint.dto';
+import { CreateEmployeeDeviceFingerprintFromRecordDto } from '../dto/create-employee-device-fingerprint-from-record.dto';
 import { CreateEmployeeDeviceCardDto } from '../dto/create-employee-device-card.dto';
 import { DeleteEmployeeDeviceFingerprintDto } from '../dto/delete-employee-device-fingerprint.dto';
 import { HikvisionUserSearchQueryDto } from '../dto/hikvision-user-search-query.dto';
-import { SaveEmployeeDeviceFingerprintDto } from '../dto/save-employee-device-fingerprint.dto';
 import { SyncEmployeeDeviceCardDto } from '../dto/sync-employee-device-card.dto';
 import { UpdateEmployeeDeviceUserDto } from '../dto/update-employee-device-user.dto';
 import { UpdateEmployeeDeviceCardDto } from '../dto/update-employee-device-card.dto';
@@ -804,7 +804,7 @@ export class EmployeeDeviceAssignmentsService {
     companyId: number,
     employeeId: number,
     deviceId: number,
-    dto: SaveEmployeeDeviceFingerprintDto,
+    dto: CreateEmployeeDeviceFingerprintFromRecordDto,
     actor: AssignmentActor = {},
   ) {
     return this.biometricCaptureSessionService.createFingerprintForAssignment(
