@@ -5,8 +5,8 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Repository } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 import { hashPassword } from '../../../../common/utils/hash.util';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import {
@@ -16,6 +16,8 @@ import {
 import { HikvisionUserManagementService } from '../../../hikvision/hikvision-user-management.service';
 import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
 import { AttendanceDeviceStatusEnum } from '../../../hr/attendance/devices/enums/attendance-device-status.enum';
+import { AttendanceProcessedEvent } from '../../../hr/attendance/processing/entities/attendance-processed-event.entity';
+import { AttendanceRecalculationJob } from '../../../hr/attendance/processing/entities/attendance-recalculation-job.entity';
 import { Employee } from '../../../hr/employees/entities/employee.entity';
 import { EmploymentStatusEnum } from '../../../hr/employees/enums/employment-status.enum';
 import { EmployeeDeviceIdentity } from '../../../hr/attendance/processing/entities/employee-device-identity.entity';
@@ -31,7 +33,9 @@ import { EmployeeAccessCredential } from '../../employee-access-credentials/enti
 import { EmployeeAccessCredentialSourceEnum } from '../../employee-access-credentials/enum/employee-access-credential-source.enum';
 import { EmployeeAccessCredentialStatusEnum } from '../../employee-access-credentials/enum/employee-access-credential-status.enum';
 import { EmployeeAccessCredentialTypeEnum } from '../../employee-access-credentials/enum/employee-access-credential-type.enum';
+import { EmployeeBiometricCaptureSession } from '../../employee-biometric-capture-sessions/entity/employee-biometric-capture-session.entity';
 import { EmployeeBiometricCaptureSessionService } from '../../employee-biometric-capture-sessions/service/employee-biometric-capture-session.service';
+import { EmployeeDeviceAccessAuditLog } from '../../employee-device-access-audit-logs/entity/employee-device-access-audit-log.entity';
 import { AssignEmployeeDevicesDto } from '../dto/assign-employee-devices.dto';
 import { CaptureEmployeeDeviceFingerprintDto } from '../dto/capture-employee-device-fingerprint.dto';
 import { CreateEmployeeDeviceFingerprintFromRecordDto } from '../dto/create-employee-device-fingerprint-from-record.dto';
@@ -102,11 +106,22 @@ type AssignmentActor = {
   userAgent?: string;
 };
 
+type LinkExistingDeviceUserResult = {
+  assignment: EmployeeDeviceAssignment;
+  linkedCredentials: number;
+  linkedAuditLogs: number;
+  linkedBiometricSessions: number;
+  linkedAttendanceEvents: number;
+  queuedRecalculation: boolean;
+};
+
 @Injectable()
 export class EmployeeDeviceAssignmentsService {
   private readonly logger = new Logger(EmployeeDeviceAssignmentsService.name);
 
   constructor(
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
     @InjectRepository(EmployeeDeviceAssignment)
     private readonly assignmentRepository: Repository<EmployeeDeviceAssignment>,
     @InjectRepository(Employee)
@@ -119,6 +134,14 @@ export class EmployeeDeviceAssignmentsService {
     private readonly rightPlanRepository: Repository<EmployeeDeviceRightPlan>,
     @InjectRepository(EmployeeAccessCredential)
     private readonly credentialRepository: Repository<EmployeeAccessCredential>,
+    @InjectRepository(EmployeeDeviceAccessAuditLog)
+    private readonly auditLogRepository: Repository<EmployeeDeviceAccessAuditLog>,
+    @InjectRepository(EmployeeBiometricCaptureSession)
+    private readonly biometricCaptureSessionRepository: Repository<EmployeeBiometricCaptureSession>,
+    @InjectRepository(AttendanceProcessedEvent)
+    private readonly attendanceProcessedEventRepository: Repository<AttendanceProcessedEvent>,
+    @InjectRepository(AttendanceRecalculationJob)
+    private readonly attendanceRecalculationJobRepository: Repository<AttendanceRecalculationJob>,
     @InjectRepository(AccessGroup)
     private readonly accessGroupRepository: Repository<AccessGroup>,
     @InjectRepository(AccessGroupDoor)
@@ -181,6 +204,7 @@ export class EmployeeDeviceAssignmentsService {
           device.id,
           deviceEmployeeNo,
           settings,
+          dto.password,
         );
         settings.userVerifyMode = payload.user_verify_mode ?? settings.userVerifyMode;
 
@@ -238,18 +262,100 @@ export class EmployeeDeviceAssignmentsService {
     deviceId: number,
     dto: UpdateEmployeeDeviceUserDto,
   ) {
-    const result = await this.assignDevices(companyId, employeeId, {
-      ...dto,
-      device_ids: [deviceId],
-      sync_now: true,
-      continue_on_error: false,
-    });
+    const employee = await this.findEmployeeOrFail(companyId, employeeId, true);
+    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId);
+    const settings = await this.resolveSettingsFromInput(companyId, employee, device, dto);
+    const requestedEmployeeNo = this.toNullableString(dto.employee_no);
+
+    if (requestedEmployeeNo) {
+      const existingByEmployeeNo = await this.assignmentRepository.findOne({
+        where: {
+          companyId,
+          deviceId: device.id,
+          employeeNo: requestedEmployeeNo,
+        },
+      });
+      const existingByEmployee = await this.assignmentRepository.findOne({
+        where: {
+          companyId,
+          deviceId: device.id,
+          employeeId: employee.id,
+        },
+      });
+
+      if (
+        existingByEmployee
+        && existingByEmployee.employeeNo.trim() !== requestedEmployeeNo
+      ) {
+        throw new ConflictException(
+          `Employee ${employee.id} is already linked to device ${device.id} using employee_no ${existingByEmployee.employeeNo}`,
+        );
+      }
+
+      if (
+        existingByEmployeeNo
+        && existingByEmployeeNo.employeeId !== null
+        && existingByEmployeeNo.employeeId !== employee.id
+      ) {
+        throw new ConflictException(
+          `Device employee_no ${requestedEmployeeNo} is already linked to employee ${existingByEmployeeNo.employeeId}`,
+        );
+      }
+
+      if (existingByEmployeeNo) {
+        const linked = await this.linkExistingLocalDeviceUser(
+          companyId,
+          employee,
+          device,
+          existingByEmployeeNo,
+          settings,
+          dto.password,
+        );
+
+        return {
+          message: 'Existing Hikvision device user linked to employee successfully',
+          employee: this.mapEmployeeSummary(employee),
+          device_id: deviceId,
+          result: {
+            status: 'LINKED',
+            device_id: deviceId,
+            employee_id: employee.id,
+            device_employee_no: linked.assignment.employeeNo,
+            local_updates: {
+              credentials_linked: linked.linkedCredentials,
+              audit_logs_linked: linked.linkedAuditLogs,
+              biometric_sessions_linked: linked.linkedBiometricSessions,
+              attendance_events_linked: linked.linkedAttendanceEvents,
+              queued_attendance_recalculation: linked.queuedRecalculation,
+            },
+            assignment: await this.findAssignmentDetailsOrFail(linked.assignment.id),
+          },
+        };
+      }
+    }
+
+    const deviceEmployeeNo = requestedEmployeeNo ?? (await this.resolveAvailableDeviceEmployeeNo(companyId, device.id));
+    const created = await this.registerDeviceUserLocallyAndOnDevice(
+      companyId,
+      employee,
+      device,
+      deviceEmployeeNo,
+      settings,
+      dto.password,
+    );
 
     return {
       message: 'Employee registered on Hikvision device successfully',
-      employee: result.employee,
+      employee: this.mapEmployeeSummary(employee),
       device_id: deviceId,
-      result: result.results[0] ?? null,
+      result: {
+        status: 'SYNCED',
+        device_id: deviceId,
+        employee_id: employee.id,
+        device_employee_no: created.assignment.employeeNo,
+        device_result: created.deviceResult,
+        assignment: await this.findAssignmentDetailsOrFail(created.assignment.id),
+      },
     };
   }
 
@@ -310,6 +416,177 @@ export class EmployeeDeviceAssignmentsService {
       message: 'Employee device user modified successfully',
       assignment: await this.findAssignmentDetailsOrFail(saved.id),
     };
+  }
+
+  private async registerDeviceUserLocallyAndOnDevice(
+    companyId: number,
+    employee: Employee,
+    device: AttendanceDevice,
+    deviceEmployeeNo: string,
+    settings: AssignmentSettings,
+    password?: string,
+  ): Promise<{
+    assignment: EmployeeDeviceAssignment;
+    deviceResult: Record<string, unknown>;
+  }> {
+    const existing = await this.assignmentRepository.findOne({
+      where: { companyId, employeeId: employee.id, deviceId: device.id },
+    });
+
+    if (existing) {
+      throw new ConflictException(
+        `Employee ${employee.id} is already assigned to device ${device.id}`,
+      );
+    }
+
+    const payload = await this.buildDeviceUserPayload(
+      companyId,
+      employee,
+      device.id,
+      deviceEmployeeNo,
+      settings,
+      password,
+    );
+    settings.userVerifyMode = payload.user_verify_mode ?? settings.userVerifyMode;
+
+    const deviceResult = await this.hikvisionUserManagementService.createUserOnDevice(
+      companyId,
+      device.id,
+      payload,
+    );
+    const assignment = await this.persistSuccessfulAssignment(
+      companyId,
+      employee,
+      device.id,
+      deviceEmployeeNo,
+      settings,
+      password,
+    );
+
+    return { assignment, deviceResult };
+  }
+
+  private async linkExistingLocalDeviceUser(
+    companyId: number,
+    employee: Employee,
+    device: AttendanceDevice,
+    assignment: EmployeeDeviceAssignment,
+    settings: AssignmentSettings,
+    password?: string,
+  ): Promise<LinkExistingDeviceUserResult> {
+    return this.dataSource.transaction(async (manager) => {
+      const assignmentRepository = manager.getRepository(EmployeeDeviceAssignment);
+      const currentAssignment = await assignmentRepository.findOneOrFail({
+        where: { id: assignment.id, companyId },
+      });
+      const snapshot = this.cloneAssignment(currentAssignment);
+      const now = new Date();
+
+      currentAssignment.companyId = companyId;
+      currentAssignment.employeeId = employee.id;
+      currentAssignment.employeeName = this.buildEmployeeDisplayName(employee);
+      currentAssignment.deviceId = device.id;
+      currentAssignment.employeeNo = currentAssignment.employeeNo.trim();
+      this.applySettingsToAssignment(currentAssignment, settings);
+      currentAssignment.syncStatus =
+        currentAssignment.syncStatus ?? EmployeeDeviceAssignmentSyncStatusEnum.SYNCED;
+      currentAssignment.lastSyncedAt = now;
+      currentAssignment.metadata = this.mergeMetadata(currentAssignment.metadata, {
+        hikvision: {
+          linked_backend_employee_id: employee.id,
+          linked_backend_employee_at: now.toISOString(),
+          linked_without_device_lookup: true,
+        },
+      });
+
+      if (password?.trim()) {
+        this.applyPasswordStateToAssignment(
+          currentAssignment,
+          settings.userVerifyMode,
+          'PENDING',
+          null,
+        );
+      }
+
+      if (this.hasAssignmentChanged(snapshot, currentAssignment)) {
+        await assignmentRepository.save(currentAssignment);
+      }
+
+      await this.syncAssignmentRightPlansLocally(
+        manager,
+        device.id,
+        currentAssignment,
+        settings.rightPlan,
+      );
+      await this.upsertDeviceIdentity(
+        companyId,
+        employee.id,
+        currentAssignment.employeeNo,
+        device.id,
+        manager,
+      );
+      await this.upsertAccessGroupEmployeeMembership(
+        settings.accessGroupId,
+        employee,
+        device.id,
+        currentAssignment.employeeNo,
+        settings.organizationId,
+        manager,
+      );
+
+      const linkedCredentials = await this.linkCredentialsToEmployee(
+        manager,
+        companyId,
+        employee,
+        device.id,
+        currentAssignment.employeeNo,
+      );
+
+      if (password?.trim()) {
+        await this.upsertPasswordCredentialForAssignment(
+          manager,
+          companyId,
+          employee,
+          device.id,
+          currentAssignment.employeeNo,
+          password,
+          settings.userVerifyMode,
+          false,
+        );
+        await assignmentRepository.save(currentAssignment);
+      }
+
+      const linkedAuditLogs = await this.linkAuditLogsToEmployee(
+        manager,
+        companyId,
+        employee.id,
+        device.id,
+        currentAssignment.employeeNo,
+      );
+      const linkedBiometricSessions = await this.linkBiometricSessionsToEmployee(
+        manager,
+        companyId,
+        employee.id,
+        device.id,
+        currentAssignment.employeeNo,
+      );
+      const attendanceLink = await this.linkAttendanceEventsToEmployee(
+        manager,
+        companyId,
+        employee.id,
+        device.id,
+        currentAssignment.employeeNo,
+      );
+
+      return {
+        assignment: currentAssignment,
+        linkedCredentials,
+        linkedAuditLogs,
+        linkedBiometricSessions,
+        linkedAttendanceEvents: attendanceLink.updatedCount,
+        queuedRecalculation: attendanceLink.queuedRecalculation,
+      };
+    });
   }
 
   async getUser(companyId: number, employeeId: number, deviceId: number) {
@@ -1215,6 +1492,7 @@ export class EmployeeDeviceAssignmentsService {
     deviceId: number,
     deviceEmployeeNo: string,
     settings: AssignmentSettings,
+    password?: string,
   ): Promise<EmployeeDeviceAssignment> {
     const now = new Date();
     const assignment = await this.assignmentRepository.save(
@@ -1258,6 +1536,25 @@ export class EmployeeDeviceAssignmentsService {
         assignment.employeeNo,
         settings.organizationId,
       );
+      if (password?.trim()) {
+        await this.upsertPasswordCredentialForAssignment(
+          null,
+          companyId,
+          employee,
+          deviceId,
+          assignment.employeeNo,
+          password,
+          settings.userVerifyMode,
+          true,
+        );
+        this.applyPasswordStateToAssignment(
+          assignment,
+          settings.userVerifyMode,
+          'SYNCED',
+          await hashPassword(password),
+        );
+        await this.assignmentRepository.save(assignment);
+      }
       return assignment;
     } catch (error) {
       await this.assignmentRepository.delete({ id: assignment.id });
@@ -1304,8 +1601,14 @@ export class EmployeeDeviceAssignmentsService {
     deviceId: number,
     deviceEmployeeNo: string,
     settings: AssignmentSettings,
+    passwordOverride?: string | null,
   ): Promise<HikvisionDeviceUserInput> {
-    const credentials = await this.buildCredentialBundle(companyId, employee.id, deviceId);
+    const credentials = await this.buildCredentialBundle(
+      companyId,
+      employee.id,
+      deviceId,
+      passwordOverride,
+    );
     const resolvedUserVerifyMode = await this.hikvisionUserManagementService.resolveSupportedUserVerifyMode(
       companyId,
       deviceId,
@@ -1351,6 +1654,7 @@ export class EmployeeDeviceAssignmentsService {
     companyId: number,
     employeeId: number,
     deviceId: number,
+    passwordOverride?: string | null,
   ): Promise<CredentialBundle> {
     const credentials = await this.credentialRepository.find({
       where: [
@@ -1380,7 +1684,10 @@ export class EmployeeDeviceAssignmentsService {
         credential.hasFingerprint,
     );
 
-    const hasPassword = Boolean(passwordCredential?.pinPassword?.trim());
+    const normalizedOverridePassword = this.toNullableString(passwordOverride);
+    const effectivePassword =
+      normalizedOverridePassword ?? passwordCredential?.pinPassword?.trim() ?? null;
+    const hasPassword = Boolean(effectivePassword);
     const hasCard = Boolean(cardCredential?.cardNo?.trim());
     const hasFingerprint = Boolean(
       fingerprintCredential?.hasFingerprint || fingerprintCredential,
@@ -1391,7 +1698,7 @@ export class EmployeeDeviceAssignmentsService {
       ?? this.extractCredentialUserVerifyMode(fingerprintCredential);
 
     return {
-      password: passwordCredential?.pinPassword?.trim() || null,
+      password: effectivePassword,
       hasPassword,
       hasCard,
       hasFingerprint,
@@ -1676,11 +1983,22 @@ export class EmployeeDeviceAssignmentsService {
     deviceId: number,
     deviceEmployeeNo: string,
     organizationId: number | null,
+    manager?: EntityManager | null,
   ) {
+    const repository = manager?.getRepository(AccessGroupEmployee) ?? this.accessGroupEmployeeRepository;
     const now = new Date();
-    const existingRows = await this.accessGroupEmployeeRepository.find({
-      where: { employeeId: employee.id, deviceId },
-    });
+    const normalizedEmployeeNo = deviceEmployeeNo.trim();
+    const existingRows = await repository
+      .createQueryBuilder('membership')
+      .where('membership.device_id = :deviceId', { deviceId })
+      .andWhere(
+        '(membership.employee_id = :employeeId OR membership.employee_no = :employeeNo)',
+        {
+          employeeId: employee.id,
+          employeeNo: normalizedEmployeeNo,
+        },
+      )
+      .getMany();
 
     for (const row of existingRows) {
       if (row.accessGroupId === accessGroupId) {
@@ -1689,15 +2007,15 @@ export class EmployeeDeviceAssignmentsService {
 
       row.status = AccessGroupEmployeeStatusEnum.REMOVED;
       row.removedAt = now;
-      await this.accessGroupEmployeeRepository.save(row);
+      await repository.save(row);
     }
 
     let membership = existingRows.find((row) => row.accessGroupId === accessGroupId) ?? null;
     if (!membership) {
-      membership = this.accessGroupEmployeeRepository.create({
+      membership = repository.create({
         accessGroupId,
         employeeId: employee.id,
-        employeeNo: deviceEmployeeNo,
+        employeeNo: normalizedEmployeeNo,
         employeeName: this.buildEmployeeDisplayName(employee),
         organizationId,
         deviceId,
@@ -1719,12 +2037,12 @@ export class EmployeeDeviceAssignmentsService {
 
     membership.metadata = this.mergeMetadata(membership.metadata, {
       hikvision: {
-        device_employee_no: deviceEmployeeNo,
+        device_employee_no: normalizedEmployeeNo,
         last_assignment_sync_at: now.toISOString(),
       },
     });
 
-    await this.accessGroupEmployeeRepository.save(membership);
+    await repository.save(membership);
   }
 
   private async replaceRightPlans(
@@ -1750,6 +2068,377 @@ export class EmployeeDeviceAssignmentsService {
         }),
       );
     }
+  }
+
+  private async syncAssignmentRightPlansLocally(
+    manager: EntityManager,
+    deviceId: number,
+    assignment: EmployeeDeviceAssignment,
+    rightPlans: ResolvedRightPlan[],
+  ) {
+    const repository = manager.getRepository(EmployeeDeviceRightPlan);
+    const existingPlans = await repository.find({
+      where: { employeeDeviceAssignmentId: assignment.id },
+    });
+    const existingByKey = new Map(
+      existingPlans.map((plan) => [
+        this.buildRightPlanKey(plan.doorNo, plan.hikvisionTemplateNo),
+        {
+          current: plan,
+          snapshot: this.cloneRightPlan(plan),
+        },
+      ]),
+    );
+    const activeKeys = new Set<string>();
+
+    for (const plan of rightPlans) {
+      const key = this.buildRightPlanKey(plan.doorNo, plan.planTemplateNo);
+      activeKeys.add(key);
+
+      const currentEntry = existingByKey.get(key) ?? null;
+      const current = currentEntry?.current ?? null;
+      const draft = current
+        ? current
+        : repository.create({
+            employeeDeviceAssignmentId: assignment.id,
+            employeeNo: assignment.employeeNo,
+            deviceId,
+            doorNo: plan.doorNo,
+            hikvisionTemplateNo: plan.planTemplateNo.trim(),
+          });
+
+      draft.employeeDeviceAssignmentId = assignment.id;
+      draft.employeeNo = assignment.employeeNo;
+      draft.deviceId = deviceId;
+      draft.doorId = plan.doorId;
+      draft.doorNo = plan.doorNo;
+      draft.scheduleTemplateId = plan.scheduleTemplateId;
+      draft.hikvisionTemplateNo = plan.planTemplateNo.trim();
+      draft.isActive = true;
+      draft.metadata = plan.metadata;
+
+      if (!current || this.hasRightPlanChanged(currentEntry!.snapshot, draft)) {
+        await repository.save(draft);
+      }
+    }
+
+    for (const existing of existingPlans) {
+      const key = this.buildRightPlanKey(existing.doorNo, existing.hikvisionTemplateNo);
+      if (activeKeys.has(key)) {
+        continue;
+      }
+
+      await repository.delete({ id: existing.id });
+    }
+  }
+
+  private async linkCredentialsToEmployee(
+    manager: EntityManager,
+    companyId: number,
+    employee: Employee,
+    deviceId: number,
+    employeeNo: string,
+  ): Promise<number> {
+    const repository = manager.getRepository(EmployeeAccessCredential);
+    const rows = await repository.find({
+      where: {
+        companyId,
+        deviceId,
+        employeeNo,
+      },
+    });
+
+    let updated = 0;
+    for (const row of rows) {
+      const snapshot = this.cloneCredential(row);
+      row.employeeId = employee.id;
+      if (this.hasCredentialChanged(snapshot, row)) {
+        await repository.save(row);
+        updated += 1;
+      }
+    }
+
+    return updated;
+  }
+
+  private async upsertPasswordCredentialForAssignment(
+    manager: EntityManager | null,
+    companyId: number,
+    employee: Employee,
+    deviceId: number,
+    employeeNo: string,
+    password: string,
+    userVerifyMode: string | null,
+    markSynced: boolean,
+  ) {
+    const repository = manager?.getRepository(EmployeeAccessCredential) ?? this.credentialRepository;
+    let credential = await repository.findOne({
+      where: {
+        companyId,
+        deviceId,
+        employeeNo,
+        credentialType: EmployeeAccessCredentialTypeEnum.PASSWORD,
+      },
+    });
+
+    if (!credential) {
+      credential = await repository.findOne({
+        where: {
+          companyId,
+          employeeId: employee.id,
+          deviceId,
+          credentialType: EmployeeAccessCredentialTypeEnum.PASSWORD,
+        },
+      });
+    }
+
+    const now = new Date();
+    const existingSource = credential?.source ?? null;
+    if (!credential) {
+      credential = repository.create({
+        companyId,
+        employeeId: employee.id,
+        employeeNo,
+        deviceId,
+        credentialType: EmployeeAccessCredentialTypeEnum.PASSWORD,
+      });
+    }
+
+    credential.companyId = companyId;
+    credential.employeeId = employee.id;
+    credential.employeeNo = employeeNo;
+    credential.deviceId = deviceId;
+    credential.credentialType = EmployeeAccessCredentialTypeEnum.PASSWORD;
+    credential.credentialNo = employeeNo;
+    credential.pinPassword = password.trim();
+    credential.passwordSet = true;
+    credential.source = existingSource ?? EmployeeAccessCredentialSourceEnum.MANUAL;
+    credential.credentialStatus = EmployeeAccessCredentialStatusEnum.ACTIVE;
+    credential.lastSyncedAt = markSynced ? now : credential.lastSyncedAt ?? null;
+    credential.metadata = this.mergeMetadata(credential.metadata, {
+      hikvision: {
+        user_verify_mode: userVerifyMode,
+        password_sync_status: markSynced ? 'SYNCED' : 'PENDING',
+        password_last_synced_at: markSynced ? now.toISOString() : null,
+        device_employee_no: employeeNo,
+      },
+    });
+
+    await repository.save(credential);
+  }
+
+  private applyPasswordStateToAssignment(
+    assignment: EmployeeDeviceAssignment,
+    userVerifyMode: string | null,
+    syncStatus: 'SYNCED' | 'PENDING',
+    passwordHash: string | null,
+  ) {
+    assignment.userVerifyMode = userVerifyMode ?? assignment.userVerifyMode;
+    assignment.metadata = this.mergeMetadata(assignment.metadata, {
+      hikvision: {
+        device_password_hash: passwordHash,
+        password_enabled: syncStatus === 'PENDING' ? true : Boolean(passwordHash),
+        password_sync_status: syncStatus,
+        password_last_synced_at: syncStatus === 'SYNCED' ? new Date().toISOString() : null,
+        user_verify_mode: userVerifyMode ?? assignment.userVerifyMode,
+      },
+    });
+  }
+
+  private async linkAuditLogsToEmployee(
+    manager: EntityManager,
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    employeeNo: string,
+  ): Promise<number> {
+    const result = await manager
+      .createQueryBuilder()
+      .update(EmployeeDeviceAccessAuditLog)
+      .set({ employeeId })
+      .where('company_id = :companyId', { companyId })
+      .andWhere('device_id = :deviceId', { deviceId })
+      .andWhere('employee_no = :employeeNo', { employeeNo })
+      .execute();
+
+    return Number(result.affected ?? 0);
+  }
+
+  private async linkBiometricSessionsToEmployee(
+    manager: EntityManager,
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    employeeNo: string,
+  ): Promise<number> {
+    const result = await manager
+      .createQueryBuilder()
+      .update(EmployeeBiometricCaptureSession)
+      .set({ employeeId })
+      .where('company_id = :companyId', { companyId })
+      .andWhere('device_id = :deviceId', { deviceId })
+      .andWhere('employee_no = :employeeNo', { employeeNo })
+      .execute();
+
+    return Number(result.affected ?? 0);
+  }
+
+  private async linkAttendanceEventsToEmployee(
+    manager: EntityManager,
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    employeeNo: string,
+  ): Promise<{ updatedCount: number; queuedRecalculation: boolean }> {
+    const repository = manager.getRepository(AttendanceProcessedEvent);
+    const range = await repository
+      .createQueryBuilder('event')
+      .select('MIN(event.attendance_date)', 'date_from')
+      .addSelect('MAX(event.attendance_date)', 'date_to')
+      .where('event.company_id = :companyId', { companyId })
+      .andWhere('event.device_id = :deviceId', { deviceId })
+      .andWhere('event.employee_no = :employeeNo', { employeeNo })
+      .getRawOne<{ date_from: string | null; date_to: string | null }>();
+
+    const updateResult = await manager
+      .createQueryBuilder()
+      .update(AttendanceProcessedEvent)
+      .set({ employeeId })
+      .where('company_id = :companyId', { companyId })
+      .andWhere('device_id = :deviceId', { deviceId })
+      .andWhere('employee_no = :employeeNo', { employeeNo })
+      .execute();
+
+    const updatedCount = Number(updateResult.affected ?? 0);
+    if (!updatedCount || !range?.date_from || !range?.date_to) {
+      return { updatedCount, queuedRecalculation: false };
+    }
+
+    await manager.getRepository(AttendanceRecalculationJob).save(
+      manager.getRepository(AttendanceRecalculationJob).create({
+        companyId,
+        employeeId,
+        dateFrom: range.date_from,
+        dateTo: range.date_to,
+        reason: 'Linked Hikvision employee_no to backend employee',
+        metadata: {
+          source: 'EMPLOYEE_DEVICE_LINK',
+          device_id: deviceId,
+          employee_no: employeeNo,
+        },
+      }),
+    );
+
+    return { updatedCount, queuedRecalculation: true };
+  }
+
+  private buildRightPlanKey(doorNo: number, planTemplateNo: string): string {
+    return `${doorNo}:${planTemplateNo.trim()}`;
+  }
+
+  private cloneAssignment(assignment: EmployeeDeviceAssignment): EmployeeDeviceAssignment {
+    return this.assignmentRepository.create({
+      ...assignment,
+      validBeginTime: assignment.validBeginTime ? new Date(assignment.validBeginTime) : null,
+      validEndTime: assignment.validEndTime ? new Date(assignment.validEndTime) : null,
+      lastSyncedAt: assignment.lastSyncedAt ? new Date(assignment.lastSyncedAt) : null,
+      metadata: assignment.metadata ? JSON.parse(JSON.stringify(assignment.metadata)) : null,
+    });
+  }
+
+  private cloneRightPlan(plan: EmployeeDeviceRightPlan): EmployeeDeviceRightPlan {
+    return this.rightPlanRepository.create({
+      ...plan,
+      metadata: plan.metadata ? JSON.parse(JSON.stringify(plan.metadata)) : null,
+    });
+  }
+
+  private cloneCredential(credential: EmployeeAccessCredential): EmployeeAccessCredential {
+    return this.credentialRepository.create({
+      ...credential,
+      lastSyncedAt: credential.lastSyncedAt ? new Date(credential.lastSyncedAt) : null,
+      metadata: credential.metadata ? JSON.parse(JSON.stringify(credential.metadata)) : null,
+    });
+  }
+
+  private hasAssignmentChanged(
+    existing: EmployeeDeviceAssignment,
+    next: EmployeeDeviceAssignment,
+  ): boolean {
+    return (
+      existing.companyId !== next.companyId
+      || existing.employeeId !== next.employeeId
+      || existing.employeeNo !== next.employeeNo
+      || existing.employeeName !== next.employeeName
+      || existing.deviceId !== next.deviceId
+      || existing.organizationId !== next.organizationId
+      || existing.hikvisionUserType !== next.hikvisionUserType
+      || existing.userVerifyMode !== next.userVerifyMode
+      || !this.sameDate(existing.validBeginTime, next.validBeginTime)
+      || !this.sameDate(existing.validEndTime, next.validEndTime)
+      || existing.validEnabled !== next.validEnabled
+      || existing.doorRight !== next.doorRight
+      || existing.localUiRight !== next.localUiRight
+      || existing.closeDelayEnabled !== next.closeDelayEnabled
+      || existing.maxOpenDoorTime !== next.maxOpenDoorTime
+      || existing.openDoorTime !== next.openDoorTime
+      || existing.syncStatus !== next.syncStatus
+      || !this.sameJson(existing.metadata, next.metadata)
+    );
+  }
+
+  private hasRightPlanChanged(
+    existing: EmployeeDeviceRightPlan,
+    next: EmployeeDeviceRightPlan,
+  ): boolean {
+    return (
+      existing.employeeDeviceAssignmentId !== next.employeeDeviceAssignmentId
+      || existing.employeeNo !== next.employeeNo
+      || existing.deviceId !== next.deviceId
+      || existing.doorId !== next.doorId
+      || existing.doorNo !== next.doorNo
+      || existing.scheduleTemplateId !== next.scheduleTemplateId
+      || existing.hikvisionTemplateNo !== next.hikvisionTemplateNo
+      || existing.isActive !== next.isActive
+      || !this.sameJson(existing.metadata, next.metadata)
+    );
+  }
+
+  private hasCredentialChanged(
+    existing: EmployeeAccessCredential,
+    next: EmployeeAccessCredential,
+  ): boolean {
+    return (
+      existing.companyId !== next.companyId
+      || existing.employeeId !== next.employeeId
+      || existing.employeeNo !== next.employeeNo
+      || existing.deviceId !== next.deviceId
+      || existing.credentialType !== next.credentialType
+      || existing.credentialNo !== next.credentialNo
+      || existing.pinPassword !== next.pinPassword
+      || existing.cardNo !== next.cardNo
+      || existing.fingerprintId !== next.fingerprintId
+      || existing.cardReaderNo !== next.cardReaderNo
+      || existing.faceId !== next.faceId
+      || existing.fingerprintCount !== next.fingerprintCount
+      || existing.faceCount !== next.faceCount
+      || existing.hasFingerprint !== next.hasFingerprint
+      || existing.hasFace !== next.hasFace
+      || existing.passwordSet !== next.passwordSet
+      || existing.credentialStatus !== next.credentialStatus
+      || existing.source !== next.source
+      || !this.sameJson(existing.metadata, next.metadata)
+    );
+  }
+
+  private sameJson(left: unknown, right: unknown): boolean {
+    return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+  }
+
+  private sameDate(left: Date | null | undefined, right: Date | null | undefined): boolean {
+    const leftValue = left ? new Date(left).toISOString() : null;
+    const rightValue = right ? new Date(right).toISOString() : null;
+    return leftValue === rightValue;
   }
 
   private applySettingsToAssignment(
@@ -1780,19 +2469,21 @@ export class EmployeeDeviceAssignmentsService {
     employeeId: number,
     employeeNo: string,
     deviceId: number,
+    manager?: EntityManager | null,
   ) {
-    let identity = await this.employeeDeviceIdentityRepository.findOne({
+    const repository = manager?.getRepository(EmployeeDeviceIdentity) ?? this.employeeDeviceIdentityRepository;
+    let identity = await repository.findOne({
       where: { companyId, employeeId, deviceId },
     });
 
     if (!identity) {
-      identity = await this.employeeDeviceIdentityRepository.findOne({
+      identity = await repository.findOne({
         where: { companyId, deviceId, employeeNo },
       });
     }
 
     if (!identity) {
-      identity = this.employeeDeviceIdentityRepository.create({
+      identity = repository.create({
         companyId,
         employeeId,
         employeeNo,
@@ -1813,7 +2504,7 @@ export class EmployeeDeviceAssignmentsService {
       },
     });
 
-    await this.employeeDeviceIdentityRepository.save(identity);
+    await repository.save(identity);
   }
 
   private async deactivateDeviceIdentity(companyId: number, employeeId: number, deviceId: number) {

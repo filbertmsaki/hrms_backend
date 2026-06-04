@@ -13,6 +13,15 @@ import {
 import { ApiProperty } from '@nestjs/swagger';
 
 export class EmployeeDeviceUserSettingsDto {
+  @ApiPropertyOptional({
+    description:
+      'Hikvision device employee number to link or register. This is not the backend employees.employee_no.',
+  })
+  @IsString()
+  @MaxLength(100)
+  @IsOptional()
+  employee_no?: string;
+
   @ApiProperty()
   @Type(() => Number)
   @IsInt()
@@ -66,6 +75,12 @@ export class EmployeeDeviceUserSettingsDto {
   @MaxLength(120)
   @IsOptional()
   user_verify_mode?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @MaxLength(50)
+  @IsOptional()
+  password?: string;
 
   @ApiPropertyOptional({ description: 'Arbitrary metadata JSON object' })
   @IsObject()

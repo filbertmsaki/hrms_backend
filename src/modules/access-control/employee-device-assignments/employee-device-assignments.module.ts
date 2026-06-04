@@ -8,7 +8,11 @@ import { EmployeeAccessCredential } from '../employee-access-credentials/entity/
 import { EmployeeDeviceRightPlan } from '../employee-device-right-plans/entity/employee-device-right-plan.entity';
 import { AttendanceDevice } from '../../hr/attendance/devices/entities/attendance-device.entity';
 import { EmployeeDeviceIdentity } from '../../hr/attendance/processing/entities/employee-device-identity.entity';
+import { AttendanceProcessedEvent } from '../../hr/attendance/processing/entities/attendance-processed-event.entity';
+import { AttendanceRecalculationJob } from '../../hr/attendance/processing/entities/attendance-recalculation-job.entity';
 import { Employee } from '../../hr/employees/entities/employee.entity';
+import { EmployeeBiometricCaptureSession } from '../employee-biometric-capture-sessions/entity/employee-biometric-capture-session.entity';
+import { EmployeeDeviceAccessAuditLog } from '../employee-device-access-audit-logs/entity/employee-device-access-audit-log.entity';
 import { EmployeeDeviceAssignment } from './entity/employee-device-assignment.entity';
 import { EmployeeDeviceAssignmentsController } from './controller/employee-device-assignments.controller';
 import { EmployeeDeviceAssignmentsService } from './service/employee-device-assignments.service';
@@ -22,12 +26,16 @@ import { EmployeeBiometricCaptureSessionsModule } from '../employee-biometric-ca
       Employee,
       AttendanceDevice,
       EmployeeDeviceIdentity,
+      AttendanceProcessedEvent,
+      AttendanceRecalculationJob,
       EmployeeDeviceRightPlan,
       EmployeeAccessCredential,
       AccessGroup,
       AccessGroupDoor,
       AccessGroupEmployee,
       AccessScheduleTemplate,
+      EmployeeBiometricCaptureSession,
+      EmployeeDeviceAccessAuditLog,
     ]),
     HikvisionModule,
     EmployeeBiometricCaptureSessionsModule,
