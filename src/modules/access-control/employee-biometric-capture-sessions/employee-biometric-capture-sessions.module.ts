@@ -7,7 +7,7 @@ import { EmployeeDeviceAccessAuditLogsModule } from '../employee-device-access-a
 import { EmployeeBiometricCaptureSession } from './entity/employee-biometric-capture-session.entity';
 import { EmployeeBiometricCaptureSessionService } from './service/employee-biometric-capture-session.service';
 import { Employee } from '../../hr/employees/entities/employee.entity';
-import { AttendanceDevice } from '../../hr/attendance/devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../access-control/attendance-devices/entities/attendance-device.entity';
 import { EmployeeDeviceIdentity } from '../../hr/attendance/processing/entities/employee-device-identity.entity';
 
 @Module({
@@ -27,4 +27,5 @@ import { EmployeeDeviceIdentity } from '../../hr/attendance/processing/entities/
   exports: [EmployeeBiometricCaptureSessionService],
 })
 export class EmployeeBiometricCaptureSessionsModule {}
+
 

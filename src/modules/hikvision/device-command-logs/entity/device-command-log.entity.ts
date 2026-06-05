@@ -9,7 +9,7 @@ import {
 } from 'typeorm';
 import { Company } from '../../../companies/entities/company.entity';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
-import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { Branch } from '../../../hr/branches/entities/branch.entity';
 import { DeviceCommandHttpMethodEnum } from '../enum/device-command-http-method.enum';
 import { DeviceCommandLogStatusEnum } from '../enum/device-command-log-status.enum';
@@ -109,4 +109,5 @@ export class DeviceCommandLog {
   @JoinColumn({ name: 'created_by_company_user_id' })
   createdByCompanyUser: CompanyUser | null;
 }
+
 

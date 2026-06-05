@@ -10,7 +10,7 @@ import {
 } from 'typeorm';
 import { AttendanceCheckpointStatusEnum } from '../enums/attendance-checkpoint-status.enum';
 import { AttendanceCheckpointTypeEnum } from '../enums/attendance-checkpoint-type.enum';
-import { AttendanceDevice } from '../../devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { AttendancePolicy } from '../../policies/entities/attendance-policy.entity';
 
 @Entity('attendance_checkpoints')
@@ -86,6 +86,7 @@ export class AttendanceCheckpoint {
   @JoinColumn({ name: 'device_id' })
   device: AttendanceDevice | null;
 }
+
 
 
 

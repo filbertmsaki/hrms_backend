@@ -26,18 +26,20 @@ import {
   ApiListOperation,
   ApiUpdateOperation,
 } from '../../../../docs/swagger-decorators';
-import { AttendanceDevicesService } from './attendance-devices.service';
-import { AttendanceDeviceQueryDto } from './dtos/attendance-device-query.dto';
-import { AttendanceDeviceEmployeesQueryDto } from './dtos/attendance-device-employees-query.dto';
-import { CreateAttendanceDeviceDto } from './dtos/create-attendance-device.dto';
-import { UpdateAttendanceDeviceDto } from './dtos/update-attendance-device.dto';
+import { AttendanceDeviceEmployeesQueryDto } from '../dtos/attendance-device-employees-query.dto';
+import { AttendanceDeviceQueryDto } from '../dtos/attendance-device-query.dto';
+import { CreateAttendanceDeviceDto } from '../dtos/create-attendance-device.dto';
+import { UpdateAttendanceDeviceDto } from '../dtos/update-attendance-device.dto';
+import { AccessControlAttendanceDevicesService } from '../service/attendance-devices.service';
 
 @ApiTags('Attendance Devices')
 @ApiBearerAuth('access-token')
 @Controller('attendance/devices')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class AttendanceDevicesController {
-  constructor(private readonly attendanceDevicesService: AttendanceDevicesService) {}
+  constructor(
+    private readonly attendanceDevicesService: AccessControlAttendanceDevicesService,
+  ) {}
 
   @Post()
   @UseGuards(PermissionsGuard)
@@ -128,7 +130,3 @@ export class AttendanceDevicesController {
     return this.attendanceDevicesService.remove(req.user.companyId!, id);
   }
 }
-
-
-
-

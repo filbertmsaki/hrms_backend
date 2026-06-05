@@ -13,7 +13,7 @@ import {
 } from 'typeorm';
 import { Company } from '../../../companies/entities/company.entity';
 import { Branch } from '../../../hr/branches/entities/branch.entity';
-import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { AccessScheduleTemplate } from '../../access-schedule-templates/entity/access-schedule-template.entity';
 import { AccessWeekPlanSourceEnum } from '../enum/access-week-plan-source.enum';
 import { AccessWeekPlanSegment } from '../../access-week-plan-segments/entity/access-week-plan-segment.entity';
@@ -93,3 +93,4 @@ export class AccessWeekPlan {
   @OneToMany(() => AccessWeekPlanSegment, (segment) => segment.weekPlan)
   segments: AccessWeekPlanSegment[];
 }
+

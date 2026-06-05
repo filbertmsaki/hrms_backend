@@ -9,7 +9,7 @@ import {
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
-import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { Employee } from '../../../hr/employees/entities/employee.entity';
 import { AccessOrganization } from '../../access-organizations/entity/access-organization.entity';
 import { AccessGroupEmployeeSourceEnum } from '../enum/access-group-employee-source.enum';
@@ -94,3 +94,4 @@ export class AccessGroupEmployee {
   @JoinColumn({ name: 'device_id' })
   device: AttendanceDevice | null;
 }
+

@@ -1,7 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsBoolean, IsEnum, IsInt, IsOptional, Min } from 'class-validator';
-import { AttendanceDeviceStatusEnum } from '../../hr/attendance/devices/enums/attendance-device-status.enum';
+import { AttendanceDeviceStatusEnum } from '../../access-control/attendance-devices/enums/attendance-device-status.enum';
 
 export class SyncAllHikvisionDevicesDto {
   @ApiPropertyOptional()
@@ -25,3 +25,4 @@ export class SyncAllHikvisionDevicesDto {
   @IsOptional()
   continue_on_error?: boolean;
 }
+

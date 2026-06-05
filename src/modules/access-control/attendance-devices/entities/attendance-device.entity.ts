@@ -10,12 +10,12 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { Company } from '../../../../companies/entities/company.entity';
-import { Branch } from '../../../branches/entities/branch.entity';
+import { Company } from '../../../companies/entities/company.entity';
+import { Branch } from '../../../hr/branches/entities/branch.entity';
+import { AttendanceCheckpoint } from '../../../hr/attendance/checkpoints/entities/attendance-checkpoint.entity';
+import { AttendanceDeviceSyncLog } from '../../../hr/attendance/sync-logs/entities/attendance-device-sync-log.entity';
 import { AttendanceDeviceStatusEnum } from '../enums/attendance-device-status.enum';
 import { AttendanceDeviceSyncModeEnum } from '../enums/attendance-device-sync-mode.enum';
-import { AttendanceCheckpoint } from '../../checkpoints/entities/attendance-checkpoint.entity';
-import { AttendanceDeviceSyncLog } from '../../sync-logs/entities/attendance-device-sync-log.entity';
 
 @Entity('attendance_devices')
 @Index('IDX_attendance_devices_company_id', ['companyId'])
@@ -137,7 +137,3 @@ export class AttendanceDevice {
   @OneToMany(() => AttendanceCheckpoint, (checkpoint) => checkpoint.device)
   checkpoints: AttendanceCheckpoint[];
 }
-
-
-
-

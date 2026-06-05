@@ -9,7 +9,7 @@ import {
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
-import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { AccessDoor } from '../../access-doors/entity/access-door.entity';
 import { AccessScheduleTemplate } from '../../access-schedule-templates/entity/access-schedule-template.entity';
 import { AccessGroup } from '../../access-groups/entity/access-group.entity';
@@ -72,3 +72,4 @@ export class AccessGroupDoor {
   @JoinColumn({ name: 'schedule_template_id' })
   scheduleTemplate: AccessScheduleTemplate;
 }
+

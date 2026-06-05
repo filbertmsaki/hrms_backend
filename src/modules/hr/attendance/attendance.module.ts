@@ -4,8 +4,6 @@ import { AttendancePoliciesController } from './policies/attendance-policies.con
 import { AttendancePoliciesService } from './policies/attendance-policies.service';
 import { AttendanceCheckpointsController } from './checkpoints/attendance-checkpoints.controller';
 import { AttendanceCheckpointsService } from './checkpoints/attendance-checkpoints.service';
-import { AttendanceDevicesController } from './devices/attendance-devices.controller';
-import { AttendanceDevicesService } from './devices/attendance-devices.service';
 import { AttendanceHolidayGroupsController } from './holidays/attendance-holiday-groups.controller';
 import { AttendanceHolidayGroupsService } from './holidays/attendance-holiday-groups.service';
 import { AttendanceHolidaysController } from './holidays/attendance-holidays.controller';
@@ -14,9 +12,10 @@ import { AttendanceDeviceSyncLogsController } from './sync-logs/attendance-devic
 import { AttendanceDeviceSyncLogsService } from './sync-logs/attendance-device-sync-logs.service';
 import { AttendanceSettingsController } from './settings/attendance-settings.controller';
 import { AttendanceSettingsService } from './settings/attendance-settings.service';
+import { AttendanceDevice } from '../../access-control/attendance-devices/entities/attendance-device.entity';
+import { EmployeeDeviceAssignment } from '../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
 import { AttendanceCheckpoint } from './checkpoints/entities/attendance-checkpoint.entity';
 import { AttendanceDeviceSyncLog } from './sync-logs/entities/attendance-device-sync-log.entity';
-import { AttendanceDevice } from './devices/entities/attendance-device.entity';
 import { AttendancePolicy } from './policies/entities/attendance-policy.entity';
 import { AttendanceSetting } from './settings/entities/attendance-setting.entity';
 import { HolidayGroup } from './holidays/entities/holiday-group.entity';
@@ -24,7 +23,6 @@ import { AttendanceHoliday } from './holidays/entities/holiday.entity';
 import { Branch } from '../branches/entities/branch.entity';
 import { HikvisionModule as DeviceManagementHikvisionModule } from '../../hikvision/hikvision.module';
 import { AttendanceProcessingModule } from './processing/attendance-processing.module';
-import { EmployeeDeviceAssignment } from '../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
 
 @Module({
   imports: [
@@ -47,7 +45,6 @@ import { EmployeeDeviceAssignment } from '../../access-control/employee-device-a
     AttendanceSettingsController,
     AttendanceHolidayGroupsController,
     AttendanceHolidaysController,
-    AttendanceDevicesController,
     AttendanceCheckpointsController,
     AttendanceDeviceSyncLogsController,
   ],
@@ -56,7 +53,6 @@ import { EmployeeDeviceAssignment } from '../../access-control/employee-device-a
     AttendanceSettingsService,
     AttendanceHolidayGroupsService,
     AttendanceHolidaysService,
-    AttendanceDevicesService,
     AttendanceCheckpointsService,
     AttendanceDeviceSyncLogsService,
   ],

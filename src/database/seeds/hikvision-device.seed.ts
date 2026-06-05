@@ -2,9 +2,9 @@ import { DataSource } from 'typeorm';
 import { Seeder, SeederFactoryManager } from 'typeorm-extension';
 import { Company } from '../../modules/companies/entities/company.entity';
 import { Branch } from '../../modules/hr/branches/entities/branch.entity';
-import { AttendanceDevice } from '../../modules/hr/attendance/devices/entities/attendance-device.entity';
-import { AttendanceDeviceStatusEnum } from '../../modules/hr/attendance/devices/enums/attendance-device-status.enum';
-import { AttendanceDeviceSyncModeEnum } from '../../modules/hr/attendance/devices/enums/attendance-device-sync-mode.enum';
+import { AttendanceDevice } from '../../modules/access-control/attendance-devices/entities/attendance-device.entity';
+import { AttendanceDeviceStatusEnum } from '../../modules/access-control/attendance-devices/enums/attendance-device-status.enum';
+import { AttendanceDeviceSyncModeEnum } from '../../modules/access-control/attendance-devices/enums/attendance-device-sync-mode.enum';
 
 export default class HikvisionDeviceSeeder implements Seeder {
   public async run(dataSource: DataSource, factoryManager: SeederFactoryManager): Promise<void> {
@@ -65,3 +65,4 @@ export default class HikvisionDeviceSeeder implements Seeder {
     );
   }
 }
+

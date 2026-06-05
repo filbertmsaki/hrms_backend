@@ -12,7 +12,7 @@ import {
 } from 'typeorm';
 import { Company } from '../../../companies/entities/company.entity';
 import { Branch } from '../../../hr/branches/entities/branch.entity';
-import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { AccessGroupDoor } from '../../access-group-doors/entity/access-group-door.entity';
 import { AccessGroupEmployee } from '../../access-group-employees/entity/access-group-employee.entity';
 import { AccessGroupSourceEnum } from '../enum/access-group-source.enum';
@@ -103,3 +103,4 @@ export class AccessGroup {
   @OneToMany(() => AccessGroupEmployee, (groupEmployee) => groupEmployee.accessGroup)
   employees: AccessGroupEmployee[];
 }
+

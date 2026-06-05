@@ -12,7 +12,7 @@ import {
 import { Company } from '../../../../companies/entities/company.entity';
 import { Branch } from '../../../branches/entities/branch.entity';
 import { Employee } from '../../../employees/entities/employee.entity';
-import { AttendanceDevice } from '../../devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { HikvisionAttendanceLog } from '../../../../hikvision/entities/hikvision-attendance-log.entity';
 import { AttendanceProcessedEventDirectionEnum } from '../enums/attendance-processed-event-direction.enum';
 
@@ -105,3 +105,4 @@ export class AttendanceProcessedEvent {
   @JoinColumn({ name: 'raw_log_id' })
   rawLog: HikvisionAttendanceLog;
 }
+

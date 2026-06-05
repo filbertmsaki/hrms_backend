@@ -10,9 +10,9 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Branch } from '../hr/branches/entities/branch.entity';
-import { AttendanceDevice } from '../hr/attendance/devices/entities/attendance-device.entity';
-import { AttendanceDeviceStatusEnum } from '../hr/attendance/devices/enums/attendance-device-status.enum';
-import { AttendanceDeviceSyncModeEnum } from '../hr/attendance/devices/enums/attendance-device-sync-mode.enum';
+import { AttendanceDevice } from '../access-control/attendance-devices/entities/attendance-device.entity';
+import { AttendanceDeviceStatusEnum } from '../access-control/attendance-devices/enums/attendance-device-status.enum';
+import { AttendanceDeviceSyncModeEnum } from '../access-control/attendance-devices/enums/attendance-device-sync-mode.enum';
 import { CreateHikvisionDeviceDto } from './dto/create-hikvision-device.dto';
 import { HikvisionDeviceQueryDto } from './dto/hikvision-device-query.dto';
 import { SyncAllHikvisionDevicesDto } from './dto/sync-all-hikvision-devices.dto';
@@ -976,3 +976,5 @@ export class HikvisionService {
     };
   }
 }
+
+

@@ -11,7 +11,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Company } from '../../../companies/entities/company.entity';
-import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { Employee } from '../../../hr/employees/entities/employee.entity';
 import { EmployeeAccessCredentialSourceEnum } from '../enum/employee-access-credential-source.enum';
 import { EmployeeAccessCredentialStatusEnum } from '../enum/employee-access-credential-status.enum';
@@ -151,3 +151,4 @@ export class EmployeeAccessCredential {
   @JoinColumn({ name: 'device_id' })
   device: AttendanceDevice | null;
 }
+

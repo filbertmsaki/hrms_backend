@@ -13,7 +13,7 @@ import {
 } from 'typeorm';
 import { Company } from '../../../companies/entities/company.entity';
 import { Employee } from '../../../hr/employees/entities/employee.entity';
-import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { AccessOrganization } from '../../access-organizations/entity/access-organization.entity';
 import { EmployeeDeviceRightPlan } from '../../employee-device-right-plans/entity/employee-device-right-plan.entity';
 import { EmployeeDeviceAssignmentSyncStatusEnum } from '../enum/employee-device-assignment-sync-status.enum';
@@ -124,3 +124,4 @@ export class EmployeeDeviceAssignment {
   @OneToMany(() => EmployeeDeviceRightPlan, (rightPlan) => rightPlan.assignment)
   rightPlans: EmployeeDeviceRightPlan[];
 }
+

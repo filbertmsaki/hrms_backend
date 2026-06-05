@@ -133,7 +133,3 @@ export class CreateAttendanceDeviceDto {
   @IsOptional()
   metadata?: Record<string, unknown>;
 }
-
-
-
-

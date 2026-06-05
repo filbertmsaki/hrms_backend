@@ -3,7 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { HikvisionAttendanceLog } from '../../../hikvision/entities/hikvision-attendance-log.entity';
 import { AttendanceHoliday } from '../holidays/entities/holiday.entity';
-import { AttendanceDevice } from '../devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { LeaveRequest } from '../../leave/entities/leave-request.entity';
 import { ShiftAssignment } from '../shift/shift-assignments/entities/shift-assignment.entity';
@@ -78,3 +78,4 @@ import { AttendanceProcessingCronService } from './attendance-processing-cron.se
   ],
 })
 export class AttendanceProcessingModule {}
+

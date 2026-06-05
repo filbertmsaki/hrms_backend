@@ -10,7 +10,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Company } from '../../companies/entities/company.entity';
-import { AttendanceDevice } from '../../hr/attendance/devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../access-control/attendance-devices/entities/attendance-device.entity';
 import { Branch } from '../../hr/branches/entities/branch.entity';
 
 @Entity('hikvision_attendance_logs')
@@ -117,3 +117,4 @@ export class HikvisionAttendanceLog {
   @JoinColumn({ name: 'device_id' })
   device: AttendanceDevice | null;
 }
+

@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import { buildPaginationMeta } from '../../shared/hr.utils';
 import { AttendanceCheckpoint } from './entities/attendance-checkpoint.entity';
-import { AttendanceDevice } from '../devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { AttendancePolicy } from '../policies/entities/attendance-policy.entity';
 import { AttendanceCheckpointQueryDto } from './dtos/attendance-checkpoint-query.dto';
 import { CreateAttendanceCheckpointDto } from './dtos/create-attendance-checkpoint.dto';
@@ -230,6 +230,7 @@ export class AttendanceCheckpointsService {
     return { message: 'Attendance checkpoint deleted successfully' };
   }
 }
+
 
 
 

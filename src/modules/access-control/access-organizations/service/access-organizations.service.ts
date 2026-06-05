@@ -12,7 +12,7 @@ import { UpdateAccessOrganizationDto } from '../dto/update-access-organization.d
 import { AccessOrganizationSyncStatusEnum } from '../enum/access-organization-sync-status.enum';
 import { Branch } from '../../../hr/branches/entities/branch.entity';
 import { Department } from '../../../hr/departments/entities/department.entity';
-import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { HikvisionAccessControlService } from '../../../hikvision/hikvision-access-control.service';
 import { buildPaginationMeta } from '../../../hr/shared/hr.utils';
 import { SyncAccessOrganizationDto } from '../dto/sync-access-organization.dto';
@@ -462,3 +462,4 @@ export class AccessOrganizationsService {
     return value as Record<string, unknown>;
   }
 }
+

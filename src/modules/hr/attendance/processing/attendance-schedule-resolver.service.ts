@@ -3,8 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AttendanceHoliday } from '../holidays/entities/holiday.entity';
 import { Employee } from '../../employees/entities/employee.entity';
-import { AttendanceDevice } from '../devices/entities/attendance-device.entity';
-import { AttendanceDeviceStatusEnum } from '../devices/enums/attendance-device-status.enum';
+import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
+import { AttendanceDeviceStatusEnum } from '../../../access-control/attendance-devices/enums/attendance-device-status.enum';
 import { ShiftAssignmentStatusEnum } from '../shift/shift-assignments/enums/shift-assignment-status.enum';
 import { ShiftAssignment } from '../shift/shift-assignments/entities/shift-assignment.entity';
 import { ShiftAttendanceRule } from '../shift/shift-attendance-rules/entities/shift-attendance-rule.entity';
@@ -547,3 +547,4 @@ export class AttendanceScheduleResolverService {
     }
   }
 }
+

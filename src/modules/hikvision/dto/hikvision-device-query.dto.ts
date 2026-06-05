@@ -1,7 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
-import { AttendanceDeviceStatusEnum } from '../../hr/attendance/devices/enums/attendance-device-status.enum';
+import { AttendanceDeviceStatusEnum } from '../../access-control/attendance-devices/enums/attendance-device-status.enum';
 
 export class HikvisionDeviceQueryDto {
   @ApiPropertyOptional()
@@ -21,3 +21,4 @@ export class HikvisionDeviceQueryDto {
   @IsOptional()
   search?: string;
 }
+

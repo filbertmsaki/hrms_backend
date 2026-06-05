@@ -9,7 +9,7 @@ import { EmployeeDeviceAssignment } from '../access-control/employee-device-assi
 import { EmployeeDeviceRightPlan } from '../access-control/employee-device-right-plans/entity/employee-device-right-plan.entity';
 import { HikvisionSyncLog } from '../access-control/hikvision-sync-logs/entity/hikvision-sync-log.entity';
 import { Branch } from '../hr/branches/entities/branch.entity';
-import { AttendanceDevice } from '../hr/attendance/devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../access-control/attendance-devices/entities/attendance-device.entity';
 import { EmployeeDeviceIdentity } from '../hr/attendance/processing/entities/employee-device-identity.entity';
 import { Employee } from '../hr/employees/entities/employee.entity';
 import { DeviceCommandLog } from './device-command-logs/entity/device-command-log.entity';
@@ -76,3 +76,4 @@ import { HikvisionSyncProcessor } from './hikvision-sync.processor';
   ],
 })
 export class HikvisionModule {}
+

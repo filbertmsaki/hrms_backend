@@ -8,7 +8,7 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Company } from '../../../companies/entities/company.entity';
-import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { HikvisionSyncLogDirectionEnum } from '../enum/hikvision-sync-log-direction.enum';
 import { HikvisionSyncLogStatusEnum } from '../enum/hikvision-sync-log-status.enum';
 import { HikvisionSyncLogTypeEnum } from '../enum/hikvision-sync-log-type.enum';
@@ -76,4 +76,5 @@ export class HikvisionSyncLog {
   @JoinColumn({ name: 'device_id' })
   device: AttendanceDevice | null;
 }
+
 

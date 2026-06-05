@@ -9,7 +9,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { AttendanceDeviceStatusEnum } from '../../hr/attendance/devices/enums/attendance-device-status.enum';
+import { AttendanceDeviceStatusEnum } from '../../access-control/attendance-devices/enums/attendance-device-status.enum';
 
 export class CreateHikvisionDeviceDto {
   @ApiPropertyOptional({ example: 'Main Gate Reader' })
@@ -77,3 +77,4 @@ export class CreateHikvisionDeviceDto {
   @IsOptional()
   metadata?: Record<string, unknown>;
 }
+

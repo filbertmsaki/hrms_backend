@@ -3,7 +3,3 @@ export enum AttendanceDeviceStatusEnum {
   INACTIVE = 'INACTIVE',
   OFFLINE = 'OFFLINE',
 }
-
-
-
-

@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
-import { AttendanceDevice } from '../../hr/attendance/devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../access-control/attendance-devices/entities/attendance-device.entity';
 import { Branch } from '../../hr/branches/entities/branch.entity';
 import { Employee } from '../../hr/employees/entities/employee.entity';
 import { HikvisionModule } from '../../hikvision/hikvision.module';
@@ -53,3 +53,4 @@ import { EmployeeDeviceAccessAuditLogService } from '../employee-device-access-a
   exports: [AccessGroupsService, AccessControlSyncService],
 })
 export class AccessGroupsModule {}
+

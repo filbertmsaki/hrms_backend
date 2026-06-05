@@ -10,7 +10,7 @@ import {
 import { Company } from '../../../../companies/entities/company.entity';
 import { AttendanceDeviceSyncLogStatusEnum } from '../enums/attendance-device-sync-log-status.enum';
 import { AttendanceDeviceSyncLogTypeEnum } from '../enums/attendance-device-sync-log-type.enum';
-import { AttendanceDevice } from '../../devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../../../access-control/attendance-devices/entities/attendance-device.entity';
 
 @Entity('attendance_device_sync_logs')
 @Index('IDX_attendance_device_sync_logs_company_id', ['companyId'])
@@ -78,6 +78,7 @@ export class AttendanceDeviceSyncLog {
   @JoinColumn({ name: 'device_id' })
   device: AttendanceDevice | null;
 }
+
 
 
 

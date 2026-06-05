@@ -8,7 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import { Branch } from '../../../hr/branches/entities/branch.entity';
-import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { buildPaginationMeta } from '../../../hr/shared/hr.utils';
 import { HikvisionDoorSyncService } from '../../../hikvision/hikvision-door.service';
 import { AccessDoorSyncStatusEnum } from '../enum/access-door-sync-status.enum';
@@ -283,3 +283,4 @@ export class AccessDoorsService {
     }
   }
 }
+

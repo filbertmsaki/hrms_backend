@@ -10,7 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import DigestFetch from 'digest-fetch';
 import { XMLParser } from 'fast-xml-parser';
 import { Repository } from 'typeorm';
-import { AttendanceDevice } from '../hr/attendance/devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../access-control/attendance-devices/entities/attendance-device.entity';
 import { AccessDoorSyncStatusEnum } from '../access-control/access-doors/enum/access-door-sync-status.enum';
 import { AccessDoor } from '../access-control/access-doors/entity/access-door.entity';
 
@@ -464,3 +464,4 @@ export class HikvisionDoorSyncService {
     return value as Record<string, unknown>;
   }
 }
+

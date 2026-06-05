@@ -12,7 +12,7 @@ import {
 } from 'typeorm';
 import { Company } from '../../../companies/entities/company.entity';
 import { Branch } from '../../../hr/branches/entities/branch.entity';
-import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { AccessDoorSourceEnum } from '../enum/access-door-source.enum';
 import { AccessDoorSyncStatusEnum } from '../enum/access-door-sync-status.enum';
 
@@ -126,3 +126,4 @@ export class AccessDoor {
   @JoinColumn({ name: 'device_id' })
   device: AttendanceDevice | null;
 }
+

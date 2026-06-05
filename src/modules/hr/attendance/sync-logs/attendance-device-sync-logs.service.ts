@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import { buildPaginationMeta } from '../../shared/hr.utils';
-import { AttendanceDevice } from '../devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { AttendanceDeviceSyncLog } from './entities/attendance-device-sync-log.entity';
 import { AttendanceDeviceSyncLogQueryDto } from './dtos/attendance-device-sync-log-query.dto';
 import { CreateAttendanceDeviceSyncLogDto } from './dtos/create-attendance-device-sync-log.dto';
@@ -144,6 +144,7 @@ export class AttendanceDeviceSyncLogsService {
     return this.map(await this.findOrFail(companyId, id));
   }
 }
+
 
 
 

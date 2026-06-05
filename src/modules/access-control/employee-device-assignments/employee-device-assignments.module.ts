@@ -6,7 +6,7 @@ import { AccessGroup } from '../access-groups/entity/access-group.entity';
 import { AccessScheduleTemplate } from '../access-schedule-templates/entity/access-schedule-template.entity';
 import { EmployeeAccessCredential } from '../employee-access-credentials/entity/employee-access-credential.entity';
 import { EmployeeDeviceRightPlan } from '../employee-device-right-plans/entity/employee-device-right-plan.entity';
-import { AttendanceDevice } from '../../hr/attendance/devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../access-control/attendance-devices/entities/attendance-device.entity';
 import { EmployeeDeviceIdentity } from '../../hr/attendance/processing/entities/employee-device-identity.entity';
 import { AttendanceProcessedEvent } from '../../hr/attendance/processing/entities/attendance-processed-event.entity';
 import { AttendanceRecalculationJob } from '../../hr/attendance/processing/entities/attendance-recalculation-job.entity';
@@ -45,3 +45,4 @@ import { EmployeeBiometricCaptureSessionsModule } from '../employee-biometric-ca
   exports: [EmployeeDeviceAssignmentsService],
 })
 export class EmployeeDeviceAssignmentsModule {}
+

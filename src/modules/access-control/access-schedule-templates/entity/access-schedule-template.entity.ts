@@ -12,7 +12,7 @@ import {
 } from 'typeorm';
 import { Company } from '../../../companies/entities/company.entity';
 import { Branch } from '../../../hr/branches/entities/branch.entity';
-import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { AccessWeekPlan } from '../../access-week-plans/entity/access-week-plan.entity';
 import { AccessScheduleTemplateSourceEnum } from '../enum/access-schedule-template-source.enum';
 import { AccessScheduleTemplateStatusEnum } from '../enum/access-schedule-template-status.enum';
@@ -117,3 +117,4 @@ export class AccessScheduleTemplate {
   @JoinColumn({ name: 'week_plan_id' })
   weekPlan: AccessWeekPlan;
 }
+

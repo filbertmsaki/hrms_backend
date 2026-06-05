@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { AttendanceDevice } from '../hr/attendance/devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../access-control/attendance-devices/entities/attendance-device.entity';
 import { DeviceCommandLogService } from './device-command-logs/service/device-command-log.service';
 import { DeviceCommandHttpMethodEnum } from './device-command-logs/enum/device-command-http-method.enum';
 import { DeviceCommandTypeEnum } from './device-command-logs/enum/device-command-type.enum';
@@ -604,3 +604,4 @@ export class HikvisionAccessControlService {
     return device;
   }
 }
+

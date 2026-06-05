@@ -19,8 +19,8 @@ import { HikvisionSyncLog } from '../access-control/hikvision-sync-logs/entity/h
 import { HikvisionSyncLogDirectionEnum } from '../access-control/hikvision-sync-logs/enum/hikvision-sync-log-direction.enum';
 import { HikvisionSyncLogStatusEnum } from '../access-control/hikvision-sync-logs/enum/hikvision-sync-log-status.enum';
 import { HikvisionSyncLogTypeEnum } from '../access-control/hikvision-sync-logs/enum/hikvision-sync-log-type.enum';
-import { AttendanceDevice } from '../hr/attendance/devices/entities/attendance-device.entity';
-import { AttendanceDeviceStatusEnum } from '../hr/attendance/devices/enums/attendance-device-status.enum';
+import { AttendanceDevice } from '../access-control/attendance-devices/entities/attendance-device.entity';
+import { AttendanceDeviceStatusEnum } from '../access-control/attendance-devices/enums/attendance-device-status.enum';
 import { EmployeeDeviceIdentity } from '../hr/attendance/processing/entities/employee-device-identity.entity';
 import { Employee } from '../hr/employees/entities/employee.entity';
 import { buildAttendanceDeviceSearchId } from '../access-control/attendance-devices/utils/attendance-device-search-id.util';
@@ -2457,3 +2457,4 @@ export class HikvisionUserManagementService {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
+

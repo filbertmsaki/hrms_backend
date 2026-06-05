@@ -9,7 +9,7 @@ import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import { buildPaginationMeta } from '../../../hr/shared/hr.utils';
 import { HikvisionAccessControlService } from '../../../hikvision/hikvision-access-control.service';
-import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { AccessWeekPlan } from '../../access-week-plans/entity/access-week-plan.entity';
 import { AccessWeekPlanSourceEnum } from '../../access-week-plans/enum/access-week-plan-source.enum';
 import { AccessScheduleTemplate } from '../entity/access-schedule-template.entity';
@@ -455,3 +455,4 @@ export class AccessScheduleTemplatesService {
     return fallback;
   }
 }
+

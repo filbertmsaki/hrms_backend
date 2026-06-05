@@ -7,8 +7,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, QueryFailedError, Repository } from 'typeorm';
 import { SortDirection } from '../../common/dto/pagination.dto';
-import { AttendanceDevice } from '../hr/attendance/devices/entities/attendance-device.entity';
-import { AttendanceDeviceStatusEnum } from '../hr/attendance/devices/enums/attendance-device-status.enum';
+import { AttendanceDevice } from '../access-control/attendance-devices/entities/attendance-device.entity';
+import { AttendanceDeviceStatusEnum } from '../access-control/attendance-devices/enums/attendance-device-status.enum';
 import { buildPaginationMeta } from '../hr/shared/hr.utils';
 import { buildAttendanceDeviceSearchId } from '../access-control/attendance-devices/utils/attendance-device-search-id.util';
 import { HikvisionSyncLog } from '../access-control/hikvision-sync-logs/entity/hikvision-sync-log.entity';
@@ -1006,3 +1006,4 @@ export class HikvisionAttendanceSyncService {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
+

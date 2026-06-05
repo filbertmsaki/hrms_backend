@@ -6,7 +6,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
-import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { Employee } from '../../../hr/employees/entities/employee.entity';
 import { EmployeeDeviceIdentity } from '../../../hr/attendance/processing/entities/employee-device-identity.entity';
 import { HikvisionAccessControlService } from '../../../hikvision/hikvision-access-control.service';
@@ -1730,3 +1730,4 @@ export class EmployeeBiometricCaptureSessionService {
     };
   }
 }
+

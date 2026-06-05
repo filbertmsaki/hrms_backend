@@ -5,7 +5,7 @@ import { AccessOrganizationsController } from './controller/access-organizations
 import { AccessOrganizationsService } from './service/access-organizations.service';
 import { Branch } from '../../hr/branches/entities/branch.entity';
 import { Department } from '../../hr/departments/entities/department.entity';
-import { AttendanceDevice } from '../../hr/attendance/devices/entities/attendance-device.entity';
+import { AttendanceDevice } from '../../access-control/attendance-devices/entities/attendance-device.entity';
 import { HikvisionModule } from '../../hikvision/hikvision.module';
 
 @Module({
@@ -18,3 +18,4 @@ import { HikvisionModule } from '../../hikvision/hikvision.module';
   exports: [AccessOrganizationsService],
 })
 export class AccessOrganizationsModule {}
+

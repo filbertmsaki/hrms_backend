@@ -14,8 +14,8 @@ import {
   HikvisionUserSearchOptions,
 } from '../../../hikvision/hikvision-user-management.service';
 import { HikvisionUserManagementService } from '../../../hikvision/hikvision-user-management.service';
-import { AttendanceDevice } from '../../../hr/attendance/devices/entities/attendance-device.entity';
-import { AttendanceDeviceStatusEnum } from '../../../hr/attendance/devices/enums/attendance-device-status.enum';
+import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
+import { AttendanceDeviceStatusEnum } from '../../../access-control/attendance-devices/enums/attendance-device-status.enum';
 import { AttendanceProcessedEvent } from '../../../hr/attendance/processing/entities/attendance-processed-event.entity';
 import { AttendanceRecalculationJob } from '../../../hr/attendance/processing/entities/attendance-recalculation-job.entity';
 import { Employee } from '../../../hr/employees/entities/employee.entity';
@@ -3232,3 +3232,4 @@ export class EmployeeDeviceAssignmentsService {
     )}:${pad(value.getMinutes())}:${pad(value.getSeconds())}`;
   }
 }
+
