@@ -24,6 +24,7 @@ import { AttendanceProcessedEventDirectionEnum } from '../enums/attendance-proce
 @Index('IDX_attendance_processed_events_event_time', ['eventTime'])
 @Index('IDX_attendance_processed_events_attendance_date', ['attendanceDate'])
 @Index('IDX_attendance_processed_events_company_emp_date', ['companyId', 'employeeId', 'attendanceDate'])
+@Index('IDX_attendance_processed_events_company_device_empno', ['companyId', 'deviceId', 'employeeNo'])
 @Unique('UQ_attendance_processed_events_raw_log_id', ['rawLogId'])
 export class AttendanceProcessedEvent {
   @PrimaryGeneratedColumn({ name: 'id' })

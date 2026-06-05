@@ -2,7 +2,6 @@ import { createCipheriv, createHash, randomBytes } from 'crypto';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { CompanyUser } from '../companies/entities/company-user.entity';
 import { buildAttendanceDeviceSearchId } from '../access-control/attendance-devices/utils/attendance-device-search-id.util';
 import { AccessDoor } from '../access-control/access-doors/entity/access-door.entity';
 import { AccessScheduleTemplate } from '../access-control/access-schedule-templates/entity/access-schedule-template.entity';
@@ -1186,12 +1185,7 @@ export class HikvisionPeopleCredentialSyncService {
       return assignment.employee;
     }
 
-    return this.employeeRepository
-      .createQueryBuilder('employee')
-      .innerJoin(CompanyUser, 'companyUser', 'companyUser.id = employee.company_user_id')
-      .where('companyUser.company_id = :companyId', { companyId })
-      .andWhere('employee.employee_no = :employeeNo', { employeeNo: normalizedEmployeeNo })
-      .getOne();
+    return null;
   }
 
   private async upsertDeviceIdentity(

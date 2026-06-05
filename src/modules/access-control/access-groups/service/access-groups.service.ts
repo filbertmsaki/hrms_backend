@@ -328,11 +328,12 @@ export class AccessGroupsService {
         order: { updatedAt: 'DESC' },
       });
       const resolvedDeviceId = group.deviceId ?? assignment?.deviceId ?? null;
+      const resolvedEmployeeNo = assignment?.employeeNo?.trim() || employee.employee_no;
 
       const existing = await this.accessGroupEmployeeRepository.findOne({
         where: {
           accessGroupId: groupId,
-          employeeNo: employee.employee_no,
+          employeeNo: resolvedEmployeeNo,
           deviceId: resolvedDeviceId === null ? IsNull() : resolvedDeviceId,
         },
       });
@@ -345,7 +346,7 @@ export class AccessGroupsService {
         this.accessGroupEmployeeRepository.create({
           accessGroupId: groupId,
           employeeId,
-          employeeNo: employee.employee_no,
+          employeeNo: resolvedEmployeeNo,
           employeeName: `${employee.first_name} ${employee.last_name}`.trim(),
           organizationId: assignment?.organizationId ?? null,
           deviceId: resolvedDeviceId,

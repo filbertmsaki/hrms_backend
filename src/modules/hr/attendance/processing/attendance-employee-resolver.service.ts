@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { IsNull, Not, Repository } from 'typeorm';
+import { EmployeeDeviceAssignment } from '../../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
 import { EmployeeDeviceIdentity } from './entities/employee-device-identity.entity';
 
 export type EmployeeResolutionResult = {
@@ -11,6 +12,8 @@ export type EmployeeResolutionResult = {
 @Injectable()
 export class AttendanceEmployeeResolverService {
   constructor(
+    @InjectRepository(EmployeeDeviceAssignment)
+    private readonly assignmentRepository: Repository<EmployeeDeviceAssignment>,
     @InjectRepository(EmployeeDeviceIdentity)
     private readonly identityRepository: Repository<EmployeeDeviceIdentity>,
   ) {}
@@ -25,11 +28,28 @@ export class AttendanceEmployeeResolverService {
       return { employeeId: null, reason: 'EMPTY_EMPLOYEE_NO' };
     }
 
+    const assignmentWhere = typeof deviceId === 'number'
+      ? [
+          { companyId, employeeNo: normalized, deviceId, employeeId: Not(IsNull()) },
+          { companyId, employeeNo: normalized, deviceId: IsNull(), employeeId: Not(IsNull()) },
+        ]
+      : [{ companyId, employeeNo: normalized, deviceId: IsNull(), employeeId: Not(IsNull()) }];
+    const existingAssignment = await this.assignmentRepository.findOne({
+      where: assignmentWhere,
+      order: { updatedAt: 'DESC' },
+    });
+
+    if (existingAssignment?.employeeId) {
+      return { employeeId: existingAssignment.employeeId, reason: 'ASSIGNMENT_MAP' };
+    }
+
     const existingIdentity = await this.identityRepository.findOne({
-      where: [
-        { companyId, employeeNo: normalized, deviceId: deviceId ?? IsNull(), isActive: true },
-        { companyId, employeeNo: normalized, deviceId: IsNull(), isActive: true },
-      ],
+      where: typeof deviceId === 'number'
+        ? [
+            { companyId, employeeNo: normalized, deviceId, isActive: true },
+            { companyId, employeeNo: normalized, deviceId: IsNull(), isActive: true },
+          ]
+        : [{ companyId, employeeNo: normalized, deviceId: IsNull(), isActive: true }],
       order: { updatedAt: 'DESC' },
     });
 

@@ -39,6 +39,8 @@ type SyncAccumulator = {
   totalMatches: number;
   pagesProcessed: number;
   recordsReceived: number;
+  validPunchRecords: number;
+  skippedSystemEvents: number;
   recordsCreated: number;
   recordsSkipped: number;
   recordsFailed: number;
@@ -56,6 +58,8 @@ type ParsedAcsEventPage = {
 
 type PersistResult = {
   received: number;
+  validPunchRecords: number;
+  skippedSystemEvents: number;
   created: number;
   skipped: number;
   failed: number;
@@ -100,6 +104,8 @@ type AttendanceSyncByConditionResult = {
   totalMatches: number;
   pagesProcessed: number;
   recordsReceived: number;
+  validPunchRecords: number;
+  skippedSystemEvents: number;
   recordsCreated: number;
   recordsUpdated: number;
   recordsSkipped: number;
@@ -461,6 +467,8 @@ export class HikvisionAttendanceSyncService {
       responseStatusStrg: parsedPage.responseStatusStrg,
       numOfMatches: parsedPage.numOfMatches,
       recordsReceived: persisted.received,
+      validPunchRecords: persisted.validPunchRecords,
+      skippedSystemEvents: persisted.skippedSystemEvents,
       recordsCreated: persisted.created,
       recordsUpdated: persisted.updated,
       recordsSkipped: persisted.skipped,
@@ -637,6 +645,8 @@ export class HikvisionAttendanceSyncService {
             ...(this.toObject(syncJob.metadata)),
             totalMatches: result.totalMatches,
             pagesProcessed: result.pagesProcessed,
+            validPunchRecords: result.validPunchRecords,
+            skippedSystemEvents: result.skippedSystemEvents,
             recordsCreated: result.recordsCreated,
             recordsUpdated: result.recordsUpdated,
             recordsSkipped: result.recordsSkipped,
@@ -659,6 +669,8 @@ export class HikvisionAttendanceSyncService {
           ...(this.toObject(syncJob.metadata)),
           totalMatches: result.totalMatches,
           pagesProcessed: result.pagesProcessed,
+          validPunchRecords: result.validPunchRecords,
+          skippedSystemEvents: result.skippedSystemEvents,
           recordsCreated: result.recordsCreated,
           recordsUpdated: result.recordsUpdated,
           recordsSkipped: result.recordsSkipped,
@@ -672,6 +684,8 @@ export class HikvisionAttendanceSyncService {
         result_status: result.status,
         total_records_pulled: result.recordsReceived,
         total_records_saved: totalRecordsSaved,
+        valid_punch_records: result.validPunchRecords,
+        skipped_system_events: result.skippedSystemEvents,
       };
     } catch (error) {
       await this.failAttendanceSyncJob(syncJob.id, (error as Error).message);
@@ -691,6 +705,8 @@ export class HikvisionAttendanceSyncService {
       totalMatches: 0,
       pagesProcessed: 0,
       recordsReceived: 0,
+      validPunchRecords: 0,
+      skippedSystemEvents: 0,
       recordsCreated: 0,
       recordsSkipped: 0,
       recordsFailed: 0,
@@ -743,6 +759,8 @@ export class HikvisionAttendanceSyncService {
       const persisted = await this.persistAttendanceEvents(device, parsedPage.infoList);
       counters.pagesProcessed += 1;
       counters.recordsReceived += persisted.received;
+      counters.validPunchRecords += persisted.validPunchRecords;
+      counters.skippedSystemEvents += persisted.skippedSystemEvents;
       counters.recordsCreated += persisted.created;
       counters.recordsSkipped += persisted.skipped;
       counters.recordsFailed += persisted.failed;
@@ -813,6 +831,8 @@ export class HikvisionAttendanceSyncService {
       totalMatches: counters.totalMatches,
       pagesProcessed: counters.pagesProcessed,
       recordsReceived: counters.recordsReceived,
+      validPunchRecords: counters.validPunchRecords,
+      skippedSystemEvents: counters.skippedSystemEvents,
       recordsCreated: counters.recordsCreated,
       recordsUpdated: counters.recordsUpdated,
       recordsSkipped: counters.recordsSkipped,
@@ -828,6 +848,8 @@ export class HikvisionAttendanceSyncService {
   ): Promise<PersistResult> {
     const counters: PersistResult = {
       received: events.length,
+      validPunchRecords: 0,
+      skippedSystemEvents: 0,
       created: 0,
       skipped: 0,
       failed: 0,
@@ -836,6 +858,12 @@ export class HikvisionAttendanceSyncService {
 
     for (const event of events) {
       try {
+        if (!this.isValidPunchEvent(event)) {
+          counters.skippedSystemEvents += 1;
+          continue;
+        }
+
+        counters.validPunchRecords += 1;
         const mapped = this.mapEventToRow(device, event);
         const existing = await this.findExistingAttendanceLog(mapped);
 
@@ -1058,6 +1086,21 @@ export class HikvisionAttendanceSyncService {
       statusValue: this.toNullableNumber(item.statusValue),
       rawPayload: item,
     };
+  }
+
+  private isValidPunchEvent(item: Record<string, unknown>): boolean {
+    const employeeNoString = this.toNullableString(item.employeeNoString);
+    const cardReaderNo = this.toNullableNumber(item.cardReaderNo);
+    const doorNo = this.toNullableNumber(item.doorNo);
+
+    return Boolean(
+      employeeNoString
+      && employeeNoString.trim() !== ''
+      && cardReaderNo !== null
+      && cardReaderNo > 0
+      && doorNo !== null
+      && doorNo > 0,
+    );
   }
 
   private resolveAttendanceEmployeeNo(item: Record<string, unknown>): string {
@@ -1302,6 +1345,8 @@ export class HikvisionAttendanceSyncService {
             ...input.metadata,
             totalMatches: input.counters.totalMatches,
             pagesProcessed: input.counters.pagesProcessed,
+            validPunchRecords: input.counters.validPunchRecords,
+            skippedSystemEvents: input.counters.skippedSystemEvents,
             recordsSkipped: input.counters.recordsSkipped,
           },
         }),
@@ -1509,6 +1554,8 @@ export class HikvisionAttendanceSyncService {
       records_processed: item.recordsProcessed,
       records_created: item.recordsCreated,
       records_updated: item.recordsUpdated,
+      valid_punch_records: this.toNullableNumber(metadata.validPunchRecords) ?? 0,
+      skipped_system_events: this.toNullableNumber(metadata.skippedSystemEvents) ?? 0,
       records_failed: item.recordsFailed,
       records_skipped: this.toNullableNumber(metadata.recordsSkipped) ?? 0,
       total_matches: this.toNullableNumber(metadata.totalMatches) ?? 0,
@@ -1538,6 +1585,8 @@ export class HikvisionAttendanceSyncService {
       completed_at: item.completedAt,
       total_records_pulled: item.totalRecordsPulled,
       total_records_saved: item.totalRecordsSaved,
+      valid_punch_records: this.toNullableNumber(metadata.validPunchRecords) ?? 0,
+      skipped_system_events: this.toNullableNumber(metadata.skippedSystemEvents) ?? 0,
       error_message: item.errorMessage,
       max_results: this.toNullableNumber(metadata.maxResults),
       metadata: item.metadata,

@@ -75,7 +75,13 @@ export class EmployeeAccessCredentialsService {
       });
     }
 
-    item.employeeNo = employee.employee_no;
+    item.employeeNo = await this.resolveCredentialEmployeeNo(
+      companyId,
+      employee.id,
+      resolvedDeviceId,
+      item.employeeNo,
+      employee.employee_no,
+    );
     item.deviceId = resolvedDeviceId;
     item.credentialType = credentialType;
     item.credentialNo = dto.credential_no ?? item.credentialNo ?? null;
@@ -116,7 +122,13 @@ export class EmployeeAccessCredentialsService {
       dto.device_id ?? item.deviceId ?? null,
     );
 
-    item.employeeNo = employee.employee_no;
+    item.employeeNo = await this.resolveCredentialEmployeeNo(
+      companyId,
+      employee.id,
+      resolvedDeviceId,
+      item.employeeNo,
+      employee.employee_no,
+    );
     item.deviceId = resolvedDeviceId;
     if (dto.credential_type !== undefined) item.credentialType = dto.credential_type;
     if (dto.credential_no !== undefined) item.credentialNo = dto.credential_no ?? null;
@@ -270,6 +282,31 @@ export class EmployeeAccessCredentialsService {
     }
 
     return deviceId;
+  }
+
+  private async resolveCredentialEmployeeNo(
+    companyId: number,
+    employeeId: number,
+    deviceId: number | null,
+    currentEmployeeNo: string | null | undefined,
+    fallbackEmployeeNo: string,
+  ): Promise<string> {
+    if (deviceId !== null) {
+      const assignment = await this.employeeDeviceAssignmentRepository.findOne({
+        where: { companyId, employeeId, deviceId },
+        select: ['employeeNo'],
+      });
+      if (assignment?.employeeNo?.trim()) {
+        return assignment.employeeNo.trim();
+      }
+    }
+
+    const current = currentEmployeeNo?.trim();
+    if (current) {
+      return current;
+    }
+
+    return fallbackEmployeeNo.trim();
   }
 
   private async resolveCredentialMetadata(
