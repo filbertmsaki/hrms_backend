@@ -30,6 +30,32 @@ export class TimetablesService {
     return item;
   }
 
+  private async setDefaultTimetable(
+    companyId: number,
+    timetableId: number,
+    isDefault: boolean,
+  ): Promise<void> {
+    if (!isDefault) {
+      return;
+    }
+
+    await this.timetableRepository.manager.transaction(async (manager) => {
+      await manager.getRepository(Timetable).update(
+        { companyId, isDefault: true },
+        { isDefault: false },
+      );
+
+      const result = await manager.getRepository(Timetable).update(
+        { id: timetableId, companyId },
+        { isDefault: true },
+      );
+
+      if (!result.affected) {
+        throw new NotFoundException('Timetable not found');
+      }
+    });
+  }
+
   async create(companyId: number, createdBy: number | null, dto: CreateTimetableDto) {
     await this.ensureBranch(companyId, dto.branch_id);
 
@@ -54,6 +80,7 @@ export class TimetablesService {
       }),
     );
 
+    await this.setDefaultTimetable(companyId, created.id, created.isDefault);
     return created;
   }
 
@@ -114,7 +141,9 @@ export class TimetablesService {
     if (dto.is_default !== undefined) item.isDefault = dto.is_default;
     if (dto.status !== undefined) item.status = dto.status;
 
-    return this.timetableRepository.save(item);
+    const saved = await this.timetableRepository.save(item);
+    await this.setDefaultTimetable(companyId, saved.id, saved.isDefault);
+    return this.findOrFail(companyId, saved.id);
   }
 
   async remove(companyId: number, id: number): Promise<{ message: string }> {

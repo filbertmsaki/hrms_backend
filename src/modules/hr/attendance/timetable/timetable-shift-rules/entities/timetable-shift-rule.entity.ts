@@ -8,6 +8,7 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { TimetableDay } from '../../timetable-days/entities/timetable-day.entity';
+import { Shift } from '../../../shift/shifts/entities/shift.entity';
 
 @Entity('timetable_shift_rules')
 @Index('IDX_timetable_shift_rules_timetable_day_id', ['timetableDayId'])
@@ -38,4 +39,8 @@ export class TimetableShiftRule {
   @ManyToOne(() => TimetableDay, (timetableDay) => timetableDay.shiftRules, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'timetable_day_id' })
   timetableDay: TimetableDay;
+
+  @ManyToOne(() => Shift, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'shift_id' })
+  shift: Shift;
 }

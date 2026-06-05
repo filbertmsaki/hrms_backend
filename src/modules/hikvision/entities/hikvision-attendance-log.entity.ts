@@ -24,7 +24,6 @@ import { Branch } from '../../hr/branches/entities/branch.entity';
 @Index('IDX_hikvision_attendance_logs_door_no', ['doorNo'])
 @Index('IDX_hikvision_attendance_logs_serial_no', ['serialNo'])
 @Index('IDX_hikvision_attendance_logs_device_event_time', ['deviceId', 'eventTime'])
-@Unique('UQ_hikvision_attendance_logs_device_serial_no', ['deviceId', 'serialNo'])
 @Unique('UQ_hik_att_logs_dev_emp_evt_maj_min_reader_door', [
   'deviceId',
   'employeeNo',

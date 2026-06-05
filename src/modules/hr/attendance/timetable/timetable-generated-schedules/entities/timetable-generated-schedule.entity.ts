@@ -12,6 +12,7 @@ import { Employee } from '../../../../employees/entities/employee.entity';
 import { Timetable } from '../../timetables/entities/timetable.entity';
 import { AttendanceHoliday } from '../../../holidays/entities/holiday.entity';
 import { TimetableGeneratedScheduleSourceRuleEnum } from '../enums/timetable-generated-schedule-source-rule.enum';
+import { Shift } from '../../../shift/shifts/entities/shift.entity';
 
 @Entity('timetable_generated_schedules')
 @Index('IDX_timetable_generated_schedules_company_id', ['companyId'])
@@ -73,6 +74,10 @@ export class TimetableGeneratedSchedule {
   @ManyToOne(() => Timetable, (timetable) => timetable.generatedSchedules, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'timetable_id' })
   timetable: Timetable;
+
+  @ManyToOne(() => Shift, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'shift_id' })
+  shift: Shift | null;
 
   @ManyToOne(() => AttendanceHoliday, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'holiday_id' })

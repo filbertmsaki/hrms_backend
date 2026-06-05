@@ -8,6 +8,7 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { TimetableRotation } from '../../timetable-rotations/entities/timetable-rotation.entity';
+import { Shift } from '../../../shift/shifts/entities/shift.entity';
 
 @Entity('timetable_rotation_rules')
 @Index('IDX_timetable_rotation_rules_rotation_id', ['rotationId'])
@@ -35,4 +36,8 @@ export class TimetableRotationRule {
   @ManyToOne(() => TimetableRotation, (rotation) => rotation.rules, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'rotation_id' })
   rotation: TimetableRotation;
+
+  @ManyToOne(() => Shift, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'shift_id' })
+  shift: Shift | null;
 }

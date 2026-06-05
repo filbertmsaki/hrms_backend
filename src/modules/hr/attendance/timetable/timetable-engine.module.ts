@@ -4,6 +4,7 @@ import { Branch } from '../../branches/entities/branch.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { HolidayGroup } from '../holidays/entities/holiday-group.entity';
 import { AttendanceHoliday } from '../holidays/entities/holiday.entity';
+import { Shift } from '../shift/shifts/entities/shift.entity';
 import { Timetable } from './timetables/entities/timetable.entity';
 import { TimetableDay } from './timetable-days/entities/timetable-day.entity';
 import { TimetableShiftRule } from './timetable-shift-rules/entities/timetable-shift-rule.entity';
@@ -39,6 +40,7 @@ import { TimetableGeneratedSchedulesService } from './timetable-generated-schedu
       Employee,
       HolidayGroup,
       AttendanceHoliday,
+      Shift,
       Timetable,
       TimetableDay,
       TimetableShiftRule,

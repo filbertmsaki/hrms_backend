@@ -13,6 +13,8 @@ import { ShiftRotationGroup } from '../shift/shift-rotation-groups/entities/shif
 import { ShiftRotationRule } from '../shift/shift-rotation-rules/entities/shift-rotation-rule.entity';
 import { ShiftSchedule } from '../shift/shift-schedules/entities/shift-schedule.entity';
 import { Shift } from '../shift/shifts/entities/shift.entity';
+import { AttendancePolicy } from '../policies/entities/attendance-policy.entity';
+import { AttendanceSetting } from '../settings/entities/attendance-setting.entity';
 import { EmployeeTimetableStatusEnum } from '../timetable/employee-timetables/enums/employee-timetable-status.enum';
 import { EmployeeTimetable } from '../timetable/employee-timetables/entities/employee-timetable.entity';
 import { TimetableAttendanceRule } from '../timetable/timetable-attendance-rules/entities/timetable-attendance-rule.entity';
@@ -21,6 +23,23 @@ import { TimetableGeneratedSchedule } from '../timetable/timetable-generated-sch
 import { TimetableShiftRule } from '../timetable/timetable-shift-rules/entities/timetable-shift-rule.entity';
 import { Timetable } from '../timetable/timetables/entities/timetable.entity';
 import { ResolvedAttendanceSchedule } from './entities/resolved-attendance-schedule.type';
+import { TimetableScheduleGenerationService } from './timetable-schedule-generation.service';
+
+type GlobalAttendanceConfiguration = {
+  absentAfterMinutes: number;
+  allowEarlyCheckin: boolean;
+  allowLateCheckout: boolean;
+  allowOvertime: boolean;
+  autoAbsentIfNoCheckin: boolean;
+  autoMarkWeekendAsOff: boolean;
+  graceInMinutes: number;
+  halfDayAfterMinutes: number;
+  ignoreMissingCheckoutIfHoursValid: boolean;
+  lateAfterMinutes: number;
+  maxOvertimeMinutes: number;
+  overtimeStartAfterMinutes: number;
+  weekendDayIndexes: Set<number>;
+};
 
 @Injectable()
 export class AttendanceScheduleResolverService {
@@ -31,6 +50,10 @@ export class AttendanceScheduleResolverService {
     private readonly deviceRepository: Repository<AttendanceDevice>,
     @InjectRepository(AttendanceHoliday)
     private readonly holidayRepository: Repository<AttendanceHoliday>,
+    @InjectRepository(AttendancePolicy)
+    private readonly attendancePolicyRepository: Repository<AttendancePolicy>,
+    @InjectRepository(AttendanceSetting)
+    private readonly attendanceSettingRepository: Repository<AttendanceSetting>,
     @InjectRepository(ShiftSchedule)
     private readonly shiftScheduleRepository: Repository<ShiftSchedule>,
     @InjectRepository(TimetableGeneratedSchedule)
@@ -57,6 +80,7 @@ export class AttendanceScheduleResolverService {
     private readonly shiftOvertimeRuleRepository: Repository<ShiftOvertimeRule>,
     @InjectRepository(TimetableAttendanceRule)
     private readonly timetableAttendanceRuleRepository: Repository<TimetableAttendanceRule>,
+    private readonly timetableScheduleGenerationService: TimetableScheduleGenerationService,
   ) {}
 
   async resolveForDate(
@@ -67,6 +91,7 @@ export class AttendanceScheduleResolverService {
   ): Promise<ResolvedAttendanceSchedule> {
     const employee = await this.employeeRepository.findOne({ where: { id: employeeId } });
     const branchId = employee?.primary_branch_id ?? null;
+    const globalConfig = await this.resolveGlobalConfiguration(companyId);
 
     const fallbackTimezone =
       preferredTimezone ||
@@ -79,6 +104,7 @@ export class AttendanceScheduleResolverService {
       scheduleDate,
       fallbackTimezone,
       branchId,
+      globalConfig,
     );
     if (fromShiftSchedule) return fromShiftSchedule;
 
@@ -88,8 +114,25 @@ export class AttendanceScheduleResolverService {
       scheduleDate,
       fallbackTimezone,
       branchId,
+      globalConfig,
     );
     if (fromGenerated) return fromGenerated;
+
+    await this.timetableScheduleGenerationService.ensureGeneratedSchedule(
+      companyId,
+      employeeId,
+      scheduleDate,
+    );
+
+    const generatedOnDemand = await this.resolveFromTimetableGeneratedSchedule(
+      companyId,
+      employeeId,
+      scheduleDate,
+      fallbackTimezone,
+      branchId,
+      globalConfig,
+    );
+    if (generatedOnDemand) return generatedOnDemand;
 
     const fromShiftAssignment = await this.resolveFromShiftAssignment(
       companyId,
@@ -97,6 +140,7 @@ export class AttendanceScheduleResolverService {
       scheduleDate,
       fallbackTimezone,
       branchId,
+      globalConfig,
     );
     if (fromShiftAssignment) return fromShiftAssignment;
 
@@ -106,10 +150,14 @@ export class AttendanceScheduleResolverService {
       scheduleDate,
       fallbackTimezone,
       branchId,
+      globalConfig,
     );
     if (fromEmployeeTimetable) return fromEmployeeTimetable;
 
     const holiday = await this.resolveHoliday(companyId, branchId, scheduleDate);
+    const isWeekendOff =
+      globalConfig.autoMarkWeekendAsOff &&
+      globalConfig.weekendDayIndexes.has(this.getDayOfWeek(scheduleDate));
 
     return {
       employeeId,
@@ -119,19 +167,26 @@ export class AttendanceScheduleResolverService {
       shiftId: null,
       timetableId: null,
       branchId,
-      isOffDay: false,
+      isOffDay: isWeekendOff,
       isHoliday: !!holiday,
       holidayId: holiday?.id ?? null,
       scheduleStartAt: null,
       scheduleEndAt: null,
-      lateAfterMinutes: 0,
-      graceInMinutes: 0,
+      lateAfterMinutes: globalConfig.lateAfterMinutes,
+      halfDayAfterMinutes: globalConfig.halfDayAfterMinutes,
+      absentAfterMinutes: globalConfig.absentAfterMinutes,
+      graceInMinutes: globalConfig.graceInMinutes,
       graceOutMinutes: 0,
       earlyLeaveAfterMinutes: 0,
-      allowOvertime: false,
-      overtimeStartAfterMinutes: 0,
-      maxOvertimeMinutes: 0,
+      allowEarlyCheckin: globalConfig.allowEarlyCheckin,
+      allowLateCheckout: globalConfig.allowLateCheckout,
+      autoAbsentIfNoCheckin: globalConfig.autoAbsentIfNoCheckin,
+      allowOvertime: globalConfig.allowOvertime,
+      overtimeStartAfterMinutes: globalConfig.overtimeStartAfterMinutes,
+      maxOvertimeMinutes: globalConfig.maxOvertimeMinutes,
       requiresCheckout: true,
+      ignoreMissingCheckoutIfHoursValid:
+        globalConfig.ignoreMissingCheckoutIfHoursValid,
     };
   }
 
@@ -141,6 +196,7 @@ export class AttendanceScheduleResolverService {
     scheduleDate: string,
     fallbackTimezone: string,
     branchId: number | null,
+    globalConfig: GlobalAttendanceConfiguration,
   ): Promise<ResolvedAttendanceSchedule | null> {
     const schedule = await this.shiftScheduleRepository.findOne({
       where: { companyId, employeeId, scheduleDate },
@@ -156,6 +212,7 @@ export class AttendanceScheduleResolverService {
       fallbackTimezone,
       'SHIFT_SCHEDULE',
       branchId,
+      globalConfig,
     );
 
     base.isOffDay = schedule.isOffDay;
@@ -170,6 +227,7 @@ export class AttendanceScheduleResolverService {
     scheduleDate: string,
     fallbackTimezone: string,
     branchId: number | null,
+    globalConfig: GlobalAttendanceConfiguration,
   ): Promise<ResolvedAttendanceSchedule | null> {
     const generated = await this.timetableGeneratedScheduleRepository.findOne({
       where: { companyId, employeeId, scheduleDate },
@@ -195,14 +253,28 @@ export class AttendanceScheduleResolverService {
         holidayId,
         scheduleStartAt: null,
         scheduleEndAt: null,
-        lateAfterMinutes: attendanceRule?.lateAfterMinutes ?? 0,
-        graceInMinutes: 0,
+        lateAfterMinutes:
+          attendanceRule?.lateAfterMinutes ?? globalConfig.lateAfterMinutes,
+        halfDayAfterMinutes:
+          attendanceRule?.halfDayAfterMinutes ?? globalConfig.halfDayAfterMinutes,
+        absentAfterMinutes:
+          attendanceRule?.absentAfterMinutes ?? globalConfig.absentAfterMinutes,
+        graceInMinutes: globalConfig.graceInMinutes,
         graceOutMinutes: 0,
         earlyLeaveAfterMinutes: 0,
-        allowOvertime: false,
-        overtimeStartAfterMinutes: 0,
-        maxOvertimeMinutes: attendanceRule?.maxOvertimeMinutes ?? 0,
+        allowEarlyCheckin:
+          attendanceRule?.allowEarlyCheckin ?? globalConfig.allowEarlyCheckin,
+        allowLateCheckout:
+          attendanceRule?.allowLateCheckout ?? globalConfig.allowLateCheckout,
+        autoAbsentIfNoCheckin:
+          attendanceRule?.autoAbsentIfNoCheckin ?? globalConfig.autoAbsentIfNoCheckin,
+        allowOvertime: globalConfig.allowOvertime,
+        overtimeStartAfterMinutes: globalConfig.overtimeStartAfterMinutes,
+        maxOvertimeMinutes:
+          attendanceRule?.maxOvertimeMinutes ?? globalConfig.maxOvertimeMinutes,
         requiresCheckout: true,
+        ignoreMissingCheckoutIfHoursValid:
+          globalConfig.ignoreMissingCheckoutIfHoursValid,
       };
     }
 
@@ -214,6 +286,7 @@ export class AttendanceScheduleResolverService {
       timezone,
       'TIMETABLE_GENERATED',
       branchId,
+      globalConfig,
     );
 
     base.timetableId = generated.timetableId;
@@ -229,6 +302,7 @@ export class AttendanceScheduleResolverService {
     scheduleDate: string,
     fallbackTimezone: string,
     branchId: number | null,
+    globalConfig: GlobalAttendanceConfiguration,
   ): Promise<ResolvedAttendanceSchedule | null> {
     const assignment = await this.shiftAssignmentRepository
       .createQueryBuilder('assignment')
@@ -269,6 +343,7 @@ export class AttendanceScheduleResolverService {
       fallbackTimezone,
       'SHIFT_ASSIGNMENT',
       branchId,
+      globalConfig,
     );
 
     base.isOffDay = isOffDay;
@@ -284,6 +359,7 @@ export class AttendanceScheduleResolverService {
     scheduleDate: string,
     fallbackTimezone: string,
     branchId: number | null,
+    globalConfig: GlobalAttendanceConfiguration,
   ): Promise<ResolvedAttendanceSchedule | null> {
     const assignment = await this.employeeTimetableRepository
       .createQueryBuilder('assignment')
@@ -326,14 +402,28 @@ export class AttendanceScheduleResolverService {
         holidayId: holiday?.id ?? null,
         scheduleStartAt: null,
         scheduleEndAt: null,
-        lateAfterMinutes: attendanceRule?.lateAfterMinutes ?? 0,
-        graceInMinutes: 0,
+        lateAfterMinutes:
+          attendanceRule?.lateAfterMinutes ?? globalConfig.lateAfterMinutes,
+        halfDayAfterMinutes:
+          attendanceRule?.halfDayAfterMinutes ?? globalConfig.halfDayAfterMinutes,
+        absentAfterMinutes:
+          attendanceRule?.absentAfterMinutes ?? globalConfig.absentAfterMinutes,
+        graceInMinutes: globalConfig.graceInMinutes,
         graceOutMinutes: 0,
         earlyLeaveAfterMinutes: 0,
-        allowOvertime: day?.overtimeAllowed ?? false,
-        overtimeStartAfterMinutes: 0,
-        maxOvertimeMinutes: attendanceRule?.maxOvertimeMinutes ?? 0,
+        allowEarlyCheckin:
+          attendanceRule?.allowEarlyCheckin ?? globalConfig.allowEarlyCheckin,
+        allowLateCheckout:
+          attendanceRule?.allowLateCheckout ?? globalConfig.allowLateCheckout,
+        autoAbsentIfNoCheckin:
+          attendanceRule?.autoAbsentIfNoCheckin ?? globalConfig.autoAbsentIfNoCheckin,
+        allowOvertime: day?.overtimeAllowed ?? globalConfig.allowOvertime,
+        overtimeStartAfterMinutes: globalConfig.overtimeStartAfterMinutes,
+        maxOvertimeMinutes:
+          attendanceRule?.maxOvertimeMinutes ?? globalConfig.maxOvertimeMinutes,
         requiresCheckout: true,
+        ignoreMissingCheckoutIfHoursValid:
+          globalConfig.ignoreMissingCheckoutIfHoursValid,
       };
     }
 
@@ -371,14 +461,28 @@ export class AttendanceScheduleResolverService {
         holidayId: holiday?.id ?? null,
         scheduleStartAt,
         scheduleEndAt,
-        lateAfterMinutes: attendanceRule?.lateAfterMinutes ?? 0,
-        graceInMinutes: 0,
+        lateAfterMinutes:
+          attendanceRule?.lateAfterMinutes ?? globalConfig.lateAfterMinutes,
+        halfDayAfterMinutes:
+          attendanceRule?.halfDayAfterMinutes ?? globalConfig.halfDayAfterMinutes,
+        absentAfterMinutes:
+          attendanceRule?.absentAfterMinutes ?? globalConfig.absentAfterMinutes,
+        graceInMinutes: globalConfig.graceInMinutes,
         graceOutMinutes: 0,
         earlyLeaveAfterMinutes: 0,
+        allowEarlyCheckin:
+          attendanceRule?.allowEarlyCheckin ?? globalConfig.allowEarlyCheckin,
+        allowLateCheckout:
+          attendanceRule?.allowLateCheckout ?? globalConfig.allowLateCheckout,
+        autoAbsentIfNoCheckin:
+          attendanceRule?.autoAbsentIfNoCheckin ?? globalConfig.autoAbsentIfNoCheckin,
         allowOvertime: day.overtimeAllowed,
-        overtimeStartAfterMinutes: 0,
-        maxOvertimeMinutes: attendanceRule?.maxOvertimeMinutes ?? 0,
+        overtimeStartAfterMinutes: globalConfig.overtimeStartAfterMinutes,
+        maxOvertimeMinutes:
+          attendanceRule?.maxOvertimeMinutes ?? globalConfig.maxOvertimeMinutes,
         requiresCheckout: true,
+        ignoreMissingCheckoutIfHoursValid:
+          globalConfig.ignoreMissingCheckoutIfHoursValid,
       };
     }
 
@@ -392,6 +496,7 @@ export class AttendanceScheduleResolverService {
       timezone,
       'EMPLOYEE_TIMETABLE',
       branchId,
+      globalConfig,
     );
 
     base.timetableId = assignment.timetableId;
@@ -408,6 +513,7 @@ export class AttendanceScheduleResolverService {
     timezone: string,
     source: string,
     branchId: number | null,
+    globalConfig: GlobalAttendanceConfiguration,
   ): Promise<ResolvedAttendanceSchedule> {
     const shift = await this.shiftRepository.findOne({ where: { id: shiftId, companyId } });
     const holiday = await this.resolveHoliday(companyId, branchId, scheduleDate);
@@ -426,14 +532,21 @@ export class AttendanceScheduleResolverService {
         holidayId: holiday?.id ?? null,
         scheduleStartAt: null,
         scheduleEndAt: null,
-        lateAfterMinutes: 0,
-        graceInMinutes: 0,
+        lateAfterMinutes: globalConfig.lateAfterMinutes,
+        halfDayAfterMinutes: globalConfig.halfDayAfterMinutes,
+        absentAfterMinutes: globalConfig.absentAfterMinutes,
+        graceInMinutes: globalConfig.graceInMinutes,
         graceOutMinutes: 0,
         earlyLeaveAfterMinutes: 0,
-        allowOvertime: false,
-        overtimeStartAfterMinutes: 0,
-        maxOvertimeMinutes: 0,
+        allowEarlyCheckin: globalConfig.allowEarlyCheckin,
+        allowLateCheckout: globalConfig.allowLateCheckout,
+        autoAbsentIfNoCheckin: globalConfig.autoAbsentIfNoCheckin,
+        allowOvertime: globalConfig.allowOvertime,
+        overtimeStartAfterMinutes: globalConfig.overtimeStartAfterMinutes,
+        maxOvertimeMinutes: globalConfig.maxOvertimeMinutes,
         requiresCheckout: true,
+        ignoreMissingCheckoutIfHoursValid:
+          globalConfig.ignoreMissingCheckoutIfHoursValid,
       };
     }
 
@@ -461,14 +574,67 @@ export class AttendanceScheduleResolverService {
       holidayId: holiday?.id ?? null,
       scheduleStartAt,
       scheduleEndAt,
-      lateAfterMinutes: attendanceRule?.lateAfterMinutes ?? shift.lateAfterMinutes ?? 0,
-      graceInMinutes: shift.graceInMinutes ?? 0,
+      lateAfterMinutes:
+        attendanceRule?.lateAfterMinutes ??
+        shift.lateAfterMinutes ??
+        globalConfig.lateAfterMinutes,
+      halfDayAfterMinutes:
+        attendanceRule?.halfDayAfterMinutes ?? globalConfig.halfDayAfterMinutes,
+      absentAfterMinutes:
+        attendanceRule?.absentAfterMinutes ?? globalConfig.absentAfterMinutes,
+      graceInMinutes: shift.graceInMinutes ?? globalConfig.graceInMinutes,
       graceOutMinutes: shift.graceOutMinutes ?? 0,
       earlyLeaveAfterMinutes: shift.earlyLeaveAfterMinutes ?? 0,
+      allowEarlyCheckin:
+        shift.allowEarlyCheckin ?? globalConfig.allowEarlyCheckin,
+      allowLateCheckout:
+        shift.allowLateCheckout ?? globalConfig.allowLateCheckout,
+      autoAbsentIfNoCheckin:
+        attendanceRule?.autoMarkAbsent ?? globalConfig.autoAbsentIfNoCheckin,
       allowOvertime: shift.allowOvertime,
-      overtimeStartAfterMinutes: overtimeRule?.overtimeStartAfterMinutes ?? 0,
-      maxOvertimeMinutes: overtimeRule?.maxDailyOvertimeMinutes ?? shift.maxOvertimeMinutes ?? 0,
+      overtimeStartAfterMinutes:
+        overtimeRule?.overtimeStartAfterMinutes ??
+        globalConfig.overtimeStartAfterMinutes,
+      maxOvertimeMinutes:
+        overtimeRule?.maxDailyOvertimeMinutes ??
+        shift.maxOvertimeMinutes ??
+        globalConfig.maxOvertimeMinutes,
       requiresCheckout: shift.requiresCheckout,
+      ignoreMissingCheckoutIfHoursValid:
+        globalConfig.ignoreMissingCheckoutIfHoursValid,
+    };
+  }
+
+  private async resolveGlobalConfiguration(
+    companyId: number,
+  ): Promise<GlobalAttendanceConfiguration> {
+    const [policy, setting] = await Promise.all([
+      this.attendancePolicyRepository.findOne({
+        where: { company_id: companyId, is_active: true },
+      }),
+      this.attendanceSettingRepository.findOne({
+        where: { companyId },
+        order: { updatedAt: 'DESC' },
+      }),
+    ]);
+
+    return {
+      absentAfterMinutes: policy?.absent_after_minutes ?? 0,
+      allowEarlyCheckin: policy?.allow_early_checkin ?? true,
+      allowLateCheckout: policy?.allow_late_checkout ?? true,
+      allowOvertime:
+        (setting?.maxOvertimeMinutesPerDay ?? 0) > 0 ||
+        (setting?.overtimeStartAfterMinutes ?? 0) > 0,
+      autoAbsentIfNoCheckin: policy?.auto_absent_if_no_checkin ?? true,
+      autoMarkWeekendAsOff: policy?.auto_mark_weekend_as_off ?? false,
+      graceInMinutes: policy?.grace_period_minutes ?? 0,
+      halfDayAfterMinutes: policy?.half_day_after_minutes ?? 0,
+      ignoreMissingCheckoutIfHoursValid:
+        policy?.ignore_missing_checkout_if_hours_valid ?? false,
+      lateAfterMinutes: policy?.late_after_minutes ?? 0,
+      maxOvertimeMinutes: setting?.maxOvertimeMinutesPerDay ?? 0,
+      overtimeStartAfterMinutes: setting?.overtimeStartAfterMinutes ?? 0,
+      weekendDayIndexes: this.parseWeekendDays(policy?.weekend_days),
     };
   }
 
@@ -524,6 +690,25 @@ export class AttendanceScheduleResolverService {
 
   private getDayOfWeek(date: string): number {
     return new Date(`${date}T00:00:00Z`).getUTCDay();
+  }
+
+  private parseWeekendDays(value?: string | null): Set<number> {
+    const dayMap: Record<string, number> = {
+      SUN: 0,
+      MON: 1,
+      TUE: 2,
+      WED: 3,
+      THU: 4,
+      FRI: 5,
+      SAT: 6,
+    };
+
+    return new Set(
+      String(value ?? '')
+        .split(',')
+        .map((item) => dayMap[item.trim().toUpperCase()])
+        .filter((item): item is number => Number.isInteger(item)),
+    );
   }
 
   private resolveOffsetForDate(timezone: string, date: string): string {

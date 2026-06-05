@@ -5,6 +5,7 @@ import { SortDirection } from '../../../../../common/dto/pagination.dto';
 import { buildPaginationMeta } from '../../../shared/hr.utils';
 import { AttendanceHoliday } from '../../holidays/entities/holiday.entity';
 import { Employee } from '../../../employees/entities/employee.entity';
+import { Shift } from '../../shift/shifts/entities/shift.entity';
 import { Timetable } from '../timetables/entities/timetable.entity';
 import { TimetableGeneratedSchedule } from './entities/timetable-generated-schedule.entity';
 import { CreateTimetableGeneratedScheduleDto } from './dtos/create-timetable-generated-schedule.dto';
@@ -22,6 +23,8 @@ export class TimetableGeneratedSchedulesService {
     private readonly timetableRepository: Repository<Timetable>,
     @InjectRepository(AttendanceHoliday)
     private readonly holidayRepository: Repository<AttendanceHoliday>,
+    @InjectRepository(Shift)
+    private readonly shiftRepository: Repository<Shift>,
   ) {}
 
   private async ensureEmployee(companyId: number, employeeId: number): Promise<void> {
@@ -45,6 +48,16 @@ export class TimetableGeneratedSchedulesService {
     if (!item) throw new BadRequestException('holiday_id does not belong to the active company');
   }
 
+  private async ensureShift(companyId: number, shiftId?: number | null): Promise<void> {
+    if (!shiftId) return;
+
+    const item = await this.shiftRepository.findOne({
+      where: { id: shiftId, companyId },
+      select: ['id'],
+    });
+    if (!item) throw new BadRequestException('shift_id does not belong to the active company');
+  }
+
   private async findOrFail(companyId: number, id: number): Promise<TimetableGeneratedSchedule> {
     const item = await this.generatedScheduleRepository.findOne({ where: { id, companyId } });
     if (!item) throw new NotFoundException('Generated schedule not found');
@@ -55,6 +68,7 @@ export class TimetableGeneratedSchedulesService {
     await this.ensureEmployee(companyId, dto.employee_id);
     await this.ensureTimetable(companyId, dto.timetable_id);
     await this.ensureHoliday(companyId, dto.holiday_id);
+    await this.ensureShift(companyId, dto.shift_id);
 
     const duplicate = await this.generatedScheduleRepository.findOne({
       where: { companyId, employeeId: dto.employee_id, scheduleDate: dto.schedule_date },
@@ -105,6 +119,7 @@ export class TimetableGeneratedSchedulesService {
     await this.ensureEmployee(companyId, employeeId);
     await this.ensureTimetable(companyId, timetableId);
     await this.ensureHoliday(companyId, dto.holiday_id ?? item.holidayId);
+    await this.ensureShift(companyId, dto.shift_id ?? item.shiftId);
 
     const duplicate = await this.generatedScheduleRepository.findOne({ where: { companyId, employeeId, scheduleDate } });
     if (duplicate && duplicate.id !== item.id) {

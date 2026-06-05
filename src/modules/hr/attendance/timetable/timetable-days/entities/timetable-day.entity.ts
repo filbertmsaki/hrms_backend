@@ -10,9 +10,11 @@ import {
 } from 'typeorm';
 import { Timetable } from '../../timetables/entities/timetable.entity';
 import { TimetableShiftRule } from '../../timetable-shift-rules/entities/timetable-shift-rule.entity';
+import { Shift } from '../../../shift/shifts/entities/shift.entity';
 
 @Entity('timetable_days')
 @Index('IDX_timetable_days_timetable_id', ['timetableId'])
+@Index('IDX_timetable_days_default_shift_id', ['defaultShiftId'])
 @Index('UQ_timetable_days_timetable_day', ['timetableId', 'dayOfWeek'], { unique: true })
 export class TimetableDay {
   @PrimaryGeneratedColumn({ name: 'id' })
@@ -63,6 +65,10 @@ export class TimetableDay {
   @ManyToOne(() => Timetable, (timetable) => timetable.days, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'timetable_id' })
   timetable: Timetable;
+
+  @ManyToOne(() => Shift, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'default_shift_id' })
+  defaultShift: Shift | null;
 
   @OneToMany(() => TimetableShiftRule, (shiftRule) => shiftRule.timetableDay)
   shiftRules: TimetableShiftRule[];

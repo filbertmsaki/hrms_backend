@@ -21,6 +21,7 @@ import { ShiftRotationGroup } from '../../shift-rotation-groups/entities/shift-r
 @Index('IDX_shift_assignments_shift_id', ['shiftId'])
 @Index('IDX_shift_assignments_rotation_group_id', ['rotationGroupId'])
 @Index('IDX_shift_assignments_status', ['status'])
+@Index('IDX_shift_assignments_company_employee_status_from', ['companyId', 'employeeId', 'status', 'effectiveFrom'])
 export class ShiftAssignment {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;

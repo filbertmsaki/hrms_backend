@@ -348,7 +348,7 @@ export class AttendanceDailySummaryService {
       attendanceStatus = AttendanceDailyStatusEnum.HOLIDAY;
     } else if (schedule.isOffDay) {
       attendanceStatus = AttendanceDailyStatusEnum.OFF_DAY;
-    } else if (eventCount === 0) {
+    } else if (eventCount === 0 && schedule.autoAbsentIfNoCheckin) {
       attendanceStatus = AttendanceDailyStatusEnum.ABSENT;
     } else if (!checkOutAt && schedule.requiresCheckout) {
       attendanceStatus = AttendanceDailyStatusEnum.INCOMPLETE;
@@ -361,11 +361,26 @@ export class AttendanceDailySummaryService {
     }
 
     if (checkInAt && schedule.scheduleStartAt) {
-      const threshold =
-        schedule.scheduleStartAt.getTime() +
-        (schedule.graceInMinutes + schedule.lateAfterMinutes) * 60000;
-      if (checkInAt.getTime() > threshold) {
-        lateMinutes = Math.floor((checkInAt.getTime() - threshold) / 60000);
+      const baseline = schedule.scheduleStartAt.getTime() + schedule.graceInMinutes * 60000;
+      const lateThreshold = baseline + schedule.lateAfterMinutes * 60000;
+      const halfDayThreshold = baseline + schedule.halfDayAfterMinutes * 60000;
+      const absentThreshold = baseline + schedule.absentAfterMinutes * 60000;
+
+      if (schedule.lateAfterMinutes > 0 && checkInAt.getTime() > lateThreshold) {
+        lateMinutes = Math.floor((checkInAt.getTime() - lateThreshold) / 60000);
+      }
+
+      if (
+        schedule.absentAfterMinutes > 0 &&
+        checkInAt.getTime() > absentThreshold
+      ) {
+        attendanceStatus = AttendanceDailyStatusEnum.ABSENT;
+      } else if (
+        schedule.halfDayAfterMinutes > 0 &&
+        checkInAt.getTime() > halfDayThreshold &&
+        attendanceStatus === AttendanceDailyStatusEnum.PRESENT
+      ) {
+        attendanceStatus = AttendanceDailyStatusEnum.HALF_DAY;
       }
     }
 
@@ -406,6 +421,12 @@ export class AttendanceDailySummaryService {
       eventCount,
       requiresCheckout: schedule.requiresCheckout,
       scheduleSource: schedule.source,
+      lateAfterMinutes: schedule.lateAfterMinutes,
+      halfDayAfterMinutes: schedule.halfDayAfterMinutes,
+      absentAfterMinutes: schedule.absentAfterMinutes,
+      autoAbsentIfNoCheckin: schedule.autoAbsentIfNoCheckin,
+      allowEarlyCheckin: schedule.allowEarlyCheckin,
+      allowLateCheckout: schedule.allowLateCheckout,
     };
 
     const shouldPersist =

@@ -922,15 +922,6 @@ export class HikvisionAttendanceSyncService {
   private async findExistingAttendanceLog(
     mapped: MappedAttendanceRow,
   ): Promise<HikvisionAttendanceLog | null> {
-    if (mapped.serialNo) {
-      return this.attendanceLogRepository.findOne({
-        where: {
-          deviceId: mapped.deviceId,
-          serialNo: mapped.serialNo,
-        },
-      });
-    }
-
     return this.attendanceLogRepository.findOne({
       where: {
         deviceId: mapped.deviceId,
@@ -1089,17 +1080,14 @@ export class HikvisionAttendanceSyncService {
   }
 
   private isValidPunchEvent(item: Record<string, unknown>): boolean {
-    const employeeNoString = this.toNullableString(item.employeeNoString);
-    const cardReaderNo = this.toNullableNumber(item.cardReaderNo);
-    const doorNo = this.toNullableNumber(item.doorNo);
+    const employeeNo = this.resolveAttendanceEmployeeNo(item);
+    const eventTime = this.toNullableDate(item.time);
+    const major = this.toNullableNumber(item.major);
 
     return Boolean(
-      employeeNoString
-      && employeeNoString.trim() !== ''
-      && cardReaderNo !== null
-      && cardReaderNo > 0
-      && doorNo !== null
-      && doorNo > 0,
+      employeeNo &&
+      eventTime &&
+      (major === null || major === this.attendanceMajorCode),
     );
   }
 

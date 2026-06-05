@@ -19,6 +19,7 @@ import { EmployeeTimetableStatusEnum } from '../enums/employee-timetable-status.
 @Index('IDX_employee_timetables_timetable_id', ['timetableId'])
 @Index('IDX_employee_timetables_effective_from', ['effectiveFrom'])
 @Index('IDX_employee_timetables_status', ['status'])
+@Index('IDX_employee_timetables_company_employee_status_from', ['companyId', 'employeeId', 'status', 'effectiveFrom'])
 export class EmployeeTimetable {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;

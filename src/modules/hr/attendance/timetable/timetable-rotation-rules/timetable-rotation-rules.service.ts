@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
 import { buildPaginationMeta } from '../../../shared/hr.utils';
+import { Shift } from '../../shift/shifts/entities/shift.entity';
 import { Timetable } from '../timetables/entities/timetable.entity';
 import { TimetableRotation } from '../timetable-rotations/entities/timetable-rotation.entity';
 import { TimetableRotationRule } from './entities/timetable-rotation-rule.entity';
@@ -17,11 +18,23 @@ export class TimetableRotationRulesService {
     private readonly rotationRuleRepository: Repository<TimetableRotationRule>,
     @InjectRepository(TimetableRotation)
     private readonly rotationRepository: Repository<TimetableRotation>,
+    @InjectRepository(Shift)
+    private readonly shiftRepository: Repository<Shift>,
   ) {}
 
   private async ensureRotation(companyId: number, rotationId: number): Promise<void> {
     const item = await this.rotationRepository.findOne({ where: { id: rotationId, companyId }, select: ['id'] });
     if (!item) throw new BadRequestException('rotation_id does not belong to the active company');
+  }
+
+  private async ensureShift(companyId: number, shiftId?: number | null): Promise<void> {
+    if (!shiftId) return;
+
+    const shift = await this.shiftRepository.findOne({
+      where: { id: shiftId, companyId },
+      select: ['id'],
+    });
+    if (!shift) throw new BadRequestException('shift_id does not belong to the active company');
   }
 
   private async findOrFail(companyId: number, id: number): Promise<TimetableRotationRule> {
@@ -38,6 +51,11 @@ export class TimetableRotationRulesService {
 
   async create(companyId: number, dto: CreateTimetableRotationRuleDto) {
     await this.ensureRotation(companyId, dto.rotation_id);
+    await this.ensureShift(companyId, dto.shift_id);
+
+    if (!dto.shift_id && !dto.is_off_day) {
+      throw new BadRequestException('shift_id is required when is_off_day is false');
+    }
 
     const duplicate = await this.rotationRuleRepository.findOne({ where: { rotationId: dto.rotation_id, dayIndex: dto.day_index } });
     if (duplicate) throw new ConflictException('day_index already exists in this rotation');
@@ -74,15 +92,22 @@ export class TimetableRotationRulesService {
 
     const rotationId = dto.rotation_id ?? item.rotationId;
     const dayIndex = dto.day_index ?? item.dayIndex;
+    const shiftId = dto.shift_id !== undefined ? dto.shift_id : item.shiftId;
+    const isOffDay = dto.is_off_day !== undefined ? dto.is_off_day : item.isOffDay;
     await this.ensureRotation(companyId, rotationId);
+    await this.ensureShift(companyId, shiftId);
+
+    if (!shiftId && !isOffDay) {
+      throw new BadRequestException('shift_id is required when is_off_day is false');
+    }
 
     const duplicate = await this.rotationRuleRepository.findOne({ where: { rotationId, dayIndex } });
     if (duplicate && duplicate.id !== item.id) throw new ConflictException('day_index already exists in this rotation');
 
     item.rotationId = rotationId;
     item.dayIndex = dayIndex;
-    if (dto.shift_id !== undefined) item.shiftId = dto.shift_id;
-    if (dto.is_off_day !== undefined) item.isOffDay = dto.is_off_day;
+    item.shiftId = shiftId;
+    item.isOffDay = isOffDay;
 
     return this.rotationRuleRepository.save(item);
   }

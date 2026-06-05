@@ -7,6 +7,7 @@ import { Employee } from '../../../employees/entities/employee.entity';
 import { Shift } from '../shifts/entities/shift.entity';
 import { ShiftRotationGroup } from '../shift-rotation-groups/entities/shift-rotation-group.entity';
 import { ShiftAssignment } from './entities/shift-assignment.entity';
+import { ShiftAssignmentStatusEnum } from './enums/shift-assignment-status.enum';
 import { CreateShiftAssignmentDto } from './dtos/create-shift-assignment.dto';
 import { UpdateShiftAssignmentDto } from './dtos/update-shift-assignment.dto';
 import { ShiftAssignmentQueryDto } from './dtos/shift-assignment-query.dto';
@@ -51,10 +52,60 @@ export class ShiftAssignmentsService {
     return item;
   }
 
+  private ensureEffectiveRange(effectiveFrom: string, effectiveTo?: string | null): void {
+    if (!effectiveTo) return;
+    if (effectiveTo < effectiveFrom) {
+      throw new BadRequestException('effective_to cannot be before effective_from');
+    }
+  }
+
+  private async ensureNoActiveOverlap(input: {
+    companyId: number;
+    employeeId: number;
+    effectiveFrom: string;
+    effectiveTo: string | null;
+    status: ShiftAssignmentStatusEnum;
+    ignoreId?: number;
+  }): Promise<void> {
+    const { companyId, employeeId, effectiveFrom, effectiveTo, status, ignoreId } = input;
+    if (status !== ShiftAssignmentStatusEnum.ACTIVE) {
+      return;
+    }
+
+    const qb = this.shiftAssignmentRepository
+      .createQueryBuilder('assignment')
+      .where('assignment.company_id = :companyId', { companyId })
+      .andWhere('assignment.employee_id = :employeeId', { employeeId })
+      .andWhere('assignment.status = :status', { status: ShiftAssignmentStatusEnum.ACTIVE })
+      .andWhere('assignment.effective_from <= :candidateEnd', {
+        candidateEnd: effectiveTo ?? '9999-12-31',
+      })
+      .andWhere('(assignment.effective_to IS NULL OR assignment.effective_to >= :candidateStart)', {
+        candidateStart: effectiveFrom,
+      });
+
+    if (ignoreId) {
+      qb.andWhere('assignment.id != :ignoreId', { ignoreId });
+    }
+
+    const existing = await qb.getOne();
+    if (existing) {
+      throw new ConflictException('Active shift assignment overlaps an existing assignment for this employee');
+    }
+  }
+
   async create(companyId: number, dto: CreateShiftAssignmentDto) {
     await this.ensureEmployee(companyId, dto.employee_id);
     await this.ensureShift(companyId, dto.shift_id);
     await this.ensureRotationGroup(companyId, dto.rotation_group_id);
+    this.ensureEffectiveRange(dto.effective_from, dto.effective_to ?? null);
+    await this.ensureNoActiveOverlap({
+      companyId,
+      employeeId: dto.employee_id,
+      effectiveFrom: dto.effective_from,
+      effectiveTo: dto.effective_to ?? null,
+      status: dto.status ?? ShiftAssignmentStatusEnum.ACTIVE,
+    });
 
     const duplicate = await this.shiftAssignmentRepository.findOne({
       where: {
@@ -105,6 +156,19 @@ export class ShiftAssignmentsService {
     await this.ensureEmployee(companyId, employeeId);
     await this.ensureShift(companyId, shiftId);
     await this.ensureRotationGroup(companyId, dto.rotation_group_id ?? item.rotationGroupId);
+    const effectiveFrom = dto.effective_from ?? item.effectiveFrom;
+    const effectiveTo = dto.effective_to !== undefined ? dto.effective_to : item.effectiveTo;
+    const status = dto.status ?? item.status;
+
+    this.ensureEffectiveRange(effectiveFrom, effectiveTo);
+    await this.ensureNoActiveOverlap({
+      companyId,
+      employeeId,
+      effectiveFrom,
+      effectiveTo,
+      status,
+      ignoreId: item.id,
+    });
 
     item.employeeId = employeeId;
     item.shiftId = shiftId;

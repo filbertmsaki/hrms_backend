@@ -1,5 +1,6 @@
 export enum AttendanceDailyStatusEnum {
   PRESENT = 'PRESENT',
+  HALF_DAY = 'HALF_DAY',
   ABSENT = 'ABSENT',
   INCOMPLETE = 'INCOMPLETE',
   OFF_DAY = 'OFF_DAY',

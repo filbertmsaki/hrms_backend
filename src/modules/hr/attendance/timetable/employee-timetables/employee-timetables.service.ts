@@ -9,6 +9,7 @@ import { EmployeeTimetable } from './entities/employee-timetable.entity';
 import { CreateEmployeeTimetableDto } from './dtos/create-employee-timetable.dto';
 import { UpdateEmployeeTimetableDto } from './dtos/update-employee-timetable.dto';
 import { EmployeeTimetableQueryDto } from './dtos/employee-timetable-query.dto';
+import { EmployeeTimetableStatusEnum } from './enums/employee-timetable-status.enum';
 
 @Injectable()
 export class EmployeeTimetablesService {
@@ -42,9 +43,62 @@ export class EmployeeTimetablesService {
     return item;
   }
 
+  private ensureEffectiveRange(effectiveFrom: string, effectiveTo?: string | null): void {
+    if (!effectiveTo) return;
+    if (effectiveTo < effectiveFrom) {
+      throw new BadRequestException('effective_to cannot be before effective_from');
+    }
+  }
+
+  private async ensureNoActiveOverlap(input: {
+    companyId: number;
+    employeeId: number;
+    effectiveFrom: string;
+    effectiveTo: string | null;
+    status: EmployeeTimetableStatusEnum;
+    ignoreId?: number;
+  }): Promise<void> {
+    const { companyId, employeeId, effectiveFrom, effectiveTo, status, ignoreId } = input;
+    if (status !== EmployeeTimetableStatusEnum.ACTIVE) {
+      return;
+    }
+
+    const qb = this.employeeTimetableRepository
+      .createQueryBuilder('employeeTimetable')
+      .where('employeeTimetable.company_id = :companyId', { companyId })
+      .andWhere('employeeTimetable.employee_id = :employeeId', { employeeId })
+      .andWhere('employeeTimetable.status = :status', {
+        status: EmployeeTimetableStatusEnum.ACTIVE,
+      })
+      .andWhere('employeeTimetable.effective_from <= :candidateEnd', {
+        candidateEnd: effectiveTo ?? '9999-12-31',
+      })
+      .andWhere(
+        '(employeeTimetable.effective_to IS NULL OR employeeTimetable.effective_to >= :candidateStart)',
+        { candidateStart: effectiveFrom },
+      );
+
+    if (ignoreId) {
+      qb.andWhere('employeeTimetable.id != :ignoreId', { ignoreId });
+    }
+
+    const existing = await qb.getOne();
+    if (existing) {
+      throw new ConflictException('Active employee timetable overlaps an existing timetable assignment');
+    }
+  }
+
   async create(companyId: number, dto: CreateEmployeeTimetableDto) {
     await this.ensureEmployee(companyId, dto.employee_id);
     await this.ensureTimetable(companyId, dto.timetable_id);
+    this.ensureEffectiveRange(dto.effective_from, dto.effective_to ?? null);
+    await this.ensureNoActiveOverlap({
+      companyId,
+      employeeId: dto.employee_id,
+      effectiveFrom: dto.effective_from,
+      effectiveTo: dto.effective_to ?? null,
+      status: dto.status ?? EmployeeTimetableStatusEnum.ACTIVE,
+    });
 
     const duplicate = await this.employeeTimetableRepository.findOne({
       where: { companyId, employeeId: dto.employee_id, timetableId: dto.timetable_id, effectiveFrom: dto.effective_from },
@@ -87,6 +141,19 @@ export class EmployeeTimetablesService {
 
     await this.ensureEmployee(companyId, employeeId);
     await this.ensureTimetable(companyId, timetableId);
+    const effectiveFrom = dto.effective_from ?? item.effectiveFrom;
+    const effectiveTo = dto.effective_to !== undefined ? dto.effective_to : item.effectiveTo;
+    const status = dto.status ?? item.status;
+
+    this.ensureEffectiveRange(effectiveFrom, effectiveTo);
+    await this.ensureNoActiveOverlap({
+      companyId,
+      employeeId,
+      effectiveFrom,
+      effectiveTo,
+      status,
+      ignoreId: item.id,
+    });
 
     item.employeeId = employeeId;
     item.timetableId = timetableId;

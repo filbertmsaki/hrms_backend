@@ -14,10 +14,15 @@ import { ShiftRotationGroup } from '../shift/shift-rotation-groups/entities/shif
 import { ShiftRotationRule } from '../shift/shift-rotation-rules/entities/shift-rotation-rule.entity';
 import { ShiftSchedule } from '../shift/shift-schedules/entities/shift-schedule.entity';
 import { Shift } from '../shift/shifts/entities/shift.entity';
+import { AttendancePolicy } from '../policies/entities/attendance-policy.entity';
+import { AttendanceSetting } from '../settings/entities/attendance-setting.entity';
 import { EmployeeTimetable } from '../timetable/employee-timetables/entities/employee-timetable.entity';
 import { TimetableAttendanceRule } from '../timetable/timetable-attendance-rules/entities/timetable-attendance-rule.entity';
 import { TimetableDay } from '../timetable/timetable-days/entities/timetable-day.entity';
 import { TimetableGeneratedSchedule } from '../timetable/timetable-generated-schedules/entities/timetable-generated-schedule.entity';
+import { TimetableHolidayRule } from '../timetable/timetable-holiday-rules/entities/timetable-holiday-rule.entity';
+import { TimetableRotation } from '../timetable/timetable-rotations/entities/timetable-rotation.entity';
+import { TimetableRotationRule } from '../timetable/timetable-rotation-rules/entities/timetable-rotation-rule.entity';
 import { TimetableShiftRule } from '../timetable/timetable-shift-rules/entities/timetable-shift-rule.entity';
 import { Timetable } from '../timetable/timetables/entities/timetable.entity';
 import { AttendanceBusinessTrip } from './entities/attendance-business-trip.entity';
@@ -32,6 +37,7 @@ import { AttendanceDailySummaryService } from './attendance-daily-summary.servic
 import { AttendanceProcessingService } from './attendance-processing.service';
 import { AttendanceRecalculationService } from './attendance-recalculation.service';
 import { AttendanceProcessingCronService } from './attendance-processing-cron.service';
+import { TimetableScheduleGenerationService } from './timetable-schedule-generation.service';
 
 @Module({
   imports: [
@@ -40,6 +46,8 @@ import { AttendanceProcessingCronService } from './attendance-processing-cron.se
       Employee,
       AttendanceDevice,
       AttendanceHoliday,
+      AttendancePolicy,
+      AttendanceSetting,
       LeaveRequest,
       HikvisionAttendanceLog,
       Shift,
@@ -54,6 +62,9 @@ import { AttendanceProcessingCronService } from './attendance-processing-cron.se
       TimetableDay,
       TimetableShiftRule,
       TimetableAttendanceRule,
+      TimetableHolidayRule,
+      TimetableRotation,
+      TimetableRotationRule,
       TimetableGeneratedSchedule,
       EmployeeDeviceAssignment,
       EmployeeDeviceIdentity,
@@ -68,6 +79,7 @@ import { AttendanceProcessingCronService } from './attendance-processing-cron.se
     AttendanceEmployeeResolverService,
     AttendanceScheduleResolverService,
     AttendanceDailySummaryService,
+    TimetableScheduleGenerationService,
     AttendanceProcessingService,
     AttendanceRecalculationService,
     AttendanceProcessingCronService,

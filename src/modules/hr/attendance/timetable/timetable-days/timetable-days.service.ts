@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
 import { buildPaginationMeta } from '../../../shared/hr.utils';
+import { Shift } from '../../shift/shifts/entities/shift.entity';
 import { Timetable } from '../timetables/entities/timetable.entity';
 import { TimetableDay } from './entities/timetable-day.entity';
 import { CreateTimetableDayDto } from './dtos/create-timetable-day.dto';
@@ -16,11 +17,23 @@ export class TimetableDaysService {
     private readonly timetableDayRepository: Repository<TimetableDay>,
     @InjectRepository(Timetable)
     private readonly timetableRepository: Repository<Timetable>,
+    @InjectRepository(Shift)
+    private readonly shiftRepository: Repository<Shift>,
   ) {}
 
   private async ensureTimetable(companyId: number, timetableId: number): Promise<void> {
     const timetable = await this.timetableRepository.findOne({ where: { id: timetableId, companyId }, select: ['id'] });
     if (!timetable) throw new BadRequestException('timetable_id does not belong to the active company');
+  }
+
+  private async ensureShift(companyId: number, shiftId?: number | null): Promise<void> {
+    if (!shiftId) return;
+
+    const shift = await this.shiftRepository.findOne({
+      where: { id: shiftId, companyId },
+      select: ['id'],
+    });
+    if (!shift) throw new BadRequestException('default_shift_id does not belong to the active company');
   }
 
   private async findOrFail(companyId: number, id: number): Promise<TimetableDay> {
@@ -36,6 +49,7 @@ export class TimetableDaysService {
 
   async create(companyId: number, dto: CreateTimetableDayDto) {
     await this.ensureTimetable(companyId, dto.timetable_id);
+    await this.ensureShift(companyId, dto.default_shift_id);
 
     const duplicate = await this.timetableDayRepository.findOne({
       where: { timetableId: dto.timetable_id, dayOfWeek: dto.day_of_week },
@@ -95,6 +109,7 @@ export class TimetableDaysService {
     const dayOfWeek = dto.day_of_week ?? item.dayOfWeek;
 
     await this.ensureTimetable(companyId, timetableId);
+    await this.ensureShift(companyId, dto.default_shift_id ?? item.defaultShiftId);
 
     const duplicate = await this.timetableDayRepository.findOne({ where: { timetableId, dayOfWeek } });
     if (duplicate && duplicate.id !== item.id) {

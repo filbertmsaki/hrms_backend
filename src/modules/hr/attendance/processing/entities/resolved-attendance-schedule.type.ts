@@ -12,11 +12,17 @@ export type ResolvedAttendanceSchedule = {
   scheduleStartAt: Date | null;
   scheduleEndAt: Date | null;
   lateAfterMinutes: number;
+  halfDayAfterMinutes: number;
+  absentAfterMinutes: number;
   graceInMinutes: number;
   graceOutMinutes: number;
   earlyLeaveAfterMinutes: number;
+  allowEarlyCheckin: boolean;
+  allowLateCheckout: boolean;
+  autoAbsentIfNoCheckin: boolean;
   allowOvertime: boolean;
   overtimeStartAfterMinutes: number;
   maxOvertimeMinutes: number;
   requiresCheckout: boolean;
+  ignoreMissingCheckoutIfHoursValid: boolean;
 };
