@@ -9,9 +9,9 @@ export class PullAttendancePageDto {
     example: {
       searchID: '1',
       searchResultPosition: 0,
-      maxResults: 100,
+      maxResults: 10,
       major: 5,
-      minor: 0,
+      eventAttribute: 'attendance',
       startTime: '2026-05-29T00:00:00+03:00',
       endTime: '2026-05-29T23:59:59+03:00',
     },

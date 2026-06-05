@@ -23,13 +23,15 @@ import { Branch } from '../../hr/branches/entities/branch.entity';
 @Index('IDX_hikvision_attendance_logs_minor', ['minor'])
 @Index('IDX_hikvision_attendance_logs_door_no', ['doorNo'])
 @Index('IDX_hikvision_attendance_logs_serial_no', ['serialNo'])
+@Index('IDX_hikvision_attendance_logs_device_event_time', ['deviceId', 'eventTime'])
 @Unique('UQ_hikvision_attendance_logs_device_serial_no', ['deviceId', 'serialNo'])
-@Unique('UQ_hikvision_attendance_logs_device_emp_time_major_minor_door', [
+@Unique('UQ_hik_att_logs_dev_emp_evt_maj_min_reader_door', [
   'deviceId',
   'employeeNo',
   'eventTime',
   'major',
   'minor',
+  'cardReaderNo',
   'doorNo',
 ])
 export class HikvisionAttendanceLog {
@@ -78,11 +80,17 @@ export class HikvisionAttendanceLog {
   @Column({ name: 'card_reader_no', type: 'int', nullable: true })
   cardReaderNo: number | null;
 
+  @Column({ name: 'card_reader_kind', type: 'varchar', length: 120, nullable: true })
+  cardReaderKind: string | null;
+
   @Column({ name: 'serial_no', type: 'varchar', length: 120, nullable: true })
   serialNo: string | null;
 
   @Column({ name: 'device_time', type: 'timestamp', nullable: true })
   deviceTime: Date | null;
+
+  @Column({ name: 'device_no', type: 'varchar', length: 120, nullable: true })
+  deviceNo: string | null;
 
   @Column({ name: 'remote_host_addr', type: 'varchar', length: 100, nullable: true })
   remoteHostAddr: string | null;
@@ -117,4 +125,3 @@ export class HikvisionAttendanceLog {
   @JoinColumn({ name: 'device_id' })
   device: AttendanceDevice | null;
 }
-

@@ -16,12 +16,12 @@ export class AcsEventCondDto {
   @IsOptional()
   searchResultPosition?: number = 0;
 
-  @ApiPropertyOptional({ example: 100, default: 100 })
+  @ApiPropertyOptional({ example: 10, default: 10 })
   @Type(() => Number)
   @IsInt()
   @Min(1)
   @IsOptional()
-  maxResults?: number = 100;
+  maxResults?: number = 10;
 
   @ApiPropertyOptional({ example: 5, default: 5 })
   @Type(() => Number)
@@ -36,6 +36,12 @@ export class AcsEventCondDto {
   @Min(0)
   @IsOptional()
   minor?: number = 0;
+
+  @ApiPropertyOptional({ example: 'attendance', default: 'attendance' })
+  @IsString()
+  @MaxLength(50)
+  @IsOptional()
+  eventAttribute?: string = 'attendance';
 
   @ApiPropertyOptional({ example: '00000062' })
   @IsString()

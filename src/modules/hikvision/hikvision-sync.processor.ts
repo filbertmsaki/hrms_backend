@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import type { Job } from 'bullmq';
+import { HikvisionAttendanceSyncService } from './hikvision-attendance-sync.service';
 import { HikvisionPeopleCredentialSyncService } from './hikvision-people-credential-sync.service';
 import {
   HIKVISION_SYNC_QUEUE,
@@ -13,6 +14,7 @@ export class HikvisionSyncProcessor extends WorkerHost {
   private readonly logger = new Logger(HikvisionSyncProcessor.name);
 
   constructor(
+    private readonly attendanceSyncService: HikvisionAttendanceSyncService,
     private readonly peopleCredentialSyncService: HikvisionPeopleCredentialSyncService,
   ) {
     super();
@@ -22,6 +24,12 @@ export class HikvisionSyncProcessor extends WorkerHost {
     await job.updateProgress(5);
 
     switch (job.name as HikvisionSyncJobName) {
+      case HikvisionSyncJobName.SYNC_ATTENDANCE: {
+        const result = await this.attendanceSyncService.runQueuedAttendanceSync(job.data);
+        await job.updateProgress(100);
+        return result;
+      }
+
       case HikvisionSyncJobName.SYNC_USERS: {
         const result = await this.peopleCredentialSyncService.syncUsers(
           job.data.companyId,

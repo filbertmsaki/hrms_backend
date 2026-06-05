@@ -1,6 +1,5 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { IsDateString, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
+import { IsDateString, IsString, MaxLength } from 'class-validator';
 
 export class SyncAttendanceByEmployeeDto {
   @ApiProperty({ example: '00000062' })
@@ -15,11 +14,4 @@ export class SyncAttendanceByEmployeeDto {
   @ApiProperty({ example: '2026-05-29T23:59:59+03:00' })
   @IsDateString()
   endTime: string;
-
-  @ApiPropertyOptional({ example: 100, default: 100 })
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @IsOptional()
-  maxResults?: number = 100;
 }

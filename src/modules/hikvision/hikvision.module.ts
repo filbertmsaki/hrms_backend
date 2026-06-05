@@ -16,7 +16,10 @@ import { DeviceCommandLog } from './device-command-logs/entity/device-command-lo
 import { DeviceCommandLogService } from './device-command-logs/service/device-command-log.service';
 import { HikvisionAccessControlService } from './hikvision-access-control.service';
 import { HikvisionAttendanceController } from './hikvision-attendance.controller';
+import { HikvisionAttendanceSyncCronService } from './hikvision-attendance-sync-cron.service';
 import { HikvisionAttendanceSyncService } from './hikvision-attendance-sync.service';
+import { HikvisionAttendanceSyncJob } from './entities/hikvision-attendance-sync-job.entity';
+import { HikvisionClientService } from './hikvision-client.service';
 import { HikvisionDoorSyncService } from './hikvision-door.service';
 import { HikvisionPeopleCredentialSyncController } from './hikvision-people-credential-sync.controller';
 import { HikvisionPeopleCredentialSyncService } from './hikvision-people-credential-sync.service';
@@ -44,6 +47,7 @@ import { HikvisionSyncProcessor } from './hikvision-sync.processor';
       EmployeeDeviceRightPlan,
       DeviceCommandLog,
       HikvisionAttendanceLog,
+      HikvisionAttendanceSyncJob,
       HikvisionSyncLog,
     ]),
     BullModule.registerQueue({
@@ -55,7 +59,9 @@ import { HikvisionSyncProcessor } from './hikvision-sync.processor';
     HikvisionService,
     HikvisionDoorSyncService,
     HikvisionAccessControlService,
+    HikvisionClientService,
     HikvisionAttendanceSyncService,
+    HikvisionAttendanceSyncCronService,
     HikvisionPeopleCredentialSyncService,
     HikvisionUserManagementService,
     DeviceCommandLogService,
@@ -68,6 +74,7 @@ import { HikvisionSyncProcessor } from './hikvision-sync.processor';
     HikvisionService,
     HikvisionDoorSyncService,
     HikvisionAccessControlService,
+    HikvisionClientService,
     HikvisionAttendanceSyncService,
     HikvisionPeopleCredentialSyncService,
     HikvisionUserManagementService,

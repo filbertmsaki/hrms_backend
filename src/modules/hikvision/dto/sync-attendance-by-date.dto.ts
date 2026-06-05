@@ -1,6 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
+import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 
 export class SyncAttendanceByDateDto {
   @ApiProperty({ example: '2026-05-29' })
@@ -13,11 +12,4 @@ export class SyncAttendanceByDateDto {
   @MaxLength(100)
   @IsOptional()
   timezone?: string;
-
-  @ApiPropertyOptional({ example: 100, default: 100 })
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @IsOptional()
-  maxResults?: number = 100;
 }

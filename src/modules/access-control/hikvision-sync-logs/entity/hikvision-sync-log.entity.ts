@@ -19,6 +19,12 @@ import { HikvisionSyncLogTypeEnum } from '../enum/hikvision-sync-log-type.enum';
 @Index('IDX_hikvision_sync_logs_sync_type', ['syncType'])
 @Index('IDX_hikvision_sync_logs_status', ['status'])
 @Index('IDX_hikvision_sync_logs_started_at', ['startedAt'])
+@Index('IDX_hikvision_sync_logs_company_device_type_started', [
+  'companyId',
+  'deviceId',
+  'syncType',
+  'startedAt',
+])
 export class HikvisionSyncLog {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;

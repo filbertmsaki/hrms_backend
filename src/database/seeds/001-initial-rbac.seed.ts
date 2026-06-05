@@ -1820,9 +1820,9 @@ export default class InitialRbacSeeder implements Seeder {
       const companyUserRoleRepo = manager.getRepository(CompanyUserRole);
 
       const ownerConfig: SeedUserConfig = {
-        firstName: process.env.INITIAL_OWNER_FIRST_NAME ?? 'Filbert',
-        lastName: process.env.INITIAL_OWNER_LAST_NAME ?? 'Msaki',
-        email: process.env.INITIAL_OWNER_EMAIL ?? 'filbert@alliance.co.tz',
+        firstName: process.env.INITIAL_OWNER_FIRST_NAME ?? 'Alliance',
+        lastName: process.env.INITIAL_OWNER_LAST_NAME ?? 'Insurance',
+        email: process.env.INITIAL_OWNER_EMAIL ?? 'info@alliance.co.tz',
         phone: process.env.INITIAL_OWNER_PHONE ?? '+255700000001',
         password: process.env.INITIAL_OWNER_PASSWORD ?? 'Owner123!',
         userNo: process.env.INITIAL_OWNER_USER_NO ?? 'OWNER-00001',

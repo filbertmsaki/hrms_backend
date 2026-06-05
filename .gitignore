@@ -16,6 +16,7 @@ package-lock.json
 # OS
 .DS_Store
 /src/database/migrations/*
+!/src/database/migrations/1780384036113-AlignHikvisionAttendancePhaseOne.ts
 
 # Tests
 /coverage
