@@ -3,7 +3,6 @@ import { Seeder, SeederFactoryManager } from 'typeorm-extension';
 import { hashPassword } from '../../common/utils/hash.util';
 import { Company } from '../../modules/companies/entities/company.entity';
 import { CompanyUser } from '../../modules/companies/entities/company-user.entity';
-import { CompanyUserRole } from '../../modules/companies/entities/company-user-role.entity';
 import { Permission } from '../../modules/permissions/entities/permission.entity';
 import { Role } from '../../modules/roles/entities/role.entity';
 import { User } from '../../modules/users/entities/user.entity';
@@ -1817,7 +1816,6 @@ export default class InitialRbacSeeder implements Seeder {
       const userRepo = manager.getRepository(User);
       const companyRepo = manager.getRepository(Company);
       const companyUserRepo = manager.getRepository(CompanyUser);
-      const companyUserRoleRepo = manager.getRepository(CompanyUserRole);
 
       const ownerConfig: SeedUserConfig = {
         firstName: process.env.INITIAL_OWNER_FIRST_NAME ?? 'Alliance',
@@ -1831,26 +1829,6 @@ export default class InitialRbacSeeder implements Seeder {
 
       const companyName =
         process.env.DEFAULT_COMPANY_NAME ?? ALLIANCE_COMPANY_NAME;
-
-      const adminConfig: SeedUserConfig = {
-        firstName: process.env.INITIAL_COMPANY_ADMIN_FIRST_NAME ?? 'Inocent',
-        lastName: process.env.INITIAL_COMPANY_ADMIN_LAST_NAME ?? 'Nuruva',
-        email:
-          process.env.INITIAL_COMPANY_ADMIN_EMAIL ?? 'inocent@alliance.co.tz',
-        phone: process.env.INITIAL_COMPANY_ADMIN_PHONE ?? '+255700000002',
-        password: process.env.INITIAL_COMPANY_ADMIN_PASSWORD ?? 'Admin123!',
-        userNo: process.env.INITIAL_COMPANY_ADMIN_USER_NO ?? 'ADMIN-00001',
-        userType: 'COMPANY_USER',
-      };
-
-      if (
-        ownerConfig.email.toLowerCase() === adminConfig.email.toLowerCase() ||
-        ownerConfig.phone === adminConfig.phone
-      ) {
-        throw new Error(
-          'OWNER and company administrator must use different email addresses and phone numbers',
-        );
-      }
 
       const defaultCompany = await this.ensureCompany(companyRepo, companyName);
 
@@ -1867,12 +1845,6 @@ export default class InitialRbacSeeder implements Seeder {
       );
 
       const ownerRole = this.requireRole(rolesByScopeAndName, 'OWNER', null);
-      const adminRole = this.requireRole(
-        rolesByScopeAndName,
-        'ADMINISTRATOR',
-        defaultCompany.id,
-      );
-
       const ownerUser = await this.findUserByIdentity(
         userRepo,
         ownerConfig.email,
@@ -1888,36 +1860,11 @@ export default class InitialRbacSeeder implements Seeder {
 
       await companyUserRepo.delete({ user_id: savedOwner.id });
 
-      const adminUser = await this.findUserByIdentity(
-        userRepo,
-        adminConfig.email,
-        adminConfig.phone,
-      );
-
-      const savedAdmin = await this.ensureCompanyUser(
-        userRepo,
-        adminUser,
-        adminConfig,
-      );
-
-      const membership = await this.ensureCompanyMembership(
-        companyUserRepo,
-        defaultCompany.id,
-        savedAdmin.id,
-      );
-
-      await this.ensureMembershipRole(
-        companyUserRoleRepo,
-        membership.id,
-        adminRole.id,
-      );
-
       await queryRunner.commitTransaction();
 
       console.log('Multi-tenant seed completed successfully');
       console.log(`OWNER: ${savedOwner.email}`);
       console.log(`COMPANY: ${defaultCompany.name} (${defaultCompany.slug})`);
-      console.log(`ADMIN: ${savedAdmin.email}`);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       console.error('Seeding failed:', error);
@@ -2095,42 +2042,6 @@ export default class InitialRbacSeeder implements Seeder {
     return userRepo.save(user);
   }
 
-  private async ensureCompanyUser(
-    userRepo: Repository<User>,
-    existingUser: User | null,
-    config: SeedUserConfig,
-  ): Promise<User> {
-    if (existingUser?.user_type === 'OWNER') {
-      throw new Error(
-        `User ${config.email} is already marked as OWNER and cannot also be a company administrator`,
-      );
-    }
-
-    let user = existingUser;
-
-    if (!user) {
-      user = userRepo.create({
-        user_no: config.userNo,
-        first_name: config.firstName,
-        last_name: config.lastName,
-        phone: config.phone,
-        email: config.email,
-        password: await hashPassword(config.password),
-        status: 'active',
-        user_type: config.userType,
-        is_email_verified: true,
-      });
-    } else {
-      user.first_name = config.firstName;
-      user.last_name = config.lastName;
-      user.status = 'active';
-      user.user_type = 'COMPANY_USER';
-      user.is_email_verified = true;
-    }
-
-    return userRepo.save(user);
-  }
-
   private async ensureCompany(
     companyRepo: Repository<Company>,
     companyName: string,
@@ -2215,59 +2126,6 @@ export default class InitialRbacSeeder implements Seeder {
 
       suffix += 1;
     }
-  }
-
-  private async ensureCompanyMembership(
-    companyUserRepo: Repository<CompanyUser>,
-    companyId: number,
-    userId: number,
-  ): Promise<CompanyUser> {
-    await companyUserRepo.update({ user_id: userId }, { is_default: false });
-
-    let membership = await companyUserRepo.findOne({
-      where: {
-        company_id: companyId,
-        user_id: userId,
-      },
-    });
-
-    if (!membership) {
-      membership = companyUserRepo.create({
-        company_id: companyId,
-        user_id: userId,
-        status: 'active',
-        is_default: true,
-      });
-    } else {
-      membership.status = 'active';
-      membership.is_default = true;
-    }
-
-    return companyUserRepo.save(membership);
-  }
-
-  private async ensureMembershipRole(
-    companyUserRoleRepo: Repository<CompanyUserRole>,
-    companyUserId: number,
-    roleId: number,
-  ): Promise<CompanyUserRole> {
-    const existingAssignment = await companyUserRoleRepo.findOne({
-      where: {
-        company_user_id: companyUserId,
-        role_id: roleId,
-      },
-    });
-
-    if (existingAssignment) {
-      return existingAssignment;
-    }
-
-    return companyUserRoleRepo.save(
-      companyUserRoleRepo.create({
-        company_user_id: companyUserId,
-        role_id: roleId,
-      }),
-    );
   }
 
   private mergeRole(existingRoles: Role[] | undefined, role: Role): Role[] {
