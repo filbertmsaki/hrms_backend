@@ -19,6 +19,7 @@ export class HikvisionAttendanceSyncCronService {
 
   @Cron('*/10 * * * *')
   async syncAttendance(): Promise<void> {
+    const automaticRange = this.resolveAutomaticSyncRange();
     const devices = await this.deviceRepository
       .createQueryBuilder('device')
       .where('device.status = :status', { status: AttendanceDeviceStatusEnum.ACTIVE })
@@ -37,12 +38,18 @@ export class HikvisionAttendanceSyncCronService {
     }
 
     this.logger.log(`Starting automatic attendance sync for ${devices.length} Hikvision device(s)`);
+    if (automaticRange.startTime || automaticRange.endTime) {
+      this.logger.log(
+        `Automatic attendance sync range limit enabled: start=${automaticRange.startTime ?? 'auto'}, end=${automaticRange.endTime ?? 'auto'}`,
+      );
+    }
 
     for (const device of devices) {
       try {
         const result = await this.attendanceSyncService.syncLatestAttendanceWindow(
           device.companyId,
           device.id,
+          automaticRange,
         );
 
         if (result.status === 'SKIPPED') {
@@ -61,5 +68,25 @@ export class HikvisionAttendanceSyncCronService {
         );
       }
     }
+  }
+
+  private resolveAutomaticSyncRange(): { startTime?: string; endTime?: string } {
+    const startTime = this.readEnvValue('HIKVISION_AUTO_SYNC_START_TIME');
+    const endTime = this.readEnvValue('HIKVISION_AUTO_SYNC_END_TIME');
+
+    return {
+      startTime: startTime ?? undefined,
+      endTime: endTime ?? undefined,
+    };
+  }
+
+  private readEnvValue(name: string): string | null {
+    const value = process.env[name];
+    if (!value) {
+      return null;
+    }
+
+    const normalized = value.trim();
+    return normalized ? normalized : null;
   }
 }

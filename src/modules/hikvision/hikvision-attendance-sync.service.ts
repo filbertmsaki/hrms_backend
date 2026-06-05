@@ -108,6 +108,12 @@ type AttendanceSyncByConditionResult = {
   errorMessage: string | null;
 };
 
+type AutomaticAttendanceSyncWindowOptions = {
+  now?: Date;
+  startTime?: string;
+  endTime?: string;
+};
+
 @Injectable()
 export class HikvisionAttendanceSyncService {
   private readonly logger = new Logger(HikvisionAttendanceSyncService.name);
@@ -376,7 +382,7 @@ export class HikvisionAttendanceSyncService {
   async syncLatestAttendanceWindow(
     companyId: number,
     deviceId: number,
-    now = new Date(),
+    options: AutomaticAttendanceSyncWindowOptions = {},
   ): Promise<
     | {
         deviceId: number;
@@ -397,8 +403,12 @@ export class HikvisionAttendanceSyncService {
         status: AttendanceSyncStatus;
       }
   > {
+    const { now = new Date(), startTime, endTime } = options;
     const device = await this.findActiveHikvisionDeviceOrFail(companyId, deviceId);
-    const syncRange = this.buildAutomaticSyncRange(device, now);
+    const syncRange = this.buildAutomaticSyncRange(device, now, {
+      startTime,
+      endTime,
+    });
 
     if (!syncRange) {
       return {
@@ -1340,15 +1350,41 @@ export class HikvisionAttendanceSyncService {
   private buildAutomaticSyncRange(
     device: AttendanceDevice,
     now: Date,
+    options: Pick<AutomaticAttendanceSyncWindowOptions, 'startTime' | 'endTime'> = {},
   ): { startTime: string; endTime: string } | null {
     const selectedTimezone = device.timezone?.trim() || 'UTC';
     this.ensureValidTimeZone(selectedTimezone);
 
-    const endAt = new Date(now);
+    const rangeStartLimit = this.parseOptionalDateOrFail(
+      options.startTime,
+      'automatic attendance sync startTime',
+    );
+    const rangeEndLimit = this.parseOptionalDateOrFail(
+      options.endTime,
+      'automatic attendance sync endTime',
+    );
+
+    if (
+      rangeStartLimit
+      && rangeEndLimit
+      && rangeEndLimit.getTime() <= rangeStartLimit.getTime()
+    ) {
+      throw new BadRequestException(
+        'automatic attendance sync endTime must be greater than startTime',
+      );
+    }
+
+    const endAt = rangeEndLimit && rangeEndLimit.getTime() < now.getTime()
+      ? new Date(rangeEndLimit)
+      : new Date(now);
     const lastAttendanceSyncAt = this.extractAttendanceLastSyncAt(device);
-    const startAt =
+    let startAt =
       lastAttendanceSyncAt ??
       new Date(endAt.getTime() - this.automaticSyncLookbackMinutes * 60 * 1000);
+
+    if (rangeStartLimit && startAt.getTime() < rangeStartLimit.getTime()) {
+      startAt = new Date(rangeStartLimit);
+    }
 
     if (endAt.getTime() <= startAt.getTime()) {
       return null;
@@ -1576,6 +1612,14 @@ export class HikvisionAttendanceSyncService {
       throw new BadRequestException(`Invalid or missing ${fieldName} value`);
     }
     return parsed;
+  }
+
+  private parseOptionalDateOrFail(value: unknown, fieldName: string): Date | null {
+    if (value === null || value === undefined || String(value).trim() === '') {
+      return null;
+    }
+
+    return this.parseDateOrFail(value, fieldName);
   }
 
   private ensurePositiveInteger(value: unknown, fieldName: string): number {
