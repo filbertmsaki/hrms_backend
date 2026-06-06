@@ -35,6 +35,7 @@ export class AttendanceProcessingService {
     const counters = {
       rawLogsScanned: 0,
       processedInserted: 0,
+      processedUpdated: 0,
       processedSkipped: 0,
       processedFailed: 0,
       unmatchedEmployee: 0,
@@ -74,6 +75,7 @@ export class AttendanceProcessingService {
 
         const result = await this.processRawLog(companyId, row);
         counters.processedInserted += result.inserted;
+        counters.processedUpdated += result.updated;
         counters.processedSkipped += result.skipped;
         counters.processedFailed += result.failed;
         counters.unmatchedEmployee += result.unmatched;
@@ -108,13 +110,7 @@ export class AttendanceProcessingService {
   }
 
   private async processRawLog(companyId: number, rawLog: HikvisionAttendanceLog) {
-    const counters = { inserted: 0, skipped: 0, failed: 0, unmatched: 0 };
-
-    const exists = await this.processedEventRepository.findOne({ where: { rawLogId: rawLog.id } });
-    if (exists) {
-      counters.skipped += 1;
-      return counters;
-    }
+    const counters = { inserted: 0, updated: 0, skipped: 0, failed: 0, unmatched: 0 };
 
     try {
       const resolution = await this.employeeResolver.resolveEmployeeId(
@@ -125,6 +121,26 @@ export class AttendanceProcessingService {
 
       if (!resolution.employeeId) {
         counters.unmatched += 1;
+      }
+
+      const existing = await this.processedEventRepository.findOne({
+        where: { rawLogId: rawLog.id },
+      });
+
+      if (existing) {
+        const didUpdate = await this.applyProcessedEventChanges(
+          existing,
+          rawLog,
+          resolution,
+        );
+
+        if (didUpdate) {
+          counters.updated += 1;
+        } else {
+          counters.skipped += 1;
+        }
+
+        return counters;
       }
 
       await this.processedEventRepository.save(
@@ -157,6 +173,61 @@ export class AttendanceProcessingService {
     }
 
     return counters;
+  }
+
+  private async applyProcessedEventChanges(
+    existing: AttendanceProcessedEvent,
+    rawLog: HikvisionAttendanceLog,
+    resolution: { employeeId: number | null; reason: string },
+  ): Promise<boolean> {
+    const nextAttendanceDate = this.asDate(rawLog.eventTime);
+    const nextProcessingStatus = resolution.employeeId
+      ? 'PROCESSED'
+      : 'UNMATCHED_EMPLOYEE';
+    let changed = false;
+
+    const assign = <K extends keyof AttendanceProcessedEvent>(
+      key: K,
+      value: AttendanceProcessedEvent[K],
+    ) => {
+      const current = existing[key];
+      const isSameDate =
+        current instanceof Date &&
+        value instanceof Date &&
+        current.getTime() === value.getTime();
+
+      if (!isSameDate && current !== value) {
+        existing[key] = value;
+        changed = true;
+      }
+    };
+
+    assign('companyId', rawLog.companyId);
+    assign('branchId', rawLog.branchId);
+    assign('employeeId', resolution.employeeId);
+    assign('employeeNo', rawLog.employeeNo);
+    assign('deviceId', rawLog.deviceId);
+    assign('eventTime', rawLog.eventTime);
+    assign('attendanceDate', nextAttendanceDate);
+    assign('eventType', rawLog.eventType);
+    assign('verifyMode', rawLog.verifyMode);
+    assign('isValid', true);
+    assign('processingStatus', nextProcessingStatus);
+    assign('processingReason', resolution.reason);
+
+    const currentPayload = JSON.stringify(existing.rawPayloadSnapshot ?? null);
+    const nextPayload = JSON.stringify(rawLog.rawPayload ?? null);
+    if (currentPayload !== nextPayload) {
+      existing.rawPayloadSnapshot = rawLog.rawPayload;
+      changed = true;
+    }
+
+    if (!changed) {
+      return false;
+    }
+
+    await this.processedEventRepository.save(existing);
+    return true;
   }
 
   private normalizeDate(value: string, field: string): string {

@@ -10,6 +10,7 @@ import { TimetableShiftRule } from './entities/timetable-shift-rule.entity';
 import { CreateTimetableShiftRuleDto } from './dtos/create-timetable-shift-rule.dto';
 import { UpdateTimetableShiftRuleDto } from './dtos/update-timetable-shift-rule.dto';
 import { TimetableShiftRuleQueryDto } from './dtos/timetable-shift-rule-query.dto';
+import { TimetableGeneratedScheduleInvalidationService } from '../timetable-generated-schedules/timetable-generated-schedule-invalidation.service';
 
 @Injectable()
 export class TimetableShiftRulesService {
@@ -20,6 +21,7 @@ export class TimetableShiftRulesService {
     private readonly timetableDayRepository: Repository<TimetableDay>,
     @InjectRepository(Shift)
     private readonly shiftRepository: Repository<Shift>,
+    private readonly generatedScheduleInvalidationService: TimetableGeneratedScheduleInvalidationService,
   ) {}
 
   private async ensureTimetableDay(companyId: number, timetableDayId: number): Promise<void> {
@@ -61,7 +63,7 @@ export class TimetableShiftRulesService {
     });
     if (duplicate) throw new ConflictException('priority_order already exists for this timetable day');
 
-    return this.shiftRuleRepository.save(
+    const created = await this.shiftRuleRepository.save(
       this.shiftRuleRepository.create({
         timetableDayId: dto.timetable_day_id,
         shiftId: dto.shift_id,
@@ -70,6 +72,19 @@ export class TimetableShiftRulesService {
         maxEmployees: dto.max_employees ?? null,
       }),
     );
+
+    const day = await this.timetableDayRepository.findOne({
+      where: { id: created.timetableDayId },
+      select: ['timetableId'],
+    });
+    if (day) {
+      await this.generatedScheduleInvalidationService.invalidate({
+        companyId,
+        timetableId: day.timetableId,
+      });
+    }
+
+    return created;
   }
 
   async findAll(companyId: number, query: TimetableShiftRuleQueryDto) {
@@ -94,6 +109,10 @@ export class TimetableShiftRulesService {
 
   async update(companyId: number, id: number, dto: UpdateTimetableShiftRuleDto) {
     const item = await this.findOrFail(companyId, id);
+    const previousDay = await this.timetableDayRepository.findOne({
+      where: { id: item.timetableDayId },
+      select: ['timetableId'],
+    });
 
     const timetableDayId = dto.timetable_day_id ?? item.timetableDayId;
     const priorityOrder = dto.priority_order ?? item.priorityOrder;
@@ -109,12 +128,40 @@ export class TimetableShiftRulesService {
     if (dto.is_primary !== undefined) item.isPrimary = dto.is_primary;
     if (dto.max_employees !== undefined) item.maxEmployees = dto.max_employees;
 
-    return this.shiftRuleRepository.save(item);
+    const saved = await this.shiftRuleRepository.save(item);
+    const day = await this.timetableDayRepository.findOne({
+      where: { id: saved.timetableDayId },
+      select: ['timetableId'],
+    });
+    if (previousDay && previousDay.timetableId !== day?.timetableId) {
+      await this.generatedScheduleInvalidationService.invalidate({
+        companyId,
+        timetableId: previousDay.timetableId,
+      });
+    }
+    if (day) {
+      await this.generatedScheduleInvalidationService.invalidate({
+        companyId,
+        timetableId: day.timetableId,
+      });
+    }
+
+    return saved;
   }
 
   async remove(companyId: number, id: number): Promise<{ message: string }> {
     const item = await this.findOrFail(companyId, id);
+    const day = await this.timetableDayRepository.findOne({
+      where: { id: item.timetableDayId },
+      select: ['timetableId'],
+    });
     await this.shiftRuleRepository.remove(item);
+    if (day) {
+      await this.generatedScheduleInvalidationService.invalidate({
+        companyId,
+        timetableId: day.timetableId,
+      });
+    }
     return { message: 'Timetable shift rule deleted successfully' };
   }
 }

@@ -10,6 +10,7 @@ import { TimetableRotationRule } from './entities/timetable-rotation-rule.entity
 import { CreateTimetableRotationRuleDto } from './dtos/create-timetable-rotation-rule.dto';
 import { UpdateTimetableRotationRuleDto } from './dtos/update-timetable-rotation-rule.dto';
 import { TimetableRotationRuleQueryDto } from './dtos/timetable-rotation-rule-query.dto';
+import { TimetableGeneratedScheduleInvalidationService } from '../timetable-generated-schedules/timetable-generated-schedule-invalidation.service';
 
 @Injectable()
 export class TimetableRotationRulesService {
@@ -20,6 +21,7 @@ export class TimetableRotationRulesService {
     private readonly rotationRepository: Repository<TimetableRotation>,
     @InjectRepository(Shift)
     private readonly shiftRepository: Repository<Shift>,
+    private readonly generatedScheduleInvalidationService: TimetableGeneratedScheduleInvalidationService,
   ) {}
 
   private async ensureRotation(companyId: number, rotationId: number): Promise<void> {
@@ -60,12 +62,25 @@ export class TimetableRotationRulesService {
     const duplicate = await this.rotationRuleRepository.findOne({ where: { rotationId: dto.rotation_id, dayIndex: dto.day_index } });
     if (duplicate) throw new ConflictException('day_index already exists in this rotation');
 
-    return this.rotationRuleRepository.save(this.rotationRuleRepository.create({
+    const created = await this.rotationRuleRepository.save(this.rotationRuleRepository.create({
       rotationId: dto.rotation_id,
       dayIndex: dto.day_index,
       shiftId: dto.shift_id ?? null,
       isOffDay: dto.is_off_day ?? false,
     }));
+
+    const rotation = await this.rotationRepository.findOne({
+      where: { id: created.rotationId },
+      select: ['timetableId'],
+    });
+    if (rotation) {
+      await this.generatedScheduleInvalidationService.invalidate({
+        companyId,
+        timetableId: rotation.timetableId,
+      });
+    }
+
+    return created;
   }
 
   async findAll(companyId: number, query: TimetableRotationRuleQueryDto) {
@@ -89,6 +104,10 @@ export class TimetableRotationRulesService {
 
   async update(companyId: number, id: number, dto: UpdateTimetableRotationRuleDto) {
     const item = await this.findOrFail(companyId, id);
+    const previousRotation = await this.rotationRepository.findOne({
+      where: { id: item.rotationId },
+      select: ['timetableId'],
+    });
 
     const rotationId = dto.rotation_id ?? item.rotationId;
     const dayIndex = dto.day_index ?? item.dayIndex;
@@ -109,12 +128,40 @@ export class TimetableRotationRulesService {
     item.shiftId = shiftId;
     item.isOffDay = isOffDay;
 
-    return this.rotationRuleRepository.save(item);
+    const saved = await this.rotationRuleRepository.save(item);
+    const rotation = await this.rotationRepository.findOne({
+      where: { id: saved.rotationId },
+      select: ['timetableId'],
+    });
+    if (previousRotation && previousRotation.timetableId !== rotation?.timetableId) {
+      await this.generatedScheduleInvalidationService.invalidate({
+        companyId,
+        timetableId: previousRotation.timetableId,
+      });
+    }
+    if (rotation) {
+      await this.generatedScheduleInvalidationService.invalidate({
+        companyId,
+        timetableId: rotation.timetableId,
+      });
+    }
+
+    return saved;
   }
 
   async remove(companyId: number, id: number): Promise<{ message: string }> {
     const item = await this.findOrFail(companyId, id);
+    const rotation = await this.rotationRepository.findOne({
+      where: { id: item.rotationId },
+      select: ['timetableId'],
+    });
     await this.rotationRuleRepository.remove(item);
+    if (rotation) {
+      await this.generatedScheduleInvalidationService.invalidate({
+        companyId,
+        timetableId: rotation.timetableId,
+      });
+    }
     return { message: 'Timetable rotation rule deleted successfully' };
   }
 }

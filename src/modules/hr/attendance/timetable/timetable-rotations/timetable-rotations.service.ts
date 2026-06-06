@@ -8,6 +8,8 @@ import { TimetableRotation } from './entities/timetable-rotation.entity';
 import { CreateTimetableRotationDto } from './dtos/create-timetable-rotation.dto';
 import { UpdateTimetableRotationDto } from './dtos/update-timetable-rotation.dto';
 import { TimetableRotationQueryDto } from './dtos/timetable-rotation-query.dto';
+import { TimetableRotationStatusEnum } from './enums/timetable-rotation-status.enum';
+import { TimetableGeneratedScheduleInvalidationService } from '../timetable-generated-schedules/timetable-generated-schedule-invalidation.service';
 
 @Injectable()
 export class TimetableRotationsService {
@@ -16,7 +18,36 @@ export class TimetableRotationsService {
     private readonly rotationRepository: Repository<TimetableRotation>,
     @InjectRepository(Timetable)
     private readonly timetableRepository: Repository<Timetable>,
+    private readonly generatedScheduleInvalidationService: TimetableGeneratedScheduleInvalidationService,
   ) {}
+
+  private async ensureSingleActiveRotation(
+    timetableId: number,
+    status: TimetableRotationStatusEnum,
+    ignoreId?: number,
+  ): Promise<void> {
+    if (status !== TimetableRotationStatusEnum.ACTIVE) {
+      return;
+    }
+
+    const qb = this.rotationRepository
+      .createQueryBuilder('rotation')
+      .where('rotation.timetable_id = :timetableId', { timetableId })
+      .andWhere('rotation.status = :status', {
+        status: TimetableRotationStatusEnum.ACTIVE,
+      });
+
+    if (ignoreId) {
+      qb.andWhere('rotation.id != :ignoreId', { ignoreId });
+    }
+
+    const existing = await qb.select('rotation.id', 'id').getRawOne<{ id?: number }>();
+    if (existing?.id) {
+      throw new ConflictException(
+        'Only one active rotation is allowed for a timetable at a time',
+      );
+    }
+  }
 
   private async ensureTimetable(companyId: number, timetableId: number): Promise<void> {
     const item = await this.timetableRepository.findOne({ where: { id: timetableId, companyId }, select: ['id'] });
@@ -31,11 +62,15 @@ export class TimetableRotationsService {
 
   async create(companyId: number, dto: CreateTimetableRotationDto) {
     await this.ensureTimetable(companyId, dto.timetable_id);
+    await this.ensureSingleActiveRotation(
+      dto.timetable_id,
+      dto.status ?? TimetableRotationStatusEnum.ACTIVE,
+    );
 
     const duplicate = await this.rotationRepository.findOne({ where: { timetableId: dto.timetable_id, name: dto.name.trim() } });
     if (duplicate) throw new ConflictException('Rotation name already exists for this timetable');
 
-    return this.rotationRepository.save(this.rotationRepository.create({
+    const created = await this.rotationRepository.save(this.rotationRepository.create({
       companyId,
       timetableId: dto.timetable_id,
       name: dto.name.trim(),
@@ -43,6 +78,13 @@ export class TimetableRotationsService {
       description: dto.description?.trim() || null,
       status: dto.status,
     }));
+
+    await this.generatedScheduleInvalidationService.invalidate({
+      companyId,
+      timetableId: created.timetableId,
+    });
+
+    return created;
   }
 
   async findAll(companyId: number, query: TimetableRotationQueryDto) {
@@ -63,9 +105,15 @@ export class TimetableRotationsService {
 
   async update(companyId: number, id: number, dto: UpdateTimetableRotationDto) {
     const item = await this.findOrFail(companyId, id);
+    const previousTimetableId = item.timetableId;
 
     const timetableId = dto.timetable_id ?? item.timetableId;
     await this.ensureTimetable(companyId, timetableId);
+    await this.ensureSingleActiveRotation(
+      timetableId,
+      dto.status ?? item.status,
+      item.id,
+    );
 
     if (dto.name !== undefined) {
       const name = dto.name.trim();
@@ -79,12 +127,27 @@ export class TimetableRotationsService {
     if (dto.description !== undefined) item.description = dto.description?.trim() || null;
     if (dto.status !== undefined) item.status = dto.status;
 
-    return this.rotationRepository.save(item);
+    const saved = await this.rotationRepository.save(item);
+    if (previousTimetableId !== saved.timetableId) {
+      await this.generatedScheduleInvalidationService.invalidate({
+        companyId,
+        timetableId: previousTimetableId,
+      });
+    }
+    await this.generatedScheduleInvalidationService.invalidate({
+      companyId,
+      timetableId: saved.timetableId,
+    });
+    return saved;
   }
 
   async remove(companyId: number, id: number): Promise<{ message: string }> {
     const item = await this.findOrFail(companyId, id);
     await this.rotationRepository.remove(item);
+    await this.generatedScheduleInvalidationService.invalidate({
+      companyId,
+      timetableId: item.timetableId,
+    });
     return { message: 'Timetable rotation deleted successfully' };
   }
 }

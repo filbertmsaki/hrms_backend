@@ -6,6 +6,11 @@ import { buildPaginationMeta } from '../../shared/hr.utils';
 import { LeaveStatusEnum } from '../../leave/enums/leave-status.enum';
 import { LeaveRequest } from '../../leave/entities/leave-request.entity';
 import { Employee } from '../../employees/entities/employee.entity';
+import { ShiftAssignment } from '../shift/shift-assignments/entities/shift-assignment.entity';
+import { ShiftAssignmentStatusEnum } from '../shift/shift-assignments/enums/shift-assignment-status.enum';
+import { ShiftSchedule } from '../shift/shift-schedules/entities/shift-schedule.entity';
+import { EmployeeTimetable } from '../timetable/employee-timetables/entities/employee-timetable.entity';
+import { EmployeeTimetableStatusEnum } from '../timetable/employee-timetables/enums/employee-timetable-status.enum';
 import { AttendanceBusinessTrip } from './entities/attendance-business-trip.entity';
 import { AttendanceDailySummary } from './entities/attendance-daily-summary.entity';
 import { AttendanceProcessedEvent } from './entities/attendance-processed-event.entity';
@@ -28,6 +33,12 @@ export class AttendanceDailySummaryService {
     private readonly businessTripRepository: Repository<AttendanceBusinessTrip>,
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
+    @InjectRepository(EmployeeTimetable)
+    private readonly employeeTimetableRepository: Repository<EmployeeTimetable>,
+    @InjectRepository(ShiftAssignment)
+    private readonly shiftAssignmentRepository: Repository<ShiftAssignment>,
+    @InjectRepository(ShiftSchedule)
+    private readonly shiftScheduleRepository: Repository<ShiftSchedule>,
     private readonly scheduleResolver: AttendanceScheduleResolverService,
   ) {}
 
@@ -85,7 +96,7 @@ export class AttendanceDailySummaryService {
     attendanceDate: string,
   ): Promise<boolean> {
     const events = await this.processedEventRepository.find({
-      where: { companyId, employeeId, attendanceDate },
+      where: { companyId, employeeId, attendanceDate, isValid: true },
       order: { eventTime: 'ASC' },
     });
 
@@ -244,7 +255,7 @@ export class AttendanceDailySummaryService {
   ): Promise<number[]> {
     if (employeeId) return [employeeId];
 
-    const rows = await this.processedEventRepository
+    const eventRows = await this.processedEventRepository
       .createQueryBuilder('event')
       .select('DISTINCT event.employee_id', 'employeeId')
       .where('event.company_id = :companyId', { companyId })
@@ -253,9 +264,54 @@ export class AttendanceDailySummaryService {
       .andWhere('event.attendance_date <= :endDate', { endDate })
       .getRawMany<{ employeeId: string }>();
 
-    return rows
-      .map((row) => Number(row.employeeId))
-      .filter((value) => Number.isInteger(value) && value > 0);
+    const timetableRows = await this.employeeTimetableRepository
+      .createQueryBuilder('assignment')
+      .select('DISTINCT assignment.employee_id', 'employeeId')
+      .where('assignment.company_id = :companyId', { companyId })
+      .andWhere('assignment.status = :status', {
+        status: EmployeeTimetableStatusEnum.ACTIVE,
+      })
+      .andWhere('assignment.effective_from <= :endDate', { endDate })
+      .andWhere('(assignment.effective_to IS NULL OR assignment.effective_to >= :startDate)', {
+        startDate,
+      })
+      .getRawMany<{ employeeId: string }>();
+
+    const shiftAssignmentRows = await this.shiftAssignmentRepository
+      .createQueryBuilder('assignment')
+      .select('DISTINCT assignment.employee_id', 'employeeId')
+      .where('assignment.company_id = :companyId', { companyId })
+      .andWhere('assignment.status = :status', {
+        status: ShiftAssignmentStatusEnum.ACTIVE,
+      })
+      .andWhere('assignment.effective_from <= :endDate', { endDate })
+      .andWhere('(assignment.effective_to IS NULL OR assignment.effective_to >= :startDate)', {
+        startDate,
+      })
+      .getRawMany<{ employeeId: string }>();
+
+    const shiftScheduleRows = await this.shiftScheduleRepository
+      .createQueryBuilder('schedule')
+      .select('DISTINCT schedule.employee_id', 'employeeId')
+      .where('schedule.company_id = :companyId', { companyId })
+      .andWhere('schedule.schedule_date >= :startDate', { startDate })
+      .andWhere('schedule.schedule_date <= :endDate', { endDate })
+      .getRawMany<{ employeeId: string }>();
+
+    const employeeIds = new Set<number>();
+    for (const row of [
+      ...eventRows,
+      ...timetableRows,
+      ...shiftAssignmentRows,
+      ...shiftScheduleRows,
+    ]) {
+      const value = Number(row.employeeId);
+      if (Number.isInteger(value) && value > 0) {
+        employeeIds.add(value);
+      }
+    }
+
+    return [...employeeIds];
   }
 
   private async resolvePreferredTimezone(

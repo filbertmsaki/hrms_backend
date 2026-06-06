@@ -1,4 +1,4 @@
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, IsNull, Repository } from 'typeorm';
 import { Seeder, SeederFactoryManager } from 'typeorm-extension';
 import { hashPassword } from '../../common/utils/hash.util';
 import { Company } from '../../modules/companies/entities/company.entity';
@@ -31,6 +31,7 @@ import { Position } from '../../modules/hr/positions/entities/position.entity';
 import { Permission } from '../../modules/permissions/entities/permission.entity';
 import { Role } from '../../modules/roles/entities/role.entity';
 import { User } from '../../modules/users/entities/user.entity';
+import { EmployeeDeviceIdentity } from '../../modules/hr/attendance/processing/entities/employee-device-identity.entity';
 import {
   ALLIANCE_EMPLOYEE_DEFAULT_HIRE_DATE,
   ALLIANCE_EMPLOYEE_DEFAULT_PASSWORD,
@@ -101,6 +102,7 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       const employeeDepartmentRepo = manager.getRepository(EmployeeDepartment);
       const employeePositionRepo = manager.getRepository(EmployeePosition);
       const employeeDesignationRepo = manager.getRepository(EmployeeDesignation);
+      const employeeDeviceIdentityRepo = manager.getRepository(EmployeeDeviceIdentity);
 
       const company = await this.findExistingCompany(companyRepo);
       const branchMap = await this.syncBranches(branchRepo, company.id);
@@ -135,6 +137,7 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
         employeeDepartmentRepo,
         employeePositionRepo,
         employeeDesignationRepo,
+        employeeDeviceIdentityRepo,
         company.id,
         branchMap,
         departmentMap,
@@ -358,6 +361,7 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     employeeDepartmentRepo: Repository<EmployeeDepartment>,
     employeePositionRepo: Repository<EmployeePosition>,
     employeeDesignationRepo: Repository<EmployeeDesignation>,
+    employeeDeviceIdentityRepo: Repository<EmployeeDeviceIdentity>,
     companyId: number,
     branchMap: EntityMap<Branch>,
     departmentMap: EntityMap<Department>,
@@ -441,6 +445,10 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       employee.metadata = {
         seeded: true,
         fullProfileSeeded: true,
+        hikvision: {
+          employee_no: seed.hikvisionEmployeeNo,
+          source: 'alliance-company-structure-seed',
+        },
       };
 
       employee = await employeeRepo.save(employee);
@@ -495,6 +503,12 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
         companyId,
         employee.id,
         position.designation_id ?? null,
+      );
+      await this.ensureHikvisionIdentity(
+        employeeDeviceIdentityRepo,
+        companyId,
+        employee.id,
+        seed.hikvisionEmployeeNo,
       );
     }
 
@@ -1167,6 +1181,52 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     assignment.remarks = 'Seeded primary designation assignment';
 
     await employeeDesignationRepo.save(assignment);
+  }
+
+  private async ensureHikvisionIdentity(
+    employeeDeviceIdentityRepo: Repository<EmployeeDeviceIdentity>,
+    companyId: number,
+    employeeId: number,
+    hikvisionEmployeeNo: string,
+  ): Promise<void> {
+    const normalizedEmployeeNo = hikvisionEmployeeNo.trim();
+    if (!normalizedEmployeeNo) {
+      return;
+    }
+
+    let identity = await employeeDeviceIdentityRepo.findOne({
+      where: { companyId, employeeId, deviceId: IsNull() },
+    });
+
+    if (!identity) {
+      identity = await employeeDeviceIdentityRepo.findOne({
+        where: { companyId, employeeNo: normalizedEmployeeNo, deviceId: IsNull() },
+      });
+    }
+
+    if (!identity) {
+      identity = employeeDeviceIdentityRepo.create({
+        companyId,
+        employeeId,
+        employeeNo: normalizedEmployeeNo,
+        deviceId: null,
+        isActive: true,
+      });
+    } else {
+      identity.companyId = companyId;
+      identity.employeeId = employeeId;
+      identity.employeeNo = normalizedEmployeeNo;
+      identity.deviceId = null;
+      identity.isActive = true;
+    }
+
+    identity.metadata = {
+      ...(identity.metadata ?? {}),
+      seeded: true,
+      source: 'alliance-company-structure-seed',
+    };
+
+    await employeeDeviceIdentityRepo.save(identity);
   }
 
   private getRequiredBranch(

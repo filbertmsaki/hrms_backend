@@ -10,6 +10,7 @@ import { CreateEmployeeTimetableDto } from './dtos/create-employee-timetable.dto
 import { UpdateEmployeeTimetableDto } from './dtos/update-employee-timetable.dto';
 import { EmployeeTimetableQueryDto } from './dtos/employee-timetable-query.dto';
 import { EmployeeTimetableStatusEnum } from './enums/employee-timetable-status.enum';
+import { TimetableGeneratedScheduleInvalidationService } from '../timetable-generated-schedules/timetable-generated-schedule-invalidation.service';
 
 @Injectable()
 export class EmployeeTimetablesService {
@@ -20,7 +21,62 @@ export class EmployeeTimetablesService {
     private readonly timetableRepository: Repository<Timetable>,
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
+    private readonly generatedScheduleInvalidationService: TimetableGeneratedScheduleInvalidationService,
   ) {}
+
+  private compareDates(a: string, b: string): number {
+    return a.localeCompare(b);
+  }
+
+  private minDate(...values: Array<string | null | undefined>): string | null {
+    const filtered = values.filter((value): value is string => Boolean(value));
+    if (!filtered.length) {
+      return null;
+    }
+
+    return filtered.reduce((min, current) => (
+      this.compareDates(current, min) < 0 ? current : min
+    ));
+  }
+
+  private maxDate(...values: Array<string | null | undefined>): string | null {
+    const filtered = values.filter((value): value is string => Boolean(value));
+    if (!filtered.length) {
+      return null;
+    }
+
+    return filtered.reduce((max, current) => (
+      this.compareDates(current, max) > 0 ? current : max
+    ));
+  }
+
+  private async invalidateGeneratedSchedulesForAssignmentChange(
+    companyId: number,
+    employeeId: number,
+    previousRange: { effectiveFrom: string; effectiveTo: string | null } | null,
+    nextRange: { effectiveFrom: string; effectiveTo: string | null } | null,
+  ): Promise<void> {
+    const fromDate = this.minDate(
+      previousRange?.effectiveFrom,
+      nextRange?.effectiveFrom,
+    );
+    const hasOpenEndedRange =
+      previousRange?.effectiveTo === null || nextRange?.effectiveTo === null;
+    const toDate = hasOpenEndedRange
+      ? null
+      : this.maxDate(previousRange?.effectiveTo, nextRange?.effectiveTo);
+
+    if (!fromDate) {
+      return;
+    }
+
+    await this.generatedScheduleInvalidationService.invalidate({
+      companyId,
+      employeeId,
+      fromDate,
+      toDate,
+    });
+  }
 
   private async ensureTimetable(companyId: number, timetableId: number): Promise<void> {
     const item = await this.timetableRepository.findOne({ where: { id: timetableId, companyId }, select: ['id'] });
@@ -105,7 +161,7 @@ export class EmployeeTimetablesService {
     });
     if (duplicate) throw new ConflictException('Employee timetable assignment already exists for effective_from');
 
-    return this.employeeTimetableRepository.save(this.employeeTimetableRepository.create({
+    const created = await this.employeeTimetableRepository.save(this.employeeTimetableRepository.create({
       companyId,
       employeeId: dto.employee_id,
       timetableId: dto.timetable_id,
@@ -114,6 +170,18 @@ export class EmployeeTimetablesService {
       status: dto.status,
       assignedBy: dto.assigned_by ?? null,
     }));
+
+    await this.invalidateGeneratedSchedulesForAssignmentChange(
+      companyId,
+      created.employeeId,
+      null,
+      {
+        effectiveFrom: created.effectiveFrom,
+        effectiveTo: created.effectiveTo,
+      },
+    );
+
+    return created;
   }
 
   async findAll(companyId: number, query: EmployeeTimetableQueryDto) {
@@ -135,6 +203,11 @@ export class EmployeeTimetablesService {
 
   async update(companyId: number, id: number, dto: UpdateEmployeeTimetableDto) {
     const item = await this.findOrFail(companyId, id);
+    const previousRange = {
+      effectiveFrom: item.effectiveFrom,
+      effectiveTo: item.effectiveTo,
+    };
+    const previousEmployeeId = item.employeeId;
 
     const employeeId = dto.employee_id ?? item.employeeId;
     const timetableId = dto.timetable_id ?? item.timetableId;
@@ -163,12 +236,47 @@ export class EmployeeTimetablesService {
     if (dto.status !== undefined) item.status = dto.status;
     if (dto.assigned_by !== undefined) item.assignedBy = dto.assigned_by;
 
-    return this.employeeTimetableRepository.save(item);
+    const saved = await this.employeeTimetableRepository.save(item);
+
+    await this.invalidateGeneratedSchedulesForAssignmentChange(
+      companyId,
+      previousEmployeeId,
+      previousRange,
+      previousEmployeeId === saved.employeeId
+        ? {
+            effectiveFrom: saved.effectiveFrom,
+            effectiveTo: saved.effectiveTo,
+          }
+        : null,
+    );
+
+    if (saved.employeeId !== previousEmployeeId) {
+      await this.invalidateGeneratedSchedulesForAssignmentChange(
+        companyId,
+        saved.employeeId,
+        null,
+        {
+          effectiveFrom: saved.effectiveFrom,
+          effectiveTo: saved.effectiveTo,
+        },
+      );
+    }
+
+    return saved;
   }
 
   async remove(companyId: number, id: number): Promise<{ message: string }> {
     const item = await this.findOrFail(companyId, id);
     await this.employeeTimetableRepository.remove(item);
+    await this.invalidateGeneratedSchedulesForAssignmentChange(
+      companyId,
+      item.employeeId,
+      {
+        effectiveFrom: item.effectiveFrom,
+        effectiveTo: item.effectiveTo,
+      },
+      null,
+    );
     return { message: 'Employee timetable deleted successfully' };
   }
 }

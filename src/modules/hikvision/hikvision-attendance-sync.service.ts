@@ -1136,8 +1136,15 @@ export class HikvisionAttendanceSyncService {
 
   private parseAcsEventPage(parsedPayload: Record<string, unknown> | string): ParsedAcsEventPage {
     const payload = this.toObject(parsedPayload);
-    const root = this.toObject(payload.AcsEvent ?? payload);
-    const rawInfoList = root.InfoList ?? root.infoList ?? [];
+    const root = this.toObject(
+      payload.AcsEventSearchResult ?? payload.AcsEvent ?? payload,
+    );
+    const rawInfoList =
+      root.InfoList ??
+      root.infoList ??
+      root.MatchList ??
+      root.matchList ??
+      [];
     const infoList = this.toObjectArray(rawInfoList);
 
     return {

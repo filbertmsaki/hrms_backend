@@ -8,6 +8,7 @@ import { TimetableAttendanceRule } from './entities/timetable-attendance-rule.en
 import { CreateTimetableAttendanceRuleDto } from './dtos/create-timetable-attendance-rule.dto';
 import { UpdateTimetableAttendanceRuleDto } from './dtos/update-timetable-attendance-rule.dto';
 import { TimetableAttendanceRuleQueryDto } from './dtos/timetable-attendance-rule-query.dto';
+import { TimetableGeneratedScheduleInvalidationService } from '../timetable-generated-schedules/timetable-generated-schedule-invalidation.service';
 
 @Injectable()
 export class TimetableAttendanceRulesService {
@@ -16,6 +17,7 @@ export class TimetableAttendanceRulesService {
     private readonly attendanceRuleRepository: Repository<TimetableAttendanceRule>,
     @InjectRepository(Timetable)
     private readonly timetableRepository: Repository<Timetable>,
+    private readonly generatedScheduleInvalidationService: TimetableGeneratedScheduleInvalidationService,
   ) {}
 
   private async ensureTimetable(companyId: number, timetableId: number): Promise<void> {
@@ -41,7 +43,7 @@ export class TimetableAttendanceRulesService {
     const duplicate = await this.attendanceRuleRepository.findOne({ where: { timetableId: dto.timetable_id } });
     if (duplicate) throw new ConflictException('Attendance rule already exists for this timetable');
 
-    return this.attendanceRuleRepository.save(this.attendanceRuleRepository.create({
+    const created = await this.attendanceRuleRepository.save(this.attendanceRuleRepository.create({
       timetableId: dto.timetable_id,
       lateAfterMinutes: dto.late_after_minutes,
       halfDayAfterMinutes: dto.half_day_after_minutes,
@@ -51,6 +53,13 @@ export class TimetableAttendanceRulesService {
       autoAbsentIfNoCheckin: dto.auto_absent_if_no_checkin ?? true,
       maxOvertimeMinutes: dto.max_overtime_minutes,
     }));
+
+    await this.generatedScheduleInvalidationService.invalidate({
+      companyId,
+      timetableId: created.timetableId,
+    });
+
+    return created;
   }
 
   async findAll(companyId: number, query: TimetableAttendanceRuleQueryDto) {
@@ -74,6 +83,7 @@ export class TimetableAttendanceRulesService {
 
   async update(companyId: number, id: number, dto: UpdateTimetableAttendanceRuleDto) {
     const item = await this.findOrFail(companyId, id);
+    const previousTimetableId = item.timetableId;
 
     const timetableId = dto.timetable_id ?? item.timetableId;
     await this.ensureTimetable(companyId, timetableId);
@@ -90,12 +100,27 @@ export class TimetableAttendanceRulesService {
     if (dto.auto_absent_if_no_checkin !== undefined) item.autoAbsentIfNoCheckin = dto.auto_absent_if_no_checkin;
     if (dto.max_overtime_minutes !== undefined) item.maxOvertimeMinutes = dto.max_overtime_minutes;
 
-    return this.attendanceRuleRepository.save(item);
+    const saved = await this.attendanceRuleRepository.save(item);
+    if (previousTimetableId !== saved.timetableId) {
+      await this.generatedScheduleInvalidationService.invalidate({
+        companyId,
+        timetableId: previousTimetableId,
+      });
+    }
+    await this.generatedScheduleInvalidationService.invalidate({
+      companyId,
+      timetableId: saved.timetableId,
+    });
+    return saved;
   }
 
   async remove(companyId: number, id: number): Promise<{ message: string }> {
     const item = await this.findOrFail(companyId, id);
     await this.attendanceRuleRepository.remove(item);
+    await this.generatedScheduleInvalidationService.invalidate({
+      companyId,
+      timetableId: item.timetableId,
+    });
     return { message: 'Timetable attendance rule deleted successfully' };
   }
 }

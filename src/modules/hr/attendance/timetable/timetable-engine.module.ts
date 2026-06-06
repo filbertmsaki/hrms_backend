@@ -32,6 +32,7 @@ import { TimetableAttendanceRulesController } from './timetable-attendance-rules
 import { TimetableAttendanceRulesService } from './timetable-attendance-rules/timetable-attendance-rules.service';
 import { TimetableGeneratedSchedulesController } from './timetable-generated-schedules/timetable-generated-schedules.controller';
 import { TimetableGeneratedSchedulesService } from './timetable-generated-schedules/timetable-generated-schedules.service';
+import { TimetableGeneratedScheduleInvalidationService } from './timetable-generated-schedules/timetable-generated-schedule-invalidation.service';
 
 @Module({
   imports: [
@@ -73,7 +74,12 @@ import { TimetableGeneratedSchedulesService } from './timetable-generated-schedu
     TimetableHolidayRulesService,
     TimetableAttendanceRulesService,
     TimetableGeneratedSchedulesService,
+    TimetableGeneratedScheduleInvalidationService,
   ],
-  exports: [TypeOrmModule, TimetablesService],
+  exports: [
+    TypeOrmModule,
+    TimetablesService,
+    TimetableGeneratedScheduleInvalidationService,
+  ],
 })
 export class TimetableEngineModule {}

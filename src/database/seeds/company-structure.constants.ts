@@ -24,6 +24,7 @@ export interface CompanyPositionSeed {
 
 export interface CompanyEmployeeSeed {
   employeeNo: string;
+  hikvisionEmployeeNo: string;
   firstName: string;
   lastName: string;
   email: string;
@@ -35,6 +36,14 @@ export interface CompanyEmployeeSeed {
   roleNames?: string[];
   permissionNames?: string[];
 }
+
+type AllianceHikvisionEmployeeInput = {
+  hikvisionEmployeeNo: string;
+  fullName: string;
+  email?: string;
+  roleNames?: string[];
+  permissionNames?: string[];
+};
 
 export const ALLIANCE_COMPANY_NAME = 'Alliance Insurance Corporation Ltd';
 export const ALLIANCE_COMPANY_SLUG = 'alliance-insurance';
@@ -400,77 +409,114 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
   },
 ];
 
-export const ALLIANCE_EMPLOYEES: CompanyEmployeeSeed[] = [
-  {
-    employeeNo: 'AICL-0001',
-    firstName: 'Ravi',
-    lastName: 'Kumar',
-    email: 'ravi.kumar@alliance.co.tz',
-    phone: '+255700000010',
-    positionCode: 'IT_CONSULTANT',
-    primaryBranchCode: 'HQ',
-    primaryDepartmentCode: 'IT',
-    reportsToEmployeeNo: null,
-    roleNames: ['USER'],
-  },
-  {
-    employeeNo: 'AICL-0002',
-    firstName: 'Jasson',
-    lastName: 'Kalemera',
-    email: 'jasson.kalemera@alliance.co.tz',
-    phone: '+255700000020',
-    positionCode: 'IT_MANAGER',
-    primaryBranchCode: 'HQ',
-    primaryDepartmentCode: 'IT',
-    reportsToEmployeeNo: 'AICL-0001',
-    roleNames: ['USER'],
-  },
-  {
-    employeeNo: 'AICL-0003',
-    firstName: 'Filbert',
-    lastName: 'Msaki',
-    email: 'filbert@alliance.co.tz',
-    phone: '+255700000030',
-    positionCode: 'ASSISTANT_IT_MANAGER',
-    primaryBranchCode: 'HQ',
-    primaryDepartmentCode: 'IT',
-    reportsToEmployeeNo: 'AICL-0002',
-    roleNames: ['ADMINISTRATOR'],
-  },
-  {
-    employeeNo: 'AICL-0004',
-    firstName: 'Bossco',
-    lastName: 'Odillo',
-    email: 'bossco.odillo@alliance.co.tz',
-    phone: '+255700000040',
-    positionCode: 'IT_OFFICER',
-    primaryBranchCode: 'HQ',
-    primaryDepartmentCode: 'IT',
-    reportsToEmployeeNo: 'AICL-0002',
-    roleNames: ['USER'],
-  },
-  {
-    employeeNo: 'AICL-0005',
-    firstName: 'Inocent',
-    lastName: 'Nuruva',
-    email: 'inocent@alliance.co.tz',
-    phone: '+255700000050',
-    positionCode: 'IT_OFFICER',
-    primaryBranchCode: 'HQ',
-    primaryDepartmentCode: 'IT',
-    reportsToEmployeeNo: 'AICL-0002',
-    roleNames: ['ADMINISTRATOR'],
-  },
-  {
-    employeeNo: 'AICL-0006',
-    firstName: 'Msifwaki',
-    lastName: 'Vicky',
-    email: 'msifwaki.vicky@alliance.co.tz',
-    phone: '+255700000060',
-    positionCode: 'HR_MANAGER',
-    primaryBranchCode: 'HQ',
-    primaryDepartmentCode: 'HR',
-    reportsToEmployeeNo: null,
-    roleNames: ['USER'],
-  },
+const ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO = '00000003';
+
+const ALLIANCE_HIKVISION_EMPLOYEES: AllianceHikvisionEmployeeInput[] = [
+  { hikvisionEmployeeNo: '00000001', fullName: 'Filbert Msaki', email: 'filbert@alliance.co.tz', roleNames: ['ADMINISTRATOR'] },
+  { hikvisionEmployeeNo: '00000003', fullName: 'Agatha Godfrey Kiiza' },
+  { hikvisionEmployeeNo: '00000004', fullName: 'Amina Gerard Manongi' },
+  { hikvisionEmployeeNo: '00000005', fullName: 'Antoni Jordan Kambona' },
+  { hikvisionEmployeeNo: '00000006', fullName: 'Asma Wahid Juma' },
+  { hikvisionEmployeeNo: '00000007', fullName: 'Atuganile Asumile Mbapa' },
+  { hikvisionEmployeeNo: '00000008', fullName: 'Augustino Filemon Kimashi' },
+  { hikvisionEmployeeNo: '00000009', fullName: 'Avril Virginia Fernandes' },
+  { hikvisionEmployeeNo: '00000010', fullName: 'Neema Justine' },
+  { hikvisionEmployeeNo: '00000011', fullName: 'Barbara Thompson' },
+  { hikvisionEmployeeNo: '00000012', fullName: 'Bosco Odilo Semiono', email: 'bossco.odillo@alliance.co.tz', roleNames: ['USER'] },
+  { hikvisionEmployeeNo: '00000013', fullName: 'Brenda Raymond Mushi' },
+  { hikvisionEmployeeNo: '00000014', fullName: 'Catherine Jackeline Aliwa' },
+  { hikvisionEmployeeNo: '00000015', fullName: 'Dayness Jabir Mohamed' },
+  { hikvisionEmployeeNo: '00000016', fullName: 'Deborah Londina Sarakikya' },
+  { hikvisionEmployeeNo: '00000017', fullName: 'Deepa Manek' },
+  { hikvisionEmployeeNo: '00000018', fullName: 'Destera Joshua Mlole' },
+  { hikvisionEmployeeNo: '00000019', fullName: 'Dora Rhite Gadi' },
+  { hikvisionEmployeeNo: '00000020', fullName: 'Elisa Ernest Tineishemo' },
+  { hikvisionEmployeeNo: '00000021', fullName: 'Samira Masoud' },
+  { hikvisionEmployeeNo: '00000022', fullName: 'Emmaculate Thadeus Minja' },
+  { hikvisionEmployeeNo: '00000023', fullName: 'Emmy Eliezer Malekela' },
+  { hikvisionEmployeeNo: '00000024', fullName: 'Erick Idrissa Mkwizu' },
+  { hikvisionEmployeeNo: '00000025', fullName: 'Ester Vicent Kimario' },
+  { hikvisionEmployeeNo: '00000026', fullName: 'Eugenia Atugonza Ndaro' },
+  { hikvisionEmployeeNo: '00000027', fullName: 'Ezekiel Elia Kajiba' },
+  { hikvisionEmployeeNo: '00000028', fullName: 'Gabriel Maya Kasunga' },
+  { hikvisionEmployeeNo: '00000029', fullName: 'George Brown Sawala' },
+  { hikvisionEmployeeNo: '00000030', fullName: 'Glory Gasper Uisso' },
+  { hikvisionEmployeeNo: '00000031', fullName: 'Gwamaka Leonald Stambuli' },
+  { hikvisionEmployeeNo: '00000032', fullName: 'Hassan Ally Hassan' },
+  { hikvisionEmployeeNo: '00000033', fullName: 'Hawa Revocatus Nkorangowe' },
+  { hikvisionEmployeeNo: '00000034', fullName: 'Henry Erasmo Mgalike' },
+  { hikvisionEmployeeNo: '00000035', fullName: 'Baraka' },
+  { hikvisionEmployeeNo: '00000036', fullName: 'Ibrahim Rashid Mungi' },
+  { hikvisionEmployeeNo: '00000037', fullName: 'Ismail Mohamed Ramadhan' },
+  { hikvisionEmployeeNo: '00000040', fullName: 'Jasson Kalemera', email: 'jasson.kalemera@alliance.co.tz', roleNames: ['USER'] },
+  { hikvisionEmployeeNo: '00000059', fullName: 'Vicky Msifwaki', email: 'msifwaki.vicky@alliance.co.tz', roleNames: ['USER'] },
+  { hikvisionEmployeeNo: '00000094', fullName: 'Inocent Nuruva', email: 'inocent@alliance.co.tz', roleNames: ['ADMINISTRATOR'] },
+  { hikvisionEmployeeNo: '00000108', fullName: 'Ravi Kumar', email: 'ravi.kumar@alliance.co.tz', roleNames: ['USER'] },
 ];
+
+export const ALLIANCE_EMPLOYEES: CompanyEmployeeSeed[] = ALLIANCE_HIKVISION_EMPLOYEES.map(
+  (seed) => {
+    const { firstName, lastName } = splitAllianceEmployeeName(seed.fullName);
+    const employeeNo = seed.hikvisionEmployeeNo;
+
+    return {
+      employeeNo,
+      hikvisionEmployeeNo: seed.hikvisionEmployeeNo,
+      firstName,
+      lastName,
+      email: seed.email ?? buildAllianceEmployeeEmail(firstName, lastName),
+      phone: buildAllianceEmployeePhone(seed.hikvisionEmployeeNo),
+      positionCode:
+        seed.hikvisionEmployeeNo === ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO
+          ? 'CLAIMS_MANAGER'
+          : 'CLAIMS_OFFICER',
+      primaryBranchCode: 'HQ',
+      primaryDepartmentCode: 'CLAIMS',
+      reportsToEmployeeNo:
+        seed.hikvisionEmployeeNo === ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO
+          ? null
+          : ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+      roleNames: seed.roleNames ?? ['USER'],
+      permissionNames: seed.permissionNames,
+    };
+  },
+);
+
+function splitAllianceEmployeeName(fullName: string): { firstName: string; lastName: string } {
+  const parts = fullName
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (parts.length <= 1) {
+    return {
+      firstName: parts[0] ?? 'Employee',
+      lastName: 'Alliance',
+    };
+  }
+
+  return {
+    firstName: parts[0],
+    lastName: parts.slice(1).join(' '),
+  };
+}
+
+function buildAllianceEmployeeEmail(firstName: string, lastName: string): string {
+  const first = slugifyAllianceSeedValue(firstName);
+  const last = slugifyAllianceSeedValue(lastName).replace(/-/g, '.');
+
+  if (!last) {
+    return `${first}@alliance.co.tz`;
+  }
+
+  return `${first}.${last}@alliance.co.tz`;
+}
+
+function buildAllianceEmployeePhone(hikvisionEmployeeNo: string): string {
+  const digits = hikvisionEmployeeNo.replace(/\D/g, '').padStart(8, '0');
+  return `+25571${digits.slice(-7)}`;
+}
+
+function slugifyAllianceSeedValue(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}

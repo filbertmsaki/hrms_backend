@@ -8,6 +8,7 @@ import { Timetable } from './entities/timetable.entity';
 import { CreateTimetableDto } from './dtos/create-timetable.dto';
 import { UpdateTimetableDto } from './dtos/update-timetable.dto';
 import { TimetableQueryDto } from './dtos/timetable-query.dto';
+import { TimetableGeneratedScheduleInvalidationService } from '../timetable-generated-schedules/timetable-generated-schedule-invalidation.service';
 
 @Injectable()
 export class TimetablesService {
@@ -16,6 +17,7 @@ export class TimetablesService {
     private readonly timetableRepository: Repository<Timetable>,
     @InjectRepository(Branch)
     private readonly branchRepository: Repository<Branch>,
+    private readonly generatedScheduleInvalidationService: TimetableGeneratedScheduleInvalidationService,
   ) {}
 
   private async ensureBranch(companyId: number, branchId?: number | null): Promise<void> {
@@ -143,12 +145,20 @@ export class TimetablesService {
 
     const saved = await this.timetableRepository.save(item);
     await this.setDefaultTimetable(companyId, saved.id, saved.isDefault);
+    await this.generatedScheduleInvalidationService.invalidate({
+      companyId,
+      timetableId: saved.id,
+    });
     return this.findOrFail(companyId, saved.id);
   }
 
   async remove(companyId: number, id: number): Promise<{ message: string }> {
     const item = await this.findOrFail(companyId, id);
     await this.timetableRepository.softRemove(item);
+    await this.generatedScheduleInvalidationService.invalidate({
+      companyId,
+      timetableId: item.id,
+    });
     return { message: 'Timetable deleted successfully' };
   }
 }

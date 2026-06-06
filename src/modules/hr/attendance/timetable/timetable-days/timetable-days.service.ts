@@ -9,6 +9,7 @@ import { TimetableDay } from './entities/timetable-day.entity';
 import { CreateTimetableDayDto } from './dtos/create-timetable-day.dto';
 import { UpdateTimetableDayDto } from './dtos/update-timetable-day.dto';
 import { TimetableDayQueryDto } from './dtos/timetable-day-query.dto';
+import { TimetableGeneratedScheduleInvalidationService } from '../timetable-generated-schedules/timetable-generated-schedule-invalidation.service';
 
 @Injectable()
 export class TimetableDaysService {
@@ -19,6 +20,7 @@ export class TimetableDaysService {
     private readonly timetableRepository: Repository<Timetable>,
     @InjectRepository(Shift)
     private readonly shiftRepository: Repository<Shift>,
+    private readonly generatedScheduleInvalidationService: TimetableGeneratedScheduleInvalidationService,
   ) {}
 
   private async ensureTimetable(companyId: number, timetableId: number): Promise<void> {
@@ -56,7 +58,7 @@ export class TimetableDaysService {
     });
     if (duplicate) throw new ConflictException('Day configuration already exists for this day_of_week');
 
-    return this.timetableDayRepository.save(
+    const created = await this.timetableDayRepository.save(
       this.timetableDayRepository.create({
         timetableId: dto.timetable_id,
         dayOfWeek: dto.day_of_week,
@@ -73,6 +75,13 @@ export class TimetableDaysService {
         breakMinutes: dto.break_minutes ?? 0,
       }),
     );
+
+    await this.generatedScheduleInvalidationService.invalidate({
+      companyId,
+      timetableId: created.timetableId,
+    });
+
+    return created;
   }
 
   async findAll(companyId: number, query: TimetableDayQueryDto) {
@@ -104,6 +113,7 @@ export class TimetableDaysService {
 
   async update(companyId: number, id: number, dto: UpdateTimetableDayDto) {
     const item = await this.findOrFail(companyId, id);
+    const previousTimetableId = item.timetableId;
 
     const timetableId = dto.timetable_id ?? item.timetableId;
     const dayOfWeek = dto.day_of_week ?? item.dayOfWeek;
@@ -131,12 +141,27 @@ export class TimetableDaysService {
     if (dto.break_required !== undefined) item.breakRequired = dto.break_required;
     if (dto.break_minutes !== undefined) item.breakMinutes = dto.break_minutes;
 
-    return this.timetableDayRepository.save(item);
+    const saved = await this.timetableDayRepository.save(item);
+    if (previousTimetableId !== saved.timetableId) {
+      await this.generatedScheduleInvalidationService.invalidate({
+        companyId,
+        timetableId: previousTimetableId,
+      });
+    }
+    await this.generatedScheduleInvalidationService.invalidate({
+      companyId,
+      timetableId: saved.timetableId,
+    });
+    return saved;
   }
 
   async remove(companyId: number, id: number): Promise<{ message: string }> {
     const item = await this.findOrFail(companyId, id);
     await this.timetableDayRepository.remove(item);
+    await this.generatedScheduleInvalidationService.invalidate({
+      companyId,
+      timetableId: item.timetableId,
+    });
     return { message: 'Timetable day deleted successfully' };
   }
 }
