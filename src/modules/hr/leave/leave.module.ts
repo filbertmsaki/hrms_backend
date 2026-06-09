@@ -9,6 +9,7 @@ import { Employee } from '../employees/entities/employee.entity';
 import { EmployeePosition } from '../employees/entities/employee-position.entity';
 import { Position } from '../positions/entities/position.entity';
 import { HrSharedModule } from '../shared/hr-shared.module';
+import { AttendanceRecalculationJob } from '../attendance/processing/entities/attendance-recalculation-job.entity';
 import { LeaveController } from './leave.controller';
 import { LeaveService } from './leave.service';
 import { Holiday } from './entities/holiday.entity';
@@ -51,6 +52,7 @@ import { LeaveWorkflowService } from './services/leave-workflow.service';
       CompanyUser,
       CompanyUserRole,
       Role,
+      AttendanceRecalculationJob,
     ]),
     HrSharedModule,
   ],

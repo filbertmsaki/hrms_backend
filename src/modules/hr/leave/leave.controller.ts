@@ -408,6 +408,17 @@ export class LeaveController {
     return this.leaveService.findOneLeaveRequest(req.user.companyId!, id, req.user);
   }
 
+  @Post('requests/:id/submit')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_requests:update')
+  @ApiOperation({ summary: 'Submit a draft leave request' })
+  submitLeaveRequest(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.leaveService.submitLeaveRequest(req.user.companyId!, id, req.user);
+  }
+
   @Post('requests/:id/approval-action')
   @UseGuards(PermissionsGuard)
   @Permissions('leave_requests:approve')

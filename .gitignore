@@ -21,7 +21,10 @@ package-lock.json
 # Tests
 /coverage
 /.nyc_output
-/test
+/test/*
+!/test/jest-e2e.json
+!/test/*.e2e-spec.ts
+/test/fixtures/
 
 # IDEs and editors
 /.idea

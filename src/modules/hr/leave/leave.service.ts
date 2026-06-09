@@ -58,6 +58,8 @@ import { Employee } from '../employees/entities/employee.entity';
 import { Branch } from '../branches/entities/branch.entity';
 import { Department } from '../departments/entities/department.entity';
 import { Position } from '../positions/entities/position.entity';
+import { AttendanceRecalculationJob } from '../attendance/processing/entities/attendance-recalculation-job.entity';
+import { AttendanceProcessingJobStatusEnum } from '../attendance/processing/enums/attendance-processing-job-status.enum';
 
 type PolicyContext = {
   allowNegativeBalance: boolean;
@@ -102,6 +104,8 @@ export class LeaveService {
     private readonly companyUserRepository: Repository<CompanyUser>,
     @InjectRepository(Role)
     private readonly roleRepository: Repository<Role>,
+    @InjectRepository(AttendanceRecalculationJob)
+    private readonly attendanceRecalculationJobRepository: Repository<AttendanceRecalculationJob>,
     private readonly hrAccessService: HrAccessService,
     private readonly leaveAuditService: LeaveAuditService,
     private readonly leaveBalanceService: LeaveBalanceService,
@@ -448,6 +452,102 @@ export class LeaveService {
         ? this.leaveBalanceService.toNumber(selected.policyType.max_per_request_days)
         : null,
     };
+  }
+
+  private getAttendanceRecalculationJobRepository(
+    manager?: EntityManager,
+  ): Repository<AttendanceRecalculationJob> {
+    return (
+      manager?.getRepository(AttendanceRecalculationJob) ??
+      this.attendanceRecalculationJobRepository
+    );
+  }
+
+  private async queueAttendanceRecalculationForLeaveWindow(
+    companyId: number,
+    employeeId: number,
+    startDate: string,
+    endDate: string,
+    reason: string,
+    actor: AuthenticatedUser,
+    manager?: EntityManager,
+  ): Promise<void> {
+    await this.getAttendanceRecalculationJobRepository(manager).save(
+      this.getAttendanceRecalculationJobRepository(manager).create({
+        companyId,
+        employeeId,
+        dateFrom: startDate,
+        dateTo: endDate,
+        reason,
+        status: AttendanceProcessingJobStatusEnum.PENDING,
+        attempts: 0,
+        requestedByCompanyUserId: actor.companyMembershipId ?? null,
+        metadata: {
+          source: 'leave',
+        },
+      }),
+    );
+  }
+
+  private async submitLeaveRequestRecord(
+    companyId: number,
+    leaveRequest: LeaveRequest,
+    employee: Employee,
+    policyContext: PolicyContext,
+    actor: AuthenticatedUser,
+    manager: EntityManager,
+  ): Promise<void> {
+    const repository = manager.getRepository(LeaveRequest);
+    const totalDays = this.leaveBalanceService.toNumber(leaveRequest.total_days);
+    const fiscalYear = this.leaveBalanceService.getFiscalYearFromDate(
+      leaveRequest.start_date,
+    );
+    const balance = await this.leaveBalanceService.ensureBalanceForEmployee(
+      companyId,
+      employee,
+      leaveRequest.leave_type_id,
+      fiscalYear,
+      manager,
+    );
+
+    await this.leaveBalanceService.reserveDays(
+      balance,
+      totalDays,
+      policyContext.allowNegativeBalance,
+      manager,
+    );
+
+    leaveRequest.status = LeaveStatusEnum.SUBMITTED;
+    leaveRequest.current_approval_level = 0;
+    leaveRequest.applied_at = new Date();
+    leaveRequest.rejection_reason = null;
+    leaveRequest.cancelled_at = null;
+    leaveRequest.approved_at = null;
+    await repository.save(leaveRequest);
+
+    if (policyContext.requiresApproval) {
+      await this.leaveWorkflowService.initializeWorkflowForRequest(
+        companyId,
+        leaveRequest,
+        manager,
+      );
+      return;
+    }
+
+    leaveRequest.status = LeaveStatusEnum.APPROVED;
+    leaveRequest.approved_at = new Date();
+    leaveRequest.current_approval_level = 0;
+    await repository.save(leaveRequest);
+    await this.leaveBalanceService.consumeReservedDays(balance, totalDays, manager);
+    await this.queueAttendanceRecalculationForLeaveWindow(
+      companyId,
+      employee.id,
+      leaveRequest.start_date,
+      leaveRequest.end_date,
+      'Leave request auto-approved',
+      actor,
+      manager,
+    );
   }
 
   private mapLeaveType(entity: LeaveType) {
@@ -1962,43 +2062,22 @@ export class LeaveService {
           total_days: this.leaveBalanceService.toDecimal(totalDays),
           reason: dto.reason.trim(),
           current_approval_level: 0,
-          status: shouldSubmit ? LeaveStatusEnum.SUBMITTED : LeaveStatusEnum.DRAFT,
+          status: LeaveStatusEnum.DRAFT,
           rejection_reason: null,
-          applied_at: shouldSubmit ? new Date() : null,
+          applied_at: null,
           created_by_company_user_id: actor.companyMembershipId!,
         }),
       );
 
-      const fiscalYear = this.leaveBalanceService.getFiscalYearFromDate(dto.start_date);
-      const balance = await this.leaveBalanceService.ensureBalanceForEmployee(
-        companyId,
-        employee,
-        dto.leave_type_id,
-        fiscalYear,
-        manager,
-      );
-
       if (shouldSubmit) {
-        await this.leaveBalanceService.reserveDays(
-          balance,
-          totalDays,
-          policyContext.allowNegativeBalance,
+        await this.submitLeaveRequestRecord(
+          companyId,
+          created,
+          employee,
+          policyContext,
+          actor,
           manager,
         );
-
-        if (policyContext.requiresApproval) {
-          await this.leaveWorkflowService.initializeWorkflowForRequest(
-            companyId,
-            created,
-            manager,
-          );
-        } else {
-          created.status = LeaveStatusEnum.APPROVED;
-          created.approved_at = new Date();
-          created.current_approval_level = 0;
-          await repository.save(created);
-          await this.leaveBalanceService.consumeReservedDays(balance, totalDays, manager);
-        }
       }
 
       return repository.findOneOrFail({
@@ -2024,6 +2103,161 @@ export class LeaveService {
     });
 
     return this.mapLeaveRequest(leaveRequest);
+  }
+
+  async submitLeaveRequest(
+    companyId: number,
+    leaveRequestId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const leaveRequest = await this.leaveRequestRepository.findOne({
+      where: {
+        id: leaveRequestId,
+        company_id: companyId,
+      },
+      relations: {
+        employee: {
+          company_user: true,
+          primary_department: true,
+          primary_position: true,
+        },
+      },
+    });
+
+    if (!leaveRequest) {
+      throw new NotFoundException('Leave request not found');
+    }
+
+    if (leaveRequest.status !== LeaveStatusEnum.DRAFT) {
+      throw new BadRequestException('Only draft leave requests can be submitted');
+    }
+
+    await this.hrAccessService.assertCanAccessEmployee(actor, leaveRequest.employee);
+
+    const leaveType = await this.findLeaveTypeOrFail(
+      companyId,
+      leaveRequest.leave_type_id,
+    );
+    if (leaveType.status !== LeaveRecordStatusEnum.ACTIVE) {
+      throw new BadRequestException('Leave type is inactive');
+    }
+
+    this.assertDateOrder(
+      leaveRequest.start_date,
+      leaveRequest.end_date,
+      'end_date cannot be before start_date',
+    );
+
+    if (
+      leaveType.gender_restriction !== 'any' &&
+      leaveRequest.employee.gender &&
+      leaveRequest.employee.gender.toLowerCase() !== leaveType.gender_restriction
+    ) {
+      throw new BadRequestException(
+        `Leave type is restricted to ${leaveType.gender_restriction}`,
+      );
+    }
+
+    const totalDays = await this.calculateLeaveDays(
+      companyId,
+      leaveRequest.start_date,
+      leaveRequest.end_date,
+    );
+    if (totalDays <= 0) {
+      throw new BadRequestException(
+        'Selected period results in zero leave days after holidays/weekends',
+      );
+    }
+
+    await this.validateNoOverlap(
+      companyId,
+      leaveRequest.employee_id,
+      leaveRequest.start_date,
+      leaveRequest.end_date,
+      leaveRequest.id,
+    );
+
+    const policyContext = await this.resolvePolicyContext(
+      companyId,
+      leaveRequest.employee,
+      leaveRequest.leave_type_id,
+    );
+
+    if (
+      policyContext.maxConsecutiveDays &&
+      totalDays > policyContext.maxConsecutiveDays
+    ) {
+      throw new BadRequestException(
+        `Leave exceeds maximum consecutive days (${policyContext.maxConsecutiveDays})`,
+      );
+    }
+
+    if (policyContext.maxPerRequestDays && totalDays > policyContext.maxPerRequestDays) {
+      throw new BadRequestException(
+        `Leave exceeds maximum days per request (${policyContext.maxPerRequestDays})`,
+      );
+    }
+
+    const serviceMonths = this.calculateServiceMonths(leaveRequest.employee.hire_date);
+    if (serviceMonths < policyContext.minServiceMonths) {
+      throw new BadRequestException(
+        `Employee requires minimum ${policyContext.minServiceMonths} month(s) of service`,
+      );
+    }
+
+    const submitted = await this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(LeaveRequest);
+      const current = await repository.findOne({
+        where: { id: leaveRequest.id, company_id: companyId },
+      });
+
+      if (!current) {
+        throw new NotFoundException('Leave request not found');
+      }
+
+      if (current.status !== LeaveStatusEnum.DRAFT) {
+        throw new BadRequestException('Only draft leave requests can be submitted');
+      }
+
+      current.total_days = this.leaveBalanceService.toDecimal(totalDays);
+      current.reason = current.reason.trim();
+      await repository.save(current);
+
+      await this.submitLeaveRequestRecord(
+        companyId,
+        current,
+        leaveRequest.employee,
+        policyContext,
+        actor,
+        manager,
+      );
+
+      return repository.findOneOrFail({
+        where: { id: current.id },
+        relations: {
+          employee: { primary_department: true, primary_position: true },
+          leave_type: true,
+          approvals: { approver: { user: true }, workflow_step: true },
+          medical_detail: true,
+          documents: { uploaded_by: { user: true } },
+        },
+      });
+    });
+
+    await this.leaveAuditService.log({
+      company_id: companyId,
+      leave_request_id: submitted.id,
+      action: 'leave_request.submitted',
+      entity_name: 'leave_request',
+      entity_id: submitted.id,
+      actor,
+      payload: {
+        status: submitted.status,
+        applied_at: submitted.applied_at,
+      },
+    });
+
+    return this.mapLeaveRequest(submitted);
   }
 
   async findAllLeaveRequests(
@@ -2234,6 +2468,17 @@ export class LeaveService {
       },
     });
 
+    if (updated.status === LeaveStatusEnum.APPROVED) {
+      await this.queueAttendanceRecalculationForLeaveWindow(
+        companyId,
+        updated.employee_id,
+        updated.start_date,
+        updated.end_date,
+        'Leave request approved',
+        actor,
+      );
+    }
+
     return this.mapLeaveRequest(updated);
   }
 
@@ -2311,6 +2556,15 @@ export class LeaveService {
       actor,
       payload: { reason: dto.reason ?? null },
     });
+
+    await this.queueAttendanceRecalculationForLeaveWindow(
+      companyId,
+      cancelled.employee_id,
+      cancelled.start_date,
+      cancelled.end_date,
+      'Leave request cancelled',
+      actor,
+    );
 
     return {
       message: 'Leave request cancelled successfully',
