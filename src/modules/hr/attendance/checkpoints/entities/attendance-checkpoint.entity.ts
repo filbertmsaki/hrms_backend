@@ -12,6 +12,8 @@ import { AttendanceCheckpointStatusEnum } from '../enums/attendance-checkpoint-s
 import { AttendanceCheckpointTypeEnum } from '../enums/attendance-checkpoint-type.enum';
 import { AttendanceDevice } from '../../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { AttendancePolicy } from '../../policies/entities/attendance-policy.entity';
+import { AttendanceGeofence } from '../../geofences/entities/attendance-geofence.entity';
+import { AttendanceWifiNetwork } from '../../wifi-networks/entities/attendance-wifi-network.entity';
 
 @Entity('attendance_checkpoints')
 @Index('IDX_attendance_checkpoints_policy_set_id', ['policySetId'])
@@ -20,7 +22,10 @@ import { AttendancePolicy } from '../../policies/entities/attendance-policy.enti
 @Index('IDX_attendance_checkpoints_device_id', ['deviceId'])
 @Index('IDX_attendance_checkpoints_geofence_id', ['geofenceId'])
 @Index('IDX_attendance_checkpoints_policy_type', ['policySetId', 'type'])
-@Index('UQ_attendance_checkpoints_policy_name', ['policySetId', 'name'], { unique: true })
+@Index('IDX_attendance_checkpoints_wifi_network_id', ['wifiNetworkId'])
+@Index('UQ_attendance_checkpoints_policy_name', ['policySetId', 'name'], {
+  unique: true,
+})
 export class AttendanceCheckpoint {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -44,8 +49,8 @@ export class AttendanceCheckpoint {
   @Column({ name: 'geofence_id', type: 'int', nullable: true })
   geofenceId: number | null;
 
-  @Column({ name: 'wifi_ssid', type: 'varchar', length: 255, nullable: true })
-  wifiSsid: string | null;
+  @Column({ name: 'wifi_network_id', type: 'int', nullable: true })
+  wifiNetworkId: number | null;
 
   @Column({ name: 'is_required', type: 'boolean', default: true })
   isRequired: boolean;
@@ -85,9 +90,18 @@ export class AttendanceCheckpoint {
   })
   @JoinColumn({ name: 'device_id' })
   device: AttendanceDevice | null;
+
+  @ManyToOne(() => AttendanceGeofence, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'geofence_id' })
+  geofence: AttendanceGeofence | null = null;
+
+  @ManyToOne(() => AttendanceWifiNetwork, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'wifi_network_id' })
+  wifiNetwork: AttendanceWifiNetwork | null;
 }
-
-
-
-
-

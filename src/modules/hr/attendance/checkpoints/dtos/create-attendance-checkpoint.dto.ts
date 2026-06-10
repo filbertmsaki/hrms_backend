@@ -40,10 +40,11 @@ export class CreateAttendanceCheckpointDto {
   geofence_id?: number;
 
   @ApiPropertyOptional()
-  @IsString()
-  @MaxLength(255)
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   @IsOptional()
-  wifi_ssid?: string;
+  wifi_network_id?: number;
 
   @ApiPropertyOptional({ default: true })
   @Type(() => Boolean)

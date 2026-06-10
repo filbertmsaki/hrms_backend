@@ -28,6 +28,12 @@ import { AttendanceGeofencesController } from './geofences/attendance-geofences.
 import { AttendanceGeofencesService } from './geofences/attendance-geofences.service';
 import { AttendanceGeofenceRepository } from './geofences/repositories/attendance-geofence.repository';
 import { GeofenceDistanceService } from './geofences/geofence-distance.service';
+import { AttendanceWifiNetwork } from './wifi-networks/entities/attendance-wifi-network.entity';
+import { AttendanceWifiNetworksController } from './wifi-networks/attendance-wifi-networks.controller';
+import { AttendanceWifiNetworksService } from './wifi-networks/attendance-wifi-networks.service';
+import { AttendanceWifiNetworkRepository } from './wifi-networks/repositories/attendance-wifi-network.repository';
+import { IpCidrValidatorService } from './wifi-networks/validators/ip-cidr-validator.service';
+import { WifiNetworkValidatorService } from './wifi-networks/validators/wifi-network-validator.service';
 
 @Module({
   imports: [
@@ -38,6 +44,7 @@ import { GeofenceDistanceService } from './geofences/geofence-distance.service';
       AttendanceHoliday,
       AttendanceCheckpoint,
       AttendanceGeofence,
+      AttendanceWifiNetwork,
       AttendanceDevice,
       AttendanceDeviceSyncLog,
       Branch,
@@ -54,6 +61,7 @@ import { GeofenceDistanceService } from './geofences/geofence-distance.service';
     AttendanceCheckpointsController,
     AttendanceDeviceSyncLogsController,
     AttendanceGeofencesController,
+    AttendanceWifiNetworksController,
   ],
   providers: [
     AttendancePoliciesService,
@@ -65,6 +73,10 @@ import { GeofenceDistanceService } from './geofences/geofence-distance.service';
     AttendanceGeofencesService,
     AttendanceGeofenceRepository,
     GeofenceDistanceService,
+    AttendanceWifiNetworksService,
+    AttendanceWifiNetworkRepository,
+    IpCidrValidatorService,
+    WifiNetworkValidatorService,
   ],
   exports: [
     AttendancePoliciesService,
@@ -72,6 +84,10 @@ import { GeofenceDistanceService } from './geofences/geofence-distance.service';
     AttendanceGeofencesService,
     AttendanceGeofenceRepository,
     GeofenceDistanceService,
+    AttendanceWifiNetworksService,
+    AttendanceWifiNetworkRepository,
+    WifiNetworkValidatorService,
+    IpCidrValidatorService,
   ],
 })
 export class AttendanceModule {}

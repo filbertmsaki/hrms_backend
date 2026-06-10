@@ -6,6 +6,8 @@ import { buildPaginationMeta } from '../../shared/hr.utils';
 import { AttendanceCheckpoint } from './entities/attendance-checkpoint.entity';
 import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { AttendancePolicy } from '../policies/entities/attendance-policy.entity';
+import { AttendanceGeofence } from '../geofences/entities/attendance-geofence.entity';
+import { AttendanceWifiNetwork } from '../wifi-networks/entities/attendance-wifi-network.entity';
 import { AttendanceCheckpointQueryDto } from './dtos/attendance-checkpoint-query.dto';
 import { CreateAttendanceCheckpointDto } from './dtos/create-attendance-checkpoint.dto';
 import { UpdateAttendanceCheckpointDto } from './dtos/update-attendance-checkpoint.dto';
@@ -19,6 +21,10 @@ export class AttendanceCheckpointsService {
     private readonly attendancePolicyRepository: Repository<AttendancePolicy>,
     @InjectRepository(AttendanceDevice)
     private readonly attendanceDeviceRepository: Repository<AttendanceDevice>,
+    @InjectRepository(AttendanceGeofence)
+    private readonly attendanceGeofenceRepository: Repository<AttendanceGeofence>,
+    @InjectRepository(AttendanceWifiNetwork)
+    private readonly attendanceWifiNetworkRepository: Repository<AttendanceWifiNetwork>,
   ) {}
 
   private map(item: AttendanceCheckpoint) {
@@ -29,7 +35,7 @@ export class AttendanceCheckpointsService {
       type: item.type,
       device_id: item.deviceId,
       geofence_id: item.geofenceId,
-      wifi_ssid: item.wifiSsid,
+      wifi_network_id: item.wifiNetworkId,
       is_required: item.isRequired,
       allow_override: item.allowOverride,
       max_distance_meters: item.maxDistanceMeters,
@@ -66,6 +72,36 @@ export class AttendanceCheckpointsService {
     }
   }
 
+  private async ensureGeofence(companyId: number, geofenceId?: number | null): Promise<void> {
+    if (!geofenceId) {
+      return;
+    }
+
+    const geofence = await this.attendanceGeofenceRepository.findOne({
+      where: { id: geofenceId, companyId },
+      select: ['id'],
+    });
+
+    if (!geofence) {
+      throw new BadRequestException('geofence_id does not belong to the active company');
+    }
+  }
+
+  private async ensureWifiNetwork(companyId: number, wifiNetworkId?: number | null): Promise<void> {
+    if (!wifiNetworkId) {
+      return;
+    }
+
+    const wifiNetwork = await this.attendanceWifiNetworkRepository.findOne({
+      where: { id: wifiNetworkId, companyId },
+      select: ['id'],
+    });
+
+    if (!wifiNetwork) {
+      throw new BadRequestException('wifi_network_id does not belong to the active company');
+    }
+  }
+
   private async findOrFail(companyId: number, id: number): Promise<AttendanceCheckpoint> {
     const item = await this.attendanceCheckpointRepository
       .createQueryBuilder('attendanceCheckpoint')
@@ -88,6 +124,8 @@ export class AttendanceCheckpointsService {
   async create(companyId: number, dto: CreateAttendanceCheckpointDto) {
     await this.ensurePolicySet(companyId, dto.policy_set_id);
     await this.ensureDevice(companyId, dto.device_id);
+    await this.ensureGeofence(companyId, dto.geofence_id);
+    await this.ensureWifiNetwork(companyId, dto.wifi_network_id);
 
     const existing = await this.attendanceCheckpointRepository.findOne({
       where: {
@@ -108,7 +146,7 @@ export class AttendanceCheckpointsService {
         type: dto.type,
         deviceId: dto.device_id ?? null,
         geofenceId: dto.geofence_id ?? null,
-        wifiSsid: dto.wifi_ssid?.trim() || null,
+        wifiNetworkId: dto.wifi_network_id ?? null,
         isRequired: dto.is_required ?? true,
         allowOverride: dto.allow_override ?? false,
         maxDistanceMeters: dto.max_distance_meters ?? null,
@@ -195,6 +233,8 @@ export class AttendanceCheckpointsService {
 
     await this.ensurePolicySet(companyId, policySetId);
     await this.ensureDevice(companyId, dto.device_id ?? item.deviceId);
+    if (dto.geofence_id !== undefined) await this.ensureGeofence(companyId, dto.geofence_id);
+    if (dto.wifi_network_id !== undefined) await this.ensureWifiNetwork(companyId, dto.wifi_network_id);
 
     const duplicate = await this.attendanceCheckpointRepository.findOne({
       where: {
@@ -212,9 +252,9 @@ export class AttendanceCheckpointsService {
     item.name = name;
 
     if (dto.type !== undefined) item.type = dto.type;
-    if (dto.device_id !== undefined) item.deviceId = dto.device_id;
-    if (dto.geofence_id !== undefined) item.geofenceId = dto.geofence_id;
-    if (dto.wifi_ssid !== undefined) item.wifiSsid = dto.wifi_ssid?.trim() || null;
+    if (dto.device_id !== undefined) item.deviceId = dto.device_id ?? null;
+    if (dto.geofence_id !== undefined) item.geofenceId = dto.geofence_id ?? null;
+    if (dto.wifi_network_id !== undefined) item.wifiNetworkId = dto.wifi_network_id ?? null;
     if (dto.is_required !== undefined) item.isRequired = dto.is_required;
     if (dto.allow_override !== undefined) item.allowOverride = dto.allow_override;
     if (dto.max_distance_meters !== undefined) item.maxDistanceMeters = dto.max_distance_meters;
