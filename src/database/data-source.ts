@@ -10,7 +10,7 @@ export const AppDataSource = new DataSource({
   port: Number(process.env.DB_PORT) || 3306,
   username: process.env.DB_USERNAME || 'root',
   password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'rbac_db',
+  database: process.env.DB_NAME || 'hrms_db',
 
   entities: ['src/**/*.entity{.ts,.js}'],
 

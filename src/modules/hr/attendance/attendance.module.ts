@@ -23,6 +23,11 @@ import { AttendanceHoliday } from './holidays/entities/holiday.entity';
 import { Branch } from '../branches/entities/branch.entity';
 import { HikvisionModule as DeviceManagementHikvisionModule } from '../../hikvision/hikvision.module';
 import { AttendanceProcessingModule } from './processing/attendance-processing.module';
+import { AttendanceGeofence } from './geofences/entities/attendance-geofence.entity';
+import { AttendanceGeofencesController } from './geofences/attendance-geofences.controller';
+import { AttendanceGeofencesService } from './geofences/attendance-geofences.service';
+import { AttendanceGeofenceRepository } from './geofences/repositories/attendance-geofence.repository';
+import { GeofenceDistanceService } from './geofences/geofence-distance.service';
 
 @Module({
   imports: [
@@ -32,6 +37,7 @@ import { AttendanceProcessingModule } from './processing/attendance-processing.m
       HolidayGroup,
       AttendanceHoliday,
       AttendanceCheckpoint,
+      AttendanceGeofence,
       AttendanceDevice,
       AttendanceDeviceSyncLog,
       Branch,
@@ -47,6 +53,7 @@ import { AttendanceProcessingModule } from './processing/attendance-processing.m
     AttendanceHolidaysController,
     AttendanceCheckpointsController,
     AttendanceDeviceSyncLogsController,
+    AttendanceGeofencesController,
   ],
   providers: [
     AttendancePoliciesService,
@@ -55,11 +62,16 @@ import { AttendanceProcessingModule } from './processing/attendance-processing.m
     AttendanceHolidaysService,
     AttendanceCheckpointsService,
     AttendanceDeviceSyncLogsService,
+    AttendanceGeofencesService,
+    AttendanceGeofenceRepository,
+    GeofenceDistanceService,
   ],
-  exports: [AttendancePoliciesService, TypeOrmModule],
+  exports: [
+    AttendancePoliciesService,
+    TypeOrmModule,
+    AttendanceGeofencesService,
+    AttendanceGeofenceRepository,
+    GeofenceDistanceService,
+  ],
 })
 export class AttendanceModule {}
-
-
-
-
