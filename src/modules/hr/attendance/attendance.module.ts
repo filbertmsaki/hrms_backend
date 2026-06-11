@@ -34,6 +34,11 @@ import { AttendanceWifiNetworksService } from './wifi-networks/attendance-wifi-n
 import { AttendanceWifiNetworkRepository } from './wifi-networks/repositories/attendance-wifi-network.repository';
 import { IpCidrValidatorService } from './wifi-networks/validators/ip-cidr-validator.service';
 import { WifiNetworkValidatorService } from './wifi-networks/validators/wifi-network-validator.service';
+import { AttendanceMobilePunchesController } from './mobile-punches/attendance-mobile-punches.controller';
+import { AttendanceMobilePunch } from './mobile-punches/entities/attendance-mobile-punch.entity';
+import { AttendanceMobilePunchRepository } from './mobile-punches/repositories/attendance-mobile-punch.repository';
+import { AttendanceMobilePunchesService } from './mobile-punches/attendance-mobile-punches.service';
+import { Employee } from '../employees/entities/employee.entity';
 
 @Module({
   imports: [
@@ -45,6 +50,8 @@ import { WifiNetworkValidatorService } from './wifi-networks/validators/wifi-net
       AttendanceCheckpoint,
       AttendanceGeofence,
       AttendanceWifiNetwork,
+      AttendanceMobilePunch,
+      Employee,
       AttendanceDevice,
       AttendanceDeviceSyncLog,
       Branch,
@@ -62,6 +69,7 @@ import { WifiNetworkValidatorService } from './wifi-networks/validators/wifi-net
     AttendanceDeviceSyncLogsController,
     AttendanceGeofencesController,
     AttendanceWifiNetworksController,
+    AttendanceMobilePunchesController,
   ],
   providers: [
     AttendancePoliciesService,
@@ -77,6 +85,8 @@ import { WifiNetworkValidatorService } from './wifi-networks/validators/wifi-net
     AttendanceWifiNetworkRepository,
     IpCidrValidatorService,
     WifiNetworkValidatorService,
+    AttendanceMobilePunchesService,
+    AttendanceMobilePunchRepository,
   ],
   exports: [
     AttendancePoliciesService,
@@ -88,6 +98,8 @@ import { WifiNetworkValidatorService } from './wifi-networks/validators/wifi-net
     AttendanceWifiNetworkRepository,
     WifiNetworkValidatorService,
     IpCidrValidatorService,
+    AttendanceMobilePunchesService,
+    AttendanceMobilePunchRepository,
   ],
 })
 export class AttendanceModule {}
