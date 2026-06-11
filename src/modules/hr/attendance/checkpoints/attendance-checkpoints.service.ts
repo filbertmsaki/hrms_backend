@@ -103,18 +103,14 @@ export class AttendanceCheckpointsService {
   }
 
   private async findOrFail(companyId: number, id: number): Promise<AttendanceCheckpoint> {
-    const item = await this.attendanceCheckpointRepository
-      .createQueryBuilder('attendanceCheckpoint')
-      .innerJoin(
-        AttendancePolicy,
-        'attendancePolicy',
-        'attendancePolicy.id = attendanceCheckpoint.policy_set_id',
-      )
-      .where('attendanceCheckpoint.id = :id', { id })
-      .andWhere('attendancePolicy.company_id = :companyId', { companyId })
-      .getOne();
+    const item = await this.attendanceCheckpointRepository.findOne({
+      where: { id },
+      relations: {
+        policySet: true,
+      },
+    });
 
-    if (!item) {
+    if (!item || item.policySet.company_id !== companyId) {
       throw new NotFoundException('Attendance checkpoint not found');
     }
 
@@ -122,6 +118,14 @@ export class AttendanceCheckpointsService {
   }
 
   async create(companyId: number, dto: CreateAttendanceCheckpointDto) {
+    this.validateCheckpointConfiguration({
+      type: dto.type,
+      deviceId: dto.device_id ?? null,
+      geofenceId: dto.geofence_id ?? null,
+      wifiNetworkId: dto.wifi_network_id ?? null,
+      maxDistanceMeters: dto.max_distance_meters ?? null,
+    });
+
     await this.ensurePolicySet(companyId, dto.policy_set_id);
     await this.ensureDevice(companyId, dto.device_id);
     await this.ensureGeofence(companyId, dto.geofence_id);
@@ -155,7 +159,7 @@ export class AttendanceCheckpointsService {
       }),
     );
 
-    return this.map(created);
+    return this.findOne(companyId, created.id);
   }
 
   async findAll(companyId: number, query: AttendanceCheckpointQueryDto) {
@@ -205,8 +209,8 @@ export class AttendanceCheckpointsService {
       name: 'name',
       type: 'type',
       status: 'status',
-      created_at: 'created_at',
-      updated_at: 'updated_at',
+      created_at: 'createdAt',
+      updated_at: 'updatedAt',
     };
 
     const [items, total] = await qb
@@ -230,9 +234,29 @@ export class AttendanceCheckpointsService {
 
     const policySetId = dto.policy_set_id ?? item.policySetId;
     const name = dto.name?.trim() ?? item.name;
+    const nextDeviceId =
+      dto.device_id !== undefined ? dto.device_id ?? null : item.deviceId;
+    const nextGeofenceId =
+      dto.geofence_id !== undefined ? dto.geofence_id ?? null : item.geofenceId;
+    const nextWifiNetworkId =
+      dto.wifi_network_id !== undefined
+        ? dto.wifi_network_id ?? null
+        : item.wifiNetworkId;
+    const nextMaxDistanceMeters =
+      dto.max_distance_meters !== undefined
+        ? dto.max_distance_meters
+        : item.maxDistanceMeters;
+
+    this.validateCheckpointConfiguration({
+      type: dto.type ?? item.type,
+      deviceId: nextDeviceId,
+      geofenceId: nextGeofenceId,
+      wifiNetworkId: nextWifiNetworkId,
+      maxDistanceMeters: nextMaxDistanceMeters,
+    });
 
     await this.ensurePolicySet(companyId, policySetId);
-    await this.ensureDevice(companyId, dto.device_id ?? item.deviceId);
+    await this.ensureDevice(companyId, nextDeviceId);
     if (dto.geofence_id !== undefined) await this.ensureGeofence(companyId, dto.geofence_id);
     if (dto.wifi_network_id !== undefined) await this.ensureWifiNetwork(companyId, dto.wifi_network_id);
 
@@ -248,26 +272,90 @@ export class AttendanceCheckpointsService {
       throw new ConflictException('Checkpoint name already exists under this policy set');
     }
 
-    item.policySetId = policySetId;
-    item.name = name;
+    await this.attendanceCheckpointRepository.save({
+      id: item.id,
+      policySetId,
+      name,
+      type: dto.type ?? item.type,
+      deviceId: nextDeviceId,
+      geofenceId: nextGeofenceId,
+      wifiNetworkId: nextWifiNetworkId,
+      isRequired: dto.is_required ?? item.isRequired,
+      allowOverride: dto.allow_override ?? item.allowOverride,
+      maxDistanceMeters: nextMaxDistanceMeters,
+      strictMode: dto.strict_mode ?? item.strictMode,
+      status: dto.status ?? item.status,
+    });
 
-    if (dto.type !== undefined) item.type = dto.type;
-    if (dto.device_id !== undefined) item.deviceId = dto.device_id ?? null;
-    if (dto.geofence_id !== undefined) item.geofenceId = dto.geofence_id ?? null;
-    if (dto.wifi_network_id !== undefined) item.wifiNetworkId = dto.wifi_network_id ?? null;
-    if (dto.is_required !== undefined) item.isRequired = dto.is_required;
-    if (dto.allow_override !== undefined) item.allowOverride = dto.allow_override;
-    if (dto.max_distance_meters !== undefined) item.maxDistanceMeters = dto.max_distance_meters;
-    if (dto.strict_mode !== undefined) item.strictMode = dto.strict_mode;
-    if (dto.status !== undefined) item.status = dto.status;
-
-    return this.map(await this.attendanceCheckpointRepository.save(item));
+    return this.findOne(companyId, item.id);
   }
 
   async remove(companyId: number, id: number): Promise<{ message: string }> {
     const item = await this.findOrFail(companyId, id);
     await this.attendanceCheckpointRepository.remove(item);
     return { message: 'Attendance checkpoint deleted successfully' };
+  }
+
+  private validateCheckpointConfiguration(params: {
+    type: AttendanceCheckpoint['type'];
+    deviceId: number | null;
+    geofenceId: number | null;
+    wifiNetworkId: number | null;
+    maxDistanceMeters: number | null;
+  }) {
+    const { type, deviceId, geofenceId, wifiNetworkId, maxDistanceMeters } = params;
+
+    if (type === 'DEVICE') {
+      if (!deviceId) {
+        throw new BadRequestException('device_id is required for DEVICE checkpoints');
+      }
+
+      if (geofenceId || wifiNetworkId) {
+        throw new BadRequestException(
+          'DEVICE checkpoints cannot include geofence_id or wifi_network_id',
+        );
+      }
+    }
+
+    if (type === 'GPS') {
+      if (!geofenceId) {
+        throw new BadRequestException('geofence_id is required for GPS checkpoints');
+      }
+
+      if (deviceId || wifiNetworkId) {
+        throw new BadRequestException(
+          'GPS checkpoints cannot include device_id or wifi_network_id',
+        );
+      }
+    }
+
+    if (type === 'WIFI') {
+      if (!wifiNetworkId) {
+        throw new BadRequestException(
+          'wifi_network_id is required for WIFI checkpoints',
+        );
+      }
+
+      if (deviceId || geofenceId) {
+        throw new BadRequestException(
+          'WIFI checkpoints cannot include device_id or geofence_id',
+        );
+      }
+    }
+
+    if (type === 'QR' || type === 'MANUAL') {
+      if (deviceId || geofenceId || wifiNetworkId) {
+        throw new BadRequestException(
+          `${type} checkpoints cannot include device_id, geofence_id, or wifi_network_id`,
+        );
+      }
+    }
+
+    if (maxDistanceMeters !== null && maxDistanceMeters !== undefined && type !== 'GPS') {
+      throw new BadRequestException(
+        'max_distance_meters is only supported for GPS checkpoints',
+      );
+    }
   }
 }
 

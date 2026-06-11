@@ -96,7 +96,7 @@ export class AttendanceCheckpoint {
     onDelete: 'SET NULL',
   })
   @JoinColumn({ name: 'geofence_id' })
-  geofence: AttendanceGeofence | null = null;
+  geofence: AttendanceGeofence | null;
 
   @ManyToOne(() => AttendanceWifiNetwork, {
     nullable: true,
