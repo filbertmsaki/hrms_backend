@@ -8,6 +8,9 @@ import { Document } from '../documents/entities/document.entity';
 import { Department } from '../departments/entities/department.entity';
 import { EmployeePosition } from '../employees/entities/employee-position.entity';
 import { Employee } from '../employees/entities/employee.entity';
+import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
+import { ShiftAssignment } from '../attendance/shift/shift-assignments/entities/shift-assignment.entity';
+import { EmployeeTimetable } from '../attendance/timetable/employee-timetables/entities/employee-timetable.entity';
 import { Position } from '../positions/entities/position.entity';
 import { HrSharedModule } from '../shared/hr-shared.module';
 import { OffboardingController } from './offboarding.controller';
@@ -35,6 +38,9 @@ import { OffboardingWorkflowService } from './services/offboarding-workflow.serv
       Document,
       Employee,
       EmployeePosition,
+      ShiftAssignment,
+      EmployeeTimetable,
+      AttendanceDailySummary,
       Branch,
       Department,
       Position,

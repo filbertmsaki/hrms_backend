@@ -10,9 +10,10 @@ import { EmployeePosition } from '../employees/entities/employee-position.entity
 import { Position } from '../positions/entities/position.entity';
 import { HrSharedModule } from '../shared/hr-shared.module';
 import { AttendanceRecalculationJob } from '../attendance/processing/entities/attendance-recalculation-job.entity';
+import { AttendanceHoliday } from '../attendance/holidays/entities/holiday.entity';
+import { HolidayGroup } from '../attendance/holidays/entities/holiday-group.entity';
 import { LeaveController } from './leave.controller';
 import { LeaveService } from './leave.service';
-import { Holiday } from './entities/holiday.entity';
 import { LeaveApprovalWorkflowStep } from './entities/leave-approval-workflow-step.entity';
 import { LeaveApprovalWorkflow } from './entities/leave-approval-workflow.entity';
 import { LeaveAuditLog } from './entities/leave-audit-log.entity';
@@ -42,7 +43,6 @@ import { LeaveWorkflowService } from './services/leave-workflow.service';
       LeaveRequestApproval,
       LeaveMedicalDetail,
       LeaveDocument,
-      Holiday,
       LeaveAuditLog,
       Employee,
       EmployeePosition,
@@ -53,6 +53,8 @@ import { LeaveWorkflowService } from './services/leave-workflow.service';
       CompanyUserRole,
       Role,
       AttendanceRecalculationJob,
+      AttendanceHoliday,
+      HolidayGroup,
     ]),
     HrSharedModule,
   ],
@@ -64,6 +66,6 @@ import { LeaveWorkflowService } from './services/leave-workflow.service';
     LeaveWorkflowService,
     LeavePdfService,
   ],
-  exports: [LeaveService, TypeOrmModule],
+  exports: [LeaveService, LeaveBalanceService, TypeOrmModule],
 })
 export class LeaveModule {}

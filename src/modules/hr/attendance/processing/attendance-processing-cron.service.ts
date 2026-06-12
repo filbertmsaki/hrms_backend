@@ -10,6 +10,7 @@ import { EmployeeTimetable } from '../timetable/employee-timetables/entities/emp
 import { EmployeeTimetableStatusEnum } from '../timetable/employee-timetables/enums/employee-timetable-status.enum';
 import { AttendanceProcessingService } from './attendance-processing.service';
 import { AttendanceRecalculationService } from './attendance-recalculation.service';
+import { formatDateOnly } from '../../shared/hr.utils';
 
 @Injectable()
 export class AttendanceProcessingCronService {
@@ -112,6 +113,6 @@ export class AttendanceProcessingCronService {
   }
 
   private formatDate(date: Date): string {
-    return date.toISOString().slice(0, 10);
+    return formatDateOnly(date);
   }
 }

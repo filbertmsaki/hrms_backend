@@ -24,6 +24,8 @@ import { AttendanceCheckpoint } from '../checkpoints/entities/attendance-checkpo
 import { AttendanceCheckpointStatusEnum } from '../checkpoints/enums/attendance-checkpoint-status.enum';
 import { AttendanceCheckpointTypeEnum } from '../checkpoints/enums/attendance-checkpoint-type.enum';
 import { Employee } from '../../employees/entities/employee.entity';
+import { EmploymentStatusEnum } from '../../employees/enums/employment-status.enum';
+import { formatDateOnly } from '../../shared/hr.utils';
 
 @Injectable()
 export class AttendanceMobilePunchesService {
@@ -98,11 +100,8 @@ export class AttendanceMobilePunchesService {
     );
     const punchTime = new Date();
 
-    /**
-     * Later you may replace this with company timezone helper.
-     * For Tanzania local timezone, make sure your global date handling is consistent.
-     */
-    const attendanceDate = punchTime.toISOString().slice(0, 10);
+    const attendanceDate = formatDateOnly(punchTime);
+    this.assertEmployeeCanPunch(employee, attendanceDate);
 
     const ipAddress = params.dto.ipAddress || params.requestIp || null;
     const validationErrors = this.collectCheckpointValidationErrors({
@@ -429,6 +428,20 @@ export class AttendanceMobilePunchesService {
     }
 
     return employee;
+  }
+
+  private assertEmployeeCanPunch(employee: Employee, attendanceDate: string) {
+    if (employee.employment_status !== EmploymentStatusEnum.ACTIVE) {
+      throw new BadRequestException(
+        'Only active employees can create attendance punches.',
+      );
+    }
+
+    if (employee.exit_date && attendanceDate > employee.exit_date) {
+      throw new BadRequestException(
+        'Attendance punch date cannot be after the employee exit date.',
+      );
+    }
   }
 
   private async resolvePolicy(companyId: number, policySetId: number | null) {

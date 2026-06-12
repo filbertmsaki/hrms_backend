@@ -8,6 +8,7 @@ import { AttendanceProcessingJobStatusEnum } from './enums/attendance-processing
 import { RecalculateAttendanceDto } from './dtos/recalculate-attendance.dto';
 import { QueryAttendanceProcessingJobsDto } from './dtos/query-attendance-processing-jobs.dto';
 import { AttendanceProcessingService } from './attendance-processing.service';
+import { normalizeDateInput } from '../../shared/hr.utils';
 
 @Injectable()
 export class AttendanceRecalculationService {
@@ -158,10 +159,10 @@ export class AttendanceRecalculationService {
   }
 
   private normalizeDate(value: string, field: string): string {
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) {
-      throw new BadRequestException(`${field} must be a valid date`);
+    try {
+      return normalizeDateInput(value, field);
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
     }
-    return parsed.toISOString().slice(0, 10);
   }
 }

@@ -38,6 +38,12 @@ export class CreateAttendanceHolidayDto {
   @Type(() => Boolean)
   @IsBoolean()
   @IsOptional()
+  is_recurring?: boolean;
+
+  @ApiPropertyOptional({ default: false })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
   affects_overtime?: boolean;
 
   @ApiPropertyOptional({ default: false })

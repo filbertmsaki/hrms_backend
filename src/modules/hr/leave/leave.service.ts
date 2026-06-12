@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
@@ -40,7 +40,6 @@ import { LeaveApproverTypeEnum } from './enums/leave-approver-type.enum';
 import { LeaveGenderRestrictionEnum } from './enums/leave-gender-restriction.enum';
 import { LeaveRecordStatusEnum } from './enums/leave-record-status.enum';
 import { LeaveStatusEnum } from './enums/leave-status.enum';
-import { Holiday } from './entities/holiday.entity';
 import { LeaveApprovalWorkflowStep } from './entities/leave-approval-workflow-step.entity';
 import { LeaveApprovalWorkflow } from './entities/leave-approval-workflow.entity';
 import { LeaveBalance } from './entities/leave-balance.entity';
@@ -55,11 +54,15 @@ import { LeaveBalanceService } from './services/leave-balance.service';
 import { LeavePdfService } from './services/leave-pdf.service';
 import { LeaveWorkflowService } from './services/leave-workflow.service';
 import { Employee } from '../employees/entities/employee.entity';
+import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
 import { Branch } from '../branches/entities/branch.entity';
 import { Department } from '../departments/entities/department.entity';
 import { Position } from '../positions/entities/position.entity';
 import { AttendanceRecalculationJob } from '../attendance/processing/entities/attendance-recalculation-job.entity';
 import { AttendanceProcessingJobStatusEnum } from '../attendance/processing/enums/attendance-processing-job-status.enum';
+import { AttendanceHoliday } from '../attendance/holidays/entities/holiday.entity';
+import { AttendanceHolidayTypeEnum } from '../attendance/holidays/enums/attendance-holiday-type.enum';
+import { HolidayGroup } from '../attendance/holidays/entities/holiday-group.entity';
 
 type PolicyContext = {
   allowNegativeBalance: boolean;
@@ -90,8 +93,10 @@ export class LeaveService {
     private readonly leaveMedicalDetailRepository: Repository<LeaveMedicalDetail>,
     @InjectRepository(LeaveDocument)
     private readonly leaveDocumentRepository: Repository<LeaveDocument>,
-    @InjectRepository(Holiday)
-    private readonly holidayRepository: Repository<Holiday>,
+    @InjectRepository(AttendanceHoliday)
+    private readonly attendanceHolidayRepository: Repository<AttendanceHoliday>,
+    @InjectRepository(HolidayGroup)
+    private readonly holidayGroupRepository: Repository<HolidayGroup>,
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
     @InjectRepository(Branch)
@@ -153,6 +158,24 @@ export class LeaveService {
     }
 
     return employee;
+  }
+
+  private assertEmployeeCanRequestLeave(
+    employee: Employee,
+    startDate: string,
+    endDate: string,
+  ): void {
+    if (employee.employment_status !== EmploymentStatusEnum.ACTIVE) {
+      throw new BadRequestException(
+        'Only active employees can create or submit leave requests.',
+      );
+    }
+
+    if (employee.exit_date && (startDate > employee.exit_date || endDate > employee.exit_date)) {
+      throw new BadRequestException(
+        'Leave request dates cannot be after the employee exit date.',
+      );
+    }
   }
 
   private async findEmployeeIdByMembership(
@@ -260,6 +283,39 @@ export class LeaveService {
     return leaveType;
   }
 
+  private mapHolidayRecord(item: AttendanceHoliday) {
+    return {
+      id: item.id,
+      company_id: item.companyId,
+      name: item.name,
+      holiday_date: item.date,
+      is_recurring: item.isRecurring,
+      created_at: item.createdAt,
+      updated_at: item.updatedAt,
+    };
+  }
+
+  private async ensureSharedHolidayGroup(companyId: number): Promise<HolidayGroup> {
+    const existing = await this.holidayGroupRepository.findOne({
+      where: {
+        companyId,
+        name: 'General Holidays',
+      },
+    });
+
+    if (existing) {
+      return existing;
+    }
+
+    return this.holidayGroupRepository.save(
+      this.holidayGroupRepository.create({
+        companyId,
+        name: 'General Holidays',
+        description: 'Shared holiday definitions used by leave and attendance.',
+      }),
+    );
+  }
+
   private async generateLeaveNo(companyId: number, manager?: EntityManager): Promise<string> {
     const repository = manager?.getRepository(LeaveRequest) ?? this.leaveRequestRepository;
     const year = new Date().getFullYear();
@@ -280,13 +336,27 @@ export class LeaveService {
 
   private async calculateLeaveDays(
     companyId: number,
+    branchId: number | null,
     startDate: string,
     endDate: string,
   ): Promise<number> {
     this.assertDateOrder(startDate, endDate, 'end_date cannot be before start_date');
-    const holidays = await this.holidayRepository.find({
-      where: { company_id: companyId },
-    });
+    const attendanceHolidaysQuery = this.attendanceHolidayRepository
+      .createQueryBuilder('holiday')
+      .where('holiday.company_id = :companyId', { companyId })
+      .andWhere('holiday.date >= :startDate', { startDate })
+      .andWhere('holiday.date <= :endDate', { endDate });
+
+    if (branchId === null) {
+      attendanceHolidaysQuery.andWhere('holiday.branch_id IS NULL');
+    } else {
+      attendanceHolidaysQuery.andWhere(
+        '(holiday.branch_id = :branchId OR holiday.branch_id IS NULL)',
+        { branchId },
+      );
+    }
+
+    const attendanceHolidays = await attendanceHolidaysQuery.getMany();
 
     const start = new Date(`${startDate}T00:00:00.000Z`);
     const end = new Date(`${endDate}T00:00:00.000Z`);
@@ -307,15 +377,15 @@ export class LeaveService {
       const dateOfMonth = String(date.getUTCDate()).padStart(2, '0');
       const dateKey = `${date.getUTCFullYear()}-${month}-${dateOfMonth}`;
 
-      const isHoliday = holidays.some((holiday) => {
-        if (holiday.is_recurring) {
-          const [, holidayMonth, holidayDay] = holiday.holiday_date.split('-');
+      const isAttendanceHoliday = attendanceHolidays.some((holiday) => {
+        if (holiday.isRecurring) {
+          const [, holidayMonth, holidayDay] = holiday.date.split('-');
           return holidayMonth === month && holidayDay === dateOfMonth;
         }
-        return holiday.holiday_date === dateKey;
+        return holiday.date === dateKey;
       });
 
-      if (!isHoliday) {
+      if (!isAttendanceHoliday) {
         leaveDays += 1;
       }
     }
@@ -1781,23 +1851,32 @@ export class LeaveService {
   }
 
   async createHoliday(companyId: number, dto: CreateHolidayDto, actor: AuthenticatedUser) {
-    const existing = await this.holidayRepository.findOne({
+    const holidayGroup = await this.ensureSharedHolidayGroup(companyId);
+
+    const existing = await this.attendanceHolidayRepository.findOne({
       where: {
-        company_id: companyId,
+        companyId,
+        branchId: IsNull(),
         name: dto.name.trim(),
-        holiday_date: dto.holiday_date,
+        date: dto.holiday_date,
       },
     });
     if (existing) {
       throw new ConflictException('Holiday already exists');
     }
 
-    const holiday = await this.holidayRepository.save(
-      this.holidayRepository.create({
-        company_id: companyId,
+    const holiday = await this.attendanceHolidayRepository.save(
+      this.attendanceHolidayRepository.create({
+        companyId,
+        holidayGroupId: holidayGroup.id,
         name: dto.name.trim(),
-        holiday_date: dto.holiday_date,
-        is_recurring: dto.is_recurring ?? false,
+        date: dto.holiday_date,
+        isRecurring: dto.is_recurring ?? false,
+        type: AttendanceHolidayTypeEnum.COMPANY,
+        isPaid: true,
+        affectsOvertime: false,
+        countsAsWorkingDay: false,
+        branchId: null,
       }),
     );
 
@@ -1809,37 +1888,44 @@ export class LeaveService {
       actor,
     });
 
-    return holiday;
+    return this.mapHolidayRecord(holiday);
   }
 
   async findAllHolidays(companyId: number, query: HolidayQueryDto) {
     const { page = 1, limit = 20, sortBy = 'holiday_date', sortOrder, from_date, to_date } =
       query;
 
-    const qb = this.holidayRepository
+    const qb = this.attendanceHolidayRepository
       .createQueryBuilder('holiday')
-      .where('holiday.company_id = :companyId', { companyId });
+      .where('holiday.company_id = :companyId', { companyId })
+      .andWhere('holiday.branch_id IS NULL');
 
     if (from_date) {
-      qb.andWhere('holiday.holiday_date >= :fromDate', { fromDate: from_date });
+      qb.andWhere('holiday.date >= :fromDate', { fromDate: from_date });
     }
     if (to_date) {
-      qb.andWhere('holiday.holiday_date <= :toDate', { toDate: to_date });
+      qb.andWhere('holiday.date <= :toDate', { toDate: to_date });
     }
 
-    const allowedSortFields = ['id', 'name', 'holiday_date', 'created_at'];
+    const allowedSortFields = ['id', 'name', 'holiday_date', 'created_at', 'updated_at'];
     const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'holiday_date';
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
     const skip = (page - 1) * limit;
+    const sortField =
+      safeSortBy === 'holiday_date'
+        ? 'date'
+        : safeSortBy === 'updated_at'
+          ? 'updated_at'
+          : safeSortBy;
 
     const [items, total] = await qb
-      .orderBy(`holiday.${safeSortBy}`, direction)
+      .orderBy(`holiday.${sortField}`, direction)
       .skip(skip)
       .take(limit)
       .getManyAndCount();
 
     return {
-      data: items,
+      data: items.map((item) => this.mapHolidayRecord(item)),
       meta: buildPaginationMeta(total, items.length, limit, page),
     };
   }
@@ -1850,18 +1936,32 @@ export class LeaveService {
     dto: UpdateHolidayDto,
     actor: AuthenticatedUser,
   ) {
-    const holiday = await this.holidayRepository.findOne({
-      where: { id: holidayId, company_id: companyId },
+    const holiday = await this.attendanceHolidayRepository.findOne({
+      where: { id: holidayId, companyId, branchId: IsNull() },
     });
     if (!holiday) {
       throw new NotFoundException('Holiday not found');
     }
 
-    if (dto.name !== undefined) holiday.name = dto.name.trim();
-    if (dto.holiday_date !== undefined) holiday.holiday_date = dto.holiday_date;
-    if (dto.is_recurring !== undefined) holiday.is_recurring = dto.is_recurring;
+    const nextName = dto.name?.trim() ?? holiday.name;
+    const nextDate = dto.holiday_date ?? holiday.date;
+    const duplicate = await this.attendanceHolidayRepository.findOne({
+      where: {
+        companyId,
+        branchId: IsNull(),
+        name: nextName,
+        date: nextDate,
+      },
+    });
+    if (duplicate && duplicate.id !== holiday.id) {
+      throw new ConflictException('Holiday already exists');
+    }
 
-    const saved = await this.holidayRepository.save(holiday);
+    holiday.name = nextName;
+    holiday.date = nextDate;
+    if (dto.is_recurring !== undefined) holiday.isRecurring = dto.is_recurring;
+
+    const saved = await this.attendanceHolidayRepository.save(holiday);
     await this.leaveAuditService.log({
       company_id: companyId,
       action: 'holiday.updated',
@@ -1869,18 +1969,18 @@ export class LeaveService {
       entity_id: saved.id,
       actor,
     });
-    return saved;
+    return this.mapHolidayRecord(saved);
   }
 
   async removeHoliday(companyId: number, holidayId: number, actor: AuthenticatedUser) {
-    const holiday = await this.holidayRepository.findOne({
-      where: { id: holidayId, company_id: companyId },
+    const holiday = await this.attendanceHolidayRepository.findOne({
+      where: { id: holidayId, companyId, branchId: IsNull() },
     });
     if (!holiday) {
       throw new NotFoundException('Holiday not found');
     }
 
-    await this.holidayRepository.remove(holiday);
+    await this.attendanceHolidayRepository.remove(holiday);
     await this.leaveAuditService.log({
       company_id: companyId,
       action: 'holiday.deleted',
@@ -1985,6 +2085,7 @@ export class LeaveService {
   ) {
     const employee = await this.findEmployeeOrFail(companyId, dto.employee_id);
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+    this.assertEmployeeCanRequestLeave(employee, dto.start_date, dto.end_date);
     const leaveType = await this.findLeaveTypeOrFail(companyId, dto.leave_type_id);
 
     if (leaveType.status !== LeaveRecordStatusEnum.ACTIVE) {
@@ -2005,6 +2106,7 @@ export class LeaveService {
 
     const totalDays = await this.calculateLeaveDays(
       companyId,
+      employee.primary_branch_id ?? null,
       dto.start_date,
       dto.end_date,
     );
@@ -2133,6 +2235,11 @@ export class LeaveService {
     }
 
     await this.hrAccessService.assertCanAccessEmployee(actor, leaveRequest.employee);
+    this.assertEmployeeCanRequestLeave(
+      leaveRequest.employee,
+      leaveRequest.start_date,
+      leaveRequest.end_date,
+    );
 
     const leaveType = await this.findLeaveTypeOrFail(
       companyId,
@@ -2160,6 +2267,7 @@ export class LeaveService {
 
     const totalDays = await this.calculateLeaveDays(
       companyId,
+      leaveRequest.employee.primary_branch_id ?? null,
       leaveRequest.start_date,
       leaveRequest.end_date,
     );

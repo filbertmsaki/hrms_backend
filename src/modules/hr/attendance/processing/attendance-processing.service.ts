@@ -7,6 +7,7 @@ import { AttendanceProcessedEventDirectionEnum } from './enums/attendance-proces
 import { AttendanceEmployeeResolverService } from './attendance-employee-resolver.service';
 import { AttendanceDailySummaryService } from './attendance-daily-summary.service';
 import { ProcessAttendanceRangeDto } from './dtos/process-attendance-range.dto';
+import { formatDateOnly, normalizeDateInput } from '../../shared/hr.utils';
 
 @Injectable()
 export class AttendanceProcessingService {
@@ -231,15 +232,15 @@ export class AttendanceProcessingService {
   }
 
   private normalizeDate(value: string, field: string): string {
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) {
-      throw new BadRequestException(`${field} must be a valid date`);
+    try {
+      return normalizeDateInput(value, field);
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
     }
-    return parsed.toISOString().slice(0, 10);
   }
 
   private asDate(value: Date): string {
-    return new Date(value).toISOString().slice(0, 10);
+    return formatDateOnly(new Date(value));
   }
 
   private isDuplicateError(error: unknown): boolean {

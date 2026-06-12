@@ -50,3 +50,46 @@ export function getMembershipPermissions(
 
   return Array.from(permissions);
 }
+
+function padDatePart(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+export function formatDateOnly(value: Date): string {
+  return [
+    value.getFullYear(),
+    padDatePart(value.getMonth() + 1),
+    padDatePart(value.getDate()),
+  ].join('-');
+}
+
+export function normalizeDateInput(value: string, field: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`${field} must be a valid date`);
+  }
+
+  return formatDateOnly(parsed);
+}
+
+export function buildDateOnlyRange(startDate: string, endDate: string): string[] {
+  const out: string[] = [];
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+
+  for (let d = new Date(start); d.getTime() <= end.getTime(); d.setUTCDate(d.getUTCDate() + 1)) {
+    out.push(formatDateOnly(d));
+  }
+
+  return out;
+}
+
+export function addDaysToDateOnly(date: string, days: number): string {
+  const base = new Date(`${date}T00:00:00Z`);
+  base.setUTCDate(base.getUTCDate() + days);
+  return formatDateOnly(base);
+}

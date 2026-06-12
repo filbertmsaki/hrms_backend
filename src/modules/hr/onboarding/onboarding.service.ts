@@ -17,9 +17,12 @@ import { DocumentModuleEnum } from '../documents/enums/document-module.enum';
 import { Department } from '../departments/entities/department.entity';
 import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
 import { Employee } from '../employees/entities/employee.entity';
+import { LeaveType } from '../leave/entities/leave-type.entity';
+import { LeaveRecordStatusEnum } from '../leave/enums/leave-record-status.enum';
+import { LeaveBalanceService } from '../leave/services/leave-balance.service';
 import { Position } from '../positions/entities/position.entity';
 import { HrAccessService } from '../shared/hr-access.service';
-import { buildPaginationMeta } from '../shared/hr.utils';
+import { buildPaginationMeta, formatDateOnly } from '../shared/hr.utils';
 import { CancelOnboardingRequestDto } from './dtos/cancel-onboarding-request.dto';
 import { CompleteOnboardingTaskDto } from './dtos/complete-onboarding-task.dto';
 import { CreateOnboardingRequestDto } from './dtos/create-onboarding-request.dto';
@@ -92,6 +95,7 @@ export class OnboardingService {
     private readonly hrAccessService: HrAccessService,
     private readonly onboardingAuditService: OnboardingAuditService,
     private readonly onboardingWorkflowService: OnboardingWorkflowService,
+    private readonly leaveBalanceService: LeaveBalanceService,
   ) {}
 
   private getOnboardingWorkflowRepository(
@@ -167,10 +171,6 @@ export class OnboardingService {
     }
   }
 
-  private formatDateOnly(value: Date): string {
-    return value.toISOString().slice(0, 10);
-  }
-
   private async findEmployeeOrFail(
     companyId: number,
     employeeId: number,
@@ -191,6 +191,38 @@ export class OnboardingService {
     }
 
     return employee;
+  }
+
+  private async initializeLeaveBalancesForEmployee(
+    companyId: number,
+    employee: Employee,
+    manager: EntityManager,
+  ): Promise<void> {
+    const leaveTypeRepository = manager.getRepository(LeaveType);
+    const leaveTypes = await leaveTypeRepository.find({
+      where: {
+        company_id: companyId,
+        status: LeaveRecordStatusEnum.ACTIVE,
+      },
+    });
+
+    if (!leaveTypes.length) {
+      return;
+    }
+
+    const fiscalYear = this.leaveBalanceService.getFiscalYearFromDate(
+      employee.hire_date ?? formatDateOnly(new Date()),
+    );
+
+    for (const leaveType of leaveTypes) {
+      await this.leaveBalanceService.ensureBalanceForEmployee(
+        companyId,
+        employee,
+        leaveType.id,
+        fiscalYear,
+        manager,
+      );
+    }
   }
 
   private async ensureNoActiveOnboarding(
@@ -1721,9 +1753,10 @@ export class OnboardingService {
       });
       employee.employment_status = EmploymentStatusEnum.ACTIVE;
       if (!employee.hire_date) {
-        employee.hire_date = this.formatDateOnly(new Date());
+        employee.hire_date = formatDateOnly(new Date());
       }
       await employeeRepository.save(employee);
+      await this.initializeLeaveBalancesForEmployee(companyId, employee, manager);
 
       return requestRepository.findOneOrFail({
         where: { id: current.id },

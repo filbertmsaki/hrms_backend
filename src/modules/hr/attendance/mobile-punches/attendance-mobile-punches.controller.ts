@@ -13,6 +13,8 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
+import { Permissions } from '../../../../common/decorators/permissions.decorator';
+import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
 import { TenantGuard } from 'src/common/guards/tenant.guard';
 import { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { AttendanceMobilePunchesService } from './attendance-mobile-punches.service';
@@ -64,6 +66,12 @@ export class AttendanceMobilePunchesController {
   ) {
     if (req.user.employeeId) {
       query.employeeId = req.user.employeeId;
+    } else if (
+      !req.user.permissions.includes('attendance_mobile_punches:read')
+    ) {
+      throw new ForbiddenException(
+        'You do not have permission to view attendance punches.',
+      );
     }
 
     return this.mobilePunchesService.findAll(req.user.companyId!, query);
@@ -80,12 +88,21 @@ export class AttendanceMobilePunchesController {
       throw new ForbiddenException(
         'You can only access your own attendance punches.',
       );
+    } else if (
+      !req.user.employeeId &&
+      !req.user.permissions.includes('attendance_mobile_punches:read')
+    ) {
+      throw new ForbiddenException(
+        'You do not have permission to view attendance punches.',
+      );
     }
 
     return punch;
   }
 
   @Patch(':id/approve-override')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_mobile_punches:update')
   approveOverride(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ApproveMobilePunchOverrideDto,
@@ -100,6 +117,8 @@ export class AttendanceMobilePunchesController {
   }
 
   @Patch(':id/reject-override')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_mobile_punches:update')
   rejectOverride(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ApproveMobilePunchOverrideDto,

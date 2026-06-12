@@ -28,6 +28,7 @@ export class AttendanceHolidaysService {
       holiday_group_id: item.holidayGroupId,
       name: item.name,
       date: item.date,
+      is_recurring: item.isRecurring,
       type: item.type,
       is_paid: item.isPaid,
       affects_overtime: item.affectsOvertime,
@@ -99,6 +100,7 @@ export class AttendanceHolidaysService {
         holidayGroupId: dto.holiday_group_id,
         name: dto.name.trim(),
         date: dto.date,
+        isRecurring: dto.is_recurring ?? false,
         type: dto.type,
         isPaid: dto.is_paid ?? true,
         affectsOvertime: dto.affects_overtime ?? false,
@@ -210,6 +212,9 @@ export class AttendanceHolidaysService {
 
     if (dto.type !== undefined) {
       holiday.type = dto.type;
+    }
+    if (dto.is_recurring !== undefined) {
+      holiday.isRecurring = dto.is_recurring;
     }
     if (dto.is_paid !== undefined) {
       holiday.isPaid = dto.is_paid;

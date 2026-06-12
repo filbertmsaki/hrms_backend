@@ -8,7 +8,6 @@ import { LeaveApprovalWorkflow } from './entities/leave-approval-workflow.entity
 import { LeaveApprovalWorkflowStep } from './entities/leave-approval-workflow-step.entity';
 import { LeaveMedicalDetail } from './entities/leave-medical-detail.entity';
 import { LeaveDocument } from './entities/leave-document.entity';
-import { Holiday } from './entities/holiday.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { Branch } from '../branches/entities/branch.entity';
 import { Department } from '../departments/entities/department.entity';
@@ -21,9 +20,12 @@ import { LeaveBalanceService } from './services/leave-balance.service';
 import { LeaveWorkflowService } from './services/leave-workflow.service';
 import { LeavePdfService } from './services/leave-pdf.service';
 import { AttendanceRecalculationJob } from '../attendance/processing/entities/attendance-recalculation-job.entity';
+import { AttendanceHoliday } from '../attendance/holidays/entities/holiday.entity';
+import { HolidayGroup } from '../attendance/holidays/entities/holiday-group.entity';
 import { LeaveRecordStatusEnum } from './enums/leave-record-status.enum';
 import { LeaveGenderRestrictionEnum } from './enums/leave-gender-restriction.enum';
 import { LeaveStatusEnum } from './enums/leave-status.enum';
+import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 
 type MockRepo<T> = Partial<Record<keyof Repository<T>, jest.Mock>>;
@@ -64,7 +66,8 @@ describe('LeaveService', () => {
   let leaveApprovalWorkflowStepRepository: MockRepo<LeaveApprovalWorkflowStep>;
   let leaveMedicalDetailRepository: MockRepo<LeaveMedicalDetail>;
   let leaveDocumentRepository: MockRepo<LeaveDocument>;
-  let holidayRepository: MockRepo<Holiday>;
+  let attendanceHolidayRepository: MockRepo<AttendanceHoliday>;
+  let holidayGroupRepository: MockRepo<HolidayGroup>;
   let employeeRepository: MockRepo<Employee>;
   let branchRepository: MockRepo<Branch>;
   let departmentRepository: MockRepo<Department>;
@@ -107,7 +110,8 @@ describe('LeaveService', () => {
     leaveApprovalWorkflowStepRepository = createRepositoryMock();
     leaveMedicalDetailRepository = createRepositoryMock();
     leaveDocumentRepository = createRepositoryMock();
-    holidayRepository = createRepositoryMock();
+    attendanceHolidayRepository = createRepositoryMock();
+    holidayGroupRepository = createRepositoryMock();
     employeeRepository = createRepositoryMock();
     branchRepository = createRepositoryMock();
     departmentRepository = createRepositoryMock();
@@ -161,7 +165,8 @@ describe('LeaveService', () => {
       leaveApprovalWorkflowStepRepository as Repository<LeaveApprovalWorkflowStep>,
       leaveMedicalDetailRepository as Repository<LeaveMedicalDetail>,
       leaveDocumentRepository as Repository<LeaveDocument>,
-      holidayRepository as Repository<Holiday>,
+      attendanceHolidayRepository as Repository<AttendanceHoliday>,
+      holidayGroupRepository as Repository<HolidayGroup>,
       employeeRepository as Repository<Employee>,
       branchRepository as Repository<Branch>,
       departmentRepository as Repository<Department>,
@@ -204,6 +209,7 @@ describe('LeaveService', () => {
         last_name: 'Jones',
         middle_name: null,
         gender: 'female',
+        employment_status: EmploymentStatusEnum.ACTIVE,
         hire_date: '2025-01-01',
         primary_department_id: 2,
         primary_position_id: 3,
@@ -237,6 +243,8 @@ describe('LeaveService', () => {
     };
     const overlapBuilder = createQueryBuilderMock();
     overlapBuilder.getOne.mockResolvedValue(null);
+    const attendanceHolidayBuilder = createQueryBuilderMock();
+    attendanceHolidayBuilder.getMany = jest.fn().mockResolvedValue([]);
     const managerLeaveRequestRepository = {
       findOne: jest.fn().mockResolvedValue({ ...draftRequest }),
       save: jest.fn(async (value) => value),
@@ -260,6 +268,9 @@ describe('LeaveService', () => {
 
     leaveRequestRepository.findOne!.mockResolvedValue(draftRequest);
     leaveRequestRepository.createQueryBuilder!.mockReturnValue(overlapBuilder);
+    attendanceHolidayRepository.createQueryBuilder!.mockReturnValue(
+      attendanceHolidayBuilder,
+    );
     leaveTypeRepository.findOne!.mockResolvedValue({
       id: 7,
       company_id: 10,
@@ -274,7 +285,6 @@ describe('LeaveService', () => {
       requires_attachment: false,
       description: null,
     });
-    holidayRepository.find!.mockResolvedValue([]);
     leavePolicyRepository.find!.mockResolvedValue([
       {
         company_id: 10,
@@ -315,6 +325,103 @@ describe('LeaveService', () => {
         action: 'leave_request.submitted',
         leave_request_id: 77,
       }),
+    );
+  });
+
+  it('rejects leave requests for employees who are no longer active', async () => {
+    employeeRepository.findOne!.mockResolvedValue({
+      id: 501,
+      employment_status: EmploymentStatusEnum.EXITED,
+      exit_date: '2026-06-10',
+      gender: 'female',
+      hire_date: '2025-01-01',
+      primary_department_id: 2,
+      primary_position_id: 3,
+      company_user: {
+        id: 44,
+        company_id: 10,
+      },
+    });
+
+    await expect(
+      service.createLeaveRequest(
+        10,
+        {
+          employee_id: 501,
+          leave_type_id: 7,
+          start_date: '2026-06-12',
+          end_date: '2026-06-12',
+          reason: 'Personal errand',
+          submit: true,
+        },
+        actor,
+      ),
+    ).rejects.toThrow('Only active employees can create or submit leave requests.');
+
+    expect(leaveTypeRepository.findOne).not.toHaveBeenCalled();
+  });
+
+  it('counts attendance holidays when calculating leave days for the employee branch', async () => {
+    const overlapBuilder = createQueryBuilderMock();
+    overlapBuilder.getOne.mockResolvedValue(null);
+    const attendanceHolidayBuilder = createQueryBuilderMock();
+    attendanceHolidayBuilder.getMany = jest.fn().mockResolvedValue([
+      {
+        id: 1,
+        companyId: 10,
+        branchId: 2,
+        date: '2026-06-10',
+      },
+    ]);
+
+    employeeRepository.findOne!.mockResolvedValue({
+      id: 501,
+      employment_status: EmploymentStatusEnum.ACTIVE,
+      exit_date: null,
+      gender: 'female',
+      hire_date: '2025-01-01',
+      primary_branch_id: 2,
+      primary_department_id: 2,
+      primary_position_id: 3,
+      company_user: {
+        id: 44,
+        company_id: 10,
+      },
+    });
+    leaveTypeRepository.findOne!.mockResolvedValue({
+      id: 7,
+      company_id: 10,
+      name: 'Emergency Leave',
+      code: 'EL',
+      status: LeaveRecordStatusEnum.ACTIVE,
+      gender_restriction: LeaveGenderRestrictionEnum.ANY,
+      max_days_per_year: '10.00',
+      is_carry_forward_allowed: false,
+      max_carry_forward_days: '0.00',
+      is_paid: true,
+      requires_attachment: false,
+      description: null,
+    });
+    leaveRequestRepository.createQueryBuilder!.mockReturnValue(overlapBuilder);
+    attendanceHolidayRepository.createQueryBuilder!.mockReturnValue(
+      attendanceHolidayBuilder,
+    );
+
+    await expect(
+      service.createLeaveRequest(
+        10,
+        {
+          employee_id: 501,
+          leave_type_id: 7,
+          start_date: '2026-06-10',
+          end_date: '2026-06-10',
+          reason: 'Public holiday overlap',
+          submit: true,
+        },
+        actor,
+      ),
+    ).rejects.toThrow(
+      'Selected period results in zero leave days after holidays/weekends',
     );
   });
 });

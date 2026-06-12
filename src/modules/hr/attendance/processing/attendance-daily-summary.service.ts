@@ -1,14 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
-import { buildPaginationMeta } from '../../shared/hr.utils';
+import { buildDateOnlyRange, buildPaginationMeta } from '../../shared/hr.utils';
 import { LeaveStatusEnum } from '../../leave/enums/leave-status.enum';
 import { LeaveRequest } from '../../leave/entities/leave-request.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { ShiftAssignment } from '../shift/shift-assignments/entities/shift-assignment.entity';
 import { ShiftAssignmentStatusEnum } from '../shift/shift-assignments/enums/shift-assignment-status.enum';
 import { ShiftSchedule } from '../shift/shift-schedules/entities/shift-schedule.entity';
+import { AttendanceMobilePunch } from '../mobile-punches/entities/attendance-mobile-punch.entity';
+import { AttendancePunchValidationStatusEnum } from '../mobile-punches/enums/attendance-punch-validation-status.enum';
 import { EmployeeTimetable } from '../timetable/employee-timetables/entities/employee-timetable.entity';
 import { EmployeeTimetableStatusEnum } from '../timetable/employee-timetables/enums/employee-timetable-status.enum';
 import { AttendanceBusinessTrip } from './entities/attendance-business-trip.entity';
@@ -27,6 +29,8 @@ export class AttendanceDailySummaryService {
     private readonly processedEventRepository: Repository<AttendanceProcessedEvent>,
     @InjectRepository(AttendanceDailySummary)
     private readonly dailySummaryRepository: Repository<AttendanceDailySummary>,
+    @InjectRepository(AttendanceMobilePunch)
+    private readonly mobilePunchRepository: Repository<AttendanceMobilePunch>,
     @InjectRepository(LeaveRequest)
     private readonly leaveRequestRepository: Repository<LeaveRequest>,
     @InjectRepository(AttendanceBusinessTrip)
@@ -95,10 +99,56 @@ export class AttendanceDailySummaryService {
     employeeId: number,
     attendanceDate: string,
   ): Promise<boolean> {
-    const events = await this.processedEventRepository.find({
-      where: { companyId, employeeId, attendanceDate, isValid: true },
-      order: { eventTime: 'ASC' },
+    const employee = await this.employeeRepository.findOne({
+      where: { id: employeeId },
+      select: {
+        id: true,
+        exit_date: true,
+      },
     });
+
+    const existing = await this.dailySummaryRepository.findOne({
+      where: { companyId, employeeId, attendanceDate },
+    });
+
+    if (employee?.exit_date && attendanceDate > employee.exit_date) {
+      if (existing) {
+        await this.dailySummaryRepository.remove(existing);
+      }
+      return false;
+    }
+
+    const [processedEvents, mobilePunches] = await Promise.all([
+      this.processedEventRepository.find({
+        where: { companyId, employeeId, attendanceDate, isValid: true },
+        order: { eventTime: 'ASC' },
+      }),
+      this.mobilePunchRepository.find({
+        where: {
+          companyId,
+          employeeId,
+          attendanceDate,
+          validationStatus: In([
+            AttendancePunchValidationStatusEnum.APPROVED,
+            AttendancePunchValidationStatusEnum.OVERRIDE_APPROVED,
+          ]),
+        },
+        order: { punchTime: 'ASC' },
+      }),
+    ]);
+
+    const events = [
+      ...processedEvents.map((event) => ({
+        id: `processed:${event.id}`,
+        eventTime: event.eventTime,
+        rawLogId: event.rawLogId,
+      })),
+      ...mobilePunches.map((punch) => ({
+        id: `mobile:${punch.id}`,
+        eventTime: punch.punchTime,
+        rawLogId: null,
+      })),
+    ].sort((left, right) => left.eventTime.getTime() - right.eventTime.getTime());
 
     const preferredTimezone = await this.resolvePreferredTimezone(companyId, employeeId, attendanceDate);
     const schedule = await this.scheduleResolver.resolveForDate(
@@ -125,10 +175,6 @@ export class AttendanceDailySummaryService {
       hasApprovedLeave,
       hasApprovedBusinessTrip,
       eventCount: events.length,
-    });
-
-    const existing = await this.dailySummaryRepository.findOne({
-      where: { companyId, employeeId, attendanceDate },
     });
 
     if (!existing && !summaryValues.shouldPersist) {
@@ -298,12 +344,27 @@ export class AttendanceDailySummaryService {
       .andWhere('schedule.schedule_date <= :endDate', { endDate })
       .getRawMany<{ employeeId: string }>();
 
+    const mobilePunchRows = await this.mobilePunchRepository
+      .createQueryBuilder('punch')
+      .select('DISTINCT punch.employee_id', 'employeeId')
+      .where('punch.company_id = :companyId', { companyId })
+      .andWhere('punch.attendance_date >= :startDate', { startDate })
+      .andWhere('punch.attendance_date <= :endDate', { endDate })
+      .andWhere('punch.validation_status IN (:...statuses)', {
+        statuses: [
+          AttendancePunchValidationStatusEnum.APPROVED,
+          AttendancePunchValidationStatusEnum.OVERRIDE_APPROVED,
+        ],
+      })
+      .getRawMany<{ employeeId: string }>();
+
     const employeeIds = new Set<number>();
     for (const row of [
       ...eventRows,
       ...timetableRows,
       ...shiftAssignmentRows,
       ...shiftScheduleRows,
+      ...mobilePunchRows,
     ]) {
       const value = Number(row.employeeId);
       if (Number.isInteger(value) && value > 0) {
@@ -490,7 +551,10 @@ export class AttendanceDailySummaryService {
       hasApprovedLeave ||
       hasApprovedBusinessTrip ||
       schedule.isHoliday ||
-      schedule.isOffDay;
+      schedule.isOffDay ||
+      attendanceStatus === AttendanceDailyStatusEnum.ABSENT ||
+      attendanceStatus === AttendanceDailyStatusEnum.INCOMPLETE ||
+      attendanceStatus === AttendanceDailyStatusEnum.HALF_DAY;
 
     return {
       shouldPersist,
@@ -504,14 +568,6 @@ export class AttendanceDailySummaryService {
   }
 
   private buildDateRange(startDate: string, endDate: string): string[] {
-    const out: string[] = [];
-    const start = new Date(`${startDate}T00:00:00Z`);
-    const end = new Date(`${endDate}T00:00:00Z`);
-
-    for (let d = new Date(start); d.getTime() <= end.getTime(); d.setUTCDate(d.getUTCDate() + 1)) {
-      out.push(d.toISOString().slice(0, 10));
-    }
-
-    return out;
+    return buildDateOnlyRange(startDate, endDate);
   }
 }

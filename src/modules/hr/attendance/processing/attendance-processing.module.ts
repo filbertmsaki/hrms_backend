@@ -7,6 +7,7 @@ import { AttendanceDevice } from '../../../access-control/attendance-devices/ent
 import { EmployeeDeviceAssignment } from '../../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { LeaveRequest } from '../../leave/entities/leave-request.entity';
+import { HrSharedModule } from '../../shared/hr-shared.module';
 import { ShiftAssignment } from '../shift/shift-assignments/entities/shift-assignment.entity';
 import { ShiftAttendanceRule } from '../shift/shift-attendance-rules/entities/shift-attendance-rule.entity';
 import { ShiftOvertimeRule } from '../shift/shift-overtime-rules/entities/shift-overtime-rule.entity';
@@ -30,6 +31,9 @@ import { AttendanceDailySummary } from './entities/attendance-daily-summary.enti
 import { AttendanceProcessedEvent } from './entities/attendance-processed-event.entity';
 import { AttendanceRecalculationJob } from './entities/attendance-recalculation-job.entity';
 import { EmployeeDeviceIdentity } from './entities/employee-device-identity.entity';
+import { AttendanceMobilePunch } from '../mobile-punches/entities/attendance-mobile-punch.entity';
+import { AttendanceBusinessTripsController } from './attendance-business-trips.controller';
+import { AttendanceBusinessTripsService } from './attendance-business-trips.service';
 import { AttendanceProcessingController } from './attendance-processing.controller';
 import { AttendanceEmployeeResolverService } from './attendance-employee-resolver.service';
 import { AttendanceScheduleResolverService } from './attendance-schedule-resolver.service';
@@ -68,14 +72,17 @@ import { TimetableScheduleGenerationService } from './timetable-schedule-generat
       TimetableGeneratedSchedule,
       EmployeeDeviceAssignment,
       EmployeeDeviceIdentity,
+      AttendanceMobilePunch,
       AttendanceProcessedEvent,
       AttendanceDailySummary,
       AttendanceRecalculationJob,
       AttendanceBusinessTrip,
     ]),
+    HrSharedModule,
   ],
-  controllers: [AttendanceProcessingController],
+  controllers: [AttendanceProcessingController, AttendanceBusinessTripsController],
   providers: [
+    AttendanceBusinessTripsService,
     AttendanceEmployeeResolverService,
     AttendanceScheduleResolverService,
     AttendanceDailySummaryService,
@@ -85,6 +92,7 @@ import { TimetableScheduleGenerationService } from './timetable-schedule-generat
     AttendanceProcessingCronService,
   ],
   exports: [
+    AttendanceBusinessTripsService,
     AttendanceProcessingService,
     AttendanceDailySummaryService,
     AttendanceRecalculationService,

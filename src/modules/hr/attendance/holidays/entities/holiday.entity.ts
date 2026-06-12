@@ -39,6 +39,9 @@ export class AttendanceHoliday {
   @Column({ name: 'date', type: 'date' })
   date: string;
 
+  @Column({ name: 'is_recurring', type: 'boolean', default: false })
+  isRecurring: boolean;
+
   @Column({
     name: 'type',
     type: 'enum',

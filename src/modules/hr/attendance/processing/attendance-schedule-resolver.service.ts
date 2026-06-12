@@ -22,6 +22,7 @@ import { TimetableDay } from '../timetable/timetable-days/entities/timetable-day
 import { TimetableGeneratedSchedule } from '../timetable/timetable-generated-schedules/entities/timetable-generated-schedule.entity';
 import { TimetableShiftRule } from '../timetable/timetable-shift-rules/entities/timetable-shift-rule.entity';
 import { Timetable } from '../timetable/timetables/entities/timetable.entity';
+import { addDaysToDateOnly } from '../../shared/hr.utils';
 import { ResolvedAttendanceSchedule } from './entities/resolved-attendance-schedule.type';
 import { TimetableScheduleGenerationService } from './timetable-schedule-generation.service';
 
@@ -706,10 +707,19 @@ export class AttendanceScheduleResolverService {
     branchId: number | null,
     scheduleDate: string,
   ): Promise<AttendanceHoliday | null> {
+    const [, month, day] = scheduleDate.split('-');
+    const monthDay = `${month}-${day}`;
     const qb = this.holidayRepository
       .createQueryBuilder('holiday')
       .where('holiday.company_id = :companyId', { companyId })
-      .andWhere('holiday.date = :scheduleDate', { scheduleDate });
+      .andWhere(
+        '(holiday.date = :scheduleDate OR (holiday.is_recurring = :isRecurring AND DATE_FORMAT(holiday.date, \'%m-%d\') = :monthDay))',
+        {
+          scheduleDate,
+          isRecurring: true,
+          monthDay,
+        },
+      );
 
     if (branchId === null) {
       qb.andWhere('holiday.branch_id IS NULL');
@@ -722,7 +732,9 @@ export class AttendanceScheduleResolverService {
 
     return qb
       .orderBy('CASE WHEN holiday.branch_id IS NULL THEN 1 ELSE 0 END', 'ASC')
+      .addOrderBy('CASE WHEN holiday.date = :scheduleDate THEN 0 ELSE 1 END', 'ASC')
       .addOrderBy('holiday.branch_id', 'DESC')
+      .setParameter('scheduleDate', scheduleDate)
       .getOne();
   }
 
@@ -766,9 +778,7 @@ export class AttendanceScheduleResolverService {
   }
 
   private addDays(date: string, days: number): string {
-    const base = new Date(`${date}T00:00:00Z`);
-    base.setUTCDate(base.getUTCDate() + days);
-    return base.toISOString().slice(0, 10);
+    return addDaysToDateOnly(date, days);
   }
 
   private getDayOfWeek(date: string): number {

@@ -20,6 +20,7 @@ import { Position } from '../positions/entities/position.entity';
 import { HrAccessService } from '../shared/hr-access.service';
 import {
   buildPaginationMeta,
+  formatDateOnly,
 } from '../shared/hr.utils';
 import { AddEmployeeDocumentDto } from './dtos/add-employee-document.dto';
 import { ChangeEmployeeStatusDto } from './dtos/change-employee-status.dto';
@@ -1674,7 +1675,7 @@ export class EmployeesService {
   }
 
   private getTodayDate(): string {
-    return new Date().toISOString().slice(0, 10);
+    return formatDateOnly(new Date());
   }
 
   private async syncPrimaryPositionAssignments(
@@ -2056,7 +2057,7 @@ export class EmployeesService {
       )
     ) {
       if (!normalized.exit_date) {
-        normalized.exit_date = new Date().toISOString().slice(0, 10);
+        normalized.exit_date = formatDateOnly(new Date());
       }
     }
 

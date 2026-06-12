@@ -17,6 +17,11 @@ import { DocumentModuleEnum } from '../documents/enums/document-module.enum';
 import { Department } from '../departments/entities/department.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
+import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
+import { ShiftAssignment } from '../attendance/shift/shift-assignments/entities/shift-assignment.entity';
+import { ShiftAssignmentStatusEnum } from '../attendance/shift/shift-assignments/enums/shift-assignment-status.enum';
+import { EmployeeTimetable } from '../attendance/timetable/employee-timetables/entities/employee-timetable.entity';
+import { EmployeeTimetableStatusEnum } from '../attendance/timetable/employee-timetables/enums/employee-timetable-status.enum';
 import { Position } from '../positions/entities/position.entity';
 import { HrAccessService } from '../shared/hr-access.service';
 import { buildPaginationMeta } from '../shared/hr.utils';
@@ -96,6 +101,12 @@ export class OffboardingService {
     private readonly documentRepository: Repository<Document>,
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
+    @InjectRepository(ShiftAssignment)
+    private readonly shiftAssignmentRepository: Repository<ShiftAssignment>,
+    @InjectRepository(EmployeeTimetable)
+    private readonly employeeTimetableRepository: Repository<EmployeeTimetable>,
+    @InjectRepository(AttendanceDailySummary)
+    private readonly attendanceDailySummaryRepository: Repository<AttendanceDailySummary>,
     @InjectRepository(Department)
     private readonly departmentRepository: Repository<Department>,
     @InjectRepository(Position)
@@ -153,6 +164,20 @@ export class OffboardingService {
     return manager?.getRepository(Department) ?? this.departmentRepository;
   }
 
+  private getShiftAssignmentRepository(manager?: EntityManager): Repository<ShiftAssignment> {
+    return manager?.getRepository(ShiftAssignment) ?? this.shiftAssignmentRepository;
+  }
+
+  private getEmployeeTimetableRepository(manager?: EntityManager): Repository<EmployeeTimetable> {
+    return manager?.getRepository(EmployeeTimetable) ?? this.employeeTimetableRepository;
+  }
+
+  private getAttendanceDailySummaryRepository(
+    manager?: EntityManager,
+  ): Repository<AttendanceDailySummary> {
+    return manager?.getRepository(AttendanceDailySummary) ?? this.attendanceDailySummaryRepository;
+  }
+
   private getPositionRepository(manager?: EntityManager): Repository<Position> {
     return manager?.getRepository(Position) ?? this.positionRepository;
   }
@@ -208,6 +233,59 @@ export class OffboardingService {
     }
 
     return employee;
+  }
+
+  private async alignAttendanceArtifactsForExit(
+    companyId: number,
+    employeeId: number,
+    lastWorkingDate: string,
+    manager: EntityManager,
+  ): Promise<void> {
+    const shiftAssignmentRepository = this.getShiftAssignmentRepository(manager);
+    const employeeTimetableRepository = this.getEmployeeTimetableRepository(manager);
+
+    const shiftAssignments = await shiftAssignmentRepository.find({
+      where: {
+        companyId,
+        employeeId,
+        status: ShiftAssignmentStatusEnum.ACTIVE,
+      },
+    });
+
+    for (const assignment of shiftAssignments) {
+      if (assignment.effectiveFrom > lastWorkingDate) {
+        assignment.status = ShiftAssignmentStatusEnum.INACTIVE;
+      } else if (!assignment.effectiveTo || assignment.effectiveTo > lastWorkingDate) {
+        assignment.effectiveTo = lastWorkingDate;
+      }
+      await shiftAssignmentRepository.save(assignment);
+    }
+
+    const employeeTimetables = await employeeTimetableRepository.find({
+      where: {
+        companyId,
+        employeeId,
+        status: EmployeeTimetableStatusEnum.ACTIVE,
+      },
+    });
+
+    for (const timetable of employeeTimetables) {
+      if (timetable.effectiveFrom > lastWorkingDate) {
+        timetable.status = EmployeeTimetableStatusEnum.INACTIVE;
+      } else if (!timetable.effectiveTo || timetable.effectiveTo > lastWorkingDate) {
+        timetable.effectiveTo = lastWorkingDate;
+      }
+      await employeeTimetableRepository.save(timetable);
+    }
+
+    await this.getAttendanceDailySummaryRepository(manager)
+      .createQueryBuilder()
+      .delete()
+      .from(AttendanceDailySummary)
+      .where('company_id = :companyId', { companyId })
+      .andWhere('employee_id = :employeeId', { employeeId })
+      .andWhere('attendance_date > :lastWorkingDate', { lastWorkingDate })
+      .execute();
   }
 
   private async findOffboardingRequestOrFail(
@@ -1830,6 +1908,12 @@ export class OffboardingService {
       employee.exit_date = current.last_working_date;
       employee.exit_reason = current.reason;
       await employeeRepository.save(employee);
+      await this.alignAttendanceArtifactsForExit(
+        companyId,
+        current.employee_id,
+        current.last_working_date,
+        manager,
+      );
 
       return requestRepository.findOneOrFail({
         where: { id: current.id, company_id: companyId },

@@ -360,10 +360,19 @@ export class TimetableScheduleGenerationService {
     branchId: number | null,
     scheduleDate: string,
   ): Promise<AttendanceHoliday | null> {
+    const [, month, day] = scheduleDate.split('-');
+    const monthDay = `${month}-${day}`;
     const qb = this.holidayRepository
       .createQueryBuilder('holiday')
       .where('holiday.company_id = :companyId', { companyId })
-      .andWhere('holiday.date = :scheduleDate', { scheduleDate });
+      .andWhere(
+        '(holiday.date = :scheduleDate OR (holiday.is_recurring = :isRecurring AND DATE_FORMAT(holiday.date, \'%m-%d\') = :monthDay))',
+        {
+          scheduleDate,
+          isRecurring: true,
+          monthDay,
+        },
+      );
 
     if (branchId === null) {
       qb.andWhere('holiday.branch_id IS NULL');
@@ -376,7 +385,9 @@ export class TimetableScheduleGenerationService {
 
     return qb
       .orderBy('CASE WHEN holiday.branch_id IS NULL THEN 1 ELSE 0 END', 'ASC')
+      .addOrderBy('CASE WHEN holiday.date = :scheduleDate THEN 0 ELSE 1 END', 'ASC')
       .addOrderBy('holiday.branch_id', 'DESC')
+      .setParameter('scheduleDate', scheduleDate)
       .getOne();
   }
 
