@@ -10,6 +10,7 @@ import { LeaveModule } from './leave/leave.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { OffboardingModule } from './offboarding/offboarding.module';
 import { PositionsModule } from './positions/positions.module';
+import { EmployeeSelfServiceModule } from './self-service/employee-self-service.module';
 import { TimetableEngineModule } from './attendance/timetable/timetable-engine.module';
 import { ShiftEngineModule } from './attendance/shift/shift-engine.module';
 
@@ -26,6 +27,7 @@ import { ShiftEngineModule } from './attendance/shift/shift-engine.module';
     EmployeePositionsModule,
     EmployeeDesignationsModule,
     LeaveModule,
+    EmployeeSelfServiceModule,
     OnboardingModule,
     OffboardingModule,
   ],

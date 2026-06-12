@@ -735,7 +735,7 @@ export class AuthService {
         user_type: user.user_type,
         employee_id: companyContext.employeeId,
         employee_no: companyContext.employeeNo,
-        my_employee_url: '/employees/my-employee',
+        my_employee_url: '/employees/me',
         roles: companyContext.roles,
         permissions: companyContext.permissions,
         isTwoFactorEnabled: user.is_two_factor_enabled,
