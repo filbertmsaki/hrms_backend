@@ -94,7 +94,12 @@ export class TimetableRotationsService {
     if (timetable_id) qb.andWhere('rotation.timetable_id = :timetableId', { timetableId: timetable_id });
     if (status) qb.andWhere('rotation.status = :status', { status });
 
-    const safeSortBy = ['name', 'cycle_days', 'created_at'].includes(sortBy) ? sortBy : 'created_at';
+    const sortFieldMap: Record<string, string> = {
+      name: 'name',
+      cycle_days: 'cycleDays',
+      created_at: 'createdAt',
+    };
+    const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.created_at;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
     const [items, total] = await qb.orderBy(`rotation.${safeSortBy}`, direction).skip((page - 1) * limit).take(limit).getManyAndCount();

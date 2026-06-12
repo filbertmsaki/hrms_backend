@@ -93,7 +93,11 @@ export class TimetableRotationRulesService {
 
     if (rotation_id) qb.andWhere('rule.rotation_id = :rotationId', { rotationId: rotation_id });
 
-    const safeSortBy = ['day_index', 'created_at'].includes(sortBy) ? sortBy : 'day_index';
+    const sortFieldMap: Record<string, string> = {
+      day_index: 'dayIndex',
+      created_at: 'createdAt',
+    };
+    const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.day_index;
     const direction = sortOrder === SortDirection.DESC ? 'DESC' : 'ASC';
 
     const [items, total] = await qb.orderBy(`rule.${safeSortBy}`, direction).skip((page - 1) * limit).take(limit).getManyAndCount();

@@ -98,8 +98,13 @@ export class TimetablesService {
     if (status) qb.andWhere('timetable.status = :status', { status });
     if (search?.trim()) qb.andWhere('(timetable.name LIKE :term OR timetable.code LIKE :term)', { term: `%${search.trim()}%` });
 
-    const allowedSortFields = ['name', 'code', 'created_at', 'updated_at'];
-    const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'created_at';
+    const sortFieldMap: Record<string, string> = {
+      name: 'name',
+      code: 'code',
+      created_at: 'createdAt',
+      updated_at: 'updatedAt',
+    };
+    const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.created_at;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
     const [items, total] = await qb

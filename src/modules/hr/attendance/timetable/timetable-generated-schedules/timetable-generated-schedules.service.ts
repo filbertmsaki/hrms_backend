@@ -100,7 +100,11 @@ export class TimetableGeneratedSchedulesService {
     if (from_date) qb.andWhere('schedule.schedule_date >= :fromDate', { fromDate: from_date });
     if (to_date) qb.andWhere('schedule.schedule_date <= :toDate', { toDate: to_date });
 
-    const safeSortBy = ['schedule_date', 'created_at'].includes(sortBy) ? sortBy : 'schedule_date';
+    const sortFieldMap: Record<string, string> = {
+      schedule_date: 'scheduleDate',
+      created_at: 'createdAt',
+    };
+    const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.schedule_date;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
     const [items, total] = await qb.orderBy(`schedule.${safeSortBy}`, direction).skip((page - 1) * limit).take(limit).getManyAndCount();

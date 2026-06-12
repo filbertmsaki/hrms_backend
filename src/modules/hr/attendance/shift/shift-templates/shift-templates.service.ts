@@ -45,7 +45,12 @@ export class ShiftTemplatesService {
     if (status) qb.andWhere('template.status = :status', { status });
     if (search?.trim()) qb.andWhere('template.name LIKE :term', { term: `%${search.trim()}%` });
 
-    const safeSortBy = ['name', 'created_at', 'updated_at'].includes(sortBy) ? sortBy : 'created_at';
+    const sortFieldMap: Record<string, string> = {
+      name: 'name',
+      created_at: 'createdAt',
+      updated_at: 'updatedAt',
+    };
+    const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.created_at;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
     const [items, total] = await qb.orderBy(`template.${safeSortBy}`, direction).skip((page - 1) * limit).take(limit).getManyAndCount();
 

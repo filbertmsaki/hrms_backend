@@ -48,7 +48,12 @@ export class ShiftRotationGroupsService {
     if (status) qb.andWhere('rotationGroup.status = :status', { status });
     if (search?.trim()) qb.andWhere('(rotationGroup.name LIKE :term OR rotationGroup.code LIKE :term)', { term: `%${search.trim()}%` });
 
-    const safeSortBy = ['name', 'code', 'created_at'].includes(sortBy) ? sortBy : 'created_at';
+    const sortFieldMap: Record<string, string> = {
+      name: 'name',
+      code: 'code',
+      created_at: 'createdAt',
+    };
+    const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.created_at;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
     const [items, total] = await qb.orderBy(`rotationGroup.${safeSortBy}`, direction).skip((page - 1) * limit).take(limit).getManyAndCount();
 

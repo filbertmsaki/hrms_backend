@@ -71,7 +71,11 @@ export class ShiftChangeRequestsService {
     if (from_date) qb.andWhere('changeRequest.request_date >= :fromDate', { fromDate: from_date });
     if (to_date) qb.andWhere('changeRequest.request_date <= :toDate', { toDate: to_date });
 
-    const safeSortBy = ['request_date', 'created_at'].includes(sortBy) ? sortBy : 'request_date';
+    const sortFieldMap: Record<string, string> = {
+      request_date: 'requestDate',
+      created_at: 'createdAt',
+    };
+    const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.request_date;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
     const [items, total] = await qb.orderBy(`changeRequest.${safeSortBy}`, direction).skip((page - 1) * limit).take(limit).getManyAndCount();
 

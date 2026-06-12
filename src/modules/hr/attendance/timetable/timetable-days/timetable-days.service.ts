@@ -94,8 +94,11 @@ export class TimetableDaysService {
 
     if (timetable_id) qb.andWhere('day.timetable_id = :timetableId', { timetableId: timetable_id });
 
-    const allowedSortFields = ['day_of_week', 'created_at'];
-    const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'day_of_week';
+    const sortFieldMap: Record<string, string> = {
+      day_of_week: 'dayOfWeek',
+      created_at: 'createdAt',
+    };
+    const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.day_of_week;
     const direction = sortOrder === SortDirection.DESC ? 'DESC' : 'ASC';
 
     const [items, total] = await qb

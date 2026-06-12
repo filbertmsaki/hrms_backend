@@ -61,7 +61,11 @@ export class ShiftBreaksService {
 
     if (shift_id) qb.andWhere('break.shift_id = :shiftId', { shiftId: shift_id });
 
-    const safeSortBy = ['created_at', 'name'].includes(sortBy) ? sortBy : 'created_at';
+    const sortFieldMap: Record<string, string> = {
+      created_at: 'createdAt',
+      name: 'name',
+    };
+    const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.created_at;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
     const [items, total] = await qb.orderBy(`break.${safeSortBy}`, direction).skip((page - 1) * limit).take(limit).getManyAndCount();
 

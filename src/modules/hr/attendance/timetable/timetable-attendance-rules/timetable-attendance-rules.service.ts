@@ -72,7 +72,10 @@ export class TimetableAttendanceRulesService {
 
     if (timetable_id) qb.andWhere('rule.timetable_id = :timetableId', { timetableId: timetable_id });
 
-    const safeSortBy = ['created_at'].includes(sortBy) ? sortBy : 'created_at';
+    const sortFieldMap: Record<string, string> = {
+      created_at: 'createdAt',
+    };
+    const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.created_at;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
     const [items, total] = await qb.orderBy(`rule.${safeSortBy}`, direction).skip((page - 1) * limit).take(limit).getManyAndCount();

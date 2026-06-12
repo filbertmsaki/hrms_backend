@@ -98,7 +98,11 @@ export class TimetableShiftRulesService {
 
     if (timetable_day_id) qb.andWhere('rule.timetable_day_id = :timetableDayId', { timetableDayId: timetable_day_id });
 
-    const safeSortBy = ['priority_order', 'created_at'].includes(sortBy) ? sortBy : 'priority_order';
+    const sortFieldMap: Record<string, string> = {
+      priority_order: 'priorityOrder',
+      created_at: 'createdAt',
+    };
+    const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.priority_order;
     const direction = sortOrder === SortDirection.DESC ? 'DESC' : 'ASC';
 
     const [items, total] = await qb.orderBy(`rule.${safeSortBy}`, direction).skip((page - 1) * limit).take(limit).getManyAndCount();

@@ -192,7 +192,11 @@ export class EmployeeTimetablesService {
     if (timetable_id) qb.andWhere('employeeTimetable.timetable_id = :timetableId', { timetableId: timetable_id });
     if (status) qb.andWhere('employeeTimetable.status = :status', { status });
 
-    const safeSortBy = ['effective_from', 'created_at'].includes(sortBy) ? sortBy : 'effective_from';
+    const sortFieldMap: Record<string, string> = {
+      effective_from: 'effectiveFrom',
+      created_at: 'createdAt',
+    };
+    const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.effective_from;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
     const [items, total] = await qb.orderBy(`employeeTimetable.${safeSortBy}`, direction).skip((page - 1) * limit).take(limit).getManyAndCount();
