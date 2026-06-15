@@ -7,10 +7,12 @@
       "Companion sample data for the Attendance module.",
       "The TypeScript seeder remains in place and is not removed.",
       "Relations are expressed with business keys like employee_no, shift_code, policy_name, branch_code, timetable_code, and rotation_group_code.",
-      "This JSON now includes broader sample coverage for attendance settings, policies, holidays, geofencing, WiFi, devices, shift templates, shift rotations, timetables, and generated schedules."
+      "This JSON now includes broader sample coverage for geofencing, WiFi, devices, shift templates, shift rotations, timetables, and generated schedules.",
+      "Attendance settings and attendance policies are intentionally limited to one record each.",
+      "Holiday samples use a small Tanzania public holiday dataset."
     ],
     "sample_dates": {
-      "holiday_date": "2026-06-09",
+      "holiday_date": "2026-07-07",
       "working_dates": [
         "2026-06-10",
         "2026-06-11",
@@ -48,17 +50,6 @@
       "weekend_overtime_multiplier": 1.75,
       "requires_approval": false,
       "auto_calculate": true
-    },
-    {
-      "name": "Alliance Field Operations Settings",
-      "overtime_start_after_minutes": 45,
-      "max_overtime_minutes_per_day": 240,
-      "max_overtime_minutes_per_month": 2400,
-      "overtime_rate_multiplier": 1.25,
-      "holiday_overtime_multiplier": 2,
-      "weekend_overtime_multiplier": 1.5,
-      "requires_approval": true,
-      "auto_calculate": true
     }
   ],
   "attendance_policies": [
@@ -86,76 +77,36 @@
       "grace_period_minutes": 10,
       "consider_shift_roster": true,
       "ignore_missing_checkout_if_hours_valid": false
-    },
-    {
-      "name": "Alliance Field Operations Attendance Policy",
-      "is_active": false,
-      "late_after_minutes": 15,
-      "half_day_after_minutes": 210,
-      "absent_after_minutes": 330,
-      "allow_early_checkin": true,
-      "allow_late_checkout": true,
-      "auto_absent_if_no_checkin": true,
-      "requires_manager_approval_for_overtime": true,
-      "rounding_mode": "NEAREST",
-      "max_missing_punch_allowed": 2,
-      "weekend_days": "SUN",
-      "auto_mark_weekend_as_off": true,
-      "treat_weekend_as_absent_if_scheduled": false,
-      "holiday_policy_mode": "OPTIONAL",
-      "authentication_modes": "MOBILE_APP,WEB",
-      "require_geo_fencing": true,
-      "allow_multi_device_login": true,
-      "auto_calculate_attendance": true,
-      "calculation_time": "22:45:00",
-      "grace_period_minutes": 15,
-      "consider_shift_roster": true,
-      "ignore_missing_checkout_if_hours_valid": true
     }
   ],
   "holiday_groups": [
     {
-      "name": "Alliance Shared Holiday Calendar",
-      "description": "Shared holiday sample data used by attendance and leave screens."
-    },
-    {
-      "name": "Alliance Operations Holiday Calendar",
-      "description": "Operational holiday calendar for branch coverage and outreach sample scenarios."
+      "name": "Tanzania Public Holidays",
+      "description": "Small sample of Tanzania public holidays for attendance and timetable demos."
     }
   ],
   "attendance_holidays": [
     {
-      "holiday_group_name": "Alliance Shared Holiday Calendar",
+      "holiday_group_name": "Tanzania Public Holidays",
       "branch_code": "HQ",
-      "name": "Alliance Staff Wellness Day",
-      "date": "2026-06-09",
+      "name": "Saba Saba Day",
+      "date": "2026-07-07",
       "is_recurring": false,
-      "type": "COMPANY",
+      "type": "PUBLIC",
       "is_paid": true,
       "affects_overtime": false,
       "counts_as_working_day": false
     },
     {
-      "holiday_group_name": "Alliance Shared Holiday Calendar",
+      "holiday_group_name": "Tanzania Public Holidays",
       "branch_code": "HQ",
-      "name": "Alliance Founders Day",
-      "date": "2026-06-19",
+      "name": "Nane Nane",
+      "date": "2026-08-08",
       "is_recurring": false,
-      "type": "COMPANY",
+      "type": "PUBLIC",
       "is_paid": true,
       "affects_overtime": false,
       "counts_as_working_day": false
-    },
-    {
-      "holiday_group_name": "Alliance Operations Holiday Calendar",
-      "branch_code": "HQ",
-      "name": "Field Outreach Support Day",
-      "date": "2026-06-20",
-      "is_recurring": false,
-      "type": "COMPANY",
-      "is_paid": true,
-      "affects_overtime": true,
-      "counts_as_working_day": true
     }
   ],
   "attendance_geofences": [
@@ -387,7 +338,7 @@
       "status": "ACTIVE"
     },
     {
-      "policy_name": "Alliance Field Operations Attendance Policy",
+      "policy_name": "Alliance Standard Attendance Policy",
       "name": "Field GPS Checkpoint",
       "type": "GPS",
       "geofence_name": "Alliance Field Visit Safe Zone",
@@ -398,7 +349,7 @@
       "status": "ACTIVE"
     },
     {
-      "policy_name": "Alliance Field Operations Attendance Policy",
+      "policy_name": "Alliance Standard Attendance Policy",
       "name": "Outreach WiFi Checkpoint",
       "type": "WIFI",
       "wifi_network_name": "Alliance Outreach Hotspot",
@@ -724,7 +675,7 @@
       "name": "Alliance Field Visit Template",
       "template_type": "FLEXIBLE",
       "configuration": {
-        "policy_name": "Alliance Field Operations Attendance Policy",
+        "policy_name": "Alliance Standard Attendance Policy",
         "default_shift_code": "ATT_FIELD_FLEX",
         "flex_window": {
           "start_from": "07:30:00",
@@ -848,9 +799,9 @@
       "full_name": "Filbert Msaki",
       "branch_code": "HQ",
       "default_shift_code": "ATT_SUP_DAY",
-      "default_policy_name": "Alliance Field Operations Attendance Policy",
+      "default_policy_name": "Alliance Standard Attendance Policy",
       "default_timetable_code": "TT_FIELD_FLEX",
-      "holiday_group_name": "Alliance Operations Holiday Calendar"
+      "holiday_group_name": "Tanzania Public Holidays"
     },
     {
       "employee_no": "00000003",
@@ -859,7 +810,7 @@
       "default_shift_code": "ATT_STD_DAY",
       "default_policy_name": "Alliance Standard Attendance Policy",
       "default_timetable_code": "TT_HQ_STD",
-      "holiday_group_name": "Alliance Shared Holiday Calendar"
+      "holiday_group_name": "Tanzania Public Holidays"
     },
     {
       "employee_no": "00000004",
@@ -868,7 +819,7 @@
       "default_shift_code": "ATT_STD_DAY",
       "default_policy_name": "Alliance Standard Attendance Policy",
       "default_timetable_code": "TT_HQ_STD",
-      "holiday_group_name": "Alliance Shared Holiday Calendar"
+      "holiday_group_name": "Tanzania Public Holidays"
     },
     {
       "employee_no": "00000005",
@@ -877,7 +828,7 @@
       "default_shift_code": "ATT_STD_DAY",
       "default_policy_name": "Alliance Standard Attendance Policy",
       "default_timetable_code": "TT_HQ_STD",
-      "holiday_group_name": "Alliance Shared Holiday Calendar"
+      "holiday_group_name": "Tanzania Public Holidays"
     }
   ],
   "shift_assignments": [
@@ -1482,21 +1433,21 @@
   "timetable_holiday_rules": [
     {
       "timetable_code": "TT_HQ_STD",
-      "holiday_group_name": "Alliance Shared Holiday Calendar",
+      "holiday_group_name": "Tanzania Public Holidays",
       "action_type": "PAID_HOLIDAY",
       "apply_overtime_rules": false,
       "auto_mark_offday": true
     },
     {
       "timetable_code": "TT_FIELD_FLEX",
-      "holiday_group_name": "Alliance Operations Holiday Calendar",
+      "holiday_group_name": "Tanzania Public Holidays",
       "action_type": "WORKING_HOLIDAY",
       "apply_overtime_rules": true,
       "auto_mark_offday": false
     },
     {
       "timetable_code": "TT_CLAIMS_ROT",
-      "holiday_group_name": "Alliance Shared Holiday Calendar",
+      "holiday_group_name": "Tanzania Public Holidays",
       "action_type": "OFF_DAY",
       "apply_overtime_rules": false,
       "auto_mark_offday": true
@@ -1582,7 +1533,7 @@
       "schedule_date": "2026-06-20",
       "generated_from_rotation": false,
       "is_off_day": false,
-      "holiday_name": "Field Outreach Support Day",
+      "holiday_name": null,
       "source_rule": "day"
     },
     {
@@ -1628,11 +1579,11 @@
     {
       "employee_no": "00000003",
       "timetable_code": "TT_HQ_STD",
-      "shift_code": null,
+      "shift_code": "ATT_STD_DAY",
       "schedule_date": "2026-06-19",
       "generated_from_rotation": false,
-      "is_off_day": true,
-      "holiday_name": "Alliance Founders Day",
+      "is_off_day": false,
+      "holiday_name": null,
       "source_rule": "day"
     },
     {
@@ -1688,11 +1639,11 @@
     {
       "employee_no": "00000004",
       "timetable_code": "TT_HQ_STD",
-      "shift_code": null,
+      "shift_code": "ATT_STD_DAY",
       "schedule_date": "2026-06-19",
       "generated_from_rotation": false,
-      "is_off_day": true,
-      "holiday_name": "Alliance Founders Day",
+      "is_off_day": false,
+      "holiday_name": null,
       "source_rule": "day"
     },
     {
@@ -1790,32 +1741,32 @@
     {
       "employee_no": "00000001",
       "shift_code": "ATT_SUP_DAY",
-      "schedule_date": "2026-06-09",
-      "holiday_name": "Alliance Staff Wellness Day",
+      "schedule_date": "2026-07-07",
+      "holiday_name": "Saba Saba Day",
       "is_off_day": false,
       "remarks": "Seeded company holiday for attendance demo."
     },
     {
       "employee_no": "00000003",
       "shift_code": "ATT_STD_DAY",
-      "schedule_date": "2026-06-09",
-      "holiday_name": "Alliance Staff Wellness Day",
+      "schedule_date": "2026-07-07",
+      "holiday_name": "Saba Saba Day",
       "is_off_day": false,
       "remarks": "Seeded company holiday for attendance demo."
     },
     {
       "employee_no": "00000004",
       "shift_code": "ATT_STD_DAY",
-      "schedule_date": "2026-06-09",
-      "holiday_name": "Alliance Staff Wellness Day",
+      "schedule_date": "2026-07-07",
+      "holiday_name": "Saba Saba Day",
       "is_off_day": false,
       "remarks": "Seeded company holiday for attendance demo."
     },
     {
       "employee_no": "00000005",
       "shift_code": "ATT_STD_DAY",
-      "schedule_date": "2026-06-09",
-      "holiday_name": "Alliance Staff Wellness Day",
+      "schedule_date": "2026-07-07",
+      "holiday_name": "Saba Saba Day",
       "is_off_day": false,
       "remarks": "Seeded company holiday for attendance demo."
     },
@@ -2271,7 +2222,7 @@
   "attendance_daily_summaries": [
     {
       "employee_no": "00000001",
-      "attendance_date": "2026-06-09",
+      "attendance_date": "2026-07-07",
       "branch_code": "HQ",
       "shift_code": "ATT_SUP_DAY",
       "schedule_source": "SHIFT_SCHEDULE",
@@ -2361,7 +2312,7 @@
     },
     {
       "employee_no": "00000003",
-      "attendance_date": "2026-06-09",
+      "attendance_date": "2026-07-07",
       "branch_code": "HQ",
       "shift_code": "ATT_STD_DAY",
       "schedule_source": "SHIFT_SCHEDULE",
@@ -2436,7 +2387,7 @@
     },
     {
       "employee_no": "00000004",
-      "attendance_date": "2026-06-09",
+      "attendance_date": "2026-07-07",
       "branch_code": "HQ",
       "shift_code": "ATT_STD_DAY",
       "schedule_source": "SHIFT_SCHEDULE",
@@ -2511,7 +2462,7 @@
     },
     {
       "employee_no": "00000005",
-      "attendance_date": "2026-06-09",
+      "attendance_date": "2026-07-07",
       "branch_code": "HQ",
       "shift_code": "ATT_STD_DAY",
       "schedule_source": "SHIFT_SCHEDULE",
