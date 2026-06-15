@@ -250,7 +250,8 @@ const permissionSeeds: PermissionSeed[] = [
   {
     name: 'branches:manage-access',
     displayName: 'Manage branch access',
-    description: 'Allow granting and revoking branch-level access for company users',
+    description:
+      'Allow granting and revoking branch-level access for company users',
     scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
@@ -760,7 +761,8 @@ const permissionSeeds: PermissionSeed[] = [
   {
     name: 'employee_device_assignments:read',
     displayName: 'Read employee device assignments',
-    description: 'Allow viewing employee device assignments and Hikvision device users',
+    description:
+      'Allow viewing employee device assignments and Hikvision device users',
     scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
@@ -772,7 +774,8 @@ const permissionSeeds: PermissionSeed[] = [
   {
     name: 'employee_device_assignments:update',
     displayName: 'Update employee device assignments',
-    description: 'Allow updating employee device assignments and device user details',
+    description:
+      'Allow updating employee device assignments and device user details',
     scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
@@ -790,13 +793,15 @@ const permissionSeeds: PermissionSeed[] = [
   {
     name: 'hikvision_attendance:read',
     displayName: 'Read Hikvision attendance logs',
-    description: 'Allow listing and viewing Hikvision attendance logs and capabilities',
+    description:
+      'Allow listing and viewing Hikvision attendance logs and capabilities',
     scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
     name: 'hikvision_attendance:sync',
     displayName: 'Sync Hikvision attendance',
-    description: 'Allow pulling and syncing Hikvision attendance events from devices',
+    description:
+      'Allow pulling and syncing Hikvision attendance events from devices',
     scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
@@ -821,6 +826,73 @@ const permissionSeeds: PermissionSeed[] = [
     name: 'attendance_checkpoints:delete',
     displayName: 'Delete attendance checkpoints',
     description: 'Allow deleting attendance checkpoints',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
+  },
+  {
+    name: 'attendance_geofences:read',
+    displayName: 'Read attendance geofences',
+    description: 'Allow listing and viewing attendance geofences',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
+  },
+  {
+    name: 'attendance_geofences:create',
+    displayName: 'Create attendance geofences',
+    description: 'Allow creating attendance geofences',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
+  },
+  {
+    name: 'attendance_geofences:update',
+    displayName: 'Update attendance geofences',
+    description: 'Allow updating attendance geofences',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
+  },
+  {
+    name: 'attendance_geofences:delete',
+    displayName: 'Delete attendance geofences',
+    description: 'Allow deleting attendance geofences',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
+  },
+  {
+    name: 'attendance_wifi_networks:read',
+    displayName: 'Read attendance WiFi networks',
+    description: 'Allow listing and viewing attendance WiFi networks',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
+  },
+  {
+    name: 'attendance_wifi_networks:create',
+    displayName: 'Create attendance WiFi networks',
+    description: 'Allow creating attendance WiFi networks',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
+  },
+  {
+    name: 'attendance_wifi_networks:update',
+    displayName: 'Update attendance WiFi networks',
+    description: 'Allow updating attendance WiFi networks',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
+  },
+  {
+    name: 'attendance_wifi_networks:delete',
+    displayName: 'Delete attendance WiFi networks',
+    description: 'Allow deleting attendance WiFi networks',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
+  },
+  {
+    name: 'attendance_mobile_punches:read',
+    displayName: 'Read attendance mobile punches',
+    description: 'Allow viewing attendance mobile punches across the company',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
+  },
+  {
+    name: 'attendance_mobile_punches:create',
+    displayName: 'Create attendance mobile punches',
+    description:
+      'Allow creating attendance mobile punches for company employees',
+    scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
+  },
+  {
+    name: 'attendance_mobile_punches:update',
+    displayName: 'Update attendance mobile punches',
+    description: 'Allow reviewing attendance mobile punch override requests',
     scopes: GLOBAL_AND_DEFAULT_COMPANY_SCOPES,
   },
   {
@@ -1659,6 +1731,17 @@ const roleSeeds: RoleSeed[] = [
       'attendance_checkpoints:create',
       'attendance_checkpoints:update',
       'attendance_checkpoints:delete',
+      'attendance_geofences:read',
+      'attendance_geofences:create',
+      'attendance_geofences:update',
+      'attendance_geofences:delete',
+      'attendance_wifi_networks:read',
+      'attendance_wifi_networks:create',
+      'attendance_wifi_networks:update',
+      'attendance_wifi_networks:delete',
+      'attendance_mobile_punches:read',
+      'attendance_mobile_punches:create',
+      'attendance_mobile_punches:update',
       'attendance_device_sync_logs:read',
       'attendance_device_sync_logs:create',
       'attendance_processing:read',
@@ -1977,7 +2060,9 @@ export default class InitialRbacSeeder implements Seeder {
     roleName: string,
     companyId: number | null,
   ): Role {
-    const role = rolesByScopeAndName.get(this.buildScopeKey(roleName, companyId));
+    const role = rolesByScopeAndName.get(
+      this.buildScopeKey(roleName, companyId),
+    );
 
     if (!role) {
       throw new Error(`Role "${roleName}" could not be resolved`);

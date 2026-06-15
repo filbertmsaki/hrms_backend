@@ -12,16 +12,25 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request as ExpressRequest } from 'express';
 import { Permissions } from '../../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
 import { TenantGuard } from 'src/common/guards/tenant.guard';
 import { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
+import {
+  ApiActionOperation,
+  ApiGetOneOperation,
+  ApiListOperation,
+  ApiCreateOperation,
+} from '../../../../docs/swagger-decorators';
 import { AttendanceMobilePunchesService } from './attendance-mobile-punches.service';
 import { CreateAttendanceMobilePunchDto } from './dtos/create-attendance-mobile-punch.dto';
 import { AttendanceMobilePunchQueryDto } from './dtos/attendance-mobile-punch-query.dto';
 import { ApproveMobilePunchOverrideDto } from './dtos/approve-mobile-punch-override.dto';
 
+@ApiTags('Attendance Mobile Punches')
+@ApiBearerAuth('access-token')
 @Controller('attendance/mobile-punches')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class AttendanceMobilePunchesController {
@@ -30,10 +39,20 @@ export class AttendanceMobilePunchesController {
   ) {}
 
   @Post('check-in')
+  @ApiCreateOperation('Attendance Mobile Punch', 'Create mobile punch check-in')
   checkIn(
     @Body() dto: CreateAttendanceMobilePunchDto,
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
   ) {
+    if (
+      !req.user.employeeId &&
+      !req.user.permissions.includes('attendance_mobile_punches:create')
+    ) {
+      throw new ForbiddenException(
+        'You do not have permission to create attendance punches.',
+      );
+    }
+
     return this.mobilePunchesService.checkIn({
       companyId: req.user.companyId!,
       authenticatedEmployeeId: req.user.employeeId ?? null,
@@ -45,10 +64,23 @@ export class AttendanceMobilePunchesController {
   }
 
   @Post('check-out')
+  @ApiCreateOperation(
+    'Attendance Mobile Punch',
+    'Create mobile punch check-out',
+  )
   checkOut(
     @Body() dto: CreateAttendanceMobilePunchDto,
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
   ) {
+    if (
+      !req.user.employeeId &&
+      !req.user.permissions.includes('attendance_mobile_punches:create')
+    ) {
+      throw new ForbiddenException(
+        'You do not have permission to create attendance punches.',
+      );
+    }
+
     return this.mobilePunchesService.checkOut({
       companyId: req.user.companyId!,
       authenticatedEmployeeId: req.user.employeeId ?? null,
@@ -60,6 +92,7 @@ export class AttendanceMobilePunchesController {
   }
 
   @Get()
+  @ApiListOperation('Attendance Mobile Punch', 'List attendance mobile punches')
   findAll(
     @Query() query: AttendanceMobilePunchQueryDto,
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -78,11 +111,18 @@ export class AttendanceMobilePunchesController {
   }
 
   @Get(':id')
+  @ApiGetOneOperation(
+    'Attendance Mobile Punch',
+    'Get attendance mobile punch by ID',
+  )
   async findOne(
     @Param('id', ParseIntPipe) id: number,
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
   ) {
-    const punch = await this.mobilePunchesService.findOne(req.user.companyId!, id);
+    const punch = await this.mobilePunchesService.findOne(
+      req.user.companyId!,
+      id,
+    );
 
     if (req.user.employeeId && punch.employeeId !== req.user.employeeId) {
       throw new ForbiddenException(
@@ -103,6 +143,10 @@ export class AttendanceMobilePunchesController {
   @Patch(':id/approve-override')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_mobile_punches:update')
+  @ApiActionOperation(
+    'Approve attendance mobile punch override',
+    'Approves a pending attendance mobile punch override request.',
+  )
   approveOverride(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ApproveMobilePunchOverrideDto,
@@ -119,6 +163,10 @@ export class AttendanceMobilePunchesController {
   @Patch(':id/reject-override')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_mobile_punches:update')
+  @ApiActionOperation(
+    'Reject attendance mobile punch override',
+    'Rejects a pending attendance mobile punch override request.',
+  )
   rejectOverride(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ApproveMobilePunchOverrideDto,
