@@ -6,7 +6,8 @@
     "notes": [
       "Companion sample data for the Attendance module.",
       "The TypeScript seeder remains in place and is not removed.",
-      "Relations are expressed with business keys like employee_no, shift_code, policy_name, and branch_code."
+      "Relations are expressed with business keys like employee_no, shift_code, policy_name, branch_code, timetable_code, and rotation_group_code.",
+      "This JSON now includes broader sample coverage for attendance settings, policies, holidays, geofencing, WiFi, devices, shift templates, shift rotations, timetables, and generated schedules."
     ],
     "sample_dates": {
       "holiday_date": "2026-06-09",
@@ -16,7 +17,24 @@
         "2026-06-12",
         "2026-06-15"
       ],
-      "off_day_date": "2026-06-13"
+      "off_day_date": "2026-06-13",
+      "timetable_window": [
+        "2026-06-16",
+        "2026-06-17",
+        "2026-06-18",
+        "2026-06-19",
+        "2026-06-20",
+        "2026-06-21"
+      ],
+      "rotation_window": [
+        "2026-07-06",
+        "2026-07-07",
+        "2026-07-08",
+        "2026-07-09",
+        "2026-07-10",
+        "2026-07-11",
+        "2026-07-12"
+      ]
     }
   },
   "attendance_settings": [
@@ -29,6 +47,17 @@
       "holiday_overtime_multiplier": 2,
       "weekend_overtime_multiplier": 1.75,
       "requires_approval": false,
+      "auto_calculate": true
+    },
+    {
+      "name": "Alliance Field Operations Settings",
+      "overtime_start_after_minutes": 45,
+      "max_overtime_minutes_per_day": 240,
+      "max_overtime_minutes_per_month": 2400,
+      "overtime_rate_multiplier": 1.25,
+      "holiday_overtime_multiplier": 2,
+      "weekend_overtime_multiplier": 1.5,
+      "requires_approval": true,
       "auto_calculate": true
     }
   ],
@@ -57,12 +86,41 @@
       "grace_period_minutes": 10,
       "consider_shift_roster": true,
       "ignore_missing_checkout_if_hours_valid": false
+    },
+    {
+      "name": "Alliance Field Operations Attendance Policy",
+      "is_active": false,
+      "late_after_minutes": 15,
+      "half_day_after_minutes": 210,
+      "absent_after_minutes": 330,
+      "allow_early_checkin": true,
+      "allow_late_checkout": true,
+      "auto_absent_if_no_checkin": true,
+      "requires_manager_approval_for_overtime": true,
+      "rounding_mode": "NEAREST",
+      "max_missing_punch_allowed": 2,
+      "weekend_days": "SUN",
+      "auto_mark_weekend_as_off": true,
+      "treat_weekend_as_absent_if_scheduled": false,
+      "holiday_policy_mode": "OPTIONAL",
+      "authentication_modes": "MOBILE_APP,WEB",
+      "require_geo_fencing": true,
+      "allow_multi_device_login": true,
+      "auto_calculate_attendance": true,
+      "calculation_time": "22:45:00",
+      "grace_period_minutes": 15,
+      "consider_shift_roster": true,
+      "ignore_missing_checkout_if_hours_valid": true
     }
   ],
   "holiday_groups": [
     {
       "name": "Alliance Shared Holiday Calendar",
       "description": "Shared holiday sample data used by attendance and leave screens."
+    },
+    {
+      "name": "Alliance Operations Holiday Calendar",
+      "description": "Operational holiday calendar for branch coverage and outreach sample scenarios."
     }
   ],
   "attendance_holidays": [
@@ -76,6 +134,28 @@
       "is_paid": true,
       "affects_overtime": false,
       "counts_as_working_day": false
+    },
+    {
+      "holiday_group_name": "Alliance Shared Holiday Calendar",
+      "branch_code": "HQ",
+      "name": "Alliance Founders Day",
+      "date": "2026-06-19",
+      "is_recurring": false,
+      "type": "COMPANY",
+      "is_paid": true,
+      "affects_overtime": false,
+      "counts_as_working_day": false
+    },
+    {
+      "holiday_group_name": "Alliance Operations Holiday Calendar",
+      "branch_code": "HQ",
+      "name": "Field Outreach Support Day",
+      "date": "2026-06-20",
+      "is_recurring": false,
+      "type": "COMPANY",
+      "is_paid": true,
+      "affects_overtime": true,
+      "counts_as_working_day": true
     }
   ],
   "attendance_geofences": [
@@ -89,6 +169,50 @@
       "radius_meters": 180,
       "allowed_accuracy_meters": 60,
       "strict_accuracy": false,
+      "polygon_coordinates": null,
+      "status": "ACTIVE"
+    },
+    {
+      "branch_code": "HQ",
+      "name": "Alliance Claims Annex",
+      "description": "Secondary polygon geofence for claims and assessments staff.",
+      "type": "POLYGON",
+      "latitude": -6.79198,
+      "longitude": 39.20914,
+      "radius_meters": 120,
+      "allowed_accuracy_meters": 40,
+      "strict_accuracy": true,
+      "polygon_coordinates": [
+        {
+          "latitude": -6.79214,
+          "longitude": 39.20889
+        },
+        {
+          "latitude": -6.79173,
+          "longitude": 39.20895
+        },
+        {
+          "latitude": -6.79176,
+          "longitude": 39.2094
+        },
+        {
+          "latitude": -6.79216,
+          "longitude": 39.20933
+        }
+      ],
+      "status": "ACTIVE"
+    },
+    {
+      "branch_code": "HQ",
+      "name": "Alliance Field Visit Safe Zone",
+      "description": "Temporary circular geofence used for field outreach demo attendance.",
+      "type": "CIRCLE",
+      "latitude": -6.800451,
+      "longitude": 39.271884,
+      "radius_meters": 250,
+      "allowed_accuracy_meters": 80,
+      "strict_accuracy": false,
+      "polygon_coordinates": null,
       "status": "ACTIVE"
     }
   ],
@@ -114,6 +238,108 @@
         "seeded": true
       },
       "status": "ACTIVE"
+    },
+    {
+      "branch_code": "HQ",
+      "name": "Alliance Claims Secure WiFi",
+      "description": "Dedicated VLAN for claims annex devices and assessor tablets.",
+      "ssid": "Alliance-Claims",
+      "bssid": "70:4D:7B:AA:33:44",
+      "allowed_ip_cidrs": [
+        "10.40.20.0/24"
+      ],
+      "security_type": "ENTERPRISE",
+      "require_ssid_match": true,
+      "require_bssid_match": true,
+      "require_ip_match": true,
+      "allow_mobile_attendance": true,
+      "metadata": {
+        "floor": "Claims Annex",
+        "vlanId": 120,
+        "seeded": true
+      },
+      "status": "ACTIVE"
+    },
+    {
+      "branch_code": "HQ",
+      "name": "Alliance Outreach Hotspot",
+      "description": "Mobile hotspot profile used for supervised outreach attendance cases.",
+      "ssid": "Alliance-Outreach",
+      "bssid": null,
+      "allowed_ip_cidrs": [
+        "172.16.44.0/24"
+      ],
+      "security_type": "WPA3",
+      "require_ssid_match": true,
+      "require_bssid_match": false,
+      "require_ip_match": true,
+      "allow_mobile_attendance": true,
+      "metadata": {
+        "channel": "5GHz",
+        "purpose": "field-demo",
+        "seeded": true
+      },
+      "status": "ACTIVE"
+    }
+  ],
+  "attendance_devices": [
+    {
+      "branch_code": "HQ",
+      "name": "Main Hikvision Device",
+      "device_code": "AICL-HQ-HIK-01",
+      "device_serial_number": "DS-K1T804MF-001122",
+      "device_model": "DS-K1T804MF",
+      "ip_address": "10.40.20.15",
+      "port": 8000,
+      "protocol": "HTTPS",
+      "vendor_name": "Hikvision",
+      "integration_type": "hikvision",
+      "auth_type": "basic",
+      "api_username": "attendance_sync",
+      "api_password": "SeededDemoPassword!",
+      "sync_mode": "PULL",
+      "status": "ACTIVE",
+      "last_sync_at": "2026-06-15T06:30:00+03:00",
+      "last_heartbeat_at": "2026-06-15T07:55:00+03:00",
+      "last_listener_at": "2026-06-15T07:55:00+03:00",
+      "firmware_version": "V2.2.10",
+      "mac_address": "70:4D:7B:AA:55:10",
+      "device_type": "FACE_TERMINAL",
+      "timezone": "Africa/Dar_es_Salaam",
+      "location_description": "HQ reception turnstile",
+      "metadata": {
+        "door": "Front Entrance",
+        "seeded": true
+      }
+    },
+    {
+      "branch_code": "HQ",
+      "name": "Claims Annex Biometric Device",
+      "device_code": "AICL-HQ-HIK-02",
+      "device_serial_number": "DS-K1T804MF-001123",
+      "device_model": "DS-K1T804MF",
+      "ip_address": "10.40.20.16",
+      "port": 8000,
+      "protocol": "HTTPS",
+      "vendor_name": "Hikvision",
+      "integration_type": "hikvision",
+      "auth_type": "basic",
+      "api_username": "attendance_sync",
+      "api_password": "SeededDemoPassword!",
+      "sync_mode": "PULL",
+      "status": "OFFLINE",
+      "last_sync_at": "2026-06-12T19:15:00+03:00",
+      "last_heartbeat_at": "2026-06-12T19:10:00+03:00",
+      "last_listener_at": "2026-06-12T19:10:00+03:00",
+      "firmware_version": "V2.2.10",
+      "mac_address": "70:4D:7B:AA:55:11",
+      "device_type": "FACE_TERMINAL",
+      "timezone": "Africa/Dar_es_Salaam",
+      "location_description": "Claims annex lobby",
+      "metadata": {
+        "door": "Claims Entry",
+        "seeded": true
+      }
     }
   ],
   "attendance_checkpoints": [
@@ -148,6 +374,38 @@
       "allow_override": false,
       "max_distance_meters": null,
       "strict_mode": true,
+      "status": "ACTIVE"
+    },
+    {
+      "policy_name": "Alliance Standard Attendance Policy",
+      "name": "Supervisor Manual Review",
+      "type": "MANUAL",
+      "is_required": false,
+      "allow_override": true,
+      "max_distance_meters": null,
+      "strict_mode": false,
+      "status": "ACTIVE"
+    },
+    {
+      "policy_name": "Alliance Field Operations Attendance Policy",
+      "name": "Field GPS Checkpoint",
+      "type": "GPS",
+      "geofence_name": "Alliance Field Visit Safe Zone",
+      "is_required": true,
+      "allow_override": false,
+      "max_distance_meters": 250,
+      "strict_mode": true,
+      "status": "ACTIVE"
+    },
+    {
+      "policy_name": "Alliance Field Operations Attendance Policy",
+      "name": "Outreach WiFi Checkpoint",
+      "type": "WIFI",
+      "wifi_network_name": "Alliance Outreach Hotspot",
+      "is_required": false,
+      "allow_override": true,
+      "max_distance_meters": null,
+      "strict_mode": false,
       "status": "ACTIVE"
     }
   ],
@@ -199,6 +457,78 @@
       "allow_early_checkin": true,
       "allow_late_checkout": true,
       "status": "ACTIVE"
+    },
+    {
+      "name": "Saturday Half Day Shift",
+      "code": "ATT_SAT_HALF",
+      "branch_code": "HQ",
+      "description": "Saturday half day coverage shift for front office and support operations.",
+      "shift_type": "FIXED",
+      "start_time": "09:00:00",
+      "end_time": "13:00:00",
+      "expected_work_minutes": 300,
+      "minimum_work_minutes": 240,
+      "half_day_minutes": 150,
+      "grace_in_minutes": 5,
+      "grace_out_minutes": 5,
+      "late_after_minutes": 5,
+      "early_leave_after_minutes": 10,
+      "is_night_shift": false,
+      "crosses_midnight": false,
+      "allow_overtime": true,
+      "max_overtime_minutes": 60,
+      "requires_checkout": true,
+      "allow_early_checkin": true,
+      "allow_late_checkout": false,
+      "status": "ACTIVE"
+    },
+    {
+      "name": "Field Operations Flexible Shift",
+      "code": "ATT_FIELD_FLEX",
+      "branch_code": "HQ",
+      "description": "Field visit attendance shift with a flexible check-in window and mobile-first validation.",
+      "shift_type": "FLEXIBLE",
+      "start_time": "07:30:00",
+      "end_time": "16:30:00",
+      "expected_work_minutes": 480,
+      "minimum_work_minutes": 420,
+      "half_day_minutes": 210,
+      "grace_in_minutes": 15,
+      "grace_out_minutes": 10,
+      "late_after_minutes": 15,
+      "early_leave_after_minutes": 10,
+      "is_night_shift": false,
+      "crosses_midnight": false,
+      "allow_overtime": true,
+      "max_overtime_minutes": 240,
+      "requires_checkout": true,
+      "allow_early_checkin": true,
+      "allow_late_checkout": true,
+      "status": "ACTIVE"
+    },
+    {
+      "name": "Claims Night Shift",
+      "code": "ATT_CLM_NIGHT",
+      "branch_code": "HQ",
+      "description": "Night shift used for claims intake and after-hours incident handling.",
+      "shift_type": "FIXED",
+      "start_time": "20:00:00",
+      "end_time": "05:00:00",
+      "expected_work_minutes": 480,
+      "minimum_work_minutes": 420,
+      "half_day_minutes": 240,
+      "grace_in_minutes": 5,
+      "grace_out_minutes": 5,
+      "late_after_minutes": 10,
+      "early_leave_after_minutes": 15,
+      "is_night_shift": true,
+      "crosses_midnight": true,
+      "allow_overtime": true,
+      "max_overtime_minutes": 180,
+      "requires_checkout": true,
+      "allow_early_checkin": false,
+      "allow_late_checkout": true,
+      "status": "ACTIVE"
     }
   ],
   "shift_breaks": [
@@ -220,6 +550,36 @@
       "end_time": "14:30:00",
       "duration_minutes": 60,
       "is_paid": false,
+      "is_flexible": false
+    },
+    {
+      "shift_code": "ATT_SAT_HALF",
+      "name": "Tea Break",
+      "break_type": "TEA",
+      "start_time": "10:30:00",
+      "end_time": "10:45:00",
+      "duration_minutes": 15,
+      "is_paid": true,
+      "is_flexible": false
+    },
+    {
+      "shift_code": "ATT_FIELD_FLEX",
+      "name": "Field Lunch Window",
+      "break_type": "LUNCH",
+      "start_time": "12:30:00",
+      "end_time": "13:30:00",
+      "duration_minutes": 60,
+      "is_paid": false,
+      "is_flexible": true
+    },
+    {
+      "shift_code": "ATT_CLM_NIGHT",
+      "name": "Night Handover Break",
+      "break_type": "DINNER",
+      "start_time": "01:00:00",
+      "end_time": "01:30:00",
+      "duration_minutes": 30,
+      "is_paid": true,
       "is_flexible": false
     }
   ],
@@ -247,6 +607,42 @@
       "allow_remote_attendance": false,
       "require_geofence": true,
       "require_biometric": false
+    },
+    {
+      "shift_code": "ATT_SAT_HALF",
+      "late_after_minutes": 5,
+      "absent_after_minutes": 180,
+      "half_day_after_minutes": 120,
+      "allow_multiple_checkin": false,
+      "auto_mark_absent": true,
+      "allow_mobile_attendance": true,
+      "allow_remote_attendance": false,
+      "require_geofence": true,
+      "require_biometric": false
+    },
+    {
+      "shift_code": "ATT_FIELD_FLEX",
+      "late_after_minutes": 15,
+      "absent_after_minutes": 300,
+      "half_day_after_minutes": 210,
+      "allow_multiple_checkin": true,
+      "auto_mark_absent": true,
+      "allow_mobile_attendance": true,
+      "allow_remote_attendance": true,
+      "require_geofence": true,
+      "require_biometric": false
+    },
+    {
+      "shift_code": "ATT_CLM_NIGHT",
+      "late_after_minutes": 10,
+      "absent_after_minutes": 240,
+      "half_day_after_minutes": 180,
+      "allow_multiple_checkin": false,
+      "auto_mark_absent": true,
+      "allow_mobile_attendance": false,
+      "allow_remote_attendance": false,
+      "require_geofence": false,
+      "require_biometric": true
     }
   ],
   "shift_overtime_rules": [
@@ -269,6 +665,181 @@
       "holiday_multiplier": 2,
       "requires_approval": false,
       "auto_calculate": true
+    },
+    {
+      "shift_code": "ATT_SAT_HALF",
+      "overtime_start_after_minutes": 15,
+      "max_daily_overtime_minutes": 60,
+      "overtime_rate_multiplier": 1.25,
+      "weekend_multiplier": 1.5,
+      "holiday_multiplier": 2,
+      "requires_approval": true,
+      "auto_calculate": true
+    },
+    {
+      "shift_code": "ATT_FIELD_FLEX",
+      "overtime_start_after_minutes": 45,
+      "max_daily_overtime_minutes": 240,
+      "overtime_rate_multiplier": 1.25,
+      "weekend_multiplier": 1.5,
+      "holiday_multiplier": 2,
+      "requires_approval": true,
+      "auto_calculate": true
+    },
+    {
+      "shift_code": "ATT_CLM_NIGHT",
+      "overtime_start_after_minutes": 20,
+      "max_daily_overtime_minutes": 180,
+      "overtime_rate_multiplier": 1.75,
+      "weekend_multiplier": 2,
+      "holiday_multiplier": 2.25,
+      "requires_approval": true,
+      "auto_calculate": true
+    }
+  ],
+  "shift_templates": [
+    {
+      "name": "Alliance HQ Weekday Template",
+      "template_type": "FIXED",
+      "configuration": {
+        "policy_name": "Alliance Standard Attendance Policy",
+        "default_shift_codes": {
+          "monday": "ATT_STD_DAY",
+          "tuesday": "ATT_STD_DAY",
+          "wednesday": "ATT_STD_DAY",
+          "thursday": "ATT_STD_DAY",
+          "friday": "ATT_STD_DAY",
+          "saturday": "ATT_SAT_HALF",
+          "sunday": null
+        },
+        "checkpoint_names": [
+          "HQ GPS Checkpoint",
+          "HQ WiFi Checkpoint"
+        ],
+        "break_strategy": "weekday-lunch-standard"
+      },
+      "status": "ACTIVE"
+    },
+    {
+      "name": "Alliance Field Visit Template",
+      "template_type": "FLEXIBLE",
+      "configuration": {
+        "policy_name": "Alliance Field Operations Attendance Policy",
+        "default_shift_code": "ATT_FIELD_FLEX",
+        "flex_window": {
+          "start_from": "07:30:00",
+          "start_to": "09:30:00"
+        },
+        "fallback_shift_code": "ATT_SAT_HALF",
+        "checkpoint_names": [
+          "Field GPS Checkpoint",
+          "Outreach WiFi Checkpoint"
+        ]
+      },
+      "status": "ACTIVE"
+    },
+    {
+      "name": "Alliance Claims Rotation Template",
+      "template_type": "ROTATIONAL",
+      "configuration": {
+        "policy_name": "Alliance Standard Attendance Policy",
+        "rotation_group_code": "ROT_NIGHT_CLAIMS",
+        "cycle_days": 7,
+        "shift_sequence": [
+          "ATT_CLM_NIGHT",
+          "ATT_CLM_NIGHT",
+          "ATT_CLM_NIGHT",
+          "ATT_CLM_NIGHT",
+          "OFF",
+          "OFF",
+          "ATT_STD_DAY"
+        ]
+      },
+      "status": "ACTIVE"
+    }
+  ],
+  "shift_rotation_groups": [
+    {
+      "name": "Alliance Saturday Coverage Rotation",
+      "code": "ROT_SAT_CVG",
+      "cycle_days": 4,
+      "description": "Simple four-day cycle for Saturday support and recovery coverage.",
+      "status": "ACTIVE"
+    },
+    {
+      "name": "Alliance Claims Night Rotation",
+      "code": "ROT_NIGHT_CLAIMS",
+      "cycle_days": 7,
+      "description": "Claims rotation with four nights, two rest days, and one handover day.",
+      "status": "ACTIVE"
+    }
+  ],
+  "shift_rotation_rules": [
+    {
+      "rotation_group_code": "ROT_SAT_CVG",
+      "shift_code": "ATT_STD_DAY",
+      "day_index": 1,
+      "is_off_day": false
+    },
+    {
+      "rotation_group_code": "ROT_SAT_CVG",
+      "shift_code": "ATT_SUP_DAY",
+      "day_index": 2,
+      "is_off_day": false
+    },
+    {
+      "rotation_group_code": "ROT_SAT_CVG",
+      "shift_code": "ATT_SAT_HALF",
+      "day_index": 3,
+      "is_off_day": false
+    },
+    {
+      "rotation_group_code": "ROT_SAT_CVG",
+      "shift_code": null,
+      "day_index": 4,
+      "is_off_day": true
+    },
+    {
+      "rotation_group_code": "ROT_NIGHT_CLAIMS",
+      "shift_code": "ATT_CLM_NIGHT",
+      "day_index": 1,
+      "is_off_day": false
+    },
+    {
+      "rotation_group_code": "ROT_NIGHT_CLAIMS",
+      "shift_code": "ATT_CLM_NIGHT",
+      "day_index": 2,
+      "is_off_day": false
+    },
+    {
+      "rotation_group_code": "ROT_NIGHT_CLAIMS",
+      "shift_code": "ATT_CLM_NIGHT",
+      "day_index": 3,
+      "is_off_day": false
+    },
+    {
+      "rotation_group_code": "ROT_NIGHT_CLAIMS",
+      "shift_code": "ATT_CLM_NIGHT",
+      "day_index": 4,
+      "is_off_day": false
+    },
+    {
+      "rotation_group_code": "ROT_NIGHT_CLAIMS",
+      "shift_code": null,
+      "day_index": 5,
+      "is_off_day": true
+    },
+    {
+      "rotation_group_code": "ROT_NIGHT_CLAIMS",
+      "shift_code": null,
+      "day_index": 6,
+      "is_off_day": true
+    },
+    {
+      "rotation_group_code": "ROT_NIGHT_CLAIMS",
+      "shift_code": "ATT_STD_DAY",
+      "day_index": 7,
+      "is_off_day": false
     }
   ],
   "employees": [
@@ -276,25 +847,37 @@
       "employee_no": "00000001",
       "full_name": "Filbert Msaki",
       "branch_code": "HQ",
-      "default_shift_code": "ATT_SUP_DAY"
+      "default_shift_code": "ATT_SUP_DAY",
+      "default_policy_name": "Alliance Field Operations Attendance Policy",
+      "default_timetable_code": "TT_FIELD_FLEX",
+      "holiday_group_name": "Alliance Operations Holiday Calendar"
     },
     {
       "employee_no": "00000003",
       "full_name": "Agatha Godfrey Kiiza",
       "branch_code": "HQ",
-      "default_shift_code": "ATT_STD_DAY"
+      "default_shift_code": "ATT_STD_DAY",
+      "default_policy_name": "Alliance Standard Attendance Policy",
+      "default_timetable_code": "TT_HQ_STD",
+      "holiday_group_name": "Alliance Shared Holiday Calendar"
     },
     {
       "employee_no": "00000004",
       "full_name": "Amina Gerard Manongi",
       "branch_code": "HQ",
-      "default_shift_code": "ATT_STD_DAY"
+      "default_shift_code": "ATT_STD_DAY",
+      "default_policy_name": "Alliance Standard Attendance Policy",
+      "default_timetable_code": "TT_HQ_STD",
+      "holiday_group_name": "Alliance Shared Holiday Calendar"
     },
     {
       "employee_no": "00000005",
       "full_name": "Antoni Jordan Kambona",
       "branch_code": "HQ",
-      "default_shift_code": "ATT_STD_DAY"
+      "default_shift_code": "ATT_STD_DAY",
+      "default_policy_name": "Alliance Standard Attendance Policy",
+      "default_timetable_code": "TT_HQ_STD",
+      "holiday_group_name": "Alliance Shared Holiday Calendar"
     }
   ],
   "shift_assignments": [
@@ -318,6 +901,15 @@
       "employee_no": "00000004",
       "shift_code": "ATT_STD_DAY",
       "effective_from": "2026-06-02",
+      "effective_to": "2026-07-05",
+      "is_primary": true,
+      "status": "ACTIVE"
+    },
+    {
+      "employee_no": "00000004",
+      "shift_code": "ATT_CLM_NIGHT",
+      "rotation_group_code": "ROT_NIGHT_CLAIMS",
+      "effective_from": "2026-07-06",
       "effective_to": null,
       "is_primary": true,
       "status": "ACTIVE"
@@ -326,9 +918,872 @@
       "employee_no": "00000005",
       "shift_code": "ATT_STD_DAY",
       "effective_from": "2026-06-02",
+      "effective_to": "2026-06-30",
+      "is_primary": true,
+      "status": "ACTIVE"
+    },
+    {
+      "employee_no": "00000005",
+      "shift_code": "ATT_FIELD_FLEX",
+      "rotation_group_code": "ROT_SAT_CVG",
+      "effective_from": "2026-07-01",
       "effective_to": null,
       "is_primary": true,
       "status": "ACTIVE"
+    }
+  ],
+  "timetables": [
+    {
+      "name": "Alliance HQ Standard Timetable",
+      "code": "TT_HQ_STD",
+      "branch_code": "HQ",
+      "description": "Default weekly office timetable for headquarters users.",
+      "timetable_type": "FIXED",
+      "timezone": "Africa/Dar_es_Salaam",
+      "is_default": true,
+      "status": "ACTIVE",
+      "created_by_employee_no": "00000001"
+    },
+    {
+      "name": "Alliance Field Operations Timetable",
+      "code": "TT_FIELD_FLEX",
+      "branch_code": "HQ",
+      "description": "Flexible field timetable with mobile-first validation and Saturday support coverage.",
+      "timetable_type": "FLEXIBLE",
+      "timezone": "Africa/Dar_es_Salaam",
+      "is_default": false,
+      "status": "ACTIVE",
+      "created_by_employee_no": "00000001"
+    },
+    {
+      "name": "Alliance Claims Rotation Timetable",
+      "code": "TT_CLAIMS_ROT",
+      "branch_code": "HQ",
+      "description": "Rotational timetable for claims night coverage and handover days.",
+      "timetable_type": "ROTATIONAL",
+      "timezone": "Africa/Dar_es_Salaam",
+      "is_default": false,
+      "status": "ACTIVE",
+      "created_by_employee_no": "00000001"
+    }
+  ],
+  "timetable_days": [
+    {
+      "timetable_code": "TT_HQ_STD",
+      "day_of_week": 0,
+      "is_working_day": false,
+      "default_shift_code": null,
+      "minimum_work_minutes": 0,
+      "expected_check_in_time": null,
+      "expected_check_out_time": null,
+      "allow_flexible_time": false,
+      "flexible_start_from": null,
+      "flexible_start_to": null,
+      "overtime_allowed": false,
+      "break_required": false,
+      "break_minutes": 0
+    },
+    {
+      "timetable_code": "TT_HQ_STD",
+      "day_of_week": 1,
+      "is_working_day": true,
+      "default_shift_code": "ATT_STD_DAY",
+      "minimum_work_minutes": 420,
+      "expected_check_in_time": "08:00:00",
+      "expected_check_out_time": "17:00:00",
+      "allow_flexible_time": false,
+      "flexible_start_from": null,
+      "flexible_start_to": null,
+      "overtime_allowed": true,
+      "break_required": true,
+      "break_minutes": 60
+    },
+    {
+      "timetable_code": "TT_HQ_STD",
+      "day_of_week": 2,
+      "is_working_day": true,
+      "default_shift_code": "ATT_STD_DAY",
+      "minimum_work_minutes": 420,
+      "expected_check_in_time": "08:00:00",
+      "expected_check_out_time": "17:00:00",
+      "allow_flexible_time": false,
+      "flexible_start_from": null,
+      "flexible_start_to": null,
+      "overtime_allowed": true,
+      "break_required": true,
+      "break_minutes": 60
+    },
+    {
+      "timetable_code": "TT_HQ_STD",
+      "day_of_week": 3,
+      "is_working_day": true,
+      "default_shift_code": "ATT_STD_DAY",
+      "minimum_work_minutes": 420,
+      "expected_check_in_time": "08:00:00",
+      "expected_check_out_time": "17:00:00",
+      "allow_flexible_time": false,
+      "flexible_start_from": null,
+      "flexible_start_to": null,
+      "overtime_allowed": true,
+      "break_required": true,
+      "break_minutes": 60
+    },
+    {
+      "timetable_code": "TT_HQ_STD",
+      "day_of_week": 4,
+      "is_working_day": true,
+      "default_shift_code": "ATT_STD_DAY",
+      "minimum_work_minutes": 420,
+      "expected_check_in_time": "08:00:00",
+      "expected_check_out_time": "17:00:00",
+      "allow_flexible_time": false,
+      "flexible_start_from": null,
+      "flexible_start_to": null,
+      "overtime_allowed": true,
+      "break_required": true,
+      "break_minutes": 60
+    },
+    {
+      "timetable_code": "TT_HQ_STD",
+      "day_of_week": 5,
+      "is_working_day": true,
+      "default_shift_code": "ATT_STD_DAY",
+      "minimum_work_minutes": 420,
+      "expected_check_in_time": "08:00:00",
+      "expected_check_out_time": "17:00:00",
+      "allow_flexible_time": false,
+      "flexible_start_from": null,
+      "flexible_start_to": null,
+      "overtime_allowed": true,
+      "break_required": true,
+      "break_minutes": 60
+    },
+    {
+      "timetable_code": "TT_HQ_STD",
+      "day_of_week": 6,
+      "is_working_day": true,
+      "default_shift_code": "ATT_SAT_HALF",
+      "minimum_work_minutes": 240,
+      "expected_check_in_time": "09:00:00",
+      "expected_check_out_time": "13:00:00",
+      "allow_flexible_time": false,
+      "flexible_start_from": null,
+      "flexible_start_to": null,
+      "overtime_allowed": true,
+      "break_required": true,
+      "break_minutes": 15
+    },
+    {
+      "timetable_code": "TT_FIELD_FLEX",
+      "day_of_week": 0,
+      "is_working_day": false,
+      "default_shift_code": null,
+      "minimum_work_minutes": 0,
+      "expected_check_in_time": null,
+      "expected_check_out_time": null,
+      "allow_flexible_time": false,
+      "flexible_start_from": null,
+      "flexible_start_to": null,
+      "overtime_allowed": false,
+      "break_required": false,
+      "break_minutes": 0
+    },
+    {
+      "timetable_code": "TT_FIELD_FLEX",
+      "day_of_week": 1,
+      "is_working_day": true,
+      "default_shift_code": "ATT_FIELD_FLEX",
+      "minimum_work_minutes": 420,
+      "expected_check_in_time": "07:30:00",
+      "expected_check_out_time": "16:30:00",
+      "allow_flexible_time": true,
+      "flexible_start_from": "07:30:00",
+      "flexible_start_to": "09:30:00",
+      "overtime_allowed": true,
+      "break_required": true,
+      "break_minutes": 60
+    },
+    {
+      "timetable_code": "TT_FIELD_FLEX",
+      "day_of_week": 2,
+      "is_working_day": true,
+      "default_shift_code": "ATT_FIELD_FLEX",
+      "minimum_work_minutes": 420,
+      "expected_check_in_time": "07:30:00",
+      "expected_check_out_time": "16:30:00",
+      "allow_flexible_time": true,
+      "flexible_start_from": "07:30:00",
+      "flexible_start_to": "09:30:00",
+      "overtime_allowed": true,
+      "break_required": true,
+      "break_minutes": 60
+    },
+    {
+      "timetable_code": "TT_FIELD_FLEX",
+      "day_of_week": 3,
+      "is_working_day": true,
+      "default_shift_code": "ATT_FIELD_FLEX",
+      "minimum_work_minutes": 420,
+      "expected_check_in_time": "07:30:00",
+      "expected_check_out_time": "16:30:00",
+      "allow_flexible_time": true,
+      "flexible_start_from": "07:30:00",
+      "flexible_start_to": "09:30:00",
+      "overtime_allowed": true,
+      "break_required": true,
+      "break_minutes": 60
+    },
+    {
+      "timetable_code": "TT_FIELD_FLEX",
+      "day_of_week": 4,
+      "is_working_day": true,
+      "default_shift_code": "ATT_FIELD_FLEX",
+      "minimum_work_minutes": 420,
+      "expected_check_in_time": "07:30:00",
+      "expected_check_out_time": "16:30:00",
+      "allow_flexible_time": true,
+      "flexible_start_from": "07:30:00",
+      "flexible_start_to": "09:30:00",
+      "overtime_allowed": true,
+      "break_required": true,
+      "break_minutes": 60
+    },
+    {
+      "timetable_code": "TT_FIELD_FLEX",
+      "day_of_week": 5,
+      "is_working_day": true,
+      "default_shift_code": "ATT_FIELD_FLEX",
+      "minimum_work_minutes": 420,
+      "expected_check_in_time": "07:30:00",
+      "expected_check_out_time": "16:30:00",
+      "allow_flexible_time": true,
+      "flexible_start_from": "07:30:00",
+      "flexible_start_to": "09:30:00",
+      "overtime_allowed": true,
+      "break_required": true,
+      "break_minutes": 60
+    },
+    {
+      "timetable_code": "TT_FIELD_FLEX",
+      "day_of_week": 6,
+      "is_working_day": true,
+      "default_shift_code": "ATT_SAT_HALF",
+      "minimum_work_minutes": 240,
+      "expected_check_in_time": "09:00:00",
+      "expected_check_out_time": "13:00:00",
+      "allow_flexible_time": false,
+      "flexible_start_from": null,
+      "flexible_start_to": null,
+      "overtime_allowed": true,
+      "break_required": true,
+      "break_minutes": 15
+    },
+    {
+      "timetable_code": "TT_CLAIMS_ROT",
+      "day_of_week": 0,
+      "is_working_day": true,
+      "default_shift_code": "ATT_CLM_NIGHT",
+      "minimum_work_minutes": 420,
+      "expected_check_in_time": "20:00:00",
+      "expected_check_out_time": "05:00:00",
+      "allow_flexible_time": false,
+      "flexible_start_from": null,
+      "flexible_start_to": null,
+      "overtime_allowed": true,
+      "break_required": true,
+      "break_minutes": 30
+    },
+    {
+      "timetable_code": "TT_CLAIMS_ROT",
+      "day_of_week": 1,
+      "is_working_day": true,
+      "default_shift_code": "ATT_CLM_NIGHT",
+      "minimum_work_minutes": 420,
+      "expected_check_in_time": "20:00:00",
+      "expected_check_out_time": "05:00:00",
+      "allow_flexible_time": false,
+      "flexible_start_from": null,
+      "flexible_start_to": null,
+      "overtime_allowed": true,
+      "break_required": true,
+      "break_minutes": 30
+    },
+    {
+      "timetable_code": "TT_CLAIMS_ROT",
+      "day_of_week": 2,
+      "is_working_day": true,
+      "default_shift_code": "ATT_CLM_NIGHT",
+      "minimum_work_minutes": 420,
+      "expected_check_in_time": "20:00:00",
+      "expected_check_out_time": "05:00:00",
+      "allow_flexible_time": false,
+      "flexible_start_from": null,
+      "flexible_start_to": null,
+      "overtime_allowed": true,
+      "break_required": true,
+      "break_minutes": 30
+    },
+    {
+      "timetable_code": "TT_CLAIMS_ROT",
+      "day_of_week": 3,
+      "is_working_day": true,
+      "default_shift_code": "ATT_CLM_NIGHT",
+      "minimum_work_minutes": 420,
+      "expected_check_in_time": "20:00:00",
+      "expected_check_out_time": "05:00:00",
+      "allow_flexible_time": false,
+      "flexible_start_from": null,
+      "flexible_start_to": null,
+      "overtime_allowed": true,
+      "break_required": true,
+      "break_minutes": 30
+    },
+    {
+      "timetable_code": "TT_CLAIMS_ROT",
+      "day_of_week": 4,
+      "is_working_day": true,
+      "default_shift_code": "ATT_CLM_NIGHT",
+      "minimum_work_minutes": 420,
+      "expected_check_in_time": "20:00:00",
+      "expected_check_out_time": "05:00:00",
+      "allow_flexible_time": false,
+      "flexible_start_from": null,
+      "flexible_start_to": null,
+      "overtime_allowed": true,
+      "break_required": true,
+      "break_minutes": 30
+    },
+    {
+      "timetable_code": "TT_CLAIMS_ROT",
+      "day_of_week": 5,
+      "is_working_day": true,
+      "default_shift_code": "ATT_CLM_NIGHT",
+      "minimum_work_minutes": 420,
+      "expected_check_in_time": "20:00:00",
+      "expected_check_out_time": "05:00:00",
+      "allow_flexible_time": false,
+      "flexible_start_from": null,
+      "flexible_start_to": null,
+      "overtime_allowed": true,
+      "break_required": true,
+      "break_minutes": 30
+    },
+    {
+      "timetable_code": "TT_CLAIMS_ROT",
+      "day_of_week": 6,
+      "is_working_day": true,
+      "default_shift_code": "ATT_STD_DAY",
+      "minimum_work_minutes": 420,
+      "expected_check_in_time": "08:00:00",
+      "expected_check_out_time": "17:00:00",
+      "allow_flexible_time": false,
+      "flexible_start_from": null,
+      "flexible_start_to": null,
+      "overtime_allowed": false,
+      "break_required": true,
+      "break_minutes": 60
+    }
+  ],
+  "timetable_shift_rules": [
+    {
+      "timetable_code": "TT_HQ_STD",
+      "day_of_week": 1,
+      "shift_code": "ATT_STD_DAY",
+      "priority_order": 1,
+      "is_primary": true,
+      "max_employees": 25
+    },
+    {
+      "timetable_code": "TT_HQ_STD",
+      "day_of_week": 1,
+      "shift_code": "ATT_SUP_DAY",
+      "priority_order": 2,
+      "is_primary": false,
+      "max_employees": 6
+    },
+    {
+      "timetable_code": "TT_HQ_STD",
+      "day_of_week": 6,
+      "shift_code": "ATT_SAT_HALF",
+      "priority_order": 1,
+      "is_primary": true,
+      "max_employees": 10
+    },
+    {
+      "timetable_code": "TT_FIELD_FLEX",
+      "day_of_week": 1,
+      "shift_code": "ATT_FIELD_FLEX",
+      "priority_order": 1,
+      "is_primary": true,
+      "max_employees": 8
+    },
+    {
+      "timetable_code": "TT_FIELD_FLEX",
+      "day_of_week": 1,
+      "shift_code": "ATT_STD_DAY",
+      "priority_order": 2,
+      "is_primary": false,
+      "max_employees": 2
+    },
+    {
+      "timetable_code": "TT_CLAIMS_ROT",
+      "day_of_week": 0,
+      "shift_code": "ATT_CLM_NIGHT",
+      "priority_order": 1,
+      "is_primary": true,
+      "max_employees": 4
+    }
+  ],
+  "employee_timetables": [
+    {
+      "employee_no": "00000001",
+      "timetable_code": "TT_FIELD_FLEX",
+      "effective_from": "2026-06-16",
+      "effective_to": null,
+      "status": "ACTIVE",
+      "assigned_by_employee_no": "00000001"
+    },
+    {
+      "employee_no": "00000003",
+      "timetable_code": "TT_HQ_STD",
+      "effective_from": "2026-06-16",
+      "effective_to": null,
+      "status": "ACTIVE",
+      "assigned_by_employee_no": "00000001"
+    },
+    {
+      "employee_no": "00000004",
+      "timetable_code": "TT_HQ_STD",
+      "effective_from": "2026-06-16",
+      "effective_to": "2026-07-05",
+      "status": "ACTIVE",
+      "assigned_by_employee_no": "00000001"
+    },
+    {
+      "employee_no": "00000004",
+      "timetable_code": "TT_CLAIMS_ROT",
+      "effective_from": "2026-07-06",
+      "effective_to": null,
+      "status": "ACTIVE",
+      "assigned_by_employee_no": "00000001"
+    },
+    {
+      "employee_no": "00000005",
+      "timetable_code": "TT_HQ_STD",
+      "effective_from": "2026-06-16",
+      "effective_to": "2026-06-30",
+      "status": "ACTIVE",
+      "assigned_by_employee_no": "00000001"
+    },
+    {
+      "employee_no": "00000005",
+      "timetable_code": "TT_FIELD_FLEX",
+      "effective_from": "2026-07-01",
+      "effective_to": null,
+      "status": "ACTIVE",
+      "assigned_by_employee_no": "00000001"
+    }
+  ],
+  "timetable_rotations": [
+    {
+      "timetable_code": "TT_FIELD_FLEX",
+      "name": "4 Day Outreach Cycle",
+      "cycle_days": 4,
+      "description": "Three field days followed by one recovery or planning day.",
+      "status": "ACTIVE"
+    },
+    {
+      "timetable_code": "TT_CLAIMS_ROT",
+      "name": "7 Day Claims Rotation",
+      "cycle_days": 7,
+      "description": "Four nights, two off days, and one office handover day.",
+      "status": "ACTIVE"
+    }
+  ],
+  "timetable_rotation_rules": [
+    {
+      "timetable_code": "TT_FIELD_FLEX",
+      "rotation_name": "4 Day Outreach Cycle",
+      "day_index": 1,
+      "shift_code": "ATT_FIELD_FLEX",
+      "is_off_day": false
+    },
+    {
+      "timetable_code": "TT_FIELD_FLEX",
+      "rotation_name": "4 Day Outreach Cycle",
+      "day_index": 2,
+      "shift_code": "ATT_FIELD_FLEX",
+      "is_off_day": false
+    },
+    {
+      "timetable_code": "TT_FIELD_FLEX",
+      "rotation_name": "4 Day Outreach Cycle",
+      "day_index": 3,
+      "shift_code": "ATT_FIELD_FLEX",
+      "is_off_day": false
+    },
+    {
+      "timetable_code": "TT_FIELD_FLEX",
+      "rotation_name": "4 Day Outreach Cycle",
+      "day_index": 4,
+      "shift_code": null,
+      "is_off_day": true
+    },
+    {
+      "timetable_code": "TT_CLAIMS_ROT",
+      "rotation_name": "7 Day Claims Rotation",
+      "day_index": 1,
+      "shift_code": "ATT_CLM_NIGHT",
+      "is_off_day": false
+    },
+    {
+      "timetable_code": "TT_CLAIMS_ROT",
+      "rotation_name": "7 Day Claims Rotation",
+      "day_index": 2,
+      "shift_code": "ATT_CLM_NIGHT",
+      "is_off_day": false
+    },
+    {
+      "timetable_code": "TT_CLAIMS_ROT",
+      "rotation_name": "7 Day Claims Rotation",
+      "day_index": 3,
+      "shift_code": "ATT_CLM_NIGHT",
+      "is_off_day": false
+    },
+    {
+      "timetable_code": "TT_CLAIMS_ROT",
+      "rotation_name": "7 Day Claims Rotation",
+      "day_index": 4,
+      "shift_code": "ATT_CLM_NIGHT",
+      "is_off_day": false
+    },
+    {
+      "timetable_code": "TT_CLAIMS_ROT",
+      "rotation_name": "7 Day Claims Rotation",
+      "day_index": 5,
+      "shift_code": null,
+      "is_off_day": true
+    },
+    {
+      "timetable_code": "TT_CLAIMS_ROT",
+      "rotation_name": "7 Day Claims Rotation",
+      "day_index": 6,
+      "shift_code": null,
+      "is_off_day": true
+    },
+    {
+      "timetable_code": "TT_CLAIMS_ROT",
+      "rotation_name": "7 Day Claims Rotation",
+      "day_index": 7,
+      "shift_code": "ATT_STD_DAY",
+      "is_off_day": false
+    }
+  ],
+  "timetable_holiday_rules": [
+    {
+      "timetable_code": "TT_HQ_STD",
+      "holiday_group_name": "Alliance Shared Holiday Calendar",
+      "action_type": "PAID_HOLIDAY",
+      "apply_overtime_rules": false,
+      "auto_mark_offday": true
+    },
+    {
+      "timetable_code": "TT_FIELD_FLEX",
+      "holiday_group_name": "Alliance Operations Holiday Calendar",
+      "action_type": "WORKING_HOLIDAY",
+      "apply_overtime_rules": true,
+      "auto_mark_offday": false
+    },
+    {
+      "timetable_code": "TT_CLAIMS_ROT",
+      "holiday_group_name": "Alliance Shared Holiday Calendar",
+      "action_type": "OFF_DAY",
+      "apply_overtime_rules": false,
+      "auto_mark_offday": true
+    }
+  ],
+  "timetable_attendance_rules": [
+    {
+      "timetable_code": "TT_HQ_STD",
+      "late_after_minutes": 10,
+      "half_day_after_minutes": 240,
+      "absent_after_minutes": 360,
+      "allow_early_checkin": true,
+      "allow_late_checkout": true,
+      "auto_absent_if_no_checkin": true,
+      "max_overtime_minutes": 180
+    },
+    {
+      "timetable_code": "TT_FIELD_FLEX",
+      "late_after_minutes": 15,
+      "half_day_after_minutes": 210,
+      "absent_after_minutes": 330,
+      "allow_early_checkin": true,
+      "allow_late_checkout": true,
+      "auto_absent_if_no_checkin": true,
+      "max_overtime_minutes": 240
+    },
+    {
+      "timetable_code": "TT_CLAIMS_ROT",
+      "late_after_minutes": 10,
+      "half_day_after_minutes": 180,
+      "absent_after_minutes": 240,
+      "allow_early_checkin": false,
+      "allow_late_checkout": true,
+      "auto_absent_if_no_checkin": true,
+      "max_overtime_minutes": 180
+    }
+  ],
+  "timetable_generated_schedules": [
+    {
+      "employee_no": "00000001",
+      "timetable_code": "TT_FIELD_FLEX",
+      "shift_code": "ATT_FIELD_FLEX",
+      "schedule_date": "2026-06-16",
+      "generated_from_rotation": false,
+      "is_off_day": false,
+      "holiday_name": null,
+      "source_rule": "day"
+    },
+    {
+      "employee_no": "00000001",
+      "timetable_code": "TT_FIELD_FLEX",
+      "shift_code": "ATT_FIELD_FLEX",
+      "schedule_date": "2026-06-17",
+      "generated_from_rotation": false,
+      "is_off_day": false,
+      "holiday_name": null,
+      "source_rule": "day"
+    },
+    {
+      "employee_no": "00000001",
+      "timetable_code": "TT_FIELD_FLEX",
+      "shift_code": "ATT_FIELD_FLEX",
+      "schedule_date": "2026-06-18",
+      "generated_from_rotation": false,
+      "is_off_day": false,
+      "holiday_name": null,
+      "source_rule": "day"
+    },
+    {
+      "employee_no": "00000001",
+      "timetable_code": "TT_FIELD_FLEX",
+      "shift_code": "ATT_FIELD_FLEX",
+      "schedule_date": "2026-06-19",
+      "generated_from_rotation": false,
+      "is_off_day": false,
+      "holiday_name": null,
+      "source_rule": "day"
+    },
+    {
+      "employee_no": "00000001",
+      "timetable_code": "TT_FIELD_FLEX",
+      "shift_code": "ATT_SAT_HALF",
+      "schedule_date": "2026-06-20",
+      "generated_from_rotation": false,
+      "is_off_day": false,
+      "holiday_name": "Field Outreach Support Day",
+      "source_rule": "day"
+    },
+    {
+      "employee_no": "00000001",
+      "timetable_code": "TT_FIELD_FLEX",
+      "shift_code": null,
+      "schedule_date": "2026-06-21",
+      "generated_from_rotation": false,
+      "is_off_day": true,
+      "holiday_name": null,
+      "source_rule": "day"
+    },
+    {
+      "employee_no": "00000003",
+      "timetable_code": "TT_HQ_STD",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_date": "2026-06-16",
+      "generated_from_rotation": false,
+      "is_off_day": false,
+      "holiday_name": null,
+      "source_rule": "day"
+    },
+    {
+      "employee_no": "00000003",
+      "timetable_code": "TT_HQ_STD",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_date": "2026-06-17",
+      "generated_from_rotation": false,
+      "is_off_day": false,
+      "holiday_name": null,
+      "source_rule": "day"
+    },
+    {
+      "employee_no": "00000003",
+      "timetable_code": "TT_HQ_STD",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_date": "2026-06-18",
+      "generated_from_rotation": false,
+      "is_off_day": false,
+      "holiday_name": null,
+      "source_rule": "day"
+    },
+    {
+      "employee_no": "00000003",
+      "timetable_code": "TT_HQ_STD",
+      "shift_code": null,
+      "schedule_date": "2026-06-19",
+      "generated_from_rotation": false,
+      "is_off_day": true,
+      "holiday_name": "Alliance Founders Day",
+      "source_rule": "day"
+    },
+    {
+      "employee_no": "00000003",
+      "timetable_code": "TT_HQ_STD",
+      "shift_code": "ATT_SAT_HALF",
+      "schedule_date": "2026-06-20",
+      "generated_from_rotation": false,
+      "is_off_day": false,
+      "holiday_name": null,
+      "source_rule": "day"
+    },
+    {
+      "employee_no": "00000003",
+      "timetable_code": "TT_HQ_STD",
+      "shift_code": null,
+      "schedule_date": "2026-06-21",
+      "generated_from_rotation": false,
+      "is_off_day": true,
+      "holiday_name": null,
+      "source_rule": "day"
+    },
+    {
+      "employee_no": "00000004",
+      "timetable_code": "TT_HQ_STD",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_date": "2026-06-16",
+      "generated_from_rotation": false,
+      "is_off_day": false,
+      "holiday_name": null,
+      "source_rule": "day"
+    },
+    {
+      "employee_no": "00000004",
+      "timetable_code": "TT_HQ_STD",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_date": "2026-06-17",
+      "generated_from_rotation": false,
+      "is_off_day": false,
+      "holiday_name": null,
+      "source_rule": "day"
+    },
+    {
+      "employee_no": "00000004",
+      "timetable_code": "TT_HQ_STD",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_date": "2026-06-18",
+      "generated_from_rotation": false,
+      "is_off_day": false,
+      "holiday_name": null,
+      "source_rule": "day"
+    },
+    {
+      "employee_no": "00000004",
+      "timetable_code": "TT_HQ_STD",
+      "shift_code": null,
+      "schedule_date": "2026-06-19",
+      "generated_from_rotation": false,
+      "is_off_day": true,
+      "holiday_name": "Alliance Founders Day",
+      "source_rule": "day"
+    },
+    {
+      "employee_no": "00000004",
+      "timetable_code": "TT_HQ_STD",
+      "shift_code": "ATT_SAT_HALF",
+      "schedule_date": "2026-06-20",
+      "generated_from_rotation": false,
+      "is_off_day": false,
+      "holiday_name": null,
+      "source_rule": "day"
+    },
+    {
+      "employee_no": "00000004",
+      "timetable_code": "TT_HQ_STD",
+      "shift_code": null,
+      "schedule_date": "2026-06-21",
+      "generated_from_rotation": false,
+      "is_off_day": true,
+      "holiday_name": null,
+      "source_rule": "day"
+    },
+    {
+      "employee_no": "00000004",
+      "timetable_code": "TT_CLAIMS_ROT",
+      "shift_code": "ATT_CLM_NIGHT",
+      "schedule_date": "2026-07-06",
+      "generated_from_rotation": true,
+      "is_off_day": false,
+      "holiday_name": null,
+      "source_rule": "rotation"
+    },
+    {
+      "employee_no": "00000004",
+      "timetable_code": "TT_CLAIMS_ROT",
+      "shift_code": "ATT_CLM_NIGHT",
+      "schedule_date": "2026-07-07",
+      "generated_from_rotation": true,
+      "is_off_day": false,
+      "holiday_name": null,
+      "source_rule": "rotation"
+    },
+    {
+      "employee_no": "00000004",
+      "timetable_code": "TT_CLAIMS_ROT",
+      "shift_code": "ATT_CLM_NIGHT",
+      "schedule_date": "2026-07-08",
+      "generated_from_rotation": true,
+      "is_off_day": false,
+      "holiday_name": null,
+      "source_rule": "rotation"
+    },
+    {
+      "employee_no": "00000004",
+      "timetable_code": "TT_CLAIMS_ROT",
+      "shift_code": "ATT_CLM_NIGHT",
+      "schedule_date": "2026-07-09",
+      "generated_from_rotation": true,
+      "is_off_day": false,
+      "holiday_name": null,
+      "source_rule": "rotation"
+    },
+    {
+      "employee_no": "00000004",
+      "timetable_code": "TT_CLAIMS_ROT",
+      "shift_code": null,
+      "schedule_date": "2026-07-10",
+      "generated_from_rotation": true,
+      "is_off_day": true,
+      "holiday_name": null,
+      "source_rule": "rotation"
+    },
+    {
+      "employee_no": "00000004",
+      "timetable_code": "TT_CLAIMS_ROT",
+      "shift_code": null,
+      "schedule_date": "2026-07-11",
+      "generated_from_rotation": true,
+      "is_off_day": true,
+      "holiday_name": null,
+      "source_rule": "rotation"
+    },
+    {
+      "employee_no": "00000004",
+      "timetable_code": "TT_CLAIMS_ROT",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_date": "2026-07-12",
+      "generated_from_rotation": true,
+      "is_off_day": false,
+      "holiday_name": null,
+      "source_rule": "rotation"
     }
   ],
   "shift_schedules": [
@@ -499,6 +1954,22 @@
       "holiday_name": null,
       "is_off_day": false,
       "remarks": "Seeded attendance workday."
+    },
+    {
+      "employee_no": "00000003",
+      "shift_code": "ATT_SAT_HALF",
+      "schedule_date": "2026-06-20",
+      "holiday_name": null,
+      "is_off_day": false,
+      "remarks": "Saturday half-day coverage sample aligned with HQ timetable."
+    },
+    {
+      "employee_no": "00000005",
+      "shift_code": "ATT_FIELD_FLEX",
+      "schedule_date": "2026-07-10",
+      "holiday_name": null,
+      "is_off_day": true,
+      "remarks": "Supervisor-approved recovery off-day overriding the field timetable."
     }
   ],
   "attendance_mobile_punches": [
