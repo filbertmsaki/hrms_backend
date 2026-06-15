@@ -8,6 +8,7 @@ import { AttendanceBusinessTripStatusEnum } from './enums/attendance-business-tr
 import { AttendanceProcessingJobStatusEnum } from './enums/attendance-processing-job-status.enum';
 import { EmploymentStatusEnum } from '../../employees/enums/employment-status.enum';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
+import { SortDirection } from '../../../../common/dto/pagination.dto';
 
 type MockRepo<T> = Partial<Record<keyof Repository<T>, jest.Mock>>;
 
@@ -178,5 +179,21 @@ describe('AttendanceBusinessTripsService', () => {
         reason: 'Business trip cancelled',
       }),
     );
+  });
+
+  it('maps created_at to createdAt when listing business trips', async () => {
+    const qb = createQueryBuilderMock();
+    qb.getManyAndCount.mockResolvedValue([[], 0]);
+    businessTripRepository.createQueryBuilder!.mockReturnValue(qb);
+
+    await service.findAll(10, {
+      page: 1,
+      limit: 20,
+      sortBy: 'created_at',
+      sortOrder: SortDirection.DESC,
+    });
+
+    expect(qb.orderBy).toHaveBeenCalledWith('trip.createdAt', 'DESC');
+    expect(qb.getManyAndCount).toHaveBeenCalled();
   });
 });

@@ -100,8 +100,13 @@ export class AccessScheduleTemplatesService {
       });
     }
 
-    const allowedSortFields = ['created_at', 'updated_at', 'name', 'hikvision_template_no'];
-    const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'created_at';
+    const sortFieldMap: Record<string, string> = {
+      created_at: 'createdAt',
+      updated_at: 'updatedAt',
+      name: 'name',
+      hikvision_template_no: 'hikvisionTemplateNo',
+    };
+    const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.created_at;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
     const [items, total] = await qb

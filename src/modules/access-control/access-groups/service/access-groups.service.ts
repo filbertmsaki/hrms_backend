@@ -116,8 +116,13 @@ export class AccessGroupsService {
       qb.andWhere('group.name LIKE :term', { term: `%${search.trim()}%` });
     }
 
-    const allowedSortFields = ['created_at', 'updated_at', 'name', 'status'];
-    const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'created_at';
+    const sortFieldMap: Record<string, string> = {
+      created_at: 'createdAt',
+      updated_at: 'updatedAt',
+      name: 'name',
+      status: 'status',
+    };
+    const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.created_at;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
     const [items, total] = await qb

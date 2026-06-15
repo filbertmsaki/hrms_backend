@@ -190,8 +190,13 @@ export class AttendanceBusinessTripsService {
     if (from_date) qb.andWhere('trip.start_date >= :fromDate', { fromDate: from_date });
     if (to_date) qb.andWhere('trip.end_date <= :toDate', { toDate: to_date });
 
-    const allowedSortFields = ['created_at', 'updated_at', 'start_date', 'end_date'];
-    const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'created_at';
+    const sortFieldMap: Record<string, string> = {
+      created_at: 'createdAt',
+      updated_at: 'updatedAt',
+      start_date: 'startDate',
+      end_date: 'endDate',
+    };
+    const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.created_at;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
     const [items, total] = await qb
