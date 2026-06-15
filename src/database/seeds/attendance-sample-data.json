@@ -1,0 +1,1117 @@
+{
+  "metadata": {
+    "company_name": "Alliance Insurance Corporation Ltd",
+    "branch_code": "HQ",
+    "timezone": "Africa/Dar_es_Salaam",
+    "notes": [
+      "Companion sample data for the Attendance module.",
+      "The TypeScript seeder remains in place and is not removed.",
+      "Relations are expressed with business keys like employee_no, shift_code, policy_name, and branch_code."
+    ],
+    "sample_dates": {
+      "holiday_date": "2026-06-09",
+      "working_dates": [
+        "2026-06-10",
+        "2026-06-11",
+        "2026-06-12",
+        "2026-06-15"
+      ],
+      "off_day_date": "2026-06-13"
+    }
+  },
+  "attendance_settings": [
+    {
+      "name": "Alliance Default Attendance Settings",
+      "overtime_start_after_minutes": 30,
+      "max_overtime_minutes_per_day": 180,
+      "max_overtime_minutes_per_month": 1800,
+      "overtime_rate_multiplier": 1.5,
+      "holiday_overtime_multiplier": 2,
+      "weekend_overtime_multiplier": 1.75,
+      "requires_approval": false,
+      "auto_calculate": true
+    }
+  ],
+  "attendance_policies": [
+    {
+      "name": "Alliance Standard Attendance Policy",
+      "is_active": true,
+      "late_after_minutes": 10,
+      "half_day_after_minutes": 240,
+      "absent_after_minutes": 360,
+      "allow_early_checkin": true,
+      "allow_late_checkout": true,
+      "auto_absent_if_no_checkin": true,
+      "requires_manager_approval_for_overtime": false,
+      "rounding_mode": "NEAREST",
+      "max_missing_punch_allowed": 1,
+      "weekend_days": "SAT,SUN",
+      "auto_mark_weekend_as_off": true,
+      "treat_weekend_as_absent_if_scheduled": false,
+      "holiday_policy_mode": "OFF",
+      "authentication_modes": "MOBILE_APP,WEB,DEVICE",
+      "require_geo_fencing": true,
+      "allow_multi_device_login": false,
+      "auto_calculate_attendance": true,
+      "calculation_time": "23:30:00",
+      "grace_period_minutes": 10,
+      "consider_shift_roster": true,
+      "ignore_missing_checkout_if_hours_valid": false
+    }
+  ],
+  "holiday_groups": [
+    {
+      "name": "Alliance Shared Holiday Calendar",
+      "description": "Shared holiday sample data used by attendance and leave screens."
+    }
+  ],
+  "attendance_holidays": [
+    {
+      "holiday_group_name": "Alliance Shared Holiday Calendar",
+      "branch_code": "HQ",
+      "name": "Alliance Staff Wellness Day",
+      "date": "2026-06-09",
+      "is_recurring": false,
+      "type": "COMPANY",
+      "is_paid": true,
+      "affects_overtime": false,
+      "counts_as_working_day": false
+    }
+  ],
+  "attendance_geofences": [
+    {
+      "branch_code": "HQ",
+      "name": "Alliance HQ Main Office",
+      "description": "Dar es Salaam head office attendance geofence.",
+      "type": "CIRCLE",
+      "latitude": -6.792354,
+      "longitude": 39.208328,
+      "radius_meters": 180,
+      "allowed_accuracy_meters": 60,
+      "strict_accuracy": false,
+      "status": "ACTIVE"
+    }
+  ],
+  "attendance_wifi_networks": [
+    {
+      "branch_code": "HQ",
+      "name": "Alliance HQ Staff WiFi",
+      "description": "Primary office WiFi used for attendance check-in demos.",
+      "ssid": "Alliance-HQ-Staff",
+      "bssid": "70:4D:7B:AA:11:22",
+      "allowed_ip_cidrs": [
+        "10.40.10.0/24",
+        "10.40.11.0/24"
+      ],
+      "security_type": "WPA2",
+      "require_ssid_match": true,
+      "require_bssid_match": false,
+      "require_ip_match": true,
+      "allow_mobile_attendance": true,
+      "metadata": {
+        "floor": "Ground Floor",
+        "vlanId": 40,
+        "seeded": true
+      },
+      "status": "ACTIVE"
+    }
+  ],
+  "attendance_checkpoints": [
+    {
+      "policy_name": "Alliance Standard Attendance Policy",
+      "name": "HQ GPS Checkpoint",
+      "type": "GPS",
+      "geofence_name": "Alliance HQ Main Office",
+      "is_required": true,
+      "allow_override": true,
+      "max_distance_meters": 150,
+      "strict_mode": false,
+      "status": "ACTIVE"
+    },
+    {
+      "policy_name": "Alliance Standard Attendance Policy",
+      "name": "HQ WiFi Checkpoint",
+      "type": "WIFI",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "is_required": false,
+      "allow_override": true,
+      "max_distance_meters": null,
+      "strict_mode": false,
+      "status": "ACTIVE"
+    },
+    {
+      "policy_name": "Alliance Standard Attendance Policy",
+      "name": "Main Biometric Device",
+      "type": "DEVICE",
+      "device_name": "Main Hikvision Device",
+      "is_required": false,
+      "allow_override": false,
+      "max_distance_meters": null,
+      "strict_mode": true,
+      "status": "ACTIVE"
+    }
+  ],
+  "shifts": [
+    {
+      "name": "Standard Day Shift",
+      "code": "ATT_STD_DAY",
+      "branch_code": "HQ",
+      "description": "Regular 8am to 5pm attendance sample shift.",
+      "shift_type": "FIXED",
+      "start_time": "08:00:00",
+      "end_time": "17:00:00",
+      "expected_work_minutes": 480,
+      "minimum_work_minutes": 420,
+      "half_day_minutes": 240,
+      "grace_in_minutes": 10,
+      "grace_out_minutes": 5,
+      "late_after_minutes": 10,
+      "early_leave_after_minutes": 15,
+      "is_night_shift": false,
+      "crosses_midnight": false,
+      "allow_overtime": true,
+      "max_overtime_minutes": 180,
+      "requires_checkout": true,
+      "allow_early_checkin": true,
+      "allow_late_checkout": true,
+      "status": "ACTIVE"
+    },
+    {
+      "name": "Support Day Shift",
+      "code": "ATT_SUP_DAY",
+      "branch_code": "HQ",
+      "description": "Regular 9am to 6pm support attendance sample shift.",
+      "shift_type": "FIXED",
+      "start_time": "09:00:00",
+      "end_time": "18:00:00",
+      "expected_work_minutes": 480,
+      "minimum_work_minutes": 420,
+      "half_day_minutes": 240,
+      "grace_in_minutes": 10,
+      "grace_out_minutes": 5,
+      "late_after_minutes": 10,
+      "early_leave_after_minutes": 15,
+      "is_night_shift": false,
+      "crosses_midnight": false,
+      "allow_overtime": true,
+      "max_overtime_minutes": 180,
+      "requires_checkout": true,
+      "allow_early_checkin": true,
+      "allow_late_checkout": true,
+      "status": "ACTIVE"
+    }
+  ],
+  "shift_breaks": [
+    {
+      "shift_code": "ATT_STD_DAY",
+      "name": "Lunch Break",
+      "break_type": "LUNCH",
+      "start_time": "13:00:00",
+      "end_time": "14:00:00",
+      "duration_minutes": 60,
+      "is_paid": false,
+      "is_flexible": false
+    },
+    {
+      "shift_code": "ATT_SUP_DAY",
+      "name": "Lunch Break",
+      "break_type": "LUNCH",
+      "start_time": "13:30:00",
+      "end_time": "14:30:00",
+      "duration_minutes": 60,
+      "is_paid": false,
+      "is_flexible": false
+    }
+  ],
+  "shift_attendance_rules": [
+    {
+      "shift_code": "ATT_STD_DAY",
+      "late_after_minutes": 10,
+      "absent_after_minutes": 360,
+      "half_day_after_minutes": 240,
+      "allow_multiple_checkin": false,
+      "auto_mark_absent": true,
+      "allow_mobile_attendance": true,
+      "allow_remote_attendance": false,
+      "require_geofence": true,
+      "require_biometric": false
+    },
+    {
+      "shift_code": "ATT_SUP_DAY",
+      "late_after_minutes": 10,
+      "absent_after_minutes": 360,
+      "half_day_after_minutes": 240,
+      "allow_multiple_checkin": false,
+      "auto_mark_absent": true,
+      "allow_mobile_attendance": true,
+      "allow_remote_attendance": false,
+      "require_geofence": true,
+      "require_biometric": false
+    }
+  ],
+  "shift_overtime_rules": [
+    {
+      "shift_code": "ATT_STD_DAY",
+      "overtime_start_after_minutes": 30,
+      "max_daily_overtime_minutes": 180,
+      "overtime_rate_multiplier": 1.5,
+      "weekend_multiplier": 1.75,
+      "holiday_multiplier": 2,
+      "requires_approval": false,
+      "auto_calculate": true
+    },
+    {
+      "shift_code": "ATT_SUP_DAY",
+      "overtime_start_after_minutes": 30,
+      "max_daily_overtime_minutes": 180,
+      "overtime_rate_multiplier": 1.5,
+      "weekend_multiplier": 1.75,
+      "holiday_multiplier": 2,
+      "requires_approval": false,
+      "auto_calculate": true
+    }
+  ],
+  "employees": [
+    {
+      "employee_no": "00000001",
+      "full_name": "Filbert Msaki",
+      "branch_code": "HQ",
+      "default_shift_code": "ATT_SUP_DAY"
+    },
+    {
+      "employee_no": "00000003",
+      "full_name": "Agatha Godfrey Kiiza",
+      "branch_code": "HQ",
+      "default_shift_code": "ATT_STD_DAY"
+    },
+    {
+      "employee_no": "00000004",
+      "full_name": "Amina Gerard Manongi",
+      "branch_code": "HQ",
+      "default_shift_code": "ATT_STD_DAY"
+    },
+    {
+      "employee_no": "00000005",
+      "full_name": "Antoni Jordan Kambona",
+      "branch_code": "HQ",
+      "default_shift_code": "ATT_STD_DAY"
+    }
+  ],
+  "shift_assignments": [
+    {
+      "employee_no": "00000001",
+      "shift_code": "ATT_SUP_DAY",
+      "effective_from": "2026-06-02",
+      "effective_to": null,
+      "is_primary": true,
+      "status": "ACTIVE"
+    },
+    {
+      "employee_no": "00000003",
+      "shift_code": "ATT_STD_DAY",
+      "effective_from": "2026-06-02",
+      "effective_to": null,
+      "is_primary": true,
+      "status": "ACTIVE"
+    },
+    {
+      "employee_no": "00000004",
+      "shift_code": "ATT_STD_DAY",
+      "effective_from": "2026-06-02",
+      "effective_to": null,
+      "is_primary": true,
+      "status": "ACTIVE"
+    },
+    {
+      "employee_no": "00000005",
+      "shift_code": "ATT_STD_DAY",
+      "effective_from": "2026-06-02",
+      "effective_to": null,
+      "is_primary": true,
+      "status": "ACTIVE"
+    }
+  ],
+  "shift_schedules": [
+    {
+      "employee_no": "00000001",
+      "shift_code": "ATT_SUP_DAY",
+      "schedule_date": "2026-06-09",
+      "holiday_name": "Alliance Staff Wellness Day",
+      "is_off_day": false,
+      "remarks": "Seeded company holiday for attendance demo."
+    },
+    {
+      "employee_no": "00000003",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_date": "2026-06-09",
+      "holiday_name": "Alliance Staff Wellness Day",
+      "is_off_day": false,
+      "remarks": "Seeded company holiday for attendance demo."
+    },
+    {
+      "employee_no": "00000004",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_date": "2026-06-09",
+      "holiday_name": "Alliance Staff Wellness Day",
+      "is_off_day": false,
+      "remarks": "Seeded company holiday for attendance demo."
+    },
+    {
+      "employee_no": "00000005",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_date": "2026-06-09",
+      "holiday_name": "Alliance Staff Wellness Day",
+      "is_off_day": false,
+      "remarks": "Seeded company holiday for attendance demo."
+    },
+    {
+      "employee_no": "00000001",
+      "shift_code": "ATT_SUP_DAY",
+      "schedule_date": "2026-06-13",
+      "holiday_name": null,
+      "is_off_day": true,
+      "remarks": "Seeded scheduled off day for attendance demo."
+    },
+    {
+      "employee_no": "00000001",
+      "shift_code": "ATT_SUP_DAY",
+      "schedule_date": "2026-06-10",
+      "holiday_name": null,
+      "is_off_day": false,
+      "remarks": "Seeded attendance workday."
+    },
+    {
+      "employee_no": "00000001",
+      "shift_code": "ATT_SUP_DAY",
+      "schedule_date": "2026-06-11",
+      "holiday_name": null,
+      "is_off_day": false,
+      "remarks": "Seeded attendance workday."
+    },
+    {
+      "employee_no": "00000001",
+      "shift_code": "ATT_SUP_DAY",
+      "schedule_date": "2026-06-12",
+      "holiday_name": null,
+      "is_off_day": false,
+      "remarks": "Seeded attendance workday."
+    },
+    {
+      "employee_no": "00000001",
+      "shift_code": "ATT_SUP_DAY",
+      "schedule_date": "2026-06-15",
+      "holiday_name": null,
+      "is_off_day": false,
+      "remarks": "Seeded attendance workday."
+    },
+    {
+      "employee_no": "00000003",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_date": "2026-06-10",
+      "holiday_name": null,
+      "is_off_day": false,
+      "remarks": "Seeded attendance workday."
+    },
+    {
+      "employee_no": "00000003",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_date": "2026-06-11",
+      "holiday_name": null,
+      "is_off_day": false,
+      "remarks": "Seeded attendance workday."
+    },
+    {
+      "employee_no": "00000003",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_date": "2026-06-12",
+      "holiday_name": null,
+      "is_off_day": false,
+      "remarks": "Seeded attendance workday."
+    },
+    {
+      "employee_no": "00000003",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_date": "2026-06-15",
+      "holiday_name": null,
+      "is_off_day": false,
+      "remarks": "Seeded attendance workday."
+    },
+    {
+      "employee_no": "00000004",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_date": "2026-06-10",
+      "holiday_name": null,
+      "is_off_day": false,
+      "remarks": "Seeded attendance workday."
+    },
+    {
+      "employee_no": "00000004",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_date": "2026-06-11",
+      "holiday_name": null,
+      "is_off_day": false,
+      "remarks": "Seeded attendance workday."
+    },
+    {
+      "employee_no": "00000004",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_date": "2026-06-12",
+      "holiday_name": null,
+      "is_off_day": false,
+      "remarks": "Seeded attendance workday."
+    },
+    {
+      "employee_no": "00000004",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_date": "2026-06-15",
+      "holiday_name": null,
+      "is_off_day": false,
+      "remarks": "Seeded attendance workday."
+    },
+    {
+      "employee_no": "00000005",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_date": "2026-06-10",
+      "holiday_name": null,
+      "is_off_day": false,
+      "remarks": "Seeded attendance workday."
+    },
+    {
+      "employee_no": "00000005",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_date": "2026-06-11",
+      "holiday_name": null,
+      "is_off_day": false,
+      "remarks": "Seeded attendance workday."
+    },
+    {
+      "employee_no": "00000005",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_date": "2026-06-12",
+      "holiday_name": null,
+      "is_off_day": false,
+      "remarks": "Seeded attendance workday."
+    },
+    {
+      "employee_no": "00000005",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_date": "2026-06-15",
+      "holiday_name": null,
+      "is_off_day": false,
+      "remarks": "Seeded attendance workday."
+    }
+  ],
+  "attendance_mobile_punches": [
+    {
+      "employee_no": "00000001",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-10",
+      "punch_type": "CHECK_IN",
+      "source": "MOBILE",
+      "punch_time": "2026-06-10T09:02:00+03:00",
+      "validation_status": "APPROVED"
+    },
+    {
+      "employee_no": "00000001",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-10",
+      "punch_type": "CHECK_OUT",
+      "source": "MOBILE",
+      "punch_time": "2026-06-10T18:01:00+03:00",
+      "validation_status": "APPROVED"
+    },
+    {
+      "employee_no": "00000001",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-11",
+      "punch_type": "CHECK_IN",
+      "source": "MOBILE",
+      "punch_time": "2026-06-11T09:07:00+03:00",
+      "validation_status": "APPROVED"
+    },
+    {
+      "employee_no": "00000001",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-11",
+      "punch_type": "CHECK_OUT",
+      "source": "MOBILE",
+      "punch_time": "2026-06-11T18:10:00+03:00",
+      "validation_status": "APPROVED"
+    },
+    {
+      "employee_no": "00000001",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-12",
+      "punch_type": "CHECK_IN",
+      "source": "MOBILE",
+      "punch_time": "2026-06-12T09:05:00+03:00",
+      "validation_status": "APPROVED"
+    },
+    {
+      "employee_no": "00000001",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-12",
+      "punch_type": "CHECK_OUT",
+      "source": "MOBILE",
+      "punch_time": "2026-06-12T18:00:00+03:00",
+      "validation_status": "APPROVED"
+    },
+    {
+      "employee_no": "00000001",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-15",
+      "punch_type": "CHECK_IN",
+      "source": "MOBILE",
+      "punch_time": "2026-06-15T08:58:00+03:00",
+      "validation_status": "APPROVED"
+    },
+    {
+      "employee_no": "00000001",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-15",
+      "punch_type": "CHECK_OUT",
+      "source": "MOBILE",
+      "punch_time": "2026-06-15T18:45:00+03:00",
+      "validation_status": "APPROVED"
+    },
+    {
+      "employee_no": "00000003",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-10",
+      "punch_type": "CHECK_IN",
+      "source": "MOBILE",
+      "punch_time": "2026-06-10T08:24:00+03:00",
+      "validation_status": "APPROVED"
+    },
+    {
+      "employee_no": "00000003",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-10",
+      "punch_type": "CHECK_OUT",
+      "source": "MOBILE",
+      "punch_time": "2026-06-10T17:06:00+03:00",
+      "validation_status": "APPROVED"
+    },
+    {
+      "employee_no": "00000003",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-11",
+      "punch_type": "CHECK_IN",
+      "source": "MOBILE",
+      "punch_time": "2026-06-11T07:57:00+03:00",
+      "validation_status": "APPROVED"
+    },
+    {
+      "employee_no": "00000003",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-11",
+      "punch_type": "CHECK_OUT",
+      "source": "MOBILE",
+      "punch_time": "2026-06-11T17:01:00+03:00",
+      "validation_status": "APPROVED"
+    },
+    {
+      "employee_no": "00000003",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-12",
+      "punch_type": "CHECK_IN",
+      "source": "MOBILE",
+      "punch_time": "2026-06-12T08:06:00+03:00",
+      "validation_status": "APPROVED"
+    },
+    {
+      "employee_no": "00000003",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-12",
+      "punch_type": "CHECK_OUT",
+      "source": "MOBILE",
+      "punch_time": "2026-06-12T19:05:00+03:00",
+      "validation_status": "APPROVED"
+    },
+    {
+      "employee_no": "00000003",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-15",
+      "punch_type": "CHECK_IN",
+      "source": "MOBILE",
+      "punch_time": "2026-06-15T08:11:00+03:00",
+      "validation_status": "APPROVED"
+    },
+    {
+      "employee_no": "00000003",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-15",
+      "punch_type": "CHECK_OUT",
+      "source": "MOBILE",
+      "punch_time": "2026-06-15T17:00:00+03:00",
+      "validation_status": "APPROVED"
+    },
+    {
+      "employee_no": "00000004",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-10",
+      "punch_type": "CHECK_IN",
+      "source": "MOBILE",
+      "punch_time": "2026-06-10T08:10:00+03:00",
+      "validation_status": "APPROVED"
+    },
+    {
+      "employee_no": "00000004",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-10",
+      "punch_type": "CHECK_OUT",
+      "source": "MOBILE",
+      "punch_time": "2026-06-10T17:02:00+03:00",
+      "validation_status": "APPROVED"
+    },
+    {
+      "employee_no": "00000004",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-11",
+      "punch_type": "CHECK_IN",
+      "source": "MOBILE",
+      "punch_time": "2026-06-11T08:18:00+03:00",
+      "validation_status": "APPROVED"
+    },
+    {
+      "employee_no": "00000004",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-15",
+      "punch_type": "CHECK_IN",
+      "source": "MOBILE",
+      "punch_time": "2026-06-15T12:30:00+03:00",
+      "validation_status": "APPROVED"
+    },
+    {
+      "employee_no": "00000004",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-15",
+      "punch_type": "CHECK_OUT",
+      "source": "MOBILE",
+      "punch_time": "2026-06-15T17:15:00+03:00",
+      "validation_status": "APPROVED"
+    },
+    {
+      "employee_no": "00000005",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-11",
+      "punch_type": "CHECK_IN",
+      "source": "MOBILE",
+      "punch_time": "2026-06-11T08:42:00+03:00",
+      "validation_status": "PENDING_OVERRIDE",
+      "is_override_requested": true,
+      "validation_message": "Seeded punch awaiting manager override."
+    },
+    {
+      "employee_no": "00000005",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-12",
+      "punch_type": "CHECK_IN",
+      "source": "MOBILE",
+      "punch_time": "2026-06-12T08:05:00+03:00",
+      "validation_status": "OVERRIDE_APPROVED",
+      "is_override_requested": true,
+      "validation_message": "Seeded punch approved after override review."
+    },
+    {
+      "employee_no": "00000005",
+      "branch_code": "HQ",
+      "policy_name": "Alliance Standard Attendance Policy",
+      "geofence_name": "Alliance HQ Main Office",
+      "wifi_network_name": "Alliance HQ Staff WiFi",
+      "attendance_date": "2026-06-12",
+      "punch_type": "CHECK_OUT",
+      "source": "MOBILE",
+      "punch_time": "2026-06-12T17:20:00+03:00",
+      "validation_status": "OVERRIDE_APPROVED",
+      "is_override_requested": true,
+      "validation_message": "Seeded punch approved after override review."
+    }
+  ],
+  "attendance_daily_summaries": [
+    {
+      "employee_no": "00000001",
+      "attendance_date": "2026-06-09",
+      "branch_code": "HQ",
+      "shift_code": "ATT_SUP_DAY",
+      "schedule_source": "SHIFT_SCHEDULE",
+      "timezone": "Africa/Dar_es_Salaam",
+      "attendance_status": "HOLIDAY",
+      "check_in_at": null,
+      "check_out_at": null,
+      "late_minutes": 0,
+      "early_departure_minutes": 0,
+      "work_minutes": 0,
+      "overtime_minutes": 0
+    },
+    {
+      "employee_no": "00000001",
+      "attendance_date": "2026-06-13",
+      "branch_code": "HQ",
+      "shift_code": "ATT_SUP_DAY",
+      "schedule_source": "SHIFT_SCHEDULE",
+      "timezone": "Africa/Dar_es_Salaam",
+      "attendance_status": "OFF_DAY",
+      "check_in_at": null,
+      "check_out_at": null,
+      "late_minutes": 0,
+      "early_departure_minutes": 0,
+      "work_minutes": 0,
+      "overtime_minutes": 0
+    },
+    {
+      "employee_no": "00000001",
+      "attendance_date": "2026-06-10",
+      "branch_code": "HQ",
+      "shift_code": "ATT_SUP_DAY",
+      "schedule_source": "SHIFT_SCHEDULE",
+      "timezone": "Africa/Dar_es_Salaam",
+      "attendance_status": "PRESENT",
+      "check_in_at": "2026-06-10T09:02:00+03:00",
+      "check_out_at": "2026-06-10T18:01:00+03:00",
+      "late_minutes": 0,
+      "early_departure_minutes": 0,
+      "work_minutes": 539,
+      "overtime_minutes": 0
+    },
+    {
+      "employee_no": "00000001",
+      "attendance_date": "2026-06-11",
+      "branch_code": "HQ",
+      "shift_code": "ATT_SUP_DAY",
+      "schedule_source": "SHIFT_SCHEDULE",
+      "timezone": "Africa/Dar_es_Salaam",
+      "attendance_status": "PRESENT",
+      "check_in_at": "2026-06-11T09:07:00+03:00",
+      "check_out_at": "2026-06-11T18:10:00+03:00",
+      "late_minutes": 0,
+      "early_departure_minutes": 0,
+      "work_minutes": 543,
+      "overtime_minutes": 0
+    },
+    {
+      "employee_no": "00000001",
+      "attendance_date": "2026-06-12",
+      "branch_code": "HQ",
+      "shift_code": "ATT_SUP_DAY",
+      "schedule_source": "SHIFT_SCHEDULE",
+      "timezone": "Africa/Dar_es_Salaam",
+      "attendance_status": "PRESENT",
+      "check_in_at": "2026-06-12T09:05:00+03:00",
+      "check_out_at": "2026-06-12T18:00:00+03:00",
+      "late_minutes": 0,
+      "early_departure_minutes": 0,
+      "work_minutes": 535,
+      "overtime_minutes": 0
+    },
+    {
+      "employee_no": "00000001",
+      "attendance_date": "2026-06-15",
+      "branch_code": "HQ",
+      "shift_code": "ATT_SUP_DAY",
+      "schedule_source": "SHIFT_SCHEDULE",
+      "timezone": "Africa/Dar_es_Salaam",
+      "attendance_status": "PRESENT",
+      "check_in_at": "2026-06-15T08:58:00+03:00",
+      "check_out_at": "2026-06-15T18:45:00+03:00",
+      "late_minutes": 0,
+      "early_departure_minutes": 0,
+      "work_minutes": 587,
+      "overtime_minutes": 15
+    },
+    {
+      "employee_no": "00000003",
+      "attendance_date": "2026-06-09",
+      "branch_code": "HQ",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_source": "SHIFT_SCHEDULE",
+      "timezone": "Africa/Dar_es_Salaam",
+      "attendance_status": "HOLIDAY",
+      "check_in_at": null,
+      "check_out_at": null,
+      "late_minutes": 0,
+      "early_departure_minutes": 0,
+      "work_minutes": 0,
+      "overtime_minutes": 0
+    },
+    {
+      "employee_no": "00000003",
+      "attendance_date": "2026-06-10",
+      "branch_code": "HQ",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_source": "SHIFT_SCHEDULE",
+      "timezone": "Africa/Dar_es_Salaam",
+      "attendance_status": "PRESENT",
+      "check_in_at": "2026-06-10T08:24:00+03:00",
+      "check_out_at": "2026-06-10T17:06:00+03:00",
+      "late_minutes": 4,
+      "early_departure_minutes": 0,
+      "work_minutes": 522,
+      "overtime_minutes": 0
+    },
+    {
+      "employee_no": "00000003",
+      "attendance_date": "2026-06-11",
+      "branch_code": "HQ",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_source": "SHIFT_SCHEDULE",
+      "timezone": "Africa/Dar_es_Salaam",
+      "attendance_status": "PRESENT",
+      "check_in_at": "2026-06-11T07:57:00+03:00",
+      "check_out_at": "2026-06-11T17:01:00+03:00",
+      "late_minutes": 0,
+      "early_departure_minutes": 0,
+      "work_minutes": 544,
+      "overtime_minutes": 0
+    },
+    {
+      "employee_no": "00000003",
+      "attendance_date": "2026-06-12",
+      "branch_code": "HQ",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_source": "SHIFT_SCHEDULE",
+      "timezone": "Africa/Dar_es_Salaam",
+      "attendance_status": "PRESENT",
+      "check_in_at": "2026-06-12T08:06:00+03:00",
+      "check_out_at": "2026-06-12T19:05:00+03:00",
+      "late_minutes": 0,
+      "early_departure_minutes": 0,
+      "work_minutes": 659,
+      "overtime_minutes": 95
+    },
+    {
+      "employee_no": "00000003",
+      "attendance_date": "2026-06-15",
+      "branch_code": "HQ",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_source": "SHIFT_SCHEDULE",
+      "timezone": "Africa/Dar_es_Salaam",
+      "attendance_status": "PRESENT",
+      "check_in_at": "2026-06-15T08:11:00+03:00",
+      "check_out_at": "2026-06-15T17:00:00+03:00",
+      "late_minutes": 0,
+      "early_departure_minutes": 0,
+      "work_minutes": 529,
+      "overtime_minutes": 0
+    },
+    {
+      "employee_no": "00000004",
+      "attendance_date": "2026-06-09",
+      "branch_code": "HQ",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_source": "SHIFT_SCHEDULE",
+      "timezone": "Africa/Dar_es_Salaam",
+      "attendance_status": "HOLIDAY",
+      "check_in_at": null,
+      "check_out_at": null,
+      "late_minutes": 0,
+      "early_departure_minutes": 0,
+      "work_minutes": 0,
+      "overtime_minutes": 0
+    },
+    {
+      "employee_no": "00000004",
+      "attendance_date": "2026-06-10",
+      "branch_code": "HQ",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_source": "SHIFT_SCHEDULE",
+      "timezone": "Africa/Dar_es_Salaam",
+      "attendance_status": "PRESENT",
+      "check_in_at": "2026-06-10T08:10:00+03:00",
+      "check_out_at": "2026-06-10T17:02:00+03:00",
+      "late_minutes": 0,
+      "early_departure_minutes": 0,
+      "work_minutes": 532,
+      "overtime_minutes": 0
+    },
+    {
+      "employee_no": "00000004",
+      "attendance_date": "2026-06-11",
+      "branch_code": "HQ",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_source": "SHIFT_SCHEDULE",
+      "timezone": "Africa/Dar_es_Salaam",
+      "attendance_status": "INCOMPLETE",
+      "check_in_at": "2026-06-11T08:18:00+03:00",
+      "check_out_at": null,
+      "late_minutes": 0,
+      "early_departure_minutes": 0,
+      "work_minutes": 0,
+      "overtime_minutes": 0
+    },
+    {
+      "employee_no": "00000004",
+      "attendance_date": "2026-06-12",
+      "branch_code": "HQ",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_source": "SHIFT_SCHEDULE",
+      "timezone": "Africa/Dar_es_Salaam",
+      "attendance_status": "ABSENT",
+      "check_in_at": null,
+      "check_out_at": null,
+      "late_minutes": 0,
+      "early_departure_minutes": 0,
+      "work_minutes": 0,
+      "overtime_minutes": 0
+    },
+    {
+      "employee_no": "00000004",
+      "attendance_date": "2026-06-15",
+      "branch_code": "HQ",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_source": "SHIFT_SCHEDULE",
+      "timezone": "Africa/Dar_es_Salaam",
+      "attendance_status": "HALF_DAY",
+      "check_in_at": "2026-06-15T12:30:00+03:00",
+      "check_out_at": "2026-06-15T17:15:00+03:00",
+      "late_minutes": 250,
+      "early_departure_minutes": 0,
+      "work_minutes": 285,
+      "overtime_minutes": 0
+    },
+    {
+      "employee_no": "00000005",
+      "attendance_date": "2026-06-09",
+      "branch_code": "HQ",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_source": "SHIFT_SCHEDULE",
+      "timezone": "Africa/Dar_es_Salaam",
+      "attendance_status": "HOLIDAY",
+      "check_in_at": null,
+      "check_out_at": null,
+      "late_minutes": 0,
+      "early_departure_minutes": 0,
+      "work_minutes": 0,
+      "overtime_minutes": 0
+    },
+    {
+      "employee_no": "00000005",
+      "attendance_date": "2026-06-10",
+      "branch_code": "HQ",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_source": "SHIFT_SCHEDULE",
+      "timezone": "Africa/Dar_es_Salaam",
+      "attendance_status": "ABSENT",
+      "check_in_at": null,
+      "check_out_at": null,
+      "late_minutes": 0,
+      "early_departure_minutes": 0,
+      "work_minutes": 0,
+      "overtime_minutes": 0
+    },
+    {
+      "employee_no": "00000005",
+      "attendance_date": "2026-06-11",
+      "branch_code": "HQ",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_source": "SHIFT_SCHEDULE",
+      "timezone": "Africa/Dar_es_Salaam",
+      "attendance_status": "ABSENT",
+      "check_in_at": null,
+      "check_out_at": null,
+      "late_minutes": 0,
+      "early_departure_minutes": 0,
+      "work_minutes": 0,
+      "overtime_minutes": 0
+    },
+    {
+      "employee_no": "00000005",
+      "attendance_date": "2026-06-12",
+      "branch_code": "HQ",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_source": "SHIFT_SCHEDULE",
+      "timezone": "Africa/Dar_es_Salaam",
+      "attendance_status": "PRESENT",
+      "check_in_at": "2026-06-12T08:05:00+03:00",
+      "check_out_at": "2026-06-12T17:20:00+03:00",
+      "late_minutes": 0,
+      "early_departure_minutes": 0,
+      "work_minutes": 555,
+      "overtime_minutes": 0
+    },
+    {
+      "employee_no": "00000005",
+      "attendance_date": "2026-06-15",
+      "branch_code": "HQ",
+      "shift_code": "ATT_STD_DAY",
+      "schedule_source": "SHIFT_SCHEDULE",
+      "timezone": "Africa/Dar_es_Salaam",
+      "attendance_status": "ABSENT",
+      "check_in_at": null,
+      "check_out_at": null,
+      "late_minutes": 0,
+      "early_departure_minutes": 0,
+      "work_minutes": 0,
+      "overtime_minutes": 0
+    }
+  ]
+}
