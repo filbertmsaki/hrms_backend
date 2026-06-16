@@ -9,7 +9,7 @@ import {
   HikvisionSyncJobName,
 } from './hikvision-sync-job.constants';
 
-@Processor(HIKVISION_SYNC_QUEUE)
+@Processor(HIKVISION_SYNC_QUEUE, { lockDuration: 300000 })
 export class HikvisionSyncProcessor extends WorkerHost {
   private readonly logger = new Logger(HikvisionSyncProcessor.name);
 
