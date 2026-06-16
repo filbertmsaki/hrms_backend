@@ -221,20 +221,22 @@ export class AttendanceProcessingService {
 
       await this.exceptionService.replaceForRawLog(rawLog.id, rawLogExceptions);
 
-      await this.rawLogRepository.save({
-        id: rawLog.id,
+      await this.rawLogRepository.update(rawLog.id, {
         processingStatus: nextRawLogStatus,
         processingAttempts: nextProcessingAttempt,
         processedAt: new Date(),
         lastProcessingError: null,
       });
     } catch (error) {
-      await this.rawLogRepository.save({
-        id: rawLog.id,
-        processingStatus: AttendanceRawLogProcessingStatusEnum.FAILED,
-        processingAttempts: nextProcessingAttempt,
-        lastProcessingError: (error as Error).message,
-      });
+      try {
+        await this.rawLogRepository.update(rawLog.id, {
+          processingStatus: AttendanceRawLogProcessingStatusEnum.FAILED,
+          processingAttempts: nextProcessingAttempt,
+          lastProcessingError: (error as Error).message,
+        });
+      } catch {
+        // status update failure is non-fatal; original error is handled below
+      }
       if (this.isDuplicateError(error)) {
         counters.skipped += 1;
       } else {
