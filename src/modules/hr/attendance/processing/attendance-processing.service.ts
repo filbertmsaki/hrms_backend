@@ -179,7 +179,7 @@ export class AttendanceProcessingService {
           rawLogId: rawLog.id,
           eventTime: rawLog.eventTime,
           attendanceDate: this.asDate(rawLog.eventTime),
-          direction: AttendanceProcessedEventDirectionEnum.UNKNOWN,
+          direction: this.inferDirection(rawLog),
           eventType: rawLog.eventType,
           verifyMode: rawLog.verifyMode,
           isValid,
@@ -284,6 +284,7 @@ export class AttendanceProcessingService {
     assign('deviceId', rawLog.deviceId);
     assign('eventTime', rawLog.eventTime);
     assign('attendanceDate', nextAttendanceDate);
+    assign('direction', this.inferDirection(rawLog));
     assign('eventType', rawLog.eventType);
     assign('verifyMode', rawLog.verifyMode);
     assign('isValid', resolution.isValid);
@@ -315,6 +316,32 @@ export class AttendanceProcessingService {
 
   private asDate(value: Date): string {
     return formatDateOnly(new Date(value));
+  }
+
+  /**
+   * Derives punch direction from the raw Hikvision event fields.
+   *
+   * Hikvision minor event codes used for attendance:
+   *   1  = Check-in (card)          75 = Check-in (no card)
+   *   2  = Check-out (card)         76 = Check-out (no card)
+   *   3  = Break-start              4  = Break-end
+   *
+   * Falls back to the device-reported attendanceStatus string, then UNKNOWN.
+   */
+  private inferDirection(rawLog: HikvisionAttendanceLog): AttendanceProcessedEventDirectionEnum {
+    const checkInMinors  = new Set([1, 3, 75]);
+    const checkOutMinors = new Set([2, 4, 76]);
+
+    if (typeof rawLog.minor === 'number') {
+      if (checkInMinors.has(rawLog.minor))  return AttendanceProcessedEventDirectionEnum.IN;
+      if (checkOutMinors.has(rawLog.minor)) return AttendanceProcessedEventDirectionEnum.OUT;
+    }
+
+    const status = (rawLog.attendanceStatus ?? '').toLowerCase().replace(/[\s_-]/g, '');
+    if (status.includes('checkin')  || status === 'in')  return AttendanceProcessedEventDirectionEnum.IN;
+    if (status.includes('checkout') || status === 'out') return AttendanceProcessedEventDirectionEnum.OUT;
+
+    return AttendanceProcessedEventDirectionEnum.UNKNOWN;
   }
 
   private isDuplicateError(error: unknown): boolean {

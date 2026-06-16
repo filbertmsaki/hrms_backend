@@ -7,6 +7,7 @@ import { AttendanceDevice } from '../../../access-control/attendance-devices/ent
 import { EmployeeDeviceAssignment } from '../../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { LeaveRequest } from '../../leave/entities/leave-request.entity';
+import { LeaveType } from '../../leave/entities/leave-type.entity';
 import { HrSharedModule } from '../../shared/hr-shared.module';
 import { ShiftAssignment } from '../shift/shift-assignments/entities/shift-assignment.entity';
 import { ShiftAttendanceRule } from '../shift/shift-attendance-rules/entities/shift-attendance-rule.entity';
@@ -57,6 +58,7 @@ import { TimetableScheduleGenerationService } from './timetable-schedule-generat
       AttendancePolicy,
       AttendanceSetting,
       LeaveRequest,
+      LeaveType,
       HikvisionAttendanceLog,
       Shift,
       ShiftAssignment,

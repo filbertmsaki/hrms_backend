@@ -5,6 +5,7 @@ import { SortDirection } from '../../../../common/dto/pagination.dto';
 import { buildDateOnlyRange, buildPaginationMeta, normalizeDateInput } from '../../shared/hr.utils';
 import { LeaveStatusEnum } from '../../leave/enums/leave-status.enum';
 import { LeaveRequest } from '../../leave/entities/leave-request.entity';
+import { LeaveType } from '../../leave/entities/leave-type.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { ShiftAssignment } from '../shift/shift-assignments/entities/shift-assignment.entity';
 import { ShiftAssignmentStatusEnum } from '../shift/shift-assignments/enums/shift-assignment-status.enum';
@@ -49,7 +50,8 @@ type SummaryCalculationInput = {
   checkInAt: Date | null;
   checkOutAt: Date | null;
   breakMinutes: number;
-  hasApprovedLeave: boolean;
+  /** null = no approved leave; a status value = approved leave of that type */
+  leaveStatus: AttendanceDailyStatusEnum | null;
   hasApprovedBusinessTrip: boolean;
   eventCount: number;
   hasScheduleExpectation: boolean;
@@ -84,6 +86,8 @@ export class AttendanceDailySummaryService {
     private readonly mobilePunchRepository: Repository<AttendanceMobilePunch>,
     @InjectRepository(LeaveRequest)
     private readonly leaveRequestRepository: Repository<LeaveRequest>,
+    @InjectRepository(LeaveType)
+    private readonly leaveTypeRepository: Repository<LeaveType>,
     @InjectRepository(AttendanceBusinessTrip)
     private readonly businessTripRepository: Repository<AttendanceBusinessTrip>,
     @InjectRepository(Employee)
@@ -215,7 +219,7 @@ export class AttendanceDailySummaryService {
       !schedule.isOffDay &&
       !schedule.isHoliday;
 
-    const [processedEvents, mobilePunches, hasApprovedLeave, hasApprovedBusinessTrip, scheduledBreakMinutes, activeAdjustment] =
+    const [processedEvents, mobilePunches, leaveStatus, hasApprovedBusinessTrip, scheduledBreakMinutes, activeAdjustment] =
       await Promise.all([
         this.findProcessedEventsForSchedule(
           companyId,
@@ -229,7 +233,7 @@ export class AttendanceDailySummaryService {
           normalizedAttendanceDate,
           schedule,
         ),
-        this.hasApprovedLeave(companyId, employeeId, normalizedAttendanceDate),
+        this.resolveApprovedLeave(companyId, employeeId, normalizedAttendanceDate),
         this.hasApprovedBusinessTrip(companyId, employeeId, normalizedAttendanceDate),
         this.resolveScheduledBreakMinutes(schedule, normalizedAttendanceDate),
         this.findActiveAdjustment(companyId, employeeId, normalizedAttendanceDate),
@@ -265,7 +269,7 @@ export class AttendanceDailySummaryService {
       checkInAt: punchAnalysis.checkInAt,
       checkOutAt: punchAnalysis.checkOutAt,
       breakMinutes: effectiveBreakMinutes,
-      hasApprovedLeave,
+      leaveStatus,
       hasApprovedBusinessTrip,
       eventCount: punchAnalysis.effectivePunches.length,
       hasScheduleExpectation,
@@ -280,7 +284,7 @@ export class AttendanceDailySummaryService {
         breakMinutes: effectiveBreakMinutes,
       },
       {
-        hasApprovedLeave,
+        leaveStatus,
         hasApprovedBusinessTrip,
         eventCount: punchAnalysis.effectivePunches.length,
         hasScheduleExpectation,
@@ -883,12 +887,14 @@ export class AttendanceDailySummaryService {
       checkInAt,
       checkOutAt,
       breakMinutes,
-      hasApprovedLeave,
+      leaveStatus,
       hasApprovedBusinessTrip,
       eventCount,
       hasScheduleExpectation,
       noScheduleFound,
     } = input;
+
+    const hasApprovedLeave = leaveStatus !== null;
 
     let attendanceStatus = AttendanceDailyStatusEnum.ABSENT;
     let lateMinutes = 0;
@@ -896,26 +902,45 @@ export class AttendanceDailySummaryService {
     let workMinutes = 0;
     let overtimeMinutes = 0;
 
+    // ── Priority 1: Business trip overrides everything ──────────────────────
     if (hasApprovedBusinessTrip) {
       attendanceStatus = AttendanceDailyStatusEnum.BUSINESS_TRIP;
+
+    // ── Priority 2: Approved leave (type-aware) ──────────────────────────────
     } else if (hasApprovedLeave) {
-      attendanceStatus = AttendanceDailyStatusEnum.ON_LEAVE;
+      attendanceStatus = leaveStatus!;
+
+    // ── Priority 3: Holiday ──────────────────────────────────────────────────
     } else if (schedule.isHoliday) {
       attendanceStatus = AttendanceDailyStatusEnum.HOLIDAY;
+
+    // ── Priority 4: Off day ──────────────────────────────────────────────────
     } else if (schedule.isOffDay) {
       attendanceStatus = AttendanceDailyStatusEnum.OFF_DAY;
+
+    // ── Priority 5: No usable schedule and there is schedule expectation ─────
     } else if (noScheduleFound) {
       attendanceStatus = AttendanceDailyStatusEnum.INCOMPLETE;
+
+    // ── Priority 6: Check-out exists but no check-in (orphan punch) ──────────
     } else if (!checkInAt && checkOutAt) {
       attendanceStatus = AttendanceDailyStatusEnum.INCOMPLETE;
-    } else if (checkInAt && !checkOutAt && schedule.requiresCheckout) {
-      attendanceStatus = AttendanceDailyStatusEnum.INCOMPLETE;
+
+    // ── Priority 7: No punches at all on a working day ───────────────────────
     } else if (eventCount === 0 && hasScheduleExpectation && schedule.autoAbsentIfNoCheckin) {
       attendanceStatus = AttendanceDailyStatusEnum.ABSENT;
-    } else if (eventCount > 0) {
-      attendanceStatus = AttendanceDailyStatusEnum.PRESENT;
+
+    // ── Priority 8+: At least one valid check-in punch ───────────────────────
+    } else if (checkInAt) {
+      // Missing check-out on a shift that requires it
+      if (!checkOutAt && schedule.requiresCheckout) {
+        attendanceStatus = AttendanceDailyStatusEnum.MISSING_CHECKOUT;
+      } else {
+        attendanceStatus = AttendanceDailyStatusEnum.PRESENT;
+      }
     }
 
+    // ── Work minutes (gross − break) ────────────────────────────────────────
     if (checkInAt && checkOutAt && checkOutAt.getTime() > checkInAt.getTime()) {
       const grossMinutes = Math.floor(
         (checkOutAt.getTime() - checkInAt.getTime()) / 60000,
@@ -923,16 +948,18 @@ export class AttendanceDailySummaryService {
       workMinutes = Math.max(0, grossMinutes - Math.max(0, breakMinutes));
     }
 
+    // ── Late / half-day / absent threshold checks ────────────────────────────
     if (checkInAt && schedule.scheduleStartAt) {
       const baseline = schedule.scheduleStartAt.getTime() + schedule.graceInMinutes * 60000;
-      const lateThreshold = baseline + schedule.lateAfterMinutes * 60000;
+      const lateThreshold    = baseline + schedule.lateAfterMinutes    * 60000;
       const halfDayThreshold = baseline + schedule.halfDayAfterMinutes * 60000;
-      const absentThreshold = baseline + schedule.absentAfterMinutes * 60000;
+      const absentThreshold  = baseline + schedule.absentAfterMinutes  * 60000;
 
       if (schedule.lateAfterMinutes > 0 && checkInAt.getTime() > lateThreshold) {
         lateMinutes = Math.floor((checkInAt.getTime() - lateThreshold) / 60000);
       }
 
+      // Absent-by-lateness overrides PRESENT/MISSING_CHECKOUT
       if (
         schedule.absentAfterMinutes > 0 &&
         checkInAt.getTime() > absentThreshold &&
@@ -942,15 +969,25 @@ export class AttendanceDailySummaryService {
         !schedule.isOffDay
       ) {
         attendanceStatus = AttendanceDailyStatusEnum.ABSENT;
+
+      // Half-day overrides PRESENT only
       } else if (
         schedule.halfDayAfterMinutes > 0 &&
         checkInAt.getTime() > halfDayThreshold &&
         attendanceStatus === AttendanceDailyStatusEnum.PRESENT
       ) {
         attendanceStatus = AttendanceDailyStatusEnum.HALF_DAY;
+
+      // LATE overrides PRESENT (not MISSING_CHECKOUT or HALF_DAY)
+      } else if (
+        lateMinutes > 0 &&
+        attendanceStatus === AttendanceDailyStatusEnum.PRESENT
+      ) {
+        attendanceStatus = AttendanceDailyStatusEnum.LATE;
       }
     }
 
+    // ── Early departure ──────────────────────────────────────────────────────
     if (checkOutAt && schedule.scheduleEndAt) {
       const allowedEarlyLeaveTime =
         schedule.scheduleEndAt.getTime() -
@@ -962,6 +999,15 @@ export class AttendanceDailySummaryService {
       }
     }
 
+    // EARLY_DEPARTURE overrides PRESENT only (LATE takes precedence over leaving early)
+    if (
+      earlyDepartureMinutes > 0 &&
+      attendanceStatus === AttendanceDailyStatusEnum.PRESENT
+    ) {
+      attendanceStatus = AttendanceDailyStatusEnum.EARLY_DEPARTURE;
+    }
+
+    // ── Overtime ─────────────────────────────────────────────────────────────
     if (checkOutAt && schedule.scheduleEndAt) {
       const overtimeStartTime =
         schedule.scheduleEndAt.getTime() +
@@ -977,12 +1023,21 @@ export class AttendanceDailySummaryService {
       overtimeMinutes = 0;
     }
 
+    // Work on holiday/off-day counts entirely as overtime
     if ((schedule.isHoliday || schedule.isOffDay) && workMinutes > 0) {
       overtimeMinutes = workMinutes;
     }
 
     if (schedule.maxOvertimeMinutes > 0) {
       overtimeMinutes = Math.min(overtimeMinutes, schedule.maxOvertimeMinutes);
+    }
+
+    // OVERTIME overrides PRESENT only (other statuses have higher priority)
+    if (
+      overtimeMinutes > 0 &&
+      attendanceStatus === AttendanceDailyStatusEnum.PRESENT
+    ) {
+      attendanceStatus = AttendanceDailyStatusEnum.OVERTIME;
     }
 
     const shouldPersist =
@@ -1004,6 +1059,7 @@ export class AttendanceDailySummaryService {
       overtimeMinutes,
       flags: {
         hasApprovedLeave,
+        leaveStatus,
         hasApprovedBusinessTrip,
         isHoliday: schedule.isHoliday,
         isOffDay: schedule.isOffDay,
@@ -1067,11 +1123,15 @@ export class AttendanceDailySummaryService {
       ...context,
     });
 
+    // When the admin supplied an explicit status, use it; otherwise mark as
+    // MANUAL_CORRECTION so the record is distinguishable from a naturally-computed one.
+    const resolvedStatus =
+      (adjustment.statusOverride as AttendanceDailyStatusEnum | null) ??
+      AttendanceDailyStatusEnum.MANUAL_CORRECTION;
+
     return {
       shouldPersist: true,
-      attendanceStatus:
-        (adjustment.statusOverride as AttendanceDailyStatusEnum | null) ??
-        recalculated.attendanceStatus,
+      attendanceStatus: resolvedStatus,
       lateMinutes:
         adjustment.lateMinutesOverride ?? recalculated.lateMinutes,
       earlyDepartureMinutes:
@@ -1283,13 +1343,23 @@ export class AttendanceDailySummaryService {
     });
   }
 
-  private async hasApprovedLeave(
+  /**
+   * Returns the leave status enum value for the employee on the given date,
+   * or null if no approved leave exists.
+   * The status is derived from the leave type's code and is_paid flag:
+   *   - is_paid=false                          → UNPAID_LEAVE
+   *   - code contains SICK / MEDICAL           → SICK
+   *   - code contains ANNUAL / CASUAL / EARNED → ANNUAL_LEAVE
+   *   - anything else                          → LEAVE
+   */
+  private async resolveApprovedLeave(
     companyId: number,
     employeeId: number,
     date: string,
-  ): Promise<boolean> {
+  ): Promise<AttendanceDailyStatusEnum | null> {
     const leave = await this.leaveRequestRepository
       .createQueryBuilder('leaveRequest')
+      .leftJoinAndSelect('leaveRequest.leave_type', 'leaveType')
       .where('leaveRequest.company_id = :companyId', { companyId })
       .andWhere('leaveRequest.employee_id = :employeeId', { employeeId })
       .andWhere('leaveRequest.status = :status', { status: LeaveStatusEnum.APPROVED })
@@ -1297,7 +1367,32 @@ export class AttendanceDailySummaryService {
       .andWhere('leaveRequest.end_date >= :date', { date })
       .getOne();
 
-    return !!leave;
+    if (!leave) return null;
+
+    return this.mapLeaveTypeToStatus(
+      leave.leave_type?.code ?? null,
+      leave.leave_type?.is_paid ?? null,
+    );
+  }
+
+  private mapLeaveTypeToStatus(
+    code: string | null,
+    isPaid: boolean | null,
+  ): AttendanceDailyStatusEnum {
+    // Unpaid indicator is the most reliable signal — check it first
+    if (isPaid === false) return AttendanceDailyStatusEnum.UNPAID_LEAVE;
+
+    if (!code) return AttendanceDailyStatusEnum.LEAVE;
+
+    const upper = code.toUpperCase();
+    if (upper.includes('SICK') || upper.includes('MEDICAL')) {
+      return AttendanceDailyStatusEnum.SICK;
+    }
+    if (upper.includes('ANNUAL') || upper.includes('CASUAL') || upper.includes('EARNED')) {
+      return AttendanceDailyStatusEnum.ANNUAL_LEAVE;
+    }
+
+    return AttendanceDailyStatusEnum.LEAVE;
   }
 
   private async hasApprovedBusinessTrip(
