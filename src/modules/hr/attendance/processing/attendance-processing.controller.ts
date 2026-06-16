@@ -31,6 +31,7 @@ import { QueryAttendanceDailySummariesDto } from './dtos/query-attendance-daily-
 import { QueryAttendanceProcessingJobsDto } from './dtos/query-attendance-processing-jobs.dto';
 import { QueryUnmatchedAttendanceLogsDto } from './dtos/query-unmatched-attendance-logs.dto';
 import { RecalculateAttendanceDto } from './dtos/recalculate-attendance.dto';
+import { RebuildAttendanceSummariesDto } from './dtos/rebuild-attendance-summaries.dto';
 import { UpdateAttendanceExceptionStatusDto } from './dtos/update-attendance-exception-status.dto';
 import { UpsertAttendanceDailySummaryAdjustmentDto } from './dtos/upsert-attendance-daily-summary-adjustment.dto';
 
@@ -89,6 +90,23 @@ export class AttendanceProcessingController {
     @Query() query: QueryAttendanceProcessingJobsDto,
   ) {
     return this.recalculationService.findJobs(req.user.companyId!, query);
+  }
+
+  @Post('daily-summaries/rebuild')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_recalculation:execute')
+  @ApiActionOperation('Rebuild Attendance Summaries', 'Rebuild daily attendance summaries for a date range from already-processed events. Does not re-import raw device logs.')
+  rebuildSummaries(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: RebuildAttendanceSummariesDto,
+  ) {
+    return this.dailySummaryService.rebuildSummariesForRange({
+      companyId: req.user.companyId!,
+      startDate: dto.start_date,
+      endDate: dto.end_date,
+      employeeId: dto.employee_id,
+      forceRebuild: dto.force_rebuild ?? true,
+    });
   }
 
   @Get('daily-summaries')
