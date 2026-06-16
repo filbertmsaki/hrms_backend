@@ -104,6 +104,7 @@ export default class AttendanceSampleDataSeeder implements Seeder {
 
       const company = await this.requireCompany(companyRepo, data.metadata.company_name);
       const branch = await this.requireBranch(branchRepo, company.id, data.metadata.branch_code);
+      await this.retireLegacyAttendanceDevice(deviceRepo, company.id);
       const employeesByNo = await this.loadEmployeesByNo(
         employeeRepo,
         company.id,
@@ -153,10 +154,21 @@ export default class AttendanceSampleDataSeeder implements Seeder {
         wifiNetworksByName.set(wifiNetwork.name, wifiNetwork);
       }
 
-      const devicesByName = new Map<string, AttendanceDevice>();
+      const referencedDeviceNames = Array.from(
+        new Set(
+          data.attendance_checkpoints
+            .map((item) => item.device_name?.trim())
+            .filter((deviceName): deviceName is string => Boolean(deviceName)),
+        ),
+      );
+      const devicesByName = await this.loadAttendanceDevicesByName(
+        deviceRepo,
+        company.id,
+        referencedDeviceNames,
+      );
       for (const item of data.attendance_devices) {
         const device = await this.upsertAttendanceDevice(deviceRepo, company.id, branch.id, item);
-        devicesByName.set(item.name, device);
+        devicesByName.set(device.deviceName, device);
       }
 
       for (const item of data.attendance_checkpoints) {
@@ -393,6 +405,42 @@ export default class AttendanceSampleDataSeeder implements Seeder {
     }
 
     return employeesByNo;
+  }
+
+  private async loadAttendanceDevicesByName(
+    repo: Repository<AttendanceDevice>,
+    companyId: number,
+    deviceNames: string[],
+  ): Promise<Map<string, AttendanceDevice>> {
+    const names = Array.from(new Set(deviceNames.map((name) => name.trim()))).filter(Boolean);
+    const devicesByName = new Map<string, AttendanceDevice>();
+
+    if (!names.length) {
+      return devicesByName;
+    }
+
+    const devices = await repo.find({
+      where: names.map((deviceName) => ({
+        companyId,
+        deviceName,
+      })),
+    });
+
+    for (const device of devices) {
+      devicesByName.set(device.deviceName, device);
+    }
+
+    return devicesByName;
+  }
+
+  private async retireLegacyAttendanceDevice(
+    repo: Repository<AttendanceDevice>,
+    companyId: number,
+  ): Promise<void> {
+    await repo.softDelete({
+      companyId,
+      deviceCode: 'AICL-HQ-HIK-01',
+    });
   }
 
   private requireMap<T>(map: Map<string, T>, key: string, label: string): T {

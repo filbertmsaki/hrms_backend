@@ -140,37 +140,7 @@
       "status": "ACTIVE"
     }
   ],
-  "attendance_devices": [
-    {
-      "branch_code": "HQ",
-      "name": "Main Hikvision Device",
-      "device_code": "AICL-HQ-HIK-01",
-      "device_serial_number": "DS-K1T804MF-001122",
-      "device_model": "DS-K1T804MF",
-      "ip_address": "10.40.20.15",
-      "port": 8000,
-      "protocol": "HTTPS",
-      "vendor_name": "Hikvision",
-      "integration_type": "hikvision",
-      "auth_type": "basic",
-      "api_username": "attendance_sync",
-      "api_password": "SeededDemoPassword!",
-      "sync_mode": "PULL",
-      "status": "ACTIVE",
-      "last_sync_at": "2026-06-15T06:30:00+03:00",
-      "last_heartbeat_at": "2026-06-15T07:55:00+03:00",
-      "last_listener_at": "2026-06-15T07:55:00+03:00",
-      "firmware_version": "V2.2.10",
-      "mac_address": "70:4D:7B:AA:55:10",
-      "device_type": "FACE_TERMINAL",
-      "timezone": "Africa/Dar_es_Salaam",
-      "location_description": "HQ reception turnstile",
-      "metadata": {
-        "door": "Front Entrance",
-        "seeded": true
-      }
-    }
-  ],
+  "attendance_devices": [],
   "attendance_checkpoints": [
     {
       "policy_name": "Alliance Standard Attendance Policy",

@@ -104,38 +104,6 @@ export default class AccessControlDefaultsSeeder implements Seeder {
           }
         }
 
-        if (wp1) {
-          await qr.query(
-            `
-            INSERT INTO access_schedule_templates
-              (company_id, branch_id, device_id, hikvision_template_no, name, template_name, week_plan_id, hikvision_week_plan_no, enable, source, is_system_default, schedule_type, status, metadata, created_at, updated_at)
-            SELECT ?, ?, ?, '1', 'All-Day Authorized', 'All-Day Authorized', ?, '1', 1, 'MANUAL', 1, 'DOOR', 'ACTIVE', NULL, NOW(), NOW()
-            FROM DUAL
-            WHERE NOT EXISTS (
-              SELECT 1 FROM access_schedule_templates
-              WHERE company_id = ? AND device_id = ? AND hikvision_template_no = '1' AND deleted_at IS NULL
-            )
-            `,
-            [companyId, branchId, deviceId, Number(wp1.id), companyId, deviceId],
-          );
-        }
-
-        if (wp2) {
-          await qr.query(
-            `
-            INSERT INTO access_schedule_templates
-              (company_id, branch_id, device_id, hikvision_template_no, name, template_name, week_plan_id, hikvision_week_plan_no, enable, source, is_system_default, schedule_type, status, metadata, created_at, updated_at)
-            SELECT ?, ?, ?, '2', 'All-Day Denied', 'All-Day Denied', ?, '2', 1, 'MANUAL', 1, 'DOOR', 'ACTIVE', NULL, NOW(), NOW()
-            FROM DUAL
-            WHERE NOT EXISTS (
-              SELECT 1 FROM access_schedule_templates
-              WHERE company_id = ? AND device_id = ? AND hikvision_template_no = '2' AND deleted_at IS NULL
-            )
-            `,
-            [companyId, branchId, deviceId, Number(wp2.id), companyId, deviceId],
-          );
-        }
-
         await qr.query(
           `
           INSERT INTO access_groups
