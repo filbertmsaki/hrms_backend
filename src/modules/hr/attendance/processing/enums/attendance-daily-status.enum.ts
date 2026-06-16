@@ -6,6 +6,9 @@ export enum AttendanceDailyStatusEnum {
   HALF_DAY = 'HALF_DAY',
   ABSENT = 'ABSENT',
   MISSING_CHECKOUT = 'MISSING_CHECKOUT',
+  EARLY_MISSING_CHECKOUT = 'EARLY/MISSING_CHECKOUT',
+  ONTIME_MISSING_CHECKOUT = 'ONTIME/MISSING_CHECKOUT',
+  LATE_MISSING_CHECKOUT = 'LATE/MISSING_CHECKOUT',
   /** @deprecated Replaced by MISSING_CHECKOUT. Kept for backwards compatibility with existing records. */
   INCOMPLETE = 'INCOMPLETE',
   OFF_DAY = 'OFF_DAY',

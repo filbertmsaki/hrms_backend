@@ -933,12 +933,12 @@ export class AttendanceDailySummaryService {
     // ── Priority 8+: At least one valid check-in punch ───────────────────────
     } else if (checkInAt) {
       if (!checkOutAt && schedule.requiresCheckout) {
-        // Only flag MISSING_CHECKOUT after the shift end time has passed.
-        // If the shift has not ended yet the employee may still be working — keep PRESENT.
+        // Only flag a MISSING_CHECKOUT variant after the shift end time has passed.
+        // Before the shift ends the employee may still be working — keep PRESENT.
         const shiftHasEnded =
           !schedule.scheduleEndAt || new Date() > schedule.scheduleEndAt;
         attendanceStatus = shiftHasEnded
-          ? AttendanceDailyStatusEnum.MISSING_CHECKOUT
+          ? this.resolveMissingCheckoutStatus(checkInAt, schedule)
           : AttendanceDailyStatusEnum.PRESENT;
       } else {
         attendanceStatus = AttendanceDailyStatusEnum.PRESENT;
@@ -983,12 +983,11 @@ export class AttendanceDailySummaryService {
       ) {
         attendanceStatus = AttendanceDailyStatusEnum.HALF_DAY;
 
-      // LATE overrides PRESENT and MISSING_CHECKOUT — morning lateness is the
-      // primary visible status; the missing checkout is still raised as an exception.
+      // LATE overrides PRESENT only — compound MISSING_CHECKOUT statuses already
+      // encode the morning lateness (e.g. LATE/MISSING_CHECKOUT).
       } else if (
         lateMinutes > 0 &&
-        (attendanceStatus === AttendanceDailyStatusEnum.PRESENT ||
-          attendanceStatus === AttendanceDailyStatusEnum.MISSING_CHECKOUT)
+        attendanceStatus === AttendanceDailyStatusEnum.PRESENT
       ) {
         attendanceStatus = AttendanceDailyStatusEnum.LATE;
       }
@@ -1404,6 +1403,40 @@ export class AttendanceDailySummaryService {
     }
 
     return AttendanceDailyStatusEnum.LEAVE;
+  }
+
+  /**
+   * Returns the compound status for a day where the employee checked in but
+   * did not check out and the shift has ended.
+   *
+   * The morning component reflects check-in punctuality:
+   *   EARLY/MISSING_CHECKOUT  — arrived before shift start
+   *   ONTIME/MISSING_CHECKOUT — arrived within the grace window
+   *   LATE/MISSING_CHECKOUT   — arrived after grace + lateAfterMinutes
+   *
+   * Falls back to plain MISSING_CHECKOUT when no schedule start is defined.
+   */
+  private resolveMissingCheckoutStatus(
+    checkInAt: Date,
+    schedule: ResolvedAttendanceSchedule,
+  ): AttendanceDailyStatusEnum {
+    if (!schedule.scheduleStartAt) {
+      return AttendanceDailyStatusEnum.MISSING_CHECKOUT;
+    }
+
+    const baseline =
+      schedule.scheduleStartAt.getTime() + schedule.graceInMinutes * 60000;
+    const lateThreshold = baseline + schedule.lateAfterMinutes * 60000;
+
+    if (schedule.lateAfterMinutes > 0 && checkInAt.getTime() > lateThreshold) {
+      return AttendanceDailyStatusEnum.LATE_MISSING_CHECKOUT;
+    }
+
+    if (checkInAt.getTime() < schedule.scheduleStartAt.getTime()) {
+      return AttendanceDailyStatusEnum.EARLY_MISSING_CHECKOUT;
+    }
+
+    return AttendanceDailyStatusEnum.ONTIME_MISSING_CHECKOUT;
   }
 
   private async hasApprovedBusinessTrip(
