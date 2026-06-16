@@ -386,25 +386,47 @@ export default class AttendanceSampleDataSeeder implements Seeder {
     companyId: number,
     employeeNos: string[],
   ): Promise<Map<string, Employee>> {
+    const normalizedEmployeeNos = Array.from(
+      new Set(employeeNos.map((employeeNo) => employeeNo.trim()).filter(Boolean)),
+    );
     const employees = await employeeRepo
       .createQueryBuilder('employee')
       .innerJoinAndSelect('employee.company_user', 'companyUser')
-      .where('employee.employee_no IN (:...employeeNos)', { employeeNos })
-      .andWhere('companyUser.company_id = :companyId', { companyId })
+      .where('companyUser.company_id = :companyId', { companyId })
       .getMany();
 
-    const employeesByNo = new Map<string, Employee>();
+    const availableEmployees = new Map<string, Employee>();
     for (const employee of employees) {
-      employeesByNo.set(employee.employee_no, employee);
-    }
+      availableEmployees.set(employee.employee_no, employee);
 
-    for (const employeeNo of employeeNos) {
-      if (!employeesByNo.has(employeeNo)) {
-        throw new Error(`Employee "${employeeNo}" was not found for attendance sample data.`);
+      const hikvisionEmployeeNo = this.extractSeededHikvisionEmployeeNo(employee);
+      if (hikvisionEmployeeNo) {
+        availableEmployees.set(hikvisionEmployeeNo, employee);
       }
     }
 
+    const employeesByNo = new Map<string, Employee>();
+    for (const employeeNo of normalizedEmployeeNos) {
+      const employee = availableEmployees.get(employeeNo);
+      if (!employee) {
+        throw new Error(`Employee "${employeeNo}" was not found for attendance sample data.`);
+      }
+
+      employeesByNo.set(employeeNo, employee);
+    }
+
     return employeesByNo;
+  }
+
+  private extractSeededHikvisionEmployeeNo(employee: Employee): string | null {
+    const metadata = employee.metadata ?? {};
+    const hikvision = typeof metadata.hikvision === 'object' && metadata.hikvision !== null
+      ? (metadata.hikvision as Record<string, unknown>)
+      : null;
+    const value =
+      typeof hikvision?.employee_no === 'string' ? hikvision.employee_no : null;
+
+    return value?.trim() || null;
   }
 
   private async loadAttendanceDevicesByName(

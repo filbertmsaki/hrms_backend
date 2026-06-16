@@ -1,6 +1,14 @@
 import { DataSource, IsNull, Repository } from 'typeorm';
 import { Seeder, SeederFactoryManager } from 'typeorm-extension';
 import { hashPassword } from '../../common/utils/hash.util';
+import { AccessOrganization } from '../../modules/access-control/access-organizations/entity/access-organization.entity';
+import { AccessOrganizationSourceEnum } from '../../modules/access-control/access-organizations/enum/access-organization-source.enum';
+import { AccessOrganizationSyncStatusEnum } from '../../modules/access-control/access-organizations/enum/access-organization-sync-status.enum';
+import { AttendanceDevice } from '../../modules/access-control/attendance-devices/entities/attendance-device.entity';
+import { AttendanceDeviceStatusEnum } from '../../modules/access-control/attendance-devices/enums/attendance-device-status.enum';
+import { AttendanceDeviceSyncModeEnum } from '../../modules/access-control/attendance-devices/enums/attendance-device-sync-mode.enum';
+import { EmployeeDeviceAssignment } from '../../modules/access-control/employee-device-assignments/entity/employee-device-assignment.entity';
+import { EmployeeDeviceAssignmentSyncStatusEnum } from '../../modules/access-control/employee-device-assignments/enum/employee-device-assignment-sync-status.enum';
 import { Company } from '../../modules/companies/entities/company.entity';
 import { CompanyUser } from '../../modules/companies/entities/company-user.entity';
 import { CompanyUserPermission } from '../../modules/companies/entities/company-user-permission.entity';
@@ -62,6 +70,13 @@ const POSITION_CATEGORY_TO_DEPARTMENT_CODE: Record<string, string> = {
   IT: 'IT',
 };
 
+const DEFAULT_ACCESS_ORGANIZATION_NAME = 'Alliance staff';
+const DEFAULT_HIKVISION_DEVICE_IP_ADDRESS = '192.168.1.216';
+const DEFAULT_HIKVISION_DEVICE_PORT = 80;
+const DEFAULT_HIKVISION_DEVICE_CODE_SUFFIX = 'MAIN';
+const DEFAULT_HIKVISION_DEVICE_SERIAL = 'AA4693697';
+const DEFAULT_HIKVISION_DEVICE_TIMEZONE = 'Africa/Dar_es_Salaam';
+
 export default class AllianceCompanyStructureSeeder implements Seeder {
   public async run(
     dataSource: DataSource,
@@ -103,6 +118,9 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       const employeePositionRepo = manager.getRepository(EmployeePosition);
       const employeeDesignationRepo = manager.getRepository(EmployeeDesignation);
       const employeeDeviceIdentityRepo = manager.getRepository(EmployeeDeviceIdentity);
+      const attendanceDeviceRepo = manager.getRepository(AttendanceDevice);
+      const accessOrganizationRepo = manager.getRepository(AccessOrganization);
+      const employeeDeviceAssignmentRepo = manager.getRepository(EmployeeDeviceAssignment);
 
       const company = await this.findExistingCompany(companyRepo);
       const branchMap = await this.syncBranches(branchRepo, company.id);
@@ -138,7 +156,10 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
         employeePositionRepo,
         employeeDesignationRepo,
         employeeDeviceIdentityRepo,
-        company.id,
+        attendanceDeviceRepo,
+        accessOrganizationRepo,
+        employeeDeviceAssignmentRepo,
+        company,
         branchMap,
         departmentMap,
         positionMap,
@@ -362,13 +383,27 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     employeePositionRepo: Repository<EmployeePosition>,
     employeeDesignationRepo: Repository<EmployeeDesignation>,
     employeeDeviceIdentityRepo: Repository<EmployeeDeviceIdentity>,
-    companyId: number,
+    attendanceDeviceRepo: Repository<AttendanceDevice>,
+    accessOrganizationRepo: Repository<AccessOrganization>,
+    employeeDeviceAssignmentRepo: Repository<EmployeeDeviceAssignment>,
+    company: Company,
     branchMap: EntityMap<Branch>,
     departmentMap: EntityMap<Department>,
     positionMap: EntityMap<Position>,
   ): Promise<void> {
+    const companyId = company.id;
     const roleMap = await this.resolveRoleMap(roleRepo, companyId);
     const permissionMap = await this.resolvePermissionMap(permissionRepo);
+    const defaultDevice = await this.ensureDefaultAttendanceDevice(
+      attendanceDeviceRepo,
+      companyId,
+      branchMap,
+    );
+    const defaultOrganization = await this.ensureDefaultAccessOrganization(
+      accessOrganizationRepo,
+      companyId,
+    );
+    const employeeNumberPrefix = this.resolveEmployeeNumberPrefix(company);
 
     const hrSeedMap = new Map<string, CompanyEmployeeHrSeed>(
       ALLIANCE_EMPLOYEE_HR_SEEDS.map((seed) => [seed.employeeNo, seed]),
@@ -378,11 +413,20 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       where: { company_user: { company_id: companyId } },
       relations: ['company_user'],
     });
-    const employeeByNo = new Map(
-      existingEmployees.map((employee) => [employee.employee_no, employee]),
-    );
     const employeeByCompanyUserId = new Map(
       existingEmployees.map((employee) => [employee.company_user_id, employee]),
+    );
+    const employeeBySeedKey = new Map<string, Employee>();
+    const employeeByHikvisionNo = new Map<string, Employee>();
+    for (const existingEmployee of existingEmployees) {
+      const hikvisionEmployeeNo = this.extractSeededHikvisionEmployeeNo(existingEmployee);
+      if (hikvisionEmployeeNo) {
+        employeeByHikvisionNo.set(hikvisionEmployeeNo, existingEmployee);
+      }
+    }
+    let nextEmployeeSequence = this.resolveNextEmployeeSequence(
+      existingEmployees,
+      employeeNumberPrefix,
     );
 
     for (const seed of ALLIANCE_EMPLOYEES) {
@@ -407,20 +451,36 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
         seed.employeeNo,
       );
       const position = this.getRequiredPosition(positionMap, seed.positionCode, seed.employeeNo);
-      const sequence = this.getEmployeeSequence(seed.employeeNo);
+      const sequence = this.getEmployeeSequence(seed.hikvisionEmployeeNo);
 
       let employee =
         employeeByCompanyUserId.get(membership.id) ??
-        employeeByNo.get(seed.employeeNo) ??
+        employeeByHikvisionNo.get(seed.hikvisionEmployeeNo) ??
         null;
       if (!employee) {
         employee = employeeRepo.create({
           company_user_id: membership.id,
         });
       }
+      const employeeNo = this.resolveEmployeeNumberForSeededEmployee(
+        employee,
+        employeeNumberPrefix,
+        nextEmployeeSequence,
+      );
+      if (this.isGeneratedEmployeeNumber(employee.employee_no, employeeNumberPrefix)) {
+        const existingSequence = this.parseGeneratedEmployeeNumberSequence(
+          employee.employee_no,
+          employeeNumberPrefix,
+        );
+        if (existingSequence !== null && existingSequence >= nextEmployeeSequence) {
+          nextEmployeeSequence = existingSequence + 1;
+        }
+      } else {
+        nextEmployeeSequence += 1;
+      }
 
       employee.company_user_id = membership.id;
-      employee.employee_no = seed.employeeNo;
+      employee.employee_no = employeeNo;
       employee.first_name = seed.firstName;
       employee.middle_name = this.generateMiddleName(seed.firstName);
       employee.last_name = seed.lastName;
@@ -452,8 +512,9 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       };
 
       employee = await employeeRepo.save(employee);
-      employeeByNo.set(seed.employeeNo, employee);
       employeeByCompanyUserId.set(membership.id, employee);
+      employeeBySeedKey.set(seed.employeeNo, employee);
+      employeeByHikvisionNo.set(seed.hikvisionEmployeeNo, employee);
 
       await this.ensureWorkContact(employeeContactRepo, employee.id, seed);
       await this.ensurePersonalContact(employeeContactRepo, employee.id, seed, sequence);
@@ -504,22 +565,38 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
         employee.id,
         position.designation_id ?? null,
       );
+      await this.ensureEmployeeDeviceAssignment(
+        employeeDeviceAssignmentRepo,
+        companyId,
+        employee,
+        defaultDevice,
+        defaultOrganization,
+        seed.hikvisionEmployeeNo,
+      );
       await this.ensureHikvisionIdentity(
         employeeDeviceIdentityRepo,
         companyId,
         employee.id,
         seed.hikvisionEmployeeNo,
+        null,
+      );
+      await this.ensureHikvisionIdentity(
+        employeeDeviceIdentityRepo,
+        companyId,
+        employee.id,
+        seed.hikvisionEmployeeNo,
+        defaultDevice.id,
       );
     }
 
     for (const seed of ALLIANCE_EMPLOYEES) {
-      const employee = employeeByNo.get(seed.employeeNo);
+      const employee = employeeBySeedKey.get(seed.employeeNo);
       if (!employee) {
         continue;
       }
 
       employee.reports_to = seed.reportsToEmployeeNo
-        ? employeeByNo.get(seed.reportsToEmployeeNo)?.id ?? null
+        ? employeeBySeedKey.get(seed.reportsToEmployeeNo)?.id ?? null
         : null;
 
       await employeeRepo.save(employee);
@@ -1188,6 +1265,7 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     companyId: number,
     employeeId: number,
     hikvisionEmployeeNo: string,
+    deviceId: number | null,
   ): Promise<void> {
     const normalizedEmployeeNo = hikvisionEmployeeNo.trim();
     if (!normalizedEmployeeNo) {
@@ -1195,12 +1273,16 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     }
 
     let identity = await employeeDeviceIdentityRepo.findOne({
-      where: { companyId, employeeId, deviceId: IsNull() },
+      where: { companyId, employeeId, deviceId: deviceId ?? IsNull() },
     });
 
     if (!identity) {
       identity = await employeeDeviceIdentityRepo.findOne({
-        where: { companyId, employeeNo: normalizedEmployeeNo, deviceId: IsNull() },
+        where: {
+          companyId,
+          employeeNo: normalizedEmployeeNo,
+          deviceId: deviceId ?? IsNull(),
+        },
       });
     }
 
@@ -1209,14 +1291,14 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
         companyId,
         employeeId,
         employeeNo: normalizedEmployeeNo,
-        deviceId: null,
+        deviceId,
         isActive: true,
       });
     } else {
       identity.companyId = companyId;
       identity.employeeId = employeeId;
       identity.employeeNo = normalizedEmployeeNo;
-      identity.deviceId = null;
+      identity.deviceId = deviceId;
       identity.isActive = true;
     }
 
@@ -1227,6 +1309,130 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     };
 
     await employeeDeviceIdentityRepo.save(identity);
+  }
+
+  private async ensureDefaultAttendanceDevice(
+    attendanceDeviceRepo: Repository<AttendanceDevice>,
+    companyId: number,
+    branchMap: EntityMap<Branch>,
+  ): Promise<AttendanceDevice> {
+    const hqBranch = this.getRequiredBranch(branchMap, 'HQ', 'default Hikvision device');
+    const existing = await attendanceDeviceRepo.findOne({
+      where: {
+        companyId,
+        ipAddress: DEFAULT_HIKVISION_DEVICE_IP_ADDRESS,
+        port: DEFAULT_HIKVISION_DEVICE_PORT,
+      },
+    });
+
+    const device = existing ?? attendanceDeviceRepo.create({ companyId });
+    device.companyId = companyId;
+    device.branchId = hqBranch.id;
+    device.deviceName = 'Main Hikvision Device';
+    device.deviceCode =
+      device.deviceCode || `HIK-${companyId}-${DEFAULT_HIKVISION_DEVICE_CODE_SUFFIX}`;
+    device.deviceSerialNumber = device.deviceSerialNumber || DEFAULT_HIKVISION_DEVICE_SERIAL;
+    device.deviceModel = 'DS-K1T201AMF';
+    device.ipAddress = DEFAULT_HIKVISION_DEVICE_IP_ADDRESS;
+    device.port = DEFAULT_HIKVISION_DEVICE_PORT;
+    device.apiUsername = 'admin';
+    device.apiPassword = 'Hikvision12';
+    device.protocol = 'ISAPI';
+    device.vendorName = 'Hikvision';
+    device.integrationType = 'hikvision';
+    device.authType = 'digest';
+    device.syncMode = AttendanceDeviceSyncModeEnum.PULL;
+    device.status = AttendanceDeviceStatusEnum.ACTIVE;
+    device.timezone = device.timezone || DEFAULT_HIKVISION_DEVICE_TIMEZONE;
+    device.firmwareVersion = 'V1.3.41';
+    device.macAddress = 'BC:5E:33:54:C0:A2';
+    device.deviceType = 'ACS';
+
+    return attendanceDeviceRepo.save(device);
+  }
+
+  private async ensureDefaultAccessOrganization(
+    accessOrganizationRepo: Repository<AccessOrganization>,
+    companyId: number,
+  ): Promise<AccessOrganization> {
+    const existing = await accessOrganizationRepo.findOne({
+      where: { companyId, orgName: DEFAULT_ACCESS_ORGANIZATION_NAME },
+    });
+
+    if (existing) {
+      return existing;
+    }
+
+    return accessOrganizationRepo.save(
+      accessOrganizationRepo.create({
+        companyId,
+        branchId: null,
+        departmentId: null,
+        deviceId: null,
+        parentId: null,
+        hikvisionOrgIndex: null,
+        hikvisionGroupNo: null,
+        name: DEFAULT_ACCESS_ORGANIZATION_NAME,
+        orgName: DEFAULT_ACCESS_ORGANIZATION_NAME,
+        orgCode: null,
+        description: null,
+        source: AccessOrganizationSourceEnum.MANUAL,
+        syncStatus: AccessOrganizationSyncStatusEnum.PENDING,
+        isActive: true,
+        lastSyncedAt: null,
+        metadata: null,
+      }),
+    );
+  }
+
+  private async ensureEmployeeDeviceAssignment(
+    employeeDeviceAssignmentRepo: Repository<EmployeeDeviceAssignment>,
+    companyId: number,
+    employee: Employee,
+    device: AttendanceDevice,
+    organization: AccessOrganization,
+    hikvisionEmployeeNo: string,
+  ): Promise<void> {
+    const normalizedEmployeeNo = hikvisionEmployeeNo.trim();
+    if (!normalizedEmployeeNo) {
+      return;
+    }
+
+    let assignment = await employeeDeviceAssignmentRepo.findOne({
+      where: { companyId, employeeId: employee.id, deviceId: device.id },
+    });
+
+    if (!assignment) {
+      assignment = await employeeDeviceAssignmentRepo.findOne({
+        where: { companyId, deviceId: device.id, employeeNo: normalizedEmployeeNo },
+      });
+    }
+
+    if (!assignment) {
+      assignment = employeeDeviceAssignmentRepo.create({
+        companyId,
+        employeeId: employee.id,
+        employeeNo: normalizedEmployeeNo,
+        deviceId: device.id,
+        syncStatus: EmployeeDeviceAssignmentSyncStatusEnum.PENDING,
+      });
+    }
+
+    assignment.companyId = companyId;
+    assignment.employeeId = employee.id;
+    assignment.employeeNo = normalizedEmployeeNo;
+    assignment.employeeName = this.buildEmployeeDisplayName(employee);
+    assignment.deviceId = device.id;
+    assignment.organizationId = organization.id;
+    assignment.metadata = {
+      ...(assignment.metadata ?? {}),
+      seeded: true,
+      source: 'alliance-company-structure-seed',
+      backend_employee_no: employee.employee_no,
+      hikvision_employee_no: normalizedEmployeeNo,
+    };
+
+    await employeeDeviceAssignmentRepo.save(assignment);
   }
 
   private getRequiredBranch(
@@ -1282,6 +1488,109 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     return Number.isNaN(parsed) ? 1 : parsed;
   }
 
+  private resolveEmployeeNumberPrefix(company: Company): string {
+    const metadataPrefix =
+      typeof company.metadata?.employee_no_prefix === 'string'
+        ? company.metadata.employee_no_prefix
+        : null;
+    const normalizedMetadataPrefix = metadataPrefix?.trim().toUpperCase() ?? '';
+    if (normalizedMetadataPrefix) {
+      return normalizedMetadataPrefix;
+    }
+
+    const initials = company.name
+      .trim()
+      .split(/\s+/)
+      .map((segment) => segment.replace(/[^A-Za-z0-9]/g, ''))
+      .filter(Boolean)
+      .map((segment) => segment[0]?.toUpperCase() ?? '')
+      .join('');
+
+    return initials || 'EMP';
+  }
+
+  private resolveNextEmployeeSequence(
+    employees: Employee[],
+    prefix: string,
+  ): number {
+    let maxSequence = 0;
+
+    for (const employee of employees) {
+      const sequence = this.parseGeneratedEmployeeNumberSequence(
+        employee.employee_no,
+        prefix,
+      );
+      if (sequence !== null && sequence > maxSequence) {
+        maxSequence = sequence;
+      }
+    }
+
+    return maxSequence + 1;
+  }
+
+  private resolveEmployeeNumberForSeededEmployee(
+    employee: Employee,
+    prefix: string,
+    sequence: number,
+  ): string {
+    if (this.isGeneratedEmployeeNumber(employee.employee_no, prefix)) {
+      return employee.employee_no;
+    }
+
+    return this.formatGeneratedEmployeeNumber(prefix, sequence);
+  }
+
+  private isGeneratedEmployeeNumber(
+    employeeNo: string | null | undefined,
+    prefix: string,
+  ): boolean {
+    return this.parseGeneratedEmployeeNumberSequence(employeeNo, prefix) !== null;
+  }
+
+  private parseGeneratedEmployeeNumberSequence(
+    employeeNo: string | null | undefined,
+    prefix: string,
+  ): number | null {
+    const normalizedEmployeeNo = employeeNo?.trim() ?? '';
+    const pattern = new RegExp(`^${this.escapeRegExp(prefix)}-(\\d{4,})$`);
+    const match = normalizedEmployeeNo.match(pattern);
+    if (!match) {
+      return null;
+    }
+
+    const parsed = Number.parseInt(match[1], 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  private formatGeneratedEmployeeNumber(prefix: string, sequence: number): string {
+    return `${prefix}-${String(sequence).padStart(4, '0')}`;
+  }
+
+  private extractSeededHikvisionEmployeeNo(employee: Employee): string | null {
+    const metadata = employee.metadata ?? {};
+    const hikvision = typeof metadata.hikvision === 'object' && metadata.hikvision !== null
+      ? (metadata.hikvision as Record<string, unknown>)
+      : null;
+    const value =
+      typeof hikvision?.employee_no === 'string'
+        ? hikvision.employee_no
+        : /^\d{8}$/.test(employee.employee_no)
+          ? employee.employee_no
+          : null;
+
+    return value?.trim() || null;
+  }
+
+  private buildEmployeeDisplayName(employee: Employee): string {
+    const displayName = [employee.first_name, employee.middle_name, employee.last_name]
+      .map((value) => value?.trim())
+      .filter((value): value is string => Boolean(value))
+      .join(' ')
+      .trim();
+
+    return displayName || employee.employee_no;
+  }
+
   private generateMiddleName(firstName: string): string {
     return `${firstName.charAt(0).toUpperCase()}.`;
   }
@@ -1302,5 +1611,9 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
 
   private normalizeKey(value: string | null | undefined): string {
     return (value ?? '').trim().toLowerCase();
+  }
+
+  private escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 }
