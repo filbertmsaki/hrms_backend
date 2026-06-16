@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import { buildPaginationMeta } from '../../shared/hr.utils';
+import { Employee } from '../../employees/entities/employee.entity';
 import { AttendanceRecalculationJob } from './entities/attendance-recalculation-job.entity';
 import { AttendanceProcessingJobStatusEnum } from './enums/attendance-processing-job-status.enum';
 import { RecalculateAttendanceDto } from './dtos/recalculate-attendance.dto';
@@ -17,6 +18,8 @@ export class AttendanceRecalculationService {
   constructor(
     @InjectRepository(AttendanceRecalculationJob)
     private readonly jobRepository: Repository<AttendanceRecalculationJob>,
+    @InjectRepository(Employee)
+    private readonly employeeRepository: Repository<Employee>,
     private readonly attendanceProcessingService: AttendanceProcessingService,
   ) {}
 
@@ -29,6 +32,20 @@ export class AttendanceRecalculationService {
     const endDate = this.normalizeDate(dto.end_date, 'end_date');
     if (endDate < startDate) {
       throw new BadRequestException('end_date cannot be before start_date');
+    }
+
+    if (dto.employee_id) {
+      const employee = await this.employeeRepository
+        .createQueryBuilder('employee')
+        .innerJoin('employee.company_user', 'companyUser')
+        .where('employee.id = :id', { id: dto.employee_id })
+        .andWhere('companyUser.company_id = :companyId', { companyId })
+        .getOne();
+      if (!employee) {
+        throw new BadRequestException(
+          `Employee with id ${dto.employee_id} not found in this company`,
+        );
+      }
     }
 
     const job = await this.jobRepository.save(
