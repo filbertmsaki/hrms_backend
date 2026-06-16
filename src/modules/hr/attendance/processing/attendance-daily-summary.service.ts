@@ -932,9 +932,14 @@ export class AttendanceDailySummaryService {
 
     // ── Priority 8+: At least one valid check-in punch ───────────────────────
     } else if (checkInAt) {
-      // Missing check-out on a shift that requires it
       if (!checkOutAt && schedule.requiresCheckout) {
-        attendanceStatus = AttendanceDailyStatusEnum.MISSING_CHECKOUT;
+        // Only flag MISSING_CHECKOUT after the shift end time has passed.
+        // If the shift has not ended yet the employee may still be working — keep PRESENT.
+        const shiftHasEnded =
+          !schedule.scheduleEndAt || new Date() > schedule.scheduleEndAt;
+        attendanceStatus = shiftHasEnded
+          ? AttendanceDailyStatusEnum.MISSING_CHECKOUT
+          : AttendanceDailyStatusEnum.PRESENT;
       } else {
         attendanceStatus = AttendanceDailyStatusEnum.PRESENT;
       }
@@ -978,10 +983,12 @@ export class AttendanceDailySummaryService {
       ) {
         attendanceStatus = AttendanceDailyStatusEnum.HALF_DAY;
 
-      // LATE overrides PRESENT (not MISSING_CHECKOUT or HALF_DAY)
+      // LATE overrides PRESENT and MISSING_CHECKOUT — morning lateness is the
+      // primary visible status; the missing checkout is still raised as an exception.
       } else if (
         lateMinutes > 0 &&
-        attendanceStatus === AttendanceDailyStatusEnum.PRESENT
+        (attendanceStatus === AttendanceDailyStatusEnum.PRESENT ||
+          attendanceStatus === AttendanceDailyStatusEnum.MISSING_CHECKOUT)
       ) {
         attendanceStatus = AttendanceDailyStatusEnum.LATE;
       }
@@ -1067,6 +1074,10 @@ export class AttendanceDailySummaryService {
         hasScheduleExpectation,
         noScheduleFound,
         requiresCheckout: schedule.requiresCheckout,
+        // True when the employee has a check-in but no check-out and the shift
+        // requires checkout. Useful when the primary status is LATE (morning
+        // lateness takes priority) but the missing checkout still needs surfacing.
+        missingCheckout: !!(checkInAt && !checkOutAt && schedule.requiresCheckout),
         scheduleSource: schedule.source,
         lateAfterMinutes: schedule.lateAfterMinutes,
         halfDayAfterMinutes: schedule.halfDayAfterMinutes,
