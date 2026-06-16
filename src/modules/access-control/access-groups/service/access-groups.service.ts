@@ -5,18 +5,22 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import { buildPaginationMeta } from '../../../hr/shared/hr.utils';
+import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { Branch } from '../../../hr/branches/entities/branch.entity';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { Employee } from '../../../hr/employees/entities/employee.entity';
 import { AccessDoor } from '../../access-doors/entity/access-door.entity';
+import { AccessGroupDevice } from '../../access-group-devices/entity/access-group-device.entity';
 import { AccessGroupDoor } from '../../access-group-doors/entity/access-group-door.entity';
 import { AccessGroupEmployee } from '../../access-group-employees/entity/access-group-employee.entity';
-import { EmployeeDeviceAssignment } from '../../employee-device-assignments/entity/employee-device-assignment.entity';
+import { AccessOrganizationEmployee } from '../../access-organization-employees/entity/access-organization-employee.entity';
+import { AccessOrganization } from '../../access-organizations/entity/access-organization.entity';
 import { AccessScheduleTemplate } from '../../access-schedule-templates/entity/access-schedule-template.entity';
 import { AccessControlSyncService } from '../../service/access-control-sync.service';
+import { AssignAccessGroupDevicesDto } from '../dto/assign-access-group-devices.dto';
 import { AssignAccessGroupDoorsDto } from '../dto/assign-access-group-doors.dto';
 import { AssignAccessGroupEmployeesDto } from '../dto/assign-access-group-employees.dto';
 import { CreateAccessGroupDto } from '../dto/create-access-group.dto';
@@ -30,6 +34,7 @@ type AccessGroupQuery = {
   sortBy?: string;
   sortOrder?: SortDirection;
   branch_id?: number;
+  organization_id?: number;
   status?: AccessGroupStatusEnum;
   search?: string;
 };
@@ -43,21 +48,28 @@ export class AccessGroupsService {
     private readonly branchRepository: Repository<Branch>,
     @InjectRepository(AccessScheduleTemplate)
     private readonly scheduleTemplateRepository: Repository<AccessScheduleTemplate>,
+    @InjectRepository(AttendanceDevice)
+    private readonly attendanceDeviceRepository: Repository<AttendanceDevice>,
     @InjectRepository(AccessDoor)
     private readonly accessDoorRepository: Repository<AccessDoor>,
+    @InjectRepository(AccessGroupDevice)
+    private readonly accessGroupDeviceRepository: Repository<AccessGroupDevice>,
     @InjectRepository(AccessGroupDoor)
     private readonly accessGroupDoorRepository: Repository<AccessGroupDoor>,
     @InjectRepository(AccessGroupEmployee)
     private readonly accessGroupEmployeeRepository: Repository<AccessGroupEmployee>,
+    @InjectRepository(AccessOrganization)
+    private readonly accessOrganizationRepository: Repository<AccessOrganization>,
+    @InjectRepository(AccessOrganizationEmployee)
+    private readonly accessOrganizationEmployeeRepository: Repository<AccessOrganizationEmployee>,
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
-    @InjectRepository(EmployeeDeviceAssignment)
-    private readonly employeeDeviceAssignmentRepository: Repository<EmployeeDeviceAssignment>,
     private readonly accessControlSyncService: AccessControlSyncService,
   ) {}
 
   async create(companyId: number, dto: CreateAccessGroupDto) {
     await this.ensureBranch(companyId, dto.branch_id);
+    const organization = await this.ensureOrganization(companyId, dto.organization_id);
     const groupName = (dto.group_name ?? dto.name ?? '').trim();
     if (!groupName) {
       throw new BadRequestException('group_name is required');
@@ -77,8 +89,8 @@ export class AccessGroupsService {
 
     const entity = this.groupRepository.create({
       companyId,
-      branchId: dto.branch_id ?? null,
-      deviceId: dto.device_id ?? null,
+      branchId: dto.branch_id ?? organization?.branchId ?? null,
+      organizationId: organization?.id ?? null,
       name: groupName,
       groupCode: dto.group_code ?? null,
       description: dto.description ?? null,
@@ -96,6 +108,7 @@ export class AccessGroupsService {
       sortBy = 'created_at',
       sortOrder = SortDirection.DESC,
       branch_id,
+      organization_id,
       status,
       search,
     } = query;
@@ -106,6 +119,12 @@ export class AccessGroupsService {
 
     if (branch_id) {
       qb.andWhere('group.branch_id = :branchId', { branchId: branch_id });
+    }
+
+    if (organization_id) {
+      qb.andWhere('group.organization_id = :organizationId', {
+        organizationId: organization_id,
+      });
     }
 
     if (status) {
@@ -140,12 +159,16 @@ export class AccessGroupsService {
   async findOne(companyId: number, id: number) {
     const item = await this.findOrFail(companyId, id);
 
-    const [doors, employees] = await Promise.all([
+    const [doors, devices, employees] = await Promise.all([
       this.accessGroupDoorRepository
         .createQueryBuilder('groupDoor')
         .where('groupDoor.access_group_id = :groupId', { groupId: item.id })
         .select(['groupDoor.door_id'])
         .getRawMany<{ groupDoor_door_id: number }>(),
+      this.accessGroupDeviceRepository.find({
+        where: { accessGroupId: item.id },
+        select: ['deviceId'],
+      }),
       this.accessGroupEmployeeRepository
         .createQueryBuilder('groupEmployee')
         .where('groupEmployee.access_group_id = :groupId', { groupId: item.id })
@@ -155,6 +178,7 @@ export class AccessGroupsService {
 
     return {
       ...this.map(item),
+      device_ids: devices.map((entry) => Number(entry.deviceId)),
       door_ids: doors.map((entry) => Number(entry.groupDoor_door_id)),
       employee_ids: employees.map((entry) => Number(entry.groupEmployee_employee_id)),
     };
@@ -166,6 +190,14 @@ export class AccessGroupsService {
     if (dto.branch_id !== undefined) {
       await this.ensureBranch(companyId, dto.branch_id);
       item.branchId = dto.branch_id ?? null;
+    }
+
+    if (dto.organization_id !== undefined) {
+      const organization = await this.ensureOrganization(companyId, dto.organization_id);
+      item.organizationId = organization?.id ?? null;
+      if (dto.branch_id === undefined && organization?.branchId !== undefined) {
+        item.branchId = organization.branchId ?? item.branchId;
+      }
     }
 
     const nextName = dto.group_name ?? dto.name;
@@ -184,7 +216,6 @@ export class AccessGroupsService {
       item.name = normalized;
     }
 
-    if (dto.device_id !== undefined) item.deviceId = dto.device_id ?? null;
     if (dto.group_code !== undefined) item.groupCode = dto.group_code ?? null;
     if (dto.description !== undefined) item.description = dto.description ?? null;
     if (dto.status !== undefined) item.status = dto.status;
@@ -200,7 +231,7 @@ export class AccessGroupsService {
   }
 
   async assignDoors(companyId: number, groupId: number, dto: AssignAccessGroupDoorsDto) {
-    await this.findOrFail(companyId, groupId);
+    const group = await this.findOrFail(companyId, groupId);
 
     if (!dto.items?.length) {
       throw new BadRequestException(
@@ -258,6 +289,7 @@ export class AccessGroupsService {
       });
 
       if (existing) {
+        await this.ensureGroupDeviceLink(group.id, resolvedDeviceId);
         continue;
       }
 
@@ -271,6 +303,7 @@ export class AccessGroupsService {
           hikvisionTemplateNo: template.hikvisionTemplateNo,
         }),
       );
+      await this.ensureGroupDeviceLink(group.id, resolvedDeviceId);
       created += 1;
     }
 
@@ -278,6 +311,75 @@ export class AccessGroupsService {
       message: 'Group doors assigned successfully',
       group_id: groupId,
       created,
+    };
+  }
+
+  async assignDevices(companyId: number, groupId: number, dto: AssignAccessGroupDevicesDto) {
+    await this.findOrFail(companyId, groupId);
+
+    const uniqueDeviceIds = [...new Set(dto.device_ids)];
+    const devices = await this.attendanceDeviceRepository.find({
+      where: { id: In(uniqueDeviceIds), companyId },
+      select: ['id'],
+    });
+
+    if (devices.length !== uniqueDeviceIds.length) {
+      throw new BadRequestException('One or more device_ids do not belong to the active company');
+    }
+
+    let created = 0;
+    for (const deviceId of uniqueDeviceIds) {
+      const existing = await this.accessGroupDeviceRepository.findOne({
+        where: { accessGroupId: groupId, deviceId },
+      });
+      if (existing) {
+        continue;
+      }
+
+      await this.accessGroupDeviceRepository.save(
+        this.accessGroupDeviceRepository.create({
+          accessGroupId: groupId,
+          deviceId,
+          metadata: null,
+        }),
+      );
+      created += 1;
+    }
+
+    return {
+      message: 'Group devices assigned successfully',
+      group_id: groupId,
+      created,
+    };
+  }
+
+  async removeDevice(companyId: number, groupId: number, deviceId: number) {
+    await this.findOrFail(companyId, groupId);
+
+    const existing = await this.accessGroupDeviceRepository.findOne({
+      where: { accessGroupId: groupId, deviceId },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Group device assignment not found');
+    }
+
+    const doorAssignments = await this.accessGroupDoorRepository.count({
+      where: { accessGroupId: groupId, deviceId },
+    });
+
+    if (doorAssignments > 0) {
+      throw new BadRequestException(
+        'Remove access-group door assignments for this device before removing the device mapping',
+      );
+    }
+
+    await this.accessGroupDeviceRepository.remove(existing);
+
+    return {
+      message: 'Group device removed successfully',
+      group_id: groupId,
+      device_id: deviceId,
     };
   }
 
@@ -303,6 +405,11 @@ export class AccessGroupsService {
 
   async assignEmployees(companyId: number, groupId: number, dto: AssignAccessGroupEmployeesDto) {
     const group = await this.findOrFail(companyId, groupId);
+    if (!group.organizationId) {
+      throw new BadRequestException(
+        'Assign an organization to this access group before adding employees',
+      );
+    }
 
     const uniqueEmployeeIds = [...new Set(dto.employee_ids)];
     const employees = await this.employeeRepository
@@ -317,29 +424,35 @@ export class AccessGroupsService {
       throw new BadRequestException('One or more employee_ids do not belong to the active company');
     }
 
+    const organizationEmployees = await this.accessOrganizationEmployeeRepository.find({
+      where: {
+        organizationId: group.organizationId,
+        employeeId: In(uniqueEmployeeIds),
+      },
+      relations: ['employee'],
+    });
+
+    if (organizationEmployees.length !== uniqueEmployeeIds.length) {
+      throw new BadRequestException(
+        'Every employee assigned to an access group must already belong to the same organization',
+      );
+    }
+
+    const organizationEmployeeByEmployeeId = new Map(
+      organizationEmployees.map((item) => [item.employeeId, item]),
+    );
+
     let created = 0;
     for (const employeeId of uniqueEmployeeIds) {
-      const employee = await this.employeeRepository.findOne({ where: { id: employeeId } });
-      if (!employee) {
+      const organizationEmployee = organizationEmployeeByEmployeeId.get(employeeId);
+      if (!organizationEmployee?.employee) {
         continue;
       }
-
-      const assignment = await this.employeeDeviceAssignmentRepository.findOne({
-        where: {
-          companyId,
-          employeeId,
-          ...(group.deviceId !== null ? { deviceId: group.deviceId } : {}),
-        },
-        order: { updatedAt: 'DESC' },
-      });
-      const resolvedDeviceId = group.deviceId ?? assignment?.deviceId ?? null;
-      const resolvedEmployeeNo = assignment?.employeeNo?.trim() || employee.employee_no;
 
       const existing = await this.accessGroupEmployeeRepository.findOne({
         where: {
           accessGroupId: groupId,
-          employeeNo: resolvedEmployeeNo,
-          deviceId: resolvedDeviceId === null ? IsNull() : resolvedDeviceId,
+          employeeId,
         },
       });
 
@@ -351,10 +464,9 @@ export class AccessGroupsService {
         this.accessGroupEmployeeRepository.create({
           accessGroupId: groupId,
           employeeId,
-          employeeNo: resolvedEmployeeNo,
-          employeeName: `${employee.first_name} ${employee.last_name}`.trim(),
-          organizationId: assignment?.organizationId ?? null,
-          deviceId: resolvedDeviceId,
+          employeeNo: organizationEmployee.employee.employee_no,
+          employeeName: `${organizationEmployee.employee.first_name} ${organizationEmployee.employee.last_name}`.trim(),
+          organizationId: group.organizationId,
         }),
       );
 
@@ -416,6 +528,27 @@ export class AccessGroupsService {
     };
   }
 
+  async listGroupDevices(companyId: number, groupId: number) {
+    await this.findOrFail(companyId, groupId);
+    const rows = await this.accessGroupDeviceRepository.find({
+      where: { accessGroupId: groupId },
+      relations: ['device'],
+      order: { createdAt: 'ASC', id: 'ASC' },
+    });
+
+    return {
+      group_id: groupId,
+      data: rows.map((row) => ({
+        id: row.id,
+        access_group_id: row.accessGroupId,
+        device_id: row.deviceId,
+        metadata: row.metadata,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+      })),
+    };
+  }
+
   async listGroupEmployees(companyId: number, groupId: number) {
     await this.findOrFail(companyId, groupId);
     const rows = await this.accessGroupEmployeeRepository.find({
@@ -432,7 +565,6 @@ export class AccessGroupsService {
         employee_no: row.employeeNo,
         employee_name: row.employeeName,
         organization_id: row.organizationId,
-        device_id: row.deviceId,
         status: row.status,
         source: row.source,
         assigned_at: row.assignedAt,
@@ -468,15 +600,42 @@ export class AccessGroupsService {
     }
   }
 
-  private async ensureScheduleTemplate(companyId: number, scheduleTemplateId: number): Promise<void> {
-    const template = await this.scheduleTemplateRepository.findOne({
-      where: { id: scheduleTemplateId, companyId },
-      select: ['id'],
+  private async ensureOrganization(
+    companyId: number,
+    organizationId?: number | null,
+  ): Promise<AccessOrganization | null> {
+    if (!organizationId) {
+      return null;
+    }
+
+    const organization = await this.accessOrganizationRepository.findOne({
+      where: { id: organizationId, companyId },
+      select: ['id', 'branchId'],
     });
 
-    if (!template) {
-      throw new BadRequestException('schedule_template_id does not belong to the active company');
+    if (!organization) {
+      throw new BadRequestException('organization_id does not belong to the active company');
     }
+
+    return organization;
+  }
+
+  private async ensureGroupDeviceLink(groupId: number, deviceId: number): Promise<void> {
+    const existing = await this.accessGroupDeviceRepository.findOne({
+      where: { accessGroupId: groupId, deviceId },
+    });
+
+    if (existing) {
+      return;
+    }
+
+    await this.accessGroupDeviceRepository.save(
+      this.accessGroupDeviceRepository.create({
+        accessGroupId: groupId,
+        deviceId,
+        metadata: null,
+      }),
+    );
   }
 
   private map(item: AccessGroup) {
@@ -484,7 +643,7 @@ export class AccessGroupsService {
       id: item.id,
       company_id: item.companyId,
       branch_id: item.branchId,
-      device_id: item.deviceId,
+      organization_id: item.organizationId,
       name: item.name,
       group_name: item.name,
       group_code: item.groupCode,

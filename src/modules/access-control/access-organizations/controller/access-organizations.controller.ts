@@ -29,6 +29,7 @@ import {
   ApiListOperation,
   ApiUpdateOperation,
 } from '../../../../docs/swagger-decorators';
+import { AssignAccessOrganizationEmployeesDto } from '../dto/assign-access-organization-employees.dto';
 import { CreateAccessOrganizationDto } from '../dto/create-access-organization.dto';
 import { SyncAccessOrganizationDto } from '../dto/sync-access-organization.dto';
 import { UpdateAccessOrganizationDto } from '../dto/update-access-organization.dto';
@@ -146,6 +147,41 @@ export class AccessOrganizationsController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.accessOrganizationsService.remove(req.user.companyId!, id);
+  }
+
+  @Post(':id/employees')
+  @UseGuards(PermissionsGuard)
+  @Permissions('access_organizations:update')
+  @ApiActionOperation('Assign Organization Employees', 'Assign employees to access organization')
+  assignEmployees(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AssignAccessOrganizationEmployeesDto,
+  ) {
+    return this.accessOrganizationsService.assignEmployees(req.user.companyId!, id, dto);
+  }
+
+  @Delete(':id/employees/:employeeId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('access_organizations:update')
+  @ApiActionOperation('Remove Organization Employee', 'Remove employee from access organization')
+  removeEmployee(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+  ) {
+    return this.accessOrganizationsService.removeEmployee(req.user.companyId!, id, employeeId);
+  }
+
+  @Get(':id/employees')
+  @UseGuards(PermissionsGuard)
+  @Permissions('access_organizations:read')
+  @ApiActionOperation('Organization Employees', 'List employees assigned to one access organization')
+  listEmployees(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.accessOrganizationsService.listEmployees(req.user.companyId!, id);
   }
 
   @Post(':id/sync-to-device')

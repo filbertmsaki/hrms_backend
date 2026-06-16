@@ -22,13 +22,6 @@ export class CreateAccessOrganizationDto {
   @IsInt()
   @Min(1)
   @IsOptional()
-  device_id?: number | null;
-
-  @ApiPropertyOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @IsOptional()
   parent_id?: number | null;
 
   @ApiPropertyOptional()

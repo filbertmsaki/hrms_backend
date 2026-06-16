@@ -21,12 +21,14 @@ import { AttendanceRecalculationJob } from '../../../hr/attendance/processing/en
 import { Employee } from '../../../hr/employees/entities/employee.entity';
 import { EmploymentStatusEnum } from '../../../hr/employees/enums/employment-status.enum';
 import { EmployeeDeviceIdentity } from '../../../hr/attendance/processing/entities/employee-device-identity.entity';
+import { AccessGroupDevice } from '../../access-group-devices/entity/access-group-device.entity';
 import { AccessGroupDoor } from '../../access-group-doors/entity/access-group-door.entity';
 import { AccessGroupEmployee } from '../../access-group-employees/entity/access-group-employee.entity';
-import { AccessGroupEmployeeSourceEnum } from '../../access-group-employees/enum/access-group-employee-source.enum';
 import { AccessGroupEmployeeStatusEnum } from '../../access-group-employees/enum/access-group-employee-status.enum';
 import { AccessGroup } from '../../access-groups/entity/access-group.entity';
 import { AccessGroupStatusEnum } from '../../access-groups/enum/access-group-status.enum';
+import { AccessOrganizationEmployee } from '../../access-organization-employees/entity/access-organization-employee.entity';
+import { AccessOrganization } from '../../access-organizations/entity/access-organization.entity';
 import { AccessScheduleTemplate } from '../../access-schedule-templates/entity/access-schedule-template.entity';
 import { AccessScheduleTemplateStatusEnum } from '../../access-schedule-templates/enum/access-schedule-template-status.enum';
 import { EmployeeAccessCredential } from '../../employee-access-credentials/entity/employee-access-credential.entity';
@@ -87,7 +89,7 @@ type ResolvedRightPlan = {
 
 type AccessGroupContext = {
   group: AccessGroup;
-  membership: AccessGroupEmployee | null;
+  membership: AccessGroupEmployee;
   doorRight: string;
   rightPlan: ResolvedRightPlan[];
 };
@@ -144,10 +146,16 @@ export class EmployeeDeviceAssignmentsService {
     private readonly attendanceRecalculationJobRepository: Repository<AttendanceRecalculationJob>,
     @InjectRepository(AccessGroup)
     private readonly accessGroupRepository: Repository<AccessGroup>,
+    @InjectRepository(AccessGroupDevice)
+    private readonly accessGroupDeviceRepository: Repository<AccessGroupDevice>,
     @InjectRepository(AccessGroupDoor)
     private readonly accessGroupDoorRepository: Repository<AccessGroupDoor>,
     @InjectRepository(AccessGroupEmployee)
     private readonly accessGroupEmployeeRepository: Repository<AccessGroupEmployee>,
+    @InjectRepository(AccessOrganization)
+    private readonly accessOrganizationRepository: Repository<AccessOrganization>,
+    @InjectRepository(AccessOrganizationEmployee)
+    private readonly accessOrganizationEmployeeRepository: Repository<AccessOrganizationEmployee>,
     @InjectRepository(AccessScheduleTemplate)
     private readonly accessScheduleTemplateRepository: Repository<AccessScheduleTemplate>,
     private readonly hikvisionUserManagementService: HikvisionUserManagementService,
@@ -404,13 +412,6 @@ export class EmployeeDeviceAssignmentsService {
 
     const saved = await this.assignmentRepository.save(assignment);
     await this.replaceRightPlans(deviceId, saved, settings.rightPlan);
-    await this.upsertAccessGroupEmployeeMembership(
-      settings.accessGroupId,
-      employee,
-      deviceId,
-      saved.employeeNo,
-      settings.organizationId,
-    );
 
     return {
       message: 'Employee device user modified successfully',
@@ -523,14 +524,6 @@ export class EmployeeDeviceAssignmentsService {
         employee.id,
         currentAssignment.employeeNo,
         device.id,
-        manager,
-      );
-      await this.upsertAccessGroupEmployeeMembership(
-        settings.accessGroupId,
-        employee,
-        device.id,
-        currentAssignment.employeeNo,
-        settings.organizationId,
         manager,
       );
 
@@ -1284,13 +1277,6 @@ export class EmployeeDeviceAssignmentsService {
     });
     const saved = await this.assignmentRepository.save(assignment);
     await this.replaceRightPlans(deviceId, saved, settings.rightPlan);
-    await this.upsertAccessGroupEmployeeMembership(
-      settings.accessGroupId,
-      employee,
-      deviceId,
-      saved.employeeNo,
-      settings.organizationId,
-    );
 
     return {
       message: 'Employee device user resynced successfully',
@@ -1424,11 +1410,16 @@ export class EmployeeDeviceAssignmentsService {
       device,
       input.access_group_id,
     );
+    const organizationId = await this.resolveOrganizationId(
+      companyId,
+      groupContext,
+      input.organization_id,
+    );
 
     return {
       accessGroupId: groupContext.group.id,
       accessGroupName: groupContext.group.name,
-      organizationId: groupContext.membership?.organizationId ?? null,
+      organizationId,
       userVerifyMode: this.toNullableString(input.user_verify_mode),
       validEnabled: input.valid_enabled ?? true,
       validBeginTime: this.toNullableDate(input.valid_begin_time),
@@ -1456,11 +1447,16 @@ export class EmployeeDeviceAssignmentsService {
       device,
       input.access_group_id,
     );
+    const organizationId = await this.resolveOrganizationId(
+      companyId,
+      groupContext,
+      input.organization_id ?? assignment.organizationId ?? undefined,
+    );
 
     return {
       accessGroupId: groupContext.group.id,
       accessGroupName: groupContext.group.name,
-      organizationId: groupContext.membership?.organizationId ?? assignment.organizationId ?? null,
+      organizationId,
       userVerifyMode:
         this.toNullableString(input.user_verify_mode) ?? assignment.userVerifyMode ?? null,
       validEnabled: input.valid_enabled ?? assignment.validEnabled ?? true,
@@ -1529,13 +1525,6 @@ export class EmployeeDeviceAssignmentsService {
     try {
       await this.replaceRightPlans(deviceId, assignment, settings.rightPlan);
       await this.upsertDeviceIdentity(companyId, employee.id, assignment.employeeNo, deviceId);
-      await this.upsertAccessGroupEmployeeMembership(
-        settings.accessGroupId,
-        employee,
-        deviceId,
-        assignment.employeeNo,
-        settings.organizationId,
-      );
       if (password?.trim()) {
         await this.upsertPasswordCredentialForAssignment(
           null,
@@ -1580,7 +1569,11 @@ export class EmployeeDeviceAssignmentsService {
     return {
       accessGroupId: groupContext.group.id,
       accessGroupName: groupContext.group.name,
-      organizationId: groupContext.membership?.organizationId ?? assignment.organizationId ?? null,
+      organizationId:
+        groupContext.membership.organizationId
+        ?? groupContext.group.organizationId
+        ?? assignment.organizationId
+        ?? null,
       userVerifyMode: assignment.userVerifyMode ?? null,
       validEnabled: assignment.validEnabled ?? true,
       validBeginTime: assignment.validBeginTime,
@@ -1841,7 +1834,14 @@ export class EmployeeDeviceAssignmentsService {
       throw new BadRequestException('Selected access group is inactive');
     }
 
-    if (group.deviceId !== null && group.deviceId !== device.id) {
+    if (!group.organizationId) {
+      throw new BadRequestException(
+        `Access group ${group.id} must belong to an organization before it can be used`,
+      );
+    }
+
+    const belongsToDevice = await this.groupHasDeviceAssignment(group.id, device.id);
+    if (!belongsToDevice) {
       throw new BadRequestException(
         `Access group ${group.id} is not assigned to device ${device.id}`,
       );
@@ -1927,11 +1927,26 @@ export class EmployeeDeviceAssignmentsService {
       throw new BadRequestException(`Access group ${group.id} produced no valid Hikvision doors`);
     }
 
-    const membership = await this.findActiveAccessGroupMembership(companyId, employeeId, device.id);
+    const membership = await this.findActiveGroupMembershipForGroup(
+      companyId,
+      accessGroupId,
+      employeeId,
+    );
+    if (!membership) {
+      throw new BadRequestException(
+        `Employee ${employeeId} must belong to access group ${group.id} before device access can be assigned`,
+      );
+    }
+
+    if (membership.organizationId && membership.organizationId !== group.organizationId) {
+      throw new BadRequestException(
+        `Employee ${employeeId} does not belong to the same organization as access group ${group.id}`,
+      );
+    }
 
     return {
       group,
-      membership: membership?.accessGroupId === group.id ? membership : null,
+      membership,
       doorRight,
       rightPlan,
     };
@@ -1967,8 +1982,39 @@ export class EmployeeDeviceAssignmentsService {
     return this.accessGroupEmployeeRepository
       .createQueryBuilder('membership')
       .innerJoinAndSelect('membership.accessGroup', 'accessGroup')
+      .leftJoin(
+        AccessGroupDevice,
+        'groupDevice',
+        'groupDevice.access_group_id = accessGroup.id',
+      )
+      .leftJoin(
+        AccessGroupDoor,
+        'groupDoor',
+        'groupDoor.access_group_id = accessGroup.id',
+      )
       .where('membership.employee_id = :employeeId', { employeeId })
-      .andWhere('membership.device_id = :deviceId', { deviceId })
+      .andWhere('membership.status = :status', {
+        status: AccessGroupEmployeeStatusEnum.ACTIVE,
+      })
+      .andWhere('accessGroup.company_id = :companyId', { companyId })
+      .andWhere(
+        '(membership.device_id = :deviceId OR groupDevice.device_id = :deviceId OR groupDoor.device_id = :deviceId OR accessGroup.device_id = :deviceId)',
+        { deviceId },
+      )
+      .orderBy('membership.updated_at', 'DESC')
+      .getOne();
+  }
+
+  private async findActiveGroupMembershipForGroup(
+    companyId: number,
+    accessGroupId: number,
+    employeeId: number,
+  ): Promise<AccessGroupEmployee | null> {
+    return this.accessGroupEmployeeRepository
+      .createQueryBuilder('membership')
+      .innerJoinAndSelect('membership.accessGroup', 'accessGroup')
+      .where('membership.access_group_id = :accessGroupId', { accessGroupId })
+      .andWhere('membership.employee_id = :employeeId', { employeeId })
       .andWhere('membership.status = :status', {
         status: AccessGroupEmployeeStatusEnum.ACTIVE,
       })
@@ -1977,72 +2023,84 @@ export class EmployeeDeviceAssignmentsService {
       .getOne();
   }
 
-  private async upsertAccessGroupEmployeeMembership(
+  private async groupHasDeviceAssignment(
     accessGroupId: number,
-    employee: Employee,
     deviceId: number,
-    deviceEmployeeNo: string,
-    organizationId: number | null,
-    manager?: EntityManager | null,
-  ) {
-    const repository = manager?.getRepository(AccessGroupEmployee) ?? this.accessGroupEmployeeRepository;
-    const now = new Date();
-    const normalizedEmployeeNo = deviceEmployeeNo.trim();
-    const existingRows = await repository
-      .createQueryBuilder('membership')
-      .where('membership.device_id = :deviceId', { deviceId })
-      .andWhere(
-        '(membership.employee_id = :employeeId OR membership.employee_no = :employeeNo)',
-        {
-          employeeId: employee.id,
-          employeeNo: normalizedEmployeeNo,
-        },
-      )
-      .getMany();
-
-    for (const row of existingRows) {
-      if (row.accessGroupId === accessGroupId) {
-        continue;
-      }
-
-      row.status = AccessGroupEmployeeStatusEnum.REMOVED;
-      row.removedAt = now;
-      await repository.save(row);
+  ): Promise<boolean> {
+    const mappedDevice = await this.accessGroupDeviceRepository.findOne({
+      where: { accessGroupId, deviceId },
+      select: ['id'],
+    });
+    if (mappedDevice) {
+      return true;
     }
 
-    let membership = existingRows.find((row) => row.accessGroupId === accessGroupId) ?? null;
-    if (!membership) {
-      membership = repository.create({
-        accessGroupId,
-        employeeId: employee.id,
-        employeeNo: normalizedEmployeeNo,
-        employeeName: this.buildEmployeeDisplayName(employee),
-        organizationId,
-        deviceId,
-        assignedAt: now,
-        status: AccessGroupEmployeeStatusEnum.ACTIVE,
-        source: AccessGroupEmployeeSourceEnum.MANUAL,
-        metadata: null,
-      });
-    } else {
-      membership.employeeNo = deviceEmployeeNo;
-      membership.employeeName = this.buildEmployeeDisplayName(employee);
-      membership.organizationId = organizationId;
-      membership.deviceId = deviceId;
-      membership.status = AccessGroupEmployeeStatusEnum.ACTIVE;
-      membership.source = AccessGroupEmployeeSourceEnum.MANUAL;
-      membership.assignedAt = membership.assignedAt ?? now;
-      membership.removedAt = null;
+    const mappedDoor = await this.accessGroupDoorRepository.findOne({
+      where: { accessGroupId, deviceId },
+      select: ['id'],
+    });
+    if (mappedDoor) {
+      return true;
     }
 
-    membership.metadata = this.mergeMetadata(membership.metadata, {
-      hikvision: {
-        device_employee_no: normalizedEmployeeNo,
-        last_assignment_sync_at: now.toISOString(),
-      },
+    const raw = await this.accessGroupRepository
+      .createQueryBuilder('accessGroup')
+      .select('accessGroup.id', 'id')
+      .where('accessGroup.id = :accessGroupId', { accessGroupId })
+      .andWhere('accessGroup.device_id = :deviceId', { deviceId })
+      .getRawOne<{ id: number }>();
+
+    return Boolean(raw?.id);
+  }
+
+  private async resolveOrganizationId(
+    companyId: number,
+    groupContext: AccessGroupContext,
+    requestedOrganizationId?: number,
+  ): Promise<number | null> {
+    const candidateOrganizationId =
+      requestedOrganizationId
+      ?? groupContext.membership.organizationId
+      ?? groupContext.group.organizationId
+      ?? null;
+
+    if (!candidateOrganizationId) {
+      return null;
+    }
+
+    const organization = await this.accessOrganizationRepository.findOne({
+      where: { id: candidateOrganizationId, companyId },
+      select: ['id'],
     });
 
-    await repository.save(membership);
+    if (!organization) {
+      throw new BadRequestException('organization_id does not belong to the active company');
+    }
+
+    const organizationMembership = await this.accessOrganizationEmployeeRepository.findOne({
+      where: {
+        organizationId: candidateOrganizationId,
+        employeeId: groupContext.membership.employeeId ?? 0,
+      },
+      select: ['id'],
+    });
+
+    if (!organizationMembership) {
+      throw new BadRequestException(
+        `Employee ${groupContext.membership.employeeId} does not belong to organization ${candidateOrganizationId}`,
+      );
+    }
+
+    if (
+      groupContext.group.organizationId !== null
+      && groupContext.group.organizationId !== candidateOrganizationId
+    ) {
+      throw new BadRequestException(
+        `Access group ${groupContext.group.id} belongs to organization ${groupContext.group.organizationId}, not ${candidateOrganizationId}`,
+      );
+    }
+
+    return candidateOrganizationId;
   }
 
   private async replaceRightPlans(

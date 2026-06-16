@@ -14,6 +14,7 @@ import { HikvisionAccessControlService } from '../../hikvision/hikvision-access-
 import { AccessDoor } from '../access-doors/entity/access-door.entity';
 import { AccessDoorSourceEnum } from '../access-doors/enum/access-door-source.enum';
 import { AccessDoorSyncStatusEnum } from '../access-doors/enum/access-door-sync-status.enum';
+import { AccessGroupDevice } from '../access-group-devices/entity/access-group-device.entity';
 import { AccessGroupDoor } from '../access-group-doors/entity/access-group-door.entity';
 import { AccessGroupEmployee } from '../access-group-employees/entity/access-group-employee.entity';
 import { AccessGroupEmployeeStatusEnum } from '../access-group-employees/enum/access-group-employee-status.enum';
@@ -47,6 +48,8 @@ export class AccessControlSyncService {
     private readonly accessGroupRepository: Repository<AccessGroup>,
     @InjectRepository(AccessGroupDoor)
     private readonly accessGroupDoorRepository: Repository<AccessGroupDoor>,
+    @InjectRepository(AccessGroupDevice)
+    private readonly accessGroupDeviceRepository: Repository<AccessGroupDevice>,
     @InjectRepository(AccessGroupEmployee)
     private readonly accessGroupEmployeeRepository: Repository<AccessGroupEmployee>,
     @InjectRepository(AccessDoor)
@@ -95,7 +98,10 @@ export class AccessControlSyncService {
     });
 
     const groupEmployeeAssignments = await this.accessGroupEmployeeRepository.find({
-      where: { accessGroupId: group.id },
+      where: {
+        accessGroupId: group.id,
+        status: AccessGroupEmployeeStatusEnum.ACTIVE,
+      },
     });
 
     if (!groupDoorAssignments.length) {
@@ -244,13 +250,13 @@ export class AccessControlSyncService {
     await this.findEmployeeOrFail(companyId, employeeId);
 
     const memberships = await this.accessGroupEmployeeRepository.find({
-      where: { employeeId },
+      where: {
+        employeeId,
+        status: AccessGroupEmployeeStatusEnum.ACTIVE,
+      },
     });
-    
 
     const groupIds = [...new Set(memberships.map((item) => item.accessGroupId))];
-
-
 
     const results: Array<Record<string, unknown>> = [];
     for (const groupId of groupIds) {
@@ -384,17 +390,6 @@ export class AccessControlSyncService {
         employeeDeviceAssignmentId: assignment.id,
       });
 
-      await this.accessGroupEmployeeRepository
-        .createQueryBuilder()
-        .update(AccessGroupEmployee)
-        .set({
-          status: AccessGroupEmployeeStatusEnum.REMOVED,
-          removedAt: new Date(),
-        })
-        .where('employee_id = :employeeId', { employeeId: employee.id })
-        .andWhere('device_id = :deviceId', { deviceId })
-        .execute();
-
       await this.employeeDeviceAccessAuditLogService.create({
         company_id: companyId,
         employee_id: employee.id,
@@ -466,17 +461,6 @@ export class AccessControlSyncService {
       });
 
       await this.credentialRepositoryMarkRemoved(companyId, employee.id, deviceId);
-
-      await this.accessGroupEmployeeRepository
-        .createQueryBuilder()
-        .update(AccessGroupEmployee)
-        .set({
-          status: AccessGroupEmployeeStatusEnum.REMOVED,
-          removedAt: new Date(),
-        })
-        .where('employee_id = :employeeId', { employeeId: employee.id })
-        .andWhere('device_id = :deviceId', { deviceId })
-        .execute();
 
       await this.employeeDeviceAccessAuditLogService.create({
         company_id: companyId,
@@ -832,13 +816,26 @@ export class AccessControlSyncService {
         group = await this.accessGroupRepository.save(
           this.accessGroupRepository.create({
             companyId,
-            deviceId,
             name: `ALL ACCESS D${sample.doorNo} T${sample.hikvisionTemplateNo}`,
+            organizationId: null,
             source: AccessGroupSourceEnum.IVMS_VIRTUAL,
             groupingKey: key,
             isVirtual: true,
             isActive: true,
             status: AccessGroupStatusEnum.ACTIVE,
+          }),
+        );
+      }
+
+      const existingGroupDevice = await this.accessGroupDeviceRepository.findOne({
+        where: { accessGroupId: group.id, deviceId },
+      });
+      if (!existingGroupDevice) {
+        await this.accessGroupDeviceRepository.save(
+          this.accessGroupDeviceRepository.create({
+            accessGroupId: group.id,
+            deviceId,
+            metadata: null,
           }),
         );
       }
@@ -884,7 +881,6 @@ export class AccessControlSyncService {
           where: {
             accessGroupId: group.id,
             employeeNo: assignment.employeeNo,
-            deviceId,
           },
         });
 
@@ -895,7 +891,6 @@ export class AccessControlSyncService {
               employeeId: assignment.employeeId,
               employeeNo: assignment.employeeNo,
               employeeName: assignment.employeeNo,
-              deviceId,
               organizationId: assignment.organizationId,
               source: 'DEVICE_SYNC' as any,
               assignedAt: new Date(),
@@ -1242,7 +1237,6 @@ export class AccessControlSyncService {
     if (!organization) {
       organization = this.accessOrganizationRepository.create({
         companyId,
-        deviceId,
         orgName: fallbackName,
         name: fallbackName,
         hikvisionOrgIndex: orgIndex,
@@ -1250,7 +1244,6 @@ export class AccessControlSyncService {
         source: 'DEVICE_SYNC' as any,
       });
     } else {
-      organization.deviceId = organization.deviceId ?? deviceId;
       organization.orgName = organization.orgName || fallbackName;
       organization.name = organization.name || fallbackName;
       organization.hikvisionOrgIndex = organization.hikvisionOrgIndex ?? orgIndex;

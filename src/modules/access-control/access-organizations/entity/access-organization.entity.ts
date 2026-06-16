@@ -13,9 +13,10 @@ import {
 } from 'typeorm';
 import { Company } from '../../../companies/entities/company.entity';
 import { Branch } from '../../../hr/branches/entities/branch.entity';
-import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { AccessOrganizationSourceEnum } from '../enum/access-organization-source.enum';
 import { AccessOrganizationSyncStatusEnum } from '../enum/access-organization-sync-status.enum';
+import { AccessOrganizationEmployee } from '../../access-organization-employees/entity/access-organization-employee.entity';
+import { AccessGroup } from '../../access-groups/entity/access-group.entity';
 import { EmployeeDeviceAssignment } from '../../employee-device-assignments/entity/employee-device-assignment.entity';
 import { AccessGroupEmployee } from '../../access-group-employees/entity/access-group-employee.entity';
 
@@ -23,7 +24,6 @@ import { AccessGroupEmployee } from '../../access-group-employees/entity/access-
 @Index('IDX_access_organizations_company_id', ['companyId'])
 @Index('IDX_access_organizations_branch_id', ['branchId'])
 @Index('IDX_access_organizations_department_id', ['departmentId'])
-@Index('IDX_access_organizations_device_id', ['deviceId'])
 @Index('IDX_access_organizations_parent_id', ['parentId'])
 @Index('IDX_access_organizations_org_index', ['hikvisionOrgIndex'])
 @Index('IDX_access_organizations_group_no', ['hikvisionGroupNo'])
@@ -40,9 +40,6 @@ export class AccessOrganization {
 
   @Column({ name: 'department_id', type: 'int', nullable: true })
   departmentId: number | null;
-
-  @Column({ name: 'device_id', type: 'int', nullable: true })
-  deviceId: number | null;
 
   @Column({ name: 'parent_id', type: 'int', nullable: true })
   parentId: number | null;
@@ -107,10 +104,6 @@ export class AccessOrganization {
   @JoinColumn({ name: 'branch_id' })
   branch: Branch | null;
 
-  @ManyToOne(() => AttendanceDevice, { nullable: true, onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'device_id' })
-  device: AttendanceDevice | null;
-
   @ManyToOne(() => AccessOrganization, (organization) => organization.children, {
     nullable: true,
     onDelete: 'SET NULL',
@@ -120,6 +113,12 @@ export class AccessOrganization {
 
   @OneToMany(() => AccessOrganization, (organization) => organization.parent)
   children: AccessOrganization[];
+
+  @OneToMany(() => AccessOrganizationEmployee, (organizationEmployee) => organizationEmployee.organization)
+  organizationEmployees: AccessOrganizationEmployee[];
+
+  @OneToMany(() => AccessGroup, (group) => group.organization)
+  accessGroups: AccessGroup[];
 
   @OneToMany(() => EmployeeDeviceAssignment, (assignment) => assignment.organization)
   employeeDeviceAssignments: EmployeeDeviceAssignment[];

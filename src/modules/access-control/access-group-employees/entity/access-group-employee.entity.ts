@@ -9,7 +9,6 @@ import {
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
-import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { Employee } from '../../../hr/employees/entities/employee.entity';
 import { AccessOrganization } from '../../access-organizations/entity/access-organization.entity';
 import { AccessGroupEmployeeSourceEnum } from '../enum/access-group-employee-source.enum';
@@ -20,8 +19,7 @@ import { AccessGroup } from '../../access-groups/entity/access-group.entity';
 @Index('IDX_access_group_employees_group_id', ['accessGroupId'])
 @Index('IDX_access_group_employees_employee_id', ['employeeId'])
 @Index('IDX_access_group_employees_employee_no', ['employeeNo'])
-@Index('IDX_access_group_employees_device_id', ['deviceId'])
-@Unique('UQ_access_group_employees_group_employee_no_device', ['accessGroupId', 'employeeNo', 'deviceId'])
+@Unique('UQ_access_group_employees_group_employee_no', ['accessGroupId', 'employeeNo'])
 export class AccessGroupEmployee {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -40,9 +38,6 @@ export class AccessGroupEmployee {
 
   @Column({ name: 'organization_id', type: 'int', nullable: true })
   organizationId: number | null;
-
-  @Column({ name: 'device_id', type: 'int', nullable: true })
-  deviceId: number | null;
 
   @Column({
     name: 'status',
@@ -89,9 +84,5 @@ export class AccessGroupEmployee {
   })
   @JoinColumn({ name: 'organization_id' })
   organization: AccessOrganization | null;
-
-  @ManyToOne(() => AttendanceDevice, { nullable: true, onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'device_id' })
-  device: AttendanceDevice | null;
 }
 

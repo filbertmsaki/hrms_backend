@@ -1,8 +1,11 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AccessGroupDevice } from '../access-group-devices/entity/access-group-device.entity';
 import { AccessGroupDoor } from '../access-group-doors/entity/access-group-door.entity';
 import { AccessGroupEmployee } from '../access-group-employees/entity/access-group-employee.entity';
 import { AccessGroup } from '../access-groups/entity/access-group.entity';
+import { AccessOrganizationEmployee } from '../access-organization-employees/entity/access-organization-employee.entity';
+import { AccessOrganization } from '../access-organizations/entity/access-organization.entity';
 import { AccessScheduleTemplate } from '../access-schedule-templates/entity/access-schedule-template.entity';
 import { EmployeeAccessCredential } from '../employee-access-credentials/entity/employee-access-credential.entity';
 import { EmployeeDeviceRightPlan } from '../employee-device-right-plans/entity/employee-device-right-plan.entity';
@@ -31,8 +34,11 @@ import { EmployeeBiometricCaptureSessionsModule } from '../employee-biometric-ca
       EmployeeDeviceRightPlan,
       EmployeeAccessCredential,
       AccessGroup,
+      AccessGroupDevice,
       AccessGroupDoor,
       AccessGroupEmployee,
+      AccessOrganization,
+      AccessOrganizationEmployee,
       AccessScheduleTemplate,
       EmployeeBiometricCaptureSession,
       EmployeeDeviceAccessAuditLog,

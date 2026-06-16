@@ -9,7 +9,7 @@ export class CreateAccessGroupDto {
   @IsInt()
   @Min(1)
   @IsOptional()
-  device_id?: number | null;
+  organization_id?: number | null;
 
   @IsString()
   @MaxLength(150)

@@ -29,6 +29,7 @@ import {
   ApiListOperation,
   ApiUpdateOperation,
 } from '../../../../docs/swagger-decorators';
+import { AssignAccessGroupDevicesDto } from '../dto/assign-access-group-devices.dto';
 import { AssignAccessGroupDoorsDto } from '../dto/assign-access-group-doors.dto';
 import { AssignAccessGroupEmployeesDto } from '../dto/assign-access-group-employees.dto';
 import { CreateAccessGroupDto } from '../dto/create-access-group.dto';
@@ -67,6 +68,13 @@ class AccessGroupQueryDto {
   @Min(1)
   @IsOptional()
   branch_id?: number;
+
+  @ApiPropertyOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  organization_id?: number;
 
   @ApiPropertyOptional({ enum: AccessGroupStatusEnum })
   @IsEnum(AccessGroupStatusEnum)
@@ -154,6 +162,30 @@ export class AccessGroupsController {
     return this.groupsService.assignDoors(req.user.companyId!, id, dto);
   }
 
+  @Post(':id/devices')
+  @UseGuards(PermissionsGuard)
+  @Permissions('access_groups:update')
+  @ApiActionOperation('Assign Group Devices', 'Assign devices to access group')
+  assignDevices(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AssignAccessGroupDevicesDto,
+  ) {
+    return this.groupsService.assignDevices(req.user.companyId!, id, dto);
+  }
+
+  @Delete(':id/devices/:deviceId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('access_groups:update')
+  @ApiActionOperation('Remove Group Device', 'Remove a device from access group')
+  removeDevice(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+  ) {
+    return this.groupsService.removeDevice(req.user.companyId!, id, deviceId);
+  }
+
   @Delete(':id/doors/:doorId')
   @UseGuards(PermissionsGuard)
   @Permissions('access_groups:update')
@@ -210,6 +242,17 @@ export class AccessGroupsController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.groupsService.listGroupEmployees(req.user.companyId!, id);
+  }
+
+  @Get(':id/devices')
+  @UseGuards(PermissionsGuard)
+  @Permissions('access_groups:read')
+  @ApiActionOperation('Group Devices', 'List devices assigned to one access group')
+  listDevices(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.groupsService.listGroupDevices(req.user.companyId!, id);
   }
 
   @Get(':id/doors')

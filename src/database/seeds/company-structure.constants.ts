@@ -45,6 +45,11 @@ type AllianceHikvisionEmployeeInput = {
   permissionNames?: string[];
 };
 
+type AllianceEmployeeAssignment = Pick<
+  CompanyEmployeeSeed,
+  'positionCode' | 'primaryDepartmentCode' | 'reportsToEmployeeNo'
+>;
+
 export const ALLIANCE_COMPANY_NAME = 'Alliance Insurance Corporation Ltd';
 export const ALLIANCE_COMPANY_SLUG = 'alliance-insurance';
 export const ALLIANCE_COMPANY_METADATA = {
@@ -410,6 +415,10 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
 ];
 
 const ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO = '00000003';
+const ALLIANCE_ADMIN_MANAGER_HIKVISION_EMPLOYEE_NO = '00000009';
+const ALLIANCE_HR_MANAGER_HIKVISION_EMPLOYEE_NO = '00000059';
+const ALLIANCE_IT_MANAGER_HIKVISION_EMPLOYEE_NO = '00000040';
+const ALLIANCE_BANCASSURANCE_MANAGER_HIKVISION_EMPLOYEE_NO = '00000004';
 
 const ALLIANCE_HIKVISION_EMPLOYEES: AllianceHikvisionEmployeeInput[] = [
   { hikvisionEmployeeNo: '00000001', fullName: 'Filbert Msaki', email: 'filbert@alliance.co.tz', roleNames: ['ADMINISTRATOR'] },
@@ -454,10 +463,13 @@ const ALLIANCE_HIKVISION_EMPLOYEES: AllianceHikvisionEmployeeInput[] = [
   { hikvisionEmployeeNo: '00000108', fullName: 'Ravi Kumar', email: 'ravi.kumar@alliance.co.tz', roleNames: ['USER'] },
 ];
 
+const ALLIANCE_EMPLOYEE_ASSIGNMENTS = buildAllianceEmployeeAssignments();
+
 export const ALLIANCE_EMPLOYEES: CompanyEmployeeSeed[] = ALLIANCE_HIKVISION_EMPLOYEES.map(
   (seed) => {
     const { firstName, lastName } = splitAllianceEmployeeName(seed.fullName);
     const employeeNo = seed.hikvisionEmployeeNo;
+    const assignment = ALLIANCE_EMPLOYEE_ASSIGNMENTS[seed.hikvisionEmployeeNo];
 
     return {
       employeeNo,
@@ -466,21 +478,99 @@ export const ALLIANCE_EMPLOYEES: CompanyEmployeeSeed[] = ALLIANCE_HIKVISION_EMPL
       lastName,
       email: seed.email ?? buildAllianceEmployeeEmail(firstName, lastName),
       phone: buildAllianceEmployeePhone(seed.hikvisionEmployeeNo),
-      positionCode:
-        seed.hikvisionEmployeeNo === ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO
-          ? 'CLAIMS_MANAGER'
-          : 'CLAIMS_OFFICER',
+      positionCode: assignment.positionCode,
       primaryBranchCode: 'HQ',
-      primaryDepartmentCode: 'CLAIMS',
-      reportsToEmployeeNo:
-        seed.hikvisionEmployeeNo === ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO
-          ? null
-          : ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+      primaryDepartmentCode: assignment.primaryDepartmentCode,
+      reportsToEmployeeNo: assignment.reportsToEmployeeNo,
       roleNames: seed.roleNames ?? ['USER'],
       permissionNames: seed.permissionNames,
     };
   },
 );
+
+function buildAllianceEmployeeAssignments(): Record<string, AllianceEmployeeAssignment> {
+  const assignments = new Map<string, AllianceEmployeeAssignment>();
+
+  const assign = (
+    hikvisionEmployeeNo: string,
+    primaryDepartmentCode: string,
+    positionCode: string,
+    reportsToEmployeeNo: string | null,
+  ) => {
+    if (assignments.has(hikvisionEmployeeNo)) {
+      throw new Error(`Duplicate department assignment for employee ${hikvisionEmployeeNo}`);
+    }
+
+    assignments.set(hikvisionEmployeeNo, {
+      primaryDepartmentCode,
+      positionCode,
+      reportsToEmployeeNo,
+    });
+  };
+
+  assign('00000007', 'ADMIN', 'OFFICE_ADMINISTRATOR', ALLIANCE_ADMIN_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000009', 'ADMIN', 'OPERATIONS_MANAGER', null);
+
+  assign('00000059', 'HR', 'HR_MANAGER', null);
+  assign('00000023', 'HR', 'HR_OFFICER', ALLIANCE_HR_MANAGER_HIKVISION_EMPLOYEE_NO);
+
+  assign('00000001', 'IT', 'SYSTEMS_ADMINISTRATOR', ALLIANCE_IT_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000012', 'IT', 'IT_OFFICER', ALLIANCE_IT_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000040', 'IT', 'IT_MANAGER', null);
+  assign('00000094', 'IT', 'SOFTWARE_DEVELOPER', ALLIANCE_IT_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000108', 'IT', 'IT_CONSULTANT', ALLIANCE_IT_MANAGER_HIKVISION_EMPLOYEE_NO);
+
+  assign('00000004', 'BANCASSURANCE', 'BANCASSURANCE_RELATIONSHIP_MANAGER', null);
+  assign('00000005', 'BANCASSURANCE', 'BANCASSURANCE_OFFICER', ALLIANCE_BANCASSURANCE_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000006', 'BANCASSURANCE', 'BANCASSURANCE_OFFICER', ALLIANCE_BANCASSURANCE_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000008', 'BANCASSURANCE', 'BANCASSURANCE_OFFICER', ALLIANCE_BANCASSURANCE_MANAGER_HIKVISION_EMPLOYEE_NO);
+
+  assign('00000003', 'CLAIMS', 'CLAIMS_MANAGER', null);
+  assign('00000010', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000011', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000013', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000014', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000015', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000016', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000017', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000018', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000019', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000020', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000021', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000022', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000024', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000025', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000026', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000027', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000028', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000029', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000030', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000031', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000032', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000033', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000034', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000035', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000036', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign('00000037', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+
+  const allEmployeeNos = new Set(
+    ALLIANCE_HIKVISION_EMPLOYEES.map((employee) => employee.hikvisionEmployeeNo),
+  );
+
+  for (const employeeNo of allEmployeeNos) {
+    if (!assignments.has(employeeNo)) {
+      throw new Error(`Missing department assignment for employee ${employeeNo}`);
+    }
+  }
+
+  if (assignments.size !== allEmployeeNos.size) {
+    throw new Error(
+      `Employee assignment mismatch: expected ${allEmployeeNos.size}, got ${assignments.size}`,
+    );
+  }
+
+  return Object.fromEntries(assignments);
+}
 
 function splitAllianceEmployeeName(fullName: string): { firstName: string; lastName: string } {
   const parts = fullName

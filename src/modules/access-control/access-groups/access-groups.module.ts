@@ -5,9 +5,11 @@ import { AttendanceDevice } from '../../access-control/attendance-devices/entiti
 import { Branch } from '../../hr/branches/entities/branch.entity';
 import { Employee } from '../../hr/employees/entities/employee.entity';
 import { HikvisionModule } from '../../hikvision/hikvision.module';
+import { AccessGroupDevice } from '../access-group-devices/entity/access-group-device.entity';
 import { AccessDoor } from '../access-doors/entity/access-door.entity';
 import { AccessGroupDoor } from '../access-group-doors/entity/access-group-door.entity';
 import { AccessGroupEmployee } from '../access-group-employees/entity/access-group-employee.entity';
+import { AccessOrganizationEmployee } from '../access-organization-employees/entity/access-organization-employee.entity';
 import { AccessOrganization } from '../access-organizations/entity/access-organization.entity';
 import { AccessScheduleTemplate } from '../access-schedule-templates/entity/access-schedule-template.entity';
 import { AccessWeekPlan } from '../access-week-plans/entity/access-week-plan.entity';
@@ -31,6 +33,7 @@ import { EmployeeDeviceAccessAuditLogService } from '../employee-device-access-a
       Branch,
       AccessScheduleTemplate,
       AccessDoor,
+      AccessGroupDevice,
       AccessGroupDoor,
       AccessGroupEmployee,
       Employee,
@@ -38,6 +41,7 @@ import { EmployeeDeviceAccessAuditLogService } from '../employee-device-access-a
       AccessWeekPlan,
       AccessWeekPlanSegment,
       AccessOrganization,
+      AccessOrganizationEmployee,
       EmployeeAccessCredential,
       EmployeeDeviceAssignment,
       EmployeeDeviceRightPlan,

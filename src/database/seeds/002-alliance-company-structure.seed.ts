@@ -1,6 +1,7 @@
 import { DataSource, IsNull, Repository } from 'typeorm';
 import { Seeder, SeederFactoryManager } from 'typeorm-extension';
 import { hashPassword } from '../../common/utils/hash.util';
+import { AccessOrganizationEmployee } from '../../modules/access-control/access-organization-employees/entity/access-organization-employee.entity';
 import { AccessOrganization } from '../../modules/access-control/access-organizations/entity/access-organization.entity';
 import { AccessOrganizationSourceEnum } from '../../modules/access-control/access-organizations/enum/access-organization-source.enum';
 import { AccessOrganizationSyncStatusEnum } from '../../modules/access-control/access-organizations/enum/access-organization-sync-status.enum';
@@ -120,6 +121,7 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       const employeeDeviceIdentityRepo = manager.getRepository(EmployeeDeviceIdentity);
       const attendanceDeviceRepo = manager.getRepository(AttendanceDevice);
       const accessOrganizationRepo = manager.getRepository(AccessOrganization);
+      const accessOrganizationEmployeeRepo = manager.getRepository(AccessOrganizationEmployee);
       const employeeDeviceAssignmentRepo = manager.getRepository(EmployeeDeviceAssignment);
 
       const company = await this.findExistingCompany(companyRepo);
@@ -158,6 +160,7 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
         employeeDeviceIdentityRepo,
         attendanceDeviceRepo,
         accessOrganizationRepo,
+        accessOrganizationEmployeeRepo,
         employeeDeviceAssignmentRepo,
         company,
         branchMap,
@@ -385,6 +388,7 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     employeeDeviceIdentityRepo: Repository<EmployeeDeviceIdentity>,
     attendanceDeviceRepo: Repository<AttendanceDevice>,
     accessOrganizationRepo: Repository<AccessOrganization>,
+    accessOrganizationEmployeeRepo: Repository<AccessOrganizationEmployee>,
     employeeDeviceAssignmentRepo: Repository<EmployeeDeviceAssignment>,
     company: Company,
     branchMap: EntityMap<Branch>,
@@ -572,6 +576,11 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
         defaultDevice,
         defaultOrganization,
         seed.hikvisionEmployeeNo,
+      );
+      await this.ensureOrganizationEmployeeMembership(
+        accessOrganizationEmployeeRepo,
+        employee,
+        defaultOrganization,
       );
       await this.ensureHikvisionIdentity(
         employeeDeviceIdentityRepo,
@@ -1368,7 +1377,6 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
         companyId,
         branchId: null,
         departmentId: null,
-        deviceId: null,
         parentId: null,
         hikvisionOrgIndex: null,
         hikvisionGroupNo: null,
@@ -1383,6 +1391,38 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
         metadata: null,
       }),
     );
+  }
+
+  private async ensureOrganizationEmployeeMembership(
+    accessOrganizationEmployeeRepo: Repository<AccessOrganizationEmployee>,
+    employee: Employee,
+    organization: AccessOrganization,
+  ): Promise<void> {
+    let membership = await accessOrganizationEmployeeRepo.findOne({
+      where: { employeeId: employee.id },
+    });
+
+    if (!membership) {
+      membership = accessOrganizationEmployeeRepo.create({
+        organizationId: organization.id,
+        employeeId: employee.id,
+        employeeNo: employee.employee_no,
+        employeeName: this.buildEmployeeDisplayName(employee),
+        metadata: null,
+      });
+    }
+
+    membership.organizationId = organization.id;
+    membership.employeeId = employee.id;
+    membership.employeeNo = employee.employee_no;
+    membership.employeeName = this.buildEmployeeDisplayName(employee);
+    membership.metadata = {
+      ...(membership.metadata ?? {}),
+      seeded: true,
+      source: 'alliance-company-structure-seed',
+    };
+
+    await accessOrganizationEmployeeRepo.save(membership);
   }
 
   private async ensureEmployeeDeviceAssignment(

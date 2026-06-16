@@ -29,6 +29,13 @@ export class EmployeeDeviceUserSettingsDto {
   access_group_id: number;
 
   @ApiPropertyOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  organization_id?: number;
+
+  @ApiPropertyOptional()
   @Type(() => Boolean)
   @IsBoolean()
   @IsOptional()

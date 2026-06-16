@@ -12,16 +12,17 @@ import {
 } from 'typeorm';
 import { Company } from '../../../companies/entities/company.entity';
 import { Branch } from '../../../hr/branches/entities/branch.entity';
-import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
+import { AccessGroupDevice } from '../../access-group-devices/entity/access-group-device.entity';
 import { AccessGroupDoor } from '../../access-group-doors/entity/access-group-door.entity';
 import { AccessGroupEmployee } from '../../access-group-employees/entity/access-group-employee.entity';
+import { AccessOrganization } from '../../access-organizations/entity/access-organization.entity';
 import { AccessGroupSourceEnum } from '../enum/access-group-source.enum';
 import { AccessGroupStatusEnum } from '../enum/access-group-status.enum';
 
 @Entity('access_groups')
 @Index('IDX_access_groups_company_id', ['companyId'])
 @Index('IDX_access_groups_branch_id', ['branchId'])
-@Index('IDX_access_groups_device_id', ['deviceId'])
+@Index('IDX_access_groups_organization_id', ['organizationId'])
 @Index('IDX_access_groups_grouping_key', ['groupingKey'])
 export class AccessGroup {
   @PrimaryGeneratedColumn({ name: 'id' })
@@ -33,8 +34,8 @@ export class AccessGroup {
   @Column({ name: 'branch_id', type: 'int', nullable: true })
   branchId: number | null;
 
-  @Column({ name: 'device_id', type: 'int', nullable: true })
-  deviceId: number | null;
+  @Column({ name: 'organization_id', type: 'int', nullable: true })
+  organizationId: number | null;
 
   @Column({ name: 'group_name', type: 'varchar', length: 150 })
   name: string;
@@ -93,9 +94,15 @@ export class AccessGroup {
   @JoinColumn({ name: 'branch_id' })
   branch: Branch | null;
 
-  @ManyToOne(() => AttendanceDevice, { nullable: true, onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'device_id' })
-  device: AttendanceDevice | null;
+  @ManyToOne(() => AccessOrganization, (organization) => organization.accessGroups, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'organization_id' })
+  organization: AccessOrganization | null;
+
+  @OneToMany(() => AccessGroupDevice, (groupDevice) => groupDevice.accessGroup)
+  devices: AccessGroupDevice[];
 
   @OneToMany(() => AccessGroupDoor, (groupDoor) => groupDoor.accessGroup)
   doors: AccessGroupDoor[];
