@@ -357,59 +357,8 @@
       "status": "ACTIVE"
     }
   ],
-  "shift_rotation_groups": [
-    {
-      "name": "Alliance Standard Weekly Rotation",
-      "code": "ROT_STD_WEEK",
-      "cycle_days": 7,
-      "description": "Weekly sample rotation with standard weekdays, Saturday half-day, and Sunday off.",
-      "status": "ACTIVE"
-    }
-  ],
-  "shift_rotation_rules": [
-    {
-      "rotation_group_code": "ROT_STD_WEEK",
-      "shift_code": "ATT_STD_DAY",
-      "day_index": 1,
-      "is_off_day": false
-    },
-    {
-      "rotation_group_code": "ROT_STD_WEEK",
-      "shift_code": "ATT_STD_DAY",
-      "day_index": 2,
-      "is_off_day": false
-    },
-    {
-      "rotation_group_code": "ROT_STD_WEEK",
-      "shift_code": "ATT_STD_DAY",
-      "day_index": 3,
-      "is_off_day": false
-    },
-    {
-      "rotation_group_code": "ROT_STD_WEEK",
-      "shift_code": "ATT_STD_DAY",
-      "day_index": 4,
-      "is_off_day": false
-    },
-    {
-      "rotation_group_code": "ROT_STD_WEEK",
-      "shift_code": "ATT_STD_DAY",
-      "day_index": 5,
-      "is_off_day": false
-    },
-    {
-      "rotation_group_code": "ROT_STD_WEEK",
-      "shift_code": "ATT_SAT_HALF",
-      "day_index": 6,
-      "is_off_day": false
-    },
-    {
-      "rotation_group_code": "ROT_STD_WEEK",
-      "shift_code": null,
-      "day_index": 7,
-      "is_off_day": true
-    }
-  ],
+  "shift_rotation_groups": [],
+  "shift_rotation_rules": [],
   "employees": [
     {
       "employee_no": "00000001",
@@ -478,7 +427,6 @@
       "shift_code": "ATT_STD_DAY",
       "effective_from": "2026-06-02",
       "effective_to": "2026-06-30",
-      "rotation_group_code": "ROT_STD_WEEK",
       "is_primary": true,
       "status": "ACTIVE"
     }
