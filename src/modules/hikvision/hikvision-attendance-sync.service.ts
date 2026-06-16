@@ -1080,12 +1080,10 @@ export class HikvisionAttendanceSyncService {
   }
 
   private isValidPunchEvent(item: Record<string, unknown>): boolean {
-    const employeeNo = this.resolveAttendanceEmployeeNo(item);
     const eventTime = this.toNullableDate(item.time);
     const major = this.toNullableNumber(item.major);
 
     return Boolean(
-      employeeNo &&
       eventTime &&
       (major === null || major === this.attendanceMajorCode),
     );
@@ -1527,6 +1525,10 @@ export class HikvisionAttendanceSyncService {
       net_user: item.netUser,
       user_type: item.userType,
       status_value: item.statusValue,
+      processing_status: item.processingStatus,
+      processing_attempts: item.processingAttempts,
+      processed_at: item.processedAt,
+      last_processing_error: item.lastProcessingError,
       raw_payload: item.rawPayload,
       created_at: item.createdAt,
       updated_at: item.updatedAt,

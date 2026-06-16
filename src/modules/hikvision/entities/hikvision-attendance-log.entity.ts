@@ -12,6 +12,7 @@ import {
 import { Company } from '../../companies/entities/company.entity';
 import { AttendanceDevice } from '../../access-control/attendance-devices/entities/attendance-device.entity';
 import { Branch } from '../../hr/branches/entities/branch.entity';
+import { AttendanceRawLogProcessingStatusEnum } from '../../hr/attendance/processing/enums/attendance-raw-log-processing-status.enum';
 
 @Entity('hikvision_attendance_logs')
 @Index('IDX_hikvision_attendance_logs_company_id', ['companyId'])
@@ -24,6 +25,7 @@ import { Branch } from '../../hr/branches/entities/branch.entity';
 @Index('IDX_hikvision_attendance_logs_door_no', ['doorNo'])
 @Index('IDX_hikvision_attendance_logs_serial_no', ['serialNo'])
 @Index('IDX_hikvision_attendance_logs_device_event_time', ['deviceId', 'eventTime'])
+@Index('IDX_hikvision_attendance_logs_processing_status', ['processingStatus'])
 @Unique('UQ_hik_att_logs_dev_emp_evt_maj_min_reader_door', [
   'deviceId',
   'employeeNo',
@@ -105,6 +107,23 @@ export class HikvisionAttendanceLog {
 
   @Column({ name: 'raw_payload', type: 'json' })
   rawPayload: Record<string, unknown>;
+
+  @Column({
+    name: 'processing_status',
+    type: 'enum',
+    enum: AttendanceRawLogProcessingStatusEnum,
+    default: AttendanceRawLogProcessingStatusEnum.PENDING,
+  })
+  processingStatus: AttendanceRawLogProcessingStatusEnum;
+
+  @Column({ name: 'processing_attempts', type: 'int', default: 0 })
+  processingAttempts: number;
+
+  @Column({ name: 'processed_at', type: 'timestamp', nullable: true })
+  processedAt: Date | null;
+
+  @Column({ name: 'last_processing_error', type: 'varchar', length: 255, nullable: true })
+  lastProcessingError: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

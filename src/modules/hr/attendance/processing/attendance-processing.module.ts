@@ -10,6 +10,7 @@ import { LeaveRequest } from '../../leave/entities/leave-request.entity';
 import { HrSharedModule } from '../../shared/hr-shared.module';
 import { ShiftAssignment } from '../shift/shift-assignments/entities/shift-assignment.entity';
 import { ShiftAttendanceRule } from '../shift/shift-attendance-rules/entities/shift-attendance-rule.entity';
+import { ShiftBreak } from '../shift/shift-breaks/entities/shift-break.entity';
 import { ShiftOvertimeRule } from '../shift/shift-overtime-rules/entities/shift-overtime-rule.entity';
 import { ShiftRotationGroup } from '../shift/shift-rotation-groups/entities/shift-rotation-group.entity';
 import { ShiftRotationRule } from '../shift/shift-rotation-rules/entities/shift-rotation-rule.entity';
@@ -27,7 +28,9 @@ import { TimetableRotationRule } from '../timetable/timetable-rotation-rules/ent
 import { TimetableShiftRule } from '../timetable/timetable-shift-rules/entities/timetable-shift-rule.entity';
 import { Timetable } from '../timetable/timetables/entities/timetable.entity';
 import { AttendanceBusinessTrip } from './entities/attendance-business-trip.entity';
+import { AttendanceDailySummaryAdjustment } from './entities/attendance-daily-summary-adjustment.entity';
 import { AttendanceDailySummary } from './entities/attendance-daily-summary.entity';
+import { AttendanceProcessingException } from './entities/attendance-processing-exception.entity';
 import { AttendanceProcessedEvent } from './entities/attendance-processed-event.entity';
 import { AttendanceRecalculationJob } from './entities/attendance-recalculation-job.entity';
 import { EmployeeDeviceIdentity } from './entities/employee-device-identity.entity';
@@ -36,6 +39,7 @@ import { AttendanceBusinessTripsController } from './attendance-business-trips.c
 import { AttendanceBusinessTripsService } from './attendance-business-trips.service';
 import { AttendanceProcessingController } from './attendance-processing.controller';
 import { AttendanceEmployeeResolverService } from './attendance-employee-resolver.service';
+import { AttendanceProcessingExceptionsService } from './attendance-processing-exceptions.service';
 import { AttendanceScheduleResolverService } from './attendance-schedule-resolver.service';
 import { AttendanceDailySummaryService } from './attendance-daily-summary.service';
 import { AttendanceProcessingService } from './attendance-processing.service';
@@ -56,6 +60,7 @@ import { TimetableScheduleGenerationService } from './timetable-schedule-generat
       HikvisionAttendanceLog,
       Shift,
       ShiftAssignment,
+      ShiftBreak,
       ShiftSchedule,
       ShiftAttendanceRule,
       ShiftOvertimeRule,
@@ -74,7 +79,9 @@ import { TimetableScheduleGenerationService } from './timetable-schedule-generat
       EmployeeDeviceIdentity,
       AttendanceMobilePunch,
       AttendanceProcessedEvent,
+      AttendanceProcessingException,
       AttendanceDailySummary,
+      AttendanceDailySummaryAdjustment,
       AttendanceRecalculationJob,
       AttendanceBusinessTrip,
     ]),
@@ -84,6 +91,7 @@ import { TimetableScheduleGenerationService } from './timetable-schedule-generat
   providers: [
     AttendanceBusinessTripsService,
     AttendanceEmployeeResolverService,
+    AttendanceProcessingExceptionsService,
     AttendanceScheduleResolverService,
     AttendanceDailySummaryService,
     TimetableScheduleGenerationService,
@@ -93,6 +101,7 @@ import { TimetableScheduleGenerationService } from './timetable-schedule-generat
   ],
   exports: [
     AttendanceBusinessTripsService,
+    AttendanceProcessingExceptionsService,
     AttendanceProcessingService,
     AttendanceDailySummaryService,
     AttendanceRecalculationService,

@@ -15,6 +15,7 @@ import { Employee } from '../../../employees/entities/employee.entity';
 import { Shift } from '../../shift/shifts/entities/shift.entity';
 import { Timetable } from '../../timetable/timetables/entities/timetable.entity';
 import { HikvisionAttendanceLog } from '../../../../hikvision/entities/hikvision-attendance-log.entity';
+import { CompanyUser } from '../../../../companies/entities/company-user.entity';
 
 @Entity('attendance_daily_summaries')
 @Index('IDX_attendance_daily_summaries_company_id', ['companyId'])
@@ -72,6 +73,9 @@ export class AttendanceDailySummary {
   @Column({ name: 'work_minutes', type: 'int', default: 0 })
   workMinutes: number;
 
+  @Column({ name: 'break_minutes', type: 'int', default: 0 })
+  breakMinutes: number;
+
   @Column({ name: 'overtime_minutes', type: 'int', default: 0 })
   overtimeMinutes: number;
 
@@ -89,6 +93,15 @@ export class AttendanceDailySummary {
 
   @Column({ name: 'calculation_version', type: 'int', default: 1 })
   calculationVersion: number;
+
+  @Column({ name: 'is_adjusted', type: 'boolean', default: false })
+  isAdjusted: boolean;
+
+  @Column({ name: 'adjusted_by_company_user_id', type: 'int', nullable: true })
+  adjustedByCompanyUserId: number | null;
+
+  @Column({ name: 'adjusted_at', type: 'timestamp', nullable: true })
+  adjustedAt: Date | null;
 
   @Column({ name: 'finalized_at', type: 'timestamp', nullable: true })
   finalizedAt: Date | null;
@@ -118,6 +131,10 @@ export class AttendanceDailySummary {
   @ManyToOne(() => Timetable, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'timetable_id' })
   timetable: Timetable | null;
+
+  @ManyToOne(() => CompanyUser, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'adjusted_by_company_user_id' })
+  adjustedByCompanyUser: CompanyUser | null;
 
   @ManyToOne(() => HikvisionAttendanceLog, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'source_first_raw_log_id' })

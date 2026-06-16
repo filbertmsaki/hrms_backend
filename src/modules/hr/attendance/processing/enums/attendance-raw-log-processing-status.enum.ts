@@ -1,0 +1,7 @@
+export enum AttendanceRawLogProcessingStatusEnum {
+  PENDING = 'PENDING',
+  PROCESSED = 'PROCESSED',
+  UNMATCHED_EMPLOYEE = 'UNMATCHED_EMPLOYEE',
+  EXCEPTION = 'EXCEPTION',
+  FAILED = 'FAILED',
+}

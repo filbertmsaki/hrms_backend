@@ -2,8 +2,11 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 import { HikvisionAttendanceLog } from '../../../hikvision/entities/hikvision-attendance-log.entity';
+import { AttendanceProcessingExceptionsService } from './attendance-processing-exceptions.service';
 import { AttendanceProcessedEvent } from './entities/attendance-processed-event.entity';
 import { AttendanceProcessedEventDirectionEnum } from './enums/attendance-processed-event-direction.enum';
+import { AttendanceExceptionTypeEnum } from './enums/attendance-exception-type.enum';
+import { AttendanceRawLogProcessingStatusEnum } from './enums/attendance-raw-log-processing-status.enum';
 import { AttendanceEmployeeResolverService } from './attendance-employee-resolver.service';
 import { AttendanceDailySummaryService } from './attendance-daily-summary.service';
 import { ProcessAttendanceRangeDto } from './dtos/process-attendance-range.dto';
@@ -19,6 +22,7 @@ export class AttendanceProcessingService {
     @InjectRepository(AttendanceProcessedEvent)
     private readonly processedEventRepository: Repository<AttendanceProcessedEvent>,
     private readonly employeeResolver: AttendanceEmployeeResolverService,
+    private readonly exceptionService: AttendanceProcessingExceptionsService,
     private readonly dailySummaryService: AttendanceDailySummaryService,
   ) {}
 
@@ -112,15 +116,31 @@ export class AttendanceProcessingService {
 
   private async processRawLog(companyId: number, rawLog: HikvisionAttendanceLog) {
     const counters = { inserted: 0, updated: 0, skipped: 0, failed: 0, unmatched: 0 };
+    const nextProcessingAttempt = (rawLog.processingAttempts ?? 0) + 1;
 
     try {
-      const resolution = await this.employeeResolver.resolveEmployeeId(
-        companyId,
-        rawLog.employeeNo,
-        rawLog.deviceId,
-      );
+      const normalizedEmployeeNo = rawLog.employeeNo.trim();
+      const resolution = normalizedEmployeeNo
+        ? await this.employeeResolver.resolveEmployeeId(
+            companyId,
+            normalizedEmployeeNo,
+            rawLog.deviceId,
+          )
+        : { employeeId: null, reason: 'EMPTY_EMPLOYEE_NO' };
+      const isMatched = !!resolution.employeeId;
+      const isValid = isMatched && normalizedEmployeeNo.length > 0;
+      const nextProcessingStatus = isMatched
+        ? 'PROCESSED'
+        : resolution.reason === 'EMPTY_EMPLOYEE_NO'
+          ? 'EMPTY_EMPLOYEE_NO'
+          : 'UNMATCHED_EMPLOYEE';
+      const nextRawLogStatus = isMatched
+        ? AttendanceRawLogProcessingStatusEnum.PROCESSED
+        : resolution.reason === 'EMPTY_EMPLOYEE_NO'
+          ? AttendanceRawLogProcessingStatusEnum.EXCEPTION
+          : AttendanceRawLogProcessingStatusEnum.UNMATCHED_EMPLOYEE;
 
-      if (!resolution.employeeId) {
+      if (!isMatched) {
         counters.unmatched += 1;
       }
 
@@ -128,11 +148,18 @@ export class AttendanceProcessingService {
         where: { rawLogId: rawLog.id },
       });
 
+      let processedEvent: AttendanceProcessedEvent;
       if (existing) {
+        processedEvent = existing;
         const didUpdate = await this.applyProcessedEventChanges(
           existing,
           rawLog,
-          resolution,
+          {
+            employeeId: resolution.employeeId,
+            reason: resolution.reason,
+            isValid,
+            processingStatus: nextProcessingStatus,
+          },
         );
 
         if (didUpdate) {
@@ -141,11 +168,9 @@ export class AttendanceProcessingService {
           counters.skipped += 1;
         }
 
-        return counters;
-      }
-
-      await this.processedEventRepository.save(
-        this.processedEventRepository.create({
+      } else {
+        processedEvent = await this.processedEventRepository.save(
+          this.processedEventRepository.create({
           companyId: rawLog.companyId,
           branchId: rawLog.branchId,
           employeeId: resolution.employeeId,
@@ -157,14 +182,59 @@ export class AttendanceProcessingService {
           direction: AttendanceProcessedEventDirectionEnum.UNKNOWN,
           eventType: rawLog.eventType,
           verifyMode: rawLog.verifyMode,
-          isValid: true,
-          processingStatus: resolution.employeeId ? 'PROCESSED' : 'UNMATCHED_EMPLOYEE',
+          isValid,
+          processingStatus: nextProcessingStatus,
           processingReason: resolution.reason,
           rawPayloadSnapshot: rawLog.rawPayload,
-        }),
-      );
-      counters.inserted += 1;
+          }),
+        );
+        counters.inserted += 1;
+      }
+
+      const rawLogExceptions = isMatched
+        ? []
+        : [
+            {
+              companyId: rawLog.companyId,
+              branchId: rawLog.branchId,
+              employeeId: resolution.employeeId,
+              rawLogId: rawLog.id,
+              processedEventId: processedEvent.id,
+              deviceId: rawLog.deviceId,
+              employeeNo: rawLog.employeeNo,
+              attendanceDate: this.asDate(rawLog.eventTime),
+              exceptionType:
+                resolution.reason === 'EMPTY_EMPLOYEE_NO'
+                  ? AttendanceExceptionTypeEnum.EMPTY_EMPLOYEE_NO
+                  : AttendanceExceptionTypeEnum.UNRESOLVED_EMPLOYEE,
+              message:
+                resolution.reason === 'EMPTY_EMPLOYEE_NO'
+                  ? 'Raw attendance log has no employee number from device.'
+                  : 'Raw attendance log could not be linked to a local employee.',
+              metadata: {
+                raw_log_id: rawLog.id,
+                employee_no: rawLog.employeeNo,
+                resolver_reason: resolution.reason,
+              },
+            },
+          ];
+
+      await this.exceptionService.replaceForRawLog(rawLog.id, rawLogExceptions);
+
+      await this.rawLogRepository.save({
+        id: rawLog.id,
+        processingStatus: nextRawLogStatus,
+        processingAttempts: nextProcessingAttempt,
+        processedAt: new Date(),
+        lastProcessingError: null,
+      });
     } catch (error) {
+      await this.rawLogRepository.save({
+        id: rawLog.id,
+        processingStatus: AttendanceRawLogProcessingStatusEnum.FAILED,
+        processingAttempts: nextProcessingAttempt,
+        lastProcessingError: (error as Error).message,
+      });
       if (this.isDuplicateError(error)) {
         counters.skipped += 1;
       } else {
@@ -179,12 +249,14 @@ export class AttendanceProcessingService {
   private async applyProcessedEventChanges(
     existing: AttendanceProcessedEvent,
     rawLog: HikvisionAttendanceLog,
-    resolution: { employeeId: number | null; reason: string },
+    resolution: {
+      employeeId: number | null;
+      reason: string;
+      isValid: boolean;
+      processingStatus: string;
+    },
   ): Promise<boolean> {
     const nextAttendanceDate = this.asDate(rawLog.eventTime);
-    const nextProcessingStatus = resolution.employeeId
-      ? 'PROCESSED'
-      : 'UNMATCHED_EMPLOYEE';
     let changed = false;
 
     const assign = <K extends keyof AttendanceProcessedEvent>(
@@ -212,8 +284,8 @@ export class AttendanceProcessingService {
     assign('attendanceDate', nextAttendanceDate);
     assign('eventType', rawLog.eventType);
     assign('verifyMode', rawLog.verifyMode);
-    assign('isValid', true);
-    assign('processingStatus', nextProcessingStatus);
+    assign('isValid', resolution.isValid);
+    assign('processingStatus', resolution.processingStatus);
     assign('processingReason', resolution.reason);
 
     const currentPayload = JSON.stringify(existing.rawPayloadSnapshot ?? null);

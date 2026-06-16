@@ -1,34 +1,85 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
-import { buildDateOnlyRange, buildPaginationMeta } from '../../shared/hr.utils';
+import { buildDateOnlyRange, buildPaginationMeta, normalizeDateInput } from '../../shared/hr.utils';
 import { LeaveStatusEnum } from '../../leave/enums/leave-status.enum';
 import { LeaveRequest } from '../../leave/entities/leave-request.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { ShiftAssignment } from '../shift/shift-assignments/entities/shift-assignment.entity';
 import { ShiftAssignmentStatusEnum } from '../shift/shift-assignments/enums/shift-assignment-status.enum';
+import { ShiftBreak } from '../shift/shift-breaks/entities/shift-break.entity';
 import { ShiftSchedule } from '../shift/shift-schedules/entities/shift-schedule.entity';
 import { AttendanceMobilePunch } from '../mobile-punches/entities/attendance-mobile-punch.entity';
 import { AttendancePunchValidationStatusEnum } from '../mobile-punches/enums/attendance-punch-validation-status.enum';
 import { EmployeeTimetable } from '../timetable/employee-timetables/entities/employee-timetable.entity';
 import { EmployeeTimetableStatusEnum } from '../timetable/employee-timetables/enums/employee-timetable-status.enum';
+import { TimetableDay } from '../timetable/timetable-days/entities/timetable-day.entity';
 import { AttendanceBusinessTrip } from './entities/attendance-business-trip.entity';
+import { AttendanceDailySummaryAdjustment } from './entities/attendance-daily-summary-adjustment.entity';
 import { AttendanceDailySummary } from './entities/attendance-daily-summary.entity';
 import { AttendanceProcessedEvent } from './entities/attendance-processed-event.entity';
 import { ResolvedAttendanceSchedule } from './entities/resolved-attendance-schedule.type';
 import { AttendanceDailyStatusEnum } from './enums/attendance-daily-status.enum';
 import { QueryAttendanceDailySummariesDto } from './dtos/query-attendance-daily-summaries.dto';
 import { QueryUnmatchedAttendanceLogsDto } from './dtos/query-unmatched-attendance-logs.dto';
+import { UpsertAttendanceDailySummaryAdjustmentDto } from './dtos/upsert-attendance-daily-summary-adjustment.dto';
+import { AttendanceExceptionTypeEnum } from './enums/attendance-exception-type.enum';
+import { AttendanceProcessingExceptionsService } from './attendance-processing-exceptions.service';
 import { AttendanceScheduleResolverService } from './attendance-schedule-resolver.service';
+
+type AttendanceEventPoint = {
+  id: string;
+  eventTime: Date;
+  rawLogId: number | null;
+  source: 'processed' | 'mobile';
+};
+
+type PreparedPunchAnalysis = {
+  effectivePunches: AttendanceEventPoint[];
+  duplicatePunches: AttendanceEventPoint[];
+  invalidPunches: AttendanceEventPoint[];
+  checkInAt: Date | null;
+  checkOutAt: Date | null;
+  breakMinutes: number;
+};
+
+type SummaryCalculationInput = {
+  schedule: ResolvedAttendanceSchedule;
+  checkInAt: Date | null;
+  checkOutAt: Date | null;
+  breakMinutes: number;
+  hasApprovedLeave: boolean;
+  hasApprovedBusinessTrip: boolean;
+  eventCount: number;
+  hasScheduleExpectation: boolean;
+  noScheduleFound: boolean;
+};
+
+type SummaryCalculationResult = {
+  shouldPersist: boolean;
+  attendanceStatus: AttendanceDailyStatusEnum;
+  lateMinutes: number;
+  earlyDepartureMinutes: number;
+  breakMinutes: number;
+  workMinutes: number;
+  overtimeMinutes: number;
+  flags: Record<string, unknown>;
+};
 
 @Injectable()
 export class AttendanceDailySummaryService {
+  private readonly duplicatePunchThresholdMs = 60 * 1000;
+  private readonly preShiftWindowHours = 12;
+  private readonly postShiftWindowHours = 12;
+
   constructor(
     @InjectRepository(AttendanceProcessedEvent)
     private readonly processedEventRepository: Repository<AttendanceProcessedEvent>,
     @InjectRepository(AttendanceDailySummary)
     private readonly dailySummaryRepository: Repository<AttendanceDailySummary>,
+    @InjectRepository(AttendanceDailySummaryAdjustment)
+    private readonly adjustmentRepository: Repository<AttendanceDailySummaryAdjustment>,
     @InjectRepository(AttendanceMobilePunch)
     private readonly mobilePunchRepository: Repository<AttendanceMobilePunch>,
     @InjectRepository(LeaveRequest)
@@ -43,7 +94,12 @@ export class AttendanceDailySummaryService {
     private readonly shiftAssignmentRepository: Repository<ShiftAssignment>,
     @InjectRepository(ShiftSchedule)
     private readonly shiftScheduleRepository: Repository<ShiftSchedule>,
+    @InjectRepository(ShiftBreak)
+    private readonly shiftBreakRepository: Repository<ShiftBreak>,
+    @InjectRepository(TimetableDay)
+    private readonly timetableDayRepository: Repository<TimetableDay>,
     private readonly scheduleResolver: AttendanceScheduleResolverService,
+    private readonly exceptionService: AttendanceProcessingExceptionsService,
   ) {}
 
   async rebuildSummariesForRange(input: {
@@ -55,7 +111,12 @@ export class AttendanceDailySummaryService {
   }) {
     const { companyId, startDate, endDate, employeeId, forceRebuild = false } = input;
 
-    const employeeIds = await this.resolveTargetEmployees(companyId, startDate, endDate, employeeId);
+    const employeeIds = await this.resolveTargetEmployees(
+      companyId,
+      startDate,
+      endDate,
+      employeeId,
+    );
 
     if (employeeIds.length === 0) {
       return {
@@ -82,7 +143,11 @@ export class AttendanceDailySummaryService {
 
     for (const targetEmployeeId of employeeIds) {
       for (const date of dates) {
-        const changed = await this.recomputeForEmployeeDate(companyId, targetEmployeeId, date);
+        const changed = await this.recomputeForEmployeeDate(
+          companyId,
+          targetEmployeeId,
+          date,
+        );
         if (changed) summariesUpserted += 1;
       }
     }
@@ -99,6 +164,10 @@ export class AttendanceDailySummaryService {
     employeeId: number,
     attendanceDate: string,
   ): Promise<boolean> {
+    const normalizedAttendanceDate = this.normalizeDate(
+      attendanceDate,
+      'attendanceDate',
+    );
     const employee = await this.employeeRepository.findOne({
       where: { id: employeeId },
       select: {
@@ -108,76 +177,143 @@ export class AttendanceDailySummaryService {
     });
 
     const existing = await this.dailySummaryRepository.findOne({
-      where: { companyId, employeeId, attendanceDate },
+      where: { companyId, employeeId, attendanceDate: normalizedAttendanceDate },
     });
 
-    if (employee?.exit_date && attendanceDate > employee.exit_date) {
+    if (employee?.exit_date && normalizedAttendanceDate > employee.exit_date) {
       if (existing) {
         await this.dailySummaryRepository.remove(existing);
       }
+      await this.exceptionService.replaceForEmployeeDate(
+        companyId,
+        employeeId,
+        normalizedAttendanceDate,
+        [],
+      );
       return false;
     }
 
-    const [processedEvents, mobilePunches] = await Promise.all([
-      this.processedEventRepository.find({
-        where: { companyId, employeeId, attendanceDate, isValid: true },
-        order: { eventTime: 'ASC' },
-      }),
-      this.mobilePunchRepository.find({
-        where: {
+    const preferredTimezone = await this.resolvePreferredTimezone(
+      companyId,
+      employeeId,
+      normalizedAttendanceDate,
+    );
+    const schedule = await this.scheduleResolver.resolveForDate(
+      companyId,
+      employeeId,
+      normalizedAttendanceDate,
+      preferredTimezone,
+    );
+    const hasScheduleExpectation = await this.hasScheduleExpectation(
+      companyId,
+      employeeId,
+      normalizedAttendanceDate,
+    );
+    const noScheduleFound =
+      schedule.source === 'NONE' &&
+      hasScheduleExpectation &&
+      !schedule.isOffDay &&
+      !schedule.isHoliday;
+
+    const [processedEvents, mobilePunches, hasApprovedLeave, hasApprovedBusinessTrip, scheduledBreakMinutes, activeAdjustment] =
+      await Promise.all([
+        this.findProcessedEventsForSchedule(
           companyId,
           employeeId,
-          attendanceDate,
-          validationStatus: In([
-            AttendancePunchValidationStatusEnum.APPROVED,
-            AttendancePunchValidationStatusEnum.OVERRIDE_APPROVED,
-          ]),
-        },
-        order: { punchTime: 'ASC' },
-      }),
-    ]);
+          normalizedAttendanceDate,
+          schedule,
+        ),
+        this.findMobilePunchesForSchedule(
+          companyId,
+          employeeId,
+          normalizedAttendanceDate,
+          schedule,
+        ),
+        this.hasApprovedLeave(companyId, employeeId, normalizedAttendanceDate),
+        this.hasApprovedBusinessTrip(companyId, employeeId, normalizedAttendanceDate),
+        this.resolveScheduledBreakMinutes(schedule, normalizedAttendanceDate),
+        this.findActiveAdjustment(companyId, employeeId, normalizedAttendanceDate),
+      ]);
 
     const events = [
       ...processedEvents.map((event) => ({
         id: `processed:${event.id}`,
         eventTime: event.eventTime,
         rawLogId: event.rawLogId,
+        source: 'processed' as const,
       })),
       ...mobilePunches.map((punch) => ({
         id: `mobile:${punch.id}`,
         eventTime: punch.punchTime,
         rawLogId: null,
+        source: 'mobile' as const,
       })),
     ].sort((left, right) => left.eventTime.getTime() - right.eventTime.getTime());
 
-    const preferredTimezone = await this.resolvePreferredTimezone(companyId, employeeId, attendanceDate);
-    const schedule = await this.scheduleResolver.resolveForDate(
-      companyId,
-      employeeId,
-      attendanceDate,
-      preferredTimezone,
-    );
-
-    const firstEvent = events[0] ?? null;
-    const lastEvent = events.length > 0 ? events[events.length - 1] : null;
-
-    const checkInAt = firstEvent?.eventTime ?? null;
-    const checkOutAt =
-      lastEvent && firstEvent && lastEvent.id !== firstEvent.id ? lastEvent.eventTime : null;
-
-    const hasApprovedLeave = await this.hasApprovedLeave(companyId, employeeId, attendanceDate);
-    const hasApprovedBusinessTrip = await this.hasApprovedBusinessTrip(companyId, employeeId, attendanceDate);
-
-    const summaryValues = this.calculateSummaryValues({
+    const punchAnalysis = this.preparePunches(
+      events,
       schedule,
-      checkInAt,
-      checkOutAt,
+      normalizedAttendanceDate,
+    );
+    const effectiveBreakMinutes =
+      punchAnalysis.breakMinutes > 0
+        ? punchAnalysis.breakMinutes
+        : scheduledBreakMinutes;
+
+    const calculated = this.calculateSummaryValues({
+      schedule,
+      checkInAt: punchAnalysis.checkInAt,
+      checkOutAt: punchAnalysis.checkOutAt,
+      breakMinutes: effectiveBreakMinutes,
       hasApprovedLeave,
       hasApprovedBusinessTrip,
-      eventCount: events.length,
+      eventCount: punchAnalysis.effectivePunches.length,
+      hasScheduleExpectation,
+      noScheduleFound,
     });
+    const summaryValues = this.applyAdjustmentToSummary(
+      calculated,
+      schedule,
+      {
+        checkInAt: punchAnalysis.checkInAt,
+        checkOutAt: punchAnalysis.checkOutAt,
+        breakMinutes: effectiveBreakMinutes,
+      },
+      {
+        hasApprovedLeave,
+        hasApprovedBusinessTrip,
+        eventCount: punchAnalysis.effectivePunches.length,
+        hasScheduleExpectation,
+        noScheduleFound,
+      },
+      activeAdjustment,
+    );
+
+    const effectivePunches = punchAnalysis.effectivePunches;
+    const firstEvent = effectivePunches[0] ?? null;
+    const lastEvent =
+      effectivePunches.length > 0
+        ? effectivePunches[effectivePunches.length - 1]
+        : null;
 
     if (!existing && !summaryValues.shouldPersist) {
+      await this.exceptionService.replaceForEmployeeDate(
+        companyId,
+        employeeId,
+        normalizedAttendanceDate,
+        [],
+      );
+      return false;
+    }
+
+    if (existing && !summaryValues.shouldPersist) {
+      await this.dailySummaryRepository.remove(existing);
+      await this.exceptionService.replaceForEmployeeDate(
+        companyId,
+        employeeId,
+        normalizedAttendanceDate,
+        [],
+      );
       return false;
     }
 
@@ -185,35 +321,169 @@ export class AttendanceDailySummaryService {
       companyId,
       branchId: schedule.branchId,
       employeeId,
-      attendanceDate,
+      attendanceDate: normalizedAttendanceDate,
       scheduleSource: schedule.source,
       shiftId: schedule.shiftId,
       timetableId: schedule.timetableId,
       timezone: schedule.timezone,
       scheduleStartAt: schedule.scheduleStartAt,
       scheduleEndAt: schedule.scheduleEndAt,
-      checkInAt,
-      checkOutAt,
+      checkInAt: summaryValues.checkInAt,
+      checkOutAt: summaryValues.checkOutAt,
       lateMinutes: summaryValues.lateMinutes,
       earlyDepartureMinutes: summaryValues.earlyDepartureMinutes,
       workMinutes: summaryValues.workMinutes,
+      breakMinutes: summaryValues.breakMinutes,
       overtimeMinutes: summaryValues.overtimeMinutes,
       attendanceStatus: summaryValues.attendanceStatus,
       flags: summaryValues.flags,
       sourceFirstRawLogId: firstEvent?.rawLogId ?? null,
       sourceLastRawLogId: lastEvent?.rawLogId ?? null,
-      calculationVersion: 1,
+      calculationVersion: 2,
+      isAdjusted: !!activeAdjustment,
+      adjustedByCompanyUserId: activeAdjustment?.appliedByCompanyUserId ?? null,
+      adjustedAt: activeAdjustment?.appliedAt ?? null,
       finalizedAt: null,
     };
 
-    if (!existing) {
-      await this.dailySummaryRepository.save(this.dailySummaryRepository.create(payload));
-      return true;
+    const savedSummary = existing
+      ? await this.dailySummaryRepository.save(Object.assign(existing, payload))
+      : await this.dailySummaryRepository.save(
+          this.dailySummaryRepository.create(payload),
+        );
+
+    if (activeAdjustment && activeAdjustment.summaryId !== savedSummary.id) {
+      activeAdjustment.summaryId = savedSummary.id;
+      await this.adjustmentRepository.save(activeAdjustment);
     }
 
-    Object.assign(existing, payload);
-    await this.dailySummaryRepository.save(existing);
+    await this.exceptionService.replaceForEmployeeDate(
+      companyId,
+      employeeId,
+      normalizedAttendanceDate,
+      this.buildSummaryExceptionDrafts({
+        companyId,
+        employeeId,
+        branchId: schedule.branchId,
+        deviceId: processedEvents[0]?.deviceId ?? null,
+        attendanceDate: normalizedAttendanceDate,
+        employeeNo: processedEvents[0]?.employeeNo ?? '',
+        summaryId: savedSummary.id,
+        punchAnalysis,
+        schedule,
+        hasScheduleExpectation,
+        noScheduleFound,
+      }),
+    );
+
     return true;
+  }
+
+  async upsertAdjustment(
+    companyId: number,
+    employeeId: number,
+    attendanceDate: string,
+    dto: UpsertAttendanceDailySummaryAdjustmentDto,
+    appliedByCompanyUserId: number | null,
+  ) {
+    const normalizedAttendanceDate = this.normalizeDate(
+      attendanceDate,
+      'attendanceDate',
+    );
+
+    await this.adjustmentRepository
+      .createQueryBuilder()
+      .update(AttendanceDailySummaryAdjustment)
+      .set({ isActive: false })
+      .where('company_id = :companyId', { companyId })
+      .andWhere('employee_id = :employeeId', { employeeId })
+      .andWhere('attendance_date = :attendanceDate', {
+        attendanceDate: normalizedAttendanceDate,
+      })
+      .andWhere('is_active = :isActive', { isActive: true })
+      .execute();
+
+    const summary = await this.dailySummaryRepository.findOne({
+      where: {
+        companyId,
+        employeeId,
+        attendanceDate: normalizedAttendanceDate,
+      },
+    });
+
+    await this.adjustmentRepository.save(
+      this.adjustmentRepository.create({
+        companyId,
+        employeeId,
+        summaryId: summary?.id ?? null,
+        attendanceDate: normalizedAttendanceDate,
+        statusOverride: dto.attendance_status?.trim().toUpperCase() || null,
+        checkInAtOverride: this.parseOptionalDate(dto.check_in_at, 'check_in_at'),
+        checkOutAtOverride: this.parseOptionalDate(dto.check_out_at, 'check_out_at'),
+        breakMinutesOverride: dto.break_minutes ?? null,
+        workMinutesOverride: dto.worked_minutes ?? null,
+        lateMinutesOverride: dto.late_minutes ?? null,
+        earlyDepartureMinutesOverride: dto.early_departure_minutes ?? null,
+        overtimeMinutesOverride: dto.overtime_minutes ?? null,
+        notes: dto.notes?.trim() || null,
+        metadata: {
+          source: 'MANUAL_ADJUSTMENT',
+        },
+        isActive: true,
+        appliedByCompanyUserId,
+      }),
+    );
+
+    await this.recomputeForEmployeeDate(
+      companyId,
+      employeeId,
+      normalizedAttendanceDate,
+    );
+
+    return this.dailySummaryRepository.findOne({
+      where: {
+        companyId,
+        employeeId,
+        attendanceDate: normalizedAttendanceDate,
+      },
+    });
+  }
+
+  async clearAdjustment(
+    companyId: number,
+    employeeId: number,
+    attendanceDate: string,
+  ) {
+    const normalizedAttendanceDate = this.normalizeDate(
+      attendanceDate,
+      'attendanceDate',
+    );
+
+    await this.adjustmentRepository
+      .createQueryBuilder()
+      .update(AttendanceDailySummaryAdjustment)
+      .set({ isActive: false })
+      .where('company_id = :companyId', { companyId })
+      .andWhere('employee_id = :employeeId', { employeeId })
+      .andWhere('attendance_date = :attendanceDate', {
+        attendanceDate: normalizedAttendanceDate,
+      })
+      .andWhere('is_active = :isActive', { isActive: true })
+      .execute();
+
+    await this.recomputeForEmployeeDate(
+      companyId,
+      employeeId,
+      normalizedAttendanceDate,
+    );
+
+    return this.dailySummaryRepository.findOne({
+      where: {
+        companyId,
+        employeeId,
+        attendanceDate: normalizedAttendanceDate,
+      },
+    });
   }
 
   async findDailySummaries(companyId: number, query: QueryAttendanceDailySummariesDto) {
@@ -395,9 +665,622 @@ export class AttendanceDailySummaryService {
       return event.timezone.trim();
     }
 
-    const employee = await this.employeeRepository.findOne({ where: { id: employeeId } });
-    if (!employee?.primary_branch_id) return undefined;
     return undefined;
+  }
+
+  private async findProcessedEventsForSchedule(
+    companyId: number,
+    employeeId: number,
+    attendanceDate: string,
+    schedule: ResolvedAttendanceSchedule,
+  ): Promise<AttendanceProcessedEvent[]> {
+    const qb = this.processedEventRepository
+      .createQueryBuilder('event')
+      .where('event.company_id = :companyId', { companyId })
+      .andWhere('event.employee_id = :employeeId', { employeeId })
+      .andWhere('event.is_valid = :isValid', { isValid: true });
+
+    const window = this.buildEventWindow(schedule, attendanceDate);
+    if (window) {
+      qb.andWhere('event.event_time >= :windowStart', {
+        windowStart: window.start,
+      });
+      qb.andWhere('event.event_time <= :windowEnd', {
+        windowEnd: window.end,
+      });
+    } else {
+      qb.andWhere('event.attendance_date = :attendanceDate', { attendanceDate });
+    }
+
+    return qb.orderBy('event.event_time', 'ASC').getMany();
+  }
+
+  private async findMobilePunchesForSchedule(
+    companyId: number,
+    employeeId: number,
+    attendanceDate: string,
+    schedule: ResolvedAttendanceSchedule,
+  ): Promise<AttendanceMobilePunch[]> {
+    const qb = this.mobilePunchRepository
+      .createQueryBuilder('punch')
+      .where('punch.company_id = :companyId', { companyId })
+      .andWhere('punch.employee_id = :employeeId', { employeeId })
+      .andWhere('punch.validation_status IN (:...statuses)', {
+        statuses: [
+          AttendancePunchValidationStatusEnum.APPROVED,
+          AttendancePunchValidationStatusEnum.OVERRIDE_APPROVED,
+        ],
+      });
+
+    const window = this.buildEventWindow(schedule, attendanceDate);
+    if (window) {
+      qb.andWhere('punch.punch_time >= :windowStart', {
+        windowStart: window.start,
+      });
+      qb.andWhere('punch.punch_time <= :windowEnd', {
+        windowEnd: window.end,
+      });
+    } else {
+      qb.andWhere('punch.attendance_date = :attendanceDate', { attendanceDate });
+    }
+
+    return qb.orderBy('punch.punch_time', 'ASC').getMany();
+  }
+
+  private buildEventWindow(
+    schedule: ResolvedAttendanceSchedule,
+    attendanceDate: string,
+  ): { start: Date; end: Date } | null {
+    if (!schedule.scheduleStartAt || !schedule.scheduleEndAt) {
+      return null;
+    }
+
+    return {
+      start: new Date(
+        schedule.scheduleStartAt.getTime() -
+          this.preShiftWindowHours * 60 * 60 * 1000,
+      ),
+      end: new Date(
+        schedule.scheduleEndAt.getTime() +
+          this.postShiftWindowHours * 60 * 60 * 1000,
+      ),
+    };
+  }
+
+  private async resolveScheduledBreakMinutes(
+    schedule: ResolvedAttendanceSchedule,
+    attendanceDate: string,
+  ): Promise<number> {
+    if (schedule.shiftId) {
+      const breaks = await this.shiftBreakRepository.find({
+        where: { shiftId: schedule.shiftId },
+      });
+
+      return breaks.reduce((total, item) => {
+        if (item.isPaid) return total;
+        return total + Math.max(0, item.durationMinutes ?? 0);
+      }, 0);
+    }
+
+    if (schedule.timetableId) {
+      const dayOfWeek = this.getDayOfWeek(attendanceDate);
+      const day = await this.timetableDayRepository.findOne({
+        where: { timetableId: schedule.timetableId, dayOfWeek },
+      });
+      if (day?.breakRequired) {
+        return Math.max(0, day.breakMinutes ?? 0);
+      }
+    }
+
+    return 0;
+  }
+
+  private preparePunches(
+    events: AttendanceEventPoint[],
+    schedule: ResolvedAttendanceSchedule,
+    attendanceDate: string,
+  ): PreparedPunchAnalysis {
+    const effectivePunches: AttendanceEventPoint[] = [];
+    const duplicatePunches: AttendanceEventPoint[] = [];
+    const invalidPunches: AttendanceEventPoint[] = [];
+
+    for (const event of events) {
+      const previous = effectivePunches[effectivePunches.length - 1] ?? null;
+      if (
+        previous &&
+        event.eventTime.getTime() - previous.eventTime.getTime() <=
+          this.duplicatePunchThresholdMs
+      ) {
+        duplicatePunches.push(event);
+        continue;
+      }
+      effectivePunches.push(event);
+    }
+
+    if (effectivePunches.length === 0) {
+      return {
+        effectivePunches,
+        duplicatePunches,
+        invalidPunches,
+        checkInAt: null,
+        checkOutAt: null,
+        breakMinutes: 0,
+      };
+    }
+
+    let checkInAt: Date | null = null;
+    let checkOutAt: Date | null = null;
+
+    if (effectivePunches.length === 1) {
+      const onlyPunch = effectivePunches[0];
+      if (this.shouldTreatSinglePunchAsCheckout(schedule, onlyPunch.eventTime)) {
+        checkOutAt = onlyPunch.eventTime;
+      } else {
+        checkInAt = onlyPunch.eventTime;
+      }
+    } else {
+      checkInAt = effectivePunches[0].eventTime;
+      checkOutAt = effectivePunches[effectivePunches.length - 1].eventTime;
+      if (checkOutAt.getTime() <= checkInAt.getTime()) {
+        invalidPunches.push(...effectivePunches);
+        checkOutAt = null;
+      }
+    }
+
+    let breakMinutes = 0;
+    const internalPunches =
+      effectivePunches.length > 2 ? effectivePunches.slice(1, -1) : [];
+
+    for (let index = 0; index + 1 < internalPunches.length; index += 2) {
+      const breakStart = internalPunches[index];
+      const breakEnd = internalPunches[index + 1];
+      if (breakEnd.eventTime.getTime() <= breakStart.eventTime.getTime()) {
+        invalidPunches.push(breakStart, breakEnd);
+        continue;
+      }
+      breakMinutes += Math.floor(
+        (breakEnd.eventTime.getTime() - breakStart.eventTime.getTime()) / 60000,
+      );
+    }
+
+    if (internalPunches.length % 2 === 1) {
+      invalidPunches.push(internalPunches[internalPunches.length - 1]);
+    }
+
+    return {
+      effectivePunches,
+      duplicatePunches,
+      invalidPunches,
+      checkInAt,
+      checkOutAt,
+      breakMinutes,
+    };
+  }
+
+  private shouldTreatSinglePunchAsCheckout(
+    schedule: ResolvedAttendanceSchedule,
+    punchTime: Date,
+  ): boolean {
+    if (!schedule.scheduleStartAt || !schedule.scheduleEndAt) {
+      return false;
+    }
+
+    const startDistance = Math.abs(
+      punchTime.getTime() - schedule.scheduleStartAt.getTime(),
+    );
+    const endDistance = Math.abs(
+      punchTime.getTime() - schedule.scheduleEndAt.getTime(),
+    );
+
+    return endDistance < startDistance;
+  }
+
+  private calculateSummaryValues(
+    input: SummaryCalculationInput,
+  ): SummaryCalculationResult {
+    const {
+      schedule,
+      checkInAt,
+      checkOutAt,
+      breakMinutes,
+      hasApprovedLeave,
+      hasApprovedBusinessTrip,
+      eventCount,
+      hasScheduleExpectation,
+      noScheduleFound,
+    } = input;
+
+    let attendanceStatus = AttendanceDailyStatusEnum.ABSENT;
+    let lateMinutes = 0;
+    let earlyDepartureMinutes = 0;
+    let workMinutes = 0;
+    let overtimeMinutes = 0;
+
+    if (hasApprovedBusinessTrip) {
+      attendanceStatus = AttendanceDailyStatusEnum.BUSINESS_TRIP;
+    } else if (hasApprovedLeave) {
+      attendanceStatus = AttendanceDailyStatusEnum.ON_LEAVE;
+    } else if (schedule.isHoliday) {
+      attendanceStatus = AttendanceDailyStatusEnum.HOLIDAY;
+    } else if (schedule.isOffDay) {
+      attendanceStatus = AttendanceDailyStatusEnum.OFF_DAY;
+    } else if (noScheduleFound) {
+      attendanceStatus = AttendanceDailyStatusEnum.INCOMPLETE;
+    } else if (!checkInAt && checkOutAt) {
+      attendanceStatus = AttendanceDailyStatusEnum.INCOMPLETE;
+    } else if (checkInAt && !checkOutAt && schedule.requiresCheckout) {
+      attendanceStatus = AttendanceDailyStatusEnum.INCOMPLETE;
+    } else if (eventCount === 0 && hasScheduleExpectation && schedule.autoAbsentIfNoCheckin) {
+      attendanceStatus = AttendanceDailyStatusEnum.ABSENT;
+    } else if (eventCount > 0) {
+      attendanceStatus = AttendanceDailyStatusEnum.PRESENT;
+    }
+
+    if (checkInAt && checkOutAt && checkOutAt.getTime() > checkInAt.getTime()) {
+      const grossMinutes = Math.floor(
+        (checkOutAt.getTime() - checkInAt.getTime()) / 60000,
+      );
+      workMinutes = Math.max(0, grossMinutes - Math.max(0, breakMinutes));
+    }
+
+    if (checkInAt && schedule.scheduleStartAt) {
+      const baseline = schedule.scheduleStartAt.getTime() + schedule.graceInMinutes * 60000;
+      const lateThreshold = baseline + schedule.lateAfterMinutes * 60000;
+      const halfDayThreshold = baseline + schedule.halfDayAfterMinutes * 60000;
+      const absentThreshold = baseline + schedule.absentAfterMinutes * 60000;
+
+      if (schedule.lateAfterMinutes > 0 && checkInAt.getTime() > lateThreshold) {
+        lateMinutes = Math.floor((checkInAt.getTime() - lateThreshold) / 60000);
+      }
+
+      if (
+        schedule.absentAfterMinutes > 0 &&
+        checkInAt.getTime() > absentThreshold &&
+        !hasApprovedLeave &&
+        !hasApprovedBusinessTrip &&
+        !schedule.isHoliday &&
+        !schedule.isOffDay
+      ) {
+        attendanceStatus = AttendanceDailyStatusEnum.ABSENT;
+      } else if (
+        schedule.halfDayAfterMinutes > 0 &&
+        checkInAt.getTime() > halfDayThreshold &&
+        attendanceStatus === AttendanceDailyStatusEnum.PRESENT
+      ) {
+        attendanceStatus = AttendanceDailyStatusEnum.HALF_DAY;
+      }
+    }
+
+    if (checkOutAt && schedule.scheduleEndAt) {
+      const allowedEarlyLeaveTime =
+        schedule.scheduleEndAt.getTime() -
+        (schedule.graceOutMinutes + schedule.earlyLeaveAfterMinutes) * 60000;
+      if (checkOutAt.getTime() < allowedEarlyLeaveTime) {
+        earlyDepartureMinutes = Math.floor(
+          (allowedEarlyLeaveTime - checkOutAt.getTime()) / 60000,
+        );
+      }
+    }
+
+    if (checkOutAt && schedule.scheduleEndAt) {
+      const overtimeStartTime =
+        schedule.scheduleEndAt.getTime() +
+        schedule.overtimeStartAfterMinutes * 60000;
+      if (checkOutAt.getTime() > overtimeStartTime) {
+        overtimeMinutes = Math.floor(
+          (checkOutAt.getTime() - overtimeStartTime) / 60000,
+        );
+      }
+    }
+
+    if (!schedule.allowOvertime && !schedule.isHoliday && !schedule.isOffDay) {
+      overtimeMinutes = 0;
+    }
+
+    if ((schedule.isHoliday || schedule.isOffDay) && workMinutes > 0) {
+      overtimeMinutes = workMinutes;
+    }
+
+    if (schedule.maxOvertimeMinutes > 0) {
+      overtimeMinutes = Math.min(overtimeMinutes, schedule.maxOvertimeMinutes);
+    }
+
+    const shouldPersist =
+      eventCount > 0 ||
+      hasApprovedLeave ||
+      hasApprovedBusinessTrip ||
+      schedule.isHoliday ||
+      schedule.isOffDay ||
+      noScheduleFound ||
+      (hasScheduleExpectation && !schedule.isHoliday && !schedule.isOffDay);
+
+    return {
+      shouldPersist,
+      attendanceStatus,
+      lateMinutes,
+      earlyDepartureMinutes,
+      breakMinutes: Math.max(0, breakMinutes),
+      workMinutes,
+      overtimeMinutes,
+      flags: {
+        hasApprovedLeave,
+        hasApprovedBusinessTrip,
+        isHoliday: schedule.isHoliday,
+        isOffDay: schedule.isOffDay,
+        eventCount,
+        hasScheduleExpectation,
+        noScheduleFound,
+        requiresCheckout: schedule.requiresCheckout,
+        scheduleSource: schedule.source,
+        lateAfterMinutes: schedule.lateAfterMinutes,
+        halfDayAfterMinutes: schedule.halfDayAfterMinutes,
+        absentAfterMinutes: schedule.absentAfterMinutes,
+        autoAbsentIfNoCheckin: schedule.autoAbsentIfNoCheckin,
+        allowEarlyCheckin: schedule.allowEarlyCheckin,
+        allowLateCheckout: schedule.allowLateCheckout,
+      },
+    };
+  }
+
+  private applyAdjustmentToSummary(
+    base: SummaryCalculationResult,
+    schedule: ResolvedAttendanceSchedule,
+    punches: {
+      checkInAt: Date | null;
+      checkOutAt: Date | null;
+      breakMinutes: number;
+    },
+    context: Omit<
+      SummaryCalculationInput,
+      'schedule' | 'checkInAt' | 'checkOutAt' | 'breakMinutes'
+    >,
+    adjustment: AttendanceDailySummaryAdjustment | null,
+  ) {
+    if (!adjustment) {
+      return {
+        ...base,
+        checkInAt: punches.checkInAt,
+        checkOutAt: punches.checkOutAt,
+      };
+    }
+
+    const adjustedPunches = {
+      checkInAt:
+        adjustment.checkInAtOverride !== null
+          ? adjustment.checkInAtOverride
+          : punches.checkInAt,
+      checkOutAt:
+        adjustment.checkOutAtOverride !== null
+          ? adjustment.checkOutAtOverride
+          : punches.checkOutAt,
+      breakMinutes:
+        adjustment.breakMinutesOverride !== null
+          ? adjustment.breakMinutesOverride
+          : punches.breakMinutes,
+    };
+
+    const recalculated = this.calculateSummaryValues({
+      schedule,
+      checkInAt: adjustedPunches.checkInAt,
+      checkOutAt: adjustedPunches.checkOutAt,
+      breakMinutes: adjustedPunches.breakMinutes,
+      ...context,
+    });
+
+    return {
+      shouldPersist: true,
+      attendanceStatus:
+        (adjustment.statusOverride as AttendanceDailyStatusEnum | null) ??
+        recalculated.attendanceStatus,
+      lateMinutes:
+        adjustment.lateMinutesOverride ?? recalculated.lateMinutes,
+      earlyDepartureMinutes:
+        adjustment.earlyDepartureMinutesOverride ??
+        recalculated.earlyDepartureMinutes,
+      breakMinutes:
+        adjustment.breakMinutesOverride ?? recalculated.breakMinutes,
+      workMinutes:
+        adjustment.workMinutesOverride ?? recalculated.workMinutes,
+      overtimeMinutes:
+        adjustment.overtimeMinutesOverride ?? recalculated.overtimeMinutes,
+      flags: {
+        ...recalculated.flags,
+        manualAdjustment: {
+          id: adjustment.id,
+          notes: adjustment.notes,
+          appliedAt: adjustment.appliedAt,
+          appliedByCompanyUserId: adjustment.appliedByCompanyUserId,
+        },
+      },
+      checkInAt: adjustedPunches.checkInAt,
+      checkOutAt: adjustedPunches.checkOutAt,
+    };
+  }
+
+  private buildSummaryExceptionDrafts(input: {
+    companyId: number;
+    employeeId: number;
+    branchId: number | null;
+    deviceId: number | null;
+    attendanceDate: string;
+    employeeNo: string;
+    summaryId: number;
+    punchAnalysis: PreparedPunchAnalysis;
+    schedule: ResolvedAttendanceSchedule;
+    hasScheduleExpectation: boolean;
+    noScheduleFound: boolean;
+  }) {
+    const drafts: Array<{
+      companyId: number;
+      branchId: number | null;
+      employeeId: number | null;
+      summaryId: number | null;
+      deviceId: number | null;
+      attendanceDate: string;
+      employeeNo: string;
+      exceptionType: AttendanceExceptionTypeEnum;
+      message: string;
+      metadata?: Record<string, unknown>;
+    }> = [];
+
+    if (input.noScheduleFound) {
+      drafts.push({
+        companyId: input.companyId,
+        branchId: input.branchId,
+        employeeId: input.employeeId,
+        summaryId: input.summaryId,
+        deviceId: input.deviceId,
+        attendanceDate: input.attendanceDate,
+        employeeNo: input.employeeNo,
+        exceptionType: AttendanceExceptionTypeEnum.NO_SCHEDULE_FOUND,
+        message: 'Employee had attendance activity or a schedule expectation but no usable schedule could be resolved.',
+        metadata: {
+          schedule_source: input.schedule.source,
+          has_schedule_expectation: input.hasScheduleExpectation,
+        },
+      });
+    }
+
+    if (input.punchAnalysis.duplicatePunches.length > 0) {
+      drafts.push({
+        companyId: input.companyId,
+        branchId: input.branchId,
+        employeeId: input.employeeId,
+        summaryId: input.summaryId,
+        deviceId: input.deviceId,
+        attendanceDate: input.attendanceDate,
+        employeeNo: input.employeeNo,
+        exceptionType: AttendanceExceptionTypeEnum.DUPLICATE_PUNCH,
+        message: 'Duplicate punches were detected within the same attendance window.',
+        metadata: {
+          punch_ids: input.punchAnalysis.duplicatePunches.map((item) => item.id),
+          raw_log_ids: input.punchAnalysis.duplicatePunches
+            .map((item) => item.rawLogId)
+            .filter((item): item is number => typeof item === 'number'),
+        },
+      });
+    }
+
+    if (input.punchAnalysis.invalidPunches.length > 0) {
+      drafts.push({
+        companyId: input.companyId,
+        branchId: input.branchId,
+        employeeId: input.employeeId,
+        summaryId: input.summaryId,
+        deviceId: input.deviceId,
+        attendanceDate: input.attendanceDate,
+        employeeNo: input.employeeNo,
+        exceptionType: AttendanceExceptionTypeEnum.INVALID_PUNCH_TIME,
+        message: 'One or more punches could not be used safely in attendance calculation.',
+        metadata: {
+          punch_ids: input.punchAnalysis.invalidPunches.map((item) => item.id),
+          raw_log_ids: input.punchAnalysis.invalidPunches
+            .map((item) => item.rawLogId)
+            .filter((item): item is number => typeof item === 'number'),
+        },
+      });
+    }
+
+    if (!input.punchAnalysis.checkInAt && input.punchAnalysis.checkOutAt) {
+      drafts.push({
+        companyId: input.companyId,
+        branchId: input.branchId,
+        employeeId: input.employeeId,
+        summaryId: input.summaryId,
+        deviceId: input.deviceId,
+        attendanceDate: input.attendanceDate,
+        employeeNo: input.employeeNo,
+        exceptionType: AttendanceExceptionTypeEnum.MISSING_CHECK_IN,
+        message: 'Attendance day has a usable check-out punch but no usable check-in punch.',
+      });
+    }
+
+    if (
+      input.punchAnalysis.checkInAt &&
+      !input.punchAnalysis.checkOutAt &&
+      input.schedule.requiresCheckout
+    ) {
+      drafts.push({
+        companyId: input.companyId,
+        branchId: input.branchId,
+        employeeId: input.employeeId,
+        summaryId: input.summaryId,
+        deviceId: input.deviceId,
+        attendanceDate: input.attendanceDate,
+        employeeNo: input.employeeNo,
+        exceptionType: AttendanceExceptionTypeEnum.MISSING_CHECK_OUT,
+        message: 'Attendance day has a usable check-in punch but no usable check-out punch.',
+      });
+    }
+
+    return drafts;
+  }
+
+  private async hasScheduleExpectation(
+    companyId: number,
+    employeeId: number,
+    attendanceDate: string,
+  ): Promise<boolean> {
+    const [shiftSchedule, shiftAssignment, timetableAssignment] = await Promise.all([
+      this.shiftScheduleRepository.findOne({
+        where: { companyId, employeeId, scheduleDate: attendanceDate },
+        select: { id: true, isOffDay: true },
+      }),
+      this.shiftAssignmentRepository
+        .createQueryBuilder('assignment')
+        .select(['assignment.id'])
+        .where('assignment.company_id = :companyId', { companyId })
+        .andWhere('assignment.employee_id = :employeeId', { employeeId })
+        .andWhere('assignment.status = :status', {
+          status: ShiftAssignmentStatusEnum.ACTIVE,
+        })
+        .andWhere('assignment.effective_from <= :attendanceDate', {
+          attendanceDate,
+        })
+        .andWhere('(assignment.effective_to IS NULL OR assignment.effective_to >= :attendanceDate)', {
+          attendanceDate,
+        })
+        .getOne(),
+      this.employeeTimetableRepository
+        .createQueryBuilder('assignment')
+        .select(['assignment.id'])
+        .where('assignment.company_id = :companyId', { companyId })
+        .andWhere('assignment.employee_id = :employeeId', { employeeId })
+        .andWhere('assignment.status = :status', {
+          status: EmployeeTimetableStatusEnum.ACTIVE,
+        })
+        .andWhere('assignment.effective_from <= :attendanceDate', {
+          attendanceDate,
+        })
+        .andWhere('(assignment.effective_to IS NULL OR assignment.effective_to >= :attendanceDate)', {
+          attendanceDate,
+        })
+        .getOne(),
+    ]);
+
+    if (shiftSchedule) {
+      return !shiftSchedule.isOffDay;
+    }
+
+    return !!shiftAssignment || !!timetableAssignment;
+  }
+
+  private async findActiveAdjustment(
+    companyId: number,
+    employeeId: number,
+    attendanceDate: string,
+  ) {
+    return this.adjustmentRepository.findOne({
+      where: {
+        companyId,
+        employeeId,
+        attendanceDate,
+        isActive: true,
+      },
+      order: {
+        id: 'DESC',
+      },
+    });
   }
 
   private async hasApprovedLeave(
@@ -434,140 +1317,32 @@ export class AttendanceDailySummaryService {
     return !!trip;
   }
 
-  private calculateSummaryValues(input: {
-    schedule: ResolvedAttendanceSchedule;
-    checkInAt: Date | null;
-    checkOutAt: Date | null;
-    hasApprovedLeave: boolean;
-    hasApprovedBusinessTrip: boolean;
-    eventCount: number;
-  }) {
-    const {
-      schedule,
-      checkInAt,
-      checkOutAt,
-      hasApprovedLeave,
-      hasApprovedBusinessTrip,
-      eventCount,
-    } = input;
-
-    let attendanceStatus = AttendanceDailyStatusEnum.ABSENT;
-    let lateMinutes = 0;
-    let earlyDepartureMinutes = 0;
-    let workMinutes = 0;
-    let overtimeMinutes = 0;
-
-    if (hasApprovedBusinessTrip) {
-      attendanceStatus = AttendanceDailyStatusEnum.BUSINESS_TRIP;
-    } else if (hasApprovedLeave) {
-      attendanceStatus = AttendanceDailyStatusEnum.ON_LEAVE;
-    } else if (schedule.isHoliday) {
-      attendanceStatus = AttendanceDailyStatusEnum.HOLIDAY;
-    } else if (schedule.isOffDay) {
-      attendanceStatus = AttendanceDailyStatusEnum.OFF_DAY;
-    } else if (eventCount === 0 && schedule.autoAbsentIfNoCheckin) {
-      attendanceStatus = AttendanceDailyStatusEnum.ABSENT;
-    } else if (!checkOutAt && schedule.requiresCheckout) {
-      attendanceStatus = AttendanceDailyStatusEnum.INCOMPLETE;
-    } else {
-      attendanceStatus = AttendanceDailyStatusEnum.PRESENT;
-    }
-
-    if (checkInAt && checkOutAt && checkOutAt.getTime() > checkInAt.getTime()) {
-      workMinutes = Math.floor((checkOutAt.getTime() - checkInAt.getTime()) / 60000);
-    }
-
-    if (checkInAt && schedule.scheduleStartAt) {
-      const baseline = schedule.scheduleStartAt.getTime() + schedule.graceInMinutes * 60000;
-      const lateThreshold = baseline + schedule.lateAfterMinutes * 60000;
-      const halfDayThreshold = baseline + schedule.halfDayAfterMinutes * 60000;
-      const absentThreshold = baseline + schedule.absentAfterMinutes * 60000;
-
-      if (schedule.lateAfterMinutes > 0 && checkInAt.getTime() > lateThreshold) {
-        lateMinutes = Math.floor((checkInAt.getTime() - lateThreshold) / 60000);
-      }
-
-      if (
-        schedule.absentAfterMinutes > 0 &&
-        checkInAt.getTime() > absentThreshold
-      ) {
-        attendanceStatus = AttendanceDailyStatusEnum.ABSENT;
-      } else if (
-        schedule.halfDayAfterMinutes > 0 &&
-        checkInAt.getTime() > halfDayThreshold &&
-        attendanceStatus === AttendanceDailyStatusEnum.PRESENT
-      ) {
-        attendanceStatus = AttendanceDailyStatusEnum.HALF_DAY;
-      }
-    }
-
-    if (checkOutAt && schedule.scheduleEndAt) {
-      const allowedEarlyLeaveTime =
-        schedule.scheduleEndAt.getTime() -
-        (schedule.graceOutMinutes + schedule.earlyLeaveAfterMinutes) * 60000;
-      if (checkOutAt.getTime() < allowedEarlyLeaveTime) {
-        earlyDepartureMinutes = Math.floor((allowedEarlyLeaveTime - checkOutAt.getTime()) / 60000);
-      }
-    }
-
-    if (checkOutAt && schedule.scheduleEndAt) {
-      const overtimeStartTime =
-        schedule.scheduleEndAt.getTime() + schedule.overtimeStartAfterMinutes * 60000;
-      if (checkOutAt.getTime() > overtimeStartTime) {
-        overtimeMinutes = Math.floor((checkOutAt.getTime() - overtimeStartTime) / 60000);
-      }
-    }
-
-    if (!schedule.allowOvertime && !schedule.isHoliday && !schedule.isOffDay) {
-      overtimeMinutes = 0;
-    }
-
-    if ((schedule.isHoliday || schedule.isOffDay) && workMinutes > 0) {
-      overtimeMinutes = workMinutes;
-    }
-
-    if (schedule.maxOvertimeMinutes > 0) {
-      overtimeMinutes = Math.min(overtimeMinutes, schedule.maxOvertimeMinutes);
-    }
-
-    const flags: Record<string, unknown> = {
-      hasApprovedLeave,
-      hasApprovedBusinessTrip,
-      isHoliday: schedule.isHoliday,
-      isOffDay: schedule.isOffDay,
-      eventCount,
-      requiresCheckout: schedule.requiresCheckout,
-      scheduleSource: schedule.source,
-      lateAfterMinutes: schedule.lateAfterMinutes,
-      halfDayAfterMinutes: schedule.halfDayAfterMinutes,
-      absentAfterMinutes: schedule.absentAfterMinutes,
-      autoAbsentIfNoCheckin: schedule.autoAbsentIfNoCheckin,
-      allowEarlyCheckin: schedule.allowEarlyCheckin,
-      allowLateCheckout: schedule.allowLateCheckout,
-    };
-
-    const shouldPersist =
-      eventCount > 0 ||
-      hasApprovedLeave ||
-      hasApprovedBusinessTrip ||
-      schedule.isHoliday ||
-      schedule.isOffDay ||
-      attendanceStatus === AttendanceDailyStatusEnum.ABSENT ||
-      attendanceStatus === AttendanceDailyStatusEnum.INCOMPLETE ||
-      attendanceStatus === AttendanceDailyStatusEnum.HALF_DAY;
-
-    return {
-      shouldPersist,
-      attendanceStatus,
-      lateMinutes,
-      earlyDepartureMinutes,
-      workMinutes,
-      overtimeMinutes,
-      flags,
-    };
-  }
-
   private buildDateRange(startDate: string, endDate: string): string[] {
     return buildDateOnlyRange(startDate, endDate);
+  }
+
+  private normalizeDate(value: string, field: string): string {
+    try {
+      return normalizeDateInput(value, field);
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
+  }
+
+  private parseOptionalDate(value: string | null | undefined, field: string): Date | null {
+    if (value === null || value === undefined || String(value).trim() === '') {
+      return null;
+    }
+
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestException(`${field} must be a valid ISO date-time`);
+    }
+
+    return parsed;
+  }
+
+  private getDayOfWeek(date: string): number {
+    return new Date(`${date}T00:00:00Z`).getUTCDay();
   }
 }

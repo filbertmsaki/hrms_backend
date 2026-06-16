@@ -1,10 +1,13 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
+  Patch,
   ParseIntPipe,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -18,14 +21,18 @@ import { TenantGuard } from '../../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { ApiActionOperation, ApiListOperation } from '../../../../docs/swagger-decorators';
 import { AttendanceDailySummaryService } from './attendance-daily-summary.service';
+import { AttendanceProcessingExceptionsService } from './attendance-processing-exceptions.service';
 import { AttendanceProcessingService } from './attendance-processing.service';
 import { AttendanceRecalculationService } from './attendance-recalculation.service';
 import { ProcessAttendanceRangeDto } from './dtos/process-attendance-range.dto';
 import { ProcessPendingRecalculationJobsDto } from './dtos/process-pending-recalculation-jobs.dto';
+import { QueryAttendanceExceptionsDto } from './dtos/query-attendance-exceptions.dto';
 import { QueryAttendanceDailySummariesDto } from './dtos/query-attendance-daily-summaries.dto';
 import { QueryAttendanceProcessingJobsDto } from './dtos/query-attendance-processing-jobs.dto';
 import { QueryUnmatchedAttendanceLogsDto } from './dtos/query-unmatched-attendance-logs.dto';
 import { RecalculateAttendanceDto } from './dtos/recalculate-attendance.dto';
+import { UpdateAttendanceExceptionStatusDto } from './dtos/update-attendance-exception-status.dto';
+import { UpsertAttendanceDailySummaryAdjustmentDto } from './dtos/upsert-attendance-daily-summary-adjustment.dto';
 
 @ApiTags('Attendance Processing')
 @ApiBearerAuth('access-token')
@@ -35,6 +42,7 @@ export class AttendanceProcessingController {
   constructor(
     private readonly processingService: AttendanceProcessingService,
     private readonly dailySummaryService: AttendanceDailySummaryService,
+    private readonly exceptionService: AttendanceProcessingExceptionsService,
     private readonly recalculationService: AttendanceRecalculationService,
   ) {}
 
@@ -122,5 +130,68 @@ export class AttendanceProcessingController {
     @Query() query: QueryUnmatchedAttendanceLogsDto,
   ) {
     return this.dailySummaryService.findUnmatchedLogs(req.user.companyId!, query);
+  }
+
+  @Get('processing/exceptions')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_processing:read')
+  @ApiListOperation('Attendance Exceptions', 'List attendance processing exceptions')
+  getExceptions(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: QueryAttendanceExceptionsDto,
+  ) {
+    return this.exceptionService.findAll(req.user.companyId!, query);
+  }
+
+  @Patch('processing/exceptions/:id')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_processing:execute')
+  @ApiActionOperation('Update Attendance Exception', 'Resolve or ignore an attendance processing exception')
+  updateException(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateAttendanceExceptionStatusDto,
+  ) {
+    return this.exceptionService.updateStatus(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user.companyMembershipId ?? null,
+    );
+  }
+
+  @Put('daily-summaries/:employeeId/:date/adjustment')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_processing:execute')
+  @ApiActionOperation('Adjust Attendance Daily Summary', 'Apply a manual adjustment while keeping raw punches unchanged')
+  upsertAdjustment(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('date') date: string,
+    @Body() dto: UpsertAttendanceDailySummaryAdjustmentDto,
+  ) {
+    return this.dailySummaryService.upsertAdjustment(
+      req.user.companyId!,
+      employeeId,
+      date,
+      dto,
+      req.user.companyMembershipId ?? null,
+    );
+  }
+
+  @Delete('daily-summaries/:employeeId/:date/adjustment')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_processing:execute')
+  @ApiActionOperation('Clear Attendance Daily Summary Adjustment', 'Remove the active manual adjustment and recompute from raw punches')
+  clearAdjustment(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('date') date: string,
+  ) {
+    return this.dailySummaryService.clearAdjustment(
+      req.user.companyId!,
+      employeeId,
+      date,
+    );
   }
 }
