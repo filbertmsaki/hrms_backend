@@ -60,9 +60,6 @@ export class AccessOrganization {
   })
   hikvisionGroupNo: string | null;
 
-  @Column({ name: 'name', type: 'varchar', length: 150, nullable: true })
-  name: string | null;
-
   @Column({ name: 'org_name', type: 'varchar', length: 150 })
   orgName: string;
 

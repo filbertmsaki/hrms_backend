@@ -769,11 +769,9 @@ export class AccessControlSyncService {
           hikvisionWeekPlanNo,
           source: 'DEVICE_SYNC' as any,
           enable: true,
-          name: templateName,
         });
       }
 
-      template.name = templateName;
       template.templateName = templateName;
       template.weekPlanId = weekPlan.id;
       template.hikvisionWeekPlanNo = hikvisionWeekPlanNo;
@@ -1387,14 +1385,12 @@ export class AccessControlSyncService {
       organization = this.accessOrganizationRepository.create({
         companyId,
         orgName: fallbackName,
-        name: fallbackName,
         hikvisionOrgIndex: orgIndex,
         hikvisionGroupNo: orgIndex,
         source: 'DEVICE_SYNC' as any,
       });
     } else {
       organization.orgName = organization.orgName || fallbackName;
-      organization.name = organization.name || fallbackName;
       organization.hikvisionOrgIndex =
         organization.hikvisionOrgIndex ?? orgIndex;
       organization.hikvisionGroupNo = organization.hikvisionGroupNo ?? orgIndex;

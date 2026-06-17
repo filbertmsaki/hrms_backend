@@ -171,7 +171,7 @@ export class HikvisionPeopleCredentialSyncService {
         const response = await this.requestWithRetry(
           `sync-users:${device.id}:${cursor}`,
           () =>
-            this.hikvisionAccessControlService.searchUsers(
+            this.hikvisionAccessControlService.searchUserInfo(
               companyId,
               device.id,
               payload,
@@ -633,7 +633,7 @@ export class HikvisionPeopleCredentialSyncService {
         const response = await this.requestWithRetry(
           `sync-cards:${device.id}:${cursor}`,
           () =>
-            this.hikvisionAccessControlService.searchCards(
+            this.hikvisionAccessControlService.searchCardInfo(
               companyId,
               device.id,
               payload,

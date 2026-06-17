@@ -24,7 +24,7 @@ import { QueryHikvisionAttendanceSyncHistoryDto } from './dto/query-hikvision-at
 import { HikvisionAttendanceLog } from './entities/hikvision-attendance-log.entity';
 import { HikvisionAttendanceSyncJob } from './entities/hikvision-attendance-sync-job.entity';
 import { HikvisionAttendanceSyncJobStatusEnum } from './enums/hikvision-attendance-sync-job-status.enum';
-import { HikvisionClientService } from './hikvision-client.service';
+import { HikvisionAccessControlService } from './hikvision-access-control.service';
 import {
   HIKVISION_SYNC_QUEUE,
   HikvisionSyncJobData,
@@ -140,13 +140,13 @@ export class HikvisionAttendanceSyncService {
     private readonly hikvisionSyncLogRepository: Repository<HikvisionSyncLog>,
     @InjectQueue(HIKVISION_SYNC_QUEUE)
     private readonly hikvisionSyncQueue: Queue<HikvisionSyncJobData>,
-    private readonly hikvisionClientService: HikvisionClientService,
+    private readonly hikvisionAccessControlService: HikvisionAccessControlService,
   ) {}
 
   async getAcsEventCapabilities(companyId: number, deviceId: number) {
     await this.findActiveHikvisionDeviceOrFail(companyId, deviceId);
 
-    const response = await this.hikvisionClientService.getAcsEventCapabilities(
+    const response = await this.hikvisionAccessControlService.getAcsEventCapabilities(
       companyId,
       deviceId,
     );
@@ -1365,7 +1365,7 @@ export class HikvisionAttendanceSyncService {
   ): Promise<number | null> {
     try {
       const response =
-        await this.hikvisionClientService.getAcsEventCapabilities(
+        await this.hikvisionAccessControlService.getAcsEventCapabilities(
           companyId,
           deviceId,
         );
@@ -1406,7 +1406,7 @@ export class HikvisionAttendanceSyncService {
     condition: AcsEventCondDto,
   ): Promise<number | null> {
     try {
-      const response = await this.hikvisionClientService.getAcsEventTotalNum(
+      const response = await this.hikvisionAccessControlService.getAcsEventTotalNum(
         companyId,
         deviceId,
         { AcsEventCond: condition },
@@ -1442,7 +1442,7 @@ export class HikvisionAttendanceSyncService {
 
     while (attempt <= retries) {
       try {
-        return await this.hikvisionClientService.searchAcsEvents(
+        return await this.hikvisionAccessControlService.searchAcsEvents(
           companyId,
           deviceId,
           payload,

@@ -44,11 +44,6 @@ export class CreateAccessOrganizationDto {
 
   @IsString()
   @MaxLength(150)
-  @IsOptional()
-  name?: string;
-
-  @IsString()
-  @MaxLength(150)
   org_name: string;
 
   @ApiPropertyOptional()

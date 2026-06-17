@@ -27,11 +27,6 @@ export class CreateAccessScheduleTemplateDto {
 
   @IsString()
   @MaxLength(150)
-  @IsOptional()
-  name?: string;
-
-  @IsString()
-  @MaxLength(150)
   template_name: string;
 
   @IsString()

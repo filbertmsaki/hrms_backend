@@ -71,7 +71,7 @@ export class AccessOrganizationsService {
     await this.ensureBranch(companyId, dto.branch_id);
     await this.ensureDepartment(companyId, dto.department_id);
 
-    const orgName = (dto.org_name ?? dto.name ?? '').trim();
+    const orgName = (dto.org_name ?? '').trim();
     if (!orgName) {
       throw new BadRequestException('org_name is required');
     }
@@ -87,7 +87,6 @@ export class AccessOrganizationsService {
         dto.hikvision_group_no?.trim() ||
         null,
       orgName,
-      name: orgName,
       orgCode: dto.org_code?.trim() || null,
       description: dto.description ?? null,
       syncStatus: AccessOrganizationSyncStatusEnum.PENDING,
@@ -133,7 +132,7 @@ export class AccessOrganizationsService {
 
     if (search?.trim()) {
       qb.andWhere(
-        '(organization.name LIKE :term OR organization.hikvision_group_no LIKE :term)',
+        '(organization.org_name LIKE :term OR organization.hikvision_group_no LIKE :term)',
         {
           term: `%${search.trim()}%`,
         },
@@ -143,7 +142,7 @@ export class AccessOrganizationsService {
     const sortFieldMap: Record<string, string> = {
       created_at: 'createdAt',
       updated_at: 'updatedAt',
-      name: 'name',
+      name: 'orgName',
       hikvision_group_no: 'hikvisionGroupNo',
     };
     const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.created_at;
@@ -200,10 +199,9 @@ export class AccessOrganizationsService {
       item.hikvisionOrgIndex = dto.hikvision_org_index?.trim() || null;
     }
 
-    if (dto.name !== undefined || dto.org_name !== undefined) {
-      const orgName = (dto.org_name ?? dto.name ?? '').trim();
-      item.name = orgName || item.name;
-      item.orgName = orgName || item.orgName;
+    if (dto.org_name !== undefined) {
+      const orgName = dto.org_name.trim();
+      if (orgName) item.orgName = orgName;
     }
 
     if (dto.org_code !== undefined) item.orgCode = dto.org_code?.trim() || null;
@@ -459,7 +457,7 @@ export class AccessOrganizationsService {
           companyId,
           deviceId,
           organization.hikvisionGroupNo,
-          { name: organization.name },
+          { name: organization.orgName },
         );
 
         if (!response.ok) {
@@ -580,7 +578,6 @@ export class AccessOrganizationsService {
         entity.parentId = existing?.parentId ?? null;
         entity.hikvisionGroupNo = groupNoText;
         entity.hikvisionOrgIndex = groupNoText;
-        entity.name = groupName;
         entity.orgName = groupName;
         entity.syncStatus = AccessOrganizationSyncStatusEnum.SYNCED;
         entity.metadata = {
@@ -790,7 +787,6 @@ export class AccessOrganizationsService {
       parent_id: item.parentId,
       hikvision_org_index: item.hikvisionOrgIndex,
       hikvision_group_no: item.hikvisionGroupNo,
-      name: item.name,
       org_name: item.orgName,
       org_code: item.orgCode,
       description: item.description,

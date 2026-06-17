@@ -248,14 +248,6 @@ export class HikvisionAccessControlService {
     );
   }
 
-  async searchUsers(
-    companyId: number,
-    deviceId: number,
-    payload: Record<string, unknown>,
-  ) {
-    return this.searchUserInfo(companyId, deviceId, payload);
-  }
-
   async recordUserInfo(
     companyId: number,
     deviceId: number,
@@ -319,14 +311,6 @@ export class HikvisionAccessControlService {
       '/ISAPI/AccessControl/CardInfo/Search?format=json',
       payload,
     );
-  }
-
-  async searchCards(
-    companyId: number,
-    deviceId: number,
-    payload: Record<string, unknown>,
-  ) {
-    return this.searchCardInfo(companyId, deviceId, payload);
   }
 
   async recordCardInfo(
@@ -414,22 +398,6 @@ export class HikvisionAccessControlService {
     );
   }
 
-  async createFingerprint(
-    companyId: number,
-    deviceId: number,
-    payload: Record<string, unknown>,
-  ) {
-    return this.setupFingerprint(companyId, deviceId, payload);
-  }
-
-  async modifyFingerprint(
-    companyId: number,
-    deviceId: number,
-    payload: Record<string, unknown>,
-  ) {
-    return this.setupFingerprint(companyId, deviceId, payload);
-  }
-
   async deleteFingerprint(
     companyId: number,
     deviceId: number,
@@ -456,13 +424,6 @@ export class HikvisionAccessControlService {
     );
   }
 
-  async postAcsEvent(
-    companyId: number,
-    deviceId: number,
-    payload: Record<string, unknown>,
-  ) {
-    return this.searchAcsEvents(companyId, deviceId, payload);
-  }
 
   async getAcsEventCapabilities(companyId: number, deviceId: number) {
     return this.requestToDevice(

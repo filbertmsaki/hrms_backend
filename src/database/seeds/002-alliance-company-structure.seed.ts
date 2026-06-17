@@ -1484,7 +1484,6 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
         parentId: null,
         hikvisionOrgIndex: null,
         hikvisionGroupNo: null,
-        name: DEFAULT_ACCESS_ORGANIZATION_NAME,
         orgName: DEFAULT_ACCESS_ORGANIZATION_NAME,
         orgCode: null,
         description: null,

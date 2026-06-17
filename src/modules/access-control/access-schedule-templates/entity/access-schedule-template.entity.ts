@@ -47,9 +47,6 @@ export class AccessScheduleTemplate {
   @Column({ name: 'template_name', type: 'varchar', length: 150 })
   templateName: string;
 
-  @Column({ name: 'name', type: 'varchar', length: 150, nullable: true })
-  name: string | null;
-
   @Column({ name: 'week_plan_id', type: 'int' })
   weekPlanId: number;
 

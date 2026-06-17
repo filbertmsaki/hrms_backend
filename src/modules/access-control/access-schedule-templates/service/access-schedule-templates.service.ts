@@ -54,7 +54,7 @@ export class AccessScheduleTemplatesService {
       dto.device_id,
     );
 
-    const templateName = (dto.template_name ?? dto.name ?? '').trim();
+    const templateName = (dto.template_name ?? '').trim();
     if (!templateName) {
       throw new NotFoundException('template_name is required');
     }
@@ -63,7 +63,6 @@ export class AccessScheduleTemplatesService {
       companyId,
       branchId: dto.branch_id ?? device.branchId ?? null,
       deviceId: dto.device_id,
-      name: templateName,
       templateName,
       hikvisionTemplateNo: dto.hikvision_template_no.trim(),
       weekPlanId: dto.week_plan_id,
@@ -104,7 +103,7 @@ export class AccessScheduleTemplatesService {
 
     if (search?.trim()) {
       qb.andWhere(
-        '(template.name LIKE :term OR template.hikvision_template_no LIKE :term)',
+        '(template.template_name LIKE :term OR template.hikvision_template_no LIKE :term)',
         {
           term: `%${search.trim()}%`,
         },
@@ -114,7 +113,7 @@ export class AccessScheduleTemplatesService {
     const sortFieldMap: Record<string, string> = {
       created_at: 'createdAt',
       updated_at: 'updatedAt',
-      name: 'name',
+      name: 'templateName',
       hikvision_template_no: 'hikvisionTemplateNo',
     };
     const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.created_at;
@@ -165,10 +164,9 @@ export class AccessScheduleTemplatesService {
       item.hikvisionTemplateNo = nextTemplateNo;
     }
 
-    if (dto.name !== undefined || dto.template_name !== undefined) {
-      const name = (dto.template_name ?? dto.name ?? '').trim();
-      item.name = name;
-      item.templateName = name;
+    if (dto.template_name !== undefined) {
+      const name = dto.template_name.trim();
+      if (name) item.templateName = name;
     }
 
     if (dto.branch_id !== undefined) item.branchId = dto.branch_id ?? null;
@@ -214,7 +212,7 @@ export class AccessScheduleTemplatesService {
     const payload = {
       UserRightPlanTemplate: {
         planTemplateNo: item.hikvisionTemplateNo,
-        planTemplateName: item.name,
+        planTemplateName: item.templateName,
         templateType: item.scheduleType,
       },
     };
@@ -347,7 +345,6 @@ export class AccessScheduleTemplatesService {
         entity.weekPlanId = weekPlan.id;
         entity.hikvisionWeekPlanNo = hikvisionWeekPlanNo;
         entity.hikvisionTemplateNo = hikvisionTemplateNo;
-        entity.name = templateName;
         entity.templateName = templateName;
         entity.enable = this.toBoolean(templateCfg.enable, true);
         entity.source = AccessScheduleTemplateSourceEnum.DEVICE_SYNC;
@@ -458,7 +455,6 @@ export class AccessScheduleTemplatesService {
       company_id: item.companyId,
       branch_id: item.branchId,
       device_id: item.deviceId,
-      name: item.name,
       template_name: item.templateName,
       hikvision_template_no: item.hikvisionTemplateNo,
       week_plan_id: item.weekPlanId,
