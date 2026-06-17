@@ -59,7 +59,3 @@ export class CreateAttendanceHolidayDto {
   @IsOptional()
   branch_id?: number | null;
 }
-
-
-
-

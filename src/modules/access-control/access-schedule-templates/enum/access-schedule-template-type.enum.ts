@@ -3,4 +3,3 @@ export enum AccessScheduleTemplateTypeEnum {
   ATTENDANCE = 'ATTENDANCE',
   MIXED = 'MIXED',
 }
-

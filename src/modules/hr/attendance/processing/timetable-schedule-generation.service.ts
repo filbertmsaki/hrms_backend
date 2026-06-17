@@ -118,7 +118,11 @@ export class TimetableScheduleGenerationService {
     employeeId: number,
     scheduleDate: string,
   ): Promise<TimetableScheduleDefinition | null> {
-    const assignment = await this.findActiveAssignment(companyId, employeeId, scheduleDate);
+    const assignment = await this.findActiveAssignment(
+      companyId,
+      employeeId,
+      scheduleDate,
+    );
     if (!assignment) {
       return null;
     }
@@ -132,7 +136,11 @@ export class TimetableScheduleGenerationService {
 
     const employee = await this.findEmployee(companyId, employeeId);
     const branchId = employee?.primary_branch_id ?? null;
-    const holiday = await this.resolveHoliday(companyId, branchId, scheduleDate);
+    const holiday = await this.resolveHoliday(
+      companyId,
+      branchId,
+      scheduleDate,
+    );
     const holidayRule = holiday
       ? await this.timetableHolidayRuleRepository.findOne({
           where: {
@@ -159,7 +167,8 @@ export class TimetableScheduleGenerationService {
       baseSchedule = {
         shiftId: null,
         isOffDay: true,
-        generatedFromRotation: timetable.timetableType === TimetableTypeEnum.ROTATIONAL,
+        generatedFromRotation:
+          timetable.timetableType === TimetableTypeEnum.ROTATIONAL,
         sourceRule: TimetableGeneratedScheduleSourceRuleEnum.OVERRIDE,
         expectedCheckInTime: null,
         expectedCheckOutTime: null,
@@ -348,7 +357,9 @@ export class TimetableScheduleGenerationService {
       }
     }
 
-    if (holidayRule.actionType === TimetableHolidayActionTypeEnum.WORKING_HOLIDAY) {
+    if (
+      holidayRule.actionType === TimetableHolidayActionTypeEnum.WORKING_HOLIDAY
+    ) {
       next.isOffDay = false;
     }
 
@@ -366,7 +377,7 @@ export class TimetableScheduleGenerationService {
       .createQueryBuilder('holiday')
       .where('holiday.company_id = :companyId', { companyId })
       .andWhere(
-        '(holiday.date = :scheduleDate OR (holiday.is_recurring = :isRecurring AND DATE_FORMAT(holiday.date, \'%m-%d\') = :monthDay))',
+        "(holiday.date = :scheduleDate OR (holiday.is_recurring = :isRecurring AND DATE_FORMAT(holiday.date, '%m-%d') = :monthDay))",
         {
           scheduleDate,
           isRecurring: true,
@@ -385,7 +396,10 @@ export class TimetableScheduleGenerationService {
 
     return qb
       .orderBy('CASE WHEN holiday.branch_id IS NULL THEN 1 ELSE 0 END', 'ASC')
-      .addOrderBy('CASE WHEN holiday.date = :scheduleDate THEN 0 ELSE 1 END', 'ASC')
+      .addOrderBy(
+        'CASE WHEN holiday.date = :scheduleDate THEN 0 ELSE 1 END',
+        'ASC',
+      )
       .addOrderBy('holiday.branch_id', 'DESC')
       .setParameter('scheduleDate', scheduleDate)
       .getOne();

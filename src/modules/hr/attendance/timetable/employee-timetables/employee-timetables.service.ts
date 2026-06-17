@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
@@ -34,9 +39,9 @@ export class EmployeeTimetablesService {
       return null;
     }
 
-    return filtered.reduce((min, current) => (
-      this.compareDates(current, min) < 0 ? current : min
-    ));
+    return filtered.reduce((min, current) =>
+      this.compareDates(current, min) < 0 ? current : min,
+    );
   }
 
   private maxDate(...values: Array<string | null | undefined>): string | null {
@@ -45,9 +50,9 @@ export class EmployeeTimetablesService {
       return null;
     }
 
-    return filtered.reduce((max, current) => (
-      this.compareDates(current, max) > 0 ? current : max
-    ));
+    return filtered.reduce((max, current) =>
+      this.compareDates(current, max) > 0 ? current : max,
+    );
   }
 
   private async invalidateGeneratedSchedulesForAssignmentChange(
@@ -78,31 +83,56 @@ export class EmployeeTimetablesService {
     });
   }
 
-  private async ensureTimetable(companyId: number, timetableId: number): Promise<void> {
-    const item = await this.timetableRepository.findOne({ where: { id: timetableId, companyId }, select: ['id'] });
-    if (!item) throw new BadRequestException('timetable_id does not belong to the active company');
+  private async ensureTimetable(
+    companyId: number,
+    timetableId: number,
+  ): Promise<void> {
+    const item = await this.timetableRepository.findOne({
+      where: { id: timetableId, companyId },
+      select: ['id'],
+    });
+    if (!item)
+      throw new BadRequestException(
+        'timetable_id does not belong to the active company',
+      );
   }
 
-  private async ensureEmployee(companyId: number, employeeId: number): Promise<void> {
+  private async ensureEmployee(
+    companyId: number,
+    employeeId: number,
+  ): Promise<void> {
     const item = await this.employeeRepository
       .createQueryBuilder('employee')
       .innerJoin('employee.company_user', 'companyUser')
       .where('employee.id = :employeeId', { employeeId })
       .andWhere('companyUser.company_id = :companyId', { companyId })
       .getOne();
-    if (!item) throw new BadRequestException('employee_id does not belong to the active company');
+    if (!item)
+      throw new BadRequestException(
+        'employee_id does not belong to the active company',
+      );
   }
 
-  private async findOrFail(companyId: number, id: number): Promise<EmployeeTimetable> {
-    const item = await this.employeeTimetableRepository.findOne({ where: { id, companyId } });
+  private async findOrFail(
+    companyId: number,
+    id: number,
+  ): Promise<EmployeeTimetable> {
+    const item = await this.employeeTimetableRepository.findOne({
+      where: { id, companyId },
+    });
     if (!item) throw new NotFoundException('Employee timetable not found');
     return item;
   }
 
-  private ensureEffectiveRange(effectiveFrom: string, effectiveTo?: string | null): void {
+  private ensureEffectiveRange(
+    effectiveFrom: string,
+    effectiveTo?: string | null,
+  ): void {
     if (!effectiveTo) return;
     if (effectiveTo < effectiveFrom) {
-      throw new BadRequestException('effective_to cannot be before effective_from');
+      throw new BadRequestException(
+        'effective_to cannot be before effective_from',
+      );
     }
   }
 
@@ -114,7 +144,14 @@ export class EmployeeTimetablesService {
     status: EmployeeTimetableStatusEnum;
     ignoreId?: number;
   }): Promise<void> {
-    const { companyId, employeeId, effectiveFrom, effectiveTo, status, ignoreId } = input;
+    const {
+      companyId,
+      employeeId,
+      effectiveFrom,
+      effectiveTo,
+      status,
+      ignoreId,
+    } = input;
     if (status !== EmployeeTimetableStatusEnum.ACTIVE) {
       return;
     }
@@ -140,7 +177,9 @@ export class EmployeeTimetablesService {
 
     const existing = await qb.getOne();
     if (existing) {
-      throw new ConflictException('Active employee timetable overlaps an existing timetable assignment');
+      throw new ConflictException(
+        'Active employee timetable overlaps an existing timetable assignment',
+      );
     }
   }
 
@@ -157,19 +196,29 @@ export class EmployeeTimetablesService {
     });
 
     const duplicate = await this.employeeTimetableRepository.findOne({
-      where: { companyId, employeeId: dto.employee_id, timetableId: dto.timetable_id, effectiveFrom: dto.effective_from },
+      where: {
+        companyId,
+        employeeId: dto.employee_id,
+        timetableId: dto.timetable_id,
+        effectiveFrom: dto.effective_from,
+      },
     });
-    if (duplicate) throw new ConflictException('Employee timetable assignment already exists for effective_from');
+    if (duplicate)
+      throw new ConflictException(
+        'Employee timetable assignment already exists for effective_from',
+      );
 
-    const created = await this.employeeTimetableRepository.save(this.employeeTimetableRepository.create({
-      companyId,
-      employeeId: dto.employee_id,
-      timetableId: dto.timetable_id,
-      effectiveFrom: dto.effective_from,
-      effectiveTo: dto.effective_to ?? null,
-      status: dto.status,
-      assignedBy: dto.assigned_by ?? null,
-    }));
+    const created = await this.employeeTimetableRepository.save(
+      this.employeeTimetableRepository.create({
+        companyId,
+        employeeId: dto.employee_id,
+        timetableId: dto.timetable_id,
+        effectiveFrom: dto.effective_from,
+        effectiveTo: dto.effective_to ?? null,
+        status: dto.status,
+        assignedBy: dto.assigned_by ?? null,
+      }),
+    );
 
     await this.invalidateGeneratedSchedulesForAssignmentChange(
       companyId,
@@ -185,11 +234,27 @@ export class EmployeeTimetablesService {
   }
 
   async findAll(companyId: number, query: EmployeeTimetableQueryDto) {
-    const { page = 1, limit = 20, sortBy = 'effective_from', sortOrder = SortDirection.DESC, employee_id, timetable_id, status } = query;
+    const {
+      page = 1,
+      limit = 20,
+      sortBy = 'effective_from',
+      sortOrder = SortDirection.DESC,
+      employee_id,
+      timetable_id,
+      status,
+    } = query;
 
-    const qb = this.employeeTimetableRepository.createQueryBuilder('employeeTimetable').where('employeeTimetable.company_id = :companyId', { companyId });
-    if (employee_id) qb.andWhere('employeeTimetable.employee_id = :employeeId', { employeeId: employee_id });
-    if (timetable_id) qb.andWhere('employeeTimetable.timetable_id = :timetableId', { timetableId: timetable_id });
+    const qb = this.employeeTimetableRepository
+      .createQueryBuilder('employeeTimetable')
+      .where('employeeTimetable.company_id = :companyId', { companyId });
+    if (employee_id)
+      qb.andWhere('employeeTimetable.employee_id = :employeeId', {
+        employeeId: employee_id,
+      });
+    if (timetable_id)
+      qb.andWhere('employeeTimetable.timetable_id = :timetableId', {
+        timetableId: timetable_id,
+      });
     if (status) qb.andWhere('employeeTimetable.status = :status', { status });
 
     const sortFieldMap: Record<string, string> = {
@@ -199,11 +264,20 @@ export class EmployeeTimetablesService {
     const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.effective_from;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
-    const [items, total] = await qb.orderBy(`employeeTimetable.${safeSortBy}`, direction).skip((page - 1) * limit).take(limit).getManyAndCount();
-    return { data: items, meta: buildPaginationMeta(total, items.length, limit, page) };
+    const [items, total] = await qb
+      .orderBy(`employeeTimetable.${safeSortBy}`, direction)
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+    return {
+      data: items,
+      meta: buildPaginationMeta(total, items.length, limit, page),
+    };
   }
 
-  async findOne(companyId: number, id: number) { return this.findOrFail(companyId, id); }
+  async findOne(companyId: number, id: number) {
+    return this.findOrFail(companyId, id);
+  }
 
   async update(companyId: number, id: number, dto: UpdateEmployeeTimetableDto) {
     const item = await this.findOrFail(companyId, id);
@@ -219,7 +293,8 @@ export class EmployeeTimetablesService {
     await this.ensureEmployee(companyId, employeeId);
     await this.ensureTimetable(companyId, timetableId);
     const effectiveFrom = dto.effective_from ?? item.effectiveFrom;
-    const effectiveTo = dto.effective_to !== undefined ? dto.effective_to : item.effectiveTo;
+    const effectiveTo =
+      dto.effective_to !== undefined ? dto.effective_to : item.effectiveTo;
     const status = dto.status ?? item.status;
 
     this.ensureEffectiveRange(effectiveFrom, effectiveTo);
@@ -235,7 +310,8 @@ export class EmployeeTimetablesService {
     item.employeeId = employeeId;
     item.timetableId = timetableId;
 
-    if (dto.effective_from !== undefined) item.effectiveFrom = dto.effective_from;
+    if (dto.effective_from !== undefined)
+      item.effectiveFrom = dto.effective_from;
     if (dto.effective_to !== undefined) item.effectiveTo = dto.effective_to;
     if (dto.status !== undefined) item.status = dto.status;
     if (dto.assigned_by !== undefined) item.assignedBy = dto.assigned_by;

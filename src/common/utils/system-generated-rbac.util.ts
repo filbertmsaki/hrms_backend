@@ -10,7 +10,9 @@ type ProtectedRbacRecord = {
 export function hasOwnerRole(
   actor?: OwnerAwareUser | null,
 ): actor is OwnerAwareUser {
-  return actor?.userType === 'OWNER' || actor?.roles?.includes('OWNER') === true;
+  return (
+    actor?.userType === 'OWNER' || actor?.roles?.includes('OWNER') === true
+  );
 }
 
 export function assertCanCreateSystemGeneratedRbacRecord(

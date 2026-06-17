@@ -52,7 +52,11 @@ export class HikvisionService {
   async createDevice(companyId: number, dto: CreateHikvisionDeviceDto) {
     await this.ensureBranch(companyId, dto.branch_id);
 
-    const target = this.normalizeConnectionTarget(dto.ip_address, dto.port, dto.protocol);
+    const target = this.normalizeConnectionTarget(
+      dto.ip_address,
+      dto.port,
+      dto.protocol,
+    );
     const timezone = dto.timezone?.trim() || this.resolveTimezoneDefault();
     await this.ensureIpPortUnique(companyId, target.ipAddress, target.port);
 
@@ -71,7 +75,10 @@ export class HikvisionService {
     const entity = this.deviceRepository.create({
       companyId,
       branchId: dto.branch_id ?? null,
-      deviceName: dto.device_name?.trim() || snapshot.mappedFields.deviceName || 'Hikvision Device',
+      deviceName:
+        dto.device_name?.trim() ||
+        snapshot.mappedFields.deviceName ||
+        'Hikvision Device',
       deviceCode,
       deviceSerialNumber:
         snapshot.mappedFields.deviceSerialNumber || `HIK-SN-${Date.now()}`,
@@ -103,7 +110,11 @@ export class HikvisionService {
     };
   }
 
-  async updateDevice(companyId: number, id: number, dto: UpdateHikvisionDeviceDto) {
+  async updateDevice(
+    companyId: number,
+    id: number,
+    dto: UpdateHikvisionDeviceDto,
+  ) {
     const device = await this.findHikvisionDeviceOrFail(companyId, id);
 
     if (dto.branch_id !== undefined) {
@@ -112,10 +123,15 @@ export class HikvisionService {
     }
 
     if (dto.device_code !== undefined) {
-      device.deviceCode = await this.resolveDeviceCode(companyId, dto.device_code, device.id);
+      device.deviceCode = await this.resolveDeviceCode(
+        companyId,
+        dto.device_code,
+        device.id,
+      );
     }
 
-    if (dto.device_name !== undefined) device.deviceName = dto.device_name.trim();
+    if (dto.device_name !== undefined)
+      device.deviceName = dto.device_name.trim();
     if (dto.username !== undefined) device.apiUsername = dto.username.trim();
     if (dto.password !== undefined) device.apiPassword = dto.password;
     if (dto.status !== undefined) device.status = dto.status;
@@ -124,25 +140,39 @@ export class HikvisionService {
       device.locationDescription = dto.location_description?.trim() || null;
     }
     if (dto.metadata !== undefined) {
-      device.metadata = this.mergeBackendMetadata(device.metadata, dto.metadata);
+      device.metadata = this.mergeBackendMetadata(
+        device.metadata,
+        dto.metadata,
+      );
     }
 
-    if (dto.ip_address !== undefined || dto.port !== undefined || dto.protocol !== undefined) {
+    if (
+      dto.ip_address !== undefined ||
+      dto.port !== undefined ||
+      dto.protocol !== undefined
+    ) {
       const currentIpAddress = device.ipAddress;
 
       if (!dto.ip_address && !currentIpAddress) {
-        throw new BadRequestException('ip_address is required before updating connection settings');
+        throw new BadRequestException(
+          'ip_address is required before updating connection settings',
+        );
       }
 
       const target = this.normalizeConnectionTarget(
-        dto.ip_address ?? currentIpAddress!,
+        dto.ip_address ?? currentIpAddress,
         dto.port ?? device.port,
         dto.protocol ?? device.protocol,
       );
       device.ipAddress = target.ipAddress;
       device.port = target.port;
       device.protocol = target.protocol;
-      await this.ensureIpPortUnique(companyId, device.ipAddress, device.port, device.id);
+      await this.ensureIpPortUnique(
+        companyId,
+        device.ipAddress,
+        device.port,
+        device.id,
+      );
     }
 
     const updated = await this.deviceRepository.save(device);
@@ -161,7 +191,10 @@ export class HikvisionService {
     };
   }
 
-  async deleteDevice(companyId: number, id: number): Promise<{ message: string }> {
+  async deleteDevice(
+    companyId: number,
+    id: number,
+  ): Promise<{ message: string }> {
     const device = await this.findHikvisionDeviceOrFail(companyId, id);
     await this.deviceRepository.softRemove(device);
     return { message: 'Hikvision device deleted successfully' };
@@ -172,7 +205,7 @@ export class HikvisionService {
       .createQueryBuilder('device')
       .where('device.company_id = :companyId', { companyId })
       .andWhere(
-        '(LOWER(device.integration_type) = :integrationType OR LOWER(COALESCE(device.vendor_name, \'\')) LIKE :vendor)',
+        "(LOWER(device.integration_type) = :integrationType OR LOWER(COALESCE(device.vendor_name, '')) LIKE :vendor)",
         {
           integrationType: this.integrationType,
           vendor: '%hikvision%',
@@ -180,7 +213,9 @@ export class HikvisionService {
       );
 
     if (query.branch_id) {
-      qb.andWhere('device.branch_id = :branchId', { branchId: query.branch_id });
+      qb.andWhere('device.branch_id = :branchId', {
+        branchId: query.branch_id,
+      });
     }
 
     if (query.status !== undefined) {
@@ -214,9 +249,13 @@ export class HikvisionService {
         this.digestClient.request(credentials, '/ISAPI/System/deviceInfo', {
           headers: { Accept: 'application/json, application/xml' },
         }),
-        this.digestClient.request(credentials, '/ISAPI/AccessControl/capabilities', {
-          headers: { Accept: 'application/json, application/xml' },
-        }),
+        this.digestClient.request(
+          credentials,
+          '/ISAPI/AccessControl/capabilities',
+          {
+            headers: { Accept: 'application/json, application/xml' },
+          },
+        ),
       ]);
 
       if (!deviceInfoResponse.ok) {
@@ -235,7 +274,9 @@ export class HikvisionService {
         );
       }
 
-      await this.deviceRepository.update(device.id, { lastHeartbeatAt: new Date() });
+      await this.deviceRepository.update(device.id, {
+        lastHeartbeatAt: new Date(),
+      });
       return {
         success: true,
         message: 'Hikvision device connection test succeeded',
@@ -249,13 +290,22 @@ export class HikvisionService {
   async syncDevice(companyId: number, id: number) {
     const device = await this.findHikvisionDeviceOrFail(companyId, id);
     try {
-      const snapshot = await this.fetchSnapshot(this.buildCredentialsFromDevice(device));
-      const syncedFields = await this.applySafeMappedFields(device, snapshot.mappedFields);
+      const snapshot = await this.fetchSnapshot(
+        this.buildCredentialsFromDevice(device),
+      );
+      const syncedFields = await this.applySafeMappedFields(
+        device,
+        snapshot.mappedFields,
+      );
       device.lastSyncAt = new Date();
       device.vendorName = this.vendorName;
       device.integrationType = this.integrationType;
       device.authType = this.authType;
-      device.metadata = this.buildMergedMetadata(device.metadata, snapshot, null);
+      device.metadata = this.buildMergedMetadata(
+        device.metadata,
+        snapshot,
+        null,
+      );
 
       const saved = await this.deviceRepository.save(device);
       return {
@@ -283,13 +333,22 @@ export class HikvisionService {
 
     for (const device of devices) {
       try {
-        const snapshot = await this.fetchSnapshot(this.buildCredentialsFromDevice(device));
-        const syncedFields = await this.applySafeMappedFields(device, snapshot.mappedFields);
+        const snapshot = await this.fetchSnapshot(
+          this.buildCredentialsFromDevice(device),
+        );
+        const syncedFields = await this.applySafeMappedFields(
+          device,
+          snapshot.mappedFields,
+        );
         device.lastSyncAt = new Date();
         device.vendorName = this.vendorName;
         device.integrationType = this.integrationType;
         device.authType = this.authType;
-        device.metadata = this.buildMergedMetadata(device.metadata, snapshot, null);
+        device.metadata = this.buildMergedMetadata(
+          device.metadata,
+          snapshot,
+          null,
+        );
         await this.deviceRepository.save(device);
 
         results.push({
@@ -331,9 +390,13 @@ export class HikvisionService {
       this.digestClient.request(credentials, '/ISAPI/System/deviceInfo', {
         headers: { Accept: 'application/json, application/xml' },
       }),
-      this.digestClient.request(credentials, '/ISAPI/AccessControl/capabilities', {
-        headers: { Accept: 'application/json, application/xml' },
-      }),
+      this.digestClient.request(
+        credentials,
+        '/ISAPI/AccessControl/capabilities',
+        {
+          headers: { Accept: 'application/json, application/xml' },
+        },
+      ),
     ]);
 
     if (!deviceInfoResponse.ok) {
@@ -352,16 +415,26 @@ export class HikvisionService {
       );
     }
 
-    const parsedDeviceInfo = this.parserHelper.parsePayload(deviceInfoResponse.body);
-    const parsedCapabilities = this.parserHelper.parsePayload(capabilitiesResponse.body);
-    const deviceInfoRoot = this.extractFirstExistingRoot(parsedDeviceInfo, ['DeviceInfo']);
+    const parsedDeviceInfo = this.parserHelper.parsePayload(
+      deviceInfoResponse.body,
+    );
+    const parsedCapabilities = this.parserHelper.parsePayload(
+      capabilitiesResponse.body,
+    );
+    const deviceInfoRoot = this.extractFirstExistingRoot(parsedDeviceInfo, [
+      'DeviceInfo',
+    ]);
     const capabilitiesRoot = this.extractFirstExistingRoot(parsedCapabilities, [
       'AccessControl',
       'AccessControlCapability',
     ]);
-    const mappedFields = this.extractMappedFields(deviceInfoRoot, capabilitiesRoot);
+    const mappedFields = this.extractMappedFields(
+      deviceInfoRoot,
+      capabilitiesRoot,
+    );
     const mappedSourceKeys = this.getMappedSourceKeys();
-    const supportedUserVerifyModes = this.extractSupportedUserVerifyModes(capabilitiesRoot);
+    const supportedUserVerifyModes =
+      this.extractSupportedUserVerifyModes(capabilitiesRoot);
 
     return {
       deviceInfo: deviceInfoRoot,
@@ -370,7 +443,10 @@ export class HikvisionService {
       supportedUserVerifyModes,
       metadataExtras: {
         device_info: this.stripMappedKeysDeep(deviceInfoRoot, mappedSourceKeys),
-        access_control_capabilities: this.stripMappedKeysDeep(capabilitiesRoot, mappedSourceKeys),
+        access_control_capabilities: this.stripMappedKeysDeep(
+          capabilitiesRoot,
+          mappedSourceKeys,
+        ),
       },
     };
   }
@@ -411,7 +487,8 @@ export class HikvisionService {
       {
         key: 'deviceCode',
         getCurrent: () => device.deviceCode,
-        setCurrent: async (value: string) => this.trySetDeviceCode(device, value),
+        setCurrent: async (value: string) =>
+          this.trySetDeviceCode(device, value),
         label: 'device_code',
       },
       {
@@ -513,7 +590,9 @@ export class HikvisionService {
   ): Record<string, unknown> {
     const safeExisting = this.toObject(existingMetadata);
     const safeCreate = this.toObject(createMetadata);
-    const existingHikvision = this.sanitizeHikvisionMetadata(this.toObject(safeExisting.hikvision));
+    const existingHikvision = this.sanitizeHikvisionMetadata(
+      this.toObject(safeExisting.hikvision),
+    );
 
     return {
       ...safeExisting,
@@ -534,8 +613,12 @@ export class HikvisionService {
   ): Record<string, unknown> {
     const safeExisting = this.toObject(existingMetadata);
     const safeIncoming = this.toObject(incomingMetadata);
-    const existingHikvision = this.sanitizeHikvisionMetadata(this.toObject(safeExisting.hikvision));
-    const incomingHikvision = this.sanitizeHikvisionMetadata(this.toObject(safeIncoming.hikvision));
+    const existingHikvision = this.sanitizeHikvisionMetadata(
+      this.toObject(safeExisting.hikvision),
+    );
+    const incomingHikvision = this.sanitizeHikvisionMetadata(
+      this.toObject(safeIncoming.hikvision),
+    );
 
     return {
       ...safeExisting,
@@ -580,7 +663,9 @@ export class HikvisionService {
       }
     }
 
-    throw new ConflictException('Could not generate a unique device_code, please provide one');
+    throw new ConflictException(
+      'Could not generate a unique device_code, please provide one',
+    );
   }
 
   private async ensureIpPortUnique(
@@ -596,7 +681,7 @@ export class HikvisionService {
       .andWhere('device.port = :port', { port })
       .andWhere('device.deleted_at IS NULL')
       .andWhere(
-        '(LOWER(device.integration_type) = :integrationType OR LOWER(COALESCE(device.vendor_name, \'\')) LIKE :vendor)',
+        "(LOWER(device.integration_type) = :integrationType OR LOWER(COALESCE(device.vendor_name, '')) LIKE :vendor)",
         {
           integrationType: this.integrationType,
           vendor: '%hikvision%',
@@ -606,12 +691,19 @@ export class HikvisionService {
       .getOne();
 
     if (existing && existing.id !== currentId) {
-      throw new ConflictException('A Hikvision device with this IP and port already exists');
+      throw new ConflictException(
+        'A Hikvision device with this IP and port already exists',
+      );
     }
   }
 
-  private async findHikvisionDeviceOrFail(companyId: number, id: number): Promise<AttendanceDevice> {
-    const device = await this.deviceRepository.findOne({ where: { id, companyId } });
+  private async findHikvisionDeviceOrFail(
+    companyId: number,
+    id: number,
+  ): Promise<AttendanceDevice> {
+    const device = await this.deviceRepository.findOne({
+      where: { id, companyId },
+    });
     if (!device) {
       throw new NotFoundException('Hikvision device not found');
     }
@@ -621,7 +713,9 @@ export class HikvisionService {
       (device.vendorName || '').toLowerCase().includes('hikvision');
 
     if (!isHikvision) {
-      throw new BadRequestException('Requested device is not configured as a Hikvision integration');
+      throw new BadRequestException(
+        'Requested device is not configured as a Hikvision integration',
+      );
     }
 
     return device;
@@ -635,7 +729,7 @@ export class HikvisionService {
       .createQueryBuilder('device')
       .where('device.company_id = :companyId', { companyId })
       .andWhere(
-        '(LOWER(device.integration_type) = :integrationType OR LOWER(COALESCE(device.vendor_name, \'\')) LIKE :vendor)',
+        "(LOWER(device.integration_type) = :integrationType OR LOWER(COALESCE(device.vendor_name, '')) LIKE :vendor)",
         {
           integrationType: this.integrationType,
           vendor: '%hikvision%',
@@ -653,7 +747,10 @@ export class HikvisionService {
     return qb.getMany();
   }
 
-  private async ensureBranch(companyId: number, branchId?: number | null): Promise<void> {
+  private async ensureBranch(
+    companyId: number,
+    branchId?: number | null,
+  ): Promise<void> {
     if (!branchId) {
       return;
     }
@@ -664,14 +761,22 @@ export class HikvisionService {
     });
 
     if (!branch) {
-      throw new BadRequestException('branch_id does not belong to the active company');
+      throw new BadRequestException(
+        'branch_id does not belong to the active company',
+      );
     }
   }
 
-  private buildFailedEndpointException(endpoint: string, status: number, body: string): HttpException {
+  private buildFailedEndpointException(
+    endpoint: string,
+    status: number,
+    body: string,
+  ): HttpException {
     const payloadSummary = body?.trim()?.slice(0, 200) || 'No response body';
     if (status === 401) {
-      return new BadRequestException(`Hikvision auth failed on ${endpoint} (401 Unauthorized)`);
+      return new BadRequestException(
+        `Hikvision auth failed on ${endpoint} (401 Unauthorized)`,
+      );
     }
     if (status === 404) {
       return new BadRequestException(
@@ -679,25 +784,33 @@ export class HikvisionService {
       );
     }
     if (status === 400) {
-      return new BadRequestException(`Bad request for ${endpoint}: ${payloadSummary}`);
+      return new BadRequestException(
+        `Bad request for ${endpoint}: ${payloadSummary}`,
+      );
     }
     return new BadRequestException(
       `Hikvision request failed for ${endpoint} with status ${status}: ${payloadSummary}`,
     );
   }
 
-  private buildCredentialsFromDevice(device: AttendanceDevice): HikvisionConnectionCredentials {
+  private buildCredentialsFromDevice(
+    device: AttendanceDevice,
+  ): HikvisionConnectionCredentials {
     if (!device.ipAddress) {
       throw new BadRequestException('Missing ip_address for this device');
     }
 
     if (!device.apiUsername || !device.apiPassword) {
-      throw new BadRequestException('Missing Hikvision credentials for this device');
+      throw new BadRequestException(
+        'Missing Hikvision credentials for this device',
+      );
     }
 
     return {
       ipAddress: device.ipAddress,
-      port: device.port || this.resolvePort(undefined, this.resolveProtocol(device.protocol)),
+      port:
+        device.port ||
+        this.resolvePort(undefined, this.resolveProtocol(device.protocol)),
       protocol: this.resolveProtocol(device.protocol),
       username: device.apiUsername,
       password: device.apiPassword,
@@ -709,7 +822,9 @@ export class HikvisionService {
       return port;
     }
 
-    const envDefault = Number(this.configService.get<string>('HIKVISION_DEFAULT_PORT') ?? 0);
+    const envDefault = Number(
+      this.configService.get<string>('HIKVISION_DEFAULT_PORT') ?? 0,
+    );
     if (Number.isFinite(envDefault) && envDefault > 0) {
       return envDefault;
     }
@@ -720,7 +835,9 @@ export class HikvisionService {
   private resolveProtocol(protocol?: string | null): string {
     const envDefault = (
       this.configService.get<string>('HIKVISION_DEFAULT_PROTOCOL') ?? 'http'
-    ).trim().toLowerCase();
+    )
+      .trim()
+      .toLowerCase();
     const fallback = envDefault === 'https' ? 'https' : 'http';
     const candidate = protocol?.trim().toLowerCase() || fallback;
     return candidate === 'https' ? 'https' : 'http';
@@ -747,8 +864,13 @@ export class HikvisionService {
     protocol?: string | null,
   ): { ipAddress: string; port: number; protocol: string } {
     const parsed = this.parseConnectionTarget(rawAddress);
-    const normalizedProtocol = this.resolveProtocol(protocol ?? parsed.protocol);
-    const normalizedPort = this.resolvePort(port ?? parsed.port, normalizedProtocol);
+    const normalizedProtocol = this.resolveProtocol(
+      protocol ?? parsed.protocol,
+    );
+    const normalizedPort = this.resolvePort(
+      port ?? parsed.port,
+      normalizedProtocol,
+    );
     const ipAddress = parsed.ipAddress.trim();
 
     if (!ipAddress) {
@@ -756,7 +878,9 @@ export class HikvisionService {
     }
 
     if (ipAddress.length > 64) {
-      throw new BadRequestException('Resolved device host is too long for ip_address column');
+      throw new BadRequestException(
+        'Resolved device host is too long for ip_address column',
+      );
     }
 
     return {
@@ -791,7 +915,10 @@ export class HikvisionService {
     }
 
     const port = parsed.port ? Number(parsed.port) : undefined;
-    if (port !== undefined && (!Number.isInteger(port) || port < 1 || port > 65535)) {
+    if (
+      port !== undefined &&
+      (!Number.isInteger(port) || port < 1 || port > 65535)
+    ) {
       throw new BadRequestException('Invalid port in ip_address URL');
     }
 
@@ -855,7 +982,11 @@ export class HikvisionService {
   ): Record<string, unknown> {
     for (const key of candidateKeys) {
       const candidate = source[key];
-      if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+      if (
+        candidate &&
+        typeof candidate === 'object' &&
+        !Array.isArray(candidate)
+      ) {
         return candidate as Record<string, unknown>;
       }
     }
@@ -863,13 +994,19 @@ export class HikvisionService {
     return source;
   }
 
-  private getMappedFieldKeys(mappedFields: HikvisionMappedDeviceFields): string[] {
+  private getMappedFieldKeys(
+    mappedFields: HikvisionMappedDeviceFields,
+  ): string[] {
     return Object.entries(mappedFields)
-      .filter(([, value]) => typeof value === 'string' && value.trim().length > 0)
+      .filter(
+        ([, value]) => typeof value === 'string' && value.trim().length > 0,
+      )
       .map(([key]) => key);
   }
 
-  private sanitizeHikvisionMetadata(value: Record<string, unknown>): Record<string, unknown> {
+  private sanitizeHikvisionMetadata(
+    value: Record<string, unknown>,
+  ): Record<string, unknown> {
     const sanitized = { ...value };
     // These carry column-mapped values and must not persist in metadata.
     delete sanitized.endpoints;
@@ -877,7 +1014,10 @@ export class HikvisionService {
     return sanitized;
   }
 
-  private async trySetDeviceCode(device: AttendanceDevice, value: string): Promise<boolean> {
+  private async trySetDeviceCode(
+    device: AttendanceDevice,
+    value: string,
+  ): Promise<boolean> {
     const normalized = value.trim();
     if (!normalized || normalized === device.deviceCode) {
       return false;
@@ -897,7 +1037,9 @@ export class HikvisionService {
     return true;
   }
 
-  private extractSupportedUserVerifyModes(capabilities: Record<string, unknown>): string[] {
+  private extractSupportedUserVerifyModes(
+    capabilities: Record<string, unknown>,
+  ): string[] {
     const modes: string[] = [];
 
     const visit = (node: unknown): void => {
@@ -921,8 +1063,15 @@ export class HikvisionService {
             value && typeof value === 'object' && !Array.isArray(value)
               ? (value as Record<string, unknown>)
               : {};
-          const raw = [valueRoot['@opt'], valueRoot.opt, valueRoot.options, valueRoot.option]
-            .map((item) => (item === null || item === undefined ? '' : String(item).trim()))
+          const raw = [
+            valueRoot['@opt'],
+            valueRoot.opt,
+            valueRoot.options,
+            valueRoot.option,
+          ]
+            .map((item) =>
+              item === null || item === undefined ? '' : String(item).trim(),
+            )
             .find((item) => item.length > 0);
 
           if (raw) {
@@ -940,7 +1089,9 @@ export class HikvisionService {
   }
 
   private mapDevice(device: AttendanceDevice) {
-    const hikvisionMetadata = this.toObject(this.toObject(device.metadata).hikvision);
+    const hikvisionMetadata = this.toObject(
+      this.toObject(device.metadata).hikvision,
+    );
 
     return {
       id: device.id,
@@ -966,7 +1117,9 @@ export class HikvisionService {
       device_type: device.deviceType,
       timezone: device.timezone,
       location_description: device.locationDescription,
-      supported_user_verify_modes: Array.isArray(hikvisionMetadata.supported_user_verify_modes)
+      supported_user_verify_modes: Array.isArray(
+        hikvisionMetadata.supported_user_verify_modes,
+      )
         ? hikvisionMetadata.supported_user_verify_modes
         : [],
       metadata: device.metadata,
@@ -976,5 +1129,3 @@ export class HikvisionService {
     };
   }
 }
-
-

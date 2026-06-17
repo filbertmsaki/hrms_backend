@@ -114,7 +114,9 @@ export class UsersService {
       return [];
     }
 
-    const uniqueNames = Array.from(new Set(roleNames.map((name) => name.trim())));
+    const uniqueNames = Array.from(
+      new Set(roleNames.map((name) => name.trim())),
+    );
     const roles = await this.roleRepository
       .createQueryBuilder('role')
       .where('role.name IN (:...roleNames)', { roleNames: uniqueNames })
@@ -353,7 +355,10 @@ export class UsersService {
       companyId,
       id,
     );
-    const membership = await this.findActiveMembershipWithDetails(id, companyId);
+    const membership = await this.findActiveMembershipWithDetails(
+      id,
+      companyId,
+    );
 
     const roleEntities = membership
       ? this.getMembershipRoleEntities(membership)
@@ -415,7 +420,10 @@ export class UsersService {
       companyId,
       id,
     );
-    const membership = await this.findActiveMembershipWithDetails(id, companyId);
+    const membership = await this.findActiveMembershipWithDetails(
+      id,
+      companyId,
+    );
 
     const roleEntities = membership
       ? this.getMembershipRoleEntities(membership)

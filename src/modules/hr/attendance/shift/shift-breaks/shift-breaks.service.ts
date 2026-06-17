@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
@@ -19,8 +24,14 @@ export class ShiftBreaksService {
   ) {}
 
   private async ensureShift(companyId: number, shiftId: number): Promise<void> {
-    const shift = await this.shiftRepository.findOne({ where: { id: shiftId, companyId }, select: ['id'] });
-    if (!shift) throw new BadRequestException('shift_id does not belong to the active company');
+    const shift = await this.shiftRepository.findOne({
+      where: { id: shiftId, companyId },
+      select: ['id'],
+    });
+    if (!shift)
+      throw new BadRequestException(
+        'shift_id does not belong to the active company',
+      );
   }
 
   private async findOrFail(companyId: number, id: number): Promise<ShiftBreak> {
@@ -37,29 +48,41 @@ export class ShiftBreaksService {
   async create(companyId: number, dto: CreateShiftBreakDto) {
     await this.ensureShift(companyId, dto.shift_id);
 
-    const duplicate = await this.shiftBreakRepository.findOne({ where: { shiftId: dto.shift_id, name: dto.name.trim() } });
-    if (duplicate) throw new ConflictException('Break name already exists for this shift');
+    const duplicate = await this.shiftBreakRepository.findOne({
+      where: { shiftId: dto.shift_id, name: dto.name.trim() },
+    });
+    if (duplicate)
+      throw new ConflictException('Break name already exists for this shift');
 
-    return this.shiftBreakRepository.save(this.shiftBreakRepository.create({
-      shiftId: dto.shift_id,
-      name: dto.name.trim(),
-      breakType: dto.break_type,
-      startTime: dto.start_time,
-      endTime: dto.end_time,
-      durationMinutes: dto.duration_minutes,
-      isPaid: dto.is_paid ?? false,
-      isFlexible: dto.is_flexible ?? false,
-    }));
+    return this.shiftBreakRepository.save(
+      this.shiftBreakRepository.create({
+        shiftId: dto.shift_id,
+        name: dto.name.trim(),
+        breakType: dto.break_type,
+        startTime: dto.start_time,
+        endTime: dto.end_time,
+        durationMinutes: dto.duration_minutes,
+        isPaid: dto.is_paid ?? false,
+        isFlexible: dto.is_flexible ?? false,
+      }),
+    );
   }
 
   async findAll(companyId: number, query: ShiftBreakQueryDto) {
-    const { page = 1, limit = 20, sortBy = 'created_at', sortOrder = SortDirection.DESC, shift_id } = query;
+    const {
+      page = 1,
+      limit = 20,
+      sortBy = 'created_at',
+      sortOrder = SortDirection.DESC,
+      shift_id,
+    } = query;
     const qb = this.shiftBreakRepository
       .createQueryBuilder('break')
       .innerJoin(Shift, 'shift', 'shift.id = break.shift_id')
       .where('shift.company_id = :companyId', { companyId });
 
-    if (shift_id) qb.andWhere('break.shift_id = :shiftId', { shiftId: shift_id });
+    if (shift_id)
+      qb.andWhere('break.shift_id = :shiftId', { shiftId: shift_id });
 
     const sortFieldMap: Record<string, string> = {
       created_at: 'createdAt',
@@ -67,12 +90,21 @@ export class ShiftBreaksService {
     };
     const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.created_at;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
-    const [items, total] = await qb.orderBy(`break.${safeSortBy}`, direction).skip((page - 1) * limit).take(limit).getManyAndCount();
+    const [items, total] = await qb
+      .orderBy(`break.${safeSortBy}`, direction)
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
 
-    return { data: items, meta: buildPaginationMeta(total, items.length, limit, page) };
+    return {
+      data: items,
+      meta: buildPaginationMeta(total, items.length, limit, page),
+    };
   }
 
-  async findOne(companyId: number, id: number) { return this.findOrFail(companyId, id); }
+  async findOne(companyId: number, id: number) {
+    return this.findOrFail(companyId, id);
+  }
 
   async update(companyId: number, id: number, dto: UpdateShiftBreakDto) {
     const item = await this.findOrFail(companyId, id);
@@ -81,8 +113,11 @@ export class ShiftBreaksService {
 
     if (dto.name !== undefined) {
       const name = dto.name.trim();
-      const duplicate = await this.shiftBreakRepository.findOne({ where: { shiftId, name } });
-      if (duplicate && duplicate.id !== item.id) throw new ConflictException('Break name already exists for this shift');
+      const duplicate = await this.shiftBreakRepository.findOne({
+        where: { shiftId, name },
+      });
+      if (duplicate && duplicate.id !== item.id)
+        throw new ConflictException('Break name already exists for this shift');
       item.name = name;
     }
 
@@ -90,7 +125,8 @@ export class ShiftBreaksService {
     if (dto.break_type !== undefined) item.breakType = dto.break_type;
     if (dto.start_time !== undefined) item.startTime = dto.start_time;
     if (dto.end_time !== undefined) item.endTime = dto.end_time;
-    if (dto.duration_minutes !== undefined) item.durationMinutes = dto.duration_minutes;
+    if (dto.duration_minutes !== undefined)
+      item.durationMinutes = dto.duration_minutes;
     if (dto.is_paid !== undefined) item.isPaid = dto.is_paid;
     if (dto.is_flexible !== undefined) item.isFlexible = dto.is_flexible;
 

@@ -51,7 +51,11 @@ import { OffboardingWorkflowService } from './services/offboarding-workflow.serv
     HrSharedModule,
   ],
   controllers: [OffboardingController],
-  providers: [OffboardingService, OffboardingAuditService, OffboardingWorkflowService],
+  providers: [
+    OffboardingService,
+    OffboardingAuditService,
+    OffboardingWorkflowService,
+  ],
   exports: [OffboardingService, TypeOrmModule],
 })
 export class OffboardingModule {}

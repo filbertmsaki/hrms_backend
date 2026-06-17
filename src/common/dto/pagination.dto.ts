@@ -8,14 +8,22 @@ export enum SortDirection {
 }
 
 export class PaginationDto {
-  @ApiPropertyOptional({ example: 1, default: 1, description: 'Page number (1-based)' })
+  @ApiPropertyOptional({
+    example: 1,
+    default: 1,
+    description: 'Page number (1-based)',
+  })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
   page?: number = 1;
 
-  @ApiPropertyOptional({ example: 20, default: 20, description: 'Items per page (max 100)' })
+  @ApiPropertyOptional({
+    example: 20,
+    default: 20,
+    description: 'Items per page (max 100)',
+  })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -40,7 +48,10 @@ export class PaginationDto {
   @IsEnum(SortDirection)
   sortOrder?: SortDirection = SortDirection.DESC;
 
-  @ApiPropertyOptional({ example: 'john', description: 'Search in name, email, phone, user_no' })
+  @ApiPropertyOptional({
+    example: 'john',
+    description: 'Search in name, email, phone, user_no',
+  })
   @IsOptional()
   @IsString()
   search?: string;

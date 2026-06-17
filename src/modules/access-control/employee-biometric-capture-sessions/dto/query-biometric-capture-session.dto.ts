@@ -69,4 +69,3 @@ export class QueryBiometricCaptureSessionDto {
   @IsOptional()
   limit?: number = 20;
 }
-

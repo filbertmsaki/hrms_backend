@@ -34,8 +34,3 @@ export class AttendanceHolidayQueryDto extends PaginationDto {
   @IsOptional()
   to_date?: string;
 }
-
-
-
-
-

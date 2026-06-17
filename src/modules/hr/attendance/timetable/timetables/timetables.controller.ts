@@ -45,7 +45,11 @@ export class TimetablesController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: CreateTimetableDto,
   ) {
-    return this.timetablesService.create(req.user.companyId!, req.user.companyMembershipId ?? null, dto);
+    return this.timetablesService.create(
+      req.user.companyId!,
+      req.user.companyMembershipId ?? null,
+      dto,
+    );
   }
 
   @Get()

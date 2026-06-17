@@ -23,8 +23,7 @@ export const ONBOARDING_ROLE_HIERARCHY_SEEDS: OnboardingRoleHierarchySeed[] = [
     name: 'INTERN_TRAINEE',
     display_name: 'Intern / Trainee',
     slug: 'intern-trainee',
-    description:
-      'Onboarding role hierarchy level 1 for interns and trainees.',
+    description: 'Onboarding role hierarchy level 1 for interns and trainees.',
   },
   {
     level: 2,

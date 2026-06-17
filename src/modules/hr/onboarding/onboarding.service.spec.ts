@@ -44,12 +44,16 @@ describe('OnboardingService', () => {
   let actor: AuthenticatedUser;
 
   beforeEach(() => {
-    const onboardingWorkflowRepository = createRepositoryMock<OnboardingWorkflow>();
-    const onboardingWorkflowStepRepository = createRepositoryMock<OnboardingWorkflowStep>();
+    const onboardingWorkflowRepository =
+      createRepositoryMock<OnboardingWorkflow>();
+    const onboardingWorkflowStepRepository =
+      createRepositoryMock<OnboardingWorkflowStep>();
     onboardingRequestRepository = createRepositoryMock<OnboardingRequest>();
     const onboardingTaskRepository = createRepositoryMock<OnboardingTask>();
-    const onboardingApprovalRepository = createRepositoryMock<OnboardingApproval>();
-    const onboardingAuditLogRepository = createRepositoryMock<OnboardingAuditLog>();
+    const onboardingApprovalRepository =
+      createRepositoryMock<OnboardingApproval>();
+    const onboardingAuditLogRepository =
+      createRepositoryMock<OnboardingAuditLog>();
     const documentRepository = createRepositoryMock<Document>();
     employeeRepository = createRepositoryMock<Employee>();
     const departmentRepository = createRepositoryMock<Department>();
@@ -158,7 +162,9 @@ describe('OnboardingService', () => {
       }),
     } as unknown as EntityManager;
 
-    dataSource.transaction.mockImplementation(async (callback) => callback(manager));
+    dataSource.transaction.mockImplementation(async (callback) =>
+      callback(manager),
+    );
 
     await service.completeOnboarding(10, 55, actor);
 
@@ -169,8 +175,12 @@ describe('OnboardingService', () => {
       }),
     );
     expect(leaveBalanceService.getFiscalYearFromDate).toHaveBeenCalled();
-    expect(leaveBalanceService.ensureBalanceForEmployee).toHaveBeenCalledTimes(2);
-    expect(leaveBalanceService.ensureBalanceForEmployee).toHaveBeenNthCalledWith(
+    expect(leaveBalanceService.ensureBalanceForEmployee).toHaveBeenCalledTimes(
+      2,
+    );
+    expect(
+      leaveBalanceService.ensureBalanceForEmployee,
+    ).toHaveBeenNthCalledWith(
       1,
       10,
       expect.objectContaining({ id: 501 }),

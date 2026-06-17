@@ -185,7 +185,11 @@ export class PositionsService {
     department: Department | null,
     designation: Designation | null,
   ): void {
-    if (department?.branch_id && branch?.id && department.branch_id !== branch.id) {
+    if (
+      department?.branch_id &&
+      branch?.id &&
+      department.branch_id !== branch.id
+    ) {
       throw new BadRequestException(
         'department_id does not belong to the selected branch_id',
       );
@@ -207,7 +211,11 @@ export class PositionsService {
     createPositionDto: CreatePositionDto,
     actor: AuthenticatedUser,
   ) {
-    const branch = await this.resolveBranch(companyId, createPositionDto.branch_id, actor);
+    const branch = await this.resolveBranch(
+      companyId,
+      createPositionDto.branch_id,
+      actor,
+    );
     const department = await this.resolveDepartment(
       companyId,
       createPositionDto.department_id,
@@ -223,7 +231,10 @@ export class PositionsService {
 
     this.assertHierarchyConsistency(branch, department, designation);
     if (department?.branch_id) {
-      await this.hrAccessService.assertCanAccessBranch(actor, department.branch_id);
+      await this.hrAccessService.assertCanAccessBranch(
+        actor,
+        department.branch_id,
+      );
     }
 
     const code = await this.codeGeneratorService.resolveCode(
@@ -314,7 +325,8 @@ export class PositionsService {
       );
     }
 
-    const accessibleBranchIds = await this.hrAccessService.getAccessibleBranchIds(actor);
+    const accessibleBranchIds =
+      await this.hrAccessService.getAccessibleBranchIds(actor);
     if (accessibleBranchIds?.length === 0) {
       qb.andWhere('position.branch_id IS NULL');
     } else if (accessibleBranchIds) {
@@ -356,10 +368,17 @@ export class PositionsService {
     };
   }
 
-  async findOne(companyId: number, positionId: number, actor: AuthenticatedUser) {
+  async findOne(
+    companyId: number,
+    positionId: number,
+    actor: AuthenticatedUser,
+  ) {
     const position = await this.findPositionOrFail(companyId, positionId);
     if (position.branch_id) {
-      await this.hrAccessService.assertCanAccessBranch(actor, position.branch_id);
+      await this.hrAccessService.assertCanAccessBranch(
+        actor,
+        position.branch_id,
+      );
     }
     return this.mapPosition(position);
   }
@@ -372,23 +391,36 @@ export class PositionsService {
   ) {
     const position = await this.findPositionOrFail(companyId, positionId);
     if (position.branch_id) {
-      await this.hrAccessService.assertCanAccessBranch(actor, position.branch_id);
+      await this.hrAccessService.assertCanAccessBranch(
+        actor,
+        position.branch_id,
+      );
     }
 
     const branch =
       updatePositionDto.branch_id === undefined
         ? position.branch
-        : await this.resolveBranch(companyId, updatePositionDto.branch_id, actor);
+        : await this.resolveBranch(
+            companyId,
+            updatePositionDto.branch_id,
+            actor,
+          );
 
     const department =
       updatePositionDto.department_id === undefined
         ? position.department
-        : await this.resolveDepartment(companyId, updatePositionDto.department_id);
+        : await this.resolveDepartment(
+            companyId,
+            updatePositionDto.department_id,
+          );
 
     const designation =
       updatePositionDto.designation_id === undefined
         ? position.designation
-        : await this.resolveDesignation(companyId, updatePositionDto.designation_id);
+        : await this.resolveDesignation(
+            companyId,
+            updatePositionDto.designation_id,
+          );
 
     const reportsToPosition =
       updatePositionDto.reports_to_position_id === undefined
@@ -402,9 +434,16 @@ export class PositionsService {
       throw new BadRequestException('A position cannot report to itself');
     }
 
-    this.assertHierarchyConsistency(branch ?? null, department ?? null, designation ?? null);
+    this.assertHierarchyConsistency(
+      branch ?? null,
+      department ?? null,
+      designation ?? null,
+    );
     if (department?.branch_id) {
-      await this.hrAccessService.assertCanAccessBranch(actor, department.branch_id);
+      await this.hrAccessService.assertCanAccessBranch(
+        actor,
+        department.branch_id,
+      );
     }
 
     // If code is being updated, validate uniqueness
@@ -441,7 +480,10 @@ export class PositionsService {
   ): Promise<{ message: string }> {
     const position = await this.findPositionOrFail(companyId, positionId);
     if (position.branch_id) {
-      await this.hrAccessService.assertCanAccessBranch(actor, position.branch_id);
+      await this.hrAccessService.assertCanAccessBranch(
+        actor,
+        position.branch_id,
+      );
     }
     await this.positionRepository.remove(position);
     return { message: 'Position deleted successfully' };

@@ -14,7 +14,10 @@ import { Permissions } from '../../../../common/decorators/permissions.decorator
 import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
-import { ApiGetOneOperation, ApiListOperation } from '../../../../docs/swagger-decorators';
+import {
+  ApiGetOneOperation,
+  ApiListOperation,
+} from '../../../../docs/swagger-decorators';
 import { QueryDeviceCommandLogDto } from '../dto/query-device-command-log.dto';
 import { DeviceCommandLogService } from '../../../hikvision/device-command-logs/service/device-command-log.service';
 
@@ -23,7 +26,9 @@ import { DeviceCommandLogService } from '../../../hikvision/device-command-logs/
 @Controller('access-control')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class DeviceCommandLogsController {
-  constructor(private readonly deviceCommandLogService: DeviceCommandLogService) {}
+  constructor(
+    private readonly deviceCommandLogService: DeviceCommandLogService,
+  ) {}
 
   @Get('device-command-logs')
   @UseGuards(PermissionsGuard)
@@ -39,7 +44,10 @@ export class DeviceCommandLogsController {
   @Get('device-command-logs/:id')
   @UseGuards(PermissionsGuard)
   @Permissions('access_control_sync:execute')
-  @ApiGetOneOperation('Device Command Log', 'Get one Hikvision ISAPI command log')
+  @ApiGetOneOperation(
+    'Device Command Log',
+    'Get one Hikvision ISAPI command log',
+  )
   findOne(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -50,7 +58,10 @@ export class DeviceCommandLogsController {
   @Get('devices/:deviceId/command-logs')
   @UseGuards(PermissionsGuard)
   @Permissions('access_control_sync:execute')
-  @ApiListOperation('Device Command Logs by Device', 'List Hikvision command logs for one device')
+  @ApiListOperation(
+    'Device Command Logs by Device',
+    'List Hikvision command logs for one device',
+  )
   findByDevice(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('deviceId', ParseIntPipe) deviceId: number,
@@ -62,4 +73,3 @@ export class DeviceCommandLogsController {
     });
   }
 }
-

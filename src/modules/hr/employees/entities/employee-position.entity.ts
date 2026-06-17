@@ -85,9 +85,13 @@ export class EmployeePosition {
   @JoinColumn({ name: 'position_id' })
   position: Position;
 
-  @ManyToOne(() => Designation, (designation) => designation.employee_positions, {
-    onDelete: 'SET NULL',
-  })
+  @ManyToOne(
+    () => Designation,
+    (designation) => designation.employee_positions,
+    {
+      onDelete: 'SET NULL',
+    },
+  )
   @JoinColumn({ name: 'designation_id' })
   designation: Designation | null;
 }

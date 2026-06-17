@@ -205,14 +205,22 @@ export class HikvisionUserManagementService {
     deviceId: number,
     input: HikvisionDeviceUserInput,
   ) {
-    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId, true);
+    const device = await this.findHikvisionDeviceOrFail(
+      companyId,
+      deviceId,
+      true,
+    );
     const resolvedUserVerifyMode =
       input.user_verify_mode !== undefined
         ? await this.resolveSupportedUserVerifyMode(
             companyId,
             device.id,
             input.user_verify_mode,
-            this.buildUserVerifyModeCandidates(Boolean(this.toNullableString(input.password)), false, false),
+            this.buildUserVerifyModeCandidates(
+              Boolean(this.toNullableString(input.password)),
+              false,
+              false,
+            ),
             'manual device user creation',
           )
         : undefined;
@@ -223,7 +231,12 @@ export class HikvisionUserManagementService {
 
     const response = await this.requestWithRetry(
       `create-user:${device.id}:${payload.UserInfo.employeeNo}`,
-      () => this.hikvisionAccessControlService.setupUserInfo(companyId, device.id, payload),
+      () =>
+        this.hikvisionAccessControlService.setupUserInfo(
+          companyId,
+          device.id,
+          payload,
+        ),
     );
     this.ensureHikvisionSuccess('CreateUserOnDevice', response);
 
@@ -244,7 +257,11 @@ export class HikvisionUserManagementService {
     deviceId: number,
     input: HikvisionDeviceUserInput,
   ) {
-    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId, true);
+    const device = await this.findHikvisionDeviceOrFail(
+      companyId,
+      deviceId,
+      true,
+    );
     const resolvedUserVerifyMode =
       input.user_verify_mode !== undefined
         ? await this.resolveSupportedUserVerifyMode(
@@ -266,7 +283,12 @@ export class HikvisionUserManagementService {
 
     const response = await this.requestWithRetry(
       `update-user:${device.id}:${payload.UserInfo.employeeNo}`,
-      () => this.hikvisionAccessControlService.modifyUserInfo(companyId, device.id, payload),
+      () =>
+        this.hikvisionAccessControlService.modifyUserInfo(
+          companyId,
+          device.id,
+          payload,
+        ),
     );
     this.ensureHikvisionSuccess('UpdateUserOnDevice', response);
 
@@ -322,8 +344,16 @@ export class HikvisionUserManagementService {
     employeeId: number,
     userVerifyMode?: string,
   ) {
-    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId, true);
-    const assignment = await this.findAssignmentOrFail(companyId, device.id, employeeId);
+    const device = await this.findHikvisionDeviceOrFail(
+      companyId,
+      deviceId,
+      true,
+    );
+    const assignment = await this.findAssignmentOrFail(
+      companyId,
+      device.id,
+      employeeId,
+    );
     const resolvedUserVerifyMode = await this.resolvePasswordUserVerifyMode(
       companyId,
       employeeId,
@@ -340,7 +370,12 @@ export class HikvisionUserManagementService {
     try {
       const response = await this.requestWithRetry(
         `delete-user-password:${device.id}:${assignment.employeeNo}`,
-        () => this.hikvisionAccessControlService.modifyUserInfo(companyId, device.id, payload),
+        () =>
+          this.hikvisionAccessControlService.modifyUserInfo(
+            companyId,
+            device.id,
+            payload,
+          ),
       );
       this.ensureHikvisionSuccess('DeleteUserPassword', response);
       this.logger.log(
@@ -371,7 +406,13 @@ export class HikvisionUserManagementService {
     employeeId: number,
     input: HikvisionDeviceCardInput,
   ) {
-    return this.syncCardInternal(companyId, deviceId, employeeId, input, 'CREATE');
+    return this.syncCardInternal(
+      companyId,
+      deviceId,
+      employeeId,
+      input,
+      'CREATE',
+    );
   }
 
   async modifyCard(
@@ -380,7 +421,13 @@ export class HikvisionUserManagementService {
     employeeId: number,
     input: HikvisionDeviceCardInput,
   ) {
-    return this.syncCardInternal(companyId, deviceId, employeeId, input, 'MODIFY');
+    return this.syncCardInternal(
+      companyId,
+      deviceId,
+      employeeId,
+      input,
+      'MODIFY',
+    );
   }
 
   async syncCard(
@@ -389,7 +436,13 @@ export class HikvisionUserManagementService {
     employeeId: number,
     input: HikvisionDeviceCardInput,
   ) {
-    return this.syncCardInternal(companyId, deviceId, employeeId, input, 'UPSERT');
+    return this.syncCardInternal(
+      companyId,
+      deviceId,
+      employeeId,
+      input,
+      'UPSERT',
+    );
   }
 
   async deleteCard(
@@ -398,8 +451,16 @@ export class HikvisionUserManagementService {
     employeeId: number,
     cardNo: string,
   ) {
-    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId, true);
-    const assignment = await this.findAssignmentOrFail(companyId, device.id, employeeId);
+    const device = await this.findHikvisionDeviceOrFail(
+      companyId,
+      deviceId,
+      true,
+    );
+    const assignment = await this.findAssignmentOrFail(
+      companyId,
+      device.id,
+      employeeId,
+    );
     const normalizedCardNo = this.normalizeCardNo(cardNo);
     const payload = {
       CardInfoDelCond: {
@@ -410,7 +471,12 @@ export class HikvisionUserManagementService {
     try {
       const response = await this.requestWithRetry(
         `delete-card:${device.id}:${assignment.employeeNo}:${normalizedCardNo}`,
-        () => this.hikvisionAccessControlService.deleteCardInfo(companyId, device.id, payload),
+        () =>
+          this.hikvisionAccessControlService.deleteCardInfo(
+            companyId,
+            device.id,
+            payload,
+          ),
       );
       this.ensureHikvisionSuccess('DeleteCard', response);
       this.logger.log(
@@ -434,8 +500,16 @@ export class HikvisionUserManagementService {
     }
   }
 
-  async deleteUserFromDevice(companyId: number, deviceId: number, employeeNo: string) {
-    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId, true);
+  async deleteUserFromDevice(
+    companyId: number,
+    deviceId: number,
+    employeeNo: string,
+  ) {
+    const device = await this.findHikvisionDeviceOrFail(
+      companyId,
+      deviceId,
+      true,
+    );
     const normalizedEmployeeNo = this.normalizeEmployeeNo(employeeNo);
 
     const payload = {
@@ -446,7 +520,12 @@ export class HikvisionUserManagementService {
 
     const response = await this.requestWithRetry(
       `delete-user:${device.id}:${normalizedEmployeeNo}`,
-      () => this.hikvisionAccessControlService.deleteUserInfo(companyId, device.id, payload),
+      () =>
+        this.hikvisionAccessControlService.deleteUserInfo(
+          companyId,
+          device.id,
+          payload,
+        ),
     );
     this.ensureHikvisionSuccess('DeleteUserFromDevice', response);
 
@@ -458,7 +537,11 @@ export class HikvisionUserManagementService {
     };
   }
 
-  async getUserByEmployeeNumber(companyId: number, deviceId: number, employeeNo: string) {
+  async getUserByEmployeeNumber(
+    companyId: number,
+    deviceId: number,
+    employeeNo: string,
+  ) {
     const normalizedEmployeeNo = this.normalizeEmployeeNo(employeeNo);
     const searchResult = await this.searchUsersOnDevice(companyId, deviceId, {
       search_id: `search_${normalizedEmployeeNo}`,
@@ -467,7 +550,10 @@ export class HikvisionUserManagementService {
       employee_nos: [normalizedEmployeeNo],
     });
 
-    const user = searchResult.users.find((item) => item.employee_no === normalizedEmployeeNo) ?? null;
+    const user =
+      searchResult.users.find(
+        (item) => item.employee_no === normalizedEmployeeNo,
+      ) ?? null;
     return {
       device_id: deviceId,
       employee_no: normalizedEmployeeNo,
@@ -486,7 +572,12 @@ export class HikvisionUserManagementService {
 
     const response = await this.requestWithRetry(
       `search-users:${deviceId}:${payload.UserInfoSearchCond.searchID}`,
-      () => this.hikvisionAccessControlService.searchUserInfo(companyId, deviceId, payload),
+      () =>
+        this.hikvisionAccessControlService.searchUserInfo(
+          companyId,
+          deviceId,
+          payload,
+        ),
     );
     this.ensureHikvisionSuccess('SearchUsersOnDevice', response);
 
@@ -498,8 +589,16 @@ export class HikvisionUserManagementService {
     );
   }
 
-  async validateUserExistsOnDevice(companyId: number, deviceId: number, employeeNo: string) {
-    const result = await this.getUserByEmployeeNumber(companyId, deviceId, employeeNo);
+  async validateUserExistsOnDevice(
+    companyId: number,
+    deviceId: number,
+    employeeNo: string,
+  ) {
+    const result = await this.getUserByEmployeeNumber(
+      companyId,
+      deviceId,
+      employeeNo,
+    );
     return {
       device_id: deviceId,
       employee_no: result.employee_no,
@@ -507,24 +606,35 @@ export class HikvisionUserManagementService {
     };
   }
 
-  async getSupportedUserVerifyModes(companyId: number, deviceId: number): Promise<string[]> {
-    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId, false);
-    const storedModes = this.extractSupportedUserVerifyModesFromDeviceMetadata(device.metadata);
+  async getSupportedUserVerifyModes(
+    companyId: number,
+    deviceId: number,
+  ): Promise<string[]> {
+    const device = await this.findHikvisionDeviceOrFail(
+      companyId,
+      deviceId,
+      false,
+    );
+    const storedModes = this.extractSupportedUserVerifyModesFromDeviceMetadata(
+      device.metadata,
+    );
     if (storedModes.length > 0) {
       return storedModes;
     }
 
     try {
-      const response = await this.hikvisionAccessControlService.getAccessControlCapabilities(
-        companyId,
-        device.id,
-      );
+      const response =
+        await this.hikvisionAccessControlService.getAccessControlCapabilities(
+          companyId,
+          device.id,
+        );
       const capabilitiesRoot = this.toObject(
-        this.toObject(response.parsed).AccessControl
-          ?? this.toObject(response.parsed).AccessControlCapability
-          ?? response.parsed,
+        this.toObject(response.parsed).AccessControl ??
+          this.toObject(response.parsed).AccessControlCapability ??
+          response.parsed,
       );
-      const supportedModes = this.extractSupportedUserVerifyModesFromCapabilities(capabilitiesRoot);
+      const supportedModes =
+        this.extractSupportedUserVerifyModesFromCapabilities(capabilitiesRoot);
       if (supportedModes.length > 0) {
         device.metadata = this.mergeMetadata(device.metadata, {
           hikvision: {
@@ -551,10 +661,16 @@ export class HikvisionUserManagementService {
     context: string,
   ): Promise<string> {
     const normalizedExplicit = this.toNullableString(explicitUserVerifyMode);
-    const supportedModes = await this.getSupportedUserVerifyModes(companyId, deviceId);
+    const supportedModes = await this.getSupportedUserVerifyModes(
+      companyId,
+      deviceId,
+    );
 
     if (normalizedExplicit) {
-      if (supportedModes.length > 0 && !supportedModes.includes(normalizedExplicit)) {
+      if (
+        supportedModes.length > 0 &&
+        !supportedModes.includes(normalizedExplicit)
+      ) {
         throw new BadRequestException(
           `Selected user_verify_mode "${normalizedExplicit}" is not supported by device ${deviceId} for ${context}. Supported modes: ${supportedModes.join(', ')}`,
         );
@@ -562,12 +678,18 @@ export class HikvisionUserManagementService {
       return normalizedExplicit;
     }
 
-    const normalizedCandidates = [...new Set(candidateModes.map((item) => String(item).trim()).filter(Boolean))];
+    const normalizedCandidates = [
+      ...new Set(
+        candidateModes.map((item) => String(item).trim()).filter(Boolean),
+      ),
+    ];
     if (supportedModes.length === 0) {
       return normalizedCandidates[0] ?? 'cardOrFpOrPw';
     }
 
-    const matchedMode = normalizedCandidates.find((item) => supportedModes.includes(item));
+    const matchedMode = normalizedCandidates.find((item) =>
+      supportedModes.includes(item),
+    );
     if (matchedMode) {
       return matchedMode;
     }
@@ -577,14 +699,26 @@ export class HikvisionUserManagementService {
     );
   }
 
-  async syncUserFromBackendToDevice(companyId: number, deviceId: number, employeeId: number) {
+  async syncUserFromBackendToDevice(
+    companyId: number,
+    deviceId: number,
+    employeeId: number,
+  ) {
     const startedAt = new Date();
-    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId, true);
+    const device = await this.findHikvisionDeviceOrFail(
+      companyId,
+      deviceId,
+      true,
+    );
 
     try {
       // The device employeeNo is the stable foreign key on Hikvision, so we resolve it
       // first and then build the rest of the payload around that identifier.
-      const bundle = await this.buildBackendUserBundle(companyId, device.id, employeeId);
+      const bundle = await this.buildBackendUserBundle(
+        companyId,
+        device.id,
+        employeeId,
+      );
       const payload = await this.buildBackendUserPayload(bundle);
       const userInfo = this.toObject(payload.UserInfo);
       const validInfo = this.toObject(userInfo.Valid);
@@ -600,11 +734,21 @@ export class HikvisionUserManagementService {
       const response = exists.exists
         ? await this.requestWithRetry(
             `sync-backend-update:${device.id}:${bundle.assignment.employeeNo}`,
-            () => this.hikvisionAccessControlService.modifyUserInfo(companyId, device.id, payload),
+            () =>
+              this.hikvisionAccessControlService.modifyUserInfo(
+                companyId,
+                device.id,
+                payload,
+              ),
           )
         : await this.requestWithRetry(
             `sync-backend-create:${device.id}:${bundle.assignment.employeeNo}`,
-            () => this.hikvisionAccessControlService.setupUserInfo(companyId, device.id, payload),
+            () =>
+              this.hikvisionAccessControlService.setupUserInfo(
+                companyId,
+                device.id,
+                payload,
+              ),
           );
 
       this.ensureHikvisionSuccess(
@@ -612,21 +756,29 @@ export class HikvisionUserManagementService {
         response,
       );
 
-      bundle.assignment.syncStatus = EmployeeDeviceAssignmentSyncStatusEnum.SYNCED;
+      bundle.assignment.syncStatus =
+        EmployeeDeviceAssignmentSyncStatusEnum.SYNCED;
       bundle.assignment.lastSyncedAt = new Date();
       bundle.assignment.employeeNo = syncedEmployeeNo;
       bundle.assignment.hikvisionUserType =
-        this.toNullableString(userInfo.userType) ?? bundle.assignment.hikvisionUserType;
+        this.toNullableString(userInfo.userType) ??
+        bundle.assignment.hikvisionUserType;
       bundle.assignment.userVerifyMode =
-        this.toNullableString(userInfo.userVerifyMode) ?? bundle.assignment.userVerifyMode;
+        this.toNullableString(userInfo.userVerifyMode) ??
+        bundle.assignment.userVerifyMode;
       bundle.assignment.validEnabled =
-        this.toNullableBoolean(validInfo.enable) ?? bundle.assignment.validEnabled;
-      bundle.assignment.validBeginTime = this.toNullableDate(validInfo.beginTime);
+        this.toNullableBoolean(validInfo.enable) ??
+        bundle.assignment.validEnabled;
+      bundle.assignment.validBeginTime = this.toNullableDate(
+        validInfo.beginTime,
+      );
       bundle.assignment.validEndTime = this.toNullableDate(validInfo.endTime);
       bundle.assignment.doorRight =
-        this.toNullableString(userInfo.doorRight) ?? bundle.assignment.doorRight;
+        this.toNullableString(userInfo.doorRight) ??
+        bundle.assignment.doorRight;
       bundle.assignment.localUiRight =
-        this.toNullableBoolean(userInfo.localUIRight) ?? bundle.assignment.localUiRight;
+        this.toNullableBoolean(userInfo.localUIRight) ??
+        bundle.assignment.localUiRight;
       bundle.assignment.closeDelayEnabled =
         this.toNullableBoolean(userInfo.closeDelayEnabled) ??
         bundle.assignment.closeDelayEnabled;
@@ -634,16 +786,20 @@ export class HikvisionUserManagementService {
         this.toNullableNumber(userInfo.maxOpenDoorTime) ??
         bundle.assignment.maxOpenDoorTime;
       bundle.assignment.openDoorTime =
-        this.toNullableNumber(userInfo.openDoorTime) ?? bundle.assignment.openDoorTime;
-      bundle.assignment.metadata = this.mergeMetadata(bundle.assignment.metadata, {
-        hikvision: {
-          last_push_at: new Date().toISOString(),
-          last_push_status: response.status,
-          last_push_operation: exists.exists ? 'MODIFY' : 'SETUP',
-          last_device_payload: payload,
-          last_device_response: this.toObject(response.parsed),
+        this.toNullableNumber(userInfo.openDoorTime) ??
+        bundle.assignment.openDoorTime;
+      bundle.assignment.metadata = this.mergeMetadata(
+        bundle.assignment.metadata,
+        {
+          hikvision: {
+            last_push_at: new Date().toISOString(),
+            last_push_status: response.status,
+            last_push_operation: exists.exists ? 'MODIFY' : 'SETUP',
+            last_device_payload: payload,
+            last_device_response: this.toObject(response.parsed),
+          },
         },
-      });
+      );
 
       const savedAssignment =
         await this.employeeDeviceAssignmentRepository.save(bundle.assignment);
@@ -682,11 +838,7 @@ export class HikvisionUserManagementService {
         employee_id: bundle.employee.id,
         employee_no: syncedEmployeeNo,
         operation: exists.exists ? 'MODIFY' : 'SETUP',
-        user: this.mapNormalizedUser(
-          userInfo,
-          device.id,
-          bundle.employee.id,
-        ),
+        user: this.mapNormalizedUser(userInfo, device.id, bundle.employee.id),
       };
     } catch (error) {
       await this.persistSyncLogSafe({
@@ -763,10 +915,20 @@ export class HikvisionUserManagementService {
     deviceId: number,
     options: HikvisionDeviceToBackendSyncOptions = {},
   ) {
-    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId, true);
+    const device = await this.findHikvisionDeviceOrFail(
+      companyId,
+      deviceId,
+      true,
+    );
     const startedAt = new Date();
-    const maxPages = this.ensurePositiveInteger(options.max_pages ?? 100, 'max_pages');
-    const pageSize = this.ensurePositiveInteger(options.max_results ?? 100, 'max_results');
+    const maxPages = this.ensurePositiveInteger(
+      options.max_pages ?? 100,
+      'max_pages',
+    );
+    const pageSize = this.ensurePositiveInteger(
+      options.max_results ?? 100,
+      'max_results',
+    );
     const continueOnError = options.continue_on_error ?? true;
 
     const counters: SyncCounters = {
@@ -787,12 +949,16 @@ export class HikvisionUserManagementService {
       // Pull sync intentionally pages through device users so a partial failure does not
       // block the rest of the device population from being imported into backend state.
       while (page < maxPages) {
-        const searchResponse = await this.searchUsersOnDevice(companyId, device.id, {
-          search_id: options.search_id ?? `${Date.now()}`,
-          search_result_position: cursor,
-          max_results: pageSize,
-          employee_nos: options.employee_nos,
-        });
+        const searchResponse = await this.searchUsersOnDevice(
+          companyId,
+          device.id,
+          {
+            search_id: options.search_id ?? `${Date.now()}`,
+            search_result_position: cursor,
+            max_results: pageSize,
+            employee_nos: options.employee_nos,
+          },
+        );
 
         responseStatus = searchResponse.response_status;
         totalMatches = Math.max(totalMatches, searchResponse.total_matches);
@@ -800,7 +966,11 @@ export class HikvisionUserManagementService {
 
         for (const user of searchResponse.users) {
           try {
-            const persistResult = await this.persistPulledUser(companyId, device, user);
+            const persistResult = await this.persistPulledUser(
+              companyId,
+              device,
+              user,
+            );
             userResults.push(persistResult);
             counters.processed += 1;
             if (persistResult.status === 'FAILED') {
@@ -827,9 +997,11 @@ export class HikvisionUserManagementService {
         }
 
         const nextCursor = cursor + searchResponse.num_of_matches;
-        const hasMoreByStatus = searchResponse.response_status.toUpperCase() === 'MORE';
+        const hasMoreByStatus =
+          searchResponse.response_status.toUpperCase() === 'MORE';
         const hasMoreByCount =
-          searchResponse.total_matches > 0 && nextCursor < searchResponse.total_matches;
+          searchResponse.total_matches > 0 &&
+          nextCursor < searchResponse.total_matches;
 
         if (!hasMoreByStatus && !hasMoreByCount) {
           break;
@@ -849,7 +1021,10 @@ export class HikvisionUserManagementService {
         companyId,
         deviceId: device.id,
         direction: HikvisionSyncLogDirectionEnum.PULL,
-        status: counters.failed > 0 ? HikvisionSyncLogStatusEnum.PARTIAL : HikvisionSyncLogStatusEnum.SUCCESS,
+        status:
+          counters.failed > 0
+            ? HikvisionSyncLogStatusEnum.PARTIAL
+            : HikvisionSyncLogStatusEnum.SUCCESS,
         startedAt,
         completedAt: new Date(),
         counters,
@@ -897,7 +1072,10 @@ export class HikvisionUserManagementService {
     }
   }
 
-  async bulkSynchronizeUsers(companyId: number, options: HikvisionBulkUserSyncOptions) {
+  async bulkSynchronizeUsers(
+    companyId: number,
+    options: HikvisionBulkUserSyncOptions,
+  ) {
     if (options.direction === 'PUSH') {
       return this.syncUsersFromBackendToDevice(companyId, {
         device_id: options.device_id,
@@ -921,13 +1099,17 @@ export class HikvisionUserManagementService {
 
     for (const device of devices) {
       try {
-        const result = await this.syncUsersFromDeviceToBackend(companyId, device.id, {
-          max_results: options.max_results,
-          search_id: options.search_id,
-          employee_nos: options.employee_nos,
-          continue_on_error: continueOnError,
-          max_pages: options.max_pages,
-        });
+        const result = await this.syncUsersFromDeviceToBackend(
+          companyId,
+          device.id,
+          {
+            max_results: options.max_results,
+            search_id: options.search_id,
+            employee_nos: options.employee_nos,
+            continue_on_error: continueOnError,
+            max_pages: options.max_pages,
+          },
+        );
         results.push({
           device_id: device.id,
           status: 'SYNCED',
@@ -974,9 +1156,19 @@ export class HikvisionUserManagementService {
       user,
     );
 
-    await this.syncAssignmentRightPlansFromDevice(companyId, device.id, assignment, user.raw);
+    await this.syncAssignmentRightPlansFromDevice(
+      companyId,
+      device.id,
+      assignment,
+      user.raw,
+    );
     if (matchedEmployee) {
-      await this.upsertDeviceIdentity(companyId, matchedEmployee.id, user.employee_no, device.id);
+      await this.upsertDeviceIdentity(
+        companyId,
+        matchedEmployee.id,
+        user.employee_no,
+        device.id,
+      );
     }
 
     return {
@@ -1119,7 +1311,11 @@ export class HikvisionUserManagementService {
         { companyId, employeeId: employee.id, deviceId: IsNull() },
       ],
     });
-    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId, true);
+    const device = await this.findHikvisionDeviceOrFail(
+      companyId,
+      deviceId,
+      true,
+    );
 
     return {
       employee,
@@ -1130,10 +1326,15 @@ export class HikvisionUserManagementService {
     };
   }
 
-  private async buildBackendUserPayload(bundle: BackendUserBundle): Promise<{ UserInfo: Record<string, unknown> }> {
+  private async buildBackendUserPayload(
+    bundle: BackendUserBundle,
+  ): Promise<{ UserInfo: Record<string, unknown> }> {
     const employeeNo = this.resolveDeviceEmployeeNo(bundle.assignment);
     const credentialBundle = this.buildCredentialBundle(bundle.credentials);
-    const rightPlan = this.buildRightPlanPayload(bundle.assignment, bundle.rightPlans);
+    const rightPlan = this.buildRightPlanPayload(
+      bundle.assignment,
+      bundle.rightPlans,
+    );
     const doorRight =
       bundle.assignment.doorRight?.trim() ||
       rightPlan.map((item) => item.doorNo).join(',');
@@ -1141,11 +1342,13 @@ export class HikvisionUserManagementService {
     const metadataUserType =
       this.toNullableString(metadataRoot.user_type) ||
       this.toNullableString(metadataRoot.userType);
-    const userType = bundle.assignment.hikvisionUserType || metadataUserType || 'normal';
+    const userType =
+      bundle.assignment.hikvisionUserType || metadataUserType || 'normal';
     const resolvedUserVerifyMode = await this.resolveSupportedUserVerifyMode(
       bundle.device.companyId,
       bundle.device.id,
-      bundle.assignment.userVerifyMode ?? credentialBundle.explicitUserVerifyMode,
+      bundle.assignment.userVerifyMode ??
+        credentialBundle.explicitUserVerifyMode,
       this.buildUserVerifyModeCandidates(
         credentialBundle.hasPassword,
         credentialBundle.hasFingerprint,
@@ -1165,13 +1368,16 @@ export class HikvisionUserManagementService {
             bundle.assignment.validBeginTime ?? this.startOfToday(),
           ),
           endTime: this.formatHikvisionDateTime(
-            bundle.assignment.validEndTime ?? this.endOfDate(this.addYears(new Date(), 10)),
+            bundle.assignment.validEndTime ??
+              this.endOfDate(this.addYears(new Date(), 10)),
           ),
           timeType: 'local',
         },
         ...(doorRight ? { doorRight } : {}),
         ...(rightPlan.length ? { RightPlan: rightPlan } : {}),
-        ...(credentialBundle.password ? { password: credentialBundle.password } : {}),
+        ...(credentialBundle.password
+          ? { password: credentialBundle.password }
+          : {}),
         userVerifyMode: resolvedUserVerifyMode,
         localUIRight: bundle.assignment.localUiRight ?? false,
         closeDelayEnabled: bundle.assignment.closeDelayEnabled ?? false,
@@ -1181,7 +1387,9 @@ export class HikvisionUserManagementService {
     };
   }
 
-  private buildManualUserPayload(input: HikvisionDeviceUserInput): { UserInfo: Record<string, unknown> } {
+  private buildManualUserPayload(input: HikvisionDeviceUserInput): {
+    UserInfo: Record<string, unknown>;
+  } {
     const employeeNo = this.normalizeEmployeeNo(input.employee_no);
     const name = this.toNullableString(input.name);
     const userType = this.toNullableString(input.user_type) || 'normal';
@@ -1204,7 +1412,9 @@ export class HikvisionUserManagementService {
             this.formatHikvisionDateTime(this.startOfToday()),
           endTime:
             this.toNullableString(valid.end_time) ||
-            this.formatHikvisionDateTime(this.endOfDate(this.addYears(new Date(), 10))),
+            this.formatHikvisionDateTime(
+              this.endOfDate(this.addYears(new Date(), 10)),
+            ),
           timeType: this.toNullableString(valid.time_type) || 'local',
         },
         ...(doorRight ? { doorRight } : {}),
@@ -1223,9 +1433,9 @@ export class HikvisionUserManagementService {
     };
   }
 
-  private buildManualUserUpdatePayload(
-    input: HikvisionDeviceUserInput,
-  ): { UserInfo: Record<string, unknown> } {
+  private buildManualUserUpdatePayload(input: HikvisionDeviceUserInput): {
+    UserInfo: Record<string, unknown>;
+  } {
     const employeeNo = this.normalizeEmployeeNo(input.employee_no);
     const payload: Record<string, unknown> = {
       employeeNo,
@@ -1249,7 +1459,8 @@ export class HikvisionUserManagementService {
         validPayload.endTime = this.toNullableString(input.valid.end_time);
       }
       if (input.valid?.time_type !== undefined) {
-        validPayload.timeType = this.toNullableString(input.valid.time_type) || 'local';
+        validPayload.timeType =
+          this.toNullableString(input.valid.time_type) || 'local';
       }
       payload.Valid = validPayload;
     }
@@ -1263,7 +1474,8 @@ export class HikvisionUserManagementService {
       }));
     }
     if (input.password !== undefined) {
-      payload.password = input.password === '' ? '' : this.toNullableString(input.password);
+      payload.password =
+        input.password === '' ? '' : this.toNullableString(input.password);
     }
     if (input.user_verify_mode !== undefined) {
       payload.userVerifyMode = this.toNullableString(input.user_verify_mode);
@@ -1275,7 +1487,8 @@ export class HikvisionUserManagementService {
       payload.closeDelayEnabled = input.close_delay_enabled;
     }
     if (input.max_open_door_time !== undefined) {
-      payload.maxOpenDoorTime = this.toNullableNumber(input.max_open_door_time) ?? 0;
+      payload.maxOpenDoorTime =
+        this.toNullableNumber(input.max_open_door_time) ?? 0;
     }
     if (input.open_door_time !== undefined) {
       payload.openDoorTime = this.toNullableNumber(input.open_door_time) ?? 0;
@@ -1287,7 +1500,13 @@ export class HikvisionUserManagementService {
   }
 
   private buildSearchPayload(options: HikvisionUserSearchOptions) {
-    const employeeNos = [...new Set((options.employee_nos ?? []).map((item) => this.normalizeEmployeeNo(item)))];
+    const employeeNos = [
+      ...new Set(
+        (options.employee_nos ?? []).map((item) =>
+          this.normalizeEmployeeNo(item),
+        ),
+      ),
+    ];
 
     return {
       UserInfoSearchCond: {
@@ -1299,7 +1518,10 @@ export class HikvisionUserManagementService {
           options.search_result_position ?? 0,
           'search_result_position',
         ),
-        maxResults: this.ensurePositiveInteger(options.max_results ?? 100, 'max_results'),
+        maxResults: this.ensurePositiveInteger(
+          options.max_results ?? 100,
+          'max_results',
+        ),
         ...(employeeNos.length
           ? {
               EmployeeNoList: employeeNos.map((employeeNo) => ({ employeeNo })),
@@ -1327,8 +1549,7 @@ export class HikvisionUserManagementService {
         this.toNullableNumber(root.searchResultPosition) ?? fallbackPosition,
       max_results: this.toNullableNumber(root.maxResults) ?? fallbackMaxResults,
       total_matches: this.toNullableNumber(root.totalMatches) ?? users.length,
-      num_of_matches:
-        this.toNullableNumber(root.numOfMatches) ?? users.length,
+      num_of_matches: this.toNullableNumber(root.numOfMatches) ?? users.length,
       response_status:
         this.toNullableString(root.responseStatusStrg) ||
         this.toNullableString(root.responseStatus) ||
@@ -1337,13 +1558,20 @@ export class HikvisionUserManagementService {
     };
   }
 
-  private extractSearchRoot(payload: Record<string, unknown> | string): Record<string, unknown> {
+  private extractSearchRoot(
+    payload: Record<string, unknown> | string,
+  ): Record<string, unknown> {
     const data = this.toObject(payload);
-    return this.toObject(data.UserInfoSearch ?? data.UserInfoSearchResult ?? data);
+    return this.toObject(
+      data.UserInfoSearch ?? data.UserInfoSearchResult ?? data,
+    );
   }
 
-  private extractUsersFromSearch(payload: Record<string, unknown>): Record<string, unknown>[] {
-    const list = payload.UserInfo ?? payload.UserInfoList ?? payload.userInfoList ?? [];
+  private extractUsersFromSearch(
+    payload: Record<string, unknown>,
+  ): Record<string, unknown>[] {
+    const list =
+      payload.UserInfo ?? payload.UserInfoList ?? payload.userInfoList ?? [];
     if (Array.isArray(list)) {
       return list.map((item) => this.toObject(item));
     }
@@ -1383,7 +1611,9 @@ export class HikvisionUserManagementService {
     };
   }
 
-  private extractRightPlanRows(user: Record<string, unknown>): HikvisionUserRightPlanInput[] {
+  private extractRightPlanRows(
+    user: Record<string, unknown>,
+  ): HikvisionUserRightPlanInput[] {
     const rawRightPlan = user.RightPlan ?? user.rightPlan ?? [];
     const items = Array.isArray(rawRightPlan) ? rawRightPlan : [rawRightPlan];
 
@@ -1391,7 +1621,9 @@ export class HikvisionUserManagementService {
       .map((item) => this.toObject(item))
       .map((item) => {
         const doorNo = this.toNullableNumber(item.doorNo ?? item.doorID);
-        const planTemplateNo = this.toNullableString(item.planTemplateNo ?? item.templateNo);
+        const planTemplateNo = this.toNullableString(
+          item.planTemplateNo ?? item.templateNo,
+        );
         if (!doorNo || !planTemplateNo) {
           return null;
         }
@@ -1434,17 +1666,21 @@ export class HikvisionUserManagementService {
 
         return { doorNo, planTemplateNo };
       })
-      .filter((item): item is { doorNo: number; planTemplateNo: string } => Boolean(item));
+      .filter((item): item is { doorNo: number; planTemplateNo: string } =>
+        Boolean(item),
+      );
   }
 
   private buildCredentialBundle(credentials: EmployeeAccessCredential[]) {
     const activeCredentials = credentials.filter(
       (credential) =>
-        credential.credentialStatus === EmployeeAccessCredentialStatusEnum.ACTIVE,
+        credential.credentialStatus ===
+        EmployeeAccessCredentialStatusEnum.ACTIVE,
     );
     const passwordCredential = activeCredentials.find(
       (credential) =>
-        (credential.credentialType === EmployeeAccessCredentialTypeEnum.PASSWORD ||
+        (credential.credentialType ===
+          EmployeeAccessCredentialTypeEnum.PASSWORD ||
           credential.credentialType === EmployeeAccessCredentialTypeEnum.PIN) &&
         Boolean(credential.pinPassword?.trim()),
     );
@@ -1455,7 +1691,8 @@ export class HikvisionUserManagementService {
     );
     const fingerprintCredential = activeCredentials.find(
       (credential) =>
-        credential.credentialType === EmployeeAccessCredentialTypeEnum.FINGERPRINT ||
+        credential.credentialType ===
+          EmployeeAccessCredentialTypeEnum.FINGERPRINT ||
         credential.hasFingerprint,
     );
 
@@ -1465,9 +1702,9 @@ export class HikvisionUserManagementService {
       fingerprintCredential?.hasFingerprint || fingerprintCredential,
     );
     const explicitUserVerifyMode =
-      this.extractCredentialUserVerifyMode(passwordCredential)
-      ?? this.extractCredentialUserVerifyMode(cardCredential)
-      ?? this.extractCredentialUserVerifyMode(fingerprintCredential);
+      this.extractCredentialUserVerifyMode(passwordCredential) ??
+      this.extractCredentialUserVerifyMode(cardCredential) ??
+      this.extractCredentialUserVerifyMode(fingerprintCredential);
 
     return {
       password: passwordCredential?.pinPassword?.trim() || null,
@@ -1475,7 +1712,11 @@ export class HikvisionUserManagementService {
       hasCard,
       hasFingerprint,
       explicitUserVerifyMode,
-      userVerifyMode: this.resolveUserVerifyMode(hasPassword, hasFingerprint, hasCard),
+      userVerifyMode: this.resolveUserVerifyMode(
+        hasPassword,
+        hasFingerprint,
+        hasCard,
+      ),
     };
   }
 
@@ -1486,8 +1727,16 @@ export class HikvisionUserManagementService {
     input: HikvisionDeviceCardInput,
     operation: 'CREATE' | 'MODIFY' | 'UPSERT',
   ) {
-    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId, true);
-    const assignment = await this.findAssignmentOrFail(companyId, device.id, employeeId);
+    const device = await this.findHikvisionDeviceOrFail(
+      companyId,
+      deviceId,
+      true,
+    );
+    const assignment = await this.findAssignmentOrFail(
+      companyId,
+      device.id,
+      employeeId,
+    );
     const normalizedCardNo = this.normalizeCardNo(input.card_no);
     const cardType = this.normalizeCardType(input.card_type);
     const resolvedUserVerifyMode = await this.resolveCardUserVerifyMode(
@@ -1496,7 +1745,12 @@ export class HikvisionUserManagementService {
       device.id,
       input.user_verify_mode,
     );
-    const payload = this.buildCardPayload(assignment.employeeNo, normalizedCardNo, cardType, input);
+    const payload = this.buildCardPayload(
+      assignment.employeeNo,
+      normalizedCardNo,
+      cardType,
+      input,
+    );
     const setUserModePayload = this.buildManualUserUpdatePayload({
       employee_no: assignment.employeeNo,
       user_verify_mode: resolvedUserVerifyMode,
@@ -1509,21 +1763,40 @@ export class HikvisionUserManagementService {
         `${mode.toLowerCase()}-card:${device.id}:${assignment.employeeNo}:${normalizedCardNo}`,
         () =>
           mode === 'CREATE'
-            ? this.hikvisionAccessControlService.setupCardInfo(companyId, device.id, payload)
-            : this.hikvisionAccessControlService.modifyCardInfo(companyId, device.id, payload),
+            ? this.hikvisionAccessControlService.setupCardInfo(
+                companyId,
+                device.id,
+                payload,
+              )
+            : this.hikvisionAccessControlService.modifyCardInfo(
+                companyId,
+                device.id,
+                payload,
+              ),
       );
-      this.ensureHikvisionSuccess(mode === 'CREATE' ? 'CreateCard' : 'ModifyCard', response);
+      this.ensureHikvisionSuccess(
+        mode === 'CREATE' ? 'CreateCard' : 'ModifyCard',
+        response,
+      );
       return response;
     };
 
     try {
       await this.requestWithRetry(
         `set-card-user-mode:${device.id}:${assignment.employeeNo}`,
-        () => this.hikvisionAccessControlService.modifyUserInfo(companyId, device.id, setUserModePayload),
-      ).then((response) => this.ensureHikvisionSuccess('SetCardUserVerifyMode', response));
+        () =>
+          this.hikvisionAccessControlService.modifyUserInfo(
+            companyId,
+            device.id,
+            setUserModePayload,
+          ),
+      ).then((response) =>
+        this.ensureHikvisionSuccess('SetCardUserVerifyMode', response),
+      );
 
       let response: HikvisionHttpResult;
-      let actualOperation: 'CREATE' | 'MODIFY' = operation === 'MODIFY' ? 'MODIFY' : 'CREATE';
+      let actualOperation: 'CREATE' | 'MODIFY' =
+        operation === 'MODIFY' ? 'MODIFY' : 'CREATE';
 
       if (operation === 'UPSERT') {
         try {
@@ -1576,8 +1849,16 @@ export class HikvisionUserManagementService {
       throw new BadRequestException('password is required');
     }
 
-    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId, true);
-    const assignment = await this.findAssignmentOrFail(companyId, device.id, employeeId);
+    const device = await this.findHikvisionDeviceOrFail(
+      companyId,
+      deviceId,
+      true,
+    );
+    const assignment = await this.findAssignmentOrFail(
+      companyId,
+      device.id,
+      employeeId,
+    );
     const resolvedUserVerifyMode = await this.resolvePasswordUserVerifyMode(
       companyId,
       employeeId,
@@ -1594,7 +1875,12 @@ export class HikvisionUserManagementService {
     try {
       const response = await this.requestWithRetry(
         `${operation.toLowerCase()}-user-password:${device.id}:${assignment.employeeNo}`,
-        () => this.hikvisionAccessControlService.modifyUserInfo(companyId, device.id, payload),
+        () =>
+          this.hikvisionAccessControlService.modifyUserInfo(
+            companyId,
+            device.id,
+            payload,
+          ),
       );
       this.ensureHikvisionSuccess(
         operation === 'CREATE' ? 'CreateUserPassword' : 'ModifyUserPassword',
@@ -1630,7 +1916,13 @@ export class HikvisionUserManagementService {
     hasFingerprint: boolean,
     hasCard: boolean,
   ): string {
-    return this.buildUserVerifyModeCandidates(hasPassword, hasFingerprint, hasCard)[0] ?? 'cardOrFpOrPw';
+    return (
+      this.buildUserVerifyModeCandidates(
+        hasPassword,
+        hasFingerprint,
+        hasCard,
+      )[0] ?? 'cardOrFpOrPw'
+    );
   }
 
   private async resolvePasswordUserVerifyMode(
@@ -1648,7 +1940,8 @@ export class HikvisionUserManagementService {
     });
     const activeCredentials = credentials.filter(
       (credential) =>
-        credential.credentialStatus === EmployeeAccessCredentialStatusEnum.ACTIVE,
+        credential.credentialStatus ===
+        EmployeeAccessCredentialStatusEnum.ACTIVE,
     );
     const hasCard = activeCredentials.some(
       (credential) =>
@@ -1657,7 +1950,8 @@ export class HikvisionUserManagementService {
     );
     const hasFingerprint = activeCredentials.some(
       (credential) =>
-        credential.credentialType === EmployeeAccessCredentialTypeEnum.FINGERPRINT ||
+        credential.credentialType ===
+          EmployeeAccessCredentialTypeEnum.FINGERPRINT ||
         credential.hasFingerprint,
     );
     const candidateModes = hasPassword
@@ -1686,17 +1980,21 @@ export class HikvisionUserManagementService {
       ],
     });
     const activeCredentials = credentials.filter(
-      (credential) => credential.credentialStatus === EmployeeAccessCredentialStatusEnum.ACTIVE,
+      (credential) =>
+        credential.credentialStatus ===
+        EmployeeAccessCredentialStatusEnum.ACTIVE,
     );
     const hasPassword = activeCredentials.some(
       (credential) =>
-        (credential.credentialType === EmployeeAccessCredentialTypeEnum.PASSWORD
-          || credential.credentialType === EmployeeAccessCredentialTypeEnum.PIN)
-        && Boolean(credential.pinPassword?.trim()),
+        (credential.credentialType ===
+          EmployeeAccessCredentialTypeEnum.PASSWORD ||
+          credential.credentialType === EmployeeAccessCredentialTypeEnum.PIN) &&
+        Boolean(credential.pinPassword?.trim()),
     );
     const hasFingerprint = activeCredentials.some(
       (credential) =>
-        credential.credentialType === EmployeeAccessCredentialTypeEnum.FINGERPRINT ||
+        credential.credentialType ===
+          EmployeeAccessCredentialTypeEnum.FINGERPRINT ||
         credential.hasFingerprint,
     );
 
@@ -1768,14 +2066,20 @@ export class HikvisionUserManagementService {
       return null;
     }
 
-    return this.toNullableString(this.toObject(this.toObject(credential.metadata).hikvision).user_verify_mode);
+    return this.toNullableString(
+      this.toObject(this.toObject(credential.metadata).hikvision)
+        .user_verify_mode,
+    );
   }
 
   private async resolveBackendSyncTargets(
     companyId: number,
     options: HikvisionBackendToDeviceSyncOptions,
   ): Promise<Array<{ deviceId: number; employeeId: number }>> {
-    const resolvedTargets = new Map<string, { deviceId: number; employeeId: number }>();
+    const resolvedTargets = new Map<
+      string,
+      { deviceId: number; employeeId: number }
+    >();
     const resolvedDevices = await this.resolveTargetDevices(companyId, {
       deviceId: options.device_id,
       deviceIds: options.device_ids,
@@ -1794,7 +2098,10 @@ export class HikvisionUserManagementService {
       if (resolvedDeviceIds.length > 0) {
         for (const deviceId of resolvedDeviceIds) {
           for (const employeeId of uniqueEmployeeIds) {
-            resolvedTargets.set(`${deviceId}:${employeeId}`, { deviceId, employeeId });
+            resolvedTargets.set(`${deviceId}:${employeeId}`, {
+              deviceId,
+              employeeId,
+            });
           }
         }
       } else {
@@ -1807,10 +2114,13 @@ export class HikvisionUserManagementService {
 
         for (const assignment of assignments) {
           if (!assignment.deviceId || !assignment.employeeId) continue;
-          resolvedTargets.set(`${assignment.deviceId}:${assignment.employeeId}`, {
-            deviceId: assignment.deviceId,
-            employeeId: assignment.employeeId,
-          });
+          resolvedTargets.set(
+            `${assignment.deviceId}:${assignment.employeeId}`,
+            {
+              deviceId: assignment.deviceId,
+              employeeId: assignment.employeeId,
+            },
+          );
         }
       }
     }
@@ -1844,16 +2154,18 @@ export class HikvisionUserManagementService {
       includeInactive?: boolean;
     },
   ): Promise<AttendanceDevice[]> {
-    const requestedIds = [...new Set([
-      ...(input.deviceId ? [input.deviceId] : []),
-      ...(input.deviceIds ?? []),
-    ])];
+    const requestedIds = [
+      ...new Set([
+        ...(input.deviceId ? [input.deviceId] : []),
+        ...(input.deviceIds ?? []),
+      ]),
+    ];
 
     const qb = this.attendanceDeviceRepository
       .createQueryBuilder('device')
       .where('device.company_id = :companyId', { companyId })
       .andWhere(
-        '(LOWER(device.integration_type) = :integrationType OR LOWER(COALESCE(device.vendor_name, \'\')) LIKE :vendor)',
+        "(LOWER(device.integration_type) = :integrationType OR LOWER(COALESCE(device.vendor_name, '')) LIKE :vendor)",
         {
           integrationType: 'hikvision',
           vendor: '%hikvision%',
@@ -1869,7 +2181,9 @@ export class HikvisionUserManagementService {
     }
 
     if (!input.includeInactive) {
-      qb.andWhere('device.status = :status', { status: AttendanceDeviceStatusEnum.ACTIVE });
+      qb.andWhere('device.status = :status', {
+        status: AttendanceDeviceStatusEnum.ACTIVE,
+      });
     }
 
     return qb.getMany();
@@ -1892,7 +2206,9 @@ export class HikvisionUserManagementService {
       (device.integrationType || '').toLowerCase() === 'hikvision' ||
       (device.vendorName || '').toLowerCase().includes('hikvision');
     if (!isHikvision) {
-      throw new BadRequestException('Requested device is not configured as Hikvision');
+      throw new BadRequestException(
+        'Requested device is not configured as Hikvision',
+      );
     }
 
     if (requireActive && device.status !== AttendanceDeviceStatusEnum.ACTIVE) {
@@ -1902,10 +2218,17 @@ export class HikvisionUserManagementService {
     return device;
   }
 
-  private async findEmployeeOrFail(companyId: number, employeeId: number): Promise<Employee> {
+  private async findEmployeeOrFail(
+    companyId: number,
+    employeeId: number,
+  ): Promise<Employee> {
     const employee = await this.employeeRepository
       .createQueryBuilder('employee')
-      .innerJoin(CompanyUser, 'companyUser', 'companyUser.id = employee.company_user_id')
+      .innerJoin(
+        CompanyUser,
+        'companyUser',
+        'companyUser.id = employee.company_user_id',
+      )
       .where('employee.id = :employeeId', { employeeId })
       .andWhere('companyUser.company_id = :companyId', { companyId })
       .getOne();
@@ -2021,7 +2344,9 @@ export class HikvisionUserManagementService {
     await this.employeeDeviceIdentityRepository.save(identity);
   }
 
-  private resolveDeviceEmployeeNo(assignment: EmployeeDeviceAssignment): string {
+  private resolveDeviceEmployeeNo(
+    assignment: EmployeeDeviceAssignment,
+  ): string {
     const fromAssignment = assignment.employeeNo?.trim();
     if (fromAssignment) {
       return fromAssignment;
@@ -2038,7 +2363,11 @@ export class HikvisionUserManagementService {
       return preferredName;
     }
 
-    const displayName = [employee.first_name, employee.middle_name, employee.last_name]
+    const displayName = [
+      employee.first_name,
+      employee.middle_name,
+      employee.last_name,
+    ]
       .map((value) => this.toNullableString(value))
       .filter((value): value is string => Boolean(value))
       .join(' ')
@@ -2109,7 +2438,10 @@ export class HikvisionUserManagementService {
     );
   }
 
-  private ensureHikvisionSuccess(operation: string, response: HikvisionHttpResult) {
+  private ensureHikvisionSuccess(
+    operation: string,
+    response: HikvisionHttpResult,
+  ) {
     if (!response.ok) {
       const detail =
         this.extractHikvisionFailureReason(response.parsed) ??
@@ -2155,7 +2487,13 @@ export class HikvisionUserManagementService {
     }
 
     const successSubStatus = new Set(['ok', 'success', 'none']);
-    const successStatusString = new Set(['ok', 'success', 'successful', 'enabled', 'completed']);
+    const successStatusString = new Set([
+      'ok',
+      'success',
+      'successful',
+      'enabled',
+      'completed',
+    ]);
     const successStatusCode = new Set(['1', '200']);
     const normalizedSubStatus = subStatusCode.toLowerCase();
     const normalizedStatusString = statusString.toLowerCase();
@@ -2166,11 +2504,18 @@ export class HikvisionUserManagementService {
       return `${subStatusCode}${errorMessage ? ` (${errorMessage})` : ''}`;
     }
 
-    if (normalizedStatusString && !successStatusString.has(normalizedStatusString)) {
+    if (
+      normalizedStatusString &&
+      !successStatusString.has(normalizedStatusString)
+    ) {
       return `${statusString}${errorMessage ? ` (${errorMessage})` : ''}`;
     }
 
-    if (normalizedErrorCode && normalizedErrorCode !== '0' && normalizedErrorCode !== '1') {
+    if (
+      normalizedErrorCode &&
+      normalizedErrorCode !== '0' &&
+      normalizedErrorCode !== '1'
+    ) {
       return `${errorCode}${errorMessage ? ` (${errorMessage})` : ''}`;
     }
 
@@ -2181,7 +2526,10 @@ export class HikvisionUserManagementService {
     return null;
   }
 
-  private findFirstStringDeep(source: Record<string, unknown>, candidateKeys: string[]): string {
+  private findFirstStringDeep(
+    source: Record<string, unknown>,
+    candidateKeys: string[],
+  ): string {
     const keySet = new Set(candidateKeys.map((item) => item.toLowerCase()));
     const queue: unknown[] = [source];
 
@@ -2219,13 +2567,16 @@ export class HikvisionUserManagementService {
       return null;
     }
 
-    const text = typeof payload === 'string' ? payload : JSON.stringify(payload);
+    const text =
+      typeof payload === 'string' ? payload : JSON.stringify(payload);
     const normalized = text.replace(/\s+/g, ' ').trim();
     if (!normalized) {
       return null;
     }
 
-    return normalized.length > 500 ? `${normalized.slice(0, 500)}...` : normalized;
+    return normalized.length > 500
+      ? `${normalized.slice(0, 500)}...`
+      : normalized;
   }
 
   private async persistSyncLogSafe(input: {
@@ -2259,7 +2610,9 @@ export class HikvisionUserManagementService {
         }),
       );
     } catch (error) {
-      this.logger.warn(`Skipping hikvision users sync log insert: ${(error as Error).message}`);
+      this.logger.warn(
+        `Skipping hikvision users sync log insert: ${(error as Error).message}`,
+      );
     }
   }
 
@@ -2320,7 +2673,11 @@ export class HikvisionUserManagementService {
       return [];
     }
 
-    return [...new Set(rawModes.map((item) => String(item ?? '').trim()).filter(Boolean))];
+    return [
+      ...new Set(
+        rawModes.map((item) => String(item ?? '').trim()).filter(Boolean),
+      ),
+    ];
   }
 
   private extractSupportedUserVerifyModesFromCapabilities(
@@ -2350,7 +2707,9 @@ export class HikvisionUserManagementService {
               ? (value as Record<string, unknown>)
               : {};
           const raw = [root['@opt'], root.opt, root.options, root.option]
-            .map((item) => (item === null || item === undefined ? '' : String(item).trim()))
+            .map((item) =>
+              item === null || item === undefined ? '' : String(item).trim(),
+            )
             .find((item) => item.length > 0);
 
           if (raw) {
@@ -2378,7 +2737,9 @@ export class HikvisionUserManagementService {
   private ensureNonNegativeInteger(value: unknown, fieldName: string): number {
     const num = Number(value);
     if (!Number.isInteger(num) || num < 0) {
-      throw new BadRequestException(`${fieldName} must be a non-negative integer`);
+      throw new BadRequestException(
+        `${fieldName} must be a non-negative integer`,
+      );
     }
     return num;
   }
@@ -2457,4 +2818,3 @@ export class HikvisionUserManagementService {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
-

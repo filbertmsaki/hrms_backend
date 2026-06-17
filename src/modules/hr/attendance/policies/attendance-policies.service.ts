@@ -55,7 +55,9 @@ export class AttendancePoliciesService {
     };
   }
 
-  private normalizeOptionalString(value: string | undefined): string | undefined {
+  private normalizeOptionalString(
+    value: string | undefined,
+  ): string | undefined {
     if (value === undefined) {
       return undefined;
     }
@@ -135,27 +137,32 @@ export class AttendancePoliciesService {
       return;
     }
 
-    await this.attendancePolicyRepository.manager.transaction(async (manager) => {
-      await manager.getRepository(AttendancePolicy).update(
-        { company_id: companyId, is_active: true },
-        { is_active: false },
-      );
+    await this.attendancePolicyRepository.manager.transaction(
+      async (manager) => {
+        await manager
+          .getRepository(AttendancePolicy)
+          .update(
+            { company_id: companyId, is_active: true },
+            { is_active: false },
+          );
 
-      const result = await manager.getRepository(AttendancePolicy).update(
-        { id: policyId, company_id: companyId },
-        { is_active: true },
-      );
+        const result = await manager
+          .getRepository(AttendancePolicy)
+          .update({ id: policyId, company_id: companyId }, { is_active: true });
 
-      if (!result.affected) {
-        throw new NotFoundException('Attendance policy not found');
-      }
-    });
+        if (!result.affected) {
+          throw new NotFoundException('Attendance policy not found');
+        }
+      },
+    );
   }
 
   async create(companyId: number, dto: CreateAttendancePolicyDto) {
     const normalizedName = this.normalizeOptionalString(dto.name)!;
     const weekendDays = this.normalizeOptionalString(dto.weekend_days);
-    const authenticationModes = this.normalizeOptionalString(dto.authentication_modes);
+    const authenticationModes = this.normalizeOptionalString(
+      dto.authentication_modes,
+    );
 
     const lateAfterMinutes = dto.late_after_minutes ?? 10;
     const halfDayAfterMinutes = dto.half_day_after_minutes ?? 240;
@@ -222,7 +229,9 @@ export class AttendancePoliciesService {
       'updated_at',
       'calculation_time',
     ];
-    const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'created_at';
+    const safeSortBy = allowedSortFields.includes(sortBy)
+      ? sortBy
+      : 'created_at';
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
     const skip = (page - 1) * limit;
 
@@ -243,7 +252,11 @@ export class AttendancePoliciesService {
     return this.mapAttendancePolicy(policy);
   }
 
-  async update(companyId: number, policyId: number, dto: UpdateAttendancePolicyDto) {
+  async update(
+    companyId: number,
+    policyId: number,
+    dto: UpdateAttendancePolicyDto,
+  ) {
     const policy = await this.findPolicyOrFail(companyId, policyId);
 
     const resolvedLateAfterMinutes =
@@ -289,21 +302,25 @@ export class AttendancePoliciesService {
       await this.setPolicyActiveState(companyId, saved.id, true);
     }
 
-    return this.mapAttendancePolicy(await this.findPolicyOrFail(companyId, saved.id));
+    return this.mapAttendancePolicy(
+      await this.findPolicyOrFail(companyId, saved.id),
+    );
   }
 
   async activate(companyId: number, policyId: number) {
     await this.findPolicyOrFail(companyId, policyId);
     await this.setPolicyActiveState(companyId, policyId, true);
-    return this.mapAttendancePolicy(await this.findPolicyOrFail(companyId, policyId));
+    return this.mapAttendancePolicy(
+      await this.findPolicyOrFail(companyId, policyId),
+    );
   }
 
-  async remove(companyId: number, policyId: number): Promise<{ message: string }> {
+  async remove(
+    companyId: number,
+    policyId: number,
+  ): Promise<{ message: string }> {
     const policy = await this.findPolicyOrFail(companyId, policyId);
     await this.attendancePolicyRepository.remove(policy);
     return { message: 'Attendance policy deleted successfully' };
   }
 }
-
-
-

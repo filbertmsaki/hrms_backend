@@ -76,8 +76,12 @@ export class EmployeeBiometricCaptureSessionService {
       cardReaderNo: dto.card_reader_no ?? null,
       status: dto.status ?? EmployeeBiometricCaptureStatusEnum.PENDING,
       expiresAt: dto.expires_at ? new Date(dto.expires_at) : null,
-      captureRequestPayload: this.maskSensitivePayload(dto.capture_request_payload ?? null),
-      setupRequestPayload: this.maskSensitivePayload(dto.setup_request_payload ?? null),
+      captureRequestPayload: this.maskSensitivePayload(
+        dto.capture_request_payload ?? null,
+      ),
+      setupRequestPayload: this.maskSensitivePayload(
+        dto.setup_request_payload ?? null,
+      ),
       performedByCompanyUserId: dto.performed_by_company_user_id ?? null,
       metadata: this.maskSensitivePayload(dto.metadata ?? null),
     });
@@ -241,7 +245,11 @@ export class EmployeeBiometricCaptureSessionService {
   ) {
     const employee = await this.findEmployeeOrFail(companyId, employeeId);
     const device = await this.findDeviceOrFail(companyId, dto.device_id);
-    const assignment = await this.findAssignmentOrFail(companyId, employee.id, device.id);
+    const assignment = await this.findAssignmentOrFail(
+      companyId,
+      employee.id,
+      device.id,
+    );
     const fingerprintId = this.normalizeFingerprintId(String(dto.finger_no));
     const deviceEmployeeNo = assignment.employeeNo.trim();
     const cardReaderNo = 1;
@@ -271,16 +279,20 @@ export class EmployeeBiometricCaptureSessionService {
         status: EmployeeBiometricCaptureStatusEnum.CAPTURING,
         startedAt: new Date(),
         expiresAt: new Date(Date.now() + 2 * 60 * 1000),
-        captureRequestPayload: { endpoint: '/ISAPI/AccessControl/CaptureFingerPrint', payload: captureXml },
+        captureRequestPayload: {
+          endpoint: '/ISAPI/AccessControl/CaptureFingerPrint',
+          payload: captureXml,
+        },
         performedByCompanyUserId: actor.performedByCompanyUserId ?? null,
       }),
     );
 
-    const captureResponse = await this.hikvisionAccessControlService.captureFingerprint(
-      companyId,
-      device.id,
-      captureXml,
-    );
+    const captureResponse =
+      await this.hikvisionAccessControlService.captureFingerprint(
+        companyId,
+        device.id,
+        captureXml,
+      );
     const capture = this.extractFingerprintCapture(captureResponse.parsed);
 
     if (!captureResponse.ok || !capture.fingerData) {
@@ -387,27 +399,40 @@ export class EmployeeBiometricCaptureSessionService {
   ) {
     const employee = await this.findEmployeeOrFail(companyId, employeeId);
     const device = await this.findDeviceOrFail(companyId, deviceId);
-    const assignment = await this.findAssignmentOrFail(companyId, employee.id, device.id);
-    const fingerprintRecord = await this.findFingerprintCredentialByRecordIdOrFail(
+    const assignment = await this.findAssignmentOrFail(
       companyId,
       employee.id,
-      dto.fingerprint_id,
+      device.id,
     );
+    const fingerprintRecord =
+      await this.findFingerprintCredentialByRecordIdOrFail(
+        companyId,
+        employee.id,
+        dto.fingerprint_id,
+      );
     const metadata = this.toObject(fingerprintRecord.metadata);
     const fingerprint = this.toObject(metadata.fingerprint);
     const storedFingerprintId = this.toNullableString(
-      fingerprintRecord.fingerprintId ?? fingerprintRecord.credentialNo ?? fingerprint.fingerprint_id,
+      fingerprintRecord.fingerprintId ??
+        fingerprintRecord.credentialNo ??
+        fingerprint.fingerprint_id,
     );
     const storedFingerData = this.toNullableString(fingerprint.finger_data);
 
     if (!storedFingerprintId) {
-      throw new BadRequestException('Stored fingerprint record is missing fingerprint_id');
+      throw new BadRequestException(
+        'Stored fingerprint record is missing fingerprint_id',
+      );
     }
     if (!storedFingerData) {
-      throw new BadRequestException('Stored fingerprint record is missing finger_data');
+      throw new BadRequestException(
+        'Stored fingerprint record is missing finger_data',
+      );
     }
 
-    const storedQuality = this.toNullableInteger(fingerprint.finger_print_quality);
+    const storedQuality = this.toNullableInteger(
+      fingerprint.finger_print_quality,
+    );
     const storedMinQuality = this.resolveStoredFingerprintMinQuality(metadata);
     this.validateFingerprintQuality(storedQuality, storedMinQuality);
 
@@ -445,7 +470,11 @@ export class EmployeeBiometricCaptureSessionService {
     const employee = await this.findEmployeeOrFail(companyId, employeeId);
     const device = await this.findDeviceOrFail(companyId, dto.device_id);
     const fingerprintId = this.normalizeFingerprintId(dto.fingerprint_id);
-    const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(companyId, employee.id, device.id);
+    const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(
+      companyId,
+      employee.id,
+      device.id,
+    );
     const resolvedUserVerifyMode = await this.resolveFingerprintUserVerifyMode(
       companyId,
       employee.id,
@@ -528,27 +557,37 @@ export class EmployeeBiometricCaptureSessionService {
       throw new BadRequestException('Saved fingerprint is missing fingerData');
     }
 
-    const assignment = await this.findAssignmentOrFail(companyId, employee.id, device.id);
+    const assignment = await this.findAssignmentOrFail(
+      companyId,
+      employee.id,
+      device.id,
+    );
     const deviceEmployeeNo = assignment.employeeNo.trim();
     const cardReaderNo = this.resolveStoredFingerprintCardReaderNo(
       metadata,
       device.id,
       assignment.metadata,
     );
-    const resolvedUserVerifyMode = await this.resolveConfiguredFingerprintUserVerifyMode(
-      companyId,
-      device.id,
-      assignment.userVerifyMode ?? null,
-      metadata,
-    );
+    const resolvedUserVerifyMode =
+      await this.resolveConfiguredFingerprintUserVerifyMode(
+        companyId,
+        device.id,
+        assignment.userVerifyMode ?? null,
+        metadata,
+      );
 
     if (resolvedUserVerifyMode) {
-      const userModeResponse = await this.hikvisionAccessControlService.modifyUserInfo(companyId, device.id, {
-        UserInfo: {
-          employeeNo: deviceEmployeeNo,
-          userVerifyMode: resolvedUserVerifyMode,
-        },
-      });
+      const userModeResponse =
+        await this.hikvisionAccessControlService.modifyUserInfo(
+          companyId,
+          device.id,
+          {
+            UserInfo: {
+              employeeNo: deviceEmployeeNo,
+              userVerifyMode: resolvedUserVerifyMode,
+            },
+          },
+        );
       if (!userModeResponse.ok) {
         const errorMessage = this.extractDeviceErrorMessage(
           userModeResponse.parsed,
@@ -575,15 +614,20 @@ export class EmployeeBiometricCaptureSessionService {
       cardReaderNo,
     );
 
-    const setupResponse = await this.hikvisionAccessControlService.setupFingerprint(
-      companyId,
-      device.id,
-      setupPayload,
+    const setupResponse =
+      await this.hikvisionAccessControlService.setupFingerprint(
+        companyId,
+        device.id,
+        setupPayload,
+      );
+    const setupStatus = this.extractFingerprintSetupStatus(
+      setupResponse.parsed,
+      cardReaderNo,
     );
-    const setupStatus = this.extractFingerprintSetupStatus(setupResponse.parsed, cardReaderNo);
-    const syncStatus = setupResponse.ok && setupStatus.success ? 'SYNCED' : 'FAILED';
+    const syncStatus =
+      setupResponse.ok && setupStatus.success ? 'SYNCED' : 'FAILED';
     const syncErrorMessage = setupResponse.ok
-      ? setupStatus.reason ?? 'Fingerprint upload failed'
+      ? (setupStatus.reason ?? 'Fingerprint upload failed')
       : `Set fingerprint failed with status ${setupResponse.status}`;
     const updatedMetadata = {
       ...metadata,
@@ -600,7 +644,9 @@ export class EmployeeBiometricCaptureSessionService {
           employee_no: deviceEmployeeNo,
           card_reader_no: cardReaderNo,
           enabled: Boolean(
-            this.toObject(this.toObject(metadata.device_syncs)[String(device.id)]).enabled ?? true,
+            this.toObject(
+              this.toObject(metadata.device_syncs)[String(device.id)],
+            ).enabled ?? true,
           ),
           user_verify_mode: resolvedUserVerifyMode,
           sync_status: syncStatus,
@@ -612,7 +658,9 @@ export class EmployeeBiometricCaptureSessionService {
         ...this.toObject(metadata.hikvision),
         user_verify_mode: resolvedUserVerifyMode,
       },
-      setup_response: this.maskSensitivePayload(this.toObject(setupResponse.parsed)),
+      setup_response: this.maskSensitivePayload(
+        this.toObject(setupResponse.parsed),
+      ),
     };
     credential.metadata = updatedMetadata;
     credential.lastSyncedAt = new Date();
@@ -626,9 +674,10 @@ export class EmployeeBiometricCaptureSessionService {
       employee_name: `${employee.first_name} ${employee.last_name}`.trim(),
       device_id: device.id,
       action: EmployeeDeviceAccessActionEnum.SET_FINGERPRINT,
-      status: syncStatus === 'SYNCED'
-        ? EmployeeDeviceAccessAuditStatusEnum.SUCCESS
-        : EmployeeDeviceAccessAuditStatusEnum.FAILED,
+      status:
+        syncStatus === 'SYNCED'
+          ? EmployeeDeviceAccessAuditStatusEnum.SUCCESS
+          : EmployeeDeviceAccessAuditStatusEnum.FAILED,
       request_payload: setupPayload,
       response_payload: this.toObject(setupResponse.parsed),
       error_message: syncStatus === 'SYNCED' ? null : syncErrorMessage,
@@ -645,12 +694,18 @@ export class EmployeeBiometricCaptureSessionService {
     return this.mapFingerprintCredential(saved, device.id);
   }
 
-  async findEmployeeFingerprints(companyId: number, employeeId: number, deviceId?: number) {
+  async findEmployeeFingerprints(
+    companyId: number,
+    employeeId: number,
+    deviceId?: number,
+  ) {
     const employee = await this.findEmployeeOrFail(companyId, employeeId);
     const qb = this.credentialRepository
       .createQueryBuilder('credential')
       .where('credential.company_id = :companyId', { companyId })
-      .andWhere('credential.employee_id = :employeeId', { employeeId: employee.id })
+      .andWhere('credential.employee_id = :employeeId', {
+        employeeId: employee.id,
+      })
       .andWhere('credential.credential_type = :type', {
         type: EmployeeAccessCredentialTypeEnum.FINGERPRINT,
       })
@@ -667,7 +722,9 @@ export class EmployeeBiometricCaptureSessionService {
 
         const metadata = this.toObject(row.metadata);
         const deviceSyncs = this.toObject(metadata.device_syncs);
-        return row.deviceId === deviceId || Boolean(deviceSyncs[String(deviceId)]);
+        return (
+          row.deviceId === deviceId || Boolean(deviceSyncs[String(deviceId)])
+        );
       })
       .map((row) => this.mapFingerprintCredential(row, deviceId));
   }
@@ -691,21 +748,36 @@ export class EmployeeBiometricCaptureSessionService {
     );
 
     let responsePayload: Record<string, unknown> | null = null;
-    const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(companyId, employee.id, device.id);
+    const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(
+      companyId,
+      employee.id,
+      device.id,
+    );
     if (deleteFromDevice) {
       const payload = this.buildFingerprintDeletePayload(
         deviceEmployeeNo,
         fingerprintId.number,
         cardReaderNo,
       );
-      const response = await this.hikvisionAccessControlService.deleteFingerprint(companyId, device.id, payload);
+      const response =
+        await this.hikvisionAccessControlService.deleteFingerprint(
+          companyId,
+          device.id,
+          payload,
+        );
       responsePayload = this.toObject(response.parsed);
-      const deleteStatus = this.extractFingerprintSetupStatus(response.parsed, cardReaderNo);
+      const deleteStatus = this.extractFingerprintSetupStatus(
+        response.parsed,
+        cardReaderNo,
+      );
       const hasDeviceStatusList = deleteStatus.cardReaderRecvStatus !== null;
       if (!response.ok || (hasDeviceStatusList && !deleteStatus.success)) {
         const reason = response.ok
-          ? deleteStatus.reason ?? 'Delete fingerprint failed'
-          : this.extractDeviceErrorMessage(response.parsed, `Delete fingerprint failed with status ${response.status}`);
+          ? (deleteStatus.reason ?? 'Delete fingerprint failed')
+          : this.extractDeviceErrorMessage(
+              response.parsed,
+              `Delete fingerprint failed with status ${response.status}`,
+            );
         throw new BadRequestException(reason);
       }
     }
@@ -779,12 +851,23 @@ export class EmployeeBiometricCaptureSessionService {
 
     if (branchId) qb.andWhere('session.branch_id = :branchId', { branchId });
     if (deviceId) qb.andWhere('session.device_id = :deviceId', { deviceId });
-    if (employeeId) qb.andWhere('session.employee_id = :employeeId', { employeeId });
-    if (employeeNo?.trim()) qb.andWhere('session.employee_no = :employeeNo', { employeeNo: employeeNo.trim() });
-    if (captureType) qb.andWhere('session.capture_type = :captureType', { captureType });
+    if (employeeId)
+      qb.andWhere('session.employee_id = :employeeId', { employeeId });
+    if (employeeNo?.trim())
+      qb.andWhere('session.employee_no = :employeeNo', {
+        employeeNo: employeeNo.trim(),
+      });
+    if (captureType)
+      qb.andWhere('session.capture_type = :captureType', { captureType });
     if (status) qb.andWhere('session.status = :status', { status });
-    if (dateFrom) qb.andWhere('session.created_at >= :dateFrom', { dateFrom: new Date(dateFrom) });
-    if (dateTo) qb.andWhere('session.created_at <= :dateTo', { dateTo: new Date(dateTo) });
+    if (dateFrom)
+      qb.andWhere('session.created_at >= :dateFrom', {
+        dateFrom: new Date(dateFrom),
+      });
+    if (dateTo)
+      qb.andWhere('session.created_at <= :dateTo', {
+        dateTo: new Date(dateTo),
+      });
 
     const [items, total] = await qb
       .orderBy('session.created_at', 'DESC')
@@ -810,7 +893,9 @@ export class EmployeeBiometricCaptureSessionService {
   }
 
   async cancel(companyId: number, id: number) {
-    const row = await this.sessionRepository.findOne({ where: { id, companyId } });
+    const row = await this.sessionRepository.findOne({
+      where: { id, companyId },
+    });
     if (!row) {
       throw new NotFoundException('Biometric capture session not found');
     }
@@ -900,12 +985,17 @@ export class EmployeeBiometricCaptureSessionService {
 
     if (dto.status !== undefined) row.status = dto.status;
     if (dto.capture_response_payload !== undefined) {
-      row.captureResponsePayload = this.maskSensitivePayload(dto.capture_response_payload ?? null);
+      row.captureResponsePayload = this.maskSensitivePayload(
+        dto.capture_response_payload ?? null,
+      );
     }
     if (dto.setup_response_payload !== undefined) {
-      row.setupResponsePayload = this.maskSensitivePayload(dto.setup_response_payload ?? null);
+      row.setupResponsePayload = this.maskSensitivePayload(
+        dto.setup_response_payload ?? null,
+      );
     }
-    if (dto.error_message !== undefined) row.errorMessage = dto.error_message ?? null;
+    if (dto.error_message !== undefined)
+      row.errorMessage = dto.error_message ?? null;
     if (dto.metadata !== undefined) {
       row.metadata = this.maskSensitivePayload({
         ...(row.metadata ?? {}),
@@ -970,8 +1060,8 @@ export class EmployeeBiometricCaptureSessionService {
     const deviceSyncs = this.toObject(metadata.device_syncs);
     const existingDeviceSync = this.toObject(deviceSyncs[String(device.id)]);
     const effectiveUserVerifyMode =
-      this.toNullableString(existingDeviceSync.user_verify_mode)
-      ?? this.toNullableString(this.toObject(metadata.hikvision).user_verify_mode);
+      this.toNullableString(existingDeviceSync.user_verify_mode) ??
+      this.toNullableString(this.toObject(metadata.hikvision).user_verify_mode);
 
     credential.metadata = {
       ...metadata,
@@ -1026,9 +1116,11 @@ export class EmployeeBiometricCaptureSessionService {
     explicitUserVerifyMode?: string | null,
   ): Promise<string | null> {
     const configuredMode =
-      this.toNullableString(explicitUserVerifyMode)
-      ?? this.toNullableString(this.toObject(metadata.hikvision).user_verify_mode)
-      ?? this.toNullableString(assignmentUserVerifyMode);
+      this.toNullableString(explicitUserVerifyMode) ??
+      this.toNullableString(
+        this.toObject(metadata.hikvision).user_verify_mode,
+      ) ??
+      this.toNullableString(assignmentUserVerifyMode);
 
     if (!configuredMode) {
       return null;
@@ -1054,7 +1146,11 @@ export class EmployeeBiometricCaptureSessionService {
     fingerPrintQuality: number | null,
     syncStatus: string,
   ) {
-    const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(companyId, employee.id, deviceId);
+    const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(
+      companyId,
+      employee.id,
+      deviceId,
+    );
     const credential = await this.saveFingerprintCredential({
       companyId,
       employee,
@@ -1195,7 +1291,11 @@ export class EmployeeBiometricCaptureSessionService {
     fingerprintId: string,
     overwrite: boolean,
   ) {
-    const existing = await this.findFingerprintCredential(companyId, employeeId, fingerprintId);
+    const existing = await this.findFingerprintCredential(
+      companyId,
+      employeeId,
+      fingerprintId,
+    );
 
     if (existing && !overwrite) {
       throw new BadRequestException(
@@ -1204,7 +1304,10 @@ export class EmployeeBiometricCaptureSessionService {
     }
 
     if (!existing) {
-      const count = await this.countActiveEmployeeFingerprints(companyId, employeeId);
+      const count = await this.countActiveEmployeeFingerprints(
+        companyId,
+        employeeId,
+      );
       if (count >= MAX_FINGERPRINTS_PER_EMPLOYEE) {
         throw new BadRequestException(
           `An employee can have at most ${MAX_FINGERPRINTS_PER_EMPLOYEE} saved fingerprints`,
@@ -1218,7 +1321,11 @@ export class EmployeeBiometricCaptureSessionService {
     employeeId: number,
     fingerprintId: string,
   ) {
-    const credential = await this.findFingerprintCredential(companyId, employeeId, fingerprintId);
+    const credential = await this.findFingerprintCredential(
+      companyId,
+      employeeId,
+      fingerprintId,
+    );
 
     if (!credential) {
       throw new NotFoundException('Fingerprint credential not found');
@@ -1234,7 +1341,9 @@ export class EmployeeBiometricCaptureSessionService {
   ) {
     const parsedId = Number(fingerprintRecordId);
     if (!Number.isInteger(parsedId) || parsedId < 1) {
-      throw new BadRequestException('fingerprint_id must be a valid fingerprint record id');
+      throw new BadRequestException(
+        'fingerprint_id must be a valid fingerprint record id',
+      );
     }
 
     const credential = await this.credentialRepository.findOne({
@@ -1246,14 +1355,19 @@ export class EmployeeBiometricCaptureSessionService {
       },
     });
 
-    if (!credential || credential.credentialStatus === EmployeeAccessCredentialStatusEnum.DELETED) {
+    if (
+      !credential ||
+      credential.credentialStatus === EmployeeAccessCredentialStatusEnum.DELETED
+    ) {
       throw new NotFoundException('Fingerprint record not found');
     }
 
     return credential;
   }
 
-  private resolveStoredFingerprintMinQuality(metadata: Record<string, unknown>) {
+  private resolveStoredFingerprintMinQuality(
+    metadata: Record<string, unknown>,
+  ) {
     const fingerprint = this.toObject(metadata.fingerprint);
     const storedMinQuality = this.toNullableInteger(fingerprint.min_quality);
     return storedMinQuality ?? 60;
@@ -1267,7 +1381,9 @@ export class EmployeeBiometricCaptureSessionService {
     const deviceSync = this.toObject(
       this.toObject(fingerprintMetadata.device_syncs)[String(deviceId)],
     );
-    const assignmentHikvision = this.toObject(this.toObject(assignmentMetadata).hikvision);
+    const assignmentHikvision = this.toObject(
+      this.toObject(assignmentMetadata).hikvision,
+    );
     const cardReaderNo = this.toNullableInteger(
       deviceSync.card_reader_no ?? assignmentHikvision.card_reader_no,
     );
@@ -1325,7 +1441,11 @@ export class EmployeeBiometricCaptureSessionService {
       employee.id,
       fingerprintId.value,
     );
-    const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(companyId, employee.id, device.id);
+    const deviceEmployeeNo = await this.resolveDeviceEmployeeNo(
+      companyId,
+      employee.id,
+      device.id,
+    );
     const metadata = this.toObject(credential.metadata);
     const fingerprint = this.toObject(metadata.fingerprint);
     const deviceSyncs = this.toObject(metadata.device_syncs);
@@ -1342,7 +1462,9 @@ export class EmployeeBiometricCaptureSessionService {
         employee_no: deviceEmployeeNo,
         enabled,
         sync_status: String(
-          this.toObject(deviceSyncs[String(device.id)]).sync_status ?? fingerprint.sync_status ?? 'SAVED',
+          this.toObject(deviceSyncs[String(device.id)]).sync_status ??
+            fingerprint.sync_status ??
+            'SAVED',
         ),
         last_updated_at: new Date().toISOString(),
       }),
@@ -1393,7 +1515,10 @@ export class EmployeeBiometricCaptureSessionService {
       .getOne();
   }
 
-  private async countActiveEmployeeFingerprints(companyId: number, employeeId: number) {
+  private async countActiveEmployeeFingerprints(
+    companyId: number,
+    employeeId: number,
+  ) {
     const raw = await this.credentialRepository
       .createQueryBuilder('credential')
       .select('COUNT(credential.id)', 'count')
@@ -1425,7 +1550,11 @@ export class EmployeeBiometricCaptureSessionService {
     };
   }
 
-  private async findAssignmentOrFail(companyId: number, employeeId: number, deviceId: number) {
+  private async findAssignmentOrFail(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+  ) {
     const assignment = await this.assignmentRepository.findOne({
       where: { companyId, employeeId, deviceId },
       select: ['id', 'employeeNo', 'userVerifyMode'],
@@ -1454,18 +1583,21 @@ export class EmployeeBiometricCaptureSessionService {
     });
 
     const activeCredentials = credentials.filter(
-      (credential) => credential.credentialStatus === EmployeeAccessCredentialStatusEnum.ACTIVE,
+      (credential) =>
+        credential.credentialStatus ===
+        EmployeeAccessCredentialStatusEnum.ACTIVE,
     );
     const hasPassword = activeCredentials.some(
       (credential) =>
-        (credential.credentialType === EmployeeAccessCredentialTypeEnum.PASSWORD
-          || credential.credentialType === EmployeeAccessCredentialTypeEnum.PIN)
-        && Boolean(credential.pinPassword?.trim()),
+        (credential.credentialType ===
+          EmployeeAccessCredentialTypeEnum.PASSWORD ||
+          credential.credentialType === EmployeeAccessCredentialTypeEnum.PIN) &&
+        Boolean(credential.pinPassword?.trim()),
     );
     const hasCard = activeCredentials.some(
       (credential) =>
-        credential.credentialType === EmployeeAccessCredentialTypeEnum.CARD
-        && Boolean(credential.cardNo?.trim()),
+        credential.credentialType === EmployeeAccessCredentialTypeEnum.CARD &&
+        Boolean(credential.cardNo?.trim()),
     );
 
     return this.hikvisionUserManagementService.resolveSupportedUserVerifyMode(
@@ -1496,15 +1628,23 @@ export class EmployeeBiometricCaptureSessionService {
     return ['fp', 'fpOrCard', 'cardOrFpOrPw'];
   }
 
-  private extractFingerprintSetupStatus(payload: unknown, cardReaderNo: number) {
+  private extractFingerprintSetupStatus(
+    payload: unknown,
+    cardReaderNo: number,
+  ) {
     const root = this.toObject(payload);
     const status = this.toObject(root.FingerPrintStatus ?? root);
-    const statusList = Array.isArray(status.StatusList) ? status.StatusList : [];
-    const row = statusList
-      .map((item) => this.toObject(item))
-      .find((item) => Number(item.id ?? cardReaderNo) === cardReaderNo) ?? this.toObject(statusList[0]);
+    const statusList = Array.isArray(status.StatusList)
+      ? status.StatusList
+      : [];
+    const row =
+      statusList
+        .map((item) => this.toObject(item))
+        .find((item) => Number(item.id ?? cardReaderNo) === cardReaderNo) ??
+      this.toObject(statusList[0]);
     const rawStatus = row.cardReaderRecvStatus ?? row.status;
-    const cardReaderRecvStatus = rawStatus === undefined || rawStatus === null ? null : Number(rawStatus);
+    const cardReaderRecvStatus =
+      rawStatus === undefined || rawStatus === null ? null : Number(rawStatus);
     const success = cardReaderRecvStatus === 1;
 
     return {
@@ -1527,7 +1667,10 @@ export class EmployeeBiometricCaptureSessionService {
       this.toObject(data.ResponseStatus).subStatusCode,
     ];
     const detail = candidates
-      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      .filter(
+        (item): item is string =>
+          typeof item === 'string' && item.trim().length > 0,
+      )
       .join(' - ');
 
     return detail ? `${fallback}: ${detail}` : fallback;
@@ -1537,16 +1680,23 @@ export class EmployeeBiometricCaptureSessionService {
     const fingerprintId = (value ?? '1').trim() || '1';
     const fingerprintIdNumber = Number(fingerprintId);
     if (!Number.isInteger(fingerprintIdNumber) || fingerprintIdNumber < 1) {
-      throw new BadRequestException('fingerprint_id must be a positive integer value');
+      throw new BadRequestException(
+        'fingerprint_id must be a positive integer value',
+      );
     }
 
     return { value: fingerprintId, number: fingerprintIdNumber };
   }
 
-  private validateFingerprintQuality(quality: number | null, minQuality?: number) {
+  private validateFingerprintQuality(
+    quality: number | null,
+    minQuality?: number,
+  ) {
     const threshold = minQuality ?? 60;
     if (quality === null || !Number.isFinite(quality)) {
-      throw new BadRequestException('Fingerprint quality is missing from capture response');
+      throw new BadRequestException(
+        'Fingerprint quality is missing from capture response',
+      );
     }
     if (quality < threshold) {
       throw new BadRequestException(
@@ -1565,11 +1715,16 @@ export class EmployeeBiometricCaptureSessionService {
     return device;
   }
 
-  private mapFingerprintCredential(item: EmployeeAccessCredential, deviceId?: number) {
+  private mapFingerprintCredential(
+    item: EmployeeAccessCredential,
+    deviceId?: number,
+  ) {
     const metadata = this.toObject(item.metadata);
     const fingerprint = this.toObject(metadata.fingerprint);
     const deviceSyncs = this.toObject(metadata.device_syncs);
-    const scopedDeviceSync = deviceId ? this.toObject(deviceSyncs[String(deviceId)]) : {};
+    const scopedDeviceSync = deviceId
+      ? this.toObject(deviceSyncs[String(deviceId)])
+      : {};
     const activeDeviceSyncs = Object.values(deviceSyncs)
       .map((value) => this.toObject(value))
       .filter((value) => value.sync_status !== 'DELETED');
@@ -1578,7 +1733,9 @@ export class EmployeeBiometricCaptureSessionService {
       id: item.id,
       company_id: item.companyId,
       employee_id: item.employeeId,
-      employee_no: String(scopedDeviceSync.employee_no ?? item.employeeNo ?? '').trim() || null,
+      employee_no:
+        String(scopedDeviceSync.employee_no ?? item.employeeNo ?? '').trim() ||
+        null,
       device_id: deviceId ?? item.deviceId,
       source_device_id: item.deviceId,
       fingerprint_id: item.fingerprintId ?? item.credentialNo,
@@ -1587,10 +1744,15 @@ export class EmployeeBiometricCaptureSessionService {
       finger_print_quality: fingerprint.finger_print_quality ?? null,
       has_fingerprint: item.hasFingerprint,
       user_verify_mode:
-        this.toNullableString(scopedDeviceSync.user_verify_mode)
-        ?? this.toNullableString(this.toObject(metadata.hikvision).user_verify_mode),
-      enabled: Boolean(scopedDeviceSync.enabled ?? fingerprint.is_enabled ?? true),
-      sync_status: scopedDeviceSync.sync_status ?? fingerprint.sync_status ?? null,
+        this.toNullableString(scopedDeviceSync.user_verify_mode) ??
+        this.toNullableString(
+          this.toObject(metadata.hikvision).user_verify_mode,
+        ),
+      enabled: Boolean(
+        scopedDeviceSync.enabled ?? fingerprint.is_enabled ?? true,
+      ),
+      sync_status:
+        scopedDeviceSync.sync_status ?? fingerprint.sync_status ?? null,
       synced_device_ids: activeDeviceSyncs
         .map((value) => Number(value.device_id))
         .filter((value) => Number.isInteger(value) && value > 0),
@@ -1600,10 +1762,17 @@ export class EmployeeBiometricCaptureSessionService {
     };
   }
 
-  private async findEmployeeOrFail(companyId: number, employeeId: number): Promise<Employee> {
+  private async findEmployeeOrFail(
+    companyId: number,
+    employeeId: number,
+  ): Promise<Employee> {
     const employee = await this.employeeRepository
       .createQueryBuilder('employee')
-      .innerJoin(CompanyUser, 'companyUser', 'companyUser.id = employee.company_user_id')
+      .innerJoin(
+        CompanyUser,
+        'companyUser',
+        'companyUser.id = employee.company_user_id',
+      )
       .where('employee.id = :employeeId', { employeeId })
       .andWhere('companyUser.company_id = :companyId', { companyId })
       .getOne();
@@ -1652,26 +1821,42 @@ export class EmployeeBiometricCaptureSessionService {
     fingerPrintQuality: number | null;
   } {
     const data = this.toObject(payload);
-    const cfg = this.toObject(data.CaptureFingerPrint ?? data.CaptureFingerPrintCfg ?? data);
-    const direct = cfg.fingerData ?? cfg.fingerprintData ?? cfg.fingerPrintData ?? cfg.template;
+    const cfg = this.toObject(
+      data.CaptureFingerPrint ?? data.CaptureFingerPrintCfg ?? data,
+    );
+    const direct =
+      cfg.fingerData ??
+      cfg.fingerprintData ??
+      cfg.fingerPrintData ??
+      cfg.template;
     let fingerData: string | null = null;
     if (typeof direct === 'string' && direct.trim()) {
       fingerData = direct.trim();
     }
 
-    const nestedCfg = this.toObject(cfg.FingerPrintInfo ?? cfg.FingerPrintCfg ?? cfg.fingerprintInfo);
-    const nested = nestedCfg.fingerData ?? nestedCfg.fingerprintData ?? nestedCfg.fingerPrintData;
+    const nestedCfg = this.toObject(
+      cfg.FingerPrintInfo ?? cfg.FingerPrintCfg ?? cfg.fingerprintInfo,
+    );
+    const nested =
+      nestedCfg.fingerData ??
+      nestedCfg.fingerprintData ??
+      nestedCfg.fingerPrintData;
     if (!fingerData && typeof nested === 'string' && nested.trim()) {
       fingerData = nested.trim();
     }
 
-    const fingerNoValue = cfg.fingerNo ?? nestedCfg.fingerNo ?? cfg.fingerPrintID ?? nestedCfg.fingerPrintID;
-    const qualityValue = cfg.fingerPrintQuality
-      ?? nestedCfg.fingerPrintQuality
-      ?? cfg.fingerprintQuality
-      ?? nestedCfg.fingerprintQuality
-      ?? cfg.quality
-      ?? nestedCfg.quality;
+    const fingerNoValue =
+      cfg.fingerNo ??
+      nestedCfg.fingerNo ??
+      cfg.fingerPrintID ??
+      nestedCfg.fingerPrintID;
+    const qualityValue =
+      cfg.fingerPrintQuality ??
+      nestedCfg.fingerPrintQuality ??
+      cfg.fingerprintQuality ??
+      nestedCfg.fingerprintQuality ??
+      cfg.quality ??
+      nestedCfg.quality;
 
     return {
       fingerData,
@@ -1718,10 +1903,18 @@ export class EmployeeBiometricCaptureSessionService {
       started_at: item.startedAt,
       completed_at: item.completedAt,
       expires_at: item.expiresAt,
-      capture_request_payload: this.maskSensitivePayload(item.captureRequestPayload),
-      capture_response_payload: this.maskSensitivePayload(item.captureResponsePayload),
-      setup_request_payload: this.maskSensitivePayload(item.setupRequestPayload),
-      setup_response_payload: this.maskSensitivePayload(item.setupResponsePayload),
+      capture_request_payload: this.maskSensitivePayload(
+        item.captureRequestPayload,
+      ),
+      capture_response_payload: this.maskSensitivePayload(
+        item.captureResponsePayload,
+      ),
+      setup_request_payload: this.maskSensitivePayload(
+        item.setupRequestPayload,
+      ),
+      setup_response_payload: this.maskSensitivePayload(
+        item.setupResponsePayload,
+      ),
       error_message: item.errorMessage,
       performed_by_company_user_id: item.performedByCompanyUserId,
       metadata: this.maskSensitivePayload(item.metadata),
@@ -1730,4 +1923,3 @@ export class EmployeeBiometricCaptureSessionService {
     };
   }
 }
-

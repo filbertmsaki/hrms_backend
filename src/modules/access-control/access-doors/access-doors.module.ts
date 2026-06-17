@@ -17,4 +17,3 @@ import { AccessDoorsService } from './service/access-doors.service';
   exports: [AccessDoorsService],
 })
 export class AccessDoorsModule {}
-

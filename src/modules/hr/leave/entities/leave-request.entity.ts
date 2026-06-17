@@ -123,11 +123,18 @@ export class LeaveRequest {
   )
   medical_detail: LeaveMedicalDetail | null;
 
-  @OneToMany(() => LeaveDocument, (leaveDocument) => leaveDocument.leave_request, {
-    cascade: true,
-  })
+  @OneToMany(
+    () => LeaveDocument,
+    (leaveDocument) => leaveDocument.leave_request,
+    {
+      cascade: true,
+    },
+  )
   documents: LeaveDocument[];
 
-  @OneToMany(() => LeaveAuditLog, (leaveAuditLog) => leaveAuditLog.leave_request)
+  @OneToMany(
+    () => LeaveAuditLog,
+    (leaveAuditLog) => leaveAuditLog.leave_request,
+  )
   audit_logs: LeaveAuditLog[];
 }

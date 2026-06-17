@@ -1,10 +1,19 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsEmail, IsEnum, IsOptional, IsString } from 'class-validator';
+import {
+  IsBoolean,
+  IsEmail,
+  IsEnum,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 import { ContactTypeEnum } from '../enums/contact-type.enum';
 
 export class EmployeeContactInputDto {
-  @ApiPropertyOptional({ enum: ContactTypeEnum, default: ContactTypeEnum.PERSONAL })
+  @ApiPropertyOptional({
+    enum: ContactTypeEnum,
+    default: ContactTypeEnum.PERSONAL,
+  })
   @IsEnum(ContactTypeEnum)
   contact_type: ContactTypeEnum;
 

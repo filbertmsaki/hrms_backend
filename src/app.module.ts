@@ -32,8 +32,7 @@ import { TenantGuard } from './common/guards/tenant.guard';
       useFactory: (configService: ConfigService) => ({
         connection: {
           url:
-            configService.get<string>('REDIS_URL') ??
-            'redis://127.0.0.1:6379',
+            configService.get<string>('REDIS_URL') ?? 'redis://127.0.0.1:6379',
         },
       }),
     }),

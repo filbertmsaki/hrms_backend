@@ -1,4 +1,8 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Job } from 'bullmq';
 import { Queue } from 'bullmq';
@@ -96,7 +100,7 @@ export class HikvisionSyncJobsService {
       progress:
         typeof job.progress === 'number' || job.progress === null
           ? job.progress
-          : job.progress ?? null,
+          : (job.progress ?? null),
       data: job.data,
       result: job.returnvalue ?? null,
       failed_reason: job.failedReason || null,

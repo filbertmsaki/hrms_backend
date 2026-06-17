@@ -107,7 +107,9 @@ describe('EmployeeSelfServiceService', () => {
       limit: 10,
     });
 
-    expect(attendanceDailySummaryService.findDailySummaries).toHaveBeenCalledWith(
+    expect(
+      attendanceDailySummaryService.findDailySummaries,
+    ).toHaveBeenCalledWith(
       7,
       expect.objectContaining({
         employee_id: 15,
@@ -134,8 +136,8 @@ describe('EmployeeSelfServiceService', () => {
       new NotFoundException('Employee not found'),
     );
 
-    await expect(service.getProfile({ ...actor, employeeId: undefined })).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(
+      service.getProfile({ ...actor, employeeId: undefined }),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

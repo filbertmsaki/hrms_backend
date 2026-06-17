@@ -22,7 +22,10 @@ import { OnboardingTask } from './onboarding-task.entity';
 import { OnboardingWorkflow } from './onboarding-workflow.entity';
 
 @Entity('onboarding_workflow_steps')
-@Unique('UQ_onboarding_workflow_step_workflow_level', ['workflow_id', 'approval_level'])
+@Unique('UQ_onboarding_workflow_step_workflow_level', [
+  'workflow_id',
+  'approval_level',
+])
 @Index('IDX_onboarding_workflow_step_workflow', ['workflow_id'])
 @Index('IDX_onboarding_workflow_step_role', ['role_id'])
 @Index('IDX_onboarding_workflow_step_position', ['position_id'])

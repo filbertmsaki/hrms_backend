@@ -1,4 +1,8 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
@@ -15,8 +19,13 @@ export class ShiftTemplatesService {
     private readonly templateRepository: Repository<ShiftTemplate>,
   ) {}
 
-  private async findOrFail(companyId: number, id: number): Promise<ShiftTemplate> {
-    const item = await this.templateRepository.findOne({ where: { id, companyId } });
+  private async findOrFail(
+    companyId: number,
+    id: number,
+  ): Promise<ShiftTemplate> {
+    const item = await this.templateRepository.findOne({
+      where: { id, companyId },
+    });
     if (!item) throw new NotFoundException('Shift template not found');
     return item;
   }
@@ -24,26 +33,47 @@ export class ShiftTemplatesService {
   async create(companyId: number, dto: CreateShiftTemplateDto) {
     const name = dto.name.trim();
 
-    const existing = await this.templateRepository.findOne({ where: { companyId, name } });
-    if (existing) throw new ConflictException('Shift template name already exists for this company');
+    const existing = await this.templateRepository.findOne({
+      where: { companyId, name },
+    });
+    if (existing)
+      throw new ConflictException(
+        'Shift template name already exists for this company',
+      );
 
-    return this.templateRepository.save(this.templateRepository.create({
-      companyId,
-      name,
-      templateType: dto.template_type,
-      configuration: dto.configuration,
-      status: dto.status,
-    }));
+    return this.templateRepository.save(
+      this.templateRepository.create({
+        companyId,
+        name,
+        templateType: dto.template_type,
+        configuration: dto.configuration,
+        status: dto.status,
+      }),
+    );
   }
 
   async findAll(companyId: number, query: ShiftTemplateQueryDto) {
-    const { page = 1, limit = 20, sortBy = 'created_at', sortOrder = SortDirection.DESC, search, template_type, status } = query;
+    const {
+      page = 1,
+      limit = 20,
+      sortBy = 'created_at',
+      sortOrder = SortDirection.DESC,
+      search,
+      template_type,
+      status,
+    } = query;
 
-    const qb = this.templateRepository.createQueryBuilder('template').where('template.company_id = :companyId', { companyId });
+    const qb = this.templateRepository
+      .createQueryBuilder('template')
+      .where('template.company_id = :companyId', { companyId });
 
-    if (template_type) qb.andWhere('template.template_type = :templateType', { templateType: template_type });
+    if (template_type)
+      qb.andWhere('template.template_type = :templateType', {
+        templateType: template_type,
+      });
     if (status) qb.andWhere('template.status = :status', { status });
-    if (search?.trim()) qb.andWhere('template.name LIKE :term', { term: `%${search.trim()}%` });
+    if (search?.trim())
+      qb.andWhere('template.name LIKE :term', { term: `%${search.trim()}%` });
 
     const sortFieldMap: Record<string, string> = {
       name: 'name',
@@ -52,20 +82,34 @@ export class ShiftTemplatesService {
     };
     const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.created_at;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
-    const [items, total] = await qb.orderBy(`template.${safeSortBy}`, direction).skip((page - 1) * limit).take(limit).getManyAndCount();
+    const [items, total] = await qb
+      .orderBy(`template.${safeSortBy}`, direction)
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
 
-    return { data: items, meta: buildPaginationMeta(total, items.length, limit, page) };
+    return {
+      data: items,
+      meta: buildPaginationMeta(total, items.length, limit, page),
+    };
   }
 
-  async findOne(companyId: number, id: number) { return this.findOrFail(companyId, id); }
+  async findOne(companyId: number, id: number) {
+    return this.findOrFail(companyId, id);
+  }
 
   async update(companyId: number, id: number, dto: UpdateShiftTemplateDto) {
     const item = await this.findOrFail(companyId, id);
 
     if (dto.name !== undefined) {
       const name = dto.name.trim();
-      const existing = await this.templateRepository.findOne({ where: { companyId, name } });
-      if (existing && existing.id !== item.id) throw new ConflictException('Shift template name already exists for this company');
+      const existing = await this.templateRepository.findOne({
+        where: { companyId, name },
+      });
+      if (existing && existing.id !== item.id)
+        throw new ConflictException(
+          'Shift template name already exists for this company',
+        );
       item.name = name;
     }
 

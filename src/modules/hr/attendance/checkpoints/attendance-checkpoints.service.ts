@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
@@ -46,18 +51,26 @@ export class AttendanceCheckpointsService {
     };
   }
 
-  private async ensurePolicySet(companyId: number, policySetId: number): Promise<void> {
+  private async ensurePolicySet(
+    companyId: number,
+    policySetId: number,
+  ): Promise<void> {
     const policySet = await this.attendancePolicyRepository.findOne({
       where: { id: policySetId, company_id: companyId },
       select: ['id'],
     });
 
     if (!policySet) {
-      throw new BadRequestException('policy_set_id does not belong to the active company');
+      throw new BadRequestException(
+        'policy_set_id does not belong to the active company',
+      );
     }
   }
 
-  private async ensureDevice(companyId: number, deviceId?: number | null): Promise<void> {
+  private async ensureDevice(
+    companyId: number,
+    deviceId?: number | null,
+  ): Promise<void> {
     if (!deviceId) {
       return;
     }
@@ -68,11 +81,16 @@ export class AttendanceCheckpointsService {
     });
 
     if (!device) {
-      throw new BadRequestException('device_id does not belong to the active company');
+      throw new BadRequestException(
+        'device_id does not belong to the active company',
+      );
     }
   }
 
-  private async ensureGeofence(companyId: number, geofenceId?: number | null): Promise<void> {
+  private async ensureGeofence(
+    companyId: number,
+    geofenceId?: number | null,
+  ): Promise<void> {
     if (!geofenceId) {
       return;
     }
@@ -83,11 +101,16 @@ export class AttendanceCheckpointsService {
     });
 
     if (!geofence) {
-      throw new BadRequestException('geofence_id does not belong to the active company');
+      throw new BadRequestException(
+        'geofence_id does not belong to the active company',
+      );
     }
   }
 
-  private async ensureWifiNetwork(companyId: number, wifiNetworkId?: number | null): Promise<void> {
+  private async ensureWifiNetwork(
+    companyId: number,
+    wifiNetworkId?: number | null,
+  ): Promise<void> {
     if (!wifiNetworkId) {
       return;
     }
@@ -98,11 +121,16 @@ export class AttendanceCheckpointsService {
     });
 
     if (!wifiNetwork) {
-      throw new BadRequestException('wifi_network_id does not belong to the active company');
+      throw new BadRequestException(
+        'wifi_network_id does not belong to the active company',
+      );
     }
   }
 
-  private async findOrFail(companyId: number, id: number): Promise<AttendanceCheckpoint> {
+  private async findOrFail(
+    companyId: number,
+    id: number,
+  ): Promise<AttendanceCheckpoint> {
     const item = await this.attendanceCheckpointRepository.findOne({
       where: { id },
       relations: {
@@ -140,7 +168,9 @@ export class AttendanceCheckpointsService {
     });
 
     if (existing) {
-      throw new ConflictException('Checkpoint name already exists under this policy set');
+      throw new ConflictException(
+        'Checkpoint name already exists under this policy set',
+      );
     }
 
     const created = await this.attendanceCheckpointRepository.save(
@@ -198,11 +228,21 @@ export class AttendanceCheckpointsService {
     }
 
     if (search?.trim()) {
-      qb.andWhere('attendanceCheckpoint.name LIKE :term', { term: `%${search.trim()}%` });
+      qb.andWhere('attendanceCheckpoint.name LIKE :term', {
+        term: `%${search.trim()}%`,
+      });
     }
 
-    const allowedSortFields = ['name', 'type', 'status', 'created_at', 'updated_at'];
-    const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'created_at';
+    const allowedSortFields = [
+      'name',
+      'type',
+      'status',
+      'created_at',
+      'updated_at',
+    ];
+    const safeSortBy = allowedSortFields.includes(sortBy)
+      ? sortBy
+      : 'created_at';
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
     const sortFieldMap: Record<string, string> = {
@@ -229,18 +269,24 @@ export class AttendanceCheckpointsService {
     return this.map(await this.findOrFail(companyId, id));
   }
 
-  async update(companyId: number, id: number, dto: UpdateAttendanceCheckpointDto) {
+  async update(
+    companyId: number,
+    id: number,
+    dto: UpdateAttendanceCheckpointDto,
+  ) {
     const item = await this.findOrFail(companyId, id);
 
     const policySetId = dto.policy_set_id ?? item.policySetId;
     const name = dto.name?.trim() ?? item.name;
     const nextDeviceId =
-      dto.device_id !== undefined ? dto.device_id ?? null : item.deviceId;
+      dto.device_id !== undefined ? (dto.device_id ?? null) : item.deviceId;
     const nextGeofenceId =
-      dto.geofence_id !== undefined ? dto.geofence_id ?? null : item.geofenceId;
+      dto.geofence_id !== undefined
+        ? (dto.geofence_id ?? null)
+        : item.geofenceId;
     const nextWifiNetworkId =
       dto.wifi_network_id !== undefined
-        ? dto.wifi_network_id ?? null
+        ? (dto.wifi_network_id ?? null)
         : item.wifiNetworkId;
     const nextMaxDistanceMeters =
       dto.max_distance_meters !== undefined
@@ -257,8 +303,10 @@ export class AttendanceCheckpointsService {
 
     await this.ensurePolicySet(companyId, policySetId);
     await this.ensureDevice(companyId, nextDeviceId);
-    if (dto.geofence_id !== undefined) await this.ensureGeofence(companyId, dto.geofence_id);
-    if (dto.wifi_network_id !== undefined) await this.ensureWifiNetwork(companyId, dto.wifi_network_id);
+    if (dto.geofence_id !== undefined)
+      await this.ensureGeofence(companyId, dto.geofence_id);
+    if (dto.wifi_network_id !== undefined)
+      await this.ensureWifiNetwork(companyId, dto.wifi_network_id);
 
     const duplicate = await this.attendanceCheckpointRepository.findOne({
       where: {
@@ -269,7 +317,9 @@ export class AttendanceCheckpointsService {
     });
 
     if (duplicate && duplicate.id !== item.id) {
-      throw new ConflictException('Checkpoint name already exists under this policy set');
+      throw new ConflictException(
+        'Checkpoint name already exists under this policy set',
+      );
     }
 
     await this.attendanceCheckpointRepository.save({
@@ -303,11 +353,14 @@ export class AttendanceCheckpointsService {
     wifiNetworkId: number | null;
     maxDistanceMeters: number | null;
   }) {
-    const { type, deviceId, geofenceId, wifiNetworkId, maxDistanceMeters } = params;
+    const { type, deviceId, geofenceId, wifiNetworkId, maxDistanceMeters } =
+      params;
 
     if (type === 'DEVICE') {
       if (!deviceId) {
-        throw new BadRequestException('device_id is required for DEVICE checkpoints');
+        throw new BadRequestException(
+          'device_id is required for DEVICE checkpoints',
+        );
       }
 
       if (geofenceId || wifiNetworkId) {
@@ -319,7 +372,9 @@ export class AttendanceCheckpointsService {
 
     if (type === 'GPS') {
       if (!geofenceId) {
-        throw new BadRequestException('geofence_id is required for GPS checkpoints');
+        throw new BadRequestException(
+          'geofence_id is required for GPS checkpoints',
+        );
       }
 
       if (deviceId || wifiNetworkId) {
@@ -351,17 +406,14 @@ export class AttendanceCheckpointsService {
       }
     }
 
-    if (maxDistanceMeters !== null && maxDistanceMeters !== undefined && type !== 'GPS') {
+    if (
+      maxDistanceMeters !== null &&
+      maxDistanceMeters !== undefined &&
+      type !== 'GPS'
+    ) {
       throw new BadRequestException(
         'max_distance_meters is only supported for GPS checkpoints',
       );
     }
   }
 }
-
-
-
-
-
-
-

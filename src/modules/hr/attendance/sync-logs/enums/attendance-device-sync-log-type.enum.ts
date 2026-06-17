@@ -3,7 +3,3 @@ export enum AttendanceDeviceSyncLogTypeEnum {
   AUTO = 'AUTO',
   WEBHOOK = 'WEBHOOK',
 }
-
-
-
-

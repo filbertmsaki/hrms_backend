@@ -50,7 +50,10 @@ export class AttendanceBusinessTripsService {
     };
   }
 
-  private async findEmployeeOrFail(companyId: number, employeeId: number): Promise<Employee> {
+  private async findEmployeeOrFail(
+    companyId: number,
+    employeeId: number,
+  ): Promise<Employee> {
     const employee = await this.employeeRepository.findOne({
       where: { id: employeeId },
       relations: {
@@ -73,13 +76,24 @@ export class AttendanceBusinessTripsService {
     }
   }
 
-  private assertEmployeeEligible(employee: Employee, startDate: string, endDate: string): void {
+  private assertEmployeeEligible(
+    employee: Employee,
+    startDate: string,
+    endDate: string,
+  ): void {
     if (employee.employment_status !== EmploymentStatusEnum.ACTIVE) {
-      throw new BadRequestException('Only active employees can be assigned business trips.');
+      throw new BadRequestException(
+        'Only active employees can be assigned business trips.',
+      );
     }
 
-    if (employee.exit_date && (startDate > employee.exit_date || endDate > employee.exit_date)) {
-      throw new BadRequestException('Business trip dates cannot be after the employee exit date.');
+    if (
+      employee.exit_date &&
+      (startDate > employee.exit_date || endDate > employee.exit_date)
+    ) {
+      throw new BadRequestException(
+        'Business trip dates cannot be after the employee exit date.',
+      );
     }
   }
 
@@ -109,7 +123,9 @@ export class AttendanceBusinessTripsService {
 
     const overlap = await qb.getOne();
     if (overlap) {
-      throw new ConflictException(`Business trip overlaps with request ${overlap.id}`);
+      throw new ConflictException(
+        `Business trip overlaps with request ${overlap.id}`,
+      );
     }
   }
 
@@ -147,11 +163,17 @@ export class AttendanceBusinessTripsService {
     const employee = await this.findEmployeeOrFail(companyId, dto.employee_id);
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
     this.assertEmployeeEligible(employee, dto.start_date, dto.end_date);
-    await this.ensureNoOverlap(companyId, dto.employee_id, dto.start_date, dto.end_date);
+    await this.ensureNoOverlap(
+      companyId,
+      dto.employee_id,
+      dto.start_date,
+      dto.end_date,
+    );
 
-    const status = (dto.submit ?? true)
-      ? AttendanceBusinessTripStatusEnum.SUBMITTED
-      : AttendanceBusinessTripStatusEnum.DRAFT;
+    const status =
+      (dto.submit ?? true)
+        ? AttendanceBusinessTripStatusEnum.SUBMITTED
+        : AttendanceBusinessTripStatusEnum.DRAFT;
 
     const created = await this.businessTripRepository.save(
       this.businessTripRepository.create({
@@ -185,9 +207,13 @@ export class AttendanceBusinessTripsService {
       .createQueryBuilder('trip')
       .where('trip.company_id = :companyId', { companyId });
 
-    if (employee_id) qb.andWhere('trip.employee_id = :employeeId', { employeeId: employee_id });
+    if (employee_id)
+      qb.andWhere('trip.employee_id = :employeeId', {
+        employeeId: employee_id,
+      });
     if (status) qb.andWhere('trip.status = :status', { status });
-    if (from_date) qb.andWhere('trip.start_date >= :fromDate', { fromDate: from_date });
+    if (from_date)
+      qb.andWhere('trip.start_date >= :fromDate', { fromDate: from_date });
     if (to_date) qb.andWhere('trip.end_date <= :toDate', { toDate: to_date });
 
     const sortFieldMap: Record<string, string> = {
@@ -237,7 +263,10 @@ export class AttendanceBusinessTripsService {
     actor: AuthenticatedUser,
   ) {
     const trip = await this.findOneOrFail(companyId, id);
-    const employee = await this.findEmployeeOrFail(companyId, dto.employee_id ?? trip.employeeId);
+    const employee = await this.findEmployeeOrFail(
+      companyId,
+      dto.employee_id ?? trip.employeeId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
     if (
@@ -247,7 +276,9 @@ export class AttendanceBusinessTripsService {
         AttendanceBusinessTripStatusEnum.REJECTED,
       ].includes(trip.status as AttendanceBusinessTripStatusEnum)
     ) {
-      throw new BadRequestException('Only draft, submitted, or rejected business trips can be updated.');
+      throw new BadRequestException(
+        'Only draft, submitted, or rejected business trips can be updated.',
+      );
     }
 
     const nextStartDate = dto.start_date ?? trip.startDate;
@@ -281,10 +312,18 @@ export class AttendanceBusinessTripsService {
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
     if (trip.status !== AttendanceBusinessTripStatusEnum.DRAFT) {
-      throw new BadRequestException('Only draft business trips can be submitted.');
+      throw new BadRequestException(
+        'Only draft business trips can be submitted.',
+      );
     }
 
-    await this.ensureNoOverlap(companyId, trip.employeeId, trip.startDate, trip.endDate, trip.id);
+    await this.ensureNoOverlap(
+      companyId,
+      trip.employeeId,
+      trip.startDate,
+      trip.endDate,
+      trip.id,
+    );
     trip.status = AttendanceBusinessTripStatusEnum.SUBMITTED;
     return this.map(await this.businessTripRepository.save(trip));
   }
@@ -300,7 +339,9 @@ export class AttendanceBusinessTripsService {
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
     if (trip.status !== AttendanceBusinessTripStatusEnum.SUBMITTED) {
-      throw new BadRequestException('Only submitted business trips can be approved.');
+      throw new BadRequestException(
+        'Only submitted business trips can be approved.',
+      );
     }
 
     trip.status = AttendanceBusinessTripStatusEnum.APPROVED;
@@ -334,7 +375,9 @@ export class AttendanceBusinessTripsService {
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
     if (trip.status !== AttendanceBusinessTripStatusEnum.SUBMITTED) {
-      throw new BadRequestException('Only submitted business trips can be rejected.');
+      throw new BadRequestException(
+        'Only submitted business trips can be rejected.',
+      );
     }
 
     trip.status = AttendanceBusinessTripStatusEnum.REJECTED;
@@ -369,7 +412,8 @@ export class AttendanceBusinessTripsService {
       throw new BadRequestException('Business trip is already closed.');
     }
 
-    const wasApproved = trip.status === AttendanceBusinessTripStatusEnum.APPROVED;
+    const wasApproved =
+      trip.status === AttendanceBusinessTripStatusEnum.APPROVED;
     trip.status = AttendanceBusinessTripStatusEnum.CANCELLED;
     trip.approvedByCompanyUserId = null;
     trip.metadata = {

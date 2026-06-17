@@ -26,10 +26,9 @@ export class IpCidrValidatorService {
     const ipNumber = this.ipToNumber(ipAddress);
     const rangeNumber = this.ipToNumber(range);
 
-    const mask =
-      bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
+    const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
 
-    return ((ipNumber & mask) >>> 0) === ((rangeNumber & mask) >>> 0);
+    return (ipNumber & mask) >>> 0 === (rangeNumber & mask) >>> 0;
   }
 
   private ipToNumber(ip: string): number {
@@ -42,8 +41,7 @@ export class IpCidrValidatorService {
     const octets = parts.map((part) => Number(part));
 
     const invalid = octets.some(
-      (octet) =>
-        !Number.isInteger(octet) || octet < 0 || octet > 255,
+      (octet) => !Number.isInteger(octet) || octet < 0 || octet > 255,
     );
 
     if (invalid) {
@@ -51,10 +49,11 @@ export class IpCidrValidatorService {
     }
 
     return (
-      ((octets[0] << 24) >>> 0) +
-      ((octets[1] << 16) >>> 0) +
-      ((octets[2] << 8) >>> 0) +
-      octets[3]
-    ) >>> 0;
+      (((octets[0] << 24) >>> 0) +
+        ((octets[1] << 16) >>> 0) +
+        ((octets[2] << 8) >>> 0) +
+        octets[3]) >>>
+      0
+    );
   }
 }

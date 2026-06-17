@@ -76,4 +76,3 @@ export class CreateDeviceCommandLogDto {
   @IsOptional()
   created_by_company_user_id?: number | null;
 }
-

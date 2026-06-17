@@ -3,6 +3,3 @@ export enum AttendanceRoundingModeEnum {
   DOWN = 'DOWN',
   NEAREST = 'NEAREST',
 }
-
-
-

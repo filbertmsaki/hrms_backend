@@ -5,7 +5,3 @@ export enum AttendanceCheckpointTypeEnum {
   QR = 'QR',
   MANUAL = 'MANUAL',
 }
-
-
-
-

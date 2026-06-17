@@ -14,7 +14,11 @@ import { TimetableHolidayActionTypeEnum } from '../enums/timetable-holiday-actio
 @Entity('timetable_holiday_rules')
 @Index('IDX_timetable_holiday_rules_timetable_id', ['timetableId'])
 @Index('IDX_timetable_holiday_rules_holiday_group_id', ['holidayGroupId'])
-@Index('UQ_timetable_holiday_rules_timetable_group', ['timetableId', 'holidayGroupId'], { unique: true })
+@Index(
+  'UQ_timetable_holiday_rules_timetable_group',
+  ['timetableId', 'holidayGroupId'],
+  { unique: true },
+)
 export class TimetableHolidayRule {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -41,7 +45,9 @@ export class TimetableHolidayRule {
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
-  @ManyToOne(() => Timetable, (timetable) => timetable.holidayRules, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Timetable, (timetable) => timetable.holidayRules, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'timetable_id' })
   timetable: Timetable;
 

@@ -91,7 +91,9 @@ class AccessOrganizationQueryDto {
 @Controller('access-control/organizations')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class AccessOrganizationsController {
-  constructor(private readonly accessOrganizationsService: AccessOrganizationsService) {}
+  constructor(
+    private readonly accessOrganizationsService: AccessOrganizationsService,
+  ) {}
 
   @Post()
   @UseGuards(PermissionsGuard)
@@ -152,58 +154,91 @@ export class AccessOrganizationsController {
   @Post(':id/employees')
   @UseGuards(PermissionsGuard)
   @Permissions('access_organizations:update')
-  @ApiActionOperation('Assign Organization Employees', 'Assign employees to access organization')
+  @ApiActionOperation(
+    'Assign Organization Employees',
+    'Assign employees to access organization',
+  )
   assignEmployees(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: AssignAccessOrganizationEmployeesDto,
   ) {
-    return this.accessOrganizationsService.assignEmployees(req.user.companyId!, id, dto);
+    return this.accessOrganizationsService.assignEmployees(
+      req.user.companyId!,
+      id,
+      dto,
+    );
   }
 
   @Delete(':id/employees/:employeeId')
   @UseGuards(PermissionsGuard)
   @Permissions('access_organizations:update')
-  @ApiActionOperation('Remove Organization Employee', 'Remove employee from access organization')
+  @ApiActionOperation(
+    'Remove Organization Employee',
+    'Remove employee from access organization',
+  )
   removeEmployee(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
     @Param('employeeId', ParseIntPipe) employeeId: number,
   ) {
-    return this.accessOrganizationsService.removeEmployee(req.user.companyId!, id, employeeId);
+    return this.accessOrganizationsService.removeEmployee(
+      req.user.companyId!,
+      id,
+      employeeId,
+    );
   }
 
   @Get(':id/employees')
   @UseGuards(PermissionsGuard)
   @Permissions('access_organizations:read')
-  @ApiActionOperation('Organization Employees', 'List employees assigned to one access organization')
+  @ApiActionOperation(
+    'Organization Employees',
+    'List employees assigned to one access organization',
+  )
   listEmployees(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.accessOrganizationsService.listEmployees(req.user.companyId!, id);
+    return this.accessOrganizationsService.listEmployees(
+      req.user.companyId!,
+      id,
+    );
   }
 
   @Post(':id/sync-to-device')
   @UseGuards(PermissionsGuard)
   @Permissions('access_organizations:update')
-  @ApiActionOperation('Sync Organization To Device', 'Push one organization to one or many Hikvision devices')
+  @ApiActionOperation(
+    'Sync Organization To Device',
+    'Push one organization to one or many Hikvision devices',
+  )
   syncToDevice(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: SyncAccessOrganizationDto,
   ) {
-    return this.accessOrganizationsService.syncToDevice(req.user.companyId!, id, dto);
+    return this.accessOrganizationsService.syncToDevice(
+      req.user.companyId!,
+      id,
+      dto,
+    );
   }
 
   @Post('sync-from-device/:deviceId')
   @UseGuards(PermissionsGuard)
   @Permissions('access_organizations:update')
-  @ApiActionOperation('Sync Organizations From Device', 'Pull organizations from Hikvision GroupCfg and upsert locally')
+  @ApiActionOperation(
+    'Sync Organizations From Device',
+    'Pull organizations from Hikvision GroupCfg and upsert locally',
+  )
   syncFromDevice(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('deviceId', ParseIntPipe) deviceId: number,
   ) {
-    return this.accessOrganizationsService.syncFromDevice(req.user.companyId!, deviceId);
+    return this.accessOrganizationsService.syncFromDevice(
+      req.user.companyId!,
+      deviceId,
+    );
   }
 }

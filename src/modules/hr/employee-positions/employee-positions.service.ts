@@ -77,7 +77,10 @@ export class EmployeePositionsService {
     };
   }
 
-  private async findEmployeeOrFail(companyId: number, id: number): Promise<Employee> {
+  private async findEmployeeOrFail(
+    companyId: number,
+    id: number,
+  ): Promise<Employee> {
     const employee = await this.employeeRepository.findOne({
       where: { id, company_user: { company_id: companyId } },
       relations: {
@@ -92,7 +95,10 @@ export class EmployeePositionsService {
     return employee;
   }
 
-  private async findPositionOrFail(companyId: number, id: number): Promise<Position> {
+  private async findPositionOrFail(
+    companyId: number,
+    id: number,
+  ): Promise<Position> {
     const position = await this.positionRepository.findOne({
       where: { id, company_id: companyId },
     });
@@ -169,10 +175,16 @@ export class EmployeePositionsService {
 
     const position = await this.findPositionOrFail(companyId, dto.position_id);
     if (position.branch_id) {
-      await this.hrAccessService.assertCanAccessBranch(actor, position.branch_id);
+      await this.hrAccessService.assertCanAccessBranch(
+        actor,
+        position.branch_id,
+      );
     }
 
-    const designation = await this.findDesignationOrFail(companyId, dto.designation_id);
+    const designation = await this.findDesignationOrFail(
+      companyId,
+      dto.designation_id,
+    );
 
     const createdId = await this.dataSource.transaction(async (manager) => {
       if (dto.is_primary) {
@@ -259,13 +271,17 @@ export class EmployeePositionsService {
       });
     }
 
-    const accessibleBranchIds = await this.hrAccessService.getAccessibleBranchIds(actor);
+    const accessibleBranchIds =
+      await this.hrAccessService.getAccessibleBranchIds(actor);
     if (accessibleBranchIds?.length === 0) {
       qb.andWhere('position.branch_id IS NULL');
     } else if (accessibleBranchIds) {
-      qb.andWhere('(position.branch_id IS NULL OR position.branch_id IN (:...branchIds))', {
-        branchIds: accessibleBranchIds,
-      });
+      qb.andWhere(
+        '(position.branch_id IS NULL OR position.branch_id IN (:...branchIds))',
+        {
+          branchIds: accessibleBranchIds,
+        },
+      );
     }
 
     const allowedSortFields = [
@@ -297,7 +313,10 @@ export class EmployeePositionsService {
 
   async findOne(companyId: number, id: number, actor: AuthenticatedUser) {
     const assignment = await this.findAssignmentOrFail(companyId, id);
-    const employee = await this.findEmployeeOrFail(companyId, assignment.employee_id);
+    const employee = await this.findEmployeeOrFail(
+      companyId,
+      assignment.employee_id,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
     return this.mapAssignment(assignment);
   }
@@ -309,7 +328,10 @@ export class EmployeePositionsService {
     actor: AuthenticatedUser,
   ) {
     const existing = await this.findAssignmentOrFail(companyId, id);
-    const employee = await this.findEmployeeOrFail(companyId, existing.employee_id);
+    const employee = await this.findEmployeeOrFail(
+      companyId,
+      existing.employee_id,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
     const nextEmployee = dto.employee_id
@@ -323,7 +345,10 @@ export class EmployeePositionsService {
       ? await this.findPositionOrFail(companyId, dto.position_id)
       : existing.position;
     if (position.branch_id) {
-      await this.hrAccessService.assertCanAccessBranch(actor, position.branch_id);
+      await this.hrAccessService.assertCanAccessBranch(
+        actor,
+        position.branch_id,
+      );
     }
 
     const designation =
@@ -358,7 +383,8 @@ export class EmployeePositionsService {
         end_date: endDate ?? null,
         assignment_type: dto.assignment_type ?? existing.assignment_type,
         status: dto.status ?? existing.status,
-        notes: dto.notes !== undefined ? dto.notes?.trim() || null : existing.notes,
+        notes:
+          dto.notes !== undefined ? dto.notes?.trim() || null : existing.notes,
       });
 
       await manager.getRepository(EmployeePosition).save(existing);
@@ -377,7 +403,10 @@ export class EmployeePositionsService {
     actor: AuthenticatedUser,
   ): Promise<{ message: string }> {
     const assignment = await this.findAssignmentOrFail(companyId, id);
-    const employee = await this.findEmployeeOrFail(companyId, assignment.employee_id);
+    const employee = await this.findEmployeeOrFail(
+      companyId,
+      assignment.employee_id,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
     await this.dataSource.transaction(async (manager) => {

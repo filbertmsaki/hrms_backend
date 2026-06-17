@@ -4,4 +4,3 @@ export enum EmployeeDeviceAssignmentSyncStatusEnum {
   FAILED = 'FAILED',
   REMOVED = 'REMOVED',
 }
-

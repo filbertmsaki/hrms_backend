@@ -25,7 +25,9 @@ export class HikvisionSyncProcessor extends WorkerHost {
 
     switch (job.name as HikvisionSyncJobName) {
       case HikvisionSyncJobName.SYNC_ATTENDANCE: {
-        const result = await this.attendanceSyncService.runQueuedAttendanceSync(job.data);
+        const result = await this.attendanceSyncService.runQueuedAttendanceSync(
+          job.data,
+        );
         await job.updateProgress(100);
         return result;
       }
@@ -64,7 +66,9 @@ export class HikvisionSyncProcessor extends WorkerHost {
   @OnWorkerEvent('failed')
   onFailed(job: Job<HikvisionSyncJobData> | undefined, error: Error) {
     if (!job) {
-      this.logger.error(`Hikvision sync job failed before start: ${error.message}`);
+      this.logger.error(
+        `Hikvision sync job failed before start: ${error.message}`,
+      );
       return;
     }
 

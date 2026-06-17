@@ -162,7 +162,11 @@ export class EmployeeDeviceAssignmentsService {
     private readonly biometricCaptureSessionService: EmployeeBiometricCaptureSessionService,
   ) {}
 
-  async assignDevices(companyId: number, employeeId: number, dto: AssignEmployeeDevicesDto) {
+  async assignDevices(
+    companyId: number,
+    employeeId: number,
+    dto: AssignEmployeeDevicesDto,
+  ) {
     if (dto.sync_now === false) {
       throw new BadRequestException(
         'Employee device assignment requires immediate Hikvision registration',
@@ -170,7 +174,10 @@ export class EmployeeDeviceAssignmentsService {
     }
 
     const employee = await this.findEmployeeOrFail(companyId, employeeId, true);
-    const devices = await this.findHikvisionDevicesOrFail(companyId, dto.device_ids);
+    const devices = await this.findHikvisionDevicesOrFail(
+      companyId,
+      dto.device_ids,
+    );
     const continueOnError = dto.continue_on_error ?? true;
     const results: Array<Record<string, unknown>> = [];
     let created = 0;
@@ -205,7 +212,10 @@ export class EmployeeDeviceAssignmentsService {
           device,
           dto,
         );
-        const deviceEmployeeNo = await this.resolveAvailableDeviceEmployeeNo(companyId, device.id);
+        const deviceEmployeeNo = await this.resolveAvailableDeviceEmployeeNo(
+          companyId,
+          device.id,
+        );
         const payload = await this.buildDeviceUserPayload(
           companyId,
           employee,
@@ -214,15 +224,17 @@ export class EmployeeDeviceAssignmentsService {
           settings,
           dto.password,
         );
-        settings.userVerifyMode = payload.user_verify_mode ?? settings.userVerifyMode;
+        settings.userVerifyMode =
+          payload.user_verify_mode ?? settings.userVerifyMode;
 
         // Device registration must succeed first so the assignment table remains a pure
         // reflection of successful employee-device links.
-        const deviceResult = await this.hikvisionUserManagementService.createUserOnDevice(
-          companyId,
-          device.id,
-          payload,
-        );
+        const deviceResult =
+          await this.hikvisionUserManagementService.createUserOnDevice(
+            companyId,
+            device.id,
+            payload,
+          );
         const assignment = await this.persistSuccessfulAssignment(
           companyId,
           employee,
@@ -272,7 +284,12 @@ export class EmployeeDeviceAssignmentsService {
   ) {
     const employee = await this.findEmployeeOrFail(companyId, employeeId, true);
     const device = await this.findHikvisionDeviceOrFail(companyId, deviceId);
-    const settings = await this.resolveSettingsFromInput(companyId, employee, device, dto);
+    const settings = await this.resolveSettingsFromInput(
+      companyId,
+      employee,
+      device,
+      dto,
+    );
     const requestedEmployeeNo = this.toNullableString(dto.employee_no);
 
     if (requestedEmployeeNo) {
@@ -292,8 +309,8 @@ export class EmployeeDeviceAssignmentsService {
       });
 
       if (
-        existingByEmployee
-        && existingByEmployee.employeeNo.trim() !== requestedEmployeeNo
+        existingByEmployee &&
+        existingByEmployee.employeeNo.trim() !== requestedEmployeeNo
       ) {
         throw new ConflictException(
           `Employee ${employee.id} is already linked to device ${device.id} using employee_no ${existingByEmployee.employeeNo}`,
@@ -301,9 +318,9 @@ export class EmployeeDeviceAssignmentsService {
       }
 
       if (
-        existingByEmployeeNo
-        && existingByEmployeeNo.employeeId !== null
-        && existingByEmployeeNo.employeeId !== employee.id
+        existingByEmployeeNo &&
+        existingByEmployeeNo.employeeId !== null &&
+        existingByEmployeeNo.employeeId !== employee.id
       ) {
         throw new ConflictException(
           `Device employee_no ${requestedEmployeeNo} is already linked to employee ${existingByEmployeeNo.employeeId}`,
@@ -321,7 +338,8 @@ export class EmployeeDeviceAssignmentsService {
         );
 
         return {
-          message: 'Existing Hikvision device user linked to employee successfully',
+          message:
+            'Existing Hikvision device user linked to employee successfully',
           employee: this.mapEmployeeSummary(employee),
           device_id: deviceId,
           result: {
@@ -336,13 +354,17 @@ export class EmployeeDeviceAssignmentsService {
               attendance_events_linked: linked.linkedAttendanceEvents,
               queued_attendance_recalculation: linked.queuedRecalculation,
             },
-            assignment: await this.findAssignmentDetailsOrFail(linked.assignment.id),
+            assignment: await this.findAssignmentDetailsOrFail(
+              linked.assignment.id,
+            ),
           },
         };
       }
     }
 
-    const deviceEmployeeNo = requestedEmployeeNo ?? (await this.resolveAvailableDeviceEmployeeNo(companyId, device.id));
+    const deviceEmployeeNo =
+      requestedEmployeeNo ??
+      (await this.resolveAvailableDeviceEmployeeNo(companyId, device.id));
     const created = await this.registerDeviceUserLocallyAndOnDevice(
       companyId,
       employee,
@@ -362,7 +384,9 @@ export class EmployeeDeviceAssignmentsService {
         employee_id: employee.id,
         device_employee_no: created.assignment.employeeNo,
         device_result: created.deviceResult,
-        assignment: await this.findAssignmentDetailsOrFail(created.assignment.id),
+        assignment: await this.findAssignmentDetailsOrFail(
+          created.assignment.id,
+        ),
       },
     };
   }
@@ -375,12 +399,17 @@ export class EmployeeDeviceAssignmentsService {
   ) {
     const employee = await this.findEmployeeOrFail(companyId, employeeId, true);
     await this.findHikvisionDeviceOrFail(companyId, deviceId);
-    const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employeeId, deviceId);
-    const deviceState = await this.hikvisionUserManagementService.getUserByEmployeeNumber(
+    const assignment = await this.findAssignmentByEmployeeOrFail(
       companyId,
+      employeeId,
       deviceId,
-      assignment.employeeNo,
     );
+    const deviceState =
+      await this.hikvisionUserManagementService.getUserByEmployeeNumber(
+        companyId,
+        deviceId,
+        assignment.employeeNo,
+      );
 
     if (!deviceState.exists) {
       throw new NotFoundException(
@@ -389,7 +418,13 @@ export class EmployeeDeviceAssignmentsService {
     }
 
     const device = await this.findHikvisionDeviceOrFail(companyId, deviceId);
-    const settings = await this.resolveSettingsForUpdate(companyId, employee, device, assignment, dto);
+    const settings = await this.resolveSettingsForUpdate(
+      companyId,
+      employee,
+      device,
+      assignment,
+      dto,
+    );
     const payload = await this.buildDeviceUserPayload(
       companyId,
       employee,
@@ -397,9 +432,14 @@ export class EmployeeDeviceAssignmentsService {
       assignment.employeeNo,
       settings,
     );
-    settings.userVerifyMode = payload.user_verify_mode ?? settings.userVerifyMode;
+    settings.userVerifyMode =
+      payload.user_verify_mode ?? settings.userVerifyMode;
 
-    await this.hikvisionUserManagementService.updateUserOnDevice(companyId, deviceId, payload);
+    await this.hikvisionUserManagementService.updateUserOnDevice(
+      companyId,
+      deviceId,
+      payload,
+    );
 
     this.applySettingsToAssignment(assignment, settings);
     assignment.syncStatus = EmployeeDeviceAssignmentSyncStatusEnum.SYNCED;
@@ -448,13 +488,15 @@ export class EmployeeDeviceAssignmentsService {
       settings,
       password,
     );
-    settings.userVerifyMode = payload.user_verify_mode ?? settings.userVerifyMode;
+    settings.userVerifyMode =
+      payload.user_verify_mode ?? settings.userVerifyMode;
 
-    const deviceResult = await this.hikvisionUserManagementService.createUserOnDevice(
-      companyId,
-      device.id,
-      payload,
-    );
+    const deviceResult =
+      await this.hikvisionUserManagementService.createUserOnDevice(
+        companyId,
+        device.id,
+        payload,
+      );
     const assignment = await this.persistSuccessfulAssignment(
       companyId,
       employee,
@@ -476,7 +518,9 @@ export class EmployeeDeviceAssignmentsService {
     password?: string,
   ): Promise<LinkExistingDeviceUserResult> {
     return this.dataSource.transaction(async (manager) => {
-      const assignmentRepository = manager.getRepository(EmployeeDeviceAssignment);
+      const assignmentRepository = manager.getRepository(
+        EmployeeDeviceAssignment,
+      );
       const currentAssignment = await assignmentRepository.findOneOrFail({
         where: { id: assignment.id, companyId },
       });
@@ -490,15 +534,19 @@ export class EmployeeDeviceAssignmentsService {
       currentAssignment.employeeNo = currentAssignment.employeeNo.trim();
       this.applySettingsToAssignment(currentAssignment, settings);
       currentAssignment.syncStatus =
-        currentAssignment.syncStatus ?? EmployeeDeviceAssignmentSyncStatusEnum.SYNCED;
+        currentAssignment.syncStatus ??
+        EmployeeDeviceAssignmentSyncStatusEnum.SYNCED;
       currentAssignment.lastSyncedAt = now;
-      currentAssignment.metadata = this.mergeMetadata(currentAssignment.metadata, {
-        hikvision: {
-          linked_backend_employee_id: employee.id,
-          linked_backend_employee_at: now.toISOString(),
-          linked_without_device_lookup: true,
+      currentAssignment.metadata = this.mergeMetadata(
+        currentAssignment.metadata,
+        {
+          hikvision: {
+            linked_backend_employee_id: employee.id,
+            linked_backend_employee_at: now.toISOString(),
+            linked_without_device_lookup: true,
+          },
         },
-      });
+      );
 
       if (password?.trim()) {
         this.applyPasswordStateToAssignment(
@@ -556,13 +604,14 @@ export class EmployeeDeviceAssignmentsService {
         device.id,
         currentAssignment.employeeNo,
       );
-      const linkedBiometricSessions = await this.linkBiometricSessionsToEmployee(
-        manager,
-        companyId,
-        employee.id,
-        device.id,
-        currentAssignment.employeeNo,
-      );
+      const linkedBiometricSessions =
+        await this.linkBiometricSessionsToEmployee(
+          manager,
+          companyId,
+          employee.id,
+          device.id,
+          currentAssignment.employeeNo,
+        );
       const attendanceLink = await this.linkAttendanceEventsToEmployee(
         manager,
         companyId,
@@ -583,8 +632,16 @@ export class EmployeeDeviceAssignmentsService {
   }
 
   async getUser(companyId: number, employeeId: number, deviceId: number) {
-    const employee = await this.findEmployeeOrFail(companyId, employeeId, false);
-    const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employee.id, deviceId);
+    const employee = await this.findEmployeeOrFail(
+      companyId,
+      employeeId,
+      false,
+    );
+    const assignment = await this.findAssignmentByEmployeeOrFail(
+      companyId,
+      employee.id,
+      deviceId,
+    );
     const employeeNo = assignment.employeeNo.trim();
 
     return this.hikvisionUserManagementService.getUserByEmployeeNumber(
@@ -594,7 +651,11 @@ export class EmployeeDeviceAssignmentsService {
     );
   }
 
-  async searchUsers(companyId: number, deviceId: number, query: HikvisionUserSearchQueryDto) {
+  async searchUsers(
+    companyId: number,
+    deviceId: number,
+    query: HikvisionUserSearchQueryDto,
+  ) {
     const options: HikvisionUserSearchOptions = {
       search_id: query.search_id,
       search_result_position: query.search_result_position,
@@ -602,7 +663,11 @@ export class EmployeeDeviceAssignmentsService {
       employee_nos: query.employee_no ? [query.employee_no] : undefined,
     };
 
-    return this.hikvisionUserManagementService.searchUsersOnDevice(companyId, deviceId, options);
+    return this.hikvisionUserManagementService.searchUsersOnDevice(
+      companyId,
+      deviceId,
+      options,
+    );
   }
 
   async disableUserAccessTemporarily(
@@ -610,12 +675,20 @@ export class EmployeeDeviceAssignmentsService {
     employeeId: number,
     deviceId: number,
   ) {
-    const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employeeId, deviceId);
+    const assignment = await this.findAssignmentByEmployeeOrFail(
+      companyId,
+      employeeId,
+      deviceId,
+    );
 
-    await this.hikvisionUserManagementService.updateUserOnDevice(companyId, deviceId, {
-      employee_no: assignment.employeeNo,
-      valid: { enable: false },
-    });
+    await this.hikvisionUserManagementService.updateUserOnDevice(
+      companyId,
+      deviceId,
+      {
+        employee_no: assignment.employeeNo,
+        valid: { enable: false },
+      },
+    );
 
     assignment.validEnabled = false;
     assignment.syncStatus = EmployeeDeviceAssignmentSyncStatusEnum.SYNCED;
@@ -634,14 +707,26 @@ export class EmployeeDeviceAssignmentsService {
     };
   }
 
-  async enableUserAccess(companyId: number, employeeId: number, deviceId: number) {
+  async enableUserAccess(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+  ) {
     await this.findEmployeeOrFail(companyId, employeeId, true);
-    const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employeeId, deviceId);
+    const assignment = await this.findAssignmentByEmployeeOrFail(
+      companyId,
+      employeeId,
+      deviceId,
+    );
 
-    await this.hikvisionUserManagementService.updateUserOnDevice(companyId, deviceId, {
-      employee_no: assignment.employeeNo,
-      valid: { enable: true },
-    });
+    await this.hikvisionUserManagementService.updateUserOnDevice(
+      companyId,
+      deviceId,
+      {
+        employee_no: assignment.employeeNo,
+        valid: { enable: true },
+      },
+    );
 
     assignment.validEnabled = true;
     assignment.syncStatus = EmployeeDeviceAssignmentSyncStatusEnum.SYNCED;
@@ -700,7 +785,11 @@ export class EmployeeDeviceAssignmentsService {
     deviceId: number,
     userVerifyMode?: string,
   ) {
-    const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employeeId, deviceId);
+    const assignment = await this.findAssignmentByEmployeeOrFail(
+      companyId,
+      employeeId,
+      deviceId,
+    );
     const result = await this.hikvisionUserManagementService.deleteUserPassword(
       companyId,
       deviceId,
@@ -744,14 +833,22 @@ export class EmployeeDeviceAssignmentsService {
   ) {
     const employee = await this.findEmployeeOrFail(companyId, employeeId, true);
     const device = await this.findHikvisionDeviceOrFail(companyId, deviceId);
-    const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employee.id, device.id);
+    const assignment = await this.findAssignmentByEmployeeOrFail(
+      companyId,
+      employee.id,
+      device.id,
+    );
     const cardNo = this.normalizeCardNo(dto.card_no);
     const cardType = this.normalizeCardType(dto.card_type);
     const syncToDevice = dto.sync_to_device ?? true;
 
     await this.assertCardNumberAvailable(companyId, employee.id, cardNo);
 
-    let credential = await this.findReusableCardByNo(companyId, employee.id, cardNo);
+    let credential = await this.findReusableCardByNo(
+      companyId,
+      employee.id,
+      cardNo,
+    );
     if (!credential) {
       credential = this.credentialRepository.create({
         companyId,
@@ -791,7 +888,11 @@ export class EmployeeDeviceAssignmentsService {
           actor,
           'CREATE',
         )
-      : { card: this.mapCardCredential(credential, device.id), device_result: null, synced: false };
+      : {
+          card: this.mapCardCredential(credential, device.id),
+          device_result: null,
+          synced: false,
+        };
 
     return {
       message: 'Employee card processed successfully',
@@ -810,26 +911,46 @@ export class EmployeeDeviceAssignmentsService {
   ) {
     const employee = await this.findEmployeeOrFail(companyId, employeeId, true);
     const device = await this.findHikvisionDeviceOrFail(companyId, deviceId);
-    const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employee.id, device.id);
-    const credential = await this.findCardCredentialOrFail(companyId, employee.id, cardId);
-    const nextCardNo = dto.card_no !== undefined ? this.normalizeCardNo(dto.card_no) : this.normalizeCardNo(credential.cardNo);
-    const nextCardType = this.normalizeCardType(dto.card_type ?? this.readCardType(credential));
+    const assignment = await this.findAssignmentByEmployeeOrFail(
+      companyId,
+      employee.id,
+      device.id,
+    );
+    const credential = await this.findCardCredentialOrFail(
+      companyId,
+      employee.id,
+      cardId,
+    );
+    const nextCardNo =
+      dto.card_no !== undefined
+        ? this.normalizeCardNo(dto.card_no)
+        : this.normalizeCardNo(credential.cardNo);
+    const nextCardType = this.normalizeCardType(
+      dto.card_type ?? this.readCardType(credential),
+    );
     const syncToDevice = dto.sync_to_device ?? true;
     const previousCardNo = this.normalizeCardNo(credential.cardNo);
 
-    await this.assertCardNumberAvailable(companyId, employee.id, nextCardNo, credential.id);
+    await this.assertCardNumberAvailable(
+      companyId,
+      employee.id,
+      nextCardNo,
+      credential.id,
+    );
 
     const updated = await this.saveCardCredentialState(credential, {
       employee,
       assignment,
       cardNo: nextCardNo,
       cardType: nextCardType,
-      enabled: credential.credentialStatus !== EmployeeAccessCredentialStatusEnum.INACTIVE,
+      enabled:
+        credential.credentialStatus !==
+        EmployeeAccessCredentialStatusEnum.INACTIVE,
       syncStatus: syncToDevice ? 'PENDING' : 'SAVED',
       syncError: null,
       userVerifyMode:
-        dto.user_verify_mode
-        ?? this.extractCredentialUserVerifyMode(credential),
+        dto.user_verify_mode ??
+        this.extractCredentialUserVerifyMode(credential),
     });
 
     const syncResult = syncToDevice
@@ -847,7 +968,11 @@ export class EmployeeDeviceAssignmentsService {
           'MODIFY',
           previousCardNo !== nextCardNo ? previousCardNo : null,
         )
-      : { card: this.mapCardCredential(updated, device.id), device_result: null, synced: false };
+      : {
+          card: this.mapCardCredential(updated, device.id),
+          device_result: null,
+          synced: false,
+        };
 
     return {
       message: 'Employee card updated successfully',
@@ -866,18 +991,32 @@ export class EmployeeDeviceAssignmentsService {
   ) {
     const employee = await this.findEmployeeOrFail(companyId, employeeId, true);
     const device = await this.findHikvisionDeviceOrFail(companyId, deviceId);
-    const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employee.id, device.id);
-    const credential = await this.findCardCredentialOrFail(companyId, employee.id, cardId);
+    const assignment = await this.findAssignmentByEmployeeOrFail(
+      companyId,
+      employee.id,
+      device.id,
+    );
+    const credential = await this.findCardCredentialOrFail(
+      companyId,
+      employee.id,
+      cardId,
+    );
 
     const updated = await this.saveCardCredentialState(credential, {
       employee,
       assignment,
       cardNo: this.normalizeCardNo(credential.cardNo),
-      cardType: this.normalizeCardType(dto.card_type ?? this.readCardType(credential)),
-      enabled: credential.credentialStatus === EmployeeAccessCredentialStatusEnum.ACTIVE,
+      cardType: this.normalizeCardType(
+        dto.card_type ?? this.readCardType(credential),
+      ),
+      enabled:
+        credential.credentialStatus ===
+        EmployeeAccessCredentialStatusEnum.ACTIVE,
       syncStatus: 'PENDING',
       syncError: null,
-      userVerifyMode: dto.user_verify_mode ?? this.extractCredentialUserVerifyMode(credential),
+      userVerifyMode:
+        dto.user_verify_mode ??
+        this.extractCredentialUserVerifyMode(credential),
     });
 
     const syncResult = await this.syncStoredCardCredential(
@@ -906,8 +1045,16 @@ export class EmployeeDeviceAssignmentsService {
     actor: AssignmentActor = {},
   ) {
     const employee = await this.findEmployeeOrFail(companyId, employeeId, true);
-    const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employee.id, deviceId);
-    const credential = await this.findCardCredentialOrFail(companyId, employee.id, cardId);
+    const assignment = await this.findAssignmentByEmployeeOrFail(
+      companyId,
+      employee.id,
+      deviceId,
+    );
+    const credential = await this.findCardCredentialOrFail(
+      companyId,
+      employee.id,
+      cardId,
+    );
 
     const updated = await this.saveCardCredentialState(credential, {
       employee,
@@ -921,16 +1068,23 @@ export class EmployeeDeviceAssignmentsService {
       deviceSyncStatus: 'DISABLED_LOCAL_ONLY',
     });
 
-    await this.logCardAudit(companyId, employee, deviceId, assignment.employeeNo, {
-      action: 'DISABLE',
-      cardNo: this.normalizeCardNo(credential.cardNo),
-      cardType: this.readCardType(credential),
-      status: 'SUCCESS',
-      actor,
-    });
+    await this.logCardAudit(
+      companyId,
+      employee,
+      deviceId,
+      assignment.employeeNo,
+      {
+        action: 'DISABLE',
+        cardNo: this.normalizeCardNo(credential.cardNo),
+        cardType: this.readCardType(credential),
+        status: 'SUCCESS',
+        actor,
+      },
+    );
 
     return {
-      message: 'Employee card disabled locally. The card remains on the device until it is deleted.',
+      message:
+        'Employee card disabled locally. The card remains on the device until it is deleted.',
       card: this.mapCardCredential(updated, deviceId),
     };
   }
@@ -944,8 +1098,16 @@ export class EmployeeDeviceAssignmentsService {
   ) {
     const employee = await this.findEmployeeOrFail(companyId, employeeId, true);
     const device = await this.findHikvisionDeviceOrFail(companyId, deviceId);
-    const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employee.id, device.id);
-    const credential = await this.findCardCredentialOrFail(companyId, employee.id, cardId);
+    const assignment = await this.findAssignmentByEmployeeOrFail(
+      companyId,
+      employee.id,
+      device.id,
+    );
+    const credential = await this.findCardCredentialOrFail(
+      companyId,
+      employee.id,
+      cardId,
+    );
 
     const updated = await this.saveCardCredentialState(credential, {
       employee,
@@ -966,7 +1128,8 @@ export class EmployeeDeviceAssignmentsService {
       updated,
       {
         card_type: this.readCardType(updated),
-        user_verify_mode: this.extractCredentialUserVerifyMode(updated) ?? undefined,
+        user_verify_mode:
+          this.extractCredentialUserVerifyMode(updated) ?? undefined,
       },
       actor,
       'ENABLE',
@@ -987,8 +1150,16 @@ export class EmployeeDeviceAssignmentsService {
     actor: AssignmentActor = {},
   ) {
     const employee = await this.findEmployeeOrFail(companyId, employeeId, true);
-    const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employee.id, deviceId);
-    const credential = await this.findCardCredentialOrFail(companyId, employee.id, cardId);
+    const assignment = await this.findAssignmentByEmployeeOrFail(
+      companyId,
+      employee.id,
+      deviceId,
+    );
+    const credential = await this.findCardCredentialOrFail(
+      companyId,
+      employee.id,
+      cardId,
+    );
     const cardNo = this.normalizeCardNo(credential.cardNo);
     const deviceResult = await this.hikvisionUserManagementService.deleteCard(
       companyId,
@@ -1026,13 +1197,19 @@ export class EmployeeDeviceAssignmentsService {
     });
 
     const saved = await this.credentialRepository.save(credential);
-    await this.logCardAudit(companyId, employee, deviceId, assignment.employeeNo, {
-      action: 'DELETE',
-      cardNo,
-      cardType: this.readCardType(saved),
-      status: 'SUCCESS',
-      actor,
-    });
+    await this.logCardAudit(
+      companyId,
+      employee,
+      deviceId,
+      assignment.employeeNo,
+      {
+        action: 'DELETE',
+        cardNo,
+        cardType: this.readCardType(saved),
+        status: 'SUCCESS',
+        actor,
+      },
+    );
 
     return {
       message: 'Employee card deleted successfully',
@@ -1190,14 +1367,26 @@ export class EmployeeDeviceAssignmentsService {
     );
   }
 
-  async removeDoorPermissionOnly(companyId: number, employeeId: number, deviceId: number) {
-    const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employeeId, deviceId);
+  async removeDoorPermissionOnly(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+  ) {
+    const assignment = await this.findAssignmentByEmployeeOrFail(
+      companyId,
+      employeeId,
+      deviceId,
+    );
 
-    await this.hikvisionUserManagementService.updateUserOnDevice(companyId, deviceId, {
-      employee_no: assignment.employeeNo,
-      door_right: '',
-      right_plan: [],
-    });
+    await this.hikvisionUserManagementService.updateUserOnDevice(
+      companyId,
+      deviceId,
+      {
+        employee_no: assignment.employeeNo,
+        door_right: '',
+        right_plan: [],
+      },
+    );
 
     assignment.doorRight = '';
     assignment.syncStatus = EmployeeDeviceAssignmentSyncStatusEnum.SYNCED;
@@ -1218,21 +1407,35 @@ export class EmployeeDeviceAssignmentsService {
     };
   }
 
-  async deleteUserOnly(companyId: number, employeeId: number, deviceId: number) {
-    const employee = await this.findEmployeeOrFail(companyId, employeeId, false);
-    const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employee.id, deviceId);
-
-    const deviceDelete = await this.hikvisionUserManagementService.deleteUserFromDevice(
+  async deleteUserOnly(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+  ) {
+    const employee = await this.findEmployeeOrFail(
       companyId,
-      deviceId,
-      assignment.employeeNo,
+      employeeId,
+      false,
     );
+    const assignment = await this.findAssignmentByEmployeeOrFail(
+      companyId,
+      employee.id,
+      deviceId,
+    );
+
+    const deviceDelete =
+      await this.hikvisionUserManagementService.deleteUserFromDevice(
+        companyId,
+        deviceId,
+        assignment.employeeNo,
+      );
 
     await this.assignmentRepository.remove(assignment);
     await this.deactivateDeviceIdentity(companyId, employee.id, deviceId);
 
     return {
-      message: 'Employee user deleted from device and local assignment removed successfully',
+      message:
+        'Employee user deleted from device and local assignment removed successfully',
       employee_id: employee.id,
       device_id: deviceId,
       employee_no: assignment.employeeNo,
@@ -1243,8 +1446,17 @@ export class EmployeeDeviceAssignmentsService {
   async resyncUser(companyId: number, employeeId: number, deviceId: number) {
     const employee = await this.findEmployeeOrFail(companyId, employeeId, true);
     const device = await this.findHikvisionDeviceOrFail(companyId, deviceId);
-    const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employee.id, deviceId);
-    const settings = await this.resolveSettingsFromAssignment(companyId, employee, device, assignment);
+    const assignment = await this.findAssignmentByEmployeeOrFail(
+      companyId,
+      employee.id,
+      deviceId,
+    );
+    const settings = await this.resolveSettingsFromAssignment(
+      companyId,
+      employee,
+      device,
+      assignment,
+    );
     const payload = await this.buildDeviceUserPayload(
       companyId,
       employee,
@@ -1252,17 +1464,27 @@ export class EmployeeDeviceAssignmentsService {
       assignment.employeeNo,
       settings,
     );
-    settings.userVerifyMode = payload.user_verify_mode ?? settings.userVerifyMode;
-    const deviceState = await this.hikvisionUserManagementService.getUserByEmployeeNumber(
-      companyId,
-      deviceId,
-      assignment.employeeNo,
-    );
+    settings.userVerifyMode =
+      payload.user_verify_mode ?? settings.userVerifyMode;
+    const deviceState =
+      await this.hikvisionUserManagementService.getUserByEmployeeNumber(
+        companyId,
+        deviceId,
+        assignment.employeeNo,
+      );
 
     if (deviceState.exists) {
-      await this.hikvisionUserManagementService.updateUserOnDevice(companyId, deviceId, payload);
+      await this.hikvisionUserManagementService.updateUserOnDevice(
+        companyId,
+        deviceId,
+        payload,
+      );
     } else {
-      await this.hikvisionUserManagementService.createUserOnDevice(companyId, deviceId, payload);
+      await this.hikvisionUserManagementService.createUserOnDevice(
+        companyId,
+        deviceId,
+        payload,
+      );
     }
 
     assignment.syncStatus = EmployeeDeviceAssignmentSyncStatusEnum.SYNCED;
@@ -1284,7 +1506,11 @@ export class EmployeeDeviceAssignmentsService {
     };
   }
 
-  async removeAssignment(companyId: number, employeeId: number, deviceId: number) {
+  async removeAssignment(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+  ) {
     return this.deleteUserOnly(companyId, employeeId, deviceId);
   }
 
@@ -1313,7 +1539,11 @@ export class EmployeeDeviceAssignmentsService {
   ): Promise<Employee> {
     const employee = await this.employeeRepository
       .createQueryBuilder('employee')
-      .innerJoin(CompanyUser, 'companyUser', 'companyUser.id = employee.company_user_id')
+      .innerJoin(
+        CompanyUser,
+        'companyUser',
+        'companyUser.id = employee.company_user_id',
+      )
       .where('employee.id = :employeeId', { employeeId })
       .andWhere('companyUser.company_id = :companyId', { companyId })
       .getOne();
@@ -1322,14 +1552,22 @@ export class EmployeeDeviceAssignmentsService {
       throw new NotFoundException('Employee not found for active company');
     }
 
-    if (requireActive && employee.employment_status !== EmploymentStatusEnum.ACTIVE) {
-      throw new BadRequestException('Only ACTIVE employees can be assigned or synced to devices');
+    if (
+      requireActive &&
+      employee.employment_status !== EmploymentStatusEnum.ACTIVE
+    ) {
+      throw new BadRequestException(
+        'Only ACTIVE employees can be assigned or synced to devices',
+      );
     }
 
     return employee;
   }
 
-  private async findHikvisionDevicesOrFail(companyId: number, deviceIds: number[]) {
+  private async findHikvisionDevicesOrFail(
+    companyId: number,
+    deviceIds: number[],
+  ) {
     const uniqueDeviceIds = [...new Set(deviceIds)];
     const devices = await this.attendanceDeviceRepository.find({
       where: {
@@ -1339,7 +1577,9 @@ export class EmployeeDeviceAssignmentsService {
     });
 
     if (devices.length !== uniqueDeviceIds.length) {
-      throw new BadRequestException('One or more device_ids do not belong to the active company');
+      throw new BadRequestException(
+        'One or more device_ids do not belong to the active company',
+      );
     }
 
     const nonHikvision = devices.find(
@@ -1349,10 +1589,14 @@ export class EmployeeDeviceAssignmentsService {
     );
 
     if (nonHikvision) {
-      throw new BadRequestException(`Device ${nonHikvision.id} is not a Hikvision integration`);
+      throw new BadRequestException(
+        `Device ${nonHikvision.id} is not a Hikvision integration`,
+      );
     }
 
-    const inactive = devices.find((device) => device.status !== AttendanceDeviceStatusEnum.ACTIVE);
+    const inactive = devices.find(
+      (device) => device.status !== AttendanceDeviceStatusEnum.ACTIVE,
+    );
     if (inactive) {
       throw new BadRequestException(`Device ${inactive.id} is inactive`);
     }
@@ -1361,7 +1605,9 @@ export class EmployeeDeviceAssignmentsService {
   }
 
   private async findHikvisionDeviceOrFail(companyId: number, deviceId: number) {
-    const [device] = await this.findHikvisionDevicesOrFail(companyId, [deviceId]);
+    const [device] = await this.findHikvisionDevicesOrFail(companyId, [
+      deviceId,
+    ]);
     return device;
   }
 
@@ -1458,7 +1704,9 @@ export class EmployeeDeviceAssignmentsService {
       accessGroupName: groupContext.group.name,
       organizationId,
       userVerifyMode:
-        this.toNullableString(input.user_verify_mode) ?? assignment.userVerifyMode ?? null,
+        this.toNullableString(input.user_verify_mode) ??
+        assignment.userVerifyMode ??
+        null,
       validEnabled: input.valid_enabled ?? assignment.validEnabled ?? true,
       validBeginTime:
         input.valid_begin_time !== undefined
@@ -1473,7 +1721,8 @@ export class EmployeeDeviceAssignmentsService {
       localUiRight: input.local_ui_right ?? assignment.localUiRight ?? false,
       closeDelayEnabled:
         input.close_delay_enabled ?? assignment.closeDelayEnabled ?? false,
-      maxOpenDoorTime: input.max_open_door_time ?? assignment.maxOpenDoorTime ?? 0,
+      maxOpenDoorTime:
+        input.max_open_door_time ?? assignment.maxOpenDoorTime ?? 0,
       openDoorTime: input.open_door_time ?? assignment.openDoorTime ?? 0,
       metadata:
         input.metadata !== undefined
@@ -1524,7 +1773,12 @@ export class EmployeeDeviceAssignmentsService {
 
     try {
       await this.replaceRightPlans(deviceId, assignment, settings.rightPlan);
-      await this.upsertDeviceIdentity(companyId, employee.id, assignment.employeeNo, deviceId);
+      await this.upsertDeviceIdentity(
+        companyId,
+        employee.id,
+        assignment.employeeNo,
+        deviceId,
+      );
       if (password?.trim()) {
         await this.upsertPasswordCredentialForAssignment(
           null,
@@ -1547,7 +1801,11 @@ export class EmployeeDeviceAssignmentsService {
       return assignment;
     } catch (error) {
       await this.assignmentRepository.delete({ id: assignment.id });
-      await this.rollbackDeviceUserRegistration(companyId, deviceId, assignment.employeeNo);
+      await this.rollbackDeviceUserRegistration(
+        companyId,
+        deviceId,
+        assignment.employeeNo,
+      );
       throw error;
     }
   }
@@ -1558,7 +1816,12 @@ export class EmployeeDeviceAssignmentsService {
     device: AttendanceDevice,
     assignment: EmployeeDeviceAssignment,
   ): Promise<AssignmentSettings> {
-    const accessGroupId = await this.resolveStoredAccessGroupId(companyId, employee.id, device.id, assignment);
+    const accessGroupId = await this.resolveStoredAccessGroupId(
+      companyId,
+      employee.id,
+      device.id,
+      assignment,
+    );
     const groupContext = await this.resolveAccessGroupContext(
       companyId,
       employee.id,
@@ -1570,10 +1833,10 @@ export class EmployeeDeviceAssignmentsService {
       accessGroupId: groupContext.group.id,
       accessGroupName: groupContext.group.name,
       organizationId:
-        groupContext.membership.organizationId
-        ?? groupContext.group.organizationId
-        ?? assignment.organizationId
-        ?? null,
+        groupContext.membership.organizationId ??
+        groupContext.group.organizationId ??
+        assignment.organizationId ??
+        null,
       userVerifyMode: assignment.userVerifyMode ?? null,
       validEnabled: assignment.validEnabled ?? true,
       validBeginTime: assignment.validBeginTime,
@@ -1602,17 +1865,18 @@ export class EmployeeDeviceAssignmentsService {
       deviceId,
       passwordOverride,
     );
-    const resolvedUserVerifyMode = await this.hikvisionUserManagementService.resolveSupportedUserVerifyMode(
-      companyId,
-      deviceId,
-      settings.userVerifyMode ?? credentials.explicitUserVerifyMode,
-      this.buildUserVerifyModeCandidates(
-        credentials.hasPassword,
-        credentials.hasFingerprint,
-        credentials.hasCard,
-      ),
-      'employee device assignment',
-    );
+    const resolvedUserVerifyMode =
+      await this.hikvisionUserManagementService.resolveSupportedUserVerifyMode(
+        companyId,
+        deviceId,
+        settings.userVerifyMode ?? credentials.explicitUserVerifyMode,
+        this.buildUserVerifyModeCandidates(
+          credentials.hasPassword,
+          credentials.hasFingerprint,
+          credentials.hasCard,
+        ),
+        'employee device assignment',
+      );
 
     return {
       employee_no: deviceEmployeeNo,
@@ -1625,7 +1889,9 @@ export class EmployeeDeviceAssignmentsService {
           this.formatHikvisionDateTime(this.startOfToday()),
         end_time:
           this.toIsoLikeString(settings.validEndTime) ??
-          this.formatHikvisionDateTime(this.endOfDate(this.addYears(new Date(), 10))),
+          this.formatHikvisionDateTime(
+            this.endOfDate(this.addYears(new Date(), 10)),
+          ),
         time_type: 'local',
       },
       door_right: settings.doorRight,
@@ -1657,12 +1923,14 @@ export class EmployeeDeviceAssignmentsService {
     });
     const active = credentials.filter(
       (credential) =>
-        credential.credentialStatus === EmployeeAccessCredentialStatusEnum.ACTIVE,
+        credential.credentialStatus ===
+        EmployeeAccessCredentialStatusEnum.ACTIVE,
     );
 
     const passwordCredential = active.find(
       (credential) =>
-        (credential.credentialType === EmployeeAccessCredentialTypeEnum.PASSWORD ||
+        (credential.credentialType ===
+          EmployeeAccessCredentialTypeEnum.PASSWORD ||
           credential.credentialType === EmployeeAccessCredentialTypeEnum.PIN) &&
         Boolean(credential.pinPassword?.trim()),
     );
@@ -1673,22 +1941,25 @@ export class EmployeeDeviceAssignmentsService {
     );
     const fingerprintCredential = active.find(
       (credential) =>
-        credential.credentialType === EmployeeAccessCredentialTypeEnum.FINGERPRINT ||
+        credential.credentialType ===
+          EmployeeAccessCredentialTypeEnum.FINGERPRINT ||
         credential.hasFingerprint,
     );
 
     const normalizedOverridePassword = this.toNullableString(passwordOverride);
     const effectivePassword =
-      normalizedOverridePassword ?? passwordCredential?.pinPassword?.trim() ?? null;
+      normalizedOverridePassword ??
+      passwordCredential?.pinPassword?.trim() ??
+      null;
     const hasPassword = Boolean(effectivePassword);
     const hasCard = Boolean(cardCredential?.cardNo?.trim());
     const hasFingerprint = Boolean(
       fingerprintCredential?.hasFingerprint || fingerprintCredential,
     );
     const explicitUserVerifyMode =
-      this.extractCredentialUserVerifyMode(passwordCredential)
-      ?? this.extractCredentialUserVerifyMode(cardCredential)
-      ?? this.extractCredentialUserVerifyMode(fingerprintCredential);
+      this.extractCredentialUserVerifyMode(passwordCredential) ??
+      this.extractCredentialUserVerifyMode(cardCredential) ??
+      this.extractCredentialUserVerifyMode(fingerprintCredential);
 
     return {
       password: effectivePassword,
@@ -1696,7 +1967,11 @@ export class EmployeeDeviceAssignmentsService {
       hasCard,
       hasFingerprint,
       explicitUserVerifyMode,
-      userVerifyMode: this.resolveUserVerifyMode(hasPassword, hasFingerprint, hasCard),
+      userVerifyMode: this.resolveUserVerifyMode(
+        hasPassword,
+        hasFingerprint,
+        hasCard,
+      ),
     };
   }
 
@@ -1705,7 +1980,13 @@ export class EmployeeDeviceAssignmentsService {
     hasFingerprint: boolean,
     hasCard: boolean,
   ): string {
-    return this.buildUserVerifyModeCandidates(hasPassword, hasFingerprint, hasCard)[0] ?? 'cardOrFpOrPw';
+    return (
+      this.buildUserVerifyModeCandidates(
+        hasPassword,
+        hasFingerprint,
+        hasCard,
+      )[0] ?? 'cardOrFpOrPw'
+    );
   }
 
   private buildUserVerifyModeCandidates(
@@ -1744,19 +2025,26 @@ export class EmployeeDeviceAssignmentsService {
       return null;
     }
 
-    return this.toNullableString(this.toObject(this.toObject(credential.metadata).hikvision).user_verify_mode);
+    return this.toNullableString(
+      this.toObject(this.toObject(credential.metadata).hikvision)
+        .user_verify_mode,
+    );
   }
 
-  private async resolveAvailableDeviceEmployeeNo(companyId: number, deviceId: number): Promise<string> {
+  private async resolveAvailableDeviceEmployeeNo(
+    companyId: number,
+    deviceId: number,
+  ): Promise<string> {
     const nextBase = await this.resolveNextDeviceEmployeeNumber(companyId);
 
     for (let attempt = 0; attempt < 500; attempt += 1) {
       const candidate = this.formatDeviceEmployeeNo(nextBase + attempt);
-      const existsOnDevice = await this.hikvisionUserManagementService.validateUserExistsOnDevice(
-        companyId,
-        deviceId,
-        candidate,
-      );
+      const existsOnDevice =
+        await this.hikvisionUserManagementService.validateUserExistsOnDevice(
+          companyId,
+          deviceId,
+          candidate,
+        );
       if (existsOnDevice.exists) {
         continue;
       }
@@ -1768,9 +2056,11 @@ export class EmployeeDeviceAssignmentsService {
         continue;
       }
 
-      const identityExists = await this.employeeDeviceIdentityRepository.exists({
-        where: { companyId, employeeNo: candidate, isActive: true },
-      });
+      const identityExists = await this.employeeDeviceIdentityRepository.exists(
+        {
+          where: { companyId, employeeNo: candidate, isActive: true },
+        },
+      );
       if (identityExists) {
         continue;
       }
@@ -1783,7 +2073,9 @@ export class EmployeeDeviceAssignmentsService {
     );
   }
 
-  private async resolveNextDeviceEmployeeNumber(companyId: number): Promise<number> {
+  private async resolveNextDeviceEmployeeNumber(
+    companyId: number,
+  ): Promise<number> {
     const assignments = await this.assignmentRepository.find({
       where: { companyId },
       select: ['employeeNo'],
@@ -1802,7 +2094,9 @@ export class EmployeeDeviceAssignmentsService {
 
     const next = usedNumbers.length > 0 ? Math.max(...usedNumbers) + 1 : 1;
     if (next > 99_999_999) {
-      throw new ConflictException('No 8-digit Hikvision employee numbers are available');
+      throw new ConflictException(
+        'No 8-digit Hikvision employee numbers are available',
+      );
     }
 
     return next;
@@ -1840,7 +2134,10 @@ export class EmployeeDeviceAssignmentsService {
       );
     }
 
-    const belongsToDevice = await this.groupHasDeviceAssignment(group.id, device.id);
+    const belongsToDevice = await this.groupHasDeviceAssignment(
+      group.id,
+      device.id,
+    );
     if (!belongsToDevice) {
       throw new BadRequestException(
         `Access group ${group.id} is not assigned to device ${device.id}`,
@@ -1871,7 +2168,9 @@ export class EmployeeDeviceAssignmentsService {
       );
     }
 
-    const templateIds = [...new Set(groupDoors.map((item) => item.scheduleTemplateId))];
+    const templateIds = [
+      ...new Set(groupDoors.map((item) => item.scheduleTemplateId)),
+    ];
     if (!templateIds.length) {
       throw new BadRequestException(
         `Access group ${group.id} has no schedule template configured`,
@@ -1924,7 +2223,9 @@ export class EmployeeDeviceAssignmentsService {
       .join(',');
 
     if (!doorRight) {
-      throw new BadRequestException(`Access group ${group.id} produced no valid Hikvision doors`);
+      throw new BadRequestException(
+        `Access group ${group.id} produced no valid Hikvision doors`,
+      );
     }
 
     const membership = await this.findActiveGroupMembershipForGroup(
@@ -1938,7 +2239,10 @@ export class EmployeeDeviceAssignmentsService {
       );
     }
 
-    if (membership.organizationId && membership.organizationId !== group.organizationId) {
+    if (
+      membership.organizationId &&
+      membership.organizationId !== group.organizationId
+    ) {
       throw new BadRequestException(
         `Employee ${employeeId} does not belong to the same organization as access group ${group.id}`,
       );
@@ -1958,13 +2262,19 @@ export class EmployeeDeviceAssignmentsService {
     deviceId: number,
     assignment: EmployeeDeviceAssignment,
   ): Promise<number> {
-    const hikvisionMetadata = this.toObject(this.toObject(assignment.metadata).hikvision);
+    const hikvisionMetadata = this.toObject(
+      this.toObject(assignment.metadata).hikvision,
+    );
     const fromMetadata = Number(hikvisionMetadata.access_group_id);
     if (Number.isInteger(fromMetadata) && fromMetadata > 0) {
       return fromMetadata;
     }
 
-    const membership = await this.findActiveAccessGroupMembership(companyId, employeeId, deviceId);
+    const membership = await this.findActiveAccessGroupMembership(
+      companyId,
+      employeeId,
+      deviceId,
+    );
     if (membership) {
       return membership.accessGroupId;
     }
@@ -2059,10 +2369,10 @@ export class EmployeeDeviceAssignmentsService {
     requestedOrganizationId?: number,
   ): Promise<number | null> {
     const candidateOrganizationId =
-      requestedOrganizationId
-      ?? groupContext.membership.organizationId
-      ?? groupContext.group.organizationId
-      ?? null;
+      requestedOrganizationId ??
+      groupContext.membership.organizationId ??
+      groupContext.group.organizationId ??
+      null;
 
     if (!candidateOrganizationId) {
       return null;
@@ -2074,16 +2384,19 @@ export class EmployeeDeviceAssignmentsService {
     });
 
     if (!organization) {
-      throw new BadRequestException('organization_id does not belong to the active company');
+      throw new BadRequestException(
+        'organization_id does not belong to the active company',
+      );
     }
 
-    const organizationMembership = await this.accessOrganizationEmployeeRepository.findOne({
-      where: {
-        organizationId: candidateOrganizationId,
-        employeeId: groupContext.membership.employeeId ?? 0,
-      },
-      select: ['id'],
-    });
+    const organizationMembership =
+      await this.accessOrganizationEmployeeRepository.findOne({
+        where: {
+          organizationId: candidateOrganizationId,
+          employeeId: groupContext.membership.employeeId ?? 0,
+        },
+        select: ['id'],
+      });
 
     if (!organizationMembership) {
       throw new BadRequestException(
@@ -2092,8 +2405,8 @@ export class EmployeeDeviceAssignmentsService {
     }
 
     if (
-      groupContext.group.organizationId !== null
-      && groupContext.group.organizationId !== candidateOrganizationId
+      groupContext.group.organizationId !== null &&
+      groupContext.group.organizationId !== candidateOrganizationId
     ) {
       throw new BadRequestException(
         `Access group ${groupContext.group.id} belongs to organization ${groupContext.group.organizationId}, not ${candidateOrganizationId}`,
@@ -2181,7 +2494,10 @@ export class EmployeeDeviceAssignmentsService {
     }
 
     for (const existing of existingPlans) {
-      const key = this.buildRightPlanKey(existing.doorNo, existing.hikvisionTemplateNo);
+      const key = this.buildRightPlanKey(
+        existing.doorNo,
+        existing.hikvisionTemplateNo,
+      );
       if (activeKeys.has(key)) {
         continue;
       }
@@ -2229,7 +2545,9 @@ export class EmployeeDeviceAssignmentsService {
     userVerifyMode: string | null,
     markSynced: boolean,
   ) {
-    const repository = manager?.getRepository(EmployeeAccessCredential) ?? this.credentialRepository;
+    const repository =
+      manager?.getRepository(EmployeeAccessCredential) ??
+      this.credentialRepository;
     let credential = await repository.findOne({
       where: {
         companyId,
@@ -2270,9 +2588,12 @@ export class EmployeeDeviceAssignmentsService {
     credential.credentialNo = employeeNo;
     credential.pinPassword = password.trim();
     credential.passwordSet = true;
-    credential.source = existingSource ?? EmployeeAccessCredentialSourceEnum.MANUAL;
+    credential.source =
+      existingSource ?? EmployeeAccessCredentialSourceEnum.MANUAL;
     credential.credentialStatus = EmployeeAccessCredentialStatusEnum.ACTIVE;
-    credential.lastSyncedAt = markSynced ? now : credential.lastSyncedAt ?? null;
+    credential.lastSyncedAt = markSynced
+      ? now
+      : (credential.lastSyncedAt ?? null);
     credential.metadata = this.mergeMetadata(credential.metadata, {
       hikvision: {
         user_verify_mode: userVerifyMode,
@@ -2295,9 +2616,11 @@ export class EmployeeDeviceAssignmentsService {
     assignment.metadata = this.mergeMetadata(assignment.metadata, {
       hikvision: {
         device_password_hash: passwordHash,
-        password_enabled: syncStatus === 'PENDING' ? true : Boolean(passwordHash),
+        password_enabled:
+          syncStatus === 'PENDING' ? true : Boolean(passwordHash),
         password_sync_status: syncStatus,
-        password_last_synced_at: syncStatus === 'SYNCED' ? new Date().toISOString() : null,
+        password_last_synced_at:
+          syncStatus === 'SYNCED' ? new Date().toISOString() : null,
         user_verify_mode: userVerifyMode ?? assignment.userVerifyMode,
       },
     });
@@ -2394,28 +2717,48 @@ export class EmployeeDeviceAssignmentsService {
     return `${doorNo}:${planTemplateNo.trim()}`;
   }
 
-  private cloneAssignment(assignment: EmployeeDeviceAssignment): EmployeeDeviceAssignment {
+  private cloneAssignment(
+    assignment: EmployeeDeviceAssignment,
+  ): EmployeeDeviceAssignment {
     return this.assignmentRepository.create({
       ...assignment,
-      validBeginTime: assignment.validBeginTime ? new Date(assignment.validBeginTime) : null,
-      validEndTime: assignment.validEndTime ? new Date(assignment.validEndTime) : null,
-      lastSyncedAt: assignment.lastSyncedAt ? new Date(assignment.lastSyncedAt) : null,
-      metadata: assignment.metadata ? JSON.parse(JSON.stringify(assignment.metadata)) : null,
+      validBeginTime: assignment.validBeginTime
+        ? new Date(assignment.validBeginTime)
+        : null,
+      validEndTime: assignment.validEndTime
+        ? new Date(assignment.validEndTime)
+        : null,
+      lastSyncedAt: assignment.lastSyncedAt
+        ? new Date(assignment.lastSyncedAt)
+        : null,
+      metadata: assignment.metadata
+        ? JSON.parse(JSON.stringify(assignment.metadata))
+        : null,
     });
   }
 
-  private cloneRightPlan(plan: EmployeeDeviceRightPlan): EmployeeDeviceRightPlan {
+  private cloneRightPlan(
+    plan: EmployeeDeviceRightPlan,
+  ): EmployeeDeviceRightPlan {
     return this.rightPlanRepository.create({
       ...plan,
-      metadata: plan.metadata ? JSON.parse(JSON.stringify(plan.metadata)) : null,
+      metadata: plan.metadata
+        ? JSON.parse(JSON.stringify(plan.metadata))
+        : null,
     });
   }
 
-  private cloneCredential(credential: EmployeeAccessCredential): EmployeeAccessCredential {
+  private cloneCredential(
+    credential: EmployeeAccessCredential,
+  ): EmployeeAccessCredential {
     return this.credentialRepository.create({
       ...credential,
-      lastSyncedAt: credential.lastSyncedAt ? new Date(credential.lastSyncedAt) : null,
-      metadata: credential.metadata ? JSON.parse(JSON.stringify(credential.metadata)) : null,
+      lastSyncedAt: credential.lastSyncedAt
+        ? new Date(credential.lastSyncedAt)
+        : null,
+      metadata: credential.metadata
+        ? JSON.parse(JSON.stringify(credential.metadata))
+        : null,
     });
   }
 
@@ -2424,24 +2767,24 @@ export class EmployeeDeviceAssignmentsService {
     next: EmployeeDeviceAssignment,
   ): boolean {
     return (
-      existing.companyId !== next.companyId
-      || existing.employeeId !== next.employeeId
-      || existing.employeeNo !== next.employeeNo
-      || existing.employeeName !== next.employeeName
-      || existing.deviceId !== next.deviceId
-      || existing.organizationId !== next.organizationId
-      || existing.hikvisionUserType !== next.hikvisionUserType
-      || existing.userVerifyMode !== next.userVerifyMode
-      || !this.sameDate(existing.validBeginTime, next.validBeginTime)
-      || !this.sameDate(existing.validEndTime, next.validEndTime)
-      || existing.validEnabled !== next.validEnabled
-      || existing.doorRight !== next.doorRight
-      || existing.localUiRight !== next.localUiRight
-      || existing.closeDelayEnabled !== next.closeDelayEnabled
-      || existing.maxOpenDoorTime !== next.maxOpenDoorTime
-      || existing.openDoorTime !== next.openDoorTime
-      || existing.syncStatus !== next.syncStatus
-      || !this.sameJson(existing.metadata, next.metadata)
+      existing.companyId !== next.companyId ||
+      existing.employeeId !== next.employeeId ||
+      existing.employeeNo !== next.employeeNo ||
+      existing.employeeName !== next.employeeName ||
+      existing.deviceId !== next.deviceId ||
+      existing.organizationId !== next.organizationId ||
+      existing.hikvisionUserType !== next.hikvisionUserType ||
+      existing.userVerifyMode !== next.userVerifyMode ||
+      !this.sameDate(existing.validBeginTime, next.validBeginTime) ||
+      !this.sameDate(existing.validEndTime, next.validEndTime) ||
+      existing.validEnabled !== next.validEnabled ||
+      existing.doorRight !== next.doorRight ||
+      existing.localUiRight !== next.localUiRight ||
+      existing.closeDelayEnabled !== next.closeDelayEnabled ||
+      existing.maxOpenDoorTime !== next.maxOpenDoorTime ||
+      existing.openDoorTime !== next.openDoorTime ||
+      existing.syncStatus !== next.syncStatus ||
+      !this.sameJson(existing.metadata, next.metadata)
     );
   }
 
@@ -2450,15 +2793,15 @@ export class EmployeeDeviceAssignmentsService {
     next: EmployeeDeviceRightPlan,
   ): boolean {
     return (
-      existing.employeeDeviceAssignmentId !== next.employeeDeviceAssignmentId
-      || existing.employeeNo !== next.employeeNo
-      || existing.deviceId !== next.deviceId
-      || existing.doorId !== next.doorId
-      || existing.doorNo !== next.doorNo
-      || existing.scheduleTemplateId !== next.scheduleTemplateId
-      || existing.hikvisionTemplateNo !== next.hikvisionTemplateNo
-      || existing.isActive !== next.isActive
-      || !this.sameJson(existing.metadata, next.metadata)
+      existing.employeeDeviceAssignmentId !== next.employeeDeviceAssignmentId ||
+      existing.employeeNo !== next.employeeNo ||
+      existing.deviceId !== next.deviceId ||
+      existing.doorId !== next.doorId ||
+      existing.doorNo !== next.doorNo ||
+      existing.scheduleTemplateId !== next.scheduleTemplateId ||
+      existing.hikvisionTemplateNo !== next.hikvisionTemplateNo ||
+      existing.isActive !== next.isActive ||
+      !this.sameJson(existing.metadata, next.metadata)
     );
   }
 
@@ -2467,25 +2810,25 @@ export class EmployeeDeviceAssignmentsService {
     next: EmployeeAccessCredential,
   ): boolean {
     return (
-      existing.companyId !== next.companyId
-      || existing.employeeId !== next.employeeId
-      || existing.employeeNo !== next.employeeNo
-      || existing.deviceId !== next.deviceId
-      || existing.credentialType !== next.credentialType
-      || existing.credentialNo !== next.credentialNo
-      || existing.pinPassword !== next.pinPassword
-      || existing.cardNo !== next.cardNo
-      || existing.fingerprintId !== next.fingerprintId
-      || existing.cardReaderNo !== next.cardReaderNo
-      || existing.faceId !== next.faceId
-      || existing.fingerprintCount !== next.fingerprintCount
-      || existing.faceCount !== next.faceCount
-      || existing.hasFingerprint !== next.hasFingerprint
-      || existing.hasFace !== next.hasFace
-      || existing.passwordSet !== next.passwordSet
-      || existing.credentialStatus !== next.credentialStatus
-      || existing.source !== next.source
-      || !this.sameJson(existing.metadata, next.metadata)
+      existing.companyId !== next.companyId ||
+      existing.employeeId !== next.employeeId ||
+      existing.employeeNo !== next.employeeNo ||
+      existing.deviceId !== next.deviceId ||
+      existing.credentialType !== next.credentialType ||
+      existing.credentialNo !== next.credentialNo ||
+      existing.pinPassword !== next.pinPassword ||
+      existing.cardNo !== next.cardNo ||
+      existing.fingerprintId !== next.fingerprintId ||
+      existing.cardReaderNo !== next.cardReaderNo ||
+      existing.faceId !== next.faceId ||
+      existing.fingerprintCount !== next.fingerprintCount ||
+      existing.faceCount !== next.faceCount ||
+      existing.hasFingerprint !== next.hasFingerprint ||
+      existing.hasFace !== next.hasFace ||
+      existing.passwordSet !== next.passwordSet ||
+      existing.credentialStatus !== next.credentialStatus ||
+      existing.source !== next.source ||
+      !this.sameJson(existing.metadata, next.metadata)
     );
   }
 
@@ -2493,7 +2836,10 @@ export class EmployeeDeviceAssignmentsService {
     return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
   }
 
-  private sameDate(left: Date | null | undefined, right: Date | null | undefined): boolean {
+  private sameDate(
+    left: Date | null | undefined,
+    right: Date | null | undefined,
+  ): boolean {
     const leftValue = left ? new Date(left).toISOString() : null;
     const rightValue = right ? new Date(right).toISOString() : null;
     return leftValue === rightValue;
@@ -2529,7 +2875,9 @@ export class EmployeeDeviceAssignmentsService {
     deviceId: number,
     manager?: EntityManager | null,
   ) {
-    const repository = manager?.getRepository(EmployeeDeviceIdentity) ?? this.employeeDeviceIdentityRepository;
+    const repository =
+      manager?.getRepository(EmployeeDeviceIdentity) ??
+      this.employeeDeviceIdentityRepository;
     let identity = await repository.findOne({
       where: { companyId, employeeId, deviceId },
     });
@@ -2565,7 +2913,11 @@ export class EmployeeDeviceAssignmentsService {
     await repository.save(identity);
   }
 
-  private async deactivateDeviceIdentity(companyId: number, employeeId: number, deviceId: number) {
+  private async deactivateDeviceIdentity(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+  ) {
     const identity = await this.employeeDeviceIdentityRepository.findOne({
       where: { companyId, employeeId, deviceId, isActive: true },
     });
@@ -2605,7 +2957,11 @@ export class EmployeeDeviceAssignmentsService {
     userVerifyMode: string | undefined,
     operation: 'CREATE' | 'MODIFY',
   ) {
-    const assignment = await this.findAssignmentByEmployeeOrFail(companyId, employeeId, deviceId);
+    const assignment = await this.findAssignmentByEmployeeOrFail(
+      companyId,
+      employeeId,
+      deviceId,
+    );
     // Password sync is device-first: we only persist the hashed local state after Hikvision
     // confirms the password update, so local metadata never gets ahead of the device.
     const result =
@@ -2650,14 +3006,25 @@ export class EmployeeDeviceAssignmentsService {
     };
   }
 
-  private async findEmployeeCards(companyId: number, employeeId: number, deviceId?: number) {
+  private async findEmployeeCards(
+    companyId: number,
+    employeeId: number,
+    deviceId?: number,
+  ) {
     const cards = await this.credentialRepository.find({
-      where: { companyId, employeeId, credentialType: EmployeeAccessCredentialTypeEnum.CARD },
+      where: {
+        companyId,
+        employeeId,
+        credentialType: EmployeeAccessCredentialTypeEnum.CARD,
+      },
       order: { createdAt: 'ASC' },
     });
 
     return cards
-      .filter((item) => item.credentialStatus !== EmployeeAccessCredentialStatusEnum.DELETED)
+      .filter(
+        (item) =>
+          item.credentialStatus !== EmployeeAccessCredentialStatusEnum.DELETED,
+      )
       .map((item) => this.mapCardCredential(item, deviceId));
   }
 
@@ -2695,7 +3062,10 @@ export class EmployeeDeviceAssignmentsService {
       },
     });
 
-    if (!credential || credential.credentialStatus === EmployeeAccessCredentialStatusEnum.DELETED) {
+    if (
+      !credential ||
+      credential.credentialStatus === EmployeeAccessCredentialStatusEnum.DELETED
+    ) {
       throw new NotFoundException('Employee card not found');
     }
 
@@ -2733,7 +3103,9 @@ export class EmployeeDeviceAssignmentsService {
       return;
     }
 
-    throw new ConflictException(`Card number ${this.maskCardNo(cardNo)} is already assigned`);
+    throw new ConflictException(
+      `Card number ${this.maskCardNo(cardNo)} is already assigned`,
+    );
   }
 
   private async saveCardCredentialState(
@@ -2752,7 +3124,8 @@ export class EmployeeDeviceAssignmentsService {
   ) {
     credential.companyId = input.assignment.companyId;
     credential.employeeId = input.employee.id;
-    credential.employeeNo = credential.employeeNo?.trim() || input.assignment.employeeNo;
+    credential.employeeNo =
+      credential.employeeNo?.trim() || input.assignment.employeeNo;
     credential.deviceId = null;
     credential.credentialType = EmployeeAccessCredentialTypeEnum.CARD;
     credential.credentialNo = input.cardNo;
@@ -2760,9 +3133,12 @@ export class EmployeeDeviceAssignmentsService {
     credential.credentialStatus = input.enabled
       ? EmployeeAccessCredentialStatusEnum.ACTIVE
       : EmployeeAccessCredentialStatusEnum.INACTIVE;
-    credential.source = credential.source ?? EmployeeAccessCredentialSourceEnum.MANUAL;
+    credential.source =
+      credential.source ?? EmployeeAccessCredentialSourceEnum.MANUAL;
 
-    const existingDeviceSyncs = this.toObject(this.toObject(credential.metadata).device_syncs);
+    const existingDeviceSyncs = this.toObject(
+      this.toObject(credential.metadata).device_syncs,
+    );
     credential.metadata = this.mergeCardMetadata(credential.metadata, {
       card: {
         card_no: input.cardNo,
@@ -2777,7 +3153,9 @@ export class EmployeeDeviceAssignmentsService {
       },
       device_syncs: {
         [String(input.assignment.deviceId)]: {
-          ...this.toObject(existingDeviceSyncs[String(input.assignment.deviceId)]),
+          ...this.toObject(
+            existingDeviceSyncs[String(input.assignment.deviceId)],
+          ),
           device_id: input.assignment.deviceId,
           employee_no: input.assignment.employeeNo,
           card_no: input.cardNo,
@@ -2812,27 +3190,40 @@ export class EmployeeDeviceAssignmentsService {
     synced: boolean;
   }> {
     const cardNo = this.normalizeCardNo(credential.cardNo);
-    const cardType = this.normalizeCardType(input.card_type ?? this.readCardType(credential));
-    const scopedDeviceSync = this.toObject(this.toObject(credential.metadata).device_syncs)[String(device.id)];
+    const cardType = this.normalizeCardType(
+      input.card_type ?? this.readCardType(credential),
+    );
+    const scopedDeviceSync = this.toObject(
+      this.toObject(credential.metadata).device_syncs,
+    )[String(device.id)];
     const currentDeviceSync = this.toObject(scopedDeviceSync);
     const useModifyOnly =
-      mode === 'MODIFY'
-      && this.toNullableString(currentDeviceSync.sync_status) === 'SYNCED'
-      && (!previousCardNo || previousCardNo === cardNo);
+      mode === 'MODIFY' &&
+      this.toNullableString(currentDeviceSync.sync_status) === 'SYNCED' &&
+      (!previousCardNo || previousCardNo === cardNo);
 
     try {
-      const result =
-        useModifyOnly
-          ? await this.hikvisionUserManagementService.modifyCard(companyId, device.id, employee.id, {
+      const result = useModifyOnly
+        ? await this.hikvisionUserManagementService.modifyCard(
+            companyId,
+            device.id,
+            employee.id,
+            {
               card_no: cardNo,
               card_type: cardType,
               user_verify_mode: input.user_verify_mode,
-            })
-          : await this.hikvisionUserManagementService.syncCard(companyId, device.id, employee.id, {
+            },
+          )
+        : await this.hikvisionUserManagementService.syncCard(
+            companyId,
+            device.id,
+            employee.id,
+            {
               card_no: cardNo,
               card_type: cardType,
               user_verify_mode: input.user_verify_mode,
-            });
+            },
+          );
 
       if (previousCardNo && previousCardNo !== cardNo) {
         try {
@@ -2880,13 +3271,19 @@ export class EmployeeDeviceAssignmentsService {
       });
       const saved = await this.credentialRepository.save(credential);
 
-      await this.logCardAudit(companyId, employee, device.id, assignment.employeeNo, {
-        action: mode,
-        cardNo,
-        cardType,
-        status: 'SUCCESS',
-        actor,
-      });
+      await this.logCardAudit(
+        companyId,
+        employee,
+        device.id,
+        assignment.employeeNo,
+        {
+          action: mode,
+          cardNo,
+          cardType,
+          status: 'SUCCESS',
+          actor,
+        },
+      );
 
       return {
         card: this.mapCardCredential(saved, device.id),
@@ -2898,7 +3295,9 @@ export class EmployeeDeviceAssignmentsService {
         card: {
           card_no: cardNo,
           card_type: cardType,
-          is_enabled: credential.credentialStatus === EmployeeAccessCredentialStatusEnum.ACTIVE,
+          is_enabled:
+            credential.credentialStatus ===
+            EmployeeAccessCredentialStatusEnum.ACTIVE,
           sync_status: 'FAILED',
           sync_error: (error as Error).message,
           last_updated_at: new Date().toISOString(),
@@ -2909,7 +3308,9 @@ export class EmployeeDeviceAssignmentsService {
             employee_no: assignment.employeeNo,
             card_no: cardNo,
             card_type: cardType,
-            enabled: credential.credentialStatus === EmployeeAccessCredentialStatusEnum.ACTIVE,
+            enabled:
+              credential.credentialStatus ===
+              EmployeeAccessCredentialStatusEnum.ACTIVE,
             sync_status: 'FAILED',
             sync_error: (error as Error).message,
             last_updated_at: new Date().toISOString(),
@@ -2918,14 +3319,20 @@ export class EmployeeDeviceAssignmentsService {
       });
       const saved = await this.credentialRepository.save(credential);
 
-      await this.logCardAudit(companyId, employee, device.id, assignment.employeeNo, {
-        action: mode,
-        cardNo,
-        cardType,
-        status: 'FAILED',
-        actor,
-        errorMessage: (error as Error).message,
-      });
+      await this.logCardAudit(
+        companyId,
+        employee,
+        device.id,
+        assignment.employeeNo,
+        {
+          action: mode,
+          cardNo,
+          cardType,
+          status: 'FAILED',
+          actor,
+          errorMessage: (error as Error).message,
+        },
+      );
 
       return {
         card: this.mapCardCredential(saved, device.id),
@@ -2949,10 +3356,7 @@ export class EmployeeDeviceAssignmentsService {
       errorMessage?: string;
     },
   ) {
-    const action =
-      input.action === 'DELETE'
-        ? 'DELETE_CARD'
-        : 'SET_CARD';
+    const action = input.action === 'DELETE' ? 'DELETE_CARD' : 'SET_CARD';
 
     await this.logger.log(
       `${input.status} ${action} for employee ${employee.id} on device ${deviceId} using card ${this.maskCardNo(input.cardNo)}`,
@@ -2961,8 +3365,9 @@ export class EmployeeDeviceAssignmentsService {
 
   private readCardType(credential: EmployeeAccessCredential): string {
     return (
-      this.toNullableString(this.toObject(this.toObject(credential.metadata).card).card_type)
-      ?? 'normalCard'
+      this.toNullableString(
+        this.toObject(this.toObject(credential.metadata).card).card_type,
+      ) ?? 'normalCard'
     );
   }
 
@@ -2970,7 +3375,9 @@ export class EmployeeDeviceAssignmentsService {
     const metadata = this.toObject(item.metadata);
     const card = this.toObject(metadata.card);
     const deviceSyncs = this.toObject(metadata.device_syncs);
-    const scopedDeviceSync = deviceId ? this.toObject(deviceSyncs[String(deviceId)]) : {};
+    const scopedDeviceSync = deviceId
+      ? this.toObject(deviceSyncs[String(deviceId)])
+      : {};
     const activeDeviceSyncs = Object.values(deviceSyncs)
       .map((value) => this.toObject(value))
       .filter((value) => value.sync_status !== 'DELETED');
@@ -2982,28 +3389,33 @@ export class EmployeeDeviceAssignmentsService {
       employee_no: this.toNullableString(scopedDeviceSync.employee_no) ?? null,
       device_id: deviceId ?? null,
       card_no: item.cardNo,
-      card_type: this.toNullableString(scopedDeviceSync.card_type) ?? this.toNullableString(card.card_type) ?? 'normalCard',
+      card_type:
+        this.toNullableString(scopedDeviceSync.card_type) ??
+        this.toNullableString(card.card_type) ??
+        'normalCard',
       enabled:
         typeof scopedDeviceSync.enabled === 'boolean'
           ? Boolean(scopedDeviceSync.enabled)
           : item.credentialStatus === EmployeeAccessCredentialStatusEnum.ACTIVE,
       sync_status:
-        this.toNullableString(scopedDeviceSync.sync_status)
-        ?? this.toNullableString(card.sync_status),
+        this.toNullableString(scopedDeviceSync.sync_status) ??
+        this.toNullableString(card.sync_status),
       sync_error:
-        this.toNullableString(scopedDeviceSync.sync_error)
-        ?? this.toNullableString(card.sync_error),
+        this.toNullableString(scopedDeviceSync.sync_error) ??
+        this.toNullableString(card.sync_error),
       user_verify_mode:
-        this.toNullableString(scopedDeviceSync.user_verify_mode)
-        ?? this.extractCredentialUserVerifyMode(item),
+        this.toNullableString(scopedDeviceSync.user_verify_mode) ??
+        this.extractCredentialUserVerifyMode(item),
       synced_device_ids: activeDeviceSyncs
-        .filter((value) => this.toNullableString(value.sync_status) === 'SYNCED')
+        .filter(
+          (value) => this.toNullableString(value.sync_status) === 'SYNCED',
+        )
         .map((value) => Number(value.device_id))
         .filter((value) => Number.isInteger(value) && value > 0),
       last_synced_at:
-        this.toNullableString(scopedDeviceSync.last_synced_at)
-        ?? card.last_synced_at
-        ?? item.lastSyncedAt,
+        this.toNullableString(scopedDeviceSync.last_synced_at) ??
+        card.last_synced_at ??
+        item.lastSyncedAt,
       created_at: item.createdAt,
       updated_at: item.updatedAt,
     };
@@ -3022,7 +3434,9 @@ export class EmployeeDeviceAssignmentsService {
     const existingDeviceSyncs = this.toObject(safeExisting.device_syncs);
     const patchDeviceSyncs = this.toObject(safePatch.device_syncs);
 
-    const mergedDeviceSyncs: Record<string, unknown> = { ...existingDeviceSyncs };
+    const mergedDeviceSyncs: Record<string, unknown> = {
+      ...existingDeviceSyncs,
+    };
     for (const [key, value] of Object.entries(patchDeviceSyncs)) {
       mergedDeviceSyncs[key] = {
         ...this.toObject(existingDeviceSyncs[key]),
@@ -3078,7 +3492,11 @@ export class EmployeeDeviceAssignmentsService {
       return preferred;
     }
 
-    const displayName = [employee.first_name, employee.middle_name, employee.last_name]
+    const displayName = [
+      employee.first_name,
+      employee.middle_name,
+      employee.last_name,
+    ]
       .map((item) => item?.trim())
       .filter((item): item is string => Boolean(item))
       .join(' ')
@@ -3104,9 +3522,13 @@ export class EmployeeDeviceAssignmentsService {
   }
 
   private mapAssignment(item: EmployeeDeviceAssignment) {
-    const hikvisionMetadata = this.toObject(this.toObject(item.metadata).hikvision);
+    const hikvisionMetadata = this.toObject(
+      this.toObject(item.metadata).hikvision,
+    );
     const passwordState = this.extractPasswordState(item);
-    const deviceHikvisionMetadata = this.toObject(this.toObject(item.device?.metadata).hikvision);
+    const deviceHikvisionMetadata = this.toObject(
+      this.toObject(item.device?.metadata).hikvision,
+    );
 
     return {
       id: item.id,
@@ -3136,7 +3558,9 @@ export class EmployeeDeviceAssignmentsService {
       password_sync_status: passwordState.password_sync_status,
       password_last_synced_at: passwordState.password_last_synced_at,
       user_verify_mode: passwordState.user_verify_mode ?? item.userVerifyMode,
-      supported_user_verify_modes: Array.isArray(deviceHikvisionMetadata.supported_user_verify_modes)
+      supported_user_verify_modes: Array.isArray(
+        deviceHikvisionMetadata.supported_user_verify_modes,
+      )
         ? deviceHikvisionMetadata.supported_user_verify_modes
         : [],
       metadata: this.maskSensitivePayload(item.metadata),
@@ -3165,12 +3589,20 @@ export class EmployeeDeviceAssignmentsService {
   }
 
   private extractPasswordState(item: EmployeeDeviceAssignment): PasswordState {
-    const hikvisionMetadata = this.toObject(this.toObject(item.metadata).hikvision);
+    const hikvisionMetadata = this.toObject(
+      this.toObject(item.metadata).hikvision,
+    );
     return {
       password_enabled: Boolean(hikvisionMetadata.password_enabled),
-      password_sync_status: this.toNullableString(hikvisionMetadata.password_sync_status),
-      password_last_synced_at: this.toNullableString(hikvisionMetadata.password_last_synced_at),
-      user_verify_mode: this.toNullableString(hikvisionMetadata.user_verify_mode),
+      password_sync_status: this.toNullableString(
+        hikvisionMetadata.password_sync_status,
+      ),
+      password_last_synced_at: this.toNullableString(
+        hikvisionMetadata.password_last_synced_at,
+      ),
+      user_verify_mode: this.toNullableString(
+        hikvisionMetadata.user_verify_mode,
+      ),
     };
   }
 
@@ -3219,7 +3651,9 @@ export class EmployeeDeviceAssignmentsService {
       }
 
       const output: Record<string, unknown> = {};
-      for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+      for (const [key, raw] of Object.entries(
+        value as Record<string, unknown>,
+      )) {
         if (sensitiveKeys.has(key.toLowerCase())) {
           output[key] = '***MASKED***';
           continue;
@@ -3290,4 +3724,3 @@ export class EmployeeDeviceAssignmentsService {
     )}:${pad(value.getMinutes())}:${pad(value.getSeconds())}`;
   }
 }
-

@@ -12,7 +12,10 @@ import { LeavePolicy } from './leave-policy.entity';
 import { LeaveType } from './leave-type.entity';
 
 @Entity('leave_policy_types')
-@Unique('UQ_leave_policy_type_policy_leave_type', ['policy_id', 'leave_type_id'])
+@Unique('UQ_leave_policy_type_policy_leave_type', [
+  'policy_id',
+  'leave_type_id',
+])
 @Index('IDX_leave_policy_type_policy', ['policy_id'])
 @Index('IDX_leave_policy_type_leave_type', ['leave_type_id'])
 export class LeavePolicyType {

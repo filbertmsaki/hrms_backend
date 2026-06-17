@@ -22,15 +22,21 @@ export class LeaveBalanceService {
     private readonly leavePolicyRepository: Repository<LeavePolicy>,
   ) {}
 
-  private getBalanceRepository(manager?: EntityManager): Repository<LeaveBalance> {
+  private getBalanceRepository(
+    manager?: EntityManager,
+  ): Repository<LeaveBalance> {
     return manager?.getRepository(LeaveBalance) ?? this.leaveBalanceRepository;
   }
 
-  private getLeaveTypeRepository(manager?: EntityManager): Repository<LeaveType> {
+  private getLeaveTypeRepository(
+    manager?: EntityManager,
+  ): Repository<LeaveType> {
     return manager?.getRepository(LeaveType) ?? this.leaveTypeRepository;
   }
 
-  private getLeavePolicyRepository(manager?: EntityManager): Repository<LeavePolicy> {
+  private getLeavePolicyRepository(
+    manager?: EntityManager,
+  ): Repository<LeavePolicy> {
     return manager?.getRepository(LeavePolicy) ?? this.leavePolicyRepository;
   }
 
@@ -108,12 +114,10 @@ export class LeaveBalanceService {
       },
     });
 
-    let chosen:
-      | {
-          priority: number;
-          annualQuotaDays: number;
-        }
-      | null = null;
+    let chosen: {
+      priority: number;
+      annualQuotaDays: number;
+    } | null = null;
 
     for (const policy of policies) {
       const policyType = policy.leave_types.find(
@@ -206,7 +210,10 @@ export class LeaveBalanceService {
 
           carriedForwardDays = Math.max(
             0,
-            Math.min(remaining, this.toNumber(leaveType.max_carry_forward_days)),
+            Math.min(
+              remaining,
+              this.toNumber(leaveType.max_carry_forward_days),
+            ),
           );
         }
       }

@@ -54,10 +54,15 @@ export class DeviceCommandLogService {
 
     if (branchId) qb.andWhere('cmd.branch_id = :branchId', { branchId });
     if (deviceId) qb.andWhere('cmd.device_id = :deviceId', { deviceId });
-    if (commandType) qb.andWhere('cmd.command_type = :commandType', { commandType });
+    if (commandType)
+      qb.andWhere('cmd.command_type = :commandType', { commandType });
     if (status) qb.andWhere('cmd.status = :status', { status });
-    if (dateFrom) qb.andWhere('cmd.created_at >= :dateFrom', { dateFrom: new Date(dateFrom) });
-    if (dateTo) qb.andWhere('cmd.created_at <= :dateTo', { dateTo: new Date(dateTo) });
+    if (dateFrom)
+      qb.andWhere('cmd.created_at >= :dateFrom', {
+        dateFrom: new Date(dateFrom),
+      });
+    if (dateTo)
+      qb.andWhere('cmd.created_at <= :dateTo', { dateTo: new Date(dateTo) });
 
     const [items, total] = await qb
       .orderBy('cmd.created_at', 'DESC')
@@ -95,11 +100,16 @@ export class DeviceCommandLogService {
 
     row.status = DeviceCommandLogStatusEnum.SUCCESS;
     row.httpStatus = input.httpStatus ?? row.httpStatus ?? null;
-    row.responseBody = this.maskSensitivePayload(input.responseBody ?? row.responseBody ?? null);
+    row.responseBody = this.maskSensitivePayload(
+      input.responseBody ?? row.responseBody ?? null,
+    );
     row.errorMessage = null;
     row.completedAt = new Date();
     if (row.startedAt) {
-      row.durationMs = Math.max(0, Date.now() - new Date(row.startedAt).getTime());
+      row.durationMs = Math.max(
+        0,
+        Date.now() - new Date(row.startedAt).getTime(),
+      );
     }
     await this.commandLogRepository.save(row);
     return this.map(row);
@@ -121,10 +131,15 @@ export class DeviceCommandLogService {
     row.status = DeviceCommandLogStatusEnum.FAILED;
     row.errorMessage = errorMessage;
     row.httpStatus = input?.httpStatus ?? row.httpStatus ?? null;
-    row.responseBody = this.maskSensitivePayload(input?.responseBody ?? row.responseBody ?? null);
+    row.responseBody = this.maskSensitivePayload(
+      input?.responseBody ?? row.responseBody ?? null,
+    );
     row.completedAt = new Date();
     if (row.startedAt) {
-      row.durationMs = Math.max(0, Date.now() - new Date(row.startedAt).getTime());
+      row.durationMs = Math.max(
+        0,
+        Date.now() - new Date(row.startedAt).getTime(),
+      );
     }
     await this.commandLogRepository.save(row);
     return this.map(row);

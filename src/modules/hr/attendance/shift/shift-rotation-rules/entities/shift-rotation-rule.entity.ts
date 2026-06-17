@@ -14,7 +14,9 @@ import { ShiftRotationGroup } from '../../shift-rotation-groups/entities/shift-r
 @Entity('shift_rotation_rules')
 @Index('IDX_shift_rotation_rules_rotation_group_id', ['rotationGroupId'])
 @Index('IDX_shift_rotation_rules_shift_id', ['shiftId'])
-@Index('UQ_shift_rotation_rules_group_day', ['rotationGroupId', 'dayIndex'], { unique: true })
+@Index('UQ_shift_rotation_rules_group_day', ['rotationGroupId', 'dayIndex'], {
+  unique: true,
+})
 export class ShiftRotationRule {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -37,11 +39,16 @@ export class ShiftRotationRule {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-  @ManyToOne(() => ShiftRotationGroup, (rotationGroup) => rotationGroup.rules, { onDelete: 'CASCADE' })
+  @ManyToOne(() => ShiftRotationGroup, (rotationGroup) => rotationGroup.rules, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'rotation_group_id' })
   rotationGroup: ShiftRotationGroup;
 
-  @ManyToOne(() => Shift, (shift) => shift.rotationRules, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => Shift, (shift) => shift.rotationRules, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
   @JoinColumn({ name: 'shift_id' })
   shift: Shift | null;
 }

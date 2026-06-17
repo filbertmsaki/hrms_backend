@@ -7,7 +7,10 @@ import { DesignationsService } from './designations.service';
 import { Designation } from './entities/designation.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Designation, Department]), HrSharedModule],
+  imports: [
+    TypeOrmModule.forFeature([Designation, Department]),
+    HrSharedModule,
+  ],
   controllers: [DesignationsController],
   providers: [DesignationsService],
   exports: [DesignationsService, TypeOrmModule],

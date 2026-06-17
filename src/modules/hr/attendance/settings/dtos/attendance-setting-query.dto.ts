@@ -16,8 +16,3 @@ export class AttendanceSettingQueryDto extends PaginationDto {
   @IsOptional()
   requires_approval?: boolean;
 }
-
-
-
-
-

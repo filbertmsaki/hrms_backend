@@ -10,7 +10,9 @@ export function normalizeHikvisionError(error: unknown): HttpException {
     return error;
   }
 
-  const message = (error as { message?: string } | null)?.message ?? 'Unknown Hikvision error';
+  const message =
+    (error as { message?: string } | null)?.message ??
+    'Unknown Hikvision error';
   const code = (error as { code?: string } | null)?.code;
   const lowered = message.toLowerCase();
 
@@ -19,7 +21,10 @@ export function normalizeHikvisionError(error: unknown): HttpException {
   }
 
   if (lowered.includes('400') || lowered.includes('bad request')) {
-    return new HttpException('Invalid request sent to Hikvision device', HttpStatus.BAD_REQUEST);
+    return new HttpException(
+      'Invalid request sent to Hikvision device',
+      HttpStatus.BAD_REQUEST,
+    );
   }
 
   if (code === 'ECONNABORTED' || lowered.includes('timeout')) {
@@ -30,9 +35,17 @@ export function normalizeHikvisionError(error: unknown): HttpException {
     return new ServiceUnavailableException('Hikvision connection reset');
   }
 
-  if (code === 'ENOTFOUND' || code === 'EHOSTUNREACH' || code === 'ECONNREFUSED') {
-    return new ServiceUnavailableException('Hikvision device is offline or unreachable');
+  if (
+    code === 'ENOTFOUND' ||
+    code === 'EHOSTUNREACH' ||
+    code === 'ECONNREFUSED'
+  ) {
+    return new ServiceUnavailableException(
+      'Hikvision device is offline or unreachable',
+    );
   }
 
-  return new ServiceUnavailableException(`Hikvision integration error: ${message}`);
+  return new ServiceUnavailableException(
+    `Hikvision integration error: ${message}`,
+  );
 }

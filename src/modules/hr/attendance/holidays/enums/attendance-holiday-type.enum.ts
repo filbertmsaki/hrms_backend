@@ -4,7 +4,3 @@ export enum AttendanceHolidayTypeEnum {
   RELIGIOUS = 'RELIGIOUS',
   OPTIONAL = 'OPTIONAL',
 }
-
-
-
-

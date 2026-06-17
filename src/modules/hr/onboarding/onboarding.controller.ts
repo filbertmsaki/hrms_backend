@@ -65,7 +65,10 @@ export class OnboardingController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: OnboardingWorkflowQueryDto,
   ) {
-    return this.onboardingService.findAllOnboardingWorkflows(req.user.companyId!, query);
+    return this.onboardingService.findAllOnboardingWorkflows(
+      req.user.companyId!,
+      query,
+    );
   }
 
   @Get('workflows/:id')
@@ -76,7 +79,10 @@ export class OnboardingController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.onboardingService.findOneOnboardingWorkflow(req.user.companyId!, id);
+    return this.onboardingService.findOneOnboardingWorkflow(
+      req.user.companyId!,
+      id,
+    );
   }
 
   @Patch('workflows/:id')
@@ -157,7 +163,11 @@ export class OnboardingController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.onboardingService.removeOnboardingWorkflow(req.user.companyId!, id, req.user);
+    return this.onboardingService.removeOnboardingWorkflow(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
   }
 
   @Post('requests')
@@ -168,7 +178,11 @@ export class OnboardingController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: CreateOnboardingRequestDto,
   ) {
-    return this.onboardingService.createOnboardingRequest(req.user.companyId!, dto, req.user);
+    return this.onboardingService.createOnboardingRequest(
+      req.user.companyId!,
+      dto,
+      req.user,
+    );
   }
 
   @Patch('requests/:id')
@@ -196,7 +210,11 @@ export class OnboardingController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.onboardingService.findOneOnboardingRequest(req.user.companyId!, id, req.user);
+    return this.onboardingService.findOneOnboardingRequest(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
   }
 
   @Get('requests')
@@ -222,7 +240,11 @@ export class OnboardingController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.onboardingService.completeOnboarding(req.user.companyId!, id, req.user);
+    return this.onboardingService.completeOnboarding(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
   }
 
   @Post('requests/:id/cancel')
@@ -234,21 +256,32 @@ export class OnboardingController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: CancelOnboardingRequestDto,
   ) {
-    return this.onboardingService.cancelOnboarding(req.user.companyId!, id, dto, req.user);
+    return this.onboardingService.cancelOnboarding(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
   }
 
   @Post('requests/:id/documents')
   @UseGuards(PermissionsGuard)
   @Permissions('onboarding_documents:create')
   @ApiOperation({
-    summary: 'Upload onboarding document (stored in polymorphic documents table)',
+    summary:
+      'Upload onboarding document (stored in polymorphic documents table)',
   })
   uploadDocument(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UploadDocumentDto,
   ) {
-    return this.onboardingService.addDocument(req.user.companyId!, id, dto, req.user);
+    return this.onboardingService.addDocument(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
   }
 
   @Patch('requests/:id/documents/:documentId/verify')
@@ -279,7 +312,12 @@ export class OnboardingController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: CreateOnboardingTaskDto,
   ) {
-    return this.onboardingService.createTask(req.user.companyId!, id, dto, req.user);
+    return this.onboardingService.createTask(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
   }
 
   @Post('requests/:id/tasks/:taskId/complete')
@@ -292,7 +330,13 @@ export class OnboardingController {
     @Param('taskId', ParseIntPipe) taskId: number,
     @Body() dto: CompleteOnboardingTaskDto,
   ) {
-    return this.onboardingService.completeTask(req.user.companyId!, id, taskId, dto, req.user);
+    return this.onboardingService.completeTask(
+      req.user.companyId!,
+      id,
+      taskId,
+      dto,
+      req.user,
+    );
   }
 
   @Post('requests/:id/approve')
@@ -304,7 +348,12 @@ export class OnboardingController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: OnboardingApprovalActionDto,
   ) {
-    return this.onboardingService.applyApprovalAction(req.user.companyId!, id, dto, req.user);
+    return this.onboardingService.applyApprovalAction(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
   }
 
   @Post('requests/:id/reject')
@@ -336,7 +385,11 @@ export class OnboardingController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.onboardingService.getOnboardingProgress(req.user.companyId!, id, req.user);
+    return this.onboardingService.getOnboardingProgress(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
   }
 
   @Get('requests/:id/audit-logs')
@@ -347,7 +400,10 @@ export class OnboardingController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.onboardingService.getOnboardingAuditLogs(req.user.companyId!, id, req.user);
+    return this.onboardingService.getOnboardingAuditLogs(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
   }
 }
-

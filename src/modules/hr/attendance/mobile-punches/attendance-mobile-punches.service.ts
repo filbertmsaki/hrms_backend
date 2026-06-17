@@ -327,7 +327,8 @@ export class AttendanceMobilePunchesService {
     if (geofence.type !== AttendanceGeofenceTypeEnum.CIRCLE) {
       return {
         valid: false,
-        message: 'Only circle geofence is currently supported for mobile punch.',
+        message:
+          'Only circle geofence is currently supported for mobile punch.',
       };
     }
 

@@ -69,7 +69,10 @@ export class AccessGroupsService {
 
   async create(companyId: number, dto: CreateAccessGroupDto) {
     await this.ensureBranch(companyId, dto.branch_id);
-    const organization = await this.ensureOrganization(companyId, dto.organization_id);
+    const organization = await this.ensureOrganization(
+      companyId,
+      dto.organization_id,
+    );
     const groupName = (dto.group_name ?? dto.name ?? '').trim();
     if (!groupName) {
       throw new BadRequestException('group_name is required');
@@ -84,7 +87,9 @@ export class AccessGroupsService {
     });
 
     if (duplicate) {
-      throw new ConflictException('Group name already exists in the active company');
+      throw new ConflictException(
+        'Group name already exists in the active company',
+      );
     }
 
     const entity = this.groupRepository.create({
@@ -180,7 +185,9 @@ export class AccessGroupsService {
       ...this.map(item),
       device_ids: devices.map((entry) => Number(entry.deviceId)),
       door_ids: doors.map((entry) => Number(entry.groupDoor_door_id)),
-      employee_ids: employees.map((entry) => Number(entry.groupEmployee_employee_id)),
+      employee_ids: employees.map((entry) =>
+        Number(entry.groupEmployee_employee_id),
+      ),
     };
   }
 
@@ -193,7 +200,10 @@ export class AccessGroupsService {
     }
 
     if (dto.organization_id !== undefined) {
-      const organization = await this.ensureOrganization(companyId, dto.organization_id);
+      const organization = await this.ensureOrganization(
+        companyId,
+        dto.organization_id,
+      );
       item.organizationId = organization?.id ?? null;
       if (dto.branch_id === undefined && organization?.branchId !== undefined) {
         item.branchId = organization.branchId ?? item.branchId;
@@ -211,13 +221,16 @@ export class AccessGroupsService {
         select: ['id'],
       });
       if (duplicate && duplicate.id !== item.id) {
-        throw new ConflictException('Group name already exists in the active company');
+        throw new ConflictException(
+          'Group name already exists in the active company',
+        );
       }
       item.name = normalized;
     }
 
     if (dto.group_code !== undefined) item.groupCode = dto.group_code ?? null;
-    if (dto.description !== undefined) item.description = dto.description ?? null;
+    if (dto.description !== undefined)
+      item.description = dto.description ?? null;
     if (dto.status !== undefined) item.status = dto.status;
     if (dto.metadata !== undefined) item.metadata = dto.metadata;
 
@@ -230,7 +243,11 @@ export class AccessGroupsService {
     return { message: 'Access group deleted successfully' };
   }
 
-  async assignDoors(companyId: number, groupId: number, dto: AssignAccessGroupDoorsDto) {
+  async assignDoors(
+    companyId: number,
+    groupId: number,
+    dto: AssignAccessGroupDoorsDto,
+  ) {
     const group = await this.findOrFail(companyId, groupId);
 
     if (!dto.items?.length) {
@@ -240,14 +257,18 @@ export class AccessGroupsService {
     }
     const normalizedItems = dto.items;
 
-    const uniqueDoorIds = [...new Set(normalizedItems.map((item) => item.door_id))];
+    const uniqueDoorIds = [
+      ...new Set(normalizedItems.map((item) => item.door_id)),
+    ];
     const doors = await this.accessDoorRepository.find({
       where: { id: In(uniqueDoorIds), companyId },
       select: ['id'],
     });
 
     if (doors.length !== uniqueDoorIds.length) {
-      throw new BadRequestException('One or more door_ids do not belong to the active company');
+      throw new BadRequestException(
+        'One or more door_ids do not belong to the active company',
+      );
     }
 
     let created = 0;
@@ -260,16 +281,20 @@ export class AccessGroupsService {
         continue;
       }
 
-      let templateId = assignment.schedule_template_id || null;
+      const templateId = assignment.schedule_template_id || null;
       if (!templateId) {
-        throw new BadRequestException('schedule_template_id is required for each door item');
+        throw new BadRequestException(
+          'schedule_template_id is required for each door item',
+        );
       }
 
       const template = await this.scheduleTemplateRepository.findOne({
         where: { id: templateId, companyId },
       });
       if (!template) {
-        throw new BadRequestException(`Invalid schedule_template_id: ${templateId}`);
+        throw new BadRequestException(
+          `Invalid schedule_template_id: ${templateId}`,
+        );
       }
 
       const resolvedDeviceId = assignment.device_id ?? door.deviceId;
@@ -314,7 +339,11 @@ export class AccessGroupsService {
     };
   }
 
-  async assignDevices(companyId: number, groupId: number, dto: AssignAccessGroupDevicesDto) {
+  async assignDevices(
+    companyId: number,
+    groupId: number,
+    dto: AssignAccessGroupDevicesDto,
+  ) {
     await this.findOrFail(companyId, groupId);
 
     const uniqueDeviceIds = [...new Set(dto.device_ids)];
@@ -324,7 +353,9 @@ export class AccessGroupsService {
     });
 
     if (devices.length !== uniqueDeviceIds.length) {
-      throw new BadRequestException('One or more device_ids do not belong to the active company');
+      throw new BadRequestException(
+        'One or more device_ids do not belong to the active company',
+      );
     }
 
     let created = 0;
@@ -403,7 +434,11 @@ export class AccessGroupsService {
     };
   }
 
-  async assignEmployees(companyId: number, groupId: number, dto: AssignAccessGroupEmployeesDto) {
+  async assignEmployees(
+    companyId: number,
+    groupId: number,
+    dto: AssignAccessGroupEmployeesDto,
+  ) {
     const group = await this.findOrFail(companyId, groupId);
     if (!group.organizationId) {
       throw new BadRequestException(
@@ -414,23 +449,32 @@ export class AccessGroupsService {
     const uniqueEmployeeIds = [...new Set(dto.employee_ids)];
     const employees = await this.employeeRepository
       .createQueryBuilder('employee')
-      .innerJoin(CompanyUser, 'companyUser', 'companyUser.id = employee.company_user_id')
-      .where('employee.id IN (:...employeeIds)', { employeeIds: uniqueEmployeeIds })
+      .innerJoin(
+        CompanyUser,
+        'companyUser',
+        'companyUser.id = employee.company_user_id',
+      )
+      .where('employee.id IN (:...employeeIds)', {
+        employeeIds: uniqueEmployeeIds,
+      })
       .andWhere('companyUser.company_id = :companyId', { companyId })
       .select(['employee.id'])
       .getMany();
 
     if (employees.length !== uniqueEmployeeIds.length) {
-      throw new BadRequestException('One or more employee_ids do not belong to the active company');
+      throw new BadRequestException(
+        'One or more employee_ids do not belong to the active company',
+      );
     }
 
-    const organizationEmployees = await this.accessOrganizationEmployeeRepository.find({
-      where: {
-        organizationId: group.organizationId,
-        employeeId: In(uniqueEmployeeIds),
-      },
-      relations: ['employee'],
-    });
+    const organizationEmployees =
+      await this.accessOrganizationEmployeeRepository.find({
+        where: {
+          organizationId: group.organizationId,
+          employeeId: In(uniqueEmployeeIds),
+        },
+        relations: ['employee'],
+      });
 
     if (organizationEmployees.length !== uniqueEmployeeIds.length) {
       throw new BadRequestException(
@@ -444,7 +488,8 @@ export class AccessGroupsService {
 
     let created = 0;
     for (const employeeId of uniqueEmployeeIds) {
-      const organizationEmployee = organizationEmployeeByEmployeeId.get(employeeId);
+      const organizationEmployee =
+        organizationEmployeeByEmployeeId.get(employeeId);
       if (!organizationEmployee?.employee) {
         continue;
       }
@@ -465,7 +510,8 @@ export class AccessGroupsService {
           accessGroupId: groupId,
           employeeId,
           employeeNo: organizationEmployee.employee.employee_no,
-          employeeName: `${organizationEmployee.employee.first_name} ${organizationEmployee.employee.last_name}`.trim(),
+          employeeName:
+            `${organizationEmployee.employee.first_name} ${organizationEmployee.employee.last_name}`.trim(),
           organizationId: group.organizationId,
         }),
       );
@@ -576,8 +622,13 @@ export class AccessGroupsService {
     };
   }
 
-  private async findOrFail(companyId: number, id: number): Promise<AccessGroup> {
-    const item = await this.groupRepository.findOne({ where: { id, companyId } });
+  private async findOrFail(
+    companyId: number,
+    id: number,
+  ): Promise<AccessGroup> {
+    const item = await this.groupRepository.findOne({
+      where: { id, companyId },
+    });
     if (!item) {
       throw new NotFoundException('Access group not found');
     }
@@ -585,7 +636,10 @@ export class AccessGroupsService {
     return item;
   }
 
-  private async ensureBranch(companyId: number, branchId?: number | null): Promise<void> {
+  private async ensureBranch(
+    companyId: number,
+    branchId?: number | null,
+  ): Promise<void> {
     if (!branchId) {
       return;
     }
@@ -596,7 +650,9 @@ export class AccessGroupsService {
     });
 
     if (!branch) {
-      throw new BadRequestException('branch_id does not belong to the active company');
+      throw new BadRequestException(
+        'branch_id does not belong to the active company',
+      );
     }
   }
 
@@ -614,13 +670,18 @@ export class AccessGroupsService {
     });
 
     if (!organization) {
-      throw new BadRequestException('organization_id does not belong to the active company');
+      throw new BadRequestException(
+        'organization_id does not belong to the active company',
+      );
     }
 
     return organization;
   }
 
-  private async ensureGroupDeviceLink(groupId: number, deviceId: number): Promise<void> {
+  private async ensureGroupDeviceLink(
+    groupId: number,
+    deviceId: number,
+  ): Promise<void> {
     const existing = await this.accessGroupDeviceRepository.findOne({
       where: { accessGroupId: groupId, deviceId },
     });

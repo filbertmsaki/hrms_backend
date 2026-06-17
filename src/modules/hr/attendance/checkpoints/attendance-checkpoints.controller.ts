@@ -35,7 +35,9 @@ import { UpdateAttendanceCheckpointDto } from './dtos/update-attendance-checkpoi
 @Controller('attendance/checkpoints')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class AttendanceCheckpointsController {
-  constructor(private readonly attendanceCheckpointsService: AttendanceCheckpointsService) {}
+  constructor(
+    private readonly attendanceCheckpointsService: AttendanceCheckpointsService,
+  ) {}
 
   @Post()
   @UseGuards(PermissionsGuard)
@@ -56,13 +58,19 @@ export class AttendanceCheckpointsController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: AttendanceCheckpointQueryDto,
   ) {
-    return this.attendanceCheckpointsService.findAll(req.user.companyId!, query);
+    return this.attendanceCheckpointsService.findAll(
+      req.user.companyId!,
+      query,
+    );
   }
 
   @Get(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_checkpoints:read')
-  @ApiGetOneOperation('Attendance Checkpoint', 'Get attendance checkpoint by ID')
+  @ApiGetOneOperation(
+    'Attendance Checkpoint',
+    'Get attendance checkpoint by ID',
+  )
   findOne(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -79,7 +87,11 @@ export class AttendanceCheckpointsController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateAttendanceCheckpointDto,
   ) {
-    return this.attendanceCheckpointsService.update(req.user.companyId!, id, dto);
+    return this.attendanceCheckpointsService.update(
+      req.user.companyId!,
+      id,
+      dto,
+    );
   }
 
   @Delete(':id')
@@ -93,7 +105,3 @@ export class AttendanceCheckpointsController {
     return this.attendanceCheckpointsService.remove(req.user.companyId!, id);
   }
 }
-
-
-
-

@@ -1,4 +1,8 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
@@ -26,8 +30,13 @@ export class AttendanceHolidayGroupsService {
     };
   }
 
-  private async findOrFail(companyId: number, id: number): Promise<HolidayGroup> {
-    const group = await this.holidayGroupRepository.findOne({ where: { id, companyId } });
+  private async findOrFail(
+    companyId: number,
+    id: number,
+  ): Promise<HolidayGroup> {
+    const group = await this.holidayGroupRepository.findOne({
+      where: { id, companyId },
+    });
     if (!group) {
       throw new NotFoundException('Holiday group not found');
     }
@@ -40,7 +49,9 @@ export class AttendanceHolidayGroupsService {
       where: { companyId, name: normalizedName },
     });
     if (existing) {
-      throw new ConflictException('Holiday group name already exists for this company');
+      throw new ConflictException(
+        'Holiday group name already exists for this company',
+      );
     }
 
     const created = await this.holidayGroupRepository.save(
@@ -68,7 +79,9 @@ export class AttendanceHolidayGroupsService {
       .where('holidayGroup.company_id = :companyId', { companyId });
 
     if (search?.trim()) {
-      qb.andWhere('holidayGroup.name LIKE :term', { term: `%${search.trim()}%` });
+      qb.andWhere('holidayGroup.name LIKE :term', {
+        term: `%${search.trim()}%`,
+      });
     }
 
     const sortFieldMap: Record<string, string> = {
@@ -104,7 +117,9 @@ export class AttendanceHolidayGroupsService {
         where: { companyId, name: normalizedName },
       });
       if (existing && existing.id !== group.id) {
-        throw new ConflictException('Holiday group name already exists for this company');
+        throw new ConflictException(
+          'Holiday group name already exists for this company',
+        );
       }
       group.name = normalizedName;
     }
@@ -122,9 +137,3 @@ export class AttendanceHolidayGroupsService {
     return { message: 'Holiday group deleted successfully' };
   }
 }
-
-
-
-
-
-

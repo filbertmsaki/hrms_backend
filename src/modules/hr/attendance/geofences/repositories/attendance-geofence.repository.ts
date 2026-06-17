@@ -20,7 +20,10 @@ export class AttendanceGeofenceRepository {
     return this.repo.save(entity);
   }
 
-  findOneById(companyId: number, id: number): Promise<AttendanceGeofence | null> {
+  findOneById(
+    companyId: number,
+    id: number,
+  ): Promise<AttendanceGeofence | null> {
     return this.repo.findOne({
       where: {
         id,

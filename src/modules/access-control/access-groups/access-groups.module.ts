@@ -53,8 +53,11 @@ import { EmployeeDeviceAccessAuditLogService } from '../employee-device-access-a
     HikvisionModule,
   ],
   controllers: [AccessGroupsController],
-  providers: [AccessGroupsService, AccessControlSyncService, EmployeeDeviceAccessAuditLogService],
+  providers: [
+    AccessGroupsService,
+    AccessControlSyncService,
+    EmployeeDeviceAccessAuditLogService,
+  ],
   exports: [AccessGroupsService, AccessControlSyncService],
 })
 export class AccessGroupsModule {}
-

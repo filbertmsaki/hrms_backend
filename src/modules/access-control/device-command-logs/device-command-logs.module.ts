@@ -7,4 +7,3 @@ import { DeviceCommandLogsController } from './controller/device-command-logs.co
   controllers: [DeviceCommandLogsController],
 })
 export class DeviceCommandLogsModule {}
-

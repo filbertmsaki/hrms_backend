@@ -106,7 +106,10 @@ export default class OffboardingWorkflowStepsSeeder implements Seeder {
       );
       this.validateApprovalLevels(WORKFLOW_STEP_SEEDS);
 
-      const roleMap = await this.resolveRoles(roleRepo, OFFBOARDING_SEED_COMPANY_ID);
+      const roleMap = await this.resolveRoles(
+        roleRepo,
+        OFFBOARDING_SEED_COMPANY_ID,
+      );
       const departmentMap = await this.resolveDepartments(
         departmentRepo,
         OFFBOARDING_SEED_COMPANY_ID,
@@ -118,7 +121,12 @@ export default class OffboardingWorkflowStepsSeeder implements Seeder {
         OFFBOARDING_SEED_COMPANY_ID,
       );
 
-      await this.syncWorkflowSteps(stepRepo, workflow.id, roleMap, departmentMap);
+      await this.syncWorkflowSteps(
+        stepRepo,
+        workflow.id,
+        roleMap,
+        departmentMap,
+      );
 
       await queryRunner.commitTransaction();
       console.log(
@@ -134,15 +142,21 @@ export default class OffboardingWorkflowStepsSeeder implements Seeder {
   }
 
   private validateApprovalLevels(seeds: WorkflowStepSeed[]): void {
-    const levels = seeds.map((seed) => seed.approval_level).sort((a, b) => a - b);
+    const levels = seeds
+      .map((seed) => seed.approval_level)
+      .sort((a, b) => a - b);
     const uniqueLevels = new Set(levels);
     if (levels.length !== uniqueLevels.size) {
-      throw new Error('Offboarding workflow steps contain duplicate approval_level values');
+      throw new Error(
+        'Offboarding workflow steps contain duplicate approval_level values',
+      );
     }
 
     for (let index = 0; index < levels.length; index += 1) {
       if (levels[index] !== index + 1) {
-        throw new Error('Offboarding workflow approval_level must be sequential from 1 to N');
+        throw new Error(
+          'Offboarding workflow approval_level must be sequential from 1 to N',
+        );
       }
     }
   }
@@ -171,7 +185,9 @@ export default class OffboardingWorkflowStepsSeeder implements Seeder {
     roleRepo: Repository<Role>,
     companyId: number,
   ): Promise<Map<string, Role>> {
-    const names = [...new Set(WORKFLOW_STEP_SEEDS.map((step) => step.role_name))];
+    const names = [
+      ...new Set(WORKFLOW_STEP_SEEDS.map((step) => step.role_name)),
+    ];
     const roles = await roleRepo.find({
       where: {
         company_id: companyId,
@@ -198,7 +214,8 @@ export default class OffboardingWorkflowStepsSeeder implements Seeder {
     const codes = [
       ...new Set(
         WORKFLOW_STEP_SEEDS.map((step) => step.assigned_department_code).filter(
-          (value): value is string => typeof value === 'string' && value.length > 0,
+          (value): value is string =>
+            typeof value === 'string' && value.length > 0,
         ),
       ),
     ];
@@ -222,7 +239,9 @@ export default class OffboardingWorkflowStepsSeeder implements Seeder {
 
     for (const code of codes) {
       if (!map.has(code.toUpperCase())) {
-        throw new Error(`Department code "${code}" not found for company_id=${companyId}.`);
+        throw new Error(
+          `Department code "${code}" not found for company_id=${companyId}.`,
+        );
       }
     }
 
@@ -243,7 +262,9 @@ export default class OffboardingWorkflowStepsSeeder implements Seeder {
         throw new Error(`Role "${roleName}" has no company user assignment.`);
       }
 
-      const companyUserIds = assignments.map((assignment) => assignment.company_user_id);
+      const companyUserIds = assignments.map(
+        (assignment) => assignment.company_user_id,
+      );
       const activeCount = await companyUserRepo.count({
         where: {
           id: In(companyUserIds),
@@ -252,7 +273,9 @@ export default class OffboardingWorkflowStepsSeeder implements Seeder {
         },
       });
       if (!activeCount) {
-        throw new Error(`Role "${roleName}" has no active company users in company_id=${companyId}.`);
+        throw new Error(
+          `Role "${roleName}" has no active company users in company_id=${companyId}.`,
+        );
       }
     }
   }
@@ -263,7 +286,9 @@ export default class OffboardingWorkflowStepsSeeder implements Seeder {
     roleMap: Map<string, Role>,
     departmentMap: Map<string, Department>,
   ): Promise<void> {
-    const desiredLevels = WORKFLOW_STEP_SEEDS.map((seed) => seed.approval_level);
+    const desiredLevels = WORKFLOW_STEP_SEEDS.map(
+      (seed) => seed.approval_level,
+    );
     const existingSteps = await stepRepo.find({
       where: { workflow_id: workflowId },
     });
@@ -271,7 +296,8 @@ export default class OffboardingWorkflowStepsSeeder implements Seeder {
     for (const seed of WORKFLOW_STEP_SEEDS) {
       const role = roleMap.get(seed.role_name)!;
       const department = seed.assigned_department_code
-        ? departmentMap.get(seed.assigned_department_code.toUpperCase()) ?? null
+        ? (departmentMap.get(seed.assigned_department_code.toUpperCase()) ??
+          null)
         : null;
 
       let step = existingSteps.find(

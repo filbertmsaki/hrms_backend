@@ -138,13 +138,20 @@ export class AccessWeekPlansController {
   @Post(':id/sync-to-device')
   @UseGuards(PermissionsGuard)
   @Permissions('access_week_plans:update')
-  @ApiActionOperation('Sync Week Plan To Device', 'Push one week plan to a Hikvision device')
+  @ApiActionOperation(
+    'Sync Week Plan To Device',
+    'Push one week plan to a Hikvision device',
+  )
   syncToDevice(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: SyncAccessWeekPlanDto,
   ) {
-    return this.weekPlansService.syncWeekPlanToDevice(req.user.companyId!, id, dto.device_id);
+    return this.weekPlansService.syncWeekPlanToDevice(
+      req.user.companyId!,
+      id,
+      dto.device_id,
+    );
   }
 
   @Post('sync-from-device/:deviceId')

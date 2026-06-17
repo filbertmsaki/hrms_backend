@@ -35,7 +35,9 @@ import { UpdateAttendanceHolidayDto } from './dtos/update-attendance-holiday.dto
 @Controller('attendance/holidays')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class AttendanceHolidaysController {
-  constructor(private readonly attendanceHolidaysService: AttendanceHolidaysService) {}
+  constructor(
+    private readonly attendanceHolidaysService: AttendanceHolidaysService,
+  ) {}
 
   @Post()
   @UseGuards(PermissionsGuard)
@@ -93,7 +95,3 @@ export class AttendanceHolidaysController {
     return this.attendanceHolidaysService.remove(req.user.companyId!, id);
   }
 }
-
-
-
-

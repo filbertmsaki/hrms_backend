@@ -3,4 +3,3 @@ export enum DeviceCommandLogStatusEnum {
   SUCCESS = 'SUCCESS',
   FAILED = 'FAILED',
 }
-

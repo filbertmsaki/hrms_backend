@@ -60,7 +60,10 @@ export class EmployeeDesignationsService {
     };
   }
 
-  private async findEmployeeOrFail(companyId: number, id: number): Promise<Employee> {
+  private async findEmployeeOrFail(
+    companyId: number,
+    id: number,
+  ): Promise<Employee> {
     const employee = await this.employeeRepository.findOne({
       where: { id, company_user: { company_id: companyId } },
       relations: {
@@ -133,7 +136,10 @@ export class EmployeeDesignationsService {
 
     const employee = await this.findEmployeeOrFail(companyId, dto.employee_id);
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
-    const designation = await this.findDesignationOrFail(companyId, dto.designation_id);
+    const designation = await this.findDesignationOrFail(
+      companyId,
+      dto.designation_id,
+    );
 
     if (designation.department?.branch_id) {
       await this.hrAccessService.assertCanAccessBranch(
@@ -245,7 +251,10 @@ export class EmployeeDesignationsService {
 
   async findOne(companyId: number, id: number, actor: AuthenticatedUser) {
     const assignment = await this.findAssignmentOrFail(companyId, id);
-    const employee = await this.findEmployeeOrFail(companyId, assignment.employee_id);
+    const employee = await this.findEmployeeOrFail(
+      companyId,
+      assignment.employee_id,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
     return this.mapAssignment(assignment);
   }
@@ -257,7 +266,10 @@ export class EmployeeDesignationsService {
     actor: AuthenticatedUser,
   ) {
     const existing = await this.findAssignmentOrFail(companyId, id);
-    const employee = await this.findEmployeeOrFail(companyId, existing.employee_id);
+    const employee = await this.findEmployeeOrFail(
+      companyId,
+      existing.employee_id,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
     const nextEmployee = dto.employee_id
@@ -302,7 +314,9 @@ export class EmployeeDesignationsService {
         end_date: endDate ?? null,
         is_current: dto.is_current ?? existing.is_current,
         remarks:
-          dto.remarks !== undefined ? dto.remarks?.trim() || null : existing.remarks,
+          dto.remarks !== undefined
+            ? dto.remarks?.trim() || null
+            : existing.remarks,
       });
 
       await manager.getRepository(EmployeeDesignation).save(existing);
@@ -321,7 +335,10 @@ export class EmployeeDesignationsService {
     actor: AuthenticatedUser,
   ): Promise<{ message: string }> {
     const assignment = await this.findAssignmentOrFail(companyId, id);
-    const employee = await this.findEmployeeOrFail(companyId, assignment.employee_id);
+    const employee = await this.findEmployeeOrFail(
+      companyId,
+      assignment.employee_id,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
     await this.dataSource.transaction(async (manager) => {

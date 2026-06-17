@@ -123,7 +123,10 @@ export class DepartmentsService {
       );
 
       if (parent.branch_id) {
-        await this.hrAccessService.assertCanAccessBranch(actor, parent.branch_id);
+        await this.hrAccessService.assertCanAccessBranch(
+          actor,
+          parent.branch_id,
+        );
       }
     }
 
@@ -238,7 +241,10 @@ export class DepartmentsService {
     const department = await this.findDepartmentOrFail(companyId, departmentId);
 
     if (department.branch_id) {
-      await this.hrAccessService.assertCanAccessBranch(actor, department.branch_id);
+      await this.hrAccessService.assertCanAccessBranch(
+        actor,
+        department.branch_id,
+      );
     }
 
     return this.mapDepartment(department);
@@ -253,7 +259,10 @@ export class DepartmentsService {
     const department = await this.findDepartmentOrFail(companyId, departmentId);
 
     if (department.branch_id) {
-      await this.hrAccessService.assertCanAccessBranch(actor, department.branch_id);
+      await this.hrAccessService.assertCanAccessBranch(
+        actor,
+        department.branch_id,
+      );
     }
 
     if (
@@ -268,13 +277,20 @@ export class DepartmentsService {
     const branch =
       updateDepartmentDto.branch_id === undefined
         ? department.branch
-        : await this.resolveBranch(companyId, updateDepartmentDto.branch_id, actor);
+        : await this.resolveBranch(
+            companyId,
+            updateDepartmentDto.branch_id,
+            actor,
+          );
 
     let parent =
       updateDepartmentDto.parent_id === undefined
         ? department.parent
         : updateDepartmentDto.parent_id
-          ? await this.findDepartmentOrFail(companyId, updateDepartmentDto.parent_id)
+          ? await this.findDepartmentOrFail(
+              companyId,
+              updateDepartmentDto.parent_id,
+            )
           : null;
 
     if (parent?.branch_id) {
@@ -282,7 +298,10 @@ export class DepartmentsService {
     }
 
     // If code is being updated, validate uniqueness
-    if (updateDepartmentDto.code && updateDepartmentDto.code !== department.code) {
+    if (
+      updateDepartmentDto.code &&
+      updateDepartmentDto.code !== department.code
+    ) {
       const isUnique = await this.codeGeneratorService.validateCodeUnique(
         this.departmentRepository,
         companyId,
@@ -316,7 +335,10 @@ export class DepartmentsService {
     const department = await this.findDepartmentOrFail(companyId, departmentId);
 
     if (department.branch_id) {
-      await this.hrAccessService.assertCanAccessBranch(actor, department.branch_id);
+      await this.hrAccessService.assertCanAccessBranch(
+        actor,
+        department.branch_id,
+      );
     }
 
     await this.departmentRepository.remove(department);

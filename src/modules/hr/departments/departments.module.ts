@@ -7,10 +7,7 @@ import { DepartmentsService } from './departments.service';
 import { Department } from './entities/department.entity';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([Department, Branch]),
-    HrSharedModule,
-  ],
+  imports: [TypeOrmModule.forFeature([Department, Branch]), HrSharedModule],
   controllers: [DepartmentsController],
   providers: [DepartmentsService],
   exports: [DepartmentsService, TypeOrmModule],

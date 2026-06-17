@@ -24,7 +24,10 @@ import { AccessScheduleTemplateTypeEnum } from '../enum/access-schedule-template
 @Index('IDX_access_schedule_templates_device_id', ['deviceId'])
 @Index('IDX_access_schedule_templates_week_plan_id', ['weekPlanId'])
 @Index('IDX_access_schedule_templates_template_no', ['hikvisionTemplateNo'])
-@Unique('UQ_access_schedule_templates_device_template_no', ['deviceId', 'hikvisionTemplateNo'])
+@Unique('UQ_access_schedule_templates_device_template_no', [
+  'deviceId',
+  'hikvisionTemplateNo',
+])
 export class AccessScheduleTemplate {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -53,7 +56,12 @@ export class AccessScheduleTemplate {
   @Column({ name: 'hikvision_week_plan_no', type: 'varchar', length: 50 })
   hikvisionWeekPlanNo: string;
 
-  @Column({ name: 'holiday_group_no', type: 'varchar', length: 50, nullable: true })
+  @Column({
+    name: 'holiday_group_no',
+    type: 'varchar',
+    length: 50,
+    nullable: true,
+  })
   holidayGroupNo: string | null;
 
   @Column({ name: 'enable', type: 'boolean', default: true })
@@ -113,8 +121,9 @@ export class AccessScheduleTemplate {
   @JoinColumn({ name: 'device_id' })
   device: AttendanceDevice | null;
 
-  @ManyToOne(() => AccessWeekPlan, (weekPlan) => weekPlan.templates, { onDelete: 'CASCADE' })
+  @ManyToOne(() => AccessWeekPlan, (weekPlan) => weekPlan.templates, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'week_plan_id' })
   weekPlan: AccessWeekPlan;
 }
-

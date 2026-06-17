@@ -7,6 +7,7 @@ import { AttendanceDailyStatusEnum } from './enums/attendance-daily-status.enum'
 import { AttendanceScheduleResolverService } from './attendance-schedule-resolver.service';
 import { AttendanceMobilePunch } from '../mobile-punches/entities/attendance-mobile-punch.entity';
 import { LeaveRequest } from '../../leave/entities/leave-request.entity';
+import { LeaveType } from '../../leave/entities/leave-type.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { EmployeeTimetable } from '../timetable/employee-timetables/entities/employee-timetable.entity';
 import { ShiftAssignment } from '../shift/shift-assignments/entities/shift-assignment.entity';
@@ -16,6 +17,7 @@ import { TimetableDay } from '../timetable/timetable-days/entities/timetable-day
 import { AttendanceDailySummaryAdjustment } from './entities/attendance-daily-summary-adjustment.entity';
 import { AttendanceProcessingExceptionsService } from './attendance-processing-exceptions.service';
 import { ResolvedAttendanceSchedule } from './entities/resolved-attendance-schedule.type';
+import { AttendanceDailyRemarkEnum } from './enums/attendance-daily-remark.enum';
 
 type MockRepo<T> = Partial<Record<keyof Repository<T>, jest.Mock>>;
 
@@ -30,10 +32,13 @@ const createRepositoryMock = <T>(): MockRepo<T> => ({
 
 const createQueryBuilderMock = () => ({
   innerJoin: jest.fn().mockReturnThis(),
+  leftJoinAndSelect: jest.fn().mockReturnThis(),
   select: jest.fn().mockReturnThis(),
+  addSelect: jest.fn().mockReturnThis(),
   where: jest.fn().mockReturnThis(),
   andWhere: jest.fn().mockReturnThis(),
   orderBy: jest.fn().mockReturnThis(),
+  setParameters: jest.fn().mockReturnThis(),
   limit: jest.fn().mockReturnThis(),
   skip: jest.fn().mockReturnThis(),
   take: jest.fn().mockReturnThis(),
@@ -82,6 +87,7 @@ describe('AttendanceDailySummaryService', () => {
   let adjustmentRepository: MockRepo<AttendanceDailySummaryAdjustment>;
   let mobilePunchRepository: MockRepo<AttendanceMobilePunch>;
   let leaveRequestRepository: MockRepo<LeaveRequest>;
+  let leaveTypeRepository: MockRepo<LeaveType>;
   let businessTripRepository: MockRepo<AttendanceBusinessTrip>;
   let employeeRepository: MockRepo<Employee>;
   let employeeTimetableRepository: MockRepo<EmployeeTimetable>;
@@ -105,6 +111,7 @@ describe('AttendanceDailySummaryService', () => {
     adjustmentRepository = createRepositoryMock();
     mobilePunchRepository = createRepositoryMock();
     leaveRequestRepository = createRepositoryMock();
+    leaveTypeRepository = createRepositoryMock();
     businessTripRepository = createRepositoryMock();
     employeeRepository = createRepositoryMock();
     employeeTimetableRepository = createRepositoryMock();
@@ -127,14 +134,20 @@ describe('AttendanceDailySummaryService', () => {
     shiftExpectationBuilder = createQueryBuilderMock();
     timetableExpectationBuilder = createQueryBuilderMock();
 
-    processedEventRepository.createQueryBuilder!
-      .mockReturnValueOnce(timezoneBuilder)
+    processedEventRepository
+      .createQueryBuilder!.mockReturnValueOnce(timezoneBuilder)
       .mockReturnValueOnce(processedEventBuilder);
-    mobilePunchRepository.createQueryBuilder!.mockReturnValue(mobilePunchBuilder);
+    mobilePunchRepository.createQueryBuilder!.mockReturnValue(
+      mobilePunchBuilder,
+    );
     leaveRequestRepository.createQueryBuilder!.mockReturnValue(leaveBuilder);
     businessTripRepository.createQueryBuilder!.mockReturnValue(tripBuilder);
-    shiftAssignmentRepository.createQueryBuilder!.mockReturnValue(shiftExpectationBuilder);
-    employeeTimetableRepository.createQueryBuilder!.mockReturnValue(timetableExpectationBuilder);
+    shiftAssignmentRepository.createQueryBuilder!.mockReturnValue(
+      shiftExpectationBuilder,
+    );
+    employeeTimetableRepository.createQueryBuilder!.mockReturnValue(
+      timetableExpectationBuilder,
+    );
 
     service = new AttendanceDailySummaryService(
       processedEventRepository as Repository<AttendanceProcessedEvent>,
@@ -142,6 +155,7 @@ describe('AttendanceDailySummaryService', () => {
       adjustmentRepository as Repository<AttendanceDailySummaryAdjustment>,
       mobilePunchRepository as Repository<AttendanceMobilePunch>,
       leaveRequestRepository as Repository<LeaveRequest>,
+      leaveTypeRepository as Repository<LeaveType>,
       businessTripRepository as Repository<AttendanceBusinessTrip>,
       employeeRepository as Repository<Employee>,
       employeeTimetableRepository as Repository<EmployeeTimetable>,
@@ -176,6 +190,9 @@ describe('AttendanceDailySummaryService', () => {
       expect.objectContaining({
         attendanceStatus: AttendanceDailyStatusEnum.ABSENT,
         attendanceDate: '2026-06-12',
+        remarks: expect.arrayContaining([
+          AttendanceDailyRemarkEnum.MISSING_BOTH_CHECK_IN_AND_CHECK_OUT,
+        ]),
       }),
     );
     expect(exceptionService.replaceForEmployeeDate).toHaveBeenCalled();
@@ -210,6 +227,7 @@ describe('AttendanceDailySummaryService', () => {
       expect.objectContaining({
         attendanceStatus: AttendanceDailyStatusEnum.PRESENT,
         checkInAt: new Date('2026-06-12T08:05:00Z'),
+        remarks: [],
       }),
     );
   });

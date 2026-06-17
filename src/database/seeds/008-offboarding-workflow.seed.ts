@@ -25,7 +25,10 @@ export default class OffboardingWorkflowSeeder implements Seeder {
       const workflowRepo = manager.getRepository(OffboardingWorkflow);
 
       await this.ensureCompanyExists(companyRepo, OFFBOARDING_SEED_COMPANY_ID);
-      const workflow = await this.ensureWorkflow(workflowRepo, OFFBOARDING_SEED_COMPANY_ID);
+      const workflow = await this.ensureWorkflow(
+        workflowRepo,
+        OFFBOARDING_SEED_COMPANY_ID,
+      );
 
       await queryRunner.commitTransaction();
       console.log(

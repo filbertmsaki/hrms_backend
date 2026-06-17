@@ -34,12 +34,17 @@ export default class OnboardingCompanyUsersSeeder implements Seeder {
       const companyUserRoleRepo = manager.getRepository(CompanyUserRole);
 
       await this.ensureCompanyExists(companyRepo, ONBOARDING_SEED_COMPANY_ID);
-      const roleMap = await this.resolveRoles(roleRepo, ONBOARDING_SEED_COMPANY_ID);
+      const roleMap = await this.resolveRoles(
+        roleRepo,
+        ONBOARDING_SEED_COMPANY_ID,
+      );
 
       for (const seed of ONBOARDING_ROLE_USER_SEEDS) {
         const role = roleMap.get(seed.role_name);
         if (!role) {
-          throw new Error(`Missing role "${seed.role_name}" for company user seeding`);
+          throw new Error(
+            `Missing role "${seed.role_name}" for company user seeding`,
+          );
         }
 
         const user = await this.ensureUser(userRepo, seed);
@@ -88,7 +93,9 @@ export default class OnboardingCompanyUsersSeeder implements Seeder {
     roleRepo: Repository<Role>,
     companyId: number,
   ): Promise<Map<string, Role>> {
-    const requiredNames = ONBOARDING_ROLE_HIERARCHY_SEEDS.map((seed) => seed.name);
+    const requiredNames = ONBOARDING_ROLE_HIERARCHY_SEEDS.map(
+      (seed) => seed.name,
+    );
     const roles = await roleRepo.find({
       where: {
         company_id: companyId,

@@ -1,5 +1,10 @@
 import { createCipheriv, createHash, randomBytes } from 'crypto';
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { buildAttendanceDeviceSearchId } from '../access-control/attendance-devices/utils/attendance-device-search-id.util';
@@ -53,7 +58,11 @@ type NormalizedUser = {
   maxOpenDoorTime: number;
   openDoorTime: number;
   userVerifyMode: string | null;
-  rightPlans: Array<{ doorNo: number; templateNo: string; raw: Record<string, unknown> }>;
+  rightPlans: Array<{
+    doorNo: number;
+    templateNo: string;
+    raw: Record<string, unknown>;
+  }>;
   raw: Record<string, unknown>;
 };
 
@@ -107,7 +116,9 @@ const DEFAULT_FINGERPRINT_CARD_READER_NO = 1;
 
 @Injectable()
 export class HikvisionPeopleCredentialSyncService {
-  private readonly logger = new Logger(HikvisionPeopleCredentialSyncService.name);
+  private readonly logger = new Logger(
+    HikvisionPeopleCredentialSyncService.name,
+  );
 
   constructor(
     @InjectRepository(AttendanceDevice)
@@ -131,7 +142,10 @@ export class HikvisionPeopleCredentialSyncService {
     private readonly hikvisionAccessControlService: HikvisionAccessControlService,
   ) {}
 
-  async syncUsers(companyId: number, deviceId: number): Promise<SyncUsersResult> {
+  async syncUsers(
+    companyId: number,
+    deviceId: number,
+  ): Promise<SyncUsersResult> {
     const device = await this.findHikvisionDeviceOrFail(companyId, deviceId);
     const startedAt = new Date();
     const counters = this.createCounters();
@@ -154,10 +168,21 @@ export class HikvisionPeopleCredentialSyncService {
             maxResults: pageSize,
           },
         };
-        const response = await this.requestWithRetry(`sync-users:${device.id}:${cursor}`, () =>
-          this.hikvisionAccessControlService.searchUsers(companyId, device.id, payload),
+        const response = await this.requestWithRetry(
+          `sync-users:${device.id}:${cursor}`,
+          () =>
+            this.hikvisionAccessControlService.searchUsers(
+              companyId,
+              device.id,
+              payload,
+            ),
         );
-        this.ensureHikvisionSuccess('SyncUsers', response.parsed, response.status, response.ok);
+        this.ensureHikvisionSuccess(
+          'SyncUsers',
+          response.parsed,
+          response.status,
+          response.ok,
+        );
 
         const parsedPage = this.parseUserSearchPage(response.parsed);
         responseStatusStrg = parsedPage.responseStatusStrg;
@@ -167,12 +192,22 @@ export class HikvisionPeopleCredentialSyncService {
         for (const rawUser of parsedPage.rawUsers) {
           try {
             const user = this.normalizeUser(rawUser);
-            const persisted = await this.persistUserFromDevice(companyId, device, user);
+            const persisted = await this.persistUserFromDevice(
+              companyId,
+              device,
+              user,
+            );
             syncedUsers.push(persisted);
-            counters[persisted.status.toLowerCase() as 'created' | 'updated' | 'skipped'] += 1;
+            counters[
+              persisted.status.toLowerCase() as
+                | 'created'
+                | 'updated'
+                | 'skipped'
+            ] += 1;
           } catch (error) {
             counters.failed += 1;
-            const employeeNoForLog = this.toNullableString(rawUser.employeeNo) ?? 'unknown';
+            const employeeNoForLog =
+              this.toNullableString(rawUser.employeeNo) ?? 'unknown';
             this.logger.warn(
               `Failed to sync device user ${employeeNoForLog} from device ${device.id}: ${(error as Error).message}`,
             );
@@ -282,9 +317,10 @@ export class HikvisionPeopleCredentialSyncService {
       const door = await this.accessDoorRepository.findOne({
         where: { companyId, deviceId, doorNo: plan.doorNo },
       });
-      const scheduleTemplate = await this.accessScheduleTemplateRepository.findOne({
-        where: { companyId, deviceId, hikvisionTemplateNo: plan.templateNo },
-      });
+      const scheduleTemplate =
+        await this.accessScheduleTemplateRepository.findOne({
+          where: { companyId, deviceId, hikvisionTemplateNo: plan.templateNo },
+        });
 
       const existingEntry = existingMap.get(key) ?? null;
       const existing = existingEntry?.current ?? null;
@@ -315,14 +351,20 @@ export class HikvisionPeopleCredentialSyncService {
       draft.isActive = true;
       draft.metadata = metadata;
 
-      if (!existing || this.hasRightPlanChanged(existingEntry!.snapshot, draft)) {
+      if (
+        !existing ||
+        this.hasRightPlanChanged(existingEntry!.snapshot, draft)
+      ) {
         await this.employeeDeviceRightPlanRepository.save(draft);
         changed = true;
       }
     }
 
     for (const existing of existingPlans) {
-      const key = this.buildRightPlanKey(existing.doorNo, existing.hikvisionTemplateNo);
+      const key = this.buildRightPlanKey(
+        existing.doorNo,
+        existing.hikvisionTemplateNo,
+      );
       if (activeKeys.has(key) || !existing.isActive) {
         continue;
       }
@@ -376,10 +418,17 @@ export class HikvisionPeopleCredentialSyncService {
         try {
           const response = await this.requestWithRetry(
             `sync-fingerprint:${device.id}:${normalizedEmployeeNo}:${fingerprintSlot}`,
-            () => this.hikvisionAccessControlService.uploadFingerprint(companyId, device.id, payload),
+            () =>
+              this.hikvisionAccessControlService.uploadFingerprint(
+                companyId,
+                device.id,
+                payload,
+              ),
           );
 
-          const failureReason = this.extractHikvisionFailureReason(response.parsed);
+          const failureReason = this.extractHikvisionFailureReason(
+            response.parsed,
+          );
           if (!response.ok || failureReason) {
             if (this.isNotSupportFailure(response.parsed, failureReason)) {
               exportSupported = false;
@@ -405,7 +454,9 @@ export class HikvisionPeopleCredentialSyncService {
               };
             }
 
-            if (this.isFingerprintSlotEmptyFailure(response.parsed, failureReason)) {
+            if (
+              this.isFingerprintSlotEmptyFailure(response.parsed, failureReason)
+            ) {
               continue;
             }
 
@@ -442,8 +493,13 @@ export class HikvisionPeopleCredentialSyncService {
 
       for (const fingerprint of fingerprints) {
         try {
-          const status = await this.upsertFingerprintCredential(companyId, device.id, fingerprint);
-          counters[status.toLowerCase() as 'created' | 'updated' | 'skipped'] += 1;
+          const status = await this.upsertFingerprintCredential(
+            companyId,
+            device.id,
+            fingerprint,
+          );
+          counters[status.toLowerCase() as 'created' | 'updated' | 'skipped'] +=
+            1;
         } catch (error) {
           counters.failed += 1;
           this.logger.warn(
@@ -507,25 +563,31 @@ export class HikvisionPeopleCredentialSyncService {
   ): Promise<SyncFingerprintsResult> {
     const candidates = users?.length
       ? users
-      : await this.employeeDeviceAssignmentRepository.find({
-          where: {
-            companyId,
-            deviceId,
-            syncStatus: EmployeeDeviceAssignmentSyncStatusEnum.SYNCED,
-          },
-          select: ['id', 'employeeId', 'employeeNo'],
-        }).then((rows) =>
-          rows.map((row) => ({
-            assignmentId: row.id,
-            employeeId: row.employeeId,
-            employeeNo: row.employeeNo,
-          })),
-        );
+      : await this.employeeDeviceAssignmentRepository
+          .find({
+            where: {
+              companyId,
+              deviceId,
+              syncStatus: EmployeeDeviceAssignmentSyncStatusEnum.SYNCED,
+            },
+            select: ['id', 'employeeId', 'employeeNo'],
+          })
+          .then((rows) =>
+            rows.map((row) => ({
+              assignmentId: row.id,
+              employeeId: row.employeeId,
+              employeeNo: row.employeeNo,
+            })),
+          );
 
     const aggregate = this.createCounters();
     let exportSupported = true;
     for (const user of candidates) {
-      const result = await this.syncUserFingerprints(companyId, deviceId, user.employeeNo);
+      const result = await this.syncUserFingerprints(
+        companyId,
+        deviceId,
+        user.employeeNo,
+      );
       aggregate.received += result.fingerprints.received;
       aggregate.created += result.fingerprints.created;
       aggregate.updated += result.fingerprints.updated;
@@ -544,7 +606,10 @@ export class HikvisionPeopleCredentialSyncService {
     };
   }
 
-  async syncCards(companyId: number, deviceId: number): Promise<SyncCardsResult> {
+  async syncCards(
+    companyId: number,
+    deviceId: number,
+  ): Promise<SyncCardsResult> {
     const device = await this.findHikvisionDeviceOrFail(companyId, deviceId);
     const startedAt = new Date();
     const counters = this.createCounters();
@@ -565,10 +630,21 @@ export class HikvisionPeopleCredentialSyncService {
             maxResults: pageSize,
           },
         };
-        const response = await this.requestWithRetry(`sync-cards:${device.id}:${cursor}`, () =>
-          this.hikvisionAccessControlService.searchCards(companyId, device.id, payload),
+        const response = await this.requestWithRetry(
+          `sync-cards:${device.id}:${cursor}`,
+          () =>
+            this.hikvisionAccessControlService.searchCards(
+              companyId,
+              device.id,
+              payload,
+            ),
         );
-        this.ensureHikvisionSuccess('SyncCards', response.parsed, response.status, response.ok);
+        this.ensureHikvisionSuccess(
+          'SyncCards',
+          response.parsed,
+          response.status,
+          response.ok,
+        );
 
         const parsedPage = this.parseCardSearchPage(response.parsed);
         responseStatusStrg = parsedPage.responseStatusStrg;
@@ -577,8 +653,14 @@ export class HikvisionPeopleCredentialSyncService {
 
         for (const card of parsedPage.cards) {
           try {
-            const status = await this.upsertCardCredential(companyId, device.id, card);
-            counters[status.toLowerCase() as 'created' | 'updated' | 'skipped'] += 1;
+            const status = await this.upsertCardCredential(
+              companyId,
+              device.id,
+              card,
+            );
+            counters[
+              status.toLowerCase() as 'created' | 'updated' | 'skipped'
+            ] += 1;
           } catch (error) {
             counters.failed += 1;
             this.logger.warn(
@@ -655,10 +737,7 @@ export class HikvisionPeopleCredentialSyncService {
     }
   }
 
-  async syncUsersFingerprintsAndCards(
-    companyId: number,
-    deviceId: number,
-  ) {
+  async syncUsersFingerprintsAndCards(companyId: number, deviceId: number) {
     const startedAt = new Date();
     const device = await this.findHikvisionDeviceOrFail(companyId, deviceId);
     const users = await this.syncUsers(companyId, device.id);
@@ -689,7 +768,11 @@ export class HikvisionPeopleCredentialSyncService {
       cards = await this.syncCards(companyId, device.id);
     }
 
-    const overallStatus = this.deriveOverallStatus([users.status, fingerprints.status, cards.status]);
+    const overallStatus = this.deriveOverallStatus([
+      users.status,
+      fingerprints.status,
+      cards.status,
+    ]);
     await this.persistSyncLogSafe({
       companyId,
       deviceId: device.id,
@@ -697,11 +780,26 @@ export class HikvisionPeopleCredentialSyncService {
       status: overallStatus,
       startedAt,
       counters: {
-        received: users.users.received + fingerprints.fingerprints.received + cards.cards.received,
-        created: users.users.created + fingerprints.fingerprints.created + cards.cards.created,
-        updated: users.users.updated + fingerprints.fingerprints.updated + cards.cards.updated,
-        skipped: users.users.skipped + fingerprints.fingerprints.skipped + cards.cards.skipped,
-        failed: users.users.failed + fingerprints.fingerprints.failed + cards.cards.failed,
+        received:
+          users.users.received +
+          fingerprints.fingerprints.received +
+          cards.cards.received,
+        created:
+          users.users.created +
+          fingerprints.fingerprints.created +
+          cards.cards.created,
+        updated:
+          users.users.updated +
+          fingerprints.fingerprints.updated +
+          cards.cards.updated,
+        skipped:
+          users.users.skipped +
+          fingerprints.fingerprints.skipped +
+          cards.cards.skipped,
+        failed:
+          users.users.failed +
+          fingerprints.fingerprints.failed +
+          cards.cards.failed,
       },
       metadata: {
         users: users.users,
@@ -724,15 +822,19 @@ export class HikvisionPeopleCredentialSyncService {
     device: AttendanceDevice,
     user: NormalizedUser,
   ): Promise<SyncedUserRef & { status: 'CREATED' | 'UPDATED' | 'SKIPPED' }> {
-    const employee = await this.findEmployeeByDeviceEmployeeNo(companyId, device.id, user.employeeNo);
+    const employee = await this.findEmployeeByDeviceEmployeeNo(
+      companyId,
+      device.id,
+      user.employeeNo,
+    );
     const existingByEmployee = employee?.id
       ? await this.employeeDeviceAssignmentRepository.findOne({
           where: { companyId, deviceId: device.id, employeeId: employee.id },
         })
       : null;
     const existing =
-      existingByEmployee
-      ?? (await this.employeeDeviceAssignmentRepository.findOne({
+      existingByEmployee ??
+      (await this.employeeDeviceAssignmentRepository.findOne({
         where: { companyId, deviceId: device.id, employeeNo: user.employeeNo },
       }));
     const existingSnapshot = existing ? this.cloneAssignment(existing) : null;
@@ -784,7 +886,12 @@ export class HikvisionPeopleCredentialSyncService {
       status = 'UPDATED';
     }
 
-    const rightPlanChanged = await this.syncUserRightPlans(companyId, device.id, draft, user);
+    const rightPlanChanged = await this.syncUserRightPlans(
+      companyId,
+      device.id,
+      draft,
+      user,
+    );
     const passwordChanged = await this.upsertPasswordCredential(
       companyId,
       device.id,
@@ -795,7 +902,12 @@ export class HikvisionPeopleCredentialSyncService {
       status = 'UPDATED';
     }
     if (employee?.id) {
-      await this.upsertDeviceIdentity(companyId, employee.id, user.employeeNo, device.id);
+      await this.upsertDeviceIdentity(
+        companyId,
+        employee.id,
+        user.employeeNo,
+        device.id,
+      );
     }
 
     return {
@@ -900,12 +1012,16 @@ export class HikvisionPeopleCredentialSyncService {
     const existingSnapshot = existing ? this.cloneCredential(existing) : null;
     const existingMetadata = this.toObject(existing?.metadata);
     const existingHikvisionMetadata = this.toObject(existingMetadata.hikvision);
-    const encryptedFingerprintTemplate = this.buildStoredEncryptedFingerprintTemplate(
-      this.toNullableString(fingerprint.raw.fingerData ?? fingerprint.raw.fingerprintData),
-      this.toNullableString(existingHikvisionMetadata.fingerprint_hash) === fingerprint.fingerprintHash
-        ? existingHikvisionMetadata.encrypted_fingerprint_template
-        : null,
-    );
+    const encryptedFingerprintTemplate =
+      this.buildStoredEncryptedFingerprintTemplate(
+        this.toNullableString(
+          fingerprint.raw.fingerData ?? fingerprint.raw.fingerprintData,
+        ),
+        this.toNullableString(existingHikvisionMetadata.fingerprint_hash) ===
+          fingerprint.fingerprintHash
+          ? existingHikvisionMetadata.encrypted_fingerprint_template
+          : null,
+      );
     const draft = existing
       ? existing
       : this.employeeAccessCredentialRepository.create({
@@ -939,7 +1055,10 @@ export class HikvisionPeopleCredentialSyncService {
         encrypted_fingerprint_template: encryptedFingerprintTemplate,
         raw_fingerprint: this.sanitizeFingerprintRawPayload(fingerprint.raw),
         fingerprint_export_supported: true,
-        fingerprint_storage: this.resolveFingerprintStorageMode(fingerprint.raw, encryptedFingerprintTemplate),
+        fingerprint_storage: this.resolveFingerprintStorageMode(
+          fingerprint.raw,
+          encryptedFingerprintTemplate,
+        ),
       },
     });
 
@@ -962,7 +1081,11 @@ export class HikvisionPeopleCredentialSyncService {
     card: NormalizedCard,
   ): Promise<'CREATED' | 'UPDATED' | 'SKIPPED'> {
     const employee = card.employeeNo
-      ? await this.findEmployeeByDeviceEmployeeNo(companyId, deviceId, card.employeeNo)
+      ? await this.findEmployeeByDeviceEmployeeNo(
+          companyId,
+          deviceId,
+          card.employeeNo,
+        )
       : null;
     const existing = await this.employeeAccessCredentialRepository.findOne({
       where: {
@@ -984,7 +1107,8 @@ export class HikvisionPeopleCredentialSyncService {
 
     draft.companyId = companyId;
     draft.employeeId = employee?.id ?? null;
-    draft.employeeNo = card.employeeNo ?? existing?.employeeNo ?? `card:${card.cardNo}`;
+    draft.employeeNo =
+      card.employeeNo ?? existing?.employeeNo ?? `card:${card.cardNo}`;
     draft.deviceId = deviceId;
     draft.credentialType = EmployeeAccessCredentialTypeEnum.CARD;
     draft.credentialNo = card.cardNo;
@@ -1015,36 +1139,44 @@ export class HikvisionPeopleCredentialSyncService {
 
   private parseUserSearchPage(payload: Record<string, unknown> | string) {
     const root = this.toObject(
-      this.toObject(payload).UserInfoSearch
-      ?? this.toObject(payload).UserInfoSearchResult
-      ?? payload,
+      this.toObject(payload).UserInfoSearch ??
+        this.toObject(payload).UserInfoSearchResult ??
+        payload,
     );
-    const rawUsers = root.UserInfo ?? root.UserInfoList ?? root.userInfoList ?? [];
+    const rawUsers =
+      root.UserInfo ?? root.UserInfoList ?? root.userInfoList ?? [];
     const normalizedRawUsers = this.toObjectArray(rawUsers);
 
     return {
-      responseStatusStrg: this.toNullableString(root.responseStatusStrg)
-        ?? this.toNullableString(root.responseStatus)
-        ?? 'OK',
-      totalMatches: this.toNullableNumber(root.totalMatches) ?? normalizedRawUsers.length,
-      numOfMatches: this.toNullableNumber(root.numOfMatches) ?? normalizedRawUsers.length,
+      responseStatusStrg:
+        this.toNullableString(root.responseStatusStrg) ??
+        this.toNullableString(root.responseStatus) ??
+        'OK',
+      totalMatches:
+        this.toNullableNumber(root.totalMatches) ?? normalizedRawUsers.length,
+      numOfMatches:
+        this.toNullableNumber(root.numOfMatches) ?? normalizedRawUsers.length,
       rawUsers: normalizedRawUsers,
     };
   }
 
   private parseCardSearchPage(payload: Record<string, unknown> | string) {
     const root = this.toObject(
-      this.toObject(payload).CardInfoSearch
-      ?? this.toObject(payload).CardInfoSearchResult
-      ?? payload,
+      this.toObject(payload).CardInfoSearch ??
+        this.toObject(payload).CardInfoSearchResult ??
+        payload,
     );
-    const rawCards = root.CardInfo ?? root.CardInfoList ?? root.cardInfoList ?? [];
-    const cards = this.toObjectArray(rawCards).map((card) => this.normalizeCard(card));
+    const rawCards =
+      root.CardInfo ?? root.CardInfoList ?? root.cardInfoList ?? [];
+    const cards = this.toObjectArray(rawCards).map((card) =>
+      this.normalizeCard(card),
+    );
 
     return {
-      responseStatusStrg: this.toNullableString(root.responseStatusStrg)
-        ?? this.toNullableString(root.responseStatus)
-        ?? 'OK',
+      responseStatusStrg:
+        this.toNullableString(root.responseStatusStrg) ??
+        this.toNullableString(root.responseStatus) ??
+        'OK',
       totalMatches: this.toNullableNumber(root.totalMatches) ?? cards.length,
       numOfMatches: this.toNullableNumber(root.numOfMatches) ?? cards.length,
       cards,
@@ -1057,25 +1189,35 @@ export class HikvisionPeopleCredentialSyncService {
     defaultCardReaderNo: number | null = null,
   ): NormalizedFingerprint[] {
     const root = this.toObject(
-      this.toObject(payload).FingerPrintInfoSearch
-      ?? this.toObject(payload).FingerPrintUpload
-      ?? this.toObject(payload).FingerPrintInfo
-      ?? payload,
+      this.toObject(payload).FingerPrintInfoSearch ??
+        this.toObject(payload).FingerPrintUpload ??
+        this.toObject(payload).FingerPrintInfo ??
+        payload,
     );
-    const directList = this.toObjectArray(root.FingerPrintList ?? root.FingerPrintInfoList ?? []);
+    const directList = this.toObjectArray(
+      root.FingerPrintList ?? root.FingerPrintInfoList ?? [],
+    );
     const rawItems =
       directList.length > 0
         ? directList
-        : this.toObjectArray(root.FingerPrintInfo ?? root.FingerPrintList ?? []);
+        : this.toObjectArray(
+            root.FingerPrintInfo ?? root.FingerPrintList ?? [],
+          );
 
     return rawItems
-      .map((item) => this.normalizeFingerprint(item, employeeNo, defaultCardReaderNo))
+      .map((item) =>
+        this.normalizeFingerprint(item, employeeNo, defaultCardReaderNo),
+      )
       .filter((item): item is NormalizedFingerprint => Boolean(item));
   }
 
   private normalizeUser(raw: Record<string, unknown>): NormalizedUser {
     const valid = this.toObject(raw.Valid ?? raw.valid);
-    const rightPlanList: Array<{ doorNo: number; templateNo: string; raw: Record<string, unknown> }> = [];
+    const rightPlanList: Array<{
+      doorNo: number;
+      templateNo: string;
+      raw: Record<string, unknown>;
+    }> = [];
     for (const plan of this.toObjectArray(raw.RightPlan ?? raw.rightPlan)) {
       const doorNo = this.toNullableNumber(plan.doorNo);
       const templateNo = this.toNullableString(plan.planTemplateNo);
@@ -1132,20 +1274,29 @@ export class HikvisionPeopleCredentialSyncService {
     fallbackEmployeeNo: string,
     fallbackCardReaderNo: number | null = null,
   ): NormalizedFingerprint | null {
-    const fingerprintId = this.toNullableString(raw.fingerPrintID ?? raw.fingerprintId);
+    const fingerprintId = this.toNullableString(
+      raw.fingerPrintID ?? raw.fingerprintId,
+    );
     if (!fingerprintId) {
       return null;
     }
 
-    const employeeNo = this.normalizeEmployeeNo(raw.employeeNo ?? fallbackEmployeeNo);
-    const fingerData = this.toNullableString(raw.fingerData ?? raw.fingerprintData);
+    const employeeNo = this.normalizeEmployeeNo(
+      raw.employeeNo ?? fallbackEmployeeNo,
+    );
+    const fingerData = this.toNullableString(
+      raw.fingerData ?? raw.fingerprintData,
+    );
     return {
       employeeNo,
       fingerprintId,
-      cardReaderNo: this.toNullableNumber(raw.cardReaderNo) ?? fallbackCardReaderNo,
+      cardReaderNo:
+        this.toNullableNumber(raw.cardReaderNo) ?? fallbackCardReaderNo,
       fingerType: this.toNullableString(raw.fingerType),
       leaderCard: this.toNullableString(raw.leaderCard),
-      fingerprintHash: fingerData ? createHash('sha256').update(fingerData).digest('hex') : null,
+      fingerprintHash: fingerData
+        ? createHash('sha256').update(fingerData).digest('hex')
+        : null,
       raw: this.toObject(raw),
     };
   }
@@ -1234,17 +1385,29 @@ export class HikvisionPeopleCredentialSyncService {
   ): EmployeeDeviceAssignment {
     return this.employeeDeviceAssignmentRepository.create({
       ...assignment,
-      validBeginTime: assignment.validBeginTime ? new Date(assignment.validBeginTime) : null,
-      validEndTime: assignment.validEndTime ? new Date(assignment.validEndTime) : null,
-      lastSyncedAt: assignment.lastSyncedAt ? new Date(assignment.lastSyncedAt) : null,
-      metadata: assignment.metadata ? JSON.parse(JSON.stringify(assignment.metadata)) : null,
+      validBeginTime: assignment.validBeginTime
+        ? new Date(assignment.validBeginTime)
+        : null,
+      validEndTime: assignment.validEndTime
+        ? new Date(assignment.validEndTime)
+        : null,
+      lastSyncedAt: assignment.lastSyncedAt
+        ? new Date(assignment.lastSyncedAt)
+        : null,
+      metadata: assignment.metadata
+        ? JSON.parse(JSON.stringify(assignment.metadata))
+        : null,
     });
   }
 
-  private cloneRightPlan(plan: EmployeeDeviceRightPlan): EmployeeDeviceRightPlan {
+  private cloneRightPlan(
+    plan: EmployeeDeviceRightPlan,
+  ): EmployeeDeviceRightPlan {
     return this.employeeDeviceRightPlanRepository.create({
       ...plan,
-      metadata: plan.metadata ? JSON.parse(JSON.stringify(plan.metadata)) : null,
+      metadata: plan.metadata
+        ? JSON.parse(JSON.stringify(plan.metadata))
+        : null,
     });
   }
 
@@ -1253,68 +1416,81 @@ export class HikvisionPeopleCredentialSyncService {
   ): EmployeeAccessCredential {
     return this.employeeAccessCredentialRepository.create({
       ...credential,
-      lastSyncedAt: credential.lastSyncedAt ? new Date(credential.lastSyncedAt) : null,
-      metadata: credential.metadata ? JSON.parse(JSON.stringify(credential.metadata)) : null,
+      lastSyncedAt: credential.lastSyncedAt
+        ? new Date(credential.lastSyncedAt)
+        : null,
+      metadata: credential.metadata
+        ? JSON.parse(JSON.stringify(credential.metadata))
+        : null,
     });
   }
 
-  private hasAssignmentChanged(existing: EmployeeDeviceAssignment, next: EmployeeDeviceAssignment): boolean {
+  private hasAssignmentChanged(
+    existing: EmployeeDeviceAssignment,
+    next: EmployeeDeviceAssignment,
+  ): boolean {
     return (
-      existing.companyId !== next.companyId
-      || existing.employeeId !== next.employeeId
-      || existing.employeeNo !== next.employeeNo
-      || existing.employeeName !== next.employeeName
-      || existing.deviceId !== next.deviceId
-      || existing.hikvisionUserType !== next.hikvisionUserType
-      || existing.userVerifyMode !== next.userVerifyMode
-      || !this.sameDate(existing.validBeginTime, next.validBeginTime)
-      || !this.sameDate(existing.validEndTime, next.validEndTime)
-      || existing.validEnabled !== next.validEnabled
-      || existing.doorRight !== next.doorRight
-      || existing.localUiRight !== next.localUiRight
-      || existing.closeDelayEnabled !== next.closeDelayEnabled
-      || existing.maxOpenDoorTime !== next.maxOpenDoorTime
-      || existing.openDoorTime !== next.openDoorTime
-      || existing.syncStatus !== next.syncStatus
-      || !this.sameJson(existing.metadata, next.metadata)
+      existing.companyId !== next.companyId ||
+      existing.employeeId !== next.employeeId ||
+      existing.employeeNo !== next.employeeNo ||
+      existing.employeeName !== next.employeeName ||
+      existing.deviceId !== next.deviceId ||
+      existing.hikvisionUserType !== next.hikvisionUserType ||
+      existing.userVerifyMode !== next.userVerifyMode ||
+      !this.sameDate(existing.validBeginTime, next.validBeginTime) ||
+      !this.sameDate(existing.validEndTime, next.validEndTime) ||
+      existing.validEnabled !== next.validEnabled ||
+      existing.doorRight !== next.doorRight ||
+      existing.localUiRight !== next.localUiRight ||
+      existing.closeDelayEnabled !== next.closeDelayEnabled ||
+      existing.maxOpenDoorTime !== next.maxOpenDoorTime ||
+      existing.openDoorTime !== next.openDoorTime ||
+      existing.syncStatus !== next.syncStatus ||
+      !this.sameJson(existing.metadata, next.metadata)
     );
   }
 
-  private hasRightPlanChanged(existing: EmployeeDeviceRightPlan, next: EmployeeDeviceRightPlan): boolean {
+  private hasRightPlanChanged(
+    existing: EmployeeDeviceRightPlan,
+    next: EmployeeDeviceRightPlan,
+  ): boolean {
     return (
-      existing.employeeDeviceAssignmentId !== next.employeeDeviceAssignmentId
-      || existing.employeeNo !== next.employeeNo
-      || existing.deviceId !== next.deviceId
-      || existing.doorId !== next.doorId
-      || existing.doorNo !== next.doorNo
-      || existing.scheduleTemplateId !== next.scheduleTemplateId
-      || existing.hikvisionTemplateNo !== next.hikvisionTemplateNo
-      || existing.isActive !== next.isActive
-      || !this.sameJson(existing.metadata, next.metadata)
+      existing.employeeDeviceAssignmentId !== next.employeeDeviceAssignmentId ||
+      existing.employeeNo !== next.employeeNo ||
+      existing.deviceId !== next.deviceId ||
+      existing.doorId !== next.doorId ||
+      existing.doorNo !== next.doorNo ||
+      existing.scheduleTemplateId !== next.scheduleTemplateId ||
+      existing.hikvisionTemplateNo !== next.hikvisionTemplateNo ||
+      existing.isActive !== next.isActive ||
+      !this.sameJson(existing.metadata, next.metadata)
     );
   }
 
-  private hasCredentialChanged(existing: EmployeeAccessCredential, next: EmployeeAccessCredential): boolean {
+  private hasCredentialChanged(
+    existing: EmployeeAccessCredential,
+    next: EmployeeAccessCredential,
+  ): boolean {
     return (
-      existing.companyId !== next.companyId
-      || existing.employeeId !== next.employeeId
-      || existing.employeeNo !== next.employeeNo
-      || existing.deviceId !== next.deviceId
-      || existing.credentialType !== next.credentialType
-      || existing.credentialNo !== next.credentialNo
-      || existing.pinPassword !== next.pinPassword
-      || existing.cardNo !== next.cardNo
-      || existing.fingerprintId !== next.fingerprintId
-      || existing.cardReaderNo !== next.cardReaderNo
-      || existing.faceId !== next.faceId
-      || existing.fingerprintCount !== next.fingerprintCount
-      || existing.faceCount !== next.faceCount
-      || existing.hasFingerprint !== next.hasFingerprint
-      || existing.hasFace !== next.hasFace
-      || existing.passwordSet !== next.passwordSet
-      || existing.credentialStatus !== next.credentialStatus
-      || existing.source !== next.source
-      || !this.sameJson(existing.metadata, next.metadata)
+      existing.companyId !== next.companyId ||
+      existing.employeeId !== next.employeeId ||
+      existing.employeeNo !== next.employeeNo ||
+      existing.deviceId !== next.deviceId ||
+      existing.credentialType !== next.credentialType ||
+      existing.credentialNo !== next.credentialNo ||
+      existing.pinPassword !== next.pinPassword ||
+      existing.cardNo !== next.cardNo ||
+      existing.fingerprintId !== next.fingerprintId ||
+      existing.cardReaderNo !== next.cardReaderNo ||
+      existing.faceId !== next.faceId ||
+      existing.fingerprintCount !== next.fingerprintCount ||
+      existing.faceCount !== next.faceCount ||
+      existing.hasFingerprint !== next.hasFingerprint ||
+      existing.hasFace !== next.hasFace ||
+      existing.passwordSet !== next.passwordSet ||
+      existing.credentialStatus !== next.credentialStatus ||
+      existing.source !== next.source ||
+      !this.sameJson(existing.metadata, next.metadata)
     );
   }
 
@@ -1354,11 +1530,11 @@ export class HikvisionPeopleCredentialSyncService {
 
     const message = error.message.toLowerCase();
     return (
-      message.includes('timeout')
-      || message.includes('offline')
-      || message.includes('unreachable')
-      || message.includes('connection reset')
-      || message.includes('service unavailable')
+      message.includes('timeout') ||
+      message.includes('offline') ||
+      message.includes('unreachable') ||
+      message.includes('connection reset') ||
+      message.includes('service unavailable')
     );
   }
 
@@ -1382,12 +1558,27 @@ export class HikvisionPeopleCredentialSyncService {
     }
 
     const root = payload as Record<string, unknown>;
-    const statusString = this.findFirstStringDeep(root, ['statusString', 'statusStrg', 'status']);
+    const statusString = this.findFirstStringDeep(root, [
+      'statusString',
+      'statusStrg',
+      'status',
+    ]);
     const statusCode = this.findFirstStringDeep(root, ['statusCode']);
     const subStatusCode = this.findFirstStringDeep(root, ['subStatusCode']);
     const errorCode = this.findFirstStringDeep(root, ['errorCode']);
-    const errorMessage = this.findFirstStringDeep(root, ['errorMsg', 'errorMessage', 'message']);
-    const successStatusString = new Set(['ok', 'success', 'successful', 'enabled', 'completed', 'more']);
+    const errorMessage = this.findFirstStringDeep(root, [
+      'errorMsg',
+      'errorMessage',
+      'message',
+    ]);
+    const successStatusString = new Set([
+      'ok',
+      'success',
+      'successful',
+      'enabled',
+      'completed',
+      'more',
+    ]);
     const successSubStatus = new Set(['ok', 'success', 'none']);
     const successStatusCode = new Set(['1', '200']);
 
@@ -1407,9 +1598,15 @@ export class HikvisionPeopleCredentialSyncService {
     return null;
   }
 
-  private isNotSupportFailure(payload: unknown, failureReason: string | null): boolean {
+  private isNotSupportFailure(
+    payload: unknown,
+    failureReason: string | null,
+  ): boolean {
     const normalizedReason = String(failureReason ?? '').toLowerCase();
-    if (normalizedReason.includes('notsupport') || normalizedReason.includes('notsupport')) {
+    if (
+      normalizedReason.includes('notsupport') ||
+      normalizedReason.includes('notsupport')
+    ) {
       return true;
     }
 
@@ -1417,13 +1614,13 @@ export class HikvisionPeopleCredentialSyncService {
     return raw.includes('notsupport') || raw.includes('notsupport');
   }
 
-  private isFingerprintSlotEmptyFailure(payload: unknown, failureReason: string | null): boolean {
+  private isFingerprintSlotEmptyFailure(
+    payload: unknown,
+    failureReason: string | null,
+  ): boolean {
     const normalizedReason = String(failureReason ?? '').toLowerCase();
     const normalizedPayload = JSON.stringify(payload ?? {}).toLowerCase();
-    const candidates = [
-      normalizedReason,
-      normalizedPayload,
-    ];
+    const candidates = [normalizedReason, normalizedPayload];
     const emptyMarkers = [
       'notexist',
       'not exist',
@@ -1444,7 +1641,10 @@ export class HikvisionPeopleCredentialSyncService {
     );
   }
 
-  private findFirstStringDeep(source: Record<string, unknown>, keys: string[]): string {
+  private findFirstStringDeep(
+    source: Record<string, unknown>,
+    keys: string[],
+  ): string {
     const wanted = new Set(keys.map((key) => key.toLowerCase()));
     const queue: unknown[] = [source];
 
@@ -1501,23 +1701,30 @@ export class HikvisionPeopleCredentialSyncService {
           completedAt: new Date(),
           recordsReceived: input.counters.received,
           recordsProcessed:
-            input.counters.created
-            + input.counters.updated
-            + input.counters.skipped
-            + input.counters.failed,
+            input.counters.created +
+            input.counters.updated +
+            input.counters.skipped +
+            input.counters.failed,
           recordsCreated: input.counters.created,
           recordsUpdated: input.counters.updated,
           recordsFailed: input.counters.failed,
           errorMessage: input.errorMessage ?? null,
-          metadata: input.metadata ? this.maskSensitivePayload(input.metadata) : null,
+          metadata: input.metadata
+            ? this.maskSensitivePayload(input.metadata)
+            : null,
         }),
       );
     } catch (error) {
-      this.logger.warn(`Skipping Hikvision sync log insert: ${(error as Error).message}`);
+      this.logger.warn(
+        `Skipping Hikvision sync log insert: ${(error as Error).message}`,
+      );
     }
   }
 
-  private async findHikvisionDeviceOrFail(companyId: number, deviceId: number): Promise<AttendanceDevice> {
+  private async findHikvisionDeviceOrFail(
+    companyId: number,
+    deviceId: number,
+  ): Promise<AttendanceDevice> {
     const device = await this.attendanceDeviceRepository.findOne({
       where: { id: deviceId, companyId },
     });
@@ -1527,10 +1734,12 @@ export class HikvisionPeopleCredentialSyncService {
     }
 
     const isHikvision =
-      (device.integrationType || '').toLowerCase() === 'hikvision'
-      || (device.vendorName || '').toLowerCase().includes('hikvision');
+      (device.integrationType || '').toLowerCase() === 'hikvision' ||
+      (device.vendorName || '').toLowerCase().includes('hikvision');
     if (!isHikvision) {
-      throw new BadRequestException('Requested device is not configured as Hikvision');
+      throw new BadRequestException(
+        'Requested device is not configured as Hikvision',
+      );
     }
 
     if (device.status !== AttendanceDeviceStatusEnum.ACTIVE) {
@@ -1552,7 +1761,9 @@ export class HikvisionPeopleCredentialSyncService {
     return `${employeeNo}:${fingerprintId}:${cardReaderNo ?? 'null'}`;
   }
 
-  private sanitizeFingerprintRawPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  private sanitizeFingerprintRawPayload(
+    payload: Record<string, unknown>,
+  ): Record<string, unknown> {
     const sanitized = this.toObject(payload);
     delete sanitized.fingerData;
     delete sanitized.fingerprintData;
@@ -1561,7 +1772,11 @@ export class HikvisionPeopleCredentialSyncService {
     return {
       ...sanitized,
       hasFingerData: Boolean(
-        this.toNullableString(payload.fingerData ?? payload.fingerprintData ?? payload.fingerPrintData),
+        this.toNullableString(
+          payload.fingerData ??
+            payload.fingerprintData ??
+            payload.fingerPrintData,
+        ),
       ),
     };
   }
@@ -1586,20 +1801,27 @@ export class HikvisionPeopleCredentialSyncService {
     fingerData: string | null,
     existingEncryptedTemplate: unknown,
   ): Record<string, string> | null {
-    if (existingEncryptedTemplate && typeof existingEncryptedTemplate === 'object') {
+    if (
+      existingEncryptedTemplate &&
+      typeof existingEncryptedTemplate === 'object'
+    ) {
       return this.toObject(existingEncryptedTemplate) as Record<string, string>;
     }
 
     return this.encryptFingerprintTemplate(fingerData);
   }
 
-  private encryptFingerprintTemplate(fingerData: string | null): Record<string, string> | null {
+  private encryptFingerprintTemplate(
+    fingerData: string | null,
+  ): Record<string, string> | null {
     const normalizedFingerData = String(fingerData ?? '').trim();
     if (!normalizedFingerData) {
       return null;
     }
 
-    const secret = String(process.env.BIOMETRIC_ENCRYPTION_KEY ?? process.env.APP_KEY ?? '').trim();
+    const secret = String(
+      process.env.BIOMETRIC_ENCRYPTION_KEY ?? process.env.APP_KEY ?? '',
+    ).trim();
     if (!secret) {
       return null;
     }
@@ -1627,7 +1849,9 @@ export class HikvisionPeopleCredentialSyncService {
     matchesThisPage: number,
     totalMatches: number,
   ): boolean {
-    const normalizedStatus = String(responseStatusStrg ?? '').trim().toUpperCase();
+    const normalizedStatus = String(responseStatusStrg ?? '')
+      .trim()
+      .toUpperCase();
     if (normalizedStatus === 'MORE') {
       return true;
     }
@@ -1651,7 +1875,11 @@ export class HikvisionPeopleCredentialSyncService {
 
   private derivePhaseStatus(counters: PhaseCounters): SyncStatus {
     if (counters.failed > 0) {
-      if (counters.created > 0 || counters.updated > 0 || counters.skipped > 0) {
+      if (
+        counters.created > 0 ||
+        counters.updated > 0 ||
+        counters.skipped > 0
+      ) {
         return 'PARTIAL';
       }
       return 'FAILED';
@@ -1664,7 +1892,10 @@ export class HikvisionPeopleCredentialSyncService {
     if (statuses.every((status) => status === 'SUCCESS')) {
       return 'SUCCESS';
     }
-    if (statuses.some((status) => status === 'PARTIAL') || statuses.some((status) => status === 'SUCCESS')) {
+    if (
+      statuses.some((status) => status === 'PARTIAL') ||
+      statuses.some((status) => status === 'SUCCESS')
+    ) {
       return 'PARTIAL';
     }
     return 'FAILED';
@@ -1689,10 +1920,14 @@ export class HikvisionPeopleCredentialSyncService {
     };
   }
 
-  private sanitizeUserInfo(payload: Record<string, unknown>): Record<string, unknown> {
+  private sanitizeUserInfo(
+    payload: Record<string, unknown>,
+  ): Record<string, unknown> {
     return this.maskSensitivePayload({
       ...payload,
-      password: this.toNullableString(payload.password) ? '***MASKED***' : undefined,
+      password: this.toNullableString(payload.password)
+        ? '***MASKED***'
+        : undefined,
     });
   }
 
@@ -1726,7 +1961,9 @@ export class HikvisionPeopleCredentialSyncService {
       }
 
       const output: Record<string, unknown> = {};
-      for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+      for (const [key, raw] of Object.entries(
+        value as Record<string, unknown>,
+      )) {
         if (sensitiveKeys.has(key.toLowerCase())) {
           output[key] = '***MASKED***';
           continue;
@@ -1743,7 +1980,10 @@ export class HikvisionPeopleCredentialSyncService {
     return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
   }
 
-  private sameDate(left: Date | null | undefined, right: Date | null | undefined): boolean {
+  private sameDate(
+    left: Date | null | undefined,
+    right: Date | null | undefined,
+  ): boolean {
     const leftValue = left ? new Date(left).toISOString() : null;
     const rightValue = right ? new Date(right).toISOString() : null;
     return leftValue === rightValue;
@@ -1796,7 +2036,9 @@ export class HikvisionPeopleCredentialSyncService {
     if (typeof value === 'boolean') {
       return value;
     }
-    const normalized = String(value ?? '').trim().toLowerCase();
+    const normalized = String(value ?? '')
+      .trim()
+      .toLowerCase();
     return normalized === 'true' || normalized === '1';
   }
 
@@ -1839,5 +2081,5 @@ export class HikvisionPeopleCredentialSyncService {
   }
 }
 
-const rawOr = <T>(value: T | null | undefined, fallback: T): T => (value ?? fallback);
-
+const rawOr = <T>(value: T | null | undefined, fallback: T): T =>
+  value ?? fallback;

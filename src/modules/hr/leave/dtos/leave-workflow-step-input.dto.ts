@@ -27,7 +27,10 @@ export class LeaveWorkflowStepInputDto {
   @IsEnum(LeaveApproverTypeEnum)
   approver_type: LeaveApproverTypeEnum;
 
-  @ValidateIf((o: LeaveWorkflowStepInputDto) => o.approver_type === LeaveApproverTypeEnum.ROLE)
+  @ValidateIf(
+    (o: LeaveWorkflowStepInputDto) =>
+      o.approver_type === LeaveApproverTypeEnum.ROLE,
+  )
   @Type(() => Number)
   @IsInt()
   @IsOptional()

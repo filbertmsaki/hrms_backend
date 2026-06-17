@@ -21,11 +21,19 @@ export class OnboardingAuditService {
     private readonly onboardingAuditLogRepository: Repository<OnboardingAuditLog>,
   ) {}
 
-  private getRepository(manager?: EntityManager): Repository<OnboardingAuditLog> {
-    return manager?.getRepository(OnboardingAuditLog) ?? this.onboardingAuditLogRepository;
+  private getRepository(
+    manager?: EntityManager,
+  ): Repository<OnboardingAuditLog> {
+    return (
+      manager?.getRepository(OnboardingAuditLog) ??
+      this.onboardingAuditLogRepository
+    );
   }
 
-  async log(entry: OnboardingAuditPayload, manager?: EntityManager): Promise<void> {
+  async log(
+    entry: OnboardingAuditPayload,
+    manager?: EntityManager,
+  ): Promise<void> {
     const repository = this.getRepository(manager);
 
     await repository.save(

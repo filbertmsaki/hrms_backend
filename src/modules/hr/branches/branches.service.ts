@@ -176,11 +176,7 @@ export class BranchesService {
     };
   }
 
-  async findOne(
-    companyId: number,
-    branchId: number,
-    actor: AuthenticatedUser,
-  ) {
+  async findOne(companyId: number, branchId: number, actor: AuthenticatedUser) {
     const branch = await this.findBranchOrFail(companyId, branchId);
     await this.hrAccessService.assertCanAccessBranch(actor, branch.id);
     return this.mapBranch(branch);

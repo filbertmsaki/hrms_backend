@@ -20,13 +20,13 @@ import { Branch } from 'src/modules/hr/branches/entities/branch.entity';
 @Index('IDX_attendance_wifi_networks_ssid', ['ssid'])
 @Index('IDX_attendance_wifi_networks_bssid', ['bssid'])
 @Index('IDX_attendance_wifi_networks_status', ['status'])
-@Index('UQ_attendance_wifi_networks_company_ssid_bssid', [
-  'companyId',
-  'ssid',
-  'bssid',
-], {
-  unique: true,
-})
+@Index(
+  'UQ_attendance_wifi_networks_company_ssid_bssid',
+  ['companyId', 'ssid', 'bssid'],
+  {
+    unique: true,
+  },
+)
 export class AttendanceWifiNetwork {
   @PrimaryGeneratedColumn()
   id: number;

@@ -5,7 +5,9 @@ import { ShiftRotationRule } from './entities/shift-rotation-rule.entity';
 import { ShiftRotationGroup } from '../shift-rotation-groups/entities/shift-rotation-group.entity';
 import { Shift } from '../shifts/entities/shift.entity';
 
-type MockRepo<T extends ObjectLiteral> = Partial<Record<keyof Repository<T>, jest.Mock>>;
+type MockRepo<T extends ObjectLiteral> = Partial<
+  Record<keyof Repository<T>, jest.Mock>
+>;
 
 const createRepositoryMock = <T extends ObjectLiteral>(): MockRepo<T> => ({
   findOne: jest.fn(),

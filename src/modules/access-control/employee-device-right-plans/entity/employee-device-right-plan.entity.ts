@@ -14,11 +14,15 @@ import { AccessScheduleTemplate } from '../../access-schedule-templates/entity/a
 import { EmployeeDeviceAssignment } from '../../employee-device-assignments/entity/employee-device-assignment.entity';
 
 @Entity('employee_device_right_plans')
-@Index('IDX_employee_device_right_plans_assignment_id', ['employeeDeviceAssignmentId'])
+@Index('IDX_employee_device_right_plans_assignment_id', [
+  'employeeDeviceAssignmentId',
+])
 @Index('IDX_employee_device_right_plans_employee_no', ['employeeNo'])
 @Index('IDX_employee_device_right_plans_device_id', ['deviceId'])
 @Index('IDX_employee_device_right_plans_door_id', ['doorId'])
-@Index('IDX_employee_device_right_plans_schedule_template_id', ['scheduleTemplateId'])
+@Index('IDX_employee_device_right_plans_schedule_template_id', [
+  'scheduleTemplateId',
+])
 @Index('IDX_employee_device_right_plans_is_active', ['isActive'])
 @Unique('UQ_employee_device_right_plans_assignment_door_template', [
   'employeeDeviceAssignmentId',
@@ -62,9 +66,13 @@ export class EmployeeDeviceRightPlan {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-  @ManyToOne(() => EmployeeDeviceAssignment, (assignment) => assignment.rightPlans, {
-    onDelete: 'CASCADE',
-  })
+  @ManyToOne(
+    () => EmployeeDeviceAssignment,
+    (assignment) => assignment.rightPlans,
+    {
+      onDelete: 'CASCADE',
+    },
+  )
   @JoinColumn({ name: 'employee_device_assignment_id' })
   assignment: EmployeeDeviceAssignment;
 
@@ -72,7 +80,10 @@ export class EmployeeDeviceRightPlan {
   @JoinColumn({ name: 'door_id' })
   door: AccessDoor | null;
 
-  @ManyToOne(() => AccessScheduleTemplate, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => AccessScheduleTemplate, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
   @JoinColumn({ name: 'schedule_template_id' })
   scheduleTemplate: AccessScheduleTemplate | null;
 }

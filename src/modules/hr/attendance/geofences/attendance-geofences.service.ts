@@ -227,7 +227,10 @@ export class AttendanceGeofencesService {
     }
 
     if (type === AttendanceGeofenceTypeEnum.POLYGON) {
-      if (!payload.polygonCoordinates || payload.polygonCoordinates.length < 3) {
+      if (
+        !payload.polygonCoordinates ||
+        payload.polygonCoordinates.length < 3
+      ) {
         throw new BadRequestException(
           'Polygon geofence requires at least 3 coordinate points.',
         );

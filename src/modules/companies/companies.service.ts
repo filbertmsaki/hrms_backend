@@ -83,7 +83,10 @@ export class CompaniesService {
       .andWhere('(role.company_id = :companyId OR role.company_id IS NULL)', {
         companyId,
       })
-      .orderBy('CASE WHEN role.company_id = :companyId THEN 0 ELSE 1 END', 'ASC')
+      .orderBy(
+        'CASE WHEN role.company_id = :companyId THEN 0 ELSE 1 END',
+        'ASC',
+      )
       .addOrderBy('role.id', 'ASC')
       .setParameter('companyId', companyId)
       .getOne();
@@ -127,7 +130,11 @@ export class CompaniesService {
     const roles: Role[] = [];
 
     for (const roleName of uniqueRoleNames) {
-      const role = await this.findRoleByNameForCompany(roleName, companyId, manager);
+      const role = await this.findRoleByNameForCompany(
+        roleName,
+        companyId,
+        manager,
+      );
 
       if (!role) {
         throw new NotFoundException(
@@ -201,9 +208,11 @@ export class CompaniesService {
       return false;
     }
 
-    const driverError = (error as QueryFailedError & {
-      driverError?: { code?: string | number };
-    }).driverError;
+    const driverError = (
+      error as QueryFailedError & {
+        driverError?: { code?: string | number };
+      }
+    ).driverError;
 
     return (
       driverError?.code === 'ER_DUP_ENTRY' ||
@@ -390,7 +399,11 @@ export class CompaniesService {
   async findAllCompanies() {
     const companies = await this.companyRepository
       .createQueryBuilder('company')
-      .leftJoin('company.memberships', 'membership', "membership.status = 'active'")
+      .leftJoin(
+        'company.memberships',
+        'membership',
+        "membership.status = 'active'",
+      )
       .select([
         'company.id AS id',
         'company.name AS name',
@@ -504,7 +517,11 @@ export class CompaniesService {
     manager?: EntityManager,
   ): Promise<CompanyMembershipContext> {
     const companyUserRepository = this.getCompanyUserRepository(manager);
-    const membership = await this.getMembershipContext(userId, companyId, manager);
+    const membership = await this.getMembershipContext(
+      userId,
+      companyId,
+      manager,
+    );
 
     await companyUserRepository.update(
       { user_id: userId, status: 'active' },

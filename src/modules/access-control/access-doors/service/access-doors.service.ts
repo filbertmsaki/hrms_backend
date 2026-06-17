@@ -92,7 +92,9 @@ export class AccessDoorsService {
       qb.andWhere('door.branch_id = :branchId', { branchId: branch_id });
     }
     if (sync_status) {
-      qb.andWhere('door.sync_status = :syncStatus', { syncStatus: sync_status });
+      qb.andWhere('door.sync_status = :syncStatus', {
+        syncStatus: sync_status,
+      });
     }
     if (search?.trim()) {
       qb.andWhere('(door.door_name LIKE :term OR door.door_no LIKE :term)', {
@@ -100,8 +102,16 @@ export class AccessDoorsService {
       });
     }
 
-    const allowedSortFields = ['created_at', 'updated_at', 'door_name', 'door_no', 'sync_status'];
-    const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'created_at';
+    const allowedSortFields = [
+      'created_at',
+      'updated_at',
+      'door_name',
+      'door_no',
+      'sync_status',
+    ];
+    const safeSortBy = allowedSortFields.includes(sortBy)
+      ? sortBy
+      : 'created_at';
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
     const sortFieldMap: Record<string, string> = {
       created_at: 'created_at',
@@ -133,11 +143,16 @@ export class AccessDoorsService {
     const nextDoorNo = dto.door_no ?? item.doorNo;
 
     if (nextDeviceId === null) {
-      throw new BadRequestException('device_id is required to update an access door');
+      throw new BadRequestException(
+        'device_id is required to update an access door',
+      );
     }
 
     const device = await this.ensureDevice(companyId, nextDeviceId);
-    const branchId = dto.branch_id !== undefined ? dto.branch_id : item.branchId ?? device.branchId ?? null;
+    const branchId =
+      dto.branch_id !== undefined
+        ? dto.branch_id
+        : (item.branchId ?? device.branchId ?? null);
     await this.ensureBranch(companyId, branchId);
     await this.ensureUniqueDoor(companyId, nextDeviceId, nextDoorNo, item.id);
 
@@ -146,13 +161,19 @@ export class AccessDoorsService {
     item.doorNo = nextDoorNo;
 
     if (dto.door_name !== undefined) item.doorName = dto.door_name.trim();
-    if (dto.magnetic_type !== undefined) item.magneticType = dto.magnetic_type?.trim() || null;
-    if (dto.open_button_type !== undefined) item.openButtonType = dto.open_button_type?.trim() || null;
+    if (dto.magnetic_type !== undefined)
+      item.magneticType = dto.magnetic_type?.trim() || null;
+    if (dto.open_button_type !== undefined)
+      item.openButtonType = dto.open_button_type?.trim() || null;
     if (dto.open_duration !== undefined) item.openDuration = dto.open_duration;
-    if (dto.disabled_open_duration !== undefined) item.disabledOpenDuration = dto.disabled_open_duration;
-    if (dto.magnetic_alarm_timeout !== undefined) item.magneticAlarmTimeout = dto.magnetic_alarm_timeout;
-    if (dto.enable_leader_card !== undefined) item.enableLeaderCard = dto.enable_leader_card;
-    if (dto.leader_card_mode !== undefined) item.leaderCardMode = dto.leader_card_mode?.trim() || null;
+    if (dto.disabled_open_duration !== undefined)
+      item.disabledOpenDuration = dto.disabled_open_duration;
+    if (dto.magnetic_alarm_timeout !== undefined)
+      item.magneticAlarmTimeout = dto.magnetic_alarm_timeout;
+    if (dto.enable_leader_card !== undefined)
+      item.enableLeaderCard = dto.enable_leader_card;
+    if (dto.leader_card_mode !== undefined)
+      item.leaderCardMode = dto.leader_card_mode?.trim() || null;
     if (dto.leader_card_open_duration !== undefined) {
       item.leaderCardOpenDuration = dto.leader_card_open_duration;
     }
@@ -192,22 +213,38 @@ export class AccessDoorsService {
 
   async openDoor(companyId: number, id: number) {
     const door = await this.findOrFail(companyId, id);
-    return this.hikvisionDoorSyncService.remoteControlDoor(companyId, door, 'open');
+    return this.hikvisionDoorSyncService.remoteControlDoor(
+      companyId,
+      door,
+      'open',
+    );
   }
 
   async closeDoor(companyId: number, id: number) {
     const door = await this.findOrFail(companyId, id);
-    return this.hikvisionDoorSyncService.remoteControlDoor(companyId, door, 'close');
+    return this.hikvisionDoorSyncService.remoteControlDoor(
+      companyId,
+      door,
+      'close',
+    );
   }
 
   async alwaysOpenDoor(companyId: number, id: number) {
     const door = await this.findOrFail(companyId, id);
-    return this.hikvisionDoorSyncService.remoteControlDoor(companyId, door, 'alwaysOpen');
+    return this.hikvisionDoorSyncService.remoteControlDoor(
+      companyId,
+      door,
+      'alwaysOpen',
+    );
   }
 
   async alwaysCloseDoor(companyId: number, id: number) {
     const door = await this.findOrFail(companyId, id);
-    return this.hikvisionDoorSyncService.remoteControlDoor(companyId, door, 'alwaysClose');
+    return this.hikvisionDoorSyncService.remoteControlDoor(
+      companyId,
+      door,
+      'alwaysClose',
+    );
   }
 
   private map(item: AccessDoor) {
@@ -237,25 +274,35 @@ export class AccessDoorsService {
   }
 
   private async findOrFail(companyId: number, id: number): Promise<AccessDoor> {
-    const item = await this.accessDoorRepository.findOne({ where: { id, companyId } });
+    const item = await this.accessDoorRepository.findOne({
+      where: { id, companyId },
+    });
     if (!item) {
       throw new NotFoundException('Access door not found');
     }
     return item;
   }
 
-  private async ensureDevice(companyId: number, deviceId: number): Promise<AttendanceDevice> {
+  private async ensureDevice(
+    companyId: number,
+    deviceId: number,
+  ): Promise<AttendanceDevice> {
     const device = await this.attendanceDeviceRepository.findOne({
       where: { id: deviceId, companyId },
       select: ['id', 'companyId', 'branchId'],
     });
     if (!device) {
-      throw new BadRequestException('device_id does not belong to the active company');
+      throw new BadRequestException(
+        'device_id does not belong to the active company',
+      );
     }
     return device;
   }
 
-  private async ensureBranch(companyId: number, branchId?: number | null): Promise<void> {
+  private async ensureBranch(
+    companyId: number,
+    branchId?: number | null,
+  ): Promise<void> {
     if (!branchId) {
       return;
     }
@@ -264,7 +311,9 @@ export class AccessDoorsService {
       select: ['id'],
     });
     if (!branch) {
-      throw new BadRequestException('branch_id does not belong to the active company');
+      throw new BadRequestException(
+        'branch_id does not belong to the active company',
+      );
     }
   }
 
@@ -283,4 +332,3 @@ export class AccessDoorsService {
     }
   }
 }
-

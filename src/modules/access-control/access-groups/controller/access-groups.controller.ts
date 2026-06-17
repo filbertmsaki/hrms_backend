@@ -177,7 +177,10 @@ export class AccessGroupsController {
   @Delete(':id/devices/:deviceId')
   @UseGuards(PermissionsGuard)
   @Permissions('access_groups:update')
-  @ApiActionOperation('Remove Group Device', 'Remove a device from access group')
+  @ApiActionOperation(
+    'Remove Group Device',
+    'Remove a device from access group',
+  )
   removeDevice(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -201,7 +204,10 @@ export class AccessGroupsController {
   @Post(':id/employees')
   @UseGuards(PermissionsGuard)
   @Permissions('access_groups:update')
-  @ApiActionOperation('Assign Group Employees', 'Assign employees to access group')
+  @ApiActionOperation(
+    'Assign Group Employees',
+    'Assign employees to access group',
+  )
   assignEmployees(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -213,19 +219,29 @@ export class AccessGroupsController {
   @Delete(':id/employees/:employeeId')
   @UseGuards(PermissionsGuard)
   @Permissions('access_groups:update')
-  @ApiActionOperation('Remove Group Employee', 'Remove an employee from access group')
+  @ApiActionOperation(
+    'Remove Group Employee',
+    'Remove an employee from access group',
+  )
   removeEmployee(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
     @Param('employeeId', ParseIntPipe) employeeId: number,
   ) {
-    return this.groupsService.removeEmployee(req.user.companyId!, id, employeeId);
+    return this.groupsService.removeEmployee(
+      req.user.companyId!,
+      id,
+      employeeId,
+    );
   }
 
   @Post(':id/sync')
   @UseGuards(PermissionsGuard)
   @Permissions('access_groups:update')
-  @ApiActionOperation('Sync Group', 'Sync one access group to all relevant Hikvision devices')
+  @ApiActionOperation(
+    'Sync Group',
+    'Sync one access group to all relevant Hikvision devices',
+  )
   syncGroup(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -236,7 +252,10 @@ export class AccessGroupsController {
   @Get(':id/employees')
   @UseGuards(PermissionsGuard)
   @Permissions('access_groups:read')
-  @ApiActionOperation('Group Employees', 'List employees assigned to one access group')
+  @ApiActionOperation(
+    'Group Employees',
+    'List employees assigned to one access group',
+  )
   listEmployees(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -247,7 +266,10 @@ export class AccessGroupsController {
   @Get(':id/devices')
   @UseGuards(PermissionsGuard)
   @Permissions('access_groups:read')
-  @ApiActionOperation('Group Devices', 'List devices assigned to one access group')
+  @ApiActionOperation(
+    'Group Devices',
+    'List devices assigned to one access group',
+  )
   listDevices(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -258,7 +280,10 @@ export class AccessGroupsController {
   @Get(':id/doors')
   @UseGuards(PermissionsGuard)
   @Permissions('access_groups:read')
-  @ApiActionOperation('Group Doors', 'List doors and templates assigned to one access group')
+  @ApiActionOperation(
+    'Group Doors',
+    'List doors and templates assigned to one access group',
+  )
   listDoors(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,

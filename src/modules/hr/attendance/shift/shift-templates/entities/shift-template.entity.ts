@@ -15,7 +15,9 @@ import { ShiftTemplateStatusEnum } from '../enums/shift-template-status.enum';
 @Entity('shift_templates')
 @Index('IDX_shift_templates_company_id', ['companyId'])
 @Index('IDX_shift_templates_status', ['status'])
-@Index('UQ_shift_templates_company_name', ['companyId', 'name'], { unique: true })
+@Index('UQ_shift_templates_company_name', ['companyId', 'name'], {
+  unique: true,
+})
 export class ShiftTemplate {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -32,7 +34,12 @@ export class ShiftTemplate {
   @Column({ name: 'configuration', type: 'json' })
   configuration: Record<string, unknown>;
 
-  @Column({ name: 'status', type: 'enum', enum: ShiftTemplateStatusEnum, default: ShiftTemplateStatusEnum.ACTIVE })
+  @Column({
+    name: 'status',
+    type: 'enum',
+    enum: ShiftTemplateStatusEnum,
+    default: ShiftTemplateStatusEnum.ACTIVE,
+  })
   status: ShiftTemplateStatusEnum;
 
   @CreateDateColumn({ name: 'created_at' })

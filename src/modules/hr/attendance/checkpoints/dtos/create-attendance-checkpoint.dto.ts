@@ -76,7 +76,3 @@ export class CreateAttendanceCheckpointDto {
   @IsOptional()
   status?: AttendanceCheckpointStatusEnum;
 }
-
-
-
-

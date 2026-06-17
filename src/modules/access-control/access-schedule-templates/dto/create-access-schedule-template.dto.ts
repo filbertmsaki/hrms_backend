@@ -1,6 +1,14 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsObject, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import {
+  IsEnum,
+  IsInt,
+  IsObject,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import { AccessScheduleTemplateStatusEnum } from '../enum/access-schedule-template-status.enum';
 import { AccessScheduleTemplateTypeEnum } from '../enum/access-schedule-template-type.enum';
 

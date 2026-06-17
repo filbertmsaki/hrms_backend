@@ -33,8 +33,7 @@ export function setupScalarDocumentation(
       operationsSorter: (a: ScalarOperation, b: ScalarOperation) => {
         const getMethod = (op: ScalarOperation): string =>
           String(op?.method ?? '').toLowerCase();
-        const getPath = (op: ScalarOperation): string =>
-          String(op?.path ?? '');
+        const getPath = (op: ScalarOperation): string => String(op?.path ?? '');
         const hasPathParam = (path: string): boolean => /\{[^}]+\}/.test(path);
         const crudRank = (op: ScalarOperation): number => {
           const method = getMethod(op);

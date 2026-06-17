@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
@@ -20,14 +25,24 @@ export class TimetablesService {
     private readonly generatedScheduleInvalidationService: TimetableGeneratedScheduleInvalidationService,
   ) {}
 
-  private async ensureBranch(companyId: number, branchId?: number | null): Promise<void> {
+  private async ensureBranch(
+    companyId: number,
+    branchId?: number | null,
+  ): Promise<void> {
     if (!branchId) return;
-    const branch = await this.branchRepository.findOne({ where: { id: branchId, company_id: companyId } });
-    if (!branch) throw new BadRequestException('branch_id does not belong to the active company');
+    const branch = await this.branchRepository.findOne({
+      where: { id: branchId, company_id: companyId },
+    });
+    if (!branch)
+      throw new BadRequestException(
+        'branch_id does not belong to the active company',
+      );
   }
 
   private async findOrFail(companyId: number, id: number): Promise<Timetable> {
-    const item = await this.timetableRepository.findOne({ where: { id, companyId } });
+    const item = await this.timetableRepository.findOne({
+      where: { id, companyId },
+    });
     if (!item) throw new NotFoundException('Timetable not found');
     return item;
   }
@@ -42,15 +57,13 @@ export class TimetablesService {
     }
 
     await this.timetableRepository.manager.transaction(async (manager) => {
-      await manager.getRepository(Timetable).update(
-        { companyId, isDefault: true },
-        { isDefault: false },
-      );
+      await manager
+        .getRepository(Timetable)
+        .update({ companyId, isDefault: true }, { isDefault: false });
 
-      const result = await manager.getRepository(Timetable).update(
-        { id: timetableId, companyId },
-        { isDefault: true },
-      );
+      const result = await manager
+        .getRepository(Timetable)
+        .update({ id: timetableId, companyId }, { isDefault: true });
 
       if (!result.affected) {
         throw new NotFoundException('Timetable not found');
@@ -58,14 +71,28 @@ export class TimetablesService {
     });
   }
 
-  async create(companyId: number, createdBy: number | null, dto: CreateTimetableDto) {
+  async create(
+    companyId: number,
+    createdBy: number | null,
+    dto: CreateTimetableDto,
+  ) {
     await this.ensureBranch(companyId, dto.branch_id);
 
-    const existingCode = await this.timetableRepository.findOne({ where: { companyId, code: dto.code.trim() } });
-    if (existingCode) throw new ConflictException('Timetable code already exists for this company');
+    const existingCode = await this.timetableRepository.findOne({
+      where: { companyId, code: dto.code.trim() },
+    });
+    if (existingCode)
+      throw new ConflictException(
+        'Timetable code already exists for this company',
+      );
 
-    const existingName = await this.timetableRepository.findOne({ where: { companyId, name: dto.name.trim() } });
-    if (existingName) throw new ConflictException('Timetable name already exists for this company');
+    const existingName = await this.timetableRepository.findOne({
+      where: { companyId, name: dto.name.trim() },
+    });
+    if (existingName)
+      throw new ConflictException(
+        'Timetable name already exists for this company',
+      );
 
     const created = await this.timetableRepository.save(
       this.timetableRepository.create({
@@ -87,16 +114,32 @@ export class TimetablesService {
   }
 
   async findAll(companyId: number, query: TimetableQueryDto) {
-    const { page = 1, limit = 20, sortBy = 'created_at', sortOrder = SortDirection.DESC, search, branch_id, timetable_type, status } = query;
+    const {
+      page = 1,
+      limit = 20,
+      sortBy = 'created_at',
+      sortOrder = SortDirection.DESC,
+      search,
+      branch_id,
+      timetable_type,
+      status,
+    } = query;
 
     const qb = this.timetableRepository
       .createQueryBuilder('timetable')
       .where('timetable.company_id = :companyId', { companyId });
 
-    if (branch_id) qb.andWhere('timetable.branch_id = :branchId', { branchId: branch_id });
-    if (timetable_type) qb.andWhere('timetable.timetable_type = :timetableType', { timetableType: timetable_type });
+    if (branch_id)
+      qb.andWhere('timetable.branch_id = :branchId', { branchId: branch_id });
+    if (timetable_type)
+      qb.andWhere('timetable.timetable_type = :timetableType', {
+        timetableType: timetable_type,
+      });
     if (status) qb.andWhere('timetable.status = :status', { status });
-    if (search?.trim()) qb.andWhere('(timetable.name LIKE :term OR timetable.code LIKE :term)', { term: `%${search.trim()}%` });
+    if (search?.trim())
+      qb.andWhere('(timetable.name LIKE :term OR timetable.code LIKE :term)', {
+        term: `%${search.trim()}%`,
+      });
 
     const sortFieldMap: Record<string, string> = {
       name: 'name',
@@ -113,7 +156,10 @@ export class TimetablesService {
       .take(limit)
       .getManyAndCount();
 
-    return { data: items, meta: buildPaginationMeta(total, items.length, limit, page) };
+    return {
+      data: items,
+      meta: buildPaginationMeta(total, items.length, limit, page),
+    };
   }
 
   async findOne(companyId: number, id: number) {
@@ -130,20 +176,32 @@ export class TimetablesService {
 
     if (dto.name !== undefined) {
       const name = dto.name.trim();
-      const existing = await this.timetableRepository.findOne({ where: { companyId, name } });
-      if (existing && existing.id !== item.id) throw new ConflictException('Timetable name already exists for this company');
+      const existing = await this.timetableRepository.findOne({
+        where: { companyId, name },
+      });
+      if (existing && existing.id !== item.id)
+        throw new ConflictException(
+          'Timetable name already exists for this company',
+        );
       item.name = name;
     }
 
     if (dto.code !== undefined) {
       const code = dto.code.trim();
-      const existing = await this.timetableRepository.findOne({ where: { companyId, code } });
-      if (existing && existing.id !== item.id) throw new ConflictException('Timetable code already exists for this company');
+      const existing = await this.timetableRepository.findOne({
+        where: { companyId, code },
+      });
+      if (existing && existing.id !== item.id)
+        throw new ConflictException(
+          'Timetable code already exists for this company',
+        );
       item.code = code;
     }
 
-    if (dto.description !== undefined) item.description = dto.description?.trim() || null;
-    if (dto.timetable_type !== undefined) item.timetableType = dto.timetable_type;
+    if (dto.description !== undefined)
+      item.description = dto.description?.trim() || null;
+    if (dto.timetable_type !== undefined)
+      item.timetableType = dto.timetable_type;
     if (dto.timezone !== undefined) item.timezone = dto.timezone.trim();
     if (dto.is_default !== undefined) item.isDefault = dto.is_default;
     if (dto.status !== undefined) item.status = dto.status;

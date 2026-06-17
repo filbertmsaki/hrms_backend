@@ -59,7 +59,11 @@ export class LeaveController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: CreateLeaveTypeDto,
   ) {
-    return this.leaveService.createLeaveType(req.user.companyId!, dto, req.user);
+    return this.leaveService.createLeaveType(
+      req.user.companyId!,
+      dto,
+      req.user,
+    );
   }
 
   @Get('types')
@@ -93,7 +97,12 @@ export class LeaveController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateLeaveTypeDto,
   ) {
-    return this.leaveService.updateLeaveType(req.user.companyId!, id, dto, req.user);
+    return this.leaveService.updateLeaveType(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
   }
 
   @Delete('types/:id')
@@ -115,7 +124,11 @@ export class LeaveController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: CreateLeavePolicyDto,
   ) {
-    return this.leaveService.createLeavePolicy(req.user.companyId!, dto, req.user);
+    return this.leaveService.createLeavePolicy(
+      req.user.companyId!,
+      dto,
+      req.user,
+    );
   }
 
   @Get('policies')
@@ -149,7 +162,12 @@ export class LeaveController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateLeavePolicyDto,
   ) {
-    return this.leaveService.updateLeavePolicy(req.user.companyId!, id, dto, req.user);
+    return this.leaveService.updateLeavePolicy(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
   }
 
   @Delete('policies/:id')
@@ -160,7 +178,11 @@ export class LeaveController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.leaveService.removeLeavePolicy(req.user.companyId!, id, req.user);
+    return this.leaveService.removeLeavePolicy(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
   }
 
   @Post('workflows')
@@ -171,7 +193,11 @@ export class LeaveController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: CreateLeaveWorkflowDto,
   ) {
-    return this.leaveService.createLeaveWorkflow(req.user.companyId!, dto, req.user);
+    return this.leaveService.createLeaveWorkflow(
+      req.user.companyId!,
+      dto,
+      req.user,
+    );
   }
 
   @Get('workflows')
@@ -205,7 +231,12 @@ export class LeaveController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateLeaveWorkflowDto,
   ) {
-    return this.leaveService.updateLeaveWorkflow(req.user.companyId!, id, dto, req.user);
+    return this.leaveService.updateLeaveWorkflow(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
   }
 
   @Delete('workflows/:id')
@@ -216,7 +247,11 @@ export class LeaveController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.leaveService.removeLeaveWorkflow(req.user.companyId!, id, req.user);
+    return this.leaveService.removeLeaveWorkflow(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
   }
 
   @Post('workflows/:workflowId/steps')
@@ -244,7 +279,10 @@ export class LeaveController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('workflowId', ParseIntPipe) workflowId: number,
   ) {
-    return this.leaveService.findAllLeaveWorkflowSteps(req.user.companyId!, workflowId);
+    return this.leaveService.findAllLeaveWorkflowSteps(
+      req.user.companyId!,
+      workflowId,
+    );
   }
 
   @Get('workflows/:workflowId/steps/:stepId')
@@ -330,7 +368,12 @@ export class LeaveController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateHolidayDto,
   ) {
-    return this.leaveService.updateHoliday(req.user.companyId!, id, dto, req.user);
+    return this.leaveService.updateHoliday(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
   }
 
   @Delete('holidays/:id')
@@ -352,7 +395,11 @@ export class LeaveController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: LeaveBalanceQueryDto,
   ) {
-    return this.leaveService.findAllLeaveBalances(req.user.companyId!, query, req.user);
+    return this.leaveService.findAllLeaveBalances(
+      req.user.companyId!,
+      query,
+      req.user,
+    );
   }
 
   @Patch('balances/adjust')
@@ -363,7 +410,11 @@ export class LeaveController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: AdjustLeaveBalanceDto,
   ) {
-    return this.leaveService.adjustLeaveBalance(req.user.companyId!, dto, req.user);
+    return this.leaveService.adjustLeaveBalance(
+      req.user.companyId!,
+      dto,
+      req.user,
+    );
   }
 
   @Post('requests')
@@ -374,7 +425,11 @@ export class LeaveController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: CreateLeaveRequestDto,
   ) {
-    return this.leaveService.createLeaveRequest(req.user.companyId!, dto, req.user);
+    return this.leaveService.createLeaveRequest(
+      req.user.companyId!,
+      dto,
+      req.user,
+    );
   }
 
   @Get('requests')
@@ -385,7 +440,11 @@ export class LeaveController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: LeaveRequestQueryDto,
   ) {
-    return this.leaveService.findAllLeaveRequests(req.user.companyId!, query, req.user);
+    return this.leaveService.findAllLeaveRequests(
+      req.user.companyId!,
+      query,
+      req.user,
+    );
   }
 
   @Get('requests/me')
@@ -394,7 +453,11 @@ export class LeaveController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: LeaveRequestQueryDto,
   ) {
-    return this.leaveService.findMyLeaveRequests(req.user.companyId!, query, req.user);
+    return this.leaveService.findMyLeaveRequests(
+      req.user.companyId!,
+      query,
+      req.user,
+    );
   }
 
   @Get('requests/:id')
@@ -405,7 +468,11 @@ export class LeaveController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.leaveService.findOneLeaveRequest(req.user.companyId!, id, req.user);
+    return this.leaveService.findOneLeaveRequest(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
   }
 
   @Post('requests/:id/submit')
@@ -416,7 +483,11 @@ export class LeaveController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.leaveService.submitLeaveRequest(req.user.companyId!, id, req.user);
+    return this.leaveService.submitLeaveRequest(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
   }
 
   @Post('requests/:id/approval-action')
@@ -428,7 +499,12 @@ export class LeaveController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: LeaveApprovalActionDto,
   ) {
-    return this.leaveService.approveLeaveRequest(req.user.companyId!, id, dto, req.user);
+    return this.leaveService.approveLeaveRequest(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
   }
 
   @Post('requests/:id/cancel')
@@ -440,7 +516,12 @@ export class LeaveController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: CancelLeaveRequestDto,
   ) {
-    return this.leaveService.cancelLeaveRequest(req.user.companyId!, id, dto, req.user);
+    return this.leaveService.cancelLeaveRequest(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
   }
 
   @Post('requests/:id/documents')
@@ -452,7 +533,12 @@ export class LeaveController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: AddLeaveDocumentDto,
   ) {
-    return this.leaveService.addLeaveDocument(req.user.companyId!, id, dto, req.user);
+    return this.leaveService.addLeaveDocument(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
   }
 
   @Patch('requests/:id/medical-detail')
@@ -464,7 +550,12 @@ export class LeaveController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpsertLeaveMedicalDetailDto,
   ) {
-    return this.leaveService.upsertMedicalDetail(req.user.companyId!, id, dto, req.user);
+    return this.leaveService.upsertMedicalDetail(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
   }
 
   @Get('requests/:id/pdf')
@@ -483,8 +574,10 @@ export class LeaveController {
     );
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename=leave-request-${id}.pdf`);
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename=leave-request-${id}.pdf`,
+    );
     res.send(buffer);
   }
 }
-

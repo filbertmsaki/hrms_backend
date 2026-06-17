@@ -72,4 +72,3 @@ export class AccessGroupDoor {
   @JoinColumn({ name: 'schedule_template_id' })
   scheduleTemplate: AccessScheduleTemplate;
 }
-

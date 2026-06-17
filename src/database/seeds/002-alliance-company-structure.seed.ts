@@ -101,13 +101,18 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       const roleRepo = manager.getRepository(Role);
       const permissionRepo = manager.getRepository(Permission);
       const companyUserRoleRepo = manager.getRepository(CompanyUserRole);
-      const companyUserPermissionRepo = manager.getRepository(CompanyUserPermission);
+      const companyUserPermissionRepo = manager.getRepository(
+        CompanyUserPermission,
+      );
       const employeeRepo = manager.getRepository(Employee);
       const employeeContactRepo = manager.getRepository(EmployeeContact);
       const employeeAddressRepo = manager.getRepository(EmployeeAddress);
-      const employeeBankAccountRepo = manager.getRepository(EmployeeBankAccount);
+      const employeeBankAccountRepo =
+        manager.getRepository(EmployeeBankAccount);
       const employeeRelativeRepo = manager.getRepository(EmployeeRelative);
-      const employeeIdentificationRepo = manager.getRepository(EmployeeIdentification);
+      const employeeIdentificationRepo = manager.getRepository(
+        EmployeeIdentification,
+      );
       const employeeAcademicQualificationRepo = manager.getRepository(
         EmployeeAcademicQualification,
       );
@@ -117,12 +122,19 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       const employeeExperienceRepo = manager.getRepository(EmployeeExperience);
       const employeeDepartmentRepo = manager.getRepository(EmployeeDepartment);
       const employeePositionRepo = manager.getRepository(EmployeePosition);
-      const employeeDesignationRepo = manager.getRepository(EmployeeDesignation);
-      const employeeDeviceIdentityRepo = manager.getRepository(EmployeeDeviceIdentity);
+      const employeeDesignationRepo =
+        manager.getRepository(EmployeeDesignation);
+      const employeeDeviceIdentityRepo = manager.getRepository(
+        EmployeeDeviceIdentity,
+      );
       const attendanceDeviceRepo = manager.getRepository(AttendanceDevice);
       const accessOrganizationRepo = manager.getRepository(AccessOrganization);
-      const accessOrganizationEmployeeRepo = manager.getRepository(AccessOrganizationEmployee);
-      const employeeDeviceAssignmentRepo = manager.getRepository(EmployeeDeviceAssignment);
+      const accessOrganizationEmployeeRepo = manager.getRepository(
+        AccessOrganizationEmployee,
+      );
+      const employeeDeviceAssignmentRepo = manager.getRepository(
+        EmployeeDeviceAssignment,
+      );
 
       const company = await this.findExistingCompany(companyRepo);
       const branchMap = await this.syncBranches(branchRepo, company.id);
@@ -169,7 +181,9 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       );
 
       await queryRunner.commitTransaction();
-      console.log(`[Seeder][AllianceCompanyStructure] Completed for ${company.name}`);
+      console.log(
+        `[Seeder][AllianceCompanyStructure] Completed for ${company.name}`,
+      );
     } catch (error) {
       await queryRunner.rollbackTransaction();
       console.error('[Seeder][AllianceCompanyStructure] Failed:', error);
@@ -211,10 +225,12 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     for (const seed of ALLIANCE_BRANCHES) {
       let branch =
         existingBranches.find(
-          (item) => this.normalizeKey(item.code) === this.normalizeKey(seed.code),
+          (item) =>
+            this.normalizeKey(item.code) === this.normalizeKey(seed.code),
         ) ??
         existingBranches.find(
-          (item) => this.normalizeKey(item.name) === this.normalizeKey(seed.name),
+          (item) =>
+            this.normalizeKey(item.name) === this.normalizeKey(seed.name),
         ) ??
         null;
 
@@ -249,14 +265,20 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     const departmentMap = new Map<string, Department>();
 
     for (const seed of ALLIANCE_DEPARTMENTS) {
-      const branch = this.getRequiredBranch(branchMap, seed.branchCode, seed.name);
+      const branch = this.getRequiredBranch(
+        branchMap,
+        seed.branchCode,
+        seed.name,
+      );
 
       let department =
         existingDepartments.find(
-          (item) => this.normalizeKey(item.code) === this.normalizeKey(seed.code),
+          (item) =>
+            this.normalizeKey(item.code) === this.normalizeKey(seed.code),
         ) ??
         existingDepartments.find(
-          (item) => this.normalizeKey(item.name) === this.normalizeKey(seed.name),
+          (item) =>
+            this.normalizeKey(item.name) === this.normalizeKey(seed.name),
         ) ??
         null;
 
@@ -296,14 +318,20 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     const positionMap = new Map<string, Position>();
 
     for (const seed of ALLIANCE_POSITIONS) {
-      const departmentCode = POSITION_CATEGORY_TO_DEPARTMENT_CODE[seed.category] ?? null;
+      const departmentCode =
+        POSITION_CATEGORY_TO_DEPARTMENT_CODE[seed.category] ?? null;
       const department = departmentCode
-        ? this.getRequiredDepartmentByCode(departmentMap, departmentCode, seed.name)
+        ? this.getRequiredDepartmentByCode(
+            departmentMap,
+            departmentCode,
+            seed.name,
+          )
         : null;
 
       let designation =
         existingDesignations.find(
-          (item) => this.normalizeKey(item.code) === this.normalizeKey(seed.code),
+          (item) =>
+            this.normalizeKey(item.code) === this.normalizeKey(seed.code),
         ) ??
         existingDesignations.find(
           (item) =>
@@ -332,10 +360,12 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
 
       let position =
         existingPositions.find(
-          (item) => this.normalizeKey(item.code) === this.normalizeKey(seed.code),
+          (item) =>
+            this.normalizeKey(item.code) === this.normalizeKey(seed.code),
         ) ??
         existingPositions.find(
-          (item) => this.normalizeKey(item.name) === this.normalizeKey(seed.name),
+          (item) =>
+            this.normalizeKey(item.name) === this.normalizeKey(seed.name),
         ) ??
         null;
 
@@ -423,7 +453,8 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     const employeeBySeedKey = new Map<string, Employee>();
     const employeeByHikvisionNo = new Map<string, Employee>();
     for (const existingEmployee of existingEmployees) {
-      const hikvisionEmployeeNo = this.extractSeededHikvisionEmployeeNo(existingEmployee);
+      const hikvisionEmployeeNo =
+        this.extractSeededHikvisionEmployeeNo(existingEmployee);
       if (hikvisionEmployeeNo) {
         employeeByHikvisionNo.set(hikvisionEmployeeNo, existingEmployee);
       }
@@ -435,7 +466,11 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
 
     for (const seed of ALLIANCE_EMPLOYEES) {
       const user = await this.ensureUser(userRepo, seed);
-      const membership = await this.ensureMembership(companyUserRepo, companyId, user.id);
+      const membership = await this.ensureMembership(
+        companyUserRepo,
+        companyId,
+        user.id,
+      );
       await this.ensureMembershipAccess(
         companyUserRoleRepo,
         companyUserPermissionRepo,
@@ -454,7 +489,11 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
         seed.primaryDepartmentCode,
         seed.employeeNo,
       );
-      const position = this.getRequiredPosition(positionMap, seed.positionCode, seed.employeeNo);
+      const position = this.getRequiredPosition(
+        positionMap,
+        seed.positionCode,
+        seed.employeeNo,
+      );
       const sequence = this.getEmployeeSequence(seed.hikvisionEmployeeNo);
 
       let employee =
@@ -471,12 +510,20 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
         employeeNumberPrefix,
         nextEmployeeSequence,
       );
-      if (this.isGeneratedEmployeeNumber(employee.employee_no, employeeNumberPrefix)) {
+      if (
+        this.isGeneratedEmployeeNumber(
+          employee.employee_no,
+          employeeNumberPrefix,
+        )
+      ) {
         const existingSequence = this.parseGeneratedEmployeeNumberSequence(
           employee.employee_no,
           employeeNumberPrefix,
         );
-        if (existingSequence !== null && existingSequence >= nextEmployeeSequence) {
+        if (
+          existingSequence !== null &&
+          existingSequence >= nextEmployeeSequence
+        ) {
           nextEmployeeSequence = existingSequence + 1;
         }
       } else {
@@ -490,7 +537,11 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       employee.last_name = seed.lastName;
       employee.preferred_name = seed.firstName;
       employee.gender = sequence % 2 === 0 ? 'female' : 'male';
-      employee.date_of_birth = this.buildDate(1986 + (sequence % 8), sequence, sequence + 7);
+      employee.date_of_birth = this.buildDate(
+        1986 + (sequence % 8),
+        sequence,
+        sequence + 7,
+      );
       employee.marital_status = sequence % 3 === 0 ? 'married' : 'single';
       employee.nationality = 'Tanzanian';
       employee.profile_photo_url = null;
@@ -521,9 +572,23 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       employeeByHikvisionNo.set(seed.hikvisionEmployeeNo, employee);
 
       await this.ensureWorkContact(employeeContactRepo, employee.id, seed);
-      await this.ensurePersonalContact(employeeContactRepo, employee.id, seed, sequence);
-      await this.ensurePrimaryAddress(employeeAddressRepo, employee.id, sequence);
-      await this.ensurePrimaryRelative(employeeRelativeRepo, employee.id, seed, sequence);
+      await this.ensurePersonalContact(
+        employeeContactRepo,
+        employee.id,
+        seed,
+        sequence,
+      );
+      await this.ensurePrimaryAddress(
+        employeeAddressRepo,
+        employee.id,
+        sequence,
+      );
+      await this.ensurePrimaryRelative(
+        employeeRelativeRepo,
+        employee.id,
+        seed,
+        sequence,
+      );
       await this.ensurePrimaryIdentification(
         employeeIdentificationRepo,
         employee.id,
@@ -548,7 +613,11 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
         membership.id,
         sequence,
       );
-      await this.ensureExperienceDetail(employeeExperienceRepo, employee.id, sequence);
+      await this.ensureExperienceDetail(
+        employeeExperienceRepo,
+        employee.id,
+        sequence,
+      );
       await this.ensureDepartmentAssignments(
         employeeDepartmentRepo,
         employee.id,
@@ -605,7 +674,7 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       }
 
       employee.reports_to = seed.reportsToEmployeeNo
-        ? employeeBySeedKey.get(seed.reportsToEmployeeNo)?.id ?? null
+        ? (employeeBySeedKey.get(seed.reportsToEmployeeNo)?.id ?? null)
         : null;
 
       await employeeRepo.save(employee);
@@ -762,7 +831,10 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       const key = this.normalizeKey(role.name);
       const existing = roleMap.get(key);
 
-      if (!existing || (existing.company_id === null && role.company_id === companyId)) {
+      if (
+        !existing ||
+        (existing.company_id === null && role.company_id === companyId)
+      ) {
         roleMap.set(key, role);
       }
     });
@@ -787,7 +859,9 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     ALLIANCE_EMPLOYEES.forEach((seed) => {
       seed.permissionNames?.forEach((permissionName) => {
         requiredPermissionNamesForQuery.add(permissionName.trim());
-        requiredPermissionNamesNormalized.add(this.normalizeKey(permissionName));
+        requiredPermissionNamesNormalized.add(
+          this.normalizeKey(permissionName),
+        );
       });
     });
 
@@ -796,9 +870,11 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     }
 
     const permissions = await permissionRepo.find({
-      where: Array.from(requiredPermissionNamesForQuery).map((permissionName) => ({
-        name: permissionName,
-      })),
+      where: Array.from(requiredPermissionNamesForQuery).map(
+        (permissionName) => ({
+          name: permissionName,
+        }),
+      ),
     });
 
     const permissionMap = new Map<string, Permission>();
@@ -861,12 +937,13 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
         );
       }
 
-      const existingPermissionAssignment = await companyUserPermissionRepo.findOne({
-        where: {
-          company_user_id: companyUserId,
-          permission_id: permission.id,
-        },
-      });
+      const existingPermissionAssignment =
+        await companyUserPermissionRepo.findOne({
+          where: {
+            company_user_id: companyUserId,
+            permission_id: permission.id,
+          },
+        });
 
       if (!existingPermissionAssignment) {
         await companyUserPermissionRepo.save(
@@ -978,7 +1055,10 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       order: { id: 'ASC' },
     });
 
-    await employeeRelativeRepo.update({ employee_id: employeeId }, { is_primary: false });
+    await employeeRelativeRepo.update(
+      { employee_id: employeeId },
+      { is_primary: false },
+    );
 
     const relative = relatives[0] ?? employeeRelativeRepo.create();
     relative.employee_id = employeeId;
@@ -1001,16 +1081,23 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     sequence: number,
   ): Promise<void> {
     const identifications = await employeeIdentificationRepo.find({
-      where: { employee_id: employeeId, identification_type: IdentificationTypeEnum.NATIONAL_ID },
+      where: {
+        employee_id: employeeId,
+        identification_type: IdentificationTypeEnum.NATIONAL_ID,
+      },
       order: { id: 'ASC' },
     });
 
     await employeeIdentificationRepo.update(
-      { employee_id: employeeId, identification_type: IdentificationTypeEnum.NATIONAL_ID },
+      {
+        employee_id: employeeId,
+        identification_type: IdentificationTypeEnum.NATIONAL_ID,
+      },
       { is_primary: false },
     );
 
-    const identification = identifications[0] ?? employeeIdentificationRepo.create();
+    const identification =
+      identifications[0] ?? employeeIdentificationRepo.create();
     identification.employee_id = employeeId;
     identification.identification_type = IdentificationTypeEnum.NATIONAL_ID;
     identification.identification_number = `NIDA${String(sequence).padStart(8, '0')}`;
@@ -1021,11 +1108,15 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     await employeeIdentificationRepo.save(identification);
 
     const taxIdentifications = await employeeIdentificationRepo.find({
-      where: { employee_id: employeeId, identification_type: IdentificationTypeEnum.TAX_ID },
+      where: {
+        employee_id: employeeId,
+        identification_type: IdentificationTypeEnum.TAX_ID,
+      },
       order: { id: 'ASC' },
     });
 
-    const taxIdentification = taxIdentifications[0] ?? employeeIdentificationRepo.create();
+    const taxIdentification =
+      taxIdentifications[0] ?? employeeIdentificationRepo.create();
     taxIdentification.employee_id = employeeId;
     taxIdentification.identification_type = IdentificationTypeEnum.TAX_ID;
     taxIdentification.identification_number = `TIN${String(20000000 + sequence)}`;
@@ -1047,7 +1138,10 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
       order: { id: 'ASC' },
     });
 
-    await employeeBankAccountRepo.update({ employee_id: employeeId }, { is_primary: false });
+    await employeeBankAccountRepo.update(
+      { employee_id: employeeId },
+      { is_primary: false },
+    );
 
     const account = bankAccounts[0] ?? employeeBankAccountRepo.create();
     account.employee_id = employeeId;
@@ -1150,17 +1244,21 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     hrSeed: CompanyEmployeeHrSeed | undefined,
     departmentMap: EntityMap<Department>,
   ): Promise<void> {
-    await employeeDepartmentRepo.update({ employee_id: employeeId }, { is_primary: false });
+    await employeeDepartmentRepo.update(
+      { employee_id: employeeId },
+      { is_primary: false },
+    );
 
     const departmentIds = [
       primaryDepartmentId,
-      ...((hrSeed?.secondaryDepartmentCodes ?? []).map((code) =>
-        this.getRequiredDepartmentByCode(
-          departmentMap,
-          code,
-          hrSeed?.employeeNo ?? `employee_id=${employeeId}`,
-        ).id,
-      )),
+      ...(hrSeed?.secondaryDepartmentCodes ?? []).map(
+        (code) =>
+          this.getRequiredDepartmentByCode(
+            departmentMap,
+            code,
+            hrSeed?.employeeNo ?? `employee_id=${employeeId}`,
+          ).id,
+      ),
     ];
 
     for (const [index, departmentId] of departmentIds.entries()) {
@@ -1325,7 +1423,11 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     companyId: number,
     branchMap: EntityMap<Branch>,
   ): Promise<AttendanceDevice> {
-    const hqBranch = this.getRequiredBranch(branchMap, 'HQ', 'default Hikvision device');
+    const hqBranch = this.getRequiredBranch(
+      branchMap,
+      'HQ',
+      'default Hikvision device',
+    );
     const existing = await attendanceDeviceRepo.findOne({
       where: {
         companyId,
@@ -1339,8 +1441,10 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     device.branchId = hqBranch.id;
     device.deviceName = 'Main Hikvision Device';
     device.deviceCode =
-      device.deviceCode || `HIK-${companyId}-${DEFAULT_HIKVISION_DEVICE_CODE_SUFFIX}`;
-    device.deviceSerialNumber = device.deviceSerialNumber || DEFAULT_HIKVISION_DEVICE_SERIAL;
+      device.deviceCode ||
+      `HIK-${companyId}-${DEFAULT_HIKVISION_DEVICE_CODE_SUFFIX}`;
+    device.deviceSerialNumber =
+      device.deviceSerialNumber || DEFAULT_HIKVISION_DEVICE_SERIAL;
     device.deviceModel = 'DS-K1T201AMF';
     device.ipAddress = DEFAULT_HIKVISION_DEVICE_IP_ADDRESS;
     device.port = DEFAULT_HIKVISION_DEVICE_PORT;
@@ -1444,7 +1548,11 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
 
     if (!assignment) {
       assignment = await employeeDeviceAssignmentRepo.findOne({
-        where: { companyId, deviceId: device.id, employeeNo: normalizedEmployeeNo },
+        where: {
+          companyId,
+          deviceId: device.id,
+          employeeNo: normalizedEmployeeNo,
+        },
       });
     }
 
@@ -1495,7 +1603,9 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
   ): Department {
     const department = departmentMap.get(this.normalizeKey(departmentKey));
     if (!department) {
-      throw new Error(`Department "${departmentKey}" not found for ${context}.`);
+      throw new Error(
+        `Department "${departmentKey}" not found for ${context}.`,
+      );
     }
 
     return department;
@@ -1584,7 +1694,9 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     employeeNo: string | null | undefined,
     prefix: string,
   ): boolean {
-    return this.parseGeneratedEmployeeNumberSequence(employeeNo, prefix) !== null;
+    return (
+      this.parseGeneratedEmployeeNumberSequence(employeeNo, prefix) !== null
+    );
   }
 
   private parseGeneratedEmployeeNumberSequence(
@@ -1602,15 +1714,19 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   }
 
-  private formatGeneratedEmployeeNumber(prefix: string, sequence: number): string {
+  private formatGeneratedEmployeeNumber(
+    prefix: string,
+    sequence: number,
+  ): string {
     return `${prefix}-${String(sequence).padStart(4, '0')}`;
   }
 
   private extractSeededHikvisionEmployeeNo(employee: Employee): string | null {
     const metadata = employee.metadata ?? {};
-    const hikvision = typeof metadata.hikvision === 'object' && metadata.hikvision !== null
-      ? (metadata.hikvision as Record<string, unknown>)
-      : null;
+    const hikvision =
+      typeof metadata.hikvision === 'object' && metadata.hikvision !== null
+        ? (metadata.hikvision as Record<string, unknown>)
+        : null;
     const value =
       typeof hikvision?.employee_no === 'string'
         ? hikvision.employee_no
@@ -1622,7 +1738,11 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
   }
 
   private buildEmployeeDisplayName(employee: Employee): string {
-    const displayName = [employee.first_name, employee.middle_name, employee.last_name]
+    const displayName = [
+      employee.first_name,
+      employee.middle_name,
+      employee.last_name,
+    ]
       .map((value) => value?.trim())
       .filter((value): value is string => Boolean(value))
       .join(' ')
@@ -1642,7 +1762,10 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
   }
 
   private slugify(value: string): string {
-    return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-');
   }
 
   private buildPersonalEmail(seed: CompanyEmployeeSeed): string {

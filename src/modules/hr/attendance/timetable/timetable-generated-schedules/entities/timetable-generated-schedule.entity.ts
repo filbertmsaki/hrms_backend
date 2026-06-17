@@ -21,9 +21,13 @@ import { Shift } from '../../../shift/shifts/entities/shift.entity';
 @Index('IDX_timetable_generated_schedules_shift_id', ['shiftId'])
 @Index('IDX_timetable_generated_schedules_schedule_date', ['scheduleDate'])
 @Index('IDX_timetable_generated_schedules_holiday_id', ['holidayId'])
-@Index('UQ_timetable_generated_schedules_company_employee_date', ['companyId', 'employeeId', 'scheduleDate'], {
-  unique: true,
-})
+@Index(
+  'UQ_timetable_generated_schedules_company_employee_date',
+  ['companyId', 'employeeId', 'scheduleDate'],
+  {
+    unique: true,
+  },
+)
 export class TimetableGeneratedSchedule {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -71,7 +75,9 @@ export class TimetableGeneratedSchedule {
   @JoinColumn({ name: 'employee_id' })
   employee: Employee;
 
-  @ManyToOne(() => Timetable, (timetable) => timetable.generatedSchedules, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Timetable, (timetable) => timetable.generatedSchedules, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'timetable_id' })
   timetable: Timetable;
 

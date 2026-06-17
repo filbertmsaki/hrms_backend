@@ -17,7 +17,11 @@ import { AttendanceProcessingJobStatusEnum } from '../enums/attendance-processin
 @Index('IDX_attendance_recalculation_jobs_company_id', ['companyId'])
 @Index('IDX_attendance_recalculation_jobs_employee_id', ['employeeId'])
 @Index('IDX_attendance_recalculation_jobs_status', ['status'])
-@Index('IDX_attendance_recalculation_jobs_company_status_created', ['companyId', 'status', 'createdAt'])
+@Index('IDX_attendance_recalculation_jobs_company_status_created', [
+  'companyId',
+  'status',
+  'createdAt',
+])
 export class AttendanceRecalculationJob {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;

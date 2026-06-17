@@ -162,12 +162,7 @@ describe('AttendanceBusinessTripsService', () => {
       exit_date: null,
     });
 
-    const result = await service.cancel(
-      10,
-      8,
-      { reason: 'Postponed' },
-      actor,
-    );
+    const result = await service.cancel(10, 8, { reason: 'Postponed' }, actor);
 
     expect(result.status).toBe(AttendanceBusinessTripStatusEnum.CANCELLED);
     expect(recalculationJobRepository.save).toHaveBeenCalledWith(

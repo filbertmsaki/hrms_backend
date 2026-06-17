@@ -89,4 +89,3 @@ export class CreateBiometricCaptureSessionDto {
   @IsOptional()
   metadata?: Record<string, unknown> | null;
 }
-

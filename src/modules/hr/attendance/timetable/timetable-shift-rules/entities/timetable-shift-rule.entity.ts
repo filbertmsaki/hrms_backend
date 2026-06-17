@@ -13,7 +13,11 @@ import { Shift } from '../../../shift/shifts/entities/shift.entity';
 @Entity('timetable_shift_rules')
 @Index('IDX_timetable_shift_rules_timetable_day_id', ['timetableDayId'])
 @Index('IDX_timetable_shift_rules_shift_id', ['shiftId'])
-@Index('UQ_timetable_shift_rules_day_priority', ['timetableDayId', 'priorityOrder'], { unique: true })
+@Index(
+  'UQ_timetable_shift_rules_day_priority',
+  ['timetableDayId', 'priorityOrder'],
+  { unique: true },
+)
 export class TimetableShiftRule {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -36,7 +40,9 @@ export class TimetableShiftRule {
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
-  @ManyToOne(() => TimetableDay, (timetableDay) => timetableDay.shiftRules, { onDelete: 'CASCADE' })
+  @ManyToOne(() => TimetableDay, (timetableDay) => timetableDay.shiftRules, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'timetable_day_id' })
   timetableDay: TimetableDay;
 

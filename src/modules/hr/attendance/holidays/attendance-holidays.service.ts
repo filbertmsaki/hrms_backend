@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
@@ -39,18 +44,26 @@ export class AttendanceHolidaysService {
     };
   }
 
-  private async ensureHolidayGroup(companyId: number, holidayGroupId: number): Promise<void> {
+  private async ensureHolidayGroup(
+    companyId: number,
+    holidayGroupId: number,
+  ): Promise<void> {
     const group = await this.holidayGroupRepository.findOne({
       where: { id: holidayGroupId, companyId },
       select: ['id'],
     });
 
     if (!group) {
-      throw new BadRequestException('holiday_group_id does not belong to the active company');
+      throw new BadRequestException(
+        'holiday_group_id does not belong to the active company',
+      );
     }
   }
 
-  private async ensureBranch(companyId: number, branchId: number | null | undefined): Promise<void> {
+  private async ensureBranch(
+    companyId: number,
+    branchId: number | null | undefined,
+  ): Promise<void> {
     if (!branchId) {
       return;
     }
@@ -61,11 +74,16 @@ export class AttendanceHolidaysService {
     });
 
     if (!branch) {
-      throw new BadRequestException('branch_id does not belong to the active company');
+      throw new BadRequestException(
+        'branch_id does not belong to the active company',
+      );
     }
   }
 
-  private async findOrFail(companyId: number, id: number): Promise<AttendanceHoliday> {
+  private async findOrFail(
+    companyId: number,
+    id: number,
+  ): Promise<AttendanceHoliday> {
     const holiday = await this.attendanceHolidayRepository.findOne({
       where: { id, companyId },
     });
@@ -91,7 +109,9 @@ export class AttendanceHolidaysService {
     });
 
     if (existing) {
-      throw new ConflictException('Holiday with the same name and date already exists in this group');
+      throw new ConflictException(
+        'Holiday with the same name and date already exists in this group',
+      );
     }
 
     const created = await this.attendanceHolidayRepository.save(
@@ -141,11 +161,15 @@ export class AttendanceHolidaysService {
     }
 
     if (branch_id) {
-      qb.andWhere('attendanceHoliday.branch_id = :branchId', { branchId: branch_id });
+      qb.andWhere('attendanceHoliday.branch_id = :branchId', {
+        branchId: branch_id,
+      });
     }
 
     if (from_date) {
-      qb.andWhere('attendanceHoliday.date >= :fromDate', { fromDate: from_date });
+      qb.andWhere('attendanceHoliday.date >= :fromDate', {
+        fromDate: from_date,
+      });
     }
 
     if (to_date) {
@@ -153,7 +177,9 @@ export class AttendanceHolidaysService {
     }
 
     if (search?.trim()) {
-      qb.andWhere('attendanceHoliday.name LIKE :term', { term: `%${search.trim()}%` });
+      qb.andWhere('attendanceHoliday.name LIKE :term', {
+        term: `%${search.trim()}%`,
+      });
     }
 
     const allowedSortFields = ['name', 'date', 'created_at', 'updated_at'];
@@ -203,7 +229,9 @@ export class AttendanceHolidaysService {
     });
 
     if (duplicate && duplicate.id !== holiday.id) {
-      throw new ConflictException('Holiday with the same name and date already exists in this group');
+      throw new ConflictException(
+        'Holiday with the same name and date already exists in this group',
+      );
     }
 
     holiday.holidayGroupId = holidayGroupId;
@@ -238,9 +266,3 @@ export class AttendanceHolidaysService {
     return { message: 'Attendance holiday deleted successfully' };
   }
 }
-
-
-
-
-
-

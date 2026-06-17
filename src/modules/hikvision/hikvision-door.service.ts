@@ -35,19 +35,31 @@ export class HikvisionDoorSyncService {
 
   async syncFromDevice(companyId: number, deviceId: number) {
     const device = await this.findHikvisionDeviceOrFail(companyId, deviceId);
-    const results: Array<{ door_no: number; status: 'SYNCED' | 'SKIPPED' | 'FAILED'; reason?: string }> = [];
+    const results: Array<{
+      door_no: number;
+      status: 'SYNCED' | 'SKIPPED' | 'FAILED';
+      reason?: string;
+    }> = [];
     let synced = 0;
     let skipped = 0;
     let failed = 0;
 
     for (let doorNo = 1; doorNo <= 8; doorNo += 1) {
       try {
-        const response = await this.requestToDevice(device, 'GET', `/ISAPI/AccessControl/Door/param/${doorNo}`);
+        const response = await this.requestToDevice(
+          device,
+          'GET',
+          `/ISAPI/AccessControl/Door/param/${doorNo}`,
+        );
         const body = response.body.trim();
         if (response.status !== 200) {
           if (this.isSkippableDoorResponse(body)) {
             skipped += 1;
-            results.push({ door_no: doorNo, status: 'SKIPPED', reason: 'notSupport/invalidID' });
+            results.push({
+              door_no: doorNo,
+              status: 'SKIPPED',
+              reason: 'notSupport/invalidID',
+            });
             continue;
           }
           failed += 1;
@@ -71,16 +83,27 @@ export class HikvisionDoorSyncService {
         entity.branchId = entity.branchId ?? device.branchId ?? null;
         entity.deviceId = device.id;
         entity.doorNo = doorNo;
-        entity.doorName = this.asTrimmedString(doorParam.doorName) || `Door ${doorNo}`;
+        entity.doorName =
+          this.asTrimmedString(doorParam.doorName) || `Door ${doorNo}`;
         entity.magneticType = this.asNullableString(doorParam.magneticType);
         entity.openButtonType = this.asNullableString(doorParam.openButtonType);
         entity.openDuration = this.asNullableNumber(doorParam.openDuration);
-        entity.disabledOpenDuration = this.asNullableNumber(doorParam.disabledOpenDuration);
-        entity.magneticAlarmTimeout = this.asNullableNumber(doorParam.magneticAlarmTimeout);
-        entity.enableLeaderCard = this.asNullableBoolean(doorParam.enableLeaderCard);
+        entity.disabledOpenDuration = this.asNullableNumber(
+          doorParam.disabledOpenDuration,
+        );
+        entity.magneticAlarmTimeout = this.asNullableNumber(
+          doorParam.magneticAlarmTimeout,
+        );
+        entity.enableLeaderCard = this.asNullableBoolean(
+          doorParam.enableLeaderCard,
+        );
         entity.leaderCardMode = this.asNullableString(doorParam.leaderCardMode);
-        entity.leaderCardOpenDuration = this.asNullableNumber(doorParam.leaderCardOpenDuration);
-        entity.remoteControlPwStatus = this.asNullableBoolean(doorParam.remoteControlPWStatus);
+        entity.leaderCardOpenDuration = this.asNullableNumber(
+          doorParam.leaderCardOpenDuration,
+        );
+        entity.remoteControlPwStatus = this.asNullableBoolean(
+          doorParam.remoteControlPWStatus,
+        );
         entity.syncStatus = AccessDoorSyncStatusEnum.SYNCED;
         entity.lastSyncedAt = new Date();
         const pullExtras = this.extractNonDuplicatedPullExtras(parsed);
@@ -88,7 +111,9 @@ export class HikvisionDoorSyncService {
           hikvision: {
             last_pull_status: response.status,
             last_pull_at: new Date().toISOString(),
-            ...(Object.keys(pullExtras).length > 0 ? { last_pull_extras: pullExtras } : {}),
+            ...(Object.keys(pullExtras).length > 0
+              ? { last_pull_extras: pullExtras }
+              : {}),
           },
         });
 
@@ -104,7 +129,9 @@ export class HikvisionDoorSyncService {
         results.push({
           door_no: doorNo,
           status: 'FAILED',
-          reason: (error as { message?: string } | null)?.message || 'Unknown sync error',
+          reason:
+            (error as { message?: string } | null)?.message ||
+            'Unknown sync error',
         });
       }
     }
@@ -196,7 +223,11 @@ export class HikvisionDoorSyncService {
     };
   }
 
-  async remoteControlDoor(companyId: number, door: AccessDoor, command: RemoteDoorCommand) {
+  async remoteControlDoor(
+    companyId: number,
+    door: AccessDoor,
+    command: RemoteDoorCommand,
+  ) {
     const device = await this.findHikvisionDeviceOrFail(
       companyId,
       this.ensureDoorHasDeviceId(door),
@@ -233,7 +264,10 @@ export class HikvisionDoorSyncService {
     );
   }
 
-  private async findHikvisionDeviceOrFail(companyId: number, deviceId: number): Promise<AttendanceDevice> {
+  private async findHikvisionDeviceOrFail(
+    companyId: number,
+    deviceId: number,
+  ): Promise<AttendanceDevice> {
     const device = await this.attendanceDeviceRepository.findOne({
       where: { id: deviceId, companyId },
     });
@@ -247,11 +281,15 @@ export class HikvisionDoorSyncService {
       (device.vendorName || '').toLowerCase().includes('hikvision');
 
     if (!isHikvision) {
-      throw new BadRequestException('Device is not configured as a Hikvision integration');
+      throw new BadRequestException(
+        'Device is not configured as a Hikvision integration',
+      );
     }
 
     if (!device.apiUsername || !device.apiPassword) {
-      throw new BadRequestException('Missing api_username/api_password for the selected device');
+      throw new BadRequestException(
+        'Missing api_username/api_password for the selected device',
+      );
     }
 
     return device;
@@ -259,7 +297,9 @@ export class HikvisionDoorSyncService {
 
   private ensureDoorHasDeviceId(door: AccessDoor): number {
     if (door.deviceId === null) {
-      throw new BadRequestException('This door is no longer linked to a device');
+      throw new BadRequestException(
+        'This door is no longer linked to a device',
+      );
     }
 
     return door.deviceId;
@@ -272,9 +312,14 @@ export class HikvisionDoorSyncService {
     body?: string,
     contentType = 'application/xml',
   ): Promise<{ status: number; body: string }> {
-    const timeoutMs = Number(this.configService.get<string>('HIKVISION_REQUEST_TIMEOUT_MS') ?? 15000);
+    const timeoutMs = Number(
+      this.configService.get<string>('HIKVISION_REQUEST_TIMEOUT_MS') ?? 15000,
+    );
     const timeoutController = new AbortController();
-    const timeoutHandle = setTimeout(() => timeoutController.abort(), timeoutMs);
+    const timeoutHandle = setTimeout(
+      () => timeoutController.abort(),
+      timeoutMs,
+    );
 
     try {
       const client = new DigestFetch(device.apiUsername, device.apiPassword);
@@ -289,7 +334,9 @@ export class HikvisionDoorSyncService {
       });
 
       if (response.status === 401) {
-        throw new UnauthorizedException('Hikvision digest authentication failed (401)');
+        throw new UnauthorizedException(
+          'Hikvision digest authentication failed (401)',
+        );
       }
 
       return {
@@ -299,11 +346,21 @@ export class HikvisionDoorSyncService {
     } catch (error) {
       const code = (error as { code?: string } | null)?.code;
       const message = (error as Error).message?.toLowerCase?.() ?? '';
-      if (timeoutController.signal.aborted || code === 'ECONNABORTED' || message.includes('timeout')) {
+      if (
+        timeoutController.signal.aborted ||
+        code === 'ECONNABORTED' ||
+        message.includes('timeout')
+      ) {
         throw new ServiceUnavailableException('Hikvision request timeout');
       }
-      if (code === 'ENOTFOUND' || code === 'EHOSTUNREACH' || code === 'ECONNREFUSED') {
-        throw new ServiceUnavailableException('Hikvision device is offline or unreachable');
+      if (
+        code === 'ENOTFOUND' ||
+        code === 'EHOSTUNREACH' ||
+        code === 'ECONNREFUSED'
+      ) {
+        throw new ServiceUnavailableException(
+          'Hikvision device is offline or unreachable',
+        );
       }
       throw error;
     } finally {
@@ -313,9 +370,13 @@ export class HikvisionDoorSyncService {
 
   private buildDeviceUrl(device: AttendanceDevice, path: string): string {
     const safePath = path.startsWith('/') ? path : `/${path}`;
-    const protocol = (device.protocol || 'http').toLowerCase() === 'https' ? 'https' : 'http';
+    const protocol =
+      (device.protocol || 'http').toLowerCase() === 'https' ? 'https' : 'http';
     const port = device.port || (protocol === 'https' ? 443 : 80);
-    const usePort = !((protocol === 'http' && port === 80) || (protocol === 'https' && port === 443));
+    const usePort = !(
+      (protocol === 'http' && port === 80) ||
+      (protocol === 'https' && port === 443)
+    );
     return `${protocol}://${device.ipAddress}${usePort ? `:${port}` : ''}${safePath}`;
   }
 
@@ -330,7 +391,9 @@ export class HikvisionDoorSyncService {
     return this.xmlParser.parse(trimmed) as Record<string, unknown>;
   }
 
-  private parsePayloadSafely(payload: string): Record<string, unknown> | string {
+  private parsePayloadSafely(
+    payload: string,
+  ): Record<string, unknown> | string {
     try {
       return this.parsePayload(payload);
     } catch {
@@ -338,9 +401,15 @@ export class HikvisionDoorSyncService {
     }
   }
 
-  private extractDoorParam(payload: Record<string, unknown>): Record<string, unknown> {
+  private extractDoorParam(
+    payload: Record<string, unknown>,
+  ): Record<string, unknown> {
     const candidate = payload.DoorParam;
-    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+    if (
+      candidate &&
+      typeof candidate === 'object' &&
+      !Array.isArray(candidate)
+    ) {
       return candidate as Record<string, unknown>;
     }
     return payload;
@@ -348,10 +417,16 @@ export class HikvisionDoorSyncService {
 
   private isSkippableDoorResponse(body: string): boolean {
     const lowered = body.toLowerCase();
-    return lowered.includes('notsupport') || lowered.includes('invalidid') || lowered.includes('invalid id');
+    return (
+      lowered.includes('notsupport') ||
+      lowered.includes('invalidid') ||
+      lowered.includes('invalid id')
+    );
   }
 
-  private extractNonDuplicatedPullExtras(payload: Record<string, unknown>): Record<string, unknown> {
+  private extractNonDuplicatedPullExtras(
+    payload: Record<string, unknown>,
+  ): Record<string, unknown> {
     const root = this.toObject(payload);
     const extras: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(root)) {
@@ -437,8 +512,12 @@ export class HikvisionDoorSyncService {
   ): Record<string, unknown> {
     const safeExisting = this.toObject(existing);
     const safePatch = this.toObject(patch);
-    const existingHikvision = this.sanitizeHikvisionMetadata(this.toObject(safeExisting.hikvision));
-    const patchHikvision = this.sanitizeHikvisionMetadata(this.toObject(safePatch.hikvision));
+    const existingHikvision = this.sanitizeHikvisionMetadata(
+      this.toObject(safeExisting.hikvision),
+    );
+    const patchHikvision = this.sanitizeHikvisionMetadata(
+      this.toObject(safePatch.hikvision),
+    );
 
     return {
       ...safeExisting,
@@ -450,7 +529,9 @@ export class HikvisionDoorSyncService {
     };
   }
 
-  private sanitizeHikvisionMetadata(value: Record<string, unknown>): Record<string, unknown> {
+  private sanitizeHikvisionMetadata(
+    value: Record<string, unknown>,
+  ): Record<string, unknown> {
     const sanitized = { ...value };
     // Legacy key stored full door payload and duplicated persisted columns.
     delete sanitized.raw_pull_response;
@@ -464,4 +545,3 @@ export class HikvisionDoorSyncService {
     return value as Record<string, unknown>;
   }
 }
-

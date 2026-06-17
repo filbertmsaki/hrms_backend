@@ -74,7 +74,10 @@ export class DesignationsService {
     }
 
     if (department.branch_id) {
-      await this.hrAccessService.assertCanAccessBranch(actor, department.branch_id);
+      await this.hrAccessService.assertCanAccessBranch(
+        actor,
+        department.branch_id,
+      );
     }
 
     return department;
@@ -106,7 +109,11 @@ export class DesignationsService {
     dto: CreateDesignationDto,
     actor: AuthenticatedUser,
   ) {
-    const department = await this.resolveDepartment(companyId, dto.department_id, actor);
+    const department = await this.resolveDepartment(
+      companyId,
+      dto.department_id,
+      actor,
+    );
     const code = await this.codeGeneratorService.resolveCode(
       this.designationRepository,
       companyId,
@@ -123,7 +130,9 @@ export class DesignationsService {
       status: dto.status ?? 'active',
     });
 
-    return this.mapDesignation(await this.designationRepository.save(designation));
+    return this.mapDesignation(
+      await this.designationRepository.save(designation),
+    );
   }
 
   async findAll(
@@ -142,7 +151,11 @@ export class DesignationsService {
     } = query;
 
     if (typeof department_id === 'number') {
-      const department = await this.resolveDepartment(companyId, department_id, actor);
+      const department = await this.resolveDepartment(
+        companyId,
+        department_id,
+        actor,
+      );
       if (!department) {
         throw new NotFoundException('Department not found');
       }
@@ -171,7 +184,8 @@ export class DesignationsService {
       );
     }
 
-    const accessibleBranchIds = await this.hrAccessService.getAccessibleBranchIds(actor);
+    const accessibleBranchIds =
+      await this.hrAccessService.getAccessibleBranchIds(actor);
     if (accessibleBranchIds?.length === 0) {
       qb.andWhere('(department.id IS NULL OR department.branch_id IS NULL)');
     } else if (accessibleBranchIds) {
@@ -259,7 +273,9 @@ export class DesignationsService {
       department_id: department?.id ?? null,
     });
 
-    return this.mapDesignation(await this.designationRepository.save(designation));
+    return this.mapDesignation(
+      await this.designationRepository.save(designation),
+    );
   }
 
   async remove(

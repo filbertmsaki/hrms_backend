@@ -66,7 +66,12 @@ export class EmployeeAccessCredential {
   })
   credentialType: EmployeeAccessCredentialTypeEnum;
 
-  @Column({ name: 'credential_no', type: 'varchar', length: 120, nullable: true })
+  @Column({
+    name: 'credential_no',
+    type: 'varchar',
+    length: 120,
+    nullable: true,
+  })
   credentialNo: string | null;
 
   @Column({ name: 'pin_password', type: 'varchar', length: 50, nullable: true })
@@ -75,7 +80,12 @@ export class EmployeeAccessCredential {
   @Column({ name: 'card_no', type: 'varchar', length: 100, nullable: true })
   cardNo: string | null;
 
-  @Column({ name: 'fingerprint_id', type: 'varchar', length: 100, nullable: true })
+  @Column({
+    name: 'fingerprint_id',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
   fingerprintId: string | null;
 
   @Column({ name: 'card_reader_no', type: 'int', nullable: true })
@@ -151,4 +161,3 @@ export class EmployeeAccessCredential {
   @JoinColumn({ name: 'device_id' })
   device: AttendanceDevice | null;
 }
-

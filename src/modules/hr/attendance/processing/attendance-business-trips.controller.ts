@@ -45,7 +45,10 @@ export class AttendanceBusinessTripsController {
   @Post()
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_business_trips:create')
-  @ApiCreateOperation('Attendance Business Trip', 'Create attendance business trip')
+  @ApiCreateOperation(
+    'Attendance Business Trip',
+    'Create attendance business trip',
+  )
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: CreateAttendanceBusinessTripDto,
@@ -56,7 +59,10 @@ export class AttendanceBusinessTripsController {
   @Get()
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_business_trips:read')
-  @ApiListOperation('Attendance Business Trips', 'List attendance business trips')
+  @ApiListOperation(
+    'Attendance Business Trips',
+    'List attendance business trips',
+  )
   findAll(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: QueryAttendanceBusinessTripsDto,
@@ -67,7 +73,10 @@ export class AttendanceBusinessTripsController {
   @Get(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_business_trips:read')
-  @ApiGetOneOperation('Attendance Business Trip', 'Get attendance business trip by ID')
+  @ApiGetOneOperation(
+    'Attendance Business Trip',
+    'Get attendance business trip by ID',
+  )
   async findOne(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -78,19 +87,30 @@ export class AttendanceBusinessTripsController {
   @Patch(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_business_trips:update')
-  @ApiUpdateOperation('Attendance Business Trip', 'Update attendance business trip')
+  @ApiUpdateOperation(
+    'Attendance Business Trip',
+    'Update attendance business trip',
+  )
   update(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateAttendanceBusinessTripDto,
   ) {
-    return this.businessTripsService.update(req.user.companyId!, id, dto, req.user);
+    return this.businessTripsService.update(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
   }
 
   @Post(':id/submit')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_business_trips:update')
-  @ApiActionOperation('Submit Attendance Business Trip', 'Submit a draft attendance business trip')
+  @ApiActionOperation(
+    'Submit Attendance Business Trip',
+    'Submit a draft attendance business trip',
+  )
   submit(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -101,43 +121,70 @@ export class AttendanceBusinessTripsController {
   @Post(':id/approve')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_business_trips:approve')
-  @ApiActionOperation('Approve Attendance Business Trip', 'Approve attendance business trip')
+  @ApiActionOperation(
+    'Approve Attendance Business Trip',
+    'Approve attendance business trip',
+  )
   approve(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ReviewAttendanceBusinessTripDto,
   ) {
-    return this.businessTripsService.approve(req.user.companyId!, id, dto, req.user);
+    return this.businessTripsService.approve(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
   }
 
   @Post(':id/reject')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_business_trips:approve')
-  @ApiActionOperation('Reject Attendance Business Trip', 'Reject attendance business trip')
+  @ApiActionOperation(
+    'Reject Attendance Business Trip',
+    'Reject attendance business trip',
+  )
   reject(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ReviewAttendanceBusinessTripDto,
   ) {
-    return this.businessTripsService.reject(req.user.companyId!, id, dto, req.user);
+    return this.businessTripsService.reject(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
   }
 
   @Post(':id/cancel')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_business_trips:cancel')
-  @ApiActionOperation('Cancel Attendance Business Trip', 'Cancel attendance business trip')
+  @ApiActionOperation(
+    'Cancel Attendance Business Trip',
+    'Cancel attendance business trip',
+  )
   cancel(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: CancelAttendanceBusinessTripDto,
   ) {
-    return this.businessTripsService.cancel(req.user.companyId!, id, dto, req.user);
+    return this.businessTripsService.cancel(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
   }
 
   @Delete(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_business_trips:delete')
-  @ApiDeleteOperation('Attendance Business Trip', 'Delete attendance business trip')
+  @ApiDeleteOperation(
+    'Attendance Business Trip',
+    'Delete attendance business trip',
+  )
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,

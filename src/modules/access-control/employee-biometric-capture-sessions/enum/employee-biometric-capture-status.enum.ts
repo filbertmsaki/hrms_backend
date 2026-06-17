@@ -5,4 +5,3 @@ export enum EmployeeBiometricCaptureStatusEnum {
   FAILED = 'FAILED',
   CANCELLED = 'CANCELLED',
 }
-

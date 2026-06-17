@@ -1,11 +1,5 @@
 import { Type } from 'class-transformer';
-import {
-  IsBoolean,
-  IsInt,
-  IsNumber,
-  IsOptional,
-  Min,
-} from 'class-validator';
+import { IsBoolean, IsInt, IsNumber, IsOptional, Min } from 'class-validator';
 
 export class LeavePolicyTypeInputDto {
   @Type(() => Number)

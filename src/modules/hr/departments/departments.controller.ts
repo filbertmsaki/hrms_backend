@@ -60,7 +60,11 @@ export class DepartmentsController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: DepartmentQueryDto,
   ) {
-    return this.departmentsService.findAll(req.user.companyId!, query, req.user);
+    return this.departmentsService.findAll(
+      req.user.companyId!,
+      query,
+      req.user,
+    );
   }
 
   @Get(':id')

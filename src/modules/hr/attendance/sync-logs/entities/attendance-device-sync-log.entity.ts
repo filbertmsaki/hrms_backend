@@ -78,8 +78,3 @@ export class AttendanceDeviceSyncLog {
   @JoinColumn({ name: 'device_id' })
   device: AttendanceDevice | null;
 }
-
-
-
-
-

@@ -130,19 +130,22 @@ export const ALLIANCE_DEPARTMENTS: CompanyDepartmentSeed[] = [
   {
     name: 'Bancassurance',
     code: 'BANCASSURANCE',
-    description: 'Bank distribution, partner management, and bancassurance sales.',
+    description:
+      'Bank distribution, partner management, and bancassurance sales.',
     branchCode: 'HQ',
   },
   {
     name: 'General Business',
     code: 'GENERAL_BUSINESS',
-    description: 'Sales, marketing, and customer service for general insurance business.',
+    description:
+      'Sales, marketing, and customer service for general insurance business.',
     branchCode: 'HQ',
   },
   {
     name: 'IT',
     code: 'IT',
-    description: 'Information technology, systems, infrastructure, and digital services.',
+    description:
+      'Information technology, systems, infrastructure, and digital services.',
     branchCode: 'HQ',
   },
 ];
@@ -154,7 +157,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'Administration',
     level: 1,
     isManager: false,
-    description: 'Provides administrative support for the company and branch offices.',
+    description:
+      'Provides administrative support for the company and branch offices.',
   },
   {
     name: 'Receptionist',
@@ -162,7 +166,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'Administration',
     level: 1,
     isManager: false,
-    description: 'Responsible for front desk, visitor reception, and administrative coordination.',
+    description:
+      'Responsible for front desk, visitor reception, and administrative coordination.',
   },
   {
     name: 'Operations Manager',
@@ -170,7 +175,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'Administration',
     level: 3,
     isManager: true,
-    description: 'Oversees office operations and supports process efficiency across branches.',
+    description:
+      'Oversees office operations and supports process efficiency across branches.',
   },
   {
     name: 'HR Officer',
@@ -178,7 +184,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'HR',
     level: 1,
     isManager: false,
-    description: 'Supports employee lifecycle operations, onboarding, and HR administration.',
+    description:
+      'Supports employee lifecycle operations, onboarding, and HR administration.',
   },
   {
     name: 'HR Manager',
@@ -186,7 +193,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'HR',
     level: 3,
     isManager: true,
-    description: 'Leads the HR function and drives employee engagement and development.',
+    description:
+      'Leads the HR function and drives employee engagement and development.',
   },
   {
     name: 'Talent Acquisition Officer',
@@ -194,7 +202,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'HR',
     level: 2,
     isManager: false,
-    description: 'Manages hiring campaigns and candidate selection for the insurance business.',
+    description:
+      'Manages hiring campaigns and candidate selection for the insurance business.',
   },
   {
     name: 'Accountant',
@@ -202,7 +211,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'Accounts',
     level: 1,
     isManager: false,
-    description: 'Maintains financial records and supports day-to-day accounting tasks.',
+    description:
+      'Maintains financial records and supports day-to-day accounting tasks.',
   },
   {
     name: 'Senior Accountant',
@@ -210,7 +220,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'Accounts',
     level: 2,
     isManager: false,
-    description: 'Delivers advanced accounting, reporting, and financial control support.',
+    description:
+      'Delivers advanced accounting, reporting, and financial control support.',
   },
   {
     name: 'Finance Manager',
@@ -218,7 +229,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'Accounts',
     level: 3,
     isManager: true,
-    description: 'Leads financial planning, reporting, and cash management for the company.',
+    description:
+      'Leads financial planning, reporting, and cash management for the company.',
   },
   {
     name: 'Credit Controller',
@@ -226,7 +238,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'Accounts',
     level: 2,
     isManager: false,
-    description: 'Manages receivables, credit risk, and collection activity for insurance clients.',
+    description:
+      'Manages receivables, credit risk, and collection activity for insurance clients.',
   },
   {
     name: 'Claims Officer',
@@ -234,7 +247,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'Claims',
     level: 1,
     isManager: false,
-    description: 'Handles first-line claims intake and customer communications.',
+    description:
+      'Handles first-line claims intake and customer communications.',
   },
   {
     name: 'Senior Claims Officer',
@@ -242,7 +256,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'Claims',
     level: 2,
     isManager: false,
-    description: 'Manages complex claims and guides claims staff through resolution.',
+    description:
+      'Manages complex claims and guides claims staff through resolution.',
   },
   {
     name: 'Claims Manager',
@@ -250,7 +265,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'Claims',
     level: 3,
     isManager: true,
-    description: 'Oversees the claims team and ensures consistent claims handling.',
+    description:
+      'Oversees the claims team and ensures consistent claims handling.',
   },
   {
     name: 'Claims Investigator',
@@ -258,7 +274,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'Claims',
     level: 2,
     isManager: false,
-    description: 'Investigates claim incidents and validates coverage before settlement.',
+    description:
+      'Investigates claim incidents and validates coverage before settlement.',
   },
   {
     name: 'Underwriter',
@@ -266,7 +283,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'Underwriting',
     level: 1,
     isManager: false,
-    description: 'Evaluates risk and approves insurance applications for underwriting.',
+    description:
+      'Evaluates risk and approves insurance applications for underwriting.',
   },
   {
     name: 'Senior Underwriter',
@@ -274,7 +292,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'Underwriting',
     level: 2,
     isManager: false,
-    description: 'Reviews larger or more complex risks and mentors underwriting staff.',
+    description:
+      'Reviews larger or more complex risks and mentors underwriting staff.',
   },
   {
     name: 'Underwriting Manager',
@@ -282,7 +301,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'Underwriting',
     level: 3,
     isManager: true,
-    description: 'Leads underwriting operations and ensures disciplined risk selection.',
+    description:
+      'Leads underwriting operations and ensures disciplined risk selection.',
   },
   {
     name: 'Risk Analyst',
@@ -298,7 +318,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'Bancassurance',
     level: 1,
     isManager: false,
-    description: 'Develops bancassurance relationships and supports partner sales.',
+    description:
+      'Develops bancassurance relationships and supports partner sales.',
   },
   {
     name: 'Bancassurance Relationship Manager',
@@ -314,7 +335,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'General Business',
     level: 1,
     isManager: false,
-    description: 'Identifies new business opportunities and builds insurance distribution channels.',
+    description:
+      'Identifies new business opportunities and builds insurance distribution channels.',
   },
   {
     name: 'Sales Agent',
@@ -322,7 +344,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'General Business',
     level: 1,
     isManager: false,
-    description: 'Executes insurance sales and services customer relationships.',
+    description:
+      'Executes insurance sales and services customer relationships.',
   },
   {
     name: 'Marketing Officer',
@@ -330,7 +353,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'General Business',
     level: 1,
     isManager: false,
-    description: 'Supports marketing campaigns and brand engagement for insurance products.',
+    description:
+      'Supports marketing campaigns and brand engagement for insurance products.',
   },
   {
     name: 'Customer Service Officer',
@@ -346,7 +370,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'Executive',
     level: 4,
     isManager: true,
-    description: 'Provides executive leadership and strategic direction for Alliance Insurance.',
+    description:
+      'Provides executive leadership and strategic direction for Alliance Insurance.',
   },
   {
     name: 'General Manager',
@@ -354,7 +379,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'Executive',
     level: 4,
     isManager: true,
-    description: 'Drives overall business performance and cross-functional alignment.',
+    description:
+      'Drives overall business performance and cross-functional alignment.',
   },
   {
     name: 'Branch Manager',
@@ -362,7 +388,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'Executive',
     level: 3,
     isManager: true,
-    description: 'Leads the branch, ensures local targets are met, and manages branch operations.',
+    description:
+      'Leads the branch, ensures local targets are met, and manages branch operations.',
   },
   {
     name: 'IT Officer',
@@ -370,7 +397,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'IT',
     level: 1,
     isManager: false,
-    description: 'Provides technical support, maintains systems, and supports IT operations.',
+    description:
+      'Provides technical support, maintains systems, and supports IT operations.',
   },
   {
     name: 'Assistant IT Manager',
@@ -378,7 +406,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'IT',
     level: 2,
     isManager: true,
-    description: 'Supports IT leadership, coordinates day-to-day operations, and supervises IT service delivery.',
+    description:
+      'Supports IT leadership, coordinates day-to-day operations, and supervises IT service delivery.',
   },
   {
     name: 'IT Manager',
@@ -386,7 +415,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'IT',
     level: 3,
     isManager: true,
-    description: 'Leads IT operations, manages technology infrastructure, and oversees digital services.',
+    description:
+      'Leads IT operations, manages technology infrastructure, and oversees digital services.',
   },
   {
     name: 'IT Consultant',
@@ -394,7 +424,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'IT',
     level: 4,
     isManager: true,
-    description: 'Provides strategic technology guidance and heads the IT department.',
+    description:
+      'Provides strategic technology guidance and heads the IT department.',
   },
   {
     name: 'Systems Administrator',
@@ -402,7 +433,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'IT',
     level: 2,
     isManager: false,
-    description: 'Manages server infrastructure, network systems, and system security.',
+    description:
+      'Manages server infrastructure, network systems, and system security.',
   },
   {
     name: 'Software Developer',
@@ -410,7 +442,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     category: 'IT',
     level: 2,
     isManager: false,
-    description: 'Develops and maintains software applications for insurance operations.',
+    description:
+      'Develops and maintains software applications for insurance operations.',
   },
 ];
 
@@ -421,7 +454,12 @@ const ALLIANCE_IT_MANAGER_HIKVISION_EMPLOYEE_NO = '00000040';
 const ALLIANCE_BANCASSURANCE_MANAGER_HIKVISION_EMPLOYEE_NO = '00000004';
 
 const ALLIANCE_HIKVISION_EMPLOYEES: AllianceHikvisionEmployeeInput[] = [
-  { hikvisionEmployeeNo: '00000001', fullName: 'Filbert Msaki', email: 'filbert@alliance.co.tz', roleNames: ['ADMINISTRATOR'] },
+  {
+    hikvisionEmployeeNo: '00000001',
+    fullName: 'Filbert Msaki',
+    email: 'filbert@alliance.co.tz',
+    roleNames: ['ADMINISTRATOR'],
+  },
   { hikvisionEmployeeNo: '00000003', fullName: 'Agatha Godfrey Kiiza' },
   { hikvisionEmployeeNo: '00000004', fullName: 'Amina Gerard Manongi' },
   { hikvisionEmployeeNo: '00000005', fullName: 'Antoni Jordan Kambona' },
@@ -431,7 +469,12 @@ const ALLIANCE_HIKVISION_EMPLOYEES: AllianceHikvisionEmployeeInput[] = [
   { hikvisionEmployeeNo: '00000009', fullName: 'Avril Virginia Fernandes' },
   { hikvisionEmployeeNo: '00000010', fullName: 'Neema Justine' },
   { hikvisionEmployeeNo: '00000011', fullName: 'Barbara Thompson' },
-  { hikvisionEmployeeNo: '00000012', fullName: 'Bosco Odilo Semiono', email: 'bossco.odillo@alliance.co.tz', roleNames: ['USER'] },
+  {
+    hikvisionEmployeeNo: '00000012',
+    fullName: 'Bosco Odilo Semiono',
+    email: 'bossco.odillo@alliance.co.tz',
+    roleNames: ['USER'],
+  },
   { hikvisionEmployeeNo: '00000013', fullName: 'Brenda Raymond Mushi' },
   { hikvisionEmployeeNo: '00000014', fullName: 'Catherine Jackeline Aliwa' },
   { hikvisionEmployeeNo: '00000015', fullName: 'Dayness Jabir Mohamed' },
@@ -457,16 +500,36 @@ const ALLIANCE_HIKVISION_EMPLOYEES: AllianceHikvisionEmployeeInput[] = [
   { hikvisionEmployeeNo: '00000035', fullName: 'Baraka' },
   { hikvisionEmployeeNo: '00000036', fullName: 'Ibrahim Rashid Mungi' },
   { hikvisionEmployeeNo: '00000037', fullName: 'Ismail Mohamed Ramadhan' },
-  { hikvisionEmployeeNo: '00000040', fullName: 'Jasson Kalemera', email: 'jasson.kalemera@alliance.co.tz', roleNames: ['USER'] },
-  { hikvisionEmployeeNo: '00000059', fullName: 'Vicky Msifwaki', email: 'msifwaki.vicky@alliance.co.tz', roleNames: ['USER'] },
-  { hikvisionEmployeeNo: '00000094', fullName: 'Inocent Nuruva', email: 'inocent@alliance.co.tz', roleNames: ['ADMINISTRATOR'] },
-  { hikvisionEmployeeNo: '00000108', fullName: 'Ravi Kumar', email: 'ravi.kumar@alliance.co.tz', roleNames: ['USER'] },
+  {
+    hikvisionEmployeeNo: '00000040',
+    fullName: 'Jasson Kalemera',
+    email: 'jasson.kalemera@alliance.co.tz',
+    roleNames: ['USER'],
+  },
+  {
+    hikvisionEmployeeNo: '00000059',
+    fullName: 'Vicky Msifwaki',
+    email: 'msifwaki.vicky@alliance.co.tz',
+    roleNames: ['USER'],
+  },
+  {
+    hikvisionEmployeeNo: '00000094',
+    fullName: 'Inocent Nuruva',
+    email: 'inocent@alliance.co.tz',
+    roleNames: ['ADMINISTRATOR'],
+  },
+  {
+    hikvisionEmployeeNo: '00000108',
+    fullName: 'Ravi Kumar',
+    email: 'ravi.kumar@alliance.co.tz',
+    roleNames: ['USER'],
+  },
 ];
 
 const ALLIANCE_EMPLOYEE_ASSIGNMENTS = buildAllianceEmployeeAssignments();
 
-export const ALLIANCE_EMPLOYEES: CompanyEmployeeSeed[] = ALLIANCE_HIKVISION_EMPLOYEES.map(
-  (seed) => {
+export const ALLIANCE_EMPLOYEES: CompanyEmployeeSeed[] =
+  ALLIANCE_HIKVISION_EMPLOYEES.map((seed) => {
     const { firstName, lastName } = splitAllianceEmployeeName(seed.fullName);
     const employeeNo = seed.hikvisionEmployeeNo;
     const assignment = ALLIANCE_EMPLOYEE_ASSIGNMENTS[seed.hikvisionEmployeeNo];
@@ -485,10 +548,12 @@ export const ALLIANCE_EMPLOYEES: CompanyEmployeeSeed[] = ALLIANCE_HIKVISION_EMPL
       roleNames: seed.roleNames ?? ['USER'],
       permissionNames: seed.permissionNames,
     };
-  },
-);
+  });
 
-function buildAllianceEmployeeAssignments(): Record<string, AllianceEmployeeAssignment> {
+function buildAllianceEmployeeAssignments(): Record<
+  string,
+  AllianceEmployeeAssignment
+> {
   const assignments = new Map<string, AllianceEmployeeAssignment>();
 
   const assign = (
@@ -498,7 +563,9 @@ function buildAllianceEmployeeAssignments(): Record<string, AllianceEmployeeAssi
     reportsToEmployeeNo: string | null,
   ) => {
     if (assignments.has(hikvisionEmployeeNo)) {
-      throw new Error(`Duplicate department assignment for employee ${hikvisionEmployeeNo}`);
+      throw new Error(
+        `Duplicate department assignment for employee ${hikvisionEmployeeNo}`,
+      );
     }
 
     assignments.set(hikvisionEmployeeNo, {
@@ -508,58 +575,242 @@ function buildAllianceEmployeeAssignments(): Record<string, AllianceEmployeeAssi
     });
   };
 
-  assign('00000007', 'ADMIN', 'OFFICE_ADMINISTRATOR', ALLIANCE_ADMIN_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign(
+    '00000007',
+    'ADMIN',
+    'OFFICE_ADMINISTRATOR',
+    ALLIANCE_ADMIN_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
   assign('00000009', 'ADMIN', 'OPERATIONS_MANAGER', null);
 
   assign('00000059', 'HR', 'HR_MANAGER', null);
-  assign('00000023', 'HR', 'HR_OFFICER', ALLIANCE_HR_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign(
+    '00000023',
+    'HR',
+    'HR_OFFICER',
+    ALLIANCE_HR_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
 
-  assign('00000001', 'IT', 'SYSTEMS_ADMINISTRATOR', ALLIANCE_IT_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000012', 'IT', 'IT_OFFICER', ALLIANCE_IT_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign(
+    '00000001',
+    'IT',
+    'SYSTEMS_ADMINISTRATOR',
+    ALLIANCE_IT_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000012',
+    'IT',
+    'IT_OFFICER',
+    ALLIANCE_IT_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
   assign('00000040', 'IT', 'IT_MANAGER', null);
-  assign('00000094', 'IT', 'SOFTWARE_DEVELOPER', ALLIANCE_IT_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000108', 'IT', 'IT_CONSULTANT', ALLIANCE_IT_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign(
+    '00000094',
+    'IT',
+    'SOFTWARE_DEVELOPER',
+    ALLIANCE_IT_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000108',
+    'IT',
+    'IT_CONSULTANT',
+    ALLIANCE_IT_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
 
-  assign('00000004', 'BANCASSURANCE', 'BANCASSURANCE_RELATIONSHIP_MANAGER', null);
-  assign('00000005', 'BANCASSURANCE', 'BANCASSURANCE_OFFICER', ALLIANCE_BANCASSURANCE_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000006', 'BANCASSURANCE', 'BANCASSURANCE_OFFICER', ALLIANCE_BANCASSURANCE_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000008', 'BANCASSURANCE', 'BANCASSURANCE_OFFICER', ALLIANCE_BANCASSURANCE_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign(
+    '00000004',
+    'BANCASSURANCE',
+    'BANCASSURANCE_RELATIONSHIP_MANAGER',
+    null,
+  );
+  assign(
+    '00000005',
+    'BANCASSURANCE',
+    'BANCASSURANCE_OFFICER',
+    ALLIANCE_BANCASSURANCE_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000006',
+    'BANCASSURANCE',
+    'BANCASSURANCE_OFFICER',
+    ALLIANCE_BANCASSURANCE_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000008',
+    'BANCASSURANCE',
+    'BANCASSURANCE_OFFICER',
+    ALLIANCE_BANCASSURANCE_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
 
   assign('00000003', 'CLAIMS', 'CLAIMS_MANAGER', null);
-  assign('00000010', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000011', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000013', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000014', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000015', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000016', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000017', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000018', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000019', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000020', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000021', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000022', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000024', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000025', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000026', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000027', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000028', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000029', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000030', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000031', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000032', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000033', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000034', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000035', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000036', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
-  assign('00000037', 'CLAIMS', 'CLAIMS_OFFICER', ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO);
+  assign(
+    '00000010',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000011',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000013',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000014',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000015',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000016',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000017',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000018',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000019',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000020',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000021',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000022',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000024',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000025',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000026',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000027',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000028',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000029',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000030',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000031',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000032',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000033',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000034',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000035',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000036',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
+  assign(
+    '00000037',
+    'CLAIMS',
+    'CLAIMS_OFFICER',
+    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+  );
 
   const allEmployeeNos = new Set(
-    ALLIANCE_HIKVISION_EMPLOYEES.map((employee) => employee.hikvisionEmployeeNo),
+    ALLIANCE_HIKVISION_EMPLOYEES.map(
+      (employee) => employee.hikvisionEmployeeNo,
+    ),
   );
 
   for (const employeeNo of allEmployeeNos) {
     if (!assignments.has(employeeNo)) {
-      throw new Error(`Missing department assignment for employee ${employeeNo}`);
+      throw new Error(
+        `Missing department assignment for employee ${employeeNo}`,
+      );
     }
   }
 
@@ -572,11 +823,11 @@ function buildAllianceEmployeeAssignments(): Record<string, AllianceEmployeeAssi
   return Object.fromEntries(assignments);
 }
 
-function splitAllianceEmployeeName(fullName: string): { firstName: string; lastName: string } {
-  const parts = fullName
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
+function splitAllianceEmployeeName(fullName: string): {
+  firstName: string;
+  lastName: string;
+} {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
 
   if (parts.length <= 1) {
     return {
@@ -591,7 +842,10 @@ function splitAllianceEmployeeName(fullName: string): { firstName: string; lastN
   };
 }
 
-function buildAllianceEmployeeEmail(firstName: string, lastName: string): string {
+function buildAllianceEmployeeEmail(
+  firstName: string,
+  lastName: string,
+): string {
   const first = slugifyAllianceSeedValue(firstName);
   const last = slugifyAllianceSeedValue(lastName).replace(/-/g, '.');
 
@@ -608,5 +862,9 @@ function buildAllianceEmployeePhone(hikvisionEmployeeNo: string): string {
 }
 
 function slugifyAllianceSeedValue(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }

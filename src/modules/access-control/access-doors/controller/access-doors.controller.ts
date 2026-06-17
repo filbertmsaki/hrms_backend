@@ -14,13 +14,7 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import {
-  IsEnum,
-  IsInt,
-  IsOptional,
-  IsString,
-  Min,
-} from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import type { Request as ExpressRequest } from 'express';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import { Permissions } from '../../../../common/decorators/permissions.decorator';
@@ -164,7 +158,10 @@ export class AccessDoorsController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('deviceId', ParseIntPipe) deviceId: number,
   ) {
-    return this.accessDoorsService.syncFromDevice(req.user.companyId!, deviceId);
+    return this.accessDoorsService.syncFromDevice(
+      req.user.companyId!,
+      deviceId,
+    );
   }
 
   @Post(':id/sync-to-device')
@@ -192,7 +189,10 @@ export class AccessDoorsController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.accessDoorsService.getDoorConfiguration(req.user.companyId!, id);
+    return this.accessDoorsService.getDoorConfiguration(
+      req.user.companyId!,
+      id,
+    );
   }
 
   @Post(':id/open')
@@ -220,7 +220,10 @@ export class AccessDoorsController {
   @Post(':id/always-open')
   @UseGuards(PermissionsGuard)
   @Permissions('access_doors:update')
-  @ApiActionOperation('Always Open Door', 'Set door remote command mode to alwaysOpen')
+  @ApiActionOperation(
+    'Always Open Door',
+    'Set door remote command mode to alwaysOpen',
+  )
   alwaysOpenDoor(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -231,7 +234,10 @@ export class AccessDoorsController {
   @Post(':id/always-close')
   @UseGuards(PermissionsGuard)
   @Permissions('access_doors:update')
-  @ApiActionOperation('Always Close Door', 'Set door remote command mode to alwaysClose')
+  @ApiActionOperation(
+    'Always Close Door',
+    'Set door remote command mode to alwaysClose',
+  )
   alwaysCloseDoor(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,

@@ -104,9 +104,13 @@ export class OnboardingRequest {
   @JoinColumn({ name: 'employee_id' })
   employee: Employee;
 
-  @ManyToOne(() => OnboardingWorkflow, (workflow) => workflow.onboarding_requests, {
-    onDelete: 'SET NULL',
-  })
+  @ManyToOne(
+    () => OnboardingWorkflow,
+    (workflow) => workflow.onboarding_requests,
+    {
+      onDelete: 'SET NULL',
+    },
+  )
   @JoinColumn({ name: 'workflow_id' })
   workflow: OnboardingWorkflow | null;
 
@@ -123,9 +127,13 @@ export class OnboardingRequest {
   })
   tasks: OnboardingTask[];
 
-  @OneToMany(() => OnboardingApproval, (approval) => approval.onboarding_request, {
-    cascade: true,
-  })
+  @OneToMany(
+    () => OnboardingApproval,
+    (approval) => approval.onboarding_request,
+    {
+      cascade: true,
+    },
+  )
   approvals: OnboardingApproval[];
 
   @OneToMany(() => OnboardingAuditLog, (audit) => audit.onboarding_request)

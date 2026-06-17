@@ -53,9 +53,7 @@ export class EmployeeSelfServiceController {
 
   @Get('attendance/today')
   @ApiOperation({ summary: 'Get my attendance state for today' })
-  getTodayAttendance(
-    @Req() req: ExpressRequest & { user: AuthenticatedUser },
-  ) {
+  getTodayAttendance(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
     return this.employeeSelfServiceService.getTodayAttendance(req.user);
   }
 
@@ -147,7 +145,11 @@ export class EmployeeSelfServiceController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: CancelLeaveRequestDto,
   ) {
-    return this.employeeSelfServiceService.cancelLeaveRequest(req.user, id, dto);
+    return this.employeeSelfServiceService.cancelLeaveRequest(
+      req.user,
+      id,
+      dto,
+    );
   }
 
   @Get('leave/requests/:id/pdf')

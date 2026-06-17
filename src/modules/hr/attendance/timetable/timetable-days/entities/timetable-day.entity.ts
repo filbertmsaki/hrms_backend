@@ -15,7 +15,9 @@ import { Shift } from '../../../shift/shifts/entities/shift.entity';
 @Entity('timetable_days')
 @Index('IDX_timetable_days_timetable_id', ['timetableId'])
 @Index('IDX_timetable_days_default_shift_id', ['defaultShiftId'])
-@Index('UQ_timetable_days_timetable_day', ['timetableId', 'dayOfWeek'], { unique: true })
+@Index('UQ_timetable_days_timetable_day', ['timetableId', 'dayOfWeek'], {
+  unique: true,
+})
 export class TimetableDay {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -62,7 +64,9 @@ export class TimetableDay {
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
-  @ManyToOne(() => Timetable, (timetable) => timetable.days, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Timetable, (timetable) => timetable.days, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'timetable_id' })
   timetable: Timetable;
 

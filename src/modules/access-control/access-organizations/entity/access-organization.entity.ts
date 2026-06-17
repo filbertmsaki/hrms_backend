@@ -44,10 +44,20 @@ export class AccessOrganization {
   @Column({ name: 'parent_id', type: 'int', nullable: true })
   parentId: number | null;
 
-  @Column({ name: 'hikvision_org_index', type: 'varchar', length: 50, nullable: true })
+  @Column({
+    name: 'hikvision_org_index',
+    type: 'varchar',
+    length: 50,
+    nullable: true,
+  })
   hikvisionOrgIndex: string | null;
 
-  @Column({ name: 'hikvision_group_no', type: 'varchar', length: 50, nullable: true })
+  @Column({
+    name: 'hikvision_group_no',
+    type: 'varchar',
+    length: 50,
+    nullable: true,
+  })
   hikvisionGroupNo: string | null;
 
   @Column({ name: 'name', type: 'varchar', length: 150, nullable: true })
@@ -104,26 +114,38 @@ export class AccessOrganization {
   @JoinColumn({ name: 'branch_id' })
   branch: Branch | null;
 
-  @ManyToOne(() => AccessOrganization, (organization) => organization.children, {
-    nullable: true,
-    onDelete: 'SET NULL',
-  })
+  @ManyToOne(
+    () => AccessOrganization,
+    (organization) => organization.children,
+    {
+      nullable: true,
+      onDelete: 'SET NULL',
+    },
+  )
   @JoinColumn({ name: 'parent_id' })
   parent: AccessOrganization | null;
 
   @OneToMany(() => AccessOrganization, (organization) => organization.parent)
   children: AccessOrganization[];
 
-  @OneToMany(() => AccessOrganizationEmployee, (organizationEmployee) => organizationEmployee.organization)
+  @OneToMany(
+    () => AccessOrganizationEmployee,
+    (organizationEmployee) => organizationEmployee.organization,
+  )
   organizationEmployees: AccessOrganizationEmployee[];
 
   @OneToMany(() => AccessGroup, (group) => group.organization)
   accessGroups: AccessGroup[];
 
-  @OneToMany(() => EmployeeDeviceAssignment, (assignment) => assignment.organization)
+  @OneToMany(
+    () => EmployeeDeviceAssignment,
+    (assignment) => assignment.organization,
+  )
   employeeDeviceAssignments: EmployeeDeviceAssignment[];
 
-  @OneToMany(() => AccessGroupEmployee, (groupEmployee) => groupEmployee.organization)
+  @OneToMany(
+    () => AccessGroupEmployee,
+    (groupEmployee) => groupEmployee.organization,
+  )
   groupEmployees: AccessGroupEmployee[];
 }
-

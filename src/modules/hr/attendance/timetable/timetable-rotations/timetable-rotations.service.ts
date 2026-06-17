@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
@@ -41,7 +46,9 @@ export class TimetableRotationsService {
       qb.andWhere('rotation.id != :ignoreId', { ignoreId });
     }
 
-    const existing = await qb.select('rotation.id', 'id').getRawOne<{ id?: number }>();
+    const existing = await qb
+      .select('rotation.id', 'id')
+      .getRawOne<{ id?: number }>();
     if (existing?.id) {
       throw new ConflictException(
         'Only one active rotation is allowed for a timetable at a time',
@@ -49,13 +56,27 @@ export class TimetableRotationsService {
     }
   }
 
-  private async ensureTimetable(companyId: number, timetableId: number): Promise<void> {
-    const item = await this.timetableRepository.findOne({ where: { id: timetableId, companyId }, select: ['id'] });
-    if (!item) throw new BadRequestException('timetable_id does not belong to the active company');
+  private async ensureTimetable(
+    companyId: number,
+    timetableId: number,
+  ): Promise<void> {
+    const item = await this.timetableRepository.findOne({
+      where: { id: timetableId, companyId },
+      select: ['id'],
+    });
+    if (!item)
+      throw new BadRequestException(
+        'timetable_id does not belong to the active company',
+      );
   }
 
-  private async findOrFail(companyId: number, id: number): Promise<TimetableRotation> {
-    const item = await this.rotationRepository.findOne({ where: { id, companyId } });
+  private async findOrFail(
+    companyId: number,
+    id: number,
+  ): Promise<TimetableRotation> {
+    const item = await this.rotationRepository.findOne({
+      where: { id, companyId },
+    });
     if (!item) throw new NotFoundException('Timetable rotation not found');
     return item;
   }
@@ -67,17 +88,24 @@ export class TimetableRotationsService {
       dto.status ?? TimetableRotationStatusEnum.ACTIVE,
     );
 
-    const duplicate = await this.rotationRepository.findOne({ where: { timetableId: dto.timetable_id, name: dto.name.trim() } });
-    if (duplicate) throw new ConflictException('Rotation name already exists for this timetable');
+    const duplicate = await this.rotationRepository.findOne({
+      where: { timetableId: dto.timetable_id, name: dto.name.trim() },
+    });
+    if (duplicate)
+      throw new ConflictException(
+        'Rotation name already exists for this timetable',
+      );
 
-    const created = await this.rotationRepository.save(this.rotationRepository.create({
-      companyId,
-      timetableId: dto.timetable_id,
-      name: dto.name.trim(),
-      cycleDays: dto.cycle_days,
-      description: dto.description?.trim() || null,
-      status: dto.status,
-    }));
+    const created = await this.rotationRepository.save(
+      this.rotationRepository.create({
+        companyId,
+        timetableId: dto.timetable_id,
+        name: dto.name.trim(),
+        cycleDays: dto.cycle_days,
+        description: dto.description?.trim() || null,
+        status: dto.status,
+      }),
+    );
 
     await this.generatedScheduleInvalidationService.invalidate({
       companyId,
@@ -88,10 +116,22 @@ export class TimetableRotationsService {
   }
 
   async findAll(companyId: number, query: TimetableRotationQueryDto) {
-    const { page = 1, limit = 20, sortBy = 'created_at', sortOrder = SortDirection.DESC, timetable_id, status } = query;
+    const {
+      page = 1,
+      limit = 20,
+      sortBy = 'created_at',
+      sortOrder = SortDirection.DESC,
+      timetable_id,
+      status,
+    } = query;
 
-    const qb = this.rotationRepository.createQueryBuilder('rotation').where('rotation.company_id = :companyId', { companyId });
-    if (timetable_id) qb.andWhere('rotation.timetable_id = :timetableId', { timetableId: timetable_id });
+    const qb = this.rotationRepository
+      .createQueryBuilder('rotation')
+      .where('rotation.company_id = :companyId', { companyId });
+    if (timetable_id)
+      qb.andWhere('rotation.timetable_id = :timetableId', {
+        timetableId: timetable_id,
+      });
     if (status) qb.andWhere('rotation.status = :status', { status });
 
     const sortFieldMap: Record<string, string> = {
@@ -102,11 +142,20 @@ export class TimetableRotationsService {
     const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.created_at;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
-    const [items, total] = await qb.orderBy(`rotation.${safeSortBy}`, direction).skip((page - 1) * limit).take(limit).getManyAndCount();
-    return { data: items, meta: buildPaginationMeta(total, items.length, limit, page) };
+    const [items, total] = await qb
+      .orderBy(`rotation.${safeSortBy}`, direction)
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+    return {
+      data: items,
+      meta: buildPaginationMeta(total, items.length, limit, page),
+    };
   }
 
-  async findOne(companyId: number, id: number) { return this.findOrFail(companyId, id); }
+  async findOne(companyId: number, id: number) {
+    return this.findOrFail(companyId, id);
+  }
 
   async update(companyId: number, id: number, dto: UpdateTimetableRotationDto) {
     const item = await this.findOrFail(companyId, id);
@@ -122,14 +171,20 @@ export class TimetableRotationsService {
 
     if (dto.name !== undefined) {
       const name = dto.name.trim();
-      const duplicate = await this.rotationRepository.findOne({ where: { timetableId, name } });
-      if (duplicate && duplicate.id !== item.id) throw new ConflictException('Rotation name already exists for this timetable');
+      const duplicate = await this.rotationRepository.findOne({
+        where: { timetableId, name },
+      });
+      if (duplicate && duplicate.id !== item.id)
+        throw new ConflictException(
+          'Rotation name already exists for this timetable',
+        );
       item.name = name;
     }
 
     item.timetableId = timetableId;
     if (dto.cycle_days !== undefined) item.cycleDays = dto.cycle_days;
-    if (dto.description !== undefined) item.description = dto.description?.trim() || null;
+    if (dto.description !== undefined)
+      item.description = dto.description?.trim() || null;
     if (dto.status !== undefined) item.status = dto.status;
 
     const saved = await this.rotationRepository.save(item);

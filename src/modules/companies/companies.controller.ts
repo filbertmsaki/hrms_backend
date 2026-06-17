@@ -52,7 +52,10 @@ export class CompaniesController {
   @UseGuards(RolesGuard, PermissionsGuard)
   @Roles('OWNER')
   @Permissions('companies:create')
-  @ApiCreateOperation('Company', 'Create a company and its first administrator (OWNER only)')
+  @ApiCreateOperation(
+    'Company',
+    'Create a company and its first administrator (OWNER only)',
+  )
   async createCompany(@Body() createCompanyDto: CreateCompanyDto) {
     return this.companiesService.createCompanyWithAdministrator(
       createCompanyDto,

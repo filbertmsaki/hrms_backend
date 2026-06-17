@@ -79,7 +79,10 @@ export class OffboardingController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: OffboardingWorkflowQueryDto,
   ) {
-    return this.offboardingService.findAllOffboardingWorkflows(req.user.companyId!, query);
+    return this.offboardingService.findAllOffboardingWorkflows(
+      req.user.companyId!,
+      query,
+    );
   }
 
   @Get('workflows/:id')
@@ -90,7 +93,10 @@ export class OffboardingController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.offboardingService.findOneOffboardingWorkflow(req.user.companyId!, id);
+    return this.offboardingService.findOneOffboardingWorkflow(
+      req.user.companyId!,
+      id,
+    );
   }
 
   @Patch('workflows/:id')
@@ -171,7 +177,11 @@ export class OffboardingController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.offboardingService.removeOffboardingWorkflow(req.user.companyId!, id, req.user);
+    return this.offboardingService.removeOffboardingWorkflow(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
   }
 
   @Post('requests')
@@ -268,7 +278,11 @@ export class OffboardingController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.offboardingService.findOneOffboardingRequest(req.user.companyId!, id, req.user);
+    return this.offboardingService.findOneOffboardingRequest(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
   }
 
   @Get('requests')
@@ -279,7 +293,11 @@ export class OffboardingController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: OffboardingRequestQueryDto,
   ) {
-    return this.offboardingService.findAllOffboardingRequests(req.user.companyId!, query, req.user);
+    return this.offboardingService.findAllOffboardingRequests(
+      req.user.companyId!,
+      query,
+      req.user,
+    );
   }
 
   @Post('requests/:id/documents')
@@ -308,7 +326,11 @@ export class OffboardingController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.offboardingService.listDocuments(req.user.companyId!, id, req.user);
+    return this.offboardingService.listDocuments(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
   }
 
   @Post('requests/:id/tasks')
@@ -451,7 +473,11 @@ export class OffboardingController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.offboardingService.getProgress(req.user.companyId!, id, req.user);
+    return this.offboardingService.getProgress(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
   }
 
   @Get('requests/:id/approvals')
@@ -462,7 +488,11 @@ export class OffboardingController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.offboardingService.getApprovals(req.user.companyId!, id, req.user);
+    return this.offboardingService.getApprovals(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
   }
 
   @Get('requests/:id/audit-logs')
@@ -473,7 +503,10 @@ export class OffboardingController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.offboardingService.getAuditLogs(req.user.companyId!, id, req.user);
+    return this.offboardingService.getAuditLogs(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
   }
 }
-

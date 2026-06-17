@@ -27,5 +27,3 @@ import { EmployeeDeviceIdentity } from '../../hr/attendance/processing/entities/
   exports: [EmployeeBiometricCaptureSessionService],
 })
 export class EmployeeBiometricCaptureSessionsModule {}
-
-

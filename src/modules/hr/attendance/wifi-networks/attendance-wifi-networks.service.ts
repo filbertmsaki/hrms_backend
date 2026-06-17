@@ -1,4 +1,3 @@
-
 import {
   BadRequestException,
   Injectable,
@@ -33,8 +32,7 @@ export class AttendanceWifiNetworksService {
       ssid: dto.ssid.trim(),
       bssid: dto.bssid ? dto.bssid.trim() : null,
       allowedIpCidrs: dto.allowedIpCidrs ?? null,
-      securityType:
-        dto.securityType ?? AttendanceWifiSecurityTypeEnum.UNKNOWN,
+      securityType: dto.securityType ?? AttendanceWifiSecurityTypeEnum.UNKNOWN,
       requireSsidMatch: dto.requireSsidMatch ?? true,
       requireBssidMatch: dto.requireBssidMatch ?? false,
       requireIpMatch: dto.requireIpMatch ?? false,
@@ -68,13 +66,9 @@ export class AttendanceWifiNetworksService {
     const wifiNetwork = await this.findOne(companyId, id);
 
     const nextSsid = dto.ssid ?? wifiNetwork.ssid;
-    const nextBssid =
-      dto.bssid !== undefined ? dto.bssid : wifiNetwork.bssid;
+    const nextBssid = dto.bssid !== undefined ? dto.bssid : wifiNetwork.bssid;
 
-    if (
-      dto.ssid !== undefined ||
-      dto.bssid !== undefined
-    ) {
+    if (dto.ssid !== undefined || dto.bssid !== undefined) {
       await this.validateDuplicate(companyId, nextSsid, nextBssid, id);
     }
 

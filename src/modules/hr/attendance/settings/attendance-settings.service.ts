@@ -1,4 +1,8 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
@@ -33,8 +37,13 @@ export class AttendanceSettingsService {
     };
   }
 
-  private async findOrFail(companyId: number, id: number): Promise<AttendanceSetting> {
-    const item = await this.attendanceSettingRepository.findOne({ where: { id, companyId } });
+  private async findOrFail(
+    companyId: number,
+    id: number,
+  ): Promise<AttendanceSetting> {
+    const item = await this.attendanceSettingRepository.findOne({
+      where: { id, companyId },
+    });
     if (!item) {
       throw new NotFoundException('Attendance setting not found');
     }
@@ -47,7 +56,9 @@ export class AttendanceSettingsService {
     });
 
     if (existing) {
-      throw new ConflictException('Attendance setting name already exists for this company');
+      throw new ConflictException(
+        'Attendance setting name already exists for this company',
+      );
     }
 
     const created = await this.attendanceSettingRepository.save(
@@ -84,7 +95,9 @@ export class AttendanceSettingsService {
       .where('attendanceSetting.company_id = :companyId', { companyId });
 
     if (typeof auto_calculate === 'boolean') {
-      qb.andWhere('attendanceSetting.auto_calculate = :autoCalculate', { autoCalculate: auto_calculate });
+      qb.andWhere('attendanceSetting.auto_calculate = :autoCalculate', {
+        autoCalculate: auto_calculate,
+      });
     }
 
     if (typeof requires_approval === 'boolean') {
@@ -94,7 +107,9 @@ export class AttendanceSettingsService {
     }
 
     if (search?.trim()) {
-      qb.andWhere('attendanceSetting.name LIKE :term', { term: `%${search.trim()}%` });
+      qb.andWhere('attendanceSetting.name LIKE :term', {
+        term: `%${search.trim()}%`,
+      });
     }
 
     const sortFieldMap: Record<string, string> = {
@@ -130,7 +145,9 @@ export class AttendanceSettingsService {
         where: { companyId, name: normalized },
       });
       if (existing && existing.id !== item.id) {
-        throw new ConflictException('Attendance setting name already exists for this company');
+        throw new ConflictException(
+          'Attendance setting name already exists for this company',
+        );
       }
       item.name = normalized;
     }
@@ -169,9 +186,3 @@ export class AttendanceSettingsService {
     return { message: 'Attendance setting deleted successfully' };
   }
 }
-
-
-
-
-
-

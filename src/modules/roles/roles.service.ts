@@ -174,7 +174,10 @@ export class RolesService {
     return this.findAccessibleRoleOrFail(id, actor);
   }
 
-  async findOneByName(name: string, companyId: number | null = null): Promise<Role> {
+  async findOneByName(
+    name: string,
+    companyId: number | null = null,
+  ): Promise<Role> {
     const role = await this.rolesRepository.findOne({
       where: {
         name,
@@ -225,7 +228,7 @@ export class RolesService {
     role.display_name = updateRoleDto.display_name ?? role.display_name;
     role.description =
       updateRoleDto.description !== undefined
-        ? updateRoleDto.description ?? null
+        ? (updateRoleDto.description ?? null)
         : role.description;
     role.company_id = updatedCompanyId;
 

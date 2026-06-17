@@ -38,7 +38,11 @@ export class HikvisionSyncLog {
   @Column({ name: 'sync_type', type: 'enum', enum: HikvisionSyncLogTypeEnum })
   syncType: HikvisionSyncLogTypeEnum;
 
-  @Column({ name: 'direction', type: 'enum', enum: HikvisionSyncLogDirectionEnum })
+  @Column({
+    name: 'direction',
+    type: 'enum',
+    enum: HikvisionSyncLogDirectionEnum,
+  })
   direction: HikvisionSyncLogDirectionEnum;
 
   @Column({ name: 'status', type: 'enum', enum: HikvisionSyncLogStatusEnum })
@@ -82,5 +86,3 @@ export class HikvisionSyncLog {
   @JoinColumn({ name: 'device_id' })
   device: AttendanceDevice | null;
 }
-
-

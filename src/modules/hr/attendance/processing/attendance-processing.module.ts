@@ -89,7 +89,10 @@ import { TimetableScheduleGenerationService } from './timetable-schedule-generat
     ]),
     HrSharedModule,
   ],
-  controllers: [AttendanceProcessingController, AttendanceBusinessTripsController],
+  controllers: [
+    AttendanceProcessingController,
+    AttendanceBusinessTripsController,
+  ],
   providers: [
     AttendanceBusinessTripsService,
     AttendanceEmployeeResolverService,
@@ -111,4 +114,3 @@ import { TimetableScheduleGenerationService } from './timetable-schedule-generat
   ],
 })
 export class AttendanceProcessingModule {}
-

@@ -14,4 +14,3 @@ export enum EmployeeDeviceAccessActionEnum {
   SYNC_RIGHT_PLAN = 'SYNC_RIGHT_PLAN',
   SYNC_ACCESS_GROUP = 'SYNC_ACCESS_GROUP',
 }
-

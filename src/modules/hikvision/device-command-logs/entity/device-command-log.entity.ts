@@ -78,13 +78,22 @@ export class DeviceCommandLog {
   @Column({ name: 'error_message', type: 'text', nullable: true })
   errorMessage: string | null;
 
-  @Column({ name: 'correlation_id', type: 'varchar', length: 120, nullable: true })
+  @Column({
+    name: 'correlation_id',
+    type: 'varchar',
+    length: 120,
+    nullable: true,
+  })
   correlationId: string | null;
 
   @Column({ name: 'created_by_company_user_id', type: 'int', nullable: true })
   createdByCompanyUserId: number | null;
 
-  @Column({ name: 'started_at', type: 'datetime', default: () => 'CURRENT_TIMESTAMP' })
+  @Column({
+    name: 'started_at',
+    type: 'datetime',
+    default: () => 'CURRENT_TIMESTAMP',
+  })
   startedAt: Date;
 
   @Column({ name: 'completed_at', type: 'datetime', nullable: true })
@@ -109,5 +118,3 @@ export class DeviceCommandLog {
   @JoinColumn({ name: 'created_by_company_user_id' })
   createdByCompanyUser: CompanyUser | null;
 }
-
-

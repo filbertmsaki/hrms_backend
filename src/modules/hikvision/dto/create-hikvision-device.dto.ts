@@ -72,9 +72,10 @@ export class CreateHikvisionDeviceDto {
   @IsOptional()
   location_description?: string;
 
-  @ApiPropertyOptional({ description: 'Optional extra metadata to keep on the backend' })
+  @ApiPropertyOptional({
+    description: 'Optional extra metadata to keep on the backend',
+  })
   @IsObject()
   @IsOptional()
   metadata?: Record<string, unknown>;
 }
-

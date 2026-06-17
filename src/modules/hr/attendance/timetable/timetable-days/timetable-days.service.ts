@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
@@ -23,22 +28,40 @@ export class TimetableDaysService {
     private readonly generatedScheduleInvalidationService: TimetableGeneratedScheduleInvalidationService,
   ) {}
 
-  private async ensureTimetable(companyId: number, timetableId: number): Promise<void> {
-    const timetable = await this.timetableRepository.findOne({ where: { id: timetableId, companyId }, select: ['id'] });
-    if (!timetable) throw new BadRequestException('timetable_id does not belong to the active company');
+  private async ensureTimetable(
+    companyId: number,
+    timetableId: number,
+  ): Promise<void> {
+    const timetable = await this.timetableRepository.findOne({
+      where: { id: timetableId, companyId },
+      select: ['id'],
+    });
+    if (!timetable)
+      throw new BadRequestException(
+        'timetable_id does not belong to the active company',
+      );
   }
 
-  private async ensureShift(companyId: number, shiftId?: number | null): Promise<void> {
+  private async ensureShift(
+    companyId: number,
+    shiftId?: number | null,
+  ): Promise<void> {
     if (!shiftId) return;
 
     const shift = await this.shiftRepository.findOne({
       where: { id: shiftId, companyId },
       select: ['id'],
     });
-    if (!shift) throw new BadRequestException('default_shift_id does not belong to the active company');
+    if (!shift)
+      throw new BadRequestException(
+        'default_shift_id does not belong to the active company',
+      );
   }
 
-  private async findOrFail(companyId: number, id: number): Promise<TimetableDay> {
+  private async findOrFail(
+    companyId: number,
+    id: number,
+  ): Promise<TimetableDay> {
     const item = await this.timetableDayRepository
       .createQueryBuilder('day')
       .innerJoin(Timetable, 'timetable', 'timetable.id = day.timetable_id')
@@ -56,7 +79,10 @@ export class TimetableDaysService {
     const duplicate = await this.timetableDayRepository.findOne({
       where: { timetableId: dto.timetable_id, dayOfWeek: dto.day_of_week },
     });
-    if (duplicate) throw new ConflictException('Day configuration already exists for this day_of_week');
+    if (duplicate)
+      throw new ConflictException(
+        'Day configuration already exists for this day_of_week',
+      );
 
     const created = await this.timetableDayRepository.save(
       this.timetableDayRepository.create({
@@ -85,14 +111,23 @@ export class TimetableDaysService {
   }
 
   async findAll(companyId: number, query: TimetableDayQueryDto) {
-    const { page = 1, limit = 20, sortBy = 'day_of_week', sortOrder = SortDirection.ASC, timetable_id } = query;
+    const {
+      page = 1,
+      limit = 20,
+      sortBy = 'day_of_week',
+      sortOrder = SortDirection.ASC,
+      timetable_id,
+    } = query;
 
     const qb = this.timetableDayRepository
       .createQueryBuilder('day')
       .innerJoin(Timetable, 'timetable', 'timetable.id = day.timetable_id')
       .where('timetable.company_id = :companyId', { companyId });
 
-    if (timetable_id) qb.andWhere('day.timetable_id = :timetableId', { timetableId: timetable_id });
+    if (timetable_id)
+      qb.andWhere('day.timetable_id = :timetableId', {
+        timetableId: timetable_id,
+      });
 
     const sortFieldMap: Record<string, string> = {
       day_of_week: 'dayOfWeek',
@@ -107,7 +142,10 @@ export class TimetableDaysService {
       .take(limit)
       .getManyAndCount();
 
-    return { data: items, meta: buildPaginationMeta(total, items.length, limit, page) };
+    return {
+      data: items,
+      meta: buildPaginationMeta(total, items.length, limit, page),
+    };
   }
 
   async findOne(companyId: number, id: number) {
@@ -122,26 +160,43 @@ export class TimetableDaysService {
     const dayOfWeek = dto.day_of_week ?? item.dayOfWeek;
 
     await this.ensureTimetable(companyId, timetableId);
-    await this.ensureShift(companyId, dto.default_shift_id ?? item.defaultShiftId);
+    await this.ensureShift(
+      companyId,
+      dto.default_shift_id ?? item.defaultShiftId,
+    );
 
-    const duplicate = await this.timetableDayRepository.findOne({ where: { timetableId, dayOfWeek } });
+    const duplicate = await this.timetableDayRepository.findOne({
+      where: { timetableId, dayOfWeek },
+    });
     if (duplicate && duplicate.id !== item.id) {
-      throw new ConflictException('Day configuration already exists for this day_of_week');
+      throw new ConflictException(
+        'Day configuration already exists for this day_of_week',
+      );
     }
 
     item.timetableId = timetableId;
     item.dayOfWeek = dayOfWeek;
 
-    if (dto.is_working_day !== undefined) item.isWorkingDay = dto.is_working_day;
-    if (dto.default_shift_id !== undefined) item.defaultShiftId = dto.default_shift_id;
-    if (dto.minimum_work_minutes !== undefined) item.minimumWorkMinutes = dto.minimum_work_minutes;
-    if (dto.expected_check_in_time !== undefined) item.expectedCheckInTime = dto.expected_check_in_time;
-    if (dto.expected_check_out_time !== undefined) item.expectedCheckOutTime = dto.expected_check_out_time;
-    if (dto.allow_flexible_time !== undefined) item.allowFlexibleTime = dto.allow_flexible_time;
-    if (dto.flexible_start_from !== undefined) item.flexibleStartFrom = dto.flexible_start_from;
-    if (dto.flexible_start_to !== undefined) item.flexibleStartTo = dto.flexible_start_to;
-    if (dto.overtime_allowed !== undefined) item.overtimeAllowed = dto.overtime_allowed;
-    if (dto.break_required !== undefined) item.breakRequired = dto.break_required;
+    if (dto.is_working_day !== undefined)
+      item.isWorkingDay = dto.is_working_day;
+    if (dto.default_shift_id !== undefined)
+      item.defaultShiftId = dto.default_shift_id;
+    if (dto.minimum_work_minutes !== undefined)
+      item.minimumWorkMinutes = dto.minimum_work_minutes;
+    if (dto.expected_check_in_time !== undefined)
+      item.expectedCheckInTime = dto.expected_check_in_time;
+    if (dto.expected_check_out_time !== undefined)
+      item.expectedCheckOutTime = dto.expected_check_out_time;
+    if (dto.allow_flexible_time !== undefined)
+      item.allowFlexibleTime = dto.allow_flexible_time;
+    if (dto.flexible_start_from !== undefined)
+      item.flexibleStartFrom = dto.flexible_start_from;
+    if (dto.flexible_start_to !== undefined)
+      item.flexibleStartTo = dto.flexible_start_to;
+    if (dto.overtime_allowed !== undefined)
+      item.overtimeAllowed = dto.overtime_allowed;
+    if (dto.break_required !== undefined)
+      item.breakRequired = dto.break_required;
     if (dto.break_minutes !== undefined) item.breakMinutes = dto.break_minutes;
 
     const saved = await this.timetableDayRepository.save(item);

@@ -44,17 +44,25 @@ import { EmployeeDeviceAssignmentsService } from '../service/employee-device-ass
 @Controller('access-control/employees')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class EmployeeDeviceAssignmentsController {
-  constructor(private readonly assignmentsService: EmployeeDeviceAssignmentsService) {}
+  constructor(
+    private readonly assignmentsService: EmployeeDeviceAssignmentsService,
+  ) {}
 
   @Get(':employeeId/devices')
   @UseGuards(PermissionsGuard)
   @Permissions('employee_device_assignments:read')
-  @ApiListOperation('Employee Device Assignments', 'List one employee device assignments')
+  @ApiListOperation(
+    'Employee Device Assignments',
+    'List one employee device assignments',
+  )
   findAssignments(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
   ) {
-    return this.assignmentsService.listAssignments(req.user.companyId!, employeeId);
+    return this.assignmentsService.listAssignments(
+      req.user.companyId!,
+      employeeId,
+    );
   }
 
   @Post(':employeeId/devices')
@@ -69,7 +77,11 @@ export class EmployeeDeviceAssignmentsController {
     @Param('employeeId', ParseIntPipe) employeeId: number,
     @Body() dto: AssignEmployeeDevicesDto,
   ) {
-    return this.assignmentsService.assignDevices(req.user.companyId!, employeeId, dto);
+    return this.assignmentsService.assignDevices(
+      req.user.companyId!,
+      employeeId,
+      dto,
+    );
   }
 
   @Post(':employeeId/devices/:deviceId/users/register')
@@ -117,13 +129,20 @@ export class EmployeeDeviceAssignmentsController {
   @Get('devices/:deviceId/users')
   @UseGuards(PermissionsGuard)
   @Permissions('employee_device_assignments:read')
-  @ApiListOperation('Search Device Users', 'Search all users on one Hikvision device')
+  @ApiListOperation(
+    'Search Device Users',
+    'Search all users on one Hikvision device',
+  )
   searchUsers(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('deviceId', ParseIntPipe) deviceId: number,
     @Query() query: HikvisionUserSearchQueryDto,
   ) {
-    return this.assignmentsService.searchUsers(req.user.companyId!, deviceId, query);
+    return this.assignmentsService.searchUsers(
+      req.user.companyId!,
+      deviceId,
+      query,
+    );
   }
 
   @Get(':employeeId/devices/:deviceId/users')
@@ -138,7 +157,11 @@ export class EmployeeDeviceAssignmentsController {
     @Param('employeeId', ParseIntPipe) employeeId: number,
     @Param('deviceId', ParseIntPipe) deviceId: number,
   ) {
-    return this.assignmentsService.getUser(req.user.companyId!, employeeId, deviceId);
+    return this.assignmentsService.getUser(
+      req.user.companyId!,
+      employeeId,
+      deviceId,
+    );
   }
 
   @Get(':employeeId/devices/:deviceId/users/fingerprints')
@@ -153,7 +176,11 @@ export class EmployeeDeviceAssignmentsController {
     @Param('employeeId', ParseIntPipe) employeeId: number,
     @Param('deviceId', ParseIntPipe) deviceId: number,
   ) {
-    return this.assignmentsService.listFingerprints(req.user.companyId!, employeeId, deviceId);
+    return this.assignmentsService.listFingerprints(
+      req.user.companyId!,
+      employeeId,
+      deviceId,
+    );
   }
 
   @Get(':employeeId/devices/:deviceId/users/cards')
@@ -168,7 +195,11 @@ export class EmployeeDeviceAssignmentsController {
     @Param('employeeId', ParseIntPipe) employeeId: number,
     @Param('deviceId', ParseIntPipe) deviceId: number,
   ) {
-    return this.assignmentsService.listCards(req.user.companyId!, employeeId, deviceId);
+    return this.assignmentsService.listCards(
+      req.user.companyId!,
+      employeeId,
+      deviceId,
+    );
   }
 
   @Post(':employeeId/devices/:deviceId/users/cards')
@@ -449,7 +480,9 @@ export class EmployeeDeviceAssignmentsController {
     );
   }
 
-  @Post(':employeeId/devices/:deviceId/users/fingerprints/:fingerprintId/resync')
+  @Post(
+    ':employeeId/devices/:deviceId/users/fingerprints/:fingerprintId/resync',
+  )
   @UseGuards(PermissionsGuard)
   @Permissions('employee_device_assignments:update')
   @ApiActionOperation(
@@ -478,7 +511,9 @@ export class EmployeeDeviceAssignmentsController {
     );
   }
 
-  @Patch(':employeeId/devices/:deviceId/users/fingerprints/:fingerprintId/disable')
+  @Patch(
+    ':employeeId/devices/:deviceId/users/fingerprints/:fingerprintId/disable',
+  )
   @UseGuards(PermissionsGuard)
   @Permissions('employee_device_assignments:update')
   @ApiActionOperation(
@@ -505,7 +540,9 @@ export class EmployeeDeviceAssignmentsController {
     );
   }
 
-  @Patch(':employeeId/devices/:deviceId/users/fingerprints/:fingerprintId/enable')
+  @Patch(
+    ':employeeId/devices/:deviceId/users/fingerprints/:fingerprintId/enable',
+  )
   @UseGuards(PermissionsGuard)
   @Permissions('employee_device_assignments:update')
   @ApiActionOperation(
@@ -733,6 +770,10 @@ export class EmployeeDeviceAssignmentsController {
     @Param('employeeId', ParseIntPipe) employeeId: number,
     @Param('deviceId', ParseIntPipe) deviceId: number,
   ) {
-    return this.assignmentsService.removeAssignment(req.user.companyId!, employeeId, deviceId);
+    return this.assignmentsService.removeAssignment(
+      req.user.companyId!,
+      employeeId,
+      deviceId,
+    );
   }
 }

@@ -9,11 +9,9 @@ import {
 } from 'class-validator';
 
 export class CreateAttendanceMobilePunchDto {
-
   @IsOptional()
   @IsInt()
   employeeId?: number;
-
 
   @IsOptional()
   @IsInt()
@@ -56,7 +54,6 @@ export class CreateAttendanceMobilePunchDto {
   @IsOptional()
   @IsObject()
   deviceInfo?: Record<string, any>;
-
 
   @IsOptional()
   @IsString()

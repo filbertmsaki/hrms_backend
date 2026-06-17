@@ -101,7 +101,10 @@ export class OnboardingService {
   private getOnboardingWorkflowRepository(
     manager?: EntityManager,
   ): Repository<OnboardingWorkflow> {
-    return manager?.getRepository(OnboardingWorkflow) ?? this.onboardingWorkflowRepository;
+    return (
+      manager?.getRepository(OnboardingWorkflow) ??
+      this.onboardingWorkflowRepository
+    );
   }
 
   private getOnboardingWorkflowStepRepository(
@@ -116,24 +119,36 @@ export class OnboardingService {
   private getOnboardingRequestRepository(
     manager?: EntityManager,
   ): Repository<OnboardingRequest> {
-    return manager?.getRepository(OnboardingRequest) ?? this.onboardingRequestRepository;
+    return (
+      manager?.getRepository(OnboardingRequest) ??
+      this.onboardingRequestRepository
+    );
   }
 
-  private getOnboardingTaskRepository(manager?: EntityManager): Repository<OnboardingTask> {
-    return manager?.getRepository(OnboardingTask) ?? this.onboardingTaskRepository;
+  private getOnboardingTaskRepository(
+    manager?: EntityManager,
+  ): Repository<OnboardingTask> {
+    return (
+      manager?.getRepository(OnboardingTask) ?? this.onboardingTaskRepository
+    );
   }
 
   private getOnboardingApprovalRepository(
     manager?: EntityManager,
   ): Repository<OnboardingApproval> {
-    return manager?.getRepository(OnboardingApproval) ?? this.onboardingApprovalRepository;
+    return (
+      manager?.getRepository(OnboardingApproval) ??
+      this.onboardingApprovalRepository
+    );
   }
 
   private getEmployeeRepository(manager?: EntityManager): Repository<Employee> {
     return manager?.getRepository(Employee) ?? this.employeeRepository;
   }
 
-  private getDepartmentRepository(manager?: EntityManager): Repository<Department> {
+  private getDepartmentRepository(
+    manager?: EntityManager,
+  ): Repository<Department> {
     return manager?.getRepository(Department) ?? this.departmentRepository;
   }
 
@@ -145,7 +160,9 @@ export class OnboardingService {
     return manager?.getRepository(Branch) ?? this.branchRepository;
   }
 
-  private getCompanyUserRepository(manager?: EntityManager): Repository<CompanyUser> {
+  private getCompanyUserRepository(
+    manager?: EntityManager,
+  ): Repository<CompanyUser> {
     return manager?.getRepository(CompanyUser) ?? this.companyUserRepository;
   }
 
@@ -165,7 +182,11 @@ export class OnboardingService {
     return trimmed.length ? trimmed : null;
   }
 
-  private assertDateOrder(startDate: string, endDate: string, message: string): void {
+  private assertDateOrder(
+    startDate: string,
+    endDate: string,
+    message: string,
+  ): void {
     if (new Date(startDate) > new Date(endDate)) {
       throw new BadRequestException(message);
     }
@@ -269,11 +290,15 @@ export class OnboardingService {
     const latest = await repository
       .createQueryBuilder('onboardingRequest')
       .where('onboardingRequest.company_id = :companyId', { companyId })
-      .andWhere('onboardingRequest.onboarding_no LIKE :prefix', { prefix: `${prefix}%` })
+      .andWhere('onboardingRequest.onboarding_no LIKE :prefix', {
+        prefix: `${prefix}%`,
+      })
       .orderBy('onboardingRequest.id', 'DESC')
       .getOne();
 
-    const nextSequence = latest ? Number(latest.onboarding_no.split('-').pop() ?? '0') + 1 : 1;
+    const nextSequence = latest
+      ? Number(latest.onboarding_no.split('-').pop() ?? '0') + 1
+      : 1;
     return `${prefix}${String(nextSequence).padStart(6, '0')}`;
   }
 
@@ -288,12 +313,16 @@ export class OnboardingService {
     return `TASK-${onboardingRequestId}-${String(total + 1).padStart(3, '0')}`;
   }
 
-  private validateWorkflowStepOrder(steps: OnboardingWorkflowStepInputDto[]): void {
+  private validateWorkflowStepOrder(
+    steps: OnboardingWorkflowStepInputDto[],
+  ): void {
     if (!steps.length) {
       throw new BadRequestException('Workflow must include at least one step');
     }
 
-    const levels = steps.map((step) => step.approval_level).sort((a, b) => a - b);
+    const levels = steps
+      .map((step) => step.approval_level)
+      .sort((a, b) => a - b);
     const uniqueLevels = new Set(levels);
     if (uniqueLevels.size !== levels.length) {
       throw new BadRequestException('Workflow approval levels must be unique');
@@ -337,7 +366,9 @@ export class OnboardingService {
         },
       });
       if (branches !== new Set(branchIds).size) {
-        throw new BadRequestException('One or more assigned branches are invalid');
+        throw new BadRequestException(
+          'One or more assigned branches are invalid',
+        );
       }
     }
 
@@ -349,7 +380,9 @@ export class OnboardingService {
         },
       });
       if (departments !== new Set(departmentIds).size) {
-        throw new BadRequestException('One or more assigned departments are invalid');
+        throw new BadRequestException(
+          'One or more assigned departments are invalid',
+        );
       }
     }
 
@@ -373,7 +406,9 @@ export class OnboardingService {
         },
       });
       if (memberships !== new Set(companyUserIds).size) {
-        throw new BadRequestException('One or more company user assignments are invalid');
+        throw new BadRequestException(
+          'One or more company user assignments are invalid',
+        );
       }
     }
 
@@ -436,14 +471,21 @@ export class OnboardingService {
         }
       }
 
-      if (step.approver_type === OnboardingApproverTypeEnum.ROLE && !step.role_id) {
-        throw new BadRequestException('role_id is required for role approver type');
+      if (
+        step.approver_type === OnboardingApproverTypeEnum.ROLE &&
+        !step.role_id
+      ) {
+        throw new BadRequestException(
+          'role_id is required for role approver type',
+        );
       }
       if (
         step.approver_type === OnboardingApproverTypeEnum.POSITION &&
         !step.position_id
       ) {
-        throw new BadRequestException('position_id is required for position approver type');
+        throw new BadRequestException(
+          'position_id is required for position approver type',
+        );
       }
       if (
         step.approver_type === OnboardingApproverTypeEnum.COMPANY_USER &&
@@ -466,8 +508,7 @@ export class OnboardingService {
       status: entity.status,
       created_at: entity.created_at,
       updated_at: entity.updated_at,
-      steps:
-        entity.steps?.map((step) => this.mapWorkflowStep(step)) ?? [],
+      steps: entity.steps?.map((step) => this.mapWorkflowStep(step)) ?? [],
     };
   }
 
@@ -637,20 +678,26 @@ export class OnboardingService {
       approval_level: dto.approval_level ?? existingStep.approval_level,
       step_name: dto.step_name ?? existingStep.step_name,
       task_title: dto.task_title ?? existingStep.task_title ?? undefined,
-      task_description: dto.task_description ?? existingStep.task_description ?? undefined,
+      task_description:
+        dto.task_description ?? existingStep.task_description ?? undefined,
       task_type: dto.task_type ?? existingStep.task_type,
       assigned_branch_id:
         dto.assigned_branch_id ?? existingStep.assigned_branch_id ?? undefined,
       assigned_department_id:
-        dto.assigned_department_id ?? existingStep.assigned_department_id ?? undefined,
+        dto.assigned_department_id ??
+        existingStep.assigned_department_id ??
+        undefined,
       approver_type: dto.approver_type ?? existingStep.approver_type,
       role_id: dto.role_id ?? existingStep.role_id ?? undefined,
       position_id: dto.position_id ?? existingStep.position_id ?? undefined,
-      company_user_id: dto.company_user_id ?? existingStep.company_user_id ?? undefined,
+      company_user_id:
+        dto.company_user_id ?? existingStep.company_user_id ?? undefined,
       action_type: dto.action_type ?? existingStep.action_type,
       is_required: dto.is_required ?? existingStep.is_required,
       expected_duration_days:
-        dto.expected_duration_days ?? existingStep.expected_duration_days ?? undefined,
+        dto.expected_duration_days ??
+        existingStep.expected_duration_days ??
+        undefined,
     };
   }
 
@@ -782,7 +829,8 @@ export class OnboardingService {
           }
         : null,
       tasks: entity.tasks?.map((task) => this.mapTask(task)) ?? [],
-      approvals: entity.approvals?.map((approval) => this.mapApproval(approval)) ?? [],
+      approvals:
+        entity.approvals?.map((approval) => this.mapApproval(approval)) ?? [],
       documents: documents.map((document) => this.mapDocument(document)),
     };
   }
@@ -833,7 +881,9 @@ export class OnboardingService {
   ): Promise<ProgressSummary> {
     if (onboardingRequest.status === OnboardingRequestStatusEnum.COMPLETED) {
       onboardingRequest.progress_percentage = '100.00';
-      await this.getOnboardingRequestRepository(manager).save(onboardingRequest);
+      await this.getOnboardingRequestRepository(manager).save(
+        onboardingRequest,
+      );
       return {
         total_tasks: 0,
         completed_tasks: 0,
@@ -843,7 +893,10 @@ export class OnboardingService {
       };
     }
 
-    const summary = await this.calculateProgressSummary(onboardingRequest.id, manager);
+    const summary = await this.calculateProgressSummary(
+      onboardingRequest.id,
+      manager,
+    );
     onboardingRequest.progress_percentage = summary.progress_percentage;
     await this.getOnboardingRequestRepository(manager).save(onboardingRequest);
     return summary;
@@ -923,7 +976,8 @@ export class OnboardingService {
 
     const created = await this.dataSource.transaction(async (manager) => {
       const workflowRepository = this.getOnboardingWorkflowRepository(manager);
-      const workflowStepRepository = this.getOnboardingWorkflowStepRepository(manager);
+      const workflowStepRepository =
+        this.getOnboardingWorkflowStepRepository(manager);
 
       if (dto.is_default) {
         await workflowRepository.update(
@@ -949,7 +1003,9 @@ export class OnboardingService {
             approval_level: step.approval_level,
             step_name: step.step_name.trim(),
             task_title: this.normalizeOptionalString(step.task_title),
-            task_description: this.normalizeOptionalString(step.task_description),
+            task_description: this.normalizeOptionalString(
+              step.task_description,
+            ),
             task_type: step.task_type ?? OnboardingTaskTypeEnum.GENERAL,
             assigned_branch_id: step.assigned_branch_id ?? null,
             assigned_department_id: step.assigned_department_id ?? null,
@@ -981,7 +1037,10 @@ export class OnboardingService {
     return this.mapWorkflow(created);
   }
 
-  async findAllOnboardingWorkflows(companyId: number, query: OnboardingWorkflowQueryDto) {
+  async findAllOnboardingWorkflows(
+    companyId: number,
+    query: OnboardingWorkflowQueryDto,
+  ) {
     const {
       page = 1,
       limit = 20,
@@ -1001,13 +1060,24 @@ export class OnboardingService {
     }
 
     if (search?.trim()) {
-      qb.andWhere('(workflow.name LIKE :term OR workflow.description LIKE :term)', {
-        term: `%${search.trim()}%`,
-      });
+      qb.andWhere(
+        '(workflow.name LIKE :term OR workflow.description LIKE :term)',
+        {
+          term: `%${search.trim()}%`,
+        },
+      );
     }
 
-    const allowedSortFields = ['id', 'name', 'status', 'created_at', 'updated_at'];
-    const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'created_at';
+    const allowedSortFields = [
+      'id',
+      'name',
+      'status',
+      'created_at',
+      'updated_at',
+    ];
+    const safeSortBy = allowedSortFields.includes(sortBy)
+      ? sortBy
+      : 'created_at';
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
     const skip = (page - 1) * limit;
 
@@ -1064,7 +1134,11 @@ export class OnboardingService {
 
       if (dto.steps) {
         this.validateWorkflowStepOrder(dto.steps);
-        await this.validateWorkflowStepReferences(companyId, dto.steps, manager);
+        await this.validateWorkflowStepReferences(
+          companyId,
+          dto.steps,
+          manager,
+        );
       }
 
       if (dto.name !== undefined) {
@@ -1099,7 +1173,9 @@ export class OnboardingService {
               approval_level: step.approval_level,
               step_name: step.step_name.trim(),
               task_title: this.normalizeOptionalString(step.task_title),
-              task_description: this.normalizeOptionalString(step.task_description),
+              task_description: this.normalizeOptionalString(
+                step.task_description,
+              ),
               task_type: step.task_type ?? OnboardingTaskTypeEnum.GENERAL,
               assigned_branch_id: step.assigned_branch_id ?? null,
               assigned_department_id: step.assigned_department_id ?? null,
@@ -1142,7 +1218,11 @@ export class OnboardingService {
     await this.validateWorkflowStepReferences(companyId, [dto]);
 
     const createdStep = await this.dataSource.transaction(async (manager) => {
-      const workflow = await this.findOnboardingWorkflowOrFail(companyId, workflowId, manager);
+      const workflow = await this.findOnboardingWorkflowOrFail(
+        companyId,
+        workflowId,
+        manager,
+      );
       const repository = this.getOnboardingWorkflowStepRepository(manager);
 
       const targetLevel = dto.approval_level;
@@ -1215,15 +1295,26 @@ export class OnboardingService {
     this.hrAccessService.assertCompanyScopedActor(actor);
 
     const updatedStep = await this.dataSource.transaction(async (manager) => {
-      const workflow = await this.findOnboardingWorkflowOrFail(companyId, workflowId, manager);
+      const workflow = await this.findOnboardingWorkflowOrFail(
+        companyId,
+        workflowId,
+        manager,
+      );
       const existingStep = await this.findOnboardingWorkflowStepOrFail(
         workflowId,
         stepId,
         manager,
       );
 
-      const validationPayload = this.buildStepValidationPayload(existingStep, dto);
-      await this.validateWorkflowStepReferences(companyId, [validationPayload], manager);
+      const validationPayload = this.buildStepValidationPayload(
+        existingStep,
+        dto,
+      );
+      await this.validateWorkflowStepReferences(
+        companyId,
+        [validationPayload],
+        manager,
+      );
 
       const totalSteps = workflow.steps.length;
       const targetLevel = dto.approval_level ?? existingStep.approval_level;
@@ -1249,13 +1340,16 @@ export class OnboardingService {
         existingStep.task_title = this.normalizeOptionalString(dto.task_title);
       }
       if (dto.task_description !== undefined) {
-        existingStep.task_description = this.normalizeOptionalString(dto.task_description);
+        existingStep.task_description = this.normalizeOptionalString(
+          dto.task_description,
+        );
       }
       if (dto.task_type !== undefined) {
         existingStep.task_type = dto.task_type;
       }
       if (dto.assigned_department_id !== undefined) {
-        existingStep.assigned_department_id = dto.assigned_department_id ?? null;
+        existingStep.assigned_department_id =
+          dto.assigned_department_id ?? null;
       }
       if (dto.assigned_branch_id !== undefined) {
         existingStep.assigned_branch_id = dto.assigned_branch_id ?? null;
@@ -1279,13 +1373,16 @@ export class OnboardingService {
         existingStep.is_required = dto.is_required;
       }
       if (dto.expected_duration_days !== undefined) {
-        existingStep.expected_duration_days = dto.expected_duration_days ?? null;
+        existingStep.expected_duration_days =
+          dto.expected_duration_days ?? null;
       }
 
       if (existingStep.approver_type === OnboardingApproverTypeEnum.ROLE) {
         existingStep.position_id = null;
         existingStep.company_user_id = null;
-      } else if (existingStep.approver_type === OnboardingApproverTypeEnum.POSITION) {
+      } else if (
+        existingStep.approver_type === OnboardingApproverTypeEnum.POSITION
+      ) {
         existingStep.role_id = null;
         existingStep.company_user_id = null;
       } else {
@@ -1293,7 +1390,9 @@ export class OnboardingService {
         existingStep.position_id = null;
       }
 
-      return this.getOnboardingWorkflowStepRepository(manager).save(existingStep);
+      return this.getOnboardingWorkflowStepRepository(manager).save(
+        existingStep,
+      );
     });
 
     await this.onboardingAuditService.log({
@@ -1319,23 +1418,41 @@ export class OnboardingService {
   ): Promise<{ message: string }> {
     this.hrAccessService.assertCompanyScopedActor(actor);
 
-    const deletedPayload = await this.dataSource.transaction(async (manager) => {
-      const workflow = await this.findOnboardingWorkflowOrFail(companyId, workflowId, manager);
-      if (workflow.steps.length <= 1) {
-        throw new BadRequestException('Workflow must contain at least one step');
-      }
+    const deletedPayload = await this.dataSource.transaction(
+      async (manager) => {
+        const workflow = await this.findOnboardingWorkflowOrFail(
+          companyId,
+          workflowId,
+          manager,
+        );
+        if (workflow.steps.length <= 1) {
+          throw new BadRequestException(
+            'Workflow must contain at least one step',
+          );
+        }
 
-      const step = await this.findOnboardingWorkflowStepOrFail(workflowId, stepId, manager);
-      const deletedLevel = step.approval_level;
+        const step = await this.findOnboardingWorkflowStepOrFail(
+          workflowId,
+          stepId,
+          manager,
+        );
+        const deletedLevel = step.approval_level;
 
-      await this.getOnboardingWorkflowStepRepository(manager).delete({ id: step.id });
-      await this.shiftWorkflowStepLevelsDown(workflowId, deletedLevel, manager);
+        await this.getOnboardingWorkflowStepRepository(manager).delete({
+          id: step.id,
+        });
+        await this.shiftWorkflowStepLevelsDown(
+          workflowId,
+          deletedLevel,
+          manager,
+        );
 
-      return {
-        stepId: step.id,
-        deletedLevel,
-      };
-    });
+        return {
+          stepId: step.id,
+          deletedLevel,
+        };
+      },
+    );
 
     await this.onboardingAuditService.log({
       company_id: companyId,
@@ -1392,7 +1509,9 @@ export class OnboardingService {
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
     if (employee.employment_status === EmploymentStatusEnum.ACTIVE) {
-      throw new ConflictException('Cannot create onboarding for an active employee');
+      throw new ConflictException(
+        'Cannot create onboarding for an active employee',
+      );
     }
 
     if (dto.planned_start_date && dto.planned_completion_date) {
@@ -1433,13 +1552,19 @@ export class OnboardingService {
       );
 
       if (shouldSubmit) {
-        const init = await this.onboardingWorkflowService.initializeApprovalsForRequest(
-          companyId,
+        const init =
+          await this.onboardingWorkflowService.initializeApprovalsForRequest(
+            companyId,
+            created,
+            dto.workflow_id ?? null,
+            manager,
+          );
+        await this.createTasksFromWorkflowSteps(
           created,
-          dto.workflow_id ?? null,
+          init.steps,
+          actor,
           manager,
         );
-        await this.createTasksFromWorkflowSteps(created, init.steps, actor, manager);
       }
 
       await this.updateRequestProgress(created, manager);
@@ -1489,14 +1614,19 @@ export class OnboardingService {
     dto: UpdateOnboardingRequestDto,
     actor: AuthenticatedUser,
   ) {
-    const request = await this.findOnboardingRequestOrFail(companyId, onboardingRequestId);
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     if (
       request.status === OnboardingRequestStatusEnum.CANCELLED ||
       request.status === OnboardingRequestStatusEnum.COMPLETED
     ) {
-      throw new BadRequestException('Cannot update a closed onboarding request');
+      throw new BadRequestException(
+        'Cannot update a closed onboarding request',
+      );
     }
 
     if (dto.planned_start_date && dto.planned_completion_date) {
@@ -1530,19 +1660,26 @@ export class OnboardingService {
       }
 
       const workflowChanged =
-        dto.workflow_id !== undefined && dto.workflow_id !== current.workflow_id;
+        dto.workflow_id !== undefined &&
+        dto.workflow_id !== current.workflow_id;
       if (workflowChanged) {
         current.workflow_id = dto.workflow_id ?? null;
         await approvalRepository.delete({ onboarding_request_id: current.id });
         await taskRepository.delete({ onboarding_request_id: current.id });
 
-        const init = await this.onboardingWorkflowService.initializeApprovalsForRequest(
-          companyId,
+        const init =
+          await this.onboardingWorkflowService.initializeApprovalsForRequest(
+            companyId,
+            current,
+            dto.workflow_id ?? null,
+            manager,
+          );
+        await this.createTasksFromWorkflowSteps(
           current,
-          dto.workflow_id ?? null,
+          init.steps,
+          actor,
           manager,
         );
-        await this.createTasksFromWorkflowSteps(current, init.steps, actor, manager);
       }
 
       await repository.save(current);
@@ -1616,7 +1753,9 @@ export class OnboardingService {
       .where('request.company_id = :companyId', { companyId });
 
     if (typeof employee_id === 'number') {
-      qb.andWhere('request.employee_id = :employeeId', { employeeId: employee_id });
+      qb.andWhere('request.employee_id = :employeeId', {
+        employeeId: employee_id,
+      });
     }
 
     if (status?.trim()) {
@@ -1624,9 +1763,12 @@ export class OnboardingService {
     }
 
     if (search?.trim()) {
-      qb.andWhere('(request.onboarding_no LIKE :term OR employee.employee_no LIKE :term)', {
-        term: `%${search.trim()}%`,
-      });
+      qb.andWhere(
+        '(request.onboarding_no LIKE :term OR employee.employee_no LIKE :term)',
+        {
+          term: `%${search.trim()}%`,
+        },
+      );
     }
 
     const allowedSortFields = [
@@ -1637,7 +1779,9 @@ export class OnboardingService {
       'created_at',
       'updated_at',
     ];
-    const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'created_at';
+    const safeSortBy = allowedSortFields.includes(sortBy)
+      ? sortBy
+      : 'created_at';
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
     const skip = (page - 1) * limit;
 
@@ -1667,7 +1811,9 @@ export class OnboardingService {
     });
 
     return {
-      data: items.map((item) => this.mapRequest(item, documentsMap.get(item.id) ?? [])),
+      data: items.map((item) =>
+        this.mapRequest(item, documentsMap.get(item.id) ?? []),
+      ),
       meta: buildPaginationMeta(total, items.length, limit, page),
     };
   }
@@ -1677,7 +1823,10 @@ export class OnboardingService {
     onboardingRequestId: number,
     actor: AuthenticatedUser,
   ) {
-    const request = await this.findOnboardingRequestOrFail(companyId, onboardingRequestId);
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     const documents = await this.documentRepository.find({
@@ -1697,7 +1846,10 @@ export class OnboardingService {
     onboardingRequestId: number,
     actor: AuthenticatedUser,
   ) {
-    const request = await this.findOnboardingRequestOrFail(companyId, onboardingRequestId);
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     if (
@@ -1711,7 +1863,9 @@ export class OnboardingService {
       (task) => task.status !== OnboardingTaskStatusEnum.COMPLETED,
     );
     if (hasOpenTasks) {
-      throw new BadRequestException('All onboarding tasks must be completed before finalizing');
+      throw new BadRequestException(
+        'All onboarding tasks must be completed before finalizing',
+      );
     }
 
     const hasRejectedApproval = request.approvals.some(
@@ -1756,7 +1910,11 @@ export class OnboardingService {
         employee.hire_date = formatDateOnly(new Date());
       }
       await employeeRepository.save(employee);
-      await this.initializeLeaveBalancesForEmployee(companyId, employee, manager);
+      await this.initializeLeaveBalancesForEmployee(
+        companyId,
+        employee,
+        manager,
+      );
 
       return requestRepository.findOneOrFail({
         where: { id: current.id },
@@ -1794,7 +1952,10 @@ export class OnboardingService {
     dto: CancelOnboardingRequestDto,
     actor: AuthenticatedUser,
   ) {
-    const request = await this.findOnboardingRequestOrFail(companyId, onboardingRequestId);
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     if (
@@ -1820,14 +1981,18 @@ export class OnboardingService {
       const openTasks = await taskRepository.find({
         where: {
           onboarding_request_id: current.id,
-          status: In([OnboardingTaskStatusEnum.PENDING, OnboardingTaskStatusEnum.IN_PROGRESS]),
+          status: In([
+            OnboardingTaskStatusEnum.PENDING,
+            OnboardingTaskStatusEnum.IN_PROGRESS,
+          ]),
         },
       });
       if (openTasks.length) {
         openTasks.forEach((task) => {
           task.status = OnboardingTaskStatusEnum.CANCELLED;
           task.cancelled_at = new Date();
-          task.completion_notes = task.completion_notes ?? 'Task cancelled with onboarding';
+          task.completion_notes =
+            task.completion_notes ?? 'Task cancelled with onboarding';
         });
         await taskRepository.save(openTasks);
       }
@@ -1860,14 +2025,19 @@ export class OnboardingService {
     dto: CreateOnboardingTaskDto,
     actor: AuthenticatedUser,
   ) {
-    const request = await this.findOnboardingRequestOrFail(companyId, onboardingRequestId);
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     if (
       request.status === OnboardingRequestStatusEnum.CANCELLED ||
       request.status === OnboardingRequestStatusEnum.COMPLETED
     ) {
-      throw new BadRequestException('Cannot add task to closed onboarding request');
+      throw new BadRequestException(
+        'Cannot add task to closed onboarding request',
+      );
     }
 
     if (dto.assigned_department_id) {
@@ -1941,7 +2111,10 @@ export class OnboardingService {
     dto: CompleteOnboardingTaskDto,
     actor: AuthenticatedUser,
   ) {
-    const request = await this.findOnboardingRequestOrFail(companyId, onboardingRequestId);
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     const task = await this.onboardingTaskRepository.findOne({
@@ -1972,7 +2145,8 @@ export class OnboardingService {
       currentTask.status = OnboardingTaskStatusEnum.COMPLETED;
       currentTask.started_at = currentTask.started_at ?? new Date();
       currentTask.completed_at = new Date();
-      currentTask.completed_by_company_user_id = actor.companyMembershipId ?? null;
+      currentTask.completed_by_company_user_id =
+        actor.companyMembershipId ?? null;
       currentTask.completion_notes = dto.completion_notes?.trim() || null;
       await taskRepository.save(currentTask);
 
@@ -2005,7 +2179,10 @@ export class OnboardingService {
     this.hrAccessService.assertCompanyScopedActor(actor);
     const membershipId = actor.companyMembershipId!;
 
-    const request = await this.findOnboardingRequestOrFail(companyId, onboardingRequestId);
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     const updated = await this.dataSource.transaction(async (manager) => {
@@ -2064,7 +2241,10 @@ export class OnboardingService {
     dto: UploadDocumentDto,
     actor: AuthenticatedUser,
   ) {
-    const request = await this.findOnboardingRequestOrFail(companyId, onboardingRequestId);
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     const document = await this.getDocumentRepository().save(
@@ -2110,7 +2290,10 @@ export class OnboardingService {
     dto: VerifyDocumentDto,
     actor: AuthenticatedUser,
   ) {
-    const request = await this.findOnboardingRequestOrFail(companyId, onboardingRequestId);
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     const document = await this.documentRepository.findOne({
@@ -2128,7 +2311,7 @@ export class OnboardingService {
     document.is_verified = dto.is_verified;
     document.verified_at = dto.is_verified ? new Date() : null;
     document.verified_by_company_user_id = dto.is_verified
-      ? actor.companyMembershipId ?? null
+      ? (actor.companyMembershipId ?? null)
       : null;
 
     const saved = await this.documentRepository.save(document);
@@ -2136,7 +2319,9 @@ export class OnboardingService {
     await this.onboardingAuditService.log({
       company_id: companyId,
       onboarding_request_id: onboardingRequestId,
-      action: dto.is_verified ? 'onboarding_document.verified' : 'onboarding_document.unverified',
+      action: dto.is_verified
+        ? 'onboarding_document.verified'
+        : 'onboarding_document.unverified',
       entity_name: 'document',
       entity_id: saved.id,
       actor,
@@ -2150,11 +2335,16 @@ export class OnboardingService {
     onboardingRequestId: number,
     actor: AuthenticatedUser,
   ) {
-    const request = await this.findOnboardingRequestOrFail(companyId, onboardingRequestId);
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     const summary = await this.dataSource.transaction(async (manager) => {
-      const current = await this.getOnboardingRequestRepository(manager).findOneOrFail({
+      const current = await this.getOnboardingRequestRepository(
+        manager,
+      ).findOneOrFail({
         where: { id: onboardingRequestId, company_id: companyId },
       });
       const progress = await this.updateRequestProgress(current, manager);
@@ -2182,7 +2372,10 @@ export class OnboardingService {
     onboardingRequestId: number,
     actor: AuthenticatedUser,
   ) {
-    const request = await this.findOnboardingRequestOrFail(companyId, onboardingRequestId);
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     const logs = await this.onboardingAuditLogRepository.find({

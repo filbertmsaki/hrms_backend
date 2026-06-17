@@ -92,4 +92,3 @@ export class CreateEmployeeDeviceAccessAuditLogDto {
   @IsOptional()
   user_agent?: string | null;
 }
-

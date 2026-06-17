@@ -54,7 +54,10 @@ import { HikvisionSyncProcessor } from './hikvision-sync.processor';
       name: HIKVISION_SYNC_QUEUE,
     }),
   ],
-  controllers: [HikvisionAttendanceController, HikvisionPeopleCredentialSyncController],
+  controllers: [
+    HikvisionAttendanceController,
+    HikvisionPeopleCredentialSyncController,
+  ],
   providers: [
     HikvisionService,
     HikvisionDoorSyncService,
@@ -83,4 +86,3 @@ import { HikvisionSyncProcessor } from './hikvision-sync.processor';
   ],
 })
 export class HikvisionModule {}
-

@@ -19,7 +19,12 @@ import { EmployeeTimetableStatusEnum } from '../enums/employee-timetable-status.
 @Index('IDX_employee_timetables_timetable_id', ['timetableId'])
 @Index('IDX_employee_timetables_effective_from', ['effectiveFrom'])
 @Index('IDX_employee_timetables_status', ['status'])
-@Index('IDX_employee_timetables_company_employee_status_from', ['companyId', 'employeeId', 'status', 'effectiveFrom'])
+@Index('IDX_employee_timetables_company_employee_status_from', [
+  'companyId',
+  'employeeId',
+  'status',
+  'effectiveFrom',
+])
 export class EmployeeTimetable {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -61,7 +66,9 @@ export class EmployeeTimetable {
   @JoinColumn({ name: 'employee_id' })
   employee: Employee;
 
-  @ManyToOne(() => Timetable, (timetable) => timetable.employeeTimetables, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Timetable, (timetable) => timetable.employeeTimetables, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'timetable_id' })
   timetable: Timetable;
 

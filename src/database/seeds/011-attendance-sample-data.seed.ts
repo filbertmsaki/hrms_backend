@@ -88,7 +88,8 @@ export default class AttendanceSampleDataSeeder implements Seeder {
       const checkpointRepo = manager.getRepository(AttendanceCheckpoint);
       const shiftRepo = manager.getRepository(Shift);
       const shiftBreakRepo = manager.getRepository(ShiftBreak);
-      const shiftAttendanceRuleRepo = manager.getRepository(ShiftAttendanceRule);
+      const shiftAttendanceRuleRepo =
+        manager.getRepository(ShiftAttendanceRule);
       const shiftOvertimeRuleRepo = manager.getRepository(ShiftOvertimeRule);
       const shiftTemplateRepo = manager.getRepository(ShiftTemplate);
       const shiftRotationGroupRepo = manager.getRepository(ShiftRotationGroup);
@@ -98,12 +99,24 @@ export default class AttendanceSampleDataSeeder implements Seeder {
       const timetableDayRepo = manager.getRepository(TimetableDay);
       const timetableShiftRuleRepo = manager.getRepository(TimetableShiftRule);
       const timetableRotationRepo = manager.getRepository(TimetableRotation);
-      const timetableRotationRuleRepo = manager.getRepository(TimetableRotationRule);
-      const timetableHolidayRuleRepo = manager.getRepository(TimetableHolidayRule);
-      const timetableAttendanceRuleRepo = manager.getRepository(TimetableAttendanceRule);
+      const timetableRotationRuleRepo = manager.getRepository(
+        TimetableRotationRule,
+      );
+      const timetableHolidayRuleRepo =
+        manager.getRepository(TimetableHolidayRule);
+      const timetableAttendanceRuleRepo = manager.getRepository(
+        TimetableAttendanceRule,
+      );
 
-      const company = await this.requireCompany(companyRepo, data.metadata.company_name);
-      const branch = await this.requireBranch(branchRepo, company.id, data.metadata.branch_code);
+      const company = await this.requireCompany(
+        companyRepo,
+        data.metadata.company_name,
+      );
+      const branch = await this.requireBranch(
+        branchRepo,
+        company.id,
+        data.metadata.branch_code,
+      );
       await this.retireLegacyAttendanceDevice(deviceRepo, company.id);
       const employeesByNo = await this.loadEmployeesByNo(
         employeeRepo,
@@ -111,7 +124,8 @@ export default class AttendanceSampleDataSeeder implements Seeder {
         data.employees.map((employee) => employee.employee_no),
       );
       const defaultCompanyUserId =
-        employeesByNo.get(data.employees[0]?.employee_no)?.company_user_id ?? null;
+        employeesByNo.get(data.employees[0]?.employee_no)?.company_user_id ??
+        null;
 
       for (const item of data.attendance_settings) {
         await this.upsertAttendanceSetting(settingRepo, company.id, item);
@@ -119,19 +133,31 @@ export default class AttendanceSampleDataSeeder implements Seeder {
 
       const policiesByName = new Map<string, AttendancePolicy>();
       for (const item of data.attendance_policies) {
-        const policy = await this.upsertAttendancePolicy(policyRepo, company.id, item);
+        const policy = await this.upsertAttendancePolicy(
+          policyRepo,
+          company.id,
+          item,
+        );
         policiesByName.set(policy.name, policy);
       }
 
       const holidayGroupsByName = new Map<string, HolidayGroup>();
       for (const item of data.holiday_groups) {
-        const holidayGroup = await this.upsertHolidayGroup(holidayGroupRepo, company.id, item);
+        const holidayGroup = await this.upsertHolidayGroup(
+          holidayGroupRepo,
+          company.id,
+          item,
+        );
         holidayGroupsByName.set(holidayGroup.name, holidayGroup);
       }
 
       const holidaysByName = new Map<string, AttendanceHoliday>();
       for (const item of data.attendance_holidays) {
-        const holidayGroup = this.requireMap(holidayGroupsByName, item.holiday_group_name, 'Holiday group');
+        const holidayGroup = this.requireMap(
+          holidayGroupsByName,
+          item.holiday_group_name,
+          'Holiday group',
+        );
         const holiday = await this.upsertHoliday(
           holidayRepo,
           company.id,
@@ -144,13 +170,23 @@ export default class AttendanceSampleDataSeeder implements Seeder {
 
       const geofencesByName = new Map<string, AttendanceGeofence>();
       for (const item of data.attendance_geofences) {
-        const geofence = await this.upsertGeofence(geofenceRepo, company.id, branch.id, item);
+        const geofence = await this.upsertGeofence(
+          geofenceRepo,
+          company.id,
+          branch.id,
+          item,
+        );
         geofencesByName.set(geofence.name, geofence);
       }
 
       const wifiNetworksByName = new Map<string, AttendanceWifiNetwork>();
       for (const item of data.attendance_wifi_networks) {
-        const wifiNetwork = await this.upsertWifiNetwork(wifiRepo, company.id, branch.id, item);
+        const wifiNetwork = await this.upsertWifiNetwork(
+          wifiRepo,
+          company.id,
+          branch.id,
+          item,
+        );
         wifiNetworksByName.set(wifiNetwork.name, wifiNetwork);
       }
 
@@ -167,14 +203,20 @@ export default class AttendanceSampleDataSeeder implements Seeder {
         referencedDeviceNames,
       );
       for (const item of data.attendance_devices) {
-        const device = await this.upsertAttendanceDevice(deviceRepo, company.id, branch.id, item);
+        const device = await this.upsertAttendanceDevice(
+          deviceRepo,
+          company.id,
+          branch.id,
+          item,
+        );
         devicesByName.set(device.deviceName, device);
       }
 
       for (const item of data.attendance_checkpoints) {
         await this.upsertCheckpoint(
           checkpointRepo,
-          this.requireMap(policiesByName, item.policy_name, 'Attendance policy').id,
+          this.requireMap(policiesByName, item.policy_name, 'Attendance policy')
+            .id,
           geofencesByName.get(item.geofence_name ?? ''),
           wifiNetworksByName.get(item.wifi_network_name ?? ''),
           devicesByName.get(item.device_name ?? ''),
@@ -263,7 +305,8 @@ export default class AttendanceSampleDataSeeder implements Seeder {
           timetableRepo,
           company.id,
           branch.id,
-          employeesByNo.get(item.created_by_employee_no ?? '')?.company_user_id ?? defaultCompanyUserId,
+          employeesByNo.get(item.created_by_employee_no ?? '')
+            ?.company_user_id ?? defaultCompanyUserId,
           item,
         );
         timetablesByCode.set(timetable.code, timetable);
@@ -271,14 +314,21 @@ export default class AttendanceSampleDataSeeder implements Seeder {
 
       const timetableDaysByKey = new Map<string, TimetableDay>();
       for (const item of data.timetable_days) {
-        const timetable = this.requireMap(timetablesByCode, item.timetable_code, 'Timetable');
+        const timetable = this.requireMap(
+          timetablesByCode,
+          item.timetable_code,
+          'Timetable',
+        );
         const day = await this.upsertTimetableDay(
           timetableDayRepo,
           timetable.id,
           shiftsByCode.get(item.default_shift_code ?? '') ?? null,
           item,
         );
-        timetableDaysByKey.set(this.buildTimetableDayKey(item.timetable_code, item.day_of_week), day);
+        timetableDaysByKey.set(
+          this.buildTimetableDayKey(item.timetable_code, item.day_of_week),
+          day,
+        );
       }
 
       for (const item of data.timetable_shift_rules) {
@@ -297,20 +347,30 @@ export default class AttendanceSampleDataSeeder implements Seeder {
 
       const timetableRotationsByKey = new Map<string, TimetableRotation>();
       for (const item of data.timetable_rotations) {
-        const timetable = this.requireMap(timetablesByCode, item.timetable_code, 'Timetable');
+        const timetable = this.requireMap(
+          timetablesByCode,
+          item.timetable_code,
+          'Timetable',
+        );
         const rotation = await this.upsertTimetableRotation(
           timetableRotationRepo,
           company.id,
           timetable.id,
           item,
         );
-        timetableRotationsByKey.set(this.buildTimetableRotationKey(item.timetable_code, item.name), rotation);
+        timetableRotationsByKey.set(
+          this.buildTimetableRotationKey(item.timetable_code, item.name),
+          rotation,
+        );
       }
 
       for (const item of data.timetable_rotation_rules) {
         const rotation = this.requireMap(
           timetableRotationsByKey,
-          this.buildTimetableRotationKey(item.timetable_code, item.rotation_name),
+          this.buildTimetableRotationKey(
+            item.timetable_code,
+            item.rotation_name,
+          ),
           'Timetable rotation',
         );
         await this.upsertTimetableRotationRule(
@@ -324,8 +384,13 @@ export default class AttendanceSampleDataSeeder implements Seeder {
       for (const item of data.timetable_holiday_rules) {
         await this.upsertTimetableHolidayRule(
           timetableHolidayRuleRepo,
-          this.requireMap(timetablesByCode, item.timetable_code, 'Timetable').id,
-          this.requireMap(holidayGroupsByName, item.holiday_group_name, 'Holiday group').id,
+          this.requireMap(timetablesByCode, item.timetable_code, 'Timetable')
+            .id,
+          this.requireMap(
+            holidayGroupsByName,
+            item.holiday_group_name,
+            'Holiday group',
+          ).id,
           item,
         );
       }
@@ -333,7 +398,8 @@ export default class AttendanceSampleDataSeeder implements Seeder {
       for (const item of data.timetable_attendance_rules) {
         await this.upsertTimetableAttendanceRule(
           timetableAttendanceRuleRepo,
-          this.requireMap(timetablesByCode, item.timetable_code, 'Timetable').id,
+          this.requireMap(timetablesByCode, item.timetable_code, 'Timetable')
+            .id,
           item,
         );
       }
@@ -352,7 +418,10 @@ export default class AttendanceSampleDataSeeder implements Seeder {
   }
 
   private loadSeedData(): SeedData {
-    const filePath = resolve(process.cwd(), 'src/database/seeds/attendance-sample-data.json');
+    const filePath = resolve(
+      process.cwd(),
+      'src/database/seeds/attendance-sample-data.json',
+    );
     return JSON.parse(readFileSync(filePath, 'utf8')) as SeedData;
   }
 
@@ -362,7 +431,9 @@ export default class AttendanceSampleDataSeeder implements Seeder {
   ): Promise<Company> {
     const company = await companyRepo.findOne({ where: { name: companyName } });
     if (!company) {
-      throw new Error(`Company "${companyName}" not found. Run base seeders first.`);
+      throw new Error(
+        `Company "${companyName}" not found. Run base seeders first.`,
+      );
     }
     return company;
   }
@@ -376,7 +447,9 @@ export default class AttendanceSampleDataSeeder implements Seeder {
       where: { company_id: companyId, code: branchCode },
     });
     if (!branch) {
-      throw new Error(`Branch "${branchCode}" not found for the seeded company.`);
+      throw new Error(
+        `Branch "${branchCode}" not found for the seeded company.`,
+      );
     }
     return branch;
   }
@@ -387,7 +460,9 @@ export default class AttendanceSampleDataSeeder implements Seeder {
     employeeNos: string[],
   ): Promise<Map<string, Employee>> {
     const normalizedEmployeeNos = Array.from(
-      new Set(employeeNos.map((employeeNo) => employeeNo.trim()).filter(Boolean)),
+      new Set(
+        employeeNos.map((employeeNo) => employeeNo.trim()).filter(Boolean),
+      ),
     );
     const employees = await employeeRepo
       .createQueryBuilder('employee')
@@ -399,7 +474,8 @@ export default class AttendanceSampleDataSeeder implements Seeder {
     for (const employee of employees) {
       availableEmployees.set(employee.employee_no, employee);
 
-      const hikvisionEmployeeNo = this.extractSeededHikvisionEmployeeNo(employee);
+      const hikvisionEmployeeNo =
+        this.extractSeededHikvisionEmployeeNo(employee);
       if (hikvisionEmployeeNo) {
         availableEmployees.set(hikvisionEmployeeNo, employee);
       }
@@ -409,7 +485,9 @@ export default class AttendanceSampleDataSeeder implements Seeder {
     for (const employeeNo of normalizedEmployeeNos) {
       const employee = availableEmployees.get(employeeNo);
       if (!employee) {
-        throw new Error(`Employee "${employeeNo}" was not found for attendance sample data.`);
+        throw new Error(
+          `Employee "${employeeNo}" was not found for attendance sample data.`,
+        );
       }
 
       employeesByNo.set(employeeNo, employee);
@@ -420,9 +498,10 @@ export default class AttendanceSampleDataSeeder implements Seeder {
 
   private extractSeededHikvisionEmployeeNo(employee: Employee): string | null {
     const metadata = employee.metadata ?? {};
-    const hikvision = typeof metadata.hikvision === 'object' && metadata.hikvision !== null
-      ? (metadata.hikvision as Record<string, unknown>)
-      : null;
+    const hikvision =
+      typeof metadata.hikvision === 'object' && metadata.hikvision !== null
+        ? (metadata.hikvision as Record<string, unknown>)
+        : null;
     const value =
       typeof hikvision?.employee_no === 'string' ? hikvision.employee_no : null;
 
@@ -434,7 +513,9 @@ export default class AttendanceSampleDataSeeder implements Seeder {
     companyId: number,
     deviceNames: string[],
   ): Promise<Map<string, AttendanceDevice>> {
-    const names = Array.from(new Set(deviceNames.map((name) => name.trim()))).filter(Boolean);
+    const names = Array.from(
+      new Set(deviceNames.map((name) => name.trim())),
+    ).filter(Boolean);
     const devicesByName = new Map<string, AttendanceDevice>();
 
     if (!names.length) {
@@ -468,16 +549,24 @@ export default class AttendanceSampleDataSeeder implements Seeder {
   private requireMap<T>(map: Map<string, T>, key: string, label: string): T {
     const value = map.get(key);
     if (!value) {
-      throw new Error(`${label} "${key}" could not be resolved while seeding attendance sample data.`);
+      throw new Error(
+        `${label} "${key}" could not be resolved while seeding attendance sample data.`,
+      );
     }
     return value;
   }
 
-  private buildTimetableDayKey(timetableCode: string, dayOfWeek: number): string {
+  private buildTimetableDayKey(
+    timetableCode: string,
+    dayOfWeek: number,
+  ): string {
     return `${timetableCode}::${dayOfWeek}`;
   }
 
-  private buildTimetableRotationKey(timetableCode: string, rotationName: string): string {
+  private buildTimetableRotationKey(
+    timetableCode: string,
+    rotationName: string,
+  ): string {
     return `${timetableCode}::${rotationName}`;
   }
 
@@ -502,9 +591,15 @@ export default class AttendanceSampleDataSeeder implements Seeder {
     record.overtimeStartAfterMinutes = item.overtime_start_after_minutes;
     record.maxOvertimeMinutesPerDay = item.max_overtime_minutes_per_day;
     record.maxOvertimeMinutesPerMonth = item.max_overtime_minutes_per_month;
-    record.overtimeRateMultiplier = this.toDecimalString(item.overtime_rate_multiplier);
-    record.holidayOvertimeMultiplier = this.toDecimalString(item.holiday_overtime_multiplier);
-    record.weekendOvertimeMultiplier = this.toDecimalString(item.weekend_overtime_multiplier);
+    record.overtimeRateMultiplier = this.toDecimalString(
+      item.overtime_rate_multiplier,
+    );
+    record.holidayOvertimeMultiplier = this.toDecimalString(
+      item.holiday_overtime_multiplier,
+    );
+    record.weekendOvertimeMultiplier = this.toDecimalString(
+      item.weekend_overtime_multiplier,
+    );
     record.requiresApproval = item.requires_approval;
     record.autoCalculate = item.auto_calculate;
 
@@ -516,7 +611,9 @@ export default class AttendanceSampleDataSeeder implements Seeder {
     companyId: number,
     item: any,
   ): Promise<AttendancePolicy> {
-    let record = await repo.findOne({ where: { company_id: companyId, name: item.name } });
+    let record = await repo.findOne({
+      where: { company_id: companyId, name: item.name },
+    });
     if (!record) {
       record = repo.create({ company_id: companyId, name: item.name });
     }
@@ -528,12 +625,14 @@ export default class AttendanceSampleDataSeeder implements Seeder {
     record.allow_early_checkin = item.allow_early_checkin;
     record.allow_late_checkout = item.allow_late_checkout;
     record.auto_absent_if_no_checkin = item.auto_absent_if_no_checkin;
-    record.requires_manager_approval_for_overtime = item.requires_manager_approval_for_overtime;
+    record.requires_manager_approval_for_overtime =
+      item.requires_manager_approval_for_overtime;
     record.rounding_mode = item.rounding_mode;
     record.max_missing_punch_allowed = item.max_missing_punch_allowed;
     record.weekend_days = item.weekend_days;
     record.auto_mark_weekend_as_off = item.auto_mark_weekend_as_off;
-    record.treat_weekend_as_absent_if_scheduled = item.treat_weekend_as_absent_if_scheduled;
+    record.treat_weekend_as_absent_if_scheduled =
+      item.treat_weekend_as_absent_if_scheduled;
     record.holiday_policy_mode = item.holiday_policy_mode;
     record.authentication_modes = item.authentication_modes;
     record.require_geo_fencing = item.require_geo_fencing;
@@ -542,7 +641,8 @@ export default class AttendanceSampleDataSeeder implements Seeder {
     record.calculation_time = item.calculation_time;
     record.grace_period_minutes = item.grace_period_minutes;
     record.consider_shift_roster = item.consider_shift_roster;
-    record.ignore_missing_checkout_if_hours_valid = item.ignore_missing_checkout_if_hours_valid;
+    record.ignore_missing_checkout_if_hours_valid =
+      item.ignore_missing_checkout_if_hours_valid;
 
     return repo.save(record);
   }
@@ -654,7 +754,9 @@ export default class AttendanceSampleDataSeeder implements Seeder {
     branchId: number | null,
     item: any,
   ): Promise<AttendanceDevice> {
-    let record = await repo.findOne({ where: { deviceCode: item.device_code } });
+    let record = await repo.findOne({
+      where: { deviceCode: item.device_code },
+    });
     if (!record) {
       record = repo.create({ companyId, deviceCode: item.device_code });
     }
@@ -695,7 +797,9 @@ export default class AttendanceSampleDataSeeder implements Seeder {
     device: AttendanceDevice | null | undefined,
     item: any,
   ): Promise<AttendanceCheckpoint> {
-    let record = await repo.findOne({ where: { policySetId, name: item.name } });
+    let record = await repo.findOne({
+      where: { policySetId, name: item.name },
+    });
     if (!record) {
       record = repo.create({ policySetId, name: item.name });
     }
@@ -807,7 +911,9 @@ export default class AttendanceSampleDataSeeder implements Seeder {
 
     record.overtimeStartAfterMinutes = item.overtime_start_after_minutes;
     record.maxDailyOvertimeMinutes = item.max_daily_overtime_minutes;
-    record.overtimeRateMultiplier = this.toDecimalString(item.overtime_rate_multiplier);
+    record.overtimeRateMultiplier = this.toDecimalString(
+      item.overtime_rate_multiplier,
+    );
     record.weekendMultiplier = this.toDecimalString(item.weekend_multiplier);
     record.holidayMultiplier = this.toDecimalString(item.holiday_multiplier);
     record.requiresApproval = item.requires_approval;
@@ -857,7 +963,9 @@ export default class AttendanceSampleDataSeeder implements Seeder {
     shift: Shift | null,
     item: any,
   ): Promise<ShiftRotationRule> {
-    let record = await repo.findOne({ where: { rotationGroupId, dayIndex: item.day_index } });
+    let record = await repo.findOne({
+      where: { rotationGroupId, dayIndex: item.day_index },
+    });
     if (!record) {
       record = repo.create({ rotationGroupId, dayIndex: item.day_index });
     }
@@ -933,7 +1041,9 @@ export default class AttendanceSampleDataSeeder implements Seeder {
     defaultShift: Shift | null,
     item: any,
   ): Promise<TimetableDay> {
-    let record = await repo.findOne({ where: { timetableId, dayOfWeek: item.day_of_week } });
+    let record = await repo.findOne({
+      where: { timetableId, dayOfWeek: item.day_of_week },
+    });
     if (!record) {
       record = repo.create({ timetableId, dayOfWeek: item.day_of_week });
     }
@@ -982,7 +1092,9 @@ export default class AttendanceSampleDataSeeder implements Seeder {
     timetableId: number,
     item: any,
   ): Promise<TimetableRotation> {
-    let record = await repo.findOne({ where: { timetableId, name: item.name } });
+    let record = await repo.findOne({
+      where: { timetableId, name: item.name },
+    });
     if (!record) {
       record = repo.create({ companyId, timetableId, name: item.name });
     }
@@ -1001,7 +1113,9 @@ export default class AttendanceSampleDataSeeder implements Seeder {
     shift: Shift | null,
     item: any,
   ): Promise<TimetableRotationRule> {
-    let record = await repo.findOne({ where: { rotationId, dayIndex: item.day_index } });
+    let record = await repo.findOne({
+      where: { rotationId, dayIndex: item.day_index },
+    });
     if (!record) {
       record = repo.create({ rotationId, dayIndex: item.day_index });
     }

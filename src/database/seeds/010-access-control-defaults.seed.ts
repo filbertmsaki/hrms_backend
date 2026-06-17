@@ -2,7 +2,10 @@ import { DataSource } from 'typeorm';
 import { Seeder, SeederFactoryManager } from 'typeorm-extension';
 
 export default class AccessControlDefaultsSeeder implements Seeder {
-  public async run(dataSource: DataSource, factoryManager: SeederFactoryManager): Promise<void> {
+  public async run(
+    dataSource: DataSource,
+    factoryManager: SeederFactoryManager,
+  ): Promise<void> {
     void factoryManager;
     const qr = dataSource.createQueryRunner();
     await qr.connect();
@@ -37,12 +40,15 @@ export default class AccessControlDefaultsSeeder implements Seeder {
         `SELECT id FROM access_organizations WHERE company_id = ? AND org_name = 'Alliance staff' ORDER BY id ASC LIMIT 1`,
         [companyId],
       );
-      const defaultOrganizationId = organizations.length ? Number(organizations[0].id) : null;
+      const defaultOrganizationId = organizations.length
+        ? Number(organizations[0].id)
+        : null;
 
-      const devices: Array<{ id: number; branch_id: number | null }> = await qr.query(
-        `SELECT id, branch_id FROM attendance_devices WHERE company_id = ? ORDER BY id ASC`,
-        [companyId],
-      );
+      const devices: Array<{ id: number; branch_id: number | null }> =
+        await qr.query(
+          `SELECT id, branch_id FROM attendance_devices WHERE company_id = ? ORDER BY id ASC`,
+          [companyId],
+        );
 
       for (const device of devices) {
         const deviceId = Number(device.id);
@@ -76,17 +82,30 @@ export default class AccessControlDefaultsSeeder implements Seeder {
           [companyId, branchId, deviceId, companyId, deviceId],
         );
 
-        const weekPlanRows: Array<{ id: number; hikvision_plan_no: string }> = await qr.query(
-          `
+        const weekPlanRows: Array<{ id: number; hikvision_plan_no: string }> =
+          await qr.query(
+            `
           SELECT id, hikvision_plan_no
           FROM access_week_plans
           WHERE company_id = ? AND device_id = ? AND hikvision_plan_no IN ('1','2') AND deleted_at IS NULL
           `,
-          [companyId, deviceId],
+            [companyId, deviceId],
+          );
+        const wp1 = weekPlanRows.find(
+          (r) => String(r.hikvision_plan_no) === '1',
         );
-        const wp1 = weekPlanRows.find((r) => String(r.hikvision_plan_no) === '1');
-        const wp2 = weekPlanRows.find((r) => String(r.hikvision_plan_no) === '2');
-        const weekDays = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
+        const wp2 = weekPlanRows.find(
+          (r) => String(r.hikvision_plan_no) === '2',
+        );
+        const weekDays = [
+          'MONDAY',
+          'TUESDAY',
+          'WEDNESDAY',
+          'THURSDAY',
+          'FRIDAY',
+          'SATURDAY',
+          'SUNDAY',
+        ];
 
         if (wp1) {
           for (const weekDay of weekDays) {
@@ -176,7 +195,9 @@ export default class AccessControlDefaultsSeeder implements Seeder {
 
       await qr.commitTransaction();
       await qr.release();
-      console.log('[Seeder][AccessControlDefaults] Seeded default access-control records');
+      console.log(
+        '[Seeder][AccessControlDefaults] Seeded default access-control records',
+      );
     } catch (error) {
       await qr.rollbackTransaction();
       await qr.release();

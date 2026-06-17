@@ -28,33 +28,70 @@ export class AttendanceEmployeeResolverService {
       return { employeeId: null, reason: 'EMPTY_EMPLOYEE_NO' };
     }
 
-    const assignmentWhere = typeof deviceId === 'number'
-      ? [
-          { companyId, employeeNo: normalized, deviceId, employeeId: Not(IsNull()) },
-          { companyId, employeeNo: normalized, deviceId: IsNull(), employeeId: Not(IsNull()) },
-        ]
-      : [{ companyId, employeeNo: normalized, deviceId: IsNull(), employeeId: Not(IsNull()) }];
+    const assignmentWhere =
+      typeof deviceId === 'number'
+        ? [
+            {
+              companyId,
+              employeeNo: normalized,
+              deviceId,
+              employeeId: Not(IsNull()),
+            },
+            {
+              companyId,
+              employeeNo: normalized,
+              deviceId: IsNull(),
+              employeeId: Not(IsNull()),
+            },
+          ]
+        : [
+            {
+              companyId,
+              employeeNo: normalized,
+              deviceId: IsNull(),
+              employeeId: Not(IsNull()),
+            },
+          ];
     const existingAssignment = await this.assignmentRepository.findOne({
       where: assignmentWhere,
       order: { updatedAt: 'DESC' },
     });
 
     if (existingAssignment?.employeeId) {
-      return { employeeId: existingAssignment.employeeId, reason: 'ASSIGNMENT_MAP' };
+      return {
+        employeeId: existingAssignment.employeeId,
+        reason: 'ASSIGNMENT_MAP',
+      };
     }
 
     const existingIdentity = await this.identityRepository.findOne({
-      where: typeof deviceId === 'number'
-        ? [
-            { companyId, employeeNo: normalized, deviceId, isActive: true },
-            { companyId, employeeNo: normalized, deviceId: IsNull(), isActive: true },
-          ]
-        : [{ companyId, employeeNo: normalized, deviceId: IsNull(), isActive: true }],
+      where:
+        typeof deviceId === 'number'
+          ? [
+              { companyId, employeeNo: normalized, deviceId, isActive: true },
+              {
+                companyId,
+                employeeNo: normalized,
+                deviceId: IsNull(),
+                isActive: true,
+              },
+            ]
+          : [
+              {
+                companyId,
+                employeeNo: normalized,
+                deviceId: IsNull(),
+                isActive: true,
+              },
+            ],
       order: { updatedAt: 'DESC' },
     });
 
     if (existingIdentity) {
-      return { employeeId: existingIdentity.employeeId, reason: 'IDENTITY_MAP' };
+      return {
+        employeeId: existingIdentity.employeeId,
+        reason: 'IDENTITY_MAP',
+      };
     }
 
     return { employeeId: null, reason: 'IDENTITY_NOT_FOUND' };
@@ -67,7 +104,12 @@ export class AttendanceEmployeeResolverService {
     deviceId: number | null,
   ) {
     const current = await this.identityRepository.findOne({
-      where: { companyId, employeeId, employeeNo, deviceId: deviceId ?? IsNull() },
+      where: {
+        companyId,
+        employeeId,
+        employeeNo,
+        deviceId: deviceId ?? IsNull(),
+      },
     });
 
     if (current) {

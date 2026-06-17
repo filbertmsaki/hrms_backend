@@ -89,18 +89,14 @@ export class PermissionsService {
 
     const permission = await this.findAccessiblePermissionOrFail(id, actor);
 
-    assertCanMutateSystemGeneratedRbacRecord(
-      actor,
-      permission,
-      'permission',
-    );
+    assertCanMutateSystemGeneratedRbacRecord(actor, permission, 'permission');
 
     permission.name = updatePermissionDto.name ?? permission.name;
     permission.display_name =
       updatePermissionDto.display_name ?? permission.display_name;
     permission.description =
       updatePermissionDto.description !== undefined
-        ? updatePermissionDto.description ?? null
+        ? (updatePermissionDto.description ?? null)
         : permission.description;
 
     return this.permissionsRepository.save(permission);
@@ -111,11 +107,7 @@ export class PermissionsService {
 
     const permission = await this.findAccessiblePermissionOrFail(id, actor);
 
-    assertCanMutateSystemGeneratedRbacRecord(
-      actor,
-      permission,
-      'permission',
-    );
+    assertCanMutateSystemGeneratedRbacRecord(actor, permission, 'permission');
 
     await this.permissionsRepository.remove(permission);
   }

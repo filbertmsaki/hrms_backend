@@ -25,4 +25,3 @@ export class SyncAllHikvisionDevicesDto {
   @IsOptional()
   continue_on_error?: boolean;
 }
-

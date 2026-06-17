@@ -25,8 +25,14 @@ import { EmployeeDeviceAssignmentSyncStatusEnum } from '../enum/employee-device-
 @Index('IDX_employee_device_assignments_device_id', ['deviceId'])
 @Index('IDX_employee_device_assignments_organization_id', ['organizationId'])
 @Index('IDX_employee_device_assignments_sync_status', ['syncStatus'])
-@Unique('UQ_employee_device_assignments_device_employee_no', ['deviceId', 'employeeNo'])
-@Unique('UQ_employee_device_assignments_employee_device', ['employeeId', 'deviceId'])
+@Unique('UQ_employee_device_assignments_device_employee_no', [
+  'deviceId',
+  'employeeNo',
+])
+@Unique('UQ_employee_device_assignments_employee_device', [
+  'employeeId',
+  'deviceId',
+])
 export class EmployeeDeviceAssignment {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -40,7 +46,12 @@ export class EmployeeDeviceAssignment {
   @Column({ name: 'employee_no', type: 'varchar', length: 100 })
   employeeNo: string;
 
-  @Column({ name: 'employee_name', type: 'varchar', length: 200, nullable: true })
+  @Column({
+    name: 'employee_name',
+    type: 'varchar',
+    length: 200,
+    nullable: true,
+  })
   employeeName: string | null;
 
   @Column({ name: 'device_id', type: 'int', nullable: true })
@@ -49,10 +60,20 @@ export class EmployeeDeviceAssignment {
   @Column({ name: 'organization_id', type: 'int', nullable: true })
   organizationId: number | null;
 
-  @Column({ name: 'hikvision_user_type', type: 'varchar', length: 50, nullable: true })
+  @Column({
+    name: 'hikvision_user_type',
+    type: 'varchar',
+    length: 50,
+    nullable: true,
+  })
   hikvisionUserType: string | null;
 
-  @Column({ name: 'user_verify_mode', type: 'varchar', length: 120, nullable: true })
+  @Column({
+    name: 'user_verify_mode',
+    type: 'varchar',
+    length: 120,
+    nullable: true,
+  })
   userVerifyMode: string | null;
 
   @Column({ name: 'valid_begin_time', type: 'timestamp', nullable: true })
@@ -114,14 +135,17 @@ export class EmployeeDeviceAssignment {
   @JoinColumn({ name: 'device_id' })
   device: AttendanceDevice | null;
 
-  @ManyToOne(() => AccessOrganization, (organization) => organization.employeeDeviceAssignments, {
-    nullable: true,
-    onDelete: 'SET NULL',
-  })
+  @ManyToOne(
+    () => AccessOrganization,
+    (organization) => organization.employeeDeviceAssignments,
+    {
+      nullable: true,
+      onDelete: 'SET NULL',
+    },
+  )
   @JoinColumn({ name: 'organization_id' })
   organization: AccessOrganization | null;
 
   @OneToMany(() => EmployeeDeviceRightPlan, (rightPlan) => rightPlan.assignment)
   rightPlans: EmployeeDeviceRightPlan[];
 }
-

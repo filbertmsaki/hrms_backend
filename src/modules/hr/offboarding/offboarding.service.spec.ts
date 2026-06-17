@@ -44,18 +44,25 @@ describe('OffboardingService', () => {
   let actor: AuthenticatedUser;
 
   beforeEach(() => {
-    const offboardingWorkflowRepository = createRepositoryMock<OffboardingWorkflow>();
-    const offboardingWorkflowStepRepository = createRepositoryMock<OffboardingWorkflowStep>();
+    const offboardingWorkflowRepository =
+      createRepositoryMock<OffboardingWorkflow>();
+    const offboardingWorkflowStepRepository =
+      createRepositoryMock<OffboardingWorkflowStep>();
     offboardingRequestRepository = createRepositoryMock<OffboardingRequest>();
     const offboardingTaskRepository = createRepositoryMock<OffboardingTask>();
-    const offboardingApprovalRepository = createRepositoryMock<OffboardingApproval>();
-    const offboardingClearanceRepository = createRepositoryMock<OffboardingClearance>();
-    const offboardingAuditLogRepository = createRepositoryMock<OffboardingAuditLog>();
+    const offboardingApprovalRepository =
+      createRepositoryMock<OffboardingApproval>();
+    const offboardingClearanceRepository =
+      createRepositoryMock<OffboardingClearance>();
+    const offboardingAuditLogRepository =
+      createRepositoryMock<OffboardingAuditLog>();
     const documentRepository = createRepositoryMock<Document>();
     const employeeRepository = createRepositoryMock<Employee>();
     const shiftAssignmentRepository = createRepositoryMock<ShiftAssignment>();
-    const employeeTimetableRepository = createRepositoryMock<EmployeeTimetable>();
-    const attendanceDailySummaryRepository = createRepositoryMock<AttendanceDailySummary>();
+    const employeeTimetableRepository =
+      createRepositoryMock<EmployeeTimetable>();
+    const attendanceDailySummaryRepository =
+      createRepositoryMock<AttendanceDailySummary>();
     const departmentRepository = createRepositoryMock<Department>();
     const positionRepository = createRepositoryMock<Position>();
     const branchRepository = createRepositoryMock<Branch>();
@@ -213,7 +220,9 @@ describe('OffboardingService', () => {
       }),
     } as unknown as EntityManager;
 
-    dataSource.transaction.mockImplementation(async (callback) => callback(manager));
+    dataSource.transaction.mockImplementation(async (callback) =>
+      callback(manager),
+    );
 
     await service.completeOffboardingRequest(10, 77, actor);
 
@@ -228,13 +237,19 @@ describe('OffboardingService', () => {
       expect.objectContaining({ id: 1, effectiveTo: '2026-06-12' }),
     );
     expect(shiftAssignmentRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 2, status: ShiftAssignmentStatusEnum.INACTIVE }),
+      expect.objectContaining({
+        id: 2,
+        status: ShiftAssignmentStatusEnum.INACTIVE,
+      }),
     );
     expect(employeeTimetableRepo.save).toHaveBeenCalledWith(
       expect.objectContaining({ id: 3, effectiveTo: '2026-06-12' }),
     );
     expect(employeeTimetableRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 4, status: EmployeeTimetableStatusEnum.INACTIVE }),
+      expect.objectContaining({
+        id: 4,
+        status: EmployeeTimetableStatusEnum.INACTIVE,
+      }),
     );
     expect(deleteBuilder.execute).toHaveBeenCalled();
   });

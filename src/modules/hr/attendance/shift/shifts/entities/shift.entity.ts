@@ -103,7 +103,12 @@ export class Shift {
   @Column({ name: 'allow_late_checkout', type: 'boolean', default: true })
   allowLateCheckout: boolean;
 
-  @Column({ name: 'status', type: 'enum', enum: ShiftStatusEnum, default: ShiftStatusEnum.ACTIVE })
+  @Column({
+    name: 'status',
+    type: 'enum',
+    enum: ShiftStatusEnum,
+    default: ShiftStatusEnum.ACTIVE,
+  })
   status: ShiftStatusEnum;
 
   @Column({ name: 'created_by', type: 'int', nullable: true })
@@ -140,7 +145,10 @@ export class Shift {
   @OneToMany(() => ShiftOvertimeRule, (overtimeRule) => overtimeRule.shift)
   overtimeRules: ShiftOvertimeRule[];
 
-  @OneToMany(() => ShiftAttendanceRule, (attendanceRule) => attendanceRule.shift)
+  @OneToMany(
+    () => ShiftAttendanceRule,
+    (attendanceRule) => attendanceRule.shift,
+  )
   attendanceRules: ShiftAttendanceRule[];
 
   @OneToMany(() => ShiftAssignment, (assignment) => assignment.shift)

@@ -35,12 +35,17 @@ import { UpdateHolidayGroupDto } from './dtos/update-holiday-group.dto';
 @Controller('attendance/holiday-groups')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class AttendanceHolidayGroupsController {
-  constructor(private readonly holidayGroupsService: AttendanceHolidayGroupsService) {}
+  constructor(
+    private readonly holidayGroupsService: AttendanceHolidayGroupsService,
+  ) {}
 
   @Post()
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_holiday_groups:create')
-  @ApiCreateOperation('Attendance Holiday Group', 'Create attendance holiday group')
+  @ApiCreateOperation(
+    'Attendance Holiday Group',
+    'Create attendance holiday group',
+  )
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: CreateHolidayGroupDto,
@@ -51,7 +56,10 @@ export class AttendanceHolidayGroupsController {
   @Get()
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_holiday_groups:read')
-  @ApiListOperation('Attendance Holiday Group', 'List attendance holiday groups')
+  @ApiListOperation(
+    'Attendance Holiday Group',
+    'List attendance holiday groups',
+  )
   findAll(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: HolidayGroupQueryDto,
@@ -62,7 +70,10 @@ export class AttendanceHolidayGroupsController {
   @Get(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_holiday_groups:read')
-  @ApiGetOneOperation('Attendance Holiday Group', 'Get attendance holiday group by ID')
+  @ApiGetOneOperation(
+    'Attendance Holiday Group',
+    'Get attendance holiday group by ID',
+  )
   findOne(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -73,7 +84,10 @@ export class AttendanceHolidayGroupsController {
   @Patch(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_holiday_groups:update')
-  @ApiUpdateOperation('Attendance Holiday Group', 'Update attendance holiday group')
+  @ApiUpdateOperation(
+    'Attendance Holiday Group',
+    'Update attendance holiday group',
+  )
   update(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -85,7 +99,10 @@ export class AttendanceHolidayGroupsController {
   @Delete(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_holiday_groups:delete')
-  @ApiDeleteOperation('Attendance Holiday Group', 'Delete attendance holiday group')
+  @ApiDeleteOperation(
+    'Attendance Holiday Group',
+    'Delete attendance holiday group',
+  )
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -93,7 +110,3 @@ export class AttendanceHolidayGroupsController {
     return this.holidayGroupsService.remove(req.user.companyId!, id);
   }
 }
-
-
-
-

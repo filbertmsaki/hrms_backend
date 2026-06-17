@@ -87,11 +87,13 @@ export class HrAccessService {
     const departmentBranchIds =
       employee.department_assignments
         ?.map((assignment) => assignment.department?.branch_id)
-        .filter((branchId): branchId is number => typeof branchId === 'number') ??
-      [];
+        .filter(
+          (branchId): branchId is number => typeof branchId === 'number',
+        ) ?? [];
     const primaryDepartmentBranchId =
       employee.primary_department?.branch_id ?? null;
-    const primaryPositionBranchId = employee.primary_position?.branch_id ?? null;
+    const primaryPositionBranchId =
+      employee.primary_position?.branch_id ?? null;
 
     const hasAccess =
       (employee.primary_branch_id

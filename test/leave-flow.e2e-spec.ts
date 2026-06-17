@@ -176,10 +176,22 @@ describe('Leave Flow (e2e)', () => {
       providers: [
         LeaveService,
         { provide: DataSource, useValue: dataSource },
-        { provide: getRepositoryToken(LeaveType), useValue: leaveTypeRepository },
-        { provide: getRepositoryToken(LeavePolicy), useValue: leavePolicyRepository },
-        { provide: getRepositoryToken(LeaveBalance), useValue: leaveBalanceRepository },
-        { provide: getRepositoryToken(LeaveRequest), useValue: leaveRequestRepository },
+        {
+          provide: getRepositoryToken(LeaveType),
+          useValue: leaveTypeRepository,
+        },
+        {
+          provide: getRepositoryToken(LeavePolicy),
+          useValue: leavePolicyRepository,
+        },
+        {
+          provide: getRepositoryToken(LeaveBalance),
+          useValue: leaveBalanceRepository,
+        },
+        {
+          provide: getRepositoryToken(LeaveRequest),
+          useValue: leaveRequestRepository,
+        },
         {
           provide: getRepositoryToken(LeaveApprovalWorkflow),
           useValue: leaveApprovalWorkflowRepository,
@@ -192,13 +204,22 @@ describe('Leave Flow (e2e)', () => {
           provide: getRepositoryToken(LeaveMedicalDetail),
           useValue: leaveMedicalDetailRepository,
         },
-        { provide: getRepositoryToken(LeaveDocument), useValue: leaveDocumentRepository },
+        {
+          provide: getRepositoryToken(LeaveDocument),
+          useValue: leaveDocumentRepository,
+        },
         { provide: getRepositoryToken(Holiday), useValue: holidayRepository },
         { provide: getRepositoryToken(Employee), useValue: employeeRepository },
         { provide: getRepositoryToken(Branch), useValue: branchRepository },
-        { provide: getRepositoryToken(Department), useValue: departmentRepository },
+        {
+          provide: getRepositoryToken(Department),
+          useValue: departmentRepository,
+        },
         { provide: getRepositoryToken(Position), useValue: positionRepository },
-        { provide: getRepositoryToken(CompanyUser), useValue: companyUserRepository },
+        {
+          provide: getRepositoryToken(CompanyUser),
+          useValue: companyUserRepository,
+        },
         { provide: getRepositoryToken(Role), useValue: roleRepository },
         {
           provide: getRepositoryToken(AttendanceRecalculationJob),
@@ -341,7 +362,9 @@ describe('Leave Flow (e2e)', () => {
       carried_forward_days: '0.00',
       expired_days: '0.00',
     });
-    dataSource.transaction.mockImplementation(async (callback) => callback(manager));
+    dataSource.transaction.mockImplementation(async (callback) =>
+      callback(manager),
+    );
 
     const response = await request(app.getHttpServer())
       .post('/leave/requests/77/submit')

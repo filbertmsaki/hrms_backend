@@ -19,7 +19,10 @@ import { Permissions } from '../../../../common/decorators/permissions.decorator
 import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
-import { ApiActionOperation, ApiListOperation } from '../../../../docs/swagger-decorators';
+import {
+  ApiActionOperation,
+  ApiListOperation,
+} from '../../../../docs/swagger-decorators';
 import { AttendanceDailySummaryService } from './attendance-daily-summary.service';
 import { AttendanceProcessingExceptionsService } from './attendance-processing-exceptions.service';
 import { AttendanceProcessingService } from './attendance-processing.service';
@@ -50,7 +53,10 @@ export class AttendanceProcessingController {
   @Post('processing/run-range')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_processing:execute')
-  @ApiActionOperation('Process Attendance Range', 'Transform raw logs into processed events and daily summaries')
+  @ApiActionOperation(
+    'Process Attendance Range',
+    'Transform raw logs into processed events and daily summaries',
+  )
   processRange(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: ProcessAttendanceRangeDto,
@@ -61,7 +67,10 @@ export class AttendanceProcessingController {
   @Post('processing/recalculate')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_recalculation:execute')
-  @ApiActionOperation('Queue Attendance Recalculation', 'Queue and optionally execute attendance recalculation')
+  @ApiActionOperation(
+    'Queue Attendance Recalculation',
+    'Queue and optionally execute attendance recalculation',
+  )
   recalculate(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: RecalculateAttendanceDto,
@@ -76,7 +85,10 @@ export class AttendanceProcessingController {
   @Post('processing/jobs/run-pending')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_recalculation:execute')
-  @ApiActionOperation('Run Pending Recalculation Jobs', 'Execute queued attendance recalculation jobs')
+  @ApiActionOperation(
+    'Run Pending Recalculation Jobs',
+    'Execute queued attendance recalculation jobs',
+  )
   runPendingJobs(@Body() dto: ProcessPendingRecalculationJobsDto) {
     return this.recalculationService.processPendingJobs(dto.limit ?? 20);
   }
@@ -84,7 +96,10 @@ export class AttendanceProcessingController {
   @Get('processing/jobs')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_processing:read')
-  @ApiListOperation('Attendance Processing Jobs', 'List attendance recalculation jobs')
+  @ApiListOperation(
+    'Attendance Processing Jobs',
+    'List attendance recalculation jobs',
+  )
   getJobs(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: QueryAttendanceProcessingJobsDto,
@@ -95,7 +110,10 @@ export class AttendanceProcessingController {
   @Post('daily-summaries/rebuild')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_recalculation:execute')
-  @ApiActionOperation('Rebuild Attendance Summaries', 'Rebuild daily attendance summaries for a date range from already-processed events. Does not re-import raw device logs.')
+  @ApiActionOperation(
+    'Rebuild Attendance Summaries',
+    'Rebuild daily attendance summaries for a date range from already-processed events. Does not re-import raw device logs.',
+  )
   rebuildSummaries(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: RebuildAttendanceSummariesDto,
@@ -112,24 +130,37 @@ export class AttendanceProcessingController {
   @Get('daily-summaries')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_summaries:read')
-  @ApiListOperation('Attendance Daily Summaries', 'List processed daily attendance summaries')
+  @ApiListOperation(
+    'Attendance Daily Summaries',
+    'List processed daily attendance summaries',
+  )
   getDailySummaries(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: QueryAttendanceDailySummariesDto,
   ) {
-    return this.dailySummaryService.findDailySummaries(req.user.companyId!, query);
+    return this.dailySummaryService.findDailySummaries(
+      req.user.companyId!,
+      query,
+    );
   }
 
   @Get('daily-summaries/:employeeId/:date')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_summaries:read')
-  @ApiActionOperation('Attendance Daily Summary', 'Recompute one employee-day attendance summary and return it')
+  @ApiActionOperation(
+    'Attendance Daily Summary',
+    'Recompute one employee-day attendance summary and return it',
+  )
   async recomputeOneDay(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
     @Param('date') date: string,
   ) {
-    await this.dailySummaryService.recomputeForEmployeeDate(req.user.companyId!, employeeId, date);
+    await this.dailySummaryService.recomputeForEmployeeDate(
+      req.user.companyId!,
+      employeeId,
+      date,
+    );
     return this.dailySummaryService.findDailySummaries(req.user.companyId!, {
       employee_id: employeeId,
       from_date: date,
@@ -142,18 +173,27 @@ export class AttendanceProcessingController {
   @Get('processing/unmatched-logs')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_processing:read')
-  @ApiListOperation('Unmatched Attendance Logs', 'List processed events with unmatched employees')
+  @ApiListOperation(
+    'Unmatched Attendance Logs',
+    'List processed events with unmatched employees',
+  )
   getUnmatchedLogs(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: QueryUnmatchedAttendanceLogsDto,
   ) {
-    return this.dailySummaryService.findUnmatchedLogs(req.user.companyId!, query);
+    return this.dailySummaryService.findUnmatchedLogs(
+      req.user.companyId!,
+      query,
+    );
   }
 
   @Get('processing/exceptions')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_processing:read')
-  @ApiListOperation('Attendance Exceptions', 'List attendance processing exceptions')
+  @ApiListOperation(
+    'Attendance Exceptions',
+    'List attendance processing exceptions',
+  )
   getExceptions(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: QueryAttendanceExceptionsDto,
@@ -164,7 +204,10 @@ export class AttendanceProcessingController {
   @Patch('processing/exceptions/:id')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_processing:execute')
-  @ApiActionOperation('Update Attendance Exception', 'Resolve or ignore an attendance processing exception')
+  @ApiActionOperation(
+    'Update Attendance Exception',
+    'Resolve or ignore an attendance processing exception',
+  )
   updateException(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -181,7 +224,10 @@ export class AttendanceProcessingController {
   @Put('daily-summaries/:employeeId/:date/adjustment')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_processing:execute')
-  @ApiActionOperation('Adjust Attendance Daily Summary', 'Apply a manual adjustment while keeping raw punches unchanged')
+  @ApiActionOperation(
+    'Adjust Attendance Daily Summary',
+    'Apply a manual adjustment while keeping raw punches unchanged',
+  )
   upsertAdjustment(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -200,7 +246,10 @@ export class AttendanceProcessingController {
   @Delete('daily-summaries/:employeeId/:date/adjustment')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_processing:execute')
-  @ApiActionOperation('Clear Attendance Daily Summary Adjustment', 'Remove the active manual adjustment and recompute from raw punches')
+  @ApiActionOperation(
+    'Clear Attendance Daily Summary Adjustment',
+    'Remove the active manual adjustment and recompute from raw punches',
+  )
   clearAdjustment(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,

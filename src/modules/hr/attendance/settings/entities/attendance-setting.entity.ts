@@ -77,7 +77,3 @@ export class AttendanceSetting {
   @JoinColumn({ name: 'company_id' })
   company: Company;
 }
-
-
-
-

@@ -48,9 +48,12 @@ export class AttendanceProcessingCronService {
           status: EmployeeTimetableStatusEnum.ACTIVE,
         })
         .andWhere('assignment.effective_from <= :today', { today })
-        .andWhere('(assignment.effective_to IS NULL OR assignment.effective_to >= :today)', {
-          today,
-        })
+        .andWhere(
+          '(assignment.effective_to IS NULL OR assignment.effective_to >= :today)',
+          {
+            today,
+          },
+        )
         .getRawMany<{ companyId: string }>();
 
       const shiftAssignmentRows = await this.shiftAssignmentRepository
@@ -60,9 +63,12 @@ export class AttendanceProcessingCronService {
           status: ShiftAssignmentStatusEnum.ACTIVE,
         })
         .andWhere('assignment.effective_from <= :today', { today })
-        .andWhere('(assignment.effective_to IS NULL OR assignment.effective_to >= :today)', {
-          today,
-        })
+        .andWhere(
+          '(assignment.effective_to IS NULL OR assignment.effective_to >= :today)',
+          {
+            today,
+          },
+        )
         .getRawMany<{ companyId: string }>();
 
       const shiftScheduleRows = await this.shiftScheduleRepository
@@ -92,7 +98,9 @@ export class AttendanceProcessingCronService {
         });
       }
     } catch (error) {
-      this.logger.warn(`Incremental attendance processing skipped: ${(error as Error).message}`);
+      this.logger.warn(
+        `Incremental attendance processing skipped: ${(error as Error).message}`,
+      );
     }
   }
 
@@ -103,12 +111,16 @@ export class AttendanceProcessingCronService {
     try {
       await this.recalculationService.processPendingJobs(20);
     } catch (error) {
-      this.logger.warn(`Pending recalculation processing failed: ${(error as Error).message}`);
+      this.logger.warn(
+        `Pending recalculation processing failed: ${(error as Error).message}`,
+      );
     }
   }
 
   private isEnabled() {
-    const value = String(process.env.ATTENDANCE_PROCESSING_ENABLED ?? 'true').toLowerCase();
+    const value = String(
+      process.env.ATTENDANCE_PROCESSING_ENABLED ?? 'true',
+    ).toLowerCase();
     return value !== 'false' && value !== '0' && value !== 'no';
   }
 

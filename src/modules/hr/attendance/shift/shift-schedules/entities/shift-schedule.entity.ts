@@ -21,7 +21,11 @@ import { AttendanceHoliday } from '../../../holidays/entities/holiday.entity';
 @Index('IDX_shift_schedules_override_shift_id', ['overrideShiftId'])
 @Index('IDX_shift_schedules_schedule_date', ['scheduleDate'])
 @Index('IDX_shift_schedules_holiday_id', ['holidayId'])
-@Index('UQ_shift_schedules_company_employee_date', ['companyId', 'employeeId', 'scheduleDate'], { unique: true })
+@Index(
+  'UQ_shift_schedules_company_employee_date',
+  ['companyId', 'employeeId', 'scheduleDate'],
+  { unique: true },
+)
 export class ShiftSchedule {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -74,7 +78,10 @@ export class ShiftSchedule {
   @JoinColumn({ name: 'shift_id' })
   shift: Shift;
 
-  @ManyToOne(() => Shift, (shift) => shift.overrideSchedules, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => Shift, (shift) => shift.overrideSchedules, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
   @JoinColumn({ name: 'override_shift_id' })
   overrideShift: Shift | null;
 

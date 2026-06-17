@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
@@ -21,36 +26,64 @@ export class ShiftsService {
     private readonly departmentRepository: Repository<Department>,
   ) {}
 
-  private async ensureBranch(companyId: number, branchId?: number | null): Promise<void> {
+  private async ensureBranch(
+    companyId: number,
+    branchId?: number | null,
+  ): Promise<void> {
     if (!branchId) return;
-    const branch = await this.branchRepository.findOne({ where: { id: branchId, company_id: companyId } });
-    if (!branch) throw new BadRequestException('branch_id does not belong to the active company');
+    const branch = await this.branchRepository.findOne({
+      where: { id: branchId, company_id: companyId },
+    });
+    if (!branch)
+      throw new BadRequestException(
+        'branch_id does not belong to the active company',
+      );
   }
 
-  private async ensureDepartment(companyId: number, departmentId?: number | null): Promise<void> {
+  private async ensureDepartment(
+    companyId: number,
+    departmentId?: number | null,
+  ): Promise<void> {
     if (!departmentId) return;
-    const department = await this.departmentRepository.findOne({ where: { id: departmentId, company_id: companyId } });
-    if (!department) throw new BadRequestException('department_id does not belong to the active company');
+    const department = await this.departmentRepository.findOne({
+      where: { id: departmentId, company_id: companyId },
+    });
+    if (!department)
+      throw new BadRequestException(
+        'department_id does not belong to the active company',
+      );
   }
 
   private async findOrFail(companyId: number, id: number): Promise<Shift> {
-    const item = await this.shiftRepository.findOne({ where: { id, companyId } });
+    const item = await this.shiftRepository.findOne({
+      where: { id, companyId },
+    });
     if (!item) throw new NotFoundException('Shift not found');
     return item;
   }
 
-  async create(companyId: number, createdBy: number | null, dto: CreateShiftDto) {
+  async create(
+    companyId: number,
+    createdBy: number | null,
+    dto: CreateShiftDto,
+  ) {
     await this.ensureBranch(companyId, dto.branch_id);
     await this.ensureDepartment(companyId, dto.department_id);
 
     const code = dto.code.trim();
     const name = dto.name.trim();
 
-    const existingCode = await this.shiftRepository.findOne({ where: { companyId, code } });
-    if (existingCode) throw new ConflictException('Shift code already exists for this company');
+    const existingCode = await this.shiftRepository.findOne({
+      where: { companyId, code },
+    });
+    if (existingCode)
+      throw new ConflictException('Shift code already exists for this company');
 
-    const existingName = await this.shiftRepository.findOne({ where: { companyId, name } });
-    if (existingName) throw new ConflictException('Shift name already exists for this company');
+    const existingName = await this.shiftRepository.findOne({
+      where: { companyId, name },
+    });
+    if (existingName)
+      throw new ConflictException('Shift name already exists for this company');
 
     const created = this.shiftRepository.create({
       companyId,
@@ -96,13 +129,23 @@ export class ShiftsService {
       status,
     } = query;
 
-    const qb = this.shiftRepository.createQueryBuilder('shift').where('shift.company_id = :companyId', { companyId });
+    const qb = this.shiftRepository
+      .createQueryBuilder('shift')
+      .where('shift.company_id = :companyId', { companyId });
 
-    if (branch_id) qb.andWhere('shift.branch_id = :branchId', { branchId: branch_id });
-    if (department_id) qb.andWhere('shift.department_id = :departmentId', { departmentId: department_id });
-    if (shift_type) qb.andWhere('shift.shift_type = :shiftType', { shiftType: shift_type });
+    if (branch_id)
+      qb.andWhere('shift.branch_id = :branchId', { branchId: branch_id });
+    if (department_id)
+      qb.andWhere('shift.department_id = :departmentId', {
+        departmentId: department_id,
+      });
+    if (shift_type)
+      qb.andWhere('shift.shift_type = :shiftType', { shiftType: shift_type });
     if (status) qb.andWhere('shift.status = :status', { status });
-    if (search?.trim()) qb.andWhere('(shift.name LIKE :term OR shift.code LIKE :term)', { term: `%${search.trim()}%` });
+    if (search?.trim())
+      qb.andWhere('(shift.name LIKE :term OR shift.code LIKE :term)', {
+        term: `%${search.trim()}%`,
+      });
 
     const sortFieldMap: Record<string, string> = {
       name: 'name',
@@ -113,8 +156,15 @@ export class ShiftsService {
     const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.created_at;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
-    const [items, total] = await qb.orderBy(`shift.${safeSortBy}`, direction).skip((page - 1) * limit).take(limit).getManyAndCount();
-    return { data: items, meta: buildPaginationMeta(total, items.length, limit, page) };
+    const [items, total] = await qb
+      .orderBy(`shift.${safeSortBy}`, direction)
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+    return {
+      data: items,
+      meta: buildPaginationMeta(total, items.length, limit, page),
+    };
   }
 
   async findOne(companyId: number, id: number) {
@@ -136,36 +186,61 @@ export class ShiftsService {
 
     if (dto.code !== undefined) {
       const code = dto.code.trim();
-      const existing = await this.shiftRepository.findOne({ where: { companyId, code } });
-      if (existing && existing.id !== item.id) throw new ConflictException('Shift code already exists for this company');
+      const existing = await this.shiftRepository.findOne({
+        where: { companyId, code },
+      });
+      if (existing && existing.id !== item.id)
+        throw new ConflictException(
+          'Shift code already exists for this company',
+        );
       item.code = code;
     }
 
     if (dto.name !== undefined) {
       const name = dto.name.trim();
-      const existing = await this.shiftRepository.findOne({ where: { companyId, name } });
-      if (existing && existing.id !== item.id) throw new ConflictException('Shift name already exists for this company');
+      const existing = await this.shiftRepository.findOne({
+        where: { companyId, name },
+      });
+      if (existing && existing.id !== item.id)
+        throw new ConflictException(
+          'Shift name already exists for this company',
+        );
       item.name = name;
     }
 
-    if (dto.description !== undefined) item.description = dto.description?.trim() || null;
+    if (dto.description !== undefined)
+      item.description = dto.description?.trim() || null;
     if (dto.shift_type !== undefined) item.shiftType = dto.shift_type;
     if (dto.start_time !== undefined) item.startTime = dto.start_time;
     if (dto.end_time !== undefined) item.endTime = dto.end_time;
-    if (dto.expected_work_minutes !== undefined) item.expectedWorkMinutes = dto.expected_work_minutes;
-    if (dto.minimum_work_minutes !== undefined) item.minimumWorkMinutes = dto.minimum_work_minutes;
-    if (dto.half_day_minutes !== undefined) item.halfDayMinutes = dto.half_day_minutes;
-    if (dto.grace_in_minutes !== undefined) item.graceInMinutes = dto.grace_in_minutes;
-    if (dto.grace_out_minutes !== undefined) item.graceOutMinutes = dto.grace_out_minutes;
-    if (dto.late_after_minutes !== undefined) item.lateAfterMinutes = dto.late_after_minutes;
-    if (dto.early_leave_after_minutes !== undefined) item.earlyLeaveAfterMinutes = dto.early_leave_after_minutes;
-    if (dto.is_night_shift !== undefined) item.isNightShift = dto.is_night_shift;
-    if (dto.crosses_midnight !== undefined) item.crossesMidnight = dto.crosses_midnight;
-    if (dto.allow_overtime !== undefined) item.allowOvertime = dto.allow_overtime;
-    if (dto.max_overtime_minutes !== undefined) item.maxOvertimeMinutes = dto.max_overtime_minutes;
-    if (dto.requires_checkout !== undefined) item.requiresCheckout = dto.requires_checkout;
-    if (dto.allow_early_checkin !== undefined) item.allowEarlyCheckin = dto.allow_early_checkin;
-    if (dto.allow_late_checkout !== undefined) item.allowLateCheckout = dto.allow_late_checkout;
+    if (dto.expected_work_minutes !== undefined)
+      item.expectedWorkMinutes = dto.expected_work_minutes;
+    if (dto.minimum_work_minutes !== undefined)
+      item.minimumWorkMinutes = dto.minimum_work_minutes;
+    if (dto.half_day_minutes !== undefined)
+      item.halfDayMinutes = dto.half_day_minutes;
+    if (dto.grace_in_minutes !== undefined)
+      item.graceInMinutes = dto.grace_in_minutes;
+    if (dto.grace_out_minutes !== undefined)
+      item.graceOutMinutes = dto.grace_out_minutes;
+    if (dto.late_after_minutes !== undefined)
+      item.lateAfterMinutes = dto.late_after_minutes;
+    if (dto.early_leave_after_minutes !== undefined)
+      item.earlyLeaveAfterMinutes = dto.early_leave_after_minutes;
+    if (dto.is_night_shift !== undefined)
+      item.isNightShift = dto.is_night_shift;
+    if (dto.crosses_midnight !== undefined)
+      item.crossesMidnight = dto.crosses_midnight;
+    if (dto.allow_overtime !== undefined)
+      item.allowOvertime = dto.allow_overtime;
+    if (dto.max_overtime_minutes !== undefined)
+      item.maxOvertimeMinutes = dto.max_overtime_minutes;
+    if (dto.requires_checkout !== undefined)
+      item.requiresCheckout = dto.requires_checkout;
+    if (dto.allow_early_checkin !== undefined)
+      item.allowEarlyCheckin = dto.allow_early_checkin;
+    if (dto.allow_late_checkout !== undefined)
+      item.allowLateCheckout = dto.allow_late_checkout;
     if (dto.status !== undefined) item.status = dto.status;
 
     return this.shiftRepository.save(item);

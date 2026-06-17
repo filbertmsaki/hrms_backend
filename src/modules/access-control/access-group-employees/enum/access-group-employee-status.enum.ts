@@ -3,4 +3,3 @@ export enum AccessGroupEmployeeStatusEnum {
   INACTIVE = 'INACTIVE',
   REMOVED = 'REMOVED',
 }
-

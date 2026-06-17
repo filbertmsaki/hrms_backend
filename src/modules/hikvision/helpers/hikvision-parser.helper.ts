@@ -13,7 +13,9 @@ export class HikvisionParserHelper {
   parsePayload(payload: string): Record<string, unknown> {
     const normalized = payload.trim();
     if (!normalized) {
-      throw new BadGatewayException('Empty payload received from Hikvision device');
+      throw new BadGatewayException(
+        'Empty payload received from Hikvision device',
+      );
     }
 
     if (normalized.startsWith('{') || normalized.startsWith('[')) {
@@ -21,7 +23,9 @@ export class HikvisionParserHelper {
         return JSON.parse(normalized) as Record<string, unknown>;
       } catch (error) {
         const message = (error as Error).message || 'Unknown JSON parse error';
-        throw new BadGatewayException(`Invalid JSON from Hikvision device: ${message}`);
+        throw new BadGatewayException(
+          `Invalid JSON from Hikvision device: ${message}`,
+        );
       }
     }
 
@@ -29,7 +33,9 @@ export class HikvisionParserHelper {
       return this.xmlParser.parse(normalized) as Record<string, unknown>;
     } catch (error) {
       const message = (error as Error).message || 'Unknown XML parse error';
-      throw new BadGatewayException(`Invalid XML from Hikvision device: ${message}`);
+      throw new BadGatewayException(
+        `Invalid XML from Hikvision device: ${message}`,
+      );
     }
   }
 
@@ -82,9 +88,16 @@ export class HikvisionParserHelper {
     return visit(source, 0);
   }
 
-  extractRoot(source: Record<string, unknown>, key: string): Record<string, unknown> {
+  extractRoot(
+    source: Record<string, unknown>,
+    key: string,
+  ): Record<string, unknown> {
     const candidate = source[key];
-    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+    if (
+      candidate &&
+      typeof candidate === 'object' &&
+      !Array.isArray(candidate)
+    ) {
       return candidate as Record<string, unknown>;
     }
     return source;

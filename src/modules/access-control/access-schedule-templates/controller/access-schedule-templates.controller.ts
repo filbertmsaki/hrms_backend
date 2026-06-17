@@ -82,12 +82,17 @@ class AccessScheduleTemplateQueryDto {
 @Controller('access-control/schedule-templates')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class AccessScheduleTemplatesController {
-  constructor(private readonly templatesService: AccessScheduleTemplatesService) {}
+  constructor(
+    private readonly templatesService: AccessScheduleTemplatesService,
+  ) {}
 
   @Post()
   @UseGuards(PermissionsGuard)
   @Permissions('access_schedule_templates:create')
-  @ApiCreateOperation('Access Schedule Template', 'Create access schedule template')
+  @ApiCreateOperation(
+    'Access Schedule Template',
+    'Create access schedule template',
+  )
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: CreateAccessScheduleTemplateDto,
@@ -98,7 +103,10 @@ export class AccessScheduleTemplatesController {
   @Get()
   @UseGuards(PermissionsGuard)
   @Permissions('access_schedule_templates:read')
-  @ApiListOperation('Access Schedule Template', 'List access schedule templates')
+  @ApiListOperation(
+    'Access Schedule Template',
+    'List access schedule templates',
+  )
   findAll(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: AccessScheduleTemplateQueryDto,
@@ -109,7 +117,10 @@ export class AccessScheduleTemplatesController {
   @Get(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('access_schedule_templates:read')
-  @ApiGetOneOperation('Access Schedule Template', 'Get access schedule template by ID')
+  @ApiGetOneOperation(
+    'Access Schedule Template',
+    'Get access schedule template by ID',
+  )
   findOne(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -120,7 +131,10 @@ export class AccessScheduleTemplatesController {
   @Patch(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('access_schedule_templates:update')
-  @ApiUpdateOperation('Access Schedule Template', 'Update access schedule template')
+  @ApiUpdateOperation(
+    'Access Schedule Template',
+    'Update access schedule template',
+  )
   update(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -132,7 +146,10 @@ export class AccessScheduleTemplatesController {
   @Delete(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('access_schedule_templates:delete')
-  @ApiDeleteOperation('Access Schedule Template', 'Delete access schedule template')
+  @ApiDeleteOperation(
+    'Access Schedule Template',
+    'Delete access schedule template',
+  )
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -152,7 +169,11 @@ export class AccessScheduleTemplatesController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: SyncAccessScheduleTemplateDto,
   ) {
-    return this.templatesService.syncTemplateToDevice(req.user.companyId!, id, dto.device_id);
+    return this.templatesService.syncTemplateToDevice(
+      req.user.companyId!,
+      id,
+      dto.device_id,
+    );
   }
 
   @Post('sync-from-device/:deviceId')
@@ -166,6 +187,9 @@ export class AccessScheduleTemplatesController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('deviceId', ParseIntPipe) deviceId: number,
   ) {
-    return this.templatesService.syncTemplatesFromDevice(req.user.companyId!, deviceId);
+    return this.templatesService.syncTemplatesFromDevice(
+      req.user.companyId!,
+      deviceId,
+    );
   }
 }

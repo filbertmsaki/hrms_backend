@@ -55,7 +55,8 @@ export class EmployeeAccessCredentialsService {
       employee.id,
       dto.device_id ?? null,
     );
-    const credentialType = dto.credential_type ?? EmployeeAccessCredentialTypeEnum.CARD;
+    const credentialType =
+      dto.credential_type ?? EmployeeAccessCredentialTypeEnum.CARD;
 
     let item = await this.credentialRepository.findOne({
       where: {
@@ -85,7 +86,8 @@ export class EmployeeAccessCredentialsService {
     item.deviceId = resolvedDeviceId;
     item.credentialType = credentialType;
     item.credentialNo = dto.credential_no ?? item.credentialNo ?? null;
-    item.credentialStatus = dto.credential_status ?? item.credentialStatus ?? 'ACTIVE';
+    item.credentialStatus =
+      dto.credential_status ?? item.credentialStatus ?? 'ACTIVE';
     item.cardNo = dto.card_no?.trim() || null;
     if (dto.pin_password !== undefined) {
       item.passwordSet = Boolean(dto.pin_password?.trim());
@@ -93,8 +95,8 @@ export class EmployeeAccessCredentialsService {
     }
     item.fingerprintCount = dto.fingerprint_count ?? 0;
     item.faceCount = dto.face_count ?? 0;
-    item.hasFingerprint = dto.has_fingerprint ?? (item.fingerprintCount > 0);
-    item.hasFace = dto.has_face ?? (item.faceCount > 0);
+    item.hasFingerprint = dto.has_fingerprint ?? item.fingerprintCount > 0;
+    item.hasFace = dto.has_face ?? item.faceCount > 0;
     item.metadata = await this.resolveCredentialMetadata(
       companyId,
       resolvedDeviceId,
@@ -106,7 +108,11 @@ export class EmployeeAccessCredentialsService {
     return this.map(await this.credentialRepository.save(item));
   }
 
-  async update(companyId: number, employeeId: number, dto: Partial<EmployeeAccessCredentialInput>) {
+  async update(
+    companyId: number,
+    employeeId: number,
+    dto: Partial<EmployeeAccessCredentialInput>,
+  ) {
     const employee = await this.findEmployeeOrFail(companyId, employeeId);
     const item = await this.credentialRepository.findOne({
       where: { companyId, employeeId },
@@ -130,17 +136,22 @@ export class EmployeeAccessCredentialsService {
       employee.employee_no,
     );
     item.deviceId = resolvedDeviceId;
-    if (dto.credential_type !== undefined) item.credentialType = dto.credential_type;
-    if (dto.credential_no !== undefined) item.credentialNo = dto.credential_no ?? null;
-    if (dto.credential_status !== undefined) item.credentialStatus = dto.credential_status;
+    if (dto.credential_type !== undefined)
+      item.credentialType = dto.credential_type;
+    if (dto.credential_no !== undefined)
+      item.credentialNo = dto.credential_no ?? null;
+    if (dto.credential_status !== undefined)
+      item.credentialStatus = dto.credential_status;
     if (dto.card_no !== undefined) item.cardNo = dto.card_no?.trim() || null;
     if (dto.pin_password !== undefined) {
       item.passwordSet = Boolean(dto.pin_password?.trim());
       item.pinPassword = dto.pin_password?.trim() || null;
     }
-    if (dto.fingerprint_count !== undefined) item.fingerprintCount = dto.fingerprint_count;
+    if (dto.fingerprint_count !== undefined)
+      item.fingerprintCount = dto.fingerprint_count;
     if (dto.face_count !== undefined) item.faceCount = dto.face_count;
-    if (dto.has_fingerprint !== undefined) item.hasFingerprint = dto.has_fingerprint;
+    if (dto.has_fingerprint !== undefined)
+      item.hasFingerprint = dto.has_fingerprint;
     if (dto.has_face !== undefined) item.hasFace = dto.has_face;
     item.metadata = await this.resolveCredentialMetadata(
       companyId,
@@ -150,7 +161,10 @@ export class EmployeeAccessCredentialsService {
       dto.metadata !== undefined ? dto.metadata : item.metadata,
     );
 
-    if (dto.has_fingerprint === undefined && dto.fingerprint_count !== undefined) {
+    if (
+      dto.has_fingerprint === undefined &&
+      dto.fingerprint_count !== undefined
+    ) {
       item.hasFingerprint = dto.fingerprint_count > 0;
     }
 
@@ -174,10 +188,17 @@ export class EmployeeAccessCredentialsService {
     return this.map(item);
   }
 
-  private async findEmployeeOrFail(companyId: number, employeeId: number): Promise<Employee> {
+  private async findEmployeeOrFail(
+    companyId: number,
+    employeeId: number,
+  ): Promise<Employee> {
     const employee = await this.employeeRepository
       .createQueryBuilder('employee')
-      .innerJoin(CompanyUser, 'companyUser', 'companyUser.id = employee.company_user_id')
+      .innerJoin(
+        CompanyUser,
+        'companyUser',
+        'companyUser.id = employee.company_user_id',
+      )
       .where('employee.id = :employeeId', { employeeId })
       .andWhere('companyUser.company_id = :companyId', { companyId })
       .select(['employee.id', 'employee.employee_no'])
@@ -238,7 +259,9 @@ export class EmployeeAccessCredentialsService {
       if (!value || typeof value !== 'object') return value;
 
       const output: Record<string, unknown> = {};
-      for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+      for (const [key, raw] of Object.entries(
+        value as Record<string, unknown>,
+      )) {
         if (sensitiveKeys.has(key.toLowerCase())) {
           output[key] = '***MASKED***';
           continue;
@@ -330,13 +353,14 @@ export class EmployeeAccessCredentialsService {
 
     let resolvedUserVerifyMode = currentUserVerifyMode;
     if (deviceId) {
-      resolvedUserVerifyMode = await this.hikvisionUserManagementService.resolveSupportedUserVerifyMode(
-        companyId,
-        deviceId,
-        currentUserVerifyMode,
-        this.buildCredentialUserVerifyModeCandidates(credentialType),
-        'employee access credential',
-      );
+      resolvedUserVerifyMode =
+        await this.hikvisionUserManagementService.resolveSupportedUserVerifyMode(
+          companyId,
+          deviceId,
+          currentUserVerifyMode,
+          this.buildCredentialUserVerifyModeCandidates(credentialType),
+          'employee access credential',
+        );
     }
 
     return {
@@ -356,16 +380,34 @@ export class EmployeeAccessCredentialsService {
       case EmployeeAccessCredentialTypeEnum.PIN:
         return ['cardOrFpOrPw', 'cardAndPw', 'fpAndPw', 'fpAndCardAndPw'];
       case EmployeeAccessCredentialTypeEnum.CARD:
-        return ['cardOrFpOrPw', 'cardAndPw', 'fpAndCard', 'fpAndCardAndPw', 'fpOrCard', 'card'];
+        return [
+          'cardOrFpOrPw',
+          'cardAndPw',
+          'fpAndCard',
+          'fpAndCardAndPw',
+          'fpOrCard',
+          'card',
+        ];
       case EmployeeAccessCredentialTypeEnum.FINGERPRINT:
-        return ['cardOrFpOrPw', 'fpAndPw', 'fpAndCard', 'fpAndCardAndPw', 'fpOrCard', 'fp'];
+        return [
+          'cardOrFpOrPw',
+          'fpAndPw',
+          'fpAndCard',
+          'fpAndCardAndPw',
+          'fpOrCard',
+          'fp',
+        ];
       default:
         return ['cardOrFpOrPw'];
     }
   }
 
-  private extractCredentialUserVerifyMode(item: EmployeeAccessCredential): string | null {
-    return this.toNullableString(this.toObject(this.toObject(item.metadata).hikvision).user_verify_mode);
+  private extractCredentialUserVerifyMode(
+    item: EmployeeAccessCredential,
+  ): string | null {
+    return this.toNullableString(
+      this.toObject(this.toObject(item.metadata).hikvision).user_verify_mode,
+    );
   }
 
   private toObject(value: unknown): Record<string, unknown> {
@@ -384,4 +426,3 @@ export class EmployeeAccessCredentialsService {
     return normalized ? normalized : null;
   }
 }
-

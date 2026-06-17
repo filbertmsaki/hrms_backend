@@ -19,10 +19,18 @@ import { HolidayGroup } from './holiday-group.entity';
 @Index('IDX_attendance_holidays_date', ['date'])
 @Index('IDX_attendance_holidays_type', ['type'])
 @Index('IDX_attendance_holidays_branch_id', ['branchId'])
-@Index('IDX_attendance_holidays_company_date_branch', ['companyId', 'date', 'branchId'])
-@Index('UQ_attendance_holidays_group_name_date', ['holidayGroupId', 'name', 'date'], {
-  unique: true,
-})
+@Index('IDX_attendance_holidays_company_date_branch', [
+  'companyId',
+  'date',
+  'branchId',
+])
+@Index(
+  'UQ_attendance_holidays_group_name_date',
+  ['holidayGroupId', 'name', 'date'],
+  {
+    unique: true,
+  },
+)
 export class AttendanceHoliday {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -81,7 +89,3 @@ export class AttendanceHoliday {
   @JoinColumn({ name: 'branch_id' })
   branch: Branch | null;
 }
-
-
-
-

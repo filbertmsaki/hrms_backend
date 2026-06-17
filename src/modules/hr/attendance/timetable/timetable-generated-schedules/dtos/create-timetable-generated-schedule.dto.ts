@@ -1,6 +1,13 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsDateString, IsEnum, IsInt, IsOptional, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  Min,
+} from 'class-validator';
 import { TimetableGeneratedScheduleSourceRuleEnum } from '../enums/timetable-generated-schedule-source-rule.enum';
 
 export class CreateTimetableGeneratedScheduleDto {

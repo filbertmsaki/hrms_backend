@@ -40,7 +40,10 @@ export class DesignationsController {
   @Post()
   @UseGuards(PermissionsGuard)
   @Permissions('designations:create')
-  @ApiCreateOperation('Designation', 'Create a designation in the active company')
+  @ApiCreateOperation(
+    'Designation',
+    'Create a designation in the active company',
+  )
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() createDesignationDto: CreateDesignationDto,
@@ -60,7 +63,11 @@ export class DesignationsController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: DesignationQueryDto,
   ) {
-    return this.designationsService.findAll(req.user.companyId!, query, req.user);
+    return this.designationsService.findAll(
+      req.user.companyId!,
+      query,
+      req.user,
+    );
   }
 
   @Get(':id')

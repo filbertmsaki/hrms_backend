@@ -19,7 +19,10 @@ import { AccessGroup } from '../../access-groups/entity/access-group.entity';
 @Index('IDX_access_group_employees_group_id', ['accessGroupId'])
 @Index('IDX_access_group_employees_employee_id', ['employeeId'])
 @Index('IDX_access_group_employees_employee_no', ['employeeNo'])
-@Unique('UQ_access_group_employees_group_employee_no', ['accessGroupId', 'employeeNo'])
+@Unique('UQ_access_group_employees_group_employee_no', [
+  'accessGroupId',
+  'employeeNo',
+])
 export class AccessGroupEmployee {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -33,7 +36,12 @@ export class AccessGroupEmployee {
   @Column({ name: 'employee_no', type: 'varchar', length: 100 })
   employeeNo: string;
 
-  @Column({ name: 'employee_name', type: 'varchar', length: 200, nullable: true })
+  @Column({
+    name: 'employee_name',
+    type: 'varchar',
+    length: 200,
+    nullable: true,
+  })
   employeeName: string | null;
 
   @Column({ name: 'organization_id', type: 'int', nullable: true })
@@ -70,7 +78,9 @@ export class AccessGroupEmployee {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-  @ManyToOne(() => AccessGroup, (group) => group.employees, { onDelete: 'CASCADE' })
+  @ManyToOne(() => AccessGroup, (group) => group.employees, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'access_group_id' })
   accessGroup: AccessGroup;
 
@@ -78,11 +88,14 @@ export class AccessGroupEmployee {
   @JoinColumn({ name: 'employee_id' })
   employee: Employee | null;
 
-  @ManyToOne(() => AccessOrganization, (organization) => organization.groupEmployees, {
-    nullable: true,
-    onDelete: 'SET NULL',
-  })
+  @ManyToOne(
+    () => AccessOrganization,
+    (organization) => organization.groupEmployees,
+    {
+      nullable: true,
+      onDelete: 'SET NULL',
+    },
+  )
   @JoinColumn({ name: 'organization_id' })
   organization: AccessOrganization | null;
 }
-

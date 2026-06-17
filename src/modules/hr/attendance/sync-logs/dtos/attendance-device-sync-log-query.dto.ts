@@ -33,8 +33,3 @@ export class AttendanceDeviceSyncLogQueryDto extends PaginationDto {
   @IsOptional()
   to_date?: string;
 }
-
-
-
-
-

@@ -22,5 +22,4 @@ export const AppDataSource = new DataSource({
 
   synchronize: false, // NEVER true in production!
   logging: process.env.NODE_ENV === 'development' ? ['query', 'error'] : false,
-
 } as DataSourceOptions & SeederOptions);

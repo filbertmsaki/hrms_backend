@@ -14,7 +14,9 @@ import { AttendanceHoliday } from './holiday.entity';
 
 @Entity('holiday_groups')
 @Index('IDX_holiday_groups_company_id', ['companyId'])
-@Index('UQ_holiday_groups_company_name', ['companyId', 'name'], { unique: true })
+@Index('UQ_holiday_groups_company_name', ['companyId', 'name'], {
+  unique: true,
+})
 export class HolidayGroup {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -41,7 +43,3 @@ export class HolidayGroup {
   @OneToMany(() => AttendanceHoliday, (holiday) => holiday.holidayGroup)
   holidays: AttendanceHoliday[];
 }
-
-
-
-

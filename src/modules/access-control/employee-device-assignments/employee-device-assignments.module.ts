@@ -51,4 +51,3 @@ import { EmployeeBiometricCaptureSessionsModule } from '../employee-biometric-ca
   exports: [EmployeeDeviceAssignmentsService],
 })
 export class EmployeeDeviceAssignmentsModule {}
-

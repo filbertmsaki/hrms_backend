@@ -2,7 +2,11 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
-import { buildDateOnlyRange, buildPaginationMeta, normalizeDateInput } from '../../shared/hr.utils';
+import {
+  buildDateOnlyRange,
+  buildPaginationMeta,
+  normalizeDateInput,
+} from '../../shared/hr.utils';
 import { LeaveStatusEnum } from '../../leave/enums/leave-status.enum';
 import { LeaveRequest } from '../../leave/entities/leave-request.entity';
 import { LeaveType } from '../../leave/entities/leave-type.entity';
@@ -22,6 +26,7 @@ import { AttendanceDailySummary } from './entities/attendance-daily-summary.enti
 import { AttendanceProcessedEvent } from './entities/attendance-processed-event.entity';
 import { ResolvedAttendanceSchedule } from './entities/resolved-attendance-schedule.type';
 import { AttendanceDailyStatusEnum } from './enums/attendance-daily-status.enum';
+import { AttendanceDailyRemarkEnum } from './enums/attendance-daily-remark.enum';
 import { QueryAttendanceDailySummariesDto } from './dtos/query-attendance-daily-summaries.dto';
 import { QueryUnmatchedAttendanceLogsDto } from './dtos/query-unmatched-attendance-logs.dto';
 import { UpsertAttendanceDailySummaryAdjustmentDto } from './dtos/upsert-attendance-daily-summary-adjustment.dto';
@@ -43,6 +48,7 @@ type PreparedPunchAnalysis = {
   checkInAt: Date | null;
   checkOutAt: Date | null;
   breakMinutes: number;
+  hasSameTimeCheckInOut: boolean;
 };
 
 type SummaryCalculationInput = {
@@ -56,11 +62,15 @@ type SummaryCalculationInput = {
   eventCount: number;
   hasScheduleExpectation: boolean;
   noScheduleFound: boolean;
+  invalidPunchCount: number;
+  hasSameTimeCheckInOut: boolean;
+  hasMultiplePunches: boolean;
 };
 
 type SummaryCalculationResult = {
   shouldPersist: boolean;
   attendanceStatus: AttendanceDailyStatusEnum;
+  remarks: AttendanceDailyRemarkEnum[];
   lateMinutes: number;
   earlyDepartureMinutes: number;
   breakMinutes: number;
@@ -113,7 +123,13 @@ export class AttendanceDailySummaryService {
     employeeId?: number;
     forceRebuild?: boolean;
   }) {
-    const { companyId, startDate, endDate, employeeId, forceRebuild = false } = input;
+    const {
+      companyId,
+      startDate,
+      endDate,
+      employeeId,
+      forceRebuild = false,
+    } = input;
 
     const employeeIds = await this.resolveTargetEmployees(
       companyId,
@@ -181,7 +197,11 @@ export class AttendanceDailySummaryService {
     });
 
     const existing = await this.dailySummaryRepository.findOne({
-      where: { companyId, employeeId, attendanceDate: normalizedAttendanceDate },
+      where: {
+        companyId,
+        employeeId,
+        attendanceDate: normalizedAttendanceDate,
+      },
     });
 
     if (employee?.exit_date && normalizedAttendanceDate > employee.exit_date) {
@@ -219,25 +239,43 @@ export class AttendanceDailySummaryService {
       !schedule.isOffDay &&
       !schedule.isHoliday;
 
-    const [processedEvents, mobilePunches, leaveStatus, hasApprovedBusinessTrip, scheduledBreakMinutes, activeAdjustment] =
-      await Promise.all([
-        this.findProcessedEventsForSchedule(
-          companyId,
-          employeeId,
-          normalizedAttendanceDate,
-          schedule,
-        ),
-        this.findMobilePunchesForSchedule(
-          companyId,
-          employeeId,
-          normalizedAttendanceDate,
-          schedule,
-        ),
-        this.resolveApprovedLeave(companyId, employeeId, normalizedAttendanceDate),
-        this.hasApprovedBusinessTrip(companyId, employeeId, normalizedAttendanceDate),
-        this.resolveScheduledBreakMinutes(schedule, normalizedAttendanceDate),
-        this.findActiveAdjustment(companyId, employeeId, normalizedAttendanceDate),
-      ]);
+    const [
+      processedEvents,
+      mobilePunches,
+      leaveStatus,
+      hasApprovedBusinessTrip,
+      scheduledBreakMinutes,
+      activeAdjustment,
+    ] = await Promise.all([
+      this.findProcessedEventsForSchedule(
+        companyId,
+        employeeId,
+        normalizedAttendanceDate,
+        schedule,
+      ),
+      this.findMobilePunchesForSchedule(
+        companyId,
+        employeeId,
+        normalizedAttendanceDate,
+        schedule,
+      ),
+      this.resolveApprovedLeave(
+        companyId,
+        employeeId,
+        normalizedAttendanceDate,
+      ),
+      this.hasApprovedBusinessTrip(
+        companyId,
+        employeeId,
+        normalizedAttendanceDate,
+      ),
+      this.resolveScheduledBreakMinutes(schedule, normalizedAttendanceDate),
+      this.findActiveAdjustment(
+        companyId,
+        employeeId,
+        normalizedAttendanceDate,
+      ),
+    ]);
 
     const events = [
       ...processedEvents.map((event) => ({
@@ -252,7 +290,9 @@ export class AttendanceDailySummaryService {
         rawLogId: null,
         source: 'mobile' as const,
       })),
-    ].sort((left, right) => left.eventTime.getTime() - right.eventTime.getTime());
+    ].sort(
+      (left, right) => left.eventTime.getTime() - right.eventTime.getTime(),
+    );
 
     const punchAnalysis = this.preparePunches(
       events,
@@ -274,6 +314,9 @@ export class AttendanceDailySummaryService {
       eventCount: punchAnalysis.effectivePunches.length,
       hasScheduleExpectation,
       noScheduleFound,
+      invalidPunchCount: punchAnalysis.invalidPunches.length,
+      hasSameTimeCheckInOut: punchAnalysis.hasSameTimeCheckInOut,
+      hasMultiplePunches: punchAnalysis.effectivePunches.length > 2,
     });
     const summaryValues = this.applyAdjustmentToSummary(
       calculated,
@@ -289,6 +332,9 @@ export class AttendanceDailySummaryService {
         eventCount: punchAnalysis.effectivePunches.length,
         hasScheduleExpectation,
         noScheduleFound,
+        invalidPunchCount: punchAnalysis.invalidPunches.length,
+        hasSameTimeCheckInOut: punchAnalysis.hasSameTimeCheckInOut,
+        hasMultiplePunches: punchAnalysis.effectivePunches.length > 2,
       },
       activeAdjustment,
     );
@@ -340,6 +386,7 @@ export class AttendanceDailySummaryService {
       breakMinutes: summaryValues.breakMinutes,
       overtimeMinutes: summaryValues.overtimeMinutes,
       attendanceStatus: summaryValues.attendanceStatus,
+      remarks: summaryValues.remarks,
       flags: summaryValues.flags,
       sourceFirstRawLogId: firstEvent?.rawLogId ?? null,
       sourceLastRawLogId: lastEvent?.rawLogId ?? null,
@@ -422,8 +469,14 @@ export class AttendanceDailySummaryService {
         summaryId: summary?.id ?? null,
         attendanceDate: normalizedAttendanceDate,
         statusOverride: dto.attendance_status?.trim().toUpperCase() || null,
-        checkInAtOverride: this.parseOptionalDate(dto.check_in_at, 'check_in_at'),
-        checkOutAtOverride: this.parseOptionalDate(dto.check_out_at, 'check_out_at'),
+        checkInAtOverride: this.parseOptionalDate(
+          dto.check_in_at,
+          'check_in_at',
+        ),
+        checkOutAtOverride: this.parseOptionalDate(
+          dto.check_out_at,
+          'check_out_at',
+        ),
         breakMinutesOverride: dto.break_minutes ?? null,
         workMinutesOverride: dto.worked_minutes ?? null,
         lateMinutesOverride: dto.late_minutes ?? null,
@@ -490,7 +543,10 @@ export class AttendanceDailySummaryService {
     });
   }
 
-  async findDailySummaries(companyId: number, query: QueryAttendanceDailySummariesDto) {
+  async findDailySummaries(
+    companyId: number,
+    query: QueryAttendanceDailySummariesDto,
+  ) {
     const {
       page = 1,
       limit = 20,
@@ -506,16 +562,28 @@ export class AttendanceDailySummaryService {
       .createQueryBuilder('summary')
       .where('summary.company_id = :companyId', { companyId });
 
-    if (employee_id) qb.andWhere('summary.employee_id = :employeeId', { employeeId: employee_id });
-    if (from_date) qb.andWhere('summary.attendance_date >= :fromDate', { fromDate: from_date });
-    if (to_date) qb.andWhere('summary.attendance_date <= :toDate', { toDate: to_date });
+    if (employee_id)
+      qb.andWhere('summary.employee_id = :employeeId', {
+        employeeId: employee_id,
+      });
+    if (from_date)
+      qb.andWhere('summary.attendance_date >= :fromDate', {
+        fromDate: from_date,
+      });
+    if (to_date)
+      qb.andWhere('summary.attendance_date <= :toDate', { toDate: to_date });
     if (attendance_status?.trim()) {
       qb.andWhere('summary.attendance_status = :status', {
         status: attendance_status.trim().toUpperCase(),
       });
     }
 
-    const sortableColumns = new Set(['attendance_date', 'created_at', 'updated_at', 'employee_id']);
+    const sortableColumns = new Set([
+      'attendance_date',
+      'created_at',
+      'updated_at',
+      'employee_id',
+    ]);
     const safeSortBy = sortableColumns.has(sortBy) ? sortBy : 'attendance_date';
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
@@ -531,7 +599,10 @@ export class AttendanceDailySummaryService {
     };
   }
 
-  async findUnmatchedLogs(companyId: number, query: QueryUnmatchedAttendanceLogsDto) {
+  async findUnmatchedLogs(
+    companyId: number,
+    query: QueryUnmatchedAttendanceLogsDto,
+  ) {
     const {
       page = 1,
       limit = 20,
@@ -547,11 +618,20 @@ export class AttendanceDailySummaryService {
       .where('event.company_id = :companyId', { companyId })
       .andWhere('event.employee_id IS NULL');
 
-    if (from_date) qb.andWhere('event.attendance_date >= :fromDate', { fromDate: from_date });
-    if (to_date) qb.andWhere('event.attendance_date <= :toDate', { toDate: to_date });
-    if (device_id) qb.andWhere('event.device_id = :deviceId', { deviceId: device_id });
+    if (from_date)
+      qb.andWhere('event.attendance_date >= :fromDate', {
+        fromDate: from_date,
+      });
+    if (to_date)
+      qb.andWhere('event.attendance_date <= :toDate', { toDate: to_date });
+    if (device_id)
+      qb.andWhere('event.device_id = :deviceId', { deviceId: device_id });
 
-    const sortableColumns = new Set(['event_time', 'attendance_date', 'created_at']);
+    const sortableColumns = new Set([
+      'event_time',
+      'attendance_date',
+      'created_at',
+    ]);
     const safeSortBy = sortableColumns.has(sortBy) ? sortBy : 'event_time';
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
@@ -592,9 +672,12 @@ export class AttendanceDailySummaryService {
         status: EmployeeTimetableStatusEnum.ACTIVE,
       })
       .andWhere('assignment.effective_from <= :endDate', { endDate })
-      .andWhere('(assignment.effective_to IS NULL OR assignment.effective_to >= :startDate)', {
-        startDate,
-      })
+      .andWhere(
+        '(assignment.effective_to IS NULL OR assignment.effective_to >= :startDate)',
+        {
+          startDate,
+        },
+      )
       .getRawMany<{ employeeId: string }>();
 
     const shiftAssignmentRows = await this.shiftAssignmentRepository
@@ -605,9 +688,12 @@ export class AttendanceDailySummaryService {
         status: ShiftAssignmentStatusEnum.ACTIVE,
       })
       .andWhere('assignment.effective_from <= :endDate', { endDate })
-      .andWhere('(assignment.effective_to IS NULL OR assignment.effective_to >= :startDate)', {
-        startDate,
-      })
+      .andWhere(
+        '(assignment.effective_to IS NULL OR assignment.effective_to >= :startDate)',
+        {
+          startDate,
+        },
+      )
       .getRawMany<{ employeeId: string }>();
 
     const shiftScheduleRows = await this.shiftScheduleRepository
@@ -693,7 +779,9 @@ export class AttendanceDailySummaryService {
         windowEnd: window.end,
       });
     } else {
-      qb.andWhere('event.attendance_date = :attendanceDate', { attendanceDate });
+      qb.andWhere('event.attendance_date = :attendanceDate', {
+        attendanceDate,
+      });
     }
 
     return qb.orderBy('event.event_time', 'ASC').getMany();
@@ -725,7 +813,9 @@ export class AttendanceDailySummaryService {
         windowEnd: window.end,
       });
     } else {
-      qb.andWhere('punch.attendance_date = :attendanceDate', { attendanceDate });
+      qb.andWhere('punch.attendance_date = :attendanceDate', {
+        attendanceDate,
+      });
     }
 
     return qb.orderBy('punch.punch_time', 'ASC').getMany();
@@ -809,15 +899,19 @@ export class AttendanceDailySummaryService {
         checkInAt: null,
         checkOutAt: null,
         breakMinutes: 0,
+        hasSameTimeCheckInOut: false,
       };
     }
 
     let checkInAt: Date | null = null;
     let checkOutAt: Date | null = null;
+    let hasSameTimeCheckInOut = false;
 
     if (effectivePunches.length === 1) {
       const onlyPunch = effectivePunches[0];
-      if (this.shouldTreatSinglePunchAsCheckout(schedule, onlyPunch.eventTime)) {
+      if (
+        this.shouldTreatSinglePunchAsCheckout(schedule, onlyPunch.eventTime)
+      ) {
         checkOutAt = onlyPunch.eventTime;
       } else {
         checkInAt = onlyPunch.eventTime;
@@ -825,7 +919,11 @@ export class AttendanceDailySummaryService {
     } else {
       checkInAt = effectivePunches[0].eventTime;
       checkOutAt = effectivePunches[effectivePunches.length - 1].eventTime;
-      if (checkOutAt.getTime() <= checkInAt.getTime()) {
+      if (checkOutAt.getTime() === checkInAt.getTime()) {
+        hasSameTimeCheckInOut = true;
+        invalidPunches.push(...effectivePunches);
+        checkOutAt = null;
+      } else if (checkOutAt.getTime() < checkInAt.getTime()) {
         invalidPunches.push(...effectivePunches);
         checkOutAt = null;
       }
@@ -858,6 +956,7 @@ export class AttendanceDailySummaryService {
       checkInAt,
       checkOutAt,
       breakMinutes,
+      hasSameTimeCheckInOut,
     };
   }
 
@@ -892,11 +991,15 @@ export class AttendanceDailySummaryService {
       eventCount,
       hasScheduleExpectation,
       noScheduleFound,
+      invalidPunchCount,
+      hasSameTimeCheckInOut,
+      hasMultiplePunches,
     } = input;
 
     const hasApprovedLeave = leaveStatus !== null;
 
     let attendanceStatus = AttendanceDailyStatusEnum.ABSENT;
+    const remarks: AttendanceDailyRemarkEnum[] = [];
     let lateMinutes = 0;
     let earlyDepartureMinutes = 0;
     let workMinutes = 0;
@@ -906,43 +1009,52 @@ export class AttendanceDailySummaryService {
     if (hasApprovedBusinessTrip) {
       attendanceStatus = AttendanceDailyStatusEnum.BUSINESS_TRIP;
 
-    // ── Priority 2: Approved leave (type-aware) ──────────────────────────────
+      // ── Priority 2: Approved leave (type-aware) ──────────────────────────────
     } else if (hasApprovedLeave) {
       attendanceStatus = leaveStatus!;
 
-    // ── Priority 3: Holiday ──────────────────────────────────────────────────
+      // ── Priority 3: Holiday ──────────────────────────────────────────────────
     } else if (schedule.isHoliday) {
       attendanceStatus = AttendanceDailyStatusEnum.HOLIDAY;
 
-    // ── Priority 4: Off day ──────────────────────────────────────────────────
+      // ── Priority 4: Off day ──────────────────────────────────────────────────
     } else if (schedule.isOffDay) {
       attendanceStatus = AttendanceDailyStatusEnum.OFF_DAY;
 
-    // ── Priority 5: No usable schedule and there is schedule expectation ─────
+      // ── Priority 5: No usable schedule when schedule was expected ────────────
     } else if (noScheduleFound) {
-      attendanceStatus = AttendanceDailyStatusEnum.INCOMPLETE;
+      attendanceStatus = AttendanceDailyStatusEnum.NO_SHIFT_SCHEDULE;
 
-    // ── Priority 6: Check-out exists but no check-in (orphan punch) ──────────
+      // ── Priority 6: Check-out exists but no check-in (orphan punch) ──────────
     } else if (!checkInAt && checkOutAt) {
-      attendanceStatus = AttendanceDailyStatusEnum.INCOMPLETE;
+      attendanceStatus = AttendanceDailyStatusEnum.PRESENT;
+      remarks.push(AttendanceDailyRemarkEnum.MISSING_CHECK_IN);
+      remarks.push(AttendanceDailyRemarkEnum.MANUAL_REVIEW_REQUIRED);
 
-    // ── Priority 7: No punches at all on a working day ───────────────────────
-    } else if (eventCount === 0 && hasScheduleExpectation && schedule.autoAbsentIfNoCheckin) {
+      // ── Priority 7: No punches at all on a working day ───────────────────────
+    } else if (
+      eventCount === 0 &&
+      hasScheduleExpectation &&
+      schedule.autoAbsentIfNoCheckin
+    ) {
       attendanceStatus = AttendanceDailyStatusEnum.ABSENT;
+      remarks.push(
+        AttendanceDailyRemarkEnum.MISSING_BOTH_CHECK_IN_AND_CHECK_OUT,
+      );
 
-    // ── Priority 8+: At least one valid check-in punch ───────────────────────
+      // ── Priority 8+: At least one valid check-in punch ───────────────────────
     } else if (checkInAt) {
       if (!checkOutAt && schedule.requiresCheckout) {
-        // Only flag a MISSING_CHECKOUT variant after the shift end time has passed.
+        // Only flag MISSING_CHECK_OUT after the shift end time has passed.
         // Before the shift ends the employee may still be working — keep PRESENT.
         const shiftHasEnded =
           !schedule.scheduleEndAt || new Date() > schedule.scheduleEndAt;
-        attendanceStatus = shiftHasEnded
-          ? this.resolveMissingCheckoutStatus(checkInAt, schedule)
-          : AttendanceDailyStatusEnum.PRESENT;
-      } else {
-        attendanceStatus = AttendanceDailyStatusEnum.PRESENT;
+        if (shiftHasEnded) {
+          remarks.push(AttendanceDailyRemarkEnum.MISSING_CHECK_OUT);
+          remarks.push(AttendanceDailyRemarkEnum.MANUAL_REVIEW_REQUIRED);
+        }
       }
+      attendanceStatus = AttendanceDailyStatusEnum.PRESENT;
     }
 
     // ── Work minutes (gross − break) ────────────────────────────────────────
@@ -955,16 +1067,20 @@ export class AttendanceDailySummaryService {
 
     // ── Late / half-day / absent threshold checks ────────────────────────────
     if (checkInAt && schedule.scheduleStartAt) {
-      const baseline = schedule.scheduleStartAt.getTime() + schedule.graceInMinutes * 60000;
-      const lateThreshold    = baseline + schedule.lateAfterMinutes    * 60000;
+      const baseline =
+        schedule.scheduleStartAt.getTime() + schedule.graceInMinutes * 60000;
+      const lateThreshold = baseline + schedule.lateAfterMinutes * 60000;
       const halfDayThreshold = baseline + schedule.halfDayAfterMinutes * 60000;
-      const absentThreshold  = baseline + schedule.absentAfterMinutes  * 60000;
+      const absentThreshold = baseline + schedule.absentAfterMinutes * 60000;
 
-      if (schedule.lateAfterMinutes > 0 && checkInAt.getTime() > lateThreshold) {
+      if (
+        schedule.lateAfterMinutes > 0 &&
+        checkInAt.getTime() > lateThreshold
+      ) {
         lateMinutes = Math.floor((checkInAt.getTime() - lateThreshold) / 60000);
       }
 
-      // Absent-by-lateness overrides PRESENT/MISSING_CHECKOUT
+      // Absent-by-lateness overrides PRESENT
       if (
         schedule.absentAfterMinutes > 0 &&
         checkInAt.getTime() > absentThreshold &&
@@ -975,7 +1091,7 @@ export class AttendanceDailySummaryService {
       ) {
         attendanceStatus = AttendanceDailyStatusEnum.ABSENT;
 
-      // Half-day overrides PRESENT only
+        // Half-day overrides PRESENT only
       } else if (
         schedule.halfDayAfterMinutes > 0 &&
         checkInAt.getTime() > halfDayThreshold &&
@@ -983,8 +1099,7 @@ export class AttendanceDailySummaryService {
       ) {
         attendanceStatus = AttendanceDailyStatusEnum.HALF_DAY;
 
-      // LATE overrides PRESENT only — compound MISSING_CHECKOUT statuses already
-      // encode the morning lateness (e.g. LATE/MISSING_CHECKOUT).
+        // LATE overrides PRESENT only
       } else if (
         lateMinutes > 0 &&
         attendanceStatus === AttendanceDailyStatusEnum.PRESENT
@@ -993,8 +1108,8 @@ export class AttendanceDailySummaryService {
       }
     }
 
-    // ── Early departure ──────────────────────────────────────────────────────
-    if (checkOutAt && schedule.scheduleEndAt) {
+    // ── Early departure (only when both check-in and check-out are present) ──
+    if (checkInAt && checkOutAt && schedule.scheduleEndAt) {
       const allowedEarlyLeaveTime =
         schedule.scheduleEndAt.getTime() -
         (schedule.graceOutMinutes + schedule.earlyLeaveAfterMinutes) * 60000;
@@ -1005,16 +1120,17 @@ export class AttendanceDailySummaryService {
       }
     }
 
-    // EARLY_DEPARTURE overrides PRESENT only (LATE takes precedence over leaving early)
-    if (
-      earlyDepartureMinutes > 0 &&
-      attendanceStatus === AttendanceDailyStatusEnum.PRESENT
-    ) {
-      attendanceStatus = AttendanceDailyStatusEnum.EARLY_DEPARTURE;
+    // EARLY_DEPARTURE combined with LATE produces LATE_AND_EARLY_DEPARTURE
+    if (earlyDepartureMinutes > 0) {
+      if (attendanceStatus === AttendanceDailyStatusEnum.LATE) {
+        attendanceStatus = AttendanceDailyStatusEnum.LATE_AND_EARLY_DEPARTURE;
+      } else if (attendanceStatus === AttendanceDailyStatusEnum.PRESENT) {
+        attendanceStatus = AttendanceDailyStatusEnum.EARLY_DEPARTURE;
+      }
     }
 
     // ── Overtime ─────────────────────────────────────────────────────────────
-    if (checkOutAt && schedule.scheduleEndAt) {
+    if (checkInAt && checkOutAt && schedule.scheduleEndAt) {
       const overtimeStartTime =
         schedule.scheduleEndAt.getTime() +
         schedule.overtimeStartAfterMinutes * 60000;
@@ -1046,6 +1162,25 @@ export class AttendanceDailySummaryService {
       attendanceStatus = AttendanceDailyStatusEnum.OVERTIME;
     }
 
+    // ── Punch quality remarks ────────────────────────────────────────────────
+    if (hasSameTimeCheckInOut) {
+      remarks.push(AttendanceDailyRemarkEnum.CHECK_IN_OUT_SAME_TIME);
+      if (!remarks.includes(AttendanceDailyRemarkEnum.MANUAL_REVIEW_REQUIRED)) {
+        remarks.push(AttendanceDailyRemarkEnum.MANUAL_REVIEW_REQUIRED);
+      }
+    }
+
+    if (invalidPunchCount > 0 && !hasSameTimeCheckInOut) {
+      remarks.push(AttendanceDailyRemarkEnum.INVALID_PUNCH_SEQUENCE);
+      if (!remarks.includes(AttendanceDailyRemarkEnum.MANUAL_REVIEW_REQUIRED)) {
+        remarks.push(AttendanceDailyRemarkEnum.MANUAL_REVIEW_REQUIRED);
+      }
+    }
+
+    if (hasMultiplePunches) {
+      remarks.push(AttendanceDailyRemarkEnum.MULTIPLE_PUNCHES);
+    }
+
     const shouldPersist =
       eventCount > 0 ||
       hasApprovedLeave ||
@@ -1058,6 +1193,7 @@ export class AttendanceDailySummaryService {
     return {
       shouldPersist,
       attendanceStatus,
+      remarks,
       lateMinutes,
       earlyDepartureMinutes,
       breakMinutes: Math.max(0, breakMinutes),
@@ -1073,10 +1209,9 @@ export class AttendanceDailySummaryService {
         hasScheduleExpectation,
         noScheduleFound,
         requiresCheckout: schedule.requiresCheckout,
-        // True when the employee has a check-in but no check-out and the shift
-        // requires checkout. Useful when the primary status is LATE (morning
-        // lateness takes priority) but the missing checkout still needs surfacing.
-        missingCheckout: !!(checkInAt && !checkOutAt && schedule.requiresCheckout),
+        missingCheckout: remarks.includes(
+          AttendanceDailyRemarkEnum.MISSING_CHECK_OUT,
+        ),
         scheduleSource: schedule.source,
         lateAfterMinutes: schedule.lateAfterMinutes,
         halfDayAfterMinutes: schedule.halfDayAfterMinutes,
@@ -1139,18 +1274,22 @@ export class AttendanceDailySummaryService {
       (adjustment.statusOverride as AttendanceDailyStatusEnum | null) ??
       AttendanceDailyStatusEnum.MANUAL_CORRECTION;
 
+    const adjustmentRemarks: AttendanceDailyRemarkEnum[] = [
+      ...recalculated.remarks,
+      AttendanceDailyRemarkEnum.MANUALLY_CORRECTED,
+    ];
+
     return {
       shouldPersist: true,
       attendanceStatus: resolvedStatus,
-      lateMinutes:
-        adjustment.lateMinutesOverride ?? recalculated.lateMinutes,
+      remarks: adjustmentRemarks,
+      lateMinutes: adjustment.lateMinutesOverride ?? recalculated.lateMinutes,
       earlyDepartureMinutes:
         adjustment.earlyDepartureMinutesOverride ??
         recalculated.earlyDepartureMinutes,
       breakMinutes:
         adjustment.breakMinutesOverride ?? recalculated.breakMinutes,
-      workMinutes:
-        adjustment.workMinutesOverride ?? recalculated.workMinutes,
+      workMinutes: adjustment.workMinutesOverride ?? recalculated.workMinutes,
       overtimeMinutes:
         adjustment.overtimeMinutesOverride ?? recalculated.overtimeMinutes,
       flags: {
@@ -1203,7 +1342,8 @@ export class AttendanceDailySummaryService {
         attendanceDate: input.attendanceDate,
         employeeNo: input.employeeNo,
         exceptionType: AttendanceExceptionTypeEnum.NO_SCHEDULE_FOUND,
-        message: 'Employee had attendance activity or a schedule expectation but no usable schedule could be resolved.',
+        message:
+          'Employee had attendance activity or a schedule expectation but no usable schedule could be resolved.',
         metadata: {
           schedule_source: input.schedule.source,
           has_schedule_expectation: input.hasScheduleExpectation,
@@ -1221,9 +1361,12 @@ export class AttendanceDailySummaryService {
         attendanceDate: input.attendanceDate,
         employeeNo: input.employeeNo,
         exceptionType: AttendanceExceptionTypeEnum.DUPLICATE_PUNCH,
-        message: 'Duplicate punches were detected within the same attendance window.',
+        message:
+          'Duplicate punches were detected within the same attendance window.',
         metadata: {
-          punch_ids: input.punchAnalysis.duplicatePunches.map((item) => item.id),
+          punch_ids: input.punchAnalysis.duplicatePunches.map(
+            (item) => item.id,
+          ),
           raw_log_ids: input.punchAnalysis.duplicatePunches
             .map((item) => item.rawLogId)
             .filter((item): item is number => typeof item === 'number'),
@@ -1241,7 +1384,8 @@ export class AttendanceDailySummaryService {
         attendanceDate: input.attendanceDate,
         employeeNo: input.employeeNo,
         exceptionType: AttendanceExceptionTypeEnum.INVALID_PUNCH_TIME,
-        message: 'One or more punches could not be used safely in attendance calculation.',
+        message:
+          'One or more punches could not be used safely in attendance calculation.',
         metadata: {
           punch_ids: input.punchAnalysis.invalidPunches.map((item) => item.id),
           raw_log_ids: input.punchAnalysis.invalidPunches
@@ -1261,7 +1405,8 @@ export class AttendanceDailySummaryService {
         attendanceDate: input.attendanceDate,
         employeeNo: input.employeeNo,
         exceptionType: AttendanceExceptionTypeEnum.MISSING_CHECK_IN,
-        message: 'Attendance day has a usable check-out punch but no usable check-in punch.',
+        message:
+          'Attendance day has a usable check-out punch but no usable check-in punch.',
       });
     }
 
@@ -1279,7 +1424,8 @@ export class AttendanceDailySummaryService {
         attendanceDate: input.attendanceDate,
         employeeNo: input.employeeNo,
         exceptionType: AttendanceExceptionTypeEnum.MISSING_CHECK_OUT,
-        message: 'Attendance day has a usable check-in punch but no usable check-out punch.',
+        message:
+          'Attendance day has a usable check-in punch but no usable check-out punch.',
       });
     }
 
@@ -1291,42 +1437,49 @@ export class AttendanceDailySummaryService {
     employeeId: number,
     attendanceDate: string,
   ): Promise<boolean> {
-    const [shiftSchedule, shiftAssignment, timetableAssignment] = await Promise.all([
-      this.shiftScheduleRepository.findOne({
-        where: { companyId, employeeId, scheduleDate: attendanceDate },
-        select: { id: true, isOffDay: true },
-      }),
-      this.shiftAssignmentRepository
-        .createQueryBuilder('assignment')
-        .select(['assignment.id'])
-        .where('assignment.company_id = :companyId', { companyId })
-        .andWhere('assignment.employee_id = :employeeId', { employeeId })
-        .andWhere('assignment.status = :status', {
-          status: ShiftAssignmentStatusEnum.ACTIVE,
-        })
-        .andWhere('assignment.effective_from <= :attendanceDate', {
-          attendanceDate,
-        })
-        .andWhere('(assignment.effective_to IS NULL OR assignment.effective_to >= :attendanceDate)', {
-          attendanceDate,
-        })
-        .getOne(),
-      this.employeeTimetableRepository
-        .createQueryBuilder('assignment')
-        .select(['assignment.id'])
-        .where('assignment.company_id = :companyId', { companyId })
-        .andWhere('assignment.employee_id = :employeeId', { employeeId })
-        .andWhere('assignment.status = :status', {
-          status: EmployeeTimetableStatusEnum.ACTIVE,
-        })
-        .andWhere('assignment.effective_from <= :attendanceDate', {
-          attendanceDate,
-        })
-        .andWhere('(assignment.effective_to IS NULL OR assignment.effective_to >= :attendanceDate)', {
-          attendanceDate,
-        })
-        .getOne(),
-    ]);
+    const [shiftSchedule, shiftAssignment, timetableAssignment] =
+      await Promise.all([
+        this.shiftScheduleRepository.findOne({
+          where: { companyId, employeeId, scheduleDate: attendanceDate },
+          select: { id: true, isOffDay: true },
+        }),
+        this.shiftAssignmentRepository
+          .createQueryBuilder('assignment')
+          .select(['assignment.id'])
+          .where('assignment.company_id = :companyId', { companyId })
+          .andWhere('assignment.employee_id = :employeeId', { employeeId })
+          .andWhere('assignment.status = :status', {
+            status: ShiftAssignmentStatusEnum.ACTIVE,
+          })
+          .andWhere('assignment.effective_from <= :attendanceDate', {
+            attendanceDate,
+          })
+          .andWhere(
+            '(assignment.effective_to IS NULL OR assignment.effective_to >= :attendanceDate)',
+            {
+              attendanceDate,
+            },
+          )
+          .getOne(),
+        this.employeeTimetableRepository
+          .createQueryBuilder('assignment')
+          .select(['assignment.id'])
+          .where('assignment.company_id = :companyId', { companyId })
+          .andWhere('assignment.employee_id = :employeeId', { employeeId })
+          .andWhere('assignment.status = :status', {
+            status: EmployeeTimetableStatusEnum.ACTIVE,
+          })
+          .andWhere('assignment.effective_from <= :attendanceDate', {
+            attendanceDate,
+          })
+          .andWhere(
+            '(assignment.effective_to IS NULL OR assignment.effective_to >= :attendanceDate)',
+            {
+              attendanceDate,
+            },
+          )
+          .getOne(),
+      ]);
 
     if (shiftSchedule) {
       return !shiftSchedule.isOffDay;
@@ -1372,7 +1525,9 @@ export class AttendanceDailySummaryService {
       .leftJoinAndSelect('leaveRequest.leave_type', 'leaveType')
       .where('leaveRequest.company_id = :companyId', { companyId })
       .andWhere('leaveRequest.employee_id = :employeeId', { employeeId })
-      .andWhere('leaveRequest.status = :status', { status: LeaveStatusEnum.APPROVED })
+      .andWhere('leaveRequest.status = :status', {
+        status: LeaveStatusEnum.APPROVED,
+      })
       .andWhere('leaveRequest.start_date <= :date', { date })
       .andWhere('leaveRequest.end_date >= :date', { date })
       .getOne();
@@ -1396,47 +1551,17 @@ export class AttendanceDailySummaryService {
 
     const upper = code.toUpperCase();
     if (upper.includes('SICK') || upper.includes('MEDICAL')) {
-      return AttendanceDailyStatusEnum.SICK;
+      return AttendanceDailyStatusEnum.SICK_LEAVE;
     }
-    if (upper.includes('ANNUAL') || upper.includes('CASUAL') || upper.includes('EARNED')) {
+    if (
+      upper.includes('ANNUAL') ||
+      upper.includes('CASUAL') ||
+      upper.includes('EARNED')
+    ) {
       return AttendanceDailyStatusEnum.ANNUAL_LEAVE;
     }
 
     return AttendanceDailyStatusEnum.LEAVE;
-  }
-
-  /**
-   * Returns the compound status for a day where the employee checked in but
-   * did not check out and the shift has ended.
-   *
-   * The morning component reflects check-in punctuality:
-   *   EARLY/MISSING_CHECKOUT  — arrived before shift start
-   *   ONTIME/MISSING_CHECKOUT — arrived within the grace window
-   *   LATE/MISSING_CHECKOUT   — arrived after grace + lateAfterMinutes
-   *
-   * Falls back to plain MISSING_CHECKOUT when no schedule start is defined.
-   */
-  private resolveMissingCheckoutStatus(
-    checkInAt: Date,
-    schedule: ResolvedAttendanceSchedule,
-  ): AttendanceDailyStatusEnum {
-    if (!schedule.scheduleStartAt) {
-      return AttendanceDailyStatusEnum.MISSING_CHECKOUT;
-    }
-
-    const baseline =
-      schedule.scheduleStartAt.getTime() + schedule.graceInMinutes * 60000;
-    const lateThreshold = baseline + schedule.lateAfterMinutes * 60000;
-
-    if (schedule.lateAfterMinutes > 0 && checkInAt.getTime() > lateThreshold) {
-      return AttendanceDailyStatusEnum.LATE_MISSING_CHECKOUT;
-    }
-
-    if (checkInAt.getTime() < schedule.scheduleStartAt.getTime()) {
-      return AttendanceDailyStatusEnum.EARLY_MISSING_CHECKOUT;
-    }
-
-    return AttendanceDailyStatusEnum.ONTIME_MISSING_CHECKOUT;
   }
 
   private async hasApprovedBusinessTrip(
@@ -1468,7 +1593,10 @@ export class AttendanceDailySummaryService {
     }
   }
 
-  private parseOptionalDate(value: string | null | undefined, field: string): Date | null {
+  private parseOptionalDate(
+    value: string | null | undefined,
+    field: string,
+  ): Date | null {
     if (value === null || value === undefined || String(value).trim() === '') {
       return null;
     }

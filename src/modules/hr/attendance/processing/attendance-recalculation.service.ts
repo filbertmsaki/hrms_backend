@@ -86,13 +86,16 @@ export class AttendanceRecalculationService {
     await this.jobRepository.save(job);
 
     try {
-      const result = await this.attendanceProcessingService.processRange(job.companyId, {
-        start_date: job.dateFrom,
-        end_date: job.dateTo,
-        employee_id: job.employeeId ?? undefined,
-        rebuild_summaries: true,
-        force_rebuild_summaries: true,
-      });
+      const result = await this.attendanceProcessingService.processRange(
+        job.companyId,
+        {
+          start_date: job.dateFrom,
+          end_date: job.dateTo,
+          employee_id: job.employeeId ?? undefined,
+          rebuild_summaries: true,
+          force_rebuild_summaries: true,
+        },
+      );
 
       job.status = AttendanceProcessingJobStatusEnum.SUCCESS;
       job.processedAt = new Date();
@@ -109,7 +112,9 @@ export class AttendanceRecalculationService {
       job.lastError = (error as Error).message;
       job.processedAt = new Date();
       await this.jobRepository.save(job);
-      this.logger.warn(`Recalculation job ${job.id} failed: ${(error as Error).message}`);
+      this.logger.warn(
+        `Recalculation job ${job.id} failed: ${(error as Error).message}`,
+      );
 
       return {
         jobId: job.id,
@@ -155,11 +160,17 @@ export class AttendanceRecalculationService {
       .where('job.company_id = :companyId', { companyId });
 
     if (status) qb.andWhere('job.status = :status', { status });
-    if (employee_id) qb.andWhere('job.employee_id = :employeeId', { employeeId: employee_id });
-    if (from_date) qb.andWhere('job.date_from >= :fromDate', { fromDate: from_date });
+    if (employee_id)
+      qb.andWhere('job.employee_id = :employeeId', { employeeId: employee_id });
+    if (from_date)
+      qb.andWhere('job.date_from >= :fromDate', { fromDate: from_date });
     if (to_date) qb.andWhere('job.date_to <= :toDate', { toDate: to_date });
 
-    const sortableColumns = new Set(['created_at', 'updated_at', 'processed_at']);
+    const sortableColumns = new Set([
+      'created_at',
+      'updated_at',
+      'processed_at',
+    ]);
     const safeSortBy = sortableColumns.has(sortBy) ? sortBy : 'created_at';
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 

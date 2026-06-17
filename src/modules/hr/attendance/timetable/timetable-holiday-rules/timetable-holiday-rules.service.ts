@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
@@ -23,17 +28,38 @@ export class TimetableHolidayRulesService {
     private readonly generatedScheduleInvalidationService: TimetableGeneratedScheduleInvalidationService,
   ) {}
 
-  private async ensureTimetable(companyId: number, timetableId: number): Promise<void> {
-    const item = await this.timetableRepository.findOne({ where: { id: timetableId, companyId }, select: ['id'] });
-    if (!item) throw new BadRequestException('timetable_id does not belong to the active company');
+  private async ensureTimetable(
+    companyId: number,
+    timetableId: number,
+  ): Promise<void> {
+    const item = await this.timetableRepository.findOne({
+      where: { id: timetableId, companyId },
+      select: ['id'],
+    });
+    if (!item)
+      throw new BadRequestException(
+        'timetable_id does not belong to the active company',
+      );
   }
 
-  private async ensureHolidayGroup(companyId: number, holidayGroupId: number): Promise<void> {
-    const item = await this.holidayGroupRepository.findOne({ where: { id: holidayGroupId, companyId }, select: ['id'] });
-    if (!item) throw new BadRequestException('holiday_group_id does not belong to the active company');
+  private async ensureHolidayGroup(
+    companyId: number,
+    holidayGroupId: number,
+  ): Promise<void> {
+    const item = await this.holidayGroupRepository.findOne({
+      where: { id: holidayGroupId, companyId },
+      select: ['id'],
+    });
+    if (!item)
+      throw new BadRequestException(
+        'holiday_group_id does not belong to the active company',
+      );
   }
 
-  private async findOrFail(companyId: number, id: number): Promise<TimetableHolidayRule> {
+  private async findOrFail(
+    companyId: number,
+    id: number,
+  ): Promise<TimetableHolidayRule> {
     const item = await this.holidayRuleRepository
       .createQueryBuilder('rule')
       .innerJoin(Timetable, 'timetable', 'timetable.id = rule.timetable_id')
@@ -49,16 +75,26 @@ export class TimetableHolidayRulesService {
     await this.ensureTimetable(companyId, dto.timetable_id);
     await this.ensureHolidayGroup(companyId, dto.holiday_group_id);
 
-    const duplicate = await this.holidayRuleRepository.findOne({ where: { timetableId: dto.timetable_id, holidayGroupId: dto.holiday_group_id } });
-    if (duplicate) throw new ConflictException('Holiday rule already exists for this timetable and holiday group');
+    const duplicate = await this.holidayRuleRepository.findOne({
+      where: {
+        timetableId: dto.timetable_id,
+        holidayGroupId: dto.holiday_group_id,
+      },
+    });
+    if (duplicate)
+      throw new ConflictException(
+        'Holiday rule already exists for this timetable and holiday group',
+      );
 
-    const created = await this.holidayRuleRepository.save(this.holidayRuleRepository.create({
-      timetableId: dto.timetable_id,
-      holidayGroupId: dto.holiday_group_id,
-      actionType: dto.action_type,
-      applyOvertimeRules: dto.apply_overtime_rules ?? false,
-      autoMarkOffday: dto.auto_mark_offday ?? true,
-    }));
+    const created = await this.holidayRuleRepository.save(
+      this.holidayRuleRepository.create({
+        timetableId: dto.timetable_id,
+        holidayGroupId: dto.holiday_group_id,
+        actionType: dto.action_type,
+        applyOvertimeRules: dto.apply_overtime_rules ?? false,
+        autoMarkOffday: dto.auto_mark_offday ?? true,
+      }),
+    );
 
     await this.generatedScheduleInvalidationService.invalidate({
       companyId,
@@ -69,14 +105,23 @@ export class TimetableHolidayRulesService {
   }
 
   async findAll(companyId: number, query: TimetableHolidayRuleQueryDto) {
-    const { page = 1, limit = 20, sortBy = 'created_at', sortOrder = SortDirection.DESC, timetable_id } = query;
+    const {
+      page = 1,
+      limit = 20,
+      sortBy = 'created_at',
+      sortOrder = SortDirection.DESC,
+      timetable_id,
+    } = query;
 
     const qb = this.holidayRuleRepository
       .createQueryBuilder('rule')
       .innerJoin(Timetable, 'timetable', 'timetable.id = rule.timetable_id')
       .where('timetable.company_id = :companyId', { companyId });
 
-    if (timetable_id) qb.andWhere('rule.timetable_id = :timetableId', { timetableId: timetable_id });
+    if (timetable_id)
+      qb.andWhere('rule.timetable_id = :timetableId', {
+        timetableId: timetable_id,
+      });
 
     const sortFieldMap: Record<string, string> = {
       created_at: 'createdAt',
@@ -84,13 +129,26 @@ export class TimetableHolidayRulesService {
     const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.created_at;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
-    const [items, total] = await qb.orderBy(`rule.${safeSortBy}`, direction).skip((page - 1) * limit).take(limit).getManyAndCount();
-    return { data: items, meta: buildPaginationMeta(total, items.length, limit, page) };
+    const [items, total] = await qb
+      .orderBy(`rule.${safeSortBy}`, direction)
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+    return {
+      data: items,
+      meta: buildPaginationMeta(total, items.length, limit, page),
+    };
   }
 
-  async findOne(companyId: number, id: number) { return this.findOrFail(companyId, id); }
+  async findOne(companyId: number, id: number) {
+    return this.findOrFail(companyId, id);
+  }
 
-  async update(companyId: number, id: number, dto: UpdateTimetableHolidayRuleDto) {
+  async update(
+    companyId: number,
+    id: number,
+    dto: UpdateTimetableHolidayRuleDto,
+  ) {
     const item = await this.findOrFail(companyId, id);
     const previousTimetableId = item.timetableId;
 
@@ -100,16 +158,22 @@ export class TimetableHolidayRulesService {
     await this.ensureTimetable(companyId, timetableId);
     await this.ensureHolidayGroup(companyId, holidayGroupId);
 
-    const duplicate = await this.holidayRuleRepository.findOne({ where: { timetableId, holidayGroupId } });
+    const duplicate = await this.holidayRuleRepository.findOne({
+      where: { timetableId, holidayGroupId },
+    });
     if (duplicate && duplicate.id !== item.id) {
-      throw new ConflictException('Holiday rule already exists for this timetable and holiday group');
+      throw new ConflictException(
+        'Holiday rule already exists for this timetable and holiday group',
+      );
     }
 
     item.timetableId = timetableId;
     item.holidayGroupId = holidayGroupId;
     if (dto.action_type !== undefined) item.actionType = dto.action_type;
-    if (dto.apply_overtime_rules !== undefined) item.applyOvertimeRules = dto.apply_overtime_rules;
-    if (dto.auto_mark_offday !== undefined) item.autoMarkOffday = dto.auto_mark_offday;
+    if (dto.apply_overtime_rules !== undefined)
+      item.applyOvertimeRules = dto.apply_overtime_rules;
+    if (dto.auto_mark_offday !== undefined)
+      item.autoMarkOffday = dto.auto_mark_offday;
 
     const saved = await this.holidayRuleRepository.save(item);
     if (previousTimetableId !== saved.timetableId) {

@@ -47,42 +47,70 @@ export class OffboardingWorkflowService {
     private readonly employeePositionRepository: Repository<EmployeePosition>,
   ) {}
 
-  private getWorkflowRepository(manager?: EntityManager): Repository<OffboardingWorkflow> {
-    return manager?.getRepository(OffboardingWorkflow) ?? this.workflowRepository;
+  private getWorkflowRepository(
+    manager?: EntityManager,
+  ): Repository<OffboardingWorkflow> {
+    return (
+      manager?.getRepository(OffboardingWorkflow) ?? this.workflowRepository
+    );
   }
 
   private getWorkflowStepRepository(
     manager?: EntityManager,
   ): Repository<OffboardingWorkflowStep> {
-    return manager?.getRepository(OffboardingWorkflowStep) ?? this.workflowStepRepository;
+    return (
+      manager?.getRepository(OffboardingWorkflowStep) ??
+      this.workflowStepRepository
+    );
   }
 
-  private getApprovalRepository(manager?: EntityManager): Repository<OffboardingApproval> {
-    return manager?.getRepository(OffboardingApproval) ?? this.offboardingApprovalRepository;
+  private getApprovalRepository(
+    manager?: EntityManager,
+  ): Repository<OffboardingApproval> {
+    return (
+      manager?.getRepository(OffboardingApproval) ??
+      this.offboardingApprovalRepository
+    );
   }
 
-  private getRequestRepository(manager?: EntityManager): Repository<OffboardingRequest> {
-    return manager?.getRepository(OffboardingRequest) ?? this.offboardingRequestRepository;
+  private getRequestRepository(
+    manager?: EntityManager,
+  ): Repository<OffboardingRequest> {
+    return (
+      manager?.getRepository(OffboardingRequest) ??
+      this.offboardingRequestRepository
+    );
   }
 
-  private getTaskRepository(manager?: EntityManager): Repository<OffboardingTask> {
-    return manager?.getRepository(OffboardingTask) ?? this.offboardingTaskRepository;
+  private getTaskRepository(
+    manager?: EntityManager,
+  ): Repository<OffboardingTask> {
+    return (
+      manager?.getRepository(OffboardingTask) ?? this.offboardingTaskRepository
+    );
   }
 
-  private getCompanyUserRepository(manager?: EntityManager): Repository<CompanyUser> {
+  private getCompanyUserRepository(
+    manager?: EntityManager,
+  ): Repository<CompanyUser> {
     return manager?.getRepository(CompanyUser) ?? this.companyUserRepository;
   }
 
   private getCompanyUserRoleRepository(
     manager?: EntityManager,
   ): Repository<CompanyUserRole> {
-    return manager?.getRepository(CompanyUserRole) ?? this.companyUserRoleRepository;
+    return (
+      manager?.getRepository(CompanyUserRole) ?? this.companyUserRoleRepository
+    );
   }
 
   private getEmployeePositionRepository(
     manager?: EntityManager,
   ): Repository<EmployeePosition> {
-    return manager?.getRepository(EmployeePosition) ?? this.employeePositionRepository;
+    return (
+      manager?.getRepository(EmployeePosition) ??
+      this.employeePositionRepository
+    );
   }
 
   async resolveWorkflow(
@@ -114,7 +142,9 @@ export class OffboardingWorkflowService {
     }
 
     if (!workflow) {
-      throw new NotFoundException('No active offboarding workflow configured for this company');
+      throw new NotFoundException(
+        'No active offboarding workflow configured for this company',
+      );
     }
 
     return workflow;
@@ -177,16 +207,21 @@ export class OffboardingWorkflowService {
       .andWhere('employeePosition.status = :assignmentStatus', {
         assignmentStatus: EmployeePositionStatusEnum.ACTIVE,
       })
-      .andWhere('(employeePosition.end_date IS NULL OR employeePosition.end_date >= CURDATE())')
+      .andWhere(
+        '(employeePosition.end_date IS NULL OR employeePosition.end_date >= CURDATE())',
+      )
       .andWhere('membership.company_id = :companyId', { companyId })
       .andWhere('membership.status = :status', { status: 'active' })
       .select('membership.id', 'company_user_id')
       .groupBy('membership.id');
 
     if (step.assigned_branch_id) {
-      assignments.andWhere('(position.branch_id = :branchId OR employee.primary_branch_id = :branchId)', {
-        branchId: step.assigned_branch_id,
-      });
+      assignments.andWhere(
+        '(position.branch_id = :branchId OR employee.primary_branch_id = :branchId)',
+        {
+          branchId: step.assigned_branch_id,
+        },
+      );
     }
 
     if (step.assigned_department_id) {
@@ -196,7 +231,9 @@ export class OffboardingWorkflowService {
       );
     }
 
-    const employees = await assignments.getRawMany<{ company_user_id: number }>();
+    const employees = await assignments.getRawMany<{
+      company_user_id: number;
+    }>();
     return employees.map((entry) => Number(entry.company_user_id));
   }
 
@@ -214,7 +251,9 @@ export class OffboardingWorkflowService {
     });
 
     if (!steps.length) {
-      throw new BadRequestException('Configured offboarding workflow has no approval steps');
+      throw new BadRequestException(
+        'Configured offboarding workflow has no approval steps',
+      );
     }
 
     const approvalRepository = this.getApprovalRepository(manager);
@@ -226,7 +265,11 @@ export class OffboardingWorkflowService {
     let pendingApprovals = 0;
 
     for (const step of steps) {
-      const membershipIds = await this.resolveApproverMembershipIds(companyId, step, manager);
+      const membershipIds = await this.resolveApproverMembershipIds(
+        companyId,
+        step,
+        manager,
+      );
 
       await taskRepository.save(
         taskRepository.create({
@@ -239,7 +282,10 @@ export class OffboardingWorkflowService {
           task_type: step.task_type,
           due_date:
             step.expected_duration_days && step.expected_duration_days > 0
-              ? new Date(Date.now() + step.expected_duration_days * 24 * 60 * 60 * 1000)
+              ? new Date(
+                  Date.now() +
+                    step.expected_duration_days * 24 * 60 * 60 * 1000,
+                )
               : null,
           metadata: {
             approval_level: step.approval_level,
@@ -261,7 +307,8 @@ export class OffboardingWorkflowService {
             workflow_step_id: step.id,
             approver_company_user_id: null,
             status: OffboardingApprovalStatusEnum.SKIPPED,
-            comments: 'Skipped automatically because no eligible approver was resolved',
+            comments:
+              'Skipped automatically because no eligible approver was resolved',
             acted_at: new Date(),
           }),
         );
@@ -321,7 +368,9 @@ export class OffboardingWorkflowService {
     }
 
     const pendingApprovals = request.approvals
-      .filter((approval) => approval.status === OffboardingApprovalStatusEnum.PENDING)
+      .filter(
+        (approval) => approval.status === OffboardingApprovalStatusEnum.PENDING,
+      )
       .sort(
         (left, right) =>
           (left.workflow_step?.approval_level ?? Number.MAX_SAFE_INTEGER) -
@@ -329,12 +378,15 @@ export class OffboardingWorkflowService {
       );
 
     if (!pendingApprovals.length) {
-      throw new BadRequestException('No pending approval for this offboarding request');
+      throw new BadRequestException(
+        'No pending approval for this offboarding request',
+      );
     }
 
     const currentLevel = pendingApprovals[0].workflow_step?.approval_level ?? 0;
     const levelApprovals = pendingApprovals.filter(
-      (approval) => (approval.workflow_step?.approval_level ?? 0) === currentLevel,
+      (approval) =>
+        (approval.workflow_step?.approval_level ?? 0) === currentLevel,
     );
 
     const actorApproval = levelApprovals.find(
@@ -342,7 +394,9 @@ export class OffboardingWorkflowService {
     );
 
     if (!actorApproval) {
-      throw new ForbiddenException('You are not assigned as approver at the current level');
+      throw new ForbiddenException(
+        'You are not assigned as approver at the current level',
+      );
     }
 
     actorApproval.status = payload.approve
@@ -352,11 +406,15 @@ export class OffboardingWorkflowService {
     actorApproval.acted_at = new Date();
     await approvalRepository.save(actorApproval);
 
-    const otherLevelApprovals = levelApprovals.filter((approval) => approval.id !== actorApproval.id);
+    const otherLevelApprovals = levelApprovals.filter(
+      (approval) => approval.id !== actorApproval.id,
+    );
     if (otherLevelApprovals.length) {
       otherLevelApprovals.forEach((approval) => {
         approval.status = OffboardingApprovalStatusEnum.SKIPPED;
-        approval.comments = approval.comments ?? 'Skipped because level already decided by another approver';
+        approval.comments =
+          approval.comments ??
+          'Skipped because level already decided by another approver';
         approval.acted_at = new Date();
       });
       await approvalRepository.save(otherLevelApprovals);
@@ -370,7 +428,8 @@ export class OffboardingWorkflowService {
       if (futurePending.length) {
         futurePending.forEach((approval) => {
           approval.status = OffboardingApprovalStatusEnum.SKIPPED;
-          approval.comments = approval.comments ?? 'Skipped after offboarding rejection';
+          approval.comments =
+            approval.comments ?? 'Skipped after offboarding rejection';
           approval.acted_at = new Date();
         });
         await approvalRepository.save(futurePending);

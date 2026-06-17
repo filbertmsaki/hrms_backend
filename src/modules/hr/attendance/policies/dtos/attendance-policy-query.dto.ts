@@ -8,7 +8,3 @@ export class AttendancePolicyQueryDto extends PaginationDto {
   @IsOptional()
   is_active?: boolean;
 }
-
-
-
-

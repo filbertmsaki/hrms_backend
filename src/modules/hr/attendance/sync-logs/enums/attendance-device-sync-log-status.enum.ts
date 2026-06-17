@@ -3,7 +3,3 @@ export enum AttendanceDeviceSyncLogStatusEnum {
   FAILED = 'FAILED',
   PARTIAL = 'PARTIAL',
 }
-
-
-
-

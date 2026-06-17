@@ -41,4 +41,3 @@ import { HikvisionModule } from '../../hikvision/hikvision.module';
   exports: [AccessOrganizationsService],
 })
 export class AccessOrganizationsModule {}
-

@@ -119,7 +119,10 @@ export default class OnboardingWorkflowStepsSeeder implements Seeder {
       );
       this.validateApprovalLevels(WORKFLOW_STEP_SEEDS);
 
-      const roleMap = await this.resolveRoles(roleRepo, ONBOARDING_SEED_COMPANY_ID);
+      const roleMap = await this.resolveRoles(
+        roleRepo,
+        ONBOARDING_SEED_COMPANY_ID,
+      );
       const departmentMap = await this.resolveDepartments(
         departmentRepo,
         ONBOARDING_SEED_COMPANY_ID,
@@ -152,10 +155,14 @@ export default class OnboardingWorkflowStepsSeeder implements Seeder {
   }
 
   private validateApprovalLevels(seeds: WorkflowStepSeed[]): void {
-    const levels = seeds.map((seed) => seed.approval_level).sort((a, b) => a - b);
+    const levels = seeds
+      .map((seed) => seed.approval_level)
+      .sort((a, b) => a - b);
     const uniqueLevels = new Set(levels);
     if (levels.length !== uniqueLevels.size) {
-      throw new Error('Onboarding workflow steps contain duplicate approval_level values');
+      throw new Error(
+        'Onboarding workflow steps contain duplicate approval_level values',
+      );
     }
 
     for (let index = 0; index < levels.length; index += 1) {
@@ -191,7 +198,9 @@ export default class OnboardingWorkflowStepsSeeder implements Seeder {
     roleRepo: Repository<Role>,
     companyId: number,
   ): Promise<Map<string, Role>> {
-    const names = [...new Set(WORKFLOW_STEP_SEEDS.map((step) => step.role_name))];
+    const names = [
+      ...new Set(WORKFLOW_STEP_SEEDS.map((step) => step.role_name)),
+    ];
     const roles = await roleRepo.find({
       where: {
         company_id: companyId,
@@ -220,7 +229,8 @@ export default class OnboardingWorkflowStepsSeeder implements Seeder {
     const codes = [
       ...new Set(
         WORKFLOW_STEP_SEEDS.map((step) => step.assigned_department_code).filter(
-          (value): value is string => typeof value === 'string' && value.length > 0,
+          (value): value is string =>
+            typeof value === 'string' && value.length > 0,
         ),
       ),
     ];
@@ -269,7 +279,9 @@ export default class OnboardingWorkflowStepsSeeder implements Seeder {
         );
       }
 
-      const companyUserIds = assignments.map((assignment) => assignment.company_user_id);
+      const companyUserIds = assignments.map(
+        (assignment) => assignment.company_user_id,
+      );
       const activeCount = await companyUserRepo.count({
         where: {
           id: In(companyUserIds),
@@ -291,7 +303,9 @@ export default class OnboardingWorkflowStepsSeeder implements Seeder {
     roleMap: Map<string, Role>,
     departmentMap: Map<string, Department>,
   ): Promise<void> {
-    const desiredLevels = WORKFLOW_STEP_SEEDS.map((seed) => seed.approval_level);
+    const desiredLevels = WORKFLOW_STEP_SEEDS.map(
+      (seed) => seed.approval_level,
+    );
     const existingSteps = await stepRepo.find({
       where: { workflow_id: workflowId },
     });
@@ -299,7 +313,8 @@ export default class OnboardingWorkflowStepsSeeder implements Seeder {
     for (const seed of WORKFLOW_STEP_SEEDS) {
       const role = roleMap.get(seed.role_name)!;
       const department = seed.assigned_department_code
-        ? departmentMap.get(seed.assigned_department_code.toUpperCase()) ?? null
+        ? (departmentMap.get(seed.assigned_department_code.toUpperCase()) ??
+          null)
         : null;
 
       let step = existingSteps.find(

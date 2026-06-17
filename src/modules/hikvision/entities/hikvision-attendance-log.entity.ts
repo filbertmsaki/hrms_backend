@@ -24,7 +24,10 @@ import { AttendanceRawLogProcessingStatusEnum } from '../../hr/attendance/proces
 @Index('IDX_hikvision_attendance_logs_minor', ['minor'])
 @Index('IDX_hikvision_attendance_logs_door_no', ['doorNo'])
 @Index('IDX_hikvision_attendance_logs_serial_no', ['serialNo'])
-@Index('IDX_hikvision_attendance_logs_device_event_time', ['deviceId', 'eventTime'])
+@Index('IDX_hikvision_attendance_logs_device_event_time', [
+  'deviceId',
+  'eventTime',
+])
 @Index('IDX_hikvision_attendance_logs_processing_status', ['processingStatus'])
 @Unique('UQ_hik_att_logs_dev_emp_evt_maj_min_reader_door', [
   'deviceId',
@@ -51,7 +54,12 @@ export class HikvisionAttendanceLog {
   @Column({ name: 'employee_no', type: 'varchar', length: 100, default: '' })
   employeeNo: string;
 
-  @Column({ name: 'employee_name', type: 'varchar', length: 200, nullable: true })
+  @Column({
+    name: 'employee_name',
+    type: 'varchar',
+    length: 200,
+    nullable: true,
+  })
   employeeName: string | null;
 
   @Column({ name: 'card_no', type: 'varchar', length: 100, nullable: true })
@@ -69,7 +77,12 @@ export class HikvisionAttendanceLog {
   @Column({ name: 'event_type', type: 'varchar', length: 120, nullable: true })
   eventType: string | null;
 
-  @Column({ name: 'attendance_status', type: 'varchar', length: 100, nullable: true })
+  @Column({
+    name: 'attendance_status',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
   attendanceStatus: string | null;
 
   @Column({ name: 'verify_mode', type: 'varchar', length: 100, nullable: true })
@@ -81,7 +94,12 @@ export class HikvisionAttendanceLog {
   @Column({ name: 'card_reader_no', type: 'int', nullable: true })
   cardReaderNo: number | null;
 
-  @Column({ name: 'card_reader_kind', type: 'varchar', length: 120, nullable: true })
+  @Column({
+    name: 'card_reader_kind',
+    type: 'varchar',
+    length: 120,
+    nullable: true,
+  })
   cardReaderKind: string | null;
 
   @Column({ name: 'serial_no', type: 'varchar', length: 120, nullable: true })
@@ -93,7 +111,12 @@ export class HikvisionAttendanceLog {
   @Column({ name: 'device_no', type: 'varchar', length: 120, nullable: true })
   deviceNo: string | null;
 
-  @Column({ name: 'remote_host_addr', type: 'varchar', length: 100, nullable: true })
+  @Column({
+    name: 'remote_host_addr',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
   remoteHostAddr: string | null;
 
   @Column({ name: 'net_user', type: 'varchar', length: 120, nullable: true })
@@ -122,7 +145,12 @@ export class HikvisionAttendanceLog {
   @Column({ name: 'processed_at', type: 'timestamp', nullable: true })
   processedAt: Date | null;
 
-  @Column({ name: 'last_processing_error', type: 'varchar', length: 255, nullable: true })
+  @Column({
+    name: 'last_processing_error',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
   lastProcessingError: string | null;
 
   @CreateDateColumn({ name: 'created_at' })

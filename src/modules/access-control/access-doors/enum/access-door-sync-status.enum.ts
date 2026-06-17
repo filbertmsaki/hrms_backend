@@ -3,4 +3,3 @@ export enum AccessDoorSyncStatusEnum {
   SYNCED = 'SYNCED',
   FAILED = 'FAILED',
 }
-

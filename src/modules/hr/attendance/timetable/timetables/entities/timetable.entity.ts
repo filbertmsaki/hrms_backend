@@ -96,7 +96,10 @@ export class Timetable {
   @OneToMany(() => TimetableDay, (day) => day.timetable)
   days: TimetableDay[];
 
-  @OneToMany(() => EmployeeTimetable, (employeeTimetable) => employeeTimetable.timetable)
+  @OneToMany(
+    () => EmployeeTimetable,
+    (employeeTimetable) => employeeTimetable.timetable,
+  )
   employeeTimetables: EmployeeTimetable[];
 
   @OneToMany(() => TimetableRotation, (rotation) => rotation.timetable)
@@ -105,7 +108,10 @@ export class Timetable {
   @OneToMany(() => TimetableHolidayRule, (holidayRule) => holidayRule.timetable)
   holidayRules: TimetableHolidayRule[];
 
-  @OneToMany(() => TimetableAttendanceRule, (attendanceRule) => attendanceRule.timetable)
+  @OneToMany(
+    () => TimetableAttendanceRule,
+    (attendanceRule) => attendanceRule.timetable,
+  )
   attendanceRules: TimetableAttendanceRule[];
 
   @OneToMany(() => TimetableGeneratedSchedule, (schedule) => schedule.timetable)

@@ -304,7 +304,9 @@ describe('LeaveService', () => {
       },
     ]);
     leaveBalanceService.ensureBalanceForEmployee.mockResolvedValue(balance);
-    dataSource.transaction.mockImplementation(async (callback) => callback(manager));
+    dataSource.transaction.mockImplementation(async (callback) =>
+      callback(manager),
+    );
 
     const result = await service.submitLeaveRequest(10, 77, actor);
 
@@ -319,7 +321,9 @@ describe('LeaveService', () => {
         reason: 'Leave request auto-approved',
       }),
     );
-    expect(leaveWorkflowService.initializeWorkflowForRequest).not.toHaveBeenCalled();
+    expect(
+      leaveWorkflowService.initializeWorkflowForRequest,
+    ).not.toHaveBeenCalled();
     expect(leaveAuditService.log).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'leave_request.submitted',
@@ -356,7 +360,9 @@ describe('LeaveService', () => {
         },
         actor,
       ),
-    ).rejects.toThrow('Only active employees can create or submit leave requests.');
+    ).rejects.toThrow(
+      'Only active employees can create or submit leave requests.',
+    );
 
     expect(leaveTypeRepository.findOne).not.toHaveBeenCalled();
   });

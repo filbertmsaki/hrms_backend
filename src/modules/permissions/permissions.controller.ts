@@ -10,11 +10,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
 import { Permissions } from '../../common/decorators/permissions.decorator';
@@ -54,7 +50,10 @@ export class PermissionsController {
   @Get()
   @UseGuards(PermissionsGuard)
   @Permissions('permissions:read')
-  @ApiListOperation('Permission', 'Get all permissions visible to the current actor')
+  @ApiListOperation(
+    'Permission',
+    'Get all permissions visible to the current actor',
+  )
   findAll(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
     return this.permissionsService.findAll(req.user);
   }

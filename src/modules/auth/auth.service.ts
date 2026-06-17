@@ -334,15 +334,19 @@ export class AuthService {
       throw new NotFoundException('Company not found');
     }
 
-    const creationResult = await this.usersService.createForCompany(company.id, {
-      first_name: registerDto.first_name,
-      last_name: registerDto.last_name,
-      phone: registerDto.phone,
-      email: registerDto.email,
-      password: registerDto.password,
-    });
+    const creationResult = await this.usersService.createForCompany(
+      company.id,
+      {
+        first_name: registerDto.first_name,
+        last_name: registerDto.last_name,
+        phone: registerDto.phone,
+        email: registerDto.email,
+        password: registerDto.password,
+      },
+    );
 
-    const createdUser = 'user' in creationResult ? creationResult.user : creationResult;
+    const createdUser =
+      'user' in creationResult ? creationResult.user : creationResult;
     const companyContext = await this.companiesService.getMembershipContext(
       createdUser.id,
       company.id,
@@ -428,10 +432,14 @@ export class AuthService {
         );
       }
 
-      const companies = await this.companiesService.listUserCompanies(payload.sub);
+      const companies = await this.companiesService.listUserCompanies(
+        payload.sub,
+      );
 
       if (!companies.length) {
-        throw new UnauthorizedException('Company access is no longer available');
+        throw new UnauthorizedException(
+          'Company access is no longer available',
+        );
       }
 
       let companyContext: CompanySummary;

@@ -26,13 +26,31 @@ export class ShiftOvertimeRule {
   @Column({ name: 'max_daily_overtime_minutes', type: 'int', default: 0 })
   maxDailyOvertimeMinutes: number;
 
-  @Column({ name: 'overtime_rate_multiplier', type: 'decimal', precision: 5, scale: 2, default: 1 })
+  @Column({
+    name: 'overtime_rate_multiplier',
+    type: 'decimal',
+    precision: 5,
+    scale: 2,
+    default: 1,
+  })
   overtimeRateMultiplier: string;
 
-  @Column({ name: 'weekend_multiplier', type: 'decimal', precision: 5, scale: 2, default: 1 })
+  @Column({
+    name: 'weekend_multiplier',
+    type: 'decimal',
+    precision: 5,
+    scale: 2,
+    default: 1,
+  })
   weekendMultiplier: string;
 
-  @Column({ name: 'holiday_multiplier', type: 'decimal', precision: 5, scale: 2, default: 1 })
+  @Column({
+    name: 'holiday_multiplier',
+    type: 'decimal',
+    precision: 5,
+    scale: 2,
+    default: 1,
+  })
   holidayMultiplier: string;
 
   @Column({ name: 'requires_approval', type: 'boolean', default: false })
@@ -47,7 +65,9 @@ export class ShiftOvertimeRule {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-  @ManyToOne(() => Shift, (shift) => shift.overtimeRules, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Shift, (shift) => shift.overtimeRules, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'shift_id' })
   shift: Shift;
 }

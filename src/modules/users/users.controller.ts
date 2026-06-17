@@ -12,10 +12,7 @@ import {
   Query,
   ForbiddenException,
 } from '@nestjs/common';
-import {
-  ApiTags,
-  ApiBearerAuth,
-} from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dtos/create-user.dto';
@@ -57,7 +54,8 @@ export class UsersController {
     req: ExpressRequest & { user: AuthenticatedUser },
   ): boolean {
     return (
-      req.user.roles.includes('ADMINISTRATOR') || req.user.roles.includes('OWNER')
+      req.user.roles.includes('ADMINISTRATOR') ||
+      req.user.roles.includes('OWNER')
     );
   }
 
@@ -85,7 +83,10 @@ export class UsersController {
     },
   })
   async getMe(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
-    return this.usersService.findMyProfileById(req.user.id, req.user.companyId!);
+    return this.usersService.findMyProfileById(
+      req.user.id,
+      req.user.companyId!,
+    );
   }
 
   // ────────────────────────────────
@@ -401,11 +402,7 @@ export class UsersController {
   @ApiSuccessResponse(200, 'Backup codes regenerated successfully', {
     schema: {
       example: {
-        backup_codes: [
-          'ABC1-DEF2-GHI3',
-          'JKL4-MNO5-PQR6',
-          'STU7-VWX8-YZA9',
-        ],
+        backup_codes: ['ABC1-DEF2-GHI3', 'JKL4-MNO5-PQR6', 'STU7-VWX8-YZA9'],
       },
     },
   })

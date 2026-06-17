@@ -3,4 +3,3 @@ export enum EmployeeDeviceAccessAuditStatusEnum {
   SUCCESS = 'SUCCESS',
   FAILED = 'FAILED',
 }
-

@@ -24,11 +24,19 @@ export class OffboardingAuditService {
     private readonly offboardingAuditLogRepository: Repository<OffboardingAuditLog>,
   ) {}
 
-  private getRepository(manager?: EntityManager): Repository<OffboardingAuditLog> {
-    return manager?.getRepository(OffboardingAuditLog) ?? this.offboardingAuditLogRepository;
+  private getRepository(
+    manager?: EntityManager,
+  ): Repository<OffboardingAuditLog> {
+    return (
+      manager?.getRepository(OffboardingAuditLog) ??
+      this.offboardingAuditLogRepository
+    );
   }
 
-  async log(entry: OffboardingAuditPayload, manager?: EntityManager): Promise<void> {
+  async log(
+    entry: OffboardingAuditPayload,
+    manager?: EntityManager,
+  ): Promise<void> {
     const repository = this.getRepository(manager);
     await repository.save(
       repository.create({

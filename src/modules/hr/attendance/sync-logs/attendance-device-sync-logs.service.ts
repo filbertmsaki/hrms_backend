@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
@@ -34,15 +38,27 @@ export class AttendanceDeviceSyncLogsService {
     };
   }
 
-  private async ensureDevice(companyId: number, deviceId: number): Promise<void> {
-    const device = await this.deviceRepository.findOne({ where: { id: deviceId, companyId } });
+  private async ensureDevice(
+    companyId: number,
+    deviceId: number,
+  ): Promise<void> {
+    const device = await this.deviceRepository.findOne({
+      where: { id: deviceId, companyId },
+    });
     if (!device) {
-      throw new BadRequestException('device_id does not belong to the active company');
+      throw new BadRequestException(
+        'device_id does not belong to the active company',
+      );
     }
   }
 
-  private async findOrFail(companyId: number, id: number): Promise<AttendanceDeviceSyncLog> {
-    const item = await this.syncLogRepository.findOne({ where: { id, companyId } });
+  private async findOrFail(
+    companyId: number,
+    id: number,
+  ): Promise<AttendanceDeviceSyncLog> {
+    const item = await this.syncLogRepository.findOne({
+      where: { id, companyId },
+    });
     if (!item) {
       throw new NotFoundException('Attendance device sync log not found');
     }
@@ -111,7 +127,9 @@ export class AttendanceDeviceSyncLogsService {
     }
 
     if (from_date) {
-      qb.andWhere('DATE(syncLog.started_at) >= :fromDate', { fromDate: from_date });
+      qb.andWhere('DATE(syncLog.started_at) >= :fromDate', {
+        fromDate: from_date,
+      });
     }
 
     if (to_date) {
@@ -119,7 +137,9 @@ export class AttendanceDeviceSyncLogsService {
     }
 
     const allowedSortFields = ['started_at', 'created_at', 'status'];
-    const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'started_at';
+    const safeSortBy = allowedSortFields.includes(sortBy)
+      ? sortBy
+      : 'started_at';
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
     const sortFieldMap: Record<string, string> = {
@@ -144,10 +164,3 @@ export class AttendanceDeviceSyncLogsService {
     return this.map(await this.findOrFail(companyId, id));
   }
 }
-
-
-
-
-
-
-

@@ -3,4 +3,3 @@ export enum AccessOrganizationSyncStatusEnum {
   SYNCED = 'SYNCED',
   FAILED = 'FAILED',
 }
-

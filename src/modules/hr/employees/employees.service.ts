@@ -18,10 +18,7 @@ import { Designation } from '../designations/entities/designation.entity';
 import { Department } from '../departments/entities/department.entity';
 import { Position } from '../positions/entities/position.entity';
 import { HrAccessService } from '../shared/hr-access.service';
-import {
-  buildPaginationMeta,
-  formatDateOnly,
-} from '../shared/hr.utils';
+import { buildPaginationMeta, formatDateOnly } from '../shared/hr.utils';
 import { AddEmployeeDocumentDto } from './dtos/add-employee-document.dto';
 import { ChangeEmployeeStatusDto } from './dtos/change-employee-status.dto';
 import { CreateEmployeeAddressDto } from './dtos/create-employee-address.dto';
@@ -72,9 +69,7 @@ import { EmployeeProfessionalQualification } from './entities/employee-professio
 import { EmployeeRelative } from './entities/employee-relative.entity';
 import { Employee } from './entities/employee.entity';
 
-type EmployeeMutationDto =
-  | CreateEmployeeDto
-  | UpdateEmployeeDto;
+type EmployeeMutationDto = CreateEmployeeDto | UpdateEmployeeDto;
 
 type EmployeeProfileCollectionsDto = Pick<
   CreateEmployeeDto,
@@ -262,7 +257,8 @@ export class EmployeesService {
     manager?: EntityManager,
   ): Repository<EmployeePosition> {
     return (
-      manager?.getRepository(EmployeePosition) ?? this.employeePositionRepository
+      manager?.getRepository(EmployeePosition) ??
+      this.employeePositionRepository
     );
   }
 
@@ -835,7 +831,7 @@ export class EmployeesService {
     );
 
     if (primaryContact?.[field]) {
-      return primaryContact[field] as string;
+      return primaryContact[field];
     }
 
     const anyContact = contacts.find((contact) => contact[field]);
@@ -1442,7 +1438,10 @@ export class EmployeesService {
     }
 
     if (position.branch_id) {
-      await this.hrAccessService.assertCanAccessBranch(actor, position.branch_id);
+      await this.hrAccessService.assertCanAccessBranch(
+        actor,
+        position.branch_id,
+      );
     }
 
     return position;
@@ -1622,9 +1621,7 @@ export class EmployeesService {
 
     for (const field of directFields) {
       if (field in dto) {
-        (payload as Record<string, unknown>)[field] = (
-          dto as Record<string, unknown>
-        )[field];
+        (payload as Record<string, unknown>)[field] = dto[field];
       }
     }
 
@@ -1699,7 +1696,9 @@ export class EmployeesService {
       .where('company_id = :companyId', { companyId })
       .andWhere('employee_id = :employeeId', { employeeId: employee.id })
       .andWhere('is_primary = :isPrimary', { isPrimary: true })
-      .andWhere('status = :status', { status: EmployeePositionStatusEnum.ACTIVE })
+      .andWhere('status = :status', {
+        status: EmployeePositionStatusEnum.ACTIVE,
+      })
       .andWhere('end_date IS NULL')
       .execute();
 
@@ -1723,9 +1722,12 @@ export class EmployeesService {
       .andWhere('employeePosition.end_date IS NULL');
 
     if (primaryDesignation?.id) {
-      existingQuery.andWhere('employeePosition.designation_id = :designationId', {
-        designationId: primaryDesignation.id,
-      });
+      existingQuery.andWhere(
+        'employeePosition.designation_id = :designationId',
+        {
+          designationId: primaryDesignation.id,
+        },
+      );
     } else {
       existingQuery.andWhere('employeePosition.designation_id IS NULL');
     }

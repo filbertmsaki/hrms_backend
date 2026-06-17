@@ -22,7 +22,10 @@ import { OffboardingTask } from './offboarding-task.entity';
 import { OffboardingWorkflow } from './offboarding-workflow.entity';
 
 @Entity('offboarding_workflow_steps')
-@Unique('UQ_offboarding_workflow_step_workflow_level', ['workflow_id', 'approval_level'])
+@Unique('UQ_offboarding_workflow_step_workflow_level', [
+  'workflow_id',
+  'approval_level',
+])
 @Index('IDX_offboarding_workflow_step_workflow', ['workflow_id'])
 @Index('IDX_offboarding_workflow_step_role', ['role_id'])
 @Index('IDX_offboarding_workflow_step_position', ['position_id'])

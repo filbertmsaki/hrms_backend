@@ -1,6 +1,13 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsNumber,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export class CreateAttendanceSettingDto {
   @IsString()
@@ -61,7 +68,3 @@ export class CreateAttendanceSettingDto {
   @IsOptional()
   auto_calculate?: boolean;
 }
-
-
-
-

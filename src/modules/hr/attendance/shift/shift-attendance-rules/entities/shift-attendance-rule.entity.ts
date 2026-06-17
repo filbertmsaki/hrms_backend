@@ -53,7 +53,9 @@ export class ShiftAttendanceRule {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-  @ManyToOne(() => Shift, (shift) => shift.attendanceRules, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Shift, (shift) => shift.attendanceRules, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'shift_id' })
   shift: Shift;
 }

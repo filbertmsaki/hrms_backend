@@ -145,17 +145,22 @@ export class AttendanceScheduleResolverService {
     );
     if (generatedOnDemand) return generatedOnDemand;
 
-    const fromEmployeeTimetable = await this.resolveFromEmployeeTimetableDefinition(
-      companyId,
-      employeeId,
-      scheduleDate,
-      fallbackTimezone,
-      branchId,
-      globalConfig,
-    );
+    const fromEmployeeTimetable =
+      await this.resolveFromEmployeeTimetableDefinition(
+        companyId,
+        employeeId,
+        scheduleDate,
+        fallbackTimezone,
+        branchId,
+        globalConfig,
+      );
     if (fromEmployeeTimetable) return fromEmployeeTimetable;
 
-    const holiday = await this.resolveHoliday(companyId, branchId, scheduleDate);
+    const holiday = await this.resolveHoliday(
+      companyId,
+      branchId,
+      scheduleDate,
+    );
     const isWeekendOff =
       globalConfig.autoMarkWeekendAsOff &&
       globalConfig.weekendDayIndexes.has(this.getDayOfWeek(scheduleDate));
@@ -254,9 +259,14 @@ export class AttendanceScheduleResolverService {
     });
     if (!generated) return null;
 
-    const timetable = await this.timetableRepository.findOne({ where: { id: generated.timetableId, companyId } });
+    const timetable = await this.timetableRepository.findOne({
+      where: { id: generated.timetableId, companyId },
+    });
     const timezone = timetable?.timezone || fallbackTimezone;
-    const holidayId = generated.holidayId ?? (await this.resolveHoliday(companyId, branchId, scheduleDate))?.id ?? null;
+    const holidayId =
+      generated.holidayId ??
+      (await this.resolveHoliday(companyId, branchId, scheduleDate))?.id ??
+      null;
 
     if (!generated.shiftId) {
       const definition = !generated.isOffDay
@@ -266,9 +276,10 @@ export class AttendanceScheduleResolverService {
             scheduleDate,
           )
         : null;
-      const attendanceRule = await this.timetableAttendanceRuleRepository.findOne({
-        where: { timetableId: generated.timetableId },
-      });
+      const attendanceRule =
+        await this.timetableAttendanceRuleRepository.findOne({
+          where: { timetableId: generated.timetableId },
+        });
       return this.buildResolvedWithoutShift({
         employeeId,
         scheduleDate,
@@ -294,13 +305,15 @@ export class AttendanceScheduleResolverService {
                 scheduleDate,
                 definition.expectedCheckOutTime,
                 timezone,
-                definition.expectedCheckOutTime <= definition.expectedCheckInTime,
+                definition.expectedCheckOutTime <=
+                  definition.expectedCheckInTime,
               )
             : null,
         lateAfterMinutes:
           attendanceRule?.lateAfterMinutes ?? globalConfig.lateAfterMinutes,
         halfDayAfterMinutes:
-          attendanceRule?.halfDayAfterMinutes ?? globalConfig.halfDayAfterMinutes,
+          attendanceRule?.halfDayAfterMinutes ??
+          globalConfig.halfDayAfterMinutes,
         absentAfterMinutes:
           attendanceRule?.absentAfterMinutes ?? globalConfig.absentAfterMinutes,
         allowEarlyCheckin:
@@ -308,7 +321,8 @@ export class AttendanceScheduleResolverService {
         allowLateCheckout:
           attendanceRule?.allowLateCheckout ?? globalConfig.allowLateCheckout,
         autoAbsentIfNoCheckin:
-          attendanceRule?.autoAbsentIfNoCheckin ?? globalConfig.autoAbsentIfNoCheckin,
+          attendanceRule?.autoAbsentIfNoCheckin ??
+          globalConfig.autoAbsentIfNoCheckin,
         allowOvertime:
           definition?.overtimeAllowed ?? globalConfig.allowOvertime,
         overtimeStartAfterMinutes: globalConfig.overtimeStartAfterMinutes,
@@ -347,11 +361,16 @@ export class AttendanceScheduleResolverService {
       .createQueryBuilder('assignment')
       .where('assignment.company_id = :companyId', { companyId })
       .andWhere('assignment.employee_id = :employeeId', { employeeId })
-      .andWhere('assignment.status = :status', { status: ShiftAssignmentStatusEnum.ACTIVE })
-      .andWhere('assignment.effective_from <= :scheduleDate', { scheduleDate })
-      .andWhere('(assignment.effective_to IS NULL OR assignment.effective_to >= :scheduleDate)', {
-        scheduleDate,
+      .andWhere('assignment.status = :status', {
+        status: ShiftAssignmentStatusEnum.ACTIVE,
       })
+      .andWhere('assignment.effective_from <= :scheduleDate', { scheduleDate })
+      .andWhere(
+        '(assignment.effective_to IS NULL OR assignment.effective_to >= :scheduleDate)',
+        {
+          scheduleDate,
+        },
+      )
       .orderBy('assignment.is_primary', 'DESC')
       .addOrderBy('assignment.effective_from', 'DESC')
       .getOne();
@@ -361,10 +380,18 @@ export class AttendanceScheduleResolverService {
     let resolvedShiftId = assignment.shiftId;
     let isOffDay = false;
     if (assignment.rotationGroupId) {
-      const rotationGroup = await this.shiftRotationGroupRepository.findOne({ where: { id: assignment.rotationGroupId, companyId } });
+      const rotationGroup = await this.shiftRotationGroupRepository.findOne({
+        where: { id: assignment.rotationGroupId, companyId },
+      });
       if (rotationGroup && rotationGroup.cycleDays > 0) {
-        const dayIndex = this.computeCycleDayIndex(assignment.effectiveFrom, scheduleDate, rotationGroup.cycleDays);
-        const rotationRule = await this.shiftRotationRuleRepository.findOne({ where: { rotationGroupId: rotationGroup.id, dayIndex } });
+        const dayIndex = this.computeCycleDayIndex(
+          assignment.effectiveFrom,
+          scheduleDate,
+          rotationGroup.cycleDays,
+        );
+        const rotationRule = await this.shiftRotationRuleRepository.findOne({
+          where: { rotationGroupId: rotationGroup.id, dayIndex },
+        });
         if (rotationRule) {
           isOffDay = rotationRule.isOffDay;
           if (rotationRule.shiftId) {
@@ -376,7 +403,11 @@ export class AttendanceScheduleResolverService {
       }
     }
 
-    const holiday = await this.resolveHoliday(companyId, branchId, scheduleDate);
+    const holiday = await this.resolveHoliday(
+      companyId,
+      branchId,
+      scheduleDate,
+    );
 
     if (isOffDay || !resolvedShiftId) {
       return this.buildResolvedWithoutShift({
@@ -417,19 +448,21 @@ export class AttendanceScheduleResolverService {
     branchId: number | null,
     globalConfig: GlobalAttendanceConfiguration,
   ): Promise<ResolvedAttendanceSchedule | null> {
-    const definition = await this.timetableScheduleGenerationService.buildScheduleDefinition(
-      companyId,
-      employeeId,
-      scheduleDate,
-    );
+    const definition =
+      await this.timetableScheduleGenerationService.buildScheduleDefinition(
+        companyId,
+        employeeId,
+        scheduleDate,
+      );
     if (!definition) {
       return null;
     }
 
     const timezone = definition.timezone || fallbackTimezone;
-    const attendanceRule = await this.timetableScheduleGenerationService.findTimetableAttendanceRule(
-      definition.timetableId,
-    );
+    const attendanceRule =
+      await this.timetableScheduleGenerationService.findTimetableAttendanceRule(
+        definition.timetableId,
+      );
 
     if (!definition.shiftId) {
       const scheduleStartAt =
@@ -470,7 +503,8 @@ export class AttendanceScheduleResolverService {
         lateAfterMinutes:
           attendanceRule?.lateAfterMinutes ?? globalConfig.lateAfterMinutes,
         halfDayAfterMinutes:
-          attendanceRule?.halfDayAfterMinutes ?? globalConfig.halfDayAfterMinutes,
+          attendanceRule?.halfDayAfterMinutes ??
+          globalConfig.halfDayAfterMinutes,
         absentAfterMinutes:
           attendanceRule?.absentAfterMinutes ?? globalConfig.absentAfterMinutes,
         allowEarlyCheckin:
@@ -478,9 +512,9 @@ export class AttendanceScheduleResolverService {
         allowLateCheckout:
           attendanceRule?.allowLateCheckout ?? globalConfig.allowLateCheckout,
         autoAbsentIfNoCheckin:
-          attendanceRule?.autoAbsentIfNoCheckin ?? globalConfig.autoAbsentIfNoCheckin,
-        allowOvertime:
-          definition.overtimeAllowed ?? globalConfig.allowOvertime,
+          attendanceRule?.autoAbsentIfNoCheckin ??
+          globalConfig.autoAbsentIfNoCheckin,
+        allowOvertime: definition.overtimeAllowed ?? globalConfig.allowOvertime,
         overtimeStartAfterMinutes: globalConfig.overtimeStartAfterMinutes,
         maxOvertimeMinutes:
           attendanceRule?.maxOvertimeMinutes ?? globalConfig.maxOvertimeMinutes,
@@ -515,8 +549,14 @@ export class AttendanceScheduleResolverService {
     branchId: number | null,
     globalConfig: GlobalAttendanceConfiguration,
   ): Promise<ResolvedAttendanceSchedule> {
-    const shift = await this.shiftRepository.findOne({ where: { id: shiftId, companyId } });
-    const holiday = await this.resolveHoliday(companyId, branchId, scheduleDate);
+    const shift = await this.shiftRepository.findOne({
+      where: { id: shiftId, companyId },
+    });
+    const holiday = await this.resolveHoliday(
+      companyId,
+      branchId,
+      scheduleDate,
+    );
 
     if (!shift) {
       return {
@@ -550,10 +590,18 @@ export class AttendanceScheduleResolverService {
       };
     }
 
-    const attendanceRule = await this.shiftAttendanceRuleRepository.findOne({ where: { shiftId: shift.id } });
-    const overtimeRule = await this.shiftOvertimeRuleRepository.findOne({ where: { shiftId: shift.id } });
+    const attendanceRule = await this.shiftAttendanceRuleRepository.findOne({
+      where: { shiftId: shift.id },
+    });
+    const overtimeRule = await this.shiftOvertimeRuleRepository.findOne({
+      where: { shiftId: shift.id },
+    });
 
-    const scheduleStartAt = this.buildDateWithTime(scheduleDate, shift.startTime, timezone);
+    const scheduleStartAt = this.buildDateWithTime(
+      scheduleDate,
+      shift.startTime,
+      timezone,
+    );
     const scheduleEndAt = this.buildDateWithTime(
       scheduleDate,
       shift.endTime,
@@ -713,7 +761,7 @@ export class AttendanceScheduleResolverService {
       .createQueryBuilder('holiday')
       .where('holiday.company_id = :companyId', { companyId })
       .andWhere(
-        '(holiday.date = :scheduleDate OR (holiday.is_recurring = :isRecurring AND DATE_FORMAT(holiday.date, \'%m-%d\') = :monthDay))',
+        "(holiday.date = :scheduleDate OR (holiday.is_recurring = :isRecurring AND DATE_FORMAT(holiday.date, '%m-%d') = :monthDay))",
         {
           scheduleDate,
           isRecurring: true,
@@ -732,13 +780,18 @@ export class AttendanceScheduleResolverService {
 
     return qb
       .orderBy('CASE WHEN holiday.branch_id IS NULL THEN 1 ELSE 0 END', 'ASC')
-      .addOrderBy('CASE WHEN holiday.date = :scheduleDate THEN 0 ELSE 1 END', 'ASC')
+      .addOrderBy(
+        'CASE WHEN holiday.date = :scheduleDate THEN 0 ELSE 1 END',
+        'ASC',
+      )
       .addOrderBy('holiday.branch_id', 'DESC')
       .setParameter('scheduleDate', scheduleDate)
       .getOne();
   }
 
-  private async resolveDefaultDeviceTimezone(companyId: number): Promise<string | null> {
+  private async resolveDefaultDeviceTimezone(
+    companyId: number,
+  ): Promise<string | null> {
     const device = await this.deviceRepository.findOne({
       where: { companyId, status: AttendanceDeviceStatusEnum.ACTIVE },
       order: { updatedAt: 'DESC' },
@@ -759,10 +812,17 @@ export class AttendanceScheduleResolverService {
       .getOne();
   }
 
-  private computeCycleDayIndex(startDate: string, targetDate: string, cycleDays: number): number {
+  private computeCycleDayIndex(
+    startDate: string,
+    targetDate: string,
+    cycleDays: number,
+  ): number {
     const start = new Date(`${startDate}T00:00:00Z`);
     const target = new Date(`${targetDate}T00:00:00Z`);
-    const diff = Math.max(0, Math.floor((target.getTime() - start.getTime()) / 86400000));
+    const diff = Math.max(
+      0,
+      Math.floor((target.getTime() - start.getTime()) / 86400000),
+    );
     return (diff % cycleDays) + 1;
   }
 
@@ -812,7 +872,9 @@ export class AttendanceScheduleResolverService {
         timeZoneName: 'shortOffset',
         hour: '2-digit',
       }).formatToParts(probe);
-      const zonePart = parts.find((part) => part.type === 'timeZoneName')?.value || 'GMT+00:00';
+      const zonePart =
+        parts.find((part) => part.type === 'timeZoneName')?.value ||
+        'GMT+00:00';
       const normalized = zonePart.replace('GMT', '').trim() || '+00:00';
       const match = normalized.match(/^([+-])(\d{1,2})(?::?(\d{2}))?$/);
       if (!match) return '+00:00';
@@ -825,4 +887,3 @@ export class AttendanceScheduleResolverService {
     }
   }
 }
-

@@ -61,7 +61,9 @@ export class UpsertAttendanceDailySummaryAdjustmentDto {
   @IsOptional()
   overtime_minutes?: number | null;
 
-  @ApiPropertyOptional({ example: 'Approved manual correction by HR after reviewing CCTV.' })
+  @ApiPropertyOptional({
+    example: 'Approved manual correction by HR after reviewing CCTV.',
+  })
   @IsString()
   @MaxLength(1000)
   @IsOptional()

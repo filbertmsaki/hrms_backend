@@ -16,6 +16,7 @@ import { Shift } from '../../shift/shifts/entities/shift.entity';
 import { Timetable } from '../../timetable/timetables/entities/timetable.entity';
 import { HikvisionAttendanceLog } from '../../../../hikvision/entities/hikvision-attendance-log.entity';
 import { CompanyUser } from '../../../../companies/entities/company-user.entity';
+import { AttendanceDailyRemarkEnum } from '../enums/attendance-daily-remark.enum';
 
 @Entity('attendance_daily_summaries')
 @Index('IDX_attendance_daily_summaries_company_id', ['companyId'])
@@ -23,7 +24,11 @@ import { CompanyUser } from '../../../../companies/entities/company-user.entity'
 @Index('IDX_attendance_daily_summaries_employee_id', ['employeeId'])
 @Index('IDX_attendance_daily_summaries_attendance_date', ['attendanceDate'])
 @Index('IDX_attendance_daily_summaries_status', ['attendanceStatus'])
-@Unique('UQ_attendance_daily_summaries_company_employee_date', ['companyId', 'employeeId', 'attendanceDate'])
+@Unique('UQ_attendance_daily_summaries_company_employee_date', [
+  'companyId',
+  'employeeId',
+  'attendanceDate',
+])
 export class AttendanceDailySummary {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -82,6 +87,9 @@ export class AttendanceDailySummary {
   @Column({ name: 'attendance_status', type: 'varchar', length: 50 })
   attendanceStatus: string;
 
+  @Column({ name: 'remarks', type: 'json', nullable: true })
+  remarks: AttendanceDailyRemarkEnum[] | null;
+
   @Column({ name: 'flags', type: 'json', nullable: true })
   flags: Record<string, unknown> | null;
 
@@ -136,11 +144,17 @@ export class AttendanceDailySummary {
   @JoinColumn({ name: 'adjusted_by_company_user_id' })
   adjustedByCompanyUser: CompanyUser | null;
 
-  @ManyToOne(() => HikvisionAttendanceLog, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => HikvisionAttendanceLog, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
   @JoinColumn({ name: 'source_first_raw_log_id' })
   sourceFirstRawLog: HikvisionAttendanceLog | null;
 
-  @ManyToOne(() => HikvisionAttendanceLog, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => HikvisionAttendanceLog, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
   @JoinColumn({ name: 'source_last_raw_log_id' })
   sourceLastRawLog: HikvisionAttendanceLog | null;
 }

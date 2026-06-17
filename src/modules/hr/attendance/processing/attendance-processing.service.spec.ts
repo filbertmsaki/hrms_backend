@@ -22,10 +22,7 @@ const createQueryBuilderMock = (rows: HikvisionAttendanceLog[]) => ({
   andWhere: jest.fn().mockReturnThis(),
   orderBy: jest.fn().mockReturnThis(),
   take: jest.fn().mockReturnThis(),
-  getMany: jest
-    .fn()
-    .mockResolvedValueOnce(rows)
-    .mockResolvedValueOnce([]),
+  getMany: jest.fn().mockResolvedValueOnce(rows).mockResolvedValueOnce([]),
 });
 
 describe('AttendanceProcessingService', () => {

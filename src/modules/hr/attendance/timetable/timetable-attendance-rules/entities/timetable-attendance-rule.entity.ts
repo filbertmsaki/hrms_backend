@@ -11,7 +11,9 @@ import { Timetable } from '../../timetables/entities/timetable.entity';
 
 @Entity('timetable_attendance_rules')
 @Index('IDX_timetable_attendance_rules_timetable_id', ['timetableId'])
-@Index('UQ_timetable_attendance_rules_timetable', ['timetableId'], { unique: true })
+@Index('UQ_timetable_attendance_rules_timetable', ['timetableId'], {
+  unique: true,
+})
 export class TimetableAttendanceRule {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -43,7 +45,9 @@ export class TimetableAttendanceRule {
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
-  @ManyToOne(() => Timetable, (timetable) => timetable.attendanceRules, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Timetable, (timetable) => timetable.attendanceRules, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'timetable_id' })
   timetable: Timetable;
 }

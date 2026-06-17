@@ -64,10 +64,20 @@ export class AccessDoor {
   })
   source: AccessDoorSourceEnum;
 
-  @Column({ name: 'magnetic_type', type: 'varchar', length: 50, nullable: true })
+  @Column({
+    name: 'magnetic_type',
+    type: 'varchar',
+    length: 50,
+    nullable: true,
+  })
   magneticType: string | null;
 
-  @Column({ name: 'open_button_type', type: 'varchar', length: 50, nullable: true })
+  @Column({
+    name: 'open_button_type',
+    type: 'varchar',
+    length: 50,
+    nullable: true,
+  })
   openButtonType: string | null;
 
   @Column({ name: 'open_duration', type: 'int', nullable: true })
@@ -82,7 +92,12 @@ export class AccessDoor {
   @Column({ name: 'enable_leader_card', type: 'boolean', nullable: true })
   enableLeaderCard: boolean | null;
 
-  @Column({ name: 'leader_card_mode', type: 'varchar', length: 50, nullable: true })
+  @Column({
+    name: 'leader_card_mode',
+    type: 'varchar',
+    length: 50,
+    nullable: true,
+  })
   leaderCardMode: string | null;
 
   @Column({ name: 'leader_card_open_duration', type: 'int', nullable: true })
@@ -126,4 +141,3 @@ export class AccessDoor {
   @JoinColumn({ name: 'device_id' })
   device: AttendanceDevice | null;
 }
-

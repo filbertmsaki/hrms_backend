@@ -13,7 +13,9 @@ import { Shift } from '../../../shift/shifts/entities/shift.entity';
 @Entity('timetable_rotation_rules')
 @Index('IDX_timetable_rotation_rules_rotation_id', ['rotationId'])
 @Index('IDX_timetable_rotation_rules_shift_id', ['shiftId'])
-@Index('UQ_timetable_rotation_rules_rotation_day', ['rotationId', 'dayIndex'], { unique: true })
+@Index('UQ_timetable_rotation_rules_rotation_day', ['rotationId', 'dayIndex'], {
+  unique: true,
+})
 export class TimetableRotationRule {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -33,7 +35,9 @@ export class TimetableRotationRule {
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
-  @ManyToOne(() => TimetableRotation, (rotation) => rotation.rules, { onDelete: 'CASCADE' })
+  @ManyToOne(() => TimetableRotation, (rotation) => rotation.rules, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'rotation_id' })
   rotation: TimetableRotation;
 

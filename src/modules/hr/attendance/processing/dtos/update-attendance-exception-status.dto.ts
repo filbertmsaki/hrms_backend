@@ -7,7 +7,10 @@ export class UpdateAttendanceExceptionStatusDto {
   @IsIn(['OPEN', 'RESOLVED', 'IGNORED'])
   status: string;
 
-  @ApiProperty({ example: 'Employee mapping fixed and summary recalculated', required: false })
+  @ApiProperty({
+    example: 'Employee mapping fixed and summary recalculated',
+    required: false,
+  })
   @IsString()
   @MaxLength(1000)
   @IsOptional()

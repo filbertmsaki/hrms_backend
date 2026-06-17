@@ -45,7 +45,11 @@ import { OnboardingWorkflowService } from './services/onboarding-workflow.servic
     LeaveModule,
   ],
   controllers: [OnboardingController],
-  providers: [OnboardingService, OnboardingAuditService, OnboardingWorkflowService],
+  providers: [
+    OnboardingService,
+    OnboardingAuditService,
+    OnboardingWorkflowService,
+  ],
   exports: [OnboardingService, TypeOrmModule],
 })
 export class OnboardingModule {}

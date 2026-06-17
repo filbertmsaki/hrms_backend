@@ -22,7 +22,9 @@ export class LeaveAuditService {
   ) {}
 
   private getRepository(manager?: EntityManager): Repository<LeaveAuditLog> {
-    return manager?.getRepository(LeaveAuditLog) ?? this.leaveAuditLogRepository;
+    return (
+      manager?.getRepository(LeaveAuditLog) ?? this.leaveAuditLogRepository
+    );
   }
 
   async log(entry: LeaveAuditPayload, manager?: EntityManager): Promise<void> {

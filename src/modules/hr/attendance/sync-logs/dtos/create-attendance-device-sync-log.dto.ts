@@ -1,12 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import {
-  IsEnum,
-  IsInt,
-  IsOptional,
-  IsString,
-  Min,
-} from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { AttendanceDeviceSyncLogStatusEnum } from '../enums/attendance-device-sync-log-status.enum';
 import { AttendanceDeviceSyncLogTypeEnum } from '../enums/attendance-device-sync-log-type.enum';
 
@@ -56,7 +50,3 @@ export class CreateAttendanceDeviceSyncLogDto {
   @IsOptional()
   error_message?: string;
 }
-
-
-
-

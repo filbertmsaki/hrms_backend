@@ -35,7 +35,9 @@ import { UpdateAttendanceSettingDto } from './dtos/update-attendance-setting.dto
 @Controller('attendance/settings')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class AttendanceSettingsController {
-  constructor(private readonly attendanceSettingsService: AttendanceSettingsService) {}
+  constructor(
+    private readonly attendanceSettingsService: AttendanceSettingsService,
+  ) {}
 
   @Post()
   @UseGuards(PermissionsGuard)
@@ -93,7 +95,3 @@ export class AttendanceSettingsController {
     return this.attendanceSettingsService.remove(req.user.companyId!, id);
   }
 }
-
-
-
-

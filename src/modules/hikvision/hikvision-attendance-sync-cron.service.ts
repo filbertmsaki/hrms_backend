@@ -22,10 +22,14 @@ export class HikvisionAttendanceSyncCronService {
     const automaticRange = this.resolveAutomaticSyncRange();
     const devices = await this.deviceRepository
       .createQueryBuilder('device')
-      .where('device.status = :status', { status: AttendanceDeviceStatusEnum.ACTIVE })
-      .andWhere('device.sync_mode = :syncMode', { syncMode: AttendanceDeviceSyncModeEnum.PULL })
+      .where('device.status = :status', {
+        status: AttendanceDeviceStatusEnum.ACTIVE,
+      })
+      .andWhere('device.sync_mode = :syncMode', {
+        syncMode: AttendanceDeviceSyncModeEnum.PULL,
+      })
       .andWhere(
-        '(LOWER(device.integration_type) = :integrationType OR LOWER(COALESCE(device.vendor_name, \'\')) LIKE :vendor)',
+        "(LOWER(device.integration_type) = :integrationType OR LOWER(COALESCE(device.vendor_name, '')) LIKE :vendor)",
         {
           integrationType: 'hikvision',
           vendor: '%hikvision%',
@@ -37,7 +41,9 @@ export class HikvisionAttendanceSyncCronService {
       return;
     }
 
-    this.logger.log(`Starting automatic attendance sync for ${devices.length} Hikvision device(s)`);
+    this.logger.log(
+      `Starting automatic attendance sync for ${devices.length} Hikvision device(s)`,
+    );
     if (automaticRange.startTime || automaticRange.endTime) {
       this.logger.log(
         `Automatic attendance sync range limit enabled: start=${automaticRange.startTime ?? 'auto'}, end=${automaticRange.endTime ?? 'auto'}`,
@@ -46,11 +52,12 @@ export class HikvisionAttendanceSyncCronService {
 
     for (const device of devices) {
       try {
-        const result = await this.attendanceSyncService.syncLatestAttendanceWindow(
-          device.companyId,
-          device.id,
-          automaticRange,
-        );
+        const result =
+          await this.attendanceSyncService.syncLatestAttendanceWindow(
+            device.companyId,
+            device.id,
+            automaticRange,
+          );
 
         if (result.status === 'SKIPPED') {
           this.logger.debug(
@@ -70,7 +77,10 @@ export class HikvisionAttendanceSyncCronService {
     }
   }
 
-  private resolveAutomaticSyncRange(): { startTime?: string; endTime?: string } {
+  private resolveAutomaticSyncRange(): {
+    startTime?: string;
+    endTime?: string;
+  } {
     const startTime = this.readEnvValue('HIKVISION_AUTO_SYNC_START_TIME');
     const endTime = this.readEnvValue('HIKVISION_AUTO_SYNC_END_TIME');
 

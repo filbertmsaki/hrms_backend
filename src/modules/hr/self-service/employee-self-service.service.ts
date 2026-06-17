@@ -127,7 +127,9 @@ export class EmployeeSelfServiceService {
       position: employee?.primary_position ?? null,
       designation: employee?.primary_designation ?? null,
       manager: this.mapManager(employee),
-      roles: (user.roles ?? []).map((role) => role.name ?? role.display_name).filter(Boolean),
+      roles: (user.roles ?? [])
+        .map((role) => role.name ?? role.display_name)
+        .filter(Boolean),
       permissions: (user.permissions ?? [])
         .map((permission) => permission.name ?? permission.display_name)
         .filter(Boolean),
@@ -142,7 +144,8 @@ export class EmployeeSelfServiceService {
         has_employee_profile: !!employee,
         can_check_in: todayAttendance.action_flags.can_check_in,
         can_check_out: todayAttendance.action_flags.can_check_out,
-        can_request_leave: (employee?.employment_status ?? '').toLowerCase() === 'active',
+        can_request_leave:
+          (employee?.employment_status ?? '').toLowerCase() === 'active',
       },
     };
   }
@@ -175,7 +178,12 @@ export class EmployeeSelfServiceService {
         page: 1,
         limit: 5,
       }),
-      this.buildAttendanceStats(companyId, employeeId, lastThirtyDaysStart, today),
+      this.buildAttendanceStats(
+        companyId,
+        employeeId,
+        lastThirtyDaysStart,
+        today,
+      ),
       this.getLeaveBalances(actor, {
         fiscal_year: currentFiscalYear,
         page: 1,
@@ -217,7 +225,8 @@ export class EmployeeSelfServiceService {
       action_flags: {
         can_check_in: todayAttendance.action_flags.can_check_in,
         can_check_out: todayAttendance.action_flags.can_check_out,
-        can_request_leave: (employee?.employment_status ?? '').toLowerCase() === 'active',
+        can_request_leave:
+          (employee?.employment_status ?? '').toLowerCase() === 'active',
         has_employee_profile: !!employee,
       },
       links: {
@@ -284,7 +293,10 @@ export class EmployeeSelfServiceService {
           punchState !== 'checked_in' &&
           (!summary ||
             ![
-              AttendanceDailyStatusEnum.ON_LEAVE,
+              AttendanceDailyStatusEnum.LEAVE,
+              AttendanceDailyStatusEnum.SICK_LEAVE,
+              AttendanceDailyStatusEnum.ANNUAL_LEAVE,
+              AttendanceDailyStatusEnum.UNPAID_LEAVE,
               AttendanceDailyStatusEnum.HOLIDAY,
               AttendanceDailyStatusEnum.OFF_DAY,
             ].includes(summary.attendanceStatus as AttendanceDailyStatusEnum)),
@@ -387,12 +399,18 @@ export class EmployeeSelfServiceService {
 
     const explicitScheduleMap = new Map(
       shiftSchedules
-        .filter((item) => item.scheduleDate >= fromDate && item.scheduleDate <= toDate)
+        .filter(
+          (item) =>
+            item.scheduleDate >= fromDate && item.scheduleDate <= toDate,
+        )
         .map((item) => [item.scheduleDate, item]),
     );
     const generatedScheduleMap = new Map(
       generatedSchedules
-        .filter((item) => item.scheduleDate >= fromDate && item.scheduleDate <= toDate)
+        .filter(
+          (item) =>
+            item.scheduleDate >= fromDate && item.scheduleDate <= toDate,
+        )
         .map((item) => [item.scheduleDate, item]),
     );
 
@@ -405,7 +423,11 @@ export class EmployeeSelfServiceService {
           source: 'shift_schedule',
           is_off_day: explicit.isOffDay,
           holiday: explicit.holiday
-            ? { id: explicit.holiday.id, name: explicit.holiday.name, date: explicit.holiday.date }
+            ? {
+                id: explicit.holiday.id,
+                name: explicit.holiday.name,
+                date: explicit.holiday.date,
+              }
             : null,
           shift: this.mapShift(activeShift),
           timetable: null,
@@ -420,7 +442,11 @@ export class EmployeeSelfServiceService {
           source: 'timetable_generated_schedule',
           is_off_day: generated.isOffDay,
           holiday: generated.holiday
-            ? { id: generated.holiday.id, name: generated.holiday.name, date: generated.holiday.date }
+            ? {
+                id: generated.holiday.id,
+                name: generated.holiday.name,
+                date: generated.holiday.date,
+              }
             : null,
           shift: this.mapShift(generated.shift),
           timetable: generated.timetable
@@ -517,7 +543,9 @@ export class EmployeeSelfServiceService {
             acc.allocated_days += this.toNumber(item.allocated_days);
             acc.used_days += this.toNumber(item.used_days);
             acc.pending_days += this.toNumber(item.pending_days);
-            acc.carried_forward_days += this.toNumber(item.carried_forward_days);
+            acc.carried_forward_days += this.toNumber(
+              item.carried_forward_days,
+            );
             acc.expired_days += this.toNumber(item.expired_days);
             acc.available_days += this.toNumber(item.available_days);
             return acc;
@@ -551,7 +579,11 @@ export class EmployeeSelfServiceService {
   async getLeaveRequest(actor: AuthenticatedUser, leaveRequestId: number) {
     const companyId = this.ensureCompanyId(actor);
     await this.ensureOwnLeaveRequest(companyId, actor, leaveRequestId);
-    return this.leaveService.findOneLeaveRequest(companyId, leaveRequestId, actor);
+    return this.leaveService.findOneLeaveRequest(
+      companyId,
+      leaveRequestId,
+      actor,
+    );
   }
 
   async createLeaveRequest(
@@ -576,7 +608,11 @@ export class EmployeeSelfServiceService {
   async submitLeaveRequest(actor: AuthenticatedUser, leaveRequestId: number) {
     const companyId = this.ensureCompanyId(actor);
     await this.ensureOwnLeaveRequest(companyId, actor, leaveRequestId);
-    return this.leaveService.submitLeaveRequest(companyId, leaveRequestId, actor);
+    return this.leaveService.submitLeaveRequest(
+      companyId,
+      leaveRequestId,
+      actor,
+    );
   }
 
   async cancelLeaveRequest(
@@ -586,13 +622,22 @@ export class EmployeeSelfServiceService {
   ) {
     const companyId = this.ensureCompanyId(actor);
     await this.ensureOwnLeaveRequest(companyId, actor, leaveRequestId);
-    return this.leaveService.cancelLeaveRequest(companyId, leaveRequestId, dto, actor);
+    return this.leaveService.cancelLeaveRequest(
+      companyId,
+      leaveRequestId,
+      dto,
+      actor,
+    );
   }
 
   async getLeaveRequestPdf(actor: AuthenticatedUser, leaveRequestId: number) {
     const companyId = this.ensureCompanyId(actor);
     await this.ensureOwnLeaveRequest(companyId, actor, leaveRequestId);
-    return this.leaveService.getLeaveRequestPdf(companyId, leaveRequestId, actor);
+    return this.leaveService.getLeaveRequestPdf(
+      companyId,
+      leaveRequestId,
+      actor,
+    );
   }
 
   private ensureCompanyId(actor: AuthenticatedUser): number {
@@ -774,7 +819,11 @@ export class EmployeeSelfServiceService {
     const start = new Date(`${startDate}T00:00:00.000Z`);
     const end = new Date(`${endDate}T00:00:00.000Z`);
 
-    for (let cursor = new Date(start); cursor <= end; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+    for (
+      let cursor = new Date(start);
+      cursor <= end;
+      cursor.setUTCDate(cursor.getUTCDate() + 1)
+    ) {
       dates.push(cursor.toISOString().slice(0, 10));
     }
 
@@ -817,11 +866,11 @@ export class EmployeeSelfServiceService {
         'half_days',
       )
       .addSelect(
-        `SUM(CASE WHEN summary.attendance_status = :leaveStatus THEN 1 ELSE 0 END)`,
+        `SUM(CASE WHEN summary.attendance_status IN ('LEAVE','SICK_LEAVE','ANNUAL_LEAVE','UNPAID_LEAVE') THEN 1 ELSE 0 END)`,
         'leave_days',
       )
       .addSelect(
-        `SUM(CASE WHEN summary.attendance_status = :incompleteStatus THEN 1 ELSE 0 END)`,
+        `SUM(CASE WHEN summary.attendance_status = :noShiftStatus THEN 1 ELSE 0 END)`,
         'incomplete_days',
       )
       .addSelect(
@@ -840,8 +889,7 @@ export class EmployeeSelfServiceService {
         presentStatus: AttendanceDailyStatusEnum.PRESENT,
         absentStatus: AttendanceDailyStatusEnum.ABSENT,
         halfDayStatus: AttendanceDailyStatusEnum.HALF_DAY,
-        leaveStatus: AttendanceDailyStatusEnum.ON_LEAVE,
-        incompleteStatus: AttendanceDailyStatusEnum.INCOMPLETE,
+        noShiftStatus: AttendanceDailyStatusEnum.NO_SHIFT_SCHEDULE,
       })
       .getRawOne<{
         total_days: string | null;
@@ -915,21 +963,21 @@ export class EmployeeSelfServiceService {
       .getMany();
 
     return items.map((item) => ({
-        id: item.id,
-        leave_no: item.leave_no,
-        leave_type: item.leave_type
-          ? {
-              id: item.leave_type.id,
-              name: item.leave_type.name,
-              code: item.leave_type.code,
-            }
-          : null,
-        start_date: item.start_date,
-        end_date: item.end_date,
-        total_days: item.total_days,
-        status: item.status,
-        approved_at: item.approved_at,
-      }));
+      id: item.id,
+      leave_no: item.leave_no,
+      leave_type: item.leave_type
+        ? {
+            id: item.leave_type.id,
+            name: item.leave_type.name,
+            code: item.leave_type.code,
+          }
+        : null,
+      start_date: item.start_date,
+      end_date: item.end_date,
+      total_days: item.total_days,
+      status: item.status,
+      approved_at: item.approved_at,
+    }));
   }
 
   private async ensureOwnLeaveRequest(

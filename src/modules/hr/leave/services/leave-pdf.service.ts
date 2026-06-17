@@ -103,15 +103,26 @@ export class LeavePdfService {
     document.moveDown();
     document.font('Helvetica-Bold').fontSize(12).text('Leave Balance Snapshot');
     if (!payload.current_balance) {
-      document.font('Helvetica').fontSize(10).text('No leave balance record found');
+      document
+        .font('Helvetica')
+        .fontSize(10)
+        .text('No leave balance record found');
     } else {
-      this.writeLabelValue(document, 'Fiscal Year', payload.current_balance.fiscal_year);
+      this.writeLabelValue(
+        document,
+        'Fiscal Year',
+        payload.current_balance.fiscal_year,
+      );
       this.writeLabelValue(
         document,
         'Allocated Days',
         payload.current_balance.allocated_days,
       );
-      this.writeLabelValue(document, 'Used Days', payload.current_balance.used_days);
+      this.writeLabelValue(
+        document,
+        'Used Days',
+        payload.current_balance.used_days,
+      );
       this.writeLabelValue(
         document,
         'Pending Days',
@@ -137,7 +148,10 @@ export class LeavePdfService {
     document.moveDown();
     document.font('Helvetica-Bold').fontSize(12).text('Approval History');
     if (!payload.approval_history.length) {
-      document.font('Helvetica').fontSize(10).text('No approval action recorded');
+      document
+        .font('Helvetica')
+        .fontSize(10)
+        .text('No approval action recorded');
     } else {
       payload.approval_history.forEach((approval, index) => {
         document
@@ -155,7 +169,10 @@ export class LeavePdfService {
           .fontSize(10)
           .text(`Acted At: ${approval.acted_at?.toISOString() ?? 'N/A'}`);
         if (approval.comments) {
-          document.font('Helvetica').fontSize(10).text(`Comments: ${approval.comments}`);
+          document
+            .font('Helvetica')
+            .fontSize(10)
+            .text(`Comments: ${approval.comments}`);
         }
         if (approval.signature_url) {
           document
@@ -173,7 +190,10 @@ export class LeavePdfService {
       status: payload.status,
       generated_at: new Date().toISOString(),
     });
-    const qrDataUrl = await QRCode.toDataURL(qrValue, { margin: 0, width: 120 });
+    const qrDataUrl = await QRCode.toDataURL(qrValue, {
+      margin: 0,
+      width: 120,
+    });
     const qrBase64 = qrDataUrl.split(',')[1];
     const qrBuffer = Buffer.from(qrBase64, 'base64');
 

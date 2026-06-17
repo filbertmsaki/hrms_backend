@@ -69,4 +69,3 @@ export class QueryEmployeeDeviceAccessAuditLogDto {
   @IsOptional()
   limit?: number = 20;
 }
-

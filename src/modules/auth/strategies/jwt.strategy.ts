@@ -152,7 +152,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         // Keep current access token usable until expiry when non-security DB
         // changes temporarily break membership context resolution.
         if (!payload.membershipId) {
-          throw new UnauthorizedException('Company access is no longer available');
+          throw new UnauthorizedException(
+            'Company access is no longer available',
+          );
         }
 
         this.logger.warn(

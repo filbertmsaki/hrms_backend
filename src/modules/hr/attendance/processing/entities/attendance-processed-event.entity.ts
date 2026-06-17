@@ -23,8 +23,16 @@ import { AttendanceProcessedEventDirectionEnum } from '../enums/attendance-proce
 @Index('IDX_attendance_processed_events_device_id', ['deviceId'])
 @Index('IDX_attendance_processed_events_event_time', ['eventTime'])
 @Index('IDX_attendance_processed_events_attendance_date', ['attendanceDate'])
-@Index('IDX_attendance_processed_events_company_emp_date', ['companyId', 'employeeId', 'attendanceDate'])
-@Index('IDX_attendance_processed_events_company_device_empno', ['companyId', 'deviceId', 'employeeNo'])
+@Index('IDX_attendance_processed_events_company_emp_date', [
+  'companyId',
+  'employeeId',
+  'attendanceDate',
+])
+@Index('IDX_attendance_processed_events_company_device_empno', [
+  'companyId',
+  'deviceId',
+  'employeeNo',
+])
 @Unique('UQ_attendance_processed_events_raw_log_id', ['rawLogId'])
 export class AttendanceProcessedEvent {
   @PrimaryGeneratedColumn({ name: 'id' })
@@ -71,10 +79,20 @@ export class AttendanceProcessedEvent {
   @Column({ name: 'is_valid', type: 'boolean', default: true })
   isValid: boolean;
 
-  @Column({ name: 'processing_status', type: 'varchar', length: 80, default: 'PROCESSED' })
+  @Column({
+    name: 'processing_status',
+    type: 'varchar',
+    length: 80,
+    default: 'PROCESSED',
+  })
   processingStatus: string;
 
-  @Column({ name: 'processing_reason', type: 'varchar', length: 255, nullable: true })
+  @Column({
+    name: 'processing_reason',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
   processingReason: string | null;
 
   @Column({ name: 'raw_payload_snapshot', type: 'json', nullable: true })
@@ -106,4 +124,3 @@ export class AttendanceProcessedEvent {
   @JoinColumn({ name: 'raw_log_id' })
   rawLog: HikvisionAttendanceLog;
 }
-

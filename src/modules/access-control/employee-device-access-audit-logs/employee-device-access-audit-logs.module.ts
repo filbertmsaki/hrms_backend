@@ -11,4 +11,3 @@ import { EmployeeDeviceAccessAuditLogService } from './service/employee-device-a
   exports: [EmployeeDeviceAccessAuditLogService],
 })
 export class EmployeeDeviceAccessAuditLogsModule {}
-

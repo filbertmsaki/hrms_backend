@@ -41,7 +41,12 @@ export class ShiftChangeRequest {
   @Column({ name: 'reason', type: 'text' })
   reason: string;
 
-  @Column({ name: 'status', type: 'enum', enum: ShiftChangeRequestStatusEnum, default: ShiftChangeRequestStatusEnum.PENDING })
+  @Column({
+    name: 'status',
+    type: 'enum',
+    enum: ShiftChangeRequestStatusEnum,
+    default: ShiftChangeRequestStatusEnum.PENDING,
+  })
   status: ShiftChangeRequestStatusEnum;
 
   @Column({ name: 'approved_by', type: 'int', nullable: true })

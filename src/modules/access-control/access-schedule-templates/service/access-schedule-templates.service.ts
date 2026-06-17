@@ -43,8 +43,16 @@ export class AccessScheduleTemplatesService {
 
   async create(companyId: number, dto: CreateAccessScheduleTemplateDto) {
     const device = await this.ensureDevice(companyId, dto.device_id);
-    await this.ensureUniqueTemplateNo(companyId, dto.device_id, dto.hikvision_template_no);
-    await this.ensureWeekPlanBelongsToDevice(companyId, dto.week_plan_id, dto.device_id);
+    await this.ensureUniqueTemplateNo(
+      companyId,
+      dto.device_id,
+      dto.hikvision_template_no,
+    );
+    await this.ensureWeekPlanBelongsToDevice(
+      companyId,
+      dto.week_plan_id,
+      dto.device_id,
+    );
 
     const templateName = (dto.template_name ?? dto.name ?? '').trim();
     if (!templateName) {
@@ -95,9 +103,12 @@ export class AccessScheduleTemplatesService {
     }
 
     if (search?.trim()) {
-      qb.andWhere('(template.name LIKE :term OR template.hikvision_template_no LIKE :term)', {
-        term: `%${search.trim()}%`,
-      });
+      qb.andWhere(
+        '(template.name LIKE :term OR template.hikvision_template_no LIKE :term)',
+        {
+          term: `%${search.trim()}%`,
+        },
+      );
     }
 
     const sortFieldMap: Record<string, string> = {
@@ -125,17 +136,30 @@ export class AccessScheduleTemplatesService {
     return this.map(await this.findOrFail(companyId, id));
   }
 
-  async update(companyId: number, id: number, dto: UpdateAccessScheduleTemplateDto) {
+  async update(
+    companyId: number,
+    id: number,
+    dto: UpdateAccessScheduleTemplateDto,
+  ) {
     const item = await this.findOrFail(companyId, id);
     const nextDeviceId = dto.device_id ?? item.deviceId;
-    const nextTemplateNo = (dto.hikvision_template_no ?? item.hikvisionTemplateNo).trim();
+    const nextTemplateNo = (
+      dto.hikvision_template_no ?? item.hikvisionTemplateNo
+    ).trim();
 
     if (nextDeviceId === null) {
-      throw new BadRequestException('device_id is required to update a schedule template');
+      throw new BadRequestException(
+        'device_id is required to update a schedule template',
+      );
     }
 
     await this.ensureDevice(companyId, nextDeviceId);
-    await this.ensureUniqueTemplateNo(companyId, nextDeviceId, nextTemplateNo, item.id);
+    await this.ensureUniqueTemplateNo(
+      companyId,
+      nextDeviceId,
+      nextTemplateNo,
+      item.id,
+    );
 
     if (dto.hikvision_template_no !== undefined) {
       item.hikvisionTemplateNo = nextTemplateNo;
@@ -150,7 +174,11 @@ export class AccessScheduleTemplatesService {
     if (dto.branch_id !== undefined) item.branchId = dto.branch_id ?? null;
     if (dto.device_id !== undefined) item.deviceId = dto.device_id;
     if (dto.week_plan_id !== undefined) {
-      await this.ensureWeekPlanBelongsToDevice(companyId, dto.week_plan_id, nextDeviceId);
+      await this.ensureWeekPlanBelongsToDevice(
+        companyId,
+        dto.week_plan_id,
+        nextDeviceId,
+      );
       item.weekPlanId = dto.week_plan_id;
     }
     if (dto.hikvision_week_plan_no !== undefined) {
@@ -191,12 +219,13 @@ export class AccessScheduleTemplatesService {
       },
     };
 
-    const response = await this.hikvisionAccessControlService.putUserRightPlanTemplate(
-      companyId,
-      deviceId,
-      item.hikvisionTemplateNo,
-      payload,
-    );
+    const response =
+      await this.hikvisionAccessControlService.putUserRightPlanTemplate(
+        companyId,
+        deviceId,
+        item.hikvisionTemplateNo,
+        payload,
+      );
 
     item.metadata = {
       ...(item.metadata ?? {}),
@@ -225,17 +254,22 @@ export class AccessScheduleTemplatesService {
     let synced = 0;
     let skipped = 0;
     let failed = 0;
-    const results: Array<{ template_no: string; status: 'SYNCED' | 'SKIPPED' | 'FAILED'; reason?: string }> = [];
+    const results: Array<{
+      template_no: string;
+      status: 'SYNCED' | 'SKIPPED' | 'FAILED';
+      reason?: string;
+    }> = [];
 
     for (let templateNo = 1; templateNo <= 64; templateNo += 1) {
       const templateNoText = String(templateNo);
 
       try {
-        const response = await this.hikvisionAccessControlService.getUserRightPlanTemplate(
-          companyId,
-          deviceId,
-          templateNoText,
-        );
+        const response =
+          await this.hikvisionAccessControlService.getUserRightPlanTemplate(
+            companyId,
+            deviceId,
+            templateNoText,
+          );
 
         if (!response.ok) {
           if (this.isSkippable(response.raw)) {
@@ -258,7 +292,9 @@ export class AccessScheduleTemplatesService {
         }
 
         const parsed = this.toObject(response.parsed);
-        const templateCfg = this.toObject(parsed.UserRightPlanTemplate ?? parsed);
+        const templateCfg = this.toObject(
+          parsed.UserRightPlanTemplate ?? parsed,
+        );
         const hikvisionTemplateNo = String(
           templateCfg.planTemplateNo ??
             templateCfg.templateNo ??
@@ -267,10 +303,15 @@ export class AccessScheduleTemplatesService {
         ).trim();
         const templateName =
           String(
-            templateCfg.planTemplateName ?? templateCfg.templateName ?? templateCfg.name ?? '',
+            templateCfg.planTemplateName ??
+              templateCfg.templateName ??
+              templateCfg.name ??
+              '',
           ).trim() || `Template ${hikvisionTemplateNo}`;
 
-        const hikvisionWeekPlanNo = String(templateCfg.weekPlanNo ?? templateCfg.weekPlanID ?? '0').trim();
+        const hikvisionWeekPlanNo = String(
+          templateCfg.weekPlanNo ?? templateCfg.weekPlanID ?? '0',
+        ).trim();
 
         let weekPlan = await this.weekPlanRepository.findOne({
           where: {
@@ -362,8 +403,13 @@ export class AccessScheduleTemplatesService {
     }
   }
 
-  private async findOrFail(companyId: number, id: number): Promise<AccessScheduleTemplate> {
-    const item = await this.templateRepository.findOne({ where: { id, companyId } });
+  private async findOrFail(
+    companyId: number,
+    id: number,
+  ): Promise<AccessScheduleTemplate> {
+    const item = await this.templateRepository.findOne({
+      where: { id, companyId },
+    });
     if (!item) {
       throw new NotFoundException('Access schedule template not found');
     }
@@ -371,14 +417,19 @@ export class AccessScheduleTemplatesService {
     return item;
   }
 
-  private async ensureDevice(companyId: number, deviceId: number): Promise<AttendanceDevice> {
+  private async ensureDevice(
+    companyId: number,
+    deviceId: number,
+  ): Promise<AttendanceDevice> {
     const device = await this.attendanceDeviceRepository.findOne({
       where: { id: deviceId, companyId },
       select: ['id', 'branchId'],
     });
 
     if (!device) {
-      throw new BadRequestException('device_id does not belong to the active company');
+      throw new BadRequestException(
+        'device_id does not belong to the active company',
+      );
     }
 
     return device;
@@ -395,7 +446,9 @@ export class AccessScheduleTemplatesService {
     });
 
     if (!weekPlan) {
-      throw new BadRequestException('week_plan_id does not belong to the provided device/company');
+      throw new BadRequestException(
+        'week_plan_id does not belong to the provided device/company',
+      );
     }
   }
 
@@ -434,12 +487,24 @@ export class AccessScheduleTemplatesService {
 
   private isSkippable(body: string): boolean {
     const lowered = (body || '').toLowerCase();
-    return lowered.includes('invalidid') || lowered.includes('notsupport') || lowered.includes('invalid id');
+    return (
+      lowered.includes('invalidid') ||
+      lowered.includes('notsupport') ||
+      lowered.includes('invalid id')
+    );
   }
 
-  private normalizeScheduleType(value: unknown): AccessScheduleTemplateTypeEnum {
-    const normalized = String(value ?? '').trim().toUpperCase();
-    if (Object.values(AccessScheduleTemplateTypeEnum).includes(normalized as AccessScheduleTemplateTypeEnum)) {
+  private normalizeScheduleType(
+    value: unknown,
+  ): AccessScheduleTemplateTypeEnum {
+    const normalized = String(value ?? '')
+      .trim()
+      .toUpperCase();
+    if (
+      Object.values(AccessScheduleTemplateTypeEnum).includes(
+        normalized as AccessScheduleTemplateTypeEnum,
+      )
+    ) {
       return normalized as AccessScheduleTemplateTypeEnum;
     }
 
@@ -460,4 +525,3 @@ export class AccessScheduleTemplatesService {
     return fallback;
   }
 }
-

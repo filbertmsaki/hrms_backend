@@ -118,7 +118,9 @@ async function main() {
   const patched = patchMigrationContent(raw);
 
   if (patched === raw) {
-    console.log(`No FOREIGN KEY statements found to patch in ${migration.name}.`);
+    console.log(
+      `No FOREIGN KEY statements found to patch in ${migration.name}.`,
+    );
     return;
   }
 

@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
@@ -24,14 +29,20 @@ export class TimetableShiftRulesService {
     private readonly generatedScheduleInvalidationService: TimetableGeneratedScheduleInvalidationService,
   ) {}
 
-  private async ensureTimetableDay(companyId: number, timetableDayId: number): Promise<void> {
+  private async ensureTimetableDay(
+    companyId: number,
+    timetableDayId: number,
+  ): Promise<void> {
     const item = await this.timetableDayRepository
       .createQueryBuilder('day')
       .innerJoin(Timetable, 'timetable', 'timetable.id = day.timetable_id')
       .where('day.id = :timetableDayId', { timetableDayId })
       .andWhere('timetable.company_id = :companyId', { companyId })
       .getOne();
-    if (!item) throw new BadRequestException('timetable_day_id does not belong to the active company');
+    if (!item)
+      throw new BadRequestException(
+        'timetable_day_id does not belong to the active company',
+      );
   }
 
   private async ensureShift(companyId: number, shiftId: number): Promise<void> {
@@ -39,10 +50,16 @@ export class TimetableShiftRulesService {
       where: { id: shiftId, companyId },
       select: ['id'],
     });
-    if (!shift) throw new BadRequestException('shift_id does not belong to the active company');
+    if (!shift)
+      throw new BadRequestException(
+        'shift_id does not belong to the active company',
+      );
   }
 
-  private async findOrFail(companyId: number, id: number): Promise<TimetableShiftRule> {
+  private async findOrFail(
+    companyId: number,
+    id: number,
+  ): Promise<TimetableShiftRule> {
     const item = await this.shiftRuleRepository
       .createQueryBuilder('rule')
       .innerJoin(TimetableDay, 'day', 'day.id = rule.timetable_day_id')
@@ -59,9 +76,15 @@ export class TimetableShiftRulesService {
     await this.ensureShift(companyId, dto.shift_id);
 
     const duplicate = await this.shiftRuleRepository.findOne({
-      where: { timetableDayId: dto.timetable_day_id, priorityOrder: dto.priority_order ?? 1 },
+      where: {
+        timetableDayId: dto.timetable_day_id,
+        priorityOrder: dto.priority_order ?? 1,
+      },
     });
-    if (duplicate) throw new ConflictException('priority_order already exists for this timetable day');
+    if (duplicate)
+      throw new ConflictException(
+        'priority_order already exists for this timetable day',
+      );
 
     const created = await this.shiftRuleRepository.save(
       this.shiftRuleRepository.create({
@@ -88,7 +111,13 @@ export class TimetableShiftRulesService {
   }
 
   async findAll(companyId: number, query: TimetableShiftRuleQueryDto) {
-    const { page = 1, limit = 20, sortBy = 'priority_order', sortOrder = SortDirection.ASC, timetable_day_id } = query;
+    const {
+      page = 1,
+      limit = 20,
+      sortBy = 'priority_order',
+      sortOrder = SortDirection.ASC,
+      timetable_day_id,
+    } = query;
 
     const qb = this.shiftRuleRepository
       .createQueryBuilder('rule')
@@ -96,7 +125,10 @@ export class TimetableShiftRulesService {
       .innerJoin(Timetable, 'timetable', 'timetable.id = day.timetable_id')
       .where('timetable.company_id = :companyId', { companyId });
 
-    if (timetable_day_id) qb.andWhere('rule.timetable_day_id = :timetableDayId', { timetableDayId: timetable_day_id });
+    if (timetable_day_id)
+      qb.andWhere('rule.timetable_day_id = :timetableDayId', {
+        timetableDayId: timetable_day_id,
+      });
 
     const sortFieldMap: Record<string, string> = {
       priority_order: 'priorityOrder',
@@ -105,13 +137,26 @@ export class TimetableShiftRulesService {
     const safeSortBy = sortFieldMap[sortBy] ?? sortFieldMap.priority_order;
     const direction = sortOrder === SortDirection.DESC ? 'DESC' : 'ASC';
 
-    const [items, total] = await qb.orderBy(`rule.${safeSortBy}`, direction).skip((page - 1) * limit).take(limit).getManyAndCount();
-    return { data: items, meta: buildPaginationMeta(total, items.length, limit, page) };
+    const [items, total] = await qb
+      .orderBy(`rule.${safeSortBy}`, direction)
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+    return {
+      data: items,
+      meta: buildPaginationMeta(total, items.length, limit, page),
+    };
   }
 
-  async findOne(companyId: number, id: number) { return this.findOrFail(companyId, id); }
+  async findOne(companyId: number, id: number) {
+    return this.findOrFail(companyId, id);
+  }
 
-  async update(companyId: number, id: number, dto: UpdateTimetableShiftRuleDto) {
+  async update(
+    companyId: number,
+    id: number,
+    dto: UpdateTimetableShiftRuleDto,
+  ) {
     const item = await this.findOrFail(companyId, id);
     const previousDay = await this.timetableDayRepository.findOne({
       where: { id: item.timetableDayId },
@@ -123,8 +168,13 @@ export class TimetableShiftRulesService {
     await this.ensureTimetableDay(companyId, timetableDayId);
     await this.ensureShift(companyId, dto.shift_id ?? item.shiftId);
 
-    const duplicate = await this.shiftRuleRepository.findOne({ where: { timetableDayId, priorityOrder } });
-    if (duplicate && duplicate.id !== item.id) throw new ConflictException('priority_order already exists for this timetable day');
+    const duplicate = await this.shiftRuleRepository.findOne({
+      where: { timetableDayId, priorityOrder },
+    });
+    if (duplicate && duplicate.id !== item.id)
+      throw new ConflictException(
+        'priority_order already exists for this timetable day',
+      );
 
     item.timetableDayId = timetableDayId;
     item.priorityOrder = priorityOrder;

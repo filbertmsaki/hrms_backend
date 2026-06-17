@@ -136,7 +136,9 @@ export class AttendanceProcessingExceptionsService {
       qb.andWhere('exception.device_id = :deviceId', { deviceId: device_id });
     }
     if (from_date) {
-      qb.andWhere('exception.attendance_date >= :fromDate', { fromDate: from_date });
+      qb.andWhere('exception.attendance_date >= :fromDate', {
+        fromDate: from_date,
+      });
     }
     if (to_date) {
       qb.andWhere('exception.attendance_date <= :toDate', { toDate: to_date });

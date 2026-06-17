@@ -24,10 +24,14 @@ import { AttendanceExceptionTypeEnum } from '../enums/attendance-exception-type.
 @Index('IDX_attendance_processing_exceptions_branch_id', ['branchId'])
 @Index('IDX_attendance_processing_exceptions_employee_id', ['employeeId'])
 @Index('IDX_attendance_processing_exceptions_raw_log_id', ['rawLogId'])
-@Index('IDX_attendance_processing_exceptions_processed_event_id', ['processedEventId'])
+@Index('IDX_attendance_processing_exceptions_processed_event_id', [
+  'processedEventId',
+])
 @Index('IDX_attendance_processing_exceptions_summary_id', ['summaryId'])
 @Index('IDX_attendance_processing_exceptions_device_id', ['deviceId'])
-@Index('IDX_attendance_processing_exceptions_attendance_date', ['attendanceDate'])
+@Index('IDX_attendance_processing_exceptions_attendance_date', [
+  'attendanceDate',
+])
 @Index('IDX_attendance_processing_exceptions_type', ['exceptionType'])
 @Index('IDX_attendance_processing_exceptions_status', ['status'])
 export class AttendanceProcessingException {
@@ -112,15 +116,24 @@ export class AttendanceProcessingException {
   @JoinColumn({ name: 'employee_id' })
   employee: Employee | null;
 
-  @ManyToOne(() => HikvisionAttendanceLog, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => HikvisionAttendanceLog, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
   @JoinColumn({ name: 'raw_log_id' })
   rawLog: HikvisionAttendanceLog | null;
 
-  @ManyToOne(() => AttendanceProcessedEvent, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => AttendanceProcessedEvent, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
   @JoinColumn({ name: 'processed_event_id' })
   processedEvent: AttendanceProcessedEvent | null;
 
-  @ManyToOne(() => AttendanceDailySummary, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => AttendanceDailySummary, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
   @JoinColumn({ name: 'summary_id' })
   summary: AttendanceDailySummary | null;
 

@@ -93,4 +93,3 @@ export class AccessWeekPlan {
   @OneToMany(() => AccessWeekPlanSegment, (segment) => segment.weekPlan)
   segments: AccessWeekPlanSegment[];
 }
-

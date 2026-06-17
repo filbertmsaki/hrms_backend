@@ -82,7 +82,10 @@ export class AccessOrganizationsService {
       departmentId: dto.department_id ?? null,
       parentId: dto.parent_id ?? null,
       hikvisionGroupNo: dto.hikvision_group_no?.trim() || null,
-      hikvisionOrgIndex: dto.hikvision_org_index?.trim() || dto.hikvision_group_no?.trim() || null,
+      hikvisionOrgIndex:
+        dto.hikvision_org_index?.trim() ||
+        dto.hikvision_group_no?.trim() ||
+        null,
       orgName,
       name: orgName,
       orgCode: dto.org_code?.trim() || null,
@@ -111,7 +114,9 @@ export class AccessOrganizationsService {
       .where('organization.company_id = :companyId', { companyId });
 
     if (branch_id) {
-      qb.andWhere('organization.branch_id = :branchId', { branchId: branch_id });
+      qb.andWhere('organization.branch_id = :branchId', {
+        branchId: branch_id,
+      });
     }
 
     if (department_id) {
@@ -127,9 +132,12 @@ export class AccessOrganizationsService {
     }
 
     if (search?.trim()) {
-      qb.andWhere('(organization.name LIKE :term OR organization.hikvision_group_no LIKE :term)', {
-        term: `%${search.trim()}%`,
-      });
+      qb.andWhere(
+        '(organization.name LIKE :term OR organization.hikvision_group_no LIKE :term)',
+        {
+          term: `%${search.trim()}%`,
+        },
+      );
     }
 
     const sortFieldMap: Record<string, string> = {
@@ -167,7 +175,11 @@ export class AccessOrganizationsService {
     };
   }
 
-  async update(companyId: number, id: number, dto: UpdateAccessOrganizationDto) {
+  async update(
+    companyId: number,
+    id: number,
+    dto: UpdateAccessOrganizationDto,
+  ) {
     const item = await this.findOrFail(companyId, id);
 
     if (dto.branch_id !== undefined) {
@@ -195,7 +207,8 @@ export class AccessOrganizationsService {
     }
 
     if (dto.org_code !== undefined) item.orgCode = dto.org_code?.trim() || null;
-    if (dto.description !== undefined) item.description = dto.description ?? null;
+    if (dto.description !== undefined)
+      item.description = dto.description ?? null;
     if (dto.parent_id !== undefined) item.parentId = dto.parent_id ?? null;
     if (dto.metadata !== undefined) {
       item.metadata = dto.metadata;
@@ -252,13 +265,21 @@ export class AccessOrganizationsService {
     const uniqueEmployeeIds = [...new Set(dto.employee_ids)];
     const employees = await this.employeeRepository
       .createQueryBuilder('employee')
-      .innerJoin(CompanyUser, 'companyUser', 'companyUser.id = employee.company_user_id')
-      .where('employee.id IN (:...employeeIds)', { employeeIds: uniqueEmployeeIds })
+      .innerJoin(
+        CompanyUser,
+        'companyUser',
+        'companyUser.id = employee.company_user_id',
+      )
+      .where('employee.id IN (:...employeeIds)', {
+        employeeIds: uniqueEmployeeIds,
+      })
       .andWhere('companyUser.company_id = :companyId', { companyId })
       .getMany();
 
     if (employees.length !== uniqueEmployeeIds.length) {
-      throw new BadRequestException('One or more employee_ids do not belong to the active company');
+      throw new BadRequestException(
+        'One or more employee_ids do not belong to the active company',
+      );
     }
 
     const existingMemberships = await this.organizationEmployeeRepository.find({
@@ -304,7 +325,11 @@ export class AccessOrganizationsService {
     };
   }
 
-  async removeEmployee(companyId: number, organizationId: number, employeeId: number) {
+  async removeEmployee(
+    companyId: number,
+    organizationId: number,
+    employeeId: number,
+  ) {
     await this.findOrFail(companyId, organizationId);
     const membership = await this.organizationEmployeeRepository.findOne({
       where: { organizationId, employeeId },
@@ -316,14 +341,23 @@ export class AccessOrganizationsService {
 
     const groupMemberships = await this.accessGroupEmployeeRepository
       .createQueryBuilder('groupEmployee')
-      .innerJoin(AccessGroup, 'accessGroup', 'accessGroup.id = groupEmployee.access_group_id')
+      .innerJoin(
+        AccessGroup,
+        'accessGroup',
+        'accessGroup.id = groupEmployee.access_group_id',
+      )
       .where('groupEmployee.employee_id = :employeeId', { employeeId })
-      .andWhere('accessGroup.organization_id = :organizationId', { organizationId })
+      .andWhere('accessGroup.organization_id = :organizationId', {
+        organizationId,
+      })
       .andWhere('accessGroup.company_id = :companyId', { companyId })
       .getMany();
 
-    const affectedGroupIds = [...new Set(groupMemberships.map((item) => item.accessGroupId))];
-    const affectedDeviceIds = await this.resolveAffectedDeviceIds(affectedGroupIds);
+    const affectedGroupIds = [
+      ...new Set(groupMemberships.map((item) => item.accessGroupId)),
+    ];
+    const affectedDeviceIds =
+      await this.resolveAffectedDeviceIds(affectedGroupIds);
 
     if (affectedGroupIds.length > 0) {
       await this.accessGroupEmployeeRepository
@@ -331,7 +365,9 @@ export class AccessOrganizationsService {
         .delete()
         .from(AccessGroupEmployee)
         .where('employee_id = :employeeId', { employeeId })
-        .andWhere('access_group_id IN (:...groupIds)', { groupIds: affectedGroupIds })
+        .andWhere('access_group_id IN (:...groupIds)', {
+          groupIds: affectedGroupIds,
+        })
         .execute();
     }
 
@@ -365,7 +401,11 @@ export class AccessOrganizationsService {
 
     const remainingMemberships = await this.accessGroupEmployeeRepository
       .createQueryBuilder('groupEmployee')
-      .innerJoin(AccessGroup, 'accessGroup', 'accessGroup.id = groupEmployee.access_group_id')
+      .innerJoin(
+        AccessGroup,
+        'accessGroup',
+        'accessGroup.id = groupEmployee.access_group_id',
+      )
       .where('groupEmployee.employee_id = :employeeId', { employeeId })
       .andWhere('groupEmployee.status = :status', {
         status: AccessGroupEmployeeStatusEnum.ACTIVE,
@@ -386,11 +426,23 @@ export class AccessOrganizationsService {
     };
   }
 
-  async syncToDevice(companyId: number, id: number, dto: SyncAccessOrganizationDto) {
+  async syncToDevice(
+    companyId: number,
+    id: number,
+    dto: SyncAccessOrganizationDto,
+  ) {
     const organization = await this.findOrFail(companyId, id);
-    const targetDeviceIds = await this.resolveTargetDeviceIds(companyId, organization, dto.device_id);
+    const targetDeviceIds = await this.resolveTargetDeviceIds(
+      companyId,
+      organization,
+      dto.device_id,
+    );
 
-    const results: Array<{ device_id: number; status: 'SYNCED' | 'FAILED'; reason?: string }> = [];
+    const results: Array<{
+      device_id: number;
+      status: 'SYNCED' | 'FAILED';
+      reason?: string;
+    }> = [];
 
     for (const deviceId of targetDeviceIds) {
       try {
@@ -436,7 +488,7 @@ export class AccessOrganizationsService {
     organization.metadata = {
       ...(organization.metadata ?? {}),
       hikvision: {
-        ...(this.toObject((organization.metadata ?? {}).hikvision)),
+        ...this.toObject((organization.metadata ?? {}).hikvision),
         last_push_at: new Date().toISOString(),
         results,
       },
@@ -464,7 +516,11 @@ export class AccessOrganizationsService {
     let synced = 0;
     let skipped = 0;
     let failed = 0;
-    const results: Array<{ group_no: string; status: 'SYNCED' | 'SKIPPED' | 'FAILED'; reason?: string }> = [];
+    const results: Array<{
+      group_no: string;
+      status: 'SYNCED' | 'SKIPPED' | 'FAILED';
+      reason?: string;
+    }> = [];
 
     for (let groupNo = 1; groupNo <= 128; groupNo += 1) {
       const groupNoText = String(groupNo);
@@ -479,7 +535,11 @@ export class AccessOrganizationsService {
         if (!response.ok) {
           if (this.isSkippable(response.raw)) {
             skipped += 1;
-            results.push({ group_no: groupNoText, status: 'SKIPPED', reason: 'invalidID/notSupport' });
+            results.push({
+              group_no: groupNoText,
+              status: 'SKIPPED',
+              reason: 'invalidID/notSupport',
+            });
             continue;
           }
 
@@ -498,7 +558,11 @@ export class AccessOrganizationsService {
 
         if (!groupName) {
           skipped += 1;
-          results.push({ group_no: groupNoText, status: 'SKIPPED', reason: 'missing groupName' });
+          results.push({
+            group_no: groupNoText,
+            status: 'SKIPPED',
+            reason: 'missing groupName',
+          });
           continue;
         }
 
@@ -551,7 +615,10 @@ export class AccessOrganizationsService {
     };
   }
 
-  private async findOrFail(companyId: number, id: number): Promise<AccessOrganization> {
+  private async findOrFail(
+    companyId: number,
+    id: number,
+  ): Promise<AccessOrganization> {
     const item = await this.organizationRepository.findOne({
       where: { id, companyId },
     });
@@ -575,7 +642,9 @@ export class AccessOrganizationsService {
       });
 
       if (!device) {
-        throw new BadRequestException('device_id does not belong to the active company');
+        throw new BadRequestException(
+          'device_id does not belong to the active company',
+        );
       }
 
       return [inputDeviceId];
@@ -587,7 +656,9 @@ export class AccessOrganizationsService {
     });
 
     if (!groupIds.length) {
-      throw new BadRequestException('No access groups are linked to this organization');
+      throw new BadRequestException(
+        'No access groups are linked to this organization',
+      );
     }
 
     const devices = await this.accessGroupDeviceRepository.find({
@@ -595,15 +666,21 @@ export class AccessOrganizationsService {
       select: ['deviceId'],
     });
 
-    const uniqueDeviceIds = [...new Set(devices.map((item) => item.deviceId).filter(Boolean))];
+    const uniqueDeviceIds = [
+      ...new Set(devices.map((item) => item.deviceId).filter(Boolean)),
+    ];
     if (!uniqueDeviceIds.length) {
-      throw new BadRequestException('No devices are linked to this organization through access groups');
+      throw new BadRequestException(
+        'No devices are linked to this organization through access groups',
+      );
     }
 
     return uniqueDeviceIds;
   }
 
-  private async resolveAffectedDeviceIds(groupIds: number[]): Promise<number[]> {
+  private async resolveAffectedDeviceIds(
+    groupIds: number[],
+  ): Promise<number[]> {
     if (!groupIds.length) {
       return [];
     }
@@ -619,11 +696,13 @@ export class AccessOrganizationsService {
       }),
     ]);
 
-    return [...new Set(
-      [...groupDevices, ...groupDoors]
-        .map((item) => item.deviceId)
-        .filter((deviceId): deviceId is number => deviceId !== null),
-    )];
+    return [
+      ...new Set(
+        [...groupDevices, ...groupDoors]
+          .map((item) => item.deviceId)
+          .filter((deviceId): deviceId is number => deviceId !== null),
+      ),
+    ];
   }
 
   private async employeeStillHasGroupAccessOnDevice(
@@ -633,9 +712,21 @@ export class AccessOrganizationsService {
   ): Promise<boolean> {
     const count = await this.accessGroupEmployeeRepository
       .createQueryBuilder('groupEmployee')
-      .innerJoin(AccessGroup, 'accessGroup', 'accessGroup.id = groupEmployee.access_group_id')
-      .leftJoin(AccessGroupDevice, 'groupDevice', 'groupDevice.access_group_id = accessGroup.id')
-      .leftJoin(AccessGroupDoor, 'groupDoor', 'groupDoor.access_group_id = accessGroup.id')
+      .innerJoin(
+        AccessGroup,
+        'accessGroup',
+        'accessGroup.id = groupEmployee.access_group_id',
+      )
+      .leftJoin(
+        AccessGroupDevice,
+        'groupDevice',
+        'groupDevice.access_group_id = accessGroup.id',
+      )
+      .leftJoin(
+        AccessGroupDoor,
+        'groupDoor',
+        'groupDoor.access_group_id = accessGroup.id',
+      )
       .where('groupEmployee.employee_id = :employeeId', { employeeId })
       .andWhere('groupEmployee.status = :status', {
         status: AccessGroupEmployeeStatusEnum.ACTIVE,
@@ -650,7 +741,10 @@ export class AccessOrganizationsService {
     return count > 0;
   }
 
-  private async ensureBranch(companyId: number, branchId?: number | null): Promise<void> {
+  private async ensureBranch(
+    companyId: number,
+    branchId?: number | null,
+  ): Promise<void> {
     if (!branchId) {
       return;
     }
@@ -661,11 +755,16 @@ export class AccessOrganizationsService {
     });
 
     if (!branch) {
-      throw new BadRequestException('branch_id does not belong to the active company');
+      throw new BadRequestException(
+        'branch_id does not belong to the active company',
+      );
     }
   }
 
-  private async ensureDepartment(companyId: number, departmentId?: number | null): Promise<void> {
+  private async ensureDepartment(
+    companyId: number,
+    departmentId?: number | null,
+  ): Promise<void> {
     if (!departmentId) {
       return;
     }
@@ -676,7 +775,9 @@ export class AccessOrganizationsService {
     });
 
     if (!department) {
-      throw new BadRequestException('department_id does not belong to the active company');
+      throw new BadRequestException(
+        'department_id does not belong to the active company',
+      );
     }
   }
 
@@ -706,7 +807,11 @@ export class AccessOrganizationsService {
 
   private isSkippable(body: string): boolean {
     const lowered = (body || '').toLowerCase();
-    return lowered.includes('invalidid') || lowered.includes('notsupport') || lowered.includes('invalid id');
+    return (
+      lowered.includes('invalidid') ||
+      lowered.includes('notsupport') ||
+      lowered.includes('invalid id')
+    );
   }
 
   private toObject(value: unknown): Record<string, unknown> {
@@ -718,7 +823,11 @@ export class AccessOrganizationsService {
   }
 
   private buildEmployeeDisplayName(employee: Employee): string {
-    const displayName = [employee.first_name, employee.middle_name, employee.last_name]
+    const displayName = [
+      employee.first_name,
+      employee.middle_name,
+      employee.last_name,
+    ]
       .map((value) => value?.trim())
       .filter((value): value is string => Boolean(value))
       .join(' ')

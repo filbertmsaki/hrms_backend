@@ -125,57 +125,90 @@ export class OffboardingService {
   private getOffboardingWorkflowRepository(
     manager?: EntityManager,
   ): Repository<OffboardingWorkflow> {
-    return manager?.getRepository(OffboardingWorkflow) ?? this.offboardingWorkflowRepository;
+    return (
+      manager?.getRepository(OffboardingWorkflow) ??
+      this.offboardingWorkflowRepository
+    );
   }
 
   private getOffboardingWorkflowStepRepository(
     manager?: EntityManager,
   ): Repository<OffboardingWorkflowStep> {
-    return manager?.getRepository(OffboardingWorkflowStep) ?? this.offboardingWorkflowStepRepository;
+    return (
+      manager?.getRepository(OffboardingWorkflowStep) ??
+      this.offboardingWorkflowStepRepository
+    );
   }
 
   private getOffboardingRequestRepository(
     manager?: EntityManager,
   ): Repository<OffboardingRequest> {
-    return manager?.getRepository(OffboardingRequest) ?? this.offboardingRequestRepository;
+    return (
+      manager?.getRepository(OffboardingRequest) ??
+      this.offboardingRequestRepository
+    );
   }
 
-  private getOffboardingTaskRepository(manager?: EntityManager): Repository<OffboardingTask> {
-    return manager?.getRepository(OffboardingTask) ?? this.offboardingTaskRepository;
+  private getOffboardingTaskRepository(
+    manager?: EntityManager,
+  ): Repository<OffboardingTask> {
+    return (
+      manager?.getRepository(OffboardingTask) ?? this.offboardingTaskRepository
+    );
   }
 
   private getOffboardingApprovalRepository(
     manager?: EntityManager,
   ): Repository<OffboardingApproval> {
-    return manager?.getRepository(OffboardingApproval) ?? this.offboardingApprovalRepository;
+    return (
+      manager?.getRepository(OffboardingApproval) ??
+      this.offboardingApprovalRepository
+    );
   }
 
   private getOffboardingClearanceRepository(
     manager?: EntityManager,
   ): Repository<OffboardingClearance> {
-    return manager?.getRepository(OffboardingClearance) ?? this.offboardingClearanceRepository;
+    return (
+      manager?.getRepository(OffboardingClearance) ??
+      this.offboardingClearanceRepository
+    );
   }
 
   private getEmployeeRepository(manager?: EntityManager): Repository<Employee> {
     return manager?.getRepository(Employee) ?? this.employeeRepository;
   }
 
-  private getDepartmentRepository(manager?: EntityManager): Repository<Department> {
+  private getDepartmentRepository(
+    manager?: EntityManager,
+  ): Repository<Department> {
     return manager?.getRepository(Department) ?? this.departmentRepository;
   }
 
-  private getShiftAssignmentRepository(manager?: EntityManager): Repository<ShiftAssignment> {
-    return manager?.getRepository(ShiftAssignment) ?? this.shiftAssignmentRepository;
+  private getShiftAssignmentRepository(
+    manager?: EntityManager,
+  ): Repository<ShiftAssignment> {
+    return (
+      manager?.getRepository(ShiftAssignment) ?? this.shiftAssignmentRepository
+    );
   }
 
-  private getEmployeeTimetableRepository(manager?: EntityManager): Repository<EmployeeTimetable> {
-    return manager?.getRepository(EmployeeTimetable) ?? this.employeeTimetableRepository;
+  private getEmployeeTimetableRepository(
+    manager?: EntityManager,
+  ): Repository<EmployeeTimetable> {
+    return (
+      manager?.getRepository(EmployeeTimetable) ??
+      this.employeeTimetableRepository
+    );
   }
 
   private getAttendanceDailySummaryRepository(
     manager?: EntityManager,
   ): Repository<AttendanceDailySummary> {
-    return manager?.getRepository(AttendanceDailySummary) ?? this.attendanceDailySummaryRepository;
+    return (
+      manager?.getRepository(AttendanceDailySummary) ??
+      this.attendanceDailySummaryRepository
+    );
   }
 
   private getPositionRepository(manager?: EntityManager): Repository<Position> {
@@ -186,7 +219,9 @@ export class OffboardingService {
     return manager?.getRepository(Branch) ?? this.branchRepository;
   }
 
-  private getCompanyUserRepository(manager?: EntityManager): Repository<CompanyUser> {
+  private getCompanyUserRepository(
+    manager?: EntityManager,
+  ): Repository<CompanyUser> {
     return manager?.getRepository(CompanyUser) ?? this.companyUserRepository;
   }
 
@@ -241,8 +276,10 @@ export class OffboardingService {
     lastWorkingDate: string,
     manager: EntityManager,
   ): Promise<void> {
-    const shiftAssignmentRepository = this.getShiftAssignmentRepository(manager);
-    const employeeTimetableRepository = this.getEmployeeTimetableRepository(manager);
+    const shiftAssignmentRepository =
+      this.getShiftAssignmentRepository(manager);
+    const employeeTimetableRepository =
+      this.getEmployeeTimetableRepository(manager);
 
     const shiftAssignments = await shiftAssignmentRepository.find({
       where: {
@@ -255,7 +292,10 @@ export class OffboardingService {
     for (const assignment of shiftAssignments) {
       if (assignment.effectiveFrom > lastWorkingDate) {
         assignment.status = ShiftAssignmentStatusEnum.INACTIVE;
-      } else if (!assignment.effectiveTo || assignment.effectiveTo > lastWorkingDate) {
+      } else if (
+        !assignment.effectiveTo ||
+        assignment.effectiveTo > lastWorkingDate
+      ) {
         assignment.effectiveTo = lastWorkingDate;
       }
       await shiftAssignmentRepository.save(assignment);
@@ -272,7 +312,10 @@ export class OffboardingService {
     for (const timetable of employeeTimetables) {
       if (timetable.effectiveFrom > lastWorkingDate) {
         timetable.status = EmployeeTimetableStatusEnum.INACTIVE;
-      } else if (!timetable.effectiveTo || timetable.effectiveTo > lastWorkingDate) {
+      } else if (
+        !timetable.effectiveTo ||
+        timetable.effectiveTo > lastWorkingDate
+      ) {
         timetable.effectiveTo = lastWorkingDate;
       }
       await employeeTimetableRepository.save(timetable);
@@ -367,20 +410,28 @@ export class OffboardingService {
     const latest = await repository
       .createQueryBuilder('request')
       .where('request.company_id = :companyId', { companyId })
-      .andWhere('request.offboarding_code LIKE :prefix', { prefix: `${prefix}%` })
+      .andWhere('request.offboarding_code LIKE :prefix', {
+        prefix: `${prefix}%`,
+      })
       .orderBy('request.id', 'DESC')
       .getOne();
 
-    const nextSequence = latest ? Number(latest.offboarding_code.split('-').pop() ?? '0') + 1 : 1;
+    const nextSequence = latest
+      ? Number(latest.offboarding_code.split('-').pop() ?? '0') + 1
+      : 1;
     return `${prefix}${String(nextSequence).padStart(6, '0')}`;
   }
 
-  private validateWorkflowStepOrder(steps: OffboardingWorkflowStepInputDto[]): void {
+  private validateWorkflowStepOrder(
+    steps: OffboardingWorkflowStepInputDto[],
+  ): void {
     if (!steps.length) {
       throw new BadRequestException('Workflow must include at least one step');
     }
 
-    const levels = steps.map((step) => step.approval_level).sort((a, b) => a - b);
+    const levels = steps
+      .map((step) => step.approval_level)
+      .sort((a, b) => a - b);
     const uniqueLevels = new Set(levels);
     if (uniqueLevels.size !== levels.length) {
       throw new BadRequestException('Workflow approval levels must be unique');
@@ -424,7 +475,9 @@ export class OffboardingService {
         },
       });
       if (branches !== new Set(branchIds).size) {
-        throw new BadRequestException('One or more assigned branches are invalid');
+        throw new BadRequestException(
+          'One or more assigned branches are invalid',
+        );
       }
     }
 
@@ -436,7 +489,9 @@ export class OffboardingService {
         },
       });
       if (departments !== new Set(departmentIds).size) {
-        throw new BadRequestException('One or more assigned departments are invalid');
+        throw new BadRequestException(
+          'One or more assigned departments are invalid',
+        );
       }
     }
 
@@ -460,7 +515,9 @@ export class OffboardingService {
         },
       });
       if (memberships !== new Set(companyUserIds).size) {
-        throw new BadRequestException('One or more company user assignments are invalid');
+        throw new BadRequestException(
+          'One or more company user assignments are invalid',
+        );
       }
     }
 
@@ -523,14 +580,21 @@ export class OffboardingService {
         }
       }
 
-      if (step.approver_type === OffboardingApproverTypeEnum.ROLE && !step.role_id) {
-        throw new BadRequestException('role_id is required for role approver type');
+      if (
+        step.approver_type === OffboardingApproverTypeEnum.ROLE &&
+        !step.role_id
+      ) {
+        throw new BadRequestException(
+          'role_id is required for role approver type',
+        );
       }
       if (
         step.approver_type === OffboardingApproverTypeEnum.POSITION &&
         !step.position_id
       ) {
-        throw new BadRequestException('position_id is required for position approver type');
+        throw new BadRequestException(
+          'position_id is required for position approver type',
+        );
       }
       if (
         step.approver_type === OffboardingApproverTypeEnum.COMPANY_USER &&
@@ -727,20 +791,26 @@ export class OffboardingService {
       approval_level: dto.approval_level ?? existingStep.approval_level,
       step_name: dto.step_name ?? existingStep.step_name,
       task_title: dto.task_title ?? existingStep.task_title,
-      task_description: dto.task_description ?? existingStep.task_description ?? undefined,
+      task_description:
+        dto.task_description ?? existingStep.task_description ?? undefined,
       task_type: dto.task_type ?? existingStep.task_type,
       assigned_branch_id:
         dto.assigned_branch_id ?? existingStep.assigned_branch_id ?? undefined,
       assigned_department_id:
-        dto.assigned_department_id ?? existingStep.assigned_department_id ?? undefined,
+        dto.assigned_department_id ??
+        existingStep.assigned_department_id ??
+        undefined,
       approver_type: dto.approver_type ?? existingStep.approver_type,
       role_id: dto.role_id ?? existingStep.role_id ?? undefined,
       position_id: dto.position_id ?? existingStep.position_id ?? undefined,
-      company_user_id: dto.company_user_id ?? existingStep.company_user_id ?? undefined,
+      company_user_id:
+        dto.company_user_id ?? existingStep.company_user_id ?? undefined,
       action_type: dto.action_type ?? existingStep.action_type,
       is_required: dto.is_required ?? existingStep.is_required,
       expected_duration_days:
-        dto.expected_duration_days ?? existingStep.expected_duration_days ?? undefined,
+        dto.expected_duration_days ??
+        existingStep.expected_duration_days ??
+        undefined,
     };
   }
 
@@ -762,15 +832,14 @@ export class OffboardingService {
       metadata: entity.metadata,
       created_at: entity.created_at,
       updated_at: entity.updated_at,
-      assigned_to:
-        entity.assigned_to_company_user?.user
-          ? {
-              id: entity.assigned_to_company_user.user.id,
-              first_name: entity.assigned_to_company_user.user.first_name,
-              last_name: entity.assigned_to_company_user.user.last_name,
-              email: entity.assigned_to_company_user.user.email,
-            }
-          : null,
+      assigned_to: entity.assigned_to_company_user?.user
+        ? {
+            id: entity.assigned_to_company_user.user.id,
+            first_name: entity.assigned_to_company_user.user.first_name,
+            last_name: entity.assigned_to_company_user.user.last_name,
+            email: entity.assigned_to_company_user.user.email,
+          }
+        : null,
     };
   }
 
@@ -787,15 +856,14 @@ export class OffboardingService {
       updated_at: entity.updated_at,
       approval_level: entity.workflow_step?.approval_level ?? null,
       step_name: entity.workflow_step?.step_name ?? null,
-      approver:
-        entity.approver_company_user?.user
-          ? {
-              id: entity.approver_company_user.user.id,
-              first_name: entity.approver_company_user.user.first_name,
-              last_name: entity.approver_company_user.user.last_name,
-              email: entity.approver_company_user.user.email,
-            }
-          : null,
+      approver: entity.approver_company_user?.user
+        ? {
+            id: entity.approver_company_user.user.id,
+            first_name: entity.approver_company_user.user.first_name,
+            last_name: entity.approver_company_user.user.last_name,
+            email: entity.approver_company_user.user.email,
+          }
+        : null,
     };
   }
 
@@ -809,15 +877,14 @@ export class OffboardingService {
       cleared_by_company_user_id: entity.cleared_by_company_user_id,
       cleared_at: entity.cleared_at,
       created_at: entity.created_at,
-      cleared_by:
-        entity.cleared_by_company_user?.user
-          ? {
-              id: entity.cleared_by_company_user.user.id,
-              first_name: entity.cleared_by_company_user.user.first_name,
-              last_name: entity.cleared_by_company_user.user.last_name,
-              email: entity.cleared_by_company_user.user.email,
-            }
-          : null,
+      cleared_by: entity.cleared_by_company_user?.user
+        ? {
+            id: entity.cleared_by_company_user.user.id,
+            first_name: entity.cleared_by_company_user.user.first_name,
+            last_name: entity.cleared_by_company_user.user.last_name,
+            email: entity.cleared_by_company_user.user.email,
+          }
+        : null,
     };
   }
 
@@ -878,13 +945,18 @@ export class OffboardingService {
       },
       workflow: this.mapWorkflow(entity.workflow),
       tasks: entity.tasks?.map((task) => this.mapTask(task)) ?? [],
-      approvals: entity.approvals?.map((approval) => this.mapApproval(approval)) ?? [],
-      clearances: entity.clearances?.map((clearance) => this.mapClearance(clearance)) ?? [],
+      approvals:
+        entity.approvals?.map((approval) => this.mapApproval(approval)) ?? [],
+      clearances:
+        entity.clearances?.map((clearance) => this.mapClearance(clearance)) ??
+        [],
       documents: documents.map((document) => this.mapDocument(document)),
     };
   }
 
-  private resolveFinalEmployeeStatus(type: OffboardingTypeEnum): EmploymentStatusEnum {
+  private resolveFinalEmployeeStatus(
+    type: OffboardingTypeEnum,
+  ): EmploymentStatusEnum {
     switch (type) {
       case OffboardingTypeEnum.TERMINATION:
         return EmploymentStatusEnum.TERMINATED;
@@ -908,12 +980,18 @@ export class OffboardingService {
 
     const [tasks, approvals, clearances] = await Promise.all([
       taskRepository.find({ where: { offboarding_request_id: request.id } }),
-      approvalRepository.find({ where: { offboarding_request_id: request.id } }),
-      clearanceRepository.find({ where: { offboarding_request_id: request.id } }),
+      approvalRepository.find({
+        where: { offboarding_request_id: request.id },
+      }),
+      clearanceRepository.find({
+        where: { offboarding_request_id: request.id },
+      }),
     ]);
 
     const totalTasks = tasks.length;
-    const completedTasks = tasks.filter((task) => task.status === OffboardingTaskStatusEnum.COMPLETED).length;
+    const completedTasks = tasks.filter(
+      (task) => task.status === OffboardingTaskStatusEnum.COMPLETED,
+    ).length;
     const totalApprovals = approvals.length;
     const approvedApprovals = approvals.filter(
       (approval) =>
@@ -922,7 +1000,8 @@ export class OffboardingService {
     ).length;
     const totalClearances = clearances.length;
     const clearedClearances = clearances.filter(
-      (clearance) => clearance.status === OffboardingClearanceStatusEnum.CLEARED,
+      (clearance) =>
+        clearance.status === OffboardingClearanceStatusEnum.CLEARED,
     ).length;
 
     const ratios: number[] = [];
@@ -954,10 +1033,13 @@ export class OffboardingService {
         request.status = OffboardingRequestStatusEnum.WAITING_APPROVAL;
       } else {
         const hasOpenTasks = tasks.some(
-          (task) => task.status === OffboardingTaskStatusEnum.PENDING || task.status === OffboardingTaskStatusEnum.IN_PROGRESS,
+          (task) =>
+            task.status === OffboardingTaskStatusEnum.PENDING ||
+            task.status === OffboardingTaskStatusEnum.IN_PROGRESS,
         );
         const hasOpenClearances = clearances.some(
-          (clearance) => clearance.status === OffboardingClearanceStatusEnum.PENDING,
+          (clearance) =>
+            clearance.status === OffboardingClearanceStatusEnum.PENDING,
         );
 
         if (hasOpenTasks || hasOpenClearances) {
@@ -1010,7 +1092,9 @@ export class OffboardingService {
     }
 
     if (payload.workflow_id) {
-      const workflow = await this.getOffboardingWorkflowRepository(manager).findOne({
+      const workflow = await this.getOffboardingWorkflowRepository(
+        manager,
+      ).findOne({
         where: { id: payload.workflow_id, company_id: companyId },
       });
       if (!workflow) {
@@ -1042,7 +1126,8 @@ export class OffboardingService {
 
     const created = await this.dataSource.transaction(async (manager) => {
       const workflowRepository = this.getOffboardingWorkflowRepository(manager);
-      const workflowStepRepository = this.getOffboardingWorkflowStepRepository(manager);
+      const workflowStepRepository =
+        this.getOffboardingWorkflowStepRepository(manager);
 
       if (dto.is_default) {
         await workflowRepository.update(
@@ -1069,7 +1154,9 @@ export class OffboardingService {
             approval_level: step.approval_level,
             step_name: step.step_name.trim(),
             task_title: step.task_title.trim(),
-            task_description: this.normalizeOptionalString(step.task_description),
+            task_description: this.normalizeOptionalString(
+              step.task_description,
+            ),
             task_type: step.task_type ?? OffboardingTaskTypeEnum.GENERAL,
             assigned_branch_id: step.assigned_branch_id ?? null,
             assigned_department_id: step.assigned_department_id ?? null,
@@ -1103,7 +1190,10 @@ export class OffboardingService {
     return this.mapWorkflow(created);
   }
 
-  async findAllOffboardingWorkflows(companyId: number, query: OffboardingWorkflowQueryDto) {
+  async findAllOffboardingWorkflows(
+    companyId: number,
+    query: OffboardingWorkflowQueryDto,
+  ) {
     const {
       page = 1,
       limit = 20,
@@ -1123,13 +1213,24 @@ export class OffboardingService {
     }
 
     if (search?.trim()) {
-      qb.andWhere('(workflow.name LIKE :term OR workflow.description LIKE :term)', {
-        term: `%${search.trim()}%`,
-      });
+      qb.andWhere(
+        '(workflow.name LIKE :term OR workflow.description LIKE :term)',
+        {
+          term: `%${search.trim()}%`,
+        },
+      );
     }
 
-    const allowedSortFields = ['id', 'name', 'status', 'created_at', 'updated_at'];
-    const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'created_at';
+    const allowedSortFields = [
+      'id',
+      'name',
+      'status',
+      'created_at',
+      'updated_at',
+    ];
+    const safeSortBy = allowedSortFields.includes(sortBy)
+      ? sortBy
+      : 'created_at';
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
     const skip = (page - 1) * limit;
 
@@ -1186,7 +1287,11 @@ export class OffboardingService {
 
       if (dto.steps) {
         this.validateWorkflowStepOrder(dto.steps);
-        await this.validateWorkflowStepReferences(companyId, dto.steps, manager);
+        await this.validateWorkflowStepReferences(
+          companyId,
+          dto.steps,
+          manager,
+        );
       }
 
       if (dto.name !== undefined) {
@@ -1221,7 +1326,9 @@ export class OffboardingService {
               approval_level: step.approval_level,
               step_name: step.step_name.trim(),
               task_title: step.task_title.trim(),
-              task_description: this.normalizeOptionalString(step.task_description),
+              task_description: this.normalizeOptionalString(
+                step.task_description,
+              ),
               task_type: step.task_type ?? OffboardingTaskTypeEnum.GENERAL,
               assigned_branch_id: step.assigned_branch_id ?? null,
               assigned_department_id: step.assigned_department_id ?? null,
@@ -1266,7 +1373,11 @@ export class OffboardingService {
     await this.validateWorkflowStepReferences(companyId, [dto]);
 
     const createdStep = await this.dataSource.transaction(async (manager) => {
-      const workflow = await this.findOffboardingWorkflowOrFail(companyId, workflowId, manager);
+      const workflow = await this.findOffboardingWorkflowOrFail(
+        companyId,
+        workflowId,
+        manager,
+      );
       const repository = this.getOffboardingWorkflowStepRepository(manager);
 
       const targetLevel = dto.approval_level;
@@ -1339,15 +1450,26 @@ export class OffboardingService {
     this.hrAccessService.assertCompanyScopedActor(actor);
 
     const updatedStep = await this.dataSource.transaction(async (manager) => {
-      const workflow = await this.findOffboardingWorkflowOrFail(companyId, workflowId, manager);
+      const workflow = await this.findOffboardingWorkflowOrFail(
+        companyId,
+        workflowId,
+        manager,
+      );
       const existingStep = await this.findOffboardingWorkflowStepOrFail(
         workflowId,
         stepId,
         manager,
       );
 
-      const validationPayload = this.buildStepValidationPayload(existingStep, dto);
-      await this.validateWorkflowStepReferences(companyId, [validationPayload], manager);
+      const validationPayload = this.buildStepValidationPayload(
+        existingStep,
+        dto,
+      );
+      await this.validateWorkflowStepReferences(
+        companyId,
+        [validationPayload],
+        manager,
+      );
 
       const totalSteps = workflow.steps.length;
       const targetLevel = dto.approval_level ?? existingStep.approval_level;
@@ -1373,13 +1495,16 @@ export class OffboardingService {
         existingStep.task_title = dto.task_title.trim();
       }
       if (dto.task_description !== undefined) {
-        existingStep.task_description = this.normalizeOptionalString(dto.task_description);
+        existingStep.task_description = this.normalizeOptionalString(
+          dto.task_description,
+        );
       }
       if (dto.task_type !== undefined) {
         existingStep.task_type = dto.task_type;
       }
       if (dto.assigned_department_id !== undefined) {
-        existingStep.assigned_department_id = dto.assigned_department_id ?? null;
+        existingStep.assigned_department_id =
+          dto.assigned_department_id ?? null;
       }
       if (dto.assigned_branch_id !== undefined) {
         existingStep.assigned_branch_id = dto.assigned_branch_id ?? null;
@@ -1403,13 +1528,16 @@ export class OffboardingService {
         existingStep.is_required = dto.is_required;
       }
       if (dto.expected_duration_days !== undefined) {
-        existingStep.expected_duration_days = dto.expected_duration_days ?? null;
+        existingStep.expected_duration_days =
+          dto.expected_duration_days ?? null;
       }
 
       if (existingStep.approver_type === OffboardingApproverTypeEnum.ROLE) {
         existingStep.position_id = null;
         existingStep.company_user_id = null;
-      } else if (existingStep.approver_type === OffboardingApproverTypeEnum.POSITION) {
+      } else if (
+        existingStep.approver_type === OffboardingApproverTypeEnum.POSITION
+      ) {
         existingStep.role_id = null;
         existingStep.company_user_id = null;
       } else {
@@ -1417,7 +1545,9 @@ export class OffboardingService {
         existingStep.position_id = null;
       }
 
-      return this.getOffboardingWorkflowStepRepository(manager).save(existingStep);
+      return this.getOffboardingWorkflowStepRepository(manager).save(
+        existingStep,
+      );
     });
 
     await this.offboardingAuditService.log({
@@ -1443,23 +1573,41 @@ export class OffboardingService {
   ): Promise<{ message: string }> {
     this.hrAccessService.assertCompanyScopedActor(actor);
 
-    const deletedPayload = await this.dataSource.transaction(async (manager) => {
-      const workflow = await this.findOffboardingWorkflowOrFail(companyId, workflowId, manager);
-      if (workflow.steps.length <= 1) {
-        throw new BadRequestException('Workflow must contain at least one step');
-      }
+    const deletedPayload = await this.dataSource.transaction(
+      async (manager) => {
+        const workflow = await this.findOffboardingWorkflowOrFail(
+          companyId,
+          workflowId,
+          manager,
+        );
+        if (workflow.steps.length <= 1) {
+          throw new BadRequestException(
+            'Workflow must contain at least one step',
+          );
+        }
 
-      const step = await this.findOffboardingWorkflowStepOrFail(workflowId, stepId, manager);
-      const deletedLevel = step.approval_level;
+        const step = await this.findOffboardingWorkflowStepOrFail(
+          workflowId,
+          stepId,
+          manager,
+        );
+        const deletedLevel = step.approval_level;
 
-      await this.getOffboardingWorkflowStepRepository(manager).delete({ id: step.id });
-      await this.shiftWorkflowStepLevelsDown(workflowId, deletedLevel, manager);
+        await this.getOffboardingWorkflowStepRepository(manager).delete({
+          id: step.id,
+        });
+        await this.shiftWorkflowStepLevelsDown(
+          workflowId,
+          deletedLevel,
+          manager,
+        );
 
-      return {
-        stepId: step.id,
-        deletedLevel,
-      };
-    });
+        return {
+          stepId: step.id,
+          deletedLevel,
+        };
+      },
+    );
 
     await this.offboardingAuditService.log({
       action: OffboardingAuditActionEnum.UPDATED,
@@ -1528,8 +1676,13 @@ export class OffboardingService {
       workflow_id: dto.workflow_id ?? null,
     });
 
-    if (dto.notice_date && new Date(dto.notice_date) > new Date(dto.last_working_date)) {
-      throw new BadRequestException('notice_date cannot be after last_working_date');
+    if (
+      dto.notice_date &&
+      new Date(dto.notice_date) > new Date(dto.last_working_date)
+    ) {
+      throw new BadRequestException(
+        'notice_date cannot be after last_working_date',
+      );
     }
 
     const created = await this.dataSource.transaction(async (manager) => {
@@ -1538,32 +1691,51 @@ export class OffboardingService {
         company_id: companyId,
         employee_id: dto.employee_id,
         branch_id: dto.branch_id ?? employee.primary_branch_id ?? null,
-        department_id: dto.department_id ?? employee.primary_department_id ?? null,
+        department_id:
+          dto.department_id ?? employee.primary_department_id ?? null,
         workflow_id: dto.workflow_id ?? null,
         created_by_company_user_id: actor.companyMembershipId ?? null,
-        offboarding_code: await this.generateOffboardingCode(companyId, manager),
+        offboarding_code: await this.generateOffboardingCode(
+          companyId,
+          manager,
+        ),
         title: dto.title.trim(),
         description: this.normalizeOptionalString(dto.description),
         offboarding_type: dto.offboarding_type,
         reason: dto.reason.trim(),
         notice_date: this.normalizeOptionalDate(dto.notice_date),
         last_working_date: dto.last_working_date,
-        status: dto.submit ? OffboardingRequestStatusEnum.PENDING : OffboardingRequestStatusEnum.DRAFT,
+        status: dto.submit
+          ? OffboardingRequestStatusEnum.PENDING
+          : OffboardingRequestStatusEnum.DRAFT,
         metadata: dto.metadata ?? null,
       });
 
       const saved = await repository.save(entity);
       if (dto.submit) {
-        await this.submitOffboardingInternal(companyId, saved.id, actor, dto.workflow_id ?? null, manager);
+        await this.submitOffboardingInternal(
+          companyId,
+          saved.id,
+          actor,
+          dto.workflow_id ?? null,
+          manager,
+        );
       }
 
       return repository.findOneOrFail({
         where: { id: saved.id, company_id: companyId },
         relations: {
-          employee: { company_user: true, primary_department: true, primary_position: true },
+          employee: {
+            company_user: true,
+            primary_department: true,
+            primary_position: true,
+          },
           workflow: true,
           tasks: { assigned_to_company_user: { user: true } },
-          approvals: { approver_company_user: { user: true }, workflow_step: true },
+          approvals: {
+            approver_company_user: { user: true },
+            workflow_step: true,
+          },
           clearances: { cleared_by_company_user: { user: true } },
         },
       });
@@ -1601,11 +1773,20 @@ export class OffboardingService {
     actor: AuthenticatedUser,
     context?: RequestContext,
   ) {
-    const request = await this.findOffboardingRequestOrFail(companyId, offboardingRequestId);
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     await this.dataSource.transaction(async (manager) => {
-      await this.submitOffboardingInternal(companyId, offboardingRequestId, actor, dto.workflow_id, manager);
+      await this.submitOffboardingInternal(
+        companyId,
+        offboardingRequestId,
+        actor,
+        dto.workflow_id,
+        manager,
+      );
     });
 
     await this.offboardingAuditService.log({
@@ -1617,7 +1798,11 @@ export class OffboardingService {
       user_agent: context?.user_agent ?? null,
     });
 
-    return this.findOneOffboardingRequest(companyId, offboardingRequestId, actor);
+    return this.findOneOffboardingRequest(
+      companyId,
+      offboardingRequestId,
+      actor,
+    );
   }
 
   private async submitOffboardingInternal(
@@ -1637,18 +1822,21 @@ export class OffboardingService {
       request.status === OffboardingRequestStatusEnum.CANCELLED ||
       request.status === OffboardingRequestStatusEnum.COMPLETED
     ) {
-      throw new BadRequestException('Cannot submit a closed offboarding request');
+      throw new BadRequestException(
+        'Cannot submit a closed offboarding request',
+      );
     }
 
     request.submitted_at = new Date();
     request.status = OffboardingRequestStatusEnum.PENDING;
 
-    const workflowResult = await this.offboardingWorkflowService.initializeForRequest(
-      companyId,
-      request,
-      workflowId ?? request.workflow_id,
-      manager,
-    );
+    const workflowResult =
+      await this.offboardingWorkflowService.initializeForRequest(
+        companyId,
+        request,
+        workflowId ?? request.workflow_id,
+        manager,
+      );
 
     if (!workflowResult.pending_approvals) {
       request.status = OffboardingRequestStatusEnum.IN_PROGRESS;
@@ -1666,18 +1854,29 @@ export class OffboardingService {
     actor: AuthenticatedUser,
     context?: RequestContext,
   ) {
-    const request = await this.findOffboardingRequestOrFail(companyId, offboardingRequestId);
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     if (
       request.status === OffboardingRequestStatusEnum.CANCELLED ||
       request.status === OffboardingRequestStatusEnum.COMPLETED
     ) {
-      throw new BadRequestException('Cannot update a closed offboarding request');
+      throw new BadRequestException(
+        'Cannot update a closed offboarding request',
+      );
     }
 
-    if (dto.notice_date && dto.last_working_date && new Date(dto.notice_date) > new Date(dto.last_working_date)) {
-      throw new BadRequestException('notice_date cannot be after last_working_date');
+    if (
+      dto.notice_date &&
+      dto.last_working_date &&
+      new Date(dto.notice_date) > new Date(dto.last_working_date)
+    ) {
+      throw new BadRequestException(
+        'notice_date cannot be after last_working_date',
+      );
     }
 
     const oldValues = {
@@ -1709,14 +1908,19 @@ export class OffboardingService {
       );
 
       if (dto.branch_id !== undefined) current.branch_id = dto.branch_id;
-      if (dto.department_id !== undefined) current.department_id = dto.department_id;
+      if (dto.department_id !== undefined)
+        current.department_id = dto.department_id;
       if (dto.workflow_id !== undefined) current.workflow_id = dto.workflow_id;
       if (dto.title !== undefined) current.title = dto.title.trim();
-      if (dto.description !== undefined) current.description = this.normalizeOptionalString(dto.description);
-      if (dto.offboarding_type !== undefined) current.offboarding_type = dto.offboarding_type;
+      if (dto.description !== undefined)
+        current.description = this.normalizeOptionalString(dto.description);
+      if (dto.offboarding_type !== undefined)
+        current.offboarding_type = dto.offboarding_type;
       if (dto.reason !== undefined) current.reason = dto.reason.trim();
-      if (dto.notice_date !== undefined) current.notice_date = this.normalizeOptionalDate(dto.notice_date);
-      if (dto.last_working_date !== undefined) current.last_working_date = dto.last_working_date;
+      if (dto.notice_date !== undefined)
+        current.notice_date = this.normalizeOptionalDate(dto.notice_date);
+      if (dto.last_working_date !== undefined)
+        current.last_working_date = dto.last_working_date;
       if (dto.metadata !== undefined) current.metadata = dto.metadata ?? null;
 
       await repository.save(current);
@@ -1725,10 +1929,17 @@ export class OffboardingService {
       return repository.findOneOrFail({
         where: { id: current.id, company_id: companyId },
         relations: {
-          employee: { company_user: true, primary_department: true, primary_position: true },
+          employee: {
+            company_user: true,
+            primary_department: true,
+            primary_position: true,
+          },
           workflow: true,
           tasks: { assigned_to_company_user: { user: true } },
-          approvals: { approver_company_user: { user: true }, workflow_step: true },
+          approvals: {
+            approver_company_user: { user: true },
+            workflow_step: true,
+          },
           clearances: { cleared_by_company_user: { user: true } },
         },
       });
@@ -1774,7 +1985,10 @@ export class OffboardingService {
     actor: AuthenticatedUser,
     context?: RequestContext,
   ) {
-    const request = await this.findOffboardingRequestOrFail(companyId, offboardingRequestId);
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     if (
@@ -1801,14 +2015,18 @@ export class OffboardingService {
       const openTasks = await taskRepository.find({
         where: {
           offboarding_request_id: current.id,
-          status: In([OffboardingTaskStatusEnum.PENDING, OffboardingTaskStatusEnum.IN_PROGRESS]),
+          status: In([
+            OffboardingTaskStatusEnum.PENDING,
+            OffboardingTaskStatusEnum.IN_PROGRESS,
+          ]),
         },
       });
 
       if (openTasks.length) {
         openTasks.forEach((task) => {
           task.status = OffboardingTaskStatusEnum.CANCELLED;
-          task.remarks = task.remarks ?? 'Task cancelled with offboarding request';
+          task.remarks =
+            task.remarks ?? 'Task cancelled with offboarding request';
         });
         await taskRepository.save(openTasks);
       }
@@ -1843,7 +2061,10 @@ export class OffboardingService {
     actor: AuthenticatedUser,
     context?: RequestContext,
   ) {
-    const request = await this.findOffboardingRequestOrFail(companyId, offboardingRequestId);
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     if (
@@ -1857,35 +2078,47 @@ export class OffboardingService {
       (task) => task.status !== OffboardingTaskStatusEnum.COMPLETED,
     );
     if (hasOpenTasks) {
-      throw new BadRequestException('All offboarding tasks must be completed before finalization');
+      throw new BadRequestException(
+        'All offboarding tasks must be completed before finalization',
+      );
     }
 
     const hasRejectedApproval = request.approvals.some(
       (approval) => approval.status === OffboardingApprovalStatusEnum.REJECTED,
     );
     if (hasRejectedApproval) {
-      throw new BadRequestException('Cannot complete offboarding with rejected approvals');
+      throw new BadRequestException(
+        'Cannot complete offboarding with rejected approvals',
+      );
     }
 
     const hasPendingApproval = request.approvals.some(
       (approval) => approval.status === OffboardingApprovalStatusEnum.PENDING,
     );
     if (hasPendingApproval) {
-      throw new BadRequestException('All approvals must be resolved before finalization');
+      throw new BadRequestException(
+        'All approvals must be resolved before finalization',
+      );
     }
 
     const hasPendingClearance = request.clearances.some(
-      (clearance) => clearance.status === OffboardingClearanceStatusEnum.PENDING,
+      (clearance) =>
+        clearance.status === OffboardingClearanceStatusEnum.PENDING,
     );
     if (hasPendingClearance) {
-      throw new BadRequestException('All clearances must be resolved before finalization');
+      throw new BadRequestException(
+        'All clearances must be resolved before finalization',
+      );
     }
 
     const hasFailedClearance = request.clearances.some(
-      (clearance) => clearance.status === OffboardingClearanceStatusEnum.NOT_CLEARED,
+      (clearance) =>
+        clearance.status === OffboardingClearanceStatusEnum.NOT_CLEARED,
     );
     if (hasFailedClearance) {
-      throw new BadRequestException('Cannot complete offboarding with uncleared assets/access');
+      throw new BadRequestException(
+        'Cannot complete offboarding with uncleared assets/access',
+      );
     }
 
     const completed = await this.dataSource.transaction(async (manager) => {
@@ -1904,7 +2137,9 @@ export class OffboardingService {
       const employee = await employeeRepository.findOneOrFail({
         where: { id: current.employee_id },
       });
-      employee.employment_status = this.resolveFinalEmployeeStatus(current.offboarding_type);
+      employee.employment_status = this.resolveFinalEmployeeStatus(
+        current.offboarding_type,
+      );
       employee.exit_date = current.last_working_date;
       employee.exit_reason = current.reason;
       await employeeRepository.save(employee);
@@ -1918,10 +2153,17 @@ export class OffboardingService {
       return requestRepository.findOneOrFail({
         where: { id: current.id, company_id: companyId },
         relations: {
-          employee: { company_user: true, primary_department: true, primary_position: true },
+          employee: {
+            company_user: true,
+            primary_department: true,
+            primary_position: true,
+          },
           workflow: true,
           tasks: { assigned_to_company_user: { user: true } },
-          approvals: { approver_company_user: { user: true }, workflow_step: true },
+          approvals: {
+            approver_company_user: { user: true },
+            workflow_step: true,
+          },
           clearances: { cleared_by_company_user: { user: true } },
         },
       });
@@ -1959,7 +2201,10 @@ export class OffboardingService {
     offboardingRequestId: number,
     actor: AuthenticatedUser,
   ) {
-    const request = await this.findOffboardingRequestOrFail(companyId, offboardingRequestId);
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     const documents = await this.documentRepository.find({
@@ -1991,7 +2236,9 @@ export class OffboardingService {
       .where('request.company_id = :companyId', { companyId });
 
     if (typeof employee_id === 'number') {
-      qb.andWhere('request.employee_id = :employeeId', { employeeId: employee_id });
+      qb.andWhere('request.employee_id = :employeeId', {
+        employeeId: employee_id,
+      });
     }
 
     if (status) {
@@ -1999,7 +2246,9 @@ export class OffboardingService {
     }
 
     if (offboarding_type) {
-      qb.andWhere('request.offboarding_type = :offboardingType', { offboardingType: offboarding_type });
+      qb.andWhere('request.offboarding_type = :offboardingType', {
+        offboardingType: offboarding_type,
+      });
     }
 
     if (search) {
@@ -2023,7 +2272,10 @@ export class OffboardingService {
     const safeSortBy = sortableColumns.has(sortBy) ? sortBy : 'created_at';
 
     const [items, total] = await qb
-      .orderBy(`request.${safeSortBy}`, sortOrder === SortDirection.ASC ? 'ASC' : 'DESC')
+      .orderBy(
+        `request.${safeSortBy}`,
+        sortOrder === SortDirection.ASC ? 'ASC' : 'DESC',
+      )
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
@@ -2049,7 +2301,9 @@ export class OffboardingService {
     });
 
     return {
-      data: items.map((item) => this.mapRequest(item, documentsMap.get(item.id) ?? [])),
+      data: items.map((item) =>
+        this.mapRequest(item, documentsMap.get(item.id) ?? []),
+      ),
       meta: buildPaginationMeta(total, items.length, limit, page),
     };
   }
@@ -2061,7 +2315,10 @@ export class OffboardingService {
     actor: AuthenticatedUser,
     context?: RequestContext,
   ) {
-    const request = await this.findOffboardingRequestOrFail(companyId, offboardingRequestId);
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     const document = await this.getDocumentRepository().save(
@@ -2105,7 +2362,10 @@ export class OffboardingService {
     offboardingRequestId: number,
     actor: AuthenticatedUser,
   ) {
-    const request = await this.findOffboardingRequestOrFail(companyId, offboardingRequestId);
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     const documents = await this.documentRepository.find({
@@ -2127,14 +2387,19 @@ export class OffboardingService {
     actor: AuthenticatedUser,
     context?: RequestContext,
   ) {
-    const request = await this.findOffboardingRequestOrFail(companyId, offboardingRequestId);
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     if (
       request.status === OffboardingRequestStatusEnum.CANCELLED ||
       request.status === OffboardingRequestStatusEnum.COMPLETED
     ) {
-      throw new BadRequestException('Cannot add tasks to a closed offboarding request');
+      throw new BadRequestException(
+        'Cannot add tasks to a closed offboarding request',
+      );
     }
 
     await this.validateReferenceIds(companyId, {
@@ -2190,7 +2455,10 @@ export class OffboardingService {
     actor: AuthenticatedUser,
     context?: RequestContext,
   ) {
-    const request = await this.findOffboardingRequestOrFail(companyId, offboardingRequestId);
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     const task = await this.offboardingTaskRepository.findOne({
@@ -2249,7 +2517,10 @@ export class OffboardingService {
     actor: AuthenticatedUser,
     context?: RequestContext,
   ) {
-    const request = await this.findOffboardingRequestOrFail(companyId, offboardingRequestId);
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     const task = await this.offboardingTaskRepository.findOne({
@@ -2312,7 +2583,10 @@ export class OffboardingService {
     this.hrAccessService.assertCompanyScopedActor(actor);
     const membershipId = actor.companyMembershipId!;
 
-    const request = await this.findOffboardingRequestOrFail(companyId, offboardingRequestId);
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     await this.dataSource.transaction(async (manager) => {
@@ -2326,16 +2600,24 @@ export class OffboardingService {
     });
 
     await this.offboardingAuditService.log({
-      action: dto.approve ? OffboardingAuditActionEnum.APPROVED : OffboardingAuditActionEnum.REJECTED,
+      action: dto.approve
+        ? OffboardingAuditActionEnum.APPROVED
+        : OffboardingAuditActionEnum.REJECTED,
       offboarding_request_id: offboardingRequestId,
       actor,
-      description: dto.approve ? 'Offboarding approval action accepted' : 'Offboarding approval action rejected',
+      description: dto.approve
+        ? 'Offboarding approval action accepted'
+        : 'Offboarding approval action rejected',
       metadata: { comments: dto.comments ?? null },
       ip_address: context?.ip_address ?? null,
       user_agent: context?.user_agent ?? null,
     });
 
-    return this.findOneOffboardingRequest(companyId, offboardingRequestId, actor);
+    return this.findOneOffboardingRequest(
+      companyId,
+      offboardingRequestId,
+      actor,
+    );
   }
 
   async createClearance(
@@ -2345,7 +2627,10 @@ export class OffboardingService {
     actor: AuthenticatedUser,
     context?: RequestContext,
   ) {
-    const request = await this.findOffboardingRequestOrFail(companyId, offboardingRequestId);
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     const existing = await this.offboardingClearanceRepository.findOne({
@@ -2355,11 +2640,14 @@ export class OffboardingService {
       },
     });
     if (existing) {
-      throw new ConflictException('Clearance entry for this type already exists');
+      throw new ConflictException(
+        'Clearance entry for this type already exists',
+      );
     }
 
     const created = await this.dataSource.transaction(async (manager) => {
-      const clearanceRepository = this.getOffboardingClearanceRepository(manager);
+      const clearanceRepository =
+        this.getOffboardingClearanceRepository(manager);
       const requestRepository = this.getOffboardingRequestRepository(manager);
 
       const clearance = await clearanceRepository.save(
@@ -2370,10 +2658,12 @@ export class OffboardingService {
           remarks: this.normalizeOptionalString(dto.remarks),
           cleared_by_company_user_id:
             dto.status && dto.status !== OffboardingClearanceStatusEnum.PENDING
-              ? actor.companyMembershipId ?? null
+              ? (actor.companyMembershipId ?? null)
               : null,
           cleared_at:
-            dto.status && dto.status !== OffboardingClearanceStatusEnum.PENDING ? new Date() : null,
+            dto.status && dto.status !== OffboardingClearanceStatusEnum.PENDING
+              ? new Date()
+              : null,
         }),
       );
 
@@ -2413,7 +2703,10 @@ export class OffboardingService {
     actor: AuthenticatedUser,
     context?: RequestContext,
   ) {
-    const request = await this.findOffboardingRequestOrFail(companyId, offboardingRequestId);
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     const clearance = await this.offboardingClearanceRepository.findOne({
@@ -2424,11 +2717,15 @@ export class OffboardingService {
     }
 
     const saved = await this.dataSource.transaction(async (manager) => {
-      const clearanceRepository = this.getOffboardingClearanceRepository(manager);
+      const clearanceRepository =
+        this.getOffboardingClearanceRepository(manager);
       const requestRepository = this.getOffboardingRequestRepository(manager);
 
       const currentClearance = await clearanceRepository.findOneOrFail({
-        where: { id: clearanceId, offboarding_request_id: offboardingRequestId },
+        where: {
+          id: clearanceId,
+          offboarding_request_id: offboardingRequestId,
+        },
       });
 
       currentClearance.status = dto.status;
@@ -2436,9 +2733,11 @@ export class OffboardingService {
       currentClearance.cleared_by_company_user_id =
         dto.status === OffboardingClearanceStatusEnum.PENDING
           ? null
-          : actor.companyMembershipId ?? null;
+          : (actor.companyMembershipId ?? null);
       currentClearance.cleared_at =
-        dto.status === OffboardingClearanceStatusEnum.PENDING ? null : new Date();
+        dto.status === OffboardingClearanceStatusEnum.PENDING
+          ? null
+          : new Date();
       await clearanceRepository.save(currentClearance);
 
       const currentRequest = await requestRepository.findOneOrFail({
@@ -2475,11 +2774,16 @@ export class OffboardingService {
     offboardingRequestId: number,
     actor: AuthenticatedUser,
   ) {
-    const request = await this.findOffboardingRequestOrFail(companyId, offboardingRequestId);
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     const summary = await this.dataSource.transaction(async (manager) => {
-      const current = await this.getOffboardingRequestRepository(manager).findOneOrFail({
+      const current = await this.getOffboardingRequestRepository(
+        manager,
+      ).findOneOrFail({
         where: { id: offboardingRequestId, company_id: companyId },
       });
       return this.updateRequestProgress(current, manager);
@@ -2510,7 +2814,10 @@ export class OffboardingService {
     offboardingRequestId: number,
     actor: AuthenticatedUser,
   ) {
-    const request = await this.findOffboardingRequestOrFail(companyId, offboardingRequestId);
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     const approvals = await this.offboardingApprovalRepository.find({
@@ -2535,7 +2842,10 @@ export class OffboardingService {
     offboardingRequestId: number,
     actor: AuthenticatedUser,
   ) {
-    const request = await this.findOffboardingRequestOrFail(companyId, offboardingRequestId);
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     const logs = await this.offboardingAuditLogRepository.find({

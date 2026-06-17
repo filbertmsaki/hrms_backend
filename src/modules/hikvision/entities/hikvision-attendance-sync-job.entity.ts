@@ -22,8 +22,12 @@ import { HikvisionAttendanceSyncJobStatusEnum } from '../enums/hikvision-attenda
   'deviceId',
   'createdAt',
 ])
-@Index('UQ_hikvision_att_sync_jobs_queue_job_id', ['queueJobId'], { unique: true })
-@Index('UQ_hikvision_att_sync_jobs_active_job_key', ['activeJobKey'], { unique: true })
+@Index('UQ_hikvision_att_sync_jobs_queue_job_id', ['queueJobId'], {
+  unique: true,
+})
+@Index('UQ_hikvision_att_sync_jobs_active_job_key', ['activeJobKey'], {
+  unique: true,
+})
 export class HikvisionAttendanceSyncJob {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -34,10 +38,20 @@ export class HikvisionAttendanceSyncJob {
   @Column({ name: 'device_id', type: 'int' })
   deviceId: number;
 
-  @Column({ name: 'queue_job_id', type: 'varchar', length: 191, nullable: true })
+  @Column({
+    name: 'queue_job_id',
+    type: 'varchar',
+    length: 191,
+    nullable: true,
+  })
   queueJobId: string | null;
 
-  @Column({ name: 'active_job_key', type: 'varchar', length: 191, nullable: true })
+  @Column({
+    name: 'active_job_key',
+    type: 'varchar',
+    length: 191,
+    nullable: true,
+  })
   activeJobKey: string | null;
 
   @Column({
@@ -48,7 +62,12 @@ export class HikvisionAttendanceSyncJob {
   })
   status: HikvisionAttendanceSyncJobStatusEnum;
 
-  @Column({ name: 'result_status', type: 'varchar', length: 20, nullable: true })
+  @Column({
+    name: 'result_status',
+    type: 'varchar',
+    length: 20,
+    nullable: true,
+  })
   resultStatus: string | null;
 
   @Column({ name: 'sync_start_time', type: 'varchar', length: 40 })

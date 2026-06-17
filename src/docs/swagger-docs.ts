@@ -149,7 +149,7 @@ export function buildSwaggerConfig(): Omit<OpenAPIObject, 'paths'> {
     builder.addTag(tag.name, tag.description);
   }
 
-  return builder.build() as Omit<OpenAPIObject, 'paths'>;
+  return builder.build();
 }
 
 export function createSwaggerDocument(app: INestApplication): OpenAPIObject {

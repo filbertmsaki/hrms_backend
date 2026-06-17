@@ -72,7 +72,10 @@ export class CreateAttendancePolicyDto {
   @IsOptional()
   requires_manager_approval_for_overtime?: boolean;
 
-  @ApiPropertyOptional({ enum: AttendanceRoundingModeEnum, default: AttendanceRoundingModeEnum.NEAREST })
+  @ApiPropertyOptional({
+    enum: AttendanceRoundingModeEnum,
+    default: AttendanceRoundingModeEnum.NEAREST,
+  })
   @IsEnum(AttendanceRoundingModeEnum)
   @IsOptional()
   rounding_mode?: AttendanceRoundingModeEnum;
@@ -102,7 +105,10 @@ export class CreateAttendancePolicyDto {
   @IsOptional()
   treat_weekend_as_absent_if_scheduled?: boolean;
 
-  @ApiPropertyOptional({ enum: AttendanceHolidayPolicyModeEnum, default: AttendanceHolidayPolicyModeEnum.OFF })
+  @ApiPropertyOptional({
+    enum: AttendanceHolidayPolicyModeEnum,
+    default: AttendanceHolidayPolicyModeEnum.OFF,
+  })
   @IsEnum(AttendanceHolidayPolicyModeEnum)
   @IsOptional()
   holiday_policy_mode?: AttendanceHolidayPolicyModeEnum;
@@ -131,7 +137,10 @@ export class CreateAttendancePolicyDto {
   @IsOptional()
   auto_calculate_attendance?: boolean;
 
-  @ApiPropertyOptional({ default: '23:59:00', description: '24-hour time HH:MM or HH:MM:SS' })
+  @ApiPropertyOptional({
+    default: '23:59:00',
+    description: '24-hour time HH:MM or HH:MM:SS',
+  })
   @Matches(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/)
   @IsOptional()
   calculation_time?: string;
@@ -155,6 +164,3 @@ export class CreateAttendancePolicyDto {
   @IsOptional()
   ignore_missing_checkout_if_hours_valid?: boolean;
 }
-
-
-

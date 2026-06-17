@@ -26,11 +26,15 @@ export class TimetableGeneratedScheduleInvalidationService {
       .where('company_id = :companyId', { companyId: input.companyId });
 
     if (input.timetableId) {
-      qb.andWhere('timetable_id = :timetableId', { timetableId: input.timetableId });
+      qb.andWhere('timetable_id = :timetableId', {
+        timetableId: input.timetableId,
+      });
     }
 
     if (input.employeeId) {
-      qb.andWhere('employee_id = :employeeId', { employeeId: input.employeeId });
+      qb.andWhere('employee_id = :employeeId', {
+        employeeId: input.employeeId,
+      });
     }
 
     if (input.fromDate) {

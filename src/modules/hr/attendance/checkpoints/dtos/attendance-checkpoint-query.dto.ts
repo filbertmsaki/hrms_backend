@@ -23,8 +23,3 @@ export class AttendanceCheckpointQueryDto extends PaginationDto {
   @IsOptional()
   status?: AttendanceCheckpointStatusEnum;
 }
-
-
-
-
-

@@ -35,17 +35,26 @@ import {
 @Controller('employee-positions')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class EmployeePositionsController {
-  constructor(private readonly employeePositionsService: EmployeePositionsService) {}
+  constructor(
+    private readonly employeePositionsService: EmployeePositionsService,
+  ) {}
 
   @Post()
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiCreateOperation('Employee Position', 'Create an employee position assignment')
+  @ApiCreateOperation(
+    'Employee Position',
+    'Create an employee position assignment',
+  )
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: CreateEmployeePositionDto,
   ) {
-    return this.employeePositionsService.create(req.user.companyId!, dto, req.user);
+    return this.employeePositionsService.create(
+      req.user.companyId!,
+      dto,
+      req.user,
+    );
   }
 
   @Get()
@@ -56,40 +65,66 @@ export class EmployeePositionsController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: EmployeePositionQueryDto,
   ) {
-    return this.employeePositionsService.findAll(req.user.companyId!, query, req.user);
+    return this.employeePositionsService.findAll(
+      req.user.companyId!,
+      query,
+      req.user,
+    );
   }
 
   @Get(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:read')
-  @ApiGetOneOperation('Employee Position', 'Get one employee position assignment')
+  @ApiGetOneOperation(
+    'Employee Position',
+    'Get one employee position assignment',
+  )
   findOne(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.employeePositionsService.findOne(req.user.companyId!, id, req.user);
+    return this.employeePositionsService.findOne(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
   }
 
   @Patch(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiUpdateOperation('Employee Position', 'Update an employee position assignment')
+  @ApiUpdateOperation(
+    'Employee Position',
+    'Update an employee position assignment',
+  )
   update(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateEmployeePositionDto,
   ) {
-    return this.employeePositionsService.update(req.user.companyId!, id, dto, req.user);
+    return this.employeePositionsService.update(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
   }
 
   @Delete(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiDeleteOperation('Employee Position', 'Delete an employee position assignment')
+  @ApiDeleteOperation(
+    'Employee Position',
+    'Delete an employee position assignment',
+  )
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.employeePositionsService.remove(req.user.companyId!, id, req.user);
+    return this.employeePositionsService.remove(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
   }
 }

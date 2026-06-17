@@ -128,11 +128,7 @@ function rankSubResource(path: string, tagText: string): number {
   return 999;
 }
 
-function rankCrud(
-  path: string,
-  method: HttpMethod,
-  text: string,
-): number {
+function rankCrud(path: string, method: HttpMethod, text: string): number {
   if (/\bcreate\b/.test(text) && method === 'post') return 10;
   if (/\b(list|get all|find all)\b/.test(text) && method === 'get') return 20;
   if (/\b(get by id|get one|find one|detail)\b/.test(text) && method === 'get')

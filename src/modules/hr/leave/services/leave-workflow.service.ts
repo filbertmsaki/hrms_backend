@@ -46,14 +46,17 @@ export class LeaveWorkflowService {
   private getWorkflowRepository(
     manager?: EntityManager,
   ): Repository<LeaveApprovalWorkflow> {
-    return manager?.getRepository(LeaveApprovalWorkflow) ?? this.workflowRepository;
+    return (
+      manager?.getRepository(LeaveApprovalWorkflow) ?? this.workflowRepository
+    );
   }
 
   private getWorkflowStepRepository(
     manager?: EntityManager,
   ): Repository<LeaveApprovalWorkflowStep> {
     return (
-      manager?.getRepository(LeaveApprovalWorkflowStep) ?? this.workflowStepRepository
+      manager?.getRepository(LeaveApprovalWorkflowStep) ??
+      this.workflowStepRepository
     );
   }
 
@@ -81,14 +84,17 @@ export class LeaveWorkflowService {
   private getCompanyUserRoleRepository(
     manager?: EntityManager,
   ): Repository<CompanyUserRole> {
-    return manager?.getRepository(CompanyUserRole) ?? this.companyUserRoleRepository;
+    return (
+      manager?.getRepository(CompanyUserRole) ?? this.companyUserRoleRepository
+    );
   }
 
   private getEmployeePositionRepository(
     manager?: EntityManager,
   ): Repository<EmployeePosition> {
     return (
-      manager?.getRepository(EmployeePosition) ?? this.employeePositionRepository
+      manager?.getRepository(EmployeePosition) ??
+      this.employeePositionRepository
     );
   }
 
@@ -163,7 +169,9 @@ export class LeaveWorkflowService {
         .groupBy('assignment.company_user_id')
         .getRawMany<{ company_user_id: number }>();
 
-      return assignments.map((assignment) => Number(assignment.company_user_id));
+      return assignments.map((assignment) =>
+        Number(assignment.company_user_id),
+      );
     }
 
     if (!step.position_id) {
@@ -182,7 +190,9 @@ export class LeaveWorkflowService {
       .andWhere('employeePosition.status = :assignmentStatus', {
         assignmentStatus: EmployeePositionStatusEnum.ACTIVE,
       })
-      .andWhere('(employeePosition.end_date IS NULL OR employeePosition.end_date >= CURDATE())')
+      .andWhere(
+        '(employeePosition.end_date IS NULL OR employeePosition.end_date >= CURDATE())',
+      )
       .andWhere('membership.company_id = :companyId', { companyId })
       .andWhere('membership.status = :status', { status: 'active' })
       .select('membership.id', 'company_user_id')
@@ -206,7 +216,9 @@ export class LeaveWorkflowService {
       );
     }
 
-    const employees = await assignments.getRawMany<{ company_user_id: number }>();
+    const employees = await assignments.getRawMany<{
+      company_user_id: number;
+    }>();
 
     return employees.map((item) => Number(item.company_user_id));
   }
@@ -228,7 +240,9 @@ export class LeaveWorkflowService {
     });
 
     if (!steps.length) {
-      throw new BadRequestException('Configured workflow has no approval steps');
+      throw new BadRequestException(
+        'Configured workflow has no approval steps',
+      );
     }
 
     const leaveRequestApprovalRepository =
@@ -256,7 +270,8 @@ export class LeaveWorkflowService {
             approval_level: step.approval_level,
             approver_company_user_id: null,
             status: LeaveApprovalStatusEnum.SKIPPED,
-            comments: 'Step skipped automatically due to missing eligible approver',
+            comments:
+              'Step skipped automatically due to missing eligible approver',
             acted_at: new Date(),
           }),
         );
@@ -365,7 +380,8 @@ export class LeaveWorkflowService {
       otherPending.forEach((item) => {
         item.status = LeaveApprovalStatusEnum.SKIPPED;
         item.comments =
-          item.comments ?? 'Skipped because another approver completed this level';
+          item.comments ??
+          'Skipped because another approver completed this level';
         item.acted_at = new Date();
       });
       await leaveRequestApprovalRepository.save(otherPending);

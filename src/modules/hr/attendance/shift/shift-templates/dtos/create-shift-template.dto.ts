@@ -1,5 +1,11 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsEnum,
+  IsObject,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 import { ShiftTemplateStatusEnum } from '../enums/shift-template-status.enum';
 import { ShiftTemplateTypeEnum } from '../enums/shift-template-type.enum';
 

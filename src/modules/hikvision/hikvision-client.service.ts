@@ -8,7 +8,10 @@ export class HikvisionClientService {
   ) {}
 
   getAcsEventCapabilities(companyId: number, deviceId: number) {
-    return this.hikvisionAccessControlService.getAcsEventCapabilities(companyId, deviceId);
+    return this.hikvisionAccessControlService.getAcsEventCapabilities(
+      companyId,
+      deviceId,
+    );
   }
 
   getAcsEventTotalNum(
@@ -16,10 +19,22 @@ export class HikvisionClientService {
     deviceId: number,
     payload: Record<string, unknown>,
   ) {
-    return this.hikvisionAccessControlService.getAcsEventTotalNum(companyId, deviceId, payload);
+    return this.hikvisionAccessControlService.getAcsEventTotalNum(
+      companyId,
+      deviceId,
+      payload,
+    );
   }
 
-  searchAcsEvents(companyId: number, deviceId: number, payload: Record<string, unknown>) {
-    return this.hikvisionAccessControlService.searchAcsEvents(companyId, deviceId, payload);
+  searchAcsEvents(
+    companyId: number,
+    deviceId: number,
+    payload: Record<string, unknown>,
+  ) {
+    return this.hikvisionAccessControlService.searchAcsEvents(
+      companyId,
+      deviceId,
+      payload,
+    );
   }
 }

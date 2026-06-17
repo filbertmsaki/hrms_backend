@@ -10,7 +10,12 @@ import { EmployeePositionsService } from './employee-positions.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([EmployeePosition, Employee, Position, Designation]),
+    TypeOrmModule.forFeature([
+      EmployeePosition,
+      Employee,
+      Position,
+      Designation,
+    ]),
     HrSharedModule,
   ],
   controllers: [EmployeePositionsController],

@@ -17,7 +17,9 @@ import { TimetableRotationRule } from '../../timetable-rotation-rules/entities/t
 @Index('IDX_timetable_rotations_company_id', ['companyId'])
 @Index('IDX_timetable_rotations_timetable_id', ['timetableId'])
 @Index('IDX_timetable_rotations_status', ['status'])
-@Index('UQ_timetable_rotations_timetable_name', ['timetableId', 'name'], { unique: true })
+@Index('UQ_timetable_rotations_timetable_name', ['timetableId', 'name'], {
+  unique: true,
+})
 export class TimetableRotation {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -52,7 +54,9 @@ export class TimetableRotation {
   @JoinColumn({ name: 'company_id' })
   company: Company;
 
-  @ManyToOne(() => Timetable, (timetable) => timetable.rotations, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Timetable, (timetable) => timetable.rotations, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'timetable_id' })
   timetable: Timetable;
 

@@ -3,4 +3,3 @@ export enum HikvisionSyncLogStatusEnum {
   FAILED = 'FAILED',
   PARTIAL = 'PARTIAL',
 }
-

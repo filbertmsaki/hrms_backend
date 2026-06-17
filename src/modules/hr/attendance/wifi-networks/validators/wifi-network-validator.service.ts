@@ -1,4 +1,3 @@
-
 import { Injectable } from '@nestjs/common';
 import { IpCidrValidatorService } from './ip-cidr-validator.service';
 import { AttendanceWifiNetwork } from '../entities/attendance-wifi-network.entity';
@@ -62,9 +61,7 @@ export class WifiNetworkValidatorService {
         };
       }
 
-      if (
-        this.normalizeMac(bssid) !== this.normalizeMac(wifiNetwork.bssid)
-      ) {
+      if (this.normalizeMac(bssid) !== this.normalizeMac(wifiNetwork.bssid)) {
         return {
           valid: false,
           message:

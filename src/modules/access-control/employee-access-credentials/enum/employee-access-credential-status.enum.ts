@@ -5,4 +5,3 @@ export enum EmployeeAccessCredentialStatusEnum {
   BLOCKED = 'BLOCKED',
   DELETED = 'DELETED',
 }
-

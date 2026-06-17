@@ -24,7 +24,7 @@ export class AttendancePolicy {
   @PrimaryGeneratedColumn()
   id: number;
 
-   @Column()
+  @Column()
   company_id: number;
 
   @Column({ length: 255 })
@@ -117,6 +117,3 @@ export class AttendancePolicy {
   @OneToMany(() => AttendanceCheckpoint, (checkpoint) => checkpoint.policySet)
   checkpoints: AttendanceCheckpoint[];
 }
-
-
-

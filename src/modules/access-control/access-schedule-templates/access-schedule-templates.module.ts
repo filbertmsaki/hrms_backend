@@ -9,7 +9,11 @@ import { AccessScheduleTemplatesService } from './service/access-schedule-templa
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([AccessScheduleTemplate, AccessWeekPlan, AttendanceDevice]),
+    TypeOrmModule.forFeature([
+      AccessScheduleTemplate,
+      AccessWeekPlan,
+      AttendanceDevice,
+    ]),
     HikvisionModule,
   ],
   controllers: [AccessScheduleTemplatesController],
@@ -17,4 +21,3 @@ import { AccessScheduleTemplatesService } from './service/access-schedule-templa
   exports: [AccessScheduleTemplatesService],
 })
 export class AccessScheduleTemplatesModule {}
-

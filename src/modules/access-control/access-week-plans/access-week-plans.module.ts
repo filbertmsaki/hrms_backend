@@ -7,7 +7,10 @@ import { AccessWeekPlansController } from './controller/access-week-plans.contro
 import { AccessWeekPlansService } from './service/access-week-plans.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([AccessWeekPlan, AccessWeekPlanSegment]), HikvisionModule],
+  imports: [
+    TypeOrmModule.forFeature([AccessWeekPlan, AccessWeekPlanSegment]),
+    HikvisionModule,
+  ],
   controllers: [AccessWeekPlansController],
   providers: [AccessWeekPlansService],
   exports: [AccessWeekPlansService],

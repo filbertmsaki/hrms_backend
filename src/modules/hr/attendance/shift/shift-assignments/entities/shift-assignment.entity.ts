@@ -21,7 +21,12 @@ import { ShiftRotationGroup } from '../../shift-rotation-groups/entities/shift-r
 @Index('IDX_shift_assignments_shift_id', ['shiftId'])
 @Index('IDX_shift_assignments_rotation_group_id', ['rotationGroupId'])
 @Index('IDX_shift_assignments_status', ['status'])
-@Index('IDX_shift_assignments_company_employee_status_from', ['companyId', 'employeeId', 'status', 'effectiveFrom'])
+@Index('IDX_shift_assignments_company_employee_status_from', [
+  'companyId',
+  'employeeId',
+  'status',
+  'effectiveFrom',
+])
 export class ShiftAssignment {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -47,7 +52,12 @@ export class ShiftAssignment {
   @Column({ name: 'is_primary', type: 'boolean', default: false })
   isPrimary: boolean;
 
-  @Column({ name: 'status', type: 'enum', enum: ShiftAssignmentStatusEnum, default: ShiftAssignmentStatusEnum.ACTIVE })
+  @Column({
+    name: 'status',
+    type: 'enum',
+    enum: ShiftAssignmentStatusEnum,
+    default: ShiftAssignmentStatusEnum.ACTIVE,
+  })
   status: ShiftAssignmentStatusEnum;
 
   @Column({ name: 'assigned_by', type: 'int', nullable: true })
@@ -71,10 +81,14 @@ export class ShiftAssignment {
   @JoinColumn({ name: 'shift_id' })
   shift: Shift;
 
-  @ManyToOne(() => ShiftRotationGroup, (rotationGroup) => rotationGroup.assignments, {
-    nullable: true,
-    onDelete: 'SET NULL',
-  })
+  @ManyToOne(
+    () => ShiftRotationGroup,
+    (rotationGroup) => rotationGroup.assignments,
+    {
+      nullable: true,
+      onDelete: 'SET NULL',
+    },
+  )
   @JoinColumn({ name: 'rotation_group_id' })
   rotationGroup: ShiftRotationGroup | null;
 

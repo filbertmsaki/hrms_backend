@@ -52,7 +52,8 @@ export function ApiAuthRequired(): MethodDecorator {
     }),
     ApiResponse({
       status: 403,
-      description: 'Forbidden. Your role or permissions do not allow this action.',
+      description:
+        'Forbidden. Your role or permissions do not allow this action.',
       schema: {
         example: buildErrorExample(403, 'Forbidden', 'Forbidden resource'),
       },
@@ -68,9 +69,14 @@ export function ApiAuthErrorResponses(): MethodDecorator {
   return applyDecorators(
     ApiResponse({
       status: 401,
-      description: 'Authentication failed (invalid credentials or expired token).',
+      description:
+        'Authentication failed (invalid credentials or expired token).',
       schema: {
-        example: buildErrorExample(401, 'Unauthorized', 'Invalid email or password'),
+        example: buildErrorExample(
+          401,
+          'Unauthorized',
+          'Invalid email or password',
+        ),
       },
     }),
   );
@@ -126,7 +132,8 @@ export function ApiGoneResponse(resource = 'Resource'): MethodDecorator {
 export function ApiTooManyRequestsResponse(): MethodDecorator {
   return ApiResponse({
     status: 429,
-    description: 'Too many requests. Rate limit exceeded. Retry after some time.',
+    description:
+      'Too many requests. Rate limit exceeded. Retry after some time.',
     schema: {
       example: buildErrorExample(
         429,
@@ -169,9 +176,7 @@ export function ApiOkResponseDto(
     ApiOkResponse({
       description,
       schema: {
-        allOf: [
-          { $ref: getSchemaPath(dtoRef) },
-        ],
+        allOf: [{ $ref: getSchemaPath(dtoRef) }],
       },
     }),
   );

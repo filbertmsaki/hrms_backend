@@ -14,7 +14,10 @@ import { Permissions } from '../../../../common/decorators/permissions.decorator
 import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
-import { ApiGetOneOperation, ApiListOperation } from '../../../../docs/swagger-decorators';
+import {
+  ApiGetOneOperation,
+  ApiListOperation,
+} from '../../../../docs/swagger-decorators';
 import { QueryEmployeeDeviceAccessAuditLogDto } from '../dto/query-employee-device-access-audit-log.dto';
 import { EmployeeDeviceAccessAuditLogService } from '../service/employee-device-access-audit-log.service';
 
@@ -23,12 +26,17 @@ import { EmployeeDeviceAccessAuditLogService } from '../service/employee-device-
 @Controller('access-control')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class EmployeeDeviceAccessAuditLogsController {
-  constructor(private readonly auditLogService: EmployeeDeviceAccessAuditLogService) {}
+  constructor(
+    private readonly auditLogService: EmployeeDeviceAccessAuditLogService,
+  ) {}
 
   @Get('audit-logs')
   @UseGuards(PermissionsGuard)
   @Permissions('access_control_sync:execute')
-  @ApiListOperation('Access Audit Logs', 'List employee device access audit logs')
+  @ApiListOperation(
+    'Access Audit Logs',
+    'List employee device access audit logs',
+  )
   findAll(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: QueryEmployeeDeviceAccessAuditLogDto,
@@ -39,7 +47,10 @@ export class EmployeeDeviceAccessAuditLogsController {
   @Get('audit-logs/:id')
   @UseGuards(PermissionsGuard)
   @Permissions('access_control_sync:execute')
-  @ApiGetOneOperation('Access Audit Log', 'Get one employee device access audit log')
+  @ApiGetOneOperation(
+    'Access Audit Log',
+    'Get one employee device access audit log',
+  )
   findOne(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -50,7 +61,10 @@ export class EmployeeDeviceAccessAuditLogsController {
   @Get('employees/:employeeId/audit-logs')
   @UseGuards(PermissionsGuard)
   @Permissions('access_control_sync:execute')
-  @ApiListOperation('Employee Access Audit Logs', 'List audit logs for one employee')
+  @ApiListOperation(
+    'Employee Access Audit Logs',
+    'List audit logs for one employee',
+  )
   findByEmployee(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -65,7 +79,10 @@ export class EmployeeDeviceAccessAuditLogsController {
   @Get('devices/:deviceId/audit-logs')
   @UseGuards(PermissionsGuard)
   @Permissions('access_control_sync:execute')
-  @ApiListOperation('Device Access Audit Logs', 'List audit logs for one device')
+  @ApiListOperation(
+    'Device Access Audit Logs',
+    'List audit logs for one device',
+  )
   findByDevice(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('deviceId', ParseIntPipe) deviceId: number,
@@ -77,4 +94,3 @@ export class EmployeeDeviceAccessAuditLogsController {
     });
   }
 }
-

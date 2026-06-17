@@ -38,7 +38,10 @@ export class EmployeeDeviceAccessAuditLogService {
     return this.map(await this.auditLogRepository.save(entity));
   }
 
-  async findAll(companyId: number, query: QueryEmployeeDeviceAccessAuditLogDto) {
+  async findAll(
+    companyId: number,
+    query: QueryEmployeeDeviceAccessAuditLogDto,
+  ) {
     const {
       branchId,
       deviceId,
@@ -58,12 +61,20 @@ export class EmployeeDeviceAccessAuditLogService {
 
     if (branchId) qb.andWhere('audit.branch_id = :branchId', { branchId });
     if (deviceId) qb.andWhere('audit.device_id = :deviceId', { deviceId });
-    if (employeeId) qb.andWhere('audit.employee_id = :employeeId', { employeeId });
-    if (employeeNo?.trim()) qb.andWhere('audit.employee_no = :employeeNo', { employeeNo: employeeNo.trim() });
+    if (employeeId)
+      qb.andWhere('audit.employee_id = :employeeId', { employeeId });
+    if (employeeNo?.trim())
+      qb.andWhere('audit.employee_no = :employeeNo', {
+        employeeNo: employeeNo.trim(),
+      });
     if (action) qb.andWhere('audit.action = :action', { action });
     if (status) qb.andWhere('audit.status = :status', { status });
-    if (dateFrom) qb.andWhere('audit.created_at >= :dateFrom', { dateFrom: new Date(dateFrom) });
-    if (dateTo) qb.andWhere('audit.created_at <= :dateTo', { dateTo: new Date(dateTo) });
+    if (dateFrom)
+      qb.andWhere('audit.created_at >= :dateFrom', {
+        dateFrom: new Date(dateFrom),
+      });
+    if (dateTo)
+      qb.andWhere('audit.created_at <= :dateTo', { dateTo: new Date(dateTo) });
 
     const [items, total] = await qb
       .orderBy('audit.created_at', 'DESC')
@@ -88,20 +99,29 @@ export class EmployeeDeviceAccessAuditLogService {
     return this.map(row);
   }
 
-  async markSuccess(id: number, responsePayload?: Record<string, unknown> | null) {
+  async markSuccess(
+    id: number,
+    responsePayload?: Record<string, unknown> | null,
+  ) {
     const row = await this.auditLogRepository.findOne({ where: { id } });
     if (!row) {
       throw new NotFoundException('Audit log not found');
     }
 
     row.status = EmployeeDeviceAccessAuditStatusEnum.SUCCESS;
-    row.responsePayload = this.maskSensitivePayload(responsePayload ?? row.responsePayload ?? null);
+    row.responsePayload = this.maskSensitivePayload(
+      responsePayload ?? row.responsePayload ?? null,
+    );
     row.errorMessage = null;
     await this.auditLogRepository.save(row);
     return this.map(row);
   }
 
-  async markFailed(id: number, errorMessage: string, responsePayload?: Record<string, unknown> | null) {
+  async markFailed(
+    id: number,
+    errorMessage: string,
+    responsePayload?: Record<string, unknown> | null,
+  ) {
     const row = await this.auditLogRepository.findOne({ where: { id } });
     if (!row) {
       throw new NotFoundException('Audit log not found');
@@ -109,7 +129,9 @@ export class EmployeeDeviceAccessAuditLogService {
 
     row.status = EmployeeDeviceAccessAuditStatusEnum.FAILED;
     row.errorMessage = errorMessage;
-    row.responsePayload = this.maskSensitivePayload(responsePayload ?? row.responsePayload ?? null);
+    row.responsePayload = this.maskSensitivePayload(
+      responsePayload ?? row.responsePayload ?? null,
+    );
     await this.auditLogRepository.save(row);
     return this.map(row);
   }
@@ -180,4 +202,3 @@ export class EmployeeDeviceAccessAuditLogService {
     };
   }
 }
-

@@ -40,7 +40,12 @@ export class EmployeeBiometricCaptureSession {
   @Column({ name: 'employee_no', type: 'varchar', length: 100 })
   employeeNo: string;
 
-  @Column({ name: 'employee_name', type: 'varchar', length: 200, nullable: true })
+  @Column({
+    name: 'employee_name',
+    type: 'varchar',
+    length: 200,
+    nullable: true,
+  })
   employeeName: string | null;
 
   @Column({ name: 'device_id', type: 'int', nullable: true })
@@ -53,7 +58,12 @@ export class EmployeeBiometricCaptureSession {
   })
   captureType: EmployeeBiometricCaptureTypeEnum;
 
-  @Column({ name: 'fingerprint_id', type: 'varchar', length: 100, nullable: true })
+  @Column({
+    name: 'fingerprint_id',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
   fingerprintId: string | null;
 
   @Column({ name: 'face_id', type: 'varchar', length: 100, nullable: true })
@@ -126,5 +136,3 @@ export class EmployeeBiometricCaptureSession {
   @JoinColumn({ name: 'performed_by_company_user_id' })
   performedByCompanyUser: CompanyUser | null;
 }
-
-

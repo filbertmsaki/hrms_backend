@@ -14,7 +14,11 @@ import { AccessDayOfWeekEnum } from '../../access-week-plans/enum/access-day-of-
 
 @Entity('access_week_plan_segments')
 @Index('IDX_access_week_plan_segments_week_plan_id', ['weekPlanId'])
-@Unique('UQ_access_week_plan_segments_week_day_segment', ['weekPlanId', 'weekDay', 'segmentNo'])
+@Unique('UQ_access_week_plan_segments_week_day_segment', [
+  'weekPlanId',
+  'weekDay',
+  'segmentNo',
+])
 export class AccessWeekPlanSegment {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -46,8 +50,9 @@ export class AccessWeekPlanSegment {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-  @ManyToOne(() => AccessWeekPlan, (weekPlan) => weekPlan.segments, { onDelete: 'CASCADE' })
+  @ManyToOne(() => AccessWeekPlan, (weekPlan) => weekPlan.segments, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'week_plan_id' })
   weekPlan: AccessWeekPlan;
 }
-

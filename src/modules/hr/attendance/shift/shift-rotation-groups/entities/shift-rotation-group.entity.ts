@@ -17,8 +17,12 @@ import { ShiftRotationRule } from '../../shift-rotation-rules/entities/shift-rot
 @Entity('shift_rotation_groups')
 @Index('IDX_shift_rotation_groups_company_id', ['companyId'])
 @Index('IDX_shift_rotation_groups_status', ['status'])
-@Index('UQ_shift_rotation_groups_company_code', ['companyId', 'code'], { unique: true })
-@Index('UQ_shift_rotation_groups_company_name', ['companyId', 'name'], { unique: true })
+@Index('UQ_shift_rotation_groups_company_code', ['companyId', 'code'], {
+  unique: true,
+})
+@Index('UQ_shift_rotation_groups_company_name', ['companyId', 'name'], {
+  unique: true,
+})
 export class ShiftRotationGroup {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -38,7 +42,12 @@ export class ShiftRotationGroup {
   @Column({ name: 'description', type: 'text', nullable: true })
   description: string | null;
 
-  @Column({ name: 'status', type: 'enum', enum: ShiftRotationGroupStatusEnum, default: ShiftRotationGroupStatusEnum.ACTIVE })
+  @Column({
+    name: 'status',
+    type: 'enum',
+    enum: ShiftRotationGroupStatusEnum,
+    default: ShiftRotationGroupStatusEnum.ACTIVE,
+  })
   status: ShiftRotationGroupStatusEnum;
 
   @CreateDateColumn({ name: 'created_at' })

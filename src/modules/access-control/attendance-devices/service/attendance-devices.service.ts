@@ -50,14 +50,20 @@ export class AccessControlAttendanceDevicesService {
   async create(companyId: number, dto: CreateAttendanceDeviceDto) {
     await this.ensureBranch(companyId, dto.branch_id);
 
-    const normalizedDeviceCode = await this.resolveDeviceCode(companyId, dto.device_code);
+    const normalizedDeviceCode = await this.resolveDeviceCode(
+      companyId,
+      dto.device_code,
+    );
     const resolvedStatus = this.resolveDeviceStatus(dto.status);
 
     const created = await this.attendanceDeviceRepository.save(
       this.attendanceDeviceRepository.create({
         companyId,
         branchId: dto.branch_id ?? null,
-        deviceName: this.resolveDeviceName(dto.device_name, normalizedDeviceCode),
+        deviceName: this.resolveDeviceName(
+          dto.device_name,
+          normalizedDeviceCode,
+        ),
         deviceCode: normalizedDeviceCode,
         deviceSerialNumber: dto.device_serial_number?.trim() || null,
         deviceModel: dto.device_model?.trim() || null,
@@ -82,7 +88,10 @@ export class AccessControlAttendanceDevicesService {
 
     if (this.shouldAutoSyncHikvision(created)) {
       try {
-        await this.deviceManagementHikvisionService.syncDevice(companyId, created.id);
+        await this.deviceManagementHikvisionService.syncDevice(
+          companyId,
+          created.id,
+        );
       } catch (error) {
         await this.attendanceDeviceRepository.delete(created.id);
         throw new BadRequestException(
@@ -117,7 +126,9 @@ export class AccessControlAttendanceDevicesService {
     }
 
     if (branch_id) {
-      qb.andWhere('attendanceDevice.branch_id = :branchId', { branchId: branch_id });
+      qb.andWhere('attendanceDevice.branch_id = :branchId', {
+        branchId: branch_id,
+      });
     }
 
     if (vendor_name?.trim()) {
@@ -127,9 +138,12 @@ export class AccessControlAttendanceDevicesService {
     }
 
     if (integration_type?.trim()) {
-      qb.andWhere('LOWER(attendanceDevice.integration_type) = :integrationType', {
-        integrationType: integration_type.trim().toLowerCase(),
-      });
+      qb.andWhere(
+        'LOWER(attendanceDevice.integration_type) = :integrationType',
+        {
+          integrationType: integration_type.trim().toLowerCase(),
+        },
+      );
     }
 
     if (search?.trim()) {
@@ -139,8 +153,16 @@ export class AccessControlAttendanceDevicesService {
       );
     }
 
-    const allowedSortFields = ['created_at', 'updated_at', 'device_name', 'status', 'last_sync_at'];
-    const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'created_at';
+    const allowedSortFields = [
+      'created_at',
+      'updated_at',
+      'device_name',
+      'status',
+      'last_sync_at',
+    ];
+    const safeSortBy = allowedSortFields.includes(sortBy)
+      ? sortBy
+      : 'created_at';
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
     const sortFieldMap: Record<string, string> = {
@@ -190,7 +212,9 @@ export class AccessControlAttendanceDevicesService {
       .andWhere('assignment.company_id = :companyId', { companyId });
 
     if (sync_status) {
-      qb.andWhere('assignment.sync_status = :syncStatus', { syncStatus: sync_status });
+      qb.andWhere('assignment.sync_status = :syncStatus', {
+        syncStatus: sync_status,
+      });
     }
 
     if (search?.trim()) {
@@ -213,7 +237,9 @@ export class AccessControlAttendanceDevicesService {
       'sync_status',
       'last_synced_at',
     ];
-    const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'created_at';
+    const safeSortBy = allowedSortFields.includes(sortBy)
+      ? sortBy
+      : 'created_at';
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
     const sortFieldMap: Record<string, string> = {
@@ -247,11 +273,18 @@ export class AccessControlAttendanceDevicesService {
     }
 
     if (dto.device_code !== undefined) {
-      item.deviceCode = await this.resolveDeviceCode(companyId, dto.device_code, item.id);
+      item.deviceCode = await this.resolveDeviceCode(
+        companyId,
+        dto.device_code,
+        item.id,
+      );
     }
 
     if (dto.device_name !== undefined) {
-      item.deviceName = this.resolveDeviceName(dto.device_name, item.deviceCode);
+      item.deviceName = this.resolveDeviceName(
+        dto.device_name,
+        item.deviceCode,
+      );
     }
     if (dto.device_serial_number !== undefined) {
       item.deviceSerialNumber = dto.device_serial_number?.trim() || null;
@@ -312,9 +345,13 @@ export class AccessControlAttendanceDevicesService {
 
     if (this.shouldAutoSyncHikvision(saved)) {
       try {
-        await this.deviceManagementHikvisionService.syncDevice(companyId, saved.id);
+        await this.deviceManagementHikvisionService.syncDevice(
+          companyId,
+          saved.id,
+        );
       } catch (error) {
-        const restored = this.attendanceDeviceRepository.create(snapshotBeforeUpdate);
+        const restored =
+          this.attendanceDeviceRepository.create(snapshotBeforeUpdate);
         await this.attendanceDeviceRepository.save(restored);
         throw new BadRequestException(
           `Hikvision sync failed during update. Backend values were restored. ${this.extractSyncErrorMessage(error)}`,
@@ -340,7 +377,10 @@ export class AccessControlAttendanceDevicesService {
       );
     }
 
-    const syncResult = await this.deviceManagementHikvisionService.syncDevice(companyId, id);
+    const syncResult = await this.deviceManagementHikvisionService.syncDevice(
+      companyId,
+      id,
+    );
     const refreshed = await this.findOrFail(companyId, id);
 
     return {
@@ -368,7 +408,9 @@ export class AccessControlAttendanceDevicesService {
       .addSelect('assignment.employee_name', 'employee_name')
       .addSelect('assignment.employee_no', 'employee_no')
       .where('assignment.company_id = :companyId', { companyId })
-      .andWhere('assignment.device_id = :deviceId', { deviceId: query.deviceId })
+      .andWhere('assignment.device_id = :deviceId', {
+        deviceId: query.deviceId,
+      })
       .andWhere('assignment.employee_id IS NULL')
       .andWhere('assignment.employee_name IS NOT NULL')
       .getRawMany<MatchCandidate>();
@@ -376,7 +418,10 @@ export class AccessControlAttendanceDevicesService {
     return assignments
       .map((assignment) => ({
         assignment,
-        score: this.calculateMatchScore(assignment.employee_name, nameVariations),
+        score: this.calculateMatchScore(
+          assignment.employee_name,
+          nameVariations,
+        ),
       }))
       .filter((item) => item.score > 0)
       .sort((left, right) => {
@@ -387,8 +432,10 @@ export class AccessControlAttendanceDevicesService {
         const leftName = left.assignment.employee_name ?? '';
         const rightName = right.assignment.employee_name ?? '';
         return (
-          leftName.localeCompare(rightName)
-          || left.assignment.employee_no.localeCompare(right.assignment.employee_no)
+          leftName.localeCompare(rightName) ||
+          left.assignment.employee_no.localeCompare(
+            right.assignment.employee_no,
+          )
         );
       })
       .map(({ assignment }) => ({
@@ -399,7 +446,9 @@ export class AccessControlAttendanceDevicesService {
   }
 
   private mapDevice(item: AttendanceDevice) {
-    const hikvisionMetadata = this.toObject(this.toObject(item.metadata).hikvision);
+    const hikvisionMetadata = this.toObject(
+      this.toObject(item.metadata).hikvision,
+    );
 
     return {
       id: item.id,
@@ -426,7 +475,9 @@ export class AccessControlAttendanceDevicesService {
       device_type: item.deviceType,
       timezone: item.timezone,
       location_description: item.locationDescription,
-      supported_user_verify_modes: Array.isArray(hikvisionMetadata.supported_user_verify_modes)
+      supported_user_verify_modes: Array.isArray(
+        hikvisionMetadata.supported_user_verify_modes,
+      )
         ? hikvisionMetadata.supported_user_verify_modes
         : [],
       metadata: item.metadata,
@@ -472,15 +523,23 @@ export class AccessControlAttendanceDevicesService {
     return value as Record<string, unknown>;
   }
 
-  private async findOrFail(companyId: number, id: number): Promise<AttendanceDevice> {
-    const item = await this.attendanceDeviceRepository.findOne({ where: { id, companyId } });
+  private async findOrFail(
+    companyId: number,
+    id: number,
+  ): Promise<AttendanceDevice> {
+    const item = await this.attendanceDeviceRepository.findOne({
+      where: { id, companyId },
+    });
     if (!item) {
       throw new NotFoundException('Attendance device not found');
     }
     return item;
   }
 
-  private async ensureDeviceExistsInDatabase(companyId: number, deviceId: number): Promise<void> {
+  private async ensureDeviceExistsInDatabase(
+    companyId: number,
+    deviceId: number,
+  ): Promise<void> {
     const exists = await this.attendanceDeviceRepository.exists({
       where: { id: deviceId, companyId },
     });
@@ -490,7 +549,10 @@ export class AccessControlAttendanceDevicesService {
     }
   }
 
-  private async ensureBranch(companyId: number, branchId?: number | null): Promise<void> {
+  private async ensureBranch(
+    companyId: number,
+    branchId?: number | null,
+  ): Promise<void> {
     if (!branchId) {
       return;
     }
@@ -501,7 +563,9 @@ export class AccessControlAttendanceDevicesService {
     });
 
     if (!branch) {
-      throw new BadRequestException('branch_id does not belong to the active company');
+      throw new BadRequestException(
+        'branch_id does not belong to the active company',
+      );
     }
   }
 
@@ -511,7 +575,11 @@ export class AccessControlAttendanceDevicesService {
   ): Promise<EmployeeNameSource> {
     const employee = await this.employeeRepository
       .createQueryBuilder('employee')
-      .innerJoin(CompanyUser, 'companyUser', 'companyUser.id = employee.company_user_id')
+      .innerJoin(
+        CompanyUser,
+        'companyUser',
+        'companyUser.id = employee.company_user_id',
+      )
       .where('employee.id = :employeeId', { employeeId })
       .andWhere('companyUser.company_id = :companyId', { companyId })
       .select([
@@ -547,8 +615,14 @@ export class AccessControlAttendanceDevicesService {
     return [...variations].sort((left, right) => right.length - left.length);
   }
 
-  private addNameVariation(variations: Set<string>, ...parts: Array<string | null>): void {
-    const value = parts.filter((part): part is string => Boolean(part)).join(' ').trim();
+  private addNameVariation(
+    variations: Set<string>,
+    ...parts: Array<string | null>
+  ): void {
+    const value = parts
+      .filter((part): part is string => Boolean(part))
+      .join(' ')
+      .trim();
     if (value) {
       variations.add(value);
     }
@@ -570,7 +644,9 @@ export class AccessControlAttendanceDevicesService {
 
     for (const variation of nameVariations) {
       const variationTokens = variation.split(' ').filter(Boolean);
-      const sharedTokenCount = variationTokens.filter((token) => candidateTokenSet.has(token)).length;
+      const sharedTokenCount = variationTokens.filter((token) =>
+        candidateTokenSet.has(token),
+      ).length;
 
       if (candidate === variation) {
         bestScore = Math.max(bestScore, 100 + variationTokens.length);
@@ -578,14 +654,17 @@ export class AccessControlAttendanceDevicesService {
       }
 
       if (
-        variationTokens.length >= 2
-        && (candidate.includes(variation) || variation.includes(candidate))
+        variationTokens.length >= 2 &&
+        (candidate.includes(variation) || variation.includes(candidate))
       ) {
         bestScore = Math.max(bestScore, 85 + sharedTokenCount);
         continue;
       }
 
-      if (variationTokens.length >= 2 && sharedTokenCount === variationTokens.length) {
+      if (
+        variationTokens.length >= 2 &&
+        sharedTokenCount === variationTokens.length
+      ) {
         bestScore = Math.max(bestScore, 75 + sharedTokenCount);
         continue;
       }
@@ -593,17 +672,17 @@ export class AccessControlAttendanceDevicesService {
       const variationCoverage = sharedTokenCount / variationTokens.length;
       const candidateCoverage = sharedTokenCount / candidateTokens.length;
       if (
-        sharedTokenCount >= 2
-        && (variationCoverage >= 0.5 || candidateCoverage >= 0.5)
+        sharedTokenCount >= 2 &&
+        (variationCoverage >= 0.5 || candidateCoverage >= 0.5)
       ) {
         bestScore = Math.max(bestScore, 60 + sharedTokenCount);
         continue;
       }
 
       if (
-        variationTokens.length === 1
-        && variation.length >= 3
-        && candidateTokenSet.has(variation)
+        variationTokens.length === 1 &&
+        variation.length >= 3 &&
+        candidateTokenSet.has(variation)
       ) {
         bestScore = Math.max(bestScore, 40 + variation.length);
       }
@@ -629,11 +708,15 @@ export class AccessControlAttendanceDevicesService {
   }
 
   private shouldAutoSyncHikvision(
-    device: Pick<AttendanceDevice, 'integrationType' | 'vendorName' | 'authType'>,
+    device: Pick<
+      AttendanceDevice,
+      'integrationType' | 'vendorName' | 'authType'
+    >,
   ): boolean {
     const integrationType = (device.integrationType || '').trim().toLowerCase();
     const vendorName = (device.vendorName || '').trim().toLowerCase();
-    const isHikvision = integrationType === 'hikvision' || vendorName.includes('hikvision');
+    const isHikvision =
+      integrationType === 'hikvision' || vendorName.includes('hikvision');
     return isHikvision;
   }
 
@@ -655,7 +738,9 @@ export class AccessControlAttendanceDevicesService {
       return error.message;
     }
 
-    return (error as { message?: string } | null)?.message || 'Unknown sync error';
+    return (
+      (error as { message?: string } | null)?.message || 'Unknown sync error'
+    );
   }
 
   private async resolveDeviceCode(
@@ -691,10 +776,15 @@ export class AccessControlAttendanceDevicesService {
       }
     }
 
-    throw new ConflictException('Could not generate a unique device_code, please provide one');
+    throw new ConflictException(
+      'Could not generate a unique device_code, please provide one',
+    );
   }
 
-  private resolveDeviceName(value: string | null | undefined, deviceCode: string): string {
+  private resolveDeviceName(
+    value: string | null | undefined,
+    deviceCode: string,
+  ): string {
     const normalized = value?.trim();
     return normalized || `Attendance Device ${deviceCode}`;
   }

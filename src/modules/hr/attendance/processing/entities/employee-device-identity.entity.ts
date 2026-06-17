@@ -18,9 +18,21 @@ import { AttendanceDevice } from '../../../../access-control/attendance-devices/
 @Index('IDX_employee_device_identities_employee_id', ['employeeId'])
 @Index('IDX_employee_device_identities_employee_no', ['employeeNo'])
 @Index('IDX_employee_device_identities_device_id', ['deviceId'])
-@Index('IDX_employee_device_identities_company_empno_device', ['companyId', 'employeeNo', 'deviceId'])
-@Unique('UQ_employee_device_identities_company_device_employee_no', ['companyId', 'deviceId', 'employeeNo'])
-@Unique('UQ_employee_device_identities_company_employee_device', ['companyId', 'employeeId', 'deviceId'])
+@Index('IDX_employee_device_identities_company_empno_device', [
+  'companyId',
+  'employeeNo',
+  'deviceId',
+])
+@Unique('UQ_employee_device_identities_company_device_employee_no', [
+  'companyId',
+  'deviceId',
+  'employeeNo',
+])
+@Unique('UQ_employee_device_identities_company_employee_device', [
+  'companyId',
+  'employeeId',
+  'deviceId',
+])
 export class EmployeeDeviceIdentity {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -61,4 +73,3 @@ export class EmployeeDeviceIdentity {
   @JoinColumn({ name: 'device_id' })
   device: AttendanceDevice | null;
 }
-

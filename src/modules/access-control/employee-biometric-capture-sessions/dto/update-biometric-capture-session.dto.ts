@@ -22,4 +22,3 @@ export class UpdateBiometricCaptureSessionDto {
   @IsOptional()
   metadata?: Record<string, unknown> | null;
 }
-

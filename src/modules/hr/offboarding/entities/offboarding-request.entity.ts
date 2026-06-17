@@ -123,9 +123,13 @@ export class OffboardingRequest {
   @JoinColumn({ name: 'department_id' })
   department: Department | null;
 
-  @ManyToOne(() => OffboardingWorkflow, (workflow) => workflow.offboarding_requests, {
-    onDelete: 'SET NULL',
-  })
+  @ManyToOne(
+    () => OffboardingWorkflow,
+    (workflow) => workflow.offboarding_requests,
+    {
+      onDelete: 'SET NULL',
+    },
+  )
   @JoinColumn({ name: 'workflow_id' })
   workflow: OffboardingWorkflow | null;
 
@@ -138,14 +142,22 @@ export class OffboardingRequest {
   })
   tasks: OffboardingTask[];
 
-  @OneToMany(() => OffboardingApproval, (approval) => approval.offboarding_request, {
-    cascade: true,
-  })
+  @OneToMany(
+    () => OffboardingApproval,
+    (approval) => approval.offboarding_request,
+    {
+      cascade: true,
+    },
+  )
   approvals: OffboardingApproval[];
 
-  @OneToMany(() => OffboardingClearance, (clearance) => clearance.offboarding_request, {
-    cascade: true,
-  })
+  @OneToMany(
+    () => OffboardingClearance,
+    (clearance) => clearance.offboarding_request,
+    {
+      cascade: true,
+    },
+  )
   clearances: OffboardingClearance[];
 
   @OneToMany(() => OffboardingAuditLog, (audit) => audit.offboarding_request)

@@ -18,7 +18,10 @@ import { Permissions } from '../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
-import { ApiActionOperation, ApiListOperation } from '../../docs/swagger-decorators';
+import {
+  ApiActionOperation,
+  ApiListOperation,
+} from '../../docs/swagger-decorators';
 import { PullAttendancePageDto } from './dto/pull-attendance-page.dto';
 import { QueryHikvisionAttendanceLogsDto } from './dto/query-hikvision-attendance-logs.dto';
 import { QueryHikvisionAttendanceSyncHistoryDto } from './dto/query-hikvision-attendance-sync-history.dto';
@@ -32,24 +35,35 @@ import { HikvisionAttendanceSyncService } from './hikvision-attendance-sync.serv
 @Controller('hikvision')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class HikvisionAttendanceController {
-  constructor(private readonly attendanceSyncService: HikvisionAttendanceSyncService) {}
+  constructor(
+    private readonly attendanceSyncService: HikvisionAttendanceSyncService,
+  ) {}
 
   @Get('devices/:deviceId/attendance/capabilities')
   @UseGuards(PermissionsGuard)
   @Permissions('access_control_sync:execute')
-  @ApiActionOperation('Get Attendance Capabilities', 'Get Hikvision AcsEvent attendance capabilities')
+  @ApiActionOperation(
+    'Get Attendance Capabilities',
+    'Get Hikvision AcsEvent attendance capabilities',
+  )
   getCapabilities(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('deviceId', ParseIntPipe) deviceId: number,
   ) {
-    return this.attendanceSyncService.getAcsEventCapabilities(req.user.companyId!, deviceId);
+    return this.attendanceSyncService.getAcsEventCapabilities(
+      req.user.companyId!,
+      deviceId,
+    );
   }
 
   @Post('devices/:deviceId/attendance/sync')
   @HttpCode(HttpStatus.ACCEPTED)
   @UseGuards(PermissionsGuard)
   @Permissions('access_control_sync:execute')
-  @ApiActionOperation('Start Attendance Sync', 'Queue a background attendance sync for a date-time range')
+  @ApiActionOperation(
+    'Start Attendance Sync',
+    'Queue a background attendance sync for a date-time range',
+  )
   syncByRange(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('deviceId', ParseIntPipe) deviceId: number,
@@ -68,18 +82,27 @@ export class HikvisionAttendanceController {
   @Get('devices/:deviceId/attendance/sync/status')
   @UseGuards(PermissionsGuard)
   @Permissions('access_control_sync:execute')
-  @ApiActionOperation('Get Attendance Sync Status', 'Get the latest attendance background sync status for one device')
+  @ApiActionOperation(
+    'Get Attendance Sync Status',
+    'Get the latest attendance background sync status for one device',
+  )
   getSyncStatus(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('deviceId', ParseIntPipe) deviceId: number,
   ) {
-    return this.attendanceSyncService.getLatestAttendanceSyncStatus(req.user.companyId!, deviceId);
+    return this.attendanceSyncService.getLatestAttendanceSyncStatus(
+      req.user.companyId!,
+      deviceId,
+    );
   }
 
   @Post('devices/:deviceId/attendance/sync-range')
   @UseGuards(PermissionsGuard)
   @Permissions('access_control_sync:execute')
-  @ApiActionOperation('Sync Attendance By Range Alias', 'Sync attendance events for a date-time range')
+  @ApiActionOperation(
+    'Sync Attendance By Range Alias',
+    'Sync attendance events for a date-time range',
+  )
   syncByRangeAlias(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('deviceId', ParseIntPipe) deviceId: number,
@@ -97,7 +120,10 @@ export class HikvisionAttendanceController {
   @HttpCode(HttpStatus.ACCEPTED)
   @UseGuards(PermissionsGuard)
   @Permissions('access_control_sync:execute')
-  @ApiActionOperation('Start Attendance Sync By Date', 'Queue a background attendance sync for one date')
+  @ApiActionOperation(
+    'Start Attendance Sync By Date',
+    'Queue a background attendance sync for one date',
+  )
   syncByDate(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('deviceId', ParseIntPipe) deviceId: number,
@@ -116,7 +142,10 @@ export class HikvisionAttendanceController {
   @Post('devices/:deviceId/attendance/sync-employee')
   @UseGuards(PermissionsGuard)
   @Permissions('access_control_sync:execute')
-  @ApiActionOperation('Sync Attendance By Employee', 'Sync attendance events for one employee')
+  @ApiActionOperation(
+    'Sync Attendance By Employee',
+    'Sync attendance events for one employee',
+  )
   syncByEmployee(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('deviceId', ParseIntPipe) deviceId: number,
@@ -134,7 +163,10 @@ export class HikvisionAttendanceController {
   @Post('devices/:deviceId/attendance/pull-page')
   @UseGuards(PermissionsGuard)
   @Permissions('access_control_sync:execute')
-  @ApiActionOperation('Pull Attendance Page', 'Pull and persist one AcsEvent page')
+  @ApiActionOperation(
+    'Pull Attendance Page',
+    'Pull and persist one AcsEvent page',
+  )
   pullPage(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('deviceId', ParseIntPipe) deviceId: number,
@@ -150,7 +182,10 @@ export class HikvisionAttendanceController {
   @Get('devices/:deviceId/attendance/logs')
   @UseGuards(PermissionsGuard)
   @Permissions('access_control_sync:execute')
-  @ApiListOperation('Device Attendance Logs', 'List Hikvision attendance logs for one device')
+  @ApiListOperation(
+    'Device Attendance Logs',
+    'List Hikvision attendance logs for one device',
+  )
   getDeviceLogs(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('deviceId', ParseIntPipe) deviceId: number,
@@ -165,13 +200,20 @@ export class HikvisionAttendanceController {
   @Get('devices/:deviceId/attendance/sync-history')
   @UseGuards(PermissionsGuard)
   @Permissions('access_control_sync:execute')
-  @ApiListOperation('Attendance Sync History', 'List raw attendance sync history for one device')
+  @ApiListOperation(
+    'Attendance Sync History',
+    'List raw attendance sync history for one device',
+  )
   getDeviceSyncHistory(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('deviceId', ParseIntPipe) deviceId: number,
     @Query() query: QueryHikvisionAttendanceSyncHistoryDto,
   ) {
-    return this.attendanceSyncService.findSyncHistory(req.user.companyId!, deviceId, query);
+    return this.attendanceSyncService.findSyncHistory(
+      req.user.companyId!,
+      deviceId,
+      query,
+    );
   }
 
   @Get('attendance/logs')

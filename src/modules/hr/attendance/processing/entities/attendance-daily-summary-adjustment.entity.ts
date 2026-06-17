@@ -15,7 +15,9 @@ import { AttendanceDailySummary } from './attendance-daily-summary.entity';
 @Entity('attendance_daily_summary_adjustments')
 @Index('IDX_attendance_daily_summary_adjustments_company_id', ['companyId'])
 @Index('IDX_attendance_daily_summary_adjustments_employee_id', ['employeeId'])
-@Index('IDX_attendance_daily_summary_adjustments_attendance_date', ['attendanceDate'])
+@Index('IDX_attendance_daily_summary_adjustments_attendance_date', [
+  'attendanceDate',
+])
 @Index('IDX_attendance_daily_summary_adjustments_is_active', ['isActive'])
 export class AttendanceDailySummaryAdjustment {
   @PrimaryGeneratedColumn({ name: 'id' })
@@ -33,7 +35,12 @@ export class AttendanceDailySummaryAdjustment {
   @Column({ name: 'attendance_date', type: 'date' })
   attendanceDate: string;
 
-  @Column({ name: 'status_override', type: 'varchar', length: 50, nullable: true })
+  @Column({
+    name: 'status_override',
+    type: 'varchar',
+    length: 50,
+    nullable: true,
+  })
   statusOverride: string | null;
 
   @Column({ name: 'check_in_at_override', type: 'timestamp', nullable: true })
@@ -51,7 +58,11 @@ export class AttendanceDailySummaryAdjustment {
   @Column({ name: 'late_minutes_override', type: 'int', nullable: true })
   lateMinutesOverride: number | null;
 
-  @Column({ name: 'early_departure_minutes_override', type: 'int', nullable: true })
+  @Column({
+    name: 'early_departure_minutes_override',
+    type: 'int',
+    nullable: true,
+  })
   earlyDepartureMinutesOverride: number | null;
 
   @Column({ name: 'overtime_minutes_override', type: 'int', nullable: true })
@@ -80,7 +91,10 @@ export class AttendanceDailySummaryAdjustment {
   @JoinColumn({ name: 'employee_id' })
   employee: Employee;
 
-  @ManyToOne(() => AttendanceDailySummary, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => AttendanceDailySummary, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
   @JoinColumn({ name: 'summary_id' })
   summary: AttendanceDailySummary | null;
 

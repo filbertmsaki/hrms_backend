@@ -30,12 +30,17 @@ import { CreateAttendanceDeviceSyncLogDto } from './dtos/create-attendance-devic
 @Controller('attendance/device-sync-logs')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class AttendanceDeviceSyncLogsController {
-  constructor(private readonly syncLogsService: AttendanceDeviceSyncLogsService) {}
+  constructor(
+    private readonly syncLogsService: AttendanceDeviceSyncLogsService,
+  ) {}
 
   @Post()
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_device_sync_logs:create')
-  @ApiCreateOperation('Attendance Device Sync Log', 'Create attendance device sync log')
+  @ApiCreateOperation(
+    'Attendance Device Sync Log',
+    'Create attendance device sync log',
+  )
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: CreateAttendanceDeviceSyncLogDto,
@@ -46,7 +51,10 @@ export class AttendanceDeviceSyncLogsController {
   @Get()
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_device_sync_logs:read')
-  @ApiListOperation('Attendance Device Sync Log', 'List attendance device sync logs')
+  @ApiListOperation(
+    'Attendance Device Sync Log',
+    'List attendance device sync logs',
+  )
   findAll(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: AttendanceDeviceSyncLogQueryDto,
@@ -57,7 +65,10 @@ export class AttendanceDeviceSyncLogsController {
   @Get(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_device_sync_logs:read')
-  @ApiGetOneOperation('Attendance Device Sync Log', 'Get attendance device sync log by ID')
+  @ApiGetOneOperation(
+    'Attendance Device Sync Log',
+    'Get attendance device sync log by ID',
+  )
   findOne(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -65,7 +76,3 @@ export class AttendanceDeviceSyncLogsController {
     return this.syncLogsService.findOne(req.user.companyId!, id);
   }
 }
-
-
-
-

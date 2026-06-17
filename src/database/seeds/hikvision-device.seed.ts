@@ -7,7 +7,10 @@ import { AttendanceDeviceStatusEnum } from '../../modules/access-control/attenda
 import { AttendanceDeviceSyncModeEnum } from '../../modules/access-control/attendance-devices/enums/attendance-device-sync-mode.enum';
 
 export default class HikvisionDeviceSeeder implements Seeder {
-  public async run(dataSource: DataSource, factoryManager: SeederFactoryManager): Promise<void> {
+  public async run(
+    dataSource: DataSource,
+    factoryManager: SeederFactoryManager,
+  ): Promise<void> {
     void factoryManager;
 
     const manager = dataSource.manager;
@@ -38,7 +41,8 @@ export default class HikvisionDeviceSeeder implements Seeder {
       },
     });
 
-    const device = existing ?? deviceRepository.create({ companyId: company.id });
+    const device =
+      existing ?? deviceRepository.create({ companyId: company.id });
     device.branchId = branch?.id ?? null;
     device.deviceName = 'Main Hikvision Device';
     device.deviceCode = device.deviceCode || `HIK-${company.id}-MAIN`;
@@ -65,4 +69,3 @@ export default class HikvisionDeviceSeeder implements Seeder {
     );
   }
 }
-

@@ -5,7 +5,9 @@ import { Timetable } from '../timetables/entities/timetable.entity';
 import { TimetableGeneratedScheduleInvalidationService } from '../timetable-generated-schedules/timetable-generated-schedule-invalidation.service';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
 
-type MockRepo<T extends ObjectLiteral> = Partial<Record<keyof Repository<T>, jest.Mock>>;
+type MockRepo<T extends ObjectLiteral> = Partial<
+  Record<keyof Repository<T>, jest.Mock>
+>;
 
 const createRepositoryMock = <T extends ObjectLiteral>(): MockRepo<T> => ({
   findOne: jest.fn(),

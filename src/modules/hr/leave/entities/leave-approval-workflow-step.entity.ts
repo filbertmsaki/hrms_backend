@@ -20,7 +20,10 @@ import { LeaveApprovalWorkflow } from './leave-approval-workflow.entity';
 import { LeaveRequestApproval } from './leave-request-approval.entity';
 
 @Entity('leave_approval_workflow_steps')
-@Unique('UQ_leave_workflow_step_workflow_level', ['workflow_id', 'approval_level'])
+@Unique('UQ_leave_workflow_step_workflow_level', [
+  'workflow_id',
+  'approval_level',
+])
 @Index('IDX_leave_workflow_step_workflow', ['workflow_id'])
 @Index('IDX_leave_workflow_step_role', ['role_id'])
 @Index('IDX_leave_workflow_step_position', ['position_id'])

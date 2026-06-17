@@ -117,7 +117,3 @@ export class AttendancePoliciesController {
     return this.attendancePoliciesService.remove(req.user.companyId!, id);
   }
 }
-
-
-
-

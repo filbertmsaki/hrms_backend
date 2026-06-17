@@ -35,7 +35,9 @@ export class AccessGroupDevice {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-  @ManyToOne(() => AccessGroup, (group) => group.devices, { onDelete: 'CASCADE' })
+  @ManyToOne(() => AccessGroup, (group) => group.devices, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'access_group_id' })
   accessGroup: AccessGroup;
 

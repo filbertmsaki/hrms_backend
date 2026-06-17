@@ -114,8 +114,17 @@ export class AttendanceProcessingService {
     };
   }
 
-  private async processRawLog(companyId: number, rawLog: HikvisionAttendanceLog) {
-    const counters = { inserted: 0, updated: 0, skipped: 0, failed: 0, unmatched: 0 };
+  private async processRawLog(
+    companyId: number,
+    rawLog: HikvisionAttendanceLog,
+  ) {
+    const counters = {
+      inserted: 0,
+      updated: 0,
+      skipped: 0,
+      failed: 0,
+      unmatched: 0,
+    };
     const nextProcessingAttempt = (rawLog.processingAttempts ?? 0) + 1;
 
     try {
@@ -167,25 +176,24 @@ export class AttendanceProcessingService {
         } else {
           counters.skipped += 1;
         }
-
       } else {
         processedEvent = await this.processedEventRepository.save(
           this.processedEventRepository.create({
-          companyId: rawLog.companyId,
-          branchId: rawLog.branchId,
-          employeeId: resolution.employeeId,
-          employeeNo: rawLog.employeeNo,
-          deviceId: rawLog.deviceId,
-          rawLogId: rawLog.id,
-          eventTime: rawLog.eventTime,
-          attendanceDate: this.asDate(rawLog.eventTime),
-          direction: this.inferDirection(rawLog),
-          eventType: rawLog.eventType,
-          verifyMode: rawLog.verifyMode,
-          isValid,
-          processingStatus: nextProcessingStatus,
-          processingReason: resolution.reason,
-          rawPayloadSnapshot: rawLog.rawPayload,
+            companyId: rawLog.companyId,
+            branchId: rawLog.branchId,
+            employeeId: resolution.employeeId,
+            employeeNo: rawLog.employeeNo,
+            deviceId: rawLog.deviceId,
+            rawLogId: rawLog.id,
+            eventTime: rawLog.eventTime,
+            attendanceDate: this.asDate(rawLog.eventTime),
+            direction: this.inferDirection(rawLog),
+            eventType: rawLog.eventType,
+            verifyMode: rawLog.verifyMode,
+            isValid,
+            processingStatus: nextProcessingStatus,
+            processingReason: resolution.reason,
+            rawPayloadSnapshot: rawLog.rawPayload,
           }),
         );
         counters.inserted += 1;
@@ -241,7 +249,9 @@ export class AttendanceProcessingService {
         counters.skipped += 1;
       } else {
         counters.failed += 1;
-        this.logger.warn(`Failed to process raw log ${rawLog.id}: ${(error as Error).message}`);
+        this.logger.warn(
+          `Failed to process raw log ${rawLog.id}: ${(error as Error).message}`,
+        );
       }
     }
 
@@ -328,18 +338,26 @@ export class AttendanceProcessingService {
    *
    * Falls back to the device-reported attendanceStatus string, then UNKNOWN.
    */
-  private inferDirection(rawLog: HikvisionAttendanceLog): AttendanceProcessedEventDirectionEnum {
-    const checkInMinors  = new Set([1, 3, 75]);
+  private inferDirection(
+    rawLog: HikvisionAttendanceLog,
+  ): AttendanceProcessedEventDirectionEnum {
+    const checkInMinors = new Set([1, 3, 75]);
     const checkOutMinors = new Set([2, 4, 76]);
 
     if (typeof rawLog.minor === 'number') {
-      if (checkInMinors.has(rawLog.minor))  return AttendanceProcessedEventDirectionEnum.IN;
-      if (checkOutMinors.has(rawLog.minor)) return AttendanceProcessedEventDirectionEnum.OUT;
+      if (checkInMinors.has(rawLog.minor))
+        return AttendanceProcessedEventDirectionEnum.IN;
+      if (checkOutMinors.has(rawLog.minor))
+        return AttendanceProcessedEventDirectionEnum.OUT;
     }
 
-    const status = (rawLog.attendanceStatus ?? '').toLowerCase().replace(/[\s_-]/g, '');
-    if (status.includes('checkin')  || status === 'in')  return AttendanceProcessedEventDirectionEnum.IN;
-    if (status.includes('checkout') || status === 'out') return AttendanceProcessedEventDirectionEnum.OUT;
+    const status = (rawLog.attendanceStatus ?? '')
+      .toLowerCase()
+      .replace(/[\s_-]/g, '');
+    if (status.includes('checkin') || status === 'in')
+      return AttendanceProcessedEventDirectionEnum.IN;
+    if (status.includes('checkout') || status === 'out')
+      return AttendanceProcessedEventDirectionEnum.OUT;
 
     return AttendanceProcessedEventDirectionEnum.UNKNOWN;
   }

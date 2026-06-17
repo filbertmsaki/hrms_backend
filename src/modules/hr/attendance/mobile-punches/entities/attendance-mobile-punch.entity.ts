@@ -125,7 +125,12 @@ export class AttendanceMobilePunch {
   @Column({ name: 'user_agent', type: 'text', nullable: true })
   userAgent: string | null;
 
-  @Column({ name: 'device_identifier', type: 'varchar', length: 255, nullable: true })
+  @Column({
+    name: 'device_identifier',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
   deviceIdentifier: string | null;
 
   @Column({
@@ -202,7 +207,10 @@ export class AttendanceMobilePunch {
   @JoinColumn({ name: 'geofence_id' })
   geofence: AttendanceGeofence | null;
 
-  @ManyToOne(() => AttendanceWifiNetwork, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => AttendanceWifiNetwork, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
   @JoinColumn({ name: 'wifi_network_id' })
   wifiNetwork: AttendanceWifiNetwork | null;
 

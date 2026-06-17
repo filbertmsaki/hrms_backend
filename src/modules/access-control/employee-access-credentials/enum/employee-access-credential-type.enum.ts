@@ -6,4 +6,3 @@ export enum EmployeeAccessCredentialTypeEnum {
   QR = 'QR',
   PIN = 'PIN',
 }
-

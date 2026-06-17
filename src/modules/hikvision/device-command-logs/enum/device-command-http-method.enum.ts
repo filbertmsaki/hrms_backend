@@ -4,4 +4,3 @@ export enum DeviceCommandHttpMethodEnum {
   PUT = 'PUT',
   DELETE = 'DELETE',
 }
-

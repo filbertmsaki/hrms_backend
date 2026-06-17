@@ -62,7 +62,12 @@ export class AccessGroup {
   })
   source: AccessGroupSourceEnum;
 
-  @Column({ name: 'grouping_key', type: 'varchar', length: 255, nullable: true })
+  @Column({
+    name: 'grouping_key',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
   groupingKey: string | null;
 
   @Column({ name: 'is_virtual', type: 'boolean', default: true })
@@ -94,10 +99,14 @@ export class AccessGroup {
   @JoinColumn({ name: 'branch_id' })
   branch: Branch | null;
 
-  @ManyToOne(() => AccessOrganization, (organization) => organization.accessGroups, {
-    nullable: true,
-    onDelete: 'SET NULL',
-  })
+  @ManyToOne(
+    () => AccessOrganization,
+    (organization) => organization.accessGroups,
+    {
+      nullable: true,
+      onDelete: 'SET NULL',
+    },
+  )
   @JoinColumn({ name: 'organization_id' })
   organization: AccessOrganization | null;
 
@@ -107,7 +116,9 @@ export class AccessGroup {
   @OneToMany(() => AccessGroupDoor, (groupDoor) => groupDoor.accessGroup)
   doors: AccessGroupDoor[];
 
-  @OneToMany(() => AccessGroupEmployee, (groupEmployee) => groupEmployee.accessGroup)
+  @OneToMany(
+    () => AccessGroupEmployee,
+    (groupEmployee) => groupEmployee.accessGroup,
+  )
   employees: AccessGroupEmployee[];
 }
-

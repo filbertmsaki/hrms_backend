@@ -44,43 +44,61 @@ export class OnboardingWorkflowService {
     private readonly employeePositionRepository: Repository<EmployeePosition>,
   ) {}
 
-  private getWorkflowRepository(manager?: EntityManager): Repository<OnboardingWorkflow> {
-    return manager?.getRepository(OnboardingWorkflow) ?? this.workflowRepository;
+  private getWorkflowRepository(
+    manager?: EntityManager,
+  ): Repository<OnboardingWorkflow> {
+    return (
+      manager?.getRepository(OnboardingWorkflow) ?? this.workflowRepository
+    );
   }
 
   private getWorkflowStepRepository(
     manager?: EntityManager,
   ): Repository<OnboardingWorkflowStep> {
-    return manager?.getRepository(OnboardingWorkflowStep) ?? this.workflowStepRepository;
+    return (
+      manager?.getRepository(OnboardingWorkflowStep) ??
+      this.workflowStepRepository
+    );
   }
 
   private getOnboardingApprovalRepository(
     manager?: EntityManager,
   ): Repository<OnboardingApproval> {
-    return manager?.getRepository(OnboardingApproval) ?? this.onboardingApprovalRepository;
+    return (
+      manager?.getRepository(OnboardingApproval) ??
+      this.onboardingApprovalRepository
+    );
   }
 
   private getOnboardingRequestRepository(
     manager?: EntityManager,
   ): Repository<OnboardingRequest> {
-    return manager?.getRepository(OnboardingRequest) ?? this.onboardingRequestRepository;
+    return (
+      manager?.getRepository(OnboardingRequest) ??
+      this.onboardingRequestRepository
+    );
   }
 
-  private getCompanyUserRepository(manager?: EntityManager): Repository<CompanyUser> {
+  private getCompanyUserRepository(
+    manager?: EntityManager,
+  ): Repository<CompanyUser> {
     return manager?.getRepository(CompanyUser) ?? this.companyUserRepository;
   }
 
   private getCompanyUserRoleRepository(
     manager?: EntityManager,
   ): Repository<CompanyUserRole> {
-    return manager?.getRepository(CompanyUserRole) ?? this.companyUserRoleRepository;
+    return (
+      manager?.getRepository(CompanyUserRole) ?? this.companyUserRoleRepository
+    );
   }
 
   private getEmployeePositionRepository(
     manager?: EntityManager,
   ): Repository<EmployeePosition> {
     return (
-      manager?.getRepository(EmployeePosition) ?? this.employeePositionRepository
+      manager?.getRepository(EmployeePosition) ??
+      this.employeePositionRepository
     );
   }
 
@@ -161,7 +179,9 @@ export class OnboardingWorkflowService {
         .groupBy('assignment.company_user_id')
         .getRawMany<{ company_user_id: number }>();
 
-      return assignments.map((assignment) => Number(assignment.company_user_id));
+      return assignments.map((assignment) =>
+        Number(assignment.company_user_id),
+      );
     }
 
     if (!step.position_id) {
@@ -180,7 +200,9 @@ export class OnboardingWorkflowService {
       .andWhere('employeePosition.status = :assignmentStatus', {
         assignmentStatus: EmployeePositionStatusEnum.ACTIVE,
       })
-      .andWhere('(employeePosition.end_date IS NULL OR employeePosition.end_date >= CURDATE())')
+      .andWhere(
+        '(employeePosition.end_date IS NULL OR employeePosition.end_date >= CURDATE())',
+      )
       .andWhere('membership.company_id = :companyId', { companyId })
       .andWhere('membership.status = :status', { status: 'active' })
       .select('membership.id', 'company_user_id')
@@ -204,7 +226,9 @@ export class OnboardingWorkflowService {
       );
     }
 
-    const employees = await assignments.getRawMany<{ company_user_id: number }>();
+    const employees = await assignments.getRawMany<{
+      company_user_id: number;
+    }>();
 
     return employees.map((entry) => Number(entry.company_user_id));
   }
@@ -222,14 +246,20 @@ export class OnboardingWorkflowService {
     });
 
     if (!steps.length) {
-      throw new BadRequestException('Configured workflow has no approval steps');
+      throw new BadRequestException(
+        'Configured workflow has no approval steps',
+      );
     }
 
     const approvalRepository = this.getOnboardingApprovalRepository(manager);
 
     let initialLevel = 0;
     for (const step of steps) {
-      const membershipIds = await this.resolveApproverMembershipIds(companyId, step, manager);
+      const membershipIds = await this.resolveApproverMembershipIds(
+        companyId,
+        step,
+        manager,
+      );
 
       if (!membershipIds.length) {
         if (step.is_required) {
@@ -245,7 +275,8 @@ export class OnboardingWorkflowService {
             approval_level: step.approval_level,
             approver_company_user_id: null,
             status: OnboardingApprovalStatusEnum.SKIPPED,
-            comments: 'Step skipped automatically due to missing eligible approver',
+            comments:
+              'Step skipped automatically due to missing eligible approver',
             acted_at: new Date(),
           }),
         );
@@ -270,7 +301,9 @@ export class OnboardingWorkflowService {
     }
 
     if (!initialLevel) {
-      throw new BadRequestException('Workflow initialization produced no pending approvals');
+      throw new BadRequestException(
+        'Workflow initialization produced no pending approvals',
+      );
     }
 
     onboardingRequest.workflow_id = workflow.id;
@@ -306,7 +339,9 @@ export class OnboardingWorkflowService {
       onboardingRequest.status !== OnboardingRequestStatusEnum.IN_REVIEW &&
       onboardingRequest.status !== OnboardingRequestStatusEnum.IN_PROGRESS
     ) {
-      throw new BadRequestException('Only active onboarding requests can be acted on');
+      throw new BadRequestException(
+        'Only active onboarding requests can be acted on',
+      );
     }
 
     const currentLevel = onboardingRequest.current_approval_level;
@@ -339,11 +374,15 @@ export class OnboardingWorkflowService {
     actorApproval.acted_at = new Date();
     await approvalRepository.save(actorApproval);
 
-    const otherPending = candidateApprovals.filter((entry) => entry.id !== actorApproval.id);
+    const otherPending = candidateApprovals.filter(
+      (entry) => entry.id !== actorApproval.id,
+    );
     if (otherPending.length) {
       otherPending.forEach((entry) => {
         entry.status = OnboardingApprovalStatusEnum.SKIPPED;
-        entry.comments = entry.comments ?? 'Skipped because another approver completed this level';
+        entry.comments =
+          entry.comments ??
+          'Skipped because another approver completed this level';
         entry.acted_at = new Date();
       });
       await approvalRepository.save(otherPending);
@@ -363,7 +402,8 @@ export class OnboardingWorkflowService {
       if (futurePending.length) {
         futurePending.forEach((entry) => {
           entry.status = OnboardingApprovalStatusEnum.SKIPPED;
-          entry.comments = entry.comments ?? 'Skipped after onboarding rejection';
+          entry.comments =
+            entry.comments ?? 'Skipped after onboarding rejection';
           entry.acted_at = new Date();
         });
         await approvalRepository.save(futurePending);

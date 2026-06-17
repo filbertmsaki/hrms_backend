@@ -96,7 +96,8 @@ export default class LeaveManagementSeeder implements Seeder {
     const holidayRepo = manager.getRepository(Holiday);
     const companyUserRepo = manager.getRepository(CompanyUser);
 
-    const companyName = process.env.DEFAULT_COMPANY_NAME ?? ALLIANCE_COMPANY_NAME;
+    const companyName =
+      process.env.DEFAULT_COMPANY_NAME ?? ALLIANCE_COMPANY_NAME;
     const company = await companyRepo.findOne({ where: { name: companyName } });
 
     if (!company) {
@@ -106,7 +107,10 @@ export default class LeaveManagementSeeder implements Seeder {
       return;
     }
 
-    const leaveTypesByCode = await this.ensureLeaveTypes(leaveTypeRepo, company.id);
+    const leaveTypesByCode = await this.ensureLeaveTypes(
+      leaveTypeRepo,
+      company.id,
+    );
     const policy = await this.ensurePolicy(
       leavePolicyRepo,
       leavePolicyTypeRepo,
@@ -277,7 +281,10 @@ export default class LeaveManagementSeeder implements Seeder {
       return;
     }
 
-    await workflowRepo.update({ company_id: companyId, is_default: true }, { is_default: false });
+    await workflowRepo.update(
+      { company_id: companyId, is_default: true },
+      { is_default: false },
+    );
 
     let workflow = await workflowRepo.findOne({
       where: {

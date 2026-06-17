@@ -16,9 +16,10 @@ export class HikvisionDeviceQueryDto {
   @IsOptional()
   status?: AttendanceDeviceStatusEnum;
 
-  @ApiPropertyOptional({ description: 'Search by device name, code, serial or IP address' })
+  @ApiPropertyOptional({
+    description: 'Search by device name, code, serial or IP address',
+  })
   @IsString()
   @IsOptional()
   search?: string;
 }
-

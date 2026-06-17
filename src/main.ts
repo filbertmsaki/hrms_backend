@@ -33,7 +33,9 @@ async function bootstrap() {
   const port = process.env.PORT || 3000;
   await app.listen(port, '0.0.0.0');
   console.log(`Application is running on: http://localhost:${port}`);
-  console.log(`Swagger API Docs: http://localhost:${port}/${SWAGGER_DOCS_PATH}`);
+  console.log(
+    `Swagger API Docs: http://localhost:${port}/${SWAGGER_DOCS_PATH}`,
+  );
   console.log(`Scalar API Docs: http://localhost:${port}${SCALAR_DOCS_PATH}`);
   console.log(`OpenAPI JSON: http://localhost:${port}${OPENAPI_JSON_PATH}`);
 }

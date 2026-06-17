@@ -67,7 +67,10 @@ export class EmployeesController {
   @Post()
   @UseGuards(PermissionsGuard)
   @Permissions('employees:create')
-  @ApiCreateOperation('Employee', 'Create an employee profile for a company user')
+  @ApiCreateOperation(
+    'Employee',
+    'Create an employee profile for a company user',
+  )
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() createEmployeeDto: CreateEmployeeDto,
@@ -652,7 +655,9 @@ export class EmployeesController {
   @Post(':employeeId/professional-qualifications')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
-  @ApiOperationSummary('Add a professional qualification to an employee profile')
+  @ApiOperationSummary(
+    'Add a professional qualification to an employee profile',
+  )
   @ApiAuthRequired()
   @ApiValidationErrorResponse()
   @ApiSuccessResponse(201, 'Professional qualification added successfully')
@@ -692,7 +697,9 @@ export class EmployeesController {
     );
   }
 
-  @Delete(':employeeId/professional-qualifications/:professionalQualificationId')
+  @Delete(
+    ':employeeId/professional-qualifications/:professionalQualificationId',
+  )
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
   @ApiOperationSummary('Remove a professional qualification')

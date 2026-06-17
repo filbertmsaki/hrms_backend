@@ -90,22 +90,34 @@ export class HikvisionPeopleCredentialSyncController {
   @Post('devices/:deviceId/sync-cards')
   @UseGuards(PermissionsGuard)
   @Permissions('access_control_sync:execute')
-  @ApiActionOperation('Sync Cards', 'Sync Hikvision cards into backend credentials')
+  @ApiActionOperation(
+    'Sync Cards',
+    'Sync Hikvision cards into backend credentials',
+  )
   syncCards(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('deviceId', ParseIntPipe) deviceId: number,
   ) {
-    return this.peopleCredentialSyncService.syncCards(req.user.companyId!, deviceId);
+    return this.peopleCredentialSyncService.syncCards(
+      req.user.companyId!,
+      deviceId,
+    );
   }
 
   @Get('sync-jobs/:jobId')
   @UseGuards(PermissionsGuard)
   @Permissions('access_control_sync:execute')
-  @ApiActionOperation('Get Sync Job Status', 'Get the status of one background Hikvision sync job')
+  @ApiActionOperation(
+    'Get Sync Job Status',
+    'Get the status of one background Hikvision sync job',
+  )
   getSyncJobStatus(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('jobId') jobId: string,
   ) {
-    return this.hikvisionSyncJobsService.getJobStatus(req.user.companyId!, jobId);
+    return this.hikvisionSyncJobsService.getJobStatus(
+      req.user.companyId!,
+      jobId,
+    );
   }
 }

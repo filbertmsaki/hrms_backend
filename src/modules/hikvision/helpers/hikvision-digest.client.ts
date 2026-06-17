@@ -22,12 +22,16 @@ export class HikvisionDigestClient {
   ): Promise<HikvisionHttpResponse> {
     const timeoutMs =
       options.timeoutMs ??
-      Number(this.configService.get<string>('HIKVISION_REQUEST_TIMEOUT_MS') ?? 15000);
+      Number(
+        this.configService.get<string>('HIKVISION_REQUEST_TIMEOUT_MS') ?? 15000,
+      );
     const client = new DigestFetch(credentials.username, credentials.password);
 
     const timeoutController = new AbortController();
     const timeoutHandle =
-      timeoutMs > 0 ? setTimeout(() => timeoutController.abort(), timeoutMs) : null;
+      timeoutMs > 0
+        ? setTimeout(() => timeoutController.abort(), timeoutMs)
+        : null;
 
     try {
       const response = await client.fetch(this.buildUrl(credentials, path), {
@@ -39,7 +43,9 @@ export class HikvisionDigestClient {
 
       const body = await response.text();
       if (response.status === 401) {
-        throw new UnauthorizedException('Hikvision digest authentication failed (401)');
+        throw new UnauthorizedException(
+          'Hikvision digest authentication failed (401)',
+        );
       }
 
       return {
@@ -63,8 +69,14 @@ export class HikvisionDigestClient {
         throw new ServiceUnavailableException('Hikvision connection reset');
       }
 
-      if (code === 'ENOTFOUND' || code === 'EHOSTUNREACH' || code === 'ECONNREFUSED') {
-        throw new ServiceUnavailableException('Hikvision device is offline or unreachable');
+      if (
+        code === 'ENOTFOUND' ||
+        code === 'EHOSTUNREACH' ||
+        code === 'ECONNREFUSED'
+      ) {
+        throw new ServiceUnavailableException(
+          'Hikvision device is offline or unreachable',
+        );
       }
 
       throw error;
@@ -75,7 +87,10 @@ export class HikvisionDigestClient {
     }
   }
 
-  private buildUrl(credentials: HikvisionConnectionCredentials, path: string): string {
+  private buildUrl(
+    credentials: HikvisionConnectionCredentials,
+    path: string,
+  ): string {
     const safePath = path.startsWith('/') ? path : `/${path}`;
     const protocol = (credentials.protocol || 'http').toLowerCase();
     const isDefaultPort =
@@ -85,7 +100,10 @@ export class HikvisionDigestClient {
     return `${protocol}://${credentials.ipAddress}${portSegment}${safePath}`;
   }
 
-  private combineSignals(signalA?: AbortSignal, signalB?: AbortSignal): AbortSignal | undefined {
+  private combineSignals(
+    signalA?: AbortSignal,
+    signalB?: AbortSignal,
+  ): AbortSignal | undefined {
     if (signalA && signalB) {
       if (typeof AbortSignal.any === 'function') {
         return AbortSignal.any([signalA, signalB]);
