@@ -649,11 +649,17 @@ export class AttendanceDailySummaryService {
       'attendance_date',
       'created_at',
     ]);
+    const columnPropertyMap: Record<string, string> = {
+      event_time: 'eventTime',
+      attendance_date: 'attendanceDate',
+      created_at: 'createdAt',
+    };
     const safeSortBy = sortableColumns.has(sortBy) ? sortBy : 'event_time';
+    const safeSortProperty = columnPropertyMap[safeSortBy] ?? safeSortBy;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
     const [rows, total] = await qb
-      .orderBy(`event.${safeSortBy}`, direction)
+      .orderBy(`event.${safeSortProperty}`, direction)
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();

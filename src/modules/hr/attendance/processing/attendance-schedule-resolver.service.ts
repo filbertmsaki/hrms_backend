@@ -371,8 +371,8 @@ export class AttendanceScheduleResolverService {
           scheduleDate,
         },
       )
-      .orderBy('assignment.is_primary', 'DESC')
-      .addOrderBy('assignment.effective_from', 'DESC')
+      .orderBy('assignment.isPrimary', 'DESC')
+      .addOrderBy('assignment.effectiveFrom', 'DESC')
       .getOne();
 
     if (!assignment) return null;
@@ -784,7 +784,7 @@ export class AttendanceScheduleResolverService {
         'CASE WHEN holiday.date = :scheduleDate THEN 0 ELSE 1 END',
         'ASC',
       )
-      .addOrderBy('holiday.branch_id', 'DESC')
+      .addOrderBy('holiday.branchId', 'DESC')
       .setParameter('scheduleDate', scheduleDate)
       .getOne();
   }

@@ -234,7 +234,7 @@ export class TimetableScheduleGenerationService {
         '(assignment.effective_to IS NULL OR assignment.effective_to >= :scheduleDate)',
         { scheduleDate },
       )
-      .orderBy('assignment.effective_from', 'DESC')
+      .orderBy('assignment.effectiveFrom', 'DESC')
       .getOne();
   }
 
@@ -400,7 +400,7 @@ export class TimetableScheduleGenerationService {
         'CASE WHEN holiday.date = :scheduleDate THEN 0 ELSE 1 END',
         'ASC',
       )
-      .addOrderBy('holiday.branch_id', 'DESC')
+      .addOrderBy('holiday.branchId', 'DESC')
       .setParameter('scheduleDate', scheduleDate)
       .getOne();
   }

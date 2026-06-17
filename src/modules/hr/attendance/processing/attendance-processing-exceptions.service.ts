@@ -161,11 +161,19 @@ export class AttendanceProcessingExceptionsService {
       'exception_type',
       'status',
     ]);
+    const columnPropertyMap: Record<string, string> = {
+      created_at: 'createdAt',
+      updated_at: 'updatedAt',
+      attendance_date: 'attendanceDate',
+      exception_type: 'exceptionType',
+      status: 'status',
+    };
     const safeSortBy = sortableColumns.has(sortBy) ? sortBy : 'created_at';
+    const safeSortProperty = columnPropertyMap[safeSortBy] ?? safeSortBy;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
     const [rows, total] = await qb
-      .orderBy(`exception.${safeSortBy}`, direction)
+      .orderBy(`exception.${safeSortProperty}`, direction)
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
