@@ -594,11 +594,18 @@ export class AttendanceDailySummaryService {
       'updated_at',
       'employee_id',
     ]);
+    const columnPropertyMap: Record<string, string> = {
+      attendance_date: 'attendanceDate',
+      created_at: 'createdAt',
+      updated_at: 'updatedAt',
+      employee_id: 'employeeId',
+    };
     const safeSortBy = sortableColumns.has(sortBy) ? sortBy : 'attendance_date';
+    const safeSortProperty = columnPropertyMap[safeSortBy] ?? safeSortBy;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
     const [rows, total] = await qb
-      .orderBy(`summary.${safeSortBy}`, direction)
+      .orderBy(`summary.${safeSortProperty}`, direction)
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
