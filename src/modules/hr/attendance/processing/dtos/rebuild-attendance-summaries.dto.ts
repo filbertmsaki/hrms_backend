@@ -5,6 +5,8 @@ import {
   IsDateString,
   IsInt,
   IsOptional,
+  IsString,
+  MaxLength,
   Min,
 } from 'class-validator';
 
@@ -19,8 +21,7 @@ export class RebuildAttendanceSummariesDto {
 
   @ApiPropertyOptional({
     example: 123,
-    description:
-      'Limit to a single employee. Omit to rebuild for all employees in the range.',
+    description: 'Limit to a single employee. Omit to rebuild for all employees in the range.',
   })
   @Type(() => Number)
   @IsInt()
@@ -30,10 +31,29 @@ export class RebuildAttendanceSummariesDto {
 
   @ApiPropertyOptional({
     default: true,
-    description:
-      'Delete existing summaries before rebuilding. Use false to only upsert without clearing.',
+    description: 'Delete existing summaries before rebuilding. Use false to only upsert without clearing.',
   })
   @IsBoolean()
   @IsOptional()
   force_rebuild?: boolean;
+
+  @ApiPropertyOptional({
+    example: 'Shift rules updated',
+    description: 'Reason for the rebuild. Recorded on the job when async is true.',
+  })
+  @IsString()
+  @MaxLength(255)
+  @IsOptional()
+  reason?: string;
+
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      'When true, creates a queued job and returns immediately. ' +
+      'Trigger execution via POST /processing/jobs/run-pending or GET /processing/jobs to monitor. ' +
+      'When false (default), runs synchronously and returns the result.',
+  })
+  @IsBoolean()
+  @IsOptional()
+  async?: boolean;
 }

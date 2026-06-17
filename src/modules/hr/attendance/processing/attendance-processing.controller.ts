@@ -33,7 +33,6 @@ import { QueryAttendanceExceptionsDto } from './dtos/query-attendance-exceptions
 import { QueryAttendanceDailySummariesDto } from './dtos/query-attendance-daily-summaries.dto';
 import { QueryAttendanceProcessingJobsDto } from './dtos/query-attendance-processing-jobs.dto';
 import { QueryUnmatchedAttendanceLogsDto } from './dtos/query-unmatched-attendance-logs.dto';
-import { RecalculateAttendanceDto } from './dtos/recalculate-attendance.dto';
 import { RebuildAttendanceSummariesDto } from './dtos/rebuild-attendance-summaries.dto';
 import { UpdateAttendanceExceptionStatusDto } from './dtos/update-attendance-exception-status.dto';
 import { UpsertAttendanceDailySummaryAdjustmentDto } from './dtos/upsert-attendance-daily-summary-adjustment.dto';
@@ -62,24 +61,6 @@ export class AttendanceProcessingController {
     @Body() dto: ProcessAttendanceRangeDto,
   ) {
     return this.processingService.processRange(req.user.companyId!, dto);
-  }
-
-  @Post('processing/recalculate')
-  @UseGuards(PermissionsGuard)
-  @Permissions('attendance_recalculation:execute')
-  @ApiActionOperation(
-    'Queue Attendance Recalculation',
-    'Queue and optionally execute attendance recalculation',
-  )
-  recalculate(
-    @Req() req: ExpressRequest & { user: AuthenticatedUser },
-    @Body() dto: RecalculateAttendanceDto,
-  ) {
-    return this.recalculationService.queueRecalculation(
-      req.user.companyId!,
-      req.user.companyMembershipId ?? null,
-      dto,
-    );
   }
 
   @Post('processing/jobs/run-pending')
@@ -112,12 +93,28 @@ export class AttendanceProcessingController {
   @Permissions('attendance_recalculation:execute')
   @ApiActionOperation(
     'Rebuild Attendance Summaries',
-    'Rebuild daily attendance summaries for a date range from already-processed events. Does not re-import raw device logs.',
+    'Rebuild daily attendance summaries for a date range. ' +
+      'Set async=true to queue a background job and return immediately; ' +
+      'omit or set async=false to run synchronously and return the result.',
   )
   rebuildSummaries(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: RebuildAttendanceSummariesDto,
   ) {
+    if (dto.async) {
+      return this.recalculationService.queueRecalculation(
+        req.user.companyId!,
+        req.user.companyMembershipId ?? null,
+        {
+          start_date: dto.start_date,
+          end_date: dto.end_date,
+          employee_id: dto.employee_id,
+          reason: dto.reason,
+          process_immediately: false,
+        },
+      );
+    }
+
     return this.dailySummaryService.rebuildSummariesForRange({
       companyId: req.user.companyId!,
       startDate: dto.start_date,
