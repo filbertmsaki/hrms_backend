@@ -553,30 +553,49 @@ export class AttendanceDailySummaryService {
       sortBy = 'attendance_date',
       sortOrder = SortDirection.DESC,
       employee_id,
+      employee_no,
+      start_time,
+      end_time,
+      organization_id,
+      status,
       from_date,
       to_date,
       attendance_status,
     } = query;
 
+    const effectiveFromDate = start_time ?? from_date;
+    const effectiveToDate = end_time ?? to_date;
+    const effectiveStatus = status ?? attendance_status?.trim().toUpperCase();
+
     const qb = this.dailySummaryRepository
       .createQueryBuilder('summary')
+      .leftJoinAndSelect('summary.employee', 'employee')
       .where('summary.company_id = :companyId', { companyId });
 
     if (employee_id)
       qb.andWhere('summary.employee_id = :employeeId', {
         employeeId: employee_id,
       });
-    if (from_date)
+    if (employee_no?.trim())
+      qb.andWhere('employee.employee_no = :employeeNo', {
+        employeeNo: employee_no.trim(),
+      });
+    if (effectiveFromDate)
       qb.andWhere('summary.attendance_date >= :fromDate', {
-        fromDate: from_date,
+        fromDate: effectiveFromDate,
       });
-    if (to_date)
-      qb.andWhere('summary.attendance_date <= :toDate', { toDate: to_date });
-    if (attendance_status?.trim()) {
+    if (effectiveToDate)
+      qb.andWhere('summary.attendance_date <= :toDate', {
+        toDate: effectiveToDate,
+      });
+    if (organization_id)
+      qb.andWhere('summary.branch_id = :branchId', {
+        branchId: organization_id,
+      });
+    if (effectiveStatus)
       qb.andWhere('summary.attendance_status = :status', {
-        status: attendance_status.trim().toUpperCase(),
+        status: effectiveStatus,
       });
-    }
 
     const sortableColumns = new Set([
       'attendance_date',
