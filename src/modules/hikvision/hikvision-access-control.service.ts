@@ -1,20 +1,12 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { AttendanceDevice } from '../access-control/attendance-devices/entities/attendance-device.entity';
+import { Injectable } from '@nestjs/common';
 import { DeviceCommandLogService } from './device-command-logs/service/device-command-log.service';
 import { DeviceCommandHttpMethodEnum } from './device-command-logs/enum/device-command-http-method.enum';
 import { DeviceCommandTypeEnum } from './device-command-logs/enum/device-command-type.enum';
 import { HikvisionDigestClient } from './helpers/hikvision-digest.client';
+import { HikvisionHelperService } from './helpers/hikvision-helper.service';
 import { HikvisionParserHelper } from './helpers/hikvision-parser.helper';
-import {
-  HikvisionConnectionCredentials,
-  HikvisionRequestOptions,
-} from './interfaces/hikvision-client.interface';
+import { buildCredentialsFromDevice } from './helpers/hikvision-utils';
+import { HikvisionRequestOptions } from './interfaces/hikvision-client.interface';
 
 export type HikvisionRemoteDoorCommand =
   | 'open'
@@ -30,11 +22,10 @@ type DeviceRequestLogOptions = {
 @Injectable()
 export class HikvisionAccessControlService {
   constructor(
-    @InjectRepository(AttendanceDevice)
-    private readonly attendanceDeviceRepository: Repository<AttendanceDevice>,
     private readonly digestClient: HikvisionDigestClient,
     private readonly parserHelper: HikvisionParserHelper,
     private readonly deviceCommandLogService: DeviceCommandLogService,
+    private readonly hikvisionHelper: HikvisionHelperService,
   ) {}
 
   async getDeviceInfo(companyId: number, deviceId: number) {
@@ -490,8 +481,8 @@ export class HikvisionAccessControlService {
     raw: string;
     parsed: Record<string, unknown> | string;
   }> {
-    const device = await this.findHikvisionDeviceOrFail(companyId, deviceId);
-    const credentials = this.buildCredentialsFromDevice(device);
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, deviceId);
+    const credentials = buildCredentialsFromDevice(device);
     const requestMethod = (
       options.method ?? 'GET'
     ).toUpperCase() as DeviceCommandHttpMethodEnum;
@@ -770,55 +761,4 @@ export class HikvisionAccessControlService {
       .replaceAll("'", '&apos;');
   }
 
-  private buildCredentialsFromDevice(
-    device: AttendanceDevice,
-  ): HikvisionConnectionCredentials {
-    if (!device.ipAddress) {
-      throw new BadRequestException('Missing ip_address for this device');
-    }
-
-    if (!device.apiUsername || !device.apiPassword) {
-      throw new BadRequestException(
-        'Missing Hikvision credentials for this device',
-      );
-    }
-
-    return {
-      ipAddress: device.ipAddress,
-      port:
-        device.port ||
-        ((device.protocol || 'http').toLowerCase() === 'https' ? 443 : 80),
-      protocol:
-        (device.protocol || 'http').toLowerCase() === 'https'
-          ? 'https'
-          : 'http',
-      username: device.apiUsername,
-      password: device.apiPassword,
-    };
-  }
-
-  private async findHikvisionDeviceOrFail(
-    companyId: number,
-    deviceId: number,
-  ): Promise<AttendanceDevice> {
-    const device = await this.attendanceDeviceRepository.findOne({
-      where: { id: deviceId, companyId },
-    });
-
-    if (!device) {
-      throw new NotFoundException('Hikvision device not found');
-    }
-
-    const isHikvision =
-      (device.integrationType || '').toLowerCase() === 'hikvision' ||
-      (device.vendorName || '').toLowerCase().includes('hikvision');
-
-    if (!isHikvision) {
-      throw new BadRequestException(
-        'Requested device is not configured as Hikvision',
-      );
-    }
-
-    return device;
-  }
 }

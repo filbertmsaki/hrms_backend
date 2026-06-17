@@ -8,10 +8,18 @@ import {
 import { InjectQueue } from '@nestjs/bullmq';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Queue } from 'bullmq';
-import { IsNull, QueryFailedError, Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
+import {
+  isDuplicateDbError,
+  sleep,
+  toNullableDate,
+  toNullableNumber,
+  toNullableString,
+  toObject,
+} from './helpers/hikvision-utils';
+import { HikvisionHelperService } from './helpers/hikvision-helper.service';
 import { SortDirection } from '../../common/dto/pagination.dto';
 import { AttendanceDevice } from '../access-control/attendance-devices/entities/attendance-device.entity';
-import { AttendanceDeviceStatusEnum } from '../access-control/attendance-devices/enums/attendance-device-status.enum';
 import { buildAttendanceDeviceSearchId } from '../access-control/attendance-devices/utils/attendance-device-search-id.util';
 import { HikvisionSyncLog } from '../access-control/hikvision-sync-logs/entity/hikvision-sync-log.entity';
 import { HikvisionSyncLogDirectionEnum } from '../access-control/hikvision-sync-logs/enum/hikvision-sync-log-direction.enum';
@@ -141,10 +149,11 @@ export class HikvisionAttendanceSyncService {
     @InjectQueue(HIKVISION_SYNC_QUEUE)
     private readonly hikvisionSyncQueue: Queue<HikvisionSyncJobData>,
     private readonly hikvisionAccessControlService: HikvisionAccessControlService,
+    private readonly hikvisionHelper: HikvisionHelperService,
   ) {}
 
   async getAcsEventCapabilities(companyId: number, deviceId: number) {
-    await this.findActiveHikvisionDeviceOrFail(companyId, deviceId);
+    await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, deviceId, true);
 
     const response = await this.hikvisionAccessControlService.getAcsEventCapabilities(
       companyId,
@@ -156,7 +165,7 @@ export class HikvisionAttendanceSyncService {
       );
     }
 
-    const parsed = this.toObject(response.parsed);
+    const parsed = toObject(response.parsed);
     return {
       deviceId,
       capabilities: parsed,
@@ -173,9 +182,10 @@ export class HikvisionAttendanceSyncService {
     timezone?: string,
     maxResults = this.maxAttendancePageSize,
   ) {
-    const device = await this.findActiveHikvisionDeviceOrFail(
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(
       companyId,
       deviceId,
+      true,
     );
     const selectedTimezone = timezone?.trim() || device.timezone || 'UTC';
     this.ensureValidTimeZone(selectedTimezone);
@@ -199,9 +209,10 @@ export class HikvisionAttendanceSyncService {
     requestedByUserId: number | null = null,
     requestedByCompanyUserId: number | null = null,
   ) {
-    const device = await this.findActiveHikvisionDeviceOrFail(
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(
       companyId,
       deviceId,
+      true,
     );
     const selectedTimezone = timezone?.trim() || device.timezone || 'UTC';
     this.ensureValidTimeZone(selectedTimezone);
@@ -227,9 +238,10 @@ export class HikvisionAttendanceSyncService {
   ) {
     this.ensureIsoRange(startTime, endTime);
 
-    const device = await this.findActiveHikvisionDeviceOrFail(
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(
       companyId,
       deviceId,
+      true,
     );
     const effectiveMaxResults = await this.resolveEffectiveMaxResults(
       companyId,
@@ -266,7 +278,7 @@ export class HikvisionAttendanceSyncService {
     requestedByCompanyUserId: number | null = null,
   ) {
     this.ensureIsoRange(startTime, endTime);
-    await this.findActiveHikvisionDeviceOrFail(companyId, deviceId);
+    await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, deviceId, true);
 
     const normalizedMaxResults = this.ensurePositiveInteger(
       maxResults,
@@ -306,7 +318,7 @@ export class HikvisionAttendanceSyncService {
         }),
       );
     } catch (error) {
-      if (this.isDuplicateDbError(error)) {
+      if (isDuplicateDbError(error)) {
         const duplicateJob = await this.findActiveAttendanceSyncJob(
           companyId,
           deviceId,
@@ -391,9 +403,10 @@ export class HikvisionAttendanceSyncService {
     this.ensureIsoRange(startTime, endTime);
     const normalizedEmployeeNo = this.ensureEmployeeNo(employeeNo);
 
-    const device = await this.findActiveHikvisionDeviceOrFail(
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(
       companyId,
       deviceId,
+      true,
     );
     const effectiveMaxResults = await this.resolveEffectiveMaxResults(
       companyId,
@@ -450,9 +463,10 @@ export class HikvisionAttendanceSyncService {
       }
   > {
     const { now = new Date(), startTime, endTime } = options;
-    const device = await this.findActiveHikvisionDeviceOrFail(
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(
       companyId,
       deviceId,
+      true,
     );
     const syncRange = this.buildAutomaticSyncRange(device, now, {
       startTime,
@@ -491,9 +505,10 @@ export class HikvisionAttendanceSyncService {
     deviceId: number,
     payload: AcsEventCondDto,
   ) {
-    const device = await this.findActiveHikvisionDeviceOrFail(
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(
       companyId,
       deviceId,
+      true,
     );
     const normalized = await this.normalizeCondition(
       companyId,
@@ -553,7 +568,7 @@ export class HikvisionAttendanceSyncService {
     } = query;
 
     if (device_id) {
-      await this.findHikvisionDeviceOrFail(companyId, device_id, false);
+      await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, device_id);
     }
 
     const qb = this.attendanceLogRepository
@@ -609,7 +624,7 @@ export class HikvisionAttendanceSyncService {
     deviceId: number,
     query: QueryHikvisionAttendanceSyncHistoryDto,
   ) {
-    await this.findHikvisionDeviceOrFail(companyId, deviceId, false);
+    await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, deviceId);
 
     const {
       page = 1,
@@ -671,7 +686,7 @@ export class HikvisionAttendanceSyncService {
   }
 
   async getLatestAttendanceSyncStatus(companyId: number, deviceId: number) {
-    await this.findHikvisionDeviceOrFail(companyId, deviceId, false);
+    await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, deviceId);
 
     const job = await this.attendanceSyncJobRepository.findOne({
       where: { companyId, deviceId },
@@ -738,7 +753,7 @@ export class HikvisionAttendanceSyncService {
           totalRecordsSaved,
           errorMessage: result.errorMessage || 'Attendance sync failed',
           metadata: {
-            ...this.toObject(syncJob.metadata),
+            ...toObject(syncJob.metadata),
             totalMatches: result.totalMatches,
             pagesProcessed: result.pagesProcessed,
             validPunchRecords: result.validPunchRecords,
@@ -762,7 +777,7 @@ export class HikvisionAttendanceSyncService {
         totalRecordsSaved,
         errorMessage: result.errorMessage,
         metadata: {
-          ...this.toObject(syncJob.metadata),
+          ...toObject(syncJob.metadata),
           totalMatches: result.totalMatches,
           pagesProcessed: result.pagesProcessed,
           validPunchRecords: result.validPunchRecords,
@@ -1031,7 +1046,7 @@ export class HikvisionAttendanceSyncService {
         );
         counters.created += 1;
       } catch (error) {
-        if (this.isDuplicateDbError(error)) {
+        if (isDuplicateDbError(error)) {
           counters.skipped += 1;
           continue;
         }
@@ -1184,8 +1199,8 @@ export class HikvisionAttendanceSyncService {
     device: AttendanceDevice,
     item: Record<string, unknown>,
   ): MappedAttendanceRow {
-    const major = this.toNullableNumber(item.major) ?? this.attendanceMajorCode;
-    const minor = this.toNullableNumber(item.minor) ?? 0;
+    const major = toNullableNumber(item.major) ?? this.attendanceMajorCode;
+    const minor = toNullableNumber(item.minor) ?? 0;
     const eventTime = this.parseDateOrFail(item.time, 'time');
 
     return {
@@ -1193,33 +1208,33 @@ export class HikvisionAttendanceSyncService {
       branchId: device.branchId ?? null,
       deviceId: device.id,
       employeeNo: this.resolveAttendanceEmployeeNo(item),
-      employeeName: this.toNullableString(item.name ?? item.employeeName),
-      cardNo: this.toNullableString(item.cardNo),
+      employeeName: toNullableString(item.name ?? item.employeeName),
+      cardNo: toNullableString(item.cardNo),
       eventTime,
       major,
       minor,
       eventType: this.mapEventType(major, minor),
       attendanceStatus: this.toAttendanceStatus(item.attendanceStatus),
-      verifyMode: this.toNullableString(
+      verifyMode: toNullableString(
         item.currentVerifyMode ?? item.verifyMode,
       ),
-      doorNo: this.toNullableNumber(item.doorNo),
-      cardReaderNo: this.toNullableNumber(item.cardReaderNo),
-      cardReaderKind: this.toNullableString(item.cardReaderKind),
-      serialNo: this.toNullableString(item.serialNo),
-      deviceTime: this.toNullableDate(item.deviceTime ?? item.time),
-      deviceNo: this.toNullableString(item.deviceNo),
-      remoteHostAddr: this.toNullableString(item.remoteHostAddr),
-      netUser: this.toNullableString(item.netUser),
-      userType: this.toNullableString(item.userType),
-      statusValue: this.toNullableNumber(item.statusValue),
+      doorNo: toNullableNumber(item.doorNo),
+      cardReaderNo: toNullableNumber(item.cardReaderNo),
+      cardReaderKind: toNullableString(item.cardReaderKind),
+      serialNo: toNullableString(item.serialNo),
+      deviceTime: toNullableDate(item.deviceTime ?? item.time),
+      deviceNo: toNullableString(item.deviceNo),
+      remoteHostAddr: toNullableString(item.remoteHostAddr),
+      netUser: toNullableString(item.netUser),
+      userType: toNullableString(item.userType),
+      statusValue: toNullableNumber(item.statusValue),
       rawPayload: item,
     };
   }
 
   private isValidPunchEvent(item: Record<string, unknown>): boolean {
-    const eventTime = this.toNullableDate(item.time);
-    const major = this.toNullableNumber(item.major);
+    const eventTime = toNullableDate(item.time);
+    const major = toNullableNumber(item.major);
 
     return Boolean(
       eventTime && (major === null || major === this.attendanceMajorCode),
@@ -1272,8 +1287,8 @@ export class HikvisionAttendanceSyncService {
   private parseAcsEventPage(
     parsedPayload: Record<string, unknown> | string,
   ): ParsedAcsEventPage {
-    const payload = this.toObject(parsedPayload);
-    const root = this.toObject(
+    const payload = toObject(parsedPayload);
+    const root = toObject(
       payload.AcsEventSearchResult ?? payload.AcsEvent ?? payload,
     );
     const rawInfoList =
@@ -1285,8 +1300,8 @@ export class HikvisionAttendanceSyncService {
       responseStatusStrg:
         String(root.responseStatusStrg ?? root.responseStatus ?? '').trim() ||
         'OK',
-      numOfMatches: this.toNullableNumber(root.numOfMatches) ?? infoList.length,
-      totalMatches: this.toNullableNumber(root.totalMatches) ?? infoList.length,
+      numOfMatches: toNullableNumber(root.numOfMatches) ?? infoList.length,
+      totalMatches: toNullableNumber(root.totalMatches) ?? infoList.length,
       infoList,
       raw: root,
     };
@@ -1374,7 +1389,7 @@ export class HikvisionAttendanceSyncService {
         return null;
       }
 
-      return this.resolveMaxResultsCapability(this.toObject(response.parsed));
+      return this.resolveMaxResultsCapability(toObject(response.parsed));
     } catch {
       return null;
     }
@@ -1416,8 +1431,8 @@ export class HikvisionAttendanceSyncService {
         return null;
       }
 
-      const payload = this.toObject(response.parsed);
-      const root = this.toObject(
+      const payload = toObject(response.parsed);
+      const root = toObject(
         payload.AcsEventTotalNum ?? payload.AcsEvent ?? payload,
       );
       const total = this.findFirstNumericDeep(root, [
@@ -1453,7 +1468,7 @@ export class HikvisionAttendanceSyncService {
           break;
         }
 
-        await this.sleep((attempt + 1) * 250);
+        await sleep((attempt + 1) * 250);
       }
       attempt += 1;
     }
@@ -1529,9 +1544,9 @@ export class HikvisionAttendanceSyncService {
       return;
     }
 
-    const metadata = this.toObject(device.metadata);
-    const hikvision = this.toObject(metadata.hikvision);
-    const attendance = this.toObject(hikvision.attendance);
+    const metadata = toObject(device.metadata);
+    const hikvision = toObject(metadata.hikvision);
+    const attendance = toObject(hikvision.attendance);
 
     device.lastSyncAt = syncedAt;
     device.metadata = {
@@ -1602,11 +1617,11 @@ export class HikvisionAttendanceSyncService {
   }
 
   private extractAttendanceLastSyncAt(device: AttendanceDevice): Date | null {
-    const metadata = this.toObject(device.metadata);
-    const hikvision = this.toObject(metadata.hikvision);
-    const attendance = this.toObject(hikvision.attendance);
+    const metadata = toObject(device.metadata);
+    const hikvision = toObject(metadata.hikvision);
+    const attendance = toObject(hikvision.attendance);
 
-    return this.toNullableDate(attendance.last_sync_at) ?? null;
+    return toNullableDate(attendance.last_sync_at) ?? null;
   }
 
   private formatDateForDevice(date: Date, timezone: string): string {
@@ -1631,42 +1646,6 @@ export class HikvisionAttendanceSyncService {
     const offset = this.resolveOffsetForDate(timezone, datePart);
 
     return `${datePart}T${hour}:${minute}:${second}${offset}`;
-  }
-
-  private async findActiveHikvisionDeviceOrFail(
-    companyId: number,
-    deviceId: number,
-  ): Promise<AttendanceDevice> {
-    return this.findHikvisionDeviceOrFail(companyId, deviceId, true);
-  }
-
-  private async findHikvisionDeviceOrFail(
-    companyId: number,
-    deviceId: number,
-    requireActive: boolean,
-  ): Promise<AttendanceDevice> {
-    const device = await this.deviceRepository.findOne({
-      where: { id: deviceId, companyId },
-    });
-
-    if (!device) {
-      throw new NotFoundException('Hikvision device not found');
-    }
-
-    const isHikvision =
-      (device.integrationType || '').toLowerCase() === 'hikvision' ||
-      (device.vendorName || '').toLowerCase().includes('hikvision');
-    if (!isHikvision) {
-      throw new BadRequestException(
-        'Requested device is not configured as Hikvision',
-      );
-    }
-
-    if (requireActive && device.status !== AttendanceDeviceStatusEnum.ACTIVE) {
-      throw new BadRequestException('Device is inactive');
-    }
-
-    return device;
   }
 
   private mapAttendanceLog(item: HikvisionAttendanceLog) {
@@ -1705,7 +1684,7 @@ export class HikvisionAttendanceSyncService {
   }
 
   private mapSyncHistory(item: HikvisionSyncLog) {
-    const metadata = this.toObject(item.metadata);
+    const metadata = toObject(item.metadata);
 
     return {
       id: item.id,
@@ -1721,16 +1700,16 @@ export class HikvisionAttendanceSyncService {
       records_created: item.recordsCreated,
       records_updated: item.recordsUpdated,
       valid_punch_records:
-        this.toNullableNumber(metadata.validPunchRecords) ?? 0,
+        toNullableNumber(metadata.validPunchRecords) ?? 0,
       skipped_system_events:
-        this.toNullableNumber(metadata.skippedSystemEvents) ?? 0,
+        toNullableNumber(metadata.skippedSystemEvents) ?? 0,
       records_failed: item.recordsFailed,
-      records_skipped: this.toNullableNumber(metadata.recordsSkipped) ?? 0,
-      total_matches: this.toNullableNumber(metadata.totalMatches) ?? 0,
-      pages_processed: this.toNullableNumber(metadata.pagesProcessed) ?? 0,
-      start_time: this.toNullableString(metadata.startTime),
-      end_time: this.toNullableString(metadata.endTime),
-      trigger: this.toNullableString(metadata.trigger),
+      records_skipped: toNullableNumber(metadata.recordsSkipped) ?? 0,
+      total_matches: toNullableNumber(metadata.totalMatches) ?? 0,
+      pages_processed: toNullableNumber(metadata.pagesProcessed) ?? 0,
+      start_time: toNullableString(metadata.startTime),
+      end_time: toNullableString(metadata.endTime),
+      trigger: toNullableString(metadata.trigger),
       error_message: item.errorMessage,
       metadata: item.metadata,
       created_at: item.createdAt,
@@ -1738,7 +1717,7 @@ export class HikvisionAttendanceSyncService {
   }
 
   private mapAttendanceSyncJob(item: HikvisionAttendanceSyncJob) {
-    const metadata = this.toObject(item.metadata);
+    const metadata = toObject(item.metadata);
 
     return {
       id: item.id,
@@ -1754,11 +1733,11 @@ export class HikvisionAttendanceSyncService {
       total_records_pulled: item.totalRecordsPulled,
       total_records_saved: item.totalRecordsSaved,
       valid_punch_records:
-        this.toNullableNumber(metadata.validPunchRecords) ?? 0,
+        toNullableNumber(metadata.validPunchRecords) ?? 0,
       skipped_system_events:
-        this.toNullableNumber(metadata.skippedSystemEvents) ?? 0,
+        toNullableNumber(metadata.skippedSystemEvents) ?? 0,
       error_message: item.errorMessage,
-      max_results: this.toNullableNumber(metadata.maxResults),
+      max_results: toNullableNumber(metadata.maxResults),
       metadata: item.metadata,
       created_at: item.createdAt,
       updated_at: item.updatedAt,
@@ -1834,7 +1813,7 @@ export class HikvisionAttendanceSyncService {
   }
 
   private parseDateOrFail(value: unknown, fieldName: string): Date {
-    const parsed = this.toNullableDate(value);
+    const parsed = toNullableDate(value);
     if (!parsed) {
       throw new BadRequestException(`Invalid or missing ${fieldName} value`);
     }
@@ -1870,56 +1849,16 @@ export class HikvisionAttendanceSyncService {
     return num;
   }
 
-  private toNullableDate(value: unknown): Date | null {
-    if (value === null || value === undefined || value === '') {
-      return null;
-    }
-
-    const parsed = new Date(String(value));
-    if (Number.isNaN(parsed.getTime())) {
-      return null;
-    }
-    return parsed;
-  }
-
-  private toNullableString(value: unknown): string | null {
-    if (value === null || value === undefined) return null;
-    const text = String(value);
-    return text.trim() ? text : null;
-  }
-
-  private toNullableNumber(value: unknown): number | null {
-    if (value === null || value === undefined || value === '') return null;
-    const num = Number(value);
-    return Number.isFinite(num) ? num : null;
-  }
-
-  private toObject(value: unknown): Record<string, unknown> {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      return {};
-    }
-    return value as Record<string, unknown>;
-  }
-
   private toObjectArray(value: unknown): Record<string, unknown>[] {
     if (Array.isArray(value)) {
-      return value.map((item) => this.toObject(item));
+      return value.map((item) => toObject(item));
     }
 
     if (value && typeof value === 'object') {
-      return [this.toObject(value)];
+      return [toObject(value)];
     }
 
     return [];
-  }
-
-  private isDuplicateDbError(error: unknown): boolean {
-    if (!(error instanceof QueryFailedError)) {
-      return false;
-    }
-
-    const err = error as QueryFailedError & { code?: string; errno?: number };
-    return err.code === 'ER_DUP_ENTRY' || err.errno === 1062;
   }
 
   private findFirstNumericDeep(
@@ -1943,7 +1882,7 @@ export class HikvisionAttendanceSyncService {
       const record = node as Record<string, unknown>;
       for (const [key, value] of Object.entries(record)) {
         if (targetKeys.has(key.toLowerCase())) {
-          const num = this.toNullableNumber(value);
+          const num = toNullableNumber(value);
           if (num !== null) {
             return num;
           }
@@ -1953,10 +1892,6 @@ export class HikvisionAttendanceSyncService {
     }
 
     return null;
-  }
-
-  private sleep(ms: number) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   private buildAttendanceSyncJobKey(

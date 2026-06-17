@@ -11,6 +11,7 @@ import { AttendanceDevice } from '../../access-control/attendance-devices/entiti
 import { EmployeeDeviceIdentity } from '../../hr/attendance/processing/entities/employee-device-identity.entity';
 import { Employee } from '../../hr/employees/entities/employee.entity';
 import { HikvisionAccessControlService } from '../../hikvision/hikvision-access-control.service';
+import { HikvisionHelperService } from '../../hikvision/helpers/hikvision-helper.service';
 import { AccessDoor } from '../access-doors/entity/access-door.entity';
 import { AccessDoorSourceEnum } from '../access-doors/enum/access-door-source.enum';
 import { AccessDoorSyncStatusEnum } from '../access-doors/enum/access-door-sync-status.enum';
@@ -78,6 +79,7 @@ export class AccessControlSyncService {
     private readonly employeeDeviceIdentityRepository: Repository<EmployeeDeviceIdentity>,
     private readonly hikvisionAccessControlService: HikvisionAccessControlService,
     private readonly employeeDeviceAccessAuditLogService: EmployeeDeviceAccessAuditLogService,
+    private readonly hikvisionHelper: HikvisionHelperService,
   ) {}
 
   async syncGroup(companyId: number, groupId: number) {
@@ -868,12 +870,14 @@ export class AccessControlSyncService {
 
       const savedAssignment =
         await this.employeeDeviceAssignmentRepository.save(assignment);
-      await this.upsertDeviceIdentity(
-        companyId,
-        employee?.id ?? null,
-        savedAssignment.employeeNo,
-        deviceId,
-      );
+      if (employee?.id) {
+        await this.hikvisionHelper.upsertDeviceIdentity(
+          companyId,
+          employee.id,
+          savedAssignment.employeeNo,
+          deviceId,
+        );
+      }
       await this.syncAssignmentRightPlans(
         companyId,
         deviceId,
@@ -1280,45 +1284,6 @@ export class AccessControlSyncService {
     throw new BadRequestException(
       `Employee ${employee.id} is missing a device-specific Hikvision employee number for this assignment`,
     );
-  }
-
-  private async upsertDeviceIdentity(
-    companyId: number,
-    employeeId: number | null,
-    deviceEmployeeNo: string,
-    deviceId: number,
-  ) {
-    if (!employeeId) return;
-    const normalizedEmployeeNo = String(deviceEmployeeNo ?? '').trim();
-    if (!normalizedEmployeeNo) return;
-
-    let identity = await this.employeeDeviceIdentityRepository.findOne({
-      where: { companyId, employeeId, deviceId },
-    });
-
-    if (!identity) {
-      identity = await this.employeeDeviceIdentityRepository.findOne({
-        where: { companyId, deviceId, employeeNo: normalizedEmployeeNo },
-      });
-    }
-
-    if (!identity) {
-      identity = this.employeeDeviceIdentityRepository.create({
-        companyId,
-        employeeId,
-        employeeNo: normalizedEmployeeNo,
-        deviceId,
-        isActive: true,
-      });
-    } else {
-      identity.companyId = companyId;
-      identity.employeeId = employeeId;
-      identity.employeeNo = normalizedEmployeeNo;
-      identity.deviceId = deviceId;
-      identity.isActive = true;
-    }
-
-    await this.employeeDeviceIdentityRepository.save(identity);
   }
 
   private async credentialRepositoryMarkRemoved(

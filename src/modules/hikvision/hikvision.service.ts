@@ -4,7 +4,6 @@ import {
   HttpException,
   Injectable,
   Logger,
-  NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -19,7 +18,9 @@ import { SyncAllHikvisionDevicesDto } from './dto/sync-all-hikvision-devices.dto
 import { UpdateHikvisionDeviceDto } from './dto/update-hikvision-device.dto';
 import { HikvisionDigestClient } from './helpers/hikvision-digest.client';
 import { normalizeHikvisionError } from './helpers/hikvision-error.helper';
+import { HikvisionHelperService } from './helpers/hikvision-helper.service';
 import { HikvisionParserHelper } from './helpers/hikvision-parser.helper';
+import { buildCredentialsFromDevice } from './helpers/hikvision-utils';
 import { HikvisionConnectionCredentials } from './interfaces/hikvision-client.interface';
 import {
   HikvisionMappedDeviceFields,
@@ -47,6 +48,7 @@ export class HikvisionService {
     private readonly configService: ConfigService,
     private readonly digestClient: HikvisionDigestClient,
     private readonly parserHelper: HikvisionParserHelper,
+    private readonly hikvisionHelper: HikvisionHelperService,
   ) {}
 
   async createDevice(companyId: number, dto: CreateHikvisionDeviceDto) {
@@ -115,7 +117,7 @@ export class HikvisionService {
     id: number,
     dto: UpdateHikvisionDeviceDto,
   ) {
-    const device = await this.findHikvisionDeviceOrFail(companyId, id);
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, id);
 
     if (dto.branch_id !== undefined) {
       await this.ensureBranch(companyId, dto.branch_id);
@@ -195,7 +197,7 @@ export class HikvisionService {
     companyId: number,
     id: number,
   ): Promise<{ message: string }> {
-    const device = await this.findHikvisionDeviceOrFail(companyId, id);
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, id);
     await this.deviceRepository.softRemove(device);
     return { message: 'Hikvision device deleted successfully' };
   }
@@ -235,12 +237,12 @@ export class HikvisionService {
   }
 
   async getDevice(companyId: number, id: number) {
-    const device = await this.findHikvisionDeviceOrFail(companyId, id);
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, id);
     return this.mapDevice(device);
   }
 
   async testDeviceConnection(companyId: number, id: number) {
-    const device = await this.findHikvisionDeviceOrFail(companyId, id);
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, id);
     const credentials = this.buildCredentialsFromDevice(device);
     const startedAt = Date.now();
 
@@ -288,7 +290,7 @@ export class HikvisionService {
   }
 
   async syncDevice(companyId: number, id: number) {
-    const device = await this.findHikvisionDeviceOrFail(companyId, id);
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, id);
     try {
       const snapshot = await this.fetchSnapshot(
         this.buildCredentialsFromDevice(device),
@@ -697,30 +699,6 @@ export class HikvisionService {
     }
   }
 
-  private async findHikvisionDeviceOrFail(
-    companyId: number,
-    id: number,
-  ): Promise<AttendanceDevice> {
-    const device = await this.deviceRepository.findOne({
-      where: { id, companyId },
-    });
-    if (!device) {
-      throw new NotFoundException('Hikvision device not found');
-    }
-
-    const isHikvision =
-      (device.integrationType || '').toLowerCase() === this.integrationType ||
-      (device.vendorName || '').toLowerCase().includes('hikvision');
-
-    if (!isHikvision) {
-      throw new BadRequestException(
-        'Requested device is not configured as a Hikvision integration',
-      );
-    }
-
-    return device;
-  }
-
   private async findAllHikvisionDevices(
     companyId: number,
     dto: SyncAllHikvisionDevicesDto,
@@ -796,24 +774,11 @@ export class HikvisionService {
   private buildCredentialsFromDevice(
     device: AttendanceDevice,
   ): HikvisionConnectionCredentials {
-    if (!device.ipAddress) {
-      throw new BadRequestException('Missing ip_address for this device');
-    }
-
-    if (!device.apiUsername || !device.apiPassword) {
-      throw new BadRequestException(
-        'Missing Hikvision credentials for this device',
-      );
-    }
-
+    const base = buildCredentialsFromDevice(device);
     return {
-      ipAddress: device.ipAddress,
-      port:
-        device.port ||
-        this.resolvePort(undefined, this.resolveProtocol(device.protocol)),
+      ...base,
+      port: this.resolvePort(device.port, base.protocol),
       protocol: this.resolveProtocol(device.protocol),
-      username: device.apiUsername,
-      password: device.apiPassword,
     };
   }
 

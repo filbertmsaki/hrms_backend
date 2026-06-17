@@ -1,13 +1,17 @@
 import {
   BadRequestException,
   Injectable,
-  NotFoundException,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import DigestFetch from 'digest-fetch';
+import { HikvisionHelperService } from './helpers/hikvision-helper.service';
+import {
+  mergeMetadata as mergeMetadataUtil,
+  toObject,
+} from './helpers/hikvision-utils';
 import { XMLParser } from 'fast-xml-parser';
 import { Repository } from 'typeorm';
 import { AttendanceDevice } from '../access-control/attendance-devices/entities/attendance-device.entity';
@@ -31,6 +35,7 @@ export class HikvisionDoorSyncService {
     @InjectRepository(AttendanceDevice)
     private readonly attendanceDeviceRepository: Repository<AttendanceDevice>,
     private readonly configService: ConfigService,
+    private readonly hikvisionHelper: HikvisionHelperService,
   ) {}
 
   async syncFromDevice(companyId: number, deviceId: number) {
@@ -268,30 +273,15 @@ export class HikvisionDoorSyncService {
     companyId: number,
     deviceId: number,
   ): Promise<AttendanceDevice> {
-    const device = await this.attendanceDeviceRepository.findOne({
-      where: { id: deviceId, companyId },
-    });
-
-    if (!device) {
-      throw new NotFoundException('Attendance device not found');
-    }
-
-    const isHikvision =
-      (device.integrationType || '').toLowerCase() === 'hikvision' ||
-      (device.vendorName || '').toLowerCase().includes('hikvision');
-
-    if (!isHikvision) {
-      throw new BadRequestException(
-        'Device is not configured as a Hikvision integration',
-      );
-    }
-
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(
+      companyId,
+      deviceId,
+    );
     if (!device.apiUsername || !device.apiPassword) {
       throw new BadRequestException(
         'Missing api_username/api_password for the selected device',
       );
     }
-
     return device;
   }
 
@@ -427,7 +417,7 @@ export class HikvisionDoorSyncService {
   private extractNonDuplicatedPullExtras(
     payload: Record<string, unknown>,
   ): Record<string, unknown> {
-    const root = this.toObject(payload);
+    const root = toObject(payload);
     const extras: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(root)) {
       if (key !== 'DoorParam' && key !== '?xml') {
@@ -510,38 +500,11 @@ export class HikvisionDoorSyncService {
     existing: Record<string, unknown> | null,
     patch: Record<string, unknown>,
   ): Record<string, unknown> {
-    const safeExisting = this.toObject(existing);
-    const safePatch = this.toObject(patch);
-    const existingHikvision = this.sanitizeHikvisionMetadata(
-      this.toObject(safeExisting.hikvision),
-    );
-    const patchHikvision = this.sanitizeHikvisionMetadata(
-      this.toObject(safePatch.hikvision),
-    );
-
-    return {
-      ...safeExisting,
-      ...safePatch,
-      hikvision: {
-        ...existingHikvision,
-        ...patchHikvision,
-      },
-    };
-  }
-
-  private sanitizeHikvisionMetadata(
-    value: Record<string, unknown>,
-  ): Record<string, unknown> {
-    const sanitized = { ...value };
-    // Legacy key stored full door payload and duplicated persisted columns.
-    delete sanitized.raw_pull_response;
-    return sanitized;
-  }
-
-  private toObject(value: unknown): Record<string, unknown> {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      return {};
+    const result = mergeMetadataUtil(existing, patch);
+    // Strip legacy raw_pull_response key from hikvision sub-object
+    if (result.hikvision && typeof result.hikvision === 'object') {
+      delete (result.hikvision as Record<string, unknown>).raw_pull_response;
     }
-    return value as Record<string, unknown>;
+    return result;
   }
 }

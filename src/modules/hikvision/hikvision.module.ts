@@ -26,6 +26,7 @@ import { HikvisionService } from './hikvision.service';
 import { HikvisionUserManagementService } from './hikvision-user-management.service';
 import { HikvisionAttendanceLog } from './entities/hikvision-attendance-log.entity';
 import { HikvisionDigestClient } from './helpers/hikvision-digest.client';
+import { HikvisionHelperService } from './helpers/hikvision-helper.service';
 import { HikvisionParserHelper } from './helpers/hikvision-parser.helper';
 import { HIKVISION_SYNC_QUEUE } from './hikvision-sync-job.constants';
 import { HikvisionSyncJobsService } from './hikvision-sync-jobs.service';
@@ -66,12 +67,14 @@ import { HikvisionSyncProcessor } from './hikvision-sync.processor';
     HikvisionPeopleCredentialSyncService,
     HikvisionUserManagementService,
     DeviceCommandLogService,
+    HikvisionHelperService,
     HikvisionDigestClient,
     HikvisionParserHelper,
     HikvisionSyncJobsService,
     HikvisionSyncProcessor,
   ],
   exports: [
+    HikvisionHelperService,
     HikvisionService,
     HikvisionDoorSyncService,
     HikvisionAccessControlService,
