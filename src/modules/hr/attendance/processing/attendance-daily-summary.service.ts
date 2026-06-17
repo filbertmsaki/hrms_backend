@@ -554,18 +554,11 @@ export class AttendanceDailySummaryService {
       sortOrder = SortDirection.DESC,
       employee_id,
       employee_no,
-      start_time,
-      end_time,
-      organization_id,
-      status,
       from_date,
       to_date,
-      attendance_status,
+      organization_id,
+      status,
     } = query;
-
-    const effectiveFromDate = start_time ?? from_date;
-    const effectiveToDate = end_time ?? to_date;
-    const effectiveStatus = status ?? attendance_status?.trim().toUpperCase();
 
     const qb = this.dailySummaryRepository
       .createQueryBuilder('summary')
@@ -580,22 +573,20 @@ export class AttendanceDailySummaryService {
       qb.andWhere('employee.employee_no = :employeeNo', {
         employeeNo: employee_no.trim(),
       });
-    if (effectiveFromDate)
+    if (from_date)
       qb.andWhere('summary.attendance_date >= :fromDate', {
-        fromDate: effectiveFromDate,
+        fromDate: from_date,
       });
-    if (effectiveToDate)
+    if (to_date)
       qb.andWhere('summary.attendance_date <= :toDate', {
-        toDate: effectiveToDate,
+        toDate: to_date,
       });
     if (organization_id)
       qb.andWhere('summary.branch_id = :branchId', {
         branchId: organization_id,
       });
-    if (effectiveStatus)
-      qb.andWhere('summary.attendance_status = :status', {
-        status: effectiveStatus,
-      });
+    if (status)
+      qb.andWhere('summary.attendance_status = :status', { status });
 
     const sortableColumns = new Set([
       'attendance_date',

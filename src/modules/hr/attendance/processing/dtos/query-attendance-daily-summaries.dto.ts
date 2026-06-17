@@ -26,15 +26,15 @@ export class QueryAttendanceDailySummariesDto extends PaginationDto {
   @IsOptional()
   employee_no?: string;
 
-  @ApiPropertyOptional({ example: '2026-05-01', description: 'Filter by attendance date (from)' })
+  @ApiPropertyOptional({ example: '2026-05-01' })
   @IsDateString()
   @IsOptional()
-  start_time?: string;
+  from_date?: string;
 
-  @ApiPropertyOptional({ example: '2026-05-31', description: 'Filter by attendance date (to)' })
+  @ApiPropertyOptional({ example: '2026-05-31' })
   @IsDateString()
   @IsOptional()
-  end_time?: string;
+  to_date?: string;
 
   @ApiPropertyOptional({ example: 5, description: 'Filter by branch/organization ID' })
   @Type(() => Number)
@@ -50,23 +50,4 @@ export class QueryAttendanceDailySummariesDto extends PaginationDto {
   @IsEnum(AttendanceDailyStatusEnum)
   @IsOptional()
   status?: AttendanceDailyStatusEnum;
-
-  /** @deprecated Use start_time */
-  @ApiPropertyOptional({ example: '2026-05-01' })
-  @IsDateString()
-  @IsOptional()
-  from_date?: string;
-
-  /** @deprecated Use end_time */
-  @ApiPropertyOptional({ example: '2026-05-31' })
-  @IsDateString()
-  @IsOptional()
-  to_date?: string;
-
-  /** @deprecated Use status */
-  @ApiPropertyOptional({ example: 'PRESENT' })
-  @IsString()
-  @MaxLength(50)
-  @IsOptional()
-  attendance_status?: string;
 }
