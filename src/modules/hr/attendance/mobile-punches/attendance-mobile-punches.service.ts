@@ -119,7 +119,6 @@ export class AttendanceMobilePunchesService {
     const geofenceMatch = await this.matchGeofence({
       companyId: params.companyId,
       employeeBranchId: employee.primary_branch_id ?? null,
-      policy,
       requiredCheckpoints,
       latitude: params.dto.latitude,
       longitude: params.dto.longitude,
@@ -287,7 +286,6 @@ export class AttendanceMobilePunchesService {
   private async matchGeofence(params: {
     companyId: number;
     employeeBranchId?: number | null;
-    policy: AttendancePolicy | null;
     requiredCheckpoints: AttendanceCheckpoint[];
     latitude: number;
     longitude: number;
@@ -312,18 +310,6 @@ export class AttendanceMobilePunchesService {
           .filter((value): value is number => Boolean(value)),
       ),
     );
-    const geofenceRequired = Boolean(
-      params.policy?.require_geo_fencing || gpsCheckpoints.length,
-    );
-
-    if (!geofenceRequired) {
-      return {
-        matchedGeofence: null,
-        validation: null,
-        validationResult: null,
-        errors: [],
-      };
-    }
 
     const allowedGeofences = checkpointGeofenceIds.length
       ? await this.geofenceRepo.findActiveByIds(
@@ -348,7 +334,7 @@ export class AttendanceMobilePunchesService {
         errors: [
           checkpointGeofenceIds.length
             ? 'No active geofence is configured for the active GPS checkpoint(s).'
-            : 'Active attendance policy requires geofence validation, but no active geofence is configured for the employee branch.',
+            : 'No active registered geofence is configured for the employee branch.',
         ],
       };
     }
@@ -445,7 +431,7 @@ export class AttendanceMobilePunchesService {
       errors: this.buildValidationFailureErrors(
         checkpointGeofenceIds.length
           ? 'Location does not match any allowed geofence for the active attendance checkpoints.'
-          : 'Location does not match any allowed geofence for mobile attendance.',
+          : 'Location does not match any registered geofence in the system.',
         attempts,
       ),
     };

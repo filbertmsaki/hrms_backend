@@ -260,6 +260,51 @@ describe('AttendanceMobilePunchesService', () => {
     );
   });
 
+  it('requires coordinates to match a registered system geofence even without GPS checkpoints', async () => {
+    checkpointRepository.find.mockResolvedValue([]);
+    geofenceRepo.findActiveForBranch.mockResolvedValue([
+      {
+        id: 27,
+        name: 'HQ Campus',
+        branchId: 5,
+        status: 'ACTIVE',
+        type: 'CIRCLE',
+        latitude: '-6.7923540',
+        longitude: '39.2083280',
+        radiusMeters: 100,
+        allowedAccuracyMeters: 50,
+        strictAccuracy: false,
+      },
+    ]);
+    wifiRepo.findActiveForBranch.mockResolvedValue([]);
+    geofenceDistanceService.validateCircleGeofence.mockReturnValue({
+      valid: true,
+      distanceMeters: 6,
+      message: 'Location is inside the allowed geofence.',
+    });
+
+    const result = await service.checkIn({
+      companyId: 1,
+      authenticatedEmployeeId: 39,
+      employeeId: 39,
+      dto: {
+        latitude: -6.792354,
+        longitude: 39.208328,
+        accuracyMeters: 8.5,
+      },
+      requestIp: '10.40.1.24',
+      userAgent: 'jest',
+    });
+
+    expect(geofenceRepo.findActiveForBranch).toHaveBeenCalledWith(1, 5);
+    expect(result.punch).toEqual(
+      expect.objectContaining({
+        geofenceId: 27,
+        validationStatus: AttendancePunchValidationStatusEnum.APPROVED,
+      }),
+    );
+  });
+
   it('rejects the request when the location does not match any allowed geofence', async () => {
     checkpointRepository.find.mockResolvedValue([
       {
