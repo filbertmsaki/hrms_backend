@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindOptionsWhere, ILike, Repository } from 'typeorm';
+import { FindOptionsWhere, ILike, In, Repository } from 'typeorm';
 import { AttendanceWifiNetwork } from '../entities/attendance-wifi-network.entity';
 import { AttendanceWifiNetworkQueryDto } from '../dtos/attendance-wifi-network-query.dto';
 import { AttendanceWifiNetworkStatusEnum } from '../enums/attendance-wifi-network-status.enum';
@@ -46,6 +46,50 @@ export class AttendanceWifiNetworkRepository {
         status: AttendanceWifiNetworkStatusEnum.ACTIVE,
       },
     });
+  }
+
+  findActiveByIds(
+    companyId: number,
+    ids: number[],
+  ): Promise<AttendanceWifiNetwork[]> {
+    if (!ids.length) {
+      return Promise.resolve([]);
+    }
+
+    return this.repo.find({
+      where: {
+        companyId,
+        id: In(ids),
+        status: AttendanceWifiNetworkStatusEnum.ACTIVE,
+      },
+      order: {
+        id: 'ASC',
+      },
+    });
+  }
+
+  findActiveForBranch(
+    companyId: number,
+    branchId?: number | null,
+  ): Promise<AttendanceWifiNetwork[]> {
+    const qb = this.repo
+      .createQueryBuilder('wifiNetwork')
+      .where('wifiNetwork.company_id = :companyId', { companyId })
+      .andWhere('wifiNetwork.status = :status', {
+        status: AttendanceWifiNetworkStatusEnum.ACTIVE,
+      })
+      .orderBy('wifiNetwork.id', 'ASC');
+
+    if (branchId) {
+      qb.andWhere(
+        '(wifiNetwork.branch_id IS NULL OR wifiNetwork.branch_id = :branchId)',
+        {
+          branchId,
+        },
+      );
+    }
+
+    return qb.getMany();
   }
 
   async findPaginated(companyId: number, query: AttendanceWifiNetworkQueryDto) {

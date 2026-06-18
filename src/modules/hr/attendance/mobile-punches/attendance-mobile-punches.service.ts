@@ -26,6 +26,8 @@ import { AttendanceCheckpointTypeEnum } from '../checkpoints/enums/attendance-ch
 import { Employee } from '../../employees/entities/employee.entity';
 import { EmploymentStatusEnum } from '../../employees/enums/employment-status.enum';
 import { formatDateOnly } from '../../shared/hr.utils';
+import { AttendanceGeofence } from '../geofences/entities/attendance-geofence.entity';
+import { AttendanceWifiNetwork } from '../wifi-networks/entities/attendance-wifi-network.entity';
 
 @Injectable()
 export class AttendanceMobilePunchesService {
@@ -104,42 +106,30 @@ export class AttendanceMobilePunchesService {
     this.assertEmployeeCanPunch(employee, attendanceDate);
 
     const ipAddress = params.dto.ipAddress || params.requestIp || null;
-    const validationErrors = this.collectCheckpointValidationErrors({
-      dto: params.dto,
-      policy,
-      requiredCheckpoints,
-    });
-
-    const geofenceValidation = await this.validateGeofenceIfProvided({
+    const geofenceMatch = await this.matchGeofence({
       companyId: params.companyId,
       employeeBranchId: employee.primary_branch_id ?? null,
-      geofenceId: params.dto.geofenceId,
+      policy,
+      requiredCheckpoints,
       latitude: params.dto.latitude,
       longitude: params.dto.longitude,
       accuracyMeters: params.dto.accuracyMeters,
     });
 
-    const wifiValidation = await this.validateWifiIfProvided({
+    const wifiMatch = await this.matchWifiNetwork({
       companyId: params.companyId,
       employeeBranchId: employee.primary_branch_id ?? null,
-      wifiNetworkId: params.dto.wifiNetworkId,
+      requiredCheckpoints,
       wifiSsid: params.dto.wifiSsid,
       wifiBssid: params.dto.wifiBssid,
       ipAddress,
     });
 
-    validationErrors.push(
-      ...this.collectCheckpointOutcomeErrors({
-        dto: params.dto,
-        requiredCheckpoints,
-        geofenceValidation,
-        wifiValidation,
-      }),
-      ...(geofenceValidation?.valid === false
-        ? [geofenceValidation.message]
-        : []),
-      ...(wifiValidation?.valid === false ? [wifiValidation.message] : []),
-    );
+    const validationErrors = [
+      ...this.collectUnsupportedCheckpointValidationErrors(requiredCheckpoints),
+      ...geofenceMatch.errors,
+      ...wifiMatch.errors,
+    ];
 
     const validationPassed = validationErrors.length === 0;
 
@@ -161,8 +151,8 @@ export class AttendanceMobilePunchesService {
       branchId: employee.primary_branch_id ?? null,
       employeeId: employee.id,
       policySetId: policy?.id ?? null,
-      geofenceId: params.dto.geofenceId ?? null,
-      wifiNetworkId: params.dto.wifiNetworkId ?? null,
+      geofenceId: geofenceMatch.matchedGeofence?.id ?? null,
+      wifiNetworkId: wifiMatch.matchedWifiNetwork?.id ?? null,
       punchType: params.punchType,
       source: AttendancePunchSourceEnum.MOBILE,
       punchTime,
@@ -174,8 +164,8 @@ export class AttendanceMobilePunchesService {
           ? String(params.dto.accuracyMeters)
           : null,
       distanceFromGeofenceMeters:
-        geofenceValidation?.distanceMeters !== undefined
-          ? String(geofenceValidation.distanceMeters)
+        geofenceMatch.validation?.distanceMeters !== undefined
+          ? String(geofenceMatch.validation.distanceMeters)
           : null,
       wifiSsid: params.dto.wifiSsid ?? null,
       wifiBssid: params.dto.wifiBssid ?? null,
@@ -186,8 +176,8 @@ export class AttendanceMobilePunchesService {
       validationMessage: validationPassed
         ? 'Mobile punch validation passed.'
         : validationErrors.join(' | '),
-      geofenceValidationResult: geofenceValidation ?? null,
-      wifiValidationResult: wifiValidation ?? null,
+      geofenceValidationResult: geofenceMatch.validationResult,
+      wifiValidationResult: wifiMatch.validationResult,
       isOverrideRequested: !validationPassed && hasOverrideReason,
       overrideReason: params.dto.overrideReason ?? null,
       deviceInfo: params.dto.deviceInfo ?? null,
@@ -278,117 +268,292 @@ export class AttendanceMobilePunchesService {
     return this.punchRepo.save(punch);
   }
 
-  private async validateGeofenceIfProvided(params: {
+  private async matchGeofence(params: {
     companyId: number;
     employeeBranchId?: number | null;
-    geofenceId?: number;
+    policy: AttendancePolicy | null;
+    requiredCheckpoints: AttendanceCheckpoint[];
     latitude: number;
     longitude: number;
     accuracyMeters?: number;
   }): Promise<{
-    valid: boolean;
-    message: string;
-    distanceMeters?: number;
-  } | null> {
-    if (!params.geofenceId) {
-      return null;
-    }
-
-    const geofence = await this.geofenceRepo.findActiveById(
-      params.companyId,
-      params.geofenceId,
+    matchedGeofence: AttendanceGeofence | null;
+    validation: {
+      valid: boolean;
+      message: string;
+      distanceMeters?: number;
+    } | null;
+    validationResult: Record<string, any> | null;
+    errors: string[];
+  }> {
+    const gpsCheckpoints = params.requiredCheckpoints.filter(
+      (checkpoint) => checkpoint.type === AttendanceCheckpointTypeEnum.GPS,
+    );
+    const checkpointGeofenceIds = Array.from(
+      new Set(
+        gpsCheckpoints
+          .map((checkpoint) => checkpoint.geofenceId)
+          .filter((value): value is number => Boolean(value)),
+      ),
+    );
+    const geofenceRequired = Boolean(
+      params.policy?.require_geo_fencing || gpsCheckpoints.length,
     );
 
-    if (!geofence) {
+    if (!geofenceRequired) {
       return {
-        valid: false,
-        message: 'Configured geofence is not active or does not exist.',
+        matchedGeofence: null,
+        validation: null,
+        validationResult: null,
+        errors: [],
       };
     }
 
-    if (
-      params.employeeBranchId &&
-      geofence.branchId &&
-      geofence.branchId !== params.employeeBranchId
-    ) {
+    const allowedGeofences = checkpointGeofenceIds.length
+      ? await this.geofenceRepo.findActiveByIds(
+          params.companyId,
+          checkpointGeofenceIds,
+        )
+      : await this.geofenceRepo.findActiveForBranch(
+          params.companyId,
+          params.employeeBranchId ?? null,
+        );
+
+    if (!allowedGeofences.length) {
       return {
-        valid: false,
-        message: 'Configured geofence does not belong to the employee branch.',
+        matchedGeofence: null,
+        validation: null,
+        validationResult: {
+          required: true,
+          matched: false,
+          checkedGeofenceIds: [],
+          attempts: [],
+        },
+        errors: [
+          checkpointGeofenceIds.length
+            ? 'No active geofence is configured for the active GPS checkpoint(s).'
+            : 'Active attendance policy requires geofence validation, but no active geofence is configured for the employee branch.',
+        ],
       };
     }
 
-    if (geofence.status !== AttendanceGeofenceStatusEnum.ACTIVE) {
-      return {
-        valid: false,
-        message: 'Configured geofence is inactive.',
-      };
+    const attempts: Array<Record<string, any>> = [];
+
+    for (const geofence of allowedGeofences) {
+      if (
+        params.employeeBranchId &&
+        geofence.branchId &&
+        geofence.branchId !== params.employeeBranchId
+      ) {
+        attempts.push({
+          geofenceId: geofence.id,
+          geofenceName: geofence.name,
+          valid: false,
+          message: 'Configured geofence does not belong to the employee branch.',
+        });
+        continue;
+      }
+
+      if (geofence.status !== AttendanceGeofenceStatusEnum.ACTIVE) {
+        attempts.push({
+          geofenceId: geofence.id,
+          geofenceName: geofence.name,
+          valid: false,
+          message: 'Configured geofence is inactive.',
+        });
+        continue;
+      }
+
+      if (geofence.type !== AttendanceGeofenceTypeEnum.CIRCLE) {
+        attempts.push({
+          geofenceId: geofence.id,
+          geofenceName: geofence.name,
+          valid: false,
+          message: 'Only circle geofence is currently supported for mobile punch.',
+        });
+        continue;
+      }
+
+      const validation = this.geofenceDistanceService.validateCircleGeofence({
+        officeLatitude: Number(geofence.latitude),
+        officeLongitude: Number(geofence.longitude),
+        userLatitude: params.latitude,
+        userLongitude: params.longitude,
+        radiusMeters: geofence.radiusMeters,
+        accuracyMeters: params.accuracyMeters,
+        allowedAccuracyMeters: geofence.allowedAccuracyMeters,
+        strictAccuracy: geofence.strictAccuracy,
+      });
+      const checkpointDistanceError = this.getGpsCheckpointDistanceError({
+        geofenceId: geofence.id,
+        requiredCheckpoints: gpsCheckpoints,
+        distanceMeters: validation.distanceMeters,
+      });
+      const valid = validation.valid && !checkpointDistanceError;
+      const message = checkpointDistanceError ?? validation.message;
+
+      attempts.push({
+        geofenceId: geofence.id,
+        geofenceName: geofence.name,
+        valid,
+        message,
+        distanceMeters: validation.distanceMeters,
+      });
+
+      if (valid) {
+        return {
+          matchedGeofence: geofence,
+          validation,
+          validationResult: {
+            required: true,
+            matched: true,
+            matchedGeofenceId: geofence.id,
+            matchedGeofenceName: geofence.name,
+            checkedGeofenceIds: allowedGeofences.map((item) => item.id),
+            attempts,
+          },
+          errors: [],
+        };
+      }
     }
 
-    if (geofence.type !== AttendanceGeofenceTypeEnum.CIRCLE) {
-      return {
-        valid: false,
-        message:
-          'Only circle geofence is currently supported for mobile punch.',
-      };
-    }
-
-    return this.geofenceDistanceService.validateCircleGeofence({
-      officeLatitude: Number(geofence.latitude),
-      officeLongitude: Number(geofence.longitude),
-      userLatitude: params.latitude,
-      userLongitude: params.longitude,
-      radiusMeters: geofence.radiusMeters,
-      accuracyMeters: params.accuracyMeters,
-      allowedAccuracyMeters: geofence.allowedAccuracyMeters,
-      strictAccuracy: geofence.strictAccuracy,
-    });
+    return {
+      matchedGeofence: null,
+      validation: null,
+      validationResult: {
+        required: true,
+        matched: false,
+        checkedGeofenceIds: allowedGeofences.map((item) => item.id),
+        attempts,
+      },
+      errors: this.buildValidationFailureErrors(
+        checkpointGeofenceIds.length
+          ? 'Location does not match any allowed geofence for the active attendance checkpoints.'
+          : 'Location does not match any allowed geofence for mobile attendance.',
+        attempts,
+      ),
+    };
   }
 
-  private async validateWifiIfProvided(params: {
+  private async matchWifiNetwork(params: {
     companyId: number;
     employeeBranchId?: number | null;
-    wifiNetworkId?: number;
+    requiredCheckpoints: AttendanceCheckpoint[];
     wifiSsid?: string;
     wifiBssid?: string;
     ipAddress?: string | null;
   }): Promise<{
-    valid: boolean;
-    message: string;
-  } | null> {
-    if (!params.wifiNetworkId) {
-      return null;
-    }
-
-    const wifiNetwork = await this.wifiRepo.findActiveById(
-      params.companyId,
-      params.wifiNetworkId,
+    matchedWifiNetwork: AttendanceWifiNetwork | null;
+    validationResult: Record<string, any> | null;
+    errors: string[];
+  }> {
+    const wifiCheckpoints = params.requiredCheckpoints.filter(
+      (checkpoint) => checkpoint.type === AttendanceCheckpointTypeEnum.WIFI,
+    );
+    const checkpointWifiIds = Array.from(
+      new Set(
+        wifiCheckpoints
+          .map((checkpoint) => checkpoint.wifiNetworkId)
+          .filter((value): value is number => Boolean(value)),
+      ),
+    );
+    const wifiRequired = wifiCheckpoints.length > 0;
+    const hasWifiDetails = Boolean(
+      params.wifiSsid?.trim() || params.wifiBssid?.trim() || params.ipAddress,
     );
 
-    if (!wifiNetwork) {
+    if (!wifiRequired && !hasWifiDetails) {
       return {
-        valid: false,
-        message: 'Configured WiFi network is not active or does not exist.',
+        matchedWifiNetwork: null,
+        validationResult: null,
+        errors: [],
       };
     }
 
-    if (
-      params.employeeBranchId &&
-      wifiNetwork.branchId &&
-      wifiNetwork.branchId !== params.employeeBranchId
-    ) {
+    const allowedWifiNetworks = checkpointWifiIds.length
+      ? await this.wifiRepo.findActiveByIds(params.companyId, checkpointWifiIds)
+      : await this.wifiRepo.findActiveForBranch(
+          params.companyId,
+          params.employeeBranchId ?? null,
+        );
+
+    if (!allowedWifiNetworks.length) {
       return {
-        valid: false,
-        message:
-          'Configured WiFi network does not belong to the employee branch.',
+        matchedWifiNetwork: null,
+        validationResult: {
+          required: wifiRequired,
+          matched: false,
+          checkedWifiNetworkIds: [],
+          attempts: [],
+        },
+        errors: wifiRequired
+          ? ['No active WiFi network is configured for the active WiFi checkpoint(s).']
+          : [],
       };
     }
 
-    return this.wifiValidator.validate({
-      wifiNetwork,
-      ssid: params.wifiSsid,
-      bssid: params.wifiBssid,
-      ipAddress: params.ipAddress,
-    });
+    const attempts: Array<Record<string, any>> = [];
+
+    for (const wifiNetwork of allowedWifiNetworks) {
+      if (
+        params.employeeBranchId &&
+        wifiNetwork.branchId &&
+        wifiNetwork.branchId !== params.employeeBranchId
+      ) {
+        attempts.push({
+          wifiNetworkId: wifiNetwork.id,
+          wifiNetworkName: wifiNetwork.name,
+          valid: false,
+          message: 'Configured WiFi network does not belong to the employee branch.',
+        });
+        continue;
+      }
+
+      const validation = this.wifiValidator.validate({
+        wifiNetwork,
+        ssid: params.wifiSsid,
+        bssid: params.wifiBssid,
+        ipAddress: params.ipAddress,
+      });
+
+      attempts.push({
+        wifiNetworkId: wifiNetwork.id,
+        wifiNetworkName: wifiNetwork.name,
+        valid: validation.valid,
+        message: validation.message,
+      });
+
+      if (validation.valid) {
+        return {
+          matchedWifiNetwork: wifiNetwork,
+          validationResult: {
+            required: wifiRequired,
+            matched: true,
+            matchedWifiNetworkId: wifiNetwork.id,
+            matchedWifiNetworkName: wifiNetwork.name,
+            checkedWifiNetworkIds: allowedWifiNetworks.map((item) => item.id),
+            attempts,
+          },
+          errors: [],
+        };
+      }
+    }
+
+    return {
+      matchedWifiNetwork: null,
+      validationResult: {
+        required: wifiRequired,
+        matched: false,
+        checkedWifiNetworkIds: allowedWifiNetworks.map((item) => item.id),
+        attempts,
+      },
+      errors: wifiRequired
+        ? this.buildValidationFailureErrors(
+            'WiFi network does not match any allowed office network.',
+            attempts,
+          )
+        : [],
+    };
   }
 
   private async resolveEmployeeContext(params: {
@@ -512,62 +677,15 @@ export class AttendanceMobilePunchesService {
     });
   }
 
-  private collectCheckpointValidationErrors(params: {
-    dto: CreateAttendanceMobilePunchDto;
-    policy: AttendancePolicy | null;
-    requiredCheckpoints: AttendanceCheckpoint[];
-  }) {
+  private collectUnsupportedCheckpointValidationErrors(
+    requiredCheckpoints: AttendanceCheckpoint[],
+  ) {
     const errors: string[] = [];
-    const gpsCheckpoints = params.requiredCheckpoints.filter(
-      (checkpoint) => checkpoint.type === AttendanceCheckpointTypeEnum.GPS,
-    );
-    const wifiCheckpoints = params.requiredCheckpoints.filter(
-      (checkpoint) => checkpoint.type === AttendanceCheckpointTypeEnum.WIFI,
-    );
-    const unsupportedCheckpoints = params.requiredCheckpoints.filter(
+    const unsupportedCheckpoints = requiredCheckpoints.filter(
       (checkpoint) =>
         checkpoint.type === AttendanceCheckpointTypeEnum.DEVICE ||
         checkpoint.type === AttendanceCheckpointTypeEnum.QR,
     );
-
-    if (params.policy?.require_geo_fencing && !params.dto.geofenceId) {
-      errors.push('Active attendance policy requires geofence validation.');
-    }
-
-    if (gpsCheckpoints.length && !params.dto.geofenceId) {
-      errors.push('Active GPS checkpoint requires a geofence selection.');
-    }
-
-    if (wifiCheckpoints.length && !params.dto.wifiNetworkId) {
-      errors.push('Active WiFi checkpoint requires a WiFi network selection.');
-    }
-
-    const allowedGeofenceIds = gpsCheckpoints
-      .map((checkpoint) => checkpoint.geofenceId)
-      .filter((value): value is number => Boolean(value));
-    const allowedWifiNetworkIds = wifiCheckpoints
-      .map((checkpoint) => checkpoint.wifiNetworkId)
-      .filter((value): value is number => Boolean(value));
-
-    if (
-      allowedGeofenceIds.length &&
-      params.dto.geofenceId &&
-      !allowedGeofenceIds.includes(params.dto.geofenceId)
-    ) {
-      errors.push(
-        'Selected geofence does not match the active GPS checkpoint configuration.',
-      );
-    }
-
-    if (
-      allowedWifiNetworkIds.length &&
-      params.dto.wifiNetworkId &&
-      !allowedWifiNetworkIds.includes(params.dto.wifiNetworkId)
-    ) {
-      errors.push(
-        'Selected WiFi network does not match the active WiFi checkpoint configuration.',
-      );
-    }
 
     if (unsupportedCheckpoints.length) {
       const checkpointLabels = unsupportedCheckpoints.map((checkpoint) =>
@@ -583,38 +701,24 @@ export class AttendanceMobilePunchesService {
     return errors;
   }
 
-  private collectCheckpointOutcomeErrors(params: {
-    dto: CreateAttendanceMobilePunchDto;
+  private getGpsCheckpointDistanceError(params: {
+    geofenceId: number;
     requiredCheckpoints: AttendanceCheckpoint[];
-    geofenceValidation: {
-      valid: boolean;
-      message: string;
-      distanceMeters?: number;
-    } | null;
-    wifiValidation: {
-      valid: boolean;
-      message: string;
-    } | null;
+    distanceMeters?: number;
   }) {
-    const errors: string[] = [];
     const matchedGpsCheckpoints = params.requiredCheckpoints.filter(
       (checkpoint) =>
         checkpoint.type === AttendanceCheckpointTypeEnum.GPS &&
-        (!checkpoint.geofenceId ||
-          checkpoint.geofenceId === params.dto.geofenceId),
+        (!checkpoint.geofenceId || checkpoint.geofenceId === params.geofenceId),
     );
 
-    if (
-      params.geofenceValidation?.valid &&
-      typeof params.geofenceValidation.distanceMeters === 'number' &&
-      matchedGpsCheckpoints.length
-    ) {
+    if (typeof params.distanceMeters === 'number' && matchedGpsCheckpoints.length) {
+      const distanceMeters = params.distanceMeters;
       const satisfiesDistanceRule = matchedGpsCheckpoints.some(
         (checkpoint) =>
           checkpoint.maxDistanceMeters === null ||
           checkpoint.maxDistanceMeters === undefined ||
-          params.geofenceValidation!.distanceMeters! <=
-            checkpoint.maxDistanceMeters,
+          distanceMeters <= checkpoint.maxDistanceMeters,
       );
 
       if (!satisfiesDistanceRule) {
@@ -624,13 +728,28 @@ export class AttendanceMobilePunchesService {
             .filter((value): value is number => value !== null),
         );
 
-        errors.push(
-          `GPS checkpoint distance exceeded. Maximum allowed distance is ${strictestDistance}m.`,
-        );
+        return `GPS checkpoint distance exceeded. Maximum allowed distance is ${strictestDistance}m.`;
       }
     }
 
-    return errors;
+    return null;
+  }
+
+  private buildValidationFailureErrors(
+    summary: string,
+    attempts: Array<Record<string, any>>,
+  ) {
+    const detailMessages = Array.from(
+      new Set(
+        attempts
+          .map((attempt) =>
+            typeof attempt.message === 'string' ? attempt.message : null,
+          )
+          .filter((message): message is string => Boolean(message)),
+      ),
+    ).slice(0, 2);
+
+    return [summary, ...detailMessages];
   }
 
   private parseAuthenticationModes(authenticationModes: string) {

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindOptionsWhere, ILike, Repository } from 'typeorm';
+import { FindOptionsWhere, ILike, In, Repository } from 'typeorm';
 import { AttendanceGeofence } from '../entities/attendance-geofence.entity';
 import { AttendanceGeofenceQueryDto } from '../dtos/attendance-geofence-query.dto';
 import { AttendanceGeofenceStatusEnum } from '../enums/attendance-geofence-status.enum';
@@ -46,6 +46,47 @@ export class AttendanceGeofenceRepository {
         status: AttendanceGeofenceStatusEnum.ACTIVE,
       },
     });
+  }
+
+  findActiveByIds(
+    companyId: number,
+    ids: number[],
+  ): Promise<AttendanceGeofence[]> {
+    if (!ids.length) {
+      return Promise.resolve([]);
+    }
+
+    return this.repo.find({
+      where: {
+        companyId,
+        id: In(ids),
+        status: AttendanceGeofenceStatusEnum.ACTIVE,
+      },
+      order: {
+        id: 'ASC',
+      },
+    });
+  }
+
+  findActiveForBranch(
+    companyId: number,
+    branchId?: number | null,
+  ): Promise<AttendanceGeofence[]> {
+    const qb = this.repo
+      .createQueryBuilder('geofence')
+      .where('geofence.company_id = :companyId', { companyId })
+      .andWhere('geofence.status = :status', {
+        status: AttendanceGeofenceStatusEnum.ACTIVE,
+      })
+      .orderBy('geofence.id', 'ASC');
+
+    if (branchId) {
+      qb.andWhere('(geofence.branch_id IS NULL OR geofence.branch_id = :branchId)', {
+        branchId,
+      });
+    }
+
+    return qb.getMany();
   }
 
   async findPaginated(companyId: number, query: AttendanceGeofenceQueryDto) {
