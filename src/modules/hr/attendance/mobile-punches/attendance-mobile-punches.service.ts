@@ -125,6 +125,12 @@ export class AttendanceMobilePunchesService {
       accuracyMeters: params.dto.accuracyMeters,
     });
 
+    if (geofenceMatch.errors.length) {
+      throw new BadRequestException({
+        message: geofenceMatch.errors[0],
+      });
+    }
+
     const wifiMatch = await this.matchWifiNetwork({
       companyId: params.companyId,
       employeeBranchId: employee.primary_branch_id ?? null,
@@ -135,11 +141,14 @@ export class AttendanceMobilePunchesService {
       fallbackIpAddress: ipAddress,
     });
 
-    const validationErrors = [
-      ...this.collectUnsupportedCheckpointValidationErrors(requiredCheckpoints),
-      ...geofenceMatch.errors,
-      ...wifiMatch.errors,
-    ];
+    if (wifiMatch.errors.length) {
+      throw new BadRequestException({
+        message: wifiMatch.errors[0],
+      });
+    }
+
+    const validationErrors =
+      this.collectUnsupportedCheckpointValidationErrors(requiredCheckpoints);
 
     const validationPassed = validationErrors.length === 0;
 
@@ -429,9 +438,7 @@ export class AttendanceMobilePunchesService {
         attempts,
       },
       errors: this.buildValidationFailureErrors(
-        checkpointGeofenceIds.length
-          ? 'Location does not match any allowed geofence for the active attendance checkpoints.'
-          : 'Location does not match any registered geofence in the system.',
+        'Location is not inside the allowed geofence.',
         attempts,
       ),
     };

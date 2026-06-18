@@ -348,6 +348,7 @@ describe('AttendanceMobilePunchesService', () => {
           latitude: -6.791,
           longitude: 39.21,
           accuracyMeters: 5,
+          overrideReason: 'New check in',
         },
         requestIp: '10.40.1.24',
         userAgent: 'jest',
@@ -359,17 +360,29 @@ describe('AttendanceMobilePunchesService', () => {
     expect(thrown).toBeInstanceOf(BadRequestException);
     expect(thrown?.getResponse()).toEqual(
       expect.objectContaining({
-        message: 'Attendance punch rejected.',
-        errors: expect.arrayContaining([
-          'Location does not match any allowed geofence for the active attendance checkpoints.',
-        ]),
+        message: 'Location is not inside the allowed geofence.',
       }),
     );
+    expect(punchRepo.createEntity).not.toHaveBeenCalled();
+    expect(punchRepo.save).not.toHaveBeenCalled();
   });
 
   it('rejects provided WiFi details when they do not match an allowed office network', async () => {
     checkpointRepository.find.mockResolvedValue([]);
-    geofenceRepo.findActiveForBranch.mockResolvedValue([]);
+    geofenceRepo.findActiveForBranch.mockResolvedValue([
+      {
+        id: 55,
+        name: 'HQ Campus',
+        branchId: 5,
+        status: 'ACTIVE',
+        type: 'CIRCLE',
+        latitude: '-6.7923540',
+        longitude: '39.2083280',
+        radiusMeters: 100,
+        allowedAccuracyMeters: 50,
+        strictAccuracy: false,
+      },
+    ]);
     wifiRepo.findActiveForBranch.mockResolvedValue([
       {
         id: 44,
@@ -377,6 +390,11 @@ describe('AttendanceMobilePunchesService', () => {
         branchId: 5,
       },
     ]);
+    geofenceDistanceService.validateCircleGeofence.mockReturnValue({
+      valid: true,
+      distanceMeters: 5,
+      message: 'Location is inside the allowed geofence.',
+    });
     wifiValidator.validate.mockReturnValue({
       valid: false,
       message: 'Invalid WiFi SSID. Required Alliance-HQ-Staff, received Guest-WiFi.',
@@ -395,6 +413,7 @@ describe('AttendanceMobilePunchesService', () => {
           wifiSsid: 'Guest-WiFi',
           wifiBssid: 'AA:BB:CC:DD:EE:FF',
           ipAddress: '10.40.1.24',
+          overrideReason: 'New check in',
         },
         requestIp: '10.40.1.24',
         userAgent: 'jest',
@@ -406,11 +425,63 @@ describe('AttendanceMobilePunchesService', () => {
     expect(thrown).toBeInstanceOf(BadRequestException);
     expect(thrown?.getResponse()).toEqual(
       expect.objectContaining({
-        message: 'Attendance punch rejected.',
-        errors: expect.arrayContaining([
-          'WiFi network does not match any allowed office network.',
-          'Invalid WiFi SSID. Required Alliance-HQ-Staff, received Guest-WiFi.',
-        ]),
+        message: 'WiFi network does not match any allowed office network.',
+      }),
+    );
+    expect(punchRepo.createEntity).not.toHaveBeenCalled();
+    expect(punchRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('still supports pending override for non-geofence and non-wifi validation failures', async () => {
+    checkpointRepository.find.mockResolvedValue([
+      {
+        id: 401,
+        type: AttendanceCheckpointTypeEnum.QR,
+        status: 'ACTIVE',
+        isRequired: true,
+      },
+    ]);
+    geofenceRepo.findActiveForBranch.mockResolvedValue([
+      {
+        id: 88,
+        name: 'HQ Campus',
+        branchId: 5,
+        status: 'ACTIVE',
+        type: 'CIRCLE',
+        latitude: '-6.7923540',
+        longitude: '39.2083280',
+        radiusMeters: 100,
+        allowedAccuracyMeters: 50,
+        strictAccuracy: false,
+      },
+    ]);
+    wifiRepo.findActiveForBranch.mockResolvedValue([]);
+    geofenceDistanceService.validateCircleGeofence.mockReturnValue({
+      valid: true,
+      distanceMeters: 4,
+      message: 'Location is inside the allowed geofence.',
+    });
+
+    const result = await service.checkIn({
+      companyId: 1,
+      authenticatedEmployeeId: 39,
+      employeeId: 39,
+      dto: {
+        latitude: -6.792354,
+        longitude: 39.208328,
+        overrideReason: 'Need manager review',
+      },
+      requestIp: '10.40.1.24',
+      userAgent: 'jest',
+    });
+
+    expect(result.message).toBe('Attendance punch saved as pending override.');
+    expect(punchRepo.createEntity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        geofenceId: 88,
+        validationStatus: AttendancePunchValidationStatusEnum.PENDING_OVERRIDE,
+        isOverrideRequested: true,
+        overrideReason: 'Need manager review',
       }),
     );
   });
