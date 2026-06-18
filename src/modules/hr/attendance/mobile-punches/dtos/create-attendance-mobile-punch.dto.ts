@@ -2,12 +2,15 @@ import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsInt,
+  IsIP,
   IsNumber,
   IsObject,
   IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
+  Matches,
   ValidateNested,
 } from 'class-validator';
 
@@ -74,16 +77,26 @@ export class CreateAttendanceMobilePunchDto {
   @ApiPropertyOptional({ example: 'Alliance-HQ-Staff' })
   @IsOptional()
   @IsString()
+  @MaxLength(255)
+  @Matches(/\S/, {
+    message: 'wifiSsid should not be empty',
+  })
   wifiSsid?: string;
 
   @ApiPropertyOptional({ example: 'AA:BB:CC:DD:EE:FF' })
   @IsOptional()
   @IsString()
+  @Matches(/^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/, {
+    message:
+      'wifiBssid must be a valid MAC address in the format AA:BB:CC:DD:EE:FF',
+  })
   wifiBssid?: string;
 
   @ApiPropertyOptional({ example: '10.40.1.24' })
   @IsOptional()
-  @IsString()
+  @IsIP(4, {
+    message: 'ipAddress must be a valid IPv4 address',
+  })
   ipAddress?: string;
 
   @ApiPropertyOptional({ example: 'android-SM-A546E-8f3b21c9' })

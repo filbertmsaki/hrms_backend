@@ -105,7 +105,17 @@ export class AttendanceMobilePunchesService {
     const attendanceDate = formatDateOnly(punchTime);
     this.assertEmployeeCanPunch(employee, attendanceDate);
 
-    const ipAddress = params.dto.ipAddress || params.requestIp || null;
+    const wifiSsid = this.normalizeOptionalString(params.dto.wifiSsid);
+    const wifiBssid = this.normalizeOptionalString(params.dto.wifiBssid);
+    const deviceIdentifier = this.normalizeOptionalString(
+      params.dto.deviceIdentifier,
+    );
+    const overrideReason = this.normalizeOptionalString(params.dto.overrideReason);
+    const submittedIpAddress = this.normalizeOptionalString(params.dto.ipAddress);
+    const ipAddress =
+      submittedIpAddress ??
+      this.normalizeOptionalString(params.requestIp) ??
+      null;
     const geofenceMatch = await this.matchGeofence({
       companyId: params.companyId,
       employeeBranchId: employee.primary_branch_id ?? null,
@@ -120,9 +130,10 @@ export class AttendanceMobilePunchesService {
       companyId: params.companyId,
       employeeBranchId: employee.primary_branch_id ?? null,
       requiredCheckpoints,
-      wifiSsid: params.dto.wifiSsid,
-      wifiBssid: params.dto.wifiBssid,
-      ipAddress,
+      wifiSsid,
+      wifiBssid,
+      submittedIpAddress,
+      fallbackIpAddress: ipAddress,
     });
 
     const validationErrors = [
@@ -133,7 +144,7 @@ export class AttendanceMobilePunchesService {
 
     const validationPassed = validationErrors.length === 0;
 
-    const hasOverrideReason = Boolean(params.dto.overrideReason?.trim());
+    const hasOverrideReason = Boolean(overrideReason);
 
     if (!validationPassed && !hasOverrideReason) {
       throw new BadRequestException({
@@ -167,11 +178,11 @@ export class AttendanceMobilePunchesService {
         geofenceMatch.validation?.distanceMeters !== undefined
           ? String(geofenceMatch.validation.distanceMeters)
           : null,
-      wifiSsid: params.dto.wifiSsid ?? null,
-      wifiBssid: params.dto.wifiBssid ?? null,
+      wifiSsid: wifiSsid ?? null,
+      wifiBssid: wifiBssid ?? null,
       ipAddress,
       userAgent: params.userAgent ?? null,
-      deviceIdentifier: params.dto.deviceIdentifier ?? null,
+      deviceIdentifier: deviceIdentifier ?? null,
       validationStatus: status,
       validationMessage: validationPassed
         ? 'Mobile punch validation passed.'
@@ -179,10 +190,15 @@ export class AttendanceMobilePunchesService {
       geofenceValidationResult: geofenceMatch.validationResult,
       wifiValidationResult: wifiMatch.validationResult,
       isOverrideRequested: !validationPassed && hasOverrideReason,
-      overrideReason: params.dto.overrideReason ?? null,
+      overrideReason: overrideReason ?? null,
       deviceInfo: params.dto.deviceInfo ?? null,
       rawPayload: {
         ...params.dto,
+        wifiSsid,
+        wifiBssid,
+        ipAddress,
+        deviceIdentifier,
+        overrideReason,
         requestIp: params.requestIp,
         userAgent: params.userAgent,
       },
@@ -439,9 +455,10 @@ export class AttendanceMobilePunchesService {
     companyId: number;
     employeeBranchId?: number | null;
     requiredCheckpoints: AttendanceCheckpoint[];
-    wifiSsid?: string;
-    wifiBssid?: string;
-    ipAddress?: string | null;
+    wifiSsid?: string | null;
+    wifiBssid?: string | null;
+    submittedIpAddress?: string | null;
+    fallbackIpAddress?: string | null;
   }): Promise<{
     matchedWifiNetwork: AttendanceWifiNetwork | null;
     validationResult: Record<string, any> | null;
@@ -459,8 +476,10 @@ export class AttendanceMobilePunchesService {
     );
     const wifiRequired = wifiCheckpoints.length > 0;
     const hasWifiDetails = Boolean(
-      params.wifiSsid?.trim() || params.wifiBssid?.trim() || params.ipAddress,
+      params.wifiSsid || params.wifiBssid || params.submittedIpAddress,
     );
+    const ipAddressForValidation =
+      params.submittedIpAddress ?? params.fallbackIpAddress ?? null;
 
     if (!wifiRequired && !hasWifiDetails) {
       return {
@@ -486,9 +505,14 @@ export class AttendanceMobilePunchesService {
           checkedWifiNetworkIds: [],
           attempts: [],
         },
-        errors: wifiRequired
-          ? ['No active WiFi network is configured for the active WiFi checkpoint(s).']
-          : [],
+        errors:
+          wifiRequired || hasWifiDetails
+            ? [
+                wifiRequired
+                  ? 'No active WiFi network is configured for the active WiFi checkpoint(s).'
+                  : 'Submitted WiFi details could not be validated because no active WiFi network is configured for the employee branch.',
+              ]
+            : [],
       };
     }
 
@@ -513,7 +537,7 @@ export class AttendanceMobilePunchesService {
         wifiNetwork,
         ssid: params.wifiSsid,
         bssid: params.wifiBssid,
-        ipAddress: params.ipAddress,
+        ipAddress: ipAddressForValidation,
       });
 
       attempts.push({
@@ -547,7 +571,7 @@ export class AttendanceMobilePunchesService {
         checkedWifiNetworkIds: allowedWifiNetworks.map((item) => item.id),
         attempts,
       },
-      errors: wifiRequired
+      errors: wifiRequired || hasWifiDetails
         ? this.buildValidationFailureErrors(
             'WiFi network does not match any allowed office network.',
             attempts,
@@ -750,6 +774,11 @@ export class AttendanceMobilePunchesService {
     ).slice(0, 2);
 
     return [summary, ...detailMessages];
+  }
+
+  private normalizeOptionalString(value?: string | null) {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : null;
   }
 
   private parseAuthenticationModes(authenticationModes: string) {

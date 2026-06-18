@@ -321,4 +321,52 @@ describe('AttendanceMobilePunchesService', () => {
       }),
     );
   });
+
+  it('rejects provided WiFi details when they do not match an allowed office network', async () => {
+    checkpointRepository.find.mockResolvedValue([]);
+    geofenceRepo.findActiveForBranch.mockResolvedValue([]);
+    wifiRepo.findActiveForBranch.mockResolvedValue([
+      {
+        id: 44,
+        name: 'Alliance-HQ-Staff',
+        branchId: 5,
+      },
+    ]);
+    wifiValidator.validate.mockReturnValue({
+      valid: false,
+      message: 'Invalid WiFi SSID. Required Alliance-HQ-Staff, received Guest-WiFi.',
+    });
+
+    let thrown: BadRequestException | null = null;
+
+    try {
+      await service.checkIn({
+        companyId: 1,
+        authenticatedEmployeeId: 39,
+        employeeId: 39,
+        dto: {
+          latitude: -6.792354,
+          longitude: 39.208328,
+          wifiSsid: 'Guest-WiFi',
+          wifiBssid: 'AA:BB:CC:DD:EE:FF',
+          ipAddress: '10.40.1.24',
+        },
+        requestIp: '10.40.1.24',
+        userAgent: 'jest',
+      });
+    } catch (error) {
+      thrown = error as BadRequestException;
+    }
+
+    expect(thrown).toBeInstanceOf(BadRequestException);
+    expect(thrown?.getResponse()).toEqual(
+      expect.objectContaining({
+        message: 'Attendance punch rejected.',
+        errors: expect.arrayContaining([
+          'WiFi network does not match any allowed office network.',
+          'Invalid WiFi SSID. Required Alliance-HQ-Staff, received Guest-WiFi.',
+        ]),
+      }),
+    );
+  });
 });
