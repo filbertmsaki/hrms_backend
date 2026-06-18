@@ -78,6 +78,6 @@ import { ShiftTemplatesController } from './shift-templates/shift-templates.cont
     ShiftChangeRequestsService,
     ShiftTemplatesService,
   ],
-  exports: [TypeOrmModule, ShiftsService],
+  exports: [TypeOrmModule, ShiftsService, ShiftAssignmentsService],
 })
 export class ShiftEngineModule {}

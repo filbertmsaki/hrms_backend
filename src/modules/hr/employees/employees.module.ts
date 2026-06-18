@@ -8,6 +8,7 @@ import { Branch } from '../branches/entities/branch.entity';
 import { Designation } from '../designations/entities/designation.entity';
 import { Department } from '../departments/entities/department.entity';
 import { Position } from '../positions/entities/position.entity';
+import { OnboardingModule } from '../onboarding/onboarding.module';
 import { HrSharedModule } from '../shared/hr-shared.module';
 import { EmployeesController } from './employees.controller';
 import { EmployeesService } from './employees.service';
@@ -51,6 +52,7 @@ import { Employee } from './entities/employee.entity';
     CompaniesModule,
     UsersModule,
     HrSharedModule,
+    OnboardingModule,
   ],
   controllers: [EmployeesController],
   providers: [EmployeesService],

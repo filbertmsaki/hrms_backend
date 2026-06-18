@@ -16,6 +16,7 @@ import { UsersService } from '../../users/users.service';
 import { Branch } from '../branches/entities/branch.entity';
 import { Designation } from '../designations/entities/designation.entity';
 import { Department } from '../departments/entities/department.entity';
+import { OnboardingService } from '../onboarding/onboarding.service';
 import { Position } from '../positions/entities/position.entity';
 import { HrAccessService } from '../shared/hr-access.service';
 import { buildPaginationMeta, formatDateOnly } from '../shared/hr.utils';
@@ -129,6 +130,7 @@ export class EmployeesService {
     private readonly companiesService: CompaniesService,
     private readonly usersService: UsersService,
     private readonly hrAccessService: HrAccessService,
+    private readonly onboardingService: OnboardingService,
   ) {}
 
   private getEmployeeRepository(manager?: EntityManager): Repository<Employee> {
@@ -2421,7 +2423,7 @@ export class EmployeesService {
     createEmployeeDto: CreateEmployeeDto,
     actor: AuthenticatedUser,
   ) {
-    const employeeId = await this.dataSource.transaction(async (manager) => {
+    const creation = await this.dataSource.transaction(async (manager) => {
       const membership = await this.resolveCompanyMembershipForEmployeeCreation(
         companyId,
         createEmployeeDto,
@@ -2459,16 +2461,60 @@ export class EmployeesService {
           createEmployeeDto.employment_type ?? EmploymentTypeEnum.FULL_TIME,
       });
 
-      return this.persistEmployee(
+      const employeeId = await this.persistEmployee(
         companyId,
         employee,
         createEmployeeDto,
         actor,
         manager,
       );
+
+      let onboardingRequestId: number | null = null;
+      if (createEmployeeDto.onboarding?.auto_start !== false) {
+        const onboardingRequest =
+          await this.onboardingService.startOnboardingForEmployee(
+            companyId,
+            {
+              employee_id: employeeId,
+              workflow_id: createEmployeeDto.onboarding?.workflow_id,
+              title: createEmployeeDto.onboarding?.title,
+              description: createEmployeeDto.onboarding?.description,
+              planned_start_date:
+                createEmployeeDto.onboarding?.planned_start_date,
+              planned_completion_date:
+                createEmployeeDto.onboarding?.planned_completion_date,
+              submit: createEmployeeDto.onboarding?.submit,
+              provisioning: createEmployeeDto.onboarding?.provisioning,
+            },
+            actor,
+            manager,
+          );
+        onboardingRequestId = onboardingRequest.id;
+      }
+
+      return {
+        employeeId,
+        onboardingRequestId,
+      };
     });
 
-    return this.findOne(companyId, employeeId, actor);
+    const employee = await this.findOne(companyId, creation.employeeId, actor);
+
+    if (!creation.onboardingRequestId) {
+      return employee;
+    }
+
+    const onboardingRequest =
+      await this.onboardingService.findOneOnboardingRequest(
+        companyId,
+        creation.onboardingRequestId,
+        actor,
+      );
+
+    return {
+      ...employee,
+      onboarding_request: onboardingRequest,
+    };
   }
 
   async findMyProfile(companyId: number, userId: number) {

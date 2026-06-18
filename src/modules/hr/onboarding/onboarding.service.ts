@@ -9,8 +9,16 @@ import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
+import { CompanyUserRole } from '../../companies/entities/company-user-role.entity';
 import { Role } from '../../roles/entities/role.entity';
+import { ShiftAssignmentsService } from '../attendance/shift/shift-assignments/shift-assignments.service';
+import { ShiftAssignmentStatusEnum } from '../attendance/shift/shift-assignments/enums/shift-assignment-status.enum';
+import { ShiftAssignment } from '../attendance/shift/shift-assignments/entities/shift-assignment.entity';
+import { EmployeeTimetableStatusEnum } from '../attendance/timetable/employee-timetables/enums/employee-timetable-status.enum';
+import { EmployeeTimetablesService } from '../attendance/timetable/employee-timetables/employee-timetables.service';
+import { EmployeeTimetable } from '../attendance/timetable/employee-timetables/entities/employee-timetable.entity';
 import { Branch } from '../branches/entities/branch.entity';
+import { CompanyUserBranchAccess } from '../branches/entities/company-user-branch-access.entity';
 import { Document } from '../documents/entities/document.entity';
 import { DocumentEntityTypeEnum } from '../documents/enums/document-entity-type.enum';
 import { DocumentModuleEnum } from '../documents/enums/document-module.enum';
@@ -20,6 +28,8 @@ import { Employee } from '../employees/entities/employee.entity';
 import { LeaveType } from '../leave/entities/leave-type.entity';
 import { LeaveRecordStatusEnum } from '../leave/enums/leave-record-status.enum';
 import { LeaveBalanceService } from '../leave/services/leave-balance.service';
+import { EmployeeDeviceAssignmentsService } from '../../access-control/employee-device-assignments/service/employee-device-assignments.service';
+import { EmployeeDeviceAssignment } from '../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
 import { Position } from '../positions/entities/position.entity';
 import { HrAccessService } from '../shared/hr-access.service';
 import { buildPaginationMeta, formatDateOnly } from '../shared/hr.utils';
@@ -29,6 +39,7 @@ import { CreateOnboardingRequestDto } from './dtos/create-onboarding-request.dto
 import { CreateOnboardingTaskDto } from './dtos/create-onboarding-task.dto';
 import { CreateOnboardingWorkflowStepDto } from './dtos/create-onboarding-workflow-step.dto';
 import { CreateOnboardingWorkflowDto } from './dtos/create-onboarding-workflow.dto';
+import { OnboardingProvisioningDto } from './dtos/onboarding-provisioning.dto';
 import { OnboardingApprovalActionDto } from './dtos/onboarding-approval-action.dto';
 import { OnboardingRequestQueryDto } from './dtos/onboarding-request-query.dto';
 import { OnboardingWorkflowQueryDto } from './dtos/onboarding-workflow-query.dto';
@@ -39,6 +50,7 @@ import { UpdateOnboardingWorkflowDto } from './dtos/update-onboarding-workflow.d
 import { UploadDocumentDto } from './dtos/upload-document.dto';
 import { VerifyDocumentDto } from './dtos/verify-document.dto';
 import { OnboardingApprovalStatusEnum } from './enums/onboarding-approval-status.enum';
+import { OnboardingAttendanceModeEnum } from './enums/onboarding-attendance-mode.enum';
 import { OnboardingApproverTypeEnum } from './enums/onboarding-approver-type.enum';
 import { OnboardingRecordStatusEnum } from './enums/onboarding-record-status.enum';
 import { OnboardingRequestStatusEnum } from './enums/onboarding-request-status.enum';
@@ -59,6 +71,41 @@ type ProgressSummary = {
   total_approvals: number;
   approved_approvals: number;
   progress_percentage: string;
+};
+
+type OnboardingProvisioningPayload = {
+  role_ids?: number[];
+  branch_access_ids?: number[];
+  attendance_mode?: OnboardingAttendanceModeEnum;
+  shift_assignment?: {
+    shift_id: number;
+    effective_from?: string;
+    effective_to?: string | null;
+    rotation_group_id?: number | null;
+    is_primary?: boolean;
+  };
+  timetable_assignment?: {
+    timetable_id: number;
+    effective_from?: string;
+    effective_to?: string | null;
+  };
+  device_assignment?: {
+    employee_no?: string;
+    access_group_id: number;
+    organization_id?: number;
+    valid_enabled?: boolean;
+    valid_begin_time?: string;
+    valid_end_time?: string;
+    local_ui_right?: boolean;
+    close_delay_enabled?: boolean;
+    max_open_door_time?: number;
+    open_door_time?: number;
+    user_verify_mode?: string;
+    metadata?: Record<string, unknown>;
+    device_ids: number[];
+    sync_now?: boolean;
+    continue_on_error?: boolean;
+  };
 };
 
 @Injectable()
@@ -90,12 +137,25 @@ export class OnboardingService {
     private readonly branchRepository: Repository<Branch>,
     @InjectRepository(CompanyUser)
     private readonly companyUserRepository: Repository<CompanyUser>,
+    @InjectRepository(CompanyUserRole)
+    private readonly companyUserRoleRepository: Repository<CompanyUserRole>,
+    @InjectRepository(CompanyUserBranchAccess)
+    private readonly branchAccessRepository: Repository<CompanyUserBranchAccess>,
     @InjectRepository(Role)
     private readonly roleRepository: Repository<Role>,
+    @InjectRepository(ShiftAssignment)
+    private readonly shiftAssignmentRepository: Repository<ShiftAssignment>,
+    @InjectRepository(EmployeeTimetable)
+    private readonly employeeTimetableRepository: Repository<EmployeeTimetable>,
+    @InjectRepository(EmployeeDeviceAssignment)
+    private readonly employeeDeviceAssignmentRepository: Repository<EmployeeDeviceAssignment>,
     private readonly hrAccessService: HrAccessService,
     private readonly onboardingAuditService: OnboardingAuditService,
     private readonly onboardingWorkflowService: OnboardingWorkflowService,
     private readonly leaveBalanceService: LeaveBalanceService,
+    private readonly shiftAssignmentsService: ShiftAssignmentsService,
+    private readonly employeeTimetablesService: EmployeeTimetablesService,
+    private readonly employeeDeviceAssignmentsService: EmployeeDeviceAssignmentsService,
   ) {}
 
   private getOnboardingWorkflowRepository(
@@ -168,6 +228,49 @@ export class OnboardingService {
 
   private getRoleRepository(manager?: EntityManager): Repository<Role> {
     return manager?.getRepository(Role) ?? this.roleRepository;
+  }
+
+  private getCompanyUserRoleRepository(
+    manager?: EntityManager,
+  ): Repository<CompanyUserRole> {
+    return (
+      manager?.getRepository(CompanyUserRole) ?? this.companyUserRoleRepository
+    );
+  }
+
+  private getBranchAccessRepository(
+    manager?: EntityManager,
+  ): Repository<CompanyUserBranchAccess> {
+    return (
+      manager?.getRepository(CompanyUserBranchAccess) ??
+      this.branchAccessRepository
+    );
+  }
+
+  private getShiftAssignmentRepository(
+    manager?: EntityManager,
+  ): Repository<ShiftAssignment> {
+    return (
+      manager?.getRepository(ShiftAssignment) ?? this.shiftAssignmentRepository
+    );
+  }
+
+  private getEmployeeTimetableRepository(
+    manager?: EntityManager,
+  ): Repository<EmployeeTimetable> {
+    return (
+      manager?.getRepository(EmployeeTimetable) ??
+      this.employeeTimetableRepository
+    );
+  }
+
+  private getEmployeeDeviceAssignmentRepository(
+    manager?: EntityManager,
+  ): Repository<EmployeeDeviceAssignment> {
+    return (
+      manager?.getRepository(EmployeeDeviceAssignment) ??
+      this.employeeDeviceAssignmentRepository
+    );
   }
 
   private getDocumentRepository(manager?: EntityManager): Repository<Document> {
@@ -300,6 +403,448 @@ export class OnboardingService {
       ? Number(latest.onboarding_no.split('-').pop() ?? '0') + 1
       : 1;
     return `${prefix}${String(nextSequence).padStart(6, '0')}`;
+  }
+
+  private buildDefaultOnboardingTitle(employee: Employee): string {
+    return `Onboarding - ${employee.first_name} ${employee.last_name}`.trim();
+  }
+
+  private normalizeProvisioning(
+    provisioning?: OnboardingProvisioningDto | OnboardingProvisioningPayload | null,
+  ): OnboardingProvisioningPayload | null {
+    if (!provisioning) {
+      return null;
+    }
+
+    const uniqueNumbers = (values?: number[]) =>
+      values?.length
+        ? [...new Set(values.filter((value) => Number.isInteger(value) && value > 0))]
+        : undefined;
+
+    const normalized: OnboardingProvisioningPayload = {};
+    const roleIds = uniqueNumbers(provisioning.role_ids);
+    if (roleIds?.length) {
+      normalized.role_ids = roleIds;
+    }
+
+    const branchAccessIds = uniqueNumbers(provisioning.branch_access_ids);
+    if (branchAccessIds?.length) {
+      normalized.branch_access_ids = branchAccessIds;
+    }
+
+    if (provisioning.attendance_mode) {
+      normalized.attendance_mode = provisioning.attendance_mode;
+    }
+
+    if (provisioning.shift_assignment) {
+      normalized.shift_assignment = {
+        shift_id: provisioning.shift_assignment.shift_id,
+        effective_from: provisioning.shift_assignment.effective_from,
+        effective_to: provisioning.shift_assignment.effective_to ?? null,
+        rotation_group_id:
+          provisioning.shift_assignment.rotation_group_id ?? null,
+        is_primary: provisioning.shift_assignment.is_primary ?? false,
+      };
+    }
+
+    if (provisioning.timetable_assignment) {
+      normalized.timetable_assignment = {
+        timetable_id: provisioning.timetable_assignment.timetable_id,
+        effective_from: provisioning.timetable_assignment.effective_from,
+        effective_to: provisioning.timetable_assignment.effective_to ?? null,
+      };
+    }
+
+    if (provisioning.device_assignment) {
+      normalized.device_assignment = {
+        employee_no: this.normalizeOptionalString(
+          provisioning.device_assignment.employee_no,
+        ) ?? undefined,
+        access_group_id: provisioning.device_assignment.access_group_id,
+        organization_id:
+          provisioning.device_assignment.organization_id ?? undefined,
+        valid_enabled: provisioning.device_assignment.valid_enabled,
+        valid_begin_time: provisioning.device_assignment.valid_begin_time,
+        valid_end_time: provisioning.device_assignment.valid_end_time,
+        local_ui_right: provisioning.device_assignment.local_ui_right,
+        close_delay_enabled:
+          provisioning.device_assignment.close_delay_enabled,
+        max_open_door_time:
+          provisioning.device_assignment.max_open_door_time,
+        open_door_time: provisioning.device_assignment.open_door_time,
+        user_verify_mode: this.normalizeOptionalString(
+          provisioning.device_assignment.user_verify_mode,
+        ) ?? undefined,
+        metadata: provisioning.device_assignment.metadata ?? undefined,
+        device_ids: uniqueNumbers(
+          provisioning.device_assignment.device_ids,
+        ) ?? [],
+        sync_now: provisioning.device_assignment.sync_now,
+        continue_on_error:
+          provisioning.device_assignment.continue_on_error,
+      };
+    }
+
+    if (!Object.keys(normalized).length) {
+      return null;
+    }
+
+    const hasShift = Boolean(normalized.shift_assignment);
+    const hasTimetable = Boolean(normalized.timetable_assignment);
+
+    if (hasShift && hasTimetable) {
+      throw new BadRequestException(
+        'Select only one attendance setup: shift_assignment or timetable_assignment',
+      );
+    }
+
+    if (!normalized.attendance_mode) {
+      if (hasShift) {
+        normalized.attendance_mode = OnboardingAttendanceModeEnum.SHIFT;
+      } else if (hasTimetable) {
+        normalized.attendance_mode = OnboardingAttendanceModeEnum.TIMETABLE;
+      }
+    }
+
+    if (
+      normalized.attendance_mode === OnboardingAttendanceModeEnum.SHIFT &&
+      !normalized.shift_assignment
+    ) {
+      throw new BadRequestException(
+        'shift_assignment is required when attendance_mode is shift',
+      );
+    }
+
+    if (
+      normalized.attendance_mode === OnboardingAttendanceModeEnum.TIMETABLE &&
+      !normalized.timetable_assignment
+    ) {
+      throw new BadRequestException(
+        'timetable_assignment is required when attendance_mode is timetable',
+      );
+    }
+
+    return normalized;
+  }
+
+  private withProvisioningMetadata(
+    metadata: Record<string, unknown> | null | undefined,
+    provisioning?: OnboardingProvisioningDto | OnboardingProvisioningPayload | null,
+  ): Record<string, unknown> | null {
+    const normalizedProvisioning = this.normalizeProvisioning(provisioning);
+    const nextMetadata = { ...(metadata ?? {}) };
+
+    if (normalizedProvisioning) {
+      nextMetadata.provisioning = normalizedProvisioning;
+    } else {
+      delete nextMetadata.provisioning;
+    }
+
+    return Object.keys(nextMetadata).length ? nextMetadata : null;
+  }
+
+  private readProvisioningMetadata(
+    request: Pick<OnboardingRequest, 'metadata'>,
+  ): OnboardingProvisioningPayload | null {
+    return this.normalizeProvisioning(
+      (request.metadata?.provisioning as OnboardingProvisioningPayload | undefined) ??
+        null,
+    );
+  }
+
+  private resolveProvisioningEffectiveFrom(
+    request: Pick<OnboardingRequest, 'planned_start_date'>,
+    employee: Pick<Employee, 'hire_date'>,
+    explicitDate?: string,
+  ): string {
+    return (
+      explicitDate ??
+      request.planned_start_date ??
+      employee.hire_date ??
+      formatDateOnly(new Date())
+    );
+  }
+
+  private async assignProvisioningRoles(
+    companyId: number,
+    employee: Employee,
+    provisioning: OnboardingProvisioningPayload,
+    manager: EntityManager,
+  ): Promise<void> {
+    if (!provisioning.role_ids?.length) {
+      return;
+    }
+
+    const roleRepository = this.getRoleRepository(manager);
+    const roles = await roleRepository.find({
+      where: { id: In(provisioning.role_ids) },
+      select: ['id', 'company_id'],
+    });
+
+    if (roles.length !== provisioning.role_ids.length) {
+      throw new BadRequestException('One or more selected roles are invalid');
+    }
+
+    const invalidRole = roles.find(
+      (role) => role.company_id !== null && role.company_id !== companyId,
+    );
+    if (invalidRole) {
+      throw new BadRequestException(
+        `Role ${invalidRole.id} is not available in this company`,
+      );
+    }
+
+    const roleAssignmentRepository = this.getCompanyUserRoleRepository(manager);
+    for (const roleId of provisioning.role_ids) {
+      const existing = await roleAssignmentRepository.findOne({
+        where: {
+          company_user_id: employee.company_user_id,
+          role_id: roleId,
+        },
+      });
+
+      if (!existing) {
+        await roleAssignmentRepository.save(
+          roleAssignmentRepository.create({
+            company_user_id: employee.company_user_id,
+            role_id: roleId,
+          }),
+        );
+      }
+    }
+  }
+
+  private async assignProvisioningBranchAccess(
+    companyId: number,
+    employee: Employee,
+    provisioning: OnboardingProvisioningPayload,
+    manager: EntityManager,
+  ): Promise<void> {
+    if (!provisioning.branch_access_ids?.length) {
+      return;
+    }
+
+    const branchIds = provisioning.branch_access_ids;
+    const branches = await this.getBranchRepository(manager).count({
+      where: {
+        id: In(branchIds),
+        company_id: companyId,
+      },
+    });
+
+    if (branches !== branchIds.length) {
+      throw new BadRequestException(
+        'One or more selected branch access assignments are invalid',
+      );
+    }
+
+    const branchAccessRepository = this.getBranchAccessRepository(manager);
+    for (const branchId of branchIds) {
+      const existing = await branchAccessRepository.findOne({
+        where: {
+          company_user_id: employee.company_user_id,
+          branch_id: branchId,
+        },
+      });
+
+      if (!existing) {
+        await branchAccessRepository.save(
+          branchAccessRepository.create({
+            company_user_id: employee.company_user_id,
+            branch_id: branchId,
+          }),
+        );
+      }
+    }
+  }
+
+  private async assignProvisioningShift(
+    companyId: number,
+    request: Pick<OnboardingRequest, 'planned_start_date'>,
+    employee: Employee,
+    provisioning: OnboardingProvisioningPayload,
+    actor: AuthenticatedUser,
+  ): Promise<void> {
+    if (!provisioning.shift_assignment) {
+      return;
+    }
+
+    const effectiveFrom = this.resolveProvisioningEffectiveFrom(
+      request,
+      employee,
+      provisioning.shift_assignment.effective_from,
+    );
+
+    const existing = await this.getShiftAssignmentRepository().findOne({
+      where: {
+        companyId,
+        employeeId: employee.id,
+        shiftId: provisioning.shift_assignment.shift_id,
+        effectiveFrom,
+      },
+    });
+
+    if (existing) {
+      return;
+    }
+
+    await this.shiftAssignmentsService.create(companyId, {
+      employee_id: employee.id,
+      shift_id: provisioning.shift_assignment.shift_id,
+      effective_from: effectiveFrom,
+      effective_to: provisioning.shift_assignment.effective_to ?? null,
+      rotation_group_id:
+        provisioning.shift_assignment.rotation_group_id ?? null,
+      is_primary: provisioning.shift_assignment.is_primary ?? false,
+      status: ShiftAssignmentStatusEnum.ACTIVE,
+      assigned_by: actor.companyMembershipId ?? null,
+    });
+  }
+
+  private async assignProvisioningTimetable(
+    companyId: number,
+    request: Pick<OnboardingRequest, 'planned_start_date'>,
+    employee: Employee,
+    provisioning: OnboardingProvisioningPayload,
+    actor: AuthenticatedUser,
+  ): Promise<void> {
+    if (!provisioning.timetable_assignment) {
+      return;
+    }
+
+    const effectiveFrom = this.resolveProvisioningEffectiveFrom(
+      request,
+      employee,
+      provisioning.timetable_assignment.effective_from,
+    );
+
+    const existing = await this.getEmployeeTimetableRepository().findOne({
+      where: {
+        companyId,
+        employeeId: employee.id,
+        timetableId: provisioning.timetable_assignment.timetable_id,
+        effectiveFrom,
+      },
+    });
+
+    if (existing) {
+      return;
+    }
+
+    await this.employeeTimetablesService.create(companyId, {
+      employee_id: employee.id,
+      timetable_id: provisioning.timetable_assignment.timetable_id,
+      effective_from: effectiveFrom,
+      effective_to: provisioning.timetable_assignment.effective_to ?? null,
+      status: EmployeeTimetableStatusEnum.ACTIVE,
+      assigned_by: actor.companyMembershipId ?? null,
+    });
+  }
+
+  private async assignProvisioningDevices(
+    companyId: number,
+    employee: Employee,
+    provisioning: OnboardingProvisioningPayload,
+  ): Promise<void> {
+    if (!provisioning.device_assignment?.device_ids.length) {
+      return;
+    }
+
+    const missingDeviceIds: number[] = [];
+    for (const deviceId of provisioning.device_assignment.device_ids) {
+      const existing = await this.getEmployeeDeviceAssignmentRepository().findOne(
+        {
+          where: {
+            companyId,
+            employeeId: employee.id,
+            deviceId,
+          },
+        },
+      );
+
+      if (!existing) {
+        missingDeviceIds.push(deviceId);
+      }
+    }
+
+    if (!missingDeviceIds.length) {
+      return;
+    }
+
+    await this.employeeDeviceAssignmentsService.assignDevices(companyId, employee.id, {
+      employee_no: provisioning.device_assignment.employee_no,
+      access_group_id: provisioning.device_assignment.access_group_id,
+      organization_id: provisioning.device_assignment.organization_id,
+      valid_enabled: provisioning.device_assignment.valid_enabled,
+      valid_begin_time: provisioning.device_assignment.valid_begin_time,
+      valid_end_time: provisioning.device_assignment.valid_end_time,
+      local_ui_right: provisioning.device_assignment.local_ui_right,
+      close_delay_enabled:
+        provisioning.device_assignment.close_delay_enabled,
+      max_open_door_time:
+        provisioning.device_assignment.max_open_door_time,
+      open_door_time: provisioning.device_assignment.open_door_time,
+      user_verify_mode: provisioning.device_assignment.user_verify_mode,
+      metadata: provisioning.device_assignment.metadata,
+      device_ids: missingDeviceIds,
+      sync_now: provisioning.device_assignment.sync_now ?? true,
+      continue_on_error:
+        provisioning.device_assignment.continue_on_error ?? false,
+    });
+  }
+
+  private async applyProvisioningSelections(
+    companyId: number,
+    request: OnboardingRequest,
+    actor: AuthenticatedUser,
+    manager: EntityManager,
+  ): Promise<void> {
+    const provisioning = this.readProvisioningMetadata(request);
+    if (!provisioning) {
+      return;
+    }
+
+    const employee = await this.getEmployeeRepository(manager).findOneOrFail({
+      where: { id: request.employee_id },
+      relations: { company_user: true },
+    });
+
+    await this.assignProvisioningRoles(
+      companyId,
+      employee,
+      provisioning,
+      manager,
+    );
+    await this.assignProvisioningBranchAccess(
+      companyId,
+      employee,
+      provisioning,
+      manager,
+    );
+
+    if (provisioning.attendance_mode === OnboardingAttendanceModeEnum.SHIFT) {
+      await this.assignProvisioningShift(
+        companyId,
+        request,
+        employee,
+        provisioning,
+        actor,
+      );
+    }
+
+    if (
+      provisioning.attendance_mode === OnboardingAttendanceModeEnum.TIMETABLE
+    ) {
+      await this.assignProvisioningTimetable(
+        companyId,
+        request,
+        employee,
+        provisioning,
+        actor,
+      );
+    }
+
+    await this.assignProvisioningDevices(companyId, employee, provisioning);
   }
 
   private async generateTaskNo(
@@ -798,6 +1343,8 @@ export class OnboardingService {
       cancelled_at: entity.cancelled_at,
       created_by_company_user_id: entity.created_by_company_user_id,
       finalized_by_company_user_id: entity.finalized_by_company_user_id,
+      metadata: entity.metadata,
+      provisioning: this.readProvisioningMetadata(entity),
       created_at: entity.created_at,
       updated_at: entity.updated_at,
       employee: entity.employee
@@ -1499,14 +2046,17 @@ export class OnboardingService {
     return { message: 'Onboarding workflow deactivated successfully' };
   }
 
-  async createOnboardingRequest(
+  async startOnboardingForEmployee(
     companyId: number,
     dto: CreateOnboardingRequestDto,
     actor: AuthenticatedUser,
-  ) {
-    this.hrAccessService.assertCompanyScopedActor(actor);
-    const employee = await this.findEmployeeOrFail(companyId, dto.employee_id);
-    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+    manager?: EntityManager,
+  ): Promise<OnboardingRequest> {
+    const employee = await this.findEmployeeOrFail(
+      companyId,
+      dto.employee_id,
+      manager,
+    );
 
     if (employee.employment_status === EmploymentStatusEnum.ACTIVE) {
       throw new ConflictException(
@@ -1522,13 +2072,16 @@ export class OnboardingService {
       );
     }
 
-    await this.ensureNoActiveOnboarding(companyId, dto.employee_id);
+    await this.ensureNoActiveOnboarding(companyId, dto.employee_id, manager);
 
     const shouldSubmit = dto.submit ?? true;
-
-    const request = await this.dataSource.transaction(async (manager) => {
-      const requestRepository = this.getOnboardingRequestRepository(manager);
-      const onboardingNo = await this.generateOnboardingNo(companyId, manager);
+    const run = async (transactionManager: EntityManager) => {
+      const requestRepository =
+        this.getOnboardingRequestRepository(transactionManager);
+      const onboardingNo = await this.generateOnboardingNo(
+        companyId,
+        transactionManager,
+      );
 
       const created = await requestRepository.save(
         requestRepository.create({
@@ -1536,7 +2089,9 @@ export class OnboardingService {
           employee_id: dto.employee_id,
           workflow_id: dto.workflow_id ?? null,
           onboarding_no: onboardingNo,
-          title: dto.title.trim(),
+          title:
+            this.normalizeOptionalString(dto.title) ??
+            this.buildDefaultOnboardingTitle(employee),
           description: this.normalizeOptionalString(dto.description),
           planned_start_date: dto.planned_start_date ?? null,
           planned_completion_date: dto.planned_completion_date ?? null,
@@ -1548,6 +2103,7 @@ export class OnboardingService {
           submitted_at: shouldSubmit ? new Date() : null,
           started_at: shouldSubmit ? new Date() : null,
           created_by_company_user_id: actor.companyMembershipId!,
+          metadata: this.withProvisioningMetadata(null, dto.provisioning),
         }),
       );
 
@@ -1557,17 +2113,17 @@ export class OnboardingService {
             companyId,
             created,
             dto.workflow_id ?? null,
-            manager,
+            transactionManager,
           );
         await this.createTasksFromWorkflowSteps(
           created,
           init.steps,
           actor,
-          manager,
+          transactionManager,
         );
       }
 
-      await this.updateRequestProgress(created, manager);
+      await this.updateRequestProgress(created, transactionManager);
 
       return requestRepository.findOneOrFail({
         where: { id: created.id },
@@ -1582,7 +2138,25 @@ export class OnboardingService {
           approvals: { approver: { user: true }, workflow_step: true },
         },
       });
-    });
+    };
+
+    if (manager) {
+      return run(manager);
+    }
+
+    return this.dataSource.transaction(run);
+  }
+
+  async createOnboardingRequest(
+    companyId: number,
+    dto: CreateOnboardingRequestDto,
+    actor: AuthenticatedUser,
+  ) {
+    this.hrAccessService.assertCompanyScopedActor(actor);
+    const employee = await this.findEmployeeOrFail(companyId, dto.employee_id);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const request = await this.startOnboardingForEmployee(companyId, dto, actor);
 
     await this.onboardingAuditService.log({
       company_id: companyId,
@@ -1657,6 +2231,12 @@ export class OnboardingService {
       }
       if (dto.planned_completion_date !== undefined) {
         current.planned_completion_date = dto.planned_completion_date ?? null;
+      }
+      if (dto.provisioning !== undefined) {
+        current.metadata = this.withProvisioningMetadata(
+          current.metadata,
+          dto.provisioning,
+        );
       }
 
       const workflowChanged =
@@ -1894,6 +2474,8 @@ export class OnboardingService {
         where: { id: onboardingRequestId, company_id: companyId },
         relations: { employee: { company_user: true } },
       });
+
+      await this.applyProvisioningSelections(companyId, current, actor, manager);
 
       current.status = OnboardingRequestStatusEnum.COMPLETED;
       current.completed_at = new Date();

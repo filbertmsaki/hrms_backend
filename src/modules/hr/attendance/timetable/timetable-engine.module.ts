@@ -79,6 +79,7 @@ import { TimetableGeneratedScheduleInvalidationService } from './timetable-gener
   exports: [
     TypeOrmModule,
     TimetablesService,
+    EmployeeTimetablesService,
     TimetableGeneratedScheduleInvalidationService,
   ],
 })

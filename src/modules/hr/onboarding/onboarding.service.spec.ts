@@ -12,6 +12,7 @@ import { Department } from '../departments/entities/department.entity';
 import { Position } from '../positions/entities/position.entity';
 import { Branch } from '../branches/entities/branch.entity';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
+import { CompanyUserRole } from '../../companies/entities/company-user-role.entity';
 import { Role } from '../../roles/entities/role.entity';
 import { HrAccessService } from '../shared/hr-access.service';
 import { OnboardingAuditService } from './services/onboarding-audit.service';
@@ -23,12 +24,21 @@ import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum'
 import { OnboardingRequestStatusEnum } from './enums/onboarding-request-status.enum';
 import { OnboardingTaskStatusEnum } from './enums/onboarding-task-status.enum';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import { CompanyUserBranchAccess } from '../branches/entities/company-user-branch-access.entity';
+import { ShiftAssignment } from '../attendance/shift/shift-assignments/entities/shift-assignment.entity';
+import { EmployeeTimetable } from '../attendance/timetable/employee-timetables/entities/employee-timetable.entity';
+import { EmployeeDeviceAssignment } from '../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
+import { ShiftAssignmentsService } from '../attendance/shift/shift-assignments/shift-assignments.service';
+import { EmployeeTimetablesService } from '../attendance/timetable/employee-timetables/employee-timetables.service';
+import { EmployeeDeviceAssignmentsService } from '../../access-control/employee-device-assignments/service/employee-device-assignments.service';
+import { OnboardingAttendanceModeEnum } from './enums/onboarding-attendance-mode.enum';
 
 type MockRepo<T> = Partial<Record<keyof Repository<T>, jest.Mock>>;
 
 const createRepositoryMock = <T>(): MockRepo<T> => ({
   findOne: jest.fn(),
   findOneOrFail: jest.fn(),
+  create: jest.fn((value) => value),
   save: jest.fn(async (value) => value),
 });
 
@@ -41,6 +51,9 @@ describe('OnboardingService', () => {
     getFiscalYearFromDate: jest.Mock;
     ensureBalanceForEmployee: jest.Mock;
   };
+  let shiftAssignmentsService: { create: jest.Mock };
+  let employeeTimetablesService: { create: jest.Mock };
+  let employeeDeviceAssignmentsService: { assignDevices: jest.Mock };
   let actor: AuthenticatedUser;
 
   beforeEach(() => {
@@ -60,7 +73,15 @@ describe('OnboardingService', () => {
     const positionRepository = createRepositoryMock<Position>();
     const branchRepository = createRepositoryMock<Branch>();
     const companyUserRepository = createRepositoryMock<CompanyUser>();
+    const companyUserRoleRepository = createRepositoryMock<CompanyUserRole>();
+    const branchAccessRepository =
+      createRepositoryMock<CompanyUserBranchAccess>();
     const roleRepository = createRepositoryMock<Role>();
+    const shiftAssignmentRepository = createRepositoryMock<ShiftAssignment>();
+    const employeeTimetableRepository =
+      createRepositoryMock<EmployeeTimetable>();
+    const employeeDeviceAssignmentRepository =
+      createRepositoryMock<EmployeeDeviceAssignment>();
 
     dataSource = {
       transaction: jest.fn(),
@@ -68,6 +89,15 @@ describe('OnboardingService', () => {
     leaveBalanceService = {
       getFiscalYearFromDate: jest.fn(() => '2026'),
       ensureBalanceForEmployee: jest.fn(),
+    };
+    shiftAssignmentsService = {
+      create: jest.fn(),
+    };
+    employeeTimetablesService = {
+      create: jest.fn(),
+    };
+    employeeDeviceAssignmentsService = {
+      assignDevices: jest.fn(),
     };
 
     actor = {
@@ -95,7 +125,12 @@ describe('OnboardingService', () => {
       positionRepository as Repository<Position>,
       branchRepository as Repository<Branch>,
       companyUserRepository as Repository<CompanyUser>,
+      companyUserRoleRepository as Repository<CompanyUserRole>,
+      branchAccessRepository as Repository<CompanyUserBranchAccess>,
       roleRepository as Repository<Role>,
+      shiftAssignmentRepository as Repository<ShiftAssignment>,
+      employeeTimetableRepository as Repository<EmployeeTimetable>,
+      employeeDeviceAssignmentRepository as Repository<EmployeeDeviceAssignment>,
       {
         assertCanAccessEmployee: jest.fn(),
       } as unknown as HrAccessService,
@@ -104,6 +139,9 @@ describe('OnboardingService', () => {
       } as unknown as OnboardingAuditService,
       {} as OnboardingWorkflowService,
       leaveBalanceService as unknown as LeaveBalanceService,
+      shiftAssignmentsService as unknown as ShiftAssignmentsService,
+      employeeTimetablesService as unknown as EmployeeTimetablesService,
+      employeeDeviceAssignmentsService as unknown as EmployeeDeviceAssignmentsService,
     );
   });
 
@@ -188,5 +226,128 @@ describe('OnboardingService', () => {
       '2026',
       manager,
     );
+  });
+
+  it('stores normalized provisioning metadata when onboarding starts', async () => {
+    onboardingRequestRepository.findOne!.mockResolvedValue({
+      id: 501,
+      company_user: { company_id: 10 },
+      first_name: 'Jane',
+      last_name: 'Doe',
+      employment_status: EmploymentStatusEnum.ONBOARDING,
+    });
+
+    const requestRepo = {
+      create: jest.fn((value) => value),
+      save: jest.fn(async (value) => value),
+      findOneOrFail: jest.fn().mockResolvedValue({
+        id: 77,
+        company_id: 10,
+        employee_id: 501,
+        title: 'Onboarding - Jane Doe',
+        metadata: {
+          provisioning: {
+            role_ids: [7],
+            branch_access_ids: [3],
+            attendance_mode: OnboardingAttendanceModeEnum.SHIFT,
+            shift_assignment: {
+              shift_id: 11,
+              effective_to: null,
+              rotation_group_id: null,
+              is_primary: false,
+            },
+          },
+        },
+        employee: null,
+        workflow: null,
+        tasks: [],
+        approvals: [],
+      }),
+      createQueryBuilder: jest.fn(() => ({
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(null),
+      })),
+    };
+    const taskRepo = {
+      find: jest.fn().mockResolvedValue([]),
+    };
+    const approvalRepo = {
+      find: jest.fn().mockResolvedValue([]),
+    };
+
+    const manager = {
+      getRepository: jest.fn((entity) => {
+        if (entity === Employee) {
+          return {
+            findOne: jest.fn().mockResolvedValue({
+              id: 501,
+              company_user: { company_id: 10 },
+              first_name: 'Jane',
+              last_name: 'Doe',
+              employment_status: EmploymentStatusEnum.ONBOARDING,
+            }),
+          };
+        }
+        if (entity === OnboardingRequest) return requestRepo;
+        if (entity === OnboardingTask) return taskRepo;
+        if (entity === OnboardingApproval) return approvalRepo;
+        throw new Error(`Unexpected repository request: ${entity?.name}`);
+      }),
+    } as unknown as EntityManager;
+
+    dataSource.transaction.mockImplementation(async (callback) =>
+      callback(manager),
+    );
+
+    const created = await service.startOnboardingForEmployee(
+      10,
+      {
+        employee_id: 501,
+        submit: false,
+        provisioning: {
+          role_ids: [7, 7],
+          branch_access_ids: [3, 3],
+          shift_assignment: {
+            shift_id: 11,
+          },
+        },
+      },
+      actor,
+    );
+
+    expect(requestRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Onboarding - Jane Doe',
+        metadata: {
+          provisioning: {
+            role_ids: [7],
+            branch_access_ids: [3],
+            attendance_mode: OnboardingAttendanceModeEnum.SHIFT,
+            shift_assignment: {
+              shift_id: 11,
+              effective_from: undefined,
+              effective_to: null,
+              rotation_group_id: null,
+              is_primary: false,
+            },
+          },
+        },
+      }),
+    );
+    expect(created.metadata).toEqual({
+      provisioning: {
+        role_ids: [7],
+        branch_access_ids: [3],
+        attendance_mode: OnboardingAttendanceModeEnum.SHIFT,
+        shift_assignment: {
+          shift_id: 11,
+          effective_to: null,
+          rotation_group_id: null,
+          is_primary: false,
+        },
+      },
+    });
   });
 });

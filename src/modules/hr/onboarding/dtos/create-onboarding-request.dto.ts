@@ -7,7 +7,9 @@ import {
   IsOptional,
   IsString,
   MaxLength,
+  ValidateNested,
 } from 'class-validator';
+import { OnboardingProvisioningDto } from './onboarding-provisioning.dto';
 
 export class CreateOnboardingRequestDto {
   @Type(() => Number)
@@ -19,9 +21,10 @@ export class CreateOnboardingRequestDto {
   @IsOptional()
   workflow_id?: number;
 
+  @IsOptional()
   @IsString()
   @MaxLength(180)
-  title: string;
+  title?: string;
 
   @IsOptional()
   @IsString()
@@ -41,4 +44,9 @@ export class CreateOnboardingRequestDto {
   @IsBoolean()
   @IsOptional()
   submit?: boolean;
+
+  @ValidateNested()
+  @Type(() => OnboardingProvisioningDto)
+  @IsOptional()
+  provisioning?: OnboardingProvisioningDto;
 }

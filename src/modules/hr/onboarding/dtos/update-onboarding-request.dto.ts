@@ -5,7 +5,9 @@ import {
   IsOptional,
   IsString,
   MaxLength,
+  ValidateNested,
 } from 'class-validator';
+import { OnboardingProvisioningDto } from './onboarding-provisioning.dto';
 
 export class UpdateOnboardingRequestDto {
   @Type(() => Number)
@@ -30,4 +32,9 @@ export class UpdateOnboardingRequestDto {
   @IsOptional()
   @IsDateString()
   planned_completion_date?: string;
+
+  @ValidateNested()
+  @Type(() => OnboardingProvisioningDto)
+  @IsOptional()
+  provisioning?: OnboardingProvisioningDto;
 }

@@ -22,6 +22,7 @@ import { EmployeeProfessionalQualificationInputDto } from './employee-profession
 import { EmployeeRelativeInputDto } from './employee-relative-input.dto';
 import { EmploymentStatusEnum } from '../enums/employment-status.enum';
 import { EmploymentTypeEnum } from '../enums/employment-type.enum';
+import { EmployeeOnboardingInputDto } from '../../onboarding/dtos/employee-onboarding-input.dto';
 
 export class CreateEmployeeDto {
   @IsString()
@@ -199,4 +200,9 @@ export class CreateEmployeeDto {
   @Type(() => EmployeeExperienceInputDto)
   @IsOptional()
   experience_details?: EmployeeExperienceInputDto[];
+
+  @ValidateNested()
+  @Type(() => EmployeeOnboardingInputDto)
+  @IsOptional()
+  onboarding?: EmployeeOnboardingInputDto;
 }
