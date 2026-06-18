@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Between, Repository } from 'typeorm';
 import { AttendanceMobilePunchRepository } from './repositories/attendance-mobile-punch.repository';
 import { CreateAttendanceMobilePunchDto } from './dtos/create-attendance-mobile-punch.dto';
 import { AttendanceMobilePunchQueryDto } from './dtos/attendance-mobile-punch-query.dto';
@@ -25,24 +25,41 @@ import { AttendanceCheckpointStatusEnum } from '../checkpoints/enums/attendance-
 import { AttendanceCheckpointTypeEnum } from '../checkpoints/enums/attendance-checkpoint-type.enum';
 import { Employee } from '../../employees/entities/employee.entity';
 import { EmploymentStatusEnum } from '../../employees/enums/employment-status.enum';
-import { formatDateOnly } from '../../shared/hr.utils';
+import { addDaysToDateOnly, formatDateOnly } from '../../shared/hr.utils';
 import { AttendanceGeofence } from '../geofences/entities/attendance-geofence.entity';
 import { AttendanceWifiNetwork } from '../wifi-networks/entities/attendance-wifi-network.entity';
+import { AttendanceProcessedEvent } from '../processing/entities/attendance-processed-event.entity';
+import { AttendanceDailySummary } from '../processing/entities/attendance-daily-summary.entity';
+import { AttendanceScheduleResolverService } from '../processing/attendance-schedule-resolver.service';
+import { ResolvedAttendanceSchedule } from '../processing/entities/resolved-attendance-schedule.type';
+import { AttendanceProcessedEventDirectionEnum } from '../processing/enums/attendance-processed-event-direction.enum';
+import { HikvisionAttendanceLog } from '../../../hikvision/entities/hikvision-attendance-log.entity';
 
 @Injectable()
 export class AttendanceMobilePunchesService {
+  // Keep mobile duplicate detection aligned with daily summary grouping.
+  private readonly preShiftWindowHours = 12;
+  private readonly postShiftWindowHours = 12;
+
   constructor(
     private readonly punchRepo: AttendanceMobilePunchRepository,
     private readonly geofenceRepo: AttendanceGeofenceRepository,
     private readonly wifiRepo: AttendanceWifiNetworkRepository,
     private readonly geofenceDistanceService: GeofenceDistanceService,
     private readonly wifiValidator: WifiNetworkValidatorService,
+    private readonly scheduleResolver: AttendanceScheduleResolverService,
     @InjectRepository(AttendancePolicy)
     private readonly policyRepository: Repository<AttendancePolicy>,
     @InjectRepository(AttendanceCheckpoint)
     private readonly checkpointRepository: Repository<AttendanceCheckpoint>,
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
+    @InjectRepository(AttendanceProcessedEvent)
+    private readonly processedEventRepository: Repository<AttendanceProcessedEvent>,
+    @InjectRepository(AttendanceDailySummary)
+    private readonly dailySummaryRepository: Repository<AttendanceDailySummary>,
+    @InjectRepository(HikvisionAttendanceLog)
+    private readonly rawLogRepository: Repository<HikvisionAttendanceLog>,
   ) {}
 
   async checkIn(params: {
@@ -101,9 +118,7 @@ export class AttendanceMobilePunchesService {
       policy?.id ?? null,
     );
     const punchTime = new Date();
-
-    const attendanceDate = formatDateOnly(punchTime);
-    this.assertEmployeeCanPunch(employee, attendanceDate);
+    this.assertEmployeeCanPunch(employee);
 
     const wifiSsid = this.normalizeOptionalString(params.dto.wifiSsid);
     const wifiBssid = this.normalizeOptionalString(params.dto.wifiBssid);
@@ -146,6 +161,14 @@ export class AttendanceMobilePunchesService {
         message: wifiMatch.errors[0],
       });
     }
+
+    const punchAvailability = await this.validateEmployeePunchAvailability({
+      companyId: params.companyId,
+      employee,
+      punchType: params.punchType,
+      punchTime,
+    });
+    const attendanceDate = punchAvailability.attendanceDate;
 
     const validationErrors =
       this.collectUnsupportedCheckpointValidationErrors(requiredCheckpoints);
@@ -613,14 +636,303 @@ export class AttendanceMobilePunchesService {
     return employee;
   }
 
-  private assertEmployeeCanPunch(employee: Employee, attendanceDate: string) {
+  private async validateEmployeePunchAvailability(params: {
+    companyId: number;
+    employee: Employee;
+    punchType: AttendancePunchTypeEnum;
+    punchTime: Date;
+  }): Promise<{
+    attendanceDate: string;
+    schedule: ResolvedAttendanceSchedule;
+    window: { start: Date; end: Date };
+  }> {
+    const context = await this.resolvePunchAttendanceContext({
+      companyId: params.companyId,
+      employeeId: params.employee.id,
+      punchTime: params.punchTime,
+    });
+
+    this.assertEmployeeCanPunch(params.employee, context.attendanceDate);
+
+    const punchState = await this.findExistingPunchState({
+      companyId: params.companyId,
+      employee: params.employee,
+      attendanceDate: context.attendanceDate,
+      window: context.window,
+    });
+
+    if (params.punchType === AttendancePunchTypeEnum.CHECK_IN) {
+      if (punchState.hasCheckIn) {
+        throw new BadRequestException({
+          message: 'Employee has already checked in for this attendance day.',
+        });
+      }
+
+      return context;
+    }
+
+    if (!punchState.hasCheckIn) {
+      throw new BadRequestException({
+        message: 'Employee must check in before checking out.',
+      });
+    }
+
+    if (punchState.hasCheckOut) {
+      throw new BadRequestException({
+        message: 'Employee has already checked out for this attendance day.',
+      });
+    }
+
+    return context;
+  }
+
+  private async resolvePunchAttendanceContext(params: {
+    companyId: number;
+    employeeId: number;
+    punchTime: Date;
+  }): Promise<{
+    attendanceDate: string;
+    schedule: ResolvedAttendanceSchedule;
+    window: { start: Date; end: Date };
+  }> {
+    const punchDate = formatDateOnly(params.punchTime);
+    const candidateDates = Array.from(
+      new Set([punchDate, addDaysToDateOnly(punchDate, -1)]),
+    );
+    const candidateSchedules = await Promise.all(
+      candidateDates.map(async (scheduleDate, index) => {
+        const schedule = await this.scheduleResolver.resolveForDate(
+          params.companyId,
+          params.employeeId,
+          scheduleDate,
+        );
+        const window = this.buildAttendanceWindow(schedule);
+        const score = this.scoreAttendanceSchedule(
+          schedule,
+          window,
+          params.punchTime,
+        );
+
+        return {
+          schedule,
+          window,
+          score,
+          order: index,
+        };
+      }),
+    );
+
+    const bestMatch = candidateSchedules
+      .filter(
+        (
+          candidate,
+        ): candidate is typeof candidate & { window: { start: Date; end: Date } } =>
+          Boolean(
+            candidate.window &&
+              candidate.schedule.scheduleStartAt &&
+              candidate.schedule.scheduleEndAt,
+          ),
+      )
+      .sort(
+        (left, right) =>
+          left.score.outsideWindow - right.score.outsideWindow ||
+          left.score.outsideSchedule - right.score.outsideSchedule ||
+          left.score.distanceFromScheduleMs -
+            right.score.distanceFromScheduleMs ||
+          left.order - right.order,
+      )[0];
+
+    if (!bestMatch) {
+      throw new BadRequestException({
+        message:
+          'No valid timetable or shift found for this employee on this attendance day.',
+      });
+    }
+
+    return {
+      attendanceDate: bestMatch.schedule.scheduleDate,
+      schedule: bestMatch.schedule,
+      window: bestMatch.window,
+    };
+  }
+
+  private buildAttendanceWindow(
+    schedule: ResolvedAttendanceSchedule,
+  ): { start: Date; end: Date } | null {
+    if (!schedule.scheduleStartAt || !schedule.scheduleEndAt) {
+      return null;
+    }
+
+    return {
+      start: new Date(
+        schedule.scheduleStartAt.getTime() -
+          this.preShiftWindowHours * 60 * 60 * 1000,
+      ),
+      end: new Date(
+        schedule.scheduleEndAt.getTime() +
+          this.postShiftWindowHours * 60 * 60 * 1000,
+      ),
+    };
+  }
+
+  private scoreAttendanceSchedule(
+    schedule: ResolvedAttendanceSchedule,
+    window: { start: Date; end: Date } | null,
+    punchTime: Date,
+  ) {
+    if (!window || !schedule.scheduleStartAt || !schedule.scheduleEndAt) {
+      return {
+        outsideWindow: 1,
+        outsideSchedule: 1,
+        distanceFromScheduleMs: Number.MAX_SAFE_INTEGER,
+      };
+    }
+
+    const punchAtMs = punchTime.getTime();
+    const scheduleStartMs = schedule.scheduleStartAt.getTime();
+    const scheduleEndMs = schedule.scheduleEndAt.getTime();
+    const withinWindow =
+      punchAtMs >= window.start.getTime() && punchAtMs <= window.end.getTime();
+    const withinSchedule =
+      punchAtMs >= scheduleStartMs && punchAtMs <= scheduleEndMs;
+    const distanceFromScheduleMs =
+      punchAtMs < scheduleStartMs
+        ? scheduleStartMs - punchAtMs
+        : punchAtMs > scheduleEndMs
+          ? punchAtMs - scheduleEndMs
+          : 0;
+
+    return {
+      outsideWindow: withinWindow ? 0 : 1,
+      outsideSchedule: withinSchedule ? 0 : 1,
+      distanceFromScheduleMs,
+    };
+  }
+
+  private async findExistingPunchState(params: {
+    companyId: number;
+    employee: Employee;
+    attendanceDate: string;
+    window: { start: Date; end: Date };
+  }): Promise<{ hasCheckIn: boolean; hasCheckOut: boolean }> {
+    const employeeNo = this.normalizeOptionalString(params.employee.employee_no);
+    const [mobilePunches, processedEvents, dailySummary, rawLogs] =
+      await Promise.all([
+        this.punchRepo.findApprovedForEmployeeWindow({
+          companyId: params.companyId,
+          employeeId: params.employee.id,
+          windowStart: params.window.start,
+          windowEnd: params.window.end,
+        }),
+        this.processedEventRepository.find({
+          where: {
+            companyId: params.companyId,
+            employeeId: params.employee.id,
+            isValid: true,
+            eventTime: Between(params.window.start, params.window.end),
+          },
+          order: {
+            eventTime: 'ASC',
+          },
+        }),
+        this.dailySummaryRepository.findOne({
+          where: {
+            companyId: params.companyId,
+            employeeId: params.employee.id,
+            attendanceDate: params.attendanceDate,
+          },
+        }),
+        employeeNo
+          ? this.rawLogRepository.find({
+              where: {
+                companyId: params.companyId,
+                employeeNo,
+                eventTime: Between(params.window.start, params.window.end),
+              },
+              order: {
+                eventTime: 'ASC',
+              },
+            })
+          : Promise.resolve([]),
+      ]);
+
+    const hasMobileCheckIn = mobilePunches.some(
+      (punch) => punch.punchType === AttendancePunchTypeEnum.CHECK_IN,
+    );
+    const hasMobileCheckOut = mobilePunches.some(
+      (punch) => punch.punchType === AttendancePunchTypeEnum.CHECK_OUT,
+    );
+    const hasProcessedCheckIn = processedEvents.some(
+      (event) => event.direction === AttendanceProcessedEventDirectionEnum.IN,
+    );
+    const hasProcessedCheckOut = processedEvents.some(
+      (event) => event.direction === AttendanceProcessedEventDirectionEnum.OUT,
+    );
+    const hasRawCheckIn = rawLogs.some(
+      (log) =>
+        this.inferRawLogDirection(log) === AttendanceProcessedEventDirectionEnum.IN,
+    );
+    const hasRawCheckOut = rawLogs.some(
+      (log) =>
+        this.inferRawLogDirection(log) === AttendanceProcessedEventDirectionEnum.OUT,
+    );
+
+    return {
+      hasCheckIn:
+        hasMobileCheckIn ||
+        hasProcessedCheckIn ||
+        hasRawCheckIn ||
+        Boolean(dailySummary?.checkInAt),
+      hasCheckOut:
+        hasMobileCheckOut ||
+        hasProcessedCheckOut ||
+        hasRawCheckOut ||
+        Boolean(dailySummary?.checkOutAt),
+    };
+  }
+
+  private inferRawLogDirection(
+    rawLog: HikvisionAttendanceLog,
+  ): AttendanceProcessedEventDirectionEnum {
+    const checkInMinors = new Set([1, 3, 75]);
+    const checkOutMinors = new Set([2, 4, 76]);
+
+    if (typeof rawLog.minor === 'number') {
+      if (checkInMinors.has(rawLog.minor)) {
+        return AttendanceProcessedEventDirectionEnum.IN;
+      }
+
+      if (checkOutMinors.has(rawLog.minor)) {
+        return AttendanceProcessedEventDirectionEnum.OUT;
+      }
+    }
+
+    const status = (rawLog.attendanceStatus ?? '')
+      .toLowerCase()
+      .replace(/[\s_-]/g, '');
+
+    if (status.includes('checkin') || status === 'in') {
+      return AttendanceProcessedEventDirectionEnum.IN;
+    }
+
+    if (status.includes('checkout') || status === 'out') {
+      return AttendanceProcessedEventDirectionEnum.OUT;
+    }
+
+    return AttendanceProcessedEventDirectionEnum.UNKNOWN;
+  }
+
+  private assertEmployeeCanPunch(
+    employee: Employee,
+    attendanceDate?: string | null,
+  ) {
     if (employee.employment_status !== EmploymentStatusEnum.ACTIVE) {
       throw new BadRequestException(
         'Only active employees can create attendance punches.',
       );
     }
 
-    if (employee.exit_date && attendanceDate > employee.exit_date) {
+    if (attendanceDate && employee.exit_date && attendanceDate > employee.exit_date) {
       throw new BadRequestException(
         'Attendance punch date cannot be after the employee exit date.',
       );

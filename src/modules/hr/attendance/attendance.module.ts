@@ -39,6 +39,9 @@ import { AttendanceMobilePunch } from './mobile-punches/entities/attendance-mobi
 import { AttendanceMobilePunchRepository } from './mobile-punches/repositories/attendance-mobile-punch.repository';
 import { AttendanceMobilePunchesService } from './mobile-punches/attendance-mobile-punches.service';
 import { Employee } from '../employees/entities/employee.entity';
+import { HikvisionAttendanceLog } from '../../hikvision/entities/hikvision-attendance-log.entity';
+import { AttendanceProcessedEvent } from './processing/entities/attendance-processed-event.entity';
+import { AttendanceDailySummary } from './processing/entities/attendance-daily-summary.entity';
 
 @Module({
   imports: [
@@ -56,6 +59,9 @@ import { Employee } from '../employees/entities/employee.entity';
       AttendanceDeviceSyncLog,
       Branch,
       EmployeeDeviceAssignment,
+      HikvisionAttendanceLog,
+      AttendanceProcessedEvent,
+      AttendanceDailySummary,
     ]),
     DeviceManagementHikvisionModule,
     AttendanceProcessingModule,

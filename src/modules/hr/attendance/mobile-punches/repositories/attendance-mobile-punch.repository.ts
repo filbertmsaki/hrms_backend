@@ -3,12 +3,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import {
   Between,
   FindOptionsWhere,
+  In,
   LessThanOrEqual,
   MoreThanOrEqual,
   Repository,
 } from 'typeorm';
 import { AttendanceMobilePunch } from '../entities/attendance-mobile-punch.entity';
 import { AttendanceMobilePunchQueryDto } from '../dtos/attendance-mobile-punch-query.dto';
+import { AttendancePunchValidationStatusEnum } from '../enums/attendance-punch-validation-status.enum';
 
 @Injectable()
 export class AttendanceMobilePunchRepository {
@@ -115,6 +117,28 @@ export class AttendanceMobilePunchRepository {
       },
       order: {
         punchTime: 'DESC',
+      },
+    });
+  }
+
+  findApprovedForEmployeeWindow(params: {
+    companyId: number;
+    employeeId: number;
+    windowStart: Date;
+    windowEnd: Date;
+  }): Promise<AttendanceMobilePunch[]> {
+    return this.repo.find({
+      where: {
+        companyId: params.companyId,
+        employeeId: params.employeeId,
+        validationStatus: In([
+          AttendancePunchValidationStatusEnum.APPROVED,
+          AttendancePunchValidationStatusEnum.OVERRIDE_APPROVED,
+        ]),
+        punchTime: Between(params.windowStart, params.windowEnd),
+      },
+      order: {
+        punchTime: 'ASC',
       },
     });
   }

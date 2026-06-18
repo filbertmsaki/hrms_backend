@@ -107,6 +107,7 @@ import { TimetableScheduleGenerationService } from './timetable-schedule-generat
   exports: [
     AttendanceBusinessTripsService,
     AttendanceProcessingExceptionsService,
+    AttendanceScheduleResolverService,
     AttendanceProcessingService,
     AttendanceDailySummaryService,
     AttendanceRecalculationService,

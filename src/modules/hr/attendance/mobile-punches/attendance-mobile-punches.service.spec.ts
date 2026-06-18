@@ -13,6 +13,12 @@ import { AttendancePunchTypeEnum } from './enums/attendance-punch-type.enum';
 import { AttendancePunchValidationStatusEnum } from './enums/attendance-punch-validation-status.enum';
 import { AttendanceCheckpointTypeEnum } from '../checkpoints/enums/attendance-checkpoint-type.enum';
 import { EmploymentStatusEnum } from '../../employees/enums/employment-status.enum';
+import { AttendanceScheduleResolverService } from '../processing/attendance-schedule-resolver.service';
+import { ResolvedAttendanceSchedule } from '../processing/entities/resolved-attendance-schedule.type';
+import { AttendanceProcessedEvent } from '../processing/entities/attendance-processed-event.entity';
+import { AttendanceDailySummary } from '../processing/entities/attendance-daily-summary.entity';
+import { AttendanceProcessedEventDirectionEnum } from '../processing/enums/attendance-processed-event-direction.enum';
+import { HikvisionAttendanceLog } from '../../../hikvision/entities/hikvision-attendance-log.entity';
 
 type EmployeeQueryBuilderMock = {
   innerJoin: jest.Mock;
@@ -28,11 +34,45 @@ const createEmployeeQueryBuilderMock = (): EmployeeQueryBuilderMock => ({
   getOne: jest.fn(),
 });
 
+const buildResolvedSchedule = (
+  scheduleDate: string,
+  overrides: Partial<ResolvedAttendanceSchedule> = {},
+): ResolvedAttendanceSchedule => ({
+  employeeId: 39,
+  scheduleDate,
+  source: 'SHIFT_SCHEDULE',
+  timezone: 'Africa/Dar_es_Salaam',
+  shiftId: 10,
+  timetableId: null,
+  branchId: 5,
+  isOffDay: false,
+  isHoliday: false,
+  holidayId: null,
+  scheduleStartAt: new Date(`${scheduleDate}T08:15:00.000Z`),
+  scheduleEndAt: new Date(`${scheduleDate}T17:15:00.000Z`),
+  lateAfterMinutes: 0,
+  halfDayAfterMinutes: 0,
+  absentAfterMinutes: 0,
+  graceInMinutes: 0,
+  graceOutMinutes: 0,
+  earlyLeaveAfterMinutes: 0,
+  allowEarlyCheckin: true,
+  allowLateCheckout: true,
+  autoAbsentIfNoCheckin: true,
+  allowOvertime: true,
+  overtimeStartAfterMinutes: 0,
+  maxOvertimeMinutes: 0,
+  requiresCheckout: true,
+  ignoreMissingCheckoutIfHoursValid: false,
+  ...overrides,
+});
+
 describe('AttendanceMobilePunchesService', () => {
   let service: AttendanceMobilePunchesService;
   let punchRepo: {
     createEntity: jest.Mock;
     save: jest.Mock;
+    findApprovedForEmployeeWindow: jest.Mock;
   };
   let geofenceRepo: {
     findActiveByIds: jest.Mock;
@@ -57,12 +97,28 @@ describe('AttendanceMobilePunchesService', () => {
   let employeeRepository: {
     createQueryBuilder: jest.Mock;
   };
+  let scheduleResolver: {
+    resolveForDate: jest.Mock;
+  };
+  let processedEventRepository: {
+    find: jest.Mock;
+  };
+  let dailySummaryRepository: {
+    findOne: jest.Mock;
+  };
+  let rawLogRepository: {
+    find: jest.Mock;
+  };
   let employeeQueryBuilder: EmployeeQueryBuilderMock;
 
   beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-06-18T09:30:00.000Z'));
+
     punchRepo = {
       createEntity: jest.fn((value) => value),
       save: jest.fn(async (value) => value),
+      findApprovedForEmployeeWindow: jest.fn().mockResolvedValue([]),
     };
     geofenceRepo = {
       findActiveByIds: jest.fn(),
@@ -84,6 +140,24 @@ describe('AttendanceMobilePunchesService', () => {
     checkpointRepository = {
       find: jest.fn(),
     };
+    scheduleResolver = {
+      resolveForDate: jest.fn((companyId: number, employeeId: number, date: string) =>
+        Promise.resolve(
+          buildResolvedSchedule(date, {
+            employeeId,
+          }),
+        ),
+      ),
+    };
+    processedEventRepository = {
+      find: jest.fn().mockResolvedValue([]),
+    };
+    dailySummaryRepository = {
+      findOne: jest.fn().mockResolvedValue(null),
+    };
+    rawLogRepository = {
+      find: jest.fn().mockResolvedValue([]),
+    };
     employeeQueryBuilder = createEmployeeQueryBuilderMock();
     employeeRepository = {
       createQueryBuilder: jest.fn(() => employeeQueryBuilder),
@@ -95,13 +169,18 @@ describe('AttendanceMobilePunchesService', () => {
       wifiRepo as unknown as AttendanceWifiNetworkRepository,
       geofenceDistanceService as unknown as GeofenceDistanceService,
       wifiValidator as unknown as WifiNetworkValidatorService,
+      scheduleResolver as unknown as AttendanceScheduleResolverService,
       policyRepository as unknown as Repository<AttendancePolicy>,
       checkpointRepository as unknown as Repository<AttendanceCheckpoint>,
       employeeRepository as unknown as Repository<Employee>,
+      processedEventRepository as unknown as Repository<AttendanceProcessedEvent>,
+      dailySummaryRepository as unknown as Repository<AttendanceDailySummary>,
+      rawLogRepository as unknown as Repository<HikvisionAttendanceLog>,
     );
 
     employeeQueryBuilder.getOne.mockResolvedValue({
       id: 39,
+      employee_no: 'EMP-039',
       primary_branch_id: 5,
       employment_status: EmploymentStatusEnum.ACTIVE,
       exit_date: null,
@@ -113,6 +192,10 @@ describe('AttendanceMobilePunchesService', () => {
       authentication_modes: 'MOBILE_APP,WEB',
       require_geo_fencing: false,
     });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   it('matches and stores allowed geofence and WiFi network on check-in', async () => {
@@ -231,6 +314,12 @@ describe('AttendanceMobilePunchesService', () => {
       distanceMeters: 4,
       message: 'Location is inside the allowed geofence.',
     });
+    processedEventRepository.find.mockResolvedValue([
+      {
+        direction: AttendanceProcessedEventDirectionEnum.IN,
+        eventTime: new Date('2026-06-18T08:22:00.000Z'),
+      },
+    ]);
 
     const result = await service.checkOut({
       companyId: 1,
@@ -258,6 +347,336 @@ describe('AttendanceMobilePunchesService', () => {
         geofenceId: 17,
       }),
     );
+  });
+
+  it('blocks duplicate mobile check-ins for the same resolved attendance day', async () => {
+    checkpointRepository.find.mockResolvedValue([]);
+    geofenceRepo.findActiveForBranch.mockResolvedValue([
+      {
+        id: 27,
+        name: 'HQ Campus',
+        branchId: 5,
+        status: 'ACTIVE',
+        type: 'CIRCLE',
+        latitude: '-6.7923540',
+        longitude: '39.2083280',
+        radiusMeters: 100,
+        allowedAccuracyMeters: 50,
+        strictAccuracy: false,
+      },
+    ]);
+    wifiRepo.findActiveForBranch.mockResolvedValue([]);
+    geofenceDistanceService.validateCircleGeofence.mockReturnValue({
+      valid: true,
+      distanceMeters: 6,
+      message: 'Location is inside the allowed geofence.',
+    });
+    punchRepo.findApprovedForEmployeeWindow.mockResolvedValue([
+      {
+        punchType: AttendancePunchTypeEnum.CHECK_IN,
+        validationStatus: AttendancePunchValidationStatusEnum.APPROVED,
+      },
+    ]);
+
+    await expect(
+      service.checkIn({
+        companyId: 1,
+        authenticatedEmployeeId: 39,
+        employeeId: 39,
+        dto: {
+          latitude: -6.792354,
+          longitude: 39.208328,
+          accuracyMeters: 8.5,
+        },
+        requestIp: '10.40.1.24',
+        userAgent: 'jest',
+      }),
+    ).rejects.toMatchObject({
+      response: {
+        message: 'Employee has already checked in for this attendance day.',
+      },
+    });
+
+    expect(punchRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('blocks mobile check-out when a biometric/device check-out already exists', async () => {
+    checkpointRepository.find.mockResolvedValue([]);
+    geofenceRepo.findActiveForBranch.mockResolvedValue([
+      {
+        id: 61,
+        name: 'HQ Campus',
+        branchId: 5,
+        status: 'ACTIVE',
+        type: 'CIRCLE',
+        latitude: '-6.7923540',
+        longitude: '39.2083280',
+        radiusMeters: 100,
+        allowedAccuracyMeters: 50,
+        strictAccuracy: false,
+      },
+    ]);
+    wifiRepo.findActiveForBranch.mockResolvedValue([]);
+    geofenceDistanceService.validateCircleGeofence.mockReturnValue({
+      valid: true,
+      distanceMeters: 5,
+      message: 'Location is inside the allowed geofence.',
+    });
+    processedEventRepository.find.mockResolvedValue([
+      {
+        direction: AttendanceProcessedEventDirectionEnum.IN,
+        eventTime: new Date('2026-06-18T08:10:00.000Z'),
+      },
+      {
+        direction: AttendanceProcessedEventDirectionEnum.OUT,
+        eventTime: new Date('2026-06-18T17:05:00.000Z'),
+      },
+    ]);
+
+    await expect(
+      service.checkOut({
+        companyId: 1,
+        authenticatedEmployeeId: 39,
+        employeeId: 39,
+        dto: {
+          latitude: -6.792354,
+          longitude: 39.208328,
+          accuracyMeters: 8.5,
+        },
+        requestIp: '10.40.1.24',
+        userAgent: 'jest',
+      }),
+    ).rejects.toMatchObject({
+      response: {
+        message: 'Employee has already checked out for this attendance day.',
+      },
+    });
+
+    expect(punchRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('blocks mobile check-in when an unprocessed biometric raw log already exists', async () => {
+    checkpointRepository.find.mockResolvedValue([]);
+    geofenceRepo.findActiveForBranch.mockResolvedValue([
+      {
+        id: 72,
+        name: 'HQ Campus',
+        branchId: 5,
+        status: 'ACTIVE',
+        type: 'CIRCLE',
+        latitude: '-6.7923540',
+        longitude: '39.2083280',
+        radiusMeters: 100,
+        allowedAccuracyMeters: 50,
+        strictAccuracy: false,
+      },
+    ]);
+    wifiRepo.findActiveForBranch.mockResolvedValue([]);
+    geofenceDistanceService.validateCircleGeofence.mockReturnValue({
+      valid: true,
+      distanceMeters: 3,
+      message: 'Location is inside the allowed geofence.',
+    });
+    rawLogRepository.find.mockResolvedValue([
+      {
+        employeeNo: 'EMP-039',
+        eventTime: new Date('2026-06-18T08:02:00.000Z'),
+        minor: 1,
+        attendanceStatus: null,
+      },
+    ]);
+
+    await expect(
+      service.checkIn({
+        companyId: 1,
+        authenticatedEmployeeId: 39,
+        employeeId: 39,
+        dto: {
+          latitude: -6.792354,
+          longitude: 39.208328,
+          accuracyMeters: 8.5,
+        },
+        requestIp: '10.40.1.24',
+        userAgent: 'jest',
+      }),
+    ).rejects.toMatchObject({
+      response: {
+        message: 'Employee has already checked in for this attendance day.',
+      },
+    });
+
+    expect(punchRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('requires an existing check-in before allowing check-out', async () => {
+    checkpointRepository.find.mockResolvedValue([]);
+    geofenceRepo.findActiveForBranch.mockResolvedValue([
+      {
+        id: 73,
+        name: 'HQ Campus',
+        branchId: 5,
+        status: 'ACTIVE',
+        type: 'CIRCLE',
+        latitude: '-6.7923540',
+        longitude: '39.2083280',
+        radiusMeters: 100,
+        allowedAccuracyMeters: 50,
+        strictAccuracy: false,
+      },
+    ]);
+    wifiRepo.findActiveForBranch.mockResolvedValue([]);
+    geofenceDistanceService.validateCircleGeofence.mockReturnValue({
+      valid: true,
+      distanceMeters: 3,
+      message: 'Location is inside the allowed geofence.',
+    });
+
+    await expect(
+      service.checkOut({
+        companyId: 1,
+        authenticatedEmployeeId: 39,
+        employeeId: 39,
+        dto: {
+          latitude: -6.792354,
+          longitude: 39.208328,
+          accuracyMeters: 8.5,
+        },
+        requestIp: '10.40.1.24',
+        userAgent: 'jest',
+      }),
+    ).rejects.toMatchObject({
+      response: {
+        message: 'Employee must check in before checking out.',
+      },
+    });
+  });
+
+  it('uses the resolved overnight attendance date instead of the calendar date', async () => {
+    jest.setSystemTime(new Date('2026-06-19T04:30:00.000Z'));
+    checkpointRepository.find.mockResolvedValue([]);
+    geofenceRepo.findActiveForBranch.mockResolvedValue([
+      {
+        id: 74,
+        name: 'Night Shift Gate',
+        branchId: 5,
+        status: 'ACTIVE',
+        type: 'CIRCLE',
+        latitude: '-6.7923540',
+        longitude: '39.2083280',
+        radiusMeters: 100,
+        allowedAccuracyMeters: 50,
+        strictAccuracy: false,
+      },
+    ]);
+    wifiRepo.findActiveForBranch.mockResolvedValue([]);
+    geofenceDistanceService.validateCircleGeofence.mockReturnValue({
+      valid: true,
+      distanceMeters: 2,
+      message: 'Location is inside the allowed geofence.',
+    });
+    scheduleResolver.resolveForDate.mockImplementation(
+      (companyId: number, employeeId: number, date: string) => {
+        if (date === '2026-06-18') {
+          return Promise.resolve(
+            buildResolvedSchedule(date, {
+              employeeId,
+              scheduleStartAt: new Date('2026-06-18T22:00:00.000Z'),
+              scheduleEndAt: new Date('2026-06-19T06:00:00.000Z'),
+            }),
+          );
+        }
+
+        return Promise.resolve(
+          buildResolvedSchedule(date, {
+            employeeId,
+          }),
+        );
+      },
+    );
+    processedEventRepository.find.mockResolvedValue([
+      {
+        direction: AttendanceProcessedEventDirectionEnum.IN,
+        eventTime: new Date('2026-06-18T22:05:00.000Z'),
+      },
+    ]);
+
+    const result = await service.checkOut({
+      companyId: 1,
+      authenticatedEmployeeId: 39,
+      employeeId: 39,
+      dto: {
+        latitude: -6.792354,
+        longitude: 39.208328,
+        accuracyMeters: 8.5,
+      },
+      requestIp: '10.40.1.24',
+      userAgent: 'jest',
+    });
+
+    expect(result.punch).toEqual(
+      expect.objectContaining({
+        attendanceDate: '2026-06-18',
+        punchType: AttendancePunchTypeEnum.CHECK_OUT,
+      }),
+    );
+  });
+
+  it('rejects the request when no valid timetable or shift can be resolved', async () => {
+    checkpointRepository.find.mockResolvedValue([]);
+    geofenceRepo.findActiveForBranch.mockResolvedValue([
+      {
+        id: 75,
+        name: 'HQ Campus',
+        branchId: 5,
+        status: 'ACTIVE',
+        type: 'CIRCLE',
+        latitude: '-6.7923540',
+        longitude: '39.2083280',
+        radiusMeters: 100,
+        allowedAccuracyMeters: 50,
+        strictAccuracy: false,
+      },
+    ]);
+    wifiRepo.findActiveForBranch.mockResolvedValue([]);
+    geofenceDistanceService.validateCircleGeofence.mockReturnValue({
+      valid: true,
+      distanceMeters: 2,
+      message: 'Location is inside the allowed geofence.',
+    });
+    scheduleResolver.resolveForDate.mockImplementation(
+      (companyId: number, employeeId: number, date: string) =>
+        Promise.resolve(
+          buildResolvedSchedule(date, {
+            employeeId,
+            source: 'NONE',
+            shiftId: null,
+            scheduleStartAt: null,
+            scheduleEndAt: null,
+          }),
+        ),
+    );
+
+    await expect(
+      service.checkIn({
+        companyId: 1,
+        authenticatedEmployeeId: 39,
+        employeeId: 39,
+        dto: {
+          latitude: -6.792354,
+          longitude: 39.208328,
+          accuracyMeters: 8.5,
+        },
+        requestIp: '10.40.1.24',
+        userAgent: 'jest',
+      }),
+    ).rejects.toMatchObject({
+      response: {
+        message:
+          'No valid timetable or shift found for this employee on this attendance day.',
+      },
+    });
+
+    expect(punchRepo.save).not.toHaveBeenCalled();
   });
 
   it('requires coordinates to match a registered system geofence even without GPS checkpoints', async () => {
