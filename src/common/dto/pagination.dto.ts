@@ -47,12 +47,4 @@ export class PaginationDto {
   @IsOptional()
   @IsEnum(SortDirection)
   sortOrder?: SortDirection = SortDirection.DESC;
-
-  @ApiPropertyOptional({
-    example: 'john',
-    description: 'Search in name, email, phone, user_no',
-  })
-  @IsOptional()
-  @IsString()
-  search?: string;
 }
