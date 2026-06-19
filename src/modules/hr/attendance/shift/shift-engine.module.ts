@@ -62,6 +62,7 @@ import { AttendanceAssignmentDomainService } from '../shared/attendance-assignme
     TypeOrmModule,
     ShiftsService,
     ShiftAssignmentsService,
+    ShiftSchedulesService,
   ],
 })
 export class ShiftEngineModule {}

@@ -30,10 +30,10 @@ import { OnboardingRequestStatusEnum } from './enums/onboarding-request-status.e
 import { OnboardingTaskStatusEnum } from './enums/onboarding-task-status.enum';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { CompanyUserBranchAccess } from '../branches/entities/company-user-branch-access.entity';
-import { ShiftAssignment } from '../attendance/shift/shift-assignments/entities/shift-assignment.entity';
+import { ShiftSchedule } from '../attendance/shift/shift-schedules/entities/shift-schedule.entity';
 import { EmployeeTimetable } from '../attendance/timetable/employee-timetables/entities/employee-timetable.entity';
 import { EmployeeDeviceAssignment } from '../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
-import { ShiftAssignmentsService } from '../attendance/shift/shift-assignments/shift-assignments.service';
+import { ShiftSchedulesService } from '../attendance/shift/shift-schedules/shift-schedules.service';
 import { EmployeeTimetablesService } from '../attendance/timetable/employee-timetables/employee-timetables.service';
 import { EmployeeDeviceAssignmentsService } from '../../access-control/employee-device-assignments/service/employee-device-assignments.service';
 import { OnboardingAttendanceModeEnum } from './enums/onboarding-attendance-mode.enum';
@@ -56,7 +56,7 @@ describe('OnboardingService', () => {
     getFiscalYearFromDate: jest.Mock;
     ensureBalanceForEmployee: jest.Mock;
   };
-  let shiftAssignmentsService: { create: jest.Mock };
+  let shiftSchedulesService: { create: jest.Mock };
   let employeeTimetablesService: { create: jest.Mock };
   let employeeDeviceAssignmentsService: { assignDevices: jest.Mock };
   let actor: AuthenticatedUser;
@@ -82,7 +82,7 @@ describe('OnboardingService', () => {
     const branchAccessRepository =
       createRepositoryMock<CompanyUserBranchAccess>();
     const roleRepository = createRepositoryMock<Role>();
-    const shiftAssignmentRepository = createRepositoryMock<ShiftAssignment>();
+    const shiftScheduleRepository = createRepositoryMock<ShiftSchedule>();
     const employeeTimetableRepository =
       createRepositoryMock<EmployeeTimetable>();
     const employeeDeviceAssignmentRepository =
@@ -95,7 +95,7 @@ describe('OnboardingService', () => {
       getFiscalYearFromDate: jest.fn(() => '2026'),
       ensureBalanceForEmployee: jest.fn(),
     };
-    shiftAssignmentsService = {
+    shiftSchedulesService = {
       create: jest.fn(),
     };
     employeeTimetablesService = {
@@ -133,7 +133,7 @@ describe('OnboardingService', () => {
       companyUserRoleRepository as Repository<CompanyUserRole>,
       branchAccessRepository as Repository<CompanyUserBranchAccess>,
       roleRepository as Repository<Role>,
-      shiftAssignmentRepository as Repository<ShiftAssignment>,
+      shiftScheduleRepository as Repository<ShiftSchedule>,
       employeeTimetableRepository as Repository<EmployeeTimetable>,
       employeeDeviceAssignmentRepository as Repository<EmployeeDeviceAssignment>,
       {
@@ -144,7 +144,7 @@ describe('OnboardingService', () => {
       } as unknown as OnboardingAuditService,
       {} as OnboardingWorkflowService,
       leaveBalanceService as unknown as LeaveBalanceService,
-      shiftAssignmentsService as unknown as ShiftAssignmentsService,
+      shiftSchedulesService as unknown as ShiftSchedulesService,
       employeeTimetablesService as unknown as EmployeeTimetablesService,
       employeeDeviceAssignmentsService as unknown as EmployeeDeviceAssignmentsService,
     );

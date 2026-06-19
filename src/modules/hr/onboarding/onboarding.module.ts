@@ -6,7 +6,7 @@ import { CompanyUserBranchAccess } from '../branches/entities/company-user-branc
 import { CompanyUserRole } from '../../companies/entities/company-user-role.entity';
 import { Role } from '../../roles/entities/role.entity';
 import { ShiftEngineModule } from '../attendance/shift/shift-engine.module';
-import { ShiftAssignment } from '../attendance/shift/shift-assignments/entities/shift-assignment.entity';
+import { ShiftSchedule } from '../attendance/shift/shift-schedules/entities/shift-schedule.entity';
 import { TimetableEngineModule } from '../attendance/timetable/timetable-engine.module';
 import { EmployeeTimetable } from '../attendance/timetable/employee-timetables/entities/employee-timetable.entity';
 import { Branch } from '../branches/entities/branch.entity';
@@ -49,7 +49,7 @@ import { OnboardingWorkflowService } from './services/onboarding-workflow.servic
       CompanyUserRole,
       CompanyUserBranchAccess,
       Role,
-      ShiftAssignment,
+      ShiftSchedule,
       EmployeeTimetable,
       EmployeeDeviceAssignment,
     ]),

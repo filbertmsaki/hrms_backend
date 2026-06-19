@@ -11,9 +11,8 @@ import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { CompanyUserRole } from '../../companies/entities/company-user-role.entity';
 import { Role } from '../../roles/entities/role.entity';
-import { ShiftAssignmentsService } from '../attendance/shift/shift-assignments/shift-assignments.service';
-import { ShiftAssignmentStatusEnum } from '../attendance/shift/shift-assignments/enums/shift-assignment-status.enum';
-import { ShiftAssignment } from '../attendance/shift/shift-assignments/entities/shift-assignment.entity';
+import { ShiftSchedule } from '../attendance/shift/shift-schedules/entities/shift-schedule.entity';
+import { ShiftSchedulesService } from '../attendance/shift/shift-schedules/shift-schedules.service';
 import { EmployeeTimetableStatusEnum } from '../attendance/timetable/employee-timetables/enums/employee-timetable-status.enum';
 import { EmployeeTimetablesService } from '../attendance/timetable/employee-timetables/employee-timetables.service';
 import { EmployeeTimetable } from '../attendance/timetable/employee-timetables/entities/employee-timetable.entity';
@@ -143,8 +142,8 @@ export class OnboardingService {
     private readonly branchAccessRepository: Repository<CompanyUserBranchAccess>,
     @InjectRepository(Role)
     private readonly roleRepository: Repository<Role>,
-    @InjectRepository(ShiftAssignment)
-    private readonly shiftAssignmentRepository: Repository<ShiftAssignment>,
+    @InjectRepository(ShiftSchedule)
+    private readonly shiftScheduleRepository: Repository<ShiftSchedule>,
     @InjectRepository(EmployeeTimetable)
     private readonly employeeTimetableRepository: Repository<EmployeeTimetable>,
     @InjectRepository(EmployeeDeviceAssignment)
@@ -153,7 +152,7 @@ export class OnboardingService {
     private readonly onboardingAuditService: OnboardingAuditService,
     private readonly onboardingWorkflowService: OnboardingWorkflowService,
     private readonly leaveBalanceService: LeaveBalanceService,
-    private readonly shiftAssignmentsService: ShiftAssignmentsService,
+    private readonly shiftSchedulesService: ShiftSchedulesService,
     private readonly employeeTimetablesService: EmployeeTimetablesService,
     private readonly employeeDeviceAssignmentsService: EmployeeDeviceAssignmentsService,
   ) {}
@@ -247,11 +246,11 @@ export class OnboardingService {
     );
   }
 
-  private getShiftAssignmentRepository(
+  private getShiftScheduleRepository(
     manager?: EntityManager,
-  ): Repository<ShiftAssignment> {
+  ): Repository<ShiftSchedule> {
     return (
-      manager?.getRepository(ShiftAssignment) ?? this.shiftAssignmentRepository
+      manager?.getRepository(ShiftSchedule) ?? this.shiftScheduleRepository
     );
   }
 
@@ -674,30 +673,41 @@ export class OnboardingService {
       employee,
       provisioning.shift_assignment.effective_from,
     );
+    const effectiveTo = provisioning.shift_assignment.effective_to ?? null;
 
-    const existing = await this.getShiftAssignmentRepository().findOne({
-      where: {
-        companyId,
+    const existingQuery = this.getShiftScheduleRepository()
+      .createQueryBuilder('schedule')
+      .where('schedule.company_id = :companyId', { companyId })
+      .andWhere('schedule.employee_id = :employeeId', {
         employeeId: employee.id,
+      })
+      .andWhere('schedule.shift_id = :shiftId', {
         shiftId: provisioning.shift_assignment.shift_id,
-        effectiveFrom,
-      },
-    });
+      })
+      .andWhere('schedule.effective_from = :effectiveFrom', { effectiveFrom });
+
+    if (effectiveTo) {
+      existingQuery.andWhere('schedule.effective_to = :effectiveTo', {
+        effectiveTo,
+      });
+    } else {
+      existingQuery.andWhere('schedule.effective_to IS NULL');
+    }
+
+    const existing = await existingQuery.getOne();
 
     if (existing) {
       return;
     }
 
-    await this.shiftAssignmentsService.create(companyId, {
+    await this.shiftSchedulesService.create(companyId, {
       employee_id: employee.id,
       shift_id: provisioning.shift_assignment.shift_id,
       effective_from: effectiveFrom,
-      effective_to: provisioning.shift_assignment.effective_to ?? null,
-      rotation_group_id:
-        provisioning.shift_assignment.rotation_group_id ?? null,
-      is_primary: provisioning.shift_assignment.is_primary ?? false,
-      status: ShiftAssignmentStatusEnum.ACTIVE,
+      effective_to: effectiveTo,
       assigned_by: actor.companyMembershipId ?? null,
+      remarks:
+        'Provisioned from onboarding workflow as centralized shift override',
     });
   }
 

@@ -20,12 +20,14 @@ import { AttendanceHoliday } from '../../../holidays/entities/holiday.entity';
 @Index('IDX_shift_schedules_shift_id', ['shiftId'])
 @Index('IDX_shift_schedules_override_shift_id', ['overrideShiftId'])
 @Index('IDX_shift_schedules_schedule_date', ['scheduleDate'])
+@Index('IDX_shift_schedules_effective_from', ['effectiveFrom'])
+@Index('IDX_shift_schedules_effective_to', ['effectiveTo'])
+@Index('IDX_shift_schedules_company_employee_from', [
+  'companyId',
+  'employeeId',
+  'effectiveFrom',
+])
 @Index('IDX_shift_schedules_holiday_id', ['holidayId'])
-@Index(
-  'UQ_shift_schedules_company_employee_date',
-  ['companyId', 'employeeId', 'scheduleDate'],
-  { unique: true },
-)
 export class ShiftSchedule {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -36,11 +38,17 @@ export class ShiftSchedule {
   @Column({ name: 'employee_id', type: 'int' })
   employeeId: number;
 
-  @Column({ name: 'shift_id', type: 'int' })
-  shiftId: number;
+  @Column({ name: 'shift_id', type: 'int', nullable: true })
+  shiftId: number | null;
 
   @Column({ name: 'schedule_date', type: 'date' })
   scheduleDate: string;
+
+  @Column({ name: 'effective_from', type: 'date' })
+  effectiveFrom: string;
+
+  @Column({ name: 'effective_to', type: 'date', nullable: true })
+  effectiveTo: string | null;
 
   @Column({ name: 'generated_from_rotation', type: 'boolean', default: false })
   generatedFromRotation: boolean;
@@ -74,9 +82,12 @@ export class ShiftSchedule {
   @JoinColumn({ name: 'employee_id' })
   employee: Employee;
 
-  @ManyToOne(() => Shift, (shift) => shift.schedules, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Shift, (shift) => shift.schedules, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
   @JoinColumn({ name: 'shift_id' })
-  shift: Shift;
+  shift: Shift | null;
 
   @ManyToOne(() => Shift, (shift) => shift.overrideSchedules, {
     nullable: true,

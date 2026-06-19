@@ -56,6 +56,17 @@ export class TimetableDaysService {
       );
   }
 
+  private ensureWorkingDayHasDefaultShift(input: {
+    isWorkingDay: boolean;
+    defaultShiftId?: number | null;
+  }): void {
+    if (input.isWorkingDay && !input.defaultShiftId) {
+      throw new BadRequestException(
+        'default_shift_id is required when is_working_day is true',
+      );
+    }
+  }
+
   private async findOrFail(
     companyId: number,
     id: number,
@@ -73,6 +84,10 @@ export class TimetableDaysService {
   async create(companyId: number, dto: CreateTimetableDayDto) {
     await this.ensureTimetable(companyId, dto.timetable_id);
     await this.ensureShift(companyId, dto.default_shift_id);
+    this.ensureWorkingDayHasDefaultShift({
+      isWorkingDay: dto.is_working_day ?? true,
+      defaultShiftId: dto.default_shift_id,
+    });
 
     const duplicate = await this.timetableDayRepository.findOne({
       where: { timetableId: dto.timetable_id, dayOfWeek: dto.day_of_week },
@@ -154,6 +169,13 @@ export class TimetableDaysService {
       companyId,
       dto.default_shift_id ?? item.defaultShiftId,
     );
+    this.ensureWorkingDayHasDefaultShift({
+      isWorkingDay: dto.is_working_day ?? item.isWorkingDay,
+      defaultShiftId:
+        dto.default_shift_id !== undefined
+          ? dto.default_shift_id
+          : item.defaultShiftId,
+    });
 
     const duplicate = await this.timetableDayRepository.findOne({
       where: { timetableId, dayOfWeek },

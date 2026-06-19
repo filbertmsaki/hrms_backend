@@ -68,7 +68,7 @@ export class AttendanceScheduleResolverService {
     preferredTimezone?: string,
   ): Promise<ResolvedAttendanceSchedule> {
     // Runtime authority:
-    // manual shift schedule override -> shift assignment -> employee timetable -> company defaults
+    // shift override -> shift assignment (legacy fallback) -> employee timetable -> company default timetable -> policy defaults
     const employee = await this.findEmployee(companyId, employeeId);
     const branchId = employee?.primary_branch_id ?? null;
     const globalConfig = await this.resolveGlobalConfiguration(companyId);
@@ -157,9 +157,19 @@ export class AttendanceScheduleResolverService {
     branchId: number | null,
     globalConfig: GlobalAttendanceConfiguration,
   ): Promise<ResolvedAttendanceSchedule | null> {
-    const schedule = await this.shiftScheduleRepository.findOne({
-      where: { companyId, employeeId, scheduleDate },
-    });
+    const schedule = await this.shiftScheduleRepository
+      .createQueryBuilder('schedule')
+      .where('schedule.company_id = :companyId', { companyId })
+      .andWhere('schedule.employee_id = :employeeId', { employeeId })
+      .andWhere('schedule.effective_from <= :scheduleDate', { scheduleDate })
+      .andWhere(
+        '(schedule.effective_to IS NULL OR schedule.effective_to >= :scheduleDate)',
+        { scheduleDate },
+      )
+      .orderBy('schedule.effectiveFrom', 'DESC')
+      .addOrderBy('schedule.scheduleDate', 'DESC')
+      .addOrderBy('schedule.updatedAt', 'DESC')
+      .getOne();
     if (!schedule) return null;
 
     const holidayId =
@@ -182,7 +192,22 @@ export class AttendanceScheduleResolverService {
       });
     }
 
-    const shiftId = schedule.overrideShiftId ?? schedule.shiftId;
+    const shiftId = schedule.shiftId ?? schedule.overrideShiftId;
+    if (!shiftId) {
+      return this.buildResolvedWithoutShift({
+        employeeId,
+        scheduleDate,
+        source: 'SHIFT_SCHEDULE',
+        timezone: fallbackTimezone,
+        shiftId: null,
+        timetableId: null,
+        branchId,
+        isOffDay: false,
+        holidayId,
+        globalConfig,
+      });
+    }
+
     const base = await this.resolveWithShift(
       companyId,
       employeeId,
@@ -330,7 +355,7 @@ export class AttendanceScheduleResolverService {
       scheduleDate,
       definition.shiftId,
       timezone,
-      'EMPLOYEE_TIMETABLE',
+      definition.assignmentSource,
       definition.branchId,
       globalConfig,
     );

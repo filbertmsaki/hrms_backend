@@ -10,6 +10,7 @@ import { EmployeePosition } from '../employees/entities/employee-position.entity
 import { Employee } from '../employees/entities/employee.entity';
 import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
 import { ShiftAssignment } from '../attendance/shift/shift-assignments/entities/shift-assignment.entity';
+import { ShiftSchedule } from '../attendance/shift/shift-schedules/entities/shift-schedule.entity';
 import { EmployeeTimetable } from '../attendance/timetable/employee-timetables/entities/employee-timetable.entity';
 import { Position } from '../positions/entities/position.entity';
 import { HrSharedModule } from '../shared/hr-shared.module';
@@ -39,6 +40,7 @@ import { OffboardingWorkflowService } from './services/offboarding-workflow.serv
       Employee,
       EmployeePosition,
       ShiftAssignment,
+      ShiftSchedule,
       EmployeeTimetable,
       AttendanceDailySummary,
       Branch,

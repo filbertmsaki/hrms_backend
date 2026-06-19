@@ -10,6 +10,7 @@ import { LeaveRequest } from '../../leave/entities/leave-request.entity';
 import { LeaveType } from '../../leave/entities/leave-type.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { EmployeeTimetable } from '../timetable/employee-timetables/entities/employee-timetable.entity';
+import { Timetable } from '../timetable/timetables/entities/timetable.entity';
 import { ShiftAssignment } from '../shift/shift-assignments/entities/shift-assignment.entity';
 import { ShiftBreak } from '../shift/shift-breaks/entities/shift-break.entity';
 import { ShiftSchedule } from '../shift/shift-schedules/entities/shift-schedule.entity';
@@ -38,6 +39,7 @@ const createQueryBuilderMock = () => ({
   where: jest.fn().mockReturnThis(),
   andWhere: jest.fn().mockReturnThis(),
   orderBy: jest.fn().mockReturnThis(),
+  addOrderBy: jest.fn().mockReturnThis(),
   setParameters: jest.fn().mockReturnThis(),
   limit: jest.fn().mockReturnThis(),
   skip: jest.fn().mockReturnThis(),
@@ -91,6 +93,7 @@ describe('AttendanceDailySummaryService', () => {
   let businessTripRepository: MockRepo<AttendanceBusinessTrip>;
   let employeeRepository: MockRepo<Employee>;
   let employeeTimetableRepository: MockRepo<EmployeeTimetable>;
+  let timetableRepository: MockRepo<Timetable>;
   let shiftAssignmentRepository: MockRepo<ShiftAssignment>;
   let shiftScheduleRepository: MockRepo<ShiftSchedule>;
   let shiftBreakRepository: MockRepo<ShiftBreak>;
@@ -102,6 +105,7 @@ describe('AttendanceDailySummaryService', () => {
   let mobilePunchBuilder: ReturnType<typeof createQueryBuilderMock>;
   let leaveBuilder: ReturnType<typeof createQueryBuilderMock>;
   let tripBuilder: ReturnType<typeof createQueryBuilderMock>;
+  let shiftScheduleExpectationBuilder: ReturnType<typeof createQueryBuilderMock>;
   let shiftExpectationBuilder: ReturnType<typeof createQueryBuilderMock>;
   let timetableExpectationBuilder: ReturnType<typeof createQueryBuilderMock>;
 
@@ -115,6 +119,7 @@ describe('AttendanceDailySummaryService', () => {
     businessTripRepository = createRepositoryMock();
     employeeRepository = createRepositoryMock();
     employeeTimetableRepository = createRepositoryMock();
+    timetableRepository = createRepositoryMock();
     shiftAssignmentRepository = createRepositoryMock();
     shiftScheduleRepository = createRepositoryMock();
     shiftBreakRepository = createRepositoryMock();
@@ -131,6 +136,7 @@ describe('AttendanceDailySummaryService', () => {
     mobilePunchBuilder = createQueryBuilderMock();
     leaveBuilder = createQueryBuilderMock();
     tripBuilder = createQueryBuilderMock();
+    shiftScheduleExpectationBuilder = createQueryBuilderMock();
     shiftExpectationBuilder = createQueryBuilderMock();
     timetableExpectationBuilder = createQueryBuilderMock();
 
@@ -142,12 +148,16 @@ describe('AttendanceDailySummaryService', () => {
     );
     leaveRequestRepository.createQueryBuilder!.mockReturnValue(leaveBuilder);
     businessTripRepository.createQueryBuilder!.mockReturnValue(tripBuilder);
+    shiftScheduleRepository.createQueryBuilder!.mockReturnValue(
+      shiftScheduleExpectationBuilder,
+    );
     shiftAssignmentRepository.createQueryBuilder!.mockReturnValue(
       shiftExpectationBuilder,
     );
     employeeTimetableRepository.createQueryBuilder!.mockReturnValue(
       timetableExpectationBuilder,
     );
+    timetableRepository.findOne!.mockResolvedValue(null);
 
     service = new AttendanceDailySummaryService(
       processedEventRepository as Repository<AttendanceProcessedEvent>,
@@ -163,6 +173,7 @@ describe('AttendanceDailySummaryService', () => {
       shiftScheduleRepository as Repository<ShiftSchedule>,
       shiftBreakRepository as Repository<ShiftBreak>,
       timetableDayRepository as Repository<TimetableDay>,
+      timetableRepository as Repository<Timetable>,
       scheduleResolver as unknown as AttendanceScheduleResolverService,
       exceptionService as unknown as AttendanceProcessingExceptionsService,
     );
@@ -177,7 +188,7 @@ describe('AttendanceDailySummaryService', () => {
     mobilePunchBuilder.getMany.mockResolvedValue([]);
     leaveBuilder.getOne.mockResolvedValue(null);
     tripBuilder.getOne.mockResolvedValue(null);
-    shiftScheduleRepository.findOne!.mockResolvedValue(null);
+    shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
     shiftExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
     timetableExpectationBuilder.getOne.mockResolvedValue(null);
     adjustmentRepository.findOne!.mockResolvedValue(null);
@@ -214,7 +225,7 @@ describe('AttendanceDailySummaryService', () => {
     ]);
     leaveBuilder.getOne.mockResolvedValue(null);
     tripBuilder.getOne.mockResolvedValue(null);
-    shiftScheduleRepository.findOne!.mockResolvedValue(null);
+    shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
     shiftExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
     timetableExpectationBuilder.getOne.mockResolvedValue(null);
     adjustmentRepository.findOne!.mockResolvedValue(null);
@@ -256,7 +267,7 @@ describe('AttendanceDailySummaryService', () => {
     mobilePunchBuilder.getMany.mockResolvedValue([]);
     leaveBuilder.getOne.mockResolvedValue(null);
     tripBuilder.getOne.mockResolvedValue(null);
-    shiftScheduleRepository.findOne!.mockResolvedValue(null);
+    shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
     shiftExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
     timetableExpectationBuilder.getOne.mockResolvedValue(null);
     adjustmentRepository.findOne!.mockResolvedValue(null);
@@ -325,7 +336,7 @@ describe('AttendanceDailySummaryService', () => {
     mobilePunchBuilder.getMany.mockResolvedValue([]);
     leaveBuilder.getOne.mockResolvedValue(null);
     tripBuilder.getOne.mockResolvedValue(null);
-    shiftScheduleRepository.findOne!.mockResolvedValue(null);
+    shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
     shiftExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
     timetableExpectationBuilder.getOne.mockResolvedValue(null);
     adjustmentRepository.findOne!.mockResolvedValue(null);
@@ -371,7 +382,7 @@ describe('AttendanceDailySummaryService', () => {
     mobilePunchBuilder.getMany.mockResolvedValue([]);
     leaveBuilder.getOne.mockResolvedValue(null);
     tripBuilder.getOne.mockResolvedValue(null);
-    shiftScheduleRepository.findOne!.mockResolvedValue(null);
+    shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
     shiftExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
     timetableExpectationBuilder.getOne.mockResolvedValue(null);
     adjustmentRepository.findOne!.mockResolvedValue(null);
@@ -415,7 +426,7 @@ describe('AttendanceDailySummaryService', () => {
     mobilePunchBuilder.getMany.mockResolvedValue([]);
     leaveBuilder.getOne.mockResolvedValue(null);
     tripBuilder.getOne.mockResolvedValue(null);
-    shiftScheduleRepository.findOne!.mockResolvedValue(null);
+    shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
     shiftExpectationBuilder.getOne.mockResolvedValue(null);
     timetableExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
     adjustmentRepository.findOne!.mockResolvedValue(null);

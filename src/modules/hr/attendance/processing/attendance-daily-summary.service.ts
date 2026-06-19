@@ -20,6 +20,8 @@ import { AttendancePunchValidationStatusEnum } from '../mobile-punches/enums/att
 import { EmployeeTimetable } from '../timetable/employee-timetables/entities/employee-timetable.entity';
 import { EmployeeTimetableStatusEnum } from '../timetable/employee-timetables/enums/employee-timetable-status.enum';
 import { TimetableDay } from '../timetable/timetable-days/entities/timetable-day.entity';
+import { Timetable } from '../timetable/timetables/entities/timetable.entity';
+import { TimetableStatusEnum } from '../timetable/timetables/enums/timetable-status.enum';
 import { AttendanceBusinessTrip } from './entities/attendance-business-trip.entity';
 import { AttendanceDailySummaryAdjustment } from './entities/attendance-daily-summary-adjustment.entity';
 import { AttendanceDailySummary } from './entities/attendance-daily-summary.entity';
@@ -112,6 +114,8 @@ export class AttendanceDailySummaryService {
     private readonly shiftBreakRepository: Repository<ShiftBreak>,
     @InjectRepository(TimetableDay)
     private readonly timetableDayRepository: Repository<TimetableDay>,
+    @InjectRepository(Timetable)
+    private readonly timetableRepository: Repository<Timetable>,
     private readonly scheduleResolver: AttendanceScheduleResolverService,
     private readonly exceptionService: AttendanceProcessingExceptionsService,
   ) {}
@@ -723,8 +727,13 @@ export class AttendanceDailySummaryService {
       .createQueryBuilder('schedule')
       .select('DISTINCT schedule.employee_id', 'employeeId')
       .where('schedule.company_id = :companyId', { companyId })
-      .andWhere('schedule.schedule_date >= :startDate', { startDate })
-      .andWhere('schedule.schedule_date <= :endDate', { endDate })
+      .andWhere('schedule.effective_from <= :endDate', { endDate })
+      .andWhere(
+        '(schedule.effective_to IS NULL OR schedule.effective_to >= :startDate)',
+        {
+          startDate,
+        },
+      )
       .getRawMany<{ employeeId: string }>();
 
     const mobilePunchRows = await this.mobilePunchRepository
@@ -752,6 +761,34 @@ export class AttendanceDailySummaryService {
       const value = Number(row.employeeId);
       if (Number.isInteger(value) && value > 0) {
         employeeIds.add(value);
+      }
+    }
+
+    const defaultTimetable = await this.timetableRepository.findOne({
+      where: {
+        companyId,
+        isDefault: true,
+        status: TimetableStatusEnum.ACTIVE,
+      },
+      select: { id: true },
+    });
+    if (defaultTimetable) {
+      const employeeRows = await this.employeeRepository
+        .createQueryBuilder('employee')
+        .innerJoin('employee.company_user', 'companyUser')
+        .select('employee.id', 'employeeId')
+        .where('companyUser.company_id = :companyId', { companyId })
+        .andWhere(
+          '(employee.exit_date IS NULL OR employee.exit_date >= :startDate)',
+          { startDate },
+        )
+        .getRawMany<{ employeeId: string }>();
+
+      for (const row of employeeRows) {
+        const value = Number(row.employeeId);
+        if (Number.isInteger(value) && value > 0) {
+          employeeIds.add(value);
+        }
       }
     }
 
@@ -1462,12 +1499,25 @@ export class AttendanceDailySummaryService {
     employeeId: number,
     attendanceDate: string,
   ): Promise<boolean> {
-    const [shiftSchedule, shiftAssignment, timetableAssignment] =
+    const [shiftSchedule, shiftAssignment, timetableAssignment, defaultTimetable] =
       await Promise.all([
-        this.shiftScheduleRepository.findOne({
-          where: { companyId, employeeId, scheduleDate: attendanceDate },
-          select: { id: true, isOffDay: true },
-        }),
+        this.shiftScheduleRepository
+          .createQueryBuilder('schedule')
+          .select(['schedule.id', 'schedule.isOffDay'])
+          .where('schedule.company_id = :companyId', { companyId })
+          .andWhere('schedule.employee_id = :employeeId', { employeeId })
+          .andWhere('schedule.effective_from <= :attendanceDate', {
+            attendanceDate,
+          })
+          .andWhere(
+            '(schedule.effective_to IS NULL OR schedule.effective_to >= :attendanceDate)',
+            {
+              attendanceDate,
+            },
+          )
+          .orderBy('schedule.effectiveFrom', 'DESC')
+          .addOrderBy('schedule.scheduleDate', 'DESC')
+          .getOne(),
         this.shiftAssignmentRepository
           .createQueryBuilder('assignment')
           .select(['assignment.id'])
@@ -1504,13 +1554,21 @@ export class AttendanceDailySummaryService {
             },
           )
           .getOne(),
+        this.timetableRepository.findOne({
+          where: {
+            companyId,
+            isDefault: true,
+            status: TimetableStatusEnum.ACTIVE,
+          },
+          select: { id: true },
+        }),
       ]);
 
     if (shiftSchedule) {
       return !shiftSchedule.isOffDay;
     }
 
-    return !!shiftAssignment || !!timetableAssignment;
+    return !!shiftAssignment || !!timetableAssignment || !!defaultTimetable;
   }
 
   private async findActiveAdjustment(

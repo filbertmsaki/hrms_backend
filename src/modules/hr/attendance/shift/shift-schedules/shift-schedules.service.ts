@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
@@ -11,9 +11,11 @@ import { CreateShiftScheduleDto } from './dtos/create-shift-schedule.dto';
 import { UpdateShiftScheduleDto } from './dtos/update-shift-schedule.dto';
 import { ShiftScheduleQueryDto } from './dtos/shift-schedule-query.dto';
 import {
+  applyActiveAssignmentOverlapFilter,
   ensureCompanyOwnedEntity,
+  ensureDateRangeOrder,
   ensureEmployeeBelongsToCompany,
-  ensureUniqueEntity,
+  ensureRotationRuleAssignment,
   normalizeNullableText,
 } from '../../shared/attendance-domain.utils';
 
@@ -76,28 +78,76 @@ export class ShiftSchedulesService {
     return item;
   }
 
+  private resolveEffectiveRange(input: {
+    schedule_date?: string | null;
+    effective_from?: string | null;
+    effective_to?: string | null;
+  }): { effectiveFrom: string; effectiveTo: string | null } {
+    const scheduleDate = input.schedule_date ?? null;
+    const effectiveFrom = input.effective_from ?? scheduleDate;
+    const effectiveTo =
+      input.effective_to !== undefined
+        ? input.effective_to
+        : scheduleDate
+          ? scheduleDate
+          : null;
+
+    if (!effectiveFrom) {
+      throw new BadRequestException(
+        'effective_from is required when schedule_date is not provided',
+      );
+    }
+
+    ensureDateRangeOrder(effectiveFrom, effectiveTo);
+    return { effectiveFrom, effectiveTo };
+  }
+
+  private async ensureNoOverlappingOverride(input: {
+    companyId: number;
+    employeeId: number;
+    effectiveFrom: string;
+    effectiveTo: string | null;
+    ignoreId?: number;
+  }): Promise<void> {
+    const qb = this.shiftScheduleRepository.createQueryBuilder('schedule');
+    applyActiveAssignmentOverlapFilter(qb, 'schedule', input);
+
+    const existing = await qb.getOne();
+    if (existing) {
+      throw new BadRequestException(
+        'Shift override overlaps an existing override for this employee',
+      );
+    }
+  }
+
   async create(companyId: number, dto: CreateShiftScheduleDto) {
+    const { effectiveFrom, effectiveTo } = this.resolveEffectiveRange(dto);
+    const resolvedShiftId = dto.override_shift_id ?? dto.shift_id ?? null;
+
     await this.ensureEmployee(companyId, dto.employee_id);
-    await this.ensureShift(companyId, dto.shift_id);
+    await this.ensureShift(companyId, resolvedShiftId);
     await this.ensureShift(companyId, dto.override_shift_id);
     await this.ensureHoliday(companyId, dto.holiday_id);
-
-    await ensureUniqueEntity(
-      this.shiftScheduleRepository,
-      {
-        companyId,
-        employeeId: dto.employee_id,
-        scheduleDate: dto.schedule_date,
-      },
-      'Schedule already exists for this employee and date',
+    ensureRotationRuleAssignment(
+      resolvedShiftId,
+      dto.is_off_day ?? false,
+      'shift_id is required when is_off_day is false',
     );
+    await this.ensureNoOverlappingOverride({
+      companyId,
+      employeeId: dto.employee_id,
+      effectiveFrom,
+      effectiveTo,
+    });
 
     return this.shiftScheduleRepository.save(
       this.shiftScheduleRepository.create({
         companyId,
         employeeId: dto.employee_id,
-        shiftId: dto.shift_id,
-        scheduleDate: dto.schedule_date,
+        shiftId: resolvedShiftId,
+        scheduleDate: dto.schedule_date ?? effectiveFrom,
+        effectiveFrom,
+        effectiveTo,
         generatedFromRotation: dto.generated_from_rotation ?? false,
         overrideShiftId: dto.override_shift_id ?? null,
         holidayId: dto.holiday_id ?? null,
@@ -116,6 +166,8 @@ export class ShiftSchedulesService {
       sortOrder = SortDirection.DESC,
       employee_id,
       shift_id,
+      effective_from,
+      effective_to,
       from_date,
       to_date,
     } = query;
@@ -128,16 +180,37 @@ export class ShiftSchedulesService {
         employeeId: employee_id,
       });
     if (shift_id)
-      qb.andWhere('schedule.shift_id = :shiftId', { shiftId: shift_id });
+      qb.andWhere(
+        '(schedule.shift_id = :shiftId OR schedule.override_shift_id = :shiftId)',
+        { shiftId: shift_id },
+      );
+    if (effective_from)
+      qb.andWhere('schedule.effective_from >= :effectiveFrom', {
+        effectiveFrom: effective_from,
+      });
+    if (effective_to)
+      qb.andWhere(
+        '(schedule.effective_to IS NULL OR schedule.effective_to <= :effectiveTo)',
+        {
+          effectiveTo: effective_to,
+        },
+      );
     if (from_date)
-      qb.andWhere('schedule.schedule_date >= :fromDate', {
-        fromDate: from_date,
+      qb.andWhere('schedule.effective_from <= :rangeEnd', {
+        rangeEnd: to_date ?? from_date,
       });
     if (to_date)
-      qb.andWhere('schedule.schedule_date <= :toDate', { toDate: to_date });
+      qb.andWhere(
+        '(schedule.effective_to IS NULL OR schedule.effective_to >= :rangeStart)',
+        {
+          rangeStart: from_date ?? to_date,
+        },
+      );
 
     const sortFieldMap: Record<string, string> = {
       schedule_date: 'scheduleDate',
+      effective_from: 'effectiveFrom',
+      effective_to: 'effectiveTo',
       created_at: 'createdAt',
       updated_at: 'updatedAt',
     };
@@ -161,29 +234,42 @@ export class ShiftSchedulesService {
 
   async update(companyId: number, id: number, dto: UpdateShiftScheduleDto) {
     const item = await this.findOrFail(companyId, id);
-
     const employeeId = dto.employee_id ?? item.employeeId;
-    const scheduleDate = dto.schedule_date ?? item.scheduleDate;
+    const { effectiveFrom, effectiveTo } = this.resolveEffectiveRange({
+      schedule_date: dto.schedule_date ?? item.scheduleDate,
+      effective_from: dto.effective_from ?? item.effectiveFrom,
+      effective_to:
+        dto.effective_to !== undefined ? dto.effective_to : item.effectiveTo,
+    });
+    const scheduleDate = dto.schedule_date ?? item.scheduleDate ?? effectiveFrom;
+    const resolvedShiftId =
+      dto.override_shift_id !== undefined
+        ? dto.override_shift_id ?? dto.shift_id ?? item.shiftId
+        : dto.shift_id ?? item.shiftId;
 
     await this.ensureEmployee(companyId, employeeId);
-    await this.ensureShift(companyId, dto.shift_id ?? item.shiftId);
-    await this.ensureShift(
-      companyId,
-      dto.override_shift_id ?? item.overrideShiftId,
-    );
+    await this.ensureShift(companyId, resolvedShiftId);
+    await this.ensureShift(companyId, dto.override_shift_id ?? item.overrideShiftId);
     await this.ensureHoliday(companyId, dto.holiday_id ?? item.holidayId);
-
-    await ensureUniqueEntity(
-      this.shiftScheduleRepository,
-      { companyId, employeeId, scheduleDate },
-      'Schedule already exists for this employee and date',
-      item.id,
+    ensureRotationRuleAssignment(
+      resolvedShiftId,
+      dto.is_off_day !== undefined ? dto.is_off_day : item.isOffDay,
+      'shift_id is required when is_off_day is false',
     );
+    await this.ensureNoOverlappingOverride({
+      companyId,
+      employeeId,
+      effectiveFrom,
+      effectiveTo,
+      ignoreId: item.id,
+    });
 
     item.employeeId = employeeId;
     item.scheduleDate = scheduleDate;
+    item.effectiveFrom = effectiveFrom;
+    item.effectiveTo = effectiveTo;
 
-    if (dto.shift_id !== undefined) item.shiftId = dto.shift_id;
+    item.shiftId = resolvedShiftId;
     if (dto.generated_from_rotation !== undefined)
       item.generatedFromRotation = dto.generated_from_rotation;
     if (dto.override_shift_id !== undefined)

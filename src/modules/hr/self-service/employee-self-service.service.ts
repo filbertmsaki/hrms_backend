@@ -382,16 +382,14 @@ export class EmployeeSelfServiceService {
         }),
       ]);
 
-    const explicitScheduleMap = new Map(
-      shiftSchedules
-        .filter(
-          (item) =>
-            item.scheduleDate >= fromDate && item.scheduleDate <= toDate,
-        )
-        .map((item) => [item.scheduleDate, item]),
-    );
     const days = await Promise.all(this.buildDateRange(fromDate, toDate).map(async (date) => {
-      const explicit = explicitScheduleMap.get(date);
+      const explicit = shiftSchedules.find((item) =>
+        this.isDateWithinRange(
+          date,
+          item.effectiveFrom ?? item.scheduleDate,
+          item.effectiveTo ?? item.scheduleDate,
+        ),
+      );
       if (explicit) {
         const activeShift = explicit.overrideShift ?? explicit.shift ?? null;
         return {

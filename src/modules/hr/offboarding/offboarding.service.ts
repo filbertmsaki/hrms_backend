@@ -20,6 +20,7 @@ import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum'
 import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
 import { ShiftAssignment } from '../attendance/shift/shift-assignments/entities/shift-assignment.entity';
 import { ShiftAssignmentStatusEnum } from '../attendance/shift/shift-assignments/enums/shift-assignment-status.enum';
+import { ShiftSchedule } from '../attendance/shift/shift-schedules/entities/shift-schedule.entity';
 import { EmployeeTimetable } from '../attendance/timetable/employee-timetables/entities/employee-timetable.entity';
 import { EmployeeTimetableStatusEnum } from '../attendance/timetable/employee-timetables/enums/employee-timetable-status.enum';
 import { Position } from '../positions/entities/position.entity';
@@ -103,6 +104,8 @@ export class OffboardingService {
     private readonly employeeRepository: Repository<Employee>,
     @InjectRepository(ShiftAssignment)
     private readonly shiftAssignmentRepository: Repository<ShiftAssignment>,
+    @InjectRepository(ShiftSchedule)
+    private readonly shiftScheduleRepository: Repository<ShiftSchedule>,
     @InjectRepository(EmployeeTimetable)
     private readonly employeeTimetableRepository: Repository<EmployeeTimetable>,
     @InjectRepository(AttendanceDailySummary)
@@ -202,6 +205,12 @@ export class OffboardingService {
     );
   }
 
+  private getShiftScheduleRepository(
+    manager?: EntityManager,
+  ): Repository<ShiftSchedule> {
+    return manager?.getRepository(ShiftSchedule) ?? this.shiftScheduleRepository;
+  }
+
   private getAttendanceDailySummaryRepository(
     manager?: EntityManager,
   ): Repository<AttendanceDailySummary> {
@@ -278,6 +287,7 @@ export class OffboardingService {
   ): Promise<void> {
     const shiftAssignmentRepository =
       this.getShiftAssignmentRepository(manager);
+    const shiftScheduleRepository = this.getShiftScheduleRepository(manager);
     const employeeTimetableRepository =
       this.getEmployeeTimetableRepository(manager);
 
@@ -299,6 +309,25 @@ export class OffboardingService {
         assignment.effectiveTo = lastWorkingDate;
       }
       await shiftAssignmentRepository.save(assignment);
+    }
+
+    const shiftSchedules = await shiftScheduleRepository.find({
+      where: {
+        companyId,
+        employeeId,
+      },
+    });
+
+    for (const schedule of shiftSchedules) {
+      if (schedule.effectiveFrom > lastWorkingDate) {
+        await shiftScheduleRepository.remove(schedule);
+        continue;
+      }
+
+      if (!schedule.effectiveTo || schedule.effectiveTo > lastWorkingDate) {
+        schedule.effectiveTo = lastWorkingDate;
+        await shiftScheduleRepository.save(schedule);
+      }
     }
 
     const employeeTimetables = await employeeTimetableRepository.find({

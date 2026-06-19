@@ -17,6 +17,14 @@ export class ShiftScheduleQueryDto extends PaginationDto {
 
   @IsDateString()
   @IsOptional()
+  effective_from?: string;
+
+  @IsDateString()
+  @IsOptional()
+  effective_to?: string;
+
+  @IsDateString()
+  @IsOptional()
   from_date?: string;
 
   @IsDateString()

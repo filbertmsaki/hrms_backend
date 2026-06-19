@@ -12,7 +12,9 @@ import { TimetableRotationRule } from '../timetable/timetable-rotation-rules/ent
 import { TimetableRotation } from '../timetable/timetable-rotations/entities/timetable-rotation.entity';
 import { TimetableRotationStatusEnum } from '../timetable/timetable-rotations/enums/timetable-rotation-status.enum';
 import { Timetable } from '../timetable/timetables/entities/timetable.entity';
+import { TimetableStatusEnum } from '../timetable/timetables/enums/timetable-status.enum';
 import { TimetableTypeEnum } from '../timetable/timetables/enums/timetable-type.enum';
+import { formatDateOnly } from '../../shared/hr.utils';
 
 type TimetableScheduleSourceRule = 'DAY' | 'ROTATION' | 'OVERRIDE';
 
@@ -31,6 +33,7 @@ export type TimetableScheduleDefinition = {
   expectedCheckInTime: string | null;
   expectedCheckOutTime: string | null;
   overtimeAllowed: boolean | null;
+  assignmentSource: 'EMPLOYEE_TIMETABLE' | 'COMPANY_DEFAULT_TIMETABLE';
 };
 
 type TimetableBaseSchedule = {
@@ -41,6 +44,12 @@ type TimetableBaseSchedule = {
   expectedCheckInTime: string | null;
   expectedCheckOutTime: string | null;
   overtimeAllowed: boolean | null;
+};
+
+type TimetableResolutionContext = {
+  timetable: Timetable;
+  effectiveFrom: string;
+  assignmentSource: 'EMPLOYEE_TIMETABLE' | 'COMPANY_DEFAULT_TIMETABLE';
 };
 
 @Injectable()
@@ -69,23 +78,18 @@ export class TimetableScheduleGenerationService {
     employeeId: number,
     scheduleDate: string,
   ): Promise<TimetableScheduleDefinition | null> {
-    const assignment = await this.findActiveAssignment(
+    const employee = await this.findEmployee(companyId, employeeId);
+    const resolution = await this.resolveTimetableContext(
       companyId,
       employeeId,
       scheduleDate,
+      employee,
     );
-    if (!assignment) {
+    if (!resolution) {
       return null;
     }
 
-    const timetable = await this.timetableRepository.findOne({
-      where: { id: assignment.timetableId, companyId },
-    });
-    if (!timetable) {
-      return null;
-    }
-
-    const employee = await this.findEmployee(companyId, employeeId);
+    const { timetable, effectiveFrom, assignmentSource } = resolution;
     const branchId = employee?.primary_branch_id ?? null;
     const holiday = await this.resolveHoliday(
       companyId,
@@ -105,7 +109,7 @@ export class TimetableScheduleGenerationService {
       timetable.timetableType === TimetableTypeEnum.ROTATIONAL
         ? await this.resolveRotationalBaseSchedule(
             timetable,
-            assignment,
+            effectiveFrom,
             scheduleDate,
           )
         : await this.resolveDayBaseSchedule(
@@ -150,6 +154,7 @@ export class TimetableScheduleGenerationService {
       expectedCheckInTime: baseSchedule.expectedCheckInTime,
       expectedCheckOutTime: baseSchedule.expectedCheckOutTime,
       overtimeAllowed: baseSchedule.overtimeAllowed,
+      assignmentSource,
     };
   }
 
@@ -172,6 +177,52 @@ export class TimetableScheduleGenerationService {
       )
       .orderBy('assignment.effectiveFrom', 'DESC')
       .getOne();
+  }
+
+  private async resolveTimetableContext(
+    companyId: number,
+    employeeId: number,
+    scheduleDate: string,
+    employee: Employee | null,
+  ): Promise<TimetableResolutionContext | null> {
+    const assignment = await this.findActiveAssignment(
+      companyId,
+      employeeId,
+      scheduleDate,
+    );
+    if (assignment) {
+      const timetable = await this.timetableRepository.findOne({
+        where: { id: assignment.timetableId, companyId },
+      });
+      if (!timetable) {
+        return null;
+      }
+
+      return {
+        timetable,
+        effectiveFrom: assignment.effectiveFrom,
+        assignmentSource: 'EMPLOYEE_TIMETABLE',
+      };
+    }
+
+    const timetable = await this.timetableRepository.findOne({
+      where: {
+        companyId,
+        isDefault: true,
+        status: TimetableStatusEnum.ACTIVE,
+      },
+      order: { updatedAt: 'DESC', id: 'DESC' },
+    });
+    if (!timetable) {
+      return null;
+    }
+
+    return {
+      timetable,
+      effectiveFrom:
+        employee?.hire_date || formatDateOnly(timetable.createdAt) || scheduleDate,
+      assignmentSource: 'COMPANY_DEFAULT_TIMETABLE',
+    };
   }
 
   private async findEmployee(
@@ -222,7 +273,7 @@ export class TimetableScheduleGenerationService {
 
   private async resolveRotationalBaseSchedule(
     timetable: Timetable,
-    assignment: EmployeeTimetable,
+    effectiveFrom: string,
     scheduleDate: string,
   ): Promise<TimetableBaseSchedule | null> {
     const rotation = await this.timetableRotationRepository.findOne({
@@ -239,7 +290,7 @@ export class TimetableScheduleGenerationService {
     }
 
     const dayIndex = this.computeCycleDayIndex(
-      assignment.effectiveFrom,
+      effectiveFrom,
       scheduleDate,
       rotation.cycleDays,
     );

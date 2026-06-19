@@ -15,13 +15,24 @@ export class CreateShiftScheduleDto {
   @Min(1)
   employee_id: number;
 
+  @ApiPropertyOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  shift_id: number;
+  @IsOptional()
+  shift_id?: number | null;
 
   @IsDateString()
-  schedule_date: string;
+  @IsOptional()
+  schedule_date?: string;
+
+  @IsDateString()
+  @IsOptional()
+  effective_from?: string;
+
+  @IsDateString()
+  @IsOptional()
+  effective_to?: string | null;
 
   @ApiPropertyOptional({ default: false })
   @Type(() => Boolean)

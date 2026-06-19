@@ -8,6 +8,8 @@ import { ShiftAssignmentStatusEnum } from '../shift/shift-assignments/enums/shif
 import { ShiftSchedule } from '../shift/shift-schedules/entities/shift-schedule.entity';
 import { EmployeeTimetable } from '../timetable/employee-timetables/entities/employee-timetable.entity';
 import { EmployeeTimetableStatusEnum } from '../timetable/employee-timetables/enums/employee-timetable-status.enum';
+import { Timetable } from '../timetable/timetables/entities/timetable.entity';
+import { TimetableStatusEnum } from '../timetable/timetables/enums/timetable-status.enum';
 import { AttendanceProcessingService } from './attendance-processing.service';
 import { AttendanceRecalculationService } from './attendance-recalculation.service';
 import { formatDateOnly } from '../../shared/hr.utils';
@@ -25,6 +27,8 @@ export class AttendanceProcessingCronService {
     private readonly shiftAssignmentRepository: Repository<ShiftAssignment>,
     @InjectRepository(ShiftSchedule)
     private readonly shiftScheduleRepository: Repository<ShiftSchedule>,
+    @InjectRepository(Timetable)
+    private readonly timetableRepository: Repository<Timetable>,
     private readonly processingService: AttendanceProcessingService,
     private readonly recalculationService: AttendanceRecalculationService,
   ) {}
@@ -74,7 +78,20 @@ export class AttendanceProcessingCronService {
       const shiftScheduleRows = await this.shiftScheduleRepository
         .createQueryBuilder('schedule')
         .select('DISTINCT schedule.company_id', 'companyId')
-        .where('schedule.schedule_date = :today', { today })
+        .where('schedule.effective_from <= :today', { today })
+        .andWhere(
+          '(schedule.effective_to IS NULL OR schedule.effective_to >= :today)',
+          { today },
+        )
+        .getRawMany<{ companyId: string }>();
+
+      const defaultTimetableRows = await this.timetableRepository
+        .createQueryBuilder('timetable')
+        .select('DISTINCT timetable.company_id', 'companyId')
+        .where('timetable.is_default = :isDefault', { isDefault: true })
+        .andWhere('timetable.status = :status', {
+          status: TimetableStatusEnum.ACTIVE,
+        })
         .getRawMany<{ companyId: string }>();
 
       const companyIds = new Set<number>();
@@ -83,6 +100,7 @@ export class AttendanceProcessingCronService {
         ...timetableRows,
         ...shiftAssignmentRows,
         ...shiftScheduleRows,
+        ...defaultTimetableRows,
       ]) {
         const companyId = Number(row.companyId);
         if (Number.isInteger(companyId) && companyId > 0) {

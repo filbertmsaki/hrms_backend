@@ -16,6 +16,7 @@ import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { Role } from '../../roles/entities/role.entity';
 import { ShiftAssignment } from '../attendance/shift/shift-assignments/entities/shift-assignment.entity';
 import { ShiftAssignmentStatusEnum } from '../attendance/shift/shift-assignments/enums/shift-assignment-status.enum';
+import { ShiftSchedule } from '../attendance/shift/shift-schedules/entities/shift-schedule.entity';
 import { EmployeeTimetable } from '../attendance/timetable/employee-timetables/entities/employee-timetable.entity';
 import { EmployeeTimetableStatusEnum } from '../attendance/timetable/employee-timetables/enums/employee-timetable-status.enum';
 import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
@@ -59,6 +60,7 @@ describe('OffboardingService', () => {
     const documentRepository = createRepositoryMock<Document>();
     const employeeRepository = createRepositoryMock<Employee>();
     const shiftAssignmentRepository = createRepositoryMock<ShiftAssignment>();
+    const shiftScheduleRepository = createRepositoryMock<ShiftSchedule>();
     const employeeTimetableRepository =
       createRepositoryMock<EmployeeTimetable>();
     const attendanceDailySummaryRepository =
@@ -96,6 +98,7 @@ describe('OffboardingService', () => {
       documentRepository as Repository<Document>,
       employeeRepository as Repository<Employee>,
       shiftAssignmentRepository as Repository<ShiftAssignment>,
+      shiftScheduleRepository as Repository<ShiftSchedule>,
       employeeTimetableRepository as Repository<EmployeeTimetable>,
       attendanceDailySummaryRepository as Repository<AttendanceDailySummary>,
       departmentRepository as Repository<Department>,
@@ -178,6 +181,25 @@ describe('OffboardingService', () => {
       find: jest.fn().mockResolvedValue(shiftAssignments),
       save: jest.fn(async (value) => value),
     };
+    const shiftSchedules = [
+      {
+        id: 5,
+        employeeId: 501,
+        effectiveFrom: '2026-06-05',
+        effectiveTo: null,
+      },
+      {
+        id: 6,
+        employeeId: 501,
+        effectiveFrom: '2026-07-10',
+        effectiveTo: null,
+      },
+    ];
+    const shiftScheduleRepo = {
+      find: jest.fn().mockResolvedValue(shiftSchedules),
+      save: jest.fn(async (value) => value),
+      remove: jest.fn(async (value) => value),
+    };
     const employeeTimetables = [
       {
         id: 3,
@@ -214,6 +236,7 @@ describe('OffboardingService', () => {
         if (entity === OffboardingRequest) return requestRepo;
         if (entity === Employee) return employeeRepo;
         if (entity === ShiftAssignment) return shiftAssignmentRepo;
+        if (entity === ShiftSchedule) return shiftScheduleRepo;
         if (entity === EmployeeTimetable) return employeeTimetableRepo;
         if (entity === AttendanceDailySummary) return summaryRepo;
         throw new Error(`Unexpected repository request: ${entity?.name}`);
@@ -241,6 +264,12 @@ describe('OffboardingService', () => {
         id: 2,
         status: ShiftAssignmentStatusEnum.INACTIVE,
       }),
+    );
+    expect(shiftScheduleRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 5, effectiveTo: '2026-06-12' }),
+    );
+    expect(shiftScheduleRepo.remove).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 6 }),
     );
     expect(employeeTimetableRepo.save).toHaveBeenCalledWith(
       expect.objectContaining({ id: 3, effectiveTo: '2026-06-12' }),
