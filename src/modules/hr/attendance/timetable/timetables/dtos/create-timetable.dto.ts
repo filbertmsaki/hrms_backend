@@ -44,6 +44,52 @@ export class CreateTimetableDto {
   @IsOptional()
   is_default?: boolean;
 
+  @ApiPropertyOptional({ default: 0 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  late_after_minutes?: number;
+
+  @ApiPropertyOptional({ default: 0 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  half_day_after_minutes?: number;
+
+  @ApiPropertyOptional({ default: 0 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  absent_after_minutes?: number;
+
+  @ApiPropertyOptional({ default: true })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  allow_early_checkin?: boolean;
+
+  @ApiPropertyOptional({ default: true })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  allow_late_checkout?: boolean;
+
+  @ApiPropertyOptional({ default: true })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  auto_absent_if_no_checkin?: boolean;
+
+  @ApiPropertyOptional({ default: 0 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  max_overtime_minutes?: number;
+
   @ApiPropertyOptional({ enum: TimetableStatusEnum })
   @IsEnum(TimetableStatusEnum)
   @IsOptional()

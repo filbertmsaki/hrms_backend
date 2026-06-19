@@ -17,8 +17,6 @@ import { Department } from '../../../../departments/entities/department.entity';
 import { ShiftTypeEnum } from '../enums/shift-type.enum';
 import { ShiftStatusEnum } from '../enums/shift-status.enum';
 import { ShiftBreak } from '../../shift-breaks/entities/shift-break.entity';
-import { ShiftOvertimeRule } from '../../shift-overtime-rules/entities/shift-overtime-rule.entity';
-import { ShiftAttendanceRule } from '../../shift-attendance-rules/entities/shift-attendance-rule.entity';
 import { ShiftAssignment } from '../../shift-assignments/entities/shift-assignment.entity';
 import { ShiftRotationRule } from '../../shift-rotation-rules/entities/shift-rotation-rule.entity';
 import { ShiftSchedule } from '../../shift-schedules/entities/shift-schedule.entity';
@@ -79,6 +77,12 @@ export class Shift {
   @Column({ name: 'late_after_minutes', type: 'int', default: 0 })
   lateAfterMinutes: number;
 
+  @Column({ name: 'half_day_after_minutes', type: 'int', default: 0 })
+  halfDayAfterMinutes: number;
+
+  @Column({ name: 'absent_after_minutes', type: 'int', default: 0 })
+  absentAfterMinutes: number;
+
   @Column({ name: 'early_leave_after_minutes', type: 'int', default: 0 })
   earlyLeaveAfterMinutes: number;
 
@@ -94,6 +98,42 @@ export class Shift {
   @Column({ name: 'max_overtime_minutes', type: 'int', default: 0 })
   maxOvertimeMinutes: number;
 
+  @Column({ name: 'overtime_start_after_minutes', type: 'int', default: 0 })
+  overtimeStartAfterMinutes: number;
+
+  @Column({
+    name: 'overtime_rate_multiplier',
+    type: 'decimal',
+    precision: 5,
+    scale: 2,
+    default: 1,
+  })
+  overtimeRateMultiplier: string;
+
+  @Column({
+    name: 'weekend_multiplier',
+    type: 'decimal',
+    precision: 5,
+    scale: 2,
+    default: 1,
+  })
+  weekendMultiplier: string;
+
+  @Column({
+    name: 'holiday_multiplier',
+    type: 'decimal',
+    precision: 5,
+    scale: 2,
+    default: 1,
+  })
+  holidayMultiplier: string;
+
+  @Column({ name: 'overtime_requires_approval', type: 'boolean', default: false })
+  overtimeRequiresApproval: boolean;
+
+  @Column({ name: 'overtime_auto_calculate', type: 'boolean', default: true })
+  overtimeAutoCalculate: boolean;
+
   @Column({ name: 'requires_checkout', type: 'boolean', default: true })
   requiresCheckout: boolean;
 
@@ -102,6 +142,24 @@ export class Shift {
 
   @Column({ name: 'allow_late_checkout', type: 'boolean', default: true })
   allowLateCheckout: boolean;
+
+  @Column({ name: 'allow_multiple_checkin', type: 'boolean', default: false })
+  allowMultipleCheckin: boolean;
+
+  @Column({ name: 'auto_mark_absent', type: 'boolean', default: true })
+  autoMarkAbsent: boolean;
+
+  @Column({ name: 'allow_mobile_attendance', type: 'boolean', default: true })
+  allowMobileAttendance: boolean;
+
+  @Column({ name: 'allow_remote_attendance', type: 'boolean', default: false })
+  allowRemoteAttendance: boolean;
+
+  @Column({ name: 'require_geofence', type: 'boolean', default: false })
+  requireGeofence: boolean;
+
+  @Column({ name: 'require_biometric', type: 'boolean', default: false })
+  requireBiometric: boolean;
 
   @Column({
     name: 'status',
@@ -141,15 +199,6 @@ export class Shift {
 
   @OneToMany(() => ShiftBreak, (shiftBreak) => shiftBreak.shift)
   breaks: ShiftBreak[];
-
-  @OneToMany(() => ShiftOvertimeRule, (overtimeRule) => overtimeRule.shift)
-  overtimeRules: ShiftOvertimeRule[];
-
-  @OneToMany(
-    () => ShiftAttendanceRule,
-    (attendanceRule) => attendanceRule.shift,
-  )
-  attendanceRules: ShiftAttendanceRule[];
 
   @OneToMany(() => ShiftAssignment, (assignment) => assignment.shift)
   assignments: ShiftAssignment[];

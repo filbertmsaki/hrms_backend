@@ -27,9 +27,9 @@ import { AttendancePunchTypeEnum } from '../attendance/mobile-punches/enums/atte
 import { ShiftSchedule } from '../attendance/shift/shift-schedules/entities/shift-schedule.entity';
 import { ShiftAssignment } from '../attendance/shift/shift-assignments/entities/shift-assignment.entity';
 import { ShiftAssignmentStatusEnum } from '../attendance/shift/shift-assignments/enums/shift-assignment-status.enum';
-import { TimetableGeneratedSchedule } from '../attendance/timetable/timetable-generated-schedules/entities/timetable-generated-schedule.entity';
 import { EmployeeTimetable } from '../attendance/timetable/employee-timetables/entities/employee-timetable.entity';
 import { EmployeeTimetableStatusEnum } from '../attendance/timetable/employee-timetables/enums/employee-timetable-status.enum';
+import { AttendanceScheduleResolverService } from '../attendance/processing/attendance-schedule-resolver.service';
 import { CreateMyLeaveRequestDto } from './dtos/create-my-leave-request.dto';
 import { MyScheduleQueryDto } from './dtos/my-schedule-query.dto';
 
@@ -71,6 +71,7 @@ export class EmployeeSelfServiceService {
     private readonly leaveService: LeaveService,
     private readonly attendanceDailySummaryService: AttendanceDailySummaryService,
     private readonly attendanceMobilePunchesService: AttendanceMobilePunchesService,
+    private readonly attendanceScheduleResolverService: AttendanceScheduleResolverService,
     @InjectRepository(AttendanceDailySummary)
     private readonly attendanceDailySummaryRepository: Repository<AttendanceDailySummary>,
     @InjectRepository(AttendanceMobilePunch)
@@ -79,8 +80,6 @@ export class EmployeeSelfServiceService {
     private readonly leaveRequestRepository: Repository<LeaveRequest>,
     @InjectRepository(ShiftSchedule)
     private readonly shiftScheduleRepository: Repository<ShiftSchedule>,
-    @InjectRepository(TimetableGeneratedSchedule)
-    private readonly generatedScheduleRepository: Repository<TimetableGeneratedSchedule>,
     @InjectRepository(ShiftAssignment)
     private readonly shiftAssignmentRepository: Repository<ShiftAssignment>,
     @InjectRepository(EmployeeTimetable)
@@ -339,7 +338,7 @@ export class EmployeeSelfServiceService {
     const employeeId = await this.resolveEmployeeId(actor);
     const { fromDate, toDate } = this.resolveScheduleRange(query);
 
-    const [shiftSchedules, generatedSchedules, assignments, timetables] =
+    const [shiftSchedules, assignments, timetables] =
       await Promise.all([
         this.shiftScheduleRepository.find({
           where: {
@@ -349,20 +348,6 @@ export class EmployeeSelfServiceService {
           relations: {
             shift: true,
             overrideShift: true,
-            holiday: true,
-          },
-          order: {
-            scheduleDate: 'ASC',
-          },
-        }),
-        this.generatedScheduleRepository.find({
-          where: {
-            companyId,
-            employeeId,
-          },
-          relations: {
-            shift: true,
-            timetable: true,
             holiday: true,
           },
           order: {
@@ -405,16 +390,7 @@ export class EmployeeSelfServiceService {
         )
         .map((item) => [item.scheduleDate, item]),
     );
-    const generatedScheduleMap = new Map(
-      generatedSchedules
-        .filter(
-          (item) =>
-            item.scheduleDate >= fromDate && item.scheduleDate <= toDate,
-        )
-        .map((item) => [item.scheduleDate, item]),
-    );
-
-    const days = this.buildDateRange(fromDate, toDate).map((date) => {
+    const days = await Promise.all(this.buildDateRange(fromDate, toDate).map(async (date) => {
       const explicit = explicitScheduleMap.get(date);
       if (explicit) {
         const activeShift = explicit.overrideShift ?? explicit.shift ?? null;
@@ -432,32 +408,6 @@ export class EmployeeSelfServiceService {
           shift: this.mapShift(activeShift),
           timetable: null,
           remarks: explicit.remarks ?? null,
-        };
-      }
-
-      const generated = generatedScheduleMap.get(date);
-      if (generated) {
-        return {
-          date,
-          source: 'timetable_generated_schedule',
-          is_off_day: generated.isOffDay,
-          holiday: generated.holiday
-            ? {
-                id: generated.holiday.id,
-                name: generated.holiday.name,
-                date: generated.holiday.date,
-              }
-            : null,
-          shift: this.mapShift(generated.shift),
-          timetable: generated.timetable
-            ? {
-                id: generated.timetable.id,
-                name: generated.timetable.name,
-                code: generated.timetable.code,
-                timezone: generated.timetable.timezone,
-              }
-            : null,
-          remarks: null,
         };
       }
 
@@ -484,12 +434,39 @@ export class EmployeeSelfServiceService {
         this.isDateWithinRange(date, item.effectiveFrom, item.effectiveTo),
       );
       if (timetable) {
+        const resolved = await this.attendanceScheduleResolverService.resolveForDate(
+          companyId,
+          employeeId,
+          date,
+        );
         return {
           date,
           source: 'employee_timetable',
-          is_off_day: null,
-          holiday: null,
-          shift: null,
+          is_off_day: resolved.isOffDay,
+          holiday: resolved.holidayId
+            ? {
+                id: resolved.holidayId,
+                name: null,
+                date,
+              }
+            : null,
+          shift: resolved.shiftId
+            ? {
+                id: resolved.shiftId,
+                name: null,
+                code: null,
+                start_time: resolved.scheduleStartAt?.toISOString() ?? null,
+                end_time: resolved.scheduleEndAt?.toISOString() ?? null,
+                expected_work_minutes: null,
+                requires_checkout: resolved.requiresCheckout,
+                allow_overtime: resolved.allowOvertime,
+                crosses_midnight: Boolean(
+                  resolved.scheduleStartAt &&
+                    resolved.scheduleEndAt &&
+                    resolved.scheduleEndAt < resolved.scheduleStartAt,
+                ),
+              }
+            : null,
           timetable: {
             id: timetable.timetable.id,
             name: timetable.timetable.name,
@@ -513,7 +490,7 @@ export class EmployeeSelfServiceService {
         timetable: null,
         remarks: null,
       };
-    });
+    }));
 
     return {
       from_date: fromDate,

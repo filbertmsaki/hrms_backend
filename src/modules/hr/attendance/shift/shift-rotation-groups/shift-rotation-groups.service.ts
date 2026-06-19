@@ -1,8 +1,4 @@
-import {
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
@@ -11,6 +7,11 @@ import { ShiftRotationGroup } from './entities/shift-rotation-group.entity';
 import { CreateShiftRotationGroupDto } from './dtos/create-shift-rotation-group.dto';
 import { UpdateShiftRotationGroupDto } from './dtos/update-shift-rotation-group.dto';
 import { ShiftRotationGroupQueryDto } from './dtos/shift-rotation-group-query.dto';
+import {
+  ensureUniqueEntity,
+  normalizeNullableText,
+  normalizeTrimmedText,
+} from '../../shared/attendance-domain.utils';
 
 @Injectable()
 export class ShiftRotationGroupsService {
@@ -31,24 +32,19 @@ export class ShiftRotationGroupsService {
   }
 
   async create(companyId: number, dto: CreateShiftRotationGroupDto) {
-    const name = dto.name.trim();
-    const code = dto.code.trim();
+    const name = normalizeTrimmedText(dto.name);
+    const code = normalizeTrimmedText(dto.code);
 
-    const existingName = await this.rotationGroupRepository.findOne({
-      where: { companyId, name },
-    });
-    if (existingName)
-      throw new ConflictException(
-        'Rotation group name already exists for this company',
-      );
-
-    const existingCode = await this.rotationGroupRepository.findOne({
-      where: { companyId, code },
-    });
-    if (existingCode)
-      throw new ConflictException(
-        'Rotation group code already exists for this company',
-      );
+    await ensureUniqueEntity(
+      this.rotationGroupRepository,
+      { companyId, name },
+      'Rotation group name already exists for this company',
+    );
+    await ensureUniqueEntity(
+      this.rotationGroupRepository,
+      { companyId, code },
+      'Rotation group code already exists for this company',
+    );
 
     return this.rotationGroupRepository.save(
       this.rotationGroupRepository.create({
@@ -56,7 +52,7 @@ export class ShiftRotationGroupsService {
         name,
         code,
         cycleDays: dto.cycle_days,
-        description: dto.description?.trim() || null,
+        description: normalizeNullableText(dto.description) ?? null,
         status: dto.status,
       }),
     );
@@ -113,32 +109,30 @@ export class ShiftRotationGroupsService {
     const item = await this.findOrFail(companyId, id);
 
     if (dto.name !== undefined) {
-      const name = dto.name.trim();
-      const existing = await this.rotationGroupRepository.findOne({
-        where: { companyId, name },
-      });
-      if (existing && existing.id !== item.id)
-        throw new ConflictException(
-          'Rotation group name already exists for this company',
-        );
+      const name = normalizeTrimmedText(dto.name);
+      await ensureUniqueEntity(
+        this.rotationGroupRepository,
+        { companyId, name },
+        'Rotation group name already exists for this company',
+        item.id,
+      );
       item.name = name;
     }
 
     if (dto.code !== undefined) {
-      const code = dto.code.trim();
-      const existing = await this.rotationGroupRepository.findOne({
-        where: { companyId, code },
-      });
-      if (existing && existing.id !== item.id)
-        throw new ConflictException(
-          'Rotation group code already exists for this company',
-        );
+      const code = normalizeTrimmedText(dto.code);
+      await ensureUniqueEntity(
+        this.rotationGroupRepository,
+        { companyId, code },
+        'Rotation group code already exists for this company',
+        item.id,
+      );
       item.code = code;
     }
 
     if (dto.cycle_days !== undefined) item.cycleDays = dto.cycle_days;
     if (dto.description !== undefined)
-      item.description = dto.description?.trim() || null;
+      item.description = normalizeNullableText(dto.description) ?? null;
     if (dto.status !== undefined) item.status = dto.status;
 
     return this.rotationGroupRepository.save(item);

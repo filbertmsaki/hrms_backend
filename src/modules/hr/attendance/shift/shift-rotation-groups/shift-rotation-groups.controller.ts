@@ -32,7 +32,7 @@ import { ShiftRotationGroupQueryDto } from './dtos/shift-rotation-group-query.dt
 
 @ApiTags('Shift Rotation Groups')
 @ApiBearerAuth('access-token')
-@Controller('shift/shift-rotation-groups')
+@Controller('attendance/schedule-definitions/shift-rotation-groups')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class ShiftRotationGroupsController {
   constructor(

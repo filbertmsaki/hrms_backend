@@ -32,7 +32,7 @@ import { ShiftRotationRuleQueryDto } from './dtos/shift-rotation-rule-query.dto'
 
 @ApiTags('Shift Rotation Rules')
 @ApiBearerAuth('access-token')
-@Controller('shift/shift-rotation-rules')
+@Controller('attendance/schedule-definitions/shift-rotation-rules')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class ShiftRotationRulesController {
   constructor(

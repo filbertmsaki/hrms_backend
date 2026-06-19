@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -16,6 +15,12 @@ import { ShiftAssignmentStatusEnum } from './enums/shift-assignment-status.enum'
 import { CreateShiftAssignmentDto } from './dtos/create-shift-assignment.dto';
 import { UpdateShiftAssignmentDto } from './dtos/update-shift-assignment.dto';
 import { ShiftAssignmentQueryDto } from './dtos/shift-assignment-query.dto';
+import {
+  ensureCompanyOwnedEntity,
+  ensureDateRangeOrder,
+  ensureEmployeeBelongsToCompany,
+} from '../../shared/attendance-domain.utils';
+import { AttendanceAssignmentDomainService } from '../../shared/attendance-assignment-domain.service';
 
 @Injectable()
 export class ShiftAssignmentsService {
@@ -28,33 +33,26 @@ export class ShiftAssignmentsService {
     private readonly employeeRepository: Repository<Employee>,
     @InjectRepository(ShiftRotationGroup)
     private readonly rotationGroupRepository: Repository<ShiftRotationGroup>,
+    private readonly attendanceAssignmentDomainService: AttendanceAssignmentDomainService,
   ) {}
 
   private async ensureShift(companyId: number, shiftId: number): Promise<void> {
-    const shift = await this.shiftRepository.findOne({
-      where: { id: shiftId, companyId },
-      select: ['id'],
-    });
-    if (!shift)
-      throw new BadRequestException(
-        'shift_id does not belong to the active company',
-      );
+    await ensureCompanyOwnedEntity(
+      this.shiftRepository,
+      { id: shiftId, companyId },
+      'shift_id does not belong to the active company',
+    );
   }
 
   private async ensureEmployee(
     companyId: number,
     employeeId: number,
   ): Promise<void> {
-    const employee = await this.employeeRepository
-      .createQueryBuilder('employee')
-      .innerJoin('employee.company_user', 'companyUser')
-      .where('employee.id = :employeeId', { employeeId })
-      .andWhere('companyUser.company_id = :companyId', { companyId })
-      .getOne();
-    if (!employee)
-      throw new BadRequestException(
-        'employee_id does not belong to the active company',
-      );
+    await ensureEmployeeBelongsToCompany(
+      this.employeeRepository,
+      companyId,
+      employeeId,
+    );
   }
 
   private async ensureRotationGroup(
@@ -62,14 +60,11 @@ export class ShiftAssignmentsService {
     rotationGroupId?: number | null,
   ): Promise<void> {
     if (!rotationGroupId) return;
-    const group = await this.rotationGroupRepository.findOne({
-      where: { id: rotationGroupId, companyId },
-      select: ['id'],
-    });
-    if (!group)
-      throw new BadRequestException(
-        'rotation_group_id does not belong to the active company',
-      );
+    await ensureCompanyOwnedEntity(
+      this.rotationGroupRepository,
+      { id: rotationGroupId, companyId },
+      'rotation_group_id does not belong to the active company',
+    );
   }
 
   private async findOrFail(
@@ -83,78 +78,25 @@ export class ShiftAssignmentsService {
     return item;
   }
 
-  private ensureEffectiveRange(
-    effectiveFrom: string,
-    effectiveTo?: string | null,
-  ): void {
-    if (!effectiveTo) return;
-    if (effectiveTo < effectiveFrom) {
-      throw new BadRequestException(
-        'effective_to cannot be before effective_from',
-      );
-    }
-  }
-
-  private async ensureNoActiveOverlap(input: {
-    companyId: number;
-    employeeId: number;
-    effectiveFrom: string;
-    effectiveTo: string | null;
-    status: ShiftAssignmentStatusEnum;
-    ignoreId?: number;
-  }): Promise<void> {
-    const {
-      companyId,
-      employeeId,
-      effectiveFrom,
-      effectiveTo,
-      status,
-      ignoreId,
-    } = input;
-    if (status !== ShiftAssignmentStatusEnum.ACTIVE) {
-      return;
-    }
-
-    const qb = this.shiftAssignmentRepository
-      .createQueryBuilder('assignment')
-      .where('assignment.company_id = :companyId', { companyId })
-      .andWhere('assignment.employee_id = :employeeId', { employeeId })
-      .andWhere('assignment.status = :status', {
-        status: ShiftAssignmentStatusEnum.ACTIVE,
-      })
-      .andWhere('assignment.effective_from <= :candidateEnd', {
-        candidateEnd: effectiveTo ?? '9999-12-31',
-      })
-      .andWhere(
-        '(assignment.effective_to IS NULL OR assignment.effective_to >= :candidateStart)',
-        {
-          candidateStart: effectiveFrom,
-        },
-      );
-
-    if (ignoreId) {
-      qb.andWhere('assignment.id != :ignoreId', { ignoreId });
-    }
-
-    const existing = await qb.getOne();
-    if (existing) {
-      throw new ConflictException(
-        'Active shift assignment overlaps an existing assignment for this employee',
-      );
-    }
-  }
-
   async create(companyId: number, dto: CreateShiftAssignmentDto) {
     await this.ensureEmployee(companyId, dto.employee_id);
     await this.ensureShift(companyId, dto.shift_id);
     await this.ensureRotationGroup(companyId, dto.rotation_group_id);
-    this.ensureEffectiveRange(dto.effective_from, dto.effective_to ?? null);
-    await this.ensureNoActiveOverlap({
+    ensureDateRangeOrder(dto.effective_from, dto.effective_to ?? null);
+    await this.attendanceAssignmentDomainService.ensureNoOverlappingShiftAssignment({
       companyId,
       employeeId: dto.employee_id,
       effectiveFrom: dto.effective_from,
       effectiveTo: dto.effective_to ?? null,
       status: dto.status ?? ShiftAssignmentStatusEnum.ACTIVE,
+    });
+    await this.attendanceAssignmentDomainService.ensureNoConflictingAssignmentType({
+      companyId,
+      employeeId: dto.employee_id,
+      effectiveFrom: dto.effective_from,
+      effectiveTo: dto.effective_to ?? null,
+      status: dto.status ?? ShiftAssignmentStatusEnum.ACTIVE,
+      assignmentType: 'SHIFT',
     });
 
     const duplicate = await this.shiftAssignmentRepository.findOne({
@@ -246,14 +188,22 @@ export class ShiftAssignmentsService {
       dto.effective_to !== undefined ? dto.effective_to : item.effectiveTo;
     const status = dto.status ?? item.status;
 
-    this.ensureEffectiveRange(effectiveFrom, effectiveTo);
-    await this.ensureNoActiveOverlap({
+    ensureDateRangeOrder(effectiveFrom, effectiveTo);
+    await this.attendanceAssignmentDomainService.ensureNoOverlappingShiftAssignment({
       companyId,
       employeeId,
       effectiveFrom,
       effectiveTo,
       status,
       ignoreId: item.id,
+    });
+    await this.attendanceAssignmentDomainService.ensureNoConflictingAssignmentType({
+      companyId,
+      employeeId,
+      effectiveFrom,
+      effectiveTo,
+      status,
+      assignmentType: 'SHIFT',
     });
 
     item.employeeId = employeeId;

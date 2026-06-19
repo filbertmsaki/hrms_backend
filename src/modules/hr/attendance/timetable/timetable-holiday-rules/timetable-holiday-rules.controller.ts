@@ -32,7 +32,7 @@ import { TimetableHolidayRuleQueryDto } from './dtos/timetable-holiday-rule-quer
 
 @ApiTags('Timetable Holiday Rules')
 @ApiBearerAuth('access-token')
-@Controller('timetable/timetable-holiday-rules')
+@Controller('attendance/schedule-definitions/timetable-holiday-rules')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class TimetableHolidayRulesController {
   constructor(

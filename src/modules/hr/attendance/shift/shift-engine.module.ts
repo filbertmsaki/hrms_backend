@@ -6,22 +6,15 @@ import { Employee } from '../../employees/entities/employee.entity';
 import { AttendanceHoliday } from '../holidays/entities/holiday.entity';
 import { Shift } from './shifts/entities/shift.entity';
 import { ShiftBreak } from './shift-breaks/entities/shift-break.entity';
-import { ShiftOvertimeRule } from './shift-overtime-rules/entities/shift-overtime-rule.entity';
-import { ShiftAttendanceRule } from './shift-attendance-rules/entities/shift-attendance-rule.entity';
 import { ShiftAssignment } from './shift-assignments/entities/shift-assignment.entity';
 import { ShiftRotationGroup } from './shift-rotation-groups/entities/shift-rotation-group.entity';
 import { ShiftRotationRule } from './shift-rotation-rules/entities/shift-rotation-rule.entity';
 import { ShiftSchedule } from './shift-schedules/entities/shift-schedule.entity';
-import { ShiftChangeRequest } from './shift-change-requests/entities/shift-change-request.entity';
-import { ShiftTemplate } from './shift-templates/entities/shift-template.entity';
+import { EmployeeTimetable } from '../timetable/employee-timetables/entities/employee-timetable.entity';
 import { ShiftsService } from './shifts/shifts.service';
 import { ShiftsController } from './shifts/shifts.controller';
 import { ShiftBreaksService } from './shift-breaks/shift-breaks.service';
 import { ShiftBreaksController } from './shift-breaks/shift-breaks.controller';
-import { ShiftOvertimeRulesService } from './shift-overtime-rules/shift-overtime-rules.service';
-import { ShiftOvertimeRulesController } from './shift-overtime-rules/shift-overtime-rules.controller';
-import { ShiftAttendanceRulesService } from './shift-attendance-rules/shift-attendance-rules.service';
-import { ShiftAttendanceRulesController } from './shift-attendance-rules/shift-attendance-rules.controller';
 import { ShiftAssignmentsService } from './shift-assignments/shift-assignments.service';
 import { ShiftAssignmentsController } from './shift-assignments/shift-assignments.controller';
 import { ShiftRotationGroupsService } from './shift-rotation-groups/shift-rotation-groups.service';
@@ -30,10 +23,7 @@ import { ShiftRotationRulesService } from './shift-rotation-rules/shift-rotation
 import { ShiftRotationRulesController } from './shift-rotation-rules/shift-rotation-rules.controller';
 import { ShiftSchedulesService } from './shift-schedules/shift-schedules.service';
 import { ShiftSchedulesController } from './shift-schedules/shift-schedules.controller';
-import { ShiftChangeRequestsService } from './shift-change-requests/shift-change-requests.service';
-import { ShiftChangeRequestsController } from './shift-change-requests/shift-change-requests.controller';
-import { ShiftTemplatesService } from './shift-templates/shift-templates.service';
-import { ShiftTemplatesController } from './shift-templates/shift-templates.controller';
+import { AttendanceAssignmentDomainService } from '../shared/attendance-assignment-domain.service';
 
 @Module({
   imports: [
@@ -44,40 +34,34 @@ import { ShiftTemplatesController } from './shift-templates/shift-templates.cont
       AttendanceHoliday,
       Shift,
       ShiftBreak,
-      ShiftOvertimeRule,
-      ShiftAttendanceRule,
       ShiftAssignment,
       ShiftRotationGroup,
       ShiftRotationRule,
       ShiftSchedule,
-      ShiftChangeRequest,
-      ShiftTemplate,
+      EmployeeTimetable,
     ]),
   ],
   controllers: [
     ShiftsController,
     ShiftBreaksController,
-    ShiftOvertimeRulesController,
-    ShiftAttendanceRulesController,
     ShiftAssignmentsController,
     ShiftRotationGroupsController,
     ShiftRotationRulesController,
     ShiftSchedulesController,
-    ShiftChangeRequestsController,
-    ShiftTemplatesController,
   ],
   providers: [
     ShiftsService,
     ShiftBreaksService,
-    ShiftOvertimeRulesService,
-    ShiftAttendanceRulesService,
     ShiftAssignmentsService,
     ShiftRotationGroupsService,
     ShiftRotationRulesService,
     ShiftSchedulesService,
-    ShiftChangeRequestsService,
-    ShiftTemplatesService,
+    AttendanceAssignmentDomainService,
   ],
-  exports: [TypeOrmModule, ShiftsService, ShiftAssignmentsService],
+  exports: [
+    TypeOrmModule,
+    ShiftsService,
+    ShiftAssignmentsService,
+  ],
 })
 export class ShiftEngineModule {}

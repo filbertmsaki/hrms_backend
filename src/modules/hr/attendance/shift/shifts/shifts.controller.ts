@@ -32,7 +32,7 @@ import { ShiftQueryDto } from './dtos/shift-query.dto';
 
 @ApiTags('Shifts')
 @ApiBearerAuth('access-token')
-@Controller('shift/shifts')
+@Controller('attendance/schedule-definitions/shifts')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class ShiftsController {
   constructor(private readonly shiftsService: ShiftsService) {}

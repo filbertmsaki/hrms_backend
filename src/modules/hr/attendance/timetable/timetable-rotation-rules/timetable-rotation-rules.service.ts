@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
@@ -15,7 +10,11 @@ import { TimetableRotationRule } from './entities/timetable-rotation-rule.entity
 import { CreateTimetableRotationRuleDto } from './dtos/create-timetable-rotation-rule.dto';
 import { UpdateTimetableRotationRuleDto } from './dtos/update-timetable-rotation-rule.dto';
 import { TimetableRotationRuleQueryDto } from './dtos/timetable-rotation-rule-query.dto';
-import { TimetableGeneratedScheduleInvalidationService } from '../timetable-generated-schedules/timetable-generated-schedule-invalidation.service';
+import {
+  ensureCompanyOwnedEntity,
+  ensureRotationRuleAssignment,
+  ensureUniqueEntity,
+} from '../../shared/attendance-domain.utils';
 
 @Injectable()
 export class TimetableRotationRulesService {
@@ -26,21 +25,17 @@ export class TimetableRotationRulesService {
     private readonly rotationRepository: Repository<TimetableRotation>,
     @InjectRepository(Shift)
     private readonly shiftRepository: Repository<Shift>,
-    private readonly generatedScheduleInvalidationService: TimetableGeneratedScheduleInvalidationService,
   ) {}
 
   private async ensureRotation(
     companyId: number,
     rotationId: number,
   ): Promise<void> {
-    const item = await this.rotationRepository.findOne({
-      where: { id: rotationId, companyId },
-      select: ['id'],
-    });
-    if (!item)
-      throw new BadRequestException(
-        'rotation_id does not belong to the active company',
-      );
+    await ensureCompanyOwnedEntity(
+      this.rotationRepository,
+      { id: rotationId, companyId },
+      'rotation_id does not belong to the active company',
+    );
   }
 
   private async ensureShift(
@@ -48,15 +43,11 @@ export class TimetableRotationRulesService {
     shiftId?: number | null,
   ): Promise<void> {
     if (!shiftId) return;
-
-    const shift = await this.shiftRepository.findOne({
-      where: { id: shiftId, companyId },
-      select: ['id'],
-    });
-    if (!shift)
-      throw new BadRequestException(
-        'shift_id does not belong to the active company',
-      );
+    await ensureCompanyOwnedEntity(
+      this.shiftRepository,
+      { id: shiftId, companyId },
+      'shift_id does not belong to the active company',
+    );
   }
 
   private async findOrFail(
@@ -81,20 +72,14 @@ export class TimetableRotationRulesService {
   async create(companyId: number, dto: CreateTimetableRotationRuleDto) {
     await this.ensureRotation(companyId, dto.rotation_id);
     await this.ensureShift(companyId, dto.shift_id);
+    ensureRotationRuleAssignment(dto.shift_id, dto.is_off_day ?? false);
+    await ensureUniqueEntity(
+      this.rotationRuleRepository,
+      { rotationId: dto.rotation_id, dayIndex: dto.day_index },
+      'day_index already exists in this rotation',
+    );
 
-    if (!dto.shift_id && !dto.is_off_day) {
-      throw new BadRequestException(
-        'shift_id is required when is_off_day is false',
-      );
-    }
-
-    const duplicate = await this.rotationRuleRepository.findOne({
-      where: { rotationId: dto.rotation_id, dayIndex: dto.day_index },
-    });
-    if (duplicate)
-      throw new ConflictException('day_index already exists in this rotation');
-
-    const created = await this.rotationRuleRepository.save(
+    return this.rotationRuleRepository.save(
       this.rotationRuleRepository.create({
         rotationId: dto.rotation_id,
         dayIndex: dto.day_index,
@@ -102,19 +87,6 @@ export class TimetableRotationRulesService {
         isOffDay: dto.is_off_day ?? false,
       }),
     );
-
-    const rotation = await this.rotationRepository.findOne({
-      where: { id: created.rotationId },
-      select: ['timetableId'],
-    });
-    if (rotation) {
-      await this.generatedScheduleInvalidationService.invalidate({
-        companyId,
-        timetableId: rotation.timetableId,
-      });
-    }
-
-    return created;
   }
 
   async findAll(companyId: number, query: TimetableRotationRuleQueryDto) {
@@ -168,10 +140,6 @@ export class TimetableRotationRulesService {
     dto: UpdateTimetableRotationRuleDto,
   ) {
     const item = await this.findOrFail(companyId, id);
-    const previousRotation = await this.rotationRepository.findOne({
-      where: { id: item.rotationId },
-      select: ['timetableId'],
-    });
 
     const rotationId = dto.rotation_id ?? item.rotationId;
     const dayIndex = dto.day_index ?? item.dayIndex;
@@ -180,61 +148,25 @@ export class TimetableRotationRulesService {
       dto.is_off_day !== undefined ? dto.is_off_day : item.isOffDay;
     await this.ensureRotation(companyId, rotationId);
     await this.ensureShift(companyId, shiftId);
-
-    if (!shiftId && !isOffDay) {
-      throw new BadRequestException(
-        'shift_id is required when is_off_day is false',
-      );
-    }
-
-    const duplicate = await this.rotationRuleRepository.findOne({
-      where: { rotationId, dayIndex },
-    });
-    if (duplicate && duplicate.id !== item.id)
-      throw new ConflictException('day_index already exists in this rotation');
+    ensureRotationRuleAssignment(shiftId, isOffDay);
+    await ensureUniqueEntity(
+      this.rotationRuleRepository,
+      { rotationId, dayIndex },
+      'day_index already exists in this rotation',
+      item.id,
+    );
 
     item.rotationId = rotationId;
     item.dayIndex = dayIndex;
     item.shiftId = shiftId;
     item.isOffDay = isOffDay;
 
-    const saved = await this.rotationRuleRepository.save(item);
-    const rotation = await this.rotationRepository.findOne({
-      where: { id: saved.rotationId },
-      select: ['timetableId'],
-    });
-    if (
-      previousRotation &&
-      previousRotation.timetableId !== rotation?.timetableId
-    ) {
-      await this.generatedScheduleInvalidationService.invalidate({
-        companyId,
-        timetableId: previousRotation.timetableId,
-      });
-    }
-    if (rotation) {
-      await this.generatedScheduleInvalidationService.invalidate({
-        companyId,
-        timetableId: rotation.timetableId,
-      });
-    }
-
-    return saved;
+    return this.rotationRuleRepository.save(item);
   }
 
   async remove(companyId: number, id: number): Promise<{ message: string }> {
     const item = await this.findOrFail(companyId, id);
-    const rotation = await this.rotationRepository.findOne({
-      where: { id: item.rotationId },
-      select: ['timetableId'],
-    });
     await this.rotationRuleRepository.remove(item);
-    if (rotation) {
-      await this.generatedScheduleInvalidationService.invalidate({
-        companyId,
-        timetableId: rotation.timetableId,
-      });
-    }
     return { message: 'Timetable rotation rule deleted successfully' };
   }
 }

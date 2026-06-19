@@ -10,24 +10,18 @@ import { LeaveRequest } from '../../leave/entities/leave-request.entity';
 import { LeaveType } from '../../leave/entities/leave-type.entity';
 import { HrSharedModule } from '../../shared/hr-shared.module';
 import { ShiftAssignment } from '../shift/shift-assignments/entities/shift-assignment.entity';
-import { ShiftAttendanceRule } from '../shift/shift-attendance-rules/entities/shift-attendance-rule.entity';
 import { ShiftBreak } from '../shift/shift-breaks/entities/shift-break.entity';
-import { ShiftOvertimeRule } from '../shift/shift-overtime-rules/entities/shift-overtime-rule.entity';
 import { ShiftRotationGroup } from '../shift/shift-rotation-groups/entities/shift-rotation-group.entity';
 import { ShiftRotationRule } from '../shift/shift-rotation-rules/entities/shift-rotation-rule.entity';
 import { ShiftSchedule } from '../shift/shift-schedules/entities/shift-schedule.entity';
 import { Shift } from '../shift/shifts/entities/shift.entity';
 import { AttendancePolicy } from '../policies/entities/attendance-policy.entity';
-import { AttendanceSetting } from '../settings/entities/attendance-setting.entity';
 import { EmployeeTimetable } from '../timetable/employee-timetables/entities/employee-timetable.entity';
-import { TimetableAttendanceRule } from '../timetable/timetable-attendance-rules/entities/timetable-attendance-rule.entity';
-import { TimetableDay } from '../timetable/timetable-days/entities/timetable-day.entity';
-import { TimetableGeneratedSchedule } from '../timetable/timetable-generated-schedules/entities/timetable-generated-schedule.entity';
 import { TimetableHolidayRule } from '../timetable/timetable-holiday-rules/entities/timetable-holiday-rule.entity';
 import { TimetableRotation } from '../timetable/timetable-rotations/entities/timetable-rotation.entity';
 import { TimetableRotationRule } from '../timetable/timetable-rotation-rules/entities/timetable-rotation-rule.entity';
-import { TimetableShiftRule } from '../timetable/timetable-shift-rules/entities/timetable-shift-rule.entity';
 import { Timetable } from '../timetable/timetables/entities/timetable.entity';
+import { TimetableDay } from '../timetable/timetable-days/entities/timetable-day.entity';
 import { AttendanceBusinessTrip } from './entities/attendance-business-trip.entity';
 import { AttendanceDailySummaryAdjustment } from './entities/attendance-daily-summary-adjustment.entity';
 import { AttendanceDailySummary } from './entities/attendance-daily-summary.entity';
@@ -47,6 +41,7 @@ import { AttendanceProcessingService } from './attendance-processing.service';
 import { AttendanceRecalculationService } from './attendance-recalculation.service';
 import { AttendanceProcessingCronService } from './attendance-processing-cron.service';
 import { TimetableScheduleGenerationService } from './timetable-schedule-generation.service';
+import { AttendanceCompanyConfigService } from '../shared/attendance-company-config.service';
 
 @Module({
   imports: [
@@ -56,7 +51,6 @@ import { TimetableScheduleGenerationService } from './timetable-schedule-generat
       AttendanceDevice,
       AttendanceHoliday,
       AttendancePolicy,
-      AttendanceSetting,
       LeaveRequest,
       LeaveType,
       HikvisionAttendanceLog,
@@ -64,19 +58,14 @@ import { TimetableScheduleGenerationService } from './timetable-schedule-generat
       ShiftAssignment,
       ShiftBreak,
       ShiftSchedule,
-      ShiftAttendanceRule,
-      ShiftOvertimeRule,
       ShiftRotationGroup,
       ShiftRotationRule,
       Timetable,
       EmployeeTimetable,
       TimetableDay,
-      TimetableShiftRule,
-      TimetableAttendanceRule,
       TimetableHolidayRule,
       TimetableRotation,
       TimetableRotationRule,
-      TimetableGeneratedSchedule,
       EmployeeDeviceAssignment,
       EmployeeDeviceIdentity,
       AttendanceMobilePunch,
@@ -103,6 +92,7 @@ import { TimetableScheduleGenerationService } from './timetable-schedule-generat
     AttendanceProcessingService,
     AttendanceRecalculationService,
     AttendanceProcessingCronService,
+    AttendanceCompanyConfigService,
   ],
   exports: [
     AttendanceBusinessTripsService,

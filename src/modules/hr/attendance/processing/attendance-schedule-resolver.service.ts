@@ -7,24 +7,18 @@ import { AttendanceDevice } from '../../../access-control/attendance-devices/ent
 import { AttendanceDeviceStatusEnum } from '../../../access-control/attendance-devices/enums/attendance-device-status.enum';
 import { ShiftAssignmentStatusEnum } from '../shift/shift-assignments/enums/shift-assignment-status.enum';
 import { ShiftAssignment } from '../shift/shift-assignments/entities/shift-assignment.entity';
-import { ShiftAttendanceRule } from '../shift/shift-attendance-rules/entities/shift-attendance-rule.entity';
-import { ShiftOvertimeRule } from '../shift/shift-overtime-rules/entities/shift-overtime-rule.entity';
 import { ShiftRotationGroup } from '../shift/shift-rotation-groups/entities/shift-rotation-group.entity';
 import { ShiftRotationRule } from '../shift/shift-rotation-rules/entities/shift-rotation-rule.entity';
 import { ShiftSchedule } from '../shift/shift-schedules/entities/shift-schedule.entity';
 import { Shift } from '../shift/shifts/entities/shift.entity';
-import { AttendancePolicy } from '../policies/entities/attendance-policy.entity';
-import { AttendanceSetting } from '../settings/entities/attendance-setting.entity';
-import { EmployeeTimetableStatusEnum } from '../timetable/employee-timetables/enums/employee-timetable-status.enum';
-import { EmployeeTimetable } from '../timetable/employee-timetables/entities/employee-timetable.entity';
-import { TimetableAttendanceRule } from '../timetable/timetable-attendance-rules/entities/timetable-attendance-rule.entity';
-import { TimetableDay } from '../timetable/timetable-days/entities/timetable-day.entity';
-import { TimetableGeneratedSchedule } from '../timetable/timetable-generated-schedules/entities/timetable-generated-schedule.entity';
-import { TimetableShiftRule } from '../timetable/timetable-shift-rules/entities/timetable-shift-rule.entity';
 import { Timetable } from '../timetable/timetables/entities/timetable.entity';
 import { addDaysToDateOnly } from '../../shared/hr.utils';
 import { ResolvedAttendanceSchedule } from './entities/resolved-attendance-schedule.type';
-import { TimetableScheduleGenerationService } from './timetable-schedule-generation.service';
+import {
+  TimetableScheduleDefinition,
+  TimetableScheduleGenerationService,
+} from './timetable-schedule-generation.service';
+import { AttendanceCompanyConfigService } from '../shared/attendance-company-config.service';
 
 type GlobalAttendanceConfiguration = {
   absentAfterMinutes: number;
@@ -51,37 +45,20 @@ export class AttendanceScheduleResolverService {
     private readonly deviceRepository: Repository<AttendanceDevice>,
     @InjectRepository(AttendanceHoliday)
     private readonly holidayRepository: Repository<AttendanceHoliday>,
-    @InjectRepository(AttendancePolicy)
-    private readonly attendancePolicyRepository: Repository<AttendancePolicy>,
-    @InjectRepository(AttendanceSetting)
-    private readonly attendanceSettingRepository: Repository<AttendanceSetting>,
     @InjectRepository(ShiftSchedule)
     private readonly shiftScheduleRepository: Repository<ShiftSchedule>,
-    @InjectRepository(TimetableGeneratedSchedule)
-    private readonly timetableGeneratedScheduleRepository: Repository<TimetableGeneratedSchedule>,
     @InjectRepository(ShiftAssignment)
     private readonly shiftAssignmentRepository: Repository<ShiftAssignment>,
     @InjectRepository(ShiftRotationGroup)
     private readonly shiftRotationGroupRepository: Repository<ShiftRotationGroup>,
     @InjectRepository(ShiftRotationRule)
     private readonly shiftRotationRuleRepository: Repository<ShiftRotationRule>,
-    @InjectRepository(EmployeeTimetable)
-    private readonly employeeTimetableRepository: Repository<EmployeeTimetable>,
-    @InjectRepository(TimetableDay)
-    private readonly timetableDayRepository: Repository<TimetableDay>,
-    @InjectRepository(TimetableShiftRule)
-    private readonly timetableShiftRuleRepository: Repository<TimetableShiftRule>,
     @InjectRepository(Timetable)
     private readonly timetableRepository: Repository<Timetable>,
     @InjectRepository(Shift)
     private readonly shiftRepository: Repository<Shift>,
-    @InjectRepository(ShiftAttendanceRule)
-    private readonly shiftAttendanceRuleRepository: Repository<ShiftAttendanceRule>,
-    @InjectRepository(ShiftOvertimeRule)
-    private readonly shiftOvertimeRuleRepository: Repository<ShiftOvertimeRule>,
-    @InjectRepository(TimetableAttendanceRule)
-    private readonly timetableAttendanceRuleRepository: Repository<TimetableAttendanceRule>,
     private readonly timetableScheduleGenerationService: TimetableScheduleGenerationService,
+    private readonly attendanceCompanyConfigService: AttendanceCompanyConfigService,
   ) {}
 
   async resolveForDate(
@@ -90,6 +67,8 @@ export class AttendanceScheduleResolverService {
     scheduleDate: string,
     preferredTimezone?: string,
   ): Promise<ResolvedAttendanceSchedule> {
+    // Runtime authority:
+    // manual shift schedule override -> shift assignment -> employee timetable -> company defaults
     const employee = await this.findEmployee(companyId, employeeId);
     const branchId = employee?.primary_branch_id ?? null;
     const globalConfig = await this.resolveGlobalConfiguration(companyId);
@@ -118,32 +97,6 @@ export class AttendanceScheduleResolverService {
       globalConfig,
     );
     if (fromShiftAssignment) return fromShiftAssignment;
-
-    const fromGenerated = await this.resolveFromTimetableGeneratedSchedule(
-      companyId,
-      employeeId,
-      scheduleDate,
-      fallbackTimezone,
-      branchId,
-      globalConfig,
-    );
-    if (fromGenerated) return fromGenerated;
-
-    await this.timetableScheduleGenerationService.ensureGeneratedSchedule(
-      companyId,
-      employeeId,
-      scheduleDate,
-    );
-
-    const generatedOnDemand = await this.resolveFromTimetableGeneratedSchedule(
-      companyId,
-      employeeId,
-      scheduleDate,
-      fallbackTimezone,
-      branchId,
-      globalConfig,
-    );
-    if (generatedOnDemand) return generatedOnDemand;
 
     const fromEmployeeTimetable =
       await this.resolveFromEmployeeTimetableDefinition(
@@ -241,109 +194,6 @@ export class AttendanceScheduleResolverService {
       globalConfig,
     );
 
-    base.holidayId = holidayId;
-    base.isHoliday = !!holidayId;
-    return base;
-  }
-
-  private async resolveFromTimetableGeneratedSchedule(
-    companyId: number,
-    employeeId: number,
-    scheduleDate: string,
-    fallbackTimezone: string,
-    branchId: number | null,
-    globalConfig: GlobalAttendanceConfiguration,
-  ): Promise<ResolvedAttendanceSchedule | null> {
-    const generated = await this.timetableGeneratedScheduleRepository.findOne({
-      where: { companyId, employeeId, scheduleDate },
-    });
-    if (!generated) return null;
-
-    const timetable = await this.timetableRepository.findOne({
-      where: { id: generated.timetableId, companyId },
-    });
-    const timezone = timetable?.timezone || fallbackTimezone;
-    const holidayId =
-      generated.holidayId ??
-      (await this.resolveHoliday(companyId, branchId, scheduleDate))?.id ??
-      null;
-
-    if (!generated.shiftId) {
-      const definition = !generated.isOffDay
-        ? await this.timetableScheduleGenerationService.buildScheduleDefinition(
-            companyId,
-            employeeId,
-            scheduleDate,
-          )
-        : null;
-      const attendanceRule =
-        await this.timetableAttendanceRuleRepository.findOne({
-          where: { timetableId: generated.timetableId },
-        });
-      return this.buildResolvedWithoutShift({
-        employeeId,
-        scheduleDate,
-        source: 'TIMETABLE_GENERATED',
-        timezone,
-        shiftId: null,
-        timetableId: generated.timetableId,
-        branchId,
-        isOffDay: generated.isOffDay,
-        holidayId,
-        globalConfig,
-        scheduleStartAt:
-          definition?.expectedCheckInTime && definition.expectedCheckOutTime
-            ? this.buildDateWithTime(
-                scheduleDate,
-                definition.expectedCheckInTime,
-                timezone,
-              )
-            : null,
-        scheduleEndAt:
-          definition?.expectedCheckInTime && definition.expectedCheckOutTime
-            ? this.buildDateWithTime(
-                scheduleDate,
-                definition.expectedCheckOutTime,
-                timezone,
-                definition.expectedCheckOutTime <=
-                  definition.expectedCheckInTime,
-              )
-            : null,
-        lateAfterMinutes:
-          attendanceRule?.lateAfterMinutes ?? globalConfig.lateAfterMinutes,
-        halfDayAfterMinutes:
-          attendanceRule?.halfDayAfterMinutes ??
-          globalConfig.halfDayAfterMinutes,
-        absentAfterMinutes:
-          attendanceRule?.absentAfterMinutes ?? globalConfig.absentAfterMinutes,
-        allowEarlyCheckin:
-          attendanceRule?.allowEarlyCheckin ?? globalConfig.allowEarlyCheckin,
-        allowLateCheckout:
-          attendanceRule?.allowLateCheckout ?? globalConfig.allowLateCheckout,
-        autoAbsentIfNoCheckin:
-          attendanceRule?.autoAbsentIfNoCheckin ??
-          globalConfig.autoAbsentIfNoCheckin,
-        allowOvertime:
-          definition?.overtimeAllowed ?? globalConfig.allowOvertime,
-        overtimeStartAfterMinutes: globalConfig.overtimeStartAfterMinutes,
-        maxOvertimeMinutes:
-          attendanceRule?.maxOvertimeMinutes ?? globalConfig.maxOvertimeMinutes,
-      });
-    }
-
-    const base = await this.resolveWithShift(
-      companyId,
-      employeeId,
-      scheduleDate,
-      generated.shiftId,
-      timezone,
-      'TIMETABLE_GENERATED',
-      branchId,
-      globalConfig,
-    );
-
-    base.timetableId = generated.timetableId;
-    base.isOffDay = generated.isOffDay;
     base.holidayId = holidayId;
     base.isHoliday = !!holidayId;
     return base;
@@ -459,66 +309,19 @@ export class AttendanceScheduleResolverService {
     }
 
     const timezone = definition.timezone || fallbackTimezone;
-    const attendanceRule =
-      await this.timetableScheduleGenerationService.findTimetableAttendanceRule(
-        definition.timetableId,
-      );
+    const timetable = await this.timetableRepository.findOne({
+      where: { id: definition.timetableId, companyId },
+    });
 
     if (!definition.shiftId) {
-      const scheduleStartAt =
-        !definition.isOffDay &&
-        definition.expectedCheckInTime &&
-        definition.expectedCheckOutTime
-          ? this.buildDateWithTime(
-              scheduleDate,
-              definition.expectedCheckInTime,
-              timezone,
-            )
-          : null;
-      const scheduleEndAt =
-        !definition.isOffDay &&
-        definition.expectedCheckInTime &&
-        definition.expectedCheckOutTime
-          ? this.buildDateWithTime(
-              scheduleDate,
-              definition.expectedCheckOutTime,
-              timezone,
-              definition.expectedCheckOutTime <= definition.expectedCheckInTime,
-            )
-          : null;
-
-      return this.buildResolvedWithoutShift({
+      return this.resolveTimetableOnlyDefinition(
         employeeId,
         scheduleDate,
-        source: 'EMPLOYEE_TIMETABLE',
         timezone,
-        shiftId: null,
-        timetableId: definition.timetableId,
-        branchId: definition.branchId,
-        isOffDay: definition.isOffDay,
-        holidayId: definition.holidayId,
+        definition,
+        timetable,
         globalConfig,
-        scheduleStartAt,
-        scheduleEndAt,
-        lateAfterMinutes:
-          attendanceRule?.lateAfterMinutes ?? globalConfig.lateAfterMinutes,
-        halfDayAfterMinutes:
-          attendanceRule?.halfDayAfterMinutes ??
-          globalConfig.halfDayAfterMinutes,
-        absentAfterMinutes:
-          attendanceRule?.absentAfterMinutes ?? globalConfig.absentAfterMinutes,
-        allowEarlyCheckin:
-          attendanceRule?.allowEarlyCheckin ?? globalConfig.allowEarlyCheckin,
-        allowLateCheckout:
-          attendanceRule?.allowLateCheckout ?? globalConfig.allowLateCheckout,
-        autoAbsentIfNoCheckin:
-          attendanceRule?.autoAbsentIfNoCheckin ??
-          globalConfig.autoAbsentIfNoCheckin,
-        allowOvertime: definition.overtimeAllowed ?? globalConfig.allowOvertime,
-        overtimeStartAfterMinutes: globalConfig.overtimeStartAfterMinutes,
-        maxOvertimeMinutes:
-          attendanceRule?.maxOvertimeMinutes ?? globalConfig.maxOvertimeMinutes,
-      });
+      );
     }
 
     const base = await this.resolveWithShift(
@@ -537,6 +340,68 @@ export class AttendanceScheduleResolverService {
     base.holidayId = definition.holidayId;
     base.isOffDay = definition.isOffDay;
     return base;
+  }
+
+  private resolveTimetableOnlyDefinition(
+    employeeId: number,
+    scheduleDate: string,
+    timezone: string,
+    definition: TimetableScheduleDefinition,
+    timetable: Timetable | null,
+    globalConfig: GlobalAttendanceConfiguration,
+  ): ResolvedAttendanceSchedule {
+    const scheduleStartAt =
+      !definition.isOffDay &&
+      definition.expectedCheckInTime &&
+      definition.expectedCheckOutTime
+        ? this.buildDateWithTime(
+            scheduleDate,
+            definition.expectedCheckInTime,
+            timezone,
+          )
+        : null;
+    const scheduleEndAt =
+      !definition.isOffDay &&
+      definition.expectedCheckInTime &&
+      definition.expectedCheckOutTime
+        ? this.buildDateWithTime(
+            scheduleDate,
+            definition.expectedCheckOutTime,
+            timezone,
+            definition.expectedCheckOutTime <= definition.expectedCheckInTime,
+          )
+        : null;
+
+    return this.buildResolvedWithoutShift({
+      employeeId,
+      scheduleDate,
+      source: 'EMPLOYEE_TIMETABLE',
+      timezone,
+      shiftId: null,
+      timetableId: definition.timetableId,
+      branchId: definition.branchId,
+      isOffDay: definition.isOffDay,
+      holidayId: definition.holidayId,
+      globalConfig,
+      scheduleStartAt,
+      scheduleEndAt,
+      lateAfterMinutes:
+        timetable?.lateAfterMinutes ?? globalConfig.lateAfterMinutes,
+      halfDayAfterMinutes:
+        timetable?.halfDayAfterMinutes ?? globalConfig.halfDayAfterMinutes,
+      absentAfterMinutes:
+        timetable?.absentAfterMinutes ?? globalConfig.absentAfterMinutes,
+      allowEarlyCheckin:
+        timetable?.allowEarlyCheckin ?? globalConfig.allowEarlyCheckin,
+      allowLateCheckout:
+        timetable?.allowLateCheckout ?? globalConfig.allowLateCheckout,
+      autoAbsentIfNoCheckin:
+        timetable?.autoAbsentIfNoCheckin ?? globalConfig.autoAbsentIfNoCheckin,
+      allowOvertime: definition.overtimeAllowed ?? globalConfig.allowOvertime,
+      overtimeStartAfterMinutes: globalConfig.overtimeStartAfterMinutes,
+      maxOvertimeMinutes:
+        timetable?.maxOvertimeMinutes ?? globalConfig.maxOvertimeMinutes,
+    });
   }
 
   private async resolveWithShift(
@@ -590,13 +455,6 @@ export class AttendanceScheduleResolverService {
       };
     }
 
-    const attendanceRule = await this.shiftAttendanceRuleRepository.findOne({
-      where: { shiftId: shift.id },
-    });
-    const overtimeRule = await this.shiftOvertimeRuleRepository.findOne({
-      where: { shiftId: shift.id },
-    });
-
     const scheduleStartAt = this.buildDateWithTime(
       scheduleDate,
       shift.startTime,
@@ -622,14 +480,11 @@ export class AttendanceScheduleResolverService {
       holidayId: holiday?.id ?? null,
       scheduleStartAt,
       scheduleEndAt,
-      lateAfterMinutes:
-        attendanceRule?.lateAfterMinutes ??
-        shift.lateAfterMinutes ??
-        globalConfig.lateAfterMinutes,
+      lateAfterMinutes: shift.lateAfterMinutes ?? globalConfig.lateAfterMinutes,
       halfDayAfterMinutes:
-        attendanceRule?.halfDayAfterMinutes ?? globalConfig.halfDayAfterMinutes,
+        shift.halfDayAfterMinutes ?? globalConfig.halfDayAfterMinutes,
       absentAfterMinutes:
-        attendanceRule?.absentAfterMinutes ?? globalConfig.absentAfterMinutes,
+        shift.absentAfterMinutes ?? globalConfig.absentAfterMinutes,
       graceInMinutes: shift.graceInMinutes ?? globalConfig.graceInMinutes,
       graceOutMinutes: shift.graceOutMinutes ?? 0,
       earlyLeaveAfterMinutes: shift.earlyLeaveAfterMinutes ?? 0,
@@ -638,15 +493,13 @@ export class AttendanceScheduleResolverService {
       allowLateCheckout:
         shift.allowLateCheckout ?? globalConfig.allowLateCheckout,
       autoAbsentIfNoCheckin:
-        attendanceRule?.autoMarkAbsent ?? globalConfig.autoAbsentIfNoCheckin,
+        shift.autoMarkAbsent ?? globalConfig.autoAbsentIfNoCheckin,
       allowOvertime: shift.allowOvertime,
       overtimeStartAfterMinutes:
-        overtimeRule?.overtimeStartAfterMinutes ??
+        shift.overtimeStartAfterMinutes ??
         globalConfig.overtimeStartAfterMinutes,
       maxOvertimeMinutes:
-        overtimeRule?.maxDailyOvertimeMinutes ??
-        shift.maxOvertimeMinutes ??
-        globalConfig.maxOvertimeMinutes,
+        shift.maxOvertimeMinutes ?? globalConfig.maxOvertimeMinutes,
       requiresCheckout: shift.requiresCheckout,
       ignoreMissingCheckoutIfHoursValid:
         globalConfig.ignoreMissingCheckoutIfHoursValid,
@@ -720,23 +573,18 @@ export class AttendanceScheduleResolverService {
   private async resolveGlobalConfiguration(
     companyId: number,
   ): Promise<GlobalAttendanceConfiguration> {
-    const [policy, setting] = await Promise.all([
-      this.attendancePolicyRepository.findOne({
-        where: { company_id: companyId, is_active: true },
-      }),
-      this.attendanceSettingRepository.findOne({
-        where: { companyId },
-        order: { updatedAt: 'DESC' },
-      }),
-    ]);
+    const policy =
+      await this.attendanceCompanyConfigService.resolveRuntimeDefaults(
+        companyId,
+      );
 
     return {
       absentAfterMinutes: policy?.absent_after_minutes ?? 0,
       allowEarlyCheckin: policy?.allow_early_checkin ?? true,
       allowLateCheckout: policy?.allow_late_checkout ?? true,
       allowOvertime:
-        (setting?.maxOvertimeMinutesPerDay ?? 0) > 0 ||
-        (setting?.overtimeStartAfterMinutes ?? 0) > 0,
+        (policy?.max_overtime_minutes_per_day ?? 0) > 0 ||
+        (policy?.overtime_start_after_minutes ?? 0) > 0,
       autoAbsentIfNoCheckin: policy?.auto_absent_if_no_checkin ?? true,
       autoMarkWeekendAsOff: policy?.auto_mark_weekend_as_off ?? false,
       graceInMinutes: policy?.grace_period_minutes ?? 0,
@@ -744,8 +592,8 @@ export class AttendanceScheduleResolverService {
       ignoreMissingCheckoutIfHoursValid:
         policy?.ignore_missing_checkout_if_hours_valid ?? false,
       lateAfterMinutes: policy?.late_after_minutes ?? 0,
-      maxOvertimeMinutes: setting?.maxOvertimeMinutesPerDay ?? 0,
-      overtimeStartAfterMinutes: setting?.overtimeStartAfterMinutes ?? 0,
+      maxOvertimeMinutes: policy?.max_overtime_minutes_per_day ?? 0,
+      overtimeStartAfterMinutes: policy?.overtime_start_after_minutes ?? 0,
       weekendDayIndexes: this.parseWeekendDays(policy?.weekend_days),
     };
   }

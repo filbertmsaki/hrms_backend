@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
@@ -15,6 +10,12 @@ import { ShiftSchedule } from './entities/shift-schedule.entity';
 import { CreateShiftScheduleDto } from './dtos/create-shift-schedule.dto';
 import { UpdateShiftScheduleDto } from './dtos/update-shift-schedule.dto';
 import { ShiftScheduleQueryDto } from './dtos/shift-schedule-query.dto';
+import {
+  ensureCompanyOwnedEntity,
+  ensureEmployeeBelongsToCompany,
+  ensureUniqueEntity,
+  normalizeNullableText,
+} from '../../shared/attendance-domain.utils';
 
 @Injectable()
 export class ShiftSchedulesService {
@@ -34,30 +35,22 @@ export class ShiftSchedulesService {
     shiftId?: number | null,
   ): Promise<void> {
     if (!shiftId) return;
-    const shift = await this.shiftRepository.findOne({
-      where: { id: shiftId, companyId },
-      select: ['id'],
-    });
-    if (!shift)
-      throw new BadRequestException(
-        'shift_id does not belong to the active company',
-      );
+    await ensureCompanyOwnedEntity(
+      this.shiftRepository,
+      { id: shiftId, companyId },
+      'shift_id does not belong to the active company',
+    );
   }
 
   private async ensureEmployee(
     companyId: number,
     employeeId: number,
   ): Promise<void> {
-    const employee = await this.employeeRepository
-      .createQueryBuilder('employee')
-      .innerJoin('employee.company_user', 'companyUser')
-      .where('employee.id = :employeeId', { employeeId })
-      .andWhere('companyUser.company_id = :companyId', { companyId })
-      .getOne();
-    if (!employee)
-      throw new BadRequestException(
-        'employee_id does not belong to the active company',
-      );
+    await ensureEmployeeBelongsToCompany(
+      this.employeeRepository,
+      companyId,
+      employeeId,
+    );
   }
 
   private async ensureHoliday(
@@ -65,14 +58,11 @@ export class ShiftSchedulesService {
     holidayId?: number | null,
   ): Promise<void> {
     if (!holidayId) return;
-    const holiday = await this.holidayRepository.findOne({
-      where: { id: holidayId, companyId },
-      select: ['id'],
-    });
-    if (!holiday)
-      throw new BadRequestException(
-        'holiday_id does not belong to the active company',
-      );
+    await ensureCompanyOwnedEntity(
+      this.holidayRepository,
+      { id: holidayId, companyId },
+      'holiday_id does not belong to the active company',
+    );
   }
 
   private async findOrFail(
@@ -92,17 +82,15 @@ export class ShiftSchedulesService {
     await this.ensureShift(companyId, dto.override_shift_id);
     await this.ensureHoliday(companyId, dto.holiday_id);
 
-    const duplicate = await this.shiftScheduleRepository.findOne({
-      where: {
+    await ensureUniqueEntity(
+      this.shiftScheduleRepository,
+      {
         companyId,
         employeeId: dto.employee_id,
         scheduleDate: dto.schedule_date,
       },
-    });
-    if (duplicate)
-      throw new ConflictException(
-        'Schedule already exists for this employee and date',
-      );
+      'Schedule already exists for this employee and date',
+    );
 
     return this.shiftScheduleRepository.save(
       this.shiftScheduleRepository.create({
@@ -115,7 +103,7 @@ export class ShiftSchedulesService {
         holidayId: dto.holiday_id ?? null,
         isOffDay: dto.is_off_day ?? false,
         assignedBy: dto.assigned_by ?? null,
-        remarks: dto.remarks?.trim() || null,
+        remarks: normalizeNullableText(dto.remarks) ?? null,
       }),
     );
   }
@@ -185,13 +173,12 @@ export class ShiftSchedulesService {
     );
     await this.ensureHoliday(companyId, dto.holiday_id ?? item.holidayId);
 
-    const duplicate = await this.shiftScheduleRepository.findOne({
-      where: { companyId, employeeId, scheduleDate },
-    });
-    if (duplicate && duplicate.id !== item.id)
-      throw new ConflictException(
-        'Schedule already exists for this employee and date',
-      );
+    await ensureUniqueEntity(
+      this.shiftScheduleRepository,
+      { companyId, employeeId, scheduleDate },
+      'Schedule already exists for this employee and date',
+      item.id,
+    );
 
     item.employeeId = employeeId;
     item.scheduleDate = scheduleDate;
@@ -204,7 +191,8 @@ export class ShiftSchedulesService {
     if (dto.holiday_id !== undefined) item.holidayId = dto.holiday_id;
     if (dto.is_off_day !== undefined) item.isOffDay = dto.is_off_day;
     if (dto.assigned_by !== undefined) item.assignedBy = dto.assigned_by;
-    if (dto.remarks !== undefined) item.remarks = dto.remarks?.trim() || null;
+    if (dto.remarks !== undefined)
+      item.remarks = normalizeNullableText(dto.remarks) ?? null;
 
     return this.shiftScheduleRepository.save(item);
   }

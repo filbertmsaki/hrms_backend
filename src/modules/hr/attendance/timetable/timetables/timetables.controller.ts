@@ -32,7 +32,7 @@ import { TimetableQueryDto } from './dtos/timetable-query.dto';
 
 @ApiTags('Timetables')
 @ApiBearerAuth('access-token')
-@Controller('timetable/timetables')
+@Controller('attendance/schedule-definitions/timetables')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class TimetablesController {
   constructor(private readonly timetablesService: TimetablesService) {}

@@ -4,6 +4,7 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   MaxLength,
@@ -85,6 +86,18 @@ export class CreateShiftDto {
   @IsInt()
   @Min(0)
   @IsOptional()
+  half_day_after_minutes?: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  absent_after_minutes?: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
   early_leave_after_minutes?: number;
 
   @ApiPropertyOptional({ default: false })
@@ -111,6 +124,45 @@ export class CreateShiftDto {
   @IsOptional()
   max_overtime_minutes?: number;
 
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  overtime_start_after_minutes?: number;
+
+  @ApiPropertyOptional({ default: 1 })
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  overtime_rate_multiplier?: number;
+
+  @ApiPropertyOptional({ default: 1 })
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  weekend_multiplier?: number;
+
+  @ApiPropertyOptional({ default: 1 })
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  holiday_multiplier?: number;
+
+  @ApiPropertyOptional({ default: false })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  overtime_requires_approval?: boolean;
+
+  @ApiPropertyOptional({ default: true })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  overtime_auto_calculate?: boolean;
+
   @ApiPropertyOptional({ default: true })
   @Type(() => Boolean)
   @IsBoolean()
@@ -128,6 +180,42 @@ export class CreateShiftDto {
   @IsBoolean()
   @IsOptional()
   allow_late_checkout?: boolean;
+
+  @ApiPropertyOptional({ default: false })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  allow_multiple_checkin?: boolean;
+
+  @ApiPropertyOptional({ default: true })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  auto_mark_absent?: boolean;
+
+  @ApiPropertyOptional({ default: true })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  allow_mobile_attendance?: boolean;
+
+  @ApiPropertyOptional({ default: false })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  allow_remote_attendance?: boolean;
+
+  @ApiPropertyOptional({ default: false })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  require_geofence?: boolean;
+
+  @ApiPropertyOptional({ default: false })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  require_biometric?: boolean;
 
   @ApiPropertyOptional({ enum: ShiftStatusEnum })
   @IsEnum(ShiftStatusEnum)

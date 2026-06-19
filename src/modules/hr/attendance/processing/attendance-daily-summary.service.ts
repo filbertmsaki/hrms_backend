@@ -884,6 +884,8 @@ export class AttendanceDailySummaryService {
       const day = await this.timetableDayRepository.findOne({
         where: { timetableId: schedule.timetableId, dayOfWeek },
       });
+      // Timetable day breaks are only a fallback when no shift-level break
+      // definition exists for the resolved schedule.
       if (day?.breakRequired) {
         return Math.max(0, day.breakMinutes ?? 0);
       }

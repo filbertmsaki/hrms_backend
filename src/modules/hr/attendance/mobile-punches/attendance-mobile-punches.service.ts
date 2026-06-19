@@ -34,6 +34,7 @@ import { AttendanceScheduleResolverService } from '../processing/attendance-sche
 import { ResolvedAttendanceSchedule } from '../processing/entities/resolved-attendance-schedule.type';
 import { AttendanceProcessedEventDirectionEnum } from '../processing/enums/attendance-processed-event-direction.enum';
 import { HikvisionAttendanceLog } from '../../../hikvision/entities/hikvision-attendance-log.entity';
+import { AttendanceCompanyConfigService } from '../shared/attendance-company-config.service';
 
 @Injectable()
 export class AttendanceMobilePunchesService {
@@ -48,8 +49,7 @@ export class AttendanceMobilePunchesService {
     private readonly geofenceDistanceService: GeofenceDistanceService,
     private readonly wifiValidator: WifiNetworkValidatorService,
     private readonly scheduleResolver: AttendanceScheduleResolverService,
-    @InjectRepository(AttendancePolicy)
-    private readonly policyRepository: Repository<AttendancePolicy>,
+    private readonly attendanceCompanyConfigService: AttendanceCompanyConfigService,
     @InjectRepository(AttendanceCheckpoint)
     private readonly checkpointRepository: Repository<AttendanceCheckpoint>,
     @InjectRepository(Employee)
@@ -940,32 +940,10 @@ export class AttendanceMobilePunchesService {
   }
 
   private async resolvePolicy(companyId: number, policySetId: number | null) {
-    if (policySetId) {
-      const policy = await this.policyRepository.findOne({
-        where: {
-          id: policySetId,
-          company_id: companyId,
-        },
-      });
-
-      if (!policy) {
-        throw new BadRequestException(
-          'Configured attendance policy does not belong to the active company.',
-        );
-      }
-
-      return policy;
-    }
-
-    return this.policyRepository.findOne({
-      where: {
-        company_id: companyId,
-        is_active: true,
-      },
-      order: {
-        id: 'ASC',
-      },
-    });
+    return this.attendanceCompanyConfigService.resolvePolicyForCompany(
+      companyId,
+      policySetId,
+    );
   }
 
   private ensurePolicyAllowsMobilePunch(policy: AttendancePolicy | null) {

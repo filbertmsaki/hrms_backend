@@ -8,7 +8,6 @@ import { AttendanceProcessingModule } from '../attendance/processing/attendance-
 import { ShiftAssignment } from '../attendance/shift/shift-assignments/entities/shift-assignment.entity';
 import { ShiftSchedule } from '../attendance/shift/shift-schedules/entities/shift-schedule.entity';
 import { EmployeeTimetable } from '../attendance/timetable/employee-timetables/entities/employee-timetable.entity';
-import { TimetableGeneratedSchedule } from '../attendance/timetable/timetable-generated-schedules/entities/timetable-generated-schedule.entity';
 import { EmployeesModule } from '../employees/employees.module';
 import { LeaveModule } from '../leave/leave.module';
 import { LeaveRequest } from '../leave/entities/leave-request.entity';
@@ -22,7 +21,6 @@ import { EmployeeSelfServiceService } from './employee-self-service.service';
       AttendanceMobilePunch,
       LeaveRequest,
       ShiftSchedule,
-      TimetableGeneratedSchedule,
       ShiftAssignment,
       EmployeeTimetable,
     ]),

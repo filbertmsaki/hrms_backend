@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -12,6 +11,10 @@ import { CreateAttendancePolicyDto } from './dtos/create-attendance-policy.dto';
 import { UpdateAttendancePolicyDto } from './dtos/update-attendance-policy.dto';
 import { buildPaginationMeta } from '../../shared/hr.utils';
 import { AttendancePolicy } from './entities/attendance-policy.entity';
+import {
+  normalizeNonBlankText,
+  validateAttendanceThresholdProgression,
+} from '../shared/attendance-domain.utils';
 
 @Injectable()
 export class AttendancePoliciesService {
@@ -34,6 +37,14 @@ export class AttendancePoliciesService {
       auto_absent_if_no_checkin: policy.auto_absent_if_no_checkin,
       requires_manager_approval_for_overtime:
         policy.requires_manager_approval_for_overtime,
+      overtime_start_after_minutes: policy.overtime_start_after_minutes,
+      max_overtime_minutes_per_day: policy.max_overtime_minutes_per_day,
+      max_overtime_minutes_per_month: policy.max_overtime_minutes_per_month,
+      overtime_rate_multiplier: policy.overtime_rate_multiplier,
+      holiday_overtime_multiplier: policy.holiday_overtime_multiplier,
+      weekend_overtime_multiplier: policy.weekend_overtime_multiplier,
+      overtime_requires_approval: policy.overtime_requires_approval,
+      overtime_auto_calculate: policy.overtime_auto_calculate,
       rounding_mode: policy.rounding_mode,
       max_missing_punch_allowed: policy.max_missing_punch_allowed,
       weekend_days: policy.weekend_days,
@@ -58,34 +69,7 @@ export class AttendancePoliciesService {
   private normalizeOptionalString(
     value: string | undefined,
   ): string | undefined {
-    if (value === undefined) {
-      return undefined;
-    }
-
-    const normalized = value.trim();
-    if (!normalized.length) {
-      throw new BadRequestException('Text fields cannot be blank');
-    }
-
-    return normalized;
-  }
-
-  private validateThresholdProgression(
-    lateAfterMinutes: number,
-    halfDayAfterMinutes: number,
-    absentAfterMinutes: number,
-  ): void {
-    if (lateAfterMinutes > halfDayAfterMinutes) {
-      throw new BadRequestException(
-        'late_after_minutes must be less than or equal to half_day_after_minutes',
-      );
-    }
-
-    if (halfDayAfterMinutes > absentAfterMinutes) {
-      throw new BadRequestException(
-        'half_day_after_minutes must be less than or equal to absent_after_minutes',
-      );
-    }
+    return normalizeNonBlankText(value);
   }
 
   private async findPolicyOrFail(
@@ -158,6 +142,8 @@ export class AttendancePoliciesService {
   }
 
   async create(companyId: number, dto: CreateAttendancePolicyDto) {
+    // Policies provide company-level attendance defaults.
+    // Resolver logic may still apply narrower shift or timetable overrides later.
     const normalizedName = this.normalizeOptionalString(dto.name)!;
     const weekendDays = this.normalizeOptionalString(dto.weekend_days);
     const authenticationModes = this.normalizeOptionalString(
@@ -168,7 +154,7 @@ export class AttendancePoliciesService {
     const halfDayAfterMinutes = dto.half_day_after_minutes ?? 240;
     const absentAfterMinutes = dto.absent_after_minutes ?? 480;
 
-    this.validateThresholdProgression(
+    validateAttendanceThresholdProgression(
       lateAfterMinutes,
       halfDayAfterMinutes,
       absentAfterMinutes,
@@ -184,6 +170,18 @@ export class AttendancePoliciesService {
       late_after_minutes: lateAfterMinutes,
       half_day_after_minutes: halfDayAfterMinutes,
       absent_after_minutes: absentAfterMinutes,
+      overtime_start_after_minutes: dto.overtime_start_after_minutes ?? 0,
+      max_overtime_minutes_per_day: dto.max_overtime_minutes_per_day ?? 0,
+      max_overtime_minutes_per_month:
+        dto.max_overtime_minutes_per_month ?? 0,
+      overtime_rate_multiplier:
+        dto.overtime_rate_multiplier?.toFixed(2) ?? '1.00',
+      holiday_overtime_multiplier:
+        dto.holiday_overtime_multiplier?.toFixed(2) ?? '1.00',
+      weekend_overtime_multiplier:
+        dto.weekend_overtime_multiplier?.toFixed(2) ?? '1.00',
+      overtime_requires_approval: dto.overtime_requires_approval ?? false,
+      overtime_auto_calculate: dto.overtime_auto_calculate ?? true,
       is_active: dto.is_active ?? false,
     });
 
@@ -266,7 +264,7 @@ export class AttendancePoliciesService {
     const resolvedAbsentAfterMinutes =
       dto.absent_after_minutes ?? policy.absent_after_minutes;
 
-    this.validateThresholdProgression(
+    validateAttendanceThresholdProgression(
       resolvedLateAfterMinutes,
       resolvedHalfDayAfterMinutes,
       resolvedAbsentAfterMinutes,
@@ -296,6 +294,20 @@ export class AttendancePoliciesService {
       half_day_after_minutes: resolvedHalfDayAfterMinutes,
       absent_after_minutes: resolvedAbsentAfterMinutes,
     });
+
+    if (dto.overtime_rate_multiplier !== undefined) {
+      policy.overtime_rate_multiplier = dto.overtime_rate_multiplier.toFixed(2);
+    }
+
+    if (dto.holiday_overtime_multiplier !== undefined) {
+      policy.holiday_overtime_multiplier =
+        dto.holiday_overtime_multiplier.toFixed(2);
+    }
+
+    if (dto.weekend_overtime_multiplier !== undefined) {
+      policy.weekend_overtime_multiplier =
+        dto.weekend_overtime_multiplier.toFixed(2);
+    }
 
     const saved = await this.attendancePolicyRepository.save(policy);
     if (dto.is_active === true) {

@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
@@ -13,7 +8,12 @@ import { Timetable } from './entities/timetable.entity';
 import { CreateTimetableDto } from './dtos/create-timetable.dto';
 import { UpdateTimetableDto } from './dtos/update-timetable.dto';
 import { TimetableQueryDto } from './dtos/timetable-query.dto';
-import { TimetableGeneratedScheduleInvalidationService } from '../timetable-generated-schedules/timetable-generated-schedule-invalidation.service';
+import {
+  ensureCompanyOwnedEntity,
+  ensureUniqueEntity,
+  normalizeNullableText,
+  normalizeTrimmedText,
+} from '../../shared/attendance-domain.utils';
 
 @Injectable()
 export class TimetablesService {
@@ -22,7 +22,6 @@ export class TimetablesService {
     private readonly timetableRepository: Repository<Timetable>,
     @InjectRepository(Branch)
     private readonly branchRepository: Repository<Branch>,
-    private readonly generatedScheduleInvalidationService: TimetableGeneratedScheduleInvalidationService,
   ) {}
 
   private async ensureBranch(
@@ -30,13 +29,11 @@ export class TimetablesService {
     branchId?: number | null,
   ): Promise<void> {
     if (!branchId) return;
-    const branch = await this.branchRepository.findOne({
-      where: { id: branchId, company_id: companyId },
-    });
-    if (!branch)
-      throw new BadRequestException(
-        'branch_id does not belong to the active company',
-      );
+    await ensureCompanyOwnedEntity(
+      this.branchRepository,
+      { id: branchId, company_id: companyId },
+      'branch_id does not belong to the active company',
+    );
   }
 
   private async findOrFail(companyId: number, id: number): Promise<Timetable> {
@@ -78,32 +75,37 @@ export class TimetablesService {
   ) {
     await this.ensureBranch(companyId, dto.branch_id);
 
-    const existingCode = await this.timetableRepository.findOne({
-      where: { companyId, code: dto.code.trim() },
-    });
-    if (existingCode)
-      throw new ConflictException(
-        'Timetable code already exists for this company',
-      );
+    const code = normalizeTrimmedText(dto.code);
+    const name = normalizeTrimmedText(dto.name);
 
-    const existingName = await this.timetableRepository.findOne({
-      where: { companyId, name: dto.name.trim() },
-    });
-    if (existingName)
-      throw new ConflictException(
-        'Timetable name already exists for this company',
-      );
+    await ensureUniqueEntity(
+      this.timetableRepository,
+      { companyId, code },
+      'Timetable code already exists for this company',
+    );
+    await ensureUniqueEntity(
+      this.timetableRepository,
+      { companyId, name },
+      'Timetable name already exists for this company',
+    );
 
     const created = await this.timetableRepository.save(
       this.timetableRepository.create({
         companyId,
         branchId: dto.branch_id ?? null,
-        name: dto.name.trim(),
-        code: dto.code.trim(),
-        description: dto.description?.trim() || null,
+        name,
+        code,
+        description: normalizeNullableText(dto.description) ?? null,
         timetableType: dto.timetable_type,
-        timezone: dto.timezone.trim(),
+        timezone: normalizeTrimmedText(dto.timezone),
         isDefault: dto.is_default ?? false,
+        lateAfterMinutes: dto.late_after_minutes ?? 0,
+        halfDayAfterMinutes: dto.half_day_after_minutes ?? 0,
+        absentAfterMinutes: dto.absent_after_minutes ?? 0,
+        allowEarlyCheckin: dto.allow_early_checkin ?? true,
+        allowLateCheckout: dto.allow_late_checkout ?? true,
+        autoAbsentIfNoCheckin: dto.auto_absent_if_no_checkin ?? true,
+        maxOvertimeMinutes: dto.max_overtime_minutes ?? 0,
         status: dto.status,
         createdBy,
       }),
@@ -175,53 +177,58 @@ export class TimetablesService {
     }
 
     if (dto.name !== undefined) {
-      const name = dto.name.trim();
-      const existing = await this.timetableRepository.findOne({
-        where: { companyId, name },
-      });
-      if (existing && existing.id !== item.id)
-        throw new ConflictException(
-          'Timetable name already exists for this company',
-        );
+      const name = normalizeTrimmedText(dto.name);
+      await ensureUniqueEntity(
+        this.timetableRepository,
+        { companyId, name },
+        'Timetable name already exists for this company',
+        item.id,
+      );
       item.name = name;
     }
 
     if (dto.code !== undefined) {
-      const code = dto.code.trim();
-      const existing = await this.timetableRepository.findOne({
-        where: { companyId, code },
-      });
-      if (existing && existing.id !== item.id)
-        throw new ConflictException(
-          'Timetable code already exists for this company',
-        );
+      const code = normalizeTrimmedText(dto.code);
+      await ensureUniqueEntity(
+        this.timetableRepository,
+        { companyId, code },
+        'Timetable code already exists for this company',
+        item.id,
+      );
       item.code = code;
     }
 
     if (dto.description !== undefined)
-      item.description = dto.description?.trim() || null;
+      item.description = normalizeNullableText(dto.description) ?? null;
     if (dto.timetable_type !== undefined)
       item.timetableType = dto.timetable_type;
-    if (dto.timezone !== undefined) item.timezone = dto.timezone.trim();
+    if (dto.timezone !== undefined)
+      item.timezone = normalizeTrimmedText(dto.timezone);
     if (dto.is_default !== undefined) item.isDefault = dto.is_default;
+    if (dto.late_after_minutes !== undefined)
+      item.lateAfterMinutes = dto.late_after_minutes;
+    if (dto.half_day_after_minutes !== undefined)
+      item.halfDayAfterMinutes = dto.half_day_after_minutes;
+    if (dto.absent_after_minutes !== undefined)
+      item.absentAfterMinutes = dto.absent_after_minutes;
+    if (dto.allow_early_checkin !== undefined)
+      item.allowEarlyCheckin = dto.allow_early_checkin;
+    if (dto.allow_late_checkout !== undefined)
+      item.allowLateCheckout = dto.allow_late_checkout;
+    if (dto.auto_absent_if_no_checkin !== undefined)
+      item.autoAbsentIfNoCheckin = dto.auto_absent_if_no_checkin;
+    if (dto.max_overtime_minutes !== undefined)
+      item.maxOvertimeMinutes = dto.max_overtime_minutes;
     if (dto.status !== undefined) item.status = dto.status;
 
     const saved = await this.timetableRepository.save(item);
     await this.setDefaultTimetable(companyId, saved.id, saved.isDefault);
-    await this.generatedScheduleInvalidationService.invalidate({
-      companyId,
-      timetableId: saved.id,
-    });
     return this.findOrFail(companyId, saved.id);
   }
 
   async remove(companyId: number, id: number): Promise<{ message: string }> {
     const item = await this.findOrFail(companyId, id);
     await this.timetableRepository.softRemove(item);
-    await this.generatedScheduleInvalidationService.invalidate({
-      companyId,
-      timetableId: item.id,
-    });
     return { message: 'Timetable deleted successfully' };
   }
 }

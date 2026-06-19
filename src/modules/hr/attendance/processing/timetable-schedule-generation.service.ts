@@ -5,20 +5,18 @@ import { Employee } from '../../employees/entities/employee.entity';
 import { AttendanceHoliday } from '../holidays/entities/holiday.entity';
 import { EmployeeTimetable } from '../timetable/employee-timetables/entities/employee-timetable.entity';
 import { EmployeeTimetableStatusEnum } from '../timetable/employee-timetables/enums/employee-timetable-status.enum';
-import { TimetableAttendanceRule } from '../timetable/timetable-attendance-rules/entities/timetable-attendance-rule.entity';
 import { TimetableDay } from '../timetable/timetable-days/entities/timetable-day.entity';
-import { TimetableGeneratedSchedule } from '../timetable/timetable-generated-schedules/entities/timetable-generated-schedule.entity';
-import { TimetableGeneratedScheduleSourceRuleEnum } from '../timetable/timetable-generated-schedules/enums/timetable-generated-schedule-source-rule.enum';
 import { TimetableHolidayActionTypeEnum } from '../timetable/timetable-holiday-rules/enums/timetable-holiday-action-type.enum';
 import { TimetableHolidayRule } from '../timetable/timetable-holiday-rules/entities/timetable-holiday-rule.entity';
 import { TimetableRotationRule } from '../timetable/timetable-rotation-rules/entities/timetable-rotation-rule.entity';
 import { TimetableRotation } from '../timetable/timetable-rotations/entities/timetable-rotation.entity';
 import { TimetableRotationStatusEnum } from '../timetable/timetable-rotations/enums/timetable-rotation-status.enum';
-import { TimetableShiftRule } from '../timetable/timetable-shift-rules/entities/timetable-shift-rule.entity';
 import { Timetable } from '../timetable/timetables/entities/timetable.entity';
 import { TimetableTypeEnum } from '../timetable/timetables/enums/timetable-type.enum';
 
-type TimetableScheduleDefinition = {
+type TimetableScheduleSourceRule = 'DAY' | 'ROTATION' | 'OVERRIDE';
+
+export type TimetableScheduleDefinition = {
   companyId: number;
   employeeId: number;
   branchId: number | null;
@@ -29,18 +27,17 @@ type TimetableScheduleDefinition = {
   generatedFromRotation: boolean;
   isOffDay: boolean;
   holidayId: number | null;
-  sourceRule: TimetableGeneratedScheduleSourceRuleEnum;
+  sourceRule: TimetableScheduleSourceRule;
   expectedCheckInTime: string | null;
   expectedCheckOutTime: string | null;
   overtimeAllowed: boolean | null;
-  shouldPersist: boolean;
 };
 
 type TimetableBaseSchedule = {
   shiftId: number | null;
   isOffDay: boolean;
   generatedFromRotation: boolean;
-  sourceRule: TimetableGeneratedScheduleSourceRuleEnum;
+  sourceRule: TimetableScheduleSourceRule;
   expectedCheckInTime: string | null;
   expectedCheckOutTime: string | null;
   overtimeAllowed: boolean | null;
@@ -57,61 +54,15 @@ export class TimetableScheduleGenerationService {
     private readonly timetableRepository: Repository<Timetable>,
     @InjectRepository(TimetableDay)
     private readonly timetableDayRepository: Repository<TimetableDay>,
-    @InjectRepository(TimetableShiftRule)
-    private readonly timetableShiftRuleRepository: Repository<TimetableShiftRule>,
     @InjectRepository(TimetableHolidayRule)
     private readonly timetableHolidayRuleRepository: Repository<TimetableHolidayRule>,
-    @InjectRepository(TimetableGeneratedSchedule)
-    private readonly generatedScheduleRepository: Repository<TimetableGeneratedSchedule>,
     @InjectRepository(AttendanceHoliday)
     private readonly holidayRepository: Repository<AttendanceHoliday>,
     @InjectRepository(TimetableRotation)
     private readonly timetableRotationRepository: Repository<TimetableRotation>,
     @InjectRepository(TimetableRotationRule)
     private readonly timetableRotationRuleRepository: Repository<TimetableRotationRule>,
-    @InjectRepository(TimetableAttendanceRule)
-    private readonly timetableAttendanceRuleRepository: Repository<TimetableAttendanceRule>,
   ) {}
-
-  async ensureGeneratedSchedule(
-    companyId: number,
-    employeeId: number,
-    scheduleDate: string,
-  ): Promise<TimetableGeneratedSchedule | null> {
-    const existing = await this.generatedScheduleRepository.findOne({
-      where: { companyId, employeeId, scheduleDate },
-    });
-    if (existing) {
-      return existing;
-    }
-
-    const definition = await this.buildScheduleDefinition(
-      companyId,
-      employeeId,
-      scheduleDate,
-    );
-    if (!definition) {
-      return null;
-    }
-
-    if (!definition.shouldPersist) {
-      return null;
-    }
-
-    const created = this.generatedScheduleRepository.create({
-      companyId: definition.companyId,
-      employeeId: definition.employeeId,
-      timetableId: definition.timetableId,
-      shiftId: definition.shiftId,
-      scheduleDate: definition.scheduleDate,
-      generatedFromRotation: definition.generatedFromRotation,
-      isOffDay: definition.isOffDay,
-      holidayId: definition.holidayId,
-      sourceRule: definition.sourceRule,
-    });
-
-    return this.generatedScheduleRepository.save(created);
-  }
 
   async buildScheduleDefinition(
     companyId: number,
@@ -169,7 +120,7 @@ export class TimetableScheduleGenerationService {
         isOffDay: true,
         generatedFromRotation:
           timetable.timetableType === TimetableTypeEnum.ROTATIONAL,
-        sourceRule: TimetableGeneratedScheduleSourceRuleEnum.OVERRIDE,
+        sourceRule: 'OVERRIDE',
         expectedCheckInTime: null,
         expectedCheckOutTime: null,
         overtimeAllowed: null,
@@ -195,26 +146,11 @@ export class TimetableScheduleGenerationService {
       generatedFromRotation: baseSchedule.generatedFromRotation,
       isOffDay: baseSchedule.isOffDay,
       holidayId: holiday?.id ?? null,
-      sourceRule: holidayRule
-        ? TimetableGeneratedScheduleSourceRuleEnum.OVERRIDE
-        : baseSchedule.sourceRule,
+      sourceRule: holidayRule ? 'OVERRIDE' : baseSchedule.sourceRule,
       expectedCheckInTime: baseSchedule.expectedCheckInTime,
       expectedCheckOutTime: baseSchedule.expectedCheckOutTime,
       overtimeAllowed: baseSchedule.overtimeAllowed,
-      shouldPersist:
-        baseSchedule.shiftId !== null ||
-        baseSchedule.isOffDay ||
-        !baseSchedule.expectedCheckInTime ||
-        !baseSchedule.expectedCheckOutTime,
     };
-  }
-
-  async findTimetableAttendanceRule(
-    timetableId: number,
-  ): Promise<TimetableAttendanceRule | null> {
-    return this.timetableAttendanceRuleRepository.findOne({
-      where: { timetableId },
-    });
   }
 
   private async findActiveAssignment(
@@ -265,7 +201,7 @@ export class TimetableScheduleGenerationService {
             shiftId: null,
             isOffDay: true,
             generatedFromRotation: false,
-            sourceRule: TimetableGeneratedScheduleSourceRuleEnum.DAY,
+            sourceRule: 'DAY',
             expectedCheckInTime: null,
             expectedCheckOutTime: null,
             overtimeAllowed: null,
@@ -273,26 +209,11 @@ export class TimetableScheduleGenerationService {
         : null;
     }
 
-    let shiftId = day.defaultShiftId ?? null;
-    const shiftRules = await this.timetableShiftRuleRepository.find({
-      where: { timetableDayId: day.id },
-    });
-    if (shiftRules.length > 0) {
-      shiftRules.sort((a, b) => {
-        if (a.isPrimary !== b.isPrimary) {
-          return a.isPrimary ? -1 : 1;
-        }
-
-        return a.priorityOrder - b.priorityOrder;
-      });
-      shiftId = shiftRules[0].shiftId;
-    }
-
     return {
-      shiftId,
+      shiftId: day.defaultShiftId ?? null,
       isOffDay: !day.isWorkingDay,
       generatedFromRotation: false,
-      sourceRule: TimetableGeneratedScheduleSourceRuleEnum.DAY,
+      sourceRule: 'DAY',
       expectedCheckInTime: day.expectedCheckInTime ?? null,
       expectedCheckOutTime: day.expectedCheckOutTime ?? null,
       overtimeAllowed: day.overtimeAllowed,
@@ -334,7 +255,7 @@ export class TimetableScheduleGenerationService {
       shiftId: rotationRule.shiftId ?? null,
       isOffDay: rotationRule.isOffDay,
       generatedFromRotation: true,
-      sourceRule: TimetableGeneratedScheduleSourceRuleEnum.ROTATION,
+      sourceRule: 'ROTATION',
       expectedCheckInTime: null,
       expectedCheckOutTime: null,
       overtimeAllowed: null,

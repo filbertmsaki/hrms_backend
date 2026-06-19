@@ -14,7 +14,6 @@ import { TimetableHolidayRule } from './entities/timetable-holiday-rule.entity';
 import { CreateTimetableHolidayRuleDto } from './dtos/create-timetable-holiday-rule.dto';
 import { UpdateTimetableHolidayRuleDto } from './dtos/update-timetable-holiday-rule.dto';
 import { TimetableHolidayRuleQueryDto } from './dtos/timetable-holiday-rule-query.dto';
-import { TimetableGeneratedScheduleInvalidationService } from '../timetable-generated-schedules/timetable-generated-schedule-invalidation.service';
 
 @Injectable()
 export class TimetableHolidayRulesService {
@@ -25,7 +24,6 @@ export class TimetableHolidayRulesService {
     private readonly timetableRepository: Repository<Timetable>,
     @InjectRepository(HolidayGroup)
     private readonly holidayGroupRepository: Repository<HolidayGroup>,
-    private readonly generatedScheduleInvalidationService: TimetableGeneratedScheduleInvalidationService,
   ) {}
 
   private async ensureTimetable(
@@ -86,7 +84,7 @@ export class TimetableHolidayRulesService {
         'Holiday rule already exists for this timetable and holiday group',
       );
 
-    const created = await this.holidayRuleRepository.save(
+    return this.holidayRuleRepository.save(
       this.holidayRuleRepository.create({
         timetableId: dto.timetable_id,
         holidayGroupId: dto.holiday_group_id,
@@ -95,13 +93,6 @@ export class TimetableHolidayRulesService {
         autoMarkOffday: dto.auto_mark_offday ?? true,
       }),
     );
-
-    await this.generatedScheduleInvalidationService.invalidate({
-      companyId,
-      timetableId: created.timetableId,
-    });
-
-    return created;
   }
 
   async findAll(companyId: number, query: TimetableHolidayRuleQueryDto) {
@@ -150,7 +141,6 @@ export class TimetableHolidayRulesService {
     dto: UpdateTimetableHolidayRuleDto,
   ) {
     const item = await this.findOrFail(companyId, id);
-    const previousTimetableId = item.timetableId;
 
     const timetableId = dto.timetable_id ?? item.timetableId;
     const holidayGroupId = dto.holiday_group_id ?? item.holidayGroupId;
@@ -175,27 +165,12 @@ export class TimetableHolidayRulesService {
     if (dto.auto_mark_offday !== undefined)
       item.autoMarkOffday = dto.auto_mark_offday;
 
-    const saved = await this.holidayRuleRepository.save(item);
-    if (previousTimetableId !== saved.timetableId) {
-      await this.generatedScheduleInvalidationService.invalidate({
-        companyId,
-        timetableId: previousTimetableId,
-      });
-    }
-    await this.generatedScheduleInvalidationService.invalidate({
-      companyId,
-      timetableId: saved.timetableId,
-    });
-    return saved;
+    return this.holidayRuleRepository.save(item);
   }
 
   async remove(companyId: number, id: number): Promise<{ message: string }> {
     const item = await this.findOrFail(companyId, id);
     await this.holidayRuleRepository.remove(item);
-    await this.generatedScheduleInvalidationService.invalidate({
-      companyId,
-      timetableId: item.timetableId,
-    });
     return { message: 'Timetable holiday rule deleted successfully' };
   }
 }

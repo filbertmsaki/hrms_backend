@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
@@ -14,6 +9,12 @@ import { Shift } from './entities/shift.entity';
 import { CreateShiftDto } from './dtos/create-shift.dto';
 import { UpdateShiftDto } from './dtos/update-shift.dto';
 import { ShiftQueryDto } from './dtos/shift-query.dto';
+import {
+  ensureCompanyOwnedEntity,
+  ensureUniqueEntity,
+  normalizeNullableText,
+  normalizeTrimmedText,
+} from '../../shared/attendance-domain.utils';
 
 @Injectable()
 export class ShiftsService {
@@ -31,13 +32,11 @@ export class ShiftsService {
     branchId?: number | null,
   ): Promise<void> {
     if (!branchId) return;
-    const branch = await this.branchRepository.findOne({
-      where: { id: branchId, company_id: companyId },
-    });
-    if (!branch)
-      throw new BadRequestException(
-        'branch_id does not belong to the active company',
-      );
+    await ensureCompanyOwnedEntity(
+      this.branchRepository,
+      { id: branchId, company_id: companyId },
+      'branch_id does not belong to the active company',
+    );
   }
 
   private async ensureDepartment(
@@ -45,13 +44,11 @@ export class ShiftsService {
     departmentId?: number | null,
   ): Promise<void> {
     if (!departmentId) return;
-    const department = await this.departmentRepository.findOne({
-      where: { id: departmentId, company_id: companyId },
-    });
-    if (!department)
-      throw new BadRequestException(
-        'department_id does not belong to the active company',
-      );
+    await ensureCompanyOwnedEntity(
+      this.departmentRepository,
+      { id: departmentId, company_id: companyId },
+      'department_id does not belong to the active company',
+    );
   }
 
   private async findOrFail(companyId: number, id: number): Promise<Shift> {
@@ -70,20 +67,19 @@ export class ShiftsService {
     await this.ensureBranch(companyId, dto.branch_id);
     await this.ensureDepartment(companyId, dto.department_id);
 
-    const code = dto.code.trim();
-    const name = dto.name.trim();
+    const code = normalizeTrimmedText(dto.code);
+    const name = normalizeTrimmedText(dto.name);
 
-    const existingCode = await this.shiftRepository.findOne({
-      where: { companyId, code },
-    });
-    if (existingCode)
-      throw new ConflictException('Shift code already exists for this company');
-
-    const existingName = await this.shiftRepository.findOne({
-      where: { companyId, name },
-    });
-    if (existingName)
-      throw new ConflictException('Shift name already exists for this company');
+    await ensureUniqueEntity(
+      this.shiftRepository,
+      { companyId, code },
+      'Shift code already exists for this company',
+    );
+    await ensureUniqueEntity(
+      this.shiftRepository,
+      { companyId, name },
+      'Shift name already exists for this company',
+    );
 
     const created = this.shiftRepository.create({
       companyId,
@@ -91,7 +87,7 @@ export class ShiftsService {
       departmentId: dto.department_id ?? null,
       name,
       code,
-      description: dto.description?.trim() || null,
+      description: normalizeNullableText(dto.description) ?? null,
       shiftType: dto.shift_type,
       startTime: dto.start_time,
       endTime: dto.end_time,
@@ -101,14 +97,29 @@ export class ShiftsService {
       graceInMinutes: dto.grace_in_minutes ?? 0,
       graceOutMinutes: dto.grace_out_minutes ?? 0,
       lateAfterMinutes: dto.late_after_minutes ?? 0,
+      halfDayAfterMinutes: dto.half_day_after_minutes ?? 0,
+      absentAfterMinutes: dto.absent_after_minutes ?? 0,
       earlyLeaveAfterMinutes: dto.early_leave_after_minutes ?? 0,
       isNightShift: dto.is_night_shift ?? false,
       crossesMidnight: dto.crosses_midnight ?? false,
       allowOvertime: dto.allow_overtime ?? false,
       maxOvertimeMinutes: dto.max_overtime_minutes ?? 0,
+      overtimeStartAfterMinutes: dto.overtime_start_after_minutes ?? 0,
+      overtimeRateMultiplier:
+        dto.overtime_rate_multiplier?.toFixed(2) ?? '1.00',
+      weekendMultiplier: dto.weekend_multiplier?.toFixed(2) ?? '1.00',
+      holidayMultiplier: dto.holiday_multiplier?.toFixed(2) ?? '1.00',
+      overtimeRequiresApproval: dto.overtime_requires_approval ?? false,
+      overtimeAutoCalculate: dto.overtime_auto_calculate ?? true,
       requiresCheckout: dto.requires_checkout ?? true,
       allowEarlyCheckin: dto.allow_early_checkin ?? true,
       allowLateCheckout: dto.allow_late_checkout ?? true,
+      allowMultipleCheckin: dto.allow_multiple_checkin ?? false,
+      autoMarkAbsent: dto.auto_mark_absent ?? true,
+      allowMobileAttendance: dto.allow_mobile_attendance ?? true,
+      allowRemoteAttendance: dto.allow_remote_attendance ?? false,
+      requireGeofence: dto.require_geofence ?? false,
+      requireBiometric: dto.require_biometric ?? false,
       status: dto.status,
       createdBy,
     });
@@ -185,31 +196,29 @@ export class ShiftsService {
     }
 
     if (dto.code !== undefined) {
-      const code = dto.code.trim();
-      const existing = await this.shiftRepository.findOne({
-        where: { companyId, code },
-      });
-      if (existing && existing.id !== item.id)
-        throw new ConflictException(
-          'Shift code already exists for this company',
-        );
+      const code = normalizeTrimmedText(dto.code);
+      await ensureUniqueEntity(
+        this.shiftRepository,
+        { companyId, code },
+        'Shift code already exists for this company',
+        item.id,
+      );
       item.code = code;
     }
 
     if (dto.name !== undefined) {
-      const name = dto.name.trim();
-      const existing = await this.shiftRepository.findOne({
-        where: { companyId, name },
-      });
-      if (existing && existing.id !== item.id)
-        throw new ConflictException(
-          'Shift name already exists for this company',
-        );
+      const name = normalizeTrimmedText(dto.name);
+      await ensureUniqueEntity(
+        this.shiftRepository,
+        { companyId, name },
+        'Shift name already exists for this company',
+        item.id,
+      );
       item.name = name;
     }
 
     if (dto.description !== undefined)
-      item.description = dto.description?.trim() || null;
+      item.description = normalizeNullableText(dto.description) ?? null;
     if (dto.shift_type !== undefined) item.shiftType = dto.shift_type;
     if (dto.start_time !== undefined) item.startTime = dto.start_time;
     if (dto.end_time !== undefined) item.endTime = dto.end_time;
@@ -225,6 +234,10 @@ export class ShiftsService {
       item.graceOutMinutes = dto.grace_out_minutes;
     if (dto.late_after_minutes !== undefined)
       item.lateAfterMinutes = dto.late_after_minutes;
+    if (dto.half_day_after_minutes !== undefined)
+      item.halfDayAfterMinutes = dto.half_day_after_minutes;
+    if (dto.absent_after_minutes !== undefined)
+      item.absentAfterMinutes = dto.absent_after_minutes;
     if (dto.early_leave_after_minutes !== undefined)
       item.earlyLeaveAfterMinutes = dto.early_leave_after_minutes;
     if (dto.is_night_shift !== undefined)
@@ -235,12 +248,36 @@ export class ShiftsService {
       item.allowOvertime = dto.allow_overtime;
     if (dto.max_overtime_minutes !== undefined)
       item.maxOvertimeMinutes = dto.max_overtime_minutes;
+    if (dto.overtime_start_after_minutes !== undefined)
+      item.overtimeStartAfterMinutes = dto.overtime_start_after_minutes;
+    if (dto.overtime_rate_multiplier !== undefined)
+      item.overtimeRateMultiplier = dto.overtime_rate_multiplier.toFixed(2);
+    if (dto.weekend_multiplier !== undefined)
+      item.weekendMultiplier = dto.weekend_multiplier.toFixed(2);
+    if (dto.holiday_multiplier !== undefined)
+      item.holidayMultiplier = dto.holiday_multiplier.toFixed(2);
+    if (dto.overtime_requires_approval !== undefined)
+      item.overtimeRequiresApproval = dto.overtime_requires_approval;
+    if (dto.overtime_auto_calculate !== undefined)
+      item.overtimeAutoCalculate = dto.overtime_auto_calculate;
     if (dto.requires_checkout !== undefined)
       item.requiresCheckout = dto.requires_checkout;
     if (dto.allow_early_checkin !== undefined)
       item.allowEarlyCheckin = dto.allow_early_checkin;
     if (dto.allow_late_checkout !== undefined)
       item.allowLateCheckout = dto.allow_late_checkout;
+    if (dto.allow_multiple_checkin !== undefined)
+      item.allowMultipleCheckin = dto.allow_multiple_checkin;
+    if (dto.auto_mark_absent !== undefined)
+      item.autoMarkAbsent = dto.auto_mark_absent;
+    if (dto.allow_mobile_attendance !== undefined)
+      item.allowMobileAttendance = dto.allow_mobile_attendance;
+    if (dto.allow_remote_attendance !== undefined)
+      item.allowRemoteAttendance = dto.allow_remote_attendance;
+    if (dto.require_geofence !== undefined)
+      item.requireGeofence = dto.require_geofence;
+    if (dto.require_biometric !== undefined)
+      item.requireBiometric = dto.require_biometric;
     if (dto.status !== undefined) item.status = dto.status;
 
     return this.shiftRepository.save(item);

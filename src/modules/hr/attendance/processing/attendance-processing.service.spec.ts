@@ -13,6 +13,7 @@ type MockRepo<T> = Partial<Record<keyof Repository<T>, jest.Mock>>;
 const createRepositoryMock = <T>(): MockRepo<T> => ({
   findOne: jest.fn(),
   save: jest.fn(async (value) => value),
+  update: jest.fn(async () => ({ affected: 1 })),
   create: jest.fn((value) => value),
   createQueryBuilder: jest.fn(),
 });
@@ -93,9 +94,9 @@ describe('AttendanceProcessingService', () => {
         }),
       ]),
     );
-    expect(rawLogRepository.save).toHaveBeenCalledWith(
+    expect(rawLogRepository.update).toHaveBeenCalledWith(
+      10,
       expect.objectContaining({
-        id: 10,
         processingStatus: AttendanceRawLogProcessingStatusEnum.EXCEPTION,
       }),
     );
@@ -136,9 +137,9 @@ describe('AttendanceProcessingService', () => {
       7,
     );
     expect(exceptionService.replaceForRawLog).toHaveBeenCalledWith(11, []);
-    expect(rawLogRepository.save).toHaveBeenCalledWith(
+    expect(rawLogRepository.update).toHaveBeenCalledWith(
+      11,
       expect.objectContaining({
-        id: 11,
         processingStatus: AttendanceRawLogProcessingStatusEnum.PROCESSED,
       }),
     );

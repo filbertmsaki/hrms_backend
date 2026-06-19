@@ -10,14 +10,11 @@ import { AttendanceHolidaysController } from './holidays/attendance-holidays.con
 import { AttendanceHolidaysService } from './holidays/attendance-holidays.service';
 import { AttendanceDeviceSyncLogsController } from './sync-logs/attendance-device-sync-logs.controller';
 import { AttendanceDeviceSyncLogsService } from './sync-logs/attendance-device-sync-logs.service';
-import { AttendanceSettingsController } from './settings/attendance-settings.controller';
-import { AttendanceSettingsService } from './settings/attendance-settings.service';
 import { AttendanceDevice } from '../../access-control/attendance-devices/entities/attendance-device.entity';
 import { EmployeeDeviceAssignment } from '../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
 import { AttendanceCheckpoint } from './checkpoints/entities/attendance-checkpoint.entity';
 import { AttendanceDeviceSyncLog } from './sync-logs/entities/attendance-device-sync-log.entity';
 import { AttendancePolicy } from './policies/entities/attendance-policy.entity';
-import { AttendanceSetting } from './settings/entities/attendance-setting.entity';
 import { HolidayGroup } from './holidays/entities/holiday-group.entity';
 import { AttendanceHoliday } from './holidays/entities/holiday.entity';
 import { Branch } from '../branches/entities/branch.entity';
@@ -42,12 +39,12 @@ import { Employee } from '../employees/entities/employee.entity';
 import { HikvisionAttendanceLog } from '../../hikvision/entities/hikvision-attendance-log.entity';
 import { AttendanceProcessedEvent } from './processing/entities/attendance-processed-event.entity';
 import { AttendanceDailySummary } from './processing/entities/attendance-daily-summary.entity';
+import { AttendanceCompanyConfigService } from './shared/attendance-company-config.service';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       AttendancePolicy,
-      AttendanceSetting,
       HolidayGroup,
       AttendanceHoliday,
       AttendanceCheckpoint,
@@ -68,7 +65,6 @@ import { AttendanceDailySummary } from './processing/entities/attendance-daily-s
   ],
   controllers: [
     AttendancePoliciesController,
-    AttendanceSettingsController,
     AttendanceHolidayGroupsController,
     AttendanceHolidaysController,
     AttendanceCheckpointsController,
@@ -79,7 +75,6 @@ import { AttendanceDailySummary } from './processing/entities/attendance-daily-s
   ],
   providers: [
     AttendancePoliciesService,
-    AttendanceSettingsService,
     AttendanceHolidayGroupsService,
     AttendanceHolidaysService,
     AttendanceCheckpointsService,
@@ -93,6 +88,7 @@ import { AttendanceDailySummary } from './processing/entities/attendance-daily-s
     WifiNetworkValidatorService,
     AttendanceMobilePunchesService,
     AttendanceMobilePunchRepository,
+    AttendanceCompanyConfigService,
   ],
   exports: [
     AttendancePoliciesService,
@@ -106,6 +102,7 @@ import { AttendanceDailySummary } from './processing/entities/attendance-daily-s
     IpCidrValidatorService,
     AttendanceMobilePunchesService,
     AttendanceMobilePunchRepository,
+    AttendanceCompanyConfigService,
   ],
 })
 export class AttendanceModule {}

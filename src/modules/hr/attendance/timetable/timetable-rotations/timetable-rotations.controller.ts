@@ -32,7 +32,7 @@ import { TimetableRotationQueryDto } from './dtos/timetable-rotation-query.dto';
 
 @ApiTags('Timetable Rotations')
 @ApiBearerAuth('access-token')
-@Controller('timetable/timetable-rotations')
+@Controller('attendance/schedule-definitions/timetable-rotations')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class TimetableRotationsController {
   constructor(

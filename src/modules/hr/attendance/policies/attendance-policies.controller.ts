@@ -33,7 +33,7 @@ import { AttendancePoliciesService } from './attendance-policies.service';
 
 @ApiTags('Attendance Policies')
 @ApiBearerAuth('access-token')
-@Controller('attendance/policies')
+@Controller('attendance/config/policies')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class AttendancePoliciesController {
   constructor(

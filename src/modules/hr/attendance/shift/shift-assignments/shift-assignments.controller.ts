@@ -32,7 +32,7 @@ import { ShiftAssignmentQueryDto } from './dtos/shift-assignment-query.dto';
 
 @ApiTags('Shift Assignments')
 @ApiBearerAuth('access-token')
-@Controller('shift/shift-assignments')
+@Controller('attendance/assignments/shifts')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class ShiftAssignmentsController {
   constructor(

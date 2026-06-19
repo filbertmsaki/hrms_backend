@@ -4,6 +4,7 @@ import { ShiftRotationRulesService } from './shift-rotation-rules.service';
 import { ShiftRotationRule } from './entities/shift-rotation-rule.entity';
 import { ShiftRotationGroup } from '../shift-rotation-groups/entities/shift-rotation-group.entity';
 import { Shift } from '../shifts/entities/shift.entity';
+import { BadRequestException } from '@nestjs/common';
 
 type MockRepo<T extends ObjectLiteral> = Partial<
   Record<keyof Repository<T>, jest.Mock>
@@ -60,5 +61,19 @@ describe('ShiftRotationRulesService', () => {
 
     expect(qb.orderBy).toHaveBeenCalledWith('rule.dayIndex', 'ASC');
     expect(qb.getManyAndCount).toHaveBeenCalled();
+  });
+
+  it('rejects non-off-day rotation rules that do not point to a shift', async () => {
+    rotationGroupRepository.findOne!.mockResolvedValue({ id: 3, companyId: 10 });
+
+    await expect(
+      service.create(10, {
+        rotation_group_id: 3,
+        day_index: 1,
+        is_off_day: false,
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(rotationRuleRepository.findOne).not.toHaveBeenCalled();
   });
 });

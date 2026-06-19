@@ -19,6 +19,7 @@ import { AttendanceProcessedEvent } from '../processing/entities/attendance-proc
 import { AttendanceDailySummary } from '../processing/entities/attendance-daily-summary.entity';
 import { AttendanceProcessedEventDirectionEnum } from '../processing/enums/attendance-processed-event-direction.enum';
 import { HikvisionAttendanceLog } from '../../../hikvision/entities/hikvision-attendance-log.entity';
+import { AttendanceCompanyConfigService } from '../shared/attendance-company-config.service';
 
 type EmployeeQueryBuilderMock = {
   innerJoin: jest.Mock;
@@ -88,8 +89,8 @@ describe('AttendanceMobilePunchesService', () => {
   let wifiValidator: {
     validate: jest.Mock;
   };
-  let policyRepository: {
-    findOne: jest.Mock;
+  let attendanceCompanyConfigService: {
+    resolvePolicyForCompany: jest.Mock;
   };
   let checkpointRepository: {
     find: jest.Mock;
@@ -134,8 +135,8 @@ describe('AttendanceMobilePunchesService', () => {
     wifiValidator = {
       validate: jest.fn(),
     };
-    policyRepository = {
-      findOne: jest.fn(),
+    attendanceCompanyConfigService = {
+      resolvePolicyForCompany: jest.fn(),
     };
     checkpointRepository = {
       find: jest.fn(),
@@ -170,7 +171,7 @@ describe('AttendanceMobilePunchesService', () => {
       geofenceDistanceService as unknown as GeofenceDistanceService,
       wifiValidator as unknown as WifiNetworkValidatorService,
       scheduleResolver as unknown as AttendanceScheduleResolverService,
-      policyRepository as unknown as Repository<AttendancePolicy>,
+      attendanceCompanyConfigService as unknown as AttendanceCompanyConfigService,
       checkpointRepository as unknown as Repository<AttendanceCheckpoint>,
       employeeRepository as unknown as Repository<Employee>,
       processedEventRepository as unknown as Repository<AttendanceProcessedEvent>,
@@ -185,7 +186,7 @@ describe('AttendanceMobilePunchesService', () => {
       employment_status: EmploymentStatusEnum.ACTIVE,
       exit_date: null,
     });
-    policyRepository.findOne.mockResolvedValue({
+    attendanceCompanyConfigService.resolvePolicyForCompany.mockResolvedValue({
       id: 12,
       company_id: 1,
       is_active: true,
@@ -903,5 +904,29 @@ describe('AttendanceMobilePunchesService', () => {
         overrideReason: 'Need manager review',
       }),
     );
+  });
+
+  it('rejects check-in when the active policy disallows mobile authentication', async () => {
+    attendanceCompanyConfigService.resolvePolicyForCompany.mockResolvedValue({
+      id: 12,
+      company_id: 1,
+      is_active: true,
+      authentication_modes: 'BIOMETRIC_ONLY',
+      require_geo_fencing: false,
+    });
+
+    await expect(
+      service.checkIn({
+        companyId: 1,
+        authenticatedEmployeeId: 39,
+        employeeId: 39,
+        dto: {
+          latitude: -6.792354,
+          longitude: 39.208328,
+        },
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(scheduleResolver.resolveForDate).not.toHaveBeenCalled();
   });
 });

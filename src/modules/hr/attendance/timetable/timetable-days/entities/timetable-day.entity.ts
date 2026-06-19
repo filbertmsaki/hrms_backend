@@ -5,11 +5,9 @@ import {
   Index,
   JoinColumn,
   ManyToOne,
-  OneToMany,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Timetable } from '../../timetables/entities/timetable.entity';
-import { TimetableShiftRule } from '../../timetable-shift-rules/entities/timetable-shift-rule.entity';
 import { Shift } from '../../../shift/shifts/entities/shift.entity';
 
 @Entity('timetable_days')
@@ -73,7 +71,4 @@ export class TimetableDay {
   @ManyToOne(() => Shift, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'default_shift_id' })
   defaultShift: Shift | null;
-
-  @OneToMany(() => TimetableShiftRule, (shiftRule) => shiftRule.timetableDay)
-  shiftRules: TimetableShiftRule[];
 }

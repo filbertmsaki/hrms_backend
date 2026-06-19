@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
@@ -14,6 +9,11 @@ import { ShiftRotationRule } from './entities/shift-rotation-rule.entity';
 import { CreateShiftRotationRuleDto } from './dtos/create-shift-rotation-rule.dto';
 import { UpdateShiftRotationRuleDto } from './dtos/update-shift-rotation-rule.dto';
 import { ShiftRotationRuleQueryDto } from './dtos/shift-rotation-rule-query.dto';
+import {
+  ensureCompanyOwnedEntity,
+  ensureRotationRuleAssignment,
+  ensureUniqueEntity,
+} from '../../shared/attendance-domain.utils';
 
 @Injectable()
 export class ShiftRotationRulesService {
@@ -30,14 +30,11 @@ export class ShiftRotationRulesService {
     companyId: number,
     rotationGroupId: number,
   ): Promise<void> {
-    const group = await this.rotationGroupRepository.findOne({
-      where: { id: rotationGroupId, companyId },
-      select: ['id'],
-    });
-    if (!group)
-      throw new BadRequestException(
-        'rotation_group_id does not belong to the active company',
-      );
+    await ensureCompanyOwnedEntity(
+      this.rotationGroupRepository,
+      { id: rotationGroupId, companyId },
+      'rotation_group_id does not belong to the active company',
+    );
   }
 
   private async ensureShift(
@@ -45,14 +42,11 @@ export class ShiftRotationRulesService {
     shiftId?: number | null,
   ): Promise<void> {
     if (!shiftId) return;
-    const shift = await this.shiftRepository.findOne({
-      where: { id: shiftId, companyId },
-      select: ['id'],
-    });
-    if (!shift)
-      throw new BadRequestException(
-        'shift_id does not belong to the active company',
-      );
+    await ensureCompanyOwnedEntity(
+      this.shiftRepository,
+      { id: shiftId, companyId },
+      'shift_id does not belong to the active company',
+    );
   }
 
   private async findOrFail(
@@ -76,23 +70,15 @@ export class ShiftRotationRulesService {
   async create(companyId: number, dto: CreateShiftRotationRuleDto) {
     await this.ensureRotationGroup(companyId, dto.rotation_group_id);
     await this.ensureShift(companyId, dto.shift_id);
-
-    if (!dto.shift_id && !dto.is_off_day) {
-      throw new BadRequestException(
-        'shift_id is required when is_off_day is false',
-      );
-    }
-
-    const duplicate = await this.rotationRuleRepository.findOne({
-      where: {
+    ensureRotationRuleAssignment(dto.shift_id, dto.is_off_day ?? false);
+    await ensureUniqueEntity(
+      this.rotationRuleRepository,
+      {
         rotationGroupId: dto.rotation_group_id,
         dayIndex: dto.day_index,
       },
-    });
-    if (duplicate)
-      throw new ConflictException(
-        'day_index already exists for this rotation group',
-      );
+      'day_index already exists for this rotation group',
+    );
 
     return this.rotationRuleRepository.save(
       this.rotationRuleRepository.create({
@@ -160,20 +146,13 @@ export class ShiftRotationRulesService {
 
     await this.ensureRotationGroup(companyId, rotationGroupId);
     await this.ensureShift(companyId, shiftId);
-
-    if (!shiftId && !isOffDay) {
-      throw new BadRequestException(
-        'shift_id is required when is_off_day is false',
-      );
-    }
-
-    const duplicate = await this.rotationRuleRepository.findOne({
-      where: { rotationGroupId, dayIndex },
-    });
-    if (duplicate && duplicate.id !== item.id)
-      throw new ConflictException(
-        'day_index already exists for this rotation group',
-      );
+    ensureRotationRuleAssignment(shiftId, isOffDay);
+    await ensureUniqueEntity(
+      this.rotationRuleRepository,
+      { rotationGroupId, dayIndex },
+      'day_index already exists for this rotation group',
+      item.id,
+    );
 
     item.rotationGroupId = rotationGroupId;
     item.dayIndex = dayIndex;

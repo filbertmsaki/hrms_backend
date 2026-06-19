@@ -1,4 +1,9 @@
 import { DataSource, EntityManager, Repository } from 'typeorm';
+import { BadRequestException } from '@nestjs/common';
+jest.mock('digest-fetch', () => ({
+  __esModule: true,
+  default: jest.fn(),
+}));
 import { OnboardingService } from './onboarding.service';
 import { OnboardingWorkflow } from './entities/onboarding-workflow.entity';
 import { OnboardingWorkflowStep } from './entities/onboarding-workflow-step.entity';
@@ -229,13 +234,18 @@ describe('OnboardingService', () => {
   });
 
   it('stores normalized provisioning metadata when onboarding starts', async () => {
-    onboardingRequestRepository.findOne!.mockResolvedValue({
+    employeeRepository.findOne!.mockResolvedValue({
       id: 501,
       company_user: { company_id: 10 },
       first_name: 'Jane',
       last_name: 'Doe',
       employment_status: EmploymentStatusEnum.ONBOARDING,
     });
+    onboardingRequestRepository.createQueryBuilder = jest.fn(() => ({
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getOne: jest.fn().mockResolvedValue(null),
+    }));
 
     const requestRepo = {
       create: jest.fn((value) => value),
@@ -349,5 +359,74 @@ describe('OnboardingService', () => {
         },
       },
     });
+  });
+
+  it('rejects onboarding provisioning that mixes shift and timetable setup', async () => {
+    employeeRepository.findOne!.mockResolvedValue({
+      id: 501,
+      company_user: { company_id: 10 },
+      first_name: 'Jane',
+      last_name: 'Doe',
+      employment_status: EmploymentStatusEnum.ONBOARDING,
+    });
+    onboardingRequestRepository.createQueryBuilder = jest.fn(() => ({
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getOne: jest.fn().mockResolvedValue(null),
+    }));
+
+    const requestRepo = {
+      create: jest.fn((value) => value),
+      save: jest.fn(async (value) => value),
+      findOneOrFail: jest.fn(),
+      createQueryBuilder: jest.fn(() => ({
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(null),
+      })),
+    };
+    const manager = {
+      getRepository: jest.fn((entity) => {
+        if (entity === Employee) {
+          return {
+            findOne: jest.fn().mockResolvedValue({
+              id: 501,
+              company_user: { company_id: 10 },
+              first_name: 'Jane',
+              last_name: 'Doe',
+              employment_status: EmploymentStatusEnum.ONBOARDING,
+            }),
+          };
+        }
+        if (entity === OnboardingRequest) {
+          return requestRepo;
+        }
+        throw new Error(`Unexpected repository request: ${entity?.name}`);
+      }),
+    } as unknown as EntityManager;
+
+    dataSource.transaction.mockImplementation(async (callback) =>
+      callback(manager),
+    );
+
+    await expect(
+      service.startOnboardingForEmployee(
+        10,
+        {
+          employee_id: 501,
+          submit: false,
+          provisioning: {
+            shift_assignment: {
+              shift_id: 11,
+            },
+            timetable_assignment: {
+              timetable_id: 7,
+            },
+          },
+        },
+        actor,
+      ),
+    ).rejects.toThrow(BadRequestException);
   });
 });

@@ -19,8 +19,6 @@ import { TimetableDay } from '../../timetable-days/entities/timetable-day.entity
 import { EmployeeTimetable } from '../../employee-timetables/entities/employee-timetable.entity';
 import { TimetableRotation } from '../../timetable-rotations/entities/timetable-rotation.entity';
 import { TimetableHolidayRule } from '../../timetable-holiday-rules/entities/timetable-holiday-rule.entity';
-import { TimetableAttendanceRule } from '../../timetable-attendance-rules/entities/timetable-attendance-rule.entity';
-import { TimetableGeneratedSchedule } from '../../timetable-generated-schedules/entities/timetable-generated-schedule.entity';
 
 @Entity('timetables')
 @Index('IDX_timetables_company_id', ['companyId'])
@@ -60,6 +58,27 @@ export class Timetable {
 
   @Column({ name: 'is_default', type: 'boolean', default: false })
   isDefault: boolean;
+
+  @Column({ name: 'late_after_minutes', type: 'int', default: 0 })
+  lateAfterMinutes: number;
+
+  @Column({ name: 'half_day_after_minutes', type: 'int', default: 0 })
+  halfDayAfterMinutes: number;
+
+  @Column({ name: 'absent_after_minutes', type: 'int', default: 0 })
+  absentAfterMinutes: number;
+
+  @Column({ name: 'allow_early_checkin', type: 'boolean', default: true })
+  allowEarlyCheckin: boolean;
+
+  @Column({ name: 'allow_late_checkout', type: 'boolean', default: true })
+  allowLateCheckout: boolean;
+
+  @Column({ name: 'auto_absent_if_no_checkin', type: 'boolean', default: true })
+  autoAbsentIfNoCheckin: boolean;
+
+  @Column({ name: 'max_overtime_minutes', type: 'int', default: 0 })
+  maxOvertimeMinutes: number;
 
   @Column({
     name: 'status',
@@ -107,13 +126,4 @@ export class Timetable {
 
   @OneToMany(() => TimetableHolidayRule, (holidayRule) => holidayRule.timetable)
   holidayRules: TimetableHolidayRule[];
-
-  @OneToMany(
-    () => TimetableAttendanceRule,
-    (attendanceRule) => attendanceRule.timetable,
-  )
-  attendanceRules: TimetableAttendanceRule[];
-
-  @OneToMany(() => TimetableGeneratedSchedule, (schedule) => schedule.timetable)
-  generatedSchedules: TimetableGeneratedSchedule[];
 }

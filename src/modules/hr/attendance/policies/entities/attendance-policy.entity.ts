@@ -54,6 +54,45 @@ export class AttendancePolicy {
   @Column({ default: false })
   requires_manager_approval_for_overtime: boolean;
 
+  @Column({ type: 'int', default: 0 })
+  overtime_start_after_minutes: number;
+
+  @Column({ type: 'int', default: 0 })
+  max_overtime_minutes_per_day: number;
+
+  @Column({ type: 'int', default: 0 })
+  max_overtime_minutes_per_month: number;
+
+  @Column({
+    type: 'decimal',
+    precision: 5,
+    scale: 2,
+    default: 1,
+  })
+  overtime_rate_multiplier: string;
+
+  @Column({
+    type: 'decimal',
+    precision: 5,
+    scale: 2,
+    default: 1,
+  })
+  holiday_overtime_multiplier: string;
+
+  @Column({
+    type: 'decimal',
+    precision: 5,
+    scale: 2,
+    default: 1,
+  })
+  weekend_overtime_multiplier: string;
+
+  @Column({ default: false })
+  overtime_requires_approval: boolean;
+
+  @Column({ default: true })
+  overtime_auto_calculate: boolean;
+
   @Column({
     type: 'enum',
     enum: AttendanceRoundingModeEnum,

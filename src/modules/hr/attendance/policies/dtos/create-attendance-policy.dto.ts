@@ -4,6 +4,7 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
+  IsNumber,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -71,6 +72,60 @@ export class CreateAttendancePolicyDto {
   @IsBoolean()
   @IsOptional()
   requires_manager_approval_for_overtime?: boolean;
+
+  @ApiPropertyOptional({ default: 0 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  overtime_start_after_minutes?: number;
+
+  @ApiPropertyOptional({ default: 0 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  max_overtime_minutes_per_day?: number;
+
+  @ApiPropertyOptional({ default: 0 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  max_overtime_minutes_per_month?: number;
+
+  @ApiPropertyOptional({ default: 1 })
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  overtime_rate_multiplier?: number;
+
+  @ApiPropertyOptional({ default: 1 })
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  holiday_overtime_multiplier?: number;
+
+  @ApiPropertyOptional({ default: 1 })
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  weekend_overtime_multiplier?: number;
+
+  @ApiPropertyOptional({ default: false })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  overtime_requires_approval?: boolean;
+
+  @ApiPropertyOptional({ default: true })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  overtime_auto_calculate?: boolean;
 
   @ApiPropertyOptional({
     enum: AttendanceRoundingModeEnum,

@@ -294,4 +294,140 @@ describe('AttendanceDailySummaryService', () => {
     );
     expect(scheduleResolver.resolveForDate).not.toHaveBeenCalled();
   });
+
+  it('marks a day as late when check-in crosses only the late threshold', async () => {
+    employeeRepository.findOne!.mockResolvedValue({ id: 1, exit_date: null });
+    dailySummaryRepository.findOne!.mockResolvedValue(null);
+    timezoneBuilder.getRawOne.mockResolvedValue(null);
+    scheduleResolver.resolveForDate.mockResolvedValue(
+      buildSchedule({
+        lateAfterMinutes: 10,
+        halfDayAfterMinutes: 240,
+        absentAfterMinutes: 480,
+      }),
+    );
+    processedEventBuilder.getMany.mockResolvedValue([
+      {
+        id: 21,
+        rawLogId: 201,
+        deviceId: 5,
+        employeeNo: 'EMP-001',
+        eventTime: new Date('2026-06-12T08:15:00Z'),
+      },
+      {
+        id: 22,
+        rawLogId: 202,
+        deviceId: 5,
+        employeeNo: 'EMP-001',
+        eventTime: new Date('2026-06-12T17:00:00Z'),
+      },
+    ]);
+    mobilePunchBuilder.getMany.mockResolvedValue([]);
+    leaveBuilder.getOne.mockResolvedValue(null);
+    tripBuilder.getOne.mockResolvedValue(null);
+    shiftScheduleRepository.findOne!.mockResolvedValue(null);
+    shiftExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
+    timetableExpectationBuilder.getOne.mockResolvedValue(null);
+    adjustmentRepository.findOne!.mockResolvedValue(null);
+    shiftBreakRepository.find!.mockResolvedValue([]);
+
+    await service.recomputeForEmployeeDate(10, 1, '2026-06-12');
+
+    expect(dailySummaryRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attendanceStatus: AttendanceDailyStatusEnum.LATE,
+        lateMinutes: 5,
+      }),
+    );
+  });
+
+  it('caps overtime minutes using the resolved schedule limits', async () => {
+    employeeRepository.findOne!.mockResolvedValue({ id: 1, exit_date: null });
+    dailySummaryRepository.findOne!.mockResolvedValue(null);
+    timezoneBuilder.getRawOne.mockResolvedValue(null);
+    scheduleResolver.resolveForDate.mockResolvedValue(
+      buildSchedule({
+        allowOvertime: true,
+        overtimeStartAfterMinutes: 15,
+        maxOvertimeMinutes: 30,
+      }),
+    );
+    processedEventBuilder.getMany.mockResolvedValue([
+      {
+        id: 31,
+        rawLogId: 301,
+        deviceId: 5,
+        employeeNo: 'EMP-001',
+        eventTime: new Date('2026-06-12T08:00:00Z'),
+      },
+      {
+        id: 32,
+        rawLogId: 302,
+        deviceId: 5,
+        employeeNo: 'EMP-001',
+        eventTime: new Date('2026-06-12T18:00:00Z'),
+      },
+    ]);
+    mobilePunchBuilder.getMany.mockResolvedValue([]);
+    leaveBuilder.getOne.mockResolvedValue(null);
+    tripBuilder.getOne.mockResolvedValue(null);
+    shiftScheduleRepository.findOne!.mockResolvedValue(null);
+    shiftExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
+    timetableExpectationBuilder.getOne.mockResolvedValue(null);
+    adjustmentRepository.findOne!.mockResolvedValue(null);
+    shiftBreakRepository.find!.mockResolvedValue([]);
+
+    await service.recomputeForEmployeeDate(10, 1, '2026-06-12');
+
+    expect(dailySummaryRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attendanceStatus: AttendanceDailyStatusEnum.OVERTIME,
+        overtimeMinutes: 30,
+      }),
+    );
+  });
+
+  it('keeps off-day status while counting worked minutes as overtime', async () => {
+    employeeRepository.findOne!.mockResolvedValue({ id: 1, exit_date: null });
+    dailySummaryRepository.findOne!.mockResolvedValue(null);
+    timezoneBuilder.getRawOne.mockResolvedValue(null);
+    scheduleResolver.resolveForDate.mockResolvedValue(
+      buildSchedule({
+        isOffDay: true,
+      }),
+    );
+    processedEventBuilder.getMany.mockResolvedValue([
+      {
+        id: 41,
+        rawLogId: 401,
+        deviceId: 5,
+        employeeNo: 'EMP-001',
+        eventTime: new Date('2026-06-12T08:00:00Z'),
+      },
+      {
+        id: 42,
+        rawLogId: 402,
+        deviceId: 5,
+        employeeNo: 'EMP-001',
+        eventTime: new Date('2026-06-12T12:00:00Z'),
+      },
+    ]);
+    mobilePunchBuilder.getMany.mockResolvedValue([]);
+    leaveBuilder.getOne.mockResolvedValue(null);
+    tripBuilder.getOne.mockResolvedValue(null);
+    shiftScheduleRepository.findOne!.mockResolvedValue(null);
+    shiftExpectationBuilder.getOne.mockResolvedValue(null);
+    timetableExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
+    adjustmentRepository.findOne!.mockResolvedValue(null);
+    shiftBreakRepository.find!.mockResolvedValue([]);
+
+    await service.recomputeForEmployeeDate(10, 1, '2026-06-12');
+
+    expect(dailySummaryRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attendanceStatus: AttendanceDailyStatusEnum.OFF_DAY,
+        overtimeMinutes: 240,
+      }),
+    );
+  });
 });
