@@ -32,6 +32,13 @@ import { EmployeeTimetableStatusEnum } from '../attendance/timetable/employee-ti
 import { AttendanceScheduleResolverService } from '../attendance/processing/attendance-schedule-resolver.service';
 import { CreateMyLeaveRequestDto } from './dtos/create-my-leave-request.dto';
 import { MyScheduleQueryDto } from './dtos/my-schedule-query.dto';
+import { CreateAttendanceMobilePunchDto } from '../attendance/mobile-punches/dtos/create-attendance-mobile-punch.dto';
+import { Shift } from '../attendance/shift/shifts/entities/shift.entity';
+import { Timetable } from '../attendance/timetable/timetables/entities/timetable.entity';
+import { TimetableStatusEnum } from '../attendance/timetable/timetables/enums/timetable-status.enum';
+import { CreateMyAttendancePunchDto } from './dtos/create-my-attendance-punch.dto';
+import { MyAttendanceOverviewQueryDto } from './dtos/my-attendance-overview-query.dto';
+import { MyAttendanceAssignmentQueryDto } from './dtos/my-attendance-assignment-query.dto';
 
 type EmployeeProfileShape = {
   id?: number;
@@ -84,6 +91,10 @@ export class EmployeeSelfServiceService {
     private readonly shiftAssignmentRepository: Repository<ShiftAssignment>,
     @InjectRepository(EmployeeTimetable)
     private readonly employeeTimetableRepository: Repository<EmployeeTimetable>,
+    @InjectRepository(Shift)
+    private readonly shiftRepository: Repository<Shift>,
+    @InjectRepository(Timetable)
+    private readonly timetableRepository: Repository<Timetable>,
   ) {}
 
   async getProfile(actor: AuthenticatedUser) {
@@ -98,9 +109,13 @@ export class EmployeeSelfServiceService {
         dashboard: '/me/dashboard',
         profile: '/me/profile',
         attendance_today: '/me/attendance/today',
+        attendance_overview: '/me/attendance/overview',
         attendance_history: '/me/attendance/history',
         attendance_schedule: '/me/attendance/schedule',
+        attendance_assignments: '/me/attendance/assignments',
         attendance_punches: '/me/attendance/punches',
+        attendance_check_in: '/me/attendance/check-in',
+        attendance_check_out: '/me/attendance/check-out',
         leave_balances: '/me/leave/balances',
         leave_requests: '/me/leave/requests',
       },
@@ -232,8 +247,13 @@ export class EmployeeSelfServiceService {
         profile: '/me/profile',
         status: '/me/status',
         attendance_today: '/me/attendance/today',
+        attendance_overview: '/me/attendance/overview',
         attendance_history: '/me/attendance/history',
         attendance_schedule: '/me/attendance/schedule',
+        attendance_assignments: '/me/attendance/assignments',
+        attendance_punches: '/me/attendance/punches',
+        attendance_check_in: '/me/attendance/check-in',
+        attendance_check_out: '/me/attendance/check-out',
         leave_balances: '/me/leave/balances',
         leave_requests: '/me/leave/requests',
       },
@@ -338,157 +358,146 @@ export class EmployeeSelfServiceService {
     const employeeId = await this.resolveEmployeeId(actor);
     const { fromDate, toDate } = this.resolveScheduleRange(query);
 
-    const [shiftSchedules, assignments, timetables] =
-      await Promise.all([
-        this.shiftScheduleRepository.find({
-          where: {
-            companyId,
-            employeeId,
-          },
-          relations: {
-            shift: true,
-            overrideShift: true,
-            holiday: true,
-          },
-          order: {
-            scheduleDate: 'ASC',
-          },
-        }),
-        this.shiftAssignmentRepository.find({
-          where: {
-            companyId,
-            employeeId,
-            status: ShiftAssignmentStatusEnum.ACTIVE,
-          },
-          relations: {
-            shift: true,
-          },
-          order: {
-            effectiveFrom: 'DESC',
-          },
-        }),
-        this.employeeTimetableRepository.find({
-          where: {
-            companyId,
-            employeeId,
-            status: EmployeeTimetableStatusEnum.ACTIVE,
-          },
-          relations: {
-            timetable: true,
-          },
-          order: {
-            effectiveFrom: 'DESC',
-          },
-        }),
-      ]);
-
-    const days = await Promise.all(this.buildDateRange(fromDate, toDate).map(async (date) => {
-      const explicit = shiftSchedules.find((item) =>
-        this.isDateWithinRange(
-          date,
-          item.effectiveFrom ?? item.scheduleDate,
-          item.effectiveTo ?? item.scheduleDate,
-        ),
-      );
-      if (explicit) {
-        const activeShift = explicit.overrideShift ?? explicit.shift ?? null;
-        return {
-          date,
-          source: 'shift_schedule',
-          is_off_day: explicit.isOffDay,
-          holiday: explicit.holiday
-            ? {
-                id: explicit.holiday.id,
-                name: explicit.holiday.name,
-                date: explicit.holiday.date,
-              }
-            : null,
-          shift: this.mapShift(activeShift),
-          timetable: null,
-          remarks: explicit.remarks ?? null,
-        };
-      }
-
-      const assignment = assignments.find((item) =>
-        this.isDateWithinRange(date, item.effectiveFrom, item.effectiveTo),
-      );
-      if (assignment) {
-        return {
-          date,
-          source: 'shift_assignment',
-          is_off_day: false,
-          holiday: null,
-          shift: this.mapShift(assignment.shift),
-          timetable: null,
-          remarks: null,
-          assignment_window: {
-            effective_from: assignment.effectiveFrom,
-            effective_to: assignment.effectiveTo,
-          },
-        };
-      }
-
-      const timetable = timetables.find((item) =>
-        this.isDateWithinRange(date, item.effectiveFrom, item.effectiveTo),
-      );
-      if (timetable) {
-        const resolved = await this.attendanceScheduleResolverService.resolveForDate(
+    const [shiftSchedules, assignments, timetables] = await Promise.all([
+      this.shiftScheduleRepository.find({
+        where: {
           companyId,
           employeeId,
-          date,
+        },
+        relations: {
+          shift: true,
+          overrideShift: true,
+          holiday: true,
+        },
+        order: {
+          scheduleDate: 'ASC',
+        },
+      }),
+      this.shiftAssignmentRepository.find({
+        where: {
+          companyId,
+          employeeId,
+          status: ShiftAssignmentStatusEnum.ACTIVE,
+        },
+        relations: {
+          shift: true,
+        },
+        order: {
+          effectiveFrom: 'DESC',
+        },
+      }),
+      this.employeeTimetableRepository.find({
+        where: {
+          companyId,
+          employeeId,
+          status: EmployeeTimetableStatusEnum.ACTIVE,
+        },
+        relations: {
+          timetable: true,
+        },
+        order: {
+          effectiveFrom: 'DESC',
+        },
+      }),
+    ]);
+
+    const days = await Promise.all(
+      this.buildDateRange(fromDate, toDate).map(async (date) => {
+        const resolved =
+          await this.attendanceScheduleResolverService.resolveForDate(
+            companyId,
+            employeeId,
+            date,
+          );
+        const explicit = shiftSchedules.find((item) =>
+          this.isDateWithinRange(
+            date,
+            item.effectiveFrom ?? item.scheduleDate,
+            item.effectiveTo ?? item.scheduleDate,
+          ),
         );
+        if (explicit) {
+          const activeShift = explicit.overrideShift ?? explicit.shift ?? null;
+          return {
+            date,
+            source: 'shift_schedule',
+            is_off_day: resolved.isOffDay,
+            holiday: this.mapResolvedHoliday(resolved, explicit.holiday, date),
+            shift: await this.mapResolvedScheduleShift(companyId, resolved),
+            timetable: null,
+            remarks: explicit.remarks ?? null,
+          };
+        }
+
+        const assignment = assignments.find((item) =>
+          this.isDateWithinRange(date, item.effectiveFrom, item.effectiveTo),
+        );
+        if (assignment) {
+          return {
+            date,
+            source: 'shift_assignment',
+            is_off_day: resolved.isOffDay,
+            holiday: this.mapResolvedHoliday(resolved, null, date),
+            shift: await this.mapResolvedScheduleShift(companyId, resolved),
+            timetable: null,
+            remarks: null,
+            assignment_window: {
+              effective_from: assignment.effectiveFrom,
+              effective_to: assignment.effectiveTo,
+            },
+          };
+        }
+
+        const timetable = timetables.find((item) =>
+          this.isDateWithinRange(date, item.effectiveFrom, item.effectiveTo),
+        );
+        if (timetable) {
+          return {
+            date,
+            source: 'employee_timetable',
+            is_off_day: resolved.isOffDay,
+            holiday: this.mapResolvedHoliday(resolved, null, date),
+            shift: await this.mapResolvedScheduleShift(companyId, resolved),
+            timetable: {
+              id: timetable.timetable.id,
+              name: timetable.timetable.name,
+              code: timetable.timetable.code,
+              timezone: timetable.timetable.timezone,
+            },
+            remarks: null,
+            assignment_window: {
+              effective_from: timetable.effectiveFrom,
+              effective_to: timetable.effectiveTo,
+            },
+          };
+        }
+
+        if (resolved.source === 'COMPANY_DEFAULT_TIMETABLE') {
+          return {
+            date,
+            source: 'default_timetable',
+            is_off_day: resolved.isOffDay,
+            holiday: this.mapResolvedHoliday(resolved, null, date),
+            shift: await this.mapResolvedScheduleShift(companyId, resolved),
+            timetable: await this.mapResolvedScheduleTimetable(
+              companyId,
+              resolved.timetableId,
+            ),
+            remarks: null,
+          };
+        }
+
         return {
           date,
-          source: 'employee_timetable',
+          source: 'unassigned',
           is_off_day: resolved.isOffDay,
-          holiday: resolved.holidayId
-            ? {
-                id: resolved.holidayId,
-                name: null,
-                date,
-              }
-            : null,
-          shift: resolved.shiftId
-            ? {
-                id: resolved.shiftId,
-                name: null,
-                code: null,
-                start_time: resolved.scheduleStartAt?.toISOString() ?? null,
-                end_time: resolved.scheduleEndAt?.toISOString() ?? null,
-                expected_work_minutes: null,
-                requires_checkout: resolved.requiresCheckout,
-                allow_overtime: resolved.allowOvertime,
-                crosses_midnight: Boolean(
-                  resolved.scheduleStartAt &&
-                    resolved.scheduleEndAt &&
-                    resolved.scheduleEndAt < resolved.scheduleStartAt,
-                ),
-              }
-            : null,
-          timetable: {
-            id: timetable.timetable.id,
-            name: timetable.timetable.name,
-            code: timetable.timetable.code,
-            timezone: timetable.timetable.timezone,
-          },
+          holiday: this.mapResolvedHoliday(resolved, null, date),
+          shift: null,
+          timetable: null,
           remarks: null,
-          assignment_window: {
-            effective_from: timetable.effectiveFrom,
-            effective_to: timetable.effectiveTo,
-          },
         };
-      }
-
-      return {
-        date,
-        source: 'unassigned',
-        is_off_day: null,
-        holiday: null,
-        shift: null,
-        timetable: null,
-        remarks: null,
-      };
-    }));
+      }),
+    );
 
     return {
       from_date: fromDate,
@@ -805,8 +814,23 @@ export class EmployeeSelfServiceService {
     return dates;
   }
 
-  private getCurrentDateString() {
-    return new Date().toISOString().slice(0, 10);
+  private getCurrentDateString(timezone = this.getSelfServiceTimezone()) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+
+    const year = parts.find((part) => part.type === 'year')?.value;
+    const month = parts.find((part) => part.type === 'month')?.value;
+    const day = parts.find((part) => part.type === 'day')?.value;
+
+    return `${year}-${month}-${day}`;
+  }
+
+  private getSelfServiceTimezone() {
+    return process.env.DEFAULT_TIMEZONE || 'Africa/Dar_es_Salaam';
   }
 
   private addDays(baseDate: string, days: number) {
@@ -987,5 +1011,535 @@ export class EmployeeSelfServiceService {
 
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  async checkIn(
+    actor: AuthenticatedUser,
+    dto: CreateMyAttendancePunchDto,
+    requestIp?: string | null,
+    userAgent?: string | null,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+
+    const payload: CreateAttendanceMobilePunchDto = {
+      ...dto,
+      employeeId,
+    };
+
+    return this.attendanceMobilePunchesService.checkIn({
+      companyId,
+      authenticatedEmployeeId: employeeId,
+      employeeId,
+      dto: payload,
+      requestIp,
+      userAgent,
+    });
+  }
+
+  async checkOut(
+    actor: AuthenticatedUser,
+    dto: CreateMyAttendancePunchDto,
+    requestIp?: string | null,
+    userAgent?: string | null,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+
+    const payload: CreateAttendanceMobilePunchDto = {
+      ...dto,
+      employeeId,
+    };
+
+    return this.attendanceMobilePunchesService.checkOut({
+      companyId,
+      authenticatedEmployeeId: employeeId,
+      employeeId,
+      dto: payload,
+      requestIp,
+      userAgent,
+    });
+  }
+
+  async getAttendanceOverview(
+    actor: AuthenticatedUser,
+    query: MyAttendanceOverviewQueryDto,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+
+    const timezone = this.getSelfServiceTimezone();
+    const today = this.getCurrentDateString(timezone);
+
+    const fromDate = query.from_date ?? this.addDays(today, -29);
+    const toDate = query.to_date ?? today;
+
+    if (toDate < fromDate) {
+      throw new BadRequestException(
+        'to_date cannot be earlier than from_date.',
+      );
+    }
+
+    const [todayAttendance, history, punches, schedule, assignments] =
+      await Promise.all([
+        this.getTodayAttendance(actor),
+        this.getAttendanceHistory(actor, {
+          ...query,
+          employee_id: employeeId,
+          from_date: fromDate,
+          to_date: toDate,
+          page: query.page ?? 1,
+          limit: query.limit ?? 20,
+        }),
+        this.getAttendancePunches(actor, {
+          employeeId,
+          fromDate,
+          toDate,
+          page: 1,
+          limit: 50,
+        } as AttendanceMobilePunchQueryDto),
+        this.getAttendanceSchedule(actor, {
+          from_date: fromDate,
+          to_date: toDate,
+        }),
+        this.getAttendanceAssignments(actor, {
+          from_date: fromDate,
+          to_date: toDate,
+        }),
+      ]);
+
+    return {
+      generated_at: new Date().toISOString(),
+      timezone,
+      employee_id: employeeId,
+      period: {
+        from_date: fromDate,
+        to_date: toDate,
+      },
+      today: todayAttendance,
+      history,
+      punches,
+      schedule,
+      assignments,
+      links: {
+        today: '/me/attendance/today',
+        history: '/me/attendance/history',
+        punches: '/me/attendance/punches',
+        schedule: '/me/attendance/schedule',
+        assignments: '/me/attendance/assignments',
+        check_in: '/me/attendance/check-in',
+        check_out: '/me/attendance/check-out',
+      },
+    };
+  }
+
+  async getAttendanceAssignments(
+    actor: AuthenticatedUser,
+    query: MyAttendanceAssignmentQueryDto,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+
+    const today = this.getCurrentDateString();
+    const fromDate = query.from_date ?? this.addDays(today, -90);
+    const toDate = query.to_date ?? this.addDays(today, 90);
+
+    if (toDate < fromDate) {
+      throw new BadRequestException(
+        'to_date cannot be earlier than from_date.',
+      );
+    }
+
+    const shiftScheduleQb = this.shiftScheduleRepository
+      .createQueryBuilder('schedule')
+      .leftJoinAndSelect('schedule.shift', 'shift')
+      .leftJoinAndSelect('schedule.overrideShift', 'overrideShift')
+      .leftJoinAndSelect('schedule.holiday', 'holiday')
+      .where('schedule.company_id = :companyId', { companyId })
+      .andWhere('schedule.employee_id = :employeeId', { employeeId })
+      .andWhere('schedule.effective_from <= :toDate', { toDate })
+      .andWhere(
+        '(schedule.effective_to IS NULL OR schedule.effective_to >= :fromDate)',
+        { fromDate },
+      )
+      .orderBy('schedule.effective_from', 'ASC');
+
+    const shiftAssignmentQb = this.shiftAssignmentRepository
+      .createQueryBuilder('assignment')
+      .leftJoinAndSelect('assignment.shift', 'shift')
+      .leftJoinAndSelect('assignment.rotationGroup', 'rotationGroup')
+      .where('assignment.company_id = :companyId', { companyId })
+      .andWhere('assignment.employee_id = :employeeId', { employeeId })
+      .andWhere('assignment.effective_from <= :toDate', { toDate })
+      .andWhere(
+        '(assignment.effective_to IS NULL OR assignment.effective_to >= :fromDate)',
+        { fromDate },
+      )
+      .orderBy('assignment.effective_from', 'ASC');
+
+    const timetableAssignmentQb = this.employeeTimetableRepository
+      .createQueryBuilder('employeeTimetable')
+      .leftJoinAndSelect('employeeTimetable.timetable', 'timetable')
+      .leftJoinAndSelect('timetable.days', 'timetableDay')
+      .leftJoinAndSelect('timetableDay.defaultShift', 'defaultShift')
+      .where('employeeTimetable.company_id = :companyId', { companyId })
+      .andWhere('employeeTimetable.employee_id = :employeeId', { employeeId })
+      .andWhere('employeeTimetable.effective_from <= :toDate', { toDate })
+      .andWhere(
+        '(employeeTimetable.effective_to IS NULL OR employeeTimetable.effective_to >= :fromDate)',
+        { fromDate },
+      )
+      .orderBy('employeeTimetable.effective_from', 'ASC');
+
+    if (!query.include_inactive) {
+      shiftAssignmentQb.andWhere('assignment.status = :assignmentStatus', {
+        assignmentStatus: ShiftAssignmentStatusEnum.ACTIVE,
+      });
+
+      timetableAssignmentQb.andWhere('employeeTimetable.status = :status', {
+        status: EmployeeTimetableStatusEnum.ACTIVE,
+      });
+    }
+
+    const [
+      shiftSchedules,
+      shiftAssignments,
+      employeeTimetables,
+      defaultTimetables,
+    ] = await Promise.all([
+      shiftScheduleQb.getMany(),
+      shiftAssignmentQb.getMany(),
+      timetableAssignmentQb.getMany(),
+      this.timetableRepository.find({
+        where: {
+          companyId,
+          isDefault: true,
+          status: TimetableStatusEnum.ACTIVE,
+        },
+        relations: {
+          days: {
+            defaultShift: true,
+          },
+        },
+        order: {
+          id: 'ASC',
+          days: {
+            dayOfWeek: 'ASC',
+          },
+        },
+      }),
+    ]);
+
+    return {
+      employee_id: employeeId,
+      period: {
+        from_date: fromDate,
+        to_date: toDate,
+      },
+      source_priority: [
+        {
+          priority: 1,
+          source: 'shift_schedule',
+          description:
+            'Manual/specific shift schedule override. This has the highest priority.',
+        },
+        {
+          priority: 2,
+          source: 'shift_assignment',
+          description:
+            'Direct shift assignment. Used when there is no manual schedule override.',
+        },
+        {
+          priority: 3,
+          source: 'employee_timetable',
+          description:
+            'Employee timetable assignment. Used as normal working plan.',
+        },
+        {
+          priority: 4,
+          source: 'default_timetable',
+          description:
+            'Company default timetable. Used when employee has no direct timetable.',
+        },
+      ],
+      shift_schedules: shiftSchedules.map((item) =>
+        this.mapShiftScheduleAssignment(item),
+      ),
+      shift_assignments: shiftAssignments.map((item) =>
+        this.mapShiftAssignment(item),
+      ),
+      employee_timetables: employeeTimetables.map((item) =>
+        this.mapEmployeeTimetableAssignment(item),
+      ),
+      default_timetables: defaultTimetables.map((item) =>
+        this.mapDefaultTimetable(item),
+      ),
+    };
+  }
+
+  private async mapResolvedScheduleShift(
+    companyId: number,
+    resolved: {
+      shiftId: number | null;
+      scheduleStartAt: Date | null;
+      scheduleEndAt: Date | null;
+      timezone: string;
+      requiresCheckout: boolean;
+      allowOvertime: boolean;
+    },
+  ) {
+    if (!resolved.shiftId) {
+      return null;
+    }
+
+    const shift = await this.shiftRepository.findOne({
+      where: {
+        id: resolved.shiftId,
+        companyId,
+      },
+    });
+
+    if (shift) {
+      return this.mapShift(shift);
+    }
+
+    return {
+      id: resolved.shiftId,
+      name: null,
+      code: null,
+      start_time: this.formatTimeInTimezone(
+        resolved.scheduleStartAt,
+        resolved.timezone,
+      ),
+      end_time: this.formatTimeInTimezone(
+        resolved.scheduleEndAt,
+        resolved.timezone,
+      ),
+      expected_work_minutes: null,
+      requires_checkout: resolved.requiresCheckout,
+      allow_overtime: resolved.allowOvertime,
+      crosses_midnight: Boolean(
+        resolved.scheduleStartAt &&
+        resolved.scheduleEndAt &&
+        resolved.scheduleEndAt < resolved.scheduleStartAt,
+      ),
+    };
+  }
+
+  private mapResolvedHoliday(
+    resolved: { holidayId: number | null },
+    holiday: { id: number; name: string; date: string } | null,
+    scheduleDate: string,
+  ) {
+    if (holiday) {
+      return {
+        id: holiday.id,
+        name: holiday.name,
+        date: holiday.date,
+      };
+    }
+
+    if (!resolved.holidayId) {
+      return null;
+    }
+
+    return {
+      id: resolved.holidayId,
+      name: null,
+      date: scheduleDate,
+    };
+  }
+
+  private async mapResolvedScheduleTimetable(
+    companyId: number,
+    timetableId: number | null,
+  ) {
+    if (!timetableId) {
+      return null;
+    }
+
+    const timetable = await this.timetableRepository.findOne({
+      where: {
+        id: timetableId,
+        companyId,
+      },
+    });
+
+    if (timetable) {
+      return {
+        id: timetable.id,
+        name: timetable.name,
+        code: timetable.code,
+        timezone: timetable.timezone,
+      };
+    }
+
+    return {
+      id: timetableId,
+      name: null,
+      code: null,
+      timezone: null,
+    };
+  }
+
+  private formatTimeInTimezone(date: Date | null, timezone: string) {
+    if (!date) {
+      return null;
+    }
+
+    try {
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: timezone,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23',
+      }).formatToParts(date);
+
+      const hour = parts.find((part) => part.type === 'hour')?.value ?? '00';
+      const minute =
+        parts.find((part) => part.type === 'minute')?.value ?? '00';
+      const second =
+        parts.find((part) => part.type === 'second')?.value ?? '00';
+
+      return `${hour}:${minute}:${second}`;
+    } catch {
+      return date.toISOString().slice(11, 19);
+    }
+  }
+
+  private mapShiftScheduleAssignment(item: ShiftSchedule) {
+    const effectiveShift = item.overrideShift ?? item.shift ?? null;
+
+    return {
+      id: item.id,
+      source: 'shift_schedule',
+      schedule_date: item.scheduleDate,
+      effective_from: item.effectiveFrom,
+      effective_to: item.effectiveTo,
+      is_off_day: item.isOffDay,
+      generated_from_rotation: item.generatedFromRotation,
+      remarks: item.remarks,
+      shift: this.mapShift(item.shift),
+      override_shift: this.mapShift(item.overrideShift),
+      effective_shift: this.mapShift(effectiveShift),
+      holiday: item.holiday
+        ? {
+            id: item.holiday.id,
+            name: item.holiday.name,
+            date: item.holiday.date,
+          }
+        : null,
+      priority: 1,
+    };
+  }
+
+  private mapShiftAssignment(item: ShiftAssignment) {
+    return {
+      id: item.id,
+      source: 'shift_assignment',
+      effective_from: item.effectiveFrom,
+      effective_to: item.effectiveTo,
+      is_primary: item.isPrimary,
+      status: item.status,
+      shift: this.mapShift(item.shift),
+      rotation_group: item.rotationGroup
+        ? {
+            id: item.rotationGroup.id,
+            name: (item.rotationGroup as { name?: string }).name ?? null,
+            code: (item.rotationGroup as { code?: string }).code ?? null,
+          }
+        : null,
+      priority: 2,
+    };
+  }
+
+  private mapEmployeeTimetableAssignment(item: EmployeeTimetable) {
+    return {
+      id: item.id,
+      source: 'employee_timetable',
+      timetable_id: item.timetableId,
+      effective_from: item.effectiveFrom,
+      effective_to: item.effectiveTo,
+      status: item.status,
+      timetable: item.timetable
+        ? {
+            id: item.timetable.id,
+            name: item.timetable.name,
+            code: item.timetable.code,
+            type: item.timetable.timetableType,
+            timezone: item.timetable.timezone,
+            is_default: item.timetable.isDefault,
+            days: this.mapTimetableDays(item.timetable.days ?? []),
+          }
+        : null,
+      priority: 3,
+    };
+  }
+
+  private mapDefaultTimetable(item: Timetable) {
+    return {
+      id: item.id,
+      source: 'default_timetable',
+      name: item.name,
+      code: item.code,
+      type: item.timetableType,
+      timezone: item.timezone,
+      is_default: item.isDefault,
+      status: item.status,
+      days: this.mapTimetableDays(item.days ?? []),
+      priority: 4,
+    };
+  }
+
+  private mapTimetableDays(
+    days: Array<{
+      id: number;
+      dayOfWeek: number;
+      isWorkingDay: boolean;
+      minimumWorkMinutes: number;
+      expectedCheckInTime: string | null;
+      expectedCheckOutTime: string | null;
+      allowFlexibleTime: boolean;
+      flexibleStartFrom: string | null;
+      flexibleStartTo: string | null;
+      overtimeAllowed: boolean;
+      breakRequired: boolean;
+      breakMinutes: number;
+      defaultShift?: Shift | null;
+    }>,
+  ) {
+    return [...days]
+      .sort((a, b) => a.dayOfWeek - b.dayOfWeek)
+      .map((day) => ({
+        id: day.id,
+        day_of_week: day.dayOfWeek,
+        day_name: this.getDayName(day.dayOfWeek),
+        is_working_day: day.isWorkingDay,
+        minimum_work_minutes: day.minimumWorkMinutes,
+        expected_check_in_time: day.expectedCheckInTime,
+        expected_check_out_time: day.expectedCheckOutTime,
+        allow_flexible_time: day.allowFlexibleTime,
+        flexible_start_from: day.flexibleStartFrom,
+        flexible_start_to: day.flexibleStartTo,
+        overtime_allowed: day.overtimeAllowed,
+        break_required: day.breakRequired,
+        break_minutes: day.breakMinutes,
+        default_shift: this.mapShift(day.defaultShift),
+      }));
+  }
+
+  private getDayName(dayOfWeek: number) {
+    const names: Record<number, string> = {
+      0: 'Sunday',
+      1: 'Monday',
+      2: 'Tuesday',
+      3: 'Wednesday',
+      4: 'Thursday',
+      5: 'Friday',
+      6: 'Saturday',
+    };
+
+    return names[dayOfWeek] ?? `Day ${dayOfWeek}`;
   }
 }

@@ -60,7 +60,24 @@ export class AttendanceScheduleResolverService {
     private readonly timetableScheduleGenerationService: TimetableScheduleGenerationService,
     private readonly attendanceCompanyConfigService: AttendanceCompanyConfigService,
   ) {}
-
+  // Runtime authority:
+  //
+  // 1. SHIFT_SCHEDULE
+  //    Manual/specific schedule override for one date or date range.
+  //    Highest priority.
+  //
+  // 2. SHIFT_ASSIGNMENT
+  //    Direct employee shift assignment or rotation assignment.
+  //    Overrides employee timetable.
+  //
+  // 3. EMPLOYEE_TIMETABLE
+  //    Employee's normal working timetable.
+  //
+  // 4. COMPANY_DEFAULT_TIMETABLE
+  //    Company default timetable when employee has no direct timetable.
+  //
+  // 5. NONE
+  //    No schedule found. Policy fallback only.
   async resolveForDate(
     companyId: number,
     employeeId: number,
@@ -192,7 +209,7 @@ export class AttendanceScheduleResolverService {
       });
     }
 
-    const shiftId = schedule.shiftId ?? schedule.overrideShiftId;
+    const shiftId = schedule.overrideShiftId ?? schedule.shiftId;
     if (!shiftId) {
       return this.buildResolvedWithoutShift({
         employeeId,

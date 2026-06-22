@@ -24,6 +24,10 @@ import { CreateMyLeaveRequestDto } from './dtos/create-my-leave-request.dto';
 import { MyScheduleQueryDto } from './dtos/my-schedule-query.dto';
 import { EmployeeSelfServiceService } from './employee-self-service.service';
 
+import { CreateMyAttendancePunchDto } from './dtos/create-my-attendance-punch.dto';
+import { MyAttendanceOverviewQueryDto } from './dtos/my-attendance-overview-query.dto';
+import { MyAttendanceAssignmentQueryDto } from './dtos/my-attendance-assignment-query.dto';
+
 @ApiTags('Employee Self Service')
 @ApiBearerAuth('access-token')
 @Controller('me')
@@ -171,4 +175,62 @@ export class EmployeeSelfServiceController {
     );
     res.send(buffer);
   }
+
+  @Get('attendance/overview')
+@ApiOperation({
+  summary:
+    'Get my attendance overview including today, history, punches, schedule and assignments',
+})
+getAttendanceOverview(
+  @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  @Query() query: MyAttendanceOverviewQueryDto,
+) {
+  return this.employeeSelfServiceService.getAttendanceOverview(
+    req.user,
+    query,
+  );
+}
+
+@Get('attendance/assignments')
+@ApiOperation({
+  summary:
+    'Get my assigned shifts, timetable assignments, default timetable and schedule overrides',
+})
+getAttendanceAssignments(
+  @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  @Query() query: MyAttendanceAssignmentQueryDto,
+) {
+  return this.employeeSelfServiceService.getAttendanceAssignments(
+    req.user,
+    query,
+  );
+}
+
+@Post('attendance/check-in')
+@ApiOperation({ summary: 'Employee self-service check-in' })
+checkIn(
+  @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  @Body() dto: CreateMyAttendancePunchDto,
+) {
+  return this.employeeSelfServiceService.checkIn(
+    req.user,
+    dto,
+    req.ip,
+    req.headers['user-agent'] ?? null,
+  );
+}
+
+@Post('attendance/check-out')
+@ApiOperation({ summary: 'Employee self-service check-out' })
+checkOut(
+  @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  @Body() dto: CreateMyAttendancePunchDto,
+) {
+  return this.employeeSelfServiceService.checkOut(
+    req.user,
+    dto,
+    req.ip,
+    req.headers['user-agent'] ?? null,
+  );
+}
 }

@@ -81,22 +81,21 @@ export class AttendanceAssignmentDomainService {
     assignmentType: 'SHIFT' | 'TIMETABLE';
     ignoreId?: number;
   }): Promise<void> {
-    if (input.status !== ShiftAssignmentStatusEnum.ACTIVE) {
-      return;
-    }
-
-    const existing =
-      input.assignmentType === 'SHIFT'
-        ? await this.findConflictingEmployeeTimetable(input)
-        : await this.findConflictingShiftAssignment(input);
-
-    if (existing) {
-      const message =
-        input.assignmentType === 'SHIFT'
-          ? 'Employee already has an active timetable assignment in the same effective range'
-          : 'Employee already has an active shift assignment in the same effective range';
-      throw new ConflictException(message);
-    }
+    /**
+     * Phase 2 rule:
+     *
+     * Timetable is the employee's normal/default working plan.
+     * Shift assignment is allowed to exist in the same period because it has
+     * higher resolver priority and can override the timetable.
+     *
+     * We still prevent overlaps inside the same assignment type using:
+     * - ensureNoOverlappingShiftAssignment()
+     * - ensureNoOverlappingEmployeeTimetable()
+     *
+     * So this method is kept only for backward compatibility with existing
+     * service calls.
+     */
+    return;
   }
 
   private async findConflictingEmployeeTimetable(input: {

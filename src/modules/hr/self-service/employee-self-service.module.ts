@@ -13,6 +13,8 @@ import { LeaveModule } from '../leave/leave.module';
 import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { EmployeeSelfServiceController } from './employee-self-service.controller';
 import { EmployeeSelfServiceService } from './employee-self-service.service';
+import { Shift } from '../attendance/shift/shifts/entities/shift.entity';
+import { Timetable } from '../attendance/timetable/timetables/entities/timetable.entity';
 
 @Module({
   imports: [
@@ -22,7 +24,9 @@ import { EmployeeSelfServiceService } from './employee-self-service.service';
       LeaveRequest,
       ShiftSchedule,
       ShiftAssignment,
+      Shift,
       EmployeeTimetable,
+      Timetable,
     ]),
     UsersModule,
     EmployeesModule,

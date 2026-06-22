@@ -41,6 +41,14 @@ import { AttendanceProcessedEvent } from './processing/entities/attendance-proce
 import { AttendanceDailySummary } from './processing/entities/attendance-daily-summary.entity';
 import { AttendanceCompanyConfigService } from './shared/attendance-company-config.service';
 
+import { Shift } from './shift/shifts/entities/shift.entity';
+import { ShiftAssignment } from './shift/shift-assignments/entities/shift-assignment.entity';
+import { ShiftSchedule } from './shift/shift-schedules/entities/shift-schedule.entity';
+import { Timetable } from './timetable/timetables/entities/timetable.entity';
+import { EmployeeTimetable } from './timetable/employee-timetables/entities/employee-timetable.entity';
+import { AttendanceSchedulePreviewController } from './schedules/attendance-schedule-preview.controller';
+import { AttendanceSchedulePreviewService } from './schedules/attendance-schedule-preview.service';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -59,6 +67,11 @@ import { AttendanceCompanyConfigService } from './shared/attendance-company-conf
       HikvisionAttendanceLog,
       AttendanceProcessedEvent,
       AttendanceDailySummary,
+      Shift,
+      ShiftAssignment,
+      ShiftSchedule,
+      Timetable,
+      EmployeeTimetable,
     ]),
     DeviceManagementHikvisionModule,
     AttendanceProcessingModule,
@@ -72,6 +85,7 @@ import { AttendanceCompanyConfigService } from './shared/attendance-company-conf
     AttendanceGeofencesController,
     AttendanceWifiNetworksController,
     AttendanceMobilePunchesController,
+    AttendanceSchedulePreviewController,
   ],
   providers: [
     AttendancePoliciesService,
@@ -89,6 +103,7 @@ import { AttendanceCompanyConfigService } from './shared/attendance-company-conf
     AttendanceMobilePunchesService,
     AttendanceMobilePunchRepository,
     AttendanceCompanyConfigService,
+    AttendanceSchedulePreviewService,
   ],
   exports: [
     AttendancePoliciesService,
@@ -103,6 +118,7 @@ import { AttendanceCompanyConfigService } from './shared/attendance-company-conf
     AttendanceMobilePunchesService,
     AttendanceMobilePunchRepository,
     AttendanceCompanyConfigService,
+    AttendanceSchedulePreviewService,
   ],
 })
 export class AttendanceModule {}
