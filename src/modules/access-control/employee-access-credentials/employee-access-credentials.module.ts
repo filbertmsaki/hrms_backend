@@ -5,6 +5,7 @@ import { Employee } from '../../hr/employees/entities/employee.entity';
 import { HikvisionModule } from '../../hikvision/hikvision.module';
 import { EmployeeDeviceAssignment } from '../employee-device-assignments/entity/employee-device-assignment.entity';
 import { EmployeeAccessCredential } from './entity/employee-access-credential.entity';
+import { EmployeeAccessCredentialsController } from './controller/employee-access-credentials.controller';
 import { EmployeeAccessCredentialsService } from './service/employee-access-credentials.service';
 
 @Module({
@@ -17,6 +18,7 @@ import { EmployeeAccessCredentialsService } from './service/employee-access-cred
     ]),
     HikvisionModule,
   ],
+  controllers: [EmployeeAccessCredentialsController],
   providers: [EmployeeAccessCredentialsService],
   exports: [EmployeeAccessCredentialsService],
 })
