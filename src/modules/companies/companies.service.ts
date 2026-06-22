@@ -13,10 +13,20 @@ import { Permission } from '../permissions/entities/permission.entity';
 import { Repository } from 'typeorm';
 import { EntityManager } from 'typeorm';
 import { QueryFailedError } from 'typeorm';
+import { AttendanceDevice } from '../access-control/attendance-devices/entities/attendance-device.entity';
+import { AttendanceDeviceStatusEnum } from '../access-control/attendance-devices/enums/attendance-device-status.enum';
+import { AttendancePolicy } from '../hr/attendance/policies/entities/attendance-policy.entity';
+import { Timetable } from '../hr/attendance/timetable/timetables/entities/timetable.entity';
+import { TimetableStatusEnum } from '../hr/attendance/timetable/timetables/enums/timetable-status.enum';
+import { Branch } from '../hr/branches/entities/branch.entity';
+import { Department } from '../hr/departments/entities/department.entity';
+import { Employee } from '../hr/employees/entities/employee.entity';
 import { Company } from './entities/company.entity';
 import { CompanyUser } from './entities/company-user.entity';
 import { CompanyUserRole } from './entities/company-user-role.entity';
 import { CompanyUserPermission } from './entities/company-user-permission.entity';
+import { AddCompanyUserDto } from './dtos/add-company-user.dto';
+import { UpdateCompanyDto } from './dtos/update-company.dto';
 import { CreateCompanyDto } from './dtos/create-company.dto';
 import {
   CompanyMembershipContext,
@@ -46,6 +56,24 @@ export class CompaniesService {
 
     @InjectRepository(Permission)
     private readonly permissionRepository: Repository<Permission>,
+
+    @InjectRepository(Branch)
+    private readonly branchRepository: Repository<Branch>,
+
+    @InjectRepository(Department)
+    private readonly departmentRepository: Repository<Department>,
+
+    @InjectRepository(Employee)
+    private readonly employeeRepository: Repository<Employee>,
+
+    @InjectRepository(AttendancePolicy)
+    private readonly attendancePolicyRepository: Repository<AttendancePolicy>,
+
+    @InjectRepository(Timetable)
+    private readonly timetableRepository: Repository<Timetable>,
+
+    @InjectRepository(AttendanceDevice)
+    private readonly attendanceDeviceRepository: Repository<AttendanceDevice>,
   ) {}
 
   private getCompanyRepository(manager?: EntityManager): Repository<Company> {
@@ -754,7 +782,19 @@ export class CompaniesService {
       throw new NotFoundException('User is not a member of this company');
     }
 
-    await this.companyUserRepository.delete({ id: membership.id });
+    const activeMembershipCount = await this.companyUserRepository.count({
+      where: { company_id: companyId, status: 'active' },
+    });
+
+    if (activeMembershipCount <= 1) {
+      throw new BadRequestException(
+        'Cannot remove the last active user from the company',
+      );
+    }
+
+    membership.status = 'inactive';
+    membership.is_default = false;
+    await this.companyUserRepository.save(membership);
 
     return { message: 'User removed from company successfully' };
   }
@@ -764,6 +804,356 @@ export class CompaniesService {
     userId: number,
   ): Promise<CompanyMembershipContext> {
     return this.getMembershipContext(userId, companyId);
+  }
+
+  async findOneCompany(companyId: number) {
+    const company = await this.companyRepository.findOne({
+      where: { id: companyId },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Company not found');
+    }
+
+    const activeUsersCount = await this.companyUserRepository.count({
+      where: { company_id: company.id, status: 'active' },
+    });
+
+    return {
+      id: company.id,
+      name: company.name,
+      slug: company.slug,
+      status: company.status,
+      metadata: company.metadata ?? null,
+      active_users_count: activeUsersCount,
+      created_at: company.created_at,
+      updated_at: company.updated_at,
+    };
+  }
+
+  async updateCompany(companyId: number, dto: UpdateCompanyDto) {
+    const company = await this.companyRepository.findOne({
+      where: { id: companyId },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Company not found');
+    }
+
+    if (dto.name !== undefined) {
+      const name = dto.name.trim();
+
+      if (!name) {
+        throw new BadRequestException('Company name cannot be empty');
+      }
+
+      company.name = name;
+    }
+
+    if (dto.metadata !== undefined) {
+      company.metadata = dto.metadata;
+    }
+
+    const saved = await this.companyRepository.save(company);
+
+    return {
+      message: 'Company updated successfully',
+      data: {
+        id: saved.id,
+        name: saved.name,
+        slug: saved.slug,
+        status: saved.status,
+        metadata: saved.metadata ?? null,
+        created_at: saved.created_at,
+        updated_at: saved.updated_at,
+      },
+    };
+  }
+
+  async activateCompany(companyId: number) {
+    return this.changeCompanyStatus(companyId, 'active');
+  }
+
+  async suspendCompany(companyId: number) {
+    return this.changeCompanyStatus(companyId, 'suspended');
+  }
+
+  async addExistingUserToCurrentCompany(
+    companyId: number,
+    dto: AddCompanyUserDto,
+  ) {
+    const existingMembership = await this.companyUserRepository.findOne({
+      where: { company_id: companyId, user_id: dto.user_id, status: 'active' },
+    });
+
+    if (existingMembership) {
+      throw new ConflictException('User is already active in this company');
+    }
+
+    return this.addUserToCompany(dto.user_id, companyId, {
+      isDefault: dto.is_default,
+      roleIds: dto.role_ids,
+      roleNames: dto.role_names,
+    });
+  }
+
+  async assignPermission(
+    companyId: number,
+    userId: number,
+    permissionId: number,
+  ) {
+    const membership = await this.companyUserRepository.findOne({
+      where: { company_id: companyId, user_id: userId, status: 'active' },
+    });
+
+    if (!membership) {
+      throw new NotFoundException('User is not a member of this company');
+    }
+
+    const permission = await this.permissionRepository.findOne({
+      where: { id: permissionId },
+    });
+
+    if (!permission) {
+      throw new NotFoundException('Permission not found');
+    }
+
+    const existing = await this.companyUserPermissionRepository.findOne({
+      where: { company_user_id: membership.id, permission_id: permissionId },
+    });
+
+    if (!existing) {
+      await this.companyUserPermissionRepository.save(
+        this.companyUserPermissionRepository.create({
+          company_user_id: membership.id,
+          permission_id: permissionId,
+        }),
+      );
+    }
+
+    return this.getMembershipContext(userId, companyId);
+  }
+
+  async revokePermission(
+    companyId: number,
+    userId: number,
+    permissionId: number,
+  ) {
+    const membership = await this.companyUserRepository.findOne({
+      where: { company_id: companyId, user_id: userId, status: 'active' },
+    });
+
+    if (!membership) {
+      throw new NotFoundException('User is not a member of this company');
+    }
+
+    await this.companyUserPermissionRepository.delete({
+      company_user_id: membership.id,
+      permission_id: permissionId,
+    });
+
+    return this.getMembershipContext(userId, companyId);
+  }
+
+  async getCurrentCompanyOnboardingStatus(companyId: number) {
+    const company = await this.companyRepository.findOne({
+      where: { id: companyId },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Company not found');
+    }
+
+    const [
+      activeUsersCount,
+      branchesCount,
+      departmentsCount,
+      employeesCount,
+      activeAttendancePolicyCount,
+      defaultTimetableCount,
+      attendanceDevicesCount,
+    ] = await Promise.all([
+      this.companyUserRepository.count({
+        where: { company_id: companyId, status: 'active' },
+      }),
+      this.branchRepository.count({
+        where: { company_id: companyId, status: 'active' },
+      }),
+      this.departmentRepository.count({
+        where: { company_id: companyId, status: 'active' },
+      }),
+      this.employeeRepository
+        .createQueryBuilder('employee')
+        .innerJoin('employee.company_user', 'companyUser')
+        .where('companyUser.company_id = :companyId', { companyId })
+        .getCount(),
+      this.attendancePolicyRepository.count({
+        where: { company_id: companyId, is_active: true },
+      }),
+      this.timetableRepository.count({
+        where: {
+          companyId,
+          isDefault: true,
+          status: TimetableStatusEnum.ACTIVE,
+        },
+      }),
+      this.attendanceDeviceRepository.count({
+        where: { companyId, status: AttendanceDeviceStatusEnum.ACTIVE },
+      }),
+    ]);
+
+    const checks = [
+      {
+        code: 'COMPANY_CREATED',
+        label: 'Company profile created',
+        complete: true,
+        count: 1,
+        required: true,
+      },
+      {
+        code: 'ADMIN_USER_CONFIGURED',
+        label: 'At least one active company user exists',
+        complete: activeUsersCount > 0,
+        count: activeUsersCount,
+        required: true,
+      },
+      {
+        code: 'BRANCH_CONFIGURED',
+        label: 'At least one active branch exists',
+        complete: branchesCount > 0,
+        count: branchesCount,
+        required: true,
+      },
+      {
+        code: 'DEPARTMENT_CONFIGURED',
+        label: 'At least one active department exists',
+        complete: departmentsCount > 0,
+        count: departmentsCount,
+        required: true,
+      },
+      {
+        code: 'EMPLOYEE_CONFIGURED',
+        label: 'At least one employee exists',
+        complete: employeesCount > 0,
+        count: employeesCount,
+        required: true,
+      },
+      {
+        code: 'ACTIVE_ATTENDANCE_POLICY_CONFIGURED',
+        label: 'Active attendance policy configured',
+        complete: activeAttendancePolicyCount > 0,
+        count: activeAttendancePolicyCount,
+        required: true,
+      },
+      {
+        code: 'DEFAULT_TIMETABLE_CONFIGURED',
+        label: 'Default active timetable configured',
+        complete: defaultTimetableCount > 0,
+        count: defaultTimetableCount,
+        required: true,
+      },
+      {
+        code: 'ATTENDANCE_DEVICE_CONFIGURED',
+        label: 'At least one active attendance device configured',
+        complete: attendanceDevicesCount > 0,
+        count: attendanceDevicesCount,
+        required: false,
+      },
+    ];
+
+    const requiredChecks = checks.filter((item) => item.required);
+    const completedRequiredChecks = requiredChecks.filter(
+      (item) => item.complete,
+    );
+    const missing = checks
+      .filter((item) => item.required && !item.complete)
+      .map((item) => item.label);
+    const warnings = checks
+      .filter((item) => !item.required && !item.complete)
+      .map((item) => item.label);
+    const completionPercentage = Math.round(
+      (completedRequiredChecks.length / requiredChecks.length) * 100,
+    );
+
+    return {
+      company: {
+        id: company.id,
+        name: company.name,
+        slug: company.slug,
+        status: company.status,
+      },
+      is_complete: missing.length === 0,
+      completion_percentage: completionPercentage,
+      counts: {
+        active_users: activeUsersCount,
+        branches: branchesCount,
+        departments: departmentsCount,
+        employees: employeesCount,
+        active_attendance_policies: activeAttendancePolicyCount,
+        default_timetables: defaultTimetableCount,
+        active_attendance_devices: attendanceDevicesCount,
+      },
+      missing,
+      warnings,
+      checks,
+      next_steps: this.buildCompanyOnboardingNextSteps(checks),
+    };
+  }
+
+  private async changeCompanyStatus(companyId: number, status: string) {
+    const company = await this.companyRepository.findOne({
+      where: { id: companyId },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Company not found');
+    }
+
+    company.status = status;
+    const saved = await this.companyRepository.save(company);
+
+    return {
+      message: `Company ${status} successfully`,
+      data: {
+        id: saved.id,
+        name: saved.name,
+        slug: saved.slug,
+        status: saved.status,
+        metadata: saved.metadata ?? null,
+        created_at: saved.created_at,
+        updated_at: saved.updated_at,
+      },
+    };
+  }
+
+  private buildCompanyOnboardingNextSteps(
+    checks: Array<{
+      code: string;
+      label: string;
+      complete: boolean;
+      required: boolean;
+    }>,
+  ) {
+    const actions: Record<string, string> = {
+      ADMIN_USER_CONFIGURED: 'Add at least one active company user.',
+      BRANCH_CONFIGURED: 'Create at least one branch.',
+      DEPARTMENT_CONFIGURED: 'Create at least one department.',
+      EMPLOYEE_CONFIGURED: 'Register employees.',
+      ACTIVE_ATTENDANCE_POLICY_CONFIGURED:
+        'Create and activate an attendance policy.',
+      DEFAULT_TIMETABLE_CONFIGURED: 'Create one active default timetable.',
+      ATTENDANCE_DEVICE_CONFIGURED:
+        'Add attendance devices if biometric/device attendance is required.',
+    };
+
+    return checks
+      .filter((item) => !item.complete)
+      .map((item) => ({
+        code: item.code,
+        label: item.label,
+        required: item.required,
+        action: actions[item.code] ?? 'Complete this setup item.',
+      }));
   }
 
   async findCompanyUsersPaginated(companyId: number, query: PaginationDto) {
