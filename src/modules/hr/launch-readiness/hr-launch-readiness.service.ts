@@ -14,7 +14,7 @@ import { AttendanceDeviceStatusEnum } from '../../access-control/attendance-devi
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { Permission } from '../../permissions/entities/permission.entity';
 
-interface ReadinessCheck {
+export interface ReadinessCheck {
   code: string;
   label: string;
   required: boolean;
