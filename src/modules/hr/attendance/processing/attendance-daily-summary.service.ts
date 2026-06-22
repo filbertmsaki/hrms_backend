@@ -37,12 +37,15 @@ import { AttendanceProcessingExceptionsService } from './attendance-processing-e
 import { AttendanceScheduleResolverService } from './attendance-schedule-resolver.service';
 import { AttendanceHolidayPolicyModeEnum } from '../policies/enums/attendance-holiday-policy-mode.enum';
 import { AttendanceRoundingModeEnum } from '../policies/enums/attendance-rounding-mode.enum';
+import { AttendanceProcessedEventDirectionEnum } from './enums/attendance-processed-event-direction.enum';
+import { AttendancePunchTypeEnum } from '../mobile-punches/enums/attendance-punch-type.enum';
 
 type AttendanceEventPoint = {
   id: string;
   eventTime: Date;
   rawLogId: number | null;
   source: 'processed' | 'mobile';
+  direction: AttendanceProcessedEventDirectionEnum;
 };
 
 type PreparedPunchAnalysis = {
@@ -53,6 +56,8 @@ type PreparedPunchAnalysis = {
   checkOutAt: Date | null;
   breakMinutes: number;
   hasSameTimeCheckInOut: boolean;
+  usedDirectionAwarePairing: boolean;
+  missingPunchCount: number;
 };
 
 type SummaryCalculationInput = {
@@ -67,8 +72,11 @@ type SummaryCalculationInput = {
   hasScheduleExpectation: boolean;
   noScheduleFound: boolean;
   invalidPunchCount: number;
+  duplicatePunchCount: number;
   hasSameTimeCheckInOut: boolean;
   hasMultiplePunches: boolean;
+  usedDirectionAwarePairing: boolean;
+  missingPunchCount: number;
 };
 
 type SummaryCalculationResult = {
@@ -289,12 +297,14 @@ export class AttendanceDailySummaryService {
         eventTime: event.eventTime,
         rawLogId: event.rawLogId,
         source: 'processed' as const,
+        direction: event.direction ?? AttendanceProcessedEventDirectionEnum.UNKNOWN,
       })),
       ...mobilePunches.map((punch) => ({
         id: `mobile:${punch.id}`,
         eventTime: punch.punchTime,
         rawLogId: null,
         source: 'mobile' as const,
+        direction: this.mapMobilePunchDirection(punch.punchType),
       })),
     ].sort(
       (left, right) => left.eventTime.getTime() - right.eventTime.getTime(),
@@ -321,8 +331,11 @@ export class AttendanceDailySummaryService {
       hasScheduleExpectation,
       noScheduleFound,
       invalidPunchCount: punchAnalysis.invalidPunches.length,
+      duplicatePunchCount: punchAnalysis.duplicatePunches.length,
       hasSameTimeCheckInOut: punchAnalysis.hasSameTimeCheckInOut,
       hasMultiplePunches: punchAnalysis.effectivePunches.length > 2,
+      usedDirectionAwarePairing: punchAnalysis.usedDirectionAwarePairing,
+      missingPunchCount: punchAnalysis.missingPunchCount,
     });
     const summaryValues = this.applyAdjustmentToSummary(
       calculated,
@@ -339,8 +352,11 @@ export class AttendanceDailySummaryService {
         hasScheduleExpectation,
         noScheduleFound,
         invalidPunchCount: punchAnalysis.invalidPunches.length,
+        duplicatePunchCount: punchAnalysis.duplicatePunches.length,
         hasSameTimeCheckInOut: punchAnalysis.hasSameTimeCheckInOut,
         hasMultiplePunches: punchAnalysis.effectivePunches.length > 2,
+        usedDirectionAwarePairing: punchAnalysis.usedDirectionAwarePairing,
+        missingPunchCount: punchAnalysis.missingPunchCount,
       },
       activeAdjustment,
     );
@@ -941,8 +957,13 @@ export class AttendanceDailySummaryService {
     const duplicatePunches: AttendanceEventPoint[] = [];
     const invalidPunches: AttendanceEventPoint[] = [];
 
-    for (const event of events) {
+    const sortedEvents = [...events].sort(
+      (left, right) => left.eventTime.getTime() - right.eventTime.getTime(),
+    );
+
+    for (const event of sortedEvents) {
       const previous = effectivePunches[effectivePunches.length - 1] ?? null;
+
       if (
         previous &&
         event.eventTime.getTime() - previous.eventTime.getTime() <=
@@ -951,6 +972,7 @@ export class AttendanceDailySummaryService {
         duplicatePunches.push(event);
         continue;
       }
+
       effectivePunches.push(event);
     }
 
@@ -963,18 +985,101 @@ export class AttendanceDailySummaryService {
         checkOutAt: null,
         breakMinutes: 0,
         hasSameTimeCheckInOut: false,
+        usedDirectionAwarePairing: false,
+        missingPunchCount: schedule.requiresCheckout ? 2 : 1,
       };
     }
 
+    const hasExplicitDirection = effectivePunches.some(
+      (event) => event.direction !== AttendanceProcessedEventDirectionEnum.UNKNOWN,
+    );
+
+    if (!hasExplicitDirection) {
+      return this.preparePunchesByFallbackOrder(
+        effectivePunches,
+        duplicatePunches,
+        invalidPunches,
+        schedule,
+      );
+    }
+
+    const inPunches = effectivePunches.filter(
+      (event) => event.direction === AttendanceProcessedEventDirectionEnum.IN,
+    );
+
+    const outPunches = effectivePunches.filter(
+      (event) => event.direction === AttendanceProcessedEventDirectionEnum.OUT,
+    );
+
+    let checkInAt: Date | null = inPunches[0]?.eventTime ?? null;
+    let checkOutAt: Date | null = null;
+    let hasSameTimeCheckInOut = false;
+
+    if (checkInAt) {
+      const validOutAfterCheckIn = outPunches.filter(
+        (event) => event.eventTime.getTime() > checkInAt!.getTime(),
+      );
+
+      checkOutAt =
+        validOutAfterCheckIn.length > 0
+          ? validOutAfterCheckIn[validOutAfterCheckIn.length - 1].eventTime
+          : null;
+
+      const invalidOutBeforeCheckIn = outPunches.filter(
+        (event) => event.eventTime.getTime() <= checkInAt!.getTime(),
+      );
+
+      invalidPunches.push(...invalidOutBeforeCheckIn);
+    } else if (outPunches.length > 0) {
+      checkOutAt = outPunches[outPunches.length - 1].eventTime;
+    }
+
+    if (
+      checkInAt &&
+      checkOutAt &&
+      checkInAt.getTime() === checkOutAt.getTime()
+    ) {
+      hasSameTimeCheckInOut = true;
+      invalidPunches.push(...effectivePunches);
+      checkOutAt = null;
+    }
+
+    const breakMinutes = this.calculateBreakMinutesFromDirectedPunches(
+      effectivePunches,
+      checkInAt,
+      checkOutAt,
+    );
+
+    const missingPunchCount =
+      Number(!checkInAt) + Number(schedule.requiresCheckout && !checkOutAt);
+
+    return {
+      effectivePunches,
+      duplicatePunches,
+      invalidPunches,
+      checkInAt,
+      checkOutAt,
+      breakMinutes,
+      hasSameTimeCheckInOut,
+      usedDirectionAwarePairing: true,
+      missingPunchCount,
+    };
+  }
+
+  private preparePunchesByFallbackOrder(
+    effectivePunches: AttendanceEventPoint[],
+    duplicatePunches: AttendanceEventPoint[],
+    invalidPunches: AttendanceEventPoint[],
+    schedule: ResolvedAttendanceSchedule,
+  ): PreparedPunchAnalysis {
     let checkInAt: Date | null = null;
     let checkOutAt: Date | null = null;
     let hasSameTimeCheckInOut = false;
 
     if (effectivePunches.length === 1) {
       const onlyPunch = effectivePunches[0];
-      if (
-        this.shouldTreatSinglePunchAsCheckout(schedule, onlyPunch.eventTime)
-      ) {
+
+      if (this.shouldTreatSinglePunchAsCheckout(schedule, onlyPunch.eventTime)) {
         checkOutAt = onlyPunch.eventTime;
       } else {
         checkInAt = onlyPunch.eventTime;
@@ -982,6 +1087,7 @@ export class AttendanceDailySummaryService {
     } else {
       checkInAt = effectivePunches[0].eventTime;
       checkOutAt = effectivePunches[effectivePunches.length - 1].eventTime;
+
       if (checkOutAt.getTime() === checkInAt.getTime()) {
         hasSameTimeCheckInOut = true;
         invalidPunches.push(...effectivePunches);
@@ -999,10 +1105,12 @@ export class AttendanceDailySummaryService {
     for (let index = 0; index + 1 < internalPunches.length; index += 2) {
       const breakStart = internalPunches[index];
       const breakEnd = internalPunches[index + 1];
+
       if (breakEnd.eventTime.getTime() <= breakStart.eventTime.getTime()) {
         invalidPunches.push(breakStart, breakEnd);
         continue;
       }
+
       breakMinutes += Math.floor(
         (breakEnd.eventTime.getTime() - breakStart.eventTime.getTime()) / 60000,
       );
@@ -1012,6 +1120,9 @@ export class AttendanceDailySummaryService {
       invalidPunches.push(internalPunches[internalPunches.length - 1]);
     }
 
+    const missingPunchCount =
+      Number(!checkInAt) + Number(schedule.requiresCheckout && !checkOutAt);
+
     return {
       effectivePunches,
       duplicatePunches,
@@ -1020,7 +1131,62 @@ export class AttendanceDailySummaryService {
       checkOutAt,
       breakMinutes,
       hasSameTimeCheckInOut,
+      usedDirectionAwarePairing: false,
+      missingPunchCount,
     };
+  }
+
+  private calculateBreakMinutesFromDirectedPunches(
+    punches: AttendanceEventPoint[],
+    checkInAt: Date | null,
+    checkOutAt: Date | null,
+  ): number {
+    if (!checkInAt || !checkOutAt) {
+      return 0;
+    }
+
+    const internalPunches = punches.filter(
+      (event) =>
+        event.eventTime.getTime() > checkInAt.getTime() &&
+        event.eventTime.getTime() < checkOutAt.getTime(),
+    );
+
+    let breakMinutes = 0;
+    let breakStart: AttendanceEventPoint | null = null;
+
+    for (const punch of internalPunches) {
+      if (punch.direction === AttendanceProcessedEventDirectionEnum.OUT) {
+        breakStart = punch;
+        continue;
+      }
+
+      if (
+        breakStart &&
+        punch.direction === AttendanceProcessedEventDirectionEnum.IN &&
+        punch.eventTime.getTime() > breakStart.eventTime.getTime()
+      ) {
+        breakMinutes += Math.floor(
+          (punch.eventTime.getTime() - breakStart.eventTime.getTime()) / 60000,
+        );
+        breakStart = null;
+      }
+    }
+
+    return Math.max(0, breakMinutes);
+  }
+
+  private mapMobilePunchDirection(
+    punchType: AttendancePunchTypeEnum,
+  ): AttendanceProcessedEventDirectionEnum {
+    if (punchType === AttendancePunchTypeEnum.CHECK_IN) {
+      return AttendanceProcessedEventDirectionEnum.IN;
+    }
+
+    if (punchType === AttendancePunchTypeEnum.CHECK_OUT) {
+      return AttendanceProcessedEventDirectionEnum.OUT;
+    }
+
+    return AttendanceProcessedEventDirectionEnum.UNKNOWN;
   }
 
   private shouldTreatSinglePunchAsCheckout(
@@ -1055,8 +1221,11 @@ export class AttendanceDailySummaryService {
       hasScheduleExpectation,
       noScheduleFound,
       invalidPunchCount,
+      duplicatePunchCount,
       hasSameTimeCheckInOut,
       hasMultiplePunches,
+      usedDirectionAwarePairing,
+      missingPunchCount,
     } = input;
 
     const hasApprovedLeave = leaveStatus !== null;
@@ -1262,8 +1431,6 @@ export class AttendanceDailySummaryService {
       remarks.push(AttendanceDailyRemarkEnum.MULTIPLE_PUNCHES);
     }
 
-    const missingPunchCount = Number(!checkInAt) + Number(!checkOutAt);
-
     if (
       missingPunchCount > schedule.maxMissingPunchAllowed &&
       attendanceStatus !== AttendanceDailyStatusEnum.ABSENT &&
@@ -1272,6 +1439,26 @@ export class AttendanceDailySummaryService {
       !hasApprovedLeave &&
       !hasApprovedBusinessTrip
     ) {
+      if (missingPunchCount >= 2) {
+        if (
+          !remarks.includes(
+            AttendanceDailyRemarkEnum.MISSING_BOTH_CHECK_IN_AND_CHECK_OUT,
+          )
+        ) {
+          remarks.push(
+            AttendanceDailyRemarkEnum.MISSING_BOTH_CHECK_IN_AND_CHECK_OUT,
+          );
+        }
+      } else if (!checkInAt) {
+        if (!remarks.includes(AttendanceDailyRemarkEnum.MISSING_CHECK_IN)) {
+          remarks.push(AttendanceDailyRemarkEnum.MISSING_CHECK_IN);
+        }
+      } else if (schedule.requiresCheckout && !checkOutAt) {
+        if (!remarks.includes(AttendanceDailyRemarkEnum.MISSING_CHECK_OUT)) {
+          remarks.push(AttendanceDailyRemarkEnum.MISSING_CHECK_OUT);
+        }
+      }
+
       if (!remarks.includes(AttendanceDailyRemarkEnum.MANUAL_REVIEW_REQUIRED)) {
         remarks.push(AttendanceDailyRemarkEnum.MANUAL_REVIEW_REQUIRED);
       }
@@ -1302,6 +1489,10 @@ export class AttendanceDailySummaryService {
         isHoliday: schedule.isHoliday,
         isOffDay: schedule.isOffDay,
         eventCount,
+        duplicatePunchCount,
+        invalidPunchCount,
+        missingPunchCount,
+        usedDirectionAwarePairing,
         hasScheduleExpectation,
         noScheduleFound,
         requiresCheckout: schedule.requiresCheckout,
@@ -1391,7 +1582,19 @@ export class AttendanceDailySummaryService {
       checkInAt: adjustedPunches.checkInAt,
       checkOutAt: adjustedPunches.checkOutAt,
       breakMinutes: adjustedPunches.breakMinutes,
-      ...context,
+      leaveStatus: context.leaveStatus,
+      hasApprovedBusinessTrip: context.hasApprovedBusinessTrip,
+      eventCount: context.eventCount,
+      hasScheduleExpectation: context.hasScheduleExpectation,
+      noScheduleFound: context.noScheduleFound,
+      invalidPunchCount: context.invalidPunchCount,
+      duplicatePunchCount: context.duplicatePunchCount,
+      hasSameTimeCheckInOut: context.hasSameTimeCheckInOut,
+      hasMultiplePunches: context.hasMultiplePunches,
+      usedDirectionAwarePairing: context.usedDirectionAwarePairing,
+      missingPunchCount:
+        Number(!adjustedPunches.checkInAt) +
+        Number(schedule.requiresCheckout && !adjustedPunches.checkOutAt),
     });
 
     // When the admin supplied an explicit status, use it; otherwise mark as

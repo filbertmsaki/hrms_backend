@@ -36,6 +36,7 @@ import { QueryUnmatchedAttendanceLogsDto } from './dtos/query-unmatched-attendan
 import { RebuildAttendanceSummariesDto } from './dtos/rebuild-attendance-summaries.dto';
 import { UpdateAttendanceExceptionStatusDto } from './dtos/update-attendance-exception-status.dto';
 import { UpsertAttendanceDailySummaryAdjustmentDto } from './dtos/upsert-attendance-daily-summary-adjustment.dto';
+import { RecalculateAttendanceDto } from './dtos/recalculate-attendance.dto';
 
 @ApiTags('Attendance Processing')
 @ApiBearerAuth('access-token')
@@ -141,23 +142,36 @@ export class AttendanceProcessingController {
     );
   }
 
+  @Post('daily-summaries/recalculate')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_recalculation:execute')
+  @ApiActionOperation(
+    'Recalculate Attendance',
+    'Queue or immediately execute attendance recalculation for a date range.',
+  )
+  recalculateAttendance(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: RecalculateAttendanceDto,
+  ) {
+    return this.recalculationService.queueRecalculation(
+      req.user.companyId!,
+      req.user.companyMembershipId ?? null,
+      dto,
+    );
+  }
+
   @Get('daily-summaries/:employeeId/:date')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_summaries:read')
   @ApiActionOperation(
     'Attendance Daily Summary',
-    'Recompute one employee-day attendance summary and return it',
+    'Read one employee-day attendance summary without recalculating it.',
   )
-  async recomputeOneDay(
+  getOneDaySummary(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
     @Param('date') date: string,
   ) {
-    await this.dailySummaryService.recomputeForEmployeeDate(
-      req.user.companyId!,
-      employeeId,
-      date,
-    );
     return this.dailySummaryService.findDailySummaries(req.user.companyId!, {
       employee_id: employeeId,
       from_date: date,
