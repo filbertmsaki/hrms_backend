@@ -27,6 +27,10 @@ import { EmployeeSelfServiceService } from './employee-self-service.service';
 import { CreateMyAttendancePunchDto } from './dtos/create-my-attendance-punch.dto';
 import { MyAttendanceOverviewQueryDto } from './dtos/my-attendance-overview-query.dto';
 import { MyAttendanceAssignmentQueryDto } from './dtos/my-attendance-assignment-query.dto';
+import { CreateAttendanceCorrectionRequestDto } from './dtos/create-attendance-correction-request.dto';
+import { QuerySelfServiceRequestDto } from './dtos/query-self-service-request.dto';
+import { CreateProfileUpdateRequestDto } from './dtos/create-profile-update-request.dto';
+import { TeamAttendanceQueryDto } from './dtos/team-attendance-query.dto';
 
 @ApiTags('Employee Self Service')
 @ApiBearerAuth('access-token')
@@ -232,5 +236,139 @@ checkOut(
     req.ip,
     req.headers['user-agent'] ?? null,
   );
+}
+
+// ─── Attendance Correction Requests ────────────────────────────────────────
+
+@Get('attendance/correction-requests')
+@ApiOperation({ summary: 'List my attendance correction requests' })
+listMyCorrectionRequests(
+  @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  @Query() query: QuerySelfServiceRequestDto,
+) {
+  return this.employeeSelfServiceService.listMyCorrectionRequests(
+    req.user,
+    query,
+  );
+}
+
+@Post('attendance/correction-requests')
+@ApiOperation({ summary: 'Create an attendance correction request' })
+createMyCorrectionRequest(
+  @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  @Body() dto: CreateAttendanceCorrectionRequestDto,
+) {
+  return this.employeeSelfServiceService.createMyCorrectionRequest(
+    req.user,
+    dto,
+  );
+}
+
+@Get('attendance/correction-requests/:id')
+@ApiOperation({ summary: 'Get one of my attendance correction requests' })
+getMyCorrectionRequest(
+  @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  @Param('id', ParseIntPipe) id: number,
+) {
+  return this.employeeSelfServiceService.getMyCorrectionRequest(req.user, id);
+}
+
+@Post('attendance/correction-requests/:id/submit')
+@ApiOperation({ summary: 'Submit an attendance correction request' })
+submitMyCorrectionRequest(
+  @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  @Param('id', ParseIntPipe) id: number,
+) {
+  return this.employeeSelfServiceService.submitMyCorrectionRequest(
+    req.user,
+    id,
+  );
+}
+
+@Post('attendance/correction-requests/:id/cancel')
+@ApiOperation({ summary: 'Cancel an attendance correction request' })
+cancelMyCorrectionRequest(
+  @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  @Param('id', ParseIntPipe) id: number,
+) {
+  return this.employeeSelfServiceService.cancelMyCorrectionRequest(
+    req.user,
+    id,
+  );
+}
+
+// ─── Profile Update Requests ─────────────────────────────────────────────────
+
+@Get('profile-update-requests')
+@ApiOperation({ summary: 'List my profile update requests' })
+listMyProfileUpdateRequests(
+  @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  @Query() query: QuerySelfServiceRequestDto,
+) {
+  return this.employeeSelfServiceService.listMyProfileUpdateRequests(
+    req.user,
+    query,
+  );
+}
+
+@Post('profile-update-requests')
+@ApiOperation({ summary: 'Create a profile update request' })
+createMyProfileUpdateRequest(
+  @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  @Body() dto: CreateProfileUpdateRequestDto,
+) {
+  return this.employeeSelfServiceService.createMyProfileUpdateRequest(
+    req.user,
+    dto,
+  );
+}
+
+@Get('profile-update-requests/:id')
+@ApiOperation({ summary: 'Get one of my profile update requests' })
+getMyProfileUpdateRequest(
+  @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  @Param('id', ParseIntPipe) id: number,
+) {
+  return this.employeeSelfServiceService.getMyProfileUpdateRequest(
+    req.user,
+    id,
+  );
+}
+
+@Post('profile-update-requests/:id/submit')
+@ApiOperation({ summary: 'Submit a profile update request' })
+submitMyProfileUpdateRequest(
+  @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  @Param('id', ParseIntPipe) id: number,
+) {
+  return this.employeeSelfServiceService.submitMyProfileUpdateRequest(
+    req.user,
+    id,
+  );
+}
+
+@Post('profile-update-requests/:id/cancel')
+@ApiOperation({ summary: 'Cancel a profile update request' })
+cancelMyProfileUpdateRequest(
+  @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  @Param('id', ParseIntPipe) id: number,
+) {
+  return this.employeeSelfServiceService.cancelMyProfileUpdateRequest(
+    req.user,
+    id,
+  );
+}
+
+// ─── Manager / Team Attendance ────────────────────────────────────────────────
+
+@Get('team/attendance')
+@ApiOperation({
+  summary: "Get my direct reports' attendance (manager view)",
+})
+getMyTeamAttendance(
+  @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  @Query() query: TeamAttendanceQueryDto,
+) {
+  return this.employeeSelfServiceService.getMyTeamAttendance(req.user, query);
 }
 }

@@ -377,12 +377,8 @@ export class HikvisionService {
         last_connection_test_error: result.success
           ? null
           : result.errorMessage ?? 'Unknown error',
-        last_connection_test_capabilities: result.capabilities
-          ? maskSensitiveObject(result.capabilities)
-          : undefined,
-        last_connection_test_device_info: result.deviceInfo
-          ? maskSensitiveObject(result.deviceInfo)
-          : undefined,
+        last_connection_test_capabilities: result.capabilities ?? undefined,
+        last_connection_test_device_info: result.deviceInfo ?? undefined,
       },
     };
   }

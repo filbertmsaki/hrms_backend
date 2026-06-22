@@ -6,6 +6,13 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { AttendanceCorrectionRequest } from './entities/attendance-correction-request.entity';
+import { EmployeeProfileUpdateRequest } from './entities/employee-profile-update-request.entity';
+import { SelfServiceRequestStatusEnum } from './enums/self-service-request-status.enum';
+import { CreateAttendanceCorrectionRequestDto } from './dtos/create-attendance-correction-request.dto';
+import { QuerySelfServiceRequestDto } from './dtos/query-self-service-request.dto';
+import { CreateProfileUpdateRequestDto } from './dtos/create-profile-update-request.dto';
+import { TeamAttendanceQueryDto } from './dtos/team-attendance-query.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { UsersService } from '../../users/users.service';
 import { EmployeesService } from '../employees/employees.service';
@@ -95,6 +102,10 @@ export class EmployeeSelfServiceService {
     private readonly shiftRepository: Repository<Shift>,
     @InjectRepository(Timetable)
     private readonly timetableRepository: Repository<Timetable>,
+    @InjectRepository(AttendanceCorrectionRequest)
+    private readonly correctionRequestRepository: Repository<AttendanceCorrectionRequest>,
+    @InjectRepository(EmployeeProfileUpdateRequest)
+    private readonly profileUpdateRequestRepository: Repository<EmployeeProfileUpdateRequest>,
   ) {}
 
   async getProfile(actor: AuthenticatedUser) {
@@ -622,6 +633,366 @@ export class EmployeeSelfServiceService {
       leaveRequestId,
       actor,
     );
+  }
+
+  // ─── Attendance Correction Requests ────────────────────────────────────────
+
+  async listMyCorrectionRequests(
+    actor: AuthenticatedUser,
+    query: QuerySelfServiceRequestDto,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+
+    const qb = this.correctionRequestRepository
+      .createQueryBuilder('r')
+      .where('r.companyId = :companyId', { companyId })
+      .andWhere('r.employeeId = :employeeId', { employeeId })
+      .orderBy('r.createdAt', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    if (query.status) {
+      qb.andWhere('r.status = :status', { status: query.status });
+    }
+    if (query.date_from) {
+      qb.andWhere('r.attendanceDate >= :dateFrom', {
+        dateFrom: query.date_from,
+      });
+    }
+    if (query.date_to) {
+      qb.andWhere('r.attendanceDate <= :dateTo', { dateTo: query.date_to });
+    }
+
+    const [items, total] = await qb.getManyAndCount();
+
+    return {
+      data: items.map((r) => this.mapCorrectionRequest(r)),
+      meta: this.buildSelfServicePaginationMeta(total, page, limit),
+    };
+  }
+
+  async getMyCorrectionRequest(actor: AuthenticatedUser, id: number) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+    const request = await this.correctionRequestRepository.findOne({
+      where: { id, companyId, employeeId },
+    });
+
+    if (!request) {
+      throw new NotFoundException('Attendance correction request not found.');
+    }
+
+    return this.mapCorrectionRequest(request);
+  }
+
+  async createMyCorrectionRequest(
+    actor: AuthenticatedUser,
+    dto: CreateAttendanceCorrectionRequestDto,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+
+    const request = this.correctionRequestRepository.create({
+      companyId,
+      employeeId,
+      attendanceDate: dto.attendance_date,
+      correctionType: dto.correction_type,
+      originalCheckInAt: dto.original_check_in_at
+        ? new Date(dto.original_check_in_at)
+        : null,
+      originalCheckOutAt: dto.original_check_out_at
+        ? new Date(dto.original_check_out_at)
+        : null,
+      requestedCheckInAt: dto.requested_check_in_at
+        ? new Date(dto.requested_check_in_at)
+        : null,
+      requestedCheckOutAt: dto.requested_check_out_at
+        ? new Date(dto.requested_check_out_at)
+        : null,
+      reason: dto.reason ?? null,
+      status: SelfServiceRequestStatusEnum.DRAFT,
+    });
+
+    const saved = await this.correctionRequestRepository.save(request);
+    return this.mapCorrectionRequest(saved);
+  }
+
+  async submitMyCorrectionRequest(actor: AuthenticatedUser, id: number) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+    const request = await this.correctionRequestRepository.findOne({
+      where: { id, companyId, employeeId },
+    });
+
+    if (!request) {
+      throw new NotFoundException('Attendance correction request not found.');
+    }
+
+    if (request.status !== SelfServiceRequestStatusEnum.DRAFT) {
+      throw new BadRequestException(
+        `Cannot submit a request in status '${request.status}'.`,
+      );
+    }
+
+    request.status = SelfServiceRequestStatusEnum.SUBMITTED;
+    request.submittedAt = new Date();
+    const saved = await this.correctionRequestRepository.save(request);
+    return this.mapCorrectionRequest(saved);
+  }
+
+  async cancelMyCorrectionRequest(actor: AuthenticatedUser, id: number) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+    const request = await this.correctionRequestRepository.findOne({
+      where: { id, companyId, employeeId },
+    });
+
+    if (!request) {
+      throw new NotFoundException('Attendance correction request not found.');
+    }
+
+    if (
+      request.status !== SelfServiceRequestStatusEnum.DRAFT &&
+      request.status !== SelfServiceRequestStatusEnum.SUBMITTED
+    ) {
+      throw new BadRequestException(
+        `Cannot cancel a request in status '${request.status}'.`,
+      );
+    }
+
+    request.status = SelfServiceRequestStatusEnum.CANCELLED;
+    const saved = await this.correctionRequestRepository.save(request);
+    return this.mapCorrectionRequest(saved);
+  }
+
+  private mapCorrectionRequest(r: AttendanceCorrectionRequest) {
+    return {
+      id: r.id,
+      attendance_date: r.attendanceDate,
+      correction_type: r.correctionType,
+      original_check_in_at: r.originalCheckInAt,
+      original_check_out_at: r.originalCheckOutAt,
+      requested_check_in_at: r.requestedCheckInAt,
+      requested_check_out_at: r.requestedCheckOutAt,
+      reason: r.reason,
+      status: r.status,
+      submitted_at: r.submittedAt,
+      reviewed_by_user_id: r.reviewedByUserId,
+      reviewed_at: r.reviewedAt,
+      reviewer_notes: r.reviewerNotes,
+      created_at: r.createdAt,
+      updated_at: r.updatedAt,
+    };
+  }
+
+  // ─── Profile Update Requests ────────────────────────────────────────────────
+
+  async listMyProfileUpdateRequests(
+    actor: AuthenticatedUser,
+    query: QuerySelfServiceRequestDto,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+
+    const qb = this.profileUpdateRequestRepository
+      .createQueryBuilder('r')
+      .where('r.companyId = :companyId', { companyId })
+      .andWhere('r.employeeId = :employeeId', { employeeId })
+      .orderBy('r.createdAt', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    if (query.status) {
+      qb.andWhere('r.status = :status', { status: query.status });
+    }
+
+    const [items, total] = await qb.getManyAndCount();
+
+    return {
+      data: items.map((r) => this.mapProfileUpdateRequest(r)),
+      meta: this.buildSelfServicePaginationMeta(total, page, limit),
+    };
+  }
+
+  async getMyProfileUpdateRequest(actor: AuthenticatedUser, id: number) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+    const request = await this.profileUpdateRequestRepository.findOne({
+      where: { id, companyId, employeeId },
+    });
+
+    if (!request) {
+      throw new NotFoundException('Profile update request not found.');
+    }
+
+    return this.mapProfileUpdateRequest(request);
+  }
+
+  async createMyProfileUpdateRequest(
+    actor: AuthenticatedUser,
+    dto: CreateProfileUpdateRequestDto,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+
+    const request = this.profileUpdateRequestRepository.create({
+      companyId,
+      employeeId,
+      fieldName: dto.field_name,
+      currentValue: dto.current_value ?? null,
+      requestedValue: dto.requested_value,
+      reason: dto.reason ?? null,
+      status: SelfServiceRequestStatusEnum.DRAFT,
+    });
+
+    const saved = await this.profileUpdateRequestRepository.save(request);
+    return this.mapProfileUpdateRequest(saved);
+  }
+
+  async submitMyProfileUpdateRequest(actor: AuthenticatedUser, id: number) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+    const request = await this.profileUpdateRequestRepository.findOne({
+      where: { id, companyId, employeeId },
+    });
+
+    if (!request) {
+      throw new NotFoundException('Profile update request not found.');
+    }
+
+    if (request.status !== SelfServiceRequestStatusEnum.DRAFT) {
+      throw new BadRequestException(
+        `Cannot submit a request in status '${request.status}'.`,
+      );
+    }
+
+    request.status = SelfServiceRequestStatusEnum.SUBMITTED;
+    request.submittedAt = new Date();
+    const saved = await this.profileUpdateRequestRepository.save(request);
+    return this.mapProfileUpdateRequest(saved);
+  }
+
+  async cancelMyProfileUpdateRequest(actor: AuthenticatedUser, id: number) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+    const request = await this.profileUpdateRequestRepository.findOne({
+      where: { id, companyId, employeeId },
+    });
+
+    if (!request) {
+      throw new NotFoundException('Profile update request not found.');
+    }
+
+    if (
+      request.status !== SelfServiceRequestStatusEnum.DRAFT &&
+      request.status !== SelfServiceRequestStatusEnum.SUBMITTED
+    ) {
+      throw new BadRequestException(
+        `Cannot cancel a request in status '${request.status}'.`,
+      );
+    }
+
+    request.status = SelfServiceRequestStatusEnum.CANCELLED;
+    const saved = await this.profileUpdateRequestRepository.save(request);
+    return this.mapProfileUpdateRequest(saved);
+  }
+
+  private mapProfileUpdateRequest(r: EmployeeProfileUpdateRequest) {
+    return {
+      id: r.id,
+      field_name: r.fieldName,
+      current_value: r.currentValue,
+      requested_value: r.requestedValue,
+      reason: r.reason,
+      status: r.status,
+      submitted_at: r.submittedAt,
+      reviewed_by_user_id: r.reviewedByUserId,
+      reviewed_at: r.reviewedAt,
+      reviewer_notes: r.reviewerNotes,
+      created_at: r.createdAt,
+      updated_at: r.updatedAt,
+    };
+  }
+
+  // ─── Manager / Team Attendance ──────────────────────────────────────────────
+
+  async getMyTeamAttendance(
+    actor: AuthenticatedUser,
+    query: TeamAttendanceQueryDto,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+
+    const qb = this.attendanceDailySummaryRepository
+      .createQueryBuilder('s')
+      .where('s.companyId = :companyId', { companyId })
+      .andWhere(
+        (sub) => {
+          const subQuery = sub
+            .subQuery()
+            .select('e.id')
+            .from('employees', 'e')
+            .where('e.reports_to = :managerId')
+            .getQuery();
+          return `s.employeeId IN ${subQuery}`;
+        },
+        { managerId: employeeId },
+      )
+      .orderBy('s.attendanceDate', 'DESC')
+      .addOrderBy('s.employeeId', 'ASC')
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    if (query.date_from) {
+      qb.andWhere('s.attendanceDate >= :dateFrom', {
+        dateFrom: query.date_from,
+      });
+    }
+    if (query.date_to) {
+      qb.andWhere('s.attendanceDate <= :dateTo', { dateTo: query.date_to });
+    }
+
+    const [items, total] = await qb.getManyAndCount();
+
+    return {
+      data: items.map((s) => ({
+        id: s.id,
+        employee_id: s.employeeId,
+        attendance_date: s.attendanceDate,
+        status: s.attendanceStatus,
+        check_in_at: s.checkInAt,
+        check_out_at: s.checkOutAt,
+        work_minutes: s.workMinutes,
+        late_minutes: s.lateMinutes,
+        overtime_minutes: s.overtimeMinutes,
+        early_departure_minutes: s.earlyDepartureMinutes,
+      })),
+      meta: this.buildSelfServicePaginationMeta(total, page, limit),
+    };
+  }
+
+  private buildSelfServicePaginationMeta(
+    total: number,
+    page: number,
+    limit: number,
+  ) {
+    const totalPages = Math.ceil(total / limit);
+    return {
+      total,
+      count: Math.min(limit, total - (page - 1) * limit),
+      limit,
+      page,
+      total_pages: totalPages,
+      has_next_page: page < totalPages,
+      has_previous_page: page > 1,
+    };
   }
 
   private ensureCompanyId(actor: AuthenticatedUser): number {

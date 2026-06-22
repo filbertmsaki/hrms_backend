@@ -15,6 +15,8 @@ import { EmployeeSelfServiceController } from './employee-self-service.controlle
 import { EmployeeSelfServiceService } from './employee-self-service.service';
 import { Shift } from '../attendance/shift/shifts/entities/shift.entity';
 import { Timetable } from '../attendance/timetable/timetables/entities/timetable.entity';
+import { AttendanceCorrectionRequest } from './entities/attendance-correction-request.entity';
+import { EmployeeProfileUpdateRequest } from './entities/employee-profile-update-request.entity';
 
 @Module({
   imports: [
@@ -27,6 +29,8 @@ import { Timetable } from '../attendance/timetable/timetables/entities/timetable
       Shift,
       EmployeeTimetable,
       Timetable,
+      AttendanceCorrectionRequest,
+      EmployeeProfileUpdateRequest,
     ]),
     UsersModule,
     EmployeesModule,
