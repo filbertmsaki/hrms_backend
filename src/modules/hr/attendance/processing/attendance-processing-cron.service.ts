@@ -13,6 +13,7 @@ import { TimetableStatusEnum } from '../timetable/timetables/enums/timetable-sta
 import { AttendanceProcessingService } from './attendance-processing.service';
 import { AttendanceRecalculationService } from './attendance-recalculation.service';
 import { formatDateOnly } from '../../shared/hr.utils';
+import { AttendancePolicy } from '../policies/entities/attendance-policy.entity';
 
 @Injectable()
 export class AttendanceProcessingCronService {
@@ -29,6 +30,8 @@ export class AttendanceProcessingCronService {
     private readonly shiftScheduleRepository: Repository<ShiftSchedule>,
     @InjectRepository(Timetable)
     private readonly timetableRepository: Repository<Timetable>,
+    @InjectRepository(AttendancePolicy)
+    private readonly attendancePolicyRepository: Repository<AttendancePolicy>,
     private readonly processingService: AttendanceProcessingService,
     private readonly recalculationService: AttendanceRecalculationService,
   ) {}
@@ -108,7 +111,10 @@ export class AttendanceProcessingCronService {
         }
       }
 
-      for (const companyId of companyIds) {
+      const dueCompanyIds =
+        await this.filterCompaniesDueForCalculation(companyIds);
+
+      for (const companyId of dueCompanyIds) {
         await this.processingService.processRange(companyId, {
           start_date: today,
           end_date: today,
@@ -144,5 +150,64 @@ export class AttendanceProcessingCronService {
 
   private formatDate(date: Date): string {
     return formatDateOnly(date);
+  }
+
+  private async filterCompaniesDueForCalculation(
+    companyIds: Set<number>,
+    now = new Date(),
+  ): Promise<number[]> {
+    if (!companyIds.size) return [];
+
+    const policies = await this.attendancePolicyRepository.find({
+      where: {
+        is_active: true,
+        auto_calculate_attendance: true,
+      },
+      select: [
+        'id',
+        'company_id',
+        'calculation_time',
+        'auto_calculate_attendance',
+        'is_active',
+      ],
+    });
+
+    const requestedCompanyIds = new Set(companyIds);
+    const dueCompanyIds: number[] = [];
+
+    for (const policy of policies) {
+      if (!requestedCompanyIds.has(policy.company_id)) continue;
+
+      if (this.isCalculationTimeDue(policy.calculation_time, now)) {
+        dueCompanyIds.push(policy.company_id);
+      }
+    }
+
+    return dueCompanyIds;
+  }
+
+  private isCalculationTimeDue(
+    calculationTime: string | null | undefined,
+    now: Date,
+  ): boolean {
+    if (!calculationTime) return true;
+
+    const [hour, minute] = calculationTime.split(':').map(Number);
+
+    if (!Number.isInteger(hour) || !Number.isInteger(minute)) {
+      return true;
+    }
+
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const calculationMinutes = hour * 60 + minute;
+
+    const windowMinutes = Number(
+      process.env.ATTENDANCE_CALCULATION_WINDOW_MINUTES ?? 10,
+    );
+
+    return (
+      nowMinutes >= calculationMinutes &&
+      nowMinutes <= calculationMinutes + windowMinutes
+    );
   }
 }

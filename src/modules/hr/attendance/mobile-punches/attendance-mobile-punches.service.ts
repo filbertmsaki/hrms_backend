@@ -125,8 +125,12 @@ export class AttendanceMobilePunchesService {
     const deviceIdentifier = this.normalizeOptionalString(
       params.dto.deviceIdentifier,
     );
-    const overrideReason = this.normalizeOptionalString(params.dto.overrideReason);
-    const submittedIpAddress = this.normalizeOptionalString(params.dto.ipAddress);
+    const overrideReason = this.normalizeOptionalString(
+      params.dto.overrideReason,
+    );
+    const submittedIpAddress = this.normalizeOptionalString(
+      params.dto.ipAddress,
+    );
     const ipAddress =
       submittedIpAddress ??
       this.normalizeOptionalString(params.requestIp) ??
@@ -135,6 +139,7 @@ export class AttendanceMobilePunchesService {
       companyId: params.companyId,
       employeeBranchId: employee.primary_branch_id ?? null,
       requiredCheckpoints,
+      geofenceRequired: this.isGeofenceRequired(policy, requiredCheckpoints),
       latitude: params.dto.latitude,
       longitude: params.dto.longitude,
       accuracyMeters: params.dto.accuracyMeters,
@@ -169,6 +174,14 @@ export class AttendanceMobilePunchesService {
       punchTime,
     });
     const attendanceDate = punchAvailability.attendanceDate;
+
+    await this.validateTrustedMobileDevice({
+      policy,
+      companyId: params.companyId,
+      employeeId: employee.id,
+      window: punchAvailability.window,
+      deviceIdentifier,
+    });
 
     const validationErrors =
       this.collectUnsupportedCheckpointValidationErrors(requiredCheckpoints);
@@ -319,6 +332,7 @@ export class AttendanceMobilePunchesService {
     companyId: number;
     employeeBranchId?: number | null;
     requiredCheckpoints: AttendanceCheckpoint[];
+    geofenceRequired: boolean;
     latitude: number;
     longitude: number;
     accuracyMeters?: number;
@@ -342,6 +356,20 @@ export class AttendanceMobilePunchesService {
           .filter((value): value is number => Boolean(value)),
       ),
     );
+
+    if (!params.geofenceRequired) {
+      return {
+        matchedGeofence: null,
+        validation: null,
+        validationResult: {
+          required: false,
+          matched: false,
+          checkedGeofenceIds: [],
+          attempts: [],
+        },
+        errors: [],
+      };
+    }
 
     const allowedGeofences = checkpointGeofenceIds.length
       ? await this.geofenceRepo.findActiveByIds(
@@ -383,7 +411,8 @@ export class AttendanceMobilePunchesService {
           geofenceId: geofence.id,
           geofenceName: geofence.name,
           valid: false,
-          message: 'Configured geofence does not belong to the employee branch.',
+          message:
+            'Configured geofence does not belong to the employee branch.',
         });
         continue;
       }
@@ -403,7 +432,8 @@ export class AttendanceMobilePunchesService {
           geofenceId: geofence.id,
           geofenceName: geofence.name,
           valid: false,
-          message: 'Only circle geofence is currently supported for mobile punch.',
+          message:
+            'Only circle geofence is currently supported for mobile punch.',
         });
         continue;
       }
@@ -544,7 +574,8 @@ export class AttendanceMobilePunchesService {
           wifiNetworkId: wifiNetwork.id,
           wifiNetworkName: wifiNetwork.name,
           valid: false,
-          message: 'Configured WiFi network does not belong to the employee branch.',
+          message:
+            'Configured WiFi network does not belong to the employee branch.',
         });
         continue;
       }
@@ -587,12 +618,13 @@ export class AttendanceMobilePunchesService {
         checkedWifiNetworkIds: allowedWifiNetworks.map((item) => item.id),
         attempts,
       },
-      errors: wifiRequired || hasWifiDetails
-        ? this.buildValidationFailureErrors(
-            'WiFi network does not match any allowed office network.',
-            attempts,
-          )
-        : [],
+      errors:
+        wifiRequired || hasWifiDetails
+          ? this.buildValidationFailureErrors(
+              'WiFi network does not match any allowed office network.',
+              attempts,
+            )
+          : [],
     };
   }
 
@@ -726,11 +758,13 @@ export class AttendanceMobilePunchesService {
       .filter(
         (
           candidate,
-        ): candidate is typeof candidate & { window: { start: Date; end: Date } } =>
+        ): candidate is typeof candidate & {
+          window: { start: Date; end: Date };
+        } =>
           Boolean(
             candidate.window &&
-              candidate.schedule.scheduleStartAt &&
-              candidate.schedule.scheduleEndAt,
+            candidate.schedule.scheduleStartAt &&
+            candidate.schedule.scheduleEndAt,
           ),
       )
       .sort(
@@ -815,7 +849,9 @@ export class AttendanceMobilePunchesService {
     attendanceDate: string;
     window: { start: Date; end: Date };
   }): Promise<{ hasCheckIn: boolean; hasCheckOut: boolean }> {
-    const employeeNo = this.normalizeOptionalString(params.employee.employee_no);
+    const employeeNo = this.normalizeOptionalString(
+      params.employee.employee_no,
+    );
     const [mobilePunches, processedEvents, dailySummary, rawLogs] =
       await Promise.all([
         this.punchRepo.findApprovedForEmployeeWindow({
@@ -870,11 +906,13 @@ export class AttendanceMobilePunchesService {
     );
     const hasRawCheckIn = rawLogs.some(
       (log) =>
-        this.inferRawLogDirection(log) === AttendanceProcessedEventDirectionEnum.IN,
+        this.inferRawLogDirection(log) ===
+        AttendanceProcessedEventDirectionEnum.IN,
     );
     const hasRawCheckOut = rawLogs.some(
       (log) =>
-        this.inferRawLogDirection(log) === AttendanceProcessedEventDirectionEnum.OUT,
+        this.inferRawLogDirection(log) ===
+        AttendanceProcessedEventDirectionEnum.OUT,
     );
 
     return {
@@ -932,7 +970,11 @@ export class AttendanceMobilePunchesService {
       );
     }
 
-    if (attendanceDate && employee.exit_date && attendanceDate > employee.exit_date) {
+    if (
+      attendanceDate &&
+      employee.exit_date &&
+      attendanceDate > employee.exit_date
+    ) {
       throw new BadRequestException(
         'Attendance punch date cannot be after the employee exit date.',
       );
@@ -984,6 +1026,59 @@ export class AttendanceMobilePunchesService {
     });
   }
 
+  private isGeofenceRequired(
+    policy: AttendancePolicy | null,
+    requiredCheckpoints: AttendanceCheckpoint[],
+  ): boolean {
+    return Boolean(
+      policy?.require_geo_fencing ||
+      requiredCheckpoints.some(
+        (checkpoint) => checkpoint.type === AttendanceCheckpointTypeEnum.GPS,
+      ),
+    );
+  }
+
+  private async validateTrustedMobileDevice(params: {
+    policy: AttendancePolicy | null;
+    companyId: number;
+    employeeId: number;
+    window: { start: Date; end: Date };
+    deviceIdentifier?: string | null;
+  }) {
+    if (!params.policy || params.policy.allow_multi_device_login) {
+      return;
+    }
+
+    const existingPunches = await this.punchRepo.findApprovedForEmployeeWindow({
+      companyId: params.companyId,
+      employeeId: params.employeeId,
+      windowStart: params.window.start,
+      windowEnd: params.window.end,
+    });
+
+    const trustedDeviceIdentifier = existingPunches
+      .map((punch) => this.normalizeOptionalString(punch.deviceIdentifier))
+      .find((value): value is string => Boolean(value));
+
+    if (!trustedDeviceIdentifier) {
+      return;
+    }
+
+    if (!params.deviceIdentifier) {
+      throw new BadRequestException({
+        message:
+          'This attendance day already has a trusted mobile device. Device identifier is required.',
+      });
+    }
+
+    if (trustedDeviceIdentifier !== params.deviceIdentifier) {
+      throw new BadRequestException({
+        message:
+          'Multiple mobile devices are not allowed for the active attendance policy. Use the first trusted device used for this attendance day.',
+      });
+    }
+  }
+
   private collectUnsupportedCheckpointValidationErrors(
     requiredCheckpoints: AttendanceCheckpoint[],
   ) {
@@ -1019,7 +1114,10 @@ export class AttendanceMobilePunchesService {
         (!checkpoint.geofenceId || checkpoint.geofenceId === params.geofenceId),
     );
 
-    if (typeof params.distanceMeters === 'number' && matchedGpsCheckpoints.length) {
+    if (
+      typeof params.distanceMeters === 'number' &&
+      matchedGpsCheckpoints.length
+    ) {
       const distanceMeters = params.distanceMeters;
       const satisfiesDistanceRule = matchedGpsCheckpoints.some(
         (checkpoint) =>

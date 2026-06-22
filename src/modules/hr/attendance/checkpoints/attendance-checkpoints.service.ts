@@ -356,6 +356,12 @@ export class AttendanceCheckpointsService {
     const { type, deviceId, geofenceId, wifiNetworkId, maxDistanceMeters } =
       params;
 
+    if (type === 'QR') {
+      throw new BadRequestException(
+        'QR checkpoint is not supported in Phase One. Use GPS, WIFI, DEVICE or MANUAL checkpoint.',
+      );
+    }
+
     if (type === 'DEVICE') {
       if (!deviceId) {
         throw new BadRequestException(
@@ -398,7 +404,7 @@ export class AttendanceCheckpointsService {
       }
     }
 
-    if (type === 'QR' || type === 'MANUAL') {
+    if (type === 'MANUAL') {
       if (deviceId || geofenceId || wifiNetworkId) {
         throw new BadRequestException(
           `${type} checkpoints cannot include device_id, geofence_id, or wifi_network_id`,

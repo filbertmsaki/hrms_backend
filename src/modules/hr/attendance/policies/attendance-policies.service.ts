@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -172,8 +173,7 @@ export class AttendancePoliciesService {
       absent_after_minutes: absentAfterMinutes,
       overtime_start_after_minutes: dto.overtime_start_after_minutes ?? 0,
       max_overtime_minutes_per_day: dto.max_overtime_minutes_per_day ?? 0,
-      max_overtime_minutes_per_month:
-        dto.max_overtime_minutes_per_month ?? 0,
+      max_overtime_minutes_per_month: dto.max_overtime_minutes_per_month ?? 0,
       overtime_rate_multiplier:
         dto.overtime_rate_multiplier?.toFixed(2) ?? '1.00',
       holiday_overtime_multiplier:
@@ -332,7 +332,17 @@ export class AttendancePoliciesService {
     policyId: number,
   ): Promise<{ message: string }> {
     const policy = await this.findPolicyOrFail(companyId, policyId);
+
+    if (policy.is_active) {
+      throw new BadRequestException(
+        'Active attendance policy cannot be deleted. Activate another policy first, then delete this policy.',
+      );
+    }
+
     await this.attendancePolicyRepository.remove(policy);
-    return { message: 'Attendance policy deleted successfully' };
+
+    return {
+      message: 'Attendance policy deleted successfully',
+    };
   }
 }

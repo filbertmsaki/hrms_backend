@@ -20,6 +20,8 @@ import { AttendanceDailySummary } from '../processing/entities/attendance-daily-
 import { AttendanceProcessedEventDirectionEnum } from '../processing/enums/attendance-processed-event-direction.enum';
 import { HikvisionAttendanceLog } from '../../../hikvision/entities/hikvision-attendance-log.entity';
 import { AttendanceCompanyConfigService } from '../shared/attendance-company-config.service';
+import { AttendanceRoundingModeEnum } from '../policies/enums/attendance-rounding-mode.enum';
+import { AttendanceHolidayPolicyModeEnum } from '../policies/enums/attendance-holiday-policy-mode.enum';
 
 type EmployeeQueryBuilderMock = {
   innerJoin: jest.Mock;
@@ -63,8 +65,12 @@ const buildResolvedSchedule = (
   allowOvertime: true,
   overtimeStartAfterMinutes: 0,
   maxOvertimeMinutes: 0,
+  overtimeRequiresApproval: false,
   requiresCheckout: true,
   ignoreMissingCheckoutIfHoursValid: false,
+  roundingMode: AttendanceRoundingModeEnum.NEAREST,
+  maxMissingPunchAllowed: 0,
+  holidayPolicyMode: AttendanceHolidayPolicyModeEnum.OFF,
   ...overrides,
 });
 
@@ -142,12 +148,13 @@ describe('AttendanceMobilePunchesService', () => {
       find: jest.fn(),
     };
     scheduleResolver = {
-      resolveForDate: jest.fn((companyId: number, employeeId: number, date: string) =>
-        Promise.resolve(
-          buildResolvedSchedule(date, {
-            employeeId,
-          }),
-        ),
+      resolveForDate: jest.fn(
+        (companyId: number, employeeId: number, date: string) =>
+          Promise.resolve(
+            buildResolvedSchedule(date, {
+              employeeId,
+            }),
+          ),
       ),
     };
     processedEventRepository = {
@@ -192,6 +199,7 @@ describe('AttendanceMobilePunchesService', () => {
       is_active: true,
       authentication_modes: 'MOBILE_APP,WEB',
       require_geo_fencing: false,
+      allow_multi_device_login: true,
     });
   });
 
@@ -680,7 +688,44 @@ describe('AttendanceMobilePunchesService', () => {
     expect(punchRepo.save).not.toHaveBeenCalled();
   });
 
-  it('requires coordinates to match a registered system geofence even without GPS checkpoints', async () => {
+  it('does not require branch geofence matching when policy and checkpoints do not require GPS', async () => {
+    checkpointRepository.find.mockResolvedValue([]);
+    wifiRepo.findActiveForBranch.mockResolvedValue([]);
+
+    const result = await service.checkIn({
+      companyId: 1,
+      authenticatedEmployeeId: 39,
+      employeeId: 39,
+      dto: {
+        latitude: -6.792354,
+        longitude: 39.208328,
+        accuracyMeters: 8.5,
+      },
+      requestIp: '10.40.1.24',
+      userAgent: 'jest',
+    });
+
+    expect(geofenceRepo.findActiveForBranch).not.toHaveBeenCalled();
+    expect(
+      geofenceDistanceService.validateCircleGeofence,
+    ).not.toHaveBeenCalled();
+    expect(result.punch).toEqual(
+      expect.objectContaining({
+        geofenceId: null,
+        validationStatus: AttendancePunchValidationStatusEnum.APPROVED,
+      }),
+    );
+  });
+
+  it('still enforces geofence matching when the active policy requires geo fencing', async () => {
+    attendanceCompanyConfigService.resolvePolicyForCompany.mockResolvedValue({
+      id: 12,
+      company_id: 1,
+      is_active: true,
+      authentication_modes: 'MOBILE_APP,WEB',
+      require_geo_fencing: true,
+      allow_multi_device_login: true,
+    });
     checkpointRepository.find.mockResolvedValue([]);
     geofenceRepo.findActiveForBranch.mockResolvedValue([
       {
@@ -754,7 +799,8 @@ describe('AttendanceMobilePunchesService', () => {
     geofenceDistanceService.validateCircleGeofence.mockReturnValue({
       valid: false,
       distanceMeters: 140,
-      message: 'Location is outside the allowed geofence. Distance 140m, allowed 60m.',
+      message:
+        'Location is outside the allowed geofence. Distance 140m, allowed 60m.',
     });
 
     let thrown: BadRequestException | null = null;
@@ -817,7 +863,8 @@ describe('AttendanceMobilePunchesService', () => {
     });
     wifiValidator.validate.mockReturnValue({
       valid: false,
-      message: 'Invalid WiFi SSID. Required Alliance-HQ-Staff, received Guest-WiFi.',
+      message:
+        'Invalid WiFi SSID. Required Alliance-HQ-Staff, received Guest-WiFi.',
     });
 
     let thrown: BadRequestException | null = null;
@@ -898,12 +945,54 @@ describe('AttendanceMobilePunchesService', () => {
     expect(result.message).toBe('Attendance punch saved as pending override.');
     expect(punchRepo.createEntity).toHaveBeenCalledWith(
       expect.objectContaining({
-        geofenceId: 88,
+        geofenceId: null,
         validationStatus: AttendancePunchValidationStatusEnum.PENDING_OVERRIDE,
         isOverrideRequested: true,
         overrideReason: 'Need manager review',
       }),
     );
+  });
+
+  it('rejects a checkout from a different device when multi-device login is disabled', async () => {
+    attendanceCompanyConfigService.resolvePolicyForCompany.mockResolvedValue({
+      id: 12,
+      company_id: 1,
+      is_active: true,
+      authentication_modes: 'MOBILE_APP,WEB',
+      require_geo_fencing: false,
+      allow_multi_device_login: false,
+    });
+    checkpointRepository.find.mockResolvedValue([]);
+    wifiRepo.findActiveForBranch.mockResolvedValue([]);
+    punchRepo.findApprovedForEmployeeWindow.mockResolvedValue([
+      {
+        punchType: AttendancePunchTypeEnum.CHECK_IN,
+        validationStatus: AttendancePunchValidationStatusEnum.APPROVED,
+        deviceIdentifier: 'trusted-device-001',
+      },
+    ]);
+
+    await expect(
+      service.checkOut({
+        companyId: 1,
+        authenticatedEmployeeId: 39,
+        employeeId: 39,
+        dto: {
+          latitude: -6.792354,
+          longitude: 39.208328,
+          deviceIdentifier: 'other-device-999',
+        },
+        requestIp: '10.40.1.24',
+        userAgent: 'jest',
+      }),
+    ).rejects.toMatchObject({
+      response: {
+        message:
+          'Multiple mobile devices are not allowed for the active attendance policy. Use the first trusted device used for this attendance day.',
+      },
+    });
+
+    expect(punchRepo.save).not.toHaveBeenCalled();
   });
 
   it('rejects check-in when the active policy disallows mobile authentication', async () => {

@@ -1,3 +1,6 @@
+import { AttendanceHolidayPolicyModeEnum } from '../../policies/enums/attendance-holiday-policy-mode.enum';
+import { AttendanceRoundingModeEnum } from '../../policies/enums/attendance-rounding-mode.enum';
+
 export type ResolvedAttendanceSchedule = {
   employeeId: number;
   scheduleDate: string;
@@ -23,6 +26,10 @@ export type ResolvedAttendanceSchedule = {
   allowOvertime: boolean;
   overtimeStartAfterMinutes: number;
   maxOvertimeMinutes: number;
+  overtimeRequiresApproval: boolean;
   requiresCheckout: boolean;
   ignoreMissingCheckoutIfHoursValid: boolean;
+  roundingMode: AttendanceRoundingModeEnum;
+  maxMissingPunchAllowed: number;
+  holidayPolicyMode: AttendanceHolidayPolicyModeEnum;
 };

@@ -35,6 +35,8 @@ import { UpsertAttendanceDailySummaryAdjustmentDto } from './dtos/upsert-attenda
 import { AttendanceExceptionTypeEnum } from './enums/attendance-exception-type.enum';
 import { AttendanceProcessingExceptionsService } from './attendance-processing-exceptions.service';
 import { AttendanceScheduleResolverService } from './attendance-schedule-resolver.service';
+import { AttendanceHolidayPolicyModeEnum } from '../policies/enums/attendance-holiday-policy-mode.enum';
+import { AttendanceRoundingModeEnum } from '../policies/enums/attendance-rounding-mode.enum';
 
 type AttendanceEventPoint = {
   id: string;
@@ -589,8 +591,7 @@ export class AttendanceDailySummaryService {
       qb.andWhere('summary.branch_id = :branchId', {
         branchId: organization_id,
       });
-    if (status)
-      qb.andWhere('summary.attendance_status = :status', { status });
+    if (status) qb.andWhere('summary.attendance_status = :status', { status });
 
     const sortableColumns = new Set([
       'attendance_date',
@@ -1076,7 +1077,13 @@ export class AttendanceDailySummaryService {
       attendanceStatus = leaveStatus!;
 
       // ── Priority 3: Holiday ──────────────────────────────────────────────────
-    } else if (schedule.isHoliday) {
+    } else if (
+      schedule.isHoliday &&
+      !(
+        schedule.holidayPolicyMode ===
+          AttendanceHolidayPolicyModeEnum.OPTIONAL && eventCount > 0
+      )
+    ) {
       attendanceStatus = AttendanceDailyStatusEnum.HOLIDAY;
 
       // ── Priority 4: Off day ──────────────────────────────────────────────────
@@ -1216,6 +1223,18 @@ export class AttendanceDailySummaryService {
       overtimeMinutes = Math.min(overtimeMinutes, schedule.maxOvertimeMinutes);
     }
 
+    workMinutes = this.applyRounding(workMinutes, schedule.roundingMode);
+    overtimeMinutes = this.applyRounding(
+      overtimeMinutes,
+      schedule.roundingMode,
+    );
+
+    if (overtimeMinutes > 0 && schedule.overtimeRequiresApproval) {
+      if (!remarks.includes(AttendanceDailyRemarkEnum.MANUAL_REVIEW_REQUIRED)) {
+        remarks.push(AttendanceDailyRemarkEnum.MANUAL_REVIEW_REQUIRED);
+      }
+    }
+
     // OVERTIME overrides PRESENT only (other statuses have higher priority)
     if (
       overtimeMinutes > 0 &&
@@ -1241,6 +1260,21 @@ export class AttendanceDailySummaryService {
 
     if (hasMultiplePunches) {
       remarks.push(AttendanceDailyRemarkEnum.MULTIPLE_PUNCHES);
+    }
+
+    const missingPunchCount = Number(!checkInAt) + Number(!checkOutAt);
+
+    if (
+      missingPunchCount > schedule.maxMissingPunchAllowed &&
+      attendanceStatus !== AttendanceDailyStatusEnum.ABSENT &&
+      attendanceStatus !== AttendanceDailyStatusEnum.HOLIDAY &&
+      attendanceStatus !== AttendanceDailyStatusEnum.OFF_DAY &&
+      !hasApprovedLeave &&
+      !hasApprovedBusinessTrip
+    ) {
+      if (!remarks.includes(AttendanceDailyRemarkEnum.MANUAL_REVIEW_REQUIRED)) {
+        remarks.push(AttendanceDailyRemarkEnum.MANUAL_REVIEW_REQUIRED);
+      }
     }
 
     const shouldPersist =
@@ -1281,8 +1315,38 @@ export class AttendanceDailySummaryService {
         autoAbsentIfNoCheckin: schedule.autoAbsentIfNoCheckin,
         allowEarlyCheckin: schedule.allowEarlyCheckin,
         allowLateCheckout: schedule.allowLateCheckout,
+        roundingMode: schedule.roundingMode,
+        maxMissingPunchAllowed: schedule.maxMissingPunchAllowed,
+        holidayPolicyMode: schedule.holidayPolicyMode,
+        overtimeRequiresApproval: schedule.overtimeRequiresApproval,
       },
     };
+  }
+
+  private applyRounding(
+    minutes: number,
+    roundingMode: AttendanceRoundingModeEnum,
+  ): number {
+    if (minutes <= 0) return 0;
+
+    const interval = 5;
+    const remainder = minutes % interval;
+
+    if (remainder === 0) return minutes;
+
+    switch (roundingMode) {
+      case AttendanceRoundingModeEnum.UP:
+        return minutes + (interval - remainder);
+
+      case AttendanceRoundingModeEnum.DOWN:
+        return minutes - remainder;
+
+      case AttendanceRoundingModeEnum.NEAREST:
+      default:
+        return remainder >= interval / 2
+          ? minutes + (interval - remainder)
+          : minutes - remainder;
+    }
   }
 
   private applyAdjustmentToSummary(
@@ -1499,70 +1563,74 @@ export class AttendanceDailySummaryService {
     employeeId: number,
     attendanceDate: string,
   ): Promise<boolean> {
-    const [shiftSchedule, shiftAssignment, timetableAssignment, defaultTimetable] =
-      await Promise.all([
-        this.shiftScheduleRepository
-          .createQueryBuilder('schedule')
-          .select(['schedule.id', 'schedule.isOffDay'])
-          .where('schedule.company_id = :companyId', { companyId })
-          .andWhere('schedule.employee_id = :employeeId', { employeeId })
-          .andWhere('schedule.effective_from <= :attendanceDate', {
+    const [
+      shiftSchedule,
+      shiftAssignment,
+      timetableAssignment,
+      defaultTimetable,
+    ] = await Promise.all([
+      this.shiftScheduleRepository
+        .createQueryBuilder('schedule')
+        .select(['schedule.id', 'schedule.isOffDay'])
+        .where('schedule.company_id = :companyId', { companyId })
+        .andWhere('schedule.employee_id = :employeeId', { employeeId })
+        .andWhere('schedule.effective_from <= :attendanceDate', {
+          attendanceDate,
+        })
+        .andWhere(
+          '(schedule.effective_to IS NULL OR schedule.effective_to >= :attendanceDate)',
+          {
             attendanceDate,
-          })
-          .andWhere(
-            '(schedule.effective_to IS NULL OR schedule.effective_to >= :attendanceDate)',
-            {
-              attendanceDate,
-            },
-          )
-          .orderBy('schedule.effectiveFrom', 'DESC')
-          .addOrderBy('schedule.scheduleDate', 'DESC')
-          .getOne(),
-        this.shiftAssignmentRepository
-          .createQueryBuilder('assignment')
-          .select(['assignment.id'])
-          .where('assignment.company_id = :companyId', { companyId })
-          .andWhere('assignment.employee_id = :employeeId', { employeeId })
-          .andWhere('assignment.status = :status', {
-            status: ShiftAssignmentStatusEnum.ACTIVE,
-          })
-          .andWhere('assignment.effective_from <= :attendanceDate', {
-            attendanceDate,
-          })
-          .andWhere(
-            '(assignment.effective_to IS NULL OR assignment.effective_to >= :attendanceDate)',
-            {
-              attendanceDate,
-            },
-          )
-          .getOne(),
-        this.employeeTimetableRepository
-          .createQueryBuilder('assignment')
-          .select(['assignment.id'])
-          .where('assignment.company_id = :companyId', { companyId })
-          .andWhere('assignment.employee_id = :employeeId', { employeeId })
-          .andWhere('assignment.status = :status', {
-            status: EmployeeTimetableStatusEnum.ACTIVE,
-          })
-          .andWhere('assignment.effective_from <= :attendanceDate', {
-            attendanceDate,
-          })
-          .andWhere(
-            '(assignment.effective_to IS NULL OR assignment.effective_to >= :attendanceDate)',
-            {
-              attendanceDate,
-            },
-          )
-          .getOne(),
-        this.timetableRepository.findOne({
-          where: {
-            companyId,
-            isDefault: true,
-            status: TimetableStatusEnum.ACTIVE,
           },
-          select: { id: true },
-        }),
-      ]);
+        )
+        .orderBy('schedule.effectiveFrom', 'DESC')
+        .addOrderBy('schedule.scheduleDate', 'DESC')
+        .getOne(),
+      this.shiftAssignmentRepository
+        .createQueryBuilder('assignment')
+        .select(['assignment.id'])
+        .where('assignment.company_id = :companyId', { companyId })
+        .andWhere('assignment.employee_id = :employeeId', { employeeId })
+        .andWhere('assignment.status = :status', {
+          status: ShiftAssignmentStatusEnum.ACTIVE,
+        })
+        .andWhere('assignment.effective_from <= :attendanceDate', {
+          attendanceDate,
+        })
+        .andWhere(
+          '(assignment.effective_to IS NULL OR assignment.effective_to >= :attendanceDate)',
+          {
+            attendanceDate,
+          },
+        )
+        .getOne(),
+      this.employeeTimetableRepository
+        .createQueryBuilder('assignment')
+        .select(['assignment.id'])
+        .where('assignment.company_id = :companyId', { companyId })
+        .andWhere('assignment.employee_id = :employeeId', { employeeId })
+        .andWhere('assignment.status = :status', {
+          status: EmployeeTimetableStatusEnum.ACTIVE,
+        })
+        .andWhere('assignment.effective_from <= :attendanceDate', {
+          attendanceDate,
+        })
+        .andWhere(
+          '(assignment.effective_to IS NULL OR assignment.effective_to >= :attendanceDate)',
+          {
+            attendanceDate,
+          },
+        )
+        .getOne(),
+      this.timetableRepository.findOne({
+        where: {
+          companyId,
+          isDefault: true,
+          status: TimetableStatusEnum.ACTIVE,
+        },
+        select: { id: true },
+      }),
+    ]);
 
     if (shiftSchedule) {
       return !shiftSchedule.isOffDay;

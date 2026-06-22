@@ -48,6 +48,9 @@ import { Timetable } from './timetable/timetables/entities/timetable.entity';
 import { EmployeeTimetable } from './timetable/employee-timetables/entities/employee-timetable.entity';
 import { AttendanceSchedulePreviewController } from './schedules/attendance-schedule-preview.controller';
 import { AttendanceSchedulePreviewService } from './schedules/attendance-schedule-preview.service';
+import { AttendanceSetupController } from './setup/attendance-setup.controller';
+import { AttendanceSetupWizardService } from './setup/attendance-setup-wizard.service';
+import { AttendanceSetupCompletionService } from './setup/attendance-setup-completion.service';
 
 @Module({
   imports: [
@@ -86,6 +89,7 @@ import { AttendanceSchedulePreviewService } from './schedules/attendance-schedul
     AttendanceWifiNetworksController,
     AttendanceMobilePunchesController,
     AttendanceSchedulePreviewController,
+    AttendanceSetupController,
   ],
   providers: [
     AttendancePoliciesService,
@@ -104,6 +108,8 @@ import { AttendanceSchedulePreviewService } from './schedules/attendance-schedul
     AttendanceMobilePunchRepository,
     AttendanceCompanyConfigService,
     AttendanceSchedulePreviewService,
+    AttendanceSetupCompletionService,
+    AttendanceSetupWizardService,
   ],
   exports: [
     AttendancePoliciesService,
@@ -119,6 +125,8 @@ import { AttendanceSchedulePreviewService } from './schedules/attendance-schedul
     AttendanceMobilePunchRepository,
     AttendanceCompanyConfigService,
     AttendanceSchedulePreviewService,
+    AttendanceSetupCompletionService,
+    AttendanceSetupWizardService,
   ],
 })
 export class AttendanceModule {}

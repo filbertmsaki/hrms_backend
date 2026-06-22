@@ -14,6 +14,8 @@ import { Shift } from '../shift/shifts/entities/shift.entity';
 import { Timetable } from '../timetable/timetables/entities/timetable.entity';
 import { addDaysToDateOnly } from '../../shared/hr.utils';
 import { ResolvedAttendanceSchedule } from './entities/resolved-attendance-schedule.type';
+import { AttendanceHolidayPolicyModeEnum } from '../policies/enums/attendance-holiday-policy-mode.enum';
+import { AttendanceRoundingModeEnum } from '../policies/enums/attendance-rounding-mode.enum';
 import {
   TimetableScheduleDefinition,
   TimetableScheduleGenerationService,
@@ -32,7 +34,11 @@ type GlobalAttendanceConfiguration = {
   ignoreMissingCheckoutIfHoursValid: boolean;
   lateAfterMinutes: number;
   maxOvertimeMinutes: number;
+  overtimeRequiresApproval: boolean;
   overtimeStartAfterMinutes: number;
+  roundingMode: AttendanceRoundingModeEnum;
+  maxMissingPunchAllowed: number;
+  holidayPolicyMode: AttendanceHolidayPolicyModeEnum;
   weekendDayIndexes: Set<number>;
 };
 
@@ -160,9 +166,13 @@ export class AttendanceScheduleResolverService {
       allowOvertime: globalConfig.allowOvertime,
       overtimeStartAfterMinutes: globalConfig.overtimeStartAfterMinutes,
       maxOvertimeMinutes: globalConfig.maxOvertimeMinutes,
+      overtimeRequiresApproval: globalConfig.overtimeRequiresApproval,
       requiresCheckout: true,
       ignoreMissingCheckoutIfHoursValid:
         globalConfig.ignoreMissingCheckoutIfHoursValid,
+      roundingMode: globalConfig.roundingMode,
+      maxMissingPunchAllowed: globalConfig.maxMissingPunchAllowed,
+      holidayPolicyMode: globalConfig.holidayPolicyMode,
     };
   }
 
@@ -443,6 +453,7 @@ export class AttendanceScheduleResolverService {
       overtimeStartAfterMinutes: globalConfig.overtimeStartAfterMinutes,
       maxOvertimeMinutes:
         timetable?.maxOvertimeMinutes ?? globalConfig.maxOvertimeMinutes,
+      overtimeRequiresApproval: globalConfig.overtimeRequiresApproval,
     });
   }
 
@@ -491,9 +502,13 @@ export class AttendanceScheduleResolverService {
         allowOvertime: globalConfig.allowOvertime,
         overtimeStartAfterMinutes: globalConfig.overtimeStartAfterMinutes,
         maxOvertimeMinutes: globalConfig.maxOvertimeMinutes,
+        overtimeRequiresApproval: globalConfig.overtimeRequiresApproval,
         requiresCheckout: true,
         ignoreMissingCheckoutIfHoursValid:
           globalConfig.ignoreMissingCheckoutIfHoursValid,
+        roundingMode: globalConfig.roundingMode,
+        maxMissingPunchAllowed: globalConfig.maxMissingPunchAllowed,
+        holidayPolicyMode: globalConfig.holidayPolicyMode,
       };
     }
 
@@ -542,9 +557,14 @@ export class AttendanceScheduleResolverService {
         globalConfig.overtimeStartAfterMinutes,
       maxOvertimeMinutes:
         shift.maxOvertimeMinutes ?? globalConfig.maxOvertimeMinutes,
+      overtimeRequiresApproval:
+        shift.overtimeRequiresApproval ?? globalConfig.overtimeRequiresApproval,
       requiresCheckout: shift.requiresCheckout,
       ignoreMissingCheckoutIfHoursValid:
         globalConfig.ignoreMissingCheckoutIfHoursValid,
+      roundingMode: globalConfig.roundingMode,
+      maxMissingPunchAllowed: globalConfig.maxMissingPunchAllowed,
+      holidayPolicyMode: globalConfig.holidayPolicyMode,
     };
   }
 
@@ -570,6 +590,7 @@ export class AttendanceScheduleResolverService {
     allowOvertime?: boolean;
     overtimeStartAfterMinutes?: number;
     maxOvertimeMinutes?: number;
+    overtimeRequiresApproval?: boolean;
     requiresCheckout?: boolean;
   }): ResolvedAttendanceSchedule {
     return {
@@ -606,9 +627,15 @@ export class AttendanceScheduleResolverService {
         input.globalConfig.overtimeStartAfterMinutes,
       maxOvertimeMinutes:
         input.maxOvertimeMinutes ?? input.globalConfig.maxOvertimeMinutes,
+      overtimeRequiresApproval:
+        input.overtimeRequiresApproval ??
+        input.globalConfig.overtimeRequiresApproval,
       requiresCheckout: input.requiresCheckout ?? true,
       ignoreMissingCheckoutIfHoursValid:
         input.globalConfig.ignoreMissingCheckoutIfHoursValid,
+      roundingMode: input.globalConfig.roundingMode,
+      maxMissingPunchAllowed: input.globalConfig.maxMissingPunchAllowed,
+      holidayPolicyMode: input.globalConfig.holidayPolicyMode,
     };
   }
 
@@ -635,7 +662,15 @@ export class AttendanceScheduleResolverService {
         policy?.ignore_missing_checkout_if_hours_valid ?? false,
       lateAfterMinutes: policy?.late_after_minutes ?? 0,
       maxOvertimeMinutes: policy?.max_overtime_minutes_per_day ?? 0,
+      overtimeRequiresApproval:
+        policy?.overtime_requires_approval ??
+        policy?.requires_manager_approval_for_overtime ??
+        false,
       overtimeStartAfterMinutes: policy?.overtime_start_after_minutes ?? 0,
+      roundingMode: policy?.rounding_mode ?? AttendanceRoundingModeEnum.NEAREST,
+      maxMissingPunchAllowed: policy?.max_missing_punch_allowed ?? 0,
+      holidayPolicyMode:
+        policy?.holiday_policy_mode ?? AttendanceHolidayPolicyModeEnum.OFF,
       weekendDayIndexes: this.parseWeekendDays(policy?.weekend_days),
     };
   }

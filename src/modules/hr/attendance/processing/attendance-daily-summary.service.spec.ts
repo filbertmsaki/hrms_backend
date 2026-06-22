@@ -19,6 +19,8 @@ import { AttendanceDailySummaryAdjustment } from './entities/attendance-daily-su
 import { AttendanceProcessingExceptionsService } from './attendance-processing-exceptions.service';
 import { ResolvedAttendanceSchedule } from './entities/resolved-attendance-schedule.type';
 import { AttendanceDailyRemarkEnum } from './enums/attendance-daily-remark.enum';
+import { AttendanceRoundingModeEnum } from '../policies/enums/attendance-rounding-mode.enum';
+import { AttendanceHolidayPolicyModeEnum } from '../policies/enums/attendance-holiday-policy-mode.enum';
 
 type MockRepo<T> = Partial<Record<keyof Repository<T>, jest.Mock>>;
 
@@ -77,8 +79,12 @@ const buildSchedule = (
   allowOvertime: false,
   overtimeStartAfterMinutes: 0,
   maxOvertimeMinutes: 0,
+  overtimeRequiresApproval: false,
   requiresCheckout: true,
   ignoreMissingCheckoutIfHoursValid: false,
+  roundingMode: AttendanceRoundingModeEnum.NEAREST,
+  maxMissingPunchAllowed: 0,
+  holidayPolicyMode: AttendanceHolidayPolicyModeEnum.OFF,
   ...overrides,
 });
 
@@ -105,7 +111,9 @@ describe('AttendanceDailySummaryService', () => {
   let mobilePunchBuilder: ReturnType<typeof createQueryBuilderMock>;
   let leaveBuilder: ReturnType<typeof createQueryBuilderMock>;
   let tripBuilder: ReturnType<typeof createQueryBuilderMock>;
-  let shiftScheduleExpectationBuilder: ReturnType<typeof createQueryBuilderMock>;
+  let shiftScheduleExpectationBuilder: ReturnType<
+    typeof createQueryBuilderMock
+  >;
   let shiftExpectationBuilder: ReturnType<typeof createQueryBuilderMock>;
   let timetableExpectationBuilder: ReturnType<typeof createQueryBuilderMock>;
 
@@ -214,7 +222,7 @@ describe('AttendanceDailySummaryService', () => {
     dailySummaryRepository.findOne!.mockResolvedValue(null);
     timezoneBuilder.getRawOne.mockResolvedValue(null);
     scheduleResolver.resolveForDate.mockResolvedValue(
-      buildSchedule({ requiresCheckout: false }),
+      buildSchedule({ requiresCheckout: false, maxMissingPunchAllowed: 1 }),
     );
     processedEventBuilder.getMany.mockResolvedValue([]);
     mobilePunchBuilder.getMany.mockResolvedValue([
@@ -438,6 +446,152 @@ describe('AttendanceDailySummaryService', () => {
       expect.objectContaining({
         attendanceStatus: AttendanceDailyStatusEnum.OFF_DAY,
         overtimeMinutes: 240,
+      }),
+    );
+  });
+
+  it('treats optional holidays with attendance events as worked days', async () => {
+    employeeRepository.findOne!.mockResolvedValue({ id: 1, exit_date: null });
+    dailySummaryRepository.findOne!.mockResolvedValue(null);
+    timezoneBuilder.getRawOne.mockResolvedValue(null);
+    scheduleResolver.resolveForDate.mockResolvedValue(
+      buildSchedule({
+        isHoliday: true,
+        holidayId: 91,
+        holidayPolicyMode: AttendanceHolidayPolicyModeEnum.OPTIONAL,
+      }),
+    );
+    processedEventBuilder.getMany.mockResolvedValue([
+      {
+        id: 51,
+        rawLogId: 501,
+        deviceId: 5,
+        employeeNo: 'EMP-001',
+        eventTime: new Date('2026-06-12T08:00:00Z'),
+      },
+      {
+        id: 52,
+        rawLogId: 502,
+        deviceId: 5,
+        employeeNo: 'EMP-001',
+        eventTime: new Date('2026-06-12T12:00:00Z'),
+      },
+    ]);
+    mobilePunchBuilder.getMany.mockResolvedValue([]);
+    leaveBuilder.getOne.mockResolvedValue(null);
+    tripBuilder.getOne.mockResolvedValue(null);
+    shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
+    shiftExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
+    timetableExpectationBuilder.getOne.mockResolvedValue(null);
+    adjustmentRepository.findOne!.mockResolvedValue(null);
+    shiftBreakRepository.find!.mockResolvedValue([]);
+
+    await service.recomputeForEmployeeDate(10, 1, '2026-06-12');
+
+    const savedSummary = (dailySummaryRepository.save as jest.Mock).mock
+      .calls[0][0];
+
+    expect(savedSummary.attendanceStatus).not.toBe(
+      AttendanceDailyStatusEnum.HOLIDAY,
+    );
+    expect(savedSummary.flags).toEqual(
+      expect.objectContaining({
+        holidayPolicyMode: AttendanceHolidayPolicyModeEnum.OPTIONAL,
+      }),
+    );
+  });
+
+  it('rounds work and overtime minutes and marks overtime for manual review when approval is required', async () => {
+    employeeRepository.findOne!.mockResolvedValue({ id: 1, exit_date: null });
+    dailySummaryRepository.findOne!.mockResolvedValue(null);
+    timezoneBuilder.getRawOne.mockResolvedValue(null);
+    scheduleResolver.resolveForDate.mockResolvedValue(
+      buildSchedule({
+        allowOvertime: true,
+        overtimeStartAfterMinutes: 0,
+        overtimeRequiresApproval: true,
+        roundingMode: AttendanceRoundingModeEnum.UP,
+      }),
+    );
+    processedEventBuilder.getMany.mockResolvedValue([
+      {
+        id: 61,
+        rawLogId: 601,
+        deviceId: 5,
+        employeeNo: 'EMP-001',
+        eventTime: new Date('2026-06-12T08:00:00Z'),
+      },
+      {
+        id: 62,
+        rawLogId: 602,
+        deviceId: 5,
+        employeeNo: 'EMP-001',
+        eventTime: new Date('2026-06-12T17:07:00Z'),
+      },
+    ]);
+    mobilePunchBuilder.getMany.mockResolvedValue([]);
+    leaveBuilder.getOne.mockResolvedValue(null);
+    tripBuilder.getOne.mockResolvedValue(null);
+    shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
+    shiftExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
+    timetableExpectationBuilder.getOne.mockResolvedValue(null);
+    adjustmentRepository.findOne!.mockResolvedValue(null);
+    shiftBreakRepository.find!.mockResolvedValue([]);
+
+    await service.recomputeForEmployeeDate(10, 1, '2026-06-12');
+
+    expect(dailySummaryRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attendanceStatus: AttendanceDailyStatusEnum.OVERTIME,
+        workMinutes: 550,
+        overtimeMinutes: 10,
+        remarks: expect.arrayContaining([
+          AttendanceDailyRemarkEnum.MANUAL_REVIEW_REQUIRED,
+        ]),
+        flags: expect.objectContaining({
+          roundingMode: AttendanceRoundingModeEnum.UP,
+          overtimeRequiresApproval: true,
+        }),
+      }),
+    );
+  });
+
+  it('marks single-punch days for manual review when they exceed the allowed missing punch count', async () => {
+    employeeRepository.findOne!.mockResolvedValue({ id: 1, exit_date: null });
+    dailySummaryRepository.findOne!.mockResolvedValue(null);
+    timezoneBuilder.getRawOne.mockResolvedValue(null);
+    scheduleResolver.resolveForDate.mockResolvedValue(
+      buildSchedule({
+        requiresCheckout: false,
+        maxMissingPunchAllowed: 0,
+      }),
+    );
+    processedEventBuilder.getMany.mockResolvedValue([]);
+    mobilePunchBuilder.getMany.mockResolvedValue([
+      {
+        id: 71,
+        punchTime: new Date('2026-06-12T08:05:00Z'),
+      },
+    ]);
+    leaveBuilder.getOne.mockResolvedValue(null);
+    tripBuilder.getOne.mockResolvedValue(null);
+    shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
+    shiftExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
+    timetableExpectationBuilder.getOne.mockResolvedValue(null);
+    adjustmentRepository.findOne!.mockResolvedValue(null);
+    shiftBreakRepository.find!.mockResolvedValue([]);
+
+    await service.recomputeForEmployeeDate(10, 1, '2026-06-12');
+
+    expect(dailySummaryRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attendanceStatus: AttendanceDailyStatusEnum.PRESENT,
+        remarks: expect.arrayContaining([
+          AttendanceDailyRemarkEnum.MANUAL_REVIEW_REQUIRED,
+        ]),
+        flags: expect.objectContaining({
+          maxMissingPunchAllowed: 0,
+        }),
       }),
     );
   });
