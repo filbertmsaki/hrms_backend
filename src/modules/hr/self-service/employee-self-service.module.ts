@@ -11,12 +11,15 @@ import { EmployeeTimetable } from '../attendance/timetable/employee-timetables/e
 import { EmployeesModule } from '../employees/employees.module';
 import { LeaveModule } from '../leave/leave.module';
 import { LeaveRequest } from '../leave/entities/leave-request.entity';
-import { EmployeeSelfServiceController } from './employee-self-service.controller';
-import { EmployeeSelfServiceService } from './employee-self-service.service';
 import { Shift } from '../attendance/shift/shifts/entities/shift.entity';
 import { Timetable } from '../attendance/timetable/timetables/entities/timetable.entity';
+import { Employee } from '../employees/entities/employee.entity';
 import { AttendanceCorrectionRequest } from './entities/attendance-correction-request.entity';
 import { EmployeeProfileUpdateRequest } from './entities/employee-profile-update-request.entity';
+import { EmployeeSelfServiceController } from './employee-self-service.controller';
+import { EmployeeSelfServiceService } from './employee-self-service.service';
+import { EmployeeSelfServiceApprovalController } from './employee-self-service-approval.controller';
+import { EmployeeSelfServiceApprovalService } from './employee-self-service-approval.service';
 
 @Module({
   imports: [
@@ -31,6 +34,7 @@ import { EmployeeProfileUpdateRequest } from './entities/employee-profile-update
       Timetable,
       AttendanceCorrectionRequest,
       EmployeeProfileUpdateRequest,
+      Employee,
     ]),
     UsersModule,
     EmployeesModule,
@@ -38,7 +42,11 @@ import { EmployeeProfileUpdateRequest } from './entities/employee-profile-update
     AttendanceModule,
     AttendanceProcessingModule,
   ],
-  controllers: [EmployeeSelfServiceController],
-  providers: [EmployeeSelfServiceService],
+  controllers: [
+    EmployeeSelfServiceController,
+    EmployeeSelfServiceApprovalController,
+  ],
+  providers: [EmployeeSelfServiceService, EmployeeSelfServiceApprovalService],
+  exports: [EmployeeSelfServiceService, EmployeeSelfServiceApprovalService],
 })
 export class EmployeeSelfServiceModule {}

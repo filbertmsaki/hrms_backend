@@ -1,5 +1,4 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
 import {
   IsDateString,
   IsEnum,
@@ -17,17 +16,7 @@ export class CreateAttendanceCorrectionRequestDto {
 
   @ApiProperty({ enum: AttendanceCorrectionRequestTypeEnum })
   @IsEnum(AttendanceCorrectionRequestTypeEnum)
-  correction_type: AttendanceCorrectionRequestTypeEnum;
-
-  @ApiPropertyOptional({ example: '2026-06-20T08:02:00.000Z' })
-  @IsOptional()
-  @IsISO8601()
-  original_check_in_at?: string | null;
-
-  @ApiPropertyOptional({ example: '2026-06-20T17:05:00.000Z' })
-  @IsOptional()
-  @IsISO8601()
-  original_check_out_at?: string | null;
+  request_type: AttendanceCorrectionRequestTypeEnum;
 
   @ApiPropertyOptional({ example: '2026-06-20T08:00:00.000Z' })
   @IsOptional()
@@ -38,6 +27,12 @@ export class CreateAttendanceCorrectionRequestDto {
   @IsOptional()
   @IsISO8601()
   requested_check_out_at?: string | null;
+
+  @ApiPropertyOptional({ example: 'PRESENT' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  requested_status?: string | null;
 
   @ApiPropertyOptional({ example: 'Device was offline, I checked in manually' })
   @IsOptional()

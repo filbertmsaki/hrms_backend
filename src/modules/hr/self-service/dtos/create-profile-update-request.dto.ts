@@ -1,22 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class CreateProfileUpdateRequestDto {
-  @ApiProperty({ example: 'phone_number' })
-  @IsString()
-  @MaxLength(100)
-  field_name: string;
-
-  @ApiPropertyOptional({ example: '+255 712 000 000' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(1000)
-  current_value?: string | null;
-
-  @ApiProperty({ example: '+255 712 999 999' })
-  @IsString()
-  @MaxLength(1000)
-  requested_value: string;
+  @ApiProperty({
+    example: { phone_number: '+255 712 999 999', city: 'Dar es Salaam' },
+    description:
+      'Map of employee profile fields to update. Only allowed fields will be applied on approval.',
+  })
+  @IsObject()
+  requested_changes: Record<string, unknown>;
 
   @ApiPropertyOptional({ example: 'Updated phone number after SIM swap' })
   @IsOptional()

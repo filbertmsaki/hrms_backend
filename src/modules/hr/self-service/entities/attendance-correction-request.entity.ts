@@ -22,22 +22,8 @@ export class AttendanceCorrectionRequest {
   @Column({ name: 'attendance_date', type: 'date' })
   attendanceDate: string;
 
-  @Column({
-    name: 'correction_type',
-    type: 'varchar',
-    length: 50,
-  })
-  correctionType: AttendanceCorrectionRequestTypeEnum;
-
-  @Column({ name: 'original_check_in_at', type: 'timestamp', nullable: true })
-  originalCheckInAt: Date | null;
-
-  @Column({
-    name: 'original_check_out_at',
-    type: 'timestamp',
-    nullable: true,
-  })
-  originalCheckOutAt: Date | null;
+  @Column({ name: 'request_type', type: 'varchar', length: 50 })
+  requestType: AttendanceCorrectionRequestTypeEnum;
 
   @Column({
     name: 'requested_check_in_at',
@@ -53,6 +39,9 @@ export class AttendanceCorrectionRequest {
   })
   requestedCheckOutAt: Date | null;
 
+  @Column({ name: 'requested_status', type: 'varchar', length: 50, nullable: true })
+  requestedStatus: string | null;
+
   @Column({ name: 'reason', type: 'text', nullable: true })
   reason: string | null;
 
@@ -67,14 +56,17 @@ export class AttendanceCorrectionRequest {
   @Column({ name: 'submitted_at', type: 'timestamp', nullable: true })
   submittedAt: Date | null;
 
-  @Column({ name: 'reviewed_by_user_id', type: 'int', nullable: true })
-  reviewedByUserId: number | null;
+  @Column({ name: 'cancelled_at', type: 'timestamp', nullable: true })
+  cancelledAt: Date | null;
+
+  @Column({ name: 'reviewed_by_company_user_id', type: 'int', nullable: true })
+  reviewedByCompanyUserId: number | null;
 
   @Column({ name: 'reviewed_at', type: 'timestamp', nullable: true })
   reviewedAt: Date | null;
 
-  @Column({ name: 'reviewer_notes', type: 'text', nullable: true })
-  reviewerNotes: string | null;
+  @Column({ name: 'review_comment', type: 'text', nullable: true })
+  reviewComment: string | null;
 
   @Column({ name: 'metadata', type: 'json', nullable: true })
   metadata: Record<string, unknown> | null;

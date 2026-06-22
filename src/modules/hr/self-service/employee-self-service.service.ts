@@ -699,19 +699,14 @@ export class EmployeeSelfServiceService {
       companyId,
       employeeId,
       attendanceDate: dto.attendance_date,
-      correctionType: dto.correction_type,
-      originalCheckInAt: dto.original_check_in_at
-        ? new Date(dto.original_check_in_at)
-        : null,
-      originalCheckOutAt: dto.original_check_out_at
-        ? new Date(dto.original_check_out_at)
-        : null,
+      requestType: dto.request_type,
       requestedCheckInAt: dto.requested_check_in_at
         ? new Date(dto.requested_check_in_at)
         : null,
       requestedCheckOutAt: dto.requested_check_out_at
         ? new Date(dto.requested_check_out_at)
         : null,
+      requestedStatus: dto.requested_status ?? null,
       reason: dto.reason ?? null,
       status: SelfServiceRequestStatusEnum.DRAFT,
     });
@@ -764,6 +759,7 @@ export class EmployeeSelfServiceService {
     }
 
     request.status = SelfServiceRequestStatusEnum.CANCELLED;
+    request.cancelledAt = new Date();
     const saved = await this.correctionRequestRepository.save(request);
     return this.mapCorrectionRequest(saved);
   }
@@ -771,18 +767,19 @@ export class EmployeeSelfServiceService {
   private mapCorrectionRequest(r: AttendanceCorrectionRequest) {
     return {
       id: r.id,
+      employee_id: r.employeeId,
       attendance_date: r.attendanceDate,
-      correction_type: r.correctionType,
-      original_check_in_at: r.originalCheckInAt,
-      original_check_out_at: r.originalCheckOutAt,
+      request_type: r.requestType,
       requested_check_in_at: r.requestedCheckInAt,
       requested_check_out_at: r.requestedCheckOutAt,
+      requested_status: r.requestedStatus,
       reason: r.reason,
       status: r.status,
       submitted_at: r.submittedAt,
-      reviewed_by_user_id: r.reviewedByUserId,
+      cancelled_at: r.cancelledAt,
+      reviewed_by_company_user_id: r.reviewedByCompanyUserId,
       reviewed_at: r.reviewedAt,
-      reviewer_notes: r.reviewerNotes,
+      review_comment: r.reviewComment,
       created_at: r.createdAt,
       updated_at: r.updatedAt,
     };
@@ -843,9 +840,7 @@ export class EmployeeSelfServiceService {
     const request = this.profileUpdateRequestRepository.create({
       companyId,
       employeeId,
-      fieldName: dto.field_name,
-      currentValue: dto.current_value ?? null,
-      requestedValue: dto.requested_value,
+      requestedChanges: dto.requested_changes,
       reason: dto.reason ?? null,
       status: SelfServiceRequestStatusEnum.DRAFT,
     });
@@ -898,6 +893,7 @@ export class EmployeeSelfServiceService {
     }
 
     request.status = SelfServiceRequestStatusEnum.CANCELLED;
+    request.cancelledAt = new Date();
     const saved = await this.profileUpdateRequestRepository.save(request);
     return this.mapProfileUpdateRequest(saved);
   }
@@ -905,15 +901,15 @@ export class EmployeeSelfServiceService {
   private mapProfileUpdateRequest(r: EmployeeProfileUpdateRequest) {
     return {
       id: r.id,
-      field_name: r.fieldName,
-      current_value: r.currentValue,
-      requested_value: r.requestedValue,
+      employee_id: r.employeeId,
+      requested_changes: r.requestedChanges,
       reason: r.reason,
       status: r.status,
       submitted_at: r.submittedAt,
-      reviewed_by_user_id: r.reviewedByUserId,
+      cancelled_at: r.cancelledAt,
+      reviewed_by_company_user_id: r.reviewedByCompanyUserId,
       reviewed_at: r.reviewedAt,
-      reviewer_notes: r.reviewerNotes,
+      review_comment: r.reviewComment,
       created_at: r.createdAt,
       updated_at: r.updatedAt,
     };

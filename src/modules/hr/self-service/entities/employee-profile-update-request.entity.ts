@@ -18,14 +18,8 @@ export class EmployeeProfileUpdateRequest {
   @Column({ name: 'employee_id', type: 'int' })
   employeeId: number;
 
-  @Column({ name: 'field_name', type: 'varchar', length: 100 })
-  fieldName: string;
-
-  @Column({ name: 'current_value', type: 'text', nullable: true })
-  currentValue: string | null;
-
-  @Column({ name: 'requested_value', type: 'text' })
-  requestedValue: string;
+  @Column({ name: 'requested_changes', type: 'json' })
+  requestedChanges: Record<string, unknown>;
 
   @Column({ name: 'reason', type: 'text', nullable: true })
   reason: string | null;
@@ -41,14 +35,17 @@ export class EmployeeProfileUpdateRequest {
   @Column({ name: 'submitted_at', type: 'timestamp', nullable: true })
   submittedAt: Date | null;
 
-  @Column({ name: 'reviewed_by_user_id', type: 'int', nullable: true })
-  reviewedByUserId: number | null;
+  @Column({ name: 'cancelled_at', type: 'timestamp', nullable: true })
+  cancelledAt: Date | null;
+
+  @Column({ name: 'reviewed_by_company_user_id', type: 'int', nullable: true })
+  reviewedByCompanyUserId: number | null;
 
   @Column({ name: 'reviewed_at', type: 'timestamp', nullable: true })
   reviewedAt: Date | null;
 
-  @Column({ name: 'reviewer_notes', type: 'text', nullable: true })
-  reviewerNotes: string | null;
+  @Column({ name: 'review_comment', type: 'text', nullable: true })
+  reviewComment: string | null;
 
   @Column({ name: 'metadata', type: 'json', nullable: true })
   metadata: Record<string, unknown> | null;
