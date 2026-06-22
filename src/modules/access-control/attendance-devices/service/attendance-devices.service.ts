@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Socket } from 'net';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
@@ -365,28 +366,170 @@ export class AccessControlAttendanceDevicesService {
 
   async remove(companyId: number, id: number): Promise<{ message: string }> {
     const item = await this.findOrFail(companyId, id);
-    await this.attendanceDeviceRepository.delete(item.id);
-    return { message: 'Attendance device deleted successfully' };
+    await this.attendanceDeviceRepository.softRemove(item);
+
+    return {
+      message: 'Attendance device deleted successfully',
+    };
   }
 
   async syncDeviceData(companyId: number, id: number) {
     const item = await this.findOrFail(companyId, id);
+
     if (!this.shouldAutoSyncHikvision(item)) {
       throw new BadRequestException(
         'Manual sync is currently supported only for Hikvision devices',
       );
     }
 
-    const syncResult = await this.deviceManagementHikvisionService.syncDevice(
-      companyId,
-      id,
-    );
-    const refreshed = await this.findOrFail(companyId, id);
+    const startedAt = Date.now();
+
+    try {
+      const syncResult =
+        await this.deviceManagementHikvisionService.syncDevice(companyId, id);
+
+      const refreshed = await this.findOrFail(companyId, id);
+
+      refreshed.metadata = this.mergeDeviceOperationalMetadata(
+        refreshed.metadata,
+        {
+          sync: {
+            success: true,
+            synced_at: new Date().toISOString(),
+            duration_ms: Date.now() - startedAt,
+            synced_fields: syncResult.synced_fields ?? [],
+            message: 'Manual sync completed successfully.',
+          },
+        },
+      );
+
+      refreshed.status = AttendanceDeviceStatusEnum.ACTIVE;
+      refreshed.lastSyncAt = new Date();
+
+      await this.attendanceDeviceRepository.save(refreshed);
+
+      return {
+        message: 'Attendance device manual sync completed successfully',
+        synced_fields: syncResult.synced_fields ?? [],
+        device: this.mapDevice(refreshed),
+      };
+    } catch (error) {
+      const failed = await this.findOrFail(companyId, id);
+
+      failed.metadata = this.mergeDeviceOperationalMetadata(failed.metadata, {
+        sync: {
+          success: false,
+          synced_at: new Date().toISOString(),
+          duration_ms: Date.now() - startedAt,
+          message: this.extractSyncErrorMessage(error),
+        },
+      });
+
+      await this.attendanceDeviceRepository.save(failed);
+
+      throw error;
+    }
+  }
+
+  async testConnection(companyId: number, id: number) {
+    const device = await this.findOrFail(companyId, id);
+
+    if (this.shouldAutoSyncHikvision(device)) {
+      return this.deviceManagementHikvisionService.testDeviceConnection(
+        companyId,
+        id,
+      );
+    }
+
+    const startedAt = Date.now();
+
+    try {
+      await this.testTcpConnection({
+        host: device.ipAddress,
+        port: this.resolveConnectionPort(device),
+        timeoutMs: Number(
+          process.env.ATTENDANCE_DEVICE_TEST_TIMEOUT_MS ?? 5000,
+        ),
+      });
+
+      device.lastHeartbeatAt = new Date();
+      device.status = AttendanceDeviceStatusEnum.ACTIVE;
+      device.metadata = this.mergeDeviceOperationalMetadata(device.metadata, {
+        connection_test: {
+          success: true,
+          tested_at: new Date().toISOString(),
+          latency_ms: Date.now() - startedAt,
+          message: 'Generic TCP connection succeeded.',
+        },
+      });
+
+      await this.attendanceDeviceRepository.save(device);
+
+      return {
+        success: true,
+        message: 'Attendance device connection test succeeded',
+        latency_ms: Date.now() - startedAt,
+        device: this.mapDevice(device),
+      };
+    } catch (error) {
+      device.lastHeartbeatAt = new Date();
+      device.status = AttendanceDeviceStatusEnum.OFFLINE;
+      device.metadata = this.mergeDeviceOperationalMetadata(device.metadata, {
+        connection_test: {
+          success: false,
+          tested_at: new Date().toISOString(),
+          latency_ms: Date.now() - startedAt,
+          message:
+            (error as Error | null)?.message ??
+            'Attendance device connection test failed.',
+        },
+      });
+
+      await this.attendanceDeviceRepository.save(device);
+
+      throw new BadRequestException(
+        `Attendance device connection test failed: ${
+          (error as Error | null)?.message ?? 'Unknown error'
+        }`,
+      );
+    }
+  }
+
+  async getSyncStatus(companyId: number, id: number) {
+    const device = await this.findOrFail(companyId, id);
+    const metadata = this.toObject(device.metadata);
+    const operational = this.toObject(metadata.operational);
+    const hikvision = this.toObject(metadata.hikvision);
 
     return {
-      message: 'Attendance device manual sync completed successfully',
-      synced_fields: syncResult.synced_fields ?? [],
-      device: this.mapDevice(refreshed),
+      device_id: device.id,
+      device_name: device.deviceName,
+      device_code: device.deviceCode,
+      integration_type: device.integrationType,
+      vendor_name: device.vendorName,
+      status: device.status,
+      sync_mode: device.syncMode,
+      is_hikvision: this.shouldAutoSyncHikvision(device),
+      connection: {
+        ip_address: device.ipAddress,
+        port: device.port,
+        protocol: device.protocol,
+        last_heartbeat_at: device.lastHeartbeatAt,
+        last_listener_at: device.lastListenerAt,
+        last_connection_test:
+          this.toObject(operational.connection_test) || null,
+      },
+      sync: {
+        last_sync_at: device.lastSyncAt,
+        last_sync_result: this.toObject(operational.sync) || null,
+        hikvision_last_synced_at: hikvision.last_synced_at ?? null,
+        supported_user_verify_modes: Array.isArray(
+          hikvision.supported_user_verify_modes,
+        )
+          ? hikvision.supported_user_verify_modes
+          : [],
+      },
+      metadata: device.metadata,
     };
   }
 
@@ -465,6 +608,7 @@ export class AccessControlAttendanceDevicesService {
       integration_type: item.integrationType,
       auth_type: item.authType,
       api_username: item.apiUsername,
+      api_password: item.apiPassword,
       sync_mode: item.syncMode,
       status: item.status,
       last_sync_at: item.lastSyncAt,
@@ -484,6 +628,70 @@ export class AccessControlAttendanceDevicesService {
       created_at: item.createdAt,
       updated_at: item.updatedAt,
       deleted_at: item.deletedAt,
+    };
+  }
+
+  private async testTcpConnection(params: {
+    host: string;
+    port: number;
+    timeoutMs: number;
+  }): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const socket = new Socket();
+
+      const cleanup = () => {
+        socket.removeAllListeners();
+        socket.destroy();
+      };
+
+      socket.setTimeout(params.timeoutMs);
+
+      socket.once('connect', () => {
+        cleanup();
+        resolve();
+      });
+
+      socket.once('timeout', () => {
+        cleanup();
+        reject(
+          new Error(
+            `Connection timeout after ${params.timeoutMs}ms to ${params.host}:${params.port}`,
+          ),
+        );
+      });
+
+      socket.once('error', (error) => {
+        cleanup();
+        reject(error);
+      });
+
+      socket.connect(params.port, params.host);
+    });
+  }
+
+  private resolveConnectionPort(device: AttendanceDevice): number {
+    if (device.port && Number.isFinite(device.port) && device.port > 0) {
+      return device.port;
+    }
+
+    const protocol = (device.protocol || 'http').toLowerCase();
+
+    return protocol === 'https' ? 443 : 80;
+  }
+
+  private mergeDeviceOperationalMetadata(
+    existingMetadata: Record<string, unknown> | null,
+    patch: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const current = this.toObject(existingMetadata);
+    const currentOperational = this.toObject(current.operational);
+
+    return {
+      ...current,
+      operational: {
+        ...currentOperational,
+        ...patch,
+      },
     };
   }
 

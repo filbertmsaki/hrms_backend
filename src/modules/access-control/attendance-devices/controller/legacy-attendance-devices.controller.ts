@@ -122,6 +122,40 @@ export class AttendanceDevicesController {
     );
   }
 
+  @Post(':id/test-connection')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_devices:update')
+  @ApiActionOperation(
+    'Test Attendance Device Connection',
+    'Test whether the attendance device is reachable and update heartbeat/status metadata',
+  )
+  testConnection(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.attendanceDevicesService.testConnection(
+      req.user.companyId!,
+      id,
+    );
+  }
+
+  @Get(':id/sync-status')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_devices:read')
+  @ApiGetOneOperation(
+    'Attendance Device Sync Status',
+    'Get attendance device connection, heartbeat and sync status',
+  )
+  getSyncStatus(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.attendanceDevicesService.getSyncStatus(
+      req.user.companyId!,
+      id,
+    );
+  }
+
   @Delete(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_devices:delete')

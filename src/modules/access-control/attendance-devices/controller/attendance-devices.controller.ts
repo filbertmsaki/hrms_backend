@@ -1,4 +1,13 @@
-import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request as ExpressRequest } from 'express';
@@ -6,7 +15,11 @@ import { Permissions } from '../../../../common/decorators/permissions.decorator
 import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
-import { ApiListOperation } from '../../../../docs/swagger-decorators';
+import {
+  ApiActionOperation,
+  ApiGetOneOperation,
+  ApiListOperation,
+} from '../../../../docs/swagger-decorators';
 import { EmployeeDeviceAssignmentMatchQueryDto } from '../dto/employee-device-assignment-match-query.dto';
 import { AccessControlAttendanceDevicesService } from '../service/attendance-devices.service';
 
@@ -18,6 +31,40 @@ export class AccessControlAttendanceDevicesController {
   constructor(
     private readonly attendanceDevicesService: AccessControlAttendanceDevicesService,
   ) {}
+
+  @Post(':id/test-connection')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_devices:update')
+  @ApiActionOperation(
+    'Test Attendance Device Connection',
+    'Test whether the access-control attendance device is reachable',
+  )
+  testConnection(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.attendanceDevicesService.testConnection(
+      req.user.companyId!,
+      id,
+    );
+  }
+
+  @Get(':id/sync-status')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_devices:read')
+  @ApiGetOneOperation(
+    'Attendance Device Sync Status',
+    'Get attendance device connection and sync status',
+  )
+  getSyncStatus(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.attendanceDevicesService.getSyncStatus(
+      req.user.companyId!,
+      id,
+    );
+  }
 
   @Get('employee-device-assignment-matches')
   @UseGuards(PermissionsGuard)

@@ -242,7 +242,8 @@ export class HikvisionService {
   }
 
   async testDeviceConnection(companyId: number, id: number) {
-    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, id);
+    const device =
+      await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, id);
     const credentials = this.buildCredentialsFromDevice(device);
     const startedAt = Date.now();
 
@@ -276,17 +277,114 @@ export class HikvisionService {
         );
       }
 
-      await this.deviceRepository.update(device.id, {
-        lastHeartbeatAt: new Date(),
+      const parsedDeviceInfo = this.parserHelper.parsePayload(
+        deviceInfoResponse.body,
+      );
+      const parsedCapabilities = this.parserHelper.parsePayload(
+        capabilitiesResponse.body,
+      );
+      const deviceInfoRoot = this.extractFirstExistingRoot(parsedDeviceInfo, [
+        'DeviceInfo',
+        'deviceInfo',
+      ]);
+      const capabilitiesRoot = this.extractFirstExistingRoot(
+        parsedCapabilities,
+        ['AccessControl', 'AccessControlCapability'],
+      );
+      const mappedFields = this.extractMappedFields(
+        deviceInfoRoot,
+        capabilitiesRoot,
+      );
+      const supportedUserVerifyModes =
+        this.extractSupportedUserVerifyModes(capabilitiesRoot);
+
+      device.lastHeartbeatAt = new Date();
+      device.status = AttendanceDeviceStatusEnum.ACTIVE;
+      device.metadata = this.buildConnectionTestMetadata(device.metadata, {
+        success: true,
+        latencyMs: Date.now() - startedAt,
+        deviceInfo: deviceInfoRoot,
+        capabilities: capabilitiesRoot,
       });
+
+      await this.deviceRepository.save(device);
+
       return {
         success: true,
         message: 'Hikvision device connection test succeeded',
         latency_ms: Date.now() - startedAt,
+        device: {
+          id: device.id,
+          device_name: mappedFields.deviceName ?? device.deviceName,
+          device_model: mappedFields.deviceModel ?? device.deviceModel,
+          serial_number:
+            mappedFields.deviceSerialNumber ?? device.deviceSerialNumber,
+          firmware_version:
+            mappedFields.firmwareVersion ?? device.firmwareVersion,
+          device_type: mappedFields.deviceType ?? device.deviceType,
+        },
+        capabilities: {
+          supported_user_verify_modes: supportedUserVerifyModes,
+        },
       };
     } catch (error) {
+      device.lastHeartbeatAt = new Date();
+      device.status = AttendanceDeviceStatusEnum.OFFLINE;
+      device.metadata = this.buildConnectionTestMetadata(device.metadata, {
+        success: false,
+        latencyMs: Date.now() - startedAt,
+        errorMessage:
+          (error as Error | null)?.message ??
+          'Hikvision device connection test failed.',
+      });
+
+      await this.deviceRepository.save(device);
+
       throw normalizeHikvisionError(error);
     }
+  }
+
+  private buildConnectionTestMetadata(
+    existingMetadata: Record<string, unknown> | null,
+    result: {
+      success: boolean;
+      latencyMs: number;
+      errorMessage?: string;
+      deviceInfo?: Record<string, unknown>;
+      capabilities?: Record<string, unknown>;
+    },
+  ): Record<string, unknown> {
+    const current = this.toObject(existingMetadata);
+    const operational = this.toObject(current.operational);
+
+    return {
+      ...current,
+      operational: {
+        ...operational,
+        connection_test: {
+          success: result.success,
+          tested_at: new Date().toISOString(),
+          latency_ms: result.latencyMs,
+          message: result.success
+            ? 'Hikvision connection test succeeded.'
+            : result.errorMessage ?? 'Hikvision connection test failed.',
+        },
+      },
+      hikvision: {
+        ...this.toObject(current.hikvision),
+        last_connection_test_at: new Date().toISOString(),
+        last_connection_test_success: result.success,
+        last_connection_test_error: result.success
+          ? null
+          : result.errorMessage ?? 'Unknown error',
+        last_connection_test_capabilities: result.capabilities
+          ? maskSensitiveObject(result.capabilities)
+          : undefined,
+        last_connection_test_device_info: result.deviceInfo
+          ? maskSensitiveObject(result.deviceInfo)
+          : undefined,
+      },
+    };
   }
 
   async syncDevice(companyId: number, id: number) {
@@ -1073,6 +1171,7 @@ export class HikvisionService {
       integration_type: device.integrationType,
       auth_type: device.authType,
       api_username: device.apiUsername,
+      api_password: device.apiPassword,
       sync_mode: device.syncMode,
       status: device.status,
       last_sync_at: device.lastSyncAt,
