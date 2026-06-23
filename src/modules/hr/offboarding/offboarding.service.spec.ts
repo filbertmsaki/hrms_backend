@@ -13,6 +13,7 @@ import { Department } from '../departments/entities/department.entity';
 import { Position } from '../positions/entities/position.entity';
 import { Branch } from '../branches/entities/branch.entity';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
+import { CompanyUserRole } from '../../companies/entities/company-user-role.entity';
 import { Role } from '../../roles/entities/role.entity';
 import { ShiftAssignment } from '../attendance/shift/shift-assignments/entities/shift-assignment.entity';
 import { ShiftAssignmentStatusEnum } from '../attendance/shift/shift-assignments/enums/shift-assignment-status.enum';
@@ -69,6 +70,7 @@ describe('OffboardingService', () => {
     const positionRepository = createRepositoryMock<Position>();
     const branchRepository = createRepositoryMock<Branch>();
     const companyUserRepository = createRepositoryMock<CompanyUser>();
+    const companyUserRoleRepository = createRepositoryMock<CompanyUserRole>();
     const roleRepository = createRepositoryMock<Role>();
 
     dataSource = {
@@ -105,6 +107,7 @@ describe('OffboardingService', () => {
       positionRepository as Repository<Position>,
       branchRepository as Repository<Branch>,
       companyUserRepository as Repository<CompanyUser>,
+      companyUserRoleRepository as Repository<CompanyUserRole>,
       roleRepository as Repository<Role>,
       {
         assertCanAccessEmployee: jest.fn(),
@@ -113,6 +116,8 @@ describe('OffboardingService', () => {
         log: jest.fn(),
       } as unknown as OffboardingAuditService,
       {} as OffboardingWorkflowService,
+      { emit: jest.fn() } as any,
+      { get: jest.fn() } as any,
     );
   });
 

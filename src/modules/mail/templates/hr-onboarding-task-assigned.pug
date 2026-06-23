@@ -1,0 +1,15 @@
+doctype html
+html(lang="en")
+  body(style="font-family: Arial, sans-serif; color: #1f2937;")
+    h2 New onboarding task
+    p Hello #{assigneeName},
+    p You have been assigned a task for #{employeeName}.
+    p Task: #{taskTitle}
+    if taskDescription
+      p Details: #{taskDescription}
+    if dueDate
+      p Due date: #{dueDate}
+    p
+      a(href=taskUrl) Open task
+    p #{appName}
+

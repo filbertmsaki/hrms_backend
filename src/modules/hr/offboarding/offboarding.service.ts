@@ -9,6 +9,7 @@ import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
+import { CompanyUserRole } from '../../companies/entities/company-user-role.entity';
 import { Role } from '../../roles/entities/role.entity';
 import { Branch } from '../branches/entities/branch.entity';
 import { Document } from '../documents/entities/document.entity';
@@ -63,6 +64,19 @@ import { OffboardingWorkflowStep } from './entities/offboarding-workflow-step.en
 import { OffboardingWorkflow } from './entities/offboarding-workflow.entity';
 import { OffboardingAuditService } from './services/offboarding-audit.service';
 import { OffboardingWorkflowService } from './services/offboarding-workflow.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ConfigService } from '@nestjs/config';
+import {
+  NotificationRecipient,
+  OffboardingCompletedEvent,
+  OffboardingClearanceRequiredEvent,
+  OffboardingSubmittedEvent,
+  OffboardingTaskAssignedEvent,
+} from '../notifications/events';
+import {
+  buildNotificationRecipient,
+  HR_NOTIFICATION_ROLE_NAMES,
+} from '../notifications/notification-recipient.util';
 
 type ProgressSummary = {
   total_tasks: number;
@@ -118,11 +132,15 @@ export class OffboardingService {
     private readonly branchRepository: Repository<Branch>,
     @InjectRepository(CompanyUser)
     private readonly companyUserRepository: Repository<CompanyUser>,
+    @InjectRepository(CompanyUserRole)
+    private readonly companyUserRoleRepository: Repository<CompanyUserRole>,
     @InjectRepository(Role)
     private readonly roleRepository: Repository<Role>,
     private readonly hrAccessService: HrAccessService,
     private readonly offboardingAuditService: OffboardingAuditService,
     private readonly offboardingWorkflowService: OffboardingWorkflowService,
+    private readonly eventEmitter: EventEmitter2,
+    private readonly configService: ConfigService,
   ) {}
 
   private getOffboardingWorkflowRepository(
@@ -234,6 +252,14 @@ export class OffboardingService {
     return manager?.getRepository(CompanyUser) ?? this.companyUserRepository;
   }
 
+  private getCompanyUserRoleRepository(
+    manager?: EntityManager,
+  ): Repository<CompanyUserRole> {
+    return (
+      manager?.getRepository(CompanyUserRole) ?? this.companyUserRoleRepository
+    );
+  }
+
   private getRoleRepository(manager?: EntityManager): Repository<Role> {
     return manager?.getRepository(Role) ?? this.roleRepository;
   }
@@ -255,6 +281,65 @@ export class OffboardingService {
       return null;
     }
     return value;
+  }
+
+  private async findMembershipRecipient(
+    companyId: number,
+    membershipId: number | null | undefined,
+    manager?: EntityManager,
+  ): Promise<NotificationRecipient | null> {
+    if (!membershipId) {
+      return null;
+    }
+
+    const membership = await this.getCompanyUserRepository(manager).findOne({
+      where: {
+        id: membershipId,
+        company_id: companyId,
+        status: 'active',
+      },
+      relations: { user: true },
+    });
+
+    return buildNotificationRecipient(membership?.user);
+  }
+
+  private async resolveCompanyRoleRecipients(
+    companyId: number,
+    roleNames: readonly string[],
+    manager?: EntityManager,
+  ): Promise<NotificationRecipient[]> {
+    const rows = await this.getCompanyUserRoleRepository(manager)
+      .createQueryBuilder('assignment')
+      .innerJoin(Role, 'role', 'role.id = assignment.role_id')
+      .innerJoin(
+        CompanyUser,
+        'membership',
+        'membership.id = assignment.company_user_id AND membership.company_id = :companyId AND membership.status = :status',
+        { companyId, status: 'active' },
+      )
+      .innerJoin('membership.user', 'user')
+      .where('role.company_id = :companyId', { companyId })
+      .andWhere('role.name IN (:...roleNames)', { roleNames: [...roleNames] })
+      .select([
+        'user.first_name AS first_name',
+        'user.last_name AS last_name',
+        'user.email AS email',
+      ])
+      .groupBy('membership.id')
+      .addGroupBy('user.first_name')
+      .addGroupBy('user.last_name')
+      .addGroupBy('user.email')
+      .getRawMany<{
+        first_name: string | null;
+        last_name: string | null;
+        email: string | null;
+      }>();
+
+    return rows.flatMap((user) => {
+      const recipient = buildNotificationRecipient(user);
+      return recipient ? [recipient] : [];
+    });
   }
 
   private async findEmployeeOrFail(
@@ -1827,6 +1912,10 @@ export class OffboardingService {
       user_agent: context?.user_agent ?? null,
     });
 
+    this.emitOffboardingSubmitted(companyId, offboardingRequestId).catch(
+      () => {},
+    );
+
     return this.findOneOffboardingRequest(
       companyId,
       offboardingRequestId,
@@ -2210,6 +2299,8 @@ export class OffboardingService {
       user_agent: context?.user_agent ?? null,
     });
 
+    this.emitOffboardingCompleted(companyId, completed).catch(() => {});
+
     const documents = await this.documentRepository.find({
       where: {
         company_id: companyId,
@@ -2473,6 +2564,29 @@ export class OffboardingService {
       user_agent: context?.user_agent ?? null,
     });
 
+    const assigneeRecipient = await this.findMembershipRecipient(
+      companyId,
+      created.assigned_to_company_user_id,
+    );
+    if (assigneeRecipient) {
+      this.eventEmitter.emit(
+        OffboardingTaskAssignedEvent.EVENT,
+        new OffboardingTaskAssignedEvent(
+          assigneeRecipient.name,
+          assigneeRecipient.email,
+          `${request.employee.first_name} ${request.employee.last_name}`.trim(),
+          created.title,
+          created.description,
+          created.due_date,
+          request.last_working_date ?? null,
+          `${
+            this.configService.get<string>('APP_FRONTEND_URL') ??
+            'http://localhost:5173'
+          }/offboarding/${offboardingRequestId}/tasks`,
+        ),
+      );
+    }
+
     return this.mapTask(created);
   }
 
@@ -2721,6 +2835,30 @@ export class OffboardingService {
       user_agent: context?.user_agent ?? null,
     });
 
+    if (created.status === OffboardingClearanceStatusEnum.PENDING) {
+      // Until clearance ownership is modeled explicitly, notify the creator.
+      const ownerRecipient = await this.findMembershipRecipient(
+        companyId,
+        actor.companyMembershipId,
+      );
+      if (ownerRecipient) {
+        this.eventEmitter.emit(
+          OffboardingClearanceRequiredEvent.EVENT,
+          new OffboardingClearanceRequiredEvent(
+            ownerRecipient.name,
+            ownerRecipient.email,
+            `${request.employee.first_name} ${request.employee.last_name}`.trim(),
+            created.clearance_type,
+            request.last_working_date ?? null,
+            `${
+              this.configService.get<string>('APP_FRONTEND_URL') ??
+              'http://localhost:5173'
+            }/offboarding/${offboardingRequestId}/clearances`,
+          ),
+        );
+      }
+    }
+
     return this.mapClearance(created);
   }
 
@@ -2906,5 +3044,94 @@ export class OffboardingService {
           }
         : null,
     }));
+  }
+
+  private async emitOffboardingSubmitted(
+    companyId: number,
+    offboardingRequestId: number,
+  ): Promise<void> {
+    try {
+      const request = await this.offboardingRequestRepository.findOne({
+        where: { id: offboardingRequestId, company_id: companyId },
+        relations: {
+          employee: { company_user: { user: true } },
+          approvals: { approver_company_user: { user: true } },
+        },
+      });
+      if (!request?.employee?.company_user?.user?.email) return;
+
+      const employee = request.employee;
+      const employeeName = `${employee.first_name} ${employee.last_name}`;
+      const employeeEmail = employee.company_user.user.email;
+      const frontendUrl =
+        this.configService.get<string>('APP_FRONTEND_URL') ??
+        'http://localhost:5173';
+
+      const approvers: NotificationRecipient[] = request.approvals
+        .filter(
+          (approval) =>
+            approval.status === OffboardingApprovalStatusEnum.PENDING,
+        )
+        .flatMap((approval) => {
+          const recipient = buildNotificationRecipient(
+            approval.approver_company_user?.user,
+          );
+          return recipient ? [recipient] : [];
+        });
+
+      this.eventEmitter.emit(
+        OffboardingSubmittedEvent.EVENT,
+        new OffboardingSubmittedEvent(
+          companyId,
+          employeeName,
+          employeeEmail,
+          request.last_working_date ?? null,
+          approvers,
+          `${frontendUrl}/offboarding/${offboardingRequestId}/review`,
+        ),
+      );
+    } catch (_) {}
+  }
+
+  private async emitOffboardingCompleted(
+    companyId: number,
+    request: OffboardingRequest,
+  ): Promise<void> {
+    try {
+      const loaded = await this.offboardingRequestRepository.findOne({
+        where: { id: request.id, company_id: companyId },
+        relations: {
+          employee: {
+            company_user: { user: true },
+            manager: { company_user: { user: true } },
+          },
+        },
+      });
+      if (!loaded?.employee?.company_user?.user?.email) return;
+
+      const employee = loaded.employee;
+      const employeeName = `${employee.first_name} ${employee.last_name}`;
+      const employeeEmail = employee.company_user.user.email;
+      const managerEmail =
+        employee.manager?.company_user?.user?.email ?? null;
+      const managerName = employee.manager
+        ? `${employee.manager.first_name} ${employee.manager.last_name}`
+        : null;
+
+      this.eventEmitter.emit(
+        OffboardingCompletedEvent.EVENT,
+        new OffboardingCompletedEvent(
+          employeeName,
+          employeeEmail,
+          loaded.last_working_date ?? null,
+          managerEmail,
+          managerName,
+          await this.resolveCompanyRoleRecipients(
+            companyId,
+            HR_NOTIFICATION_ROLE_NAMES,
+          ),
+        ),
+      );
+    } catch (_) {}
   }
 }

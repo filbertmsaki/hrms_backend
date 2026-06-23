@@ -14,6 +14,7 @@ import { EmployeeSelfServiceModule } from './self-service/employee-self-service.
 import { TimetableEngineModule } from './attendance/timetable/timetable-engine.module';
 import { ShiftEngineModule } from './attendance/shift/shift-engine.module';
 import { HrLaunchReadinessModule } from './launch-readiness/hr-launch-readiness.module';
+import { HrNotificationModule } from './notifications/hr-notification.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { HrLaunchReadinessModule } from './launch-readiness/hr-launch-readiness.
     OnboardingModule,
     OffboardingModule,
     HrLaunchReadinessModule,
+    HrNotificationModule,
   ],
 })
 export class HrModule {}

@@ -63,6 +63,15 @@ import { OnboardingWorkflowStep } from './entities/onboarding-workflow-step.enti
 import { OnboardingWorkflow } from './entities/onboarding-workflow.entity';
 import { OnboardingAuditService } from './services/onboarding-audit.service';
 import { OnboardingWorkflowService } from './services/onboarding-workflow.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ConfigService } from '@nestjs/config';
+import {
+  NotificationRecipient,
+  OnboardingCompletedEvent,
+  OnboardingSubmittedEvent,
+  OnboardingTaskAssignedEvent,
+} from '../notifications/events';
+import { buildNotificationRecipient } from '../notifications/notification-recipient.util';
 
 type ProgressSummary = {
   total_tasks: number;
@@ -155,6 +164,8 @@ export class OnboardingService {
     private readonly shiftSchedulesService: ShiftSchedulesService,
     private readonly employeeTimetablesService: EmployeeTimetablesService,
     private readonly employeeDeviceAssignmentsService: EmployeeDeviceAssignmentsService,
+    private readonly eventEmitter: EventEmitter2,
+    private readonly configService: ConfigService,
   ) {}
 
   private getOnboardingWorkflowRepository(
@@ -1466,9 +1477,21 @@ export class OnboardingService {
     manager?: EntityManager,
   ): Promise<void> {
     const taskRepository = this.getOnboardingTaskRepository(manager);
+    const employeeName = `${onboardingRequest.employee?.first_name ?? ''} ${onboardingRequest.employee?.last_name ?? ''}`.trim();
+    const frontendUrl =
+      this.configService.get<string>('APP_FRONTEND_URL') ??
+      'http://localhost:5173';
 
     for (const step of steps) {
       const taskNo = await this.generateTaskNo(onboardingRequest.id, manager);
+      const dueDate = step.expected_duration_days
+        ? new Date(Date.now() + step.expected_duration_days * 86400000)
+        : null;
+      const assignedCompanyUserId =
+        step.approver_type === OnboardingApproverTypeEnum.COMPANY_USER
+          ? step.company_user_id
+          : null;
+
       await taskRepository.save(
         taskRepository.create({
           onboarding_request_id: onboardingRequest.id,
@@ -1479,16 +1502,38 @@ export class OnboardingService {
           task_type: step.task_type ?? OnboardingTaskTypeEnum.GENERAL,
           status: OnboardingTaskStatusEnum.PENDING,
           assigned_department_id: step.assigned_department_id,
-          assigned_company_user_id:
-            step.approver_type === OnboardingApproverTypeEnum.COMPANY_USER
-              ? step.company_user_id
-              : null,
-          due_date: step.expected_duration_days
-            ? new Date(Date.now() + step.expected_duration_days * 86400000)
-            : null,
+          assigned_company_user_id: assignedCompanyUserId,
+          due_date: dueDate,
           created_by_company_user_id: actor.companyMembershipId ?? null,
         }),
       );
+
+      if (assignedCompanyUserId) {
+        const companyUser =
+          step.company_user ??
+          (await this.companyUserRepository.findOne({
+            where: { id: assignedCompanyUserId },
+            relations: { user: true },
+          }));
+        if (companyUser?.user?.email) {
+          const assignee = companyUser.user;
+          const assigneeName =
+            `${assignee.first_name ?? ''} ${assignee.last_name ?? ''}`.trim() ||
+            assignee.email;
+          this.eventEmitter.emit(
+            OnboardingTaskAssignedEvent.EVENT,
+            new OnboardingTaskAssignedEvent(
+              assigneeName,
+              assignee.email,
+              employeeName,
+              step.task_title ?? step.step_name,
+              step.task_description ?? null,
+              dueDate,
+              `${frontendUrl}/onboarding/${onboardingRequest.id}/tasks`,
+            ),
+          );
+        }
+      }
     }
   }
 
@@ -2181,6 +2226,10 @@ export class OnboardingService {
       },
     });
 
+    if (request.status === OnboardingRequestStatusEnum.SUBMITTED) {
+      this.emitOnboardingSubmitted(companyId, request).catch(() => {});
+    }
+
     const documents = await this.documentRepository.find({
       where: {
         company_id: companyId,
@@ -2531,6 +2580,8 @@ export class OnboardingService {
       entity_id: completed.id,
       actor,
     });
+
+    this.emitOnboardingCompleted(completed).catch(() => {});
 
     return {
       message: 'Onboarding completed successfully',
@@ -3003,5 +3054,90 @@ export class OnboardingService {
           }
         : null,
     }));
+  }
+
+  private async emitOnboardingSubmitted(
+    companyId: number,
+    request: OnboardingRequest,
+  ): Promise<void> {
+    try {
+      const loaded = await this.onboardingRequestRepository.findOne({
+        where: { id: request.id, company_id: companyId },
+        relations: {
+          employee: { company_user: { user: true } },
+          approvals: {
+            approver: { user: true },
+          },
+        },
+      });
+      if (!loaded?.employee?.company_user?.user?.email) return;
+
+      const employeeName = `${loaded.employee.first_name} ${loaded.employee.last_name}`;
+      const employeeEmail = loaded.employee.company_user.user.email;
+      const frontendUrl =
+        this.configService.get<string>('APP_FRONTEND_URL') ??
+        'http://localhost:5173';
+
+      const firstLevel = Math.min(
+        ...loaded.approvals.map((a) => a.approval_level).filter((l) => l > 0),
+      );
+      const approvers: NotificationRecipient[] = loaded.approvals
+        .filter((approval) => approval.approval_level === firstLevel)
+        .flatMap((approval) => {
+          const recipient = buildNotificationRecipient(approval.approver?.user);
+          return recipient ? [recipient] : [];
+        });
+
+      this.eventEmitter.emit(
+        OnboardingSubmittedEvent.EVENT,
+        new OnboardingSubmittedEvent(
+          companyId,
+          employeeName,
+          employeeEmail,
+          approvers,
+          `${frontendUrl}/onboarding/${request.id}/review`,
+        ),
+      );
+    } catch (_) {}
+  }
+
+  private async emitOnboardingCompleted(
+    request: OnboardingRequest,
+  ): Promise<void> {
+    try {
+      const loaded = await this.onboardingRequestRepository.findOne({
+        where: { id: request.id },
+        relations: {
+          employee: {
+            company_user: { user: true },
+            manager: { company_user: { user: true } },
+          },
+        },
+      });
+      if (!loaded?.employee?.company_user?.user?.email) return;
+
+      const employee = loaded.employee;
+      const employeeName = `${employee.first_name} ${employee.last_name}`;
+      const employeeEmail = employee.company_user.user.email;
+      const managerEmail =
+        employee.manager?.company_user?.user?.email ?? null;
+      const managerName = employee.manager
+        ? `${employee.manager.first_name} ${employee.manager.last_name}`
+        : null;
+      const frontendUrl =
+        this.configService.get<string>('APP_FRONTEND_URL') ??
+        'http://localhost:5173';
+
+      this.eventEmitter.emit(
+        OnboardingCompletedEvent.EVENT,
+        new OnboardingCompletedEvent(
+          employeeName,
+          employeeEmail,
+          managerEmail,
+          managerName,
+          `${frontendUrl}/onboarding/${request.id}`,
+        ),
+      );
+    } catch (_) {}
   }
 }

@@ -6,6 +6,14 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ConfigService } from '@nestjs/config';
+import {
+  LeaveApprovalRequiredEvent,
+  LeaveApprovedEvent,
+  LeaveRejectedEvent,
+} from '../../../hr/notifications/events';
+import { buildNotificationRecipient } from '../../notifications/notification-recipient.util';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { CompanyUserRole } from '../../../companies/entities/company-user-role.entity';
 import { EmployeePositionStatusEnum } from '../../employees/enums/employee-position-status.enum';
@@ -41,6 +49,8 @@ export class LeaveWorkflowService {
     private readonly companyUserRoleRepository: Repository<CompanyUserRole>,
     @InjectRepository(EmployeePosition)
     private readonly employeePositionRepository: Repository<EmployeePosition>,
+    private readonly eventEmitter: EventEmitter2,
+    private readonly configService: ConfigService,
   ) {}
 
   private getWorkflowRepository(
@@ -407,7 +417,9 @@ export class LeaveWorkflowService {
         await leaveRequestApprovalRepository.save(futurePending);
       }
 
-      return leaveRequestRepository.save(leaveRequest);
+      const saved = await leaveRequestRepository.save(leaveRequest);
+      await this.emitLeaveOutcome(saved, payload.comments ?? null, leaveRequestApprovalRepository, manager);
+      return saved;
     }
 
     const nextPending = await leaveRequestApprovalRepository.find({
@@ -421,13 +433,102 @@ export class LeaveWorkflowService {
     if (!nextPending.length) {
       leaveRequest.status = LeaveStatusEnum.APPROVED;
       leaveRequest.approved_at = new Date();
-      return leaveRequestRepository.save(leaveRequest);
+      const saved = await leaveRequestRepository.save(leaveRequest);
+      await this.emitLeaveOutcome(saved, null, leaveRequestApprovalRepository, manager);
+      return saved;
     }
 
     leaveRequest.status = LeaveStatusEnum.IN_REVIEW;
     leaveRequest.current_approval_level = nextPending[0].approval_level;
     leaveRequest.approved_at = null;
-    return leaveRequestRepository.save(leaveRequest);
+    const saved = await leaveRequestRepository.save(leaveRequest);
+    await this.emitLeaveOutcome(saved, null, leaveRequestApprovalRepository, manager);
+    return saved;
+  }
+
+  private async emitLeaveOutcome(
+    leaveRequest: LeaveRequest,
+    rejectionComments: string | null,
+    approvalRepo: Repository<LeaveRequestApproval>,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const requestRepo = this.getLeaveRequestRepository(manager);
+    const full = await requestRepo.findOne({
+      where: { id: leaveRequest.id },
+      relations: {
+        employee: { company_user: { user: true } },
+        leave_type: true,
+      },
+    });
+    if (!full) return;
+
+    const employeeName = `${full.employee.first_name} ${full.employee.last_name}`;
+    const employeeEmail = full.employee.company_user?.user?.email ?? '';
+    const appUrl = this.configService.get<string>('APP_FRONTEND_URL') ?? 'http://localhost:5173';
+    const dashboardUrl = `${appUrl}/leave/${full.id}`;
+
+    if (full.status === LeaveStatusEnum.APPROVED) {
+      this.eventEmitter.emit(
+        LeaveApprovedEvent.EVENT,
+        new LeaveApprovedEvent(
+          employeeName,
+          employeeEmail,
+          full.leave_type.name,
+          full.start_date,
+          full.end_date,
+          Number(full.total_days),
+          dashboardUrl,
+        ),
+      );
+      return;
+    }
+
+    if (full.status === LeaveStatusEnum.REJECTED) {
+      this.eventEmitter.emit(
+        LeaveRejectedEvent.EVENT,
+        new LeaveRejectedEvent(
+          employeeName,
+          employeeEmail,
+          full.leave_type.name,
+          full.start_date,
+          full.end_date,
+          rejectionComments,
+          dashboardUrl,
+        ),
+      );
+      return;
+    }
+
+    // Still IN_REVIEW — notify next-level pending approvers
+    const nextPendingApprovals = await approvalRepo.find({
+      where: {
+        leave_request_id: full.id,
+        approval_level: full.current_approval_level,
+        status: LeaveApprovalStatusEnum.PENDING,
+      },
+      relations: { approver: { user: true } },
+    });
+
+    const approvers = nextPendingApprovals
+      .flatMap((approval) => {
+        const recipient = buildNotificationRecipient(approval.approver?.user);
+        return recipient ? [recipient] : [];
+      });
+
+    if (approvers.length) {
+      this.eventEmitter.emit(
+        LeaveApprovalRequiredEvent.EVENT,
+        new LeaveApprovalRequiredEvent(
+          employeeName,
+          full.leave_type.name,
+          full.start_date,
+          full.end_date,
+          Number(full.total_days),
+          approvers,
+          `${appUrl}/leave/${full.id}/review`,
+        ),
+      );
+    }
   }
 
   async listApprovalTrail(

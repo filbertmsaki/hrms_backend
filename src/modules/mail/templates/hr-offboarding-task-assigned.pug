@@ -1,0 +1,17 @@
+doctype html
+html(lang="en")
+  body(style="font-family: Arial, sans-serif; color: #1f2937;")
+    h2 New offboarding task
+    p Hello #{assigneeName},
+    p You have been assigned an offboarding task for #{employeeName}.
+    p Task: #{taskTitle}
+    if taskDescription
+      p Details: #{taskDescription}
+    if exitDate
+      p Exit date: #{exitDate}
+    if dueDate
+      p Due date: #{dueDate}
+    p
+      a(href=taskUrl) Open task
+    p #{appName}
+

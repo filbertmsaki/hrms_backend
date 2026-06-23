@@ -1,0 +1,13 @@
+doctype html
+html(lang="en")
+  body(style="font-family: Arial, sans-serif; color: #1f2937;")
+    h2 Leave approval needed
+    p Hello #{approverName},
+    p #{employeeName} submitted a #{leaveTypeName} request for #{totalDays} day(s).
+    p Dates: #{startDate} to #{endDate}
+    if reason
+      p Reason: #{reason}
+    p
+      a(href=reviewUrl) Review request
+    p #{appName}
+

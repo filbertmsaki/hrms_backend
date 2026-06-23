@@ -2,12 +2,25 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ConfigService } from '@nestjs/config';
+import {
+  NotificationRecipient,
+  OffboardingApprovalRequiredEvent,
+  OffboardingApprovedEvent,
+} from '../../notifications/events';
+import {
+  buildNotificationRecipient,
+  HR_NOTIFICATION_ROLE_NAMES,
+} from '../../notifications/notification-recipient.util';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { CompanyUserRole } from '../../../companies/entities/company-user-role.entity';
+import { Role } from '../../../roles/entities/role.entity';
 import { EmployeePositionStatusEnum } from '../../employees/enums/employee-position-status.enum';
 import { EmployeePosition } from '../../employees/entities/employee-position.entity';
 import { OffboardingApprovalStatusEnum } from '../enums/offboarding-approval-status.enum';
@@ -45,7 +58,11 @@ export class OffboardingWorkflowService {
     private readonly companyUserRoleRepository: Repository<CompanyUserRole>,
     @InjectRepository(EmployeePosition)
     private readonly employeePositionRepository: Repository<EmployeePosition>,
+    private readonly eventEmitter: EventEmitter2,
+    private readonly configService: ConfigService,
   ) {}
+
+  private readonly logger = new Logger(OffboardingWorkflowService.name);
 
   private getWorkflowRepository(
     manager?: EntityManager,
@@ -111,6 +128,44 @@ export class OffboardingWorkflowService {
       manager?.getRepository(EmployeePosition) ??
       this.employeePositionRepository
     );
+  }
+
+  private async resolveCompanyRoleRecipients(
+    companyId: number,
+    roleNames: readonly string[],
+    manager?: EntityManager,
+  ): Promise<NotificationRecipient[]> {
+    const rows = await this.getCompanyUserRoleRepository(manager)
+      .createQueryBuilder('assignment')
+      .innerJoin(Role, 'role', 'role.id = assignment.role_id')
+      .innerJoin(
+        CompanyUser,
+        'membership',
+        'membership.id = assignment.company_user_id AND membership.company_id = :companyId AND membership.status = :status',
+        { companyId, status: 'active' },
+      )
+      .innerJoin('membership.user', 'user')
+      .where('role.company_id = :companyId', { companyId })
+      .andWhere('role.name IN (:...roleNames)', { roleNames: [...roleNames] })
+      .select([
+        'user.first_name AS first_name',
+        'user.last_name AS last_name',
+        'user.email AS email',
+      ])
+      .groupBy('membership.id')
+      .addGroupBy('user.first_name')
+      .addGroupBy('user.last_name')
+      .addGroupBy('user.email')
+      .getRawMany<{
+        first_name: string | null;
+        last_name: string | null;
+        email: string | null;
+      }>();
+
+    return rows.flatMap((user) => {
+      const recipient = buildNotificationRecipient(user);
+      return recipient ? [recipient] : [];
+    });
   }
 
   async resolveWorkflow(
@@ -434,7 +489,11 @@ export class OffboardingWorkflowService {
         });
         await approvalRepository.save(futurePending);
       }
-      return requestRepository.save(request);
+      const saved = await requestRepository.save(request);
+      this.emitOffboardingOutcome(saved, manager).catch((e) =>
+        this.logger.error('Offboarding rejected emit failed', e),
+      );
+      return saved;
     }
 
     const stillPending = await approvalRepository.find({
@@ -448,7 +507,11 @@ export class OffboardingWorkflowService {
       ? OffboardingRequestStatusEnum.WAITING_APPROVAL
       : OffboardingRequestStatusEnum.APPROVED;
 
-    return requestRepository.save(request);
+    const saved = await requestRepository.save(request);
+    this.emitOffboardingOutcome(saved, manager).catch((e) =>
+      this.logger.error('Offboarding outcome emit failed', e),
+    );
+    return saved;
   }
 
   async closeAllPendingApprovals(
@@ -475,5 +538,84 @@ export class OffboardingWorkflowService {
     });
 
     await repository.save(pending);
+  }
+
+  private async emitOffboardingOutcome(
+    request: OffboardingRequest,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repo = this.getRequestRepository(manager);
+    const loaded = await repo.findOne({
+      where: { id: request.id },
+      relations: {
+        employee: { company_user: { user: true } },
+      },
+    });
+    if (!loaded?.employee?.company_user?.user?.email) return;
+
+    const employee = loaded.employee;
+    const employeeName = `${employee.first_name} ${employee.last_name}`;
+    const employeeEmail = employee.company_user.user.email;
+    const frontendUrl =
+      this.configService.get<string>('APP_FRONTEND_URL') ??
+      'http://localhost:5173';
+    const exitDate = loaded.last_working_date ?? null;
+
+    if (loaded.status === OffboardingRequestStatusEnum.APPROVED) {
+      this.eventEmitter.emit(
+        OffboardingApprovedEvent.EVENT,
+        new OffboardingApprovedEvent(
+          employeeName,
+          employeeEmail,
+          exitDate,
+          await this.resolveCompanyRoleRecipients(
+            loaded.company_id,
+            HR_NOTIFICATION_ROLE_NAMES,
+            manager,
+          ),
+          `${frontendUrl}/offboarding/${request.id}`,
+        ),
+      );
+      return;
+    }
+
+    if (loaded.status === OffboardingRequestStatusEnum.WAITING_APPROVAL) {
+      const approvalRepo = this.getApprovalRepository(manager);
+      const nextApprovals = await approvalRepo.find({
+        where: {
+          offboarding_request_id: loaded.id,
+          status: OffboardingApprovalStatusEnum.PENDING,
+        },
+        relations: {
+          approver_company_user: { user: true },
+          workflow_step: true,
+        },
+        order: { id: 'ASC' },
+      });
+      const nextLevel = nextApprovals[0]?.workflow_step?.approval_level;
+      const approvers: NotificationRecipient[] = nextApprovals
+        .filter(
+          (approval) =>
+            (nextLevel === undefined ||
+              approval.workflow_step?.approval_level === nextLevel),
+        )
+        .flatMap((approval) => {
+          const recipient = buildNotificationRecipient(
+            approval.approver_company_user?.user,
+          );
+          return recipient ? [recipient] : [];
+        });
+      if (approvers.length) {
+        this.eventEmitter.emit(
+          OffboardingApprovalRequiredEvent.EVENT,
+          new OffboardingApprovalRequiredEvent(
+            employeeName,
+            exitDate,
+            approvers,
+            `${frontendUrl}/offboarding/${request.id}/review`,
+          ),
+        );
+      }
+    }
   }
 }

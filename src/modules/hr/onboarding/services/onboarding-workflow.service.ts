@@ -2,12 +2,26 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ConfigService } from '@nestjs/config';
+import {
+  NotificationRecipient,
+  OnboardingApprovalRequiredEvent,
+  OnboardingApprovedEvent,
+  OnboardingRejectedEvent,
+} from '../../notifications/events';
+import {
+  buildNotificationRecipient,
+  HR_NOTIFICATION_ROLE_NAMES,
+} from '../../notifications/notification-recipient.util';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { CompanyUserRole } from '../../../companies/entities/company-user-role.entity';
+import { Role } from '../../../roles/entities/role.entity';
 import { EmployeePositionStatusEnum } from '../../employees/enums/employee-position-status.enum';
 import { EmployeePosition } from '../../employees/entities/employee-position.entity';
 import { OnboardingApprovalStatusEnum } from '../enums/onboarding-approval-status.enum';
@@ -42,7 +56,11 @@ export class OnboardingWorkflowService {
     private readonly companyUserRoleRepository: Repository<CompanyUserRole>,
     @InjectRepository(EmployeePosition)
     private readonly employeePositionRepository: Repository<EmployeePosition>,
+    private readonly eventEmitter: EventEmitter2,
+    private readonly configService: ConfigService,
   ) {}
+
+  private readonly logger = new Logger(OnboardingWorkflowService.name);
 
   private getWorkflowRepository(
     manager?: EntityManager,
@@ -100,6 +118,44 @@ export class OnboardingWorkflowService {
       manager?.getRepository(EmployeePosition) ??
       this.employeePositionRepository
     );
+  }
+
+  private async resolveCompanyRoleRecipients(
+    companyId: number,
+    roleNames: readonly string[],
+    manager?: EntityManager,
+  ): Promise<NotificationRecipient[]> {
+    const rows = await this.getCompanyUserRoleRepository(manager)
+      .createQueryBuilder('assignment')
+      .innerJoin(Role, 'role', 'role.id = assignment.role_id')
+      .innerJoin(
+        CompanyUser,
+        'membership',
+        'membership.id = assignment.company_user_id AND membership.company_id = :companyId AND membership.status = :status',
+        { companyId, status: 'active' },
+      )
+      .innerJoin('membership.user', 'user')
+      .where('role.company_id = :companyId', { companyId })
+      .andWhere('role.name IN (:...roleNames)', { roleNames: [...roleNames] })
+      .select([
+        'user.first_name AS first_name',
+        'user.last_name AS last_name',
+        'user.email AS email',
+      ])
+      .groupBy('membership.id')
+      .addGroupBy('user.first_name')
+      .addGroupBy('user.last_name')
+      .addGroupBy('user.email')
+      .getRawMany<{
+        first_name: string | null;
+        last_name: string | null;
+        email: string | null;
+      }>();
+
+    return rows.flatMap((user) => {
+      const recipient = buildNotificationRecipient(user);
+      return recipient ? [recipient] : [];
+    });
   }
 
   async resolveWorkflow(
@@ -409,7 +465,11 @@ export class OnboardingWorkflowService {
         await approvalRepository.save(futurePending);
       }
 
-      return requestRepository.save(onboardingRequest);
+      const saved = await requestRepository.save(onboardingRequest);
+      this.emitOnboardingOutcome(saved, manager).catch((e) =>
+        this.logger.error('Onboarding rejected emit failed', e),
+      );
+      return saved;
     }
 
     const nextPending = await approvalRepository.find({
@@ -424,13 +484,21 @@ export class OnboardingWorkflowService {
       onboardingRequest.status = OnboardingRequestStatusEnum.IN_PROGRESS;
       onboardingRequest.current_approval_level = 0;
       onboardingRequest.rejection_reason = null;
-      return requestRepository.save(onboardingRequest);
+      const saved = await requestRepository.save(onboardingRequest);
+      this.emitOnboardingOutcome(saved, manager).catch((e) =>
+        this.logger.error('Onboarding approved emit failed', e),
+      );
+      return saved;
     }
 
     onboardingRequest.status = OnboardingRequestStatusEnum.IN_REVIEW;
     onboardingRequest.current_approval_level = nextPending[0].approval_level;
     onboardingRequest.rejection_reason = null;
-    return requestRepository.save(onboardingRequest);
+    const advanced = await requestRepository.save(onboardingRequest);
+    this.emitOnboardingOutcome(advanced, manager).catch((e) =>
+      this.logger.error('Onboarding in-review emit failed', e),
+    );
+    return advanced;
   }
 
   async listApprovalTrail(
@@ -473,5 +541,84 @@ export class OnboardingWorkflowService {
     });
 
     await repository.save(pending);
+  }
+
+  private async emitOnboardingOutcome(
+    onboardingRequest: OnboardingRequest,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repo = this.getOnboardingRequestRepository(manager);
+    const loaded = await repo.findOne({
+      where: { id: onboardingRequest.id },
+      relations: {
+        employee: { company_user: { user: true } },
+      },
+    });
+    if (!loaded?.employee?.company_user?.user?.email) return;
+
+    const employee = loaded.employee;
+    const employeeName = `${employee.first_name} ${employee.last_name}`;
+    const employeeEmail = employee.company_user.user.email;
+    const frontendUrl =
+      this.configService.get<string>('APP_FRONTEND_URL') ??
+      'http://localhost:5173';
+    const dashboardUrl = `${frontendUrl}/onboarding/${onboardingRequest.id}`;
+
+    if (loaded.status === OnboardingRequestStatusEnum.REJECTED) {
+      this.eventEmitter.emit(
+        OnboardingRejectedEvent.EVENT,
+        new OnboardingRejectedEvent(
+          employeeName,
+          employeeEmail,
+          loaded.rejection_reason ?? null,
+          dashboardUrl,
+        ),
+      );
+      return;
+    }
+
+    if (loaded.status === OnboardingRequestStatusEnum.IN_PROGRESS) {
+      this.eventEmitter.emit(
+        OnboardingApprovedEvent.EVENT,
+        new OnboardingApprovedEvent(
+          employeeName,
+          employeeEmail,
+          await this.resolveCompanyRoleRecipients(
+            loaded.company_id,
+            HR_NOTIFICATION_ROLE_NAMES,
+            manager,
+          ),
+          dashboardUrl,
+        ),
+      );
+      return;
+    }
+
+    if (loaded.status === OnboardingRequestStatusEnum.IN_REVIEW) {
+      const approvalRepo = this.getOnboardingApprovalRepository(manager);
+      const nextApprovals = await approvalRepo.find({
+        where: {
+          onboarding_request_id: loaded.id,
+          approval_level: loaded.current_approval_level,
+          status: OnboardingApprovalStatusEnum.PENDING,
+        },
+        relations: { approver: { user: true } },
+      });
+      const approvers: NotificationRecipient[] = nextApprovals
+        .flatMap((approval) => {
+          const recipient = buildNotificationRecipient(approval.approver?.user);
+          return recipient ? [recipient] : [];
+        });
+      if (approvers.length) {
+        this.eventEmitter.emit(
+          OnboardingApprovalRequiredEvent.EVENT,
+          new OnboardingApprovalRequiredEvent(
+            employeeName,
+            approvers,
+            `${frontendUrl}/onboarding/${onboardingRequest.id}/review`,
+          ),
+        );
+      }
+    }
   }
 }

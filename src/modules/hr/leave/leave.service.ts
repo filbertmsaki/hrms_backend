@@ -63,6 +63,16 @@ import { AttendanceProcessingJobStatusEnum } from '../attendance/processing/enum
 import { AttendanceHoliday } from '../attendance/holidays/entities/holiday.entity';
 import { AttendanceHolidayTypeEnum } from '../attendance/holidays/enums/attendance-holiday-type.enum';
 import { HolidayGroup } from '../attendance/holidays/entities/holiday-group.entity';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ConfigService } from '@nestjs/config';
+import {
+  LeaveCancelledEvent,
+  LeaveSubmittedEvent,
+  NotificationRecipient,
+} from '../notifications/events';
+import { buildNotificationRecipient } from '../notifications/notification-recipient.util';
+import { LeaveRequestApproval } from './entities/leave-request-approval.entity';
+import { LeaveApprovalStatusEnum } from './enums/leave-approval-status.enum';
 
 type PolicyContext = {
   allowNegativeBalance: boolean;
@@ -116,6 +126,8 @@ export class LeaveService {
     private readonly leaveBalanceService: LeaveBalanceService,
     private readonly leaveWorkflowService: LeaveWorkflowService,
     private readonly leavePdfService: LeavePdfService,
+    private readonly eventEmitter: EventEmitter2,
+    private readonly configService: ConfigService,
   ) {}
 
   private normalizeOptionalString(value: unknown): string | null {
@@ -624,6 +636,7 @@ export class LeaveService {
         leaveRequest,
         manager,
       );
+      await this.emitLeaveSubmitted(companyId, leaveRequest, employee, manager);
       return;
     }
 
@@ -2845,6 +2858,21 @@ export class LeaveService {
       leaveRequest.employee_id,
     );
 
+    const pendingApprovals = await this.dataSource
+      .getRepository(LeaveRequestApproval)
+      .find({
+        where: {
+          leave_request_id: leaveRequestId,
+          status: LeaveApprovalStatusEnum.PENDING,
+        },
+        relations: { approver: { user: true } },
+      });
+    const pendingApprovers: NotificationRecipient[] = pendingApprovals
+      .flatMap((approval) => {
+        const recipient = buildNotificationRecipient(approval.approver?.user);
+        return recipient ? [recipient] : [];
+      });
+
     const cancelled = await this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(LeaveRequest);
       const balance = await this.leaveBalanceService.ensureBalanceForEmployee(
@@ -2902,6 +2930,8 @@ export class LeaveService {
       'Leave request cancelled',
       actor,
     );
+
+    await this.emitLeaveCancelled(cancelled, employee, pendingApprovers);
 
     return {
       message: 'Leave request cancelled successfully',
@@ -3128,5 +3158,86 @@ export class LeaveService {
     });
 
     return pdf;
+  }
+
+  private async emitLeaveSubmitted(
+    companyId: number,
+    leaveRequest: LeaveRequest,
+    employee: Employee,
+    manager: EntityManager,
+  ): Promise<void> {
+    try {
+      const initialApprovals = await manager
+        .getRepository(LeaveRequestApproval)
+        .find({
+          where: {
+            leave_request_id: leaveRequest.id,
+            approval_level: leaveRequest.current_approval_level ?? 1,
+            status: LeaveApprovalStatusEnum.PENDING,
+          },
+          relations: { approver: { user: true } },
+      });
+
+      const approvers: NotificationRecipient[] = initialApprovals
+        .flatMap((approval) => {
+          const recipient = buildNotificationRecipient(approval.approver?.user);
+          return recipient ? [recipient] : [];
+        });
+
+      if (!approvers.length) return;
+
+      const leaveType = await this.dataSource
+        .getRepository(LeaveType)
+        .findOne({ where: { id: leaveRequest.leave_type_id } });
+
+      const frontendUrl =
+        this.configService.get<string>('APP_FRONTEND_URL') ??
+        'http://localhost:5173';
+
+      this.eventEmitter.emit(
+        LeaveSubmittedEvent.EVENT,
+        new LeaveSubmittedEvent(
+          companyId,
+          `${employee.first_name} ${employee.last_name}`,
+          employee.company_user?.user?.email ?? '',
+          leaveType?.name ?? `Leave #${leaveRequest.leave_type_id}`,
+          leaveRequest.start_date,
+          leaveRequest.end_date,
+          Number(leaveRequest.total_days),
+          leaveRequest.reason ?? null,
+          approvers,
+          `${frontendUrl}/leave/${leaveRequest.id}/review`,
+        ),
+      );
+    } catch (err) {
+      // never block submit on notification failure
+    }
+  }
+
+  private async emitLeaveCancelled(
+    leaveRequest: LeaveRequest,
+    employee: Employee,
+    pendingApprovers: NotificationRecipient[],
+  ): Promise<void> {
+    try {
+      if (!pendingApprovers.length) return;
+
+      const leaveType = await this.dataSource
+        .getRepository(LeaveType)
+        .findOne({ where: { id: leaveRequest.leave_type_id } });
+
+      this.eventEmitter.emit(
+        LeaveCancelledEvent.EVENT,
+        new LeaveCancelledEvent(
+          `${employee.first_name} ${employee.last_name}`,
+          leaveType?.name ?? `Leave #${leaveRequest.leave_type_id}`,
+          leaveRequest.start_date,
+          leaveRequest.end_date,
+          pendingApprovers,
+        ),
+      );
+    } catch (err) {
+      // never block cancel on notification failure
+    }
   }
 }
