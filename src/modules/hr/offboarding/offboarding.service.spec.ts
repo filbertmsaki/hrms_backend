@@ -1,4 +1,6 @@
 import { DataSource, EntityManager, Repository } from 'typeorm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ConfigService } from '@nestjs/config';
 import { OffboardingService } from './offboarding.service';
 import { OffboardingWorkflow } from './entities/offboarding-workflow.entity';
 import { OffboardingWorkflowStep } from './entities/offboarding-workflow-step.entity';
@@ -30,7 +32,8 @@ import { OffboardingTaskStatusEnum } from './enums/offboarding-task-status.enum'
 import { OffboardingTypeEnum } from './enums/offboarding-type.enum';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 
-type MockRepo<T> = Partial<Record<keyof Repository<T>, jest.Mock>>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type MockRepo<T = any> = Record<string, jest.Mock>;
 
 const createRepositoryMock = <T>(): MockRepo<T> => ({
   find: jest.fn().mockResolvedValue([]),
@@ -90,25 +93,25 @@ describe('OffboardingService', () => {
 
     service = new OffboardingService(
       dataSource as unknown as DataSource,
-      offboardingWorkflowRepository as Repository<OffboardingWorkflow>,
-      offboardingWorkflowStepRepository as Repository<OffboardingWorkflowStep>,
-      offboardingRequestRepository as Repository<OffboardingRequest>,
-      offboardingTaskRepository as Repository<OffboardingTask>,
-      offboardingApprovalRepository as Repository<OffboardingApproval>,
-      offboardingClearanceRepository as Repository<OffboardingClearance>,
-      offboardingAuditLogRepository as Repository<OffboardingAuditLog>,
-      documentRepository as Repository<Document>,
-      employeeRepository as Repository<Employee>,
-      shiftAssignmentRepository as Repository<ShiftAssignment>,
-      shiftScheduleRepository as Repository<ShiftSchedule>,
-      employeeTimetableRepository as Repository<EmployeeTimetable>,
-      attendanceDailySummaryRepository as Repository<AttendanceDailySummary>,
-      departmentRepository as Repository<Department>,
-      positionRepository as Repository<Position>,
-      branchRepository as Repository<Branch>,
-      companyUserRepository as Repository<CompanyUser>,
-      companyUserRoleRepository as Repository<CompanyUserRole>,
-      roleRepository as Repository<Role>,
+      offboardingWorkflowRepository as unknown as Repository<OffboardingWorkflow>,
+      offboardingWorkflowStepRepository as unknown as Repository<OffboardingWorkflowStep>,
+      offboardingRequestRepository as unknown as Repository<OffboardingRequest>,
+      offboardingTaskRepository as unknown as Repository<OffboardingTask>,
+      offboardingApprovalRepository as unknown as Repository<OffboardingApproval>,
+      offboardingClearanceRepository as unknown as Repository<OffboardingClearance>,
+      offboardingAuditLogRepository as unknown as Repository<OffboardingAuditLog>,
+      documentRepository as unknown as Repository<Document>,
+      employeeRepository as unknown as Repository<Employee>,
+      shiftAssignmentRepository as unknown as Repository<ShiftAssignment>,
+      shiftScheduleRepository as unknown as Repository<ShiftSchedule>,
+      employeeTimetableRepository as unknown as Repository<EmployeeTimetable>,
+      attendanceDailySummaryRepository as unknown as Repository<AttendanceDailySummary>,
+      departmentRepository as unknown as Repository<Department>,
+      positionRepository as unknown as Repository<Position>,
+      branchRepository as unknown as Repository<Branch>,
+      companyUserRepository as unknown as Repository<CompanyUser>,
+      companyUserRoleRepository as unknown as Repository<CompanyUserRole>,
+      roleRepository as unknown as Repository<Role>,
       {
         assertCanAccessEmployee: jest.fn(),
       } as unknown as HrAccessService,
@@ -116,8 +119,8 @@ describe('OffboardingService', () => {
         log: jest.fn(),
       } as unknown as OffboardingAuditService,
       {} as OffboardingWorkflowService,
-      { emit: jest.fn() } as any,
-      { get: jest.fn() } as any,
+      { emit: jest.fn() } as unknown as EventEmitter2,
+      { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService,
     );
   });
 

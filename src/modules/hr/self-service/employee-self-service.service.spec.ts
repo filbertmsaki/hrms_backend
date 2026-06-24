@@ -130,6 +130,8 @@ describe('EmployeeSelfServiceService', () => {
       employeeTimetableRepository as unknown as Repository<any>,
       shiftRepository as unknown as Repository<any>,
       timetableRepository as unknown as Repository<any>,
+      {} as Repository<any>,
+      {} as Repository<any>,
     );
   });
 

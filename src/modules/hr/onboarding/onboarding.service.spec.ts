@@ -1,5 +1,7 @@
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { BadRequestException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ConfigService } from '@nestjs/config';
 jest.mock('digest-fetch', () => ({
   __esModule: true,
   default: jest.fn(),
@@ -38,7 +40,8 @@ import { EmployeeTimetablesService } from '../attendance/timetable/employee-time
 import { EmployeeDeviceAssignmentsService } from '../../access-control/employee-device-assignments/service/employee-device-assignments.service';
 import { OnboardingAttendanceModeEnum } from './enums/onboarding-attendance-mode.enum';
 
-type MockRepo<T> = Partial<Record<keyof Repository<T>, jest.Mock>>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type MockRepo<T = any> = Record<string, jest.Mock>;
 
 const createRepositoryMock = <T>(): MockRepo<T> => ({
   findOne: jest.fn(),
@@ -118,24 +121,24 @@ describe('OnboardingService', () => {
 
     service = new OnboardingService(
       dataSource as unknown as DataSource,
-      onboardingWorkflowRepository as Repository<OnboardingWorkflow>,
-      onboardingWorkflowStepRepository as Repository<OnboardingWorkflowStep>,
-      onboardingRequestRepository as Repository<OnboardingRequest>,
-      onboardingTaskRepository as Repository<OnboardingTask>,
-      onboardingApprovalRepository as Repository<OnboardingApproval>,
-      onboardingAuditLogRepository as Repository<OnboardingAuditLog>,
-      documentRepository as Repository<Document>,
-      employeeRepository as Repository<Employee>,
-      departmentRepository as Repository<Department>,
-      positionRepository as Repository<Position>,
-      branchRepository as Repository<Branch>,
-      companyUserRepository as Repository<CompanyUser>,
-      companyUserRoleRepository as Repository<CompanyUserRole>,
-      branchAccessRepository as Repository<CompanyUserBranchAccess>,
-      roleRepository as Repository<Role>,
-      shiftScheduleRepository as Repository<ShiftSchedule>,
-      employeeTimetableRepository as Repository<EmployeeTimetable>,
-      employeeDeviceAssignmentRepository as Repository<EmployeeDeviceAssignment>,
+      onboardingWorkflowRepository as unknown as Repository<OnboardingWorkflow>,
+      onboardingWorkflowStepRepository as unknown as Repository<OnboardingWorkflowStep>,
+      onboardingRequestRepository as unknown as Repository<OnboardingRequest>,
+      onboardingTaskRepository as unknown as Repository<OnboardingTask>,
+      onboardingApprovalRepository as unknown as Repository<OnboardingApproval>,
+      onboardingAuditLogRepository as unknown as Repository<OnboardingAuditLog>,
+      documentRepository as unknown as Repository<Document>,
+      employeeRepository as unknown as Repository<Employee>,
+      departmentRepository as unknown as Repository<Department>,
+      positionRepository as unknown as Repository<Position>,
+      branchRepository as unknown as Repository<Branch>,
+      companyUserRepository as unknown as Repository<CompanyUser>,
+      companyUserRoleRepository as unknown as Repository<CompanyUserRole>,
+      branchAccessRepository as unknown as Repository<CompanyUserBranchAccess>,
+      roleRepository as unknown as Repository<Role>,
+      shiftScheduleRepository as unknown as Repository<ShiftSchedule>,
+      employeeTimetableRepository as unknown as Repository<EmployeeTimetable>,
+      employeeDeviceAssignmentRepository as unknown as Repository<EmployeeDeviceAssignment>,
       {
         assertCanAccessEmployee: jest.fn(),
       } as unknown as HrAccessService,
@@ -147,6 +150,8 @@ describe('OnboardingService', () => {
       shiftSchedulesService as unknown as ShiftSchedulesService,
       employeeTimetablesService as unknown as EmployeeTimetablesService,
       employeeDeviceAssignmentsService as unknown as EmployeeDeviceAssignmentsService,
+      { emit: jest.fn() } as unknown as EventEmitter2,
+      { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService,
     );
   });
 

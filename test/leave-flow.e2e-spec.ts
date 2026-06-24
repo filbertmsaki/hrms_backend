@@ -61,7 +61,8 @@ import { LeaveStatusEnum } from '../src/modules/hr/leave/enums/leave-status.enum
 import { LeaveRecordStatusEnum } from '../src/modules/hr/leave/enums/leave-record-status.enum';
 import { LeaveGenderRestrictionEnum } from '../src/modules/hr/leave/enums/leave-gender-restriction.enum';
 
-type MockRepo<T> = Partial<Record<keyof Repository<T>, jest.Mock>>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type MockRepo<T = any> = Record<string, jest.Mock>;
 
 const createRepositoryMock = <T>(): MockRepo<T> => ({
   findOne: jest.fn(),

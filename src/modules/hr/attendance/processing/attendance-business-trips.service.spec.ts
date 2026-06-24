@@ -10,7 +10,8 @@ import { EmploymentStatusEnum } from '../../employees/enums/employment-status.en
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 
-type MockRepo<T> = Partial<Record<keyof Repository<T>, jest.Mock>>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type MockRepo<T = any> = Record<string, jest.Mock>;
 
 const createRepositoryMock = <T>(): MockRepo<T> => ({
   findOne: jest.fn(),
@@ -57,9 +58,9 @@ describe('AttendanceBusinessTripsService', () => {
     };
 
     service = new AttendanceBusinessTripsService(
-      businessTripRepository as Repository<AttendanceBusinessTrip>,
-      employeeRepository as Repository<Employee>,
-      recalculationJobRepository as Repository<AttendanceRecalculationJob>,
+      businessTripRepository as unknown as Repository<AttendanceBusinessTrip>,
+      employeeRepository as unknown as Repository<Employee>,
+      recalculationJobRepository as unknown as Repository<AttendanceRecalculationJob>,
       hrAccessService as unknown as HrAccessService,
     );
   });

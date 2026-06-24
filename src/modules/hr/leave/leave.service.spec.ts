@@ -1,4 +1,6 @@
 import { DataSource, Repository } from 'typeorm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ConfigService } from '@nestjs/config';
 import { LeaveService } from './leave.service';
 import { LeaveType } from './entities/leave-type.entity';
 import { LeaveRequest } from './entities/leave-request.entity';
@@ -28,7 +30,8 @@ import { LeaveStatusEnum } from './enums/leave-status.enum';
 import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 
-type MockRepo<T> = Partial<Record<keyof Repository<T>, jest.Mock>>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type MockRepo<T = any> = Record<string, jest.Mock>;
 
 const createRepositoryMock = <T>(): MockRepo<T> => ({
   findOne: jest.fn(),
@@ -39,21 +42,18 @@ const createRepositoryMock = <T>(): MockRepo<T> => ({
   createQueryBuilder: jest.fn(),
 });
 
-const createQueryBuilderMock = () => {
-  const builder = {
-    where: jest.fn().mockReturnThis(),
-    andWhere: jest.fn().mockReturnThis(),
-    leftJoinAndSelect: jest.fn().mockReturnThis(),
-    orderBy: jest.fn().mockReturnThis(),
-    addOrderBy: jest.fn().mockReturnThis(),
-    skip: jest.fn().mockReturnThis(),
-    take: jest.fn().mockReturnThis(),
-    getOne: jest.fn(),
-    getManyAndCount: jest.fn(),
-  };
-
-  return builder;
-};
+const createQueryBuilderMock = () => ({
+  where: jest.fn().mockReturnThis(),
+  andWhere: jest.fn().mockReturnThis(),
+  leftJoinAndSelect: jest.fn().mockReturnThis(),
+  orderBy: jest.fn().mockReturnThis(),
+  addOrderBy: jest.fn().mockReturnThis(),
+  skip: jest.fn().mockReturnThis(),
+  take: jest.fn().mockReturnThis(),
+  getOne: jest.fn(),
+  getMany: jest.fn(),
+  getManyAndCount: jest.fn(),
+});
 
 describe('LeaveService', () => {
   let service: LeaveService;
@@ -157,28 +157,30 @@ describe('LeaveService', () => {
 
     service = new LeaveService(
       dataSource as unknown as DataSource,
-      leaveTypeRepository as Repository<LeaveType>,
-      leavePolicyRepository as Repository<LeavePolicy>,
-      leaveBalanceRepository as Repository<LeaveBalance>,
-      leaveRequestRepository as Repository<LeaveRequest>,
-      leaveApprovalWorkflowRepository as Repository<LeaveApprovalWorkflow>,
-      leaveApprovalWorkflowStepRepository as Repository<LeaveApprovalWorkflowStep>,
-      leaveMedicalDetailRepository as Repository<LeaveMedicalDetail>,
-      leaveDocumentRepository as Repository<LeaveDocument>,
-      attendanceHolidayRepository as Repository<AttendanceHoliday>,
-      holidayGroupRepository as Repository<HolidayGroup>,
-      employeeRepository as Repository<Employee>,
-      branchRepository as Repository<Branch>,
-      departmentRepository as Repository<Department>,
-      positionRepository as Repository<Position>,
-      companyUserRepository as Repository<CompanyUser>,
-      roleRepository as Repository<Role>,
-      attendanceRecalculationJobRepository as Repository<AttendanceRecalculationJob>,
+      leaveTypeRepository as unknown as Repository<LeaveType>,
+      leavePolicyRepository as unknown as Repository<LeavePolicy>,
+      leaveBalanceRepository as unknown as Repository<LeaveBalance>,
+      leaveRequestRepository as unknown as Repository<LeaveRequest>,
+      leaveApprovalWorkflowRepository as unknown as Repository<LeaveApprovalWorkflow>,
+      leaveApprovalWorkflowStepRepository as unknown as Repository<LeaveApprovalWorkflowStep>,
+      leaveMedicalDetailRepository as unknown as Repository<LeaveMedicalDetail>,
+      leaveDocumentRepository as unknown as Repository<LeaveDocument>,
+      attendanceHolidayRepository as unknown as Repository<AttendanceHoliday>,
+      holidayGroupRepository as unknown as Repository<HolidayGroup>,
+      employeeRepository as unknown as Repository<Employee>,
+      branchRepository as unknown as Repository<Branch>,
+      departmentRepository as unknown as Repository<Department>,
+      positionRepository as unknown as Repository<Position>,
+      companyUserRepository as unknown as Repository<CompanyUser>,
+      roleRepository as unknown as Repository<Role>,
+      attendanceRecalculationJobRepository as unknown as Repository<AttendanceRecalculationJob>,
       hrAccessService as unknown as HrAccessService,
       leaveAuditService as unknown as LeaveAuditService,
       leaveBalanceService as unknown as LeaveBalanceService,
       leaveWorkflowService as unknown as LeaveWorkflowService,
       {} as LeavePdfService,
+      { emit: jest.fn() } as unknown as EventEmitter2,
+      { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService,
     );
   });
 

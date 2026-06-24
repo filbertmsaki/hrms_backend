@@ -22,7 +22,8 @@ import { AttendanceDailyRemarkEnum } from './enums/attendance-daily-remark.enum'
 import { AttendanceRoundingModeEnum } from '../policies/enums/attendance-rounding-mode.enum';
 import { AttendanceHolidayPolicyModeEnum } from '../policies/enums/attendance-holiday-policy-mode.enum';
 
-type MockRepo<T> = Partial<Record<keyof Repository<T>, jest.Mock>>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type MockRepo<T = any> = Record<string, jest.Mock>;
 
 const createRepositoryMock = <T>(): MockRepo<T> => ({
   find: jest.fn(),
@@ -168,20 +169,20 @@ describe('AttendanceDailySummaryService', () => {
     timetableRepository.findOne!.mockResolvedValue(null);
 
     service = new AttendanceDailySummaryService(
-      processedEventRepository as Repository<AttendanceProcessedEvent>,
-      dailySummaryRepository as Repository<AttendanceDailySummary>,
-      adjustmentRepository as Repository<AttendanceDailySummaryAdjustment>,
-      mobilePunchRepository as Repository<AttendanceMobilePunch>,
-      leaveRequestRepository as Repository<LeaveRequest>,
-      leaveTypeRepository as Repository<LeaveType>,
-      businessTripRepository as Repository<AttendanceBusinessTrip>,
-      employeeRepository as Repository<Employee>,
-      employeeTimetableRepository as Repository<EmployeeTimetable>,
-      shiftAssignmentRepository as Repository<ShiftAssignment>,
-      shiftScheduleRepository as Repository<ShiftSchedule>,
-      shiftBreakRepository as Repository<ShiftBreak>,
-      timetableDayRepository as Repository<TimetableDay>,
-      timetableRepository as Repository<Timetable>,
+      processedEventRepository as unknown as Repository<AttendanceProcessedEvent>,
+      dailySummaryRepository as unknown as Repository<AttendanceDailySummary>,
+      adjustmentRepository as unknown as Repository<AttendanceDailySummaryAdjustment>,
+      mobilePunchRepository as unknown as Repository<AttendanceMobilePunch>,
+      leaveRequestRepository as unknown as Repository<LeaveRequest>,
+      leaveTypeRepository as unknown as Repository<LeaveType>,
+      businessTripRepository as unknown as Repository<AttendanceBusinessTrip>,
+      employeeRepository as unknown as Repository<Employee>,
+      employeeTimetableRepository as unknown as Repository<EmployeeTimetable>,
+      shiftAssignmentRepository as unknown as Repository<ShiftAssignment>,
+      shiftScheduleRepository as unknown as Repository<ShiftSchedule>,
+      shiftBreakRepository as unknown as Repository<ShiftBreak>,
+      timetableDayRepository as unknown as Repository<TimetableDay>,
+      timetableRepository as unknown as Repository<Timetable>,
       scheduleResolver as unknown as AttendanceScheduleResolverService,
       exceptionService as unknown as AttendanceProcessingExceptionsService,
     );

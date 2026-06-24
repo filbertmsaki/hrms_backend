@@ -8,7 +8,8 @@ import { AttendanceProcessedEvent } from './entities/attendance-processed-event.
 import { AttendanceExceptionTypeEnum } from './enums/attendance-exception-type.enum';
 import { AttendanceRawLogProcessingStatusEnum } from './enums/attendance-raw-log-processing-status.enum';
 
-type MockRepo<T> = Partial<Record<keyof Repository<T>, jest.Mock>>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type MockRepo<T = any> = Record<string, jest.Mock>;
 
 const createRepositoryMock = <T>(): MockRepo<T> => ({
   findOne: jest.fn(),
@@ -52,8 +53,8 @@ describe('AttendanceProcessingService', () => {
     };
 
     service = new AttendanceProcessingService(
-      rawLogRepository as Repository<HikvisionAttendanceLog>,
-      processedEventRepository as Repository<AttendanceProcessedEvent>,
+      rawLogRepository as unknown as Repository<HikvisionAttendanceLog>,
+      processedEventRepository as unknown as Repository<AttendanceProcessedEvent>,
       employeeResolver as unknown as AttendanceEmployeeResolverService,
       exceptionService as unknown as AttendanceProcessingExceptionsService,
       dailySummaryService as unknown as AttendanceDailySummaryService,
@@ -72,7 +73,7 @@ describe('AttendanceProcessingService', () => {
       verifyMode: 'CARD',
       rawPayload: { employeeNoString: '' },
       processingAttempts: 0,
-    } as HikvisionAttendanceLog;
+    } as unknown as HikvisionAttendanceLog;
 
     rawLogRepository.createQueryBuilder!.mockReturnValue(
       createQueryBuilderMock([rawLog]),
@@ -114,7 +115,7 @@ describe('AttendanceProcessingService', () => {
       verifyMode: 'FINGERPRINT',
       rawPayload: { employeeNoString: 'HIK-1001' },
       processingAttempts: 0,
-    } as HikvisionAttendanceLog;
+    } as unknown as HikvisionAttendanceLog;
 
     rawLogRepository.createQueryBuilder!.mockReturnValue(
       createQueryBuilderMock([rawLog]),

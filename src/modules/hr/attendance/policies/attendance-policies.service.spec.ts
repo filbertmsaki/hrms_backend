@@ -3,9 +3,8 @@ import { Repository } from 'typeorm';
 import { AttendancePoliciesService } from './attendance-policies.service';
 import { AttendancePolicy } from './entities/attendance-policy.entity';
 
-type MockRepo<T> = Partial<Record<keyof Repository<T>, jest.Mock>> & {
-  manager?: { transaction: jest.Mock };
-};
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type MockRepo<T = any> = Record<string, jest.Mock | { transaction: jest.Mock }>;
 
 const createRepositoryMock = <T>(): MockRepo<T> => ({
   findOne: jest.fn(),

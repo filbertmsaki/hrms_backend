@@ -8,7 +8,8 @@ import { ShiftRotationGroup } from '../shift-rotation-groups/entities/shift-rota
 import { ShiftAssignmentStatusEnum } from './enums/shift-assignment-status.enum';
 import { AttendanceAssignmentDomainService } from '../../shared/attendance-assignment-domain.service';
 
-type MockRepo<T> = Partial<Record<keyof Repository<T>, jest.Mock>>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type MockRepo<T = any> = Record<string, jest.Mock>;
 
 const createRepositoryMock = <T>(): MockRepo<T> => ({
   findOne: jest.fn(),
