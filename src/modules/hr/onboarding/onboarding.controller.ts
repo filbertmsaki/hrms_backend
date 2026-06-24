@@ -31,6 +31,7 @@ import { RejectOnboardingDto } from './dtos/reject-onboarding.dto';
 import { UpdateOnboardingRequestDto } from './dtos/update-onboarding-request.dto';
 import { UpdateOnboardingWorkflowStepDto } from './dtos/update-onboarding-workflow-step.dto';
 import { UpdateOnboardingWorkflowDto } from './dtos/update-onboarding-workflow.dto';
+import { UpdateDocumentDto } from './dtos/update-document.dto';
 import { UploadDocumentDto } from './dtos/upload-document.dto';
 import { VerifyDocumentDto } from './dtos/verify-document.dto';
 import { OnboardingService } from './onboarding.service';
@@ -284,6 +285,40 @@ export class OnboardingController {
     );
   }
 
+  @Get('requests/:id/documents')
+  @UseGuards(PermissionsGuard)
+  @Permissions('onboarding_documents:read')
+  @ApiOperation({ summary: 'List onboarding documents' })
+  listDocuments(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.onboardingService.listDocuments(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
+  }
+
+  @Patch('requests/:id/documents/:documentId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('onboarding_documents:update')
+  @ApiOperation({ summary: 'Update onboarding document metadata' })
+  updateDocument(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('documentId', ParseIntPipe) documentId: number,
+    @Body() dto: UpdateDocumentDto,
+  ) {
+    return this.onboardingService.updateDocument(
+      req.user.companyId!,
+      id,
+      documentId,
+      dto,
+      req.user,
+    );
+  }
+
   @Patch('requests/:id/documents/:documentId/verify')
   @UseGuards(PermissionsGuard)
   @Permissions('onboarding_documents:verify')
@@ -299,6 +334,23 @@ export class OnboardingController {
       id,
       documentId,
       dto,
+      req.user,
+    );
+  }
+
+  @Delete('requests/:id/documents/:documentId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('onboarding_documents:delete')
+  @ApiOperation({ summary: 'Delete onboarding document' })
+  removeDocument(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('documentId', ParseIntPipe) documentId: number,
+  ) {
+    return this.onboardingService.removeDocument(
+      req.user.companyId!,
+      id,
+      documentId,
       req.user,
     );
   }

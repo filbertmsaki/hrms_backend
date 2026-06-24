@@ -35,6 +35,7 @@ import { SubmitOffboardingRequestDto } from './dtos/submit-offboarding-request.d
 import { UpdateOffboardingRequestDto } from './dtos/update-offboarding-request.dto';
 import { UpdateOffboardingWorkflowStepDto } from './dtos/update-offboarding-workflow-step.dto';
 import { UpdateOffboardingWorkflowDto } from './dtos/update-offboarding-workflow.dto';
+import { UpdateOffboardingDocumentDto } from './dtos/update-offboarding-document.dto';
 import { UploadOffboardingDocumentDto } from './dtos/upload-offboarding-document.dto';
 import { OffboardingService } from './offboarding.service';
 
@@ -330,6 +331,44 @@ export class OffboardingController {
       req.user.companyId!,
       id,
       req.user,
+    );
+  }
+
+  @Patch('requests/:id/documents/:documentId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_documents:update')
+  @ApiOperation({ summary: 'Update offboarding document metadata' })
+  updateDocument(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('documentId', ParseIntPipe) documentId: number,
+    @Body() dto: UpdateOffboardingDocumentDto,
+  ) {
+    return this.offboardingService.updateDocument(
+      req.user.companyId!,
+      id,
+      documentId,
+      dto,
+      req.user,
+      this.getRequestContext(req),
+    );
+  }
+
+  @Delete('requests/:id/documents/:documentId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_documents:delete')
+  @ApiOperation({ summary: 'Delete offboarding document' })
+  removeDocument(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('documentId', ParseIntPipe) documentId: number,
+  ) {
+    return this.offboardingService.removeDocument(
+      req.user.companyId!,
+      id,
+      documentId,
+      req.user,
+      this.getRequestContext(req),
     );
   }
 

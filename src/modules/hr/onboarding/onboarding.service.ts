@@ -2973,6 +2973,112 @@ export class OnboardingService {
     return this.mapDocument(saved);
   }
 
+  async listDocuments(
+    companyId: number,
+    onboardingRequestId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
+    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+
+    const documents = await this.documentRepository.find({
+      where: {
+        company_id: companyId,
+        entity_type: DocumentEntityTypeEnum.ONBOARDING,
+        entity_id: onboardingRequestId,
+      },
+      order: { created_at: 'DESC' },
+    });
+
+    return documents.map((doc) => this.mapDocument(doc));
+  }
+
+  async updateDocument(
+    companyId: number,
+    onboardingRequestId: number,
+    documentId: number,
+    dto: { title?: string; description?: string | null; expiry_date?: string | null },
+    actor: AuthenticatedUser,
+  ) {
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
+    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+
+    const document = await this.documentRepository.findOne({
+      where: {
+        id: documentId,
+        company_id: companyId,
+        entity_type: DocumentEntityTypeEnum.ONBOARDING,
+        entity_id: onboardingRequestId,
+      },
+    });
+    if (!document) {
+      throw new NotFoundException('Document not found');
+    }
+
+    if (dto.title !== undefined) document.title = dto.title.trim();
+    if (dto.description !== undefined)
+      document.description = dto.description?.trim() ?? null;
+    if (dto.expiry_date !== undefined)
+      document.expiry_date = dto.expiry_date ? new Date(dto.expiry_date) : null;
+
+    const saved = await this.documentRepository.save(document);
+
+    await this.onboardingAuditService.log({
+      company_id: companyId,
+      onboarding_request_id: onboardingRequestId,
+      action: 'onboarding_document.updated',
+      entity_name: 'document',
+      entity_id: saved.id,
+      actor,
+      payload: { title: saved.title },
+    });
+
+    return this.mapDocument(saved);
+  }
+
+  async removeDocument(
+    companyId: number,
+    onboardingRequestId: number,
+    documentId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
+    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+
+    const document = await this.documentRepository.findOne({
+      where: {
+        id: documentId,
+        company_id: companyId,
+        entity_type: DocumentEntityTypeEnum.ONBOARDING,
+        entity_id: onboardingRequestId,
+      },
+    });
+    if (!document) {
+      throw new NotFoundException('Document not found');
+    }
+
+    await this.documentRepository.remove(document);
+
+    await this.onboardingAuditService.log({
+      company_id: companyId,
+      onboarding_request_id: onboardingRequestId,
+      action: 'onboarding_document.deleted',
+      entity_name: 'document',
+      entity_id: documentId,
+      actor,
+      payload: { title: document.title },
+    });
+  }
+
   async getOnboardingProgress(
     companyId: number,
     onboardingRequestId: number,

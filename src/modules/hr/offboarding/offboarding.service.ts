@@ -2500,6 +2500,92 @@ export class OffboardingService {
     return documents.map((document) => this.mapDocument(document));
   }
 
+  async updateDocument(
+    companyId: number,
+    offboardingRequestId: number,
+    documentId: number,
+    dto: { title?: string; description?: string | null; expiry_date?: string | null },
+    actor: AuthenticatedUser,
+    context?: RequestContext,
+  ) {
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
+    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+
+    const document = await this.documentRepository.findOne({
+      where: {
+        id: documentId,
+        company_id: companyId,
+        entity_type: DocumentEntityTypeEnum.OFFBOARDING_REQUEST,
+        entity_id: offboardingRequestId,
+      },
+    });
+    if (!document) {
+      throw new NotFoundException('Document not found');
+    }
+
+    if (dto.title !== undefined) document.title = dto.title.trim();
+    if (dto.description !== undefined)
+      document.description = dto.description?.trim() ?? null;
+    if (dto.expiry_date !== undefined)
+      document.expiry_date = dto.expiry_date ? new Date(dto.expiry_date) : null;
+
+    const saved = await this.documentRepository.save(document);
+
+    await this.offboardingAuditService.log({
+      action: OffboardingAuditActionEnum.UPDATED,
+      offboarding_request_id: offboardingRequestId,
+      actor,
+      description: 'Offboarding document updated',
+      metadata: { document_id: saved.id, title: saved.title },
+      ip_address: context?.ip_address ?? null,
+      user_agent: context?.user_agent ?? null,
+    });
+
+    return this.mapDocument(saved);
+  }
+
+  async removeDocument(
+    companyId: number,
+    offboardingRequestId: number,
+    documentId: number,
+    actor: AuthenticatedUser,
+    context?: RequestContext,
+  ) {
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
+    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+
+    const document = await this.documentRepository.findOne({
+      where: {
+        id: documentId,
+        company_id: companyId,
+        entity_type: DocumentEntityTypeEnum.OFFBOARDING_REQUEST,
+        entity_id: offboardingRequestId,
+      },
+    });
+    if (!document) {
+      throw new NotFoundException('Document not found');
+    }
+
+    const title = document.title;
+    await this.documentRepository.remove(document);
+
+    await this.offboardingAuditService.log({
+      action: OffboardingAuditActionEnum.UPDATED,
+      offboarding_request_id: offboardingRequestId,
+      actor,
+      description: 'Offboarding document deleted',
+      metadata: { document_id: documentId, title },
+      ip_address: context?.ip_address ?? null,
+      user_agent: context?.user_agent ?? null,
+    });
+  }
+
   async createTask(
     companyId: number,
     offboardingRequestId: number,
