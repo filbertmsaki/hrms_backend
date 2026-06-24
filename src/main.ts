@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { RequestMethod, ValidationPipe } from '@nestjs/common';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import {
   createSwaggerDocument,
   OPENAPI_JSON_PATH,
@@ -15,6 +16,7 @@ async function bootstrap() {
   app.setGlobalPrefix('api', {
     exclude: [{ path: '', method: RequestMethod.GET }],
   });
+  app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

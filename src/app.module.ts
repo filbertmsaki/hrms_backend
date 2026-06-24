@@ -3,6 +3,7 @@ import { AppController } from './app.controller';
 import { APP_GUARD } from '@nestjs/core';
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { validateEnv } from './config/env.validation';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
@@ -25,6 +26,7 @@ import { TenantGuard } from './common/guards/tenant.guard';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
+      validate: validateEnv,
     }),
     ScheduleModule.forRoot(),
     EventEmitterModule.forRoot(),
