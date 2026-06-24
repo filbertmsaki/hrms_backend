@@ -1051,7 +1051,7 @@ export class AttendanceDailySummaryService {
     );
 
     const missingPunchCount =
-      Number(!checkInAt) + Number(schedule.requiresCheckout && !checkOutAt);
+      Number(!checkInAt) + Number(!checkOutAt);
 
     return {
       effectivePunches,
@@ -1121,7 +1121,7 @@ export class AttendanceDailySummaryService {
     }
 
     const missingPunchCount =
-      Number(!checkInAt) + Number(schedule.requiresCheckout && !checkOutAt);
+      Number(!checkInAt) + Number(!checkOutAt);
 
     return {
       effectivePunches,
@@ -1594,7 +1594,7 @@ export class AttendanceDailySummaryService {
       usedDirectionAwarePairing: context.usedDirectionAwarePairing,
       missingPunchCount:
         Number(!adjustedPunches.checkInAt) +
-        Number(schedule.requiresCheckout && !adjustedPunches.checkOutAt),
+        Number(!adjustedPunches.checkOutAt),
     });
 
     // When the admin supplied an explicit status, use it; otherwise mark as
