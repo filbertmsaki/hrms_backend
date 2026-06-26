@@ -11,25 +11,108 @@ import {
   ALLIANCE_COMPANY_SLUG,
 } from './company-structure.constants';
 
-// day_of_week: 0=Sunday, 1=Monday ... 6=Saturday
+// Alliance Company timetable:
+//   Mon–Fri  (1–5): 08:15–17:15, lunch 13:00–14:00, shift = SHIFT-DAY
+//   Saturday   (6): 09:00–13:00, no break,           shift = SHIFT-SAT
+//   Sunday     (0): off day
+//
+// Overtime is DISABLED for Alliance Company (maxOvertimeMinutes = 0).
+// Lateness grace period: 30 minutes (lateAfterMinutes = 30 on timetable level).
+
+// dayOfWeek: 0=Sunday, 1=Monday … 6=Saturday
 type TimetableDaySeed = {
   dayOfWeek: number;
   isWorkingDay: boolean;
+  shiftCode: string | null;
+  expectedCheckIn: string | null;
+  expectedCheckOut: string | null;
+  minimumWorkMinutes: number;
+  breakRequired: boolean;
   breakMinutes: number;
+  overtimeAllowed: boolean;
 };
 
 const DEFAULT_TIMETABLE_NAME = 'Standard Office Timetable';
 const DEFAULT_TIMETABLE_CODE = 'STD-OFFICE';
-const DEFAULT_SHIFT_CODE = 'SHIFT-DAY';
 
 const TIMETABLE_DAY_SEEDS: TimetableDaySeed[] = [
-  { dayOfWeek: 0, isWorkingDay: false, breakMinutes: 0 },  // Sunday
-  { dayOfWeek: 1, isWorkingDay: true, breakMinutes: 60 },   // Monday
-  { dayOfWeek: 2, isWorkingDay: true, breakMinutes: 60 },   // Tuesday
-  { dayOfWeek: 3, isWorkingDay: true, breakMinutes: 60 },   // Wednesday
-  { dayOfWeek: 4, isWorkingDay: true, breakMinutes: 60 },   // Thursday
-  { dayOfWeek: 5, isWorkingDay: true, breakMinutes: 60 },   // Friday
-  { dayOfWeek: 6, isWorkingDay: false, breakMinutes: 0 },   // Saturday
+  {
+    dayOfWeek: 0,  // Sunday — off
+    isWorkingDay: false,
+    shiftCode: null,
+    expectedCheckIn: null,
+    expectedCheckOut: null,
+    minimumWorkMinutes: 0,
+    breakRequired: false,
+    breakMinutes: 0,
+    overtimeAllowed: false,
+  },
+  {
+    dayOfWeek: 1,  // Monday
+    isWorkingDay: true,
+    shiftCode: 'SHIFT-DAY',
+    expectedCheckIn: '08:15:00',
+    expectedCheckOut: '17:15:00',
+    minimumWorkMinutes: 300,
+    breakRequired: true,
+    breakMinutes: 60,
+    overtimeAllowed: false,
+  },
+  {
+    dayOfWeek: 2,  // Tuesday
+    isWorkingDay: true,
+    shiftCode: 'SHIFT-DAY',
+    expectedCheckIn: '08:15:00',
+    expectedCheckOut: '17:15:00',
+    minimumWorkMinutes: 300,
+    breakRequired: true,
+    breakMinutes: 60,
+    overtimeAllowed: false,
+  },
+  {
+    dayOfWeek: 3,  // Wednesday
+    isWorkingDay: true,
+    shiftCode: 'SHIFT-DAY',
+    expectedCheckIn: '08:15:00',
+    expectedCheckOut: '17:15:00',
+    minimumWorkMinutes: 300,
+    breakRequired: true,
+    breakMinutes: 60,
+    overtimeAllowed: false,
+  },
+  {
+    dayOfWeek: 4,  // Thursday
+    isWorkingDay: true,
+    shiftCode: 'SHIFT-DAY',
+    expectedCheckIn: '08:15:00',
+    expectedCheckOut: '17:15:00',
+    minimumWorkMinutes: 300,
+    breakRequired: true,
+    breakMinutes: 60,
+    overtimeAllowed: false,
+  },
+  {
+    dayOfWeek: 5,  // Friday
+    isWorkingDay: true,
+    shiftCode: 'SHIFT-DAY',
+    expectedCheckIn: '08:15:00',
+    expectedCheckOut: '17:15:00',
+    minimumWorkMinutes: 300,
+    breakRequired: true,
+    breakMinutes: 60,
+    overtimeAllowed: false,
+  },
+  {
+    dayOfWeek: 6,  // Saturday — half day
+    isWorkingDay: true,
+    shiftCode: 'SHIFT-SAT',
+    expectedCheckIn: '09:00:00',
+    expectedCheckOut: '13:00:00',
+    minimumWorkMinutes: 120,
+    breakRequired: false,
+    breakMinutes: 0,
+    overtimeAllowed: false,
+  },
 ];
 
 export default class TimetablesSeeder implements Seeder {
@@ -60,9 +143,9 @@ export default class TimetablesSeeder implements Seeder {
         );
       }
 
-      const dayShift = await shiftRepo.findOne({
-        where: { companyId: company.id, code: DEFAULT_SHIFT_CODE },
-      });
+      // Build shift lookup for this company
+      const shifts = await shiftRepo.find({ where: { companyId: company.id } });
+      const shiftMap = new Map(shifts.map((s) => [s.code, s]));
 
       // Upsert timetable
       let timetable = await timetableRepo.findOne({
@@ -71,20 +154,24 @@ export default class TimetablesSeeder implements Seeder {
       if (!timetable) {
         timetable = timetableRepo.create({
           companyId: company.id,
-          name: DEFAULT_TIMETABLE_NAME,
           code: DEFAULT_TIMETABLE_CODE,
         });
       }
+
       timetable.name = DEFAULT_TIMETABLE_NAME;
+      timetable.description =
+        'Standard Alliance Company schedule: Mon–Fri 08:15–17:15, Saturday 09:00–13:00, Sunday off.';
       timetable.timetableType = TimetableTypeEnum.FIXED;
       timetable.timezone = 'Africa/Dar_es_Salaam';
       timetable.isDefault = true;
-      timetable.lateAfterMinutes = 15;
+      // Timetable-level late threshold (used by timetable-only resolution path)
+      timetable.lateAfterMinutes = 30;
       timetable.halfDayAfterMinutes = 240;
       timetable.absentAfterMinutes = 360;
       timetable.allowEarlyCheckin = true;
-      timetable.allowLateCheckout = true;
+      timetable.allowLateCheckout = false;
       timetable.autoAbsentIfNoCheckin = true;
+      // Overtime disabled for Alliance Company
       timetable.maxOvertimeMinutes = 0;
       timetable.status = TimetableStatusEnum.ACTIVE;
 
@@ -92,6 +179,10 @@ export default class TimetablesSeeder implements Seeder {
 
       // Upsert timetable days
       for (const daySeed of TIMETABLE_DAY_SEEDS) {
+        const shift = daySeed.shiftCode
+          ? (shiftMap.get(daySeed.shiftCode) ?? null)
+          : null;
+
         let day = await timetableDayRepo.findOne({
           where: { timetableId: timetable.id, dayOfWeek: daySeed.dayOfWeek },
         });
@@ -101,20 +192,25 @@ export default class TimetablesSeeder implements Seeder {
             dayOfWeek: daySeed.dayOfWeek,
           });
         }
+
         day.isWorkingDay = daySeed.isWorkingDay;
-        day.defaultShiftId = daySeed.isWorkingDay ? (dayShift?.id ?? null) : null;
-        day.minimumWorkMinutes = daySeed.isWorkingDay ? 300 : 0;
-        day.breakRequired = daySeed.breakMinutes > 0;
+        day.defaultShiftId = shift?.id ?? null;
+        day.expectedCheckInTime = daySeed.expectedCheckIn;
+        day.expectedCheckOutTime = daySeed.expectedCheckOut;
+        day.minimumWorkMinutes = daySeed.minimumWorkMinutes;
+        day.breakRequired = daySeed.breakRequired;
         day.breakMinutes = daySeed.breakMinutes;
-        day.expectedCheckInTime = daySeed.isWorkingDay ? '08:00:00' : null;
-        day.expectedCheckOutTime = daySeed.isWorkingDay ? '17:00:00' : null;
+        day.overtimeAllowed = daySeed.overtimeAllowed;
+        day.allowFlexibleTime = false;
+        day.flexibleStartFrom = null;
+        day.flexibleStartTo = null;
 
         await timetableDayRepo.save(day);
       }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][Timetables] Upserted "${DEFAULT_TIMETABLE_NAME}" with ${TIMETABLE_DAY_SEEDS.length} day entries`,
+        `[Seeder][Timetables] Upserted "${DEFAULT_TIMETABLE_NAME}" (${TIMETABLE_DAY_SEEDS.length} day entries) for company "${company.name}"`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

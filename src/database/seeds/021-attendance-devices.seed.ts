@@ -37,7 +37,7 @@ const DEVICE_SEEDS: DeviceSeed[] = [
     vendorName: 'Hikvision',
     integrationType: 'hikvision',
     apiUsername: 'admin',
-    apiPassword: 'admin',
+    apiPassword: 'Hikvision12',
     locationDescription: 'HQ Main Entrance',
   },
 ];

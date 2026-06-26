@@ -35,29 +35,50 @@ type ShiftSeed = {
   lateAfterMinutes: number;
   halfDayAfterMinutes: number;
   absentAfterMinutes: number;
+  earlyLeaveAfterMinutes: number;
   isNightShift: boolean;
   crossesMidnight: boolean;
+  allowOvertime: boolean;
+  maxOvertimeMinutes: number;
+  overtimeStartAfterMinutes: number;
   breaks: BreakSeed[];
 };
 
+// Alliance Company schedule:
+//   Mon–Fri : 08:15–17:15  (9h gross, 8h net after 1h lunch)
+//   Saturday: 09:00–13:00  (4h, no break)
+//   Sunday  : off
+//
+// Lateness rule: 30-min grace → late after 08:45 (Mon-Fri) / 09:30 (Sat)
+// Early checkout: any checkout before shift end time (earlyLeaveAfterMinutes = 0)
+// Overtime     : disabled for all Alliance shifts
+
 const SHIFT_SEEDS: ShiftSeed[] = [
+  // ─── Primary weekday shift ────────────────────────────────────────────────
   {
     code: 'SHIFT-DAY',
     name: 'Day Shift',
-    description: 'Standard office working hours — the default shift for all employees.',
+    description: 'Standard weekday office hours — Monday to Friday.',
     shiftType: ShiftTypeEnum.FIXED,
-    startTime: '08:00:00',
-    endTime: '17:00:00',
+    startTime: '08:15:00',
+    endTime: '17:15:00',
+    // 9h gross − 1h lunch = 8h net = 480 min
     expectedWorkMinutes: 480,
     minimumWorkMinutes: 300,
     halfDayMinutes: 240,
-    graceInMinutes: 15,
-    graceOutMinutes: 15,
-    lateAfterMinutes: 15,
+    graceInMinutes: 30,
+    graceOutMinutes: 0,
+    // Late when check-in is > 30 min after 08:15 (i.e. after 08:45)
+    lateAfterMinutes: 30,
     halfDayAfterMinutes: 240,
     absentAfterMinutes: 360,
+    // 0 = flag early checkout immediately if check-out < 17:15
+    earlyLeaveAfterMinutes: 0,
     isNightShift: false,
     crossesMidnight: false,
+    allowOvertime: false,
+    maxOvertimeMinutes: 0,
+    overtimeStartAfterMinutes: 0,
     breaks: [
       {
         name: 'Lunch Break',
@@ -69,23 +90,57 @@ const SHIFT_SEEDS: ShiftSeed[] = [
       },
     ],
   },
+
+  // ─── Saturday half-day shift ──────────────────────────────────────────────
+  {
+    code: 'SHIFT-SAT',
+    name: 'Saturday Shift',
+    description: 'Saturday morning session — 09:00 to 13:00, no break.',
+    shiftType: ShiftTypeEnum.FIXED,
+    startTime: '09:00:00',
+    endTime: '13:00:00',
+    // 4h gross, no break = 4h net = 240 min
+    expectedWorkMinutes: 240,
+    minimumWorkMinutes: 120,
+    halfDayMinutes: 120,
+    graceInMinutes: 30,
+    graceOutMinutes: 0,
+    // Late when check-in is > 30 min after 09:00 (i.e. after 09:30)
+    lateAfterMinutes: 30,
+    halfDayAfterMinutes: 120,
+    absentAfterMinutes: 180,
+    // 0 = flag early checkout immediately if check-out < 13:00
+    earlyLeaveAfterMinutes: 0,
+    isNightShift: false,
+    crossesMidnight: false,
+    allowOvertime: false,
+    maxOvertimeMinutes: 0,
+    overtimeStartAfterMinutes: 0,
+    breaks: [],
+  },
+
+  // ─── Auxiliary shifts (non-default, kept for future use) ──────────────────
   {
     code: 'SHIFT-MRN',
     name: 'Morning Shift',
-    description: 'Early morning shift — 7AM to 3PM.',
+    description: 'Early morning shift — 07:00 to 15:00.',
     shiftType: ShiftTypeEnum.FIXED,
     startTime: '07:00:00',
     endTime: '15:00:00',
-    expectedWorkMinutes: 480,
+    expectedWorkMinutes: 420,
     minimumWorkMinutes: 300,
-    halfDayMinutes: 240,
-    graceInMinutes: 10,
-    graceOutMinutes: 10,
-    lateAfterMinutes: 10,
-    halfDayAfterMinutes: 240,
+    halfDayMinutes: 210,
+    graceInMinutes: 15,
+    graceOutMinutes: 0,
+    lateAfterMinutes: 15,
+    halfDayAfterMinutes: 210,
     absentAfterMinutes: 360,
+    earlyLeaveAfterMinutes: 0,
     isNightShift: false,
     crossesMidnight: false,
+    allowOvertime: false,
+    maxOvertimeMinutes: 0,
+    overtimeStartAfterMinutes: 0,
     breaks: [
       {
         name: 'Lunch Break',
@@ -100,20 +155,24 @@ const SHIFT_SEEDS: ShiftSeed[] = [
   {
     code: 'SHIFT-AFT',
     name: 'Afternoon Shift',
-    description: 'Afternoon shift — 3PM to 11PM.',
+    description: 'Afternoon shift — 15:00 to 23:00.',
     shiftType: ShiftTypeEnum.FIXED,
     startTime: '15:00:00',
     endTime: '23:00:00',
-    expectedWorkMinutes: 480,
+    expectedWorkMinutes: 450,
     minimumWorkMinutes: 300,
-    halfDayMinutes: 240,
-    graceInMinutes: 10,
-    graceOutMinutes: 10,
-    lateAfterMinutes: 10,
-    halfDayAfterMinutes: 240,
+    halfDayMinutes: 225,
+    graceInMinutes: 15,
+    graceOutMinutes: 0,
+    lateAfterMinutes: 15,
+    halfDayAfterMinutes: 225,
     absentAfterMinutes: 360,
+    earlyLeaveAfterMinutes: 0,
     isNightShift: false,
     crossesMidnight: false,
+    allowOvertime: false,
+    maxOvertimeMinutes: 0,
+    overtimeStartAfterMinutes: 0,
     breaks: [
       {
         name: 'Dinner Break',
@@ -128,20 +187,24 @@ const SHIFT_SEEDS: ShiftSeed[] = [
   {
     code: 'SHIFT-NIT',
     name: 'Night Shift',
-    description: 'Night shift — 11PM to 7AM.',
+    description: 'Night shift — 23:00 to 07:00.',
     shiftType: ShiftTypeEnum.FIXED,
     startTime: '23:00:00',
     endTime: '07:00:00',
-    expectedWorkMinutes: 480,
+    expectedWorkMinutes: 450,
     minimumWorkMinutes: 300,
-    halfDayMinutes: 240,
-    graceInMinutes: 10,
-    graceOutMinutes: 10,
-    lateAfterMinutes: 10,
-    halfDayAfterMinutes: 240,
+    halfDayMinutes: 225,
+    graceInMinutes: 15,
+    graceOutMinutes: 0,
+    lateAfterMinutes: 15,
+    halfDayAfterMinutes: 225,
     absentAfterMinutes: 360,
+    earlyLeaveAfterMinutes: 0,
     isNightShift: true,
     crossesMidnight: true,
+    allowOvertime: false,
+    maxOvertimeMinutes: 0,
+    overtimeStartAfterMinutes: 0,
     breaks: [
       {
         name: 'Night Break',
@@ -204,19 +267,28 @@ export default class ShiftsSeeder implements Seeder {
         shift.lateAfterMinutes = seed.lateAfterMinutes;
         shift.halfDayAfterMinutes = seed.halfDayAfterMinutes;
         shift.absentAfterMinutes = seed.absentAfterMinutes;
+        shift.earlyLeaveAfterMinutes = seed.earlyLeaveAfterMinutes;
         shift.isNightShift = seed.isNightShift;
         shift.crossesMidnight = seed.crossesMidnight;
+        shift.allowOvertime = seed.allowOvertime;
+        shift.maxOvertimeMinutes = seed.maxOvertimeMinutes;
+        shift.overtimeStartAfterMinutes = seed.overtimeStartAfterMinutes;
+        shift.overtimeRequiresApproval = false;
+        shift.overtimeAutoCalculate = false;
         shift.status = ShiftStatusEnum.ACTIVE;
 
         await shiftRepo.save(shift);
 
-        // Upsert breaks (match by shiftId + name)
+        // Upsert breaks (keyed by shiftId + name)
         for (const breakSeed of seed.breaks) {
           let shiftBreak = await breakRepo.findOne({
             where: { shiftId: shift.id, name: breakSeed.name },
           });
           if (!shiftBreak) {
-            shiftBreak = breakRepo.create({ shiftId: shift.id, name: breakSeed.name });
+            shiftBreak = breakRepo.create({
+              shiftId: shift.id,
+              name: breakSeed.name,
+            });
           }
           shiftBreak.breakType = breakSeed.breakType;
           shiftBreak.startTime = breakSeed.startTime;
