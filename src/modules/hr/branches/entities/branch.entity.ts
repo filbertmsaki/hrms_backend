@@ -16,6 +16,8 @@ import { Department } from '../../departments/entities/department.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { Position } from '../../positions/entities/position.entity';
 
+// NAMING CONVENTION: snake_case TS properties → snake_case DB columns (legacy pattern).
+// New entities should use camelCase properties + explicit @Column({ name: 'snake_case' }).
 @Entity('branches')
 @Index('IDX_branch_company', ['company_id'])
 @Unique('UQ_branch_code_company', ['company_id', 'code'])

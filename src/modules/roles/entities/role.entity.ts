@@ -63,9 +63,12 @@ export class Role {
   @UpdateDateColumn()
   updated_at: Date;
 
+  // createForeignKeyConstraints is enabled — NULL company_id is valid in MariaDB FK
+  // (global roles are not scoped to any company). FK enforcement prevents orphaned
+  // company-scoped roles when a company is deleted; global roles are unaffected.
   @ManyToOne(() => Company, (company) => company.roles, {
     nullable: true,
-    createForeignKeyConstraints: false,
+    onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'company_id' })
   company: Company | null;

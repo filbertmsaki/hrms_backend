@@ -30,6 +30,11 @@ import { EmployeeAcademicQualification } from './employee-academic-qualification
 import { EmployeeProfessionalQualification } from './employee-professional-qualification.entity';
 import { EmployeeRelative } from './employee-relative.entity';
 
+// NAMING CONVENTION: This entity uses snake_case TypeScript property names that map
+// directly to snake_case DB columns (no explicit @Column({ name }) mapping needed).
+// Newer entities (Shift, AttendanceDailySummary, AccessGroup, etc.) use camelCase
+// properties with explicit @Column({ name: 'snake_case' }) mappings. Both patterns
+// work correctly with TypeORM. New entities should follow the camelCase pattern.
 @Entity('employees')
 @Unique('UQ_employee_company_user', ['company_user_id'])
 export class Employee {

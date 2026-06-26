@@ -74,6 +74,9 @@ import { HikvisionSyncProcessor } from './hikvision-sync.processor';
     HikvisionSyncProcessor,
   ],
   exports: [
+    // Export TypeOrmModule so importing modules can inject repositories for any
+    // entity registered here (e.g. HikvisionAttendanceLog) without re-registering.
+    TypeOrmModule,
     HikvisionHelperService,
     HikvisionService,
     HikvisionDoorSyncService,

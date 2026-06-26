@@ -37,8 +37,8 @@ export class EmployeeDeviceAssignment {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
 
-  @Column({ name: 'company_id', type: 'int', nullable: true })
-  companyId: number | null;
+  @Column({ name: 'company_id', type: 'int' })
+  companyId: number;
 
   @Column({ name: 'employee_id', type: 'int', nullable: true })
   employeeId: number | null;
@@ -123,9 +123,9 @@ export class EmployeeDeviceAssignment {
   @DeleteDateColumn({ name: 'deleted_at' })
   deletedAt: Date | null;
 
-  @ManyToOne(() => Company, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => Company, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'company_id' })
-  company: Company | null;
+  company: Company;
 
   @ManyToOne(() => Employee, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'employee_id' })
