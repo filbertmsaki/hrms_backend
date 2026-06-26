@@ -133,6 +133,9 @@ export class HikvisionAttendanceSyncService {
   private readonly logger = new Logger(HikvisionAttendanceSyncService.name);
   private readonly attendanceEventAttribute = 'attendance';
   private readonly attendanceMajorCode = 5;
+  private readonly supportedAttendanceMinorCodes = new Set([
+    1, 2, 3, 4, 38, 75, 76,
+  ]);
   private readonly maxAttendancePageSize = 10;
   private readonly automaticSyncLookbackMinutes = 10;
   private readonly attendanceJobRetentionSeconds = 24 * 60 * 60;
@@ -1235,10 +1238,17 @@ export class HikvisionAttendanceSyncService {
   private isValidPunchEvent(item: Record<string, unknown>): boolean {
     const eventTime = toNullableDate(item.time);
     const major = toNullableNumber(item.major);
+    const minor = toNullableNumber(item.minor);
 
-    return Boolean(
-      eventTime && (major === null || major === this.attendanceMajorCode),
-    );
+    if (!eventTime || (major !== null && major !== this.attendanceMajorCode)) {
+      return false;
+    }
+
+    if (this.hasAttendanceIdentity(item)) {
+      return true;
+    }
+
+    return minor !== null && this.supportedAttendanceMinorCodes.has(minor);
   }
 
   private resolveAttendanceEmployeeNo(item: Record<string, unknown>): string {
@@ -1258,6 +1268,14 @@ export class HikvisionAttendanceSyncService {
     }
 
     return '';
+  }
+
+  private hasAttendanceIdentity(item: Record<string, unknown>): boolean {
+    return Boolean(
+      this.resolveAttendanceEmployeeNo(item) ||
+        toNullableString(item.cardNo) ||
+        toNullableString(item.name ?? item.employeeName),
+    );
   }
 
   private mapEventType(major: number, minor: number): string {
@@ -1349,6 +1367,7 @@ export class HikvisionAttendanceSyncService {
       maxResults,
       major: this.attendanceMajorCode,
       minor: payload.minor ?? 0,
+      eventAttribute: this.attendanceEventAttribute,
       employeeNoString: payload.employeeNoString
         ? this.ensureEmployeeNo(payload.employeeNoString)
         : undefined,

@@ -146,13 +146,43 @@ describe('AttendanceProcessingCronService', () => {
 
     await service.runIncrementalProcessing();
 
-    expect(processingService.processRange).toHaveBeenCalledTimes(2);
+    expect(processingService.processRange).toHaveBeenCalledTimes(3);
     expect(processingService.processRange).toHaveBeenNthCalledWith(1, 1, {
       start_date: '2026-06-22',
       end_date: '2026-06-22',
       rebuild_summaries: true,
     });
     expect(processingService.processRange).toHaveBeenNthCalledWith(2, 3, {
+      start_date: '2026-06-22',
+      end_date: '2026-06-22',
+      rebuild_summaries: true,
+    });
+    expect(processingService.processRange).toHaveBeenNthCalledWith(3, 4, {
+      start_date: '2026-06-22',
+      end_date: '2026-06-22',
+      rebuild_summaries: true,
+    });
+  });
+
+  it('falls back to processing companies that have attendance data but no active policy', async () => {
+    rawLogBuilder.getRawMany.mockResolvedValue([{ companyId: '1' }]);
+    timetableAssignmentBuilder.getRawMany.mockResolvedValue([
+      { companyId: '2' },
+    ]);
+    shiftAssignmentBuilder.getRawMany.mockResolvedValue([]);
+    shiftScheduleBuilder.getRawMany.mockResolvedValue([]);
+    defaultTimetableBuilder.getRawMany.mockResolvedValue([]);
+    attendancePolicyRepository.find.mockResolvedValue([]);
+
+    await service.runIncrementalProcessing();
+
+    expect(processingService.processRange).toHaveBeenCalledTimes(2);
+    expect(processingService.processRange).toHaveBeenNthCalledWith(1, 1, {
+      start_date: '2026-06-22',
+      end_date: '2026-06-22',
+      rebuild_summaries: true,
+    });
+    expect(processingService.processRange).toHaveBeenNthCalledWith(2, 2, {
       start_date: '2026-06-22',
       end_date: '2026-06-22',
       rebuild_summaries: true,

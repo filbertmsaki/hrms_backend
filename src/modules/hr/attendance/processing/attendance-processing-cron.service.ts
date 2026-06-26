@@ -173,13 +173,21 @@ export class AttendanceProcessingCronService {
     });
 
     const requestedCompanyIds = new Set(companyIds);
+    const companiesWithActivePolicies = new Set<number>();
     const dueCompanyIds: number[] = [];
 
     for (const policy of policies) {
       if (!requestedCompanyIds.has(policy.company_id)) continue;
 
+      companiesWithActivePolicies.add(policy.company_id);
       if (this.isCalculationTimeDue(policy.calculation_time, now)) {
         dueCompanyIds.push(policy.company_id);
+      }
+    }
+
+    for (const companyId of requestedCompanyIds) {
+      if (!companiesWithActivePolicies.has(companyId)) {
+        dueCompanyIds.push(companyId);
       }
     }
 

@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
@@ -50,6 +51,7 @@ import { UpdateEmployeeExperienceDto } from './dtos/update-employee-experience.d
 import { UpdateEmployeeIdentificationDto } from './dtos/update-employee-identification.dto';
 import { UpdateEmployeeProfessionalQualificationDto } from './dtos/update-employee-professional-qualification.dto';
 import { UpdateEmployeeRelativeDto } from './dtos/update-employee-relative.dto';
+import { EmployeeAttendanceReadinessService } from '../launch-readiness/employee-attendance-readiness.service';
 import { ContactTypeEnum } from './enums/contact-type.enum';
 import { EmployeePositionAssignmentTypeEnum } from './enums/employee-position-assignment-type.enum';
 import { EmployeePositionStatusEnum } from './enums/employee-position-status.enum';
@@ -131,6 +133,7 @@ export class EmployeesService {
     private readonly usersService: UsersService,
     private readonly hrAccessService: HrAccessService,
     private readonly onboardingService: OnboardingService,
+    private readonly attendanceReadinessService: EmployeeAttendanceReadinessService,
   ) {}
 
   private getEmployeeRepository(manager?: EntityManager): Repository<Employee> {
@@ -2766,7 +2769,36 @@ export class EmployeesService {
     changeEmployeeStatusDto: ChangeEmployeeStatusDto,
     actor: AuthenticatedUser,
   ) {
+    if (changeEmployeeStatusDto.employment_status === EmploymentStatusEnum.ACTIVE) {
+      await this.assertAttendanceReady(companyId, employeeId);
+    }
     return this.update(companyId, employeeId, changeEmployeeStatusDto, actor);
+  }
+
+  private async assertAttendanceReady(
+    companyId: number,
+    employeeId: number,
+  ): Promise<void> {
+    const readiness = await this.attendanceReadinessService.checkOne(
+      companyId,
+      employeeId,
+    );
+
+    if (!readiness) return;
+
+    // Skip the isActiveEmployee check — the employee is being activated now.
+    const blockingIssues = readiness.issues.filter(
+      (issue) => issue !== 'Employee is not active',
+    );
+
+    if (blockingIssues.length > 0) {
+      throw new UnprocessableEntityException({
+        message: 'Employee cannot be activated: attendance setup is incomplete.',
+        issues: blockingIssues,
+        readinessScore: readiness.readinessScore,
+        hint: 'Complete the listed setup items before activating this employee.',
+      });
+    }
   }
 
   async addDocument(

@@ -48,6 +48,7 @@ const createQueryBuilderMock = () => ({
   skip: jest.fn().mockReturnThis(),
   take: jest.fn().mockReturnThis(),
   getRawOne: jest.fn(),
+  getRawMany: jest.fn(),
   getOne: jest.fn(),
   getMany: jest.fn(),
   getManyAndCount: jest.fn(),
@@ -112,6 +113,7 @@ describe('AttendanceDailySummaryService', () => {
   let mobilePunchBuilder: ReturnType<typeof createQueryBuilderMock>;
   let leaveBuilder: ReturnType<typeof createQueryBuilderMock>;
   let tripBuilder: ReturnType<typeof createQueryBuilderMock>;
+  let employeeFilterBuilder: ReturnType<typeof createQueryBuilderMock>;
   let shiftScheduleExpectationBuilder: ReturnType<
     typeof createQueryBuilderMock
   >;
@@ -145,6 +147,7 @@ describe('AttendanceDailySummaryService', () => {
     mobilePunchBuilder = createQueryBuilderMock();
     leaveBuilder = createQueryBuilderMock();
     tripBuilder = createQueryBuilderMock();
+    employeeFilterBuilder = createQueryBuilderMock();
     shiftScheduleExpectationBuilder = createQueryBuilderMock();
     shiftExpectationBuilder = createQueryBuilderMock();
     timetableExpectationBuilder = createQueryBuilderMock();
@@ -152,6 +155,7 @@ describe('AttendanceDailySummaryService', () => {
     processedEventRepository
       .createQueryBuilder!.mockReturnValueOnce(timezoneBuilder)
       .mockReturnValueOnce(processedEventBuilder);
+    employeeRepository.createQueryBuilder!.mockReturnValue(employeeFilterBuilder);
     mobilePunchRepository.createQueryBuilder!.mockReturnValue(
       mobilePunchBuilder,
     );
@@ -313,6 +317,37 @@ describe('AttendanceDailySummaryService', () => {
       expect.objectContaining({ id: 99 }),
     );
     expect(scheduleResolver.resolveForDate).not.toHaveBeenCalled();
+  });
+
+  it('skips recomputation when the employee record is missing', async () => {
+    employeeRepository.findOne!.mockResolvedValue(null);
+
+    const result = await service.recomputeForEmployeeDate(10, 999, '2026-06-12');
+
+    expect(result).toBe(false);
+    expect(dailySummaryRepository.save).not.toHaveBeenCalled();
+    expect(scheduleResolver.resolveForDate).not.toHaveBeenCalled();
+  });
+
+  it('filters missing employees out of explicit rebuild requests', async () => {
+    employeeFilterBuilder.getRawMany.mockResolvedValue([]);
+
+    const result = await service.rebuildSummariesForRange({
+      companyId: 10,
+      startDate: '2026-06-12',
+      endDate: '2026-06-12',
+      employeeId: 999,
+    });
+
+    expect(result).toEqual({
+      employeeCount: 0,
+      daysComputed: 0,
+      summariesUpserted: 0,
+    });
+    expect(employeeFilterBuilder.where).toHaveBeenCalledWith(
+      'employee.id IN (:...employeeIds)',
+      { employeeIds: [999] },
+    );
   });
 
   it('marks a day as late when check-in crosses only the late threshold', async () => {

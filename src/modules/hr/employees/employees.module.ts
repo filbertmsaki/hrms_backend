@@ -10,6 +10,7 @@ import { Department } from '../departments/entities/department.entity';
 import { Position } from '../positions/entities/position.entity';
 import { OnboardingModule } from '../onboarding/onboarding.module';
 import { HrSharedModule } from '../shared/hr-shared.module';
+import { HrLaunchReadinessModule } from '../launch-readiness/hr-launch-readiness.module';
 import { EmployeesController } from './employees.controller';
 import { EmployeesService } from './employees.service';
 import { EmployeeAddress } from './entities/employee-address.entity';
@@ -53,6 +54,7 @@ import { Employee } from './entities/employee.entity';
     UsersModule,
     HrSharedModule,
     OnboardingModule,
+    HrLaunchReadinessModule,
   ],
   controllers: [EmployeesController],
   providers: [EmployeesService],

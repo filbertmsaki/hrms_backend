@@ -210,6 +210,10 @@ export class AttendanceDailySummaryService {
       },
     });
 
+    if (!employee?.id) {
+      return false;
+    }
+
     const existing = await this.dailySummaryRepository.findOne({
       where: {
         companyId,
@@ -697,7 +701,9 @@ export class AttendanceDailySummaryService {
     endDate: string,
     employeeId?: number,
   ): Promise<number[]> {
-    if (employeeId) return [employeeId];
+    if (employeeId) {
+      return this.filterExistingEmployeeIds(companyId, [employeeId]);
+    }
 
     const eventRows = await this.processedEventRepository
       .createQueryBuilder('event')
@@ -809,7 +815,37 @@ export class AttendanceDailySummaryService {
       }
     }
 
-    return [...employeeIds];
+    return this.filterExistingEmployeeIds(companyId, [...employeeIds]);
+  }
+
+  private async filterExistingEmployeeIds(
+    companyId: number,
+    employeeIds: number[],
+  ): Promise<number[]> {
+    const uniqueIds = Array.from(
+      new Set(
+        employeeIds.filter(
+          (value) => Number.isInteger(value) && value > 0,
+        ),
+      ),
+    );
+
+    if (uniqueIds.length === 0) {
+      return [];
+    }
+
+    const rows = await this.employeeRepository
+      .createQueryBuilder('employee')
+      .innerJoin('employee.company_user', 'companyUser')
+      .select('employee.id', 'employeeId')
+      .where('employee.id IN (:...employeeIds)', { employeeIds: uniqueIds })
+      .andWhere('companyUser.company_id = :companyId', { companyId })
+      .getRawMany<{ employeeId: string }>();
+
+    return rows
+      .map((row) => Number(row.employeeId))
+      .filter((value) => Number.isInteger(value) && value > 0)
+      .sort((left, right) => left - right);
   }
 
   private async resolvePreferredTimezone(

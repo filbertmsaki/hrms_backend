@@ -41,6 +41,10 @@ import AccessOrganizationsSeeder from './022-access-organizations.seed';
 import AccessGroupsSeeder from './023-access-groups.seed';
 import EmployeeDeviceAssignmentsSeeder from './024-employee-device-assignments.seed';
 
+// Phase 9 — Attendance Readiness
+import EmployeeTimetablesSeeder from './025-employee-timetables.seed';
+import EmployeeAccessCredentialsSeeder from './026-employee-access-credentials.seed';
+
 const seeders = [
   PermissionsSeeder,
   GlobalRolesSeeder,
@@ -66,6 +70,8 @@ const seeders = [
   AccessOrganizationsSeeder,
   AccessGroupsSeeder,
   EmployeeDeviceAssignmentsSeeder,
+  EmployeeTimetablesSeeder,
+  EmployeeAccessCredentialsSeeder,
 ];
 
 export async function runAllSeeders(dataSource: DataSource): Promise<void> {

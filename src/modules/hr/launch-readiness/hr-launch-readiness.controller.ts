@@ -7,6 +7,7 @@ import { PermissionsGuard } from '../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { HrLaunchReadinessService } from './hr-launch-readiness.service';
+import { EmployeeAttendanceReadinessService } from './employee-attendance-readiness.service';
 
 @ApiTags('HR Launch Readiness')
 @ApiBearerAuth('access-token')
@@ -15,6 +16,7 @@ import { HrLaunchReadinessService } from './hr-launch-readiness.service';
 export class HrLaunchReadinessController {
   constructor(
     private readonly readinessService: HrLaunchReadinessService,
+    private readonly employeeReadinessService: EmployeeAttendanceReadinessService,
   ) {}
 
   @Get()
@@ -26,5 +28,16 @@ export class HrLaunchReadinessController {
   })
   check(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
     return this.readinessService.check(req.user.companyId!);
+  }
+
+  @Get('employees')
+  @Permissions('hrms_launch_readiness:read')
+  @ApiOperation({
+    summary: 'Per-employee attendance readiness report',
+    description:
+      'Returns a per-employee breakdown of attendance setup completeness: shift, timetable, device, fingerprint, credentials, branch/department, and user account status.',
+  })
+  employeeReadiness(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.employeeReadinessService.check(req.user.companyId!);
   }
 }
