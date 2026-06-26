@@ -1,38 +1,71 @@
 import { DataSource } from 'typeorm';
 import { runSeeders } from 'typeorm-extension';
-import InitialRbacSeeder from './001-initial-rbac.seed';
-import AllianceCompanyStructureSeeder from './002-alliance-company-structure.seed';
-import LeaveManagementSeeder from './003-leave-management.seed';
-import OnboardingRoleHierarchySeeder from './004-onboarding-role-hierarchy.seed';
-import OnboardingCompanyUsersSeeder from './005-onboarding-company-users.seed';
-import OnboardingWorkflowSeeder from './006-onboarding-workflow.seed';
-import OnboardingWorkflowStepsSeeder from './007-onboarding-workflow-steps.seed';
-import OffboardingWorkflowSeeder from './008-offboarding-workflow.seed';
-import OffboardingWorkflowStepsSeeder from './009-offboarding-workflow-steps.seed';
-import AccessControlDefaultsSeeder from './010-access-control-defaults.seed';
-import AttendanceSampleDataSeeder from './011-attendance-sample-data.seed';
-import HikvisionDeviceSeeder from './hikvision-device.seed';
-// import CountriesSeeder from './002-countries.seed';
-// import CategoriesSeeder from './003-categories.seed';
-// ... import other seeders here
+
+// Phase 1 — Platform Defaults
+import PermissionsSeeder from './001-permissions.seed';
+import GlobalRolesSeeder from './002-global-roles.seed';
+import PlatformUsersSeeder from './003-platform-users.seed';
+
+// Phase 2 — Company Setup
+import CompanySeeder from './004-company.seed';
+import CompanyRolesSeeder from './005-company-roles.seed';
+import CompanyAdminSeeder from './006-company-admin.seed';
+
+// Phase 3 — Organizational Structure
+import BranchesSeeder from './007-branches.seed';
+import DepartmentsSeeder from './008-departments.seed';
+import DesignationsSeeder from './009-designations.seed';
+import PositionsSeeder from './010-positions.seed';
+
+// Phase 4 — Employees
+import EmployeesSeeder from './011-employees.seed';
+import EmployeeProfilesSeeder from './012-employee-profiles.seed';
+
+// Phase 5 — HRMS Configuration
+import LeaveTypesSeeder from './013-leave-types.seed';
+import LeavePoliciesSeeder from './014-leave-policies.seed';
+import LeaveWorkflowsSeeder from './015-leave-workflows.seed';
+
+// Phase 6 — Shifts & Attendance
+import ShiftsSeeder from './016-shifts.seed';
+import TimetablesSeeder from './017-timetables.seed';
+import ShiftAssignmentsSeeder from './018-shift-assignments.seed';
+
+// Phase 7 — HR Workflow Templates
+import OnboardingWorkflowSeeder from './019-onboarding-workflow.seed';
+import OffboardingWorkflowSeeder from './020-offboarding-workflow.seed';
+
+// Phase 8 — Access Control
+import AttendanceDevicesSeeder from './021-attendance-devices.seed';
+import AccessOrganizationsSeeder from './022-access-organizations.seed';
+import AccessGroupsSeeder from './023-access-groups.seed';
+import EmployeeDeviceAssignmentsSeeder from './024-employee-device-assignments.seed';
 
 const seeders = [
-  InitialRbacSeeder,
-  AllianceCompanyStructureSeeder,
-  LeaveManagementSeeder,
-  OnboardingRoleHierarchySeeder,
-  OnboardingCompanyUsersSeeder,
+  PermissionsSeeder,
+  GlobalRolesSeeder,
+  PlatformUsersSeeder,
+  CompanySeeder,
+  CompanyRolesSeeder,
+  CompanyAdminSeeder,
+  BranchesSeeder,
+  DepartmentsSeeder,
+  DesignationsSeeder,
+  PositionsSeeder,
+  EmployeesSeeder,
+  EmployeeProfilesSeeder,
+  LeaveTypesSeeder,
+  LeavePoliciesSeeder,
+  LeaveWorkflowsSeeder,
+  ShiftsSeeder,
+  TimetablesSeeder,
+  ShiftAssignmentsSeeder,
   OnboardingWorkflowSeeder,
-  OnboardingWorkflowStepsSeeder,
   OffboardingWorkflowSeeder,
-  OffboardingWorkflowStepsSeeder,
-  HikvisionDeviceSeeder,
-  AccessControlDefaultsSeeder,
-  AttendanceSampleDataSeeder,
-  // CountriesSeeder,
-  // CategoriesSeeder,
-  // Add new seeders here ↑
-  // They will run in this exact order
+  AttendanceDevicesSeeder,
+  AccessOrganizationsSeeder,
+  AccessGroupsSeeder,
+  EmployeeDeviceAssignmentsSeeder,
 ];
 
 export async function runAllSeeders(dataSource: DataSource): Promise<void> {
@@ -46,7 +79,7 @@ export async function runAllSeeders(dataSource: DataSource): Promise<void> {
     });
 
     console.log('\n┌────────────────────────────────────────────┐');
-    console.log('│     ✓ Database seeding completed successfully     │');
+    console.log('│   ✓ Database seeding completed successfully │');
     console.log('└────────────────────────────────────────────┘');
   } catch (error) {
     console.error('Seeding failed:', error);
