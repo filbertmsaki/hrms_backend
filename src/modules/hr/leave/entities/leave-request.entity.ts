@@ -1,4 +1,4 @@
-import {
+﻿import {
   Column,
   CreateDateColumn,
   Entity,
@@ -69,16 +69,16 @@ export class LeaveRequest {
   @Column({ type: 'text', nullable: true })
   rejection_reason: string | null;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
   applied_at: Date | null;
 
   @Column({ type: 'int' })
   created_by_company_user_id: number;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
   approved_at: Date | null;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
   cancelled_at: Date | null;
 
   @CreateDateColumn()

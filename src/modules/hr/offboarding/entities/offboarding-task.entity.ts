@@ -1,4 +1,4 @@
-import {
+﻿import {
   Column,
   CreateDateColumn,
   Entity,
@@ -63,10 +63,10 @@ export class OffboardingTask {
   })
   priority: OffboardingTaskPriorityEnum;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
   due_date: Date | null;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
   completed_at: Date | null;
 
   @Column({ type: 'text', nullable: true })

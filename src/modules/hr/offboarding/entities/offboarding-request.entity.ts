@@ -1,4 +1,4 @@
-import {
+﻿import {
   Column,
   CreateDateColumn,
   DeleteDateColumn,
@@ -76,13 +76,13 @@ export class OffboardingRequest {
   @Column({ type: 'date' })
   last_working_date: string;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
   submitted_at: Date | null;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
   completed_at: Date | null;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
   cancelled_at: Date | null;
 
   @Column({
@@ -104,7 +104,7 @@ export class OffboardingRequest {
   @UpdateDateColumn()
   updated_at: Date;
 
-  @DeleteDateColumn({ type: 'datetime', nullable: true })
+  @DeleteDateColumn({ type: 'timestamp', nullable: true })
   deleted_at: Date | null;
 
   @ManyToOne(() => Company, { onDelete: 'CASCADE' })

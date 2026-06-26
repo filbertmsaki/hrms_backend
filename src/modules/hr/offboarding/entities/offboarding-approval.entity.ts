@@ -1,4 +1,4 @@
-import {
+﻿import {
   Column,
   CreateDateColumn,
   Entity,
@@ -40,7 +40,7 @@ export class OffboardingApproval {
   @Column({ type: 'text', nullable: true })
   comments: string | null;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
   acted_at: Date | null;
 
   @CreateDateColumn()

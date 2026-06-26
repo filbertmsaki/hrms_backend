@@ -1,4 +1,4 @@
-import {
+﻿import {
   Column,
   CreateDateColumn,
   Entity,
@@ -41,7 +41,7 @@ export class OffboardingClearance {
   @Column({ type: 'int', nullable: true })
   cleared_by_company_user_id: number | null;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
   cleared_at: Date | null;
 
   @CreateDateColumn()

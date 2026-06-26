@@ -41,7 +41,7 @@ export class Role {
 
   @Column({
     type: 'int',
-    asExpression: 'COALESCE(`company_id`, 0)',
+    asExpression: 'COALESCE("company_id", 0)',
     generatedType: 'STORED',
     select: false,
     insert: false,

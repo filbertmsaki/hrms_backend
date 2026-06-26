@@ -23,7 +23,7 @@ export class TimetableDay {
   @Column({ name: 'timetable_id', type: 'int' })
   timetableId: number;
 
-  @Column({ name: 'day_of_week', type: 'tinyint' })
+  @Column({ name: 'day_of_week', type: 'smallint' })
   dayOfWeek: number;
 
   @Column({ name: 'is_working_day', type: 'boolean', default: true })

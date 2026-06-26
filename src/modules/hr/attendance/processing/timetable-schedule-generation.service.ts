@@ -349,7 +349,7 @@ export class TimetableScheduleGenerationService {
       .createQueryBuilder('holiday')
       .where('holiday.company_id = :companyId', { companyId })
       .andWhere(
-        "(holiday.date = :scheduleDate OR (holiday.is_recurring = :isRecurring AND DATE_FORMAT(holiday.date, '%m-%d') = :monthDay))",
+        "(holiday.date = :scheduleDate OR (holiday.is_recurring = :isRecurring AND TO_CHAR(holiday.date, 'MM-DD') = :monthDay))",
         {
           scheduleDate,
           isRecurring: true,

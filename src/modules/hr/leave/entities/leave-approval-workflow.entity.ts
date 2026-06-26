@@ -51,7 +51,7 @@ export class LeaveApprovalWorkflow {
   @Column({
     name: 'default_guard_key',
     type: 'int',
-    asExpression: 'IF(`is_default`, `company_id`, NULL)',
+    asExpression: 'CASE WHEN "is_default" THEN "company_id" ELSE NULL END',
     generatedType: 'STORED',
     select: false,
     insert: false,

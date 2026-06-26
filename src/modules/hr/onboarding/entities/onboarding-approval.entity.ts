@@ -1,4 +1,4 @@
-import {
+﻿import {
   Column,
   CreateDateColumn,
   Entity,
@@ -45,7 +45,7 @@ export class OnboardingApproval {
   @Column({ type: 'text', nullable: true })
   signature_url: string | null;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
   acted_at: Date | null;
 
   @CreateDateColumn()

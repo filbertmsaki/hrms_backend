@@ -35,10 +35,10 @@ async function getLatestMigrationFile(): Promise<MigrationFile | null> {
   };
 }
 
-// In TypeORM migration files, SQL identifiers are wrapped in backticks that are
-// escaped as \` inside the JS template literal, so the raw file contains \`name\`.
-// The regex \\\` matches that two-character sequence (backslash + backtick).
-// [^\\`]+ matches the identifier itself (no backslash or backtick).
+// In TypeORM migration files generated for PostgreSQL, SQL identifiers are
+// wrapped in double-quotes escaped as \" inside the JS template literal, so
+// the raw file contains \"name\". The regex \\\\" matches that two-character
+// sequence (backslash + double-quote). [^\\"]+ matches the identifier itself.
 
 function buildSafeDropFk(
   originalLine: string,
@@ -46,15 +46,13 @@ function buildSafeDropFk(
   fkName: string,
 ): string {
   const indent = originalLine.match(/^(\s*)/)?.[1] ?? '';
-  // Use fkName in the hasTable variable to avoid redeclaration when the same
-  // table appears in multiple DROP FOREIGN KEY statements in one migration.
   return (
     `${indent}const __tbl_${fkName} = await queryRunner.query(` +
-    '`SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? LIMIT 1`, ' +
+    `\`SELECT 1 FROM information_schema.tables WHERE table_catalog = current_database() AND table_name = $1 LIMIT 1\`, ` +
     `['${tableName}']);\n` +
     `${indent}if (__tbl_${fkName}.length) {\n` +
     `${indent}  const __hasFk_${fkName} = await queryRunner.query(` +
-    '`SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = ? LIMIT 1`, ' +
+    `\`SELECT 1 FROM information_schema.table_constraints WHERE table_catalog = current_database() AND table_name = $1 AND constraint_name = $2 LIMIT 1\`, ` +
     `['${tableName}', '${fkName}']);\n` +
     `${indent}  if (__hasFk_${fkName}.length) {\n` +
     `${indent}    ${originalLine.trim()}\n` +
@@ -71,7 +69,7 @@ function buildSafeAddFk(
   const indent = originalLine.match(/^(\s*)/)?.[1] ?? '';
   return (
     `${indent}const __hasFkAdd_${fkName} = await queryRunner.query(` +
-    '`SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = ? LIMIT 1`, ' +
+    `\`SELECT 1 FROM information_schema.table_constraints WHERE table_catalog = current_database() AND table_name = $1 AND constraint_name = $2 LIMIT 1\`, ` +
     `['${tableName}', '${fkName}']);\n` +
     `${indent}if (!__hasFkAdd_${fkName}.length) {\n` +
     `${indent}  ${originalLine.trim()}\n` +
@@ -80,13 +78,13 @@ function buildSafeAddFk(
 }
 
 function patchMigrationContent(content: string): string {
-  // Matches: await queryRunner.query(`ALTER TABLE \`table\` DROP FOREIGN KEY \`FK_name\``);
+  // Matches PostgreSQL-style: await queryRunner.query(`ALTER TABLE "table" DROP CONSTRAINT "FK_name"`);
   const dropRegex =
-    /(^\s*await queryRunner\.query\(`ALTER TABLE \\\`([^\\`]+)\\\` DROP FOREIGN KEY \\\`([^\\`]+)\\\``\);)/gm;
+    /(^\s*await queryRunner\.query\(`ALTER TABLE \\"([^"\\]+)\\" DROP CONSTRAINT \\"([^"\\]+)\\"`\);)/gm;
 
-  // Matches: await queryRunner.query(`ALTER TABLE \`table\` ADD CONSTRAINT \`FK_name\` FOREIGN KEY ...`);
+  // Matches PostgreSQL-style: await queryRunner.query(`ALTER TABLE "table" ADD CONSTRAINT "FK_name" FOREIGN KEY ...`);
   const addRegex =
-    /(^\s*await queryRunner\.query\(`ALTER TABLE \\\`([^\\`]+)\\\` ADD CONSTRAINT \\\`([^\\`]+)\\\` FOREIGN KEY .+`\);)/gm;
+    /(^\s*await queryRunner\.query\(`ALTER TABLE \\"([^"\\]+)\\" ADD CONSTRAINT \\"([^"\\]+)\\" FOREIGN KEY .+`\);)/gm;
 
   let didPatch = false;
 

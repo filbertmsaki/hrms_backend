@@ -685,53 +685,30 @@ export default class AllianceCompanyStructureSeeder implements Seeder {
     userRepo: Repository<User>,
     seed: CompanyEmployeeSeed,
   ): Promise<User> {
-    const [userByNo, userByEmail, userByPhone] = await Promise.all([
-      userRepo.findOne({
-        where: { user_no: seed.employeeNo },
-        select: [
-          'id',
-          'user_no',
-          'first_name',
-          'last_name',
-          'phone',
-          'email',
-          'password',
-          'status',
-          'user_type',
-          'is_email_verified',
-        ],
-      }),
-      userRepo.findOne({
-        where: { email: seed.email },
-        select: [
-          'id',
-          'user_no',
-          'first_name',
-          'last_name',
-          'phone',
-          'email',
-          'password',
-          'status',
-          'user_type',
-          'is_email_verified',
-        ],
-      }),
-      userRepo.findOne({
-        where: { phone: seed.phone },
-        select: [
-          'id',
-          'user_no',
-          'first_name',
-          'last_name',
-          'phone',
-          'email',
-          'password',
-          'status',
-          'user_type',
-          'is_email_verified',
-        ],
-      }),
-    ]);
+    const selectFields: (keyof User)[] = [
+      'id',
+      'user_no',
+      'first_name',
+      'last_name',
+      'phone',
+      'email',
+      'password',
+      'status',
+      'user_type',
+      'is_email_verified',
+    ];
+    const userByNo = await userRepo.findOne({
+      where: { user_no: seed.employeeNo },
+      select: selectFields,
+    });
+    const userByEmail = await userRepo.findOne({
+      where: { email: seed.email },
+      select: selectFields,
+    });
+    const userByPhone = await userRepo.findOne({
+      where: { phone: seed.phone },
+      select: selectFields,
+    });
 
     const user = userByNo ?? userByEmail ?? userByPhone ?? userRepo.create();
 

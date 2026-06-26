@@ -1,4 +1,4 @@
-import {
+﻿import {
   Column,
   CreateDateColumn,
   Entity,
@@ -70,7 +70,7 @@ export class Document {
   @Column({ default: false })
   is_verified: boolean;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
   verified_at: Date | null;
 
   @Column({ type: 'int', nullable: true })
@@ -79,7 +79,7 @@ export class Document {
   @Column({ type: 'int', nullable: true })
   uploaded_by_company_user_id: number | null;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
   expiry_date: Date | null;
 
   @Column({ type: 'json', nullable: true })
