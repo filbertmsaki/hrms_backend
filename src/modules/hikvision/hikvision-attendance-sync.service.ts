@@ -259,8 +259,6 @@ export class HikvisionAttendanceSyncService {
         searchID: 'attendance_sync',
         searchResultPosition: 0,
         maxResults: effectiveMaxResults,
-        major: this.attendanceMajorCode,
-        minor: 0,
         startTime,
         endTime,
       },
@@ -428,8 +426,6 @@ export class HikvisionAttendanceSyncService {
         ),
         searchResultPosition: 0,
         maxResults: effectiveMaxResults,
-        major: this.attendanceMajorCode,
-        minor: 0,
         employeeNoString: normalizedEmployeeNo,
         startTime,
         endTime,
@@ -491,8 +487,6 @@ export class HikvisionAttendanceSyncService {
         searchID: 'attendance_sync',
         searchResultPosition: 0,
         maxResults: this.maxAttendancePageSize,
-        major: this.attendanceMajorCode,
-        minor: 0,
         startTime: syncRange.startTime,
         endTime: syncRange.endTime,
       },
@@ -998,11 +992,6 @@ export class HikvisionAttendanceSyncService {
 
     for (const event of events) {
       try {
-        if (!this.isValidPunchEvent(event)) {
-          counters.skippedSystemEvents += 1;
-          continue;
-        }
-
         counters.validPunchRecords += 1;
         const mapped = this.mapEventToRow(device, event);
         const existing = await this.findExistingAttendanceLog(mapped);
@@ -1330,16 +1319,6 @@ export class HikvisionAttendanceSyncService {
     deviceId: number,
     payload: AcsEventCondDto,
   ): Promise<AcsEventCondDto> {
-    if (
-      payload.eventAttribute &&
-      payload.eventAttribute.trim().toLowerCase() !==
-        this.attendanceEventAttribute
-    ) {
-      throw new BadRequestException(
-        'Only eventAttribute="attendance" is supported for this sync',
-      );
-    }
-
     const maxResultsRaw = this.ensurePositiveInteger(
       payload.maxResults ?? this.maxAttendancePageSize,
       'maxResults',
@@ -1365,9 +1344,6 @@ export class HikvisionAttendanceSyncService {
       ),
       searchResultPosition,
       maxResults,
-      major: this.attendanceMajorCode,
-      minor: payload.minor ?? 0,
-      eventAttribute: this.attendanceEventAttribute,
       employeeNoString: payload.employeeNoString
         ? this.ensureEmployeeNo(payload.employeeNoString)
         : undefined,
