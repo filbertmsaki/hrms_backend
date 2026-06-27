@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   HttpCode,
@@ -17,7 +18,9 @@ import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { ApiActionOperation } from '../../docs/swagger-decorators';
+import { HikvisionSeedPreviewQueryDto } from './dto/hikvision-seed-preview-query.dto';
 import { HikvisionPeopleCredentialSyncService } from './hikvision-people-credential-sync.service';
+import { HikvisionSeedPreviewService } from './hikvision-seed-preview.service';
 import { HikvisionSyncJobsService } from './hikvision-sync-jobs.service';
 
 @ApiTags('Hikvision People Sync')
@@ -28,6 +31,7 @@ export class HikvisionPeopleCredentialSyncController {
   constructor(
     private readonly peopleCredentialSyncService: HikvisionPeopleCredentialSyncService,
     private readonly hikvisionSyncJobsService: HikvisionSyncJobsService,
+    private readonly seedPreviewService: HikvisionSeedPreviewService,
   ) {}
 
   @Post('devices/:deviceId/sync-users-credentials')
@@ -101,6 +105,26 @@ export class HikvisionPeopleCredentialSyncController {
     return this.peopleCredentialSyncService.syncCards(
       req.user.companyId!,
       deviceId,
+    );
+  }
+
+  @Post('devices/:deviceId/users/seed-preview')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionsGuard)
+  @Permissions('access_control_sync:execute')
+  @ApiActionOperation(
+    'Seed Preview (Dev Only)',
+    'Query a live Hikvision device and preview which users need to be added to the seeder constants. Development mode only.',
+  )
+  seedPreview(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+    @Body() query: HikvisionSeedPreviewQueryDto,
+  ) {
+    return this.seedPreviewService.generateSeedPreview(
+      req.user.companyId!,
+      deviceId,
+      query,
     );
   }
 
