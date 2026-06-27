@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, QueryFailedError, Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import {
   buildDateOnlyRange,
@@ -301,7 +301,8 @@ export class AttendanceDailySummaryService {
         eventTime: event.eventTime,
         rawLogId: event.rawLogId,
         source: 'processed' as const,
-        direction: event.direction ?? AttendanceProcessedEventDirectionEnum.UNKNOWN,
+        direction:
+          event.direction ?? AttendanceProcessedEventDirectionEnum.UNKNOWN,
       })),
       ...mobilePunches.map((punch) => ({
         id: `mobile:${punch.id}`,
@@ -423,11 +424,7 @@ export class AttendanceDailySummaryService {
       finalizedAt: null,
     };
 
-    const savedSummary = existing
-      ? await this.dailySummaryRepository.save(Object.assign(existing, payload))
-      : await this.dailySummaryRepository.save(
-          this.dailySummaryRepository.create(payload),
-        );
+    const savedSummary = await this.upsertDailySummary(payload, existing);
 
     if (activeAdjustment && activeAdjustment.summaryId !== savedSummary.id) {
       activeAdjustment.summaryId = savedSummary.id;
@@ -824,9 +821,7 @@ export class AttendanceDailySummaryService {
   ): Promise<number[]> {
     const uniqueIds = Array.from(
       new Set(
-        employeeIds.filter(
-          (value) => Number.isInteger(value) && value > 0,
-        ),
+        employeeIds.filter((value) => Number.isInteger(value) && value > 0),
       ),
     );
 
@@ -846,6 +841,59 @@ export class AttendanceDailySummaryService {
       .map((row) => Number(row.employeeId))
       .filter((value) => Number.isInteger(value) && value > 0)
       .sort((left, right) => left - right);
+  }
+
+  private async upsertDailySummary(
+    payload: Partial<AttendanceDailySummary>,
+    existing: AttendanceDailySummary | null,
+  ): Promise<AttendanceDailySummary> {
+    const upsertFn = (
+      this.dailySummaryRepository as Repository<AttendanceDailySummary> & {
+        upsert?: Repository<AttendanceDailySummary>['upsert'];
+      }
+    ).upsert;
+
+    if (typeof upsertFn !== 'function') {
+      return existing
+        ? await this.dailySummaryRepository.save(Object.assign(existing, payload))
+        : await this.dailySummaryRepository.save(
+            this.dailySummaryRepository.create(payload),
+          );
+    }
+
+    try {
+      await upsertFn.call(this.dailySummaryRepository, payload, {
+        conflictPaths: ['companyId', 'employeeId', 'attendanceDate'],
+      });
+    } catch (error) {
+      if (!this.isDuplicateError(error)) {
+        throw error;
+      }
+    }
+
+    const saved = await this.dailySummaryRepository.findOne({
+      where: {
+        companyId: payload.companyId!,
+        employeeId: payload.employeeId!,
+        attendanceDate: payload.attendanceDate!,
+      },
+    });
+
+    if (!saved) {
+      throw new BadRequestException(
+        'Attendance daily summary upsert completed without a readable record',
+      );
+    }
+
+    return saved;
+  }
+
+  private isDuplicateError(error: unknown): boolean {
+    if (!(error instanceof QueryFailedError)) return false;
+    const err = error as QueryFailedError & { code?: string; errno?: number };
+    return (
+      err.code === 'ER_DUP_ENTRY' || err.errno === 1062 || err.code === '23505'
+    );
   }
 
   private async resolvePreferredTimezone(
@@ -1027,7 +1075,8 @@ export class AttendanceDailySummaryService {
     }
 
     const hasExplicitDirection = effectivePunches.some(
-      (event) => event.direction !== AttendanceProcessedEventDirectionEnum.UNKNOWN,
+      (event) =>
+        event.direction !== AttendanceProcessedEventDirectionEnum.UNKNOWN,
     );
 
     if (!hasExplicitDirection) {
@@ -1086,8 +1135,7 @@ export class AttendanceDailySummaryService {
       checkOutAt,
     );
 
-    const missingPunchCount =
-      Number(!checkInAt) + Number(!checkOutAt);
+    const missingPunchCount = Number(!checkInAt) + Number(!checkOutAt);
 
     return {
       effectivePunches,
@@ -1115,7 +1163,9 @@ export class AttendanceDailySummaryService {
     if (effectivePunches.length === 1) {
       const onlyPunch = effectivePunches[0];
 
-      if (this.shouldTreatSinglePunchAsCheckout(schedule, onlyPunch.eventTime)) {
+      if (
+        this.shouldTreatSinglePunchAsCheckout(schedule, onlyPunch.eventTime)
+      ) {
         checkOutAt = onlyPunch.eventTime;
       } else {
         checkInAt = onlyPunch.eventTime;
@@ -1156,8 +1206,7 @@ export class AttendanceDailySummaryService {
       invalidPunches.push(internalPunches[internalPunches.length - 1]);
     }
 
-    const missingPunchCount =
-      Number(!checkInAt) + Number(!checkOutAt);
+    const missingPunchCount = Number(!checkInAt) + Number(!checkOutAt);
 
     return {
       effectivePunches,
