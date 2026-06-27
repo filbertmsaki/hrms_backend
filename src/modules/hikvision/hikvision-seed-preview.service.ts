@@ -192,13 +192,7 @@ export class HikvisionSeedPreviewService {
         deviceSyncStatus: 'FOUND_ON_DEVICE',
         suggestedSeedEntry:
           action === 'CREATE'
-            ? this.buildSuggestedSeedEntry(
-                employeeNo,
-                name,
-                query.departmentCode,
-                query.managerName,
-                query.assistantManagerName,
-              )
+            ? this.buildSuggestedSeedEntry(employeeNo, name)
             : null,
       };
 
@@ -210,23 +204,18 @@ export class HikvisionSeedPreviewService {
     const existingInSeeder = users.filter((u) => u.action === 'EXISTS').length;
     const skipped = users.filter((u) => u.action === 'SKIP').length;
 
-    // 6. Optionally persist to DB (only when dryRun is explicitly false)
+    // 6. Optionally persist CREATE users to DB
     let savedToDatabase: { created: number; amended: number } | null = null;
-    if (query.saveToDatabase === true && query.dryRun === false) {
+    if (query.saveToDatabase === true) {
       savedToDatabase = await this.persistUsers(
         companyId,
         deviceId,
         missing,
         toAmendUsers,
-        query.departmentCode,
       );
     }
 
-    // 7. Optionally write generated file
-    let generatedFilePath: string | null = null;
-    if (query.writeSeederFile && missing.length > 0) {
-      generatedFilePath = await this.writeGeneratedFile(missing);
-    }
+    const generatedFilePath: string | null = null;
 
     return {
       deviceId,
@@ -778,21 +767,14 @@ export class HikvisionSeedPreviewService {
   private buildSuggestedSeedEntry(
     employeeNo: string,
     name: string | null,
-    departmentCode?: string,
-    managerName?: string,
-    assistantManagerName?: string,
   ): Record<string, unknown> {
     return {
       hikvisionEmployeeNo: employeeNo,
       fullName: name ?? 'UNKNOWN — update manually',
-      _suggestedDepartment: departmentCode ?? 'REVIEW_REQUIRED',
+      _suggestedDepartment: 'REVIEW_REQUIRED',
       _suggestedPositionCode: 'REVIEW_REQUIRED',
       _suggestedReportsToEmployeeNo: null,
-      _hints: {
-        managerName: managerName ?? null,
-        assistantManagerName: assistantManagerName ?? null,
-      },
-      _action: 'ADD to ALLIANCE_HIKVISION_EMPLOYEES array then run buildAllianceEmployeeAssignments()',
+      _action: 'Use WRITE_TO_CONSTANTS action to persist into company-structure.constants.ts',
     };
   }
 
@@ -820,7 +802,6 @@ export class HikvisionSeedPreviewService {
     deviceId: number,
     toCreate: HikvisionUserPreviewItem[],
     toAmend: HikvisionUserPreviewItem[],
-    departmentCode?: string,
   ): Promise<{ created: number; amended: number }> {
     const qr = this.dataSource.createQueryRunner();
     await qr.connect();
@@ -841,14 +822,7 @@ export class HikvisionSeedPreviewService {
       );
       if (!company.length) throw new Error('Company not found');
 
-      // Look up department if provided
-      const deptRows = departmentCode
-        ? await em.query<{ id: number }[]>(
-            `SELECT id FROM departments WHERE company_id = $1 AND code = $2 LIMIT 1`,
-            [companyId, departmentCode],
-          )
-        : [];
-      const deptId = deptRows[0]?.id ?? null;
+      const deptId: number | null = null;
 
       // Hash a default password once for all new users
       const defaultPassword = await bcrypt.hash('Employee123!', 10);
