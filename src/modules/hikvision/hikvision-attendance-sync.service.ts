@@ -431,15 +431,36 @@ export class HikvisionAttendanceSyncService {
           };
         }
 
-        throw new ConflictException(
-          'Attendance sync is already in progress for this device',
+        syncJob = await this.attendanceSyncJobRepository.save(
+          this.attendanceSyncJobRepository.create({
+            companyId,
+            deviceId,
+            activeJobKey,
+            status: HikvisionAttendanceSyncJobStatusEnum.PENDING,
+            syncStartTime: startTime,
+            syncEndTime: endTime,
+            requestedByUserId,
+            requestedByCompanyUserId,
+            totalRecordsPulled: 0,
+            totalRecordsSaved: 0,
+            metadata: {
+              maxResults: normalizedMaxResults,
+              employeeNo: normalizedEmployeeNo,
+            },
+          }),
         );
+      } else {
+        throw error;
       }
-
-      throw error;
     }
 
     try {
+      const queueJobId = this.buildAttendanceSyncQueueJobId(
+        companyId,
+        deviceId,
+        syncJob.id,
+        syncJob.createdAt,
+      );
       const queuedJob = await this.hikvisionSyncQueue.add(
         HikvisionSyncJobName.SYNC_ATTENDANCE,
         {
@@ -455,11 +476,7 @@ export class HikvisionAttendanceSyncService {
           attendanceEmployeeNo: normalizedEmployeeNo ?? undefined,
         },
         {
-          jobId: this.buildAttendanceSyncQueueJobId(
-            companyId,
-            deviceId,
-            syncJob.id,
-          ),
+          jobId: queueJobId,
           attempts: 1,
           removeOnComplete: {
             age: this.attendanceJobRetentionSeconds,
@@ -472,7 +489,7 @@ export class HikvisionAttendanceSyncService {
         },
       );
 
-      syncJob.queueJobId = String(queuedJob.id);
+      syncJob.queueJobId = queueJobId;
       syncJob = await this.attendanceSyncJobRepository.save(syncJob);
     } catch (error) {
       await this.attendanceSyncJobRepository.save({
@@ -801,17 +818,18 @@ export class HikvisionAttendanceSyncService {
   async getLatestAttendanceSyncStatus(companyId: number, deviceId: number) {
     await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, deviceId);
 
-    const job = await this.attendanceSyncJobRepository.findOne({
+    const latestJob = await this.attendanceSyncJobRepository.findOne({
       where: { companyId, deviceId },
       order: { createdAt: 'DESC' },
     });
 
-    if (!job) {
+    if (!latestJob) {
       throw new NotFoundException(
         'Attendance sync status not found for this device',
       );
     }
 
+    const job = await this.reconcileAttendanceSyncJobState(latestJob);
     return this.mapAttendanceSyncJob(job);
   }
 
@@ -2401,15 +2419,16 @@ export class HikvisionAttendanceSyncService {
     companyId: number,
     deviceId: number,
     syncJobId: number,
+    createdAt: Date,
   ): string {
-    return `attendance-sync-${companyId}-${deviceId}-${syncJobId}`;
+    return `attendance-sync-${companyId}-${deviceId}-${syncJobId}-${createdAt.getTime()}`;
   }
 
   private async findActiveAttendanceSyncJob(
     companyId: number,
     deviceId: number,
   ) {
-    return this.attendanceSyncJobRepository.findOne({
+    const job = await this.attendanceSyncJobRepository.findOne({
       where: {
         companyId,
         deviceId,
@@ -2417,6 +2436,12 @@ export class HikvisionAttendanceSyncService {
       },
       order: { createdAt: 'DESC' },
     });
+    if (!job) {
+      return null;
+    }
+
+    const reconciled = await this.reconcileAttendanceSyncJobState(job);
+    return reconciled.activeJobKey ? reconciled : null;
   }
 
   private async failAttendanceSyncJob(syncJobId: number, errorMessage: string) {
@@ -2426,6 +2451,133 @@ export class HikvisionAttendanceSyncService {
       status: HikvisionAttendanceSyncJobStatusEnum.FAILED,
       completedAt: new Date(),
       errorMessage,
+    });
+  }
+
+  private async reconcileAttendanceSyncJobState(
+    syncJob: HikvisionAttendanceSyncJob,
+  ): Promise<HikvisionAttendanceSyncJob> {
+    const isPotentiallyActive =
+      !!syncJob.activeJobKey ||
+      syncJob.status === HikvisionAttendanceSyncJobStatusEnum.PENDING ||
+      syncJob.status === HikvisionAttendanceSyncJobStatusEnum.RUNNING;
+
+    if (!isPotentiallyActive) {
+      return syncJob;
+    }
+
+    if (!syncJob.queueJobId) {
+      return this.releaseStaleAttendanceSyncJob(
+        syncJob,
+        'Attendance sync job had no queue reference and was released as stale',
+      );
+    }
+
+    const queueJob = await this.hikvisionSyncQueue.getJob(syncJob.queueJobId);
+    if (!queueJob) {
+      return this.releaseStaleAttendanceSyncJob(
+        syncJob,
+        `Attendance sync queue job ${syncJob.queueJobId} was not found and the stale DB lock was released`,
+      );
+    }
+
+    if (!this.doesQueueJobMatchAttendanceSyncRecord(syncJob, queueJob.data)) {
+      return this.releaseStaleAttendanceSyncJob(
+        syncJob,
+        `Attendance sync queue job ${syncJob.queueJobId} pointed to different job data and the stale DB lock was released`,
+      );
+    }
+
+    const queueState = await queueJob.getState();
+    const queueStateText = String(queueState);
+    if (
+      queueStateText === 'waiting' ||
+      queueStateText === 'active' ||
+      queueStateText === 'delayed' ||
+      queueStateText === 'paused' ||
+      queueStateText === 'prioritized' ||
+      queueStateText === 'waiting-children'
+    ) {
+      return syncJob;
+    }
+
+    if (queueStateText === 'completed') {
+      const result = toObject(queueJob.returnvalue);
+      const updated = await this.attendanceSyncJobRepository.save({
+        id: syncJob.id,
+        activeJobKey: null,
+        status: HikvisionAttendanceSyncJobStatusEnum.COMPLETED,
+        resultStatus: toNullableString(result.result_status ?? result.status),
+        startedAt: queueJob.processedOn
+          ? new Date(queueJob.processedOn)
+          : syncJob.startedAt,
+        completedAt: queueJob.finishedOn
+          ? new Date(queueJob.finishedOn)
+          : (syncJob.completedAt ?? new Date()),
+        totalRecordsPulled:
+          toNullableNumber(result.total_records_pulled) ??
+          syncJob.totalRecordsPulled,
+        totalRecordsSaved:
+          toNullableNumber(result.total_records_saved) ??
+          syncJob.totalRecordsSaved,
+        errorMessage: null,
+      });
+      return updated;
+    }
+
+    if (queueStateText === 'failed') {
+      const updated = await this.attendanceSyncJobRepository.save({
+        id: syncJob.id,
+        activeJobKey: null,
+        status: HikvisionAttendanceSyncJobStatusEnum.FAILED,
+        startedAt: queueJob.processedOn
+          ? new Date(queueJob.processedOn)
+          : syncJob.startedAt,
+        completedAt: queueJob.finishedOn
+          ? new Date(queueJob.finishedOn)
+          : (syncJob.completedAt ?? new Date()),
+        errorMessage:
+          queueJob.failedReason ||
+          syncJob.errorMessage ||
+          'Attendance sync queue job failed',
+      });
+      return updated;
+    }
+
+    return syncJob;
+  }
+
+  private doesQueueJobMatchAttendanceSyncRecord(
+    syncJob: HikvisionAttendanceSyncJob,
+    queueData: HikvisionSyncJobData,
+  ): boolean {
+    const metadata = toObject(syncJob.metadata);
+    const metadataEmployeeNo = toNullableString(metadata.employeeNo) ?? null;
+    const queueEmployeeNo = queueData.attendanceEmployeeNo?.trim() || null;
+
+    return (
+      queueData.companyId === syncJob.companyId &&
+      queueData.deviceId === syncJob.deviceId &&
+      queueData.attendanceSyncJobId === syncJob.id &&
+      queueData.attendanceStartTime === syncJob.syncStartTime &&
+      queueData.attendanceEndTime === syncJob.syncEndTime &&
+      (queueData.attendanceMaxResults ?? null) ===
+        (toNullableNumber(metadata.maxResults) ?? null) &&
+      queueEmployeeNo === metadataEmployeeNo
+    );
+  }
+
+  private async releaseStaleAttendanceSyncJob(
+    syncJob: HikvisionAttendanceSyncJob,
+    reason: string,
+  ): Promise<HikvisionAttendanceSyncJob> {
+    this.logger.warn(reason);
+    return this.attendanceSyncJobRepository.save({
+      id: syncJob.id,
+      activeJobKey: null,
+      status: HikvisionAttendanceSyncJobStatusEnum.FAILED,
+      completedAt: syncJob.completedAt ?? new Date(),
+      errorMessage: reason,
     });
   }
 }

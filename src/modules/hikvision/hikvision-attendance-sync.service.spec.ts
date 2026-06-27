@@ -17,6 +17,7 @@ import { HikvisionAttendanceLog } from './entities/hikvision-attendance-log.enti
 import { HikvisionAttendanceSyncJob } from './entities/hikvision-attendance-sync-job.entity';
 import { HikvisionAccessControlService } from './hikvision-access-control.service';
 import { HikvisionHelperService } from './helpers/hikvision-helper.service';
+import { HikvisionSyncJobData } from './hikvision-sync-job.constants';
 
 describe('HikvisionAttendanceSyncService', () => {
   let service: HikvisionAttendanceSyncService;
@@ -101,6 +102,50 @@ describe('HikvisionAttendanceSyncService', () => {
     expect(result).toBe(
       'device:12|employee:00000001|time:2026-05-25T05:30:00.000Z|major:5|minor:1|door:2',
     );
+  });
+
+  it('builds queue job ids with the sync job timestamp to avoid collisions after database resets', () => {
+    const result = (service as any).buildAttendanceSyncQueueJobId(
+      1,
+      1,
+      2,
+      new Date('2026-06-27T07:03:47.624Z'),
+    );
+
+    expect(result).toBe('attendance-sync-1-1-2-1782543827624');
+  });
+
+  it('detects mismatched Bull job payloads so stale DB locks can be released', () => {
+    const syncJob = {
+      id: 2,
+      companyId: 1,
+      deviceId: 1,
+      syncStartTime: '2026-06-27T00:00:00+03:00',
+      syncEndTime: '2026-06-27T23:59:59+03:00',
+      metadata: {
+        maxResults: 100,
+        employeeNo: null,
+      },
+    } as HikvisionAttendanceSyncJob;
+
+    const queueData: HikvisionSyncJobData = {
+      companyId: 1,
+      deviceId: 1,
+      requestedByUserId: 2,
+      requestedByCompanyUserId: null,
+      requestedAt: '2026-06-26T12:37:41.501Z',
+      attendanceSyncJobId: 2,
+      attendanceStartTime: '2026-06-23T00:00:00+03:00',
+      attendanceEndTime: '2026-06-24T23:59:59+03:00',
+      attendanceMaxResults: 3,
+    };
+
+    const result = (service as any).doesQueueJobMatchAttendanceSyncRecord(
+      syncJob,
+      queueData,
+    );
+
+    expect(result).toBe(false);
   });
 
   it('paginates until Hikvision stops returning MORE', async () => {

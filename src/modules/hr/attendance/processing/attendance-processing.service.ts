@@ -365,6 +365,11 @@ export class AttendanceProcessingService {
   private isDuplicateError(error: unknown): boolean {
     if (!(error instanceof QueryFailedError)) return false;
     const err = error as QueryFailedError & { code?: string; errno?: number };
-    return err.code === 'ER_DUP_ENTRY' || err.errno === 1062;
+    // PostgreSQL unique violation: 23505; MySQL duplicate entry: ER_DUP_ENTRY / 1062
+    return (
+      err.code === '23505' ||
+      err.code === 'ER_DUP_ENTRY' ||
+      err.errno === 1062
+    );
   }
 }
