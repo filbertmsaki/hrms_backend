@@ -305,6 +305,15 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
       'Leads underwriting operations and ensures disciplined risk selection.',
   },
   {
+    name: 'Assistant Underwriting Manager',
+    code: 'ASSISTANT_UNDERWRITING_MANAGER',
+    category: 'Underwriting',
+    level: 2,
+    isManager: true,
+    description:
+      'Supports the Underwriting Manager in risk evaluation, policy review, and team coordination.',
+  },
+  {
     name: 'Risk Analyst',
     code: 'RISK_ANALYST',
     category: 'Underwriting',
@@ -452,6 +461,8 @@ const ALLIANCE_ADMIN_MANAGER_HIKVISION_EMPLOYEE_NO = '00000009';
 const ALLIANCE_HR_MANAGER_HIKVISION_EMPLOYEE_NO = '00000059';
 const ALLIANCE_IT_MANAGER_HIKVISION_EMPLOYEE_NO = '00000040';
 const ALLIANCE_BANCASSURANCE_MANAGER_HIKVISION_EMPLOYEE_NO = '00000004';
+// Deborah Londina Sarakikya — imported from Hikvision device, reassigned to Underwriting Manager
+const ALLIANCE_UNDERWRITING_MANAGER_HIKVISION_EMPLOYEE_NO = '00000016';
 
 const ALLIANCE_HIKVISION_EMPLOYEES: AllianceHikvisionEmployeeInput[] = [
   {
@@ -500,6 +511,9 @@ const ALLIANCE_HIKVISION_EMPLOYEES: AllianceHikvisionEmployeeInput[] = [
   { hikvisionEmployeeNo: '00000035', fullName: 'Baraka' },
   { hikvisionEmployeeNo: '00000036', fullName: 'Ibrahim Rashid Mungi' },
   { hikvisionEmployeeNo: '00000037', fullName: 'Ismail Mohamed Ramadhan' },
+  // ── Underwriting department (imported from Hikvision device) ─────────────
+  // Wardat Ahmed Hussein — Underwriting Assistant Manager (device no. 00000100)
+  { hikvisionEmployeeNo: '00000100', fullName: 'Wardat Ahmed Hussein' },
   {
     hikvisionEmployeeNo: '00000040',
     fullName: 'Jasson Kalemera',
@@ -673,11 +687,14 @@ function buildAllianceEmployeeAssignments(): Record<
     'CLAIMS_OFFICER',
     ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
   );
+  // Deborah Londina Sarakikya — reassigned from Claims; Underwriting Manager (Hikvision import)
+  assign('00000016', 'UNDERWRITING', 'UNDERWRITING_MANAGER', null);
+  // Wardat Ahmed Hussein — Underwriting Assistant Manager (Hikvision device 00000100)
   assign(
-    '00000016',
-    'CLAIMS',
-    'CLAIMS_OFFICER',
-    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
+    '00000100',
+    'UNDERWRITING',
+    'ASSISTANT_UNDERWRITING_MANAGER',
+    ALLIANCE_UNDERWRITING_MANAGER_HIKVISION_EMPLOYEE_NO,
   );
   assign(
     '00000017',
