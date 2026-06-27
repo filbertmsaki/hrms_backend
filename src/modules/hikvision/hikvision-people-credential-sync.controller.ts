@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -10,6 +11,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { IsEnum, IsOptional } from 'class-validator';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request as ExpressRequest } from 'express';
@@ -23,6 +25,37 @@ import { HikvisionPeopleCredentialSyncService } from './hikvision-people-credent
 import { HikvisionSeedPreviewService } from './hikvision-seed-preview.service';
 import { HikvisionSyncJobsService } from './hikvision-sync-jobs.service';
 
+// ── Unified action enum ────────────────────────────────────────────────────────
+
+export enum HikvisionDeviceAction {
+  /** Full sync: users + right plans + fingerprints + cards (synchronous) */
+  SYNC_ALL = 'SYNC_ALL',
+  /** Queue a background job: users + right plans only */
+  SYNC_USERS = 'SYNC_USERS',
+  /** Queue a background job: fingerprints only */
+  SYNC_FINGERPRINTS = 'SYNC_FINGERPRINTS',
+  /** Synchronous: cards only */
+  SYNC_CARDS = 'SYNC_CARDS',
+  /** Dev only: preview which device users are missing from seeder constants */
+  SEED_PREVIEW = 'SEED_PREVIEW',
+  /** Dev only: read DB-synced employees and write a constants snippet file */
+  GENERATE_CONSTANTS = 'GENERATE_CONSTANTS',
+  /** Dev only: write missing employees directly into company-structure.constants.ts */
+  WRITE_TO_CONSTANTS = 'WRITE_TO_CONSTANTS',
+}
+
+// ── Unified request DTO ────────────────────────────────────────────────────────
+
+class HikvisionDeviceManageDto extends HikvisionSeedPreviewQueryDto {
+  @IsEnum(HikvisionDeviceAction)
+  action!: HikvisionDeviceAction;
+
+  @IsOptional()
+  jobUserId?: number;
+}
+
+// ── Controller ─────────────────────────────────────────────────────────────────
+
 @ApiTags('Hikvision People Sync')
 @ApiBearerAuth('access-token')
 @Controller('hikvision')
@@ -34,116 +67,79 @@ export class HikvisionPeopleCredentialSyncController {
     private readonly seedPreviewService: HikvisionSeedPreviewService,
   ) {}
 
-  @Post('devices/:deviceId/sync-users-credentials')
-  @UseGuards(PermissionsGuard)
-  @Permissions('access_control_sync:execute')
-  @ApiActionOperation(
-    'Sync Users Credentials',
-    'Sync Hikvision users, right plans, fingerprints, and cards into backend tables',
-  )
-  syncUsersFingerprintsAndCards(
-    @Req() req: ExpressRequest & { user: AuthenticatedUser },
-    @Param('deviceId', ParseIntPipe) deviceId: number,
-  ) {
-    return this.peopleCredentialSyncService.syncUsersFingerprintsAndCards(
-      req.user.companyId!,
-      deviceId,
-    );
-  }
-
-  @Post('devices/:deviceId/sync-users')
-  @HttpCode(HttpStatus.ACCEPTED)
-  @UseGuards(PermissionsGuard)
-  @Permissions('access_control_sync:execute')
-  @ApiActionOperation(
-    'Sync Users',
-    'Queue a background job to sync Hikvision users and right plans into backend tables',
-  )
-  syncUsers(
-    @Req() req: ExpressRequest & { user: AuthenticatedUser },
-    @Param('deviceId', ParseIntPipe) deviceId: number,
-  ) {
-    return this.hikvisionSyncJobsService.enqueueUsersSync(
-      req.user.companyId!,
-      deviceId,
-      req.user.id,
-      req.user.companyMembershipId ?? null,
-    );
-  }
-
-  @Post('devices/:deviceId/sync-fingerprints')
-  @HttpCode(HttpStatus.ACCEPTED)
-  @UseGuards(PermissionsGuard)
-  @Permissions('access_control_sync:execute')
-  @ApiActionOperation(
-    'Sync Fingerprints',
-    'Queue a background job to sync Hikvision fingerprints into backend credentials',
-  )
-  syncFingerprints(
-    @Req() req: ExpressRequest & { user: AuthenticatedUser },
-    @Param('deviceId', ParseIntPipe) deviceId: number,
-  ) {
-    return this.hikvisionSyncJobsService.enqueueFingerprintsSync(
-      req.user.companyId!,
-      deviceId,
-      req.user.id,
-      req.user.companyMembershipId ?? null,
-    );
-  }
-
-  @Post('devices/:deviceId/sync-cards')
-  @UseGuards(PermissionsGuard)
-  @Permissions('access_control_sync:execute')
-  @ApiActionOperation(
-    'Sync Cards',
-    'Sync Hikvision cards into backend credentials',
-  )
-  syncCards(
-    @Req() req: ExpressRequest & { user: AuthenticatedUser },
-    @Param('deviceId', ParseIntPipe) deviceId: number,
-  ) {
-    return this.peopleCredentialSyncService.syncCards(
-      req.user.companyId!,
-      deviceId,
-    );
-  }
-
-  @Post('devices/:deviceId/users/generate-constants')
+  @Post('devices/:deviceId/manage')
   @HttpCode(HttpStatus.OK)
   @UseGuards(PermissionsGuard)
   @Permissions('access_control_sync:execute')
   @ApiActionOperation(
-    'Generate Constants (Dev Only)',
-    'Read employees already synced from the device into the DB and write a company-structure.constants.ts snippet for review. Development mode only.',
+    'Manage Device',
+    `Single entry point for all Hikvision device operations.
+    Pass \`action\` in the body to choose what to run:
+    SYNC_ALL | SYNC_USERS | SYNC_FINGERPRINTS | SYNC_CARDS |
+    SEED_PREVIEW | GENERATE_CONSTANTS | WRITE_TO_CONSTANTS`,
   )
-  generateConstants(
+  async manage(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('deviceId', ParseIntPipe) deviceId: number,
+    @Body() body: HikvisionDeviceManageDto,
   ) {
-    return this.seedPreviewService.generateConstantsFromSync(
-      req.user.companyId!,
-      deviceId,
-    );
-  }
+    const companyId = req.user.companyId!;
+    const userId = req.user.id;
+    const membershipId = req.user.companyMembershipId ?? null;
 
-  @Post('devices/:deviceId/users/seed-preview')
-  @HttpCode(HttpStatus.OK)
-  @UseGuards(PermissionsGuard)
-  @Permissions('access_control_sync:execute')
-  @ApiActionOperation(
-    'Seed Preview (Dev Only)',
-    'Query a live Hikvision device and preview which users need to be added to the seeder constants. Development mode only.',
-  )
-  seedPreview(
-    @Req() req: ExpressRequest & { user: AuthenticatedUser },
-    @Param('deviceId', ParseIntPipe) deviceId: number,
-    @Body() query: HikvisionSeedPreviewQueryDto,
-  ) {
-    return this.seedPreviewService.generateSeedPreview(
-      req.user.companyId!,
-      deviceId,
-      query,
-    );
+    switch (body.action) {
+      case HikvisionDeviceAction.SYNC_ALL:
+        return this.peopleCredentialSyncService.syncUsersFingerprintsAndCards(
+          companyId,
+          deviceId,
+        );
+
+      case HikvisionDeviceAction.SYNC_USERS:
+        return this.hikvisionSyncJobsService.enqueueUsersSync(
+          companyId,
+          deviceId,
+          userId,
+          membershipId,
+        );
+
+      case HikvisionDeviceAction.SYNC_FINGERPRINTS:
+        return this.hikvisionSyncJobsService.enqueueFingerprintsSync(
+          companyId,
+          deviceId,
+          userId,
+          membershipId,
+        );
+
+      case HikvisionDeviceAction.SYNC_CARDS:
+        return this.peopleCredentialSyncService.syncCards(companyId, deviceId);
+
+      case HikvisionDeviceAction.SEED_PREVIEW:
+        return this.seedPreviewService.generateSeedPreview(
+          companyId,
+          deviceId,
+          body,
+        );
+
+      case HikvisionDeviceAction.GENERATE_CONSTANTS:
+        return this.seedPreviewService.generateConstantsFromSync(
+          companyId,
+          deviceId,
+        );
+
+      case HikvisionDeviceAction.WRITE_TO_CONSTANTS:
+        return this.seedPreviewService.writeToConstantsFile(
+          companyId,
+          deviceId,
+          body.defaultDepartmentCode,
+          body.defaultPositionCode,
+        );
+
+      default:
+        throw new BadRequestException(
+          `Unknown action "${(body as HikvisionDeviceManageDto).action}". ` +
+          `Valid values: ${Object.values(HikvisionDeviceAction).join(', ')}`,
+        );
+    }
   }
 
   @Get('sync-jobs/:jobId')

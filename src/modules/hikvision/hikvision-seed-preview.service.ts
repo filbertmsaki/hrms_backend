@@ -57,6 +57,13 @@ export interface GenerateConstantsResult {
   entries: SyncedEmployeeConstantEntry[];
 }
 
+export interface WriteToConstantsResult {
+  inserted: number;
+  skipped: number;
+  constantsFilePath: string;
+  insertedEmployeeNos: string[];
+}
+
 export interface HikvisionSeedPreviewResult {
   deviceId: number;
   queriedAt: string;
@@ -323,6 +330,145 @@ export class HikvisionSeedPreviewService {
       newEntries: newEntries.length,
       outputFile,
       entries,
+    };
+  }
+
+  // ── Write missing employees into company-structure.constants.ts ───────────
+  //
+  // Reads synced employees from DB (via generateConstantsFromSync), finds those
+  // absent from ALLIANCE_HIKVISION_EMPLOYEES, and inserts them — both the array
+  // entry AND the assign() call — in a single atomic write.  Rolls back to the
+  // original file content if the result fails TypeScript compilation.
+
+  async writeToConstantsFile(
+    companyId: number,
+    deviceId: number,
+    defaultDepartmentCode = 'CLAIMS',
+    defaultPositionCode = 'CLAIMS_OFFICER',
+  ): Promise<WriteToConstantsResult> {
+    if (process.env.NODE_ENV !== 'development') {
+      throw new ForbiddenException(
+        'write-to-constants endpoint is only available in development mode.',
+      );
+    }
+
+    await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, deviceId, false);
+
+    const constantsPath = path.resolve(
+      __dirname, '..', '..', '..', 'src', 'database', 'seeds',
+      'company-structure.constants.ts',
+    );
+
+    const original = fs.readFileSync(constantsPath, 'utf-8');
+
+    // Write a safety backup beside the original
+    fs.writeFileSync(constantsPath + '.bak', original, 'utf-8');
+
+    // Fetch all DB-synced employees for this device
+    const syncResult = await this.generateConstantsFromSync(companyId, deviceId);
+
+    const existingNos = new Set(ALLIANCE_EMPLOYEES.map((e) => e.hikvisionEmployeeNo));
+
+    const newEntries = syncResult.entries.filter(
+      (e) => !existingNos.has(e.hikvisionEmployeeNo),
+    );
+
+    if (newEntries.length === 0) {
+      return {
+        inserted: 0,
+        skipped: syncResult.totalEmployees,
+        constantsFilePath: constantsPath,
+        insertedEmployeeNos: [],
+      };
+    }
+
+    // Default reportsTo = Claims Manager when falling back to CLAIMS dept
+    const DEFAULT_REPORTS_TO = '00000003';
+
+    // ── Build insertion blocks ───────────────────────────────────────────────
+
+    const arrayLines = newEntries
+      .map((e) => {
+        const fullName = e.fullName || 'Unknown Employee';
+        // Only add email field if it differs from the auto-generated one
+        const slug = (s: string) =>
+          s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+        const parts = fullName.trim().split(/\s+/);
+        const autoEmail = parts.length > 1
+          ? `${slug(parts[0])}.${slug(parts.slice(1).join(' ')).replace(/-/g, '.')}@alliance.co.tz`
+          : `${slug(parts[0])}@alliance.co.tz`;
+        const emailPart = e.email && e.email !== autoEmail
+          ? `, email: '${e.email}'`
+          : '';
+        return `  { hikvisionEmployeeNo: '${e.hikvisionEmployeeNo}', fullName: '${fullName}'${emailPart} },`;
+      })
+      .join('\n');
+
+    const assignLines = newEntries
+      .map((e) => {
+        const dept = e.departmentCode ?? defaultDepartmentCode;
+        const pos = e.positionCode ?? defaultPositionCode;
+        const mgr = e.reportsToEmployeeNo
+          ? `'${e.reportsToEmployeeNo}'`
+          : dept === 'CLAIMS'
+            ? `'${DEFAULT_REPORTS_TO}'`
+            : 'null';
+        return `  assign('${e.hikvisionEmployeeNo}', '${dept}', '${pos}', ${mgr});`;
+      })
+      .join('\n');
+
+    // ── Find insertion points ────────────────────────────────────────────────
+
+    // Array: insert before the last existing entry (00000108 line)
+    const ARRAY_MARKER = "  { hikvisionEmployeeNo: '00000108'";
+    // Assign: insert before the validation block
+    const ASSIGN_MARKER = '  const allEmployeeNos = new Set(';
+
+    if (!original.includes(ARRAY_MARKER)) {
+      throw new Error(
+        `Array insertion marker not found in constants file. ` +
+        `Expected line starting with: ${ARRAY_MARKER}`,
+      );
+    }
+    if (!original.includes(ASSIGN_MARKER)) {
+      throw new Error(
+        `Assign insertion marker not found in constants file. ` +
+        `Expected line: ${ASSIGN_MARKER}`,
+      );
+    }
+
+    let updated = original
+      .replace(ARRAY_MARKER, `${arrayLines}\n${ARRAY_MARKER}`)
+      .replace(ASSIGN_MARKER, `${assignLines}\n\n${ASSIGN_MARKER}`);
+
+    // ── Write and validate ───────────────────────────────────────────────────
+
+    fs.writeFileSync(constantsPath, updated, 'utf-8');
+
+    try {
+      const { execSync } = await import('child_process');
+      execSync(
+        `npx tsc --noEmit --project "${path.resolve(__dirname, '..', '..', '..', '..', 'tsconfig.json')}"`,
+        { stdio: 'pipe' },
+      );
+    } catch (err) {
+      // Restore original on compile failure
+      fs.writeFileSync(constantsPath, original, 'utf-8');
+      const stderr = (err as { stderr?: Buffer }).stderr?.toString() ?? String(err);
+      throw new Error(
+        `TypeScript compilation failed after writing constants — rolled back.\n${stderr}`,
+      );
+    }
+
+    this.logger.log(
+      `writeToConstantsFile: inserted ${newEntries.length} employees into ${constantsPath}`,
+    );
+
+    return {
+      inserted: newEntries.length,
+      skipped: syncResult.totalEmployees - newEntries.length,
+      constantsFilePath: constantsPath,
+      insertedEmployeeNos: newEntries.map((e) => e.hikvisionEmployeeNo),
     };
   }
 

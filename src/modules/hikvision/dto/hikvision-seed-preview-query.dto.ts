@@ -32,4 +32,12 @@ export class HikvisionSeedPreviewQueryDto {
   @IsOptional()
   @IsBoolean()
   writeSeederFile?: boolean;
+
+  @IsOptional()
+  @IsString()
+  defaultDepartmentCode?: string;
+
+  @IsOptional()
+  @IsString()
+  defaultPositionCode?: string;
 }
