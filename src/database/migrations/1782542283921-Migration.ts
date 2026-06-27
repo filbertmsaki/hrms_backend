@@ -1,12 +1,13 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
-export class Migration1782452785249 implements MigrationInterface {
-    name = 'Migration1782452785249'
+export class Migration1782542283921 implements MigrationInterface {
+    name = 'Migration1782542283921'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`CREATE TABLE "company_user_roles" ("id" SERIAL NOT NULL, "company_user_id" integer NOT NULL, "role_id" integer NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "UQ_company_user_roles_membership_role" UNIQUE ("company_user_id", "role_id"), CONSTRAINT "PK_745cfc55c7335ce3f01b5da5189" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE TABLE "permissions" ("id" SERIAL NOT NULL, "name" character varying(100) NOT NULL, "display_name" character varying(100) NOT NULL, "description" text, "is_system_generated" boolean NOT NULL DEFAULT false, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_920331560282b8bd21bb02290df" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE UNIQUE INDEX "UQ_permission_name" ON "permissions" ("name") `);
+        await queryRunner.query(`CREATE TABLE "users" ("id" SERIAL NOT NULL, "user_no" character varying(20) NOT NULL, "first_name" character varying(50) NOT NULL, "last_name" character varying(50) NOT NULL, "phone" character varying(20) NOT NULL, "email" character varying(100) NOT NULL, "password" character varying NOT NULL, "last_login_at" TIMESTAMP, "last_login_ip" character varying(45), "status" character varying(20) NOT NULL DEFAULT 'active', "user_type" character varying(20) NOT NULL DEFAULT 'COMPANY_USER', "is_email_verified" boolean NOT NULL DEFAULT false, "email_verification_token" character varying(255), "email_verification_expires" TIMESTAMP, "is_two_factor_enabled" boolean NOT NULL DEFAULT false, "two_factor_secret" text, "two_factor_backup_codes" json, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "UQ_e5f6813966537a78538a896d74b" UNIQUE ("user_no"), CONSTRAINT "UQ_a000cca60bcf04454e727699490" UNIQUE ("phone"), CONSTRAINT "UQ_97672ac88f789774dd47f7c8be3" UNIQUE ("email"), CONSTRAINT "PK_a3ffb1c0c8416b9fc6f907b7433" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "company_user_roles" ("id" SERIAL NOT NULL, "company_user_id" integer NOT NULL, "role_id" integer NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "UQ_company_user_roles_membership_role" UNIQUE ("company_user_id", "role_id"), CONSTRAINT "PK_745cfc55c7335ce3f01b5da5189" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE TABLE "company_user_permissions" ("id" SERIAL NOT NULL, "company_user_id" integer NOT NULL, "permission_id" integer NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "UQ_company_user_permissions_membership_permission" UNIQUE ("company_user_id", "permission_id"), CONSTRAINT "PK_d30fb64106f894e6b1152f4eb5d" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE TYPE "public"."employee_positions_assignment_type_enum" AS ENUM('PRIMARY', 'ACTING', 'TEMPORARY', 'SECONDARY')`);
         await queryRunner.query(`CREATE TYPE "public"."employee_positions_status_enum" AS ENUM('ACTIVE', 'INACTIVE', 'COMPLETED')`);
@@ -73,7 +74,6 @@ export class Migration1782452785249 implements MigrationInterface {
         await queryRunner.query(`CREATE TABLE "roles" ("id" SERIAL NOT NULL, "name" character varying(50) NOT NULL, "display_name" character varying(100) NOT NULL, "description" text, "company_id" integer, "company_scope_key" integer GENERATED ALWAYS AS (COALESCE("company_id", 0)) STORED NOT NULL, "is_system_generated" boolean NOT NULL DEFAULT false, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_c1433d71a4838793a49dcad46ab" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE UNIQUE INDEX "UQ_role_scope_name" ON "roles" ("company_scope_key", "name") `);
         await queryRunner.query(`CREATE INDEX "IDX_role_company" ON "roles" ("company_id") `);
-        await queryRunner.query(`CREATE TABLE "users" ("id" SERIAL NOT NULL, "user_no" character varying(20) NOT NULL, "first_name" character varying(50) NOT NULL, "last_name" character varying(50) NOT NULL, "phone" character varying(20) NOT NULL, "email" character varying(100) NOT NULL, "password" character varying NOT NULL, "last_login_at" TIMESTAMP, "last_login_ip" character varying(45), "status" character varying(20) NOT NULL DEFAULT 'active', "user_type" character varying(20) NOT NULL DEFAULT 'COMPANY_USER', "is_email_verified" boolean NOT NULL DEFAULT false, "email_verification_token" character varying(255), "email_verification_expires" TIMESTAMP, "is_two_factor_enabled" boolean NOT NULL DEFAULT false, "two_factor_secret" text, "two_factor_backup_codes" json, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "UQ_e5f6813966537a78538a896d74b" UNIQUE ("user_no"), CONSTRAINT "UQ_a000cca60bcf04454e727699490" UNIQUE ("phone"), CONSTRAINT "UQ_97672ac88f789774dd47f7c8be3" UNIQUE ("email"), CONSTRAINT "PK_a3ffb1c0c8416b9fc6f907b7433" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE TABLE "employee_profile_update_requests" ("id" SERIAL NOT NULL, "company_id" integer NOT NULL, "employee_id" integer NOT NULL, "requested_changes" json NOT NULL, "reason" text, "status" character varying(30) NOT NULL DEFAULT 'draft', "submitted_at" TIMESTAMP, "cancelled_at" TIMESTAMP, "reviewed_by_company_user_id" integer, "reviewed_at" TIMESTAMP, "review_comment" text, "metadata" json, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_fca05baba3dde53bcb2034aa470" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE TABLE "attendance_correction_requests" ("id" SERIAL NOT NULL, "company_id" integer NOT NULL, "employee_id" integer NOT NULL, "attendance_date" date NOT NULL, "request_type" character varying(50) NOT NULL, "requested_check_in_at" TIMESTAMP, "requested_check_out_at" TIMESTAMP, "requested_status" character varying(50), "reason" text, "status" character varying(30) NOT NULL DEFAULT 'draft', "submitted_at" TIMESTAMP, "cancelled_at" TIMESTAMP, "reviewed_by_company_user_id" integer, "reviewed_at" TIMESTAMP, "review_comment" text, "metadata" json, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_bc2c64345b6fec38bcf0d0f5e36" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE TYPE "public"."onboarding_tasks_task_type_enum" AS ENUM('general', 'hr', 'it', 'department', 'manager')`);
@@ -290,16 +290,6 @@ export class Migration1782452785249 implements MigrationInterface {
         await queryRunner.query(`CREATE INDEX "IDX_employee_timetables_timetable_id" ON "employee_timetables" ("timetable_id") `);
         await queryRunner.query(`CREATE INDEX "IDX_employee_timetables_employee_id" ON "employee_timetables" ("employee_id") `);
         await queryRunner.query(`CREATE INDEX "IDX_employee_timetables_company_id" ON "employee_timetables" ("company_id") `);
-        await queryRunner.query(`CREATE TABLE "timetable_rotation_rules" ("id" SERIAL NOT NULL, "rotation_id" integer NOT NULL, "day_index" integer NOT NULL, "shift_id" integer, "is_off_day" boolean NOT NULL DEFAULT false, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_ecdf76145198d4b887cfa0fb588" PRIMARY KEY ("id"))`);
-        await queryRunner.query(`CREATE UNIQUE INDEX "UQ_timetable_rotation_rules_rotation_day" ON "timetable_rotation_rules" ("rotation_id", "day_index") `);
-        await queryRunner.query(`CREATE INDEX "IDX_timetable_rotation_rules_shift_id" ON "timetable_rotation_rules" ("shift_id") `);
-        await queryRunner.query(`CREATE INDEX "IDX_timetable_rotation_rules_rotation_id" ON "timetable_rotation_rules" ("rotation_id") `);
-        await queryRunner.query(`CREATE TYPE "public"."timetable_rotations_status_enum" AS ENUM('ACTIVE', 'INACTIVE')`);
-        await queryRunner.query(`CREATE TABLE "timetable_rotations" ("id" SERIAL NOT NULL, "company_id" integer NOT NULL, "timetable_id" integer NOT NULL, "name" character varying(120) NOT NULL, "cycle_days" integer NOT NULL, "description" text, "status" "public"."timetable_rotations_status_enum" NOT NULL DEFAULT 'ACTIVE', "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_c7aa8f958ede1228300f2db226b" PRIMARY KEY ("id"))`);
-        await queryRunner.query(`CREATE UNIQUE INDEX "UQ_timetable_rotations_timetable_name" ON "timetable_rotations" ("timetable_id", "name") `);
-        await queryRunner.query(`CREATE INDEX "IDX_timetable_rotations_status" ON "timetable_rotations" ("status") `);
-        await queryRunner.query(`CREATE INDEX "IDX_timetable_rotations_timetable_id" ON "timetable_rotations" ("timetable_id") `);
-        await queryRunner.query(`CREATE INDEX "IDX_timetable_rotations_company_id" ON "timetable_rotations" ("company_id") `);
         await queryRunner.query(`CREATE TYPE "public"."timetable_holiday_rules_action_type_enum" AS ENUM('OFF_DAY', 'PAID_HOLIDAY', 'WORKING_HOLIDAY')`);
         await queryRunner.query(`CREATE TABLE "timetable_holiday_rules" ("id" SERIAL NOT NULL, "timetable_id" integer NOT NULL, "holiday_group_id" integer NOT NULL, "action_type" "public"."timetable_holiday_rules_action_type_enum" NOT NULL, "apply_overtime_rules" boolean NOT NULL DEFAULT false, "auto_mark_offday" boolean NOT NULL DEFAULT true, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_0efbec0b18650e8ef2d5913e5ed" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE UNIQUE INDEX "UQ_timetable_holiday_rules_timetable_group" ON "timetable_holiday_rules" ("timetable_id", "holiday_group_id") `);
@@ -314,6 +304,16 @@ export class Migration1782452785249 implements MigrationInterface {
         await queryRunner.query(`CREATE INDEX "IDX_timetables_status" ON "timetables" ("status") `);
         await queryRunner.query(`CREATE INDEX "IDX_timetables_branch_id" ON "timetables" ("branch_id") `);
         await queryRunner.query(`CREATE INDEX "IDX_timetables_company_id" ON "timetables" ("company_id") `);
+        await queryRunner.query(`CREATE TABLE "timetable_rotation_rules" ("id" SERIAL NOT NULL, "rotation_id" integer NOT NULL, "day_index" integer NOT NULL, "shift_id" integer, "is_off_day" boolean NOT NULL DEFAULT false, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_ecdf76145198d4b887cfa0fb588" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE UNIQUE INDEX "UQ_timetable_rotation_rules_rotation_day" ON "timetable_rotation_rules" ("rotation_id", "day_index") `);
+        await queryRunner.query(`CREATE INDEX "IDX_timetable_rotation_rules_shift_id" ON "timetable_rotation_rules" ("shift_id") `);
+        await queryRunner.query(`CREATE INDEX "IDX_timetable_rotation_rules_rotation_id" ON "timetable_rotation_rules" ("rotation_id") `);
+        await queryRunner.query(`CREATE TYPE "public"."timetable_rotations_status_enum" AS ENUM('ACTIVE', 'INACTIVE')`);
+        await queryRunner.query(`CREATE TABLE "timetable_rotations" ("id" SERIAL NOT NULL, "company_id" integer NOT NULL, "timetable_id" integer NOT NULL, "name" character varying(120) NOT NULL, "cycle_days" integer NOT NULL, "description" text, "status" "public"."timetable_rotations_status_enum" NOT NULL DEFAULT 'ACTIVE', "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_c7aa8f958ede1228300f2db226b" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE UNIQUE INDEX "UQ_timetable_rotations_timetable_name" ON "timetable_rotations" ("timetable_id", "name") `);
+        await queryRunner.query(`CREATE INDEX "IDX_timetable_rotations_status" ON "timetable_rotations" ("status") `);
+        await queryRunner.query(`CREATE INDEX "IDX_timetable_rotations_timetable_id" ON "timetable_rotations" ("timetable_id") `);
+        await queryRunner.query(`CREATE INDEX "IDX_timetable_rotations_company_id" ON "timetable_rotations" ("company_id") `);
         await queryRunner.query(`CREATE TYPE "public"."attendance_policies_rounding_mode_enum" AS ENUM('UP', 'DOWN', 'NEAREST')`);
         await queryRunner.query(`CREATE TYPE "public"."attendance_policies_holiday_policy_mode_enum" AS ENUM('OFF', 'PAID', 'UNPAID', 'OPTIONAL')`);
         await queryRunner.query(`CREATE TABLE "attendance_policies" ("id" SERIAL NOT NULL, "company_id" integer NOT NULL, "name" character varying(255) NOT NULL, "is_active" boolean NOT NULL DEFAULT false, "late_after_minutes" integer NOT NULL DEFAULT '10', "half_day_after_minutes" integer NOT NULL DEFAULT '240', "absent_after_minutes" integer NOT NULL DEFAULT '480', "allow_early_checkin" boolean NOT NULL DEFAULT true, "allow_late_checkout" boolean NOT NULL DEFAULT true, "auto_absent_if_no_checkin" boolean NOT NULL DEFAULT true, "requires_manager_approval_for_overtime" boolean NOT NULL DEFAULT false, "overtime_start_after_minutes" integer NOT NULL DEFAULT '0', "max_overtime_minutes_per_day" integer NOT NULL DEFAULT '0', "max_overtime_minutes_per_month" integer NOT NULL DEFAULT '0', "overtime_rate_multiplier" numeric(5,2) NOT NULL DEFAULT '1', "holiday_overtime_multiplier" numeric(5,2) NOT NULL DEFAULT '1', "weekend_overtime_multiplier" numeric(5,2) NOT NULL DEFAULT '1', "overtime_requires_approval" boolean NOT NULL DEFAULT false, "overtime_auto_calculate" boolean NOT NULL DEFAULT true, "rounding_mode" "public"."attendance_policies_rounding_mode_enum" NOT NULL DEFAULT 'NEAREST', "max_missing_punch_allowed" integer NOT NULL DEFAULT '0', "weekend_days" character varying(100) NOT NULL DEFAULT 'SAT,SUN', "auto_mark_weekend_as_off" boolean NOT NULL DEFAULT true, "treat_weekend_as_absent_if_scheduled" boolean NOT NULL DEFAULT false, "holiday_policy_mode" "public"."attendance_policies_holiday_policy_mode_enum" NOT NULL DEFAULT 'OFF', "authentication_modes" character varying(120) NOT NULL DEFAULT 'MOBILE_APP,WEB', "require_geo_fencing" boolean NOT NULL DEFAULT false, "allow_multi_device_login" boolean NOT NULL DEFAULT false, "auto_calculate_attendance" boolean NOT NULL DEFAULT true, "calculation_time" TIME NOT NULL DEFAULT '23:59:00', "grace_period_minutes" integer NOT NULL DEFAULT '10', "consider_shift_roster" boolean NOT NULL DEFAULT true, "ignore_missing_checkout_if_hours_valid" boolean NOT NULL DEFAULT true, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_c155505be852f824e85a2b2404f" PRIMARY KEY ("id"))`);
@@ -370,8 +370,11 @@ export class Migration1782452785249 implements MigrationInterface {
         await queryRunner.query(`CREATE INDEX "IDX_attendance_recalculation_jobs_employee_id" ON "attendance_recalculation_jobs" ("employee_id") `);
         await queryRunner.query(`CREATE INDEX "IDX_attendance_recalculation_jobs_company_id" ON "attendance_recalculation_jobs" ("company_id") `);
         await queryRunner.query(`CREATE TYPE "public"."hikvision_attendance_logs_processing_status_enum" AS ENUM('PENDING', 'PROCESSED', 'UNMATCHED_EMPLOYEE', 'EXCEPTION', 'FAILED')`);
-        await queryRunner.query(`CREATE TABLE "hikvision_attendance_logs" ("id" SERIAL NOT NULL, "company_id" integer NOT NULL, "branch_id" integer, "device_id" integer, "employee_no" character varying(100) NOT NULL DEFAULT '', "employee_name" character varying(200), "card_no" character varying(100), "event_time" TIMESTAMP NOT NULL, "major" integer NOT NULL, "minor" integer NOT NULL, "event_type" character varying(120), "attendance_status" character varying(100), "verify_mode" character varying(100), "door_no" integer, "card_reader_no" integer, "card_reader_kind" character varying(120), "serial_no" character varying(120), "device_time" TIMESTAMP, "device_no" character varying(120), "remote_host_addr" character varying(100), "net_user" character varying(120), "user_type" character varying(50), "status_value" integer, "raw_payload" json NOT NULL, "processing_status" "public"."hikvision_attendance_logs_processing_status_enum" NOT NULL DEFAULT 'PENDING', "processing_attempts" integer NOT NULL DEFAULT '0', "processed_at" TIMESTAMP, "last_processing_error" character varying(255), "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP DEFAULT now(), CONSTRAINT "UQ_hik_att_logs_dev_emp_evt_maj_min_reader_door" UNIQUE ("device_id", "employee_no", "event_time", "major", "minor", "card_reader_no", "door_no"), CONSTRAINT "PK_b80c07d0bd3af14f17a04685006" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "hikvision_attendance_logs" ("id" SERIAL NOT NULL, "company_id" integer NOT NULL, "branch_id" integer, "device_id" integer, "employee_id" integer, "is_employee_mapped" boolean NOT NULL DEFAULT false, "employee_no" character varying(100) NOT NULL DEFAULT '', "employee_name" character varying(200), "card_no" character varying(100), "event_time" TIMESTAMP NOT NULL, "major" integer NOT NULL, "minor" integer NOT NULL, "event_type" character varying(120), "attendance_status" character varying(100), "verify_mode" character varying(100), "door_no" integer, "card_reader_no" integer, "card_reader_kind" character varying(120), "serial_no" character varying(120), "device_time" TIMESTAMP, "device_no" character varying(120), "remote_host_addr" character varying(100), "net_user" character varying(120), "user_type" character varying(50), "status_value" integer, "event_key" character varying(255) NOT NULL, "raw_payload" json NOT NULL, "processing_status" "public"."hikvision_attendance_logs_processing_status_enum" NOT NULL DEFAULT 'PENDING', "processing_attempts" integer NOT NULL DEFAULT '0', "processed_at" TIMESTAMP, "last_processing_error" character varying(255), "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP DEFAULT now(), CONSTRAINT "UQ_d707f4dc7aa076d8f48cba3e163" UNIQUE ("event_key"), CONSTRAINT "UQ_hik_att_logs_dev_emp_evt_maj_min_reader_door" UNIQUE ("device_id", "employee_no", "event_time", "major", "minor", "card_reader_no", "door_no"), CONSTRAINT "PK_b80c07d0bd3af14f17a04685006" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "IDX_hikvision_attendance_logs_processing_status" ON "hikvision_attendance_logs" ("processing_status") `);
+        await queryRunner.query(`CREATE INDEX "IDX_hikvision_attendance_logs_is_employee_mapped" ON "hikvision_attendance_logs" ("is_employee_mapped") `);
+        await queryRunner.query(`CREATE INDEX "IDX_hikvision_attendance_logs_employee_id" ON "hikvision_attendance_logs" ("employee_id") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_hikvision_attendance_logs_event_key" ON "hikvision_attendance_logs" ("event_key") `);
         await queryRunner.query(`CREATE INDEX "IDX_hikvision_attendance_logs_device_event_time" ON "hikvision_attendance_logs" ("device_id", "event_time") `);
         await queryRunner.query(`CREATE INDEX "IDX_hikvision_attendance_logs_serial_no" ON "hikvision_attendance_logs" ("serial_no") `);
         await queryRunner.query(`CREATE INDEX "IDX_hikvision_attendance_logs_door_no" ON "hikvision_attendance_logs" ("door_no") `);
@@ -571,15 +574,15 @@ export class Migration1782452785249 implements MigrationInterface {
         await queryRunner.query(`CREATE INDEX "IDX_employee_access_credentials_employee_no" ON "employee_access_credentials" ("employee_no") `);
         await queryRunner.query(`CREATE INDEX "IDX_employee_access_credentials_employee_id" ON "employee_access_credentials" ("employee_id") `);
         await queryRunner.query(`CREATE INDEX "IDX_employee_access_credentials_company_id" ON "employee_access_credentials" ("company_id") `);
-        await queryRunner.query(`CREATE TABLE "permission_role" ("rolesId" integer NOT NULL, "permissionsId" integer NOT NULL, CONSTRAINT "PK_d7697d46210de76f42a8585b80a" PRIMARY KEY ("rolesId", "permissionsId"))`);
-        await queryRunner.query(`CREATE INDEX "IDX_ad249cf4f60be340850d7429e2" ON "permission_role" ("rolesId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_f131407a830249c1b575316321" ON "permission_role" ("permissionsId") `);
         await queryRunner.query(`CREATE TABLE "role_user" ("usersId" integer NOT NULL, "rolesId" integer NOT NULL, CONSTRAINT "PK_871b9da778db239e427eae35843" PRIMARY KEY ("usersId", "rolesId"))`);
         await queryRunner.query(`CREATE INDEX "IDX_788a980aa4fa89a8859419146a" ON "role_user" ("usersId") `);
         await queryRunner.query(`CREATE INDEX "IDX_eb446d431a1abb9801e6ade445" ON "role_user" ("rolesId") `);
         await queryRunner.query(`CREATE TABLE "permission_user" ("usersId" integer NOT NULL, "permissionsId" integer NOT NULL, CONSTRAINT "PK_b751dcce2bfb818896d5ba5bcf4" PRIMARY KEY ("usersId", "permissionsId"))`);
         await queryRunner.query(`CREATE INDEX "IDX_eebf5c79455539db169da54830" ON "permission_user" ("usersId") `);
         await queryRunner.query(`CREATE INDEX "IDX_fe30ce4377c9320e2b8a23c836" ON "permission_user" ("permissionsId") `);
+        await queryRunner.query(`CREATE TABLE "permission_role" ("rolesId" integer NOT NULL, "permissionsId" integer NOT NULL, CONSTRAINT "PK_d7697d46210de76f42a8585b80a" PRIMARY KEY ("rolesId", "permissionsId"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_ad249cf4f60be340850d7429e2" ON "permission_role" ("rolesId") `);
+        await queryRunner.query(`CREATE INDEX "IDX_f131407a830249c1b575316321" ON "permission_role" ("permissionsId") `);
         await queryRunner.query(`ALTER TABLE "company_user_roles" ADD CONSTRAINT "FK_74ec3aa89216198cb0cfd6edc24" FOREIGN KEY ("company_user_id") REFERENCES "company_users"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "company_user_roles" ADD CONSTRAINT "FK_c1314bc5a97bc33594274eba554" FOREIGN KEY ("role_id") REFERENCES "roles"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "company_user_permissions" ADD CONSTRAINT "FK_42b8ee52319678d53cbfaf3f057" FOREIGN KEY ("company_user_id") REFERENCES "company_users"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
@@ -737,15 +740,15 @@ export class Migration1782452785249 implements MigrationInterface {
         await queryRunner.query(`ALTER TABLE "employee_timetables" ADD CONSTRAINT "FK_ba0243d21e533a2932b6fe51c0c" FOREIGN KEY ("employee_id") REFERENCES "employees"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "employee_timetables" ADD CONSTRAINT "FK_4f6df1947976854225b23410082" FOREIGN KEY ("timetable_id") REFERENCES "timetables"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "employee_timetables" ADD CONSTRAINT "FK_14e68f0ffb284b71ee7f5aab334" FOREIGN KEY ("assigned_by") REFERENCES "company_users"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "timetable_rotation_rules" ADD CONSTRAINT "FK_4dcbb2c9fc65df40ed481130cec" FOREIGN KEY ("rotation_id") REFERENCES "timetable_rotations"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "timetable_rotation_rules" ADD CONSTRAINT "FK_0962adaf3fc46db4df3338d518d" FOREIGN KEY ("shift_id") REFERENCES "shifts"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "timetable_rotations" ADD CONSTRAINT "FK_4c68c85ce63f3f82d61364d350d" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "timetable_rotations" ADD CONSTRAINT "FK_b6d06cb3b96aa541f6d2aa4a2ca" FOREIGN KEY ("timetable_id") REFERENCES "timetables"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "timetable_holiday_rules" ADD CONSTRAINT "FK_696cfbf7e1f79966320abdc354e" FOREIGN KEY ("timetable_id") REFERENCES "timetables"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "timetable_holiday_rules" ADD CONSTRAINT "FK_20903afcd9e1a36823524192278" FOREIGN KEY ("holiday_group_id") REFERENCES "holiday_groups"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "timetables" ADD CONSTRAINT "FK_01a3cf98edbabd5d8f0a04e5a11" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "timetables" ADD CONSTRAINT "FK_a34aa165df75f4cf3e426f875bc" FOREIGN KEY ("branch_id") REFERENCES "branches"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "timetables" ADD CONSTRAINT "FK_c4a596c34eae12d91d148ee22c8" FOREIGN KEY ("created_by") REFERENCES "company_users"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "timetable_rotation_rules" ADD CONSTRAINT "FK_4dcbb2c9fc65df40ed481130cec" FOREIGN KEY ("rotation_id") REFERENCES "timetable_rotations"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "timetable_rotation_rules" ADD CONSTRAINT "FK_0962adaf3fc46db4df3338d518d" FOREIGN KEY ("shift_id") REFERENCES "shifts"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "timetable_rotations" ADD CONSTRAINT "FK_4c68c85ce63f3f82d61364d350d" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "timetable_rotations" ADD CONSTRAINT "FK_b6d06cb3b96aa541f6d2aa4a2ca" FOREIGN KEY ("timetable_id") REFERENCES "timetables"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "attendance_policies" ADD CONSTRAINT "FK_4fa23c532e73a852bd8debfc251" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "attendance_geofences" ADD CONSTRAINT "FK_1fe14284aa35db60ca062a16cab" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "attendance_geofences" ADD CONSTRAINT "FK_92d5c622dfe9f5eb1cff1649381" FOREIGN KEY ("branch_id") REFERENCES "branches"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
@@ -766,6 +769,7 @@ export class Migration1782452785249 implements MigrationInterface {
         await queryRunner.query(`ALTER TABLE "hikvision_attendance_logs" ADD CONSTRAINT "FK_871b6be55773756513fb5f32407" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "hikvision_attendance_logs" ADD CONSTRAINT "FK_6670a08fdfe2b9dc805f038ca4e" FOREIGN KEY ("branch_id") REFERENCES "branches"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "hikvision_attendance_logs" ADD CONSTRAINT "FK_3b539de847a12542b9a2344fe1e" FOREIGN KEY ("device_id") REFERENCES "attendance_devices"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "hikvision_attendance_logs" ADD CONSTRAINT "FK_150f505cbf7cc2e8efaec982133" FOREIGN KEY ("employee_id") REFERENCES "employees"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "attendance_daily_summaries" ADD CONSTRAINT "FK_60ec354f1aefed11076e6e59788" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "attendance_daily_summaries" ADD CONSTRAINT "FK_f31a8ab53cc84f36d076be39faf" FOREIGN KEY ("branch_id") REFERENCES "branches"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "attendance_daily_summaries" ADD CONSTRAINT "FK_978c623c3990dee02162c09537c" FOREIGN KEY ("employee_id") REFERENCES "employees"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
@@ -857,21 +861,21 @@ export class Migration1782452785249 implements MigrationInterface {
         await queryRunner.query(`ALTER TABLE "employee_access_credentials" ADD CONSTRAINT "FK_b9ad16953f6398e85b5a0567048" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "employee_access_credentials" ADD CONSTRAINT "FK_d13063c32dcdf79520fc9c4482c" FOREIGN KEY ("employee_id") REFERENCES "employees"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "employee_access_credentials" ADD CONSTRAINT "FK_666a6e6e0cae7aa56f888a95a3b" FOREIGN KEY ("device_id") REFERENCES "attendance_devices"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "permission_role" ADD CONSTRAINT "FK_ad249cf4f60be340850d7429e28" FOREIGN KEY ("rolesId") REFERENCES "roles"("id") ON DELETE CASCADE ON UPDATE CASCADE`);
-        await queryRunner.query(`ALTER TABLE "permission_role" ADD CONSTRAINT "FK_f131407a830249c1b5753163211" FOREIGN KEY ("permissionsId") REFERENCES "permissions"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "role_user" ADD CONSTRAINT "FK_788a980aa4fa89a8859419146ae" FOREIGN KEY ("usersId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE`);
         await queryRunner.query(`ALTER TABLE "role_user" ADD CONSTRAINT "FK_eb446d431a1abb9801e6ade4456" FOREIGN KEY ("rolesId") REFERENCES "roles"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "permission_user" ADD CONSTRAINT "FK_eebf5c79455539db169da548301" FOREIGN KEY ("usersId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE`);
         await queryRunner.query(`ALTER TABLE "permission_user" ADD CONSTRAINT "FK_fe30ce4377c9320e2b8a23c8362" FOREIGN KEY ("permissionsId") REFERENCES "permissions"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "permission_role" ADD CONSTRAINT "FK_ad249cf4f60be340850d7429e28" FOREIGN KEY ("rolesId") REFERENCES "roles"("id") ON DELETE CASCADE ON UPDATE CASCADE`);
+        await queryRunner.query(`ALTER TABLE "permission_role" ADD CONSTRAINT "FK_f131407a830249c1b5753163211" FOREIGN KEY ("permissionsId") REFERENCES "permissions"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`ALTER TABLE "permission_role" DROP CONSTRAINT "FK_f131407a830249c1b5753163211"`);
+        await queryRunner.query(`ALTER TABLE "permission_role" DROP CONSTRAINT "FK_ad249cf4f60be340850d7429e28"`);
         await queryRunner.query(`ALTER TABLE "permission_user" DROP CONSTRAINT "FK_fe30ce4377c9320e2b8a23c8362"`);
         await queryRunner.query(`ALTER TABLE "permission_user" DROP CONSTRAINT "FK_eebf5c79455539db169da548301"`);
         await queryRunner.query(`ALTER TABLE "role_user" DROP CONSTRAINT "FK_eb446d431a1abb9801e6ade4456"`);
         await queryRunner.query(`ALTER TABLE "role_user" DROP CONSTRAINT "FK_788a980aa4fa89a8859419146ae"`);
-        await queryRunner.query(`ALTER TABLE "permission_role" DROP CONSTRAINT "FK_f131407a830249c1b5753163211"`);
-        await queryRunner.query(`ALTER TABLE "permission_role" DROP CONSTRAINT "FK_ad249cf4f60be340850d7429e28"`);
         await queryRunner.query(`ALTER TABLE "employee_access_credentials" DROP CONSTRAINT "FK_666a6e6e0cae7aa56f888a95a3b"`);
         await queryRunner.query(`ALTER TABLE "employee_access_credentials" DROP CONSTRAINT "FK_d13063c32dcdf79520fc9c4482c"`);
         await queryRunner.query(`ALTER TABLE "employee_access_credentials" DROP CONSTRAINT "FK_b9ad16953f6398e85b5a0567048"`);
@@ -963,6 +967,7 @@ export class Migration1782452785249 implements MigrationInterface {
         await queryRunner.query(`ALTER TABLE "attendance_daily_summaries" DROP CONSTRAINT "FK_978c623c3990dee02162c09537c"`);
         await queryRunner.query(`ALTER TABLE "attendance_daily_summaries" DROP CONSTRAINT "FK_f31a8ab53cc84f36d076be39faf"`);
         await queryRunner.query(`ALTER TABLE "attendance_daily_summaries" DROP CONSTRAINT "FK_60ec354f1aefed11076e6e59788"`);
+        await queryRunner.query(`ALTER TABLE "hikvision_attendance_logs" DROP CONSTRAINT "FK_150f505cbf7cc2e8efaec982133"`);
         await queryRunner.query(`ALTER TABLE "hikvision_attendance_logs" DROP CONSTRAINT "FK_3b539de847a12542b9a2344fe1e"`);
         await queryRunner.query(`ALTER TABLE "hikvision_attendance_logs" DROP CONSTRAINT "FK_6670a08fdfe2b9dc805f038ca4e"`);
         await queryRunner.query(`ALTER TABLE "hikvision_attendance_logs" DROP CONSTRAINT "FK_871b6be55773756513fb5f32407"`);
@@ -983,15 +988,15 @@ export class Migration1782452785249 implements MigrationInterface {
         await queryRunner.query(`ALTER TABLE "attendance_geofences" DROP CONSTRAINT "FK_92d5c622dfe9f5eb1cff1649381"`);
         await queryRunner.query(`ALTER TABLE "attendance_geofences" DROP CONSTRAINT "FK_1fe14284aa35db60ca062a16cab"`);
         await queryRunner.query(`ALTER TABLE "attendance_policies" DROP CONSTRAINT "FK_4fa23c532e73a852bd8debfc251"`);
+        await queryRunner.query(`ALTER TABLE "timetable_rotations" DROP CONSTRAINT "FK_b6d06cb3b96aa541f6d2aa4a2ca"`);
+        await queryRunner.query(`ALTER TABLE "timetable_rotations" DROP CONSTRAINT "FK_4c68c85ce63f3f82d61364d350d"`);
+        await queryRunner.query(`ALTER TABLE "timetable_rotation_rules" DROP CONSTRAINT "FK_0962adaf3fc46db4df3338d518d"`);
+        await queryRunner.query(`ALTER TABLE "timetable_rotation_rules" DROP CONSTRAINT "FK_4dcbb2c9fc65df40ed481130cec"`);
         await queryRunner.query(`ALTER TABLE "timetables" DROP CONSTRAINT "FK_c4a596c34eae12d91d148ee22c8"`);
         await queryRunner.query(`ALTER TABLE "timetables" DROP CONSTRAINT "FK_a34aa165df75f4cf3e426f875bc"`);
         await queryRunner.query(`ALTER TABLE "timetables" DROP CONSTRAINT "FK_01a3cf98edbabd5d8f0a04e5a11"`);
         await queryRunner.query(`ALTER TABLE "timetable_holiday_rules" DROP CONSTRAINT "FK_20903afcd9e1a36823524192278"`);
         await queryRunner.query(`ALTER TABLE "timetable_holiday_rules" DROP CONSTRAINT "FK_696cfbf7e1f79966320abdc354e"`);
-        await queryRunner.query(`ALTER TABLE "timetable_rotations" DROP CONSTRAINT "FK_b6d06cb3b96aa541f6d2aa4a2ca"`);
-        await queryRunner.query(`ALTER TABLE "timetable_rotations" DROP CONSTRAINT "FK_4c68c85ce63f3f82d61364d350d"`);
-        await queryRunner.query(`ALTER TABLE "timetable_rotation_rules" DROP CONSTRAINT "FK_0962adaf3fc46db4df3338d518d"`);
-        await queryRunner.query(`ALTER TABLE "timetable_rotation_rules" DROP CONSTRAINT "FK_4dcbb2c9fc65df40ed481130cec"`);
         await queryRunner.query(`ALTER TABLE "employee_timetables" DROP CONSTRAINT "FK_14e68f0ffb284b71ee7f5aab334"`);
         await queryRunner.query(`ALTER TABLE "employee_timetables" DROP CONSTRAINT "FK_4f6df1947976854225b23410082"`);
         await queryRunner.query(`ALTER TABLE "employee_timetables" DROP CONSTRAINT "FK_ba0243d21e533a2932b6fe51c0c"`);
@@ -1149,15 +1154,15 @@ export class Migration1782452785249 implements MigrationInterface {
         await queryRunner.query(`ALTER TABLE "company_user_permissions" DROP CONSTRAINT "FK_42b8ee52319678d53cbfaf3f057"`);
         await queryRunner.query(`ALTER TABLE "company_user_roles" DROP CONSTRAINT "FK_c1314bc5a97bc33594274eba554"`);
         await queryRunner.query(`ALTER TABLE "company_user_roles" DROP CONSTRAINT "FK_74ec3aa89216198cb0cfd6edc24"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_f131407a830249c1b575316321"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_ad249cf4f60be340850d7429e2"`);
+        await queryRunner.query(`DROP TABLE "permission_role"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_fe30ce4377c9320e2b8a23c836"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_eebf5c79455539db169da54830"`);
         await queryRunner.query(`DROP TABLE "permission_user"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_eb446d431a1abb9801e6ade445"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_788a980aa4fa89a8859419146a"`);
         await queryRunner.query(`DROP TABLE "role_user"`);
-        await queryRunner.query(`DROP INDEX "public"."IDX_f131407a830249c1b575316321"`);
-        await queryRunner.query(`DROP INDEX "public"."IDX_ad249cf4f60be340850d7429e2"`);
-        await queryRunner.query(`DROP TABLE "permission_role"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_employee_access_credentials_company_id"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_employee_access_credentials_employee_id"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_employee_access_credentials_employee_no"`);
@@ -1357,6 +1362,9 @@ export class Migration1782452785249 implements MigrationInterface {
         await queryRunner.query(`DROP INDEX "public"."IDX_hikvision_attendance_logs_door_no"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_hikvision_attendance_logs_serial_no"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_hikvision_attendance_logs_device_event_time"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_hikvision_attendance_logs_event_key"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_hikvision_attendance_logs_employee_id"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_hikvision_attendance_logs_is_employee_mapped"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_hikvision_attendance_logs_processing_status"`);
         await queryRunner.query(`DROP TABLE "hikvision_attendance_logs"`);
         await queryRunner.query(`DROP TYPE "public"."hikvision_attendance_logs_processing_status_enum"`);
@@ -1415,6 +1423,16 @@ export class Migration1782452785249 implements MigrationInterface {
         await queryRunner.query(`DROP TABLE "attendance_policies"`);
         await queryRunner.query(`DROP TYPE "public"."attendance_policies_holiday_policy_mode_enum"`);
         await queryRunner.query(`DROP TYPE "public"."attendance_policies_rounding_mode_enum"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_timetable_rotations_company_id"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_timetable_rotations_timetable_id"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_timetable_rotations_status"`);
+        await queryRunner.query(`DROP INDEX "public"."UQ_timetable_rotations_timetable_name"`);
+        await queryRunner.query(`DROP TABLE "timetable_rotations"`);
+        await queryRunner.query(`DROP TYPE "public"."timetable_rotations_status_enum"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_timetable_rotation_rules_rotation_id"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_timetable_rotation_rules_shift_id"`);
+        await queryRunner.query(`DROP INDEX "public"."UQ_timetable_rotation_rules_rotation_day"`);
+        await queryRunner.query(`DROP TABLE "timetable_rotation_rules"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_timetables_company_id"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_timetables_branch_id"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_timetables_status"`);
@@ -1429,16 +1447,6 @@ export class Migration1782452785249 implements MigrationInterface {
         await queryRunner.query(`DROP INDEX "public"."UQ_timetable_holiday_rules_timetable_group"`);
         await queryRunner.query(`DROP TABLE "timetable_holiday_rules"`);
         await queryRunner.query(`DROP TYPE "public"."timetable_holiday_rules_action_type_enum"`);
-        await queryRunner.query(`DROP INDEX "public"."IDX_timetable_rotations_company_id"`);
-        await queryRunner.query(`DROP INDEX "public"."IDX_timetable_rotations_timetable_id"`);
-        await queryRunner.query(`DROP INDEX "public"."IDX_timetable_rotations_status"`);
-        await queryRunner.query(`DROP INDEX "public"."UQ_timetable_rotations_timetable_name"`);
-        await queryRunner.query(`DROP TABLE "timetable_rotations"`);
-        await queryRunner.query(`DROP TYPE "public"."timetable_rotations_status_enum"`);
-        await queryRunner.query(`DROP INDEX "public"."IDX_timetable_rotation_rules_rotation_id"`);
-        await queryRunner.query(`DROP INDEX "public"."IDX_timetable_rotation_rules_shift_id"`);
-        await queryRunner.query(`DROP INDEX "public"."UQ_timetable_rotation_rules_rotation_day"`);
-        await queryRunner.query(`DROP TABLE "timetable_rotation_rules"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_employee_timetables_company_id"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_employee_timetables_employee_id"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_employee_timetables_timetable_id"`);
@@ -1655,7 +1663,6 @@ export class Migration1782452785249 implements MigrationInterface {
         await queryRunner.query(`DROP TYPE "public"."onboarding_tasks_task_type_enum"`);
         await queryRunner.query(`DROP TABLE "attendance_correction_requests"`);
         await queryRunner.query(`DROP TABLE "employee_profile_update_requests"`);
-        await queryRunner.query(`DROP TABLE "users"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_role_company"`);
         await queryRunner.query(`DROP INDEX "public"."UQ_role_scope_name"`);
         await queryRunner.query(`DROP TABLE "roles"`);
@@ -1722,9 +1729,10 @@ export class Migration1782452785249 implements MigrationInterface {
         await queryRunner.query(`DROP TYPE "public"."employee_positions_status_enum"`);
         await queryRunner.query(`DROP TYPE "public"."employee_positions_assignment_type_enum"`);
         await queryRunner.query(`DROP TABLE "company_user_permissions"`);
+        await queryRunner.query(`DROP TABLE "company_user_roles"`);
+        await queryRunner.query(`DROP TABLE "users"`);
         await queryRunner.query(`DROP INDEX "public"."UQ_permission_name"`);
         await queryRunner.query(`DROP TABLE "permissions"`);
-        await queryRunner.query(`DROP TABLE "company_user_roles"`);
     }
 
 }

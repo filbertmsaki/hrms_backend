@@ -16,4 +16,5 @@ export type HikvisionSyncJobData = {
   attendanceStartTime?: string;
   attendanceEndTime?: string;
   attendanceMaxResults?: number;
+  attendanceEmployeeNo?: string;
 };

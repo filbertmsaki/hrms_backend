@@ -11,6 +11,7 @@ import { HikvisionSyncLog } from '../access-control/hikvision-sync-logs/entity/h
 import { Branch } from '../hr/branches/entities/branch.entity';
 import { AttendanceDevice } from '../access-control/attendance-devices/entities/attendance-device.entity';
 import { EmployeeDeviceIdentity } from '../hr/attendance/processing/entities/employee-device-identity.entity';
+import { AttendanceRecalculationJob } from '../hr/attendance/processing/entities/attendance-recalculation-job.entity';
 import { Employee } from '../hr/employees/entities/employee.entity';
 import { DeviceCommandLog } from './device-command-logs/entity/device-command-log.entity';
 import { DeviceCommandLogService } from './device-command-logs/service/device-command-log.service';
@@ -40,6 +41,7 @@ import { HikvisionSyncProcessor } from './hikvision-sync.processor';
       CompanyUser,
       Employee,
       EmployeeDeviceIdentity,
+      AttendanceRecalculationJob,
       AccessDoor,
       AccessScheduleTemplate,
       EmployeeAccessCredential,

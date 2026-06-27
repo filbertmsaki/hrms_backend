@@ -69,11 +69,13 @@ export class HikvisionAttendanceController {
     @Param('deviceId', ParseIntPipe) deviceId: number,
     @Body() dto: SyncAttendanceByRangeDto,
   ) {
-    return this.attendanceSyncService.queueAttendanceSyncByRange(
+    return this.attendanceSyncService.queueAttendanceSync(
       req.user.companyId!,
       deviceId,
       dto.startTime,
       dto.endTime,
+      dto.employeeNo,
+      dto.maxResults,
       req.user.id,
       req.user.companyMembershipId ?? null,
     );
@@ -108,11 +110,13 @@ export class HikvisionAttendanceController {
     @Param('deviceId', ParseIntPipe) deviceId: number,
     @Body() dto: SyncAttendanceByRangeDto,
   ) {
-    return this.attendanceSyncService.syncAttendanceByRange(
+    return this.attendanceSyncService.syncAttendance(
       req.user.companyId!,
       deviceId,
       dto.startTime,
       dto.endTime,
+      dto.employeeNo,
+      dto.maxResults,
     );
   }
 
@@ -134,6 +138,8 @@ export class HikvisionAttendanceController {
       deviceId,
       dto.date,
       dto.timezone,
+      dto.employeeNo,
+      dto.maxResults,
       req.user.id,
       req.user.companyMembershipId ?? null,
     );
@@ -157,6 +163,7 @@ export class HikvisionAttendanceController {
       dto.employeeNo,
       dto.startTime,
       dto.endTime,
+      dto.maxResults,
     );
   }
 

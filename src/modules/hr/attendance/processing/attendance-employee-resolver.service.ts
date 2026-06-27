@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Not, Repository } from 'typeorm';
 import { EmployeeDeviceAssignment } from '../../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
+import { Employee } from '../../employees/entities/employee.entity';
 import { EmployeeDeviceIdentity } from './entities/employee-device-identity.entity';
 
 export type EmployeeResolutionResult = {
@@ -16,6 +17,8 @@ export class AttendanceEmployeeResolverService {
     private readonly assignmentRepository: Repository<EmployeeDeviceAssignment>,
     @InjectRepository(EmployeeDeviceIdentity)
     private readonly identityRepository: Repository<EmployeeDeviceIdentity>,
+    @InjectRepository(Employee)
+    private readonly employeeRepository: Repository<Employee>,
   ) {}
 
   async resolveEmployeeId(
@@ -91,6 +94,23 @@ export class AttendanceEmployeeResolverService {
       return {
         employeeId: existingIdentity.employeeId,
         reason: 'IDENTITY_MAP',
+      };
+    }
+
+    const employee = await this.employeeRepository
+      .createQueryBuilder('employee')
+      .innerJoin('employee.company_user', 'companyUser')
+      .where('companyUser.company_id = :companyId', { companyId })
+      .andWhere('employee.employee_no = :employeeNo', {
+        employeeNo: normalized,
+      })
+      .orderBy('employee.id', 'ASC')
+      .getOne();
+
+    if (employee) {
+      return {
+        employeeId: employee.id,
+        reason: 'EMPLOYEE_NO_MATCH',
       };
     }
 

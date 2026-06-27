@@ -12,6 +12,7 @@ import {
 import { Company } from '../../companies/entities/company.entity';
 import { AttendanceDevice } from '../../access-control/attendance-devices/entities/attendance-device.entity';
 import { Branch } from '../../hr/branches/entities/branch.entity';
+import { Employee } from '../../hr/employees/entities/employee.entity';
 import { AttendanceRawLogProcessingStatusEnum } from '../../hr/attendance/processing/enums/attendance-raw-log-processing-status.enum';
 
 @Entity('hikvision_attendance_logs')
@@ -28,6 +29,11 @@ import { AttendanceRawLogProcessingStatusEnum } from '../../hr/attendance/proces
   'deviceId',
   'eventTime',
 ])
+@Index('IDX_hikvision_attendance_logs_event_key', ['eventKey'], {
+  unique: true,
+})
+@Index('IDX_hikvision_attendance_logs_employee_id', ['employeeId'])
+@Index('IDX_hikvision_attendance_logs_is_employee_mapped', ['isEmployeeMapped'])
 @Index('IDX_hikvision_attendance_logs_processing_status', ['processingStatus'])
 @Unique('UQ_hik_att_logs_dev_emp_evt_maj_min_reader_door', [
   'deviceId',
@@ -50,6 +56,16 @@ export class HikvisionAttendanceLog {
 
   @Column({ name: 'device_id', type: 'int', nullable: true })
   deviceId: number | null;
+
+  @Column({ name: 'employee_id', type: 'int', nullable: true })
+  employeeId: number | null;
+
+  @Column({
+    name: 'is_employee_mapped',
+    type: 'boolean',
+    default: false,
+  })
+  isEmployeeMapped: boolean;
 
   @Column({ name: 'employee_no', type: 'varchar', length: 100, default: '' })
   employeeNo: string;
@@ -128,6 +144,9 @@ export class HikvisionAttendanceLog {
   @Column({ name: 'status_value', type: 'int', nullable: true })
   statusValue: number | null;
 
+  @Column({ name: 'event_key', type: 'varchar', length: 255, unique: true })
+  eventKey: string;
+
   @Column({ name: 'raw_payload', type: 'json' })
   rawPayload: Record<string, unknown>;
 
@@ -170,4 +189,8 @@ export class HikvisionAttendanceLog {
   @ManyToOne(() => AttendanceDevice, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'device_id' })
   device: AttendanceDevice | null;
+
+  @ManyToOne(() => Employee, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'employee_id' })
+  employee: Employee | null;
 }

@@ -36,7 +36,9 @@ export function sleep(ms: number): Promise<void> {
 export function isDuplicateDbError(error: unknown): boolean {
   if (!(error instanceof QueryFailedError)) return false;
   const err = error as QueryFailedError & { code?: string; errno?: number };
-  return err.code === 'ER_DUP_ENTRY' || err.errno === 1062;
+  return (
+    err.code === 'ER_DUP_ENTRY' || err.errno === 1062 || err.code === '23505'
+  );
 }
 
 export function mergeMetadata(
@@ -62,7 +64,9 @@ export function buildCredentialsFromDevice(
     throw new BadRequestException('Missing ip_address for this device');
   }
   if (!device.apiUsername || !device.apiPassword) {
-    throw new BadRequestException('Missing Hikvision credentials for this device');
+    throw new BadRequestException(
+      'Missing Hikvision credentials for this device',
+    );
   }
   const protocol =
     (device.protocol || 'http').toLowerCase() === 'https' ? 'https' : 'http';
