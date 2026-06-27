@@ -22,13 +22,14 @@ export interface HikvisionUserPreviewItem {
   existsInSeeder: boolean;
   department: string | null;
   hasFingerprint: boolean;
+  fingerprintCount: number;
+  enrolledSlots: number[];
   hasPin: boolean;
   hasCard: boolean;
   cardNo: string | null;
   userVerifyMode: string | null;
   deviceStatus: 'ACTIVE' | 'INACTIVE';
   deviceSyncStatus: 'FOUND_ON_DEVICE';
-  fingerprintCheckMethod: 'slot-1-probe';
   suggestedSeedEntry: Record<string, unknown> | null;
 }
 
@@ -46,9 +47,13 @@ export interface HikvisionSeedPreviewResult {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const FINGERPRINT_CARD_READER_NO = 1;
-const FINGERPRINT_SLOT = 1;
 const PAGE_SIZE = 20;
+const FP_SLOT_START = 1;
+const FP_SLOT_END = 10;
+const FP_CARD_READER_NO = 1;
+// Max users whose fingerprints are fetched concurrently. Each user fires 10
+// parallel slot probes, so effective concurrency = USER_BATCH × 10 requests.
+const USER_BATCH_SIZE = 5;
 
 // ── Service ───────────────────────────────────────────────────────────────────
 
@@ -92,7 +97,19 @@ export class HikvisionSeedPreviewService {
     // 4. Build seeder map: hikvisionEmployeeNo → seeder entry
     const seederMap = this.buildSeederMap();
 
-    // 5. Classify each device user
+    // 5. Fetch fingerprint slots for all filtered users (batched, slots in parallel).
+    //    Each user can have up to 10 enrolled fingers; we probe all slots concurrently
+    //    per user and process USER_BATCH_SIZE users at a time to avoid flooding device.
+    this.logger.log(
+      `Fetching fingerprints for ${filtered.length} users (batch=${USER_BATCH_SIZE}, slots=${FP_SLOT_START}-${FP_SLOT_END})`,
+    );
+    const fingerprintMap = await this.fetchFingerprintsForUsers(
+      companyId,
+      deviceId,
+      filtered.map((u) => String(u.employeeNo ?? '')),
+    );
+
+    // 6. Classify each device user
     const users: HikvisionUserPreviewItem[] = [];
     for (const user of filtered) {
       const employeeNo = String(user.employeeNo ?? '');
@@ -104,11 +121,7 @@ export class HikvisionSeedPreviewService {
       const validEnable = this.extractValidEnable(user);
 
       const cardNo = cardMap.get(employeeNo) ?? null;
-      const hasFingerprint = await this.probeFingerprint(
-        companyId,
-        deviceId,
-        employeeNo,
-      );
+      const enrolledSlots = fingerprintMap.get(employeeNo) ?? [];
 
       const seederEntry = seederMap.get(employeeNo);
       const existsInSeeder = seederEntry !== undefined;
@@ -121,14 +134,15 @@ export class HikvisionSeedPreviewService {
         action,
         existsInSeeder,
         department: seederEntry?.primaryDepartmentCode ?? null,
-        hasFingerprint,
+        hasFingerprint: enrolledSlots.length > 0,
+        fingerprintCount: enrolledSlots.length,
+        enrolledSlots,
         hasPin: passwordConfigured,
         hasCard: cardNo !== null,
         cardNo,
         userVerifyMode,
         deviceStatus: validEnable ? 'ACTIVE' : 'INACTIVE',
         deviceSyncStatus: 'FOUND_ON_DEVICE',
-        fingerprintCheckMethod: 'slot-1-probe',
         suggestedSeedEntry:
           action === 'CREATE'
             ? this.buildSuggestedSeedEntry(
@@ -277,10 +291,68 @@ export class HikvisionSeedPreviewService {
     return map;
   }
 
-  private async probeFingerprint(
+  // Returns a map of employeeNo → enrolled slot numbers (e.g. [1, 2, 5]).
+  // All 10 slots are probed in parallel per user; users are processed in
+  // batches of USER_BATCH_SIZE to avoid overwhelming the device HTTP server.
+  private async fetchFingerprintsForUsers(
+    companyId: number,
+    deviceId: number,
+    employeeNos: string[],
+  ): Promise<Map<string, number[]>> {
+    const result = new Map<string, number[]>();
+
+    for (let i = 0; i < employeeNos.length; i += USER_BATCH_SIZE) {
+      const batch = employeeNos.slice(i, i + USER_BATCH_SIZE);
+
+      await Promise.all(
+        batch.map(async (employeeNo) => {
+          const slots = await this.fetchEnrolledSlotsForUser(
+            companyId,
+            deviceId,
+            employeeNo,
+          );
+          result.set(employeeNo, slots);
+        }),
+      );
+    }
+
+    return result;
+  }
+
+  // Probes all 10 fingerprint slots for one user in parallel.
+  // Returns the list of slot numbers that have an enrolled fingerprint.
+  private async fetchEnrolledSlotsForUser(
     companyId: number,
     deviceId: number,
     employeeNo: string,
+  ): Promise<number[]> {
+    const slots = Array.from(
+      { length: FP_SLOT_END - FP_SLOT_START + 1 },
+      (_, i) => FP_SLOT_START + i,
+    );
+
+    const results = await Promise.all(
+      slots.map(async (slot) => {
+        const enrolled = await this.probeFingerPrintSlot(
+          companyId,
+          deviceId,
+          employeeNo,
+          slot,
+        );
+        return enrolled ? slot : null;
+      }),
+    );
+
+    return results.filter((s): s is number => s !== null);
+  }
+
+  // Returns true when slot contains an enrolled fingerprint, false otherwise.
+  // Treats device errors and "not supported" responses as empty (not enrolled).
+  private async probeFingerPrintSlot(
+    companyId: number,
+    deviceId: number,
+    employeeNo: string,
+    slot: number,
   ): Promise<boolean> {
     try {
       const payload = {
@@ -289,11 +361,11 @@ export class HikvisionSeedPreviewService {
             'seed-preview-fp',
             deviceId,
             employeeNo,
-            String(FINGERPRINT_SLOT),
+            String(slot),
           ),
           employeeNo,
-          cardReaderNo: FINGERPRINT_CARD_READER_NO,
-          fingerPrintID: FINGERPRINT_SLOT,
+          cardReaderNo: FP_CARD_READER_NO,
+          fingerPrintID: slot,
         },
       };
 
@@ -305,19 +377,15 @@ export class HikvisionSeedPreviewService {
 
       const raw = JSON.stringify(response?.parsed ?? response ?? {}).toLowerCase();
 
-      // Not supported → treat as unknown; assume false
-      if (raw.includes('notsupport')) return false;
-
-      // Empty slot markers → no fingerprint
-      const emptyMarkers = [
-        'notexist', 'not exist', 'notfound', 'not found',
-        'norecord', 'no record', 'nodata', 'no data',
-        'nomatch', 'no match', 'no fingerprint',
+      const negativeMarkers = [
+        'notsupport', 'notexist', 'not exist', 'notfound', 'not found',
+        'norecord', 'no record', 'nodata', 'no data', 'nomatch', 'no match',
+        'no fingerprint', 'fingerprint not found',
       ];
-      if (emptyMarkers.some((m) => raw.includes(m))) return false;
+      if (negativeMarkers.some((m) => raw.includes(m))) return false;
 
-      // Presence of FingerPrint data suggests it exists
-      return raw.includes('fingerprint') && (response?.ok ?? false);
+      // A successful response with fingerprint data includes the FingerPrint key
+      return response?.ok === true && raw.includes('fingerprint');
     } catch {
       return false;
     }
