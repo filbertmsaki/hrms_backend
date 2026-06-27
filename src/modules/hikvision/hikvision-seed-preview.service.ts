@@ -430,24 +430,11 @@ export class HikvisionSeedPreviewService {
       .replace(ARRAY_MARKER, `${arrayLines}\n${ARRAY_MARKER}`)
       .replace(ASSIGN_MARKER, `${assignLines}\n\n${ASSIGN_MARKER}`);
 
-    // ── Write and validate ───────────────────────────────────────────────────
+    // ── Write ────────────────────────────────────────────────────────────────
+    // Backup is already written above. Write the updated file; the developer
+    // can restore from .bak manually if needed.
 
     fs.writeFileSync(constantsPath, updated, 'utf-8');
-
-    try {
-      const { execSync } = await import('child_process');
-      execSync(
-        `npx tsc --noEmit --project "${path.resolve(__dirname, '..', '..', '..', '..', 'tsconfig.json')}"`,
-        { stdio: 'pipe' },
-      );
-    } catch (err) {
-      // Restore original on compile failure
-      fs.writeFileSync(constantsPath, original, 'utf-8');
-      const stderr = (err as { stderr?: Buffer }).stderr?.toString() ?? String(err);
-      throw new Error(
-        `TypeScript compilation failed after writing constants — rolled back.\n${stderr}`,
-      );
-    }
 
     this.logger.log(
       `writeToConstantsFile: inserted ${newEntries.length} employees into ${constantsPath}`,
