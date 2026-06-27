@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
+import { DataSource } from 'typeorm';
 import { ALLIANCE_EMPLOYEES } from '../../database/seeds/company-structure.constants';
 import { buildAttendanceDeviceSearchId } from '../access-control/attendance-devices/utils/attendance-device-search-id.util';
 import { HikvisionSeedPreviewQueryDto } from './dto/hikvision-seed-preview-query.dto';
@@ -33,6 +34,28 @@ export interface HikvisionUserPreviewItem {
   suggestedSeedEntry: Record<string, unknown> | null;
 }
 
+export interface SyncedEmployeeConstantEntry {
+  hikvisionEmployeeNo: string;
+  fullName: string;
+  email: string;
+  phone: string | null;
+  departmentCode: string | null;
+  positionCode: string | null;
+  reportsToEmployeeNo: string | null;
+  fingerprintCount: number;
+  hasPin: boolean;
+}
+
+export interface GenerateConstantsResult {
+  deviceId: number;
+  generatedAt: string;
+  totalEmployees: number;
+  alreadyInConstants: number;
+  newEntries: number;
+  outputFile: string;
+  entries: SyncedEmployeeConstantEntry[];
+}
+
 export interface HikvisionSeedPreviewResult {
   deviceId: number;
   queriedAt: string;
@@ -43,6 +66,20 @@ export interface HikvisionSeedPreviewResult {
   skipped: number;
   generatedFilePath: string | null;
   users: HikvisionUserPreviewItem[];
+}
+
+// Internal shape returned by the raw SQL query in generateConstantsFromSync()
+interface SyncedEmployeeRow {
+  employeeNo: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string | null;
+  departmentCode: string | null;
+  positionCode: string | null;
+  reportsToEmployeeNo: string | null;
+  fingerprintCount: number;
+  hasPin: boolean;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -64,6 +101,7 @@ export class HikvisionSeedPreviewService {
   constructor(
     private readonly hikvisionHelper: HikvisionHelperService,
     private readonly accessControl: HikvisionAccessControlService,
+    private readonly dataSource: DataSource,
   ) {}
 
   async generateSeedPreview(
@@ -180,6 +218,155 @@ export class HikvisionSeedPreviewService {
       generatedFilePath,
       users,
     };
+  }
+
+  // ── Generate constants from already-synced DB records ─────────────────────
+  //
+  // After running POST /hikvision/devices/:id/sync-users-credentials, all device
+  // users are stored in the employees/users/company_users tables. This method
+  // reads those DB records and writes a ready-to-review constants file so you
+  // can copy the missing entries into company-structure.constants.ts.
+
+  async generateConstantsFromSync(
+    companyId: number,
+    deviceId: number,
+  ): Promise<GenerateConstantsResult> {
+    if (process.env.NODE_ENV !== 'development') {
+      throw new ForbiddenException(
+        'generate-constants endpoint is only available in development mode.',
+      );
+    }
+
+    await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, deviceId, false);
+
+    const rows = await this.dataSource.query<SyncedEmployeeRow[]>(
+      `
+      SELECT
+        e.employee_no                     AS "employeeNo",
+        u.first_name                      AS "firstName",
+        u.last_name                       AS "lastName",
+        u.email                           AS "email",
+        u.phone                           AS "phone",
+        d.code                            AS "departmentCode",
+        p.code                            AS "positionCode",
+        mgr.employee_no                   AS "reportsToEmployeeNo",
+        COALESCE(fp.fp_count, 0)          AS "fingerprintCount",
+        COALESCE(pin.has_pin, false)      AS "hasPin"
+      FROM employee_device_identities edi
+      JOIN employees          e   ON e.id               = edi.employee_id
+      JOIN company_users      cu  ON cu.id              = e.company_user_id
+      JOIN users              u   ON u.id               = cu.user_id
+      LEFT JOIN departments   d   ON d.id               = e.primary_department_id
+      LEFT JOIN positions     p   ON p.id               = e.primary_position_id
+      LEFT JOIN employees     mgr ON mgr.id             = e.reports_to
+      LEFT JOIN (
+        SELECT employee_id, COUNT(*) AS fp_count
+        FROM   employee_access_credentials
+        WHERE  credential_type = 'FINGERPRINT'
+          AND  company_id      = $1
+          AND  device_id       = $2
+        GROUP BY employee_id
+      ) fp  ON fp.employee_id  = e.id
+      LEFT JOIN (
+        SELECT employee_id, true AS has_pin
+        FROM   employee_access_credentials
+        WHERE  credential_type = 'PIN'
+          AND  company_id      = $1
+          AND  device_id       = $2
+        GROUP BY employee_id
+      ) pin ON pin.employee_id = e.id
+      WHERE edi.company_id = $1
+        AND edi.device_id  = $2
+      ORDER BY e.employee_no
+      `,
+      [companyId, deviceId],
+    );
+
+    const existingNos = new Set(ALLIANCE_EMPLOYEES.map((e) => e.hikvisionEmployeeNo));
+
+    const entries: SyncedEmployeeConstantEntry[] = rows.map((r) => ({
+      hikvisionEmployeeNo: r.employeeNo,
+      fullName: `${r.firstName} ${r.lastName}`.trim(),
+      email: r.email,
+      phone: r.phone ?? null,
+      departmentCode: r.departmentCode ?? null,
+      positionCode: r.positionCode ?? null,
+      reportsToEmployeeNo: r.reportsToEmployeeNo ?? null,
+      fingerprintCount: Number(r.fingerprintCount),
+      hasPin: Boolean(r.hasPin),
+    }));
+
+    const newEntries = entries.filter((e) => !existingNos.has(e.hikvisionEmployeeNo));
+
+    const outputFile = await this.writeConstantsFile(entries, newEntries, existingNos);
+
+    return {
+      deviceId,
+      generatedAt: new Date().toISOString(),
+      totalEmployees: entries.length,
+      alreadyInConstants: entries.length - newEntries.length,
+      newEntries: newEntries.length,
+      outputFile,
+      entries,
+    };
+  }
+
+  private async writeConstantsFile(
+    all: SyncedEmployeeConstantEntry[],
+    newEntries: SyncedEmployeeConstantEntry[],
+    existingNos: Set<string>,
+  ): Promise<string> {
+    const seedsDir = path.resolve(__dirname, '..', '..', '..', 'src', 'database', 'seeds');
+    const outPath = path.join(seedsDir, 'hikvision-device-sync.generated.ts');
+
+    const formatEntry = (e: SyncedEmployeeConstantEntry, isNew: boolean) => {
+      const marker = isNew ? '// ⚠ NEW — not yet in ALLIANCE_HIKVISION_EMPLOYEES' : '// already in constants';
+      const fpNote = e.fingerprintCount > 0
+        ? `fingerprints: ${e.fingerprintCount}`
+        : 'no fingerprints';
+      const pinNote = e.hasPin ? 'has PIN' : 'no PIN';
+      return (
+        `  ${marker}\n` +
+        `  // ${fpNote}, ${pinNote}\n` +
+        `  { hikvisionEmployeeNo: '${e.hikvisionEmployeeNo}', fullName: '${e.fullName}', email: '${e.email}' },`
+      );
+    };
+
+    const formatAssign = (e: SyncedEmployeeConstantEntry, isNew: boolean) => {
+      const dept = e.departmentCode ?? 'REVIEW_REQUIRED';
+      const pos = e.positionCode ?? 'REVIEW_REQUIRED';
+      const mgr = e.reportsToEmployeeNo ? `'${e.reportsToEmployeeNo}'` : 'null';
+      const marker = isNew ? ' // ⚠ NEW' : '';
+      return `  assign('${e.hikvisionEmployeeNo}', '${dept}', '${pos}', ${mgr});${marker}`;
+    };
+
+    const lines = [
+      `// AUTO-GENERATED by HikvisionSeedPreviewService.generateConstantsFromSync()`,
+      `// Source: sync-users-credentials result from DB — DO NOT COMMIT without review`,
+      `// Generated at: ${new Date().toISOString()}`,
+      `// Total employees on device: ${all.length}  |  New (not yet in constants): ${newEntries.length}`,
+      ``,
+      `// ════════════════════════════════════════════════════════════════════════`,
+      `// STEP 1 — Copy NEW entries into ALLIANCE_HIKVISION_EMPLOYEES[]`,
+      `//          (skip entries marked "already in constants")`,
+      `// ════════════════════════════════════════════════════════════════════════`,
+      `// const newEmployees: AllianceHikvisionEmployeeInput[] = [`,
+      ...all.map((e) => `//   ${formatEntry(e, !existingNos.has(e.hikvisionEmployeeNo))}`),
+      `// ];`,
+      ``,
+      `// ════════════════════════════════════════════════════════════════════════`,
+      `// STEP 2 — Copy NEW assign() calls into buildAllianceEmployeeAssignments()`,
+      `//          Department/position codes pulled from DB; verify before merging`,
+      `// ════════════════════════════════════════════════════════════════════════`,
+      `// function body additions:`,
+      ...all.map((e) => `//   ${formatAssign(e, !existingNos.has(e.hikvisionEmployeeNo))}`),
+      ``,
+      `export {}; // keeps TypeScript happy`,
+    ];
+
+    fs.writeFileSync(outPath, lines.join('\n'), 'utf-8');
+    this.logger.log(`Constants file written: ${outPath} (${all.length} employees, ${newEntries.length} new)`);
+    return outPath;
   }
 
   // ── Private helpers ────────────────────────────────────────────────────────

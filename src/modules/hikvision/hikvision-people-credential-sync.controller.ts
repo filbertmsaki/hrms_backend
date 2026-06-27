@@ -108,6 +108,24 @@ export class HikvisionPeopleCredentialSyncController {
     );
   }
 
+  @Post('devices/:deviceId/users/generate-constants')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionsGuard)
+  @Permissions('access_control_sync:execute')
+  @ApiActionOperation(
+    'Generate Constants (Dev Only)',
+    'Read employees already synced from the device into the DB and write a company-structure.constants.ts snippet for review. Development mode only.',
+  )
+  generateConstants(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+  ) {
+    return this.seedPreviewService.generateConstantsFromSync(
+      req.user.companyId!,
+      deviceId,
+    );
+  }
+
   @Post('devices/:deviceId/users/seed-preview')
   @HttpCode(HttpStatus.OK)
   @UseGuards(PermissionsGuard)
