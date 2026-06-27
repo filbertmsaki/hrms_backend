@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
 } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import * as fs from 'fs';
 import * as path from 'path';
 import { DataSource } from 'typeorm';
@@ -64,6 +65,7 @@ export interface HikvisionSeedPreviewResult {
   missingFromSeeder: number;
   toAmend: number;
   skipped: number;
+  savedToDatabase: { created: number; amended: number } | null;
   generatedFilePath: string | null;
   users: HikvisionUserPreviewItem[];
 }
@@ -196,16 +198,28 @@ export class HikvisionSeedPreviewService {
       users.push(item);
     }
 
-    // 6. Optionally write generated file
-    let generatedFilePath: string | null = null;
     const missing = users.filter((u) => u.action === 'CREATE');
+    const toAmendUsers = users.filter((u) => u.action === 'AMEND');
+    const existingInSeeder = users.filter((u) => u.action === 'EXISTS').length;
+    const skipped = users.filter((u) => u.action === 'SKIP').length;
+
+    // 6. Optionally persist to DB (only when dryRun is explicitly false)
+    let savedToDatabase: { created: number; amended: number } | null = null;
+    if (query.saveToDatabase === true && query.dryRun === false) {
+      savedToDatabase = await this.persistUsers(
+        companyId,
+        deviceId,
+        missing,
+        toAmendUsers,
+        query.departmentCode,
+      );
+    }
+
+    // 7. Optionally write generated file
+    let generatedFilePath: string | null = null;
     if (query.writeSeederFile && missing.length > 0) {
       generatedFilePath = await this.writeGeneratedFile(missing);
     }
-
-    const existingInSeeder = users.filter((u) => u.action === 'EXISTS').length;
-    const toAmend = users.filter((u) => u.action === 'AMEND').length;
-    const skipped = users.filter((u) => u.action === 'SKIP').length;
 
     return {
       deviceId,
@@ -213,8 +227,9 @@ export class HikvisionSeedPreviewService {
       totalDeviceUsers: deviceUsers.length,
       existingInSeeder,
       missingFromSeeder: missing.length,
-      toAmend,
+      toAmend: toAmendUsers.length,
       skipped,
+      savedToDatabase,
       generatedFilePath,
       users,
     };
@@ -650,6 +665,153 @@ export class HikvisionSeedPreviewService {
       return value as Record<string, unknown>;
     }
     return {};
+  }
+
+  // Upserts CREATE users as User→CompanyUser→Employee rows and AMENDs department/
+  // position on existing employees.  Runs in a transaction; rolls back fully on error.
+  private async persistUsers(
+    companyId: number,
+    deviceId: number,
+    toCreate: HikvisionUserPreviewItem[],
+    toAmend: HikvisionUserPreviewItem[],
+    departmentCode?: string,
+  ): Promise<{ created: number; amended: number }> {
+    const qr = this.dataSource.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
+
+    let created = 0;
+    let amended = 0;
+
+    try {
+      const em = qr.manager;
+
+      // Look up company
+      const company = await em.query<{ id: number }[]>(
+        `SELECT id FROM companies WHERE id = (
+           SELECT company_id FROM company_users WHERE company_id = $1 LIMIT 1
+         ) LIMIT 1`,
+        [companyId],
+      );
+      if (!company.length) throw new Error('Company not found');
+
+      // Look up department if provided
+      const deptRows = departmentCode
+        ? await em.query<{ id: number }[]>(
+            `SELECT id FROM departments WHERE company_id = $1 AND code = $2 LIMIT 1`,
+            [companyId, departmentCode],
+          )
+        : [];
+      const deptId = deptRows[0]?.id ?? null;
+
+      // Hash a default password once for all new users
+      const defaultPassword = await bcrypt.hash('Employee123!', 10);
+
+      // ── CREATE ──────────────────────────────────────────────────────────────
+      for (const item of toCreate) {
+        const nameParts = (item.name ?? 'Unknown Employee').trim().split(/\s+/);
+        const firstName = nameParts[0] ?? 'Unknown';
+        const lastName = nameParts.slice(1).join(' ') || 'Employee';
+
+        const slug = (s: string) =>
+          s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+        const email = `${slug(firstName)}.${slug(lastName).replace(/-/g, '.')}@alliance.co.tz`;
+        const phone = `+25571${item.employeeNo.replace(/\D/g, '').slice(-7).padStart(7, '0')}`;
+        const userNo = `EMP-${item.employeeNo.padStart(5, '0')}`;
+
+        // Upsert User
+        const existingUser = await em.query<{ id: number }[]>(
+          `SELECT id FROM users WHERE email = $1 LIMIT 1`,
+          [email],
+        );
+        let userId: number;
+        if (existingUser.length) {
+          userId = existingUser[0].id;
+        } else {
+          const [inserted] = await em.query<{ id: number }[]>(
+            `INSERT INTO users (user_no, first_name, last_name, email, phone, password, user_type, status, is_email_verified)
+             VALUES ($1, $2, $3, $4, $5, $6, 'COMPANY_USER', 'active', true)
+             ON CONFLICT (email) DO UPDATE SET first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name
+             RETURNING id`,
+            [userNo, firstName, lastName, email, phone, defaultPassword],
+          );
+          userId = inserted.id;
+        }
+
+        // Upsert CompanyUser
+        const [cu] = await em.query<{ id: number }[]>(
+          `INSERT INTO company_users (company_id, user_id, status, is_default)
+           VALUES ($1, $2, 'active', true)
+           ON CONFLICT (company_id, user_id) DO UPDATE SET status = 'active'
+           RETURNING id`,
+          [companyId, userId],
+        );
+
+        // Upsert Employee
+        const existingEmp = await em.query<{ id: number }[]>(
+          `SELECT id FROM employees WHERE company_user_id = $1 LIMIT 1`,
+          [cu.id],
+        );
+        if (existingEmp.length) {
+          if (deptId) {
+            await em.query(
+              `UPDATE employees SET primary_department_id = $1 WHERE id = $2`,
+              [deptId, existingEmp[0].id],
+            );
+          }
+        } else {
+          await em.query(
+            `INSERT INTO employees (company_user_id, employee_no, first_name, last_name,
+               primary_department_id, employment_status, employment_type, hire_date, nationality, metadata)
+             VALUES ($1, $2, $3, $4, $5, 'ACTIVE', 'FULL_TIME', '2025-01-01', 'Tanzanian', $6)
+             ON CONFLICT DO NOTHING`,
+            [
+              cu.id,
+              item.employeeNo,
+              firstName,
+              lastName,
+              deptId,
+              JSON.stringify({ seeded: true, source: 'hikvision-seed-preview', deviceId }),
+            ],
+          );
+          created++;
+        }
+
+        // Upsert EmployeeDeviceIdentity
+        await em.query(
+          `INSERT INTO employee_device_identities (company_id, employee_id, employee_no, device_id)
+           SELECT $1, e.id, $3, $4
+           FROM employees e WHERE e.company_user_id = $2
+           ON CONFLICT DO NOTHING`,
+          [companyId, cu.id, item.employeeNo, deviceId],
+        );
+      }
+
+      // ── AMEND — update department on existing employees ──────────────────
+      if (deptId && toAmend.length > 0) {
+        for (const item of toAmend) {
+          await em.query(
+            `UPDATE employees SET primary_department_id = $1
+             WHERE employee_no = $2
+               AND company_user_id IN (SELECT id FROM company_users WHERE company_id = $3)`,
+            [deptId, item.employeeNo, companyId],
+          );
+          amended++;
+        }
+      }
+
+      await qr.commitTransaction();
+      this.logger.log(
+        `persistUsers: created=${created} amended=${amended} for device ${deviceId}`,
+      );
+    } catch (err) {
+      await qr.rollbackTransaction();
+      throw err;
+    } finally {
+      await qr.release();
+    }
+
+    return { created, amended };
   }
 
   private async writeGeneratedFile(

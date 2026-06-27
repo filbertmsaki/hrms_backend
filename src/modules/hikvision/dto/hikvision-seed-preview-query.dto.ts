@@ -27,5 +27,9 @@ export class HikvisionSeedPreviewQueryDto {
 
   @IsOptional()
   @IsBoolean()
+  saveToDatabase?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   writeSeederFile?: boolean;
 }
