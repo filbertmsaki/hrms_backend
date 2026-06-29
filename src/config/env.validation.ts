@@ -61,8 +61,8 @@ function optionalEnum<T extends string>(
 export function validateEnv(env: Env) {
   // ── Database ────────────────────────────────────────────────────────────
   const DB_HOST = optionalString(env, 'DB_HOST', 'localhost');
-  const DB_PORT = optionalInt(env, 'DB_PORT', 3306);
-  const DB_USERNAME = optionalString(env, 'DB_USERNAME', 'root');
+  const DB_PORT = optionalInt(env, 'DB_PORT', 5432);
+  const DB_USERNAME = optionalString(env, 'DB_USERNAME', 'postgres');
   const DB_PASSWORD = optionalString(env, 'DB_PASSWORD', '');
   const DB_NAME = required(env, 'DB_NAME');
 

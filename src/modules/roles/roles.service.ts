@@ -37,8 +37,7 @@ export class RolesService {
     return this.rolesRepository
       .createQueryBuilder('role')
       .leftJoinAndSelect('role.company', 'company')
-      .leftJoinAndSelect('role.permissions', 'permission')
-      .distinct(true);
+      .leftJoinAndSelect('role.permissions', 'permission');
   }
 
   private async assertCompanyExists(companyId: number): Promise<void> {
