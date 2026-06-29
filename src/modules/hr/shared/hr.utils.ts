@@ -56,10 +56,13 @@ function padDatePart(value: number): string {
 }
 
 export function formatDateOnly(value: Date): string {
+  // Date-only values must be stable regardless of the Node process timezone.
+  // Using UTC calendar parts prevents rebuilds from drifting a day backward
+  // or forward when the server runs outside the attendance timezone.
   return [
-    value.getFullYear(),
-    padDatePart(value.getMonth() + 1),
-    padDatePart(value.getDate()),
+    value.getUTCFullYear(),
+    padDatePart(value.getUTCMonth() + 1),
+    padDatePart(value.getUTCDate()),
   ].join('-');
 }
 
