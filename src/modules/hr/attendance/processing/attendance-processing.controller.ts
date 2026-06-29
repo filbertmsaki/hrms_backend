@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import type { Request as ExpressRequest } from 'express';
 import { Permissions } from '../../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
@@ -127,6 +128,7 @@ export class AttendanceProcessingController {
 
   @Get('daily-summaries')
   @UseGuards(PermissionsGuard)
+  @Throttle({ default: { limit: 300, ttl: 60000 } })
   @Permissions('attendance_summaries:read')
   @ApiListOperation(
     'Attendance Daily Summaries',
@@ -162,6 +164,7 @@ export class AttendanceProcessingController {
 
   @Get('daily-summaries/:employeeId/:date')
   @UseGuards(PermissionsGuard)
+  @Throttle({ default: { limit: 300, ttl: 60000 } })
   @Permissions('attendance_summaries:read')
   @ApiActionOperation(
     'Attendance Daily Summary',
