@@ -532,6 +532,71 @@ const ALLIANCE_HIKVISION_EMPLOYEES: AllianceHikvisionEmployeeInput[] = [
     email: 'inocent@alliance.co.tz',
     roleNames: ['ADMINISTRATOR'],
   },
+  { hikvisionEmployeeNo: '00000038', fullName: 'Jackline Francis Nyangusy' },
+  { hikvisionEmployeeNo: '00000039', fullName: 'Janki Sinha' },
+  { hikvisionEmployeeNo: '00000041', fullName: 'Jastin Erick Laizer' },
+  { hikvisionEmployeeNo: '00000043', fullName: 'Johnbosco Leonard Samba' },
+  { hikvisionEmployeeNo: '00000044', fullName: 'Jonas Joseph Rutabingwa' },
+  { hikvisionEmployeeNo: '00000045', fullName: 'Joy Menard Mdemeka' },
+  { hikvisionEmployeeNo: '00000046', fullName: 'Judith Julius Barongo' },
+  { hikvisionEmployeeNo: '00000047', fullName: 'Kausar Mehboob Doloo' },
+  { hikvisionEmployeeNo: '00000048', fullName: 'Kelvin Brown Fifi' },
+  { hikvisionEmployeeNo: '00000049', fullName: 'Kelvin Charles Ruhanga' },
+  { hikvisionEmployeeNo: '00000050', fullName: 'Kiza Benjamin Aochi' },
+  { hikvisionEmployeeNo: '00000052', fullName: 'Martha Ibrahim Wauda' },
+  { hikvisionEmployeeNo: '00000053', fullName: 'Martin Jackson Hoka' },
+  { hikvisionEmployeeNo: '00000054', fullName: 'MaryCatherine Leopold Ngakoka' },
+  { hikvisionEmployeeNo: '00000055', fullName: 'Mchama Mohamed Mwinyimvua' },
+  { hikvisionEmployeeNo: '00000056', fullName: 'Melina Epaphra Moshi' },
+  { hikvisionEmployeeNo: '00000057', fullName: 'Mohamed Hassan Mlyande' },
+  { hikvisionEmployeeNo: '00000058', fullName: 'Moses Benetson Mbeikya' },
+  { hikvisionEmployeeNo: '00000060', fullName: 'Mussa Juma Mwanya' },
+  { hikvisionEmployeeNo: '00000061', fullName: 'Mwaija Omar Rashid' },
+  { hikvisionEmployeeNo: '00000062', fullName: 'Mwanaidi Anthon Omar' },
+  { hikvisionEmployeeNo: '00000063', fullName: 'Neema Allan Andondile' },
+  { hikvisionEmployeeNo: '00000064', fullName: 'Nicodemus Thomas  Robi' },
+  { hikvisionEmployeeNo: '00000065', fullName: 'Norah Dick Mchaki' },
+  { hikvisionEmployeeNo: '00000066', fullName: 'Obadia Naftal Kamboi' },
+  { hikvisionEmployeeNo: '00000067', fullName: 'Oswald Ryan Tellis' },
+  { hikvisionEmployeeNo: '00000068', fullName: 'Philly Filbert Msuha' },
+  { hikvisionEmployeeNo: '00000069', fullName: 'Rahma Ally Salum' },
+  { hikvisionEmployeeNo: '00000070', fullName: 'Ridhika Sandeep' },
+  { hikvisionEmployeeNo: '00000071', fullName: 'Said Mubaraka' },
+  { hikvisionEmployeeNo: '00000073', fullName: 'Sanjay Lakhan' },
+  { hikvisionEmployeeNo: '00000074', fullName: 'Scholastica Protus Mmanda' },
+  { hikvisionEmployeeNo: '00000076', fullName: 'Shoma Emmanuel Bulugu' },
+  { hikvisionEmployeeNo: '00000077', fullName: 'Shukuru Said Onga' },
+  { hikvisionEmployeeNo: '00000079', fullName: 'Sophia Shaban Mbisi' },
+  { hikvisionEmployeeNo: '00000080', fullName: 'Tatheer Shiraz Kassamali' },
+  { hikvisionEmployeeNo: '00000081', fullName: 'Thereza Makingi' },
+  { hikvisionEmployeeNo: '00000082', fullName: 'Urusla Fantan Mtanda' },
+  { hikvisionEmployeeNo: '00000083', fullName: 'Utaly Mohamed Utaly' },
+  { hikvisionEmployeeNo: '00000084', fullName: 'Vicky Dias Mosha' },
+  { hikvisionEmployeeNo: '00000087', fullName: 'Zabibu Said Aman' },
+  { hikvisionEmployeeNo: '00000088', fullName: 'Zahara Athuman Mussa' },
+  { hikvisionEmployeeNo: '00000091', fullName: 'Sifa Witness Juma' },
+  { hikvisionEmployeeNo: '00000096', fullName: 'Issa golden' },
+  { hikvisionEmployeeNo: '00000097', fullName: 'Elizabeth Ndaro' },
+  { hikvisionEmployeeNo: '00000098', fullName: 'Luhende Bonda' },
+  { hikvisionEmployeeNo: '00000099', fullName: 'Shamira Juma Sukka' },
+  { hikvisionEmployeeNo: '00000103', fullName: 'Rajiv Kumar' },
+  { hikvisionEmployeeNo: '00000104', fullName: 'Maria Temu' },
+  { hikvisionEmployeeNo: '00000105', fullName: 'Witness Mwijage' },
+  { hikvisionEmployeeNo: '00000106', fullName: 'Yusra Imran Mohamed' },
+  { hikvisionEmployeeNo: '00000107', fullName: 'LIDYA JOHNBOSCO NGONYANI' },
+  { hikvisionEmployeeNo: '00000109', fullName: 'JAYMAN HITEN CHOHAN' },
+  { hikvisionEmployeeNo: '00000110', fullName: 'Veera Badra Swamy Banala' },
+  { hikvisionEmployeeNo: '00000111', fullName: 'Emmanuel Kazungu' },
+  { hikvisionEmployeeNo: '00000112', fullName: 'James Damian' },
+  { hikvisionEmployeeNo: '00000113', fullName: 'Harshen Sajeev' },
+  { hikvisionEmployeeNo: '00000114', fullName: 'Hussein Mpugusi' },
+  { hikvisionEmployeeNo: '00000115', fullName: 'Fatuma Mussa Kitine' },
+  { hikvisionEmployeeNo: '00000116', fullName: 'Janhvi Mokha' },
+  { hikvisionEmployeeNo: '00000117', fullName: 'Prisha Davda' },
+  { hikvisionEmployeeNo: '00000118', fullName: 'Hatibu Juma Nara' },
+  { hikvisionEmployeeNo: '00000119', fullName: 'Abdallah Karama Abdallah' },
+  { hikvisionEmployeeNo: '00000120', fullName: 'Poonam Chotai' },
+  { hikvisionEmployeeNo: '00000125', fullName: 'Preenal Asher' }
   {
     hikvisionEmployeeNo: '00000108',
     fullName: 'Ravi Kumar',
@@ -816,6 +881,82 @@ function buildAllianceEmployeeAssignments(): Record<
     'CLAIMS_OFFICER',
     ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
   );
+
+  assign('00000038', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000039', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000041', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000042', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000043', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000044', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000045', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000046', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000047', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000048', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000049', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000050', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000051', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000052', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000053', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000054', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000055', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000056', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000057', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000058', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000060', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000061', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000062', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000063', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000064', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000065', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000066', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000067', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000068', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000069', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000070', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000071', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000072', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000073', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000074', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000076', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000077', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000078', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000079', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000080', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000081', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000082', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000083', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000084', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000085', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000087', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000088', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000089', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000091', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000093', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000096', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000097', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000098', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000099', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000103', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000104', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000105', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000106', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000107', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000109', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000110', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000111', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000112', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000113', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000114', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000115', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000116', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000117', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000118', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000119', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000120', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000125', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('00000234', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('1', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
+  assign('4', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
 
   const allEmployeeNos = new Set(
     ALLIANCE_HIKVISION_EMPLOYEES.map(

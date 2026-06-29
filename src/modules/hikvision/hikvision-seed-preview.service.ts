@@ -18,6 +18,8 @@ import { HikvisionHelperService } from './helpers/hikvision-helper.service';
 export type SeedPreviewAction = 'EXISTS' | 'CREATE' | 'AMEND' | 'SKIP';
 
 export interface HikvisionUserPreviewItem {
+  hikvisionEmployeeNo: string;
+  fullName: string | null;
   employeeNo: string;
   name: string | null;
   action: SeedPreviewAction;
@@ -67,6 +69,9 @@ export interface WriteToConstantsResult {
 export interface HikvisionSeedPreviewResult {
   deviceId: number;
   queriedAt: string;
+  totalFetchedFromDevice: number;
+  totalUniqueUsers: number;
+  duplicatesSkipped: number;
   totalDeviceUsers: number;
   existingInSeeder: number;
   missingFromSeeder: number;
@@ -91,12 +96,22 @@ interface SyncedEmployeeRow {
   hasPin: boolean;
 }
 
+interface PaginatedDeviceUsersResult {
+  totalFetchedFromDevice: number;
+  totalUniqueUsers: number;
+  duplicatesSkipped: number;
+  rawUsers: Record<string, unknown>[];
+  users: Record<string, unknown>[];
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 10;
+const USER_SEARCH_START_POSITION = 0;
 const FP_SLOT_START = 1;
 const FP_SLOT_END = 10;
 const FP_CARD_READER_NO = 1;
+const HIKVISION_SEARCH_ID_LENGTH = 24;
 // Max users whose fingerprints are fetched concurrently. Each user fires 10
 // parallel slot probes, so effective concurrency = USER_BATCH × 10 requests.
 const USER_BATCH_SIZE = 5;
@@ -129,7 +144,8 @@ export class HikvisionSeedPreviewService {
     const queriedAt = new Date().toISOString();
 
     // 1. Fetch all users from device (paginated)
-    const deviceUsers = await this.paginateAllDeviceUsers(companyId, deviceId);
+    const paginatedUsers = await this.paginateAllDeviceUsers(companyId, deviceId);
+    const deviceUsers = paginatedUsers.users;
 
     // 2. Filter by employee no range if provided
     const filtered = this.filterByEmployeeNoRange(
@@ -176,6 +192,8 @@ export class HikvisionSeedPreviewService {
       const action = this.classifyAction(existsInSeeder, name, seederEntry);
 
       const item: HikvisionUserPreviewItem = {
+        hikvisionEmployeeNo: employeeNo,
+        fullName: name,
         employeeNo,
         name,
         action,
@@ -220,7 +238,10 @@ export class HikvisionSeedPreviewService {
     return {
       deviceId,
       queriedAt,
-      totalDeviceUsers: deviceUsers.length,
+      totalFetchedFromDevice: paginatedUsers.totalFetchedFromDevice,
+      totalUniqueUsers: paginatedUsers.totalUniqueUsers,
+      duplicatesSkipped: paginatedUsers.duplicatesSkipped,
+      totalDeviceUsers: users.length,
       existingInSeeder,
       missingFromSeeder: missing.length,
       toAmend: toAmendUsers.length,
@@ -248,8 +269,17 @@ export class HikvisionSeedPreviewService {
       );
     }
 
-    await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, deviceId, false);
+    await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, deviceId, true);
 
+    // ── 1. Fetch ALL users directly from the device (paginated) ─────────────
+    this.logger.log(`generateConstantsFromSync: fetching all users from device ${deviceId}`);
+    const paginatedUsers = await this.paginateAllDeviceUsers(companyId, deviceId);
+    const deviceUsers = paginatedUsers.users;
+    this.logger.log(
+      `generateConstantsFromSync: fetched=${paginatedUsers.totalFetchedFromDevice}, unique=${paginatedUsers.totalUniqueUsers}, duplicatesSkipped=${paginatedUsers.duplicatesSkipped}`,
+    );
+
+    // ── 2. Fetch DB enrichment data (department / position / credentials) ────
     const rows = await this.dataSource.query<SyncedEmployeeRow[]>(
       `
       SELECT
@@ -293,23 +323,57 @@ export class HikvisionSeedPreviewService {
       [companyId, deviceId],
     );
 
+    // Build a lookup map: employeeNo → DB row
+    const dbMap = new Map<string, SyncedEmployeeRow>();
+    for (const row of rows) {
+      dbMap.set(row.employeeNo, row);
+    }
+
+    // ── 3. Merge: device user list + DB enrichment ───────────────────────────
     const existingNos = new Set(ALLIANCE_EMPLOYEES.map((e) => e.hikvisionEmployeeNo));
 
-    const entries: SyncedEmployeeConstantEntry[] = rows.map((r) => ({
-      hikvisionEmployeeNo: r.employeeNo,
-      fullName: `${r.firstName} ${r.lastName}`.trim(),
-      email: r.email,
-      phone: r.phone ?? null,
-      departmentCode: r.departmentCode ?? null,
-      positionCode: r.positionCode ?? null,
-      reportsToEmployeeNo: r.reportsToEmployeeNo ?? null,
-      fingerprintCount: Number(r.fingerprintCount),
-      hasPin: Boolean(r.hasPin),
-    }));
+    const entries: SyncedEmployeeConstantEntry[] = deviceUsers.map((u) => {
+      const employeeNo = String(u.employeeNo ?? '');
+      const deviceName = u.name ? String(u.name) : null;
+      const db = dbMap.get(employeeNo);
 
-    const newEntries = entries.filter((e) => !existingNos.has(e.hikvisionEmployeeNo));
+      // Prefer DB name (more reliable); fall back to device name
+      const fullName = db
+        ? `${db.firstName} ${db.lastName}`.trim()
+        : (deviceName ?? 'Unknown Employee');
 
-    const outputFile = await this.writeConstantsFile(entries, newEntries, existingNos);
+      // Auto-generate email from name (same logic as seeder)
+      const slug = (s: string) =>
+        s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      const parts = fullName.trim().split(/\s+/);
+      const autoEmail = parts.length > 1
+        ? `${slug(parts[0])}.${slug(parts.slice(1).join(' ')).replace(/-/g, '.')}@alliance.co.tz`
+        : `${slug(parts[0])}@alliance.co.tz`;
+
+      return {
+        hikvisionEmployeeNo: employeeNo,
+        fullName,
+        email: db?.email ?? autoEmail,
+        phone: db?.phone ?? null,
+        departmentCode: db?.departmentCode ?? null,
+        positionCode: db?.positionCode ?? null,
+        reportsToEmployeeNo: db?.reportsToEmployeeNo ?? null,
+        fingerprintCount: db ? Number(db.fingerprintCount) : 0,
+        hasPin: db ? Boolean(db.hasPin) : Boolean(u.password),
+      };
+    });
+
+    // Sort by employeeNo ascending while preserving leading zeroes
+    entries.sort((a, b) => a.hikvisionEmployeeNo.localeCompare(b.hikvisionEmployeeNo));
+
+    const newEntries = entries.filter(
+      (entry) => !existingNos.has(entry.hikvisionEmployeeNo),
+    );
+    const outputFile = await this.writeConstantsFile(
+      entries,
+      newEntries,
+      existingNos,
+    );
 
     return {
       deviceId,
@@ -356,13 +420,27 @@ export class HikvisionSeedPreviewService {
     // Fetch all DB-synced employees for this device
     const syncResult = await this.generateConstantsFromSync(companyId, deviceId);
 
-    const existingNos = new Set(ALLIANCE_EMPLOYEES.map((e) => e.hikvisionEmployeeNo));
-
-    const newEntries = syncResult.entries.filter(
-      (e) => !existingNos.has(e.hikvisionEmployeeNo),
+    const existingNos = new Set(
+      ALLIANCE_EMPLOYEES.map((employee) => employee.hikvisionEmployeeNo),
     );
+    const seenToInsert = new Set<string>();
+    const entriesToWrite = syncResult.entries.filter((entry) => {
+      const employeeNo = entry.hikvisionEmployeeNo;
+      if (existingNos.has(employeeNo)) {
+        return false;
+      }
+      if (seenToInsert.has(employeeNo)) {
+        return false;
+      }
 
-    if (newEntries.length === 0) {
+      seenToInsert.add(employeeNo);
+      return true;
+    });
+
+    if (entriesToWrite.length === 0) {
+      this.logger.log(
+        `writeToConstantsFile: no new employees to insert for device ${deviceId}; all ${syncResult.totalEmployees} already exist in ${constantsPath}`,
+      );
       return {
         inserted: 0,
         skipped: syncResult.totalEmployees,
@@ -376,7 +454,7 @@ export class HikvisionSeedPreviewService {
 
     // ── Build insertion blocks ───────────────────────────────────────────────
 
-    const arrayLines = newEntries
+    const arrayLines = entriesToWrite
       .map((e) => {
         const fullName = e.fullName || 'Unknown Employee';
         // Only add email field if it differs from the auto-generated one
@@ -393,7 +471,7 @@ export class HikvisionSeedPreviewService {
       })
       .join('\n');
 
-    const assignLines = newEntries
+    const assignLines = entriesToWrite
       .map((e) => {
         const dept = e.departmentCode ?? defaultDepartmentCode;
         const pos = e.positionCode ?? defaultPositionCode;
@@ -408,15 +486,23 @@ export class HikvisionSeedPreviewService {
 
     // ── Find insertion points ────────────────────────────────────────────────
 
-    // Array: insert before the last existing entry (00000108 line)
-    const ARRAY_MARKER = "  { hikvisionEmployeeNo: '00000108'";
+    // Array: prefer inserting before the final known employee block (00000108),
+    // but fall back to the closing bracket of ALLIANCE_HIKVISION_EMPLOYEES[] if
+    // formatting differs across environments or line endings.
+    const ARRAY_MARKER_REGEX =
+      /(^\s*\{\s*\r?\n\s*hikvisionEmployeeNo:\s*'00000108')/m;
+    const ARRAY_FALLBACK_REGEX =
+      /(^\];\s*\r?\n\r?\nconst ALLIANCE_EMPLOYEE_ASSIGNMENTS = buildAllianceEmployeeAssignments\(\);)/m;
     // Assign: insert before the validation block
     const ASSIGN_MARKER = '  const allEmployeeNos = new Set(';
 
-    if (!original.includes(ARRAY_MARKER)) {
+    if (
+      !ARRAY_MARKER_REGEX.test(original) &&
+      !ARRAY_FALLBACK_REGEX.test(original)
+    ) {
       throw new Error(
         `Array insertion marker not found in constants file. ` +
-        `Expected line starting with: ${ARRAY_MARKER}`,
+        `Expected either employee 00000108 block or the end of ALLIANCE_HIKVISION_EMPLOYEES array`,
       );
     }
     if (!original.includes(ASSIGN_MARKER)) {
@@ -426,9 +512,23 @@ export class HikvisionSeedPreviewService {
       );
     }
 
-    let updated = original
-      .replace(ARRAY_MARKER, `${arrayLines}\n${ARRAY_MARKER}`)
-      .replace(ASSIGN_MARKER, `${assignLines}\n\n${ASSIGN_MARKER}`);
+    let updated = original;
+    if (ARRAY_MARKER_REGEX.test(updated)) {
+      updated = updated.replace(
+        ARRAY_MARKER_REGEX,
+        `${arrayLines}\r\n$1`,
+      );
+    } else {
+      updated = updated.replace(
+        ARRAY_FALLBACK_REGEX,
+        `${arrayLines}\r\n$1`,
+      );
+    }
+
+    updated = updated.replace(
+      ASSIGN_MARKER,
+      `${assignLines}\n\n${ASSIGN_MARKER}`,
+    );
 
     // ── Write ────────────────────────────────────────────────────────────────
     // Backup is already written above. Write the updated file; the developer
@@ -437,14 +537,14 @@ export class HikvisionSeedPreviewService {
     fs.writeFileSync(constantsPath, updated, 'utf-8');
 
     this.logger.log(
-      `writeToConstantsFile: inserted ${newEntries.length} employees into ${constantsPath}`,
+      `writeToConstantsFile: inserted ${entriesToWrite.length} employees into ${constantsPath}, skipped=${syncResult.totalEmployees - entriesToWrite.length} existing/duplicate entries`,
     );
 
     return {
-      inserted: newEntries.length,
-      skipped: syncResult.totalEmployees - newEntries.length,
+      inserted: entriesToWrite.length,
+      skipped: syncResult.totalEmployees - entriesToWrite.length,
       constantsFilePath: constantsPath,
-      insertedEmployeeNos: newEntries.map((e) => e.hikvisionEmployeeNo),
+      insertedEmployeeNos: entriesToWrite.map((e) => e.hikvisionEmployeeNo),
     };
   }
 
@@ -488,7 +588,11 @@ export class HikvisionSeedPreviewService {
       `//          (skip entries marked "already in constants")`,
       `// ════════════════════════════════════════════════════════════════════════`,
       `// const newEmployees: AllianceHikvisionEmployeeInput[] = [`,
-      ...all.map((e) => `//   ${formatEntry(e, !existingNos.has(e.hikvisionEmployeeNo))}`),
+      ...all.flatMap((e) =>
+        formatEntry(e, !existingNos.has(e.hikvisionEmployeeNo))
+          .split('\n')
+          .map((line) => `// ${line}`),
+      ),
       `// ];`,
       ``,
       `// ════════════════════════════════════════════════════════════════════════`,
@@ -511,14 +615,32 @@ export class HikvisionSeedPreviewService {
   private async paginateAllDeviceUsers(
     companyId: number,
     deviceId: number,
-  ): Promise<Record<string, unknown>[]> {
-    const all: Record<string, unknown>[] = [];
-    let position = 0;
+  ): Promise<PaginatedDeviceUsersResult> {
+    const rawUsers: Record<string, unknown>[] = [];
+    const uniqueUsers = new Map<string, Record<string, unknown>>();
+    const seenPositions = new Set<number>();
+    const searchId = this.buildRandomHikvisionSearchId();
+    let totalFetchedFromDevice = 0;
+    let duplicatesSkipped = 0;
+    let position = USER_SEARCH_START_POSITION;
+    let page = 1;
+
+    this.logger.log(
+      `Seed preview user query started for device ${deviceId}: searchId=${searchId}, startPosition=${position}, maxResults=${PAGE_SIZE}`,
+    );
 
     do {
+      if (seenPositions.has(position)) {
+        this.logger.warn(
+          `Seed preview user query detected repeated searchResultPosition=${position} for device ${deviceId}; stopping to prevent an infinite loop`,
+        );
+        break;
+      }
+      seenPositions.add(position);
+
       const payload = {
         UserInfoSearchCond: {
-          searchID: buildAttendanceDeviceSearchId('seed-preview', deviceId),
+          searchID: searchId,
           searchResultPosition: position,
           maxResults: PAGE_SIZE,
         },
@@ -541,18 +663,87 @@ export class HikvisionSeedPreviewService {
           ? [this.toObject(userList)]
           : [];
 
-      all.push(...users);
-
+      rawUsers.push(...users);
       const responseStatusStrg = String(
         root.responseStatusStrg ?? root.responseStatus ?? 'OK',
+      )
+        .trim()
+        .toUpperCase();
+      const currentSearchPosition = this.toSafeNumber(
+        root.searchResultPosition,
+        position,
       );
-      const numOfMatches = Number(root.numOfMatches ?? users.length);
-      position += numOfMatches;
+      const totalMatches = this.toSafeNumber(root.totalMatches, 0);
+      const numOfMatches = this.toSafeNumber(root.numOfMatches, users.length);
 
-      if (responseStatusStrg.toUpperCase() !== 'MORE') break;
+      totalFetchedFromDevice += users.length;
+      const pageEmployeeNos = users
+        .map((user) => this.resolveUserUniqueKey(user))
+        .filter((employeeNo): employeeNo is string => Boolean(employeeNo));
+      const firstEmployeeNo = pageEmployeeNos[0] ?? 'n/a';
+      const lastEmployeeNo =
+        pageEmployeeNos[pageEmployeeNos.length - 1] ?? 'n/a';
+
+      for (const user of users) {
+        const uniqueKey = this.resolveUserUniqueKey(user);
+        if (!uniqueKey) {
+          this.logger.warn(
+            `Seed preview user query received a device row without employeeNo on page=${page}, position=${position}; skipping unsafe row`,
+          );
+          continue;
+        }
+
+        const existing = uniqueUsers.get(uniqueKey);
+        if (!existing) {
+          uniqueUsers.set(
+            uniqueKey,
+            this.normalizeDeviceUserRecord(user, uniqueKey),
+          );
+          continue;
+        }
+
+        duplicatesSkipped += 1;
+        uniqueUsers.set(
+          uniqueKey,
+          this.mergeDeviceUserRecords(existing, user, uniqueKey),
+        );
+      }
+
+      const effectiveMatches = numOfMatches > 0 ? numOfMatches : users.length;
+      const nextPosition = currentSearchPosition + effectiveMatches;
+      const hasMoreByStatus = responseStatusStrg === 'MORE';
+      const hasMoreByTotal = totalMatches > 0 && nextPosition < totalMatches;
+
+      this.logger.log(
+        `Seed preview user page ${page} for device ${deviceId}: position=${currentSearchPosition}, pageUsers=${users.length}, totalFetched=${totalFetchedFromDevice}, uniqueCollected=${uniqueUsers.size}, duplicatesSkipped=${duplicatesSkipped}, totalMatches=${totalMatches}, nextPosition=${nextPosition}, firstEmployeeNo=${firstEmployeeNo}, lastEmployeeNo=${lastEmployeeNo}, responseStatus=${responseStatusStrg || 'OK'}`,
+      );
+
+      if (!hasMoreByStatus && !hasMoreByTotal) {
+        break;
+      }
+
+      if (effectiveMatches <= 0) {
+        this.logger.warn(
+          `Seed preview user query received a continuation signal without any matches at position=${position} for device ${deviceId}; stopping safely`,
+        );
+        break;
+      }
+
+      position = nextPosition;
+      page += 1;
     } while (true);
 
-    return all;
+    this.logger.log(
+      `Seed preview user query completed for device ${deviceId}: totalFetched=${totalFetchedFromDevice}, totalUniqueUsers=${uniqueUsers.size}, duplicatesSkipped=${duplicatesSkipped}`,
+    );
+
+    return {
+      totalFetchedFromDevice,
+      totalUniqueUsers: uniqueUsers.size,
+      duplicatesSkipped,
+      rawUsers,
+      users: [...uniqueUsers.values()],
+    };
   }
 
   private filterByEmployeeNoRange(
@@ -567,6 +758,20 @@ export class HikvisionSeedPreviewService {
       if (to && no > to) return false;
       return true;
     });
+  }
+
+  private buildRandomHikvisionSearchId(
+    length = HIKVISION_SEARCH_ID_LENGTH,
+  ): string {
+    const alphabet =
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let result = '';
+
+    while (result.length < length) {
+      result += alphabet[Math.floor(Math.random() * alphabet.length)];
+    }
+
+    return result;
   }
 
   private async buildCardMap(
@@ -775,11 +980,96 @@ export class HikvisionSeedPreviewService {
     return true;
   }
 
+  private resolveUserUniqueKey(user: Record<string, unknown>): string | null {
+    const candidates = [
+      user.employeeNoString,
+      user.employeeNo,
+      user.hikvisionEmployeeNo,
+    ];
+
+    for (const candidate of candidates) {
+      const normalized = this.toNullableString(candidate);
+      if (normalized) {
+        return normalized;
+      }
+    }
+
+    return null;
+  }
+
+  private normalizeDeviceUserRecord(
+    user: Record<string, unknown>,
+    employeeNo: string,
+  ): Record<string, unknown> {
+    return this.mergeDeviceUserRecords({}, user, employeeNo);
+  }
+
+  private mergeDeviceUserRecords(
+    current: Record<string, unknown>,
+    incoming: Record<string, unknown>,
+    employeeNo: string,
+  ): Record<string, unknown> {
+    const merged: Record<string, unknown> = {
+      ...current,
+      ...incoming,
+      employeeNo,
+      employeeNoString:
+        this.toNullableString(incoming.employeeNoString) ??
+        this.toNullableString(current.employeeNoString) ??
+        employeeNo,
+      hikvisionEmployeeNo:
+        this.toNullableString(incoming.hikvisionEmployeeNo) ??
+        this.toNullableString(current.hikvisionEmployeeNo) ??
+        employeeNo,
+    };
+
+    if (!this.toNullableString(merged['name'])) {
+      merged['name'] =
+        this.toNullableString(current.name) ??
+        this.toNullableString(incoming.name) ??
+        null;
+    }
+
+    if (!this.toNullableString(merged['userVerifyMode'])) {
+      merged['userVerifyMode'] =
+        this.toNullableString(current.userVerifyMode) ??
+        this.toNullableString(incoming.userVerifyMode) ??
+        null;
+    }
+
+    if (!this.toNullableString(merged['password'])) {
+      merged['password'] =
+        this.toNullableString(current.password) ??
+        this.toNullableString(incoming.password) ??
+        null;
+    }
+
+    const mergedValid = {
+      ...this.toObject(current.Valid ?? current.valid),
+      ...this.toObject(incoming.Valid ?? incoming.valid),
+    };
+    if (Object.keys(mergedValid).length > 0) {
+      merged['Valid'] = mergedValid;
+    }
+
+    return merged;
+  }
+
   private toObject(value: unknown): Record<string, unknown> {
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       return value as Record<string, unknown>;
     }
     return {};
+  }
+
+  private toNullableString(value: unknown): string | null {
+    const normalized = String(value ?? '').trim();
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  private toSafeNumber(value: unknown, fallback: number): number {
+    const normalized = Number(value);
+    return Number.isFinite(normalized) ? normalized : fallback;
   }
 
   // Upserts CREATE users as User→CompanyUser→Employee rows and AMENDs department/
@@ -816,82 +1106,124 @@ export class HikvisionSeedPreviewService {
 
       // ── CREATE ──────────────────────────────────────────────────────────────
       for (const item of toCreate) {
-        const nameParts = (item.name ?? 'Unknown Employee').trim().split(/\s+/);
-        const firstName = nameParts[0] ?? 'Unknown';
-        const lastName = nameParts.slice(1).join(' ') || 'Employee';
-
-        const slug = (s: string) =>
-          s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-        const email = `${slug(firstName)}.${slug(lastName).replace(/-/g, '.')}@alliance.co.tz`;
-        const phone = `+25571${item.employeeNo.replace(/\D/g, '').slice(-7).padStart(7, '0')}`;
-        const userNo = `EMP-${item.employeeNo.padStart(5, '0')}`;
-
-        // Upsert User
-        const existingUser = await em.query<{ id: number }[]>(
-          `SELECT id FROM users WHERE email = $1 LIMIT 1`,
-          [email],
+        const userProfile = this.buildDefaultProfile(item);
+        const existing = await this.findExistingPersistedUser(
+          em,
+          companyId,
+          deviceId,
+          item.employeeNo,
+          userProfile.email,
         );
-        let userId: number;
-        if (existingUser.length) {
-          userId = existingUser[0].id;
+
+        let userId = existing?.userId ?? null;
+        let companyUserId = existing?.companyUserId ?? null;
+        let employeeId = existing?.employeeId ?? null;
+        let updatedExisting = false;
+        let createdEmployee = false;
+
+        if (userId) {
+          updatedExisting = await this.updateUserSafeFields(
+            em,
+            userId,
+            userProfile,
+          );
         } else {
-          const [inserted] = await em.query<{ id: number }[]>(
+          const [insertedUser] = await em.query<{ id: number }[]>(
             `INSERT INTO users (user_no, first_name, last_name, email, phone, password, user_type, status, is_email_verified)
              VALUES ($1, $2, $3, $4, $5, $6, 'COMPANY_USER', 'active', true)
-             ON CONFLICT (email) DO UPDATE SET first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name
+             ON CONFLICT (email) DO UPDATE SET first_name = COALESCE(NULLIF(users.first_name, ''), EXCLUDED.first_name), last_name = COALESCE(NULLIF(users.last_name, ''), EXCLUDED.last_name)
              RETURNING id`,
-            [userNo, firstName, lastName, email, phone, defaultPassword],
-          );
-          userId = inserted.id;
-        }
-
-        // Upsert CompanyUser
-        const [cu] = await em.query<{ id: number }[]>(
-          `INSERT INTO company_users (company_id, user_id, status, is_default)
-           VALUES ($1, $2, 'active', true)
-           ON CONFLICT (company_id, user_id) DO UPDATE SET status = 'active'
-           RETURNING id`,
-          [companyId, userId],
-        );
-
-        // Upsert Employee
-        const existingEmp = await em.query<{ id: number }[]>(
-          `SELECT id FROM employees WHERE company_user_id = $1 LIMIT 1`,
-          [cu.id],
-        );
-        if (existingEmp.length) {
-          if (deptId) {
-            await em.query(
-              `UPDATE employees SET primary_department_id = $1 WHERE id = $2`,
-              [deptId, existingEmp[0].id],
-            );
-          }
-        } else {
-          await em.query(
-            `INSERT INTO employees (company_user_id, employee_no, first_name, last_name,
-               primary_department_id, employment_status, employment_type, hire_date, nationality, metadata)
-             VALUES ($1, $2, $3, $4, $5, 'ACTIVE', 'FULL_TIME', '2025-01-01', 'Tanzanian', $6)
-             ON CONFLICT DO NOTHING`,
             [
-              cu.id,
-              item.employeeNo,
-              firstName,
-              lastName,
-              deptId,
-              JSON.stringify({ seeded: true, source: 'hikvision-seed-preview', deviceId }),
+              userProfile.userNo,
+              userProfile.firstName,
+              userProfile.lastName,
+              userProfile.email,
+              userProfile.phone,
+              defaultPassword,
             ],
           );
-          created++;
+          userId = insertedUser.id;
         }
 
-        // Upsert EmployeeDeviceIdentity
-        await em.query(
-          `INSERT INTO employee_device_identities (company_id, employee_id, employee_no, device_id)
-           SELECT $1, e.id, $3, $4
-           FROM employees e WHERE e.company_user_id = $2
-           ON CONFLICT DO NOTHING`,
-          [companyId, cu.id, item.employeeNo, deviceId],
+        if (!companyUserId) {
+          const [companyUser] = await em.query<{ id: number }[]>(
+            `INSERT INTO company_users (company_id, user_id, status, is_default)
+             VALUES ($1, $2, 'active', true)
+             ON CONFLICT (company_id, user_id) DO UPDATE SET status = 'active'
+             RETURNING id`,
+            [companyId, userId],
+          );
+          companyUserId = companyUser.id;
+        }
+
+        if (employeeId) {
+          updatedExisting =
+            (await this.updateEmployeeSafeFields(
+              em,
+              employeeId,
+              item.employeeNo,
+              userProfile,
+              deviceId,
+              deptId,
+            )) || updatedExisting;
+        } else {
+          const existingEmp = await em.query<{ id: number }[]>(
+            `SELECT id FROM employees WHERE company_user_id = $1 LIMIT 1`,
+            [companyUserId],
+          );
+          if (existingEmp.length) {
+            employeeId = existingEmp[0].id;
+            updatedExisting =
+              (await this.updateEmployeeSafeFields(
+                em,
+                employeeId,
+                item.employeeNo,
+                userProfile,
+                deviceId,
+                deptId,
+              )) || updatedExisting;
+          } else {
+            const [insertedEmployee] = await em.query<{ id: number }[]>(
+              `INSERT INTO employees (company_user_id, employee_no, first_name, last_name,
+                 primary_department_id, employment_status, employment_type, hire_date, nationality, metadata)
+               VALUES ($1, $2, $3, $4, $5, 'ACTIVE', 'FULL_TIME', '2025-01-01', 'Tanzanian', $6)
+               RETURNING id`,
+              [
+                companyUserId,
+                item.employeeNo,
+                userProfile.firstName,
+                userProfile.lastName,
+                deptId,
+                JSON.stringify({
+                  seeded: true,
+                  source: 'hikvision-seed-preview',
+                  deviceId,
+                }),
+              ],
+            );
+            employeeId = insertedEmployee.id;
+            createdEmployee = true;
+            created++;
+          }
+        }
+
+        await this.hikvisionHelper.upsertDeviceIdentity(
+          companyId,
+          employeeId,
+          item.employeeNo,
+          deviceId,
+          {
+            hikvision: {
+              source: 'seed-preview',
+              full_name: item.fullName,
+            },
+          },
+          em,
         );
+
+        if (!createdEmployee && updatedExisting) {
+          amended++;
+        }
       }
 
       // ── AMEND — update department on existing employees ──────────────────
@@ -919,6 +1251,244 @@ export class HikvisionSeedPreviewService {
     }
 
     return { created, amended };
+  }
+
+  private buildDefaultProfile(item: HikvisionUserPreviewItem): {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+    userNo: string;
+  } {
+    const nameParts = (item.fullName ?? item.name ?? 'Unknown Employee')
+      .trim()
+      .split(/\s+/);
+    const firstName = nameParts[0] ?? 'Unknown';
+    const lastName = nameParts.slice(1).join(' ') || 'Employee';
+    const email = this.buildDefaultEmail(firstName, lastName);
+    const phone = `+25571${item.employeeNo.replace(/\D/g, '').slice(-7).padStart(7, '0')}`;
+    const userNo = `EMP-${item.employeeNo.padStart(5, '0')}`;
+
+    return {
+      firstName,
+      lastName,
+      email,
+      phone,
+      userNo,
+    };
+  }
+
+  private buildDefaultEmail(firstName: string, lastName: string): string {
+    const slug = (value: string) =>
+      value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+    return `${slug(firstName)}.${slug(lastName).replace(/-/g, '.')}@alliance.co.tz`;
+  }
+
+  private async findExistingPersistedUser(
+    em: DataSource['manager'],
+    companyId: number,
+    deviceId: number,
+    employeeNo: string,
+    email: string,
+  ): Promise<{
+    employeeId: number | null;
+    companyUserId: number | null;
+    userId: number | null;
+  } | null> {
+    const [byIdentity] = await em.query<
+      { employeeId: number | null; companyUserId: number | null; userId: number | null }[]
+    >(
+      `SELECT
+         e.id AS "employeeId",
+         cu.id AS "companyUserId",
+         cu.user_id AS "userId"
+       FROM employee_device_identities edi
+       JOIN employees e ON e.id = edi.employee_id
+       JOIN company_users cu ON cu.id = e.company_user_id
+       WHERE edi.company_id = $1
+         AND edi.device_id = $2
+         AND edi.employee_no = $3
+       LIMIT 1`,
+      [companyId, deviceId, employeeNo],
+    );
+    if (byIdentity) {
+      return byIdentity;
+    }
+
+    const [byEmployeeNo] = await em.query<
+      { employeeId: number | null; companyUserId: number | null; userId: number | null }[]
+    >(
+      `SELECT
+         e.id AS "employeeId",
+         cu.id AS "companyUserId",
+         cu.user_id AS "userId"
+       FROM employees e
+       JOIN company_users cu ON cu.id = e.company_user_id
+       WHERE cu.company_id = $1
+         AND e.employee_no = $2
+       LIMIT 1`,
+      [companyId, employeeNo],
+    );
+    if (byEmployeeNo) {
+      return byEmployeeNo;
+    }
+
+    const [byEmail] = await em.query<
+      { employeeId: number | null; companyUserId: number | null; userId: number | null }[]
+    >(
+      `SELECT
+         e.id AS "employeeId",
+         cu.id AS "companyUserId",
+         cu.user_id AS "userId"
+       FROM company_users cu
+       JOIN users u ON u.id = cu.user_id
+       LEFT JOIN employees e ON e.company_user_id = cu.id
+       WHERE cu.company_id = $1
+         AND LOWER(u.email) = LOWER($2)
+       LIMIT 1`,
+      [companyId, email],
+    );
+
+    return byEmail ?? null;
+  }
+
+  private async updateUserSafeFields(
+    em: DataSource['manager'],
+    userId: number,
+    profile: {
+      firstName: string;
+      lastName: string;
+      phone: string;
+    },
+  ): Promise<boolean> {
+    const [user] = await em.query<
+      {
+        firstName: string | null;
+        lastName: string | null;
+        phone: string | null;
+      }[]
+    >(
+      `SELECT
+         first_name AS "firstName",
+         last_name AS "lastName",
+         phone
+       FROM users
+       WHERE id = $1
+       LIMIT 1`,
+      [userId],
+    );
+
+    if (!user) {
+      return false;
+    }
+
+    const nextFirstName =
+      this.toNullableString(user.firstName) ?? profile.firstName;
+    const nextLastName = this.toNullableString(user.lastName) ?? profile.lastName;
+    const nextPhone = this.toNullableString(user.phone) ?? profile.phone;
+
+    const changed =
+      nextFirstName !== this.toNullableString(user.firstName) ||
+      nextLastName !== this.toNullableString(user.lastName) ||
+      nextPhone !== this.toNullableString(user.phone);
+
+    if (!changed) {
+      return false;
+    }
+
+    await em.query(
+      `UPDATE users
+       SET first_name = $2,
+           last_name = $3,
+           phone = $4
+       WHERE id = $1`,
+      [userId, nextFirstName, nextLastName, nextPhone],
+    );
+
+    return true;
+  }
+
+  private async updateEmployeeSafeFields(
+    em: DataSource['manager'],
+    employeeId: number,
+    employeeNo: string,
+    profile: {
+      firstName: string;
+      lastName: string;
+    },
+    deviceId: number,
+    deptId: number | null,
+  ): Promise<boolean> {
+    const [employee] = await em.query<
+      {
+        employeeNo: string | null;
+        firstName: string | null;
+        lastName: string | null;
+        primaryDepartmentId: number | null;
+        metadata: Record<string, unknown> | null;
+      }[]
+    >(
+      `SELECT
+         employee_no AS "employeeNo",
+         first_name AS "firstName",
+         last_name AS "lastName",
+         primary_department_id AS "primaryDepartmentId",
+         metadata
+       FROM employees
+       WHERE id = $1
+       LIMIT 1`,
+      [employeeId],
+    );
+
+    if (!employee) {
+      return false;
+    }
+
+    const nextEmployeeNo =
+      this.toNullableString(employee.employeeNo) ?? employeeNo;
+    const nextFirstName =
+      this.toNullableString(employee.firstName) ?? profile.firstName;
+    const nextLastName =
+      this.toNullableString(employee.lastName) ?? profile.lastName;
+    const nextDepartmentId = employee.primaryDepartmentId ?? deptId;
+    const nextMetadata = {
+      ...(this.toObject(employee.metadata) ?? {}),
+      seeded: true,
+      source: 'hikvision-seed-preview',
+      deviceId,
+    };
+
+    const changed =
+      nextEmployeeNo !== this.toNullableString(employee.employeeNo) ||
+      nextFirstName !== this.toNullableString(employee.firstName) ||
+      nextLastName !== this.toNullableString(employee.lastName) ||
+      nextDepartmentId !== employee.primaryDepartmentId ||
+      JSON.stringify(nextMetadata) !== JSON.stringify(employee.metadata ?? null);
+
+    if (!changed) {
+      return false;
+    }
+
+    await em.query(
+      `UPDATE employees
+       SET employee_no = $2,
+           first_name = $3,
+           last_name = $4,
+           primary_department_id = $5,
+           metadata = $6
+       WHERE id = $1`,
+      [
+        employeeId,
+        nextEmployeeNo,
+        nextFirstName,
+        nextLastName,
+        nextDepartmentId,
+        JSON.stringify(nextMetadata),
+      ],
+    );
+
+    return true;
   }
 
   private async writeGeneratedFile(
