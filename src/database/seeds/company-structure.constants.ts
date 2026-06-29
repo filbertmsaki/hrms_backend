@@ -596,7 +596,7 @@ const ALLIANCE_HIKVISION_EMPLOYEES: AllianceHikvisionEmployeeInput[] = [
   { hikvisionEmployeeNo: '00000118', fullName: 'Hatibu Juma Nara' },
   { hikvisionEmployeeNo: '00000119', fullName: 'Abdallah Karama Abdallah' },
   { hikvisionEmployeeNo: '00000120', fullName: 'Poonam Chotai' },
-  { hikvisionEmployeeNo: '00000125', fullName: 'Preenal Asher' }
+  { hikvisionEmployeeNo: '00000125', fullName: 'Preenal Asher' },
   {
     hikvisionEmployeeNo: '00000108',
     fullName: 'Ravi Kumar',
@@ -885,7 +885,6 @@ function buildAllianceEmployeeAssignments(): Record<
   assign('00000038', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000039', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000041', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
-  assign('00000042', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000043', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000044', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000045', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
@@ -894,7 +893,6 @@ function buildAllianceEmployeeAssignments(): Record<
   assign('00000048', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000049', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000050', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
-  assign('00000051', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000052', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000053', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000054', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
@@ -914,24 +912,19 @@ function buildAllianceEmployeeAssignments(): Record<
   assign('00000069', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000070', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000071', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
-  assign('00000072', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000073', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000074', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000076', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000077', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
-  assign('00000078', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000079', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000080', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000081', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000082', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000083', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000084', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
-  assign('00000085', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000087', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000088', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
-  assign('00000089', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000091', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
-  assign('00000093', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000096', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000097', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000098', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
@@ -954,9 +947,6 @@ function buildAllianceEmployeeAssignments(): Record<
   assign('00000119', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000120', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
   assign('00000125', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
-  assign('00000234', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
-  assign('1', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
-  assign('4', 'CLAIMS', 'CLAIMS_OFFICER', '00000003');
 
   const allEmployeeNos = new Set(
     ALLIANCE_HIKVISION_EMPLOYEES.map(
