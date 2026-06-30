@@ -27,6 +27,7 @@ import { CreateOnboardingWorkflowDto } from './dtos/create-onboarding-workflow.d
 import { OnboardingApprovalActionDto } from './dtos/onboarding-approval-action.dto';
 import { OnboardingRequestQueryDto } from './dtos/onboarding-request-query.dto';
 import { OnboardingWorkflowQueryDto } from './dtos/onboarding-workflow-query.dto';
+import { ReassignOnboardingTaskDto } from './dtos/reassign-onboarding-task.dto';
 import { RejectOnboardingDto } from './dtos/reject-onboarding.dto';
 import { UpdateOnboardingRequestDto } from './dtos/update-onboarding-request.dto';
 import { UpdateOnboardingWorkflowStepDto } from './dtos/update-onboarding-workflow-step.dto';
@@ -353,6 +354,42 @@ export class OnboardingController {
       documentId,
       req.user,
     );
+  }
+
+  @Get('requests/:id/tasks')
+  @UseGuards(PermissionsGuard)
+  @Permissions('onboarding_tasks:read')
+  @ApiOperation({ summary: 'List tasks for an onboarding request' })
+  listTasks(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.onboardingService.findAllTasks(req.user.companyId!, id, req.user);
+  }
+
+  @Get('requests/:id/tasks/:taskId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('onboarding_tasks:read')
+  @ApiOperation({ summary: 'Get a single onboarding task' })
+  getTask(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('taskId', ParseIntPipe) taskId: number,
+  ) {
+    return this.onboardingService.findOneTask(req.user.companyId!, id, taskId, req.user);
+  }
+
+  @Patch('requests/:id/tasks/:taskId/assign')
+  @UseGuards(PermissionsGuard)
+  @Permissions('onboarding_tasks:update')
+  @ApiOperation({ summary: 'Reassign an onboarding task' })
+  reassignTask(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('taskId', ParseIntPipe) taskId: number,
+    @Body() dto: ReassignOnboardingTaskDto,
+  ) {
+    return this.onboardingService.reassignTask(req.user.companyId!, id, taskId, dto, req.user);
   }
 
   @Post('requests/:id/tasks')

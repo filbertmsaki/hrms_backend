@@ -28,6 +28,7 @@ import { OnboardingTask } from './entities/onboarding-task.entity';
 import { OnboardingWorkflowStep } from './entities/onboarding-workflow-step.entity';
 import { OnboardingWorkflow } from './entities/onboarding-workflow.entity';
 import { OnboardingAuditService } from './services/onboarding-audit.service';
+import { OnboardingCronService } from './services/onboarding-cron.service';
 import { OnboardingWorkflowService } from './services/onboarding-workflow.service';
 
 @Module({
@@ -65,6 +66,7 @@ import { OnboardingWorkflowService } from './services/onboarding-workflow.servic
     OnboardingService,
     OnboardingAuditService,
     OnboardingWorkflowService,
+    OnboardingCronService,
   ],
   exports: [OnboardingService, TypeOrmModule],
 })

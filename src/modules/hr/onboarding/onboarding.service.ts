@@ -2491,11 +2491,11 @@ export class OnboardingService {
     );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
-    if (
-      request.status === OnboardingRequestStatusEnum.CANCELLED ||
-      request.status === OnboardingRequestStatusEnum.COMPLETED
-    ) {
+    if (request.status === OnboardingRequestStatusEnum.CANCELLED) {
       throw new BadRequestException('Onboarding request is already closed');
+    }
+    if (request.status === OnboardingRequestStatusEnum.COMPLETED) {
+      return { message: 'Onboarding already completed', data: null };
     }
 
     const hasOpenTasks = request.tasks.some(
@@ -2813,6 +2813,101 @@ export class OnboardingService {
     return this.mapTask(updated);
   }
 
+  async findAllTasks(
+    companyId: number,
+    onboardingRequestId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
+    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+
+    const tasks = await this.onboardingTaskRepository.find({
+      where: { onboarding_request_id: onboardingRequestId },
+      relations: {
+        assigned_department: true,
+        assigned_company_user: { user: true },
+        completed_by_company_user: { user: true },
+      },
+      order: { task_no: 'ASC' },
+    });
+
+    return tasks.map((t) => this.mapTask(t));
+  }
+
+  async findOneTask(
+    companyId: number,
+    onboardingRequestId: number,
+    taskId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
+    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+
+    const task = await this.onboardingTaskRepository.findOne({
+      where: { id: taskId, onboarding_request_id: onboardingRequestId },
+      relations: {
+        assigned_department: true,
+        assigned_company_user: { user: true },
+        completed_by_company_user: { user: true },
+      },
+    });
+    if (!task) throw new NotFoundException('Task not found');
+
+    return this.mapTask(task);
+  }
+
+  async reassignTask(
+    companyId: number,
+    onboardingRequestId: number,
+    taskId: number,
+    dto: { assigned_company_user_id?: number; assigned_department_id?: number; due_date?: string },
+    actor: AuthenticatedUser,
+  ) {
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
+    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+
+    const task = await this.onboardingTaskRepository.findOneOrFail({
+      where: { id: taskId, onboarding_request_id: onboardingRequestId },
+    });
+
+    if (dto.assigned_company_user_id !== undefined) {
+      task.assigned_company_user_id = dto.assigned_company_user_id;
+    }
+    if (dto.assigned_department_id !== undefined) {
+      task.assigned_department_id = dto.assigned_department_id;
+    }
+    if (dto.due_date !== undefined) {
+      task.due_date = dto.due_date ? new Date(dto.due_date) : null;
+    }
+
+    const updated = await this.onboardingTaskRepository.save(task);
+
+    await this.onboardingAuditService.log({
+      company_id: companyId,
+      onboarding_request_id: onboardingRequestId,
+      action: 'onboarding_task.reassigned',
+      entity_name: 'onboarding_task',
+      entity_id: taskId,
+      actor,
+      payload: {
+        assigned_company_user_id: updated.assigned_company_user_id,
+        assigned_department_id: updated.assigned_department_id,
+        due_date: updated.due_date,
+      },
+    });
+
+    return this.mapTask(updated);
+  }
+
   async applyApprovalAction(
     companyId: number,
     onboardingRequestId: number,
@@ -2874,6 +2969,21 @@ export class OnboardingService {
         entity_id: updated.id,
       },
     });
+
+    // Auto-complete when all approvals and tasks are done
+    if (dto.approve) {
+      const allApprovalsFinalised = updated.approvals.every(
+        (a) => a.status !== OnboardingApprovalStatusEnum.PENDING,
+      );
+      const allTasksDone = updated.tasks.every(
+        (t) =>
+          t.status === OnboardingTaskStatusEnum.COMPLETED ||
+          t.status === OnboardingTaskStatusEnum.CANCELLED,
+      );
+      if (allApprovalsFinalised && allTasksDone) {
+        await this.completeOnboarding(companyId, onboardingRequestId, actor);
+      }
+    }
 
     return this.mapRequest(updated, documents);
   }

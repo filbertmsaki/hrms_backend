@@ -63,3 +63,28 @@ export class OnboardingCompletedEvent {
     public readonly dashboardUrl: string,
   ) {}
 }
+
+export class OnboardingTaskOverdueEvent {
+  static readonly EVENT = 'hr.onboarding.task_overdue';
+  constructor(
+    public readonly companyId: number,
+    public readonly onboardingRequestId: number,
+    public readonly taskId: number,
+    public readonly taskTitle: string,
+    public readonly employeeName: string,
+    public readonly assignedCompanyUserId: number | null,
+    public readonly dueDate: Date,
+  ) {}
+}
+
+export class OnboardingApprovalReminderEvent {
+  static readonly EVENT = 'hr.onboarding.approval_reminder';
+  constructor(
+    public readonly companyId: number,
+    public readonly onboardingRequestId: number,
+    public readonly approvalId: number,
+    public readonly approvalLevel: number,
+    public readonly employeeName: string,
+    public readonly approverCompanyUserIds: number[],
+  ) {}
+}
