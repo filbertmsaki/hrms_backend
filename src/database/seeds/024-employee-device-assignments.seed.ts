@@ -80,19 +80,22 @@ export default class EmployeeDeviceAssignmentsSeeder implements Seeder {
           where: { employeeId: employee.id, deviceId: device.id },
         });
 
+        const hikvisionNo = employee.metadata?.hikvisionNo as string | undefined;
+        if (!hikvisionNo) continue;
+
         if (!existing) {
           const fullName = user
             ? `${user.first_name} ${user.last_name}`.trim()
-            : null;
+            : undefined;
 
           await assignmentRepo.save(
             assignmentRepo.create({
               companyId: company.id,
               employeeId: employee.id,
-              employeeNo: employee.employee_no,
+              employeeNo: hikvisionNo,
               employeeName: fullName,
               deviceId: device.id,
-              organizationId: org?.id ?? null,
+              organizationId: org?.id ?? undefined,
               hikvisionUserType: 'normal',
               userVerifyMode: 'faceOrCardOrFp',
               validEnabled: true,

@@ -1031,12 +1031,6 @@ function buildAllianceEmployeeAssignments(): Record<
     ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
   );
   assign(
-    '00000035',
-    'CLAIMS',
-    'CLAIMS_OFFICER',
-    ALLIANCE_CLAIMS_MANAGER_HIKVISION_EMPLOYEE_NO,
-  );
-  assign(
     '00000036',
     'CLAIMS',
     'CLAIMS_OFFICER',

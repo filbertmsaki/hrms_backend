@@ -66,8 +66,8 @@ const seeders = [
   DepartmentsSeeder,
   DesignationsSeeder,
   PositionsSeeder,
-  EmployeesSeeder,
-  EmployeeProfilesSeeder,
+  // EmployeesSeeder,         // legacy Hikvision bulk import — replaced by per-dept seeders
+  // EmployeeProfilesSeeder, // depends on EmployeesSeeder
   ExecEmployeesSeeder,
   HrEmployeesSeeder,
   ItEmployeesSeeder,

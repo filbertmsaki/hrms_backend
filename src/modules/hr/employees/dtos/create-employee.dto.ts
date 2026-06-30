@@ -25,9 +25,10 @@ import { EmploymentTypeEnum } from '../enums/employment-type.enum';
 import { EmployeeOnboardingInputDto } from '../../onboarding/dtos/employee-onboarding-input.dto';
 
 export class CreateEmployeeDto {
+  @ApiPropertyOptional({ description: 'Leave blank to auto-generate (AICL-XXXXXX)' })
   @IsString()
-  @IsNotEmpty()
-  employee_no: string;
+  @IsOptional()
+  employee_no?: string;
 
   @IsString()
   @IsNotEmpty()

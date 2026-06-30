@@ -1017,6 +1017,23 @@ export class EmployeesService {
     return employee;
   }
 
+  private async generateNextEmployeeNo(
+    companyId: number,
+    manager?: EntityManager,
+  ): Promise<string> {
+    const result = await this.getEmployeeRepository(manager)
+      .createQueryBuilder('employee')
+      .innerJoin('employee.company_user', 'membership')
+      .where('membership.company_id = :companyId', { companyId })
+      .andWhere("employee.employee_no REGEXP '^[0-9]+$'")
+      .select('MAX(CAST(employee.employee_no AS UNSIGNED))', 'max')
+      .getRawOne<{ max: number | null }>();
+
+    const nextSeq = result?.max ? result.max + 1 : 1;
+
+    return String(nextSeq).padStart(6, '0');
+  }
+
   private async assertUniqueEmployeeNumber(
     companyId: number,
     employeeNo: string,
@@ -2445,16 +2462,20 @@ export class EmployeesService {
         );
       }
 
+      const employeeNo =
+        createEmployeeDto.employee_no ||
+        (await this.generateNextEmployeeNo(companyId, manager));
+
       await this.assertUniqueEmployeeNumber(
         companyId,
-        createEmployeeDto.employee_no,
+        employeeNo,
         undefined,
         manager,
       );
 
       const employee = this.getEmployeeRepository(manager).create({
         company_user_id: membership.id,
-        employee_no: createEmployeeDto.employee_no,
+        employee_no: employeeNo,
         first_name: createEmployeeDto.first_name,
         last_name: createEmployeeDto.last_name,
         employment_status:
