@@ -10,28 +10,17 @@ import {
   Unique,
 } from 'typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
-import { Branch } from '../../branches/entities/branch.entity';
 import { Role } from '../../../roles/entities/role.entity';
-import { Department } from '../../departments/entities/department.entity';
-import { Position } from '../../positions/entities/position.entity';
-import { OnboardingApprovalActionTypeEnum } from '../enums/onboarding-approval-action-type.enum';
-import { OnboardingApproverTypeEnum } from '../enums/onboarding-approver-type.enum';
-import { OnboardingTaskTypeEnum } from '../enums/onboarding-task-type.enum';
+import { OnboardingStepTypeEnum } from '../enums/onboarding-step-type.enum';
 import { OnboardingApproval } from './onboarding-approval.entity';
 import { OnboardingTask } from './onboarding-task.entity';
 import { OnboardingWorkflow } from './onboarding-workflow.entity';
 
 @Entity('onboarding_workflow_steps')
-@Unique('UQ_onboarding_workflow_step_workflow_level', [
-  'workflow_id',
-  'approval_level',
-])
+@Unique('UQ_onboarding_workflow_step_workflow_order', ['workflow_id', 'step_order'])
 @Index('IDX_onboarding_workflow_step_workflow', ['workflow_id'])
-@Index('IDX_onboarding_workflow_step_role', ['role_id'])
-@Index('IDX_onboarding_workflow_step_position', ['position_id'])
-@Index('IDX_onboarding_workflow_step_company_user', ['company_user_id'])
-@Index('IDX_onboarding_workflow_step_branch', ['assigned_branch_id'])
-@Index('IDX_onboarding_workflow_step_department', ['assigned_department_id'])
+@Index('IDX_onboarding_workflow_step_role', ['assigned_role_id'])
+@Index('IDX_onboarding_workflow_step_user', ['assigned_user_id'])
 export class OnboardingWorkflowStep {
   @PrimaryGeneratedColumn()
   id: number;
@@ -40,56 +29,32 @@ export class OnboardingWorkflowStep {
   workflow_id: number;
 
   @Column({ type: 'int' })
-  approval_level: number;
+  step_order: number;
 
   @Column({ type: 'varchar', length: 120 })
-  step_name: string;
-
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  task_title: string | null;
+  name: string;
 
   @Column({ type: 'text', nullable: true })
-  task_description: string | null;
+  description: string | null;
 
   @Column({
     type: 'enum',
-    enum: OnboardingTaskTypeEnum,
-    default: OnboardingTaskTypeEnum.GENERAL,
+    enum: OnboardingStepTypeEnum,
+    default: OnboardingStepTypeEnum.TASK,
   })
-  task_type: OnboardingTaskTypeEnum;
+  step_type: OnboardingStepTypeEnum;
 
   @Column({ type: 'int', nullable: true })
-  assigned_branch_id: number | null;
+  assigned_role_id: number | null;
 
   @Column({ type: 'int', nullable: true })
-  assigned_department_id: number | null;
-
-  @Column({
-    type: 'enum',
-    enum: OnboardingApproverTypeEnum,
-  })
-  approver_type: OnboardingApproverTypeEnum;
-
-  @Column({ type: 'int', nullable: true })
-  role_id: number | null;
-
-  @Column({ type: 'int', nullable: true })
-  position_id: number | null;
-
-  @Column({ type: 'int', nullable: true })
-  company_user_id: number | null;
-
-  @Column({
-    type: 'enum',
-    enum: OnboardingApprovalActionTypeEnum,
-  })
-  action_type: OnboardingApprovalActionTypeEnum;
+  assigned_user_id: number | null;
 
   @Column({ default: true })
   is_required: boolean;
 
   @Column({ type: 'int', nullable: true })
-  expected_duration_days: number | null;
+  due_days: number | null;
 
   @CreateDateColumn()
   created_at: Date;
@@ -100,25 +65,13 @@ export class OnboardingWorkflowStep {
   @JoinColumn({ name: 'workflow_id' })
   workflow: OnboardingWorkflow;
 
-  @ManyToOne(() => Department, { onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'assigned_department_id' })
-  assigned_department: Department | null;
-
-  @ManyToOne(() => Branch, { onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'assigned_branch_id' })
-  assigned_branch: Branch | null;
-
   @ManyToOne(() => Role, { onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'role_id' })
-  role: Role | null;
-
-  @ManyToOne(() => Position, { onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'position_id' })
-  position: Position | null;
+  @JoinColumn({ name: 'assigned_role_id' })
+  assigned_role: Role | null;
 
   @ManyToOne(() => CompanyUser, { onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'company_user_id' })
-  company_user: CompanyUser | null;
+  @JoinColumn({ name: 'assigned_user_id' })
+  assigned_user: CompanyUser | null;
 
   @OneToMany(() => OnboardingApproval, (approval) => approval.workflow_step)
   onboarding_approvals: OnboardingApproval[];

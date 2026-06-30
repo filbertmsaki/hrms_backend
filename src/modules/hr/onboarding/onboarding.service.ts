@@ -29,7 +29,6 @@ import { LeaveRecordStatusEnum } from '../leave/enums/leave-record-status.enum';
 import { LeaveBalanceService } from '../leave/services/leave-balance.service';
 import { EmployeeDeviceAssignmentsService } from '../../access-control/employee-device-assignments/service/employee-device-assignments.service';
 import { EmployeeDeviceAssignment } from '../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
-import { Position } from '../positions/entities/position.entity';
 import { HrAccessService } from '../shared/hr-access.service';
 import { buildPaginationMeta, formatDateOnly } from '../shared/hr.utils';
 import { CancelOnboardingRequestDto } from './dtos/cancel-onboarding-request.dto';
@@ -50,7 +49,7 @@ import { UploadDocumentDto } from './dtos/upload-document.dto';
 import { VerifyDocumentDto } from './dtos/verify-document.dto';
 import { OnboardingApprovalStatusEnum } from './enums/onboarding-approval-status.enum';
 import { OnboardingAttendanceModeEnum } from './enums/onboarding-attendance-mode.enum';
-import { OnboardingApproverTypeEnum } from './enums/onboarding-approver-type.enum';
+import { OnboardingStepTypeEnum } from './enums/onboarding-step-type.enum';
 import { OnboardingRecordStatusEnum } from './enums/onboarding-record-status.enum';
 import { OnboardingRequestStatusEnum } from './enums/onboarding-request-status.enum';
 import { OnboardingTaskStatusEnum } from './enums/onboarding-task-status.enum';
@@ -139,8 +138,6 @@ export class OnboardingService {
     private readonly employeeRepository: Repository<Employee>,
     @InjectRepository(Department)
     private readonly departmentRepository: Repository<Department>,
-    @InjectRepository(Position)
-    private readonly positionRepository: Repository<Position>,
     @InjectRepository(Branch)
     private readonly branchRepository: Repository<Branch>,
     @InjectRepository(CompanyUser)
@@ -220,10 +217,6 @@ export class OnboardingService {
     manager?: EntityManager,
   ): Repository<Department> {
     return manager?.getRepository(Department) ?? this.departmentRepository;
-  }
-
-  private getPositionRepository(manager?: EntityManager): Repository<Position> {
-    return manager?.getRepository(Position) ?? this.positionRepository;
   }
 
   private getBranchRepository(manager?: EntityManager): Repository<Branch> {
@@ -879,186 +872,40 @@ export class OnboardingService {
     return `TASK-${onboardingRequestId}-${String(total + 1).padStart(3, '0')}`;
   }
 
-  private validateWorkflowStepOrder(
-    steps: OnboardingWorkflowStepInputDto[],
-  ): void {
-    if (!steps.length) {
-      throw new BadRequestException('Workflow must include at least one step');
-    }
-
-    const levels = steps
-      .map((step) => step.approval_level)
-      .sort((a, b) => a - b);
-    const uniqueLevels = new Set(levels);
-    if (uniqueLevels.size !== levels.length) {
-      throw new BadRequestException('Workflow approval levels must be unique');
-    }
-
-    for (let index = 0; index < levels.length; index += 1) {
-      if (levels[index] !== index + 1) {
-        throw new BadRequestException(
-          'Workflow approval levels must be sequential starting at 1',
-        );
-      }
-    }
-  }
-
   private async validateWorkflowStepReferences(
     companyId: number,
     steps: OnboardingWorkflowStepInputDto[],
     manager?: EntityManager,
   ): Promise<void> {
-    const branchIds = steps
-      .map((step) => step.assigned_branch_id)
-      .filter((value): value is number => typeof value === 'number');
-    const departmentIds = steps
-      .map((step) => step.assigned_department_id)
-      .filter((value): value is number => typeof value === 'number');
-    const positionIds = steps
-      .map((step) => step.position_id)
-      .filter((value): value is number => typeof value === 'number');
-    const companyUserIds = steps
-      .map((step) => step.company_user_id)
-      .filter((value): value is number => typeof value === 'number');
+    const userIds = steps
+      .map((s) => s.assigned_user_id)
+      .filter((v): v is number => typeof v === 'number');
     const roleIds = steps
-      .map((step) => step.role_id)
-      .filter((value): value is number => typeof value === 'number');
+      .map((s) => s.assigned_role_id)
+      .filter((v): v is number => typeof v === 'number');
 
-    if (branchIds.length) {
-      const branches = await this.getBranchRepository(manager).count({
-        where: {
-          id: In([...new Set(branchIds)]),
-          company_id: companyId,
-        },
+    if (userIds.length) {
+      const count = await this.getCompanyUserRepository(manager).count({
+        where: { id: In([...new Set(userIds)]), company_id: companyId },
       });
-      if (branches !== new Set(branchIds).size) {
-        throw new BadRequestException(
-          'One or more assigned branches are invalid',
-        );
-      }
-    }
-
-    if (departmentIds.length) {
-      const departments = await this.getDepartmentRepository(manager).count({
-        where: {
-          id: In([...new Set(departmentIds)]),
-          company_id: companyId,
-        },
-      });
-      if (departments !== new Set(departmentIds).size) {
-        throw new BadRequestException(
-          'One or more assigned departments are invalid',
-        );
-      }
-    }
-
-    if (positionIds.length) {
-      const positions = await this.getPositionRepository(manager).count({
-        where: {
-          id: In([...new Set(positionIds)]),
-          company_id: companyId,
-        },
-      });
-      if (positions !== new Set(positionIds).size) {
-        throw new BadRequestException('One or more positions are invalid');
-      }
-    }
-
-    if (companyUserIds.length) {
-      const memberships = await this.getCompanyUserRepository(manager).count({
-        where: {
-          id: In([...new Set(companyUserIds)]),
-          company_id: companyId,
-        },
-      });
-      if (memberships !== new Set(companyUserIds).size) {
-        throw new BadRequestException(
-          'One or more company user assignments are invalid',
-        );
+      if (count !== new Set(userIds).size) {
+        throw new BadRequestException('One or more assigned users are invalid');
       }
     }
 
     if (roleIds.length) {
-      const roles = await this.getRoleRepository(manager).count({
-        where: {
-          id: In([...new Set(roleIds)]),
-        },
+      const count = await this.getRoleRepository(manager).count({
+        where: { id: In([...new Set(roleIds)]) },
       });
-      if (roles !== new Set(roleIds).size) {
-        throw new BadRequestException('One or more roles are invalid');
+      if (count !== new Set(roleIds).size) {
+        throw new BadRequestException('One or more assigned roles are invalid');
       }
     }
 
     for (const step of steps) {
-      if (step.assigned_branch_id && step.assigned_department_id) {
-        const department = await this.getDepartmentRepository(manager).findOne({
-          where: {
-            id: step.assigned_department_id,
-            company_id: companyId,
-          },
-        });
-
-        if (
-          department?.branch_id &&
-          department.branch_id !== step.assigned_branch_id
-        ) {
-          throw new BadRequestException(
-            `Department ${step.assigned_department_id} does not belong to branch ${step.assigned_branch_id}`,
-          );
-        }
-      }
-
-      if (step.position_id) {
-        const position = await this.getPositionRepository(manager).findOne({
-          where: {
-            id: step.position_id,
-            company_id: companyId,
-          },
-        });
-
-        if (
-          position?.branch_id &&
-          step.assigned_branch_id &&
-          position.branch_id !== step.assigned_branch_id
-        ) {
-          throw new BadRequestException(
-            `Position ${step.position_id} does not belong to branch ${step.assigned_branch_id}`,
-          );
-        }
-
-        if (
-          position?.department_id &&
-          step.assigned_department_id &&
-          position.department_id !== step.assigned_department_id
-        ) {
-          throw new BadRequestException(
-            `Position ${step.position_id} does not belong to department ${step.assigned_department_id}`,
-          );
-        }
-      }
-
-      if (
-        step.approver_type === OnboardingApproverTypeEnum.ROLE &&
-        !step.role_id
-      ) {
+      if (!step.assigned_role_id && !step.assigned_user_id) {
         throw new BadRequestException(
-          'role_id is required for role approver type',
-        );
-      }
-      if (
-        step.approver_type === OnboardingApproverTypeEnum.POSITION &&
-        !step.position_id
-      ) {
-        throw new BadRequestException(
-          'position_id is required for position approver type',
-        );
-      }
-      if (
-        step.approver_type === OnboardingApproverTypeEnum.COMPANY_USER &&
-        !step.company_user_id
-      ) {
-        throw new BadRequestException(
-          'company_user_id is required for company_user approver type',
+          `Step "${step.name}" must have either assigned_role_id or assigned_user_id`,
         );
       }
     }
@@ -1082,20 +929,14 @@ export class OnboardingService {
     return {
       id: entity.id,
       workflow_id: entity.workflow_id,
-      approval_level: entity.approval_level,
-      step_name: entity.step_name,
-      task_title: entity.task_title,
-      task_description: entity.task_description,
-      task_type: entity.task_type,
-      assigned_branch_id: entity.assigned_branch_id,
-      assigned_department_id: entity.assigned_department_id,
-      approver_type: entity.approver_type,
-      role_id: entity.role_id,
-      position_id: entity.position_id,
-      company_user_id: entity.company_user_id,
-      action_type: entity.action_type,
+      step_order: entity.step_order,
+      name: entity.name,
+      description: entity.description,
+      step_type: entity.step_type,
+      assigned_role_id: entity.assigned_role_id,
+      assigned_user_id: entity.assigned_user_id,
       is_required: entity.is_required,
-      expected_duration_days: entity.expected_duration_days,
+      due_days: entity.due_days,
       created_at: entity.created_at,
     };
   }
@@ -1116,7 +957,7 @@ export class OnboardingService {
       },
       order: {
         steps: {
-          approval_level: 'ASC',
+          step_order: 'ASC',
           id: 'ASC',
         },
       },
@@ -1149,39 +990,20 @@ export class OnboardingService {
     return step;
   }
 
-  private async shiftWorkflowStepLevelsUp(
-    workflowId: number,
-    fromLevel: number,
-    manager?: EntityManager,
-  ): Promise<void> {
-    const repository = this.getOnboardingWorkflowStepRepository(manager);
-    const candidates = await repository.find({
-      where: { workflow_id: workflowId },
-      order: { approval_level: 'DESC', id: 'DESC' },
-    });
-
-    for (const candidate of candidates) {
-      if (candidate.approval_level >= fromLevel) {
-        candidate.approval_level += 1;
-        await repository.save(candidate);
-      }
-    }
-  }
-
   private async shiftWorkflowStepLevelsDown(
     workflowId: number,
-    fromLevel: number,
+    fromOrder: number,
     manager?: EntityManager,
   ): Promise<void> {
     const repository = this.getOnboardingWorkflowStepRepository(manager);
     const candidates = await repository.find({
       where: { workflow_id: workflowId },
-      order: { approval_level: 'ASC', id: 'ASC' },
+      order: { step_order: 'ASC', id: 'ASC' },
     });
 
     for (const candidate of candidates) {
-      if (candidate.approval_level > fromLevel) {
-        candidate.approval_level -= 1;
+      if (candidate.step_order > fromOrder) {
+        candidate.step_order -= 1;
         await repository.save(candidate);
       }
     }
@@ -1190,32 +1012,30 @@ export class OnboardingService {
   private async moveWorkflowStepLevel(
     workflowId: number,
     stepId: number,
-    currentLevel: number,
-    targetLevel: number,
+    currentOrder: number,
+    targetOrder: number,
     manager?: EntityManager,
   ): Promise<void> {
-    if (currentLevel === targetLevel) {
-      return;
-    }
+    if (currentOrder === targetOrder) return;
 
     const repository = this.getOnboardingWorkflowStepRepository(manager);
     const allSteps = await repository.find({
       where: { workflow_id: workflowId },
-      order: { approval_level: 'ASC', id: 'ASC' },
+      order: { step_order: 'ASC', id: 'ASC' },
     });
 
-    if (targetLevel > currentLevel) {
+    if (targetOrder > currentOrder) {
       const range = allSteps
         .filter(
           (step) =>
             step.id !== stepId &&
-            step.approval_level > currentLevel &&
-            step.approval_level <= targetLevel,
+            step.step_order > currentOrder &&
+            step.step_order <= targetOrder,
         )
-        .sort((left, right) => left.approval_level - right.approval_level);
+        .sort((l, r) => l.step_order - r.step_order);
 
       for (const candidate of range) {
-        candidate.approval_level -= 1;
+        candidate.step_order -= 1;
         await repository.save(candidate);
       }
       return;
@@ -1225,13 +1045,13 @@ export class OnboardingService {
       .filter(
         (step) =>
           step.id !== stepId &&
-          step.approval_level >= targetLevel &&
-          step.approval_level < currentLevel,
+          step.step_order >= targetOrder &&
+          step.step_order < currentOrder,
       )
-      .sort((left, right) => right.approval_level - left.approval_level);
+      .sort((l, r) => r.step_order - l.step_order);
 
     for (const candidate of range) {
-      candidate.approval_level += 1;
+      candidate.step_order += 1;
       await repository.save(candidate);
     }
   }
@@ -1241,29 +1061,15 @@ export class OnboardingService {
     dto: UpdateOnboardingWorkflowStepDto,
   ): OnboardingWorkflowStepInputDto {
     return {
-      approval_level: dto.approval_level ?? existingStep.approval_level,
-      step_name: dto.step_name ?? existingStep.step_name,
-      task_title: dto.task_title ?? existingStep.task_title ?? undefined,
-      task_description:
-        dto.task_description ?? existingStep.task_description ?? undefined,
-      task_type: dto.task_type ?? existingStep.task_type,
-      assigned_branch_id:
-        dto.assigned_branch_id ?? existingStep.assigned_branch_id ?? undefined,
-      assigned_department_id:
-        dto.assigned_department_id ??
-        existingStep.assigned_department_id ??
-        undefined,
-      approver_type: dto.approver_type ?? existingStep.approver_type,
-      role_id: dto.role_id ?? existingStep.role_id ?? undefined,
-      position_id: dto.position_id ?? existingStep.position_id ?? undefined,
-      company_user_id:
-        dto.company_user_id ?? existingStep.company_user_id ?? undefined,
-      action_type: dto.action_type ?? existingStep.action_type,
+      name: dto.name ?? existingStep.name,
+      description: dto.description ?? existingStep.description ?? undefined,
+      step_type: dto.step_type ?? existingStep.step_type,
+      assigned_role_id:
+        dto.assigned_role_id ?? existingStep.assigned_role_id ?? undefined,
+      assigned_user_id:
+        dto.assigned_user_id ?? existingStep.assigned_user_id ?? undefined,
       is_required: dto.is_required ?? existingStep.is_required,
-      expected_duration_days:
-        dto.expected_duration_days ??
-        existingStep.expected_duration_days ??
-        undefined,
+      due_days: dto.due_days ?? existingStep.due_days ?? undefined,
     };
   }
 
@@ -1309,8 +1115,8 @@ export class OnboardingService {
       workflow_step: entity.workflow_step
         ? {
             id: entity.workflow_step.id,
-            step_name: entity.workflow_step.step_name,
-            action_type: entity.workflow_step.action_type,
+            name: entity.workflow_step.name,
+            step_type: entity.workflow_step.step_type,
           }
         : null,
     };
@@ -1483,36 +1289,32 @@ export class OnboardingService {
       'http://localhost:5173';
 
     for (const step of steps) {
+      if (step.step_type !== OnboardingStepTypeEnum.TASK) continue;
+
       const taskNo = await this.generateTaskNo(onboardingRequest.id, manager);
-      const dueDate = step.expected_duration_days
-        ? new Date(Date.now() + step.expected_duration_days * 86400000)
+      const dueDate = step.due_days
+        ? new Date(Date.now() + step.due_days * 86400000)
         : null;
-      const assignedCompanyUserId =
-        step.approver_type === OnboardingApproverTypeEnum.COMPANY_USER
-          ? step.company_user_id
-          : null;
 
       await taskRepository.save(
         taskRepository.create({
           onboarding_request_id: onboardingRequest.id,
           workflow_step_id: step.id,
           task_no: taskNo,
-          title: step.task_title ?? step.step_name,
-          description: step.task_description,
-          task_type: step.task_type ?? OnboardingTaskTypeEnum.GENERAL,
+          title: step.name,
+          description: step.description,
           status: OnboardingTaskStatusEnum.PENDING,
-          assigned_department_id: step.assigned_department_id,
-          assigned_company_user_id: assignedCompanyUserId,
+          assigned_company_user_id: step.assigned_user_id ?? null,
           due_date: dueDate,
           created_by_company_user_id: actor.companyMembershipId ?? null,
         }),
       );
 
-      if (assignedCompanyUserId) {
+      if (step.assigned_user_id) {
         const companyUser =
-          step.company_user ??
+          step.assigned_user ??
           (await this.companyUserRepository.findOne({
-            where: { id: assignedCompanyUserId },
+            where: { id: step.assigned_user_id },
             relations: { user: true },
           }));
         if (companyUser?.user?.email) {
@@ -1526,8 +1328,8 @@ export class OnboardingService {
               assigneeName,
               assignee.email,
               employeeName,
-              step.task_title ?? step.step_name,
-              step.task_description ?? null,
+              step.name,
+              step.description ?? null,
               dueDate,
               `${frontendUrl}/onboarding/${onboardingRequest.id}/tasks`,
             ),
@@ -1599,25 +1401,17 @@ export class OnboardingService {
       );
 
       await workflowStepRepository.save(
-        dto.steps.map((step) =>
+        dto.steps.map((step, index) =>
           workflowStepRepository.create({
             workflow_id: workflow.id,
-            approval_level: step.approval_level,
-            step_name: step.step_name.trim(),
-            task_title: this.normalizeOptionalString(step.task_title),
-            task_description: this.normalizeOptionalString(
-              step.task_description,
-            ),
-            task_type: step.task_type ?? OnboardingTaskTypeEnum.GENERAL,
-            assigned_branch_id: step.assigned_branch_id ?? null,
-            assigned_department_id: step.assigned_department_id ?? null,
-            approver_type: step.approver_type,
-            role_id: step.role_id ?? null,
-            position_id: step.position_id ?? null,
-            company_user_id: step.company_user_id ?? null,
-            action_type: step.action_type,
+            step_order: index + 1,
+            name: step.name.trim(),
+            description: this.normalizeOptionalString(step.description),
+            step_type: step.step_type,
+            assigned_role_id: step.assigned_role_id ?? null,
+            assigned_user_id: step.assigned_user_id ?? null,
             is_required: step.is_required ?? true,
-            expected_duration_days: step.expected_duration_days ?? null,
+            due_days: step.due_days ?? null,
           }),
         ),
       );
@@ -1685,7 +1479,7 @@ export class OnboardingService {
 
     const [items, total] = await qb
       .orderBy(`workflow.${safeSortBy}`, direction)
-      .addOrderBy('steps.approval_level', 'ASC')
+      .addOrderBy('steps.step_order', 'ASC')
       .skip(skip)
       .take(limit)
       .getManyAndCount();
@@ -1703,7 +1497,7 @@ export class OnboardingService {
         company_id: companyId,
       },
       relations: { steps: true },
-      order: { steps: { approval_level: 'ASC' } },
+      order: { steps: { step_order: 'ASC' } },
     });
 
     if (!workflow) {
@@ -1769,25 +1563,17 @@ export class OnboardingService {
       if (dto.steps) {
         await stepRepository.delete({ workflow_id: workflow.id });
         await stepRepository.save(
-          dto.steps.map((step) =>
+          dto.steps.map((step, index) =>
             stepRepository.create({
               workflow_id: workflow.id,
-              approval_level: step.approval_level,
-              step_name: step.step_name.trim(),
-              task_title: this.normalizeOptionalString(step.task_title),
-              task_description: this.normalizeOptionalString(
-                step.task_description,
-              ),
-              task_type: step.task_type ?? OnboardingTaskTypeEnum.GENERAL,
-              assigned_branch_id: step.assigned_branch_id ?? null,
-              assigned_department_id: step.assigned_department_id ?? null,
-              approver_type: step.approver_type,
-              role_id: step.role_id ?? null,
-              position_id: step.position_id ?? null,
-              company_user_id: step.company_user_id ?? null,
-              action_type: step.action_type,
+              step_order: index + 1,
+              name: step.name.trim(),
+              description: this.normalizeOptionalString(step.description),
+              step_type: step.step_type,
+              assigned_role_id: step.assigned_role_id ?? null,
+              assigned_user_id: step.assigned_user_id ?? null,
               is_required: step.is_required ?? true,
-              expected_duration_days: step.expected_duration_days ?? null,
+              due_days: step.due_days ?? null,
             }),
           ),
         );
@@ -1827,47 +1613,19 @@ export class OnboardingService {
       );
       const repository = this.getOnboardingWorkflowStepRepository(manager);
 
-      const targetLevel = dto.approval_level;
-      const maxAllowed = workflow.steps.length + 1;
-      if (targetLevel < 1 || targetLevel > maxAllowed) {
-        throw new BadRequestException(
-          `approval_level must be between 1 and ${maxAllowed} for this workflow`,
-        );
-      }
-
-      await this.shiftWorkflowStepLevelsUp(workflowId, targetLevel, manager);
-
-      let roleId = dto.role_id ?? null;
-      let positionId = dto.position_id ?? null;
-      let companyUserId = dto.company_user_id ?? null;
-      if (dto.approver_type === OnboardingApproverTypeEnum.ROLE) {
-        positionId = null;
-        companyUserId = null;
-      } else if (dto.approver_type === OnboardingApproverTypeEnum.POSITION) {
-        roleId = null;
-        companyUserId = null;
-      } else {
-        roleId = null;
-        positionId = null;
-      }
+      const targetOrder = workflow.steps.length + 1;
 
       return repository.save(
         repository.create({
           workflow_id: workflowId,
-          approval_level: targetLevel,
-          step_name: dto.step_name.trim(),
-          task_title: this.normalizeOptionalString(dto.task_title),
-          task_description: this.normalizeOptionalString(dto.task_description),
-          task_type: dto.task_type ?? OnboardingTaskTypeEnum.GENERAL,
-          assigned_branch_id: dto.assigned_branch_id ?? null,
-          assigned_department_id: dto.assigned_department_id ?? null,
-          approver_type: dto.approver_type,
-          role_id: roleId,
-          position_id: positionId,
-          company_user_id: companyUserId,
-          action_type: dto.action_type,
+          step_order: targetOrder,
+          name: dto.name.trim(),
+          description: this.normalizeOptionalString(dto.description),
+          step_type: dto.step_type,
+          assigned_role_id: dto.assigned_role_id ?? null,
+          assigned_user_id: dto.assigned_user_id ?? null,
           is_required: dto.is_required ?? true,
-          expected_duration_days: dto.expected_duration_days ?? null,
+          due_days: dto.due_days ?? null,
         }),
       );
     });
@@ -1880,7 +1638,7 @@ export class OnboardingService {
       actor,
       payload: {
         workflow_id: workflowId,
-        approval_level: createdStep.approval_level,
+        step_order: createdStep.step_order,
       },
     });
 
@@ -1919,82 +1677,45 @@ export class OnboardingService {
       );
 
       const totalSteps = workflow.steps.length;
-      const targetLevel = dto.approval_level ?? existingStep.approval_level;
-      if (targetLevel < 1 || targetLevel > totalSteps) {
+      const targetOrder = dto.step_order ?? existingStep.step_order;
+      if (targetOrder < 1 || targetOrder > totalSteps) {
         throw new BadRequestException(
-          `approval_level must be between 1 and ${totalSteps} for this workflow`,
+          `step_order must be between 1 and ${totalSteps} for this workflow`,
         );
       }
 
       await this.moveWorkflowStepLevel(
         workflowId,
         stepId,
-        existingStep.approval_level,
-        targetLevel,
+        existingStep.step_order,
+        targetOrder,
         manager,
       );
 
-      existingStep.approval_level = targetLevel;
-      if (dto.step_name !== undefined) {
-        existingStep.step_name = dto.step_name.trim();
+      existingStep.step_order = targetOrder;
+      if (dto.name !== undefined) {
+        existingStep.name = dto.name.trim();
       }
-      if (dto.task_title !== undefined) {
-        existingStep.task_title = this.normalizeOptionalString(dto.task_title);
+      if (dto.description !== undefined) {
+        existingStep.description = this.normalizeOptionalString(dto.description);
       }
-      if (dto.task_description !== undefined) {
-        existingStep.task_description = this.normalizeOptionalString(
-          dto.task_description,
-        );
+      if (dto.step_type !== undefined) {
+        existingStep.step_type = dto.step_type;
       }
-      if (dto.task_type !== undefined) {
-        existingStep.task_type = dto.task_type;
+      if (dto.assigned_role_id !== undefined) {
+        existingStep.assigned_role_id = dto.assigned_role_id ?? null;
       }
-      if (dto.assigned_department_id !== undefined) {
-        existingStep.assigned_department_id =
-          dto.assigned_department_id ?? null;
-      }
-      if (dto.assigned_branch_id !== undefined) {
-        existingStep.assigned_branch_id = dto.assigned_branch_id ?? null;
-      }
-      if (dto.approver_type !== undefined) {
-        existingStep.approver_type = dto.approver_type;
-      }
-      if (dto.role_id !== undefined) {
-        existingStep.role_id = dto.role_id ?? null;
-      }
-      if (dto.position_id !== undefined) {
-        existingStep.position_id = dto.position_id ?? null;
-      }
-      if (dto.company_user_id !== undefined) {
-        existingStep.company_user_id = dto.company_user_id ?? null;
-      }
-      if (dto.action_type !== undefined) {
-        existingStep.action_type = dto.action_type;
+      if (dto.assigned_user_id !== undefined) {
+        existingStep.assigned_user_id = dto.assigned_user_id ?? null;
       }
       if (dto.is_required !== undefined) {
         existingStep.is_required = dto.is_required;
       }
-      if (dto.expected_duration_days !== undefined) {
-        existingStep.expected_duration_days =
-          dto.expected_duration_days ?? null;
+      if (dto.due_days !== undefined) {
+        existingStep.due_days = dto.due_days ?? null;
       }
 
-      if (existingStep.approver_type === OnboardingApproverTypeEnum.ROLE) {
-        existingStep.position_id = null;
-        existingStep.company_user_id = null;
-      } else if (
-        existingStep.approver_type === OnboardingApproverTypeEnum.POSITION
-      ) {
-        existingStep.role_id = null;
-        existingStep.company_user_id = null;
-      } else {
-        existingStep.role_id = null;
-        existingStep.position_id = null;
-      }
-
-      return this.getOnboardingWorkflowStepRepository(manager).save(
-        existingStep,
-      );
+      return this.getOnboardingWorkflowStepRepository(manager).save(existingStep);
     });
 
     await this.onboardingAuditService.log({
@@ -2005,7 +1726,7 @@ export class OnboardingService {
       actor,
       payload: {
         workflow_id: workflowId,
-        approval_level: updatedStep.approval_level,
+        step_order: updatedStep.step_order,
       },
     });
 
@@ -2038,7 +1759,7 @@ export class OnboardingService {
           stepId,
           manager,
         );
-        const deletedLevel = step.approval_level;
+        const deletedLevel = step.step_order;
 
         await this.getOnboardingWorkflowStepRepository(manager).delete({
           id: step.id,

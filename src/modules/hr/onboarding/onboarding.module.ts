@@ -13,9 +13,7 @@ import { Branch } from '../branches/entities/branch.entity';
 import { Document } from '../documents/entities/document.entity';
 import { Department } from '../departments/entities/department.entity';
 import { Employee } from '../employees/entities/employee.entity';
-import { EmployeePosition } from '../employees/entities/employee-position.entity';
 import { LeaveModule } from '../leave/leave.module';
-import { Position } from '../positions/entities/position.entity';
 import { HrSharedModule } from '../shared/hr-shared.module';
 import { EmployeeDeviceAssignmentsModule } from '../../access-control/employee-device-assignments/employee-device-assignments.module';
 import { EmployeeDeviceAssignment } from '../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
@@ -42,10 +40,8 @@ import { OnboardingWorkflowService } from './services/onboarding-workflow.servic
       OnboardingAuditLog,
       Document,
       Employee,
-      EmployeePosition,
       Branch,
       Department,
-      Position,
       CompanyUser,
       CompanyUserRole,
       CompanyUserBranchAccess,
