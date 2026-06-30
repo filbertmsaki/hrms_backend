@@ -17,9 +17,19 @@ import DepartmentsSeeder from './008-departments.seed';
 import DesignationsSeeder from './009-designations.seed';
 import PositionsSeeder from './010-positions.seed';
 
-// Phase 4 — Employees
+// Phase 4 — Employees (Hikvision import)
 import EmployeesSeeder from './011-employees.seed';
 import EmployeeProfilesSeeder from './012-employee-profiles.seed';
+
+// Phase 4b — Department Employees (structured onboarding seed)
+import ExecEmployeesSeeder from './027-exec-employees.seed';
+import HrEmployeesSeeder from './028-hr-employees.seed';
+import ItEmployeesSeeder from './029-it-employees.seed';
+import ClaimsEmployeesSeeder from './030-claims-employees.seed';
+import UnderwritingEmployeesSeeder from './031-underwriting-employees.seed';
+import FinanceEmployeesSeeder from './032-finance-employees.seed';
+import BancassuranceEmployeesSeeder from './033-bancassurance-employees.seed';
+import AdministrationEmployeesSeeder from './034-administration-employees.seed';
 
 // Phase 5 — HRMS Configuration
 import LeaveTypesSeeder from './013-leave-types.seed';
@@ -58,6 +68,14 @@ const seeders = [
   PositionsSeeder,
   EmployeesSeeder,
   EmployeeProfilesSeeder,
+  ExecEmployeesSeeder,
+  HrEmployeesSeeder,
+  ItEmployeesSeeder,
+  ClaimsEmployeesSeeder,
+  UnderwritingEmployeesSeeder,
+  FinanceEmployeesSeeder,
+  BancassuranceEmployeesSeeder,
+  AdministrationEmployeesSeeder,
   LeaveTypesSeeder,
   LeavePoliciesSeeder,
   LeaveWorkflowsSeeder,

@@ -676,7 +676,6 @@ const ALLIANCE_HIKVISION_EMPLOYEES: AllianceHikvisionEmployeeInput[] = [
   { hikvisionEmployeeNo: '00000032', fullName: 'Hassan Ally Hassan' },
   { hikvisionEmployeeNo: '00000033', fullName: 'Hawa Revocatus Nkorangowe' },
   { hikvisionEmployeeNo: '00000034', fullName: 'Henry Erasmo Mgalike' },
-  { hikvisionEmployeeNo: '00000035', fullName: 'Baraka' },
   { hikvisionEmployeeNo: '00000036', fullName: 'Ibrahim Rashid Mungi' },
   { hikvisionEmployeeNo: '00000037', fullName: 'Ismail Mohamed Ramadhan' },
   // ── Underwriting department (imported from Hikvision device) ─────────────
