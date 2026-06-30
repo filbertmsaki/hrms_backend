@@ -1375,7 +1375,6 @@ export class OnboardingService {
     actor: AuthenticatedUser,
   ) {
     this.hrAccessService.assertCompanyScopedActor(actor);
-    this.validateWorkflowStepOrder(dto.steps);
     await this.validateWorkflowStepReferences(companyId, dto.steps);
 
     const created = await this.dataSource.transaction(async (manager) => {
@@ -1529,7 +1528,6 @@ export class OnboardingService {
       }
 
       if (dto.steps) {
-        this.validateWorkflowStepOrder(dto.steps);
         await this.validateWorkflowStepReferences(
           companyId,
           dto.steps,
