@@ -18,41 +18,72 @@ type DesignationSeed = {
   description: string;
 };
 
+// Company-wide grade band designations — not department-specific.
+// Positions link to these via designation_id; departments do not own grade bands.
 const DESIGNATION_SEEDS: DesignationSeed[] = [
-  // Administration
-  { code: 'ADMIN_ASSISTANT', name: 'Administrative Assistant', departmentCode: 'ADMIN', hierarchyLevel: 1, gradeLevel: 1, isManagerial: false, description: 'Entry-level administrative support.' },
-  { code: 'ADMIN_OFFICER', name: 'Administrative Officer', departmentCode: 'ADMIN', hierarchyLevel: 2, gradeLevel: 2, isManagerial: false, description: 'Handles administrative operations and coordination.' },
-  { code: 'ADMIN_MANAGER', name: 'Administration Manager', departmentCode: 'ADMIN', hierarchyLevel: 3, gradeLevel: 4, isManagerial: true, description: 'Manages administrative functions and facilities.' },
-  // HR
-  { code: 'HR_ASSISTANT', name: 'HR Assistant', departmentCode: 'HR', hierarchyLevel: 1, gradeLevel: 1, isManagerial: false, description: 'Entry-level HR support and administration.' },
-  { code: 'HR_OFFICER', name: 'HR Officer', departmentCode: 'HR', hierarchyLevel: 2, gradeLevel: 2, isManagerial: false, description: 'HR operations, recruitment, and employee services.' },
-  { code: 'HR_MANAGER', name: 'HR Manager', departmentCode: 'HR', hierarchyLevel: 3, gradeLevel: 4, isManagerial: true, description: 'Leads HR function and workforce strategy.' },
-  // Finance / Accounts
-  { code: 'ACCOUNTS_OFFICER', name: 'Accounts Officer', departmentCode: 'ACCOUNTS', hierarchyLevel: 1, gradeLevel: 2, isManagerial: false, description: 'Day-to-day accounting and financial recording.' },
-  { code: 'SENIOR_ACCOUNTANT', name: 'Senior Accountant', departmentCode: 'ACCOUNTS', hierarchyLevel: 2, gradeLevel: 3, isManagerial: false, description: 'Advanced accounting, reconciliation, and reporting.' },
-  { code: 'FINANCE_MANAGER', name: 'Finance Manager', departmentCode: 'ACCOUNTS', hierarchyLevel: 3, gradeLevel: 4, isManagerial: true, description: 'Leads financial planning and controls.' },
-  // Claims
-  { code: 'CLAIMS_OFFICER', name: 'Claims Officer', departmentCode: 'CLAIMS', hierarchyLevel: 1, gradeLevel: 2, isManagerial: false, description: 'First-line claims intake and settlement.' },
-  { code: 'SENIOR_CLAIMS_OFFICER', name: 'Senior Claims Officer', departmentCode: 'CLAIMS', hierarchyLevel: 2, gradeLevel: 3, isManagerial: false, description: 'Manages complex claims and guides claims staff.' },
-  { code: 'CLAIMS_MANAGER', name: 'Claims Manager', departmentCode: 'CLAIMS', hierarchyLevel: 3, gradeLevel: 4, isManagerial: true, description: 'Leads claims team and ensures consistent resolution.' },
-  // Underwriting
-  { code: 'UNDERWRITER', name: 'Underwriter', departmentCode: 'UNDERWRITING', hierarchyLevel: 1, gradeLevel: 2, isManagerial: false, description: 'Evaluates risk and approves insurance applications.' },
-  { code: 'SENIOR_UNDERWRITER', name: 'Senior Underwriter', departmentCode: 'UNDERWRITING', hierarchyLevel: 2, gradeLevel: 3, isManagerial: false, description: 'Reviews complex risks and mentors underwriting staff.' },
-  { code: 'UNDERWRITING_MANAGER', name: 'Underwriting Manager', departmentCode: 'UNDERWRITING', hierarchyLevel: 3, gradeLevel: 4, isManagerial: true, description: 'Leads underwriting and risk selection.' },
-  // Bancassurance
-  { code: 'BANCASSURANCE_OFFICER', name: 'Bancassurance Officer', departmentCode: 'BANCASSURANCE', hierarchyLevel: 1, gradeLevel: 2, isManagerial: false, description: 'Manages bank partnership and bancassurance sales.' },
-  { code: 'BANCASSURANCE_MANAGER', name: 'Bancassurance Manager', departmentCode: 'BANCASSURANCE', hierarchyLevel: 3, gradeLevel: 4, isManagerial: true, description: 'Leads bancassurance unit and distribution partners.' },
-  // General Business
-  { code: 'SALES_OFFICER', name: 'Sales Officer', departmentCode: 'GENERAL_BUSINESS', hierarchyLevel: 1, gradeLevel: 2, isManagerial: false, description: 'Drives insurance sales and customer acquisition.' },
-  { code: 'SALES_MANAGER', name: 'Sales Manager', departmentCode: 'GENERAL_BUSINESS', hierarchyLevel: 3, gradeLevel: 4, isManagerial: true, description: 'Leads sales team and revenue targets.' },
-  // IT
-  { code: 'IT_SUPPORT', name: 'IT Support Officer', departmentCode: 'IT', hierarchyLevel: 1, gradeLevel: 2, isManagerial: false, description: 'First-line IT support, hardware, and software.' },
-  { code: 'SOFTWARE_DEVELOPER', name: 'Software Developer', departmentCode: 'IT', hierarchyLevel: 2, gradeLevel: 3, isManagerial: false, description: 'Designs, develops, and maintains software systems.' },
-  { code: 'IT_CONSULTANT', name: 'IT Consultant', departmentCode: 'IT', hierarchyLevel: 2, gradeLevel: 3, isManagerial: false, description: 'Provides technical advice and system integration services.' },
-  { code: 'IT_MANAGER', name: 'IT Manager', departmentCode: 'IT', hierarchyLevel: 3, gradeLevel: 4, isManagerial: true, description: 'Leads IT operations, infrastructure, and digital services.' },
-  // Cross-functional executive level
-  { code: 'DIRECTOR', name: 'Director', departmentCode: null, hierarchyLevel: 5, gradeLevel: 6, isManagerial: true, description: 'Executive-level leadership responsible for divisional strategy.' },
-  { code: 'CEO', name: 'Chief Executive Officer', departmentCode: null, hierarchyLevel: 6, gradeLevel: 7, isManagerial: true, description: 'Overall leadership and strategic direction of the company.' },
+  {
+    code: 'EXECUTIVE',
+    name: 'Executive',
+    departmentCode: null,
+    hierarchyLevel: 5,
+    gradeLevel: 5,
+    isManagerial: true,
+    description: 'C-suite and top executive leadership (CEO, GM, CFO).',
+  },
+  {
+    code: 'SENIOR_MANAGER',
+    name: 'Senior Manager',
+    departmentCode: null,
+    hierarchyLevel: 4,
+    gradeLevel: 4,
+    isManagerial: true,
+    description: 'Senior management responsible for cross-functional strategy.',
+  },
+  {
+    code: 'MANAGER',
+    name: 'Manager',
+    departmentCode: null,
+    hierarchyLevel: 3,
+    gradeLevel: 3,
+    isManagerial: true,
+    description: 'Department-level management and team leadership.',
+  },
+  {
+    code: 'ASST_MANAGER',
+    name: 'Assistant Manager',
+    departmentCode: null,
+    hierarchyLevel: 3,
+    gradeLevel: 2,
+    isManagerial: true,
+    description: 'Deputy management supporting department heads.',
+  },
+  {
+    code: 'SENIOR_OFFICER',
+    name: 'Senior Officer',
+    departmentCode: null,
+    hierarchyLevel: 2,
+    gradeLevel: 2,
+    isManagerial: false,
+    description: 'Experienced individual contributors with specialist expertise.',
+  },
+  {
+    code: 'OFFICER',
+    name: 'Officer',
+    departmentCode: null,
+    hierarchyLevel: 1,
+    gradeLevel: 1,
+    isManagerial: false,
+    description: 'Standard operational staff across all departments.',
+  },
+  {
+    code: 'SUPPORT_STAFF',
+    name: 'Support Staff',
+    departmentCode: null,
+    hierarchyLevel: 1,
+    gradeLevel: 1,
+    isManagerial: false,
+    description: 'Support and administrative staff.',
+  },
 ];
 
 export default class DesignationsSeeder implements Seeder {

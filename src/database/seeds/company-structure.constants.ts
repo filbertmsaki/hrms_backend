@@ -17,8 +17,11 @@ export interface CompanyPositionSeed {
   name: string;
   code: string;
   category: string;
+  departmentCode: string;
+  reportsToPositionCode?: string;
   level: number | null;
   isManager: boolean;
+  headcount?: number;
   description: string;
 }
 
@@ -50,7 +53,7 @@ type AllianceEmployeeAssignment = Pick<
   'positionCode' | 'primaryDepartmentCode' | 'reportsToEmployeeNo'
 >;
 
-export const ALLIANCE_COMPANY_NAME = 'Alliance Insurance Corporation Ltd';
+export const ALLIANCE_COMPANY_NAME = 'Alliance Insurance Corporation Limited';
 export const ALLIANCE_COMPANY_SLUG = 'alliance-insurance';
 export const ALLIANCE_COMPANY_METADATA = {
   industry: 'insurance',
@@ -60,35 +63,35 @@ export const ALLIANCE_COMPANY_METADATA = {
 
 export const ALLIANCE_BRANCHES: CompanyBranchSeed[] = [
   {
-    name: 'HQ',
+    name: 'Head Office',
     code: 'HQ',
     city: 'Dar es Salaam',
     country: 'Tanzania',
     status: 'active',
   },
   {
-    name: 'Arusha',
+    name: 'Arusha Branch',
     code: 'ARU',
     city: 'Arusha',
     country: 'Tanzania',
     status: 'active',
   },
   {
-    name: 'Moshi',
+    name: 'Moshi Branch',
     code: 'MOS',
     city: 'Moshi',
     country: 'Tanzania',
     status: 'active',
   },
   {
-    name: 'Mwanza',
+    name: 'Mwanza Branch',
     code: 'MWZ',
     city: 'Mwanza',
     country: 'Tanzania',
     status: 'active',
   },
   {
-    name: 'Zanzibar',
+    name: 'Zanzibar Branch',
     code: 'ZNZ',
     city: 'Zanzibar',
     country: 'Tanzania',
@@ -98,20 +101,26 @@ export const ALLIANCE_BRANCHES: CompanyBranchSeed[] = [
 
 export const ALLIANCE_DEPARTMENTS: CompanyDepartmentSeed[] = [
   {
-    name: 'Admin',
-    code: 'ADMIN',
+    name: 'Executive Management',
+    code: 'EXEC',
+    description: 'Top-level executive office: CEO, General Manager, and CFO.',
+    branchCode: 'HQ',
+  },
+  {
+    name: 'Administration',
+    code: 'ADMINISTRATION',
     description: 'Corporate administration, facilities, and executive support.',
     branchCode: 'HQ',
   },
   {
-    name: 'HR',
+    name: 'Human Resources',
     code: 'HR',
     description: 'Human resources, talent management, and employee services.',
     branchCode: 'HQ',
   },
   {
-    name: 'Accounts',
-    code: 'ACCOUNTS',
+    name: 'Accounts & Finance',
+    code: 'ACCOUNTS_FINANCE',
     description: 'Financial accounting, reporting, and treasury operations.',
     branchCode: 'HQ',
   },
@@ -142,7 +151,7 @@ export const ALLIANCE_DEPARTMENTS: CompanyDepartmentSeed[] = [
     branchCode: 'HQ',
   },
   {
-    name: 'IT',
+    name: 'Information Technology',
     code: 'IT',
     description:
       'Information technology, systems, infrastructure, and digital services.',
@@ -151,10 +160,96 @@ export const ALLIANCE_DEPARTMENTS: CompanyDepartmentSeed[] = [
 ];
 
 export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
+  // ── Executive Management ─────────────────────────────────────────────────
+  {
+    name: 'Chief Executive Officer',
+    code: 'CEO',
+    category: 'Executive',
+    departmentCode: 'EXEC',
+    reportsToPositionCode: undefined,
+    level: 5,
+    isManager: true,
+    headcount: 1,
+    description:
+      'Provides executive leadership and strategic direction for Alliance Insurance.',
+  },
+  {
+    name: 'General Manager',
+    code: 'GENERAL_MANAGER',
+    category: 'Executive',
+    departmentCode: 'EXEC',
+    reportsToPositionCode: 'CEO',
+    level: 5,
+    isManager: true,
+    headcount: 1,
+    description:
+      'Drives overall business performance and cross-functional alignment.',
+  },
+  {
+    name: 'Chief Financial Officer',
+    code: 'CFO',
+    category: 'Executive',
+    departmentCode: 'EXEC',
+    reportsToPositionCode: 'CEO',
+    level: 5,
+    isManager: true,
+    headcount: 1,
+    description:
+      'Oversees all financial strategy, reporting, and treasury operations for the company.',
+  },
+  {
+    name: 'Branch Manager',
+    code: 'BRANCH_MANAGER',
+    category: 'Executive',
+    departmentCode: 'EXEC',
+    reportsToPositionCode: 'GENERAL_MANAGER',
+    level: 3,
+    isManager: true,
+    description:
+      'Leads the branch, ensures local targets are met, and manages branch operations.',
+  },
+  // ── Administration ───────────────────────────────────────────────────────
+  {
+    name: 'Administration Manager',
+    code: 'ADMINISTRATION_MANAGER',
+    category: 'Administration',
+    departmentCode: 'ADMINISTRATION',
+    reportsToPositionCode: 'GENERAL_MANAGER',
+    level: 3,
+    isManager: true,
+    headcount: 1,
+    description:
+      'Leads administration, facilities management, and executive support services.',
+  },
+  {
+    name: 'Assistant Administration Manager',
+    code: 'ASST_ADMINISTRATION_MANAGER',
+    category: 'Administration',
+    departmentCode: 'ADMINISTRATION',
+    reportsToPositionCode: 'ADMINISTRATION_MANAGER',
+    level: 2,
+    isManager: true,
+    headcount: 1,
+    description:
+      'Supports the Administration Manager in facilities, logistics, and office operations.',
+  },
+  {
+    name: 'Operations Manager',
+    code: 'OPERATIONS_MANAGER',
+    category: 'Administration',
+    departmentCode: 'ADMINISTRATION',
+    reportsToPositionCode: 'ADMINISTRATION_MANAGER',
+    level: 3,
+    isManager: true,
+    description:
+      'Oversees office operations and supports process efficiency across branches.',
+  },
   {
     name: 'Office Administrator',
     code: 'OFFICE_ADMINISTRATOR',
     category: 'Administration',
+    departmentCode: 'ADMINISTRATION',
+    reportsToPositionCode: 'ASST_ADMINISTRATION_MANAGER',
     level: 1,
     isManager: false,
     description:
@@ -164,143 +259,174 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     name: 'Receptionist',
     code: 'RECEPTIONIST',
     category: 'Administration',
+    departmentCode: 'ADMINISTRATION',
+    reportsToPositionCode: 'ADMINISTRATION_MANAGER',
     level: 1,
     isManager: false,
     description:
       'Responsible for front desk, visitor reception, and administrative coordination.',
   },
+  // ── Human Resources ──────────────────────────────────────────────────────
   {
-    name: 'Operations Manager',
-    code: 'OPERATIONS_MANAGER',
-    category: 'Administration',
+    name: 'HR Manager',
+    code: 'HR_MANAGER',
+    category: 'HR',
+    departmentCode: 'HR',
+    reportsToPositionCode: 'GENERAL_MANAGER',
     level: 3,
     isManager: true,
+    headcount: 1,
     description:
-      'Oversees office operations and supports process efficiency across branches.',
+      'Leads the HR function and drives employee engagement and development.',
   },
   {
     name: 'HR Officer',
     code: 'HR_OFFICER',
     category: 'HR',
+    departmentCode: 'HR',
+    reportsToPositionCode: 'HR_MANAGER',
     level: 1,
     isManager: false,
     description:
       'Supports employee lifecycle operations, onboarding, and HR administration.',
   },
   {
-    name: 'HR Manager',
-    code: 'HR_MANAGER',
-    category: 'HR',
-    level: 3,
-    isManager: true,
-    description:
-      'Leads the HR function and drives employee engagement and development.',
-  },
-  {
     name: 'Talent Acquisition Officer',
     code: 'TALENT_ACQUISITION_OFFICER',
     category: 'HR',
+    departmentCode: 'HR',
+    reportsToPositionCode: 'HR_MANAGER',
     level: 2,
     isManager: false,
     description:
       'Manages hiring campaigns and candidate selection for the insurance business.',
   },
+  // ── Accounts & Finance ───────────────────────────────────────────────────
   {
-    name: 'Accountant',
-    code: 'ACCOUNTANT',
+    name: 'Finance Manager',
+    code: 'FINANCE_MANAGER',
     category: 'Accounts',
-    level: 1,
-    isManager: false,
+    departmentCode: 'ACCOUNTS_FINANCE',
+    reportsToPositionCode: 'CFO',
+    level: 3,
+    isManager: true,
+    headcount: 1,
     description:
-      'Maintains financial records and supports day-to-day accounting tasks.',
+      'Leads financial planning, reporting, and cash management for the company.',
+  },
+  {
+    name: 'Assistant Finance Manager',
+    code: 'ASSISTANT_FINANCE_MANAGER',
+    category: 'Accounts',
+    departmentCode: 'ACCOUNTS_FINANCE',
+    reportsToPositionCode: 'FINANCE_MANAGER',
+    level: 2,
+    isManager: true,
+    headcount: 1,
+    description:
+      'Supports the Finance Manager in financial control, reporting, and team coordination.',
   },
   {
     name: 'Senior Accountant',
     code: 'SENIOR_ACCOUNTANT',
     category: 'Accounts',
+    departmentCode: 'ACCOUNTS_FINANCE',
+    reportsToPositionCode: 'FINANCE_MANAGER',
     level: 2,
     isManager: false,
     description:
       'Delivers advanced accounting, reporting, and financial control support.',
   },
   {
-    name: 'Finance Manager',
-    code: 'FINANCE_MANAGER',
+    name: 'Accountant',
+    code: 'ACCOUNTANT',
     category: 'Accounts',
-    level: 3,
-    isManager: true,
+    departmentCode: 'ACCOUNTS_FINANCE',
+    reportsToPositionCode: 'ASSISTANT_FINANCE_MANAGER',
+    level: 1,
+    isManager: false,
     description:
-      'Leads financial planning, reporting, and cash management for the company.',
+      'Maintains financial records and supports day-to-day accounting tasks.',
   },
   {
     name: 'Credit Controller',
     code: 'CREDIT_CONTROLLER',
     category: 'Accounts',
+    departmentCode: 'ACCOUNTS_FINANCE',
+    reportsToPositionCode: 'FINANCE_MANAGER',
     level: 2,
     isManager: false,
     description:
       'Manages receivables, credit risk, and collection activity for insurance clients.',
   },
+  // ── Claims ───────────────────────────────────────────────────────────────
   {
-    name: 'Claims Officer',
-    code: 'CLAIMS_OFFICER',
+    name: 'Claims Manager',
+    code: 'CLAIMS_MANAGER',
     category: 'Claims',
-    level: 1,
-    isManager: false,
+    departmentCode: 'CLAIMS',
+    reportsToPositionCode: 'GENERAL_MANAGER',
+    level: 3,
+    isManager: true,
+    headcount: 1,
     description:
-      'Handles first-line claims intake and customer communications.',
+      'Oversees the claims team and ensures consistent claims handling.',
+  },
+  {
+    name: 'Assistant Claims Manager',
+    code: 'ASSISTANT_CLAIMS_MANAGER',
+    category: 'Claims',
+    departmentCode: 'CLAIMS',
+    reportsToPositionCode: 'CLAIMS_MANAGER',
+    level: 2,
+    isManager: true,
+    headcount: 1,
+    description:
+      'Supports the Claims Manager in team supervision, complex claims, and process oversight.',
   },
   {
     name: 'Senior Claims Officer',
     code: 'SENIOR_CLAIMS_OFFICER',
     category: 'Claims',
+    departmentCode: 'CLAIMS',
+    reportsToPositionCode: 'CLAIMS_MANAGER',
     level: 2,
     isManager: false,
     description:
       'Manages complex claims and guides claims staff through resolution.',
   },
   {
-    name: 'Claims Manager',
-    code: 'CLAIMS_MANAGER',
+    name: 'Claims Officer',
+    code: 'CLAIMS_OFFICER',
     category: 'Claims',
-    level: 3,
-    isManager: true,
+    departmentCode: 'CLAIMS',
+    reportsToPositionCode: 'ASSISTANT_CLAIMS_MANAGER',
+    level: 1,
+    isManager: false,
     description:
-      'Oversees the claims team and ensures consistent claims handling.',
+      'Handles first-line claims intake and customer communications.',
   },
   {
     name: 'Claims Investigator',
     code: 'CLAIMS_INVESTIGATOR',
     category: 'Claims',
+    departmentCode: 'CLAIMS',
+    reportsToPositionCode: 'CLAIMS_MANAGER',
     level: 2,
     isManager: false,
     description:
       'Investigates claim incidents and validates coverage before settlement.',
   },
-  {
-    name: 'Underwriter',
-    code: 'UNDERWRITER',
-    category: 'Underwriting',
-    level: 1,
-    isManager: false,
-    description:
-      'Evaluates risk and approves insurance applications for underwriting.',
-  },
-  {
-    name: 'Senior Underwriter',
-    code: 'SENIOR_UNDERWRITER',
-    category: 'Underwriting',
-    level: 2,
-    isManager: false,
-    description:
-      'Reviews larger or more complex risks and mentors underwriting staff.',
-  },
+  // ── Underwriting ─────────────────────────────────────────────────────────
   {
     name: 'Underwriting Manager',
     code: 'UNDERWRITING_MANAGER',
     category: 'Underwriting',
+    departmentCode: 'UNDERWRITING',
+    reportsToPositionCode: 'GENERAL_MANAGER',
     level: 3,
     isManager: true,
+    headcount: 1,
     description:
       'Leads underwriting operations and ensures disciplined risk selection.',
   },
@@ -308,40 +434,88 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     name: 'Assistant Underwriting Manager',
     code: 'ASSISTANT_UNDERWRITING_MANAGER',
     category: 'Underwriting',
+    departmentCode: 'UNDERWRITING',
+    reportsToPositionCode: 'UNDERWRITING_MANAGER',
     level: 2,
     isManager: true,
+    headcount: 1,
     description:
       'Supports the Underwriting Manager in risk evaluation, policy review, and team coordination.',
+  },
+  {
+    name: 'Senior Underwriter',
+    code: 'SENIOR_UNDERWRITER',
+    category: 'Underwriting',
+    departmentCode: 'UNDERWRITING',
+    reportsToPositionCode: 'UNDERWRITING_MANAGER',
+    level: 2,
+    isManager: false,
+    description:
+      'Reviews larger or more complex risks and mentors underwriting staff.',
+  },
+  {
+    name: 'Underwriter',
+    code: 'UNDERWRITER',
+    category: 'Underwriting',
+    departmentCode: 'UNDERWRITING',
+    reportsToPositionCode: 'ASSISTANT_UNDERWRITING_MANAGER',
+    level: 1,
+    isManager: false,
+    description:
+      'Evaluates risk and approves insurance applications for underwriting.',
   },
   {
     name: 'Risk Analyst',
     code: 'RISK_ANALYST',
     category: 'Underwriting',
+    departmentCode: 'UNDERWRITING',
+    reportsToPositionCode: 'UNDERWRITING_MANAGER',
     level: 2,
     isManager: false,
     description: 'Analyzes portfolio risk and supports underwriting decisions.',
+  },
+  // ── Bancassurance ────────────────────────────────────────────────────────
+  {
+    name: 'Bancassurance Manager',
+    code: 'BANCASSURANCE_MANAGER',
+    category: 'Bancassurance',
+    departmentCode: 'BANCASSURANCE',
+    reportsToPositionCode: 'GENERAL_MANAGER',
+    level: 3,
+    isManager: true,
+    headcount: 1,
+    description: 'Manages bancassurance partnerships and relationship growth.',
+  },
+  {
+    name: 'Assistant Bancassurance Manager',
+    code: 'ASSISTANT_BANCASSURANCE_MANAGER',
+    category: 'Bancassurance',
+    departmentCode: 'BANCASSURANCE',
+    reportsToPositionCode: 'BANCASSURANCE_MANAGER',
+    level: 2,
+    isManager: true,
+    headcount: 1,
+    description:
+      'Supports the Bancassurance Manager in partner relations and team coordination.',
   },
   {
     name: 'Bancassurance Officer',
     code: 'BANCASSURANCE_OFFICER',
     category: 'Bancassurance',
+    departmentCode: 'BANCASSURANCE',
+    reportsToPositionCode: 'ASSISTANT_BANCASSURANCE_MANAGER',
     level: 1,
     isManager: false,
     description:
       'Develops bancassurance relationships and supports partner sales.',
   },
-  {
-    name: 'Bancassurance Relationship Manager',
-    code: 'BANCASSURANCE_RELATIONSHIP_MANAGER',
-    category: 'Bancassurance',
-    level: 3,
-    isManager: true,
-    description: 'Manages bancassurance partnerships and relationship growth.',
-  },
+  // ── General Business ─────────────────────────────────────────────────────
   {
     name: 'Business Development Officer',
     code: 'BUSINESS_DEVELOPMENT_OFFICER',
     category: 'General Business',
+    departmentCode: 'GENERAL_BUSINESS',
+    reportsToPositionCode: 'GENERAL_MANAGER',
     level: 1,
     isManager: false,
     description:
@@ -351,6 +525,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     name: 'Sales Agent',
     code: 'SALES_AGENT',
     category: 'General Business',
+    departmentCode: 'GENERAL_BUSINESS',
+    reportsToPositionCode: 'BUSINESS_DEVELOPMENT_OFFICER',
     level: 1,
     isManager: false,
     description:
@@ -360,6 +536,8 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     name: 'Marketing Officer',
     code: 'MARKETING_OFFICER',
     category: 'General Business',
+    departmentCode: 'GENERAL_BUSINESS',
+    reportsToPositionCode: 'GENERAL_MANAGER',
     level: 1,
     isManager: false,
     description:
@@ -369,77 +547,43 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     name: 'Customer Service Officer',
     code: 'CUSTOMER_SERVICE_OFFICER',
     category: 'General Business',
+    departmentCode: 'GENERAL_BUSINESS',
+    reportsToPositionCode: 'GENERAL_MANAGER',
     level: 1,
     isManager: false,
     description: 'Delivers customer support and service for policyholders.',
   },
+  // ── Information Technology ───────────────────────────────────────────────
   {
-    name: 'CEO',
-    code: 'CEO',
-    category: 'Executive',
-    level: 4,
-    isManager: true,
-    description:
-      'Provides executive leadership and strategic direction for Alliance Insurance.',
-  },
-  {
-    name: 'General Manager',
-    code: 'GENERAL_MANAGER',
-    category: 'Executive',
-    level: 4,
-    isManager: true,
-    description:
-      'Drives overall business performance and cross-functional alignment.',
-  },
-  {
-    name: 'Branch Manager',
-    code: 'BRANCH_MANAGER',
-    category: 'Executive',
+    name: 'IT Manager',
+    code: 'IT_MANAGER',
+    category: 'IT',
+    departmentCode: 'IT',
+    reportsToPositionCode: 'GENERAL_MANAGER',
     level: 3,
     isManager: true,
+    headcount: 1,
     description:
-      'Leads the branch, ensures local targets are met, and manages branch operations.',
-  },
-  {
-    name: 'IT Officer',
-    code: 'IT_OFFICER',
-    category: 'IT',
-    level: 1,
-    isManager: false,
-    description:
-      'Provides technical support, maintains systems, and supports IT operations.',
+      'Leads IT operations, manages technology infrastructure, and oversees digital services.',
   },
   {
     name: 'Assistant IT Manager',
     code: 'ASSISTANT_IT_MANAGER',
     category: 'IT',
+    departmentCode: 'IT',
+    reportsToPositionCode: 'IT_MANAGER',
     level: 2,
     isManager: true,
+    headcount: 1,
     description:
       'Supports IT leadership, coordinates day-to-day operations, and supervises IT service delivery.',
-  },
-  {
-    name: 'IT Manager',
-    code: 'IT_MANAGER',
-    category: 'IT',
-    level: 3,
-    isManager: true,
-    description:
-      'Leads IT operations, manages technology infrastructure, and oversees digital services.',
-  },
-  {
-    name: 'IT Consultant',
-    code: 'IT_CONSULTANT',
-    category: 'IT',
-    level: 4,
-    isManager: true,
-    description:
-      'Provides strategic technology guidance and heads the IT department.',
   },
   {
     name: 'Systems Administrator',
     code: 'SYSTEMS_ADMINISTRATOR',
     category: 'IT',
+    departmentCode: 'IT',
+    reportsToPositionCode: 'IT_MANAGER',
     level: 2,
     isManager: false,
     description:
@@ -449,10 +593,34 @@ export const ALLIANCE_POSITIONS: CompanyPositionSeed[] = [
     name: 'Software Developer',
     code: 'SOFTWARE_DEVELOPER',
     category: 'IT',
+    departmentCode: 'IT',
+    reportsToPositionCode: 'IT_MANAGER',
     level: 2,
     isManager: false,
     description:
       'Develops and maintains software applications for insurance operations.',
+  },
+  {
+    name: 'IT Consultant',
+    code: 'IT_CONSULTANT',
+    category: 'IT',
+    departmentCode: 'IT',
+    reportsToPositionCode: 'IT_MANAGER',
+    level: 2,
+    isManager: false,
+    description:
+      'Provides strategic technology guidance and specialist advisory services.',
+  },
+  {
+    name: 'IT Officer',
+    code: 'IT_OFFICER',
+    category: 'IT',
+    departmentCode: 'IT',
+    reportsToPositionCode: 'ASSISTANT_IT_MANAGER',
+    level: 1,
+    isManager: false,
+    description:
+      'Provides technical support, maintains systems, and supports IT operations.',
   },
 ];
 
@@ -656,11 +824,11 @@ function buildAllianceEmployeeAssignments(): Record<
 
   assign(
     '00000007',
-    'ADMIN',
+    'ADMINISTRATION',
     'OFFICE_ADMINISTRATOR',
     ALLIANCE_ADMIN_MANAGER_HIKVISION_EMPLOYEE_NO,
   );
-  assign('00000009', 'ADMIN', 'OPERATIONS_MANAGER', null);
+  assign('00000009', 'ADMINISTRATION', 'OPERATIONS_MANAGER', null);
 
   assign('00000059', 'HR', 'HR_MANAGER', null);
   assign(
@@ -699,7 +867,7 @@ function buildAllianceEmployeeAssignments(): Record<
   assign(
     '00000004',
     'BANCASSURANCE',
-    'BANCASSURANCE_RELATIONSHIP_MANAGER',
+    'BANCASSURANCE_MANAGER',
     null,
   );
   assign(

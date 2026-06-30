@@ -10,54 +10,55 @@ import {
   ALLIANCE_POSITIONS,
 } from './company-structure.constants';
 
-// Maps ALLIANCE_POSITIONS category → department code
-const CATEGORY_TO_DEPT_CODE: Record<string, string> = {
-  Administration: 'ADMIN',
-  HR: 'HR',
-  Accounts: 'ACCOUNTS',
-  Claims: 'CLAIMS',
-  Underwriting: 'UNDERWRITING',
-  Bancassurance: 'BANCASSURANCE',
-  'General Business': 'GENERAL_BUSINESS',
-  IT: 'IT',
-  Executive: 'ADMIN',
-};
-
-// Maps position code → designation code
+// Maps position code → grade band designation code (company-wide)
 const POSITION_TO_DESIGNATION_CODE: Record<string, string> = {
-  OFFICE_ADMINISTRATOR: 'ADMIN_OFFICER',
-  RECEPTIONIST: 'ADMIN_ASSISTANT',
-  OPERATIONS_MANAGER: 'ADMIN_MANAGER',
-  HR_OFFICER: 'HR_OFFICER',
-  HR_MANAGER: 'HR_MANAGER',
-  TALENT_ACQUISITION_OFFICER: 'HR_OFFICER',
-  ACCOUNTANT: 'ACCOUNTS_OFFICER',
-  SENIOR_ACCOUNTANT: 'SENIOR_ACCOUNTANT',
-  FINANCE_MANAGER: 'FINANCE_MANAGER',
-  CREDIT_CONTROLLER: 'ACCOUNTS_OFFICER',
-  CLAIMS_OFFICER: 'CLAIMS_OFFICER',
-  SENIOR_CLAIMS_OFFICER: 'SENIOR_CLAIMS_OFFICER',
-  CLAIMS_MANAGER: 'CLAIMS_MANAGER',
-  CLAIMS_INVESTIGATOR: 'SENIOR_CLAIMS_OFFICER',
-  UNDERWRITER: 'UNDERWRITER',
-  SENIOR_UNDERWRITER: 'SENIOR_UNDERWRITER',
-  UNDERWRITING_MANAGER: 'UNDERWRITING_MANAGER',
-  RISK_ANALYST: 'SENIOR_UNDERWRITER',
-  BANCASSURANCE_OFFICER: 'BANCASSURANCE_OFFICER',
-  BANCASSURANCE_RELATIONSHIP_MANAGER: 'BANCASSURANCE_MANAGER',
-  BUSINESS_DEVELOPMENT_OFFICER: 'SALES_OFFICER',
-  SALES_AGENT: 'SALES_OFFICER',
-  MARKETING_OFFICER: 'SALES_OFFICER',
-  CUSTOMER_SERVICE_OFFICER: 'SALES_OFFICER',
-  CEO: 'CEO',
-  GENERAL_MANAGER: 'DIRECTOR',
-  BRANCH_MANAGER: 'ADMIN_MANAGER',
-  IT_OFFICER: 'IT_SUPPORT',
-  ASSISTANT_IT_MANAGER: 'IT_MANAGER',
-  IT_MANAGER: 'IT_MANAGER',
-  IT_CONSULTANT: 'IT_CONSULTANT',
-  SYSTEMS_ADMINISTRATOR: 'SOFTWARE_DEVELOPER',
-  SOFTWARE_DEVELOPER: 'SOFTWARE_DEVELOPER',
+  // Executive
+  CEO: 'EXECUTIVE',
+  GENERAL_MANAGER: 'EXECUTIVE',
+  CFO: 'EXECUTIVE',
+  // Senior Manager (branch managers)
+  BRANCH_MANAGER: 'SENIOR_MANAGER',
+  // Managers
+  ADMINISTRATION_MANAGER: 'MANAGER',
+  OPERATIONS_MANAGER: 'MANAGER',
+  HR_MANAGER: 'MANAGER',
+  FINANCE_MANAGER: 'MANAGER',
+  CLAIMS_MANAGER: 'MANAGER',
+  UNDERWRITING_MANAGER: 'MANAGER',
+  BANCASSURANCE_MANAGER: 'MANAGER',
+  IT_MANAGER: 'MANAGER',
+  IT_CONSULTANT: 'MANAGER',
+  // Assistant Managers
+  ASST_ADMINISTRATION_MANAGER: 'ASST_MANAGER',
+  ASSISTANT_FINANCE_MANAGER: 'ASST_MANAGER',
+  ASSISTANT_CLAIMS_MANAGER: 'ASST_MANAGER',
+  ASSISTANT_UNDERWRITING_MANAGER: 'ASST_MANAGER',
+  ASSISTANT_BANCASSURANCE_MANAGER: 'ASST_MANAGER',
+  ASSISTANT_IT_MANAGER: 'ASST_MANAGER',
+  // Senior Officers
+  TALENT_ACQUISITION_OFFICER: 'SENIOR_OFFICER',
+  SENIOR_ACCOUNTANT: 'SENIOR_OFFICER',
+  CREDIT_CONTROLLER: 'SENIOR_OFFICER',
+  SENIOR_CLAIMS_OFFICER: 'SENIOR_OFFICER',
+  CLAIMS_INVESTIGATOR: 'SENIOR_OFFICER',
+  SENIOR_UNDERWRITER: 'SENIOR_OFFICER',
+  RISK_ANALYST: 'SENIOR_OFFICER',
+  SYSTEMS_ADMINISTRATOR: 'SENIOR_OFFICER',
+  SOFTWARE_DEVELOPER: 'SENIOR_OFFICER',
+  // Officers
+  HR_OFFICER: 'OFFICER',
+  ACCOUNTANT: 'OFFICER',
+  CLAIMS_OFFICER: 'OFFICER',
+  UNDERWRITER: 'OFFICER',
+  BANCASSURANCE_OFFICER: 'OFFICER',
+  BUSINESS_DEVELOPMENT_OFFICER: 'OFFICER',
+  SALES_AGENT: 'OFFICER',
+  MARKETING_OFFICER: 'OFFICER',
+  CUSTOMER_SERVICE_OFFICER: 'OFFICER',
+  IT_OFFICER: 'OFFICER',
+  // Support Staff
+  OFFICE_ADMINISTRATOR: 'SUPPORT_STAFF',
+  RECEPTIONIST: 'SUPPORT_STAFF',
 };
 
 export default class PositionsSeeder implements Seeder {
@@ -96,9 +97,11 @@ export default class PositionsSeeder implements Seeder {
       });
       const designationMap = new Map(designations.map((d) => [d.code!, d]));
 
+      // Pass 1: upsert all positions (without reports_to_position_id — parent may not exist yet)
       for (const seed of ALLIANCE_POSITIONS) {
-        const deptCode = CATEGORY_TO_DEPT_CODE[seed.category] ?? null;
-        const dept = deptCode ? (deptMap.get(deptCode) ?? null) : null;
+        const dept = seed.departmentCode
+          ? (deptMap.get(seed.departmentCode) ?? null)
+          : null;
         const designationCode = POSITION_TO_DESIGNATION_CODE[seed.code] ?? null;
         const designation = designationCode
           ? (designationMap.get(designationCode) ?? null)
@@ -120,7 +123,7 @@ export default class PositionsSeeder implements Seeder {
             description: seed.description ?? null,
             status: 'active',
             is_active: true,
-            headcount: 1,
+            headcount: seed.headcount ?? 1,
           });
         } else {
           position.department_id = dept?.id ?? null;
@@ -131,9 +134,31 @@ export default class PositionsSeeder implements Seeder {
           position.description = seed.description ?? null;
           position.status = 'active';
           position.is_active = true;
+          if (seed.headcount !== undefined) {
+            position.headcount = seed.headcount;
+          }
         }
 
         await positionRepo.save(position);
+      }
+
+      // Pass 2: set reports_to_position_id now that all positions exist
+      const allPositions = await positionRepo.find({
+        where: { company_id: company.id },
+      });
+      const positionByCode = new Map(allPositions.map((p) => [p.code!, p]));
+
+      for (const seed of ALLIANCE_POSITIONS) {
+        if (!seed.reportsToPositionCode) continue;
+
+        const position = positionByCode.get(seed.code);
+        const reportsTo = positionByCode.get(seed.reportsToPositionCode);
+        if (!position || !reportsTo) continue;
+
+        if (position.reports_to_position_id !== reportsTo.id) {
+          position.reports_to_position_id = reportsTo.id;
+          await positionRepo.save(position);
+        }
       }
 
       await qr.commitTransaction();
