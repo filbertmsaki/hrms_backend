@@ -186,6 +186,31 @@ describe('EmployeeSelfServiceService', () => {
     );
   });
 
+  it('forces leave balance queries to the authenticated employee id', async () => {
+    leaveService.findAllLeaveBalances.mockResolvedValue({
+      data: [],
+      meta: {},
+    });
+
+    await service.getLeaveBalances(actor, {
+      employee_id: 999,
+      fiscal_year: '2026',
+      page: 1,
+      limit: 10,
+    });
+
+    expect(leaveService.findAllLeaveBalances).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({
+        employee_id: 15,
+        fiscal_year: '2026',
+        page: 1,
+        limit: 10,
+      }),
+      actor,
+    );
+  });
+
   it('uses resolved shift assignment details for schedule days', async () => {
     shiftAssignmentRepository.find.mockResolvedValue([
       {

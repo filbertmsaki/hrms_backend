@@ -522,11 +522,13 @@ export class EmployeeSelfServiceService {
     query: LeaveBalanceQueryDto,
   ) {
     const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
     const currentFiscalYear = this.getFiscalYear(this.getCurrentDateString());
     const response = await this.leaveService.findAllLeaveBalances(
       companyId,
       {
         ...query,
+        employee_id: employeeId,
         fiscal_year: query.fiscal_year?.trim() || currentFiscalYear,
       },
       actor,
