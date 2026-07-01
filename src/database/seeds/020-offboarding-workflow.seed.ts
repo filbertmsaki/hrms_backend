@@ -48,7 +48,7 @@ const STEP_SEEDS: OffboardingStepSeed[] = [
     taskDescription: 'IT Administrator revokes all system access, deactivates accounts, and collects company IT equipment.',
     taskType: OffboardingTaskTypeEnum.IT,
     approverType: OffboardingApproverTypeEnum.ROLE,
-    roleName: 'IT_ADMINISTRATOR',
+    roleName: 'DEPARTMENT_MANAGER',
     actionType: OffboardingApprovalActionTypeEnum.VERIFY,
     isRequired: true,
     expectedDurationDays: 3,

@@ -13,23 +13,73 @@ type CompanyRoleSeed = {
   displayName: string;
   description: string;
   permissionNames: string[];
-  hierarchyLevel?: number;
-  hierarchySlug?: string;
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared permission sets reused across roles
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Permissions every authenticated company user needs */
+const SELF_SERVICE_PERMISSIONS = [
+  'view_company_data',
+  'users:update',                        // own profile
+  'employees:read',
+  'leave_requests:read',
+  'leave_requests:create',
+  'leave_requests:cancel',
+  'leave_balances:read',
+  'attendance_summaries:read',
+  'attendance_mobile_punches:create',
+  'shift_change_requests:read',
+  'shift_change_requests:create',
+];
+
+/** Read-only structural lookups needed by managers and HR */
+const ORG_STRUCTURE_READ_PERMISSIONS = [
+  'branches:read',
+  'departments:read',
+  'positions:read',
+  'designations:read',
+];
+
+/** Team approval permissions shared by all manager-level roles */
+const TEAM_APPROVAL_PERMISSIONS = [
+  'leave_requests:approve',
+  'leave_balances:adjust',
+  'shift_change_requests:update',
+  'shift_change_requests:delete',
+  'onboarding_requests:read',
+  'onboarding_requests:approve',
+  'onboarding_tasks:complete',
+  'onboarding_documents:read',
+  'onboarding_documents:verify',
+  'offboarding_requests:read',
+  'offboarding_requests:approve',
+  'offboarding_tasks:complete',
+  'offboarding_tasks:reject',
+  'offboarding_clearances:complete',
+];
+
 const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
+  // ───────────────────────────────────────────────
+  // 1. COMPANY_ADMIN
+  // Full control over their company tenant.
+  // ───────────────────────────────────────────────
   {
-    name: 'ADMINISTRATOR',
-    displayName: 'Company Administrator',
-    description: 'Administrator with full access limited to their own company',
+    name: 'COMPANY_ADMIN',
+    displayName: 'Company Admin',
+    description:
+      'Manages company setup, users, branches, departments, roles, and all settings within the company.',
     permissionNames: [
+      // Company & dashboard
       'view_company_dashboard',
+      'view_company_data',
+      'update_company_data',
+      // Users & roles
       'manage_company_users',
       'create_company_user',
       'update_company_user',
       'delete_company_user',
-      'view_company_data',
-      'update_company_data',
       'users:read',
       'users:create',
       'users:update',
@@ -41,6 +91,7 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'roles:update',
       'roles:delete',
       'permissions:read',
+      // Org structure
       'branches:read',
       'branches:create',
       'branches:update',
@@ -58,11 +109,13 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'designations:create',
       'designations:update',
       'designations:delete',
+      // Employees (full lifecycle)
       'employees:read',
       'employees:create',
       'employees:update',
       'employees:delete',
       'employees:change-status',
+      // Leave (full management)
       'leave_types:read',
       'leave_types:create',
       'leave_types:update',
@@ -86,6 +139,7 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'leave_requests:update',
       'leave_requests:approve',
       'leave_requests:cancel',
+      // Attendance (full management)
       'attendance_policies:read',
       'attendance_policies:create',
       'attendance_policies:update',
@@ -102,6 +156,28 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'attendance_devices:create',
       'attendance_devices:update',
       'attendance_devices:delete',
+      'attendance_checkpoints:read',
+      'attendance_checkpoints:create',
+      'attendance_checkpoints:update',
+      'attendance_checkpoints:delete',
+      'attendance_geofences:read',
+      'attendance_geofences:create',
+      'attendance_geofences:update',
+      'attendance_geofences:delete',
+      'attendance_wifi_networks:read',
+      'attendance_wifi_networks:create',
+      'attendance_wifi_networks:update',
+      'attendance_wifi_networks:delete',
+      'attendance_mobile_punches:read',
+      'attendance_mobile_punches:create',
+      'attendance_mobile_punches:update',
+      'attendance_device_sync_logs:read',
+      'attendance_device_sync_logs:create',
+      'attendance_processing:read',
+      'attendance_processing:execute',
+      'attendance_recalculation:execute',
+      'attendance_summaries:read',
+      // Access control
       'access_doors:read',
       'access_doors:create',
       'access_doors:update',
@@ -133,27 +209,7 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'access_control_sync:execute',
       'hikvision_attendance:read',
       'hikvision_attendance:sync',
-      'attendance_checkpoints:read',
-      'attendance_checkpoints:create',
-      'attendance_checkpoints:update',
-      'attendance_checkpoints:delete',
-      'attendance_geofences:read',
-      'attendance_geofences:create',
-      'attendance_geofences:update',
-      'attendance_geofences:delete',
-      'attendance_wifi_networks:read',
-      'attendance_wifi_networks:create',
-      'attendance_wifi_networks:update',
-      'attendance_wifi_networks:delete',
-      'attendance_mobile_punches:read',
-      'attendance_mobile_punches:create',
-      'attendance_mobile_punches:update',
-      'attendance_device_sync_logs:read',
-      'attendance_device_sync_logs:create',
-      'attendance_processing:read',
-      'attendance_processing:execute',
-      'attendance_recalculation:execute',
-      'attendance_summaries:read',
+      // Shifts (full management)
       'shifts:read',
       'shifts:create',
       'shifts:update',
@@ -194,6 +250,7 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'shift_templates:create',
       'shift_templates:update',
       'shift_templates:delete',
+      // Timetables (full management)
       'timetables:read',
       'timetables:create',
       'timetables:update',
@@ -230,6 +287,7 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'timetable_generated_schedules:create',
       'timetable_generated_schedules:update',
       'timetable_generated_schedules:delete',
+      // Onboarding & offboarding (full management)
       'onboarding_workflows:read',
       'onboarding_workflows:create',
       'onboarding_workflows:update',
@@ -244,6 +302,10 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'onboarding_tasks:complete',
       'onboarding_documents:create',
       'onboarding_documents:verify',
+      'offboarding_workflows:read',
+      'offboarding_workflows:create',
+      'offboarding_workflows:update',
+      'offboarding_workflows:delete',
       'offboarding_requests:read',
       'offboarding_requests:create',
       'offboarding_requests:update',
@@ -251,10 +313,6 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'offboarding_requests:approve',
       'offboarding_requests:complete',
       'offboarding_requests:cancel',
-      'offboarding_workflows:read',
-      'offboarding_workflows:create',
-      'offboarding_workflows:update',
-      'offboarding_workflows:delete',
       'offboarding_tasks:create',
       'offboarding_tasks:complete',
       'offboarding_tasks:reject',
@@ -264,185 +322,387 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'offboarding_documents:read',
     ],
   },
+
+  // ───────────────────────────────────────────────
+  // 2. HR_MANAGER
+  // Full HR operations. Owns employee lifecycle,
+  // leave, attendance, onboarding/offboarding.
+  // Cannot manage system roles, access control hardware,
+  // or company-level billing/settings.
+  // ───────────────────────────────────────────────
   {
-    name: 'USER',
-    displayName: 'Company User',
+    name: 'HR_MANAGER',
+    displayName: 'HR Manager',
     description:
-      'Regular company user with access to view company data, manage their profile, and use HR self-service features',
+      'Manages HR operations: employees, leave, attendance, onboarding, offboarding, shifts, and reports.',
     permissionNames: [
-      'view_company_data',
-      'users:update',
-      'employees:read',
+      'view_company_dashboard',
+      // Self-service (HR Manager is also an employee)
+      ...SELF_SERVICE_PERMISSIONS,
+      // Org structure read
+      ...ORG_STRUCTURE_READ_PERMISSIONS,
+      // Users (read only — cannot delete/create system users)
+      'users:read',
+      // Employees (full lifecycle including status change)
       'employees:update',
-      'leave_requests:read',
-      'leave_requests:create',
-      'leave_requests:cancel',
-      'leave_balances:read',
-      'attendance_summaries:read',
-      'attendance_mobile_punches:create',
+      'employees:create',
+      'employees:delete',
+      'employees:change-status',
+      // Leave (full management)
+      'leave_types:read',
+      'leave_types:create',
+      'leave_types:update',
+      'leave_types:delete',
+      'leave_policies:read',
+      'leave_policies:create',
+      'leave_policies:update',
+      'leave_policies:delete',
+      'leave_workflows:read',
+      'leave_workflows:create',
+      'leave_workflows:update',
+      'leave_workflows:delete',
+      'holidays:read',
+      'holidays:create',
+      'holidays:update',
+      'holidays:delete',
+      'leave_balances:adjust',
+      'leave_requests:update',
+      'leave_requests:approve',
+      // Attendance (full management except hardware sync)
+      'attendance_policies:read',
+      'attendance_policies:create',
+      'attendance_policies:update',
+      'attendance_policies:delete',
+      'attendance_holiday_groups:read',
+      'attendance_holiday_groups:create',
+      'attendance_holiday_groups:update',
+      'attendance_holiday_groups:delete',
+      'attendance_holidays:read',
+      'attendance_holidays:create',
+      'attendance_holidays:update',
+      'attendance_holidays:delete',
+      'attendance_checkpoints:read',
+      'attendance_checkpoints:create',
+      'attendance_checkpoints:update',
+      'attendance_checkpoints:delete',
+      'attendance_geofences:read',
+      'attendance_geofences:create',
+      'attendance_geofences:update',
+      'attendance_geofences:delete',
+      'attendance_wifi_networks:read',
+      'attendance_wifi_networks:create',
+      'attendance_wifi_networks:update',
+      'attendance_wifi_networks:delete',
+      'attendance_mobile_punches:read',
+      'attendance_mobile_punches:update',
+      'attendance_device_sync_logs:read',
+      'attendance_processing:read',
+      'attendance_processing:execute',
+      'attendance_recalculation:execute',
+      // Shifts (full management)
+      'shifts:read',
+      'shifts:create',
+      'shifts:update',
+      'shifts:delete',
+      'shift_breaks:read',
+      'shift_breaks:create',
+      'shift_breaks:update',
+      'shift_breaks:delete',
+      'shift_overtime_rules:read',
+      'shift_overtime_rules:create',
+      'shift_overtime_rules:update',
+      'shift_overtime_rules:delete',
+      'shift_attendance_rules:read',
+      'shift_attendance_rules:create',
+      'shift_attendance_rules:update',
+      'shift_attendance_rules:delete',
+      'shift_assignments:read',
+      'shift_assignments:create',
+      'shift_assignments:update',
+      'shift_assignments:delete',
+      'shift_rotation_groups:read',
+      'shift_rotation_groups:create',
+      'shift_rotation_groups:update',
+      'shift_rotation_groups:delete',
+      'shift_rotation_rules:read',
+      'shift_rotation_rules:create',
+      'shift_rotation_rules:update',
+      'shift_rotation_rules:delete',
+      'shift_schedules:read',
+      'shift_schedules:create',
+      'shift_schedules:update',
+      'shift_schedules:delete',
       'shift_change_requests:read',
       'shift_change_requests:create',
+      'shift_change_requests:update',
+      'shift_change_requests:delete',
+      'shift_templates:read',
+      'shift_templates:create',
+      'shift_templates:update',
+      'shift_templates:delete',
+      // Timetables (full management)
+      'timetables:read',
+      'timetables:create',
+      'timetables:update',
+      'timetables:delete',
+      'timetable_days:read',
+      'timetable_days:create',
+      'timetable_days:update',
+      'timetable_days:delete',
+      'timetable_shift_rules:read',
+      'timetable_shift_rules:create',
+      'timetable_shift_rules:update',
+      'timetable_shift_rules:delete',
+      'employee_timetables:read',
+      'employee_timetables:create',
+      'employee_timetables:update',
+      'employee_timetables:delete',
+      'timetable_rotations:read',
+      'timetable_rotations:create',
+      'timetable_rotations:update',
+      'timetable_rotations:delete',
+      'timetable_rotation_rules:read',
+      'timetable_rotation_rules:create',
+      'timetable_rotation_rules:update',
+      'timetable_rotation_rules:delete',
+      'timetable_holiday_rules:read',
+      'timetable_holiday_rules:create',
+      'timetable_holiday_rules:update',
+      'timetable_holiday_rules:delete',
+      'timetable_attendance_rules:read',
+      'timetable_attendance_rules:create',
+      'timetable_attendance_rules:update',
+      'timetable_attendance_rules:delete',
+      'timetable_generated_schedules:read',
+      'timetable_generated_schedules:create',
+      'timetable_generated_schedules:update',
+      'timetable_generated_schedules:delete',
+      // Onboarding & offboarding (full HR control)
+      'onboarding_workflows:read',
+      'onboarding_workflows:create',
+      'onboarding_workflows:update',
+      'onboarding_workflows:delete',
+      'onboarding_requests:read',
+      'onboarding_requests:create',
+      'onboarding_requests:update',
+      'onboarding_requests:approve',
+      'onboarding_requests:complete',
+      'onboarding_requests:cancel',
+      'onboarding_tasks:read',
+      'onboarding_tasks:create',
+      'onboarding_tasks:complete',
+      'onboarding_documents:read',
+      'onboarding_documents:create',
+      'onboarding_documents:verify',
+      'offboarding_workflows:read',
+      'offboarding_workflows:create',
+      'offboarding_workflows:update',
+      'offboarding_workflows:delete',
+      'offboarding_requests:read',
+      'offboarding_requests:create',
+      'offboarding_requests:update',
+      'offboarding_requests:submit',
+      'offboarding_requests:approve',
+      'offboarding_requests:complete',
+      'offboarding_requests:cancel',
+      'offboarding_tasks:read',
+      'offboarding_tasks:create',
+      'offboarding_tasks:complete',
+      'offboarding_tasks:reject',
+      'offboarding_clearances:read',
+      'offboarding_clearances:create',
+      'offboarding_clearances:complete',
+      'offboarding_documents:create',
+      'offboarding_documents:read',
     ],
   },
+
+  // ───────────────────────────────────────────────
+  // 3. HR_OFFICER
+  // Handles daily HR activities: employee records,
+  // documents, leave review, onboarding tasks.
+  // Cannot change employee status or delete employees.
+  // ───────────────────────────────────────────────
   {
-    name: 'VIEWER',
-    displayName: 'Viewer',
+    name: 'HR_OFFICER',
+    displayName: 'HR Officer',
     description:
-      'Compatibility role mirroring the default read-only company user access',
-    permissionNames: ['view_company_data'],
+      'Handles daily HR activities: employee records, documents, leave review, attendance, and onboarding tasks.',
+    permissionNames: [
+      // Self-service (HR Officer is also an employee)
+      ...SELF_SERVICE_PERMISSIONS,
+      ...ORG_STRUCTURE_READ_PERMISSIONS,
+      'users:read',
+      // Employees (no delete, no status change)
+      'employees:update',
+      // Leave (read + day-to-day ops, no policy/type management)
+      'leave_types:read',
+      'leave_policies:read',
+      'leave_workflows:read',
+      'holidays:read',
+      'leave_requests:update',
+      'leave_requests:approve',
+      // Attendance
+      'attendance_mobile_punches:update',
+      'attendance_processing:read',
+      // Shifts (read only)
+      'shifts:read',
+      'shift_assignments:read',
+      'shift_schedules:read',
+      'shift_change_requests:read',
+      'shift_change_requests:update',
+      // Onboarding (day-to-day tasks and document verification)
+      'onboarding_workflows:read',
+      'onboarding_requests:read',
+      'onboarding_requests:update',
+      'onboarding_requests:approve',
+      'onboarding_tasks:complete',
+      'onboarding_documents:read',
+      'onboarding_documents:create',
+      'onboarding_documents:verify',
+      // Offboarding (day-to-day tasks)
+      'offboarding_workflows:read',
+      'offboarding_requests:read',
+      'offboarding_tasks:complete',
+      'offboarding_tasks:reject',
+      'offboarding_clearances:complete',
+      'offboarding_documents:create',
+      'offboarding_documents:read',
+    ],
   },
+
+  // ───────────────────────────────────────────────
+  // 4. DEPARTMENT_MANAGER
+  // Manages a department's team. Approves leave,
+  // shift changes, and onboarding/offboarding steps.
+  // No HR lifecycle powers (cannot hire/fire/change status).
+  // ───────────────────────────────────────────────
   {
     name: 'DEPARTMENT_MANAGER',
     displayName: 'Department Manager',
     description:
-      'Non-HR department manager (Claims, Finance, Underwriting, Bancassurance, Operations, IT) with team management and approval capabilities, without HR lifecycle powers',
+      'Manages employees within their department. Approves leave, shift changes, and workflow steps. No HR lifecycle powers.',
     permissionNames: [
-      'view_company_data',
       'view_company_dashboard',
-      'employees:read',
+      // Self-service (covers view_company_data, employees:read, leave, attendance, shift change)
+      ...SELF_SERVICE_PERMISSIONS,
+      ...ORG_STRUCTURE_READ_PERMISSIONS,
+      // Employees (limited update — no status change or delete)
       'employees:update',
-      'leave_requests:read',
-      'leave_requests:create',
-      'leave_requests:cancel',
-      'leave_requests:approve',
+      // Team approval
+      ...TEAM_APPROVAL_PERMISSIONS,
+      // Shifts (team visibility)
+      'shifts:read',
+      'shift_assignments:read',
+      'shift_schedules:read',
+    ],
+  },
+
+  // ───────────────────────────────────────────────
+  // 5. BRANCH_MANAGER
+  // Manages employees, attendance, and approvals
+  // scoped to their branch. Similar powers to
+  // Department Manager but branch-scoped.
+  // ───────────────────────────────────────────────
+  {
+    name: 'BRANCH_MANAGER',
+    displayName: 'Branch Manager',
+    description:
+      'Manages employees, attendance, and approvals for their branch. Branch-scoped equivalent of Department Manager.',
+    permissionNames: [
+      'view_company_dashboard',
+      // Self-service (covers view_company_data, employees:read, leave, attendance, shift change)
+      ...SELF_SERVICE_PERMISSIONS,
+      // ORG_STRUCTURE_READ_PERMISSIONS already includes branches:read
+      ...ORG_STRUCTURE_READ_PERMISSIONS,
+      // Employees (limited update — no status change or delete)
+      'employees:update',
+      // Team approval
+      ...TEAM_APPROVAL_PERMISSIONS,
+      // Attendance (branch-wide visibility)
+      'attendance_mobile_punches:read',
+      // Shifts (branch visibility)
+      'shifts:read',
+      'shift_assignments:read',
+      'shift_schedules:read',
+      // Branch access management
+      'branches:manage-access',
+    ],
+  },
+
+  // ───────────────────────────────────────────────
+  // 6. EMPLOYEE
+  // Self-service only. Views their own profile,
+  // submits leave/attendance/shift change requests.
+  // All data is further scoped to own records in services.
+  // ───────────────────────────────────────────────
+  {
+    name: 'EMPLOYEE',
+    displayName: 'Employee',
+    description:
+      'Self-service role. Can view profile, attendance, leave balance, and submit requests. Data is scoped to own records.',
+    permissionNames: [
+      ...SELF_SERVICE_PERMISSIONS,
+    ],
+  },
+
+  // ───────────────────────────────────────────────
+  // 7. AUDITOR
+  // Read-only access to HR data, reports, logs,
+  // and compliance records. Cannot create, update,
+  // or approve anything.
+  // ───────────────────────────────────────────────
+  {
+    name: 'AUDITOR',
+    displayName: 'Auditor',
+    description:
+      'Read-only access to reports, logs, HR data, and compliance records. Cannot create, update, or approve anything.',
+    permissionNames: [
+      'view_company_dashboard',
+      'view_company_data',
+      ...ORG_STRUCTURE_READ_PERMISSIONS,
+      'users:read',
+      'employees:read',
+      // Leave (read only)
+      'leave_types:read',
+      'leave_policies:read',
+      'leave_workflows:read',
+      'holidays:read',
       'leave_balances:read',
+      'leave_requests:read',
+      // Attendance (read only)
       'attendance_summaries:read',
-      'attendance_mobile_punches:create',
+      'attendance_processing:read',
+      'attendance_device_sync_logs:read',
+      // Shifts (read only — full structure for audit)
+      'shifts:read',
+      'shift_breaks:read',
+      'shift_overtime_rules:read',
+      'shift_attendance_rules:read',
+      'shift_assignments:read',
+      'shift_rotation_groups:read',
+      'shift_rotation_rules:read',
+      'shift_schedules:read',
       'shift_change_requests:read',
-      'shift_change_requests:create',
-      'shift_change_requests:update',
+      'shift_templates:read',
+      // Timetables (read only — full structure for audit)
+      'timetables:read',
+      'timetable_days:read',
+      'timetable_shift_rules:read',
+      'employee_timetables:read',
+      'timetable_rotations:read',
+      'timetable_rotation_rules:read',
+      'timetable_holiday_rules:read',
+      'timetable_attendance_rules:read',
+      'timetable_generated_schedules:read',
+      // Onboarding & offboarding (read only)
+      'onboarding_workflows:read',
       'onboarding_requests:read',
-      'onboarding_requests:approve',
-      'onboarding_tasks:complete',
+      'onboarding_documents:read',
+      'offboarding_workflows:read',
       'offboarding_requests:read',
-      'offboarding_requests:approve',
-      'offboarding_tasks:complete',
-      'offboarding_tasks:reject',
+      'offboarding_documents:read',
     ],
-  },
-  // Onboarding/offboarding hierarchy roles
-  {
-    name: 'INTERN_TRAINEE',
-    displayName: 'Intern / Trainee',
-    description:
-      '[level:1][slug:intern-trainee] Onboarding role hierarchy level 1 for interns and trainees.',
-    permissionNames: [
-      'view_company_data',
-      'employees:read',
-      'leave_requests:read',
-      'leave_requests:create',
-      'leave_requests:cancel',
-      'leave_balances:read',
-      'attendance_summaries:read',
-      'attendance_mobile_punches:create',
-    ],
-    hierarchyLevel: 1,
-    hierarchySlug: 'intern-trainee',
-  },
-  {
-    name: 'HR_OFFICER',
-    displayName: 'Junior Employee / HR Officer',
-    description:
-      '[level:2][slug:junior-employee-hr-officer] Onboarding role hierarchy level 2 for junior staff and HR document verification.',
-    permissionNames: [
-      'view_company_data',
-      'employees:read',
-      'leave_requests:read',
-      'leave_requests:create',
-      'leave_requests:cancel',
-      'leave_balances:read',
-      'attendance_summaries:read',
-      'attendance_mobile_punches:create',
-      'onboarding_requests:read',
-      'onboarding_requests:approve',
-      'onboarding_tasks:complete',
-      'onboarding_documents:verify',
-      'offboarding_requests:read',
-      'offboarding_tasks:complete',
-    ],
-    hierarchyLevel: 2,
-    hierarchySlug: 'junior-employee-hr-officer',
-  },
-  {
-    name: 'IT_ADMINISTRATOR',
-    displayName: 'Mid-Level Employee / IT Administrator',
-    description:
-      '[level:3][slug:mid-level-employee-it-admin] Onboarding role hierarchy level 3 for mid-level staff and IT setup approval.',
-    permissionNames: [
-      'view_company_data',
-      'employees:read',
-      'leave_requests:read',
-      'leave_requests:create',
-      'leave_requests:cancel',
-      'leave_balances:read',
-      'attendance_summaries:read',
-      'attendance_mobile_punches:create',
-      'onboarding_requests:read',
-      'onboarding_requests:approve',
-      'onboarding_tasks:complete',
-      'offboarding_requests:read',
-      'offboarding_tasks:complete',
-      'employee_access_credentials:read',
-      'employee_access_credentials:create',
-      'employee_access_credentials:update',
-      'employee_device_assignments:read',
-    ],
-    hierarchyLevel: 3,
-    hierarchySlug: 'mid-level-employee-it-admin',
-  },
-  {
-    name: 'SENIOR_EMPLOYEE',
-    displayName: 'Senior Employee',
-    description:
-      '[level:4][slug:senior-employee] Onboarding role hierarchy level 4 for senior staff and security training recommendation.',
-    permissionNames: [
-      'view_company_data',
-      'employees:read',
-      'leave_requests:read',
-      'leave_requests:create',
-      'leave_requests:cancel',
-      'leave_balances:read',
-      'attendance_summaries:read',
-      'attendance_mobile_punches:create',
-      'onboarding_requests:read',
-      'onboarding_requests:approve',
-      'onboarding_tasks:complete',
-    ],
-    hierarchyLevel: 4,
-    hierarchySlug: 'senior-employee',
-  },
-  {
-    name: 'HR_MANAGER',
-    displayName: 'Manager / Head of Department / HR Manager',
-    description:
-      '[level:5][slug:manager-head-of-department-hr-manager] Onboarding role hierarchy level 5 for managerial approvals and final HR activation.',
-    permissionNames: [
-      'view_company_data',
-      'view_company_dashboard',
-      'employees:read',
-      'employees:update',
-      'employees:change-status',
-      'leave_requests:read',
-      'leave_requests:create',
-      'leave_requests:cancel',
-      'leave_requests:approve',
-      'leave_balances:read',
-      'attendance_summaries:read',
-      'attendance_mobile_punches:create',
-      'onboarding_requests:read',
-      'onboarding_requests:approve',
-      'onboarding_requests:complete',
-      'onboarding_tasks:complete',
-      'onboarding_documents:verify',
-      'offboarding_requests:read',
-      'offboarding_requests:approve',
-      'offboarding_requests:complete',
-      'offboarding_tasks:complete',
-      'offboarding_tasks:reject',
-      'offboarding_clearances:complete',
-    ],
-    hierarchyLevel: 5,
-    hierarchySlug: 'manager-head-of-department-hr-manager',
   },
 ];
 
@@ -470,6 +730,30 @@ export default class CompanyRolesSeeder implements Seeder {
         throw new Error(
           `Company "${companyName}" not found. Run 004-company.seed.ts first.`,
         );
+      }
+
+      // Remove legacy roles that are being replaced
+      const legacyRoleNames = [
+        'OWNER',
+        'ADMINISTRATOR',
+        'USER',
+        'VIEWER',
+        'INTERN_TRAINEE',
+        'HR_OFFICER',        // will be re-created with correct permissions
+        'IT_ADMINISTRATOR',
+        'SENIOR_EMPLOYEE',
+        'HR_MANAGER',        // will be re-created with correct permissions
+        'DEPARTMENT_MANAGER', // will be re-created with correct permissions
+      ];
+      const legacyRoles = await roleRepo.find({
+        where: { company_id: company.id },
+      });
+      const toDelete = legacyRoles.filter((r) =>
+        legacyRoleNames.includes(r.name) &&
+        !COMPANY_ROLE_SEEDS.find((s) => s.name === r.name),
+      );
+      if (toDelete.length > 0) {
+        await roleRepo.remove(toDelete);
       }
 
       const allPermissionNames = [

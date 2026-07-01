@@ -38,8 +38,8 @@ export class PermissionsController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @Roles('OWNER')
-  @ApiCreateOperation('Permission', 'Create a new permission (OWNER only)')
+  @Roles('SUPER_ADMIN')
+  @ApiCreateOperation('Permission', 'Create a new permission (SUPER_ADMIN only)')
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() createPermissionDto: CreatePermissionDto,
@@ -71,8 +71,8 @@ export class PermissionsController {
 
   @Patch(':id')
   @UseGuards(RolesGuard)
-  @Roles('OWNER')
-  @ApiUpdateOperation('Permission', 'Update a permission (OWNER only)')
+  @Roles('SUPER_ADMIN')
+  @ApiUpdateOperation('Permission', 'Update a permission (SUPER_ADMIN only)')
   update(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -83,8 +83,8 @@ export class PermissionsController {
 
   @Delete(':id')
   @UseGuards(RolesGuard)
-  @Roles('OWNER')
-  @ApiDeleteOperation('Permission', 'Delete a permission (OWNER only)')
+  @Roles('SUPER_ADMIN')
+  @ApiDeleteOperation('Permission', 'Delete a permission (SUPER_ADMIN only)')
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,

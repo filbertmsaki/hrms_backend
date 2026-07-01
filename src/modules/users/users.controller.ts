@@ -142,7 +142,7 @@ export class UsersController {
   @Permissions('users:create')
   @ApiOperationSummary(
     'Create a new user in the company',
-    'Creates a new user account within the active company context. Requires ADMINISTRATOR role or users:create permission.',
+    'Creates a new user account within the active company context. Requires COMPANY_ADMIN role or users:create permission.',
     'Users_create',
   )
   @ApiAuthRequired()
@@ -251,11 +251,11 @@ export class UsersController {
 
   @Delete(':id')
   @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('ADMINISTRATOR')
+  @Roles('COMPANY_ADMIN')
   @Permissions('users:delete')
   @ApiOperationSummary(
     'Delete a user',
-    'Permanently removes a user from the active company. Only users with ADMINISTRATOR role can delete users.',
+    'Permanently removes a user from the active company. Only users with COMPANY_ADMIN role can delete users.',
     'Users_delete',
   )
   @ApiAuthRequired()
@@ -274,11 +274,11 @@ export class UsersController {
 
   @Post(':userId/roles/:roleId')
   @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('ADMINISTRATOR')
+  @Roles('COMPANY_ADMIN')
   @Permissions('users:assign-role')
   @ApiOperationSummary(
     'Assign role to user',
-    'Assigns a role to a user within the active company. Requires ADMINISTRATOR role.',
+    'Assigns a role to a user within the active company. Requires COMPANY_ADMIN role.',
     'Users_assignRole',
   )
   @ApiAuthRequired()
@@ -302,11 +302,11 @@ export class UsersController {
 
   @Delete(':userId/roles/:roleId')
   @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('ADMINISTRATOR')
+  @Roles('COMPANY_ADMIN')
   @Permissions('users:revoke-role')
   @ApiOperationSummary(
     'Revoke role from user',
-    'Removes a role assignment from a user within the active company. Requires ADMINISTRATOR role.',
+    'Removes a role assignment from a user within the active company. Requires COMPANY_ADMIN role.',
     'Users_revokeRole',
   )
   @ApiAuthRequired()

@@ -40,7 +40,7 @@ const WORKFLOW_STEP_SEEDS: WorkflowStepSeed[] = [
   {
     approvalLevel: 3,
     approverType: LeaveApproverTypeEnum.ROLE,
-    roleName: 'ADMINISTRATOR',
+    roleName: 'HR_MANAGER',
     actionType: LeaveApprovalActionTypeEnum.APPROVE,
     isRequired: true,
   },

@@ -50,7 +50,7 @@ const STEP_SEEDS: OnboardingStepSeed[] = [
     description:
       'IT Administrator provisions workstation, company email, system accounts, software licenses, and access control credentials (biometric enrollment, access card).',
     stepType: OnboardingStepTypeEnum.TASK,
-    roleName: 'IT_ADMINISTRATOR',
+    roleName: 'DEPARTMENT_MANAGER',
     isRequired: true,
     dueDays: 3,
   },
@@ -60,7 +60,7 @@ const STEP_SEEDS: OnboardingStepSeed[] = [
     description:
       'IT Administrator confirms all equipment is issued, accounts are active, and the employee has verified access to required systems.',
     stepType: OnboardingStepTypeEnum.SIGN_OFF,
-    roleName: 'IT_ADMINISTRATOR',
+    roleName: 'DEPARTMENT_MANAGER',
     isRequired: true,
     dueDays: 1,
   },
@@ -70,7 +70,7 @@ const STEP_SEEDS: OnboardingStepSeed[] = [
     description:
       'Senior Employee conducts workplace orientation: company policies, code of conduct, HSE briefing, department tour, and introduction to team members.',
     stepType: OnboardingStepTypeEnum.TASK,
-    roleName: 'SENIOR_EMPLOYEE',
+    roleName: 'DEPARTMENT_MANAGER',
     isRequired: true,
     dueDays: 2,
   },

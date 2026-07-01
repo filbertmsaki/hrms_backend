@@ -12,9 +12,10 @@ type RoleSeed = {
 
 const GLOBAL_ROLE_SEEDS: RoleSeed[] = [
   {
-    name: 'OWNER',
-    displayName: 'Platform Owner',
-    description: 'Global platform-level owner with no company membership',
+    name: 'SUPER_ADMIN',
+    displayName: 'Super Admin',
+    description:
+      'Full access to the entire platform. Can manage all companies, plans, users, settings, and data.',
     permissionNames: [
       'create_company',
       'view_companies',
@@ -59,6 +60,14 @@ export default class GlobalRolesSeeder implements Seeder {
         where: { name: In(allPermissionNames) },
       });
       const permissionMap = new Map(permissions.map((p) => [p.name, p]));
+
+      // Rename legacy OWNER role to SUPER_ADMIN if it still exists
+      const legacyOwner = await roleRepo.findOne({
+        where: { name: 'OWNER', company_id: IsNull() },
+      });
+      if (legacyOwner) {
+        await roleRepo.delete(legacyOwner.id);
+      }
 
       for (const seed of GLOBAL_ROLE_SEEDS) {
         let role = await roleRepo.findOne({

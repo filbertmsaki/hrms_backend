@@ -31,7 +31,7 @@ export const IT_EMPLOYEES: DeptEmployeeSeed[] = [
     branchCode: 'HQ',
     departmentCode: 'IT',
     positionCode: 'IT_MANAGER',
-    roleNames: ['DEPARTMENT_MANAGER', 'IT_ADMINISTRATOR'],
+    roleNames: ['DEPARTMENT_MANAGER'],
     reportsToEmployeeNo: 'AICL-000002',
   },
   {
@@ -44,7 +44,7 @@ export const IT_EMPLOYEES: DeptEmployeeSeed[] = [
     branchCode: 'HQ',
     departmentCode: 'IT',
     positionCode: 'SYSTEMS_ADMINISTRATOR',
-    roleNames: ['SENIOR_EMPLOYEE', 'IT_ADMINISTRATOR'],
+    roleNames: ['EMPLOYEE'],
     reportsToEmployeeNo: 'AICL-000006',
   },
   {
@@ -57,7 +57,7 @@ export const IT_EMPLOYEES: DeptEmployeeSeed[] = [
     branchCode: 'HQ',
     departmentCode: 'IT',
     positionCode: 'ASSISTANT_IT_MANAGER',
-    roleNames: ['SENIOR_EMPLOYEE', 'IT_ADMINISTRATOR'],
+    roleNames: ['EMPLOYEE'],
     reportsToEmployeeNo: 'AICL-000006',
   },
   {
@@ -70,7 +70,7 @@ export const IT_EMPLOYEES: DeptEmployeeSeed[] = [
     branchCode: 'HQ',
     departmentCode: 'IT',
     positionCode: 'IT_OFFICER',
-    roleNames: ['IT_ADMINISTRATOR'],
+    roleNames: ['EMPLOYEE'],
     reportsToEmployeeNo: 'AICL-000008',
   },
   {
@@ -83,7 +83,7 @@ export const IT_EMPLOYEES: DeptEmployeeSeed[] = [
     branchCode: 'HQ',
     departmentCode: 'IT',
     positionCode: 'IT_OFFICER',
-    roleNames: ['IT_ADMINISTRATOR'],
+    roleNames: ['EMPLOYEE'],
     reportsToEmployeeNo: 'AICL-000008',
   },
   {
@@ -96,7 +96,7 @@ export const IT_EMPLOYEES: DeptEmployeeSeed[] = [
     branchCode: 'HQ',
     departmentCode: 'IT',
     positionCode: 'IT_OFFICER',
-    roleNames: ['USER'],
+    roleNames: ['EMPLOYEE'],
     reportsToEmployeeNo: 'AICL-000008',
   },
   {
@@ -109,7 +109,7 @@ export const IT_EMPLOYEES: DeptEmployeeSeed[] = [
     branchCode: 'HQ',
     departmentCode: 'IT',
     positionCode: 'IT_OFFICER',
-    roleNames: ['USER'],
+    roleNames: ['EMPLOYEE'],
     reportsToEmployeeNo: 'AICL-000008',
   },
 ];

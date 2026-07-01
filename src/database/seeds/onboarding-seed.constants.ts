@@ -17,88 +17,76 @@ export type OnboardingRoleUserSeed = {
   phone: string;
 };
 
+/**
+ * Onboarding workflow role hierarchy using the new standard roles.
+ * Roles map to real system roles — no dedicated hierarchy-only roles needed.
+ */
 export const ONBOARDING_ROLE_HIERARCHY_SEEDS: OnboardingRoleHierarchySeed[] = [
   {
     level: 1,
-    name: 'INTERN_TRAINEE',
-    display_name: 'Intern / Trainee',
-    slug: 'intern-trainee',
-    description: 'Onboarding role hierarchy level 1 for interns and trainees.',
+    name: 'EMPLOYEE',
+    display_name: 'Employee',
+    slug: 'employee',
+    description: 'Onboarding role hierarchy level 1 — standard employee entry.',
   },
   {
     level: 2,
     name: 'HR_OFFICER',
-    display_name: 'Junior Employee / HR Officer',
-    slug: 'junior-employee-hr-officer',
+    display_name: 'HR Officer',
+    slug: 'hr-officer',
     description:
-      'Onboarding role hierarchy level 2 for junior staff and HR document verification.',
+      'Onboarding role hierarchy level 2 — HR document verification and record setup.',
   },
   {
     level: 3,
-    name: 'IT_ADMINISTRATOR',
-    display_name: 'Mid-Level Employee / IT Administrator',
-    slug: 'mid-level-employee-it-admin',
+    name: 'DEPARTMENT_MANAGER',
+    display_name: 'Department Manager',
+    slug: 'department-manager',
     description:
-      'Onboarding role hierarchy level 3 for mid-level staff and IT setup approval.',
+      'Onboarding role hierarchy level 3 — department/IT setup approval and equipment provisioning.',
   },
   {
     level: 4,
-    name: 'SENIOR_EMPLOYEE',
-    display_name: 'Senior Employee',
-    slug: 'senior-employee',
-    description:
-      'Onboarding role hierarchy level 4 for senior staff and security training recommendation.',
-  },
-  {
-    level: 5,
     name: 'HR_MANAGER',
-    display_name: 'Manager / Head of Department / HR Manager',
-    slug: 'manager-head-of-department-hr-manager',
+    display_name: 'HR Manager',
+    slug: 'hr-manager',
     description:
-      'Onboarding role hierarchy level 5 for managerial approvals and final HR activation.',
+      'Onboarding role hierarchy level 4 — final HR review, activation, and sign-off.',
   },
 ];
 
 export const ONBOARDING_ROLE_USER_SEEDS: OnboardingRoleUserSeed[] = [
   {
-    role_name: 'INTERN_TRAINEE',
+    role_name: 'EMPLOYEE',
     user_no: 'ONB-USER-0001',
-    first_name: 'Intern',
-    last_name: 'User',
-    email: 'intern_user@seed.local',
+    first_name: 'Onboarding',
+    last_name: 'Employee',
+    email: 'onboarding_employee@seed.local',
     phone: '+255799000001',
   },
   {
     role_name: 'HR_OFFICER',
     user_no: 'ONB-USER-0002',
-    first_name: 'Junior',
-    last_name: 'User',
-    email: 'junior_user@seed.local',
+    first_name: 'Onboarding',
+    last_name: 'HrOfficer',
+    email: 'onboarding_hr_officer@seed.local',
     phone: '+255799000002',
   },
   {
-    role_name: 'IT_ADMINISTRATOR',
+    role_name: 'DEPARTMENT_MANAGER',
     user_no: 'ONB-USER-0003',
-    first_name: 'Mid',
-    last_name: 'User',
-    email: 'mid_user@seed.local',
+    first_name: 'Onboarding',
+    last_name: 'DeptManager',
+    email: 'onboarding_dept_manager@seed.local',
     phone: '+255799000003',
   },
   {
-    role_name: 'SENIOR_EMPLOYEE',
-    user_no: 'ONB-USER-0004',
-    first_name: 'Senior',
-    last_name: 'User',
-    email: 'senior_user@seed.local',
-    phone: '+255799000004',
-  },
-  {
     role_name: 'HR_MANAGER',
-    user_no: 'ONB-USER-0005',
-    first_name: 'Manager',
-    last_name: 'User',
-    email: 'manager_user@seed.local',
-    phone: '+255799000005',
+    user_no: 'ONB-USER-0004',
+    first_name: 'Onboarding',
+    last_name: 'HrManager',
+    email: 'onboarding_hr_manager@seed.local',
+    phone: '+255799000004',
   },
 ];
 

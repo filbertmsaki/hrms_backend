@@ -40,7 +40,7 @@ export const UNDERWRITING_EMPLOYEES: DeptEmployeeSeed[] = [
     branchCode: 'HQ',
     departmentCode: 'UNDERWRITING',
     positionCode: 'ASSISTANT_UNDERWRITING_MANAGER',
-    roleNames: ['SENIOR_EMPLOYEE'],
+    roleNames: ['EMPLOYEE'],
     reportsToEmployeeNo: 'AICL-000017',
   },
   {
@@ -53,7 +53,7 @@ export const UNDERWRITING_EMPLOYEES: DeptEmployeeSeed[] = [
     branchCode: 'HQ',
     departmentCode: 'UNDERWRITING',
     positionCode: 'UNDERWRITER',
-    roleNames: ['USER'],
+    roleNames: ['EMPLOYEE'],
     reportsToEmployeeNo: 'AICL-000018',
   },
   {
@@ -66,7 +66,7 @@ export const UNDERWRITING_EMPLOYEES: DeptEmployeeSeed[] = [
     branchCode: 'HQ',
     departmentCode: 'UNDERWRITING',
     positionCode: 'UNDERWRITER',
-    roleNames: ['USER'],
+    roleNames: ['EMPLOYEE'],
     reportsToEmployeeNo: 'AICL-000018',
   },
 ];

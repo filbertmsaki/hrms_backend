@@ -41,11 +41,11 @@ export default class CompanyAdminSeeder implements Seeder {
       }
 
       const adminRole = await roleRepo.findOne({
-        where: { name: 'ADMINISTRATOR', company_id: company.id },
+        where: { name: 'COMPANY_ADMIN', company_id: company.id },
       });
       if (!adminRole) {
         throw new Error(
-          `ADMINISTRATOR role not found for company ${company.id}. Run 005-company-roles.seed.ts first.`,
+          `COMPANY_ADMIN role not found for company ${company.id}. Run 005-company-roles.seed.ts first.`,
         );
       }
 

@@ -40,7 +40,7 @@ export const CLAIMS_EMPLOYEES: DeptEmployeeSeed[] = [
     branchCode: 'HQ',
     departmentCode: 'CLAIMS',
     positionCode: 'ASSISTANT_CLAIMS_MANAGER',
-    roleNames: ['SENIOR_EMPLOYEE'],
+    roleNames: ['EMPLOYEE'],
     reportsToEmployeeNo: 'AICL-000013',
   },
   {
@@ -53,7 +53,7 @@ export const CLAIMS_EMPLOYEES: DeptEmployeeSeed[] = [
     branchCode: 'HQ',
     departmentCode: 'CLAIMS',
     positionCode: 'SENIOR_CLAIMS_OFFICER',
-    roleNames: ['SENIOR_EMPLOYEE'],
+    roleNames: ['EMPLOYEE'],
     reportsToEmployeeNo: 'AICL-000013',
   },
   {
@@ -66,7 +66,7 @@ export const CLAIMS_EMPLOYEES: DeptEmployeeSeed[] = [
     branchCode: 'HQ',
     departmentCode: 'CLAIMS',
     positionCode: 'CLAIMS_OFFICER',
-    roleNames: ['USER'],
+    roleNames: ['EMPLOYEE'],
     reportsToEmployeeNo: 'AICL-000014',
   },
 ];

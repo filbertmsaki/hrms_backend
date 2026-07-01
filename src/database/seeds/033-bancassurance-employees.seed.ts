@@ -39,7 +39,7 @@ export const BANCASSURANCE_EMPLOYEES: DeptEmployeeSeed[] = [
     branchCode: 'HQ',
     departmentCode: 'BANCASSURANCE',
     positionCode: 'BANCASSURANCE_OFFICER',
-    roleNames: ['USER'],
+    roleNames: ['EMPLOYEE'],
     reportsToEmployeeNo: 'AICL-000024',
   },
   {
@@ -52,7 +52,7 @@ export const BANCASSURANCE_EMPLOYEES: DeptEmployeeSeed[] = [
     branchCode: 'HQ',
     departmentCode: 'BANCASSURANCE',
     positionCode: 'BANCASSURANCE_OFFICER',
-    roleNames: ['USER'],
+    roleNames: ['EMPLOYEE'],
     reportsToEmployeeNo: 'AICL-000024',
   },
 ];

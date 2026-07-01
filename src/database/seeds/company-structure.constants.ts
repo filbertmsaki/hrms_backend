@@ -637,7 +637,7 @@ const ALLIANCE_HIKVISION_EMPLOYEES: AllianceHikvisionEmployeeInput[] = [
     hikvisionEmployeeNo: '00000001',
     fullName: 'Filbert Msaki',
     email: 'filbert@alliance.co.tz',
-    roleNames: ['ADMINISTRATOR'],
+    roleNames: ['COMPANY_ADMIN'],
   },
   { hikvisionEmployeeNo: '00000003', fullName: 'Agatha Godfrey Kiiza' },
   { hikvisionEmployeeNo: '00000004', fullName: 'Amina Gerard Manongi' },
@@ -652,7 +652,7 @@ const ALLIANCE_HIKVISION_EMPLOYEES: AllianceHikvisionEmployeeInput[] = [
     hikvisionEmployeeNo: '00000012',
     fullName: 'Bosco Odilo Semiono',
     email: 'bossco.odillo@alliance.co.tz',
-    roleNames: ['USER'],
+    roleNames: ['EMPLOYEE'],
   },
   { hikvisionEmployeeNo: '00000013', fullName: 'Brenda Raymond Mushi' },
   { hikvisionEmployeeNo: '00000014', fullName: 'Catherine Jackeline Aliwa' },
@@ -685,19 +685,19 @@ const ALLIANCE_HIKVISION_EMPLOYEES: AllianceHikvisionEmployeeInput[] = [
     hikvisionEmployeeNo: '00000040',
     fullName: 'Jasson Kalemera',
     email: 'jasson.kalemera@alliance.co.tz',
-    roleNames: ['USER'],
+    roleNames: ['EMPLOYEE'],
   },
   {
     hikvisionEmployeeNo: '00000059',
     fullName: 'Vicky Msifwaki',
     email: 'msifwaki.vicky@alliance.co.tz',
-    roleNames: ['USER'],
+    roleNames: ['EMPLOYEE'],
   },
   {
     hikvisionEmployeeNo: '00000094',
     fullName: 'Inocent Nuruva',
     email: 'inocent@alliance.co.tz',
-    roleNames: ['ADMINISTRATOR'],
+    roleNames: ['COMPANY_ADMIN'],
   },
   { hikvisionEmployeeNo: '00000038', fullName: 'Jackline Francis Nyangusy' },
   { hikvisionEmployeeNo: '00000039', fullName: 'Janki Sinha' },
@@ -768,7 +768,7 @@ const ALLIANCE_HIKVISION_EMPLOYEES: AllianceHikvisionEmployeeInput[] = [
     hikvisionEmployeeNo: '00000108',
     fullName: 'Ravi Kumar',
     email: 'ravi.kumar@alliance.co.tz',
-    roleNames: ['USER'],
+    roleNames: ['EMPLOYEE'],
   },
 ];
 
@@ -791,7 +791,7 @@ export const ALLIANCE_EMPLOYEES: CompanyEmployeeSeed[] =
       primaryBranchCode: 'HQ',
       primaryDepartmentCode: assignment.primaryDepartmentCode,
       reportsToEmployeeNo: assignment.reportsToEmployeeNo,
-      roleNames: seed.roleNames ?? ['USER'],
+      roleNames: seed.roleNames ?? ['EMPLOYEE'],
       permissionNames: seed.permissionNames,
     };
   });

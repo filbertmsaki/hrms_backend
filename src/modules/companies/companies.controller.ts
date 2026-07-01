@@ -48,7 +48,7 @@ export class CompaniesController {
 
   @Get()
   @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('OWNER')
+  @Roles('SUPER_ADMIN')
   @Permissions('companies:read')
   @ApiListOperation('Company', 'List all companies as the platform owner')
   async listCompanies() {
@@ -208,7 +208,7 @@ export class CompaniesController {
 
   @Get(':id')
   @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('OWNER')
+  @Roles('SUPER_ADMIN')
   @Permissions('companies:read')
   @ApiGetOneOperation('Company', 'Get a company by ID (OWNER only)')
   async findOneCompany(@Param('id', ParseIntPipe) id: number) {
@@ -217,7 +217,7 @@ export class CompaniesController {
 
   @Patch(':id')
   @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('OWNER')
+  @Roles('SUPER_ADMIN')
   @Permissions('companies:update')
   @ApiUpdateOperation('Company', 'Update a company (OWNER only)')
   async updateCompany(
@@ -229,7 +229,7 @@ export class CompaniesController {
 
   @Post(':id/activate')
   @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('OWNER')
+  @Roles('SUPER_ADMIN')
   @Permissions('companies:update')
   @ApiActionOperation('Activate Company', 'Activate a suspended company (OWNER only)')
   async activateCompany(@Param('id', ParseIntPipe) id: number) {
@@ -238,7 +238,7 @@ export class CompaniesController {
 
   @Post(':id/suspend')
   @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('OWNER')
+  @Roles('SUPER_ADMIN')
   @Permissions('companies:update')
   @ApiActionOperation('Suspend Company', 'Suspend an active company (OWNER only)')
   async suspendCompany(@Param('id', ParseIntPipe) id: number) {
@@ -247,7 +247,7 @@ export class CompaniesController {
 
   @Post()
   @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('OWNER')
+  @Roles('SUPER_ADMIN')
   @Permissions('companies:create')
   @ApiCreateOperation(
     'Company',

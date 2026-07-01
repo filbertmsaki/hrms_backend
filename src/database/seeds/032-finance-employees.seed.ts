@@ -39,7 +39,7 @@ export const FINANCE_EMPLOYEES: DeptEmployeeSeed[] = [
     branchCode: 'HQ',
     departmentCode: 'ACCOUNTS_FINANCE',
     positionCode: 'ASSISTANT_FINANCE_MANAGER',
-    roleNames: ['SENIOR_EMPLOYEE'],
+    roleNames: ['EMPLOYEE'],
     reportsToEmployeeNo: 'AICL-000021',
   },
   {
@@ -52,7 +52,7 @@ export const FINANCE_EMPLOYEES: DeptEmployeeSeed[] = [
     branchCode: 'HQ',
     departmentCode: 'ACCOUNTS_FINANCE',
     positionCode: 'ACCOUNTANT',
-    roleNames: ['USER'],
+    roleNames: ['EMPLOYEE'],
     reportsToEmployeeNo: 'AICL-000022',
   },
 ];

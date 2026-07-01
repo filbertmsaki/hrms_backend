@@ -130,7 +130,7 @@ export default class EmployeesSeeder implements Seeder {
         }
 
         // Assign roles
-        const roleNames = seed.roleNames ?? ['USER'];
+        const roleNames = seed.roleNames ?? ['EMPLOYEE'];
         for (const roleName of roleNames) {
           const role = roleMap.get(roleName);
           if (!role) continue;

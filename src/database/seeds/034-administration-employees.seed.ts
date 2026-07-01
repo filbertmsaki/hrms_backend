@@ -26,7 +26,7 @@ export const ADMINISTRATION_EMPLOYEES: DeptEmployeeSeed[] = [
     branchCode: 'HQ',
     departmentCode: 'ADMINISTRATION',
     positionCode: 'OPERATIONS_MANAGER',
-    roleNames: ['SENIOR_EMPLOYEE'],
+    roleNames: ['EMPLOYEE'],
     reportsToEmployeeNo: 'AICL-000002',
   },
   {
@@ -39,7 +39,7 @@ export const ADMINISTRATION_EMPLOYEES: DeptEmployeeSeed[] = [
     branchCode: 'HQ',
     departmentCode: 'ADMINISTRATION',
     positionCode: 'OFFICE_ADMINISTRATOR',
-    roleNames: ['USER'],
+    roleNames: ['EMPLOYEE'],
     reportsToEmployeeNo: 'AICL-000002',
   },
   {
@@ -52,7 +52,7 @@ export const ADMINISTRATION_EMPLOYEES: DeptEmployeeSeed[] = [
     branchCode: 'HQ',
     departmentCode: 'ADMINISTRATION',
     positionCode: 'RECEPTIONIST',
-    roleNames: ['USER'],
+    roleNames: ['EMPLOYEE'],
     reportsToEmployeeNo: 'AICL-000002',
   },
 ];
