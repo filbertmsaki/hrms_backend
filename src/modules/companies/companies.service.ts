@@ -380,7 +380,7 @@ export class CompaniesService {
         company.id,
         {
           isDefault: true,
-          roleNames: ['ADMINISTRATOR'],
+          roleNames: ['COMPANY_ADMIN'],
         },
         manager,
       );
@@ -655,13 +655,13 @@ export class CompaniesService {
 
     if (!roleIds.size) {
       const viewerRole = await this.findRoleByNameForCompany(
-        'VIEWER',
+        'EMPLOYEE',
         companyId,
         manager,
       );
 
       if (!viewerRole) {
-        throw new NotFoundException('Default viewer role not found');
+        throw new NotFoundException('Default employee role not found');
       }
 
       roleIds.add(viewerRole.id);

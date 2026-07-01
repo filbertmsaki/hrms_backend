@@ -45,11 +45,11 @@ const ORG_STRUCTURE_READ_PERMISSIONS = [
 /** Team approval permissions shared by all manager-level roles */
 const TEAM_APPROVAL_PERMISSIONS = [
   'leave_requests:approve',
-  'leave_balances:adjust',
   'shift_change_requests:update',
   'shift_change_requests:delete',
   'onboarding_requests:read',
   'onboarding_requests:approve',
+  'onboarding_tasks:read',
   'onboarding_tasks:complete',
   'onboarding_documents:read',
   'onboarding_documents:verify',
@@ -58,6 +58,34 @@ const TEAM_APPROVAL_PERMISSIONS = [
   'offboarding_tasks:complete',
   'offboarding_tasks:reject',
   'offboarding_clearances:complete',
+];
+
+const COMPANY_USER_ADMIN_PERMISSIONS = [
+  'company_users:read',
+  'company_users:create',
+  'company_users:update',
+  'company_users:delete',
+];
+
+const TEAM_ATTENDANCE_PERMISSIONS = ['team_attendance:read'];
+
+const SELF_SERVICE_APPROVAL_PERMISSIONS = ['self_service_requests:approve'];
+
+const ATTENDANCE_BUSINESS_TRIP_FULL_PERMISSIONS = [
+  'attendance_business_trips:read',
+  'attendance_business_trips:create',
+  'attendance_business_trips:update',
+  'attendance_business_trips:approve',
+  'attendance_business_trips:cancel',
+  'attendance_business_trips:delete',
+];
+
+const ATTENDANCE_BUSINESS_TRIP_OPERATIONAL_PERMISSIONS = [
+  'attendance_business_trips:read',
+  'attendance_business_trips:create',
+  'attendance_business_trips:update',
+  'attendance_business_trips:approve',
+  'attendance_business_trips:cancel',
 ];
 
 const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
@@ -80,6 +108,7 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'create_company_user',
       'update_company_user',
       'delete_company_user',
+      ...COMPANY_USER_ADMIN_PERMISSIONS,
       'users:read',
       'users:create',
       'users:update',
@@ -177,6 +206,9 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'attendance_processing:execute',
       'attendance_recalculation:execute',
       'attendance_summaries:read',
+      ...TEAM_ATTENDANCE_PERMISSIONS,
+      ...ATTENDANCE_BUSINESS_TRIP_FULL_PERMISSIONS,
+      'hrms_launch_readiness:read',
       // Access control
       'access_doors:read',
       'access_doors:create',
@@ -242,8 +274,6 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'shift_schedules:create',
       'shift_schedules:update',
       'shift_schedules:delete',
-      'shift_change_requests:read',
-      'shift_change_requests:create',
       'shift_change_requests:update',
       'shift_change_requests:delete',
       'shift_templates:read',
@@ -298,10 +328,15 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'onboarding_requests:approve',
       'onboarding_requests:complete',
       'onboarding_requests:cancel',
+      'onboarding_tasks:read',
       'onboarding_tasks:create',
+      'onboarding_tasks:update',
       'onboarding_tasks:complete',
+      'onboarding_documents:read',
       'onboarding_documents:create',
+      'onboarding_documents:update',
       'onboarding_documents:verify',
+      'onboarding_documents:delete',
       'offboarding_workflows:read',
       'offboarding_workflows:create',
       'offboarding_workflows:update',
@@ -316,10 +351,14 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'offboarding_tasks:create',
       'offboarding_tasks:complete',
       'offboarding_tasks:reject',
+      'offboarding_clearances:read',
       'offboarding_clearances:create',
       'offboarding_clearances:complete',
+      'offboarding_documents:update',
+      'offboarding_documents:delete',
       'offboarding_documents:create',
       'offboarding_documents:read',
+      ...SELF_SERVICE_APPROVAL_PERMISSIONS,
     ],
   },
 
@@ -399,6 +438,10 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'attendance_processing:read',
       'attendance_processing:execute',
       'attendance_recalculation:execute',
+      ...TEAM_ATTENDANCE_PERMISSIONS,
+      ...ATTENDANCE_BUSINESS_TRIP_FULL_PERMISSIONS,
+      ...SELF_SERVICE_APPROVAL_PERMISSIONS,
+      'hrms_launch_readiness:read',
       // Shifts (full management)
       'shifts:read',
       'shifts:create',
@@ -432,8 +475,6 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'shift_schedules:create',
       'shift_schedules:update',
       'shift_schedules:delete',
-      'shift_change_requests:read',
-      'shift_change_requests:create',
       'shift_change_requests:update',
       'shift_change_requests:delete',
       'shift_templates:read',
@@ -490,10 +531,13 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'onboarding_requests:cancel',
       'onboarding_tasks:read',
       'onboarding_tasks:create',
+      'onboarding_tasks:update',
       'onboarding_tasks:complete',
       'onboarding_documents:read',
       'onboarding_documents:create',
+      'onboarding_documents:update',
       'onboarding_documents:verify',
+      'onboarding_documents:delete',
       'offboarding_workflows:read',
       'offboarding_workflows:create',
       'offboarding_workflows:update',
@@ -512,6 +556,8 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'offboarding_clearances:read',
       'offboarding_clearances:create',
       'offboarding_clearances:complete',
+      'offboarding_documents:update',
+      'offboarding_documents:delete',
       'offboarding_documents:create',
       'offboarding_documents:read',
     ],
@@ -545,17 +591,20 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       // Attendance
       'attendance_mobile_punches:update',
       'attendance_processing:read',
+      ...ATTENDANCE_BUSINESS_TRIP_OPERATIONAL_PERMISSIONS,
+      ...SELF_SERVICE_APPROVAL_PERMISSIONS,
+      'hrms_launch_readiness:read',
       // Shifts (read only)
       'shifts:read',
       'shift_assignments:read',
       'shift_schedules:read',
-      'shift_change_requests:read',
       'shift_change_requests:update',
       // Onboarding (day-to-day tasks and document verification)
       'onboarding_workflows:read',
       'onboarding_requests:read',
       'onboarding_requests:update',
       'onboarding_requests:approve',
+      'onboarding_tasks:read',
       'onboarding_tasks:complete',
       'onboarding_documents:read',
       'onboarding_documents:create',
@@ -563,8 +612,10 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       // Offboarding (day-to-day tasks)
       'offboarding_workflows:read',
       'offboarding_requests:read',
+      'offboarding_tasks:read',
       'offboarding_tasks:complete',
       'offboarding_tasks:reject',
+      'offboarding_clearances:read',
       'offboarding_clearances:complete',
       'offboarding_documents:create',
       'offboarding_documents:read',
@@ -587,10 +638,9 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       // Self-service (covers view_company_data, employees:read, leave, attendance, shift change)
       ...SELF_SERVICE_PERMISSIONS,
       ...ORG_STRUCTURE_READ_PERMISSIONS,
-      // Employees (limited update — no status change or delete)
-      'employees:update',
       // Team approval
       ...TEAM_APPROVAL_PERMISSIONS,
+      ...TEAM_ATTENDANCE_PERMISSIONS,
       // Shifts (team visibility)
       'shifts:read',
       'shift_assignments:read',
@@ -615,18 +665,15 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       ...SELF_SERVICE_PERMISSIONS,
       // ORG_STRUCTURE_READ_PERMISSIONS already includes branches:read
       ...ORG_STRUCTURE_READ_PERMISSIONS,
-      // Employees (limited update — no status change or delete)
-      'employees:update',
       // Team approval
       ...TEAM_APPROVAL_PERMISSIONS,
+      ...TEAM_ATTENDANCE_PERMISSIONS,
       // Attendance (branch-wide visibility)
       'attendance_mobile_punches:read',
       // Shifts (branch visibility)
       'shifts:read',
       'shift_assignments:read',
       'shift_schedules:read',
-      // Branch access management
-      'branches:manage-access',
     ],
   },
 

@@ -37,7 +37,7 @@ export class UserProfileDto {
     example: [
       {
         id: 1,
-        name: 'ADMINISTRATOR',
+        name: 'COMPANY_ADMIN',
         display_name: 'Administrator',
         description: 'Company administrator role',
         company_id: 1,

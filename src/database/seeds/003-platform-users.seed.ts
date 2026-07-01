@@ -37,7 +37,7 @@ export default class PlatformUsersSeeder implements Seeder {
         (await userRepo.findOne({ where: { phone } }));
 
       const ownerRole = await roleRepo.findOne({
-        where: { name: 'OWNER', company_id: IsNull() },
+        where: { name: 'SUPER_ADMIN', company_id: IsNull() },
       });
 
       if (!user) {

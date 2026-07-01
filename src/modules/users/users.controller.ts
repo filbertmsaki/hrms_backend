@@ -53,10 +53,7 @@ export class UsersController {
   private isPrivilegedCompanyUser(
     req: ExpressRequest & { user: AuthenticatedUser },
   ): boolean {
-    return (
-      req.user.roles.includes('ADMINISTRATOR') ||
-      req.user.roles.includes('OWNER')
-    );
+    return req.user.roles.includes('COMPANY_ADMIN');
   }
 
   // ────────────────────────────────

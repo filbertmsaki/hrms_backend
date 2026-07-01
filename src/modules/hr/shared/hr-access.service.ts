@@ -17,10 +17,7 @@ export class HrAccessService {
   ) {}
 
   hasCompanyWideBranchAccess(actor: AuthenticatedUser): boolean {
-    return (
-      actor.roles.includes('ADMINISTRATOR') ||
-      actor.permissions.includes('branches:manage-access')
-    );
+    return actor.roles.includes('COMPANY_ADMIN');
   }
 
   async getAccessibleBranchIds(

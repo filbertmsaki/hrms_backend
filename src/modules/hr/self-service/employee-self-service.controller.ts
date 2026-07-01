@@ -13,6 +13,8 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest, Response } from 'express';
+import { Permissions } from '../../../common/decorators/permissions.decorator';
+import { PermissionsGuard } from '../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { CancelLeaveRequestDto } from '../leave/dtos/cancel-leave-request.dto';
@@ -361,14 +363,19 @@ cancelMyProfileUpdateRequest(
 
 // ─── Manager / Team Attendance ────────────────────────────────────────────────
 
-@Get('team/attendance')
-@ApiOperation({
-  summary: "Get my direct reports' attendance (manager view)",
-})
-getMyTeamAttendance(
-  @Req() req: ExpressRequest & { user: AuthenticatedUser },
-  @Query() query: TeamAttendanceQueryDto,
-) {
-  return this.employeeSelfServiceService.getMyTeamAttendance(req.user, query);
-}
+  @Get('team/attendance')
+  @UseGuards(PermissionsGuard)
+  @Permissions('team_attendance:read')
+  @ApiOperation({
+    summary: "Get my direct reports' attendance (manager view)",
+  })
+  getMyTeamAttendance(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: TeamAttendanceQueryDto,
+  ) {
+    return this.employeeSelfServiceService.getMyTeamAttendance(
+      req.user,
+      query,
+    );
+  }
 }

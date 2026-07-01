@@ -11,7 +11,9 @@ export function hasOwnerRole(
   actor?: OwnerAwareUser | null,
 ): actor is OwnerAwareUser {
   return (
-    actor?.userType === 'OWNER' || actor?.roles?.includes('OWNER') === true
+    actor?.userType === 'OWNER' ||
+    actor?.roles?.includes('SUPER_ADMIN') === true ||
+    actor?.roles?.includes('OWNER') === true
   );
 }
 
@@ -22,7 +24,7 @@ export function assertCanCreateSystemGeneratedRbacRecord(
 ): void {
   if (isSystemGenerated && !hasOwnerRole(actor)) {
     throw new ForbiddenException(
-      `Only users with the OWNER role can create system-generated ${resource}s`,
+      `Only users with the SUPER_ADMIN role can create system-generated ${resource}s`,
     );
   }
 }

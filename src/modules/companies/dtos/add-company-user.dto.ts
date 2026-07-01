@@ -30,7 +30,7 @@ export class AddCompanyUserDto {
   @IsOptional()
   role_ids?: number[];
 
-  @ApiPropertyOptional({ example: ['ADMINISTRATOR'] })
+  @ApiPropertyOptional({ example: ['COMPANY_ADMIN'] })
   @IsArray()
   @IsString({ each: true })
   @IsOptional()

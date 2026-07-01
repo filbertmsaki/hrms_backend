@@ -48,7 +48,7 @@ export class PermissionsService {
   ): Promise<Permission> {
     if (!hasOwnerRole(actor)) {
       throw new ForbiddenException(
-        'Only users with the OWNER role can create permissions',
+        'Only users with the SUPER_ADMIN role can create permissions',
       );
     }
 
@@ -71,7 +71,7 @@ export class PermissionsService {
   private assertCanManagePermissions(actor?: AuthenticatedUser): void {
     if (!hasOwnerRole(actor)) {
       throw new ForbiddenException(
-        'Only users with the OWNER role can modify permissions',
+        'Only users with the SUPER_ADMIN role can modify permissions',
       );
     }
   }

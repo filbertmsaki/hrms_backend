@@ -63,7 +63,7 @@ export function assertCanManageScopedRbacRecord(
 
   if (record.company_id === null) {
     throw new ForbiddenException(
-      `Global ${resource}s can only be managed by users with the OWNER role`,
+      `Global ${resource}s can only be managed by users with the SUPER_ADMIN role`,
     );
   }
 

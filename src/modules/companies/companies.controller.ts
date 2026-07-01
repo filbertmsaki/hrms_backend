@@ -210,7 +210,7 @@ export class CompaniesController {
   @UseGuards(RolesGuard, PermissionsGuard)
   @Roles('SUPER_ADMIN')
   @Permissions('companies:read')
-  @ApiGetOneOperation('Company', 'Get a company by ID (OWNER only)')
+  @ApiGetOneOperation('Company', 'Get a company by ID (SUPER_ADMIN only)')
   async findOneCompany(@Param('id', ParseIntPipe) id: number) {
     return this.companiesService.findOneCompany(id);
   }
@@ -219,7 +219,7 @@ export class CompaniesController {
   @UseGuards(RolesGuard, PermissionsGuard)
   @Roles('SUPER_ADMIN')
   @Permissions('companies:update')
-  @ApiUpdateOperation('Company', 'Update a company (OWNER only)')
+  @ApiUpdateOperation('Company', 'Update a company (SUPER_ADMIN only)')
   async updateCompany(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateCompanyDto,
@@ -231,7 +231,7 @@ export class CompaniesController {
   @UseGuards(RolesGuard, PermissionsGuard)
   @Roles('SUPER_ADMIN')
   @Permissions('companies:update')
-  @ApiActionOperation('Activate Company', 'Activate a suspended company (OWNER only)')
+  @ApiActionOperation('Activate Company', 'Activate a suspended company (SUPER_ADMIN only)')
   async activateCompany(@Param('id', ParseIntPipe) id: number) {
     return this.companiesService.activateCompany(id);
   }
@@ -240,7 +240,7 @@ export class CompaniesController {
   @UseGuards(RolesGuard, PermissionsGuard)
   @Roles('SUPER_ADMIN')
   @Permissions('companies:update')
-  @ApiActionOperation('Suspend Company', 'Suspend an active company (OWNER only)')
+  @ApiActionOperation('Suspend Company', 'Suspend an active company (SUPER_ADMIN only)')
   async suspendCompany(@Param('id', ParseIntPipe) id: number) {
     return this.companiesService.suspendCompany(id);
   }
@@ -251,7 +251,7 @@ export class CompaniesController {
   @Permissions('companies:create')
   @ApiCreateOperation(
     'Company',
-    'Create a company and its first administrator (OWNER only)',
+    'Create a company and its first administrator (SUPER_ADMIN only)',
   )
   async createCompany(@Body() createCompanyDto: CreateCompanyDto) {
     return this.companiesService.createCompanyWithAdministrator(

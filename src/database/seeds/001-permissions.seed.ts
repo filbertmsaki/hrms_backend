@@ -20,6 +20,10 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
   { name: 'create_company_user', displayName: 'Create company user', description: 'Allow creating users within a company' },
   { name: 'update_company_user', displayName: 'Update company user', description: 'Allow updating users within a company' },
   { name: 'delete_company_user', displayName: 'Delete company user', description: 'Allow deleting users within a company' },
+  { name: 'company_users:read', displayName: 'Read company users', description: 'Allow listing active company users within the current tenant' },
+  { name: 'company_users:create', displayName: 'Create company users', description: 'Allow adding existing users to the current company tenant' },
+  { name: 'company_users:update', displayName: 'Update company users', description: 'Allow assigning roles and direct permissions to company users' },
+  { name: 'company_users:delete', displayName: 'Delete company users', description: 'Allow removing users from the current company tenant' },
   { name: 'view_company_data', displayName: 'View company data', description: 'Allow reading company-owned data' },
   { name: 'update_company_data', displayName: 'Update company data', description: 'Allow updating company-owned data' },
   // Company CRUD compat
@@ -187,6 +191,13 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
   { name: 'attendance_processing:execute', displayName: 'Execute attendance processing', description: 'Allow running attendance processing from raw logs' },
   { name: 'attendance_recalculation:execute', displayName: 'Execute attendance recalculation', description: 'Allow queueing and running attendance recalculation jobs' },
   { name: 'attendance_summaries:read', displayName: 'Read attendance summaries', description: 'Allow viewing processed daily attendance summaries' },
+  { name: 'team_attendance:read', displayName: 'Read team attendance', description: 'Allow viewing attendance summaries for direct reports and scoped teams' },
+  { name: 'attendance_business_trips:read', displayName: 'Read attendance business trips', description: 'Allow viewing attendance business trips' },
+  { name: 'attendance_business_trips:create', displayName: 'Create attendance business trips', description: 'Allow creating attendance business trips' },
+  { name: 'attendance_business_trips:update', displayName: 'Update attendance business trips', description: 'Allow editing or submitting draft attendance business trips' },
+  { name: 'attendance_business_trips:approve', displayName: 'Approve attendance business trips', description: 'Allow approving or rejecting attendance business trips' },
+  { name: 'attendance_business_trips:cancel', displayName: 'Cancel attendance business trips', description: 'Allow cancelling attendance business trips' },
+  { name: 'attendance_business_trips:delete', displayName: 'Delete attendance business trips', description: 'Allow deleting attendance business trips' },
   // Shifts
   { name: 'shifts:read', displayName: 'Read shifts', description: 'Allow listing and viewing shifts' },
   { name: 'shifts:create', displayName: 'Create shifts', description: 'Allow creating shifts' },
@@ -295,11 +306,16 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
   { name: 'onboarding_requests:complete', displayName: 'Complete onboarding requests', description: 'Allow finalizing onboarding requests' },
   { name: 'onboarding_requests:cancel', displayName: 'Cancel onboarding requests', description: 'Allow cancelling onboarding requests' },
   // Onboarding tasks
+  { name: 'onboarding_tasks:read', displayName: 'Read onboarding tasks', description: 'Allow viewing onboarding tasks' },
   { name: 'onboarding_tasks:create', displayName: 'Create onboarding tasks', description: 'Allow creating onboarding tasks' },
+  { name: 'onboarding_tasks:update', displayName: 'Update onboarding tasks', description: 'Allow reassigning or updating onboarding tasks' },
   { name: 'onboarding_tasks:complete', displayName: 'Complete onboarding tasks', description: 'Allow completing onboarding tasks' },
   // Onboarding documents
+  { name: 'onboarding_documents:read', displayName: 'Read onboarding documents', description: 'Allow viewing onboarding documents' },
   { name: 'onboarding_documents:create', displayName: 'Create onboarding documents', description: 'Allow uploading onboarding documents' },
+  { name: 'onboarding_documents:update', displayName: 'Update onboarding documents', description: 'Allow updating onboarding document metadata' },
   { name: 'onboarding_documents:verify', displayName: 'Verify onboarding documents', description: 'Allow verifying onboarding documents' },
+  { name: 'onboarding_documents:delete', displayName: 'Delete onboarding documents', description: 'Allow deleting onboarding documents' },
   // Offboarding workflows
   { name: 'offboarding_workflows:read', displayName: 'Read offboarding workflows', description: 'Allow listing and viewing offboarding workflows' },
   { name: 'offboarding_workflows:create', displayName: 'Create offboarding workflows', description: 'Allow creating offboarding workflows' },
@@ -314,15 +330,21 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
   { name: 'offboarding_requests:complete', displayName: 'Complete offboarding requests', description: 'Allow finalizing offboarding requests' },
   { name: 'offboarding_requests:cancel', displayName: 'Cancel offboarding requests', description: 'Allow cancelling offboarding requests' },
   // Offboarding tasks
+  { name: 'offboarding_tasks:read', displayName: 'Read offboarding tasks', description: 'Allow viewing offboarding tasks' },
   { name: 'offboarding_tasks:create', displayName: 'Create offboarding tasks', description: 'Allow creating offboarding tasks' },
   { name: 'offboarding_tasks:complete', displayName: 'Complete offboarding tasks', description: 'Allow completing offboarding tasks' },
   { name: 'offboarding_tasks:reject', displayName: 'Reject offboarding tasks', description: 'Allow rejecting offboarding tasks' },
   // Offboarding clearances
+  { name: 'offboarding_clearances:read', displayName: 'Read offboarding clearances', description: 'Allow viewing offboarding clearances' },
   { name: 'offboarding_clearances:create', displayName: 'Create offboarding clearances', description: 'Allow creating offboarding clearances' },
   { name: 'offboarding_clearances:complete', displayName: 'Complete offboarding clearances', description: 'Allow completing offboarding clearances' },
   // Offboarding documents
   { name: 'offboarding_documents:create', displayName: 'Create offboarding documents', description: 'Allow uploading offboarding documents' },
   { name: 'offboarding_documents:read', displayName: 'Read offboarding documents', description: 'Allow viewing offboarding documents' },
+  { name: 'offboarding_documents:update', displayName: 'Update offboarding documents', description: 'Allow updating offboarding document metadata' },
+  { name: 'offboarding_documents:delete', displayName: 'Delete offboarding documents', description: 'Allow deleting offboarding documents' },
+  { name: 'self_service_requests:approve', displayName: 'Approve self-service requests', description: 'Allow reviewing employee self-service approval requests' },
+  { name: 'hrms_launch_readiness:read', displayName: 'Read HRMS launch readiness', description: 'Allow viewing the HRMS launch readiness report' },
 ];
 
 export default class PermissionsSeeder implements Seeder {

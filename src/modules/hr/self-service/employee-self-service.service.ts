@@ -921,6 +921,12 @@ export class EmployeeSelfServiceService {
     actor: AuthenticatedUser,
     query: TeamAttendanceQueryDto,
   ) {
+    if (!actor.permissions.includes('team_attendance:read')) {
+      throw new ForbiddenException(
+        'You do not have permission to view team attendance.',
+      );
+    }
+
     const companyId = this.ensureCompanyId(actor);
     const employeeId = await this.resolveEmployeeId(actor);
     const page = query.page ?? 1;
