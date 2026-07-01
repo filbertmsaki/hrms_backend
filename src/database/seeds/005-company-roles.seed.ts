@@ -45,6 +45,7 @@ const SELF_SERVICE_PERMISSIONS = [
   'employees:read',
   ...HOLIDAY_READ_PERMISSIONS,
   ...ATTENDANCE_READ_PERMISSIONS,
+  'leave_types:read',
   'leave_requests:read',
   'leave_requests:create',
   'leave_requests:cancel',
