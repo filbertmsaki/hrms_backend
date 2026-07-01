@@ -71,6 +71,11 @@ export function normalizeDateInput(value: string, field: string): string {
     return value;
   }
 
+  const leadingDateMatch = value.match(/^(\d{4}-\d{2}-\d{2})T/);
+  if (leadingDateMatch) {
+    return leadingDateMatch[1];
+  }
+
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
     throw new Error(`${field} must be a valid date`);

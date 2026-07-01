@@ -374,6 +374,139 @@ describe('LeaveService', () => {
     expect(leaveTypeRepository.findOne).not.toHaveBeenCalled();
   });
 
+  it('normalizes ISO datetime inputs when creating leave requests', async () => {
+    const overlapBuilder = createQueryBuilderMock();
+    overlapBuilder.getOne.mockResolvedValue(null);
+    const attendanceHolidayBuilder = createQueryBuilderMock();
+    attendanceHolidayBuilder.getMany = jest.fn().mockResolvedValue([]);
+    const generateLeaveNoBuilder = createQueryBuilderMock();
+    generateLeaveNoBuilder.getOne.mockResolvedValue(null);
+    const savedDraft = {
+      id: 90,
+      company_id: 10,
+      employee_id: 501,
+      leave_type_id: 4,
+      leave_no: 'LV-2026-000090',
+      start_date: '2026-07-09',
+      end_date: '2026-07-09',
+      total_days: '1.00',
+      reason: 'jkdjjkd',
+      current_approval_level: 0,
+      status: LeaveStatusEnum.DRAFT,
+      rejection_reason: null,
+      applied_at: null,
+      approved_at: null,
+      cancelled_at: null,
+      employee: {
+        id: 501,
+        company_user_id: 44,
+        employee_no: 'EMP-501',
+        first_name: 'Alice',
+        last_name: 'Jones',
+        middle_name: null,
+        gender: 'female',
+        employment_status: EmploymentStatusEnum.ACTIVE,
+        hire_date: '2025-01-01',
+        primary_branch_id: 2,
+        primary_department_id: 2,
+        primary_position_id: 3,
+        primary_department: { id: 2, name: 'Operations' },
+        primary_position: { id: 3, name: 'Analyst' },
+        company_user: { id: 44 },
+      },
+      leave_type: {
+        id: 4,
+        name: 'Unpaid Leave',
+        code: 'UNPAID',
+      },
+      approvals: [],
+      documents: [],
+      medical_detail: null,
+    };
+    const managerLeaveRequestRepository = {
+      create: jest.fn((value) => value),
+      createQueryBuilder: jest.fn().mockReturnValue(generateLeaveNoBuilder),
+      save: jest.fn(async (value) => ({ id: 90, ...value })),
+      findOneOrFail: jest.fn().mockResolvedValue(savedDraft),
+    };
+    const manager = {
+      getRepository: jest.fn((entity) => {
+        if (entity === LeaveRequest) {
+          return managerLeaveRequestRepository;
+        }
+        throw new Error('Unexpected repository request');
+      }),
+    };
+
+    employeeRepository.findOne!.mockResolvedValue({
+      id: 501,
+      employment_status: EmploymentStatusEnum.ACTIVE,
+      exit_date: null,
+      gender: 'female',
+      hire_date: '2025-01-01',
+      primary_branch_id: 2,
+      primary_department_id: 2,
+      primary_position_id: 3,
+      company_user: {
+        id: 44,
+        company_id: 10,
+      },
+    });
+    leaveTypeRepository.findOne!.mockResolvedValue({
+      id: 4,
+      company_id: 10,
+      name: 'Unpaid Leave',
+      code: 'UNPAID',
+      status: LeaveRecordStatusEnum.ACTIVE,
+      gender_restriction: LeaveGenderRestrictionEnum.ANY,
+      max_days_per_year: '365.00',
+      is_carry_forward_allowed: false,
+      max_carry_forward_days: '0.00',
+      is_paid: false,
+      requires_attachment: false,
+      description: null,
+    });
+    leaveRequestRepository.createQueryBuilder!.mockReturnValue(overlapBuilder);
+    attendanceHolidayRepository.createQueryBuilder!.mockReturnValue(
+      attendanceHolidayBuilder,
+    );
+    leaveBalanceService.resolvePolicyAssignment.mockResolvedValue({
+      policy: {
+        allow_negative_balance: false,
+        max_consecutive_days: null,
+        min_service_months: 0,
+      },
+      policyType: {
+        max_per_request_days: null,
+        requires_approval: true,
+      },
+    });
+    dataSource.transaction.mockImplementation(async (callback) =>
+      callback(manager),
+    );
+
+    await service.createLeaveRequest(
+      10,
+      {
+        employee_id: 501,
+        leave_type_id: 4,
+        start_date: '2026-07-09T00:00:00',
+        end_date: '2026-07-09T00:00:00',
+        reason: 'jkdjjkd',
+        submit: false,
+      },
+      actor,
+    );
+
+    expect(managerLeaveRequestRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        start_date: '2026-07-09',
+        end_date: '2026-07-09',
+        total_days: '1.00',
+      }),
+    );
+  });
+
   it('counts attendance holidays when calculating leave days for the employee branch', async () => {
     const overlapBuilder = createQueryBuilderMock();
     overlapBuilder.getOne.mockResolvedValue(null);

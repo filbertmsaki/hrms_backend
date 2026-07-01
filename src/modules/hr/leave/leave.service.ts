@@ -13,7 +13,7 @@ import { hasAnyPermission } from '../../../common/utils/permission.util';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { Role } from '../../roles/entities/role.entity';
 import { HrAccessService } from '../shared/hr-access.service';
-import { buildPaginationMeta } from '../shared/hr.utils';
+import { buildPaginationMeta, normalizeDateInput } from '../shared/hr.utils';
 import { AddLeaveDocumentDto } from './dtos/add-leave-document.dto';
 import { AdjustLeaveBalanceDto } from './dtos/adjust-leave-balance.dto';
 import { CancelLeaveRequestDto } from './dtos/cancel-leave-request.dto';
@@ -508,16 +508,19 @@ export class LeaveService {
     startDate: string,
     endDate: string,
   ): Promise<number> {
+    const normalizedStartDate = normalizeDateInput(startDate, 'start_date');
+    const normalizedEndDate = normalizeDateInput(endDate, 'end_date');
+
     this.assertDateOrder(
-      startDate,
-      endDate,
+      normalizedStartDate,
+      normalizedEndDate,
       'end_date cannot be before start_date',
     );
     const attendanceHolidaysQuery = this.attendanceHolidayRepository
       .createQueryBuilder('holiday')
       .where('holiday.company_id = :companyId', { companyId })
-      .andWhere('holiday.date >= :startDate', { startDate })
-      .andWhere('holiday.date <= :endDate', { endDate });
+      .andWhere('holiday.date >= :startDate', { startDate: normalizedStartDate })
+      .andWhere('holiday.date <= :endDate', { endDate: normalizedEndDate });
 
     if (branchId === null) {
       attendanceHolidaysQuery.andWhere('holiday.branch_id IS NULL');
@@ -530,8 +533,8 @@ export class LeaveService {
 
     const attendanceHolidays = await attendanceHolidaysQuery.getMany();
 
-    const start = new Date(`${startDate}T00:00:00.000Z`);
-    const end = new Date(`${endDate}T00:00:00.000Z`);
+    const start = new Date(`${normalizedStartDate}T00:00:00.000Z`);
+    const end = new Date(`${normalizedEndDate}T00:00:00.000Z`);
     const totalDays =
       Math.floor((end.getTime() - start.getTime()) / 86400000) + 1;
     if (totalDays <= 0) {
@@ -2570,9 +2573,18 @@ export class LeaveService {
     dto: CreateLeaveRequestDto,
     actor: AuthenticatedUser,
   ) {
+    const normalizedStartDate = normalizeDateInput(
+      dto.start_date,
+      'start_date',
+    );
+    const normalizedEndDate = normalizeDateInput(dto.end_date, 'end_date');
     const employee = await this.findEmployeeOrFail(companyId, dto.employee_id);
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
-    this.assertEmployeeCanRequestLeave(employee, dto.start_date, dto.end_date);
+    this.assertEmployeeCanRequestLeave(
+      employee,
+      normalizedStartDate,
+      normalizedEndDate,
+    );
     const leaveType = await this.findLeaveTypeOrFail(
       companyId,
       dto.leave_type_id,
@@ -2583,8 +2595,8 @@ export class LeaveService {
     }
 
     this.assertDateOrder(
-      dto.start_date,
-      dto.end_date,
+      normalizedStartDate,
+      normalizedEndDate,
       'end_date cannot be before start_date',
     );
 
@@ -2601,8 +2613,8 @@ export class LeaveService {
     const totalDays = await this.calculateLeaveDays(
       companyId,
       employee.primary_branch_id ?? null,
-      dto.start_date,
-      dto.end_date,
+      normalizedStartDate,
+      normalizedEndDate,
     );
     if (totalDays <= 0) {
       throw new BadRequestException(
@@ -2613,8 +2625,8 @@ export class LeaveService {
     await this.validateNoOverlap(
       companyId,
       dto.employee_id,
-      dto.start_date,
-      dto.end_date,
+      normalizedStartDate,
+      normalizedEndDate,
     );
 
     const policyContext = await this.resolvePolicyContext(
@@ -2659,8 +2671,8 @@ export class LeaveService {
           employee_id: dto.employee_id,
           leave_type_id: dto.leave_type_id,
           leave_no: leaveNo,
-          start_date: dto.start_date,
-          end_date: dto.end_date,
+          start_date: normalizedStartDate,
+          end_date: normalizedEndDate,
           total_days: this.leaveBalanceService.toDecimal(totalDays),
           reason: dto.reason.trim(),
           current_approval_level: 0,
@@ -2736,14 +2748,25 @@ export class LeaveService {
       );
     }
 
+    const normalizedStartDate = normalizeDateInput(
+      leaveRequest.start_date,
+      'start_date',
+    );
+    const normalizedEndDate = normalizeDateInput(
+      leaveRequest.end_date,
+      'end_date',
+    );
+    leaveRequest.start_date = normalizedStartDate;
+    leaveRequest.end_date = normalizedEndDate;
+
     await this.hrAccessService.assertCanAccessEmployee(
       actor,
       leaveRequest.employee,
     );
     this.assertEmployeeCanRequestLeave(
       leaveRequest.employee,
-      leaveRequest.start_date,
-      leaveRequest.end_date,
+      normalizedStartDate,
+      normalizedEndDate,
     );
 
     const leaveType = await this.findLeaveTypeOrFail(
@@ -2755,8 +2778,8 @@ export class LeaveService {
     }
 
     this.assertDateOrder(
-      leaveRequest.start_date,
-      leaveRequest.end_date,
+      normalizedStartDate,
+      normalizedEndDate,
       'end_date cannot be before start_date',
     );
 
@@ -2774,8 +2797,8 @@ export class LeaveService {
     const totalDays = await this.calculateLeaveDays(
       companyId,
       leaveRequest.employee.primary_branch_id ?? null,
-      leaveRequest.start_date,
-      leaveRequest.end_date,
+      normalizedStartDate,
+      normalizedEndDate,
     );
     if (totalDays <= 0) {
       throw new BadRequestException(
@@ -2786,8 +2809,8 @@ export class LeaveService {
     await this.validateNoOverlap(
       companyId,
       leaveRequest.employee_id,
-      leaveRequest.start_date,
-      leaveRequest.end_date,
+      normalizedStartDate,
+      normalizedEndDate,
       leaveRequest.id,
     );
 
