@@ -20,10 +20,31 @@ type CompanyRoleSeed = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Permissions every authenticated company user needs */
+const HOLIDAY_READ_PERMISSIONS = [
+  'holidays:read',
+  'attendance_holiday_groups:read',
+  'attendance_holidays:read',
+];
+
+const ATTENDANCE_READ_PERMISSIONS = [
+  'attendance_policies:read',
+];
+
+const SELF_SERVICE_OFFBOARDING_REQUEST_PERMISSIONS = [
+  'offboarding_workflows:read',
+  'offboarding_requests:read',
+  'offboarding_requests:create',
+  'offboarding_requests:update',
+  'offboarding_requests:submit',
+  'offboarding_requests:cancel',
+];
+
 const SELF_SERVICE_PERMISSIONS = [
   'view_company_data',
   'users:update',                        // own profile
   'employees:read',
+  ...HOLIDAY_READ_PERMISSIONS,
+  ...ATTENDANCE_READ_PERMISSIONS,
   'leave_requests:read',
   'leave_requests:create',
   'leave_requests:cancel',
@@ -32,6 +53,7 @@ const SELF_SERVICE_PERMISSIONS = [
   'attendance_mobile_punches:create',
   'shift_change_requests:read',
   'shift_change_requests:create',
+  ...SELF_SERVICE_OFFBOARDING_REQUEST_PERMISSIONS,
 ];
 
 /** Read-only structural lookups needed by managers and HR */
@@ -714,10 +736,11 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'leave_types:read',
       'leave_policies:read',
       'leave_workflows:read',
-      'holidays:read',
+      ...HOLIDAY_READ_PERMISSIONS,
       'leave_balances:read',
       'leave_requests:read',
       // Attendance (read only)
+      ...ATTENDANCE_READ_PERMISSIONS,
       'attendance_summaries:read',
       'attendance_processing:read',
       'attendance_device_sync_logs:read',

@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -281,6 +282,70 @@ export class OffboardingService {
       return null;
     }
     return value;
+  }
+
+  private hasElevatedOffboardingAccess(actor: AuthenticatedUser): boolean {
+    const elevatedPermissions = new Set([
+      'offboarding_workflows:read',
+      'offboarding_workflows:create',
+      'offboarding_workflows:update',
+      'offboarding_workflows:delete',
+      'offboarding_requests:approve',
+      'offboarding_requests:complete',
+      'offboarding_tasks:read',
+      'offboarding_tasks:create',
+      'offboarding_tasks:complete',
+      'offboarding_tasks:reject',
+      'offboarding_clearances:read',
+      'offboarding_clearances:create',
+      'offboarding_clearances:complete',
+      'offboarding_documents:read',
+      'offboarding_documents:create',
+      'offboarding_documents:update',
+      'offboarding_documents:delete',
+    ]);
+
+    return actor.permissions.some((permission) =>
+      elevatedPermissions.has(permission),
+    );
+  }
+
+  private isSelfServiceOnlyOffboardingActor(
+    actor: AuthenticatedUser,
+  ): boolean {
+    return (
+      actor.roles.includes('EMPLOYEE') &&
+      !this.hasElevatedOffboardingAccess(actor)
+    );
+  }
+
+  private async assertCanAccessOffboardingEmployee(
+    actor: AuthenticatedUser,
+    employee: Pick<
+      Employee,
+      | 'id'
+      | 'primary_branch_id'
+      | 'department_assignments'
+      | 'primary_department'
+      | 'primary_position'
+    >,
+  ): Promise<void> {
+    if (!this.isSelfServiceOnlyOffboardingActor(actor)) {
+      await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+      return;
+    }
+
+    if (!actor.employeeId) {
+      throw new ForbiddenException(
+        'Employee context is required to access self-service offboarding records',
+      );
+    }
+
+    if (actor.employeeId !== employee.id) {
+      throw new ForbiddenException(
+        'Employees can only manage their own offboarding records',
+      );
+    }
   }
 
   private async findMembershipRecipient(
@@ -1781,7 +1846,7 @@ export class OffboardingService {
     context?: RequestContext,
   ) {
     const employee = await this.findEmployeeOrFail(companyId, dto.employee_id);
-    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+    await this.assertCanAccessOffboardingEmployee(actor, employee);
 
     await this.ensureNoActiveOffboarding(companyId, dto.employee_id);
     await this.validateReferenceIds(companyId, {
@@ -1891,7 +1956,7 @@ export class OffboardingService {
       companyId,
       offboardingRequestId,
     );
-    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
 
     await this.dataSource.transaction(async (manager) => {
       await this.submitOffboardingInternal(
@@ -1976,7 +2041,7 @@ export class OffboardingService {
       companyId,
       offboardingRequestId,
     );
-    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
 
     if (
       request.status === OffboardingRequestStatusEnum.CANCELLED ||
@@ -2107,7 +2172,7 @@ export class OffboardingService {
       companyId,
       offboardingRequestId,
     );
-    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
 
     if (
       request.status === OffboardingRequestStatusEnum.CANCELLED ||
@@ -2183,7 +2248,7 @@ export class OffboardingService {
       companyId,
       offboardingRequestId,
     );
-    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
 
     if (
       request.status === OffboardingRequestStatusEnum.CANCELLED ||
@@ -2325,7 +2390,7 @@ export class OffboardingService {
       companyId,
       offboardingRequestId,
     );
-    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
 
     const documents = await this.documentRepository.find({
       where: {
@@ -2349,13 +2414,36 @@ export class OffboardingService {
     const sortBy = query.sortBy ?? 'created_at';
     const sortOrder = query.sortOrder ?? SortDirection.DESC;
     const { employee_id, status, offboarding_type, search } = query;
+    const isSelfServiceOnlyActor =
+      this.isSelfServiceOnlyOffboardingActor(actor);
 
     const qb = this.offboardingRequestRepository
       .createQueryBuilder('request')
       .leftJoinAndSelect('request.employee', 'employee')
       .where('request.company_id = :companyId', { companyId });
 
-    if (typeof employee_id === 'number') {
+    if (isSelfServiceOnlyActor) {
+      if (!actor.employeeId) {
+        throw new ForbiddenException(
+          'Employee context is required to access self-service offboarding records',
+        );
+      }
+
+      if (
+        typeof employee_id === 'number' &&
+        employee_id !== actor.employeeId
+      ) {
+        throw new ForbiddenException(
+          'Employees can only query their own offboarding records',
+        );
+      }
+
+      qb.andWhere('request.employee_id = :actorEmployeeId', {
+        actorEmployeeId: actor.employeeId,
+      });
+    }
+
+    if (!isSelfServiceOnlyActor && typeof employee_id === 'number') {
       qb.andWhere('request.employee_id = :employeeId', {
         employeeId: employee_id,
       });
@@ -2400,9 +2488,9 @@ export class OffboardingService {
       .take(limit)
       .getManyAndCount();
 
-    if (typeof employee_id === 'number') {
+    if (!isSelfServiceOnlyActor && typeof employee_id === 'number') {
       const employee = await this.findEmployeeOrFail(companyId, employee_id);
-      await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+      await this.assertCanAccessOffboardingEmployee(actor, employee);
     }
 
     const documents = await this.documentRepository.find({
@@ -2439,7 +2527,7 @@ export class OffboardingService {
       companyId,
       offboardingRequestId,
     );
-    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
 
     const document = await this.getDocumentRepository().save(
       this.getDocumentRepository().create({
@@ -2486,7 +2574,7 @@ export class OffboardingService {
       companyId,
       offboardingRequestId,
     );
-    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
 
     const documents = await this.documentRepository.find({
       where: {
@@ -2512,7 +2600,7 @@ export class OffboardingService {
       companyId,
       offboardingRequestId,
     );
-    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
 
     const document = await this.documentRepository.findOne({
       where: {
@@ -2558,7 +2646,7 @@ export class OffboardingService {
       companyId,
       offboardingRequestId,
     );
-    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
 
     const document = await this.documentRepository.findOne({
       where: {
@@ -2597,7 +2685,7 @@ export class OffboardingService {
       companyId,
       offboardingRequestId,
     );
-    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
 
     if (
       request.status === OffboardingRequestStatusEnum.CANCELLED ||
@@ -2688,7 +2776,7 @@ export class OffboardingService {
       companyId,
       offboardingRequestId,
     );
-    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
 
     const task = await this.offboardingTaskRepository.findOne({
       where: { id: taskId, offboarding_request_id: offboardingRequestId },
@@ -2750,7 +2838,7 @@ export class OffboardingService {
       companyId,
       offboardingRequestId,
     );
-    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
 
     const task = await this.offboardingTaskRepository.findOne({
       where: { id: taskId, offboarding_request_id: offboardingRequestId },
@@ -2816,7 +2904,7 @@ export class OffboardingService {
       companyId,
       offboardingRequestId,
     );
-    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
 
     await this.dataSource.transaction(async (manager) => {
       const current = await this.offboardingWorkflowService.applyApprovalAction(
@@ -2860,7 +2948,7 @@ export class OffboardingService {
       companyId,
       offboardingRequestId,
     );
-    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
 
     const existing = await this.offboardingClearanceRepository.findOne({
       where: {
@@ -2960,7 +3048,7 @@ export class OffboardingService {
       companyId,
       offboardingRequestId,
     );
-    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
 
     const clearance = await this.offboardingClearanceRepository.findOne({
       where: { id: clearanceId, offboarding_request_id: offboardingRequestId },
@@ -3031,7 +3119,7 @@ export class OffboardingService {
       companyId,
       offboardingRequestId,
     );
-    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
 
     const summary = await this.dataSource.transaction(async (manager) => {
       const current = await this.getOffboardingRequestRepository(
@@ -3071,7 +3159,7 @@ export class OffboardingService {
       companyId,
       offboardingRequestId,
     );
-    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
 
     const approvals = await this.offboardingApprovalRepository.find({
       where: { offboarding_request_id: offboardingRequestId },
@@ -3099,7 +3187,7 @@ export class OffboardingService {
       companyId,
       offboardingRequestId,
     );
-    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
 
     const logs = await this.offboardingAuditLogRepository.find({
       where: { offboarding_request_id: offboardingRequestId },
