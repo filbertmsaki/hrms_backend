@@ -29,8 +29,10 @@ import { CreateLeaveRequestDto } from './dtos/create-leave-request.dto';
 import { CreateLeaveTypeDto } from './dtos/create-leave-type.dto';
 import { CreateLeaveWorkflowDto } from './dtos/create-leave-workflow.dto';
 import { CreateLeaveWorkflowStepDto } from './dtos/create-leave-workflow-step.dto';
+import { GenerateLeaveBalancesDto } from './dtos/generate-leave-balances.dto';
 import { HolidayQueryDto } from './dtos/holiday-query.dto';
 import { LeaveApprovalActionDto } from './dtos/leave-approval-action.dto';
+import { LeaveBalanceAdjustmentQueryDto } from './dtos/leave-balance-adjustment-query.dto';
 import { LeaveBalanceQueryDto } from './dtos/leave-balance-query.dto';
 import { LeavePolicyQueryDto } from './dtos/leave-policy-query.dto';
 import { LeaveRequestQueryDto } from './dtos/leave-request-query.dto';
@@ -389,7 +391,7 @@ export class LeaveController {
 
   @Get('balances')
   @UseGuards(PermissionsGuard)
-  @Permissions('leave_balances:read')
+  @Permissions('leave-balances.view')
   @ApiOperation({ summary: 'List leave balances' })
   listLeaveBalances(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -402,9 +404,54 @@ export class LeaveController {
     );
   }
 
+  @Get('balances/adjustments')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave-balances.manage')
+  @ApiOperation({ summary: 'List leave balance adjustments' })
+  listLeaveBalanceAdjustments(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: LeaveBalanceAdjustmentQueryDto,
+  ) {
+    return this.leaveService.listLeaveBalanceAdjustments(
+      req.user.companyId!,
+      query,
+      req.user,
+    );
+  }
+
+  @Post('balances/generate')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave-balances.generate')
+  @ApiOperation({ summary: 'Generate or refresh yearly leave balances' })
+  generateLeaveBalances(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: GenerateLeaveBalancesDto,
+  ) {
+    return this.leaveService.generateLeaveBalances(
+      req.user.companyId!,
+      dto,
+      req.user,
+    );
+  }
+
+  @Post('balances/carry-forward')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave-balances.carry-forward')
+  @ApiOperation({ summary: 'Recalculate yearly carry-forward balances' })
+  carryForwardLeaveBalances(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: GenerateLeaveBalancesDto,
+  ) {
+    return this.leaveService.carryForwardLeaveBalances(
+      req.user.companyId!,
+      dto,
+      req.user,
+    );
+  }
+
   @Patch('balances/adjust')
   @UseGuards(PermissionsGuard)
-  @Permissions('leave_balances:adjust')
+  @Permissions('leave-balances.adjust')
   @ApiOperation({ summary: 'Adjust leave balance manually' })
   adjustLeaveBalance(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },

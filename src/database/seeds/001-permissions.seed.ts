@@ -98,6 +98,12 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
   // Leave balances
   { name: 'leave_balances:read', displayName: 'Read leave balances', description: 'Allow listing and viewing leave balances' },
   { name: 'leave_balances:adjust', displayName: 'Adjust leave balances', description: 'Allow manually adjusting leave balances' },
+  { name: 'leave-balances.view', displayName: 'View leave balances', description: 'Allow viewing leave balances for accessible employees' },
+  { name: 'leave-balances.view-own', displayName: 'View own leave balances', description: 'Allow employees to view only their own leave balances' },
+  { name: 'leave-balances.manage', displayName: 'Manage leave balances', description: 'Allow managing leave balances across accessible employees' },
+  { name: 'leave-balances.adjust', displayName: 'Adjust leave balances', description: 'Allow applying manual leave balance adjustments' },
+  { name: 'leave-balances.generate', displayName: 'Generate leave balances', description: 'Allow generating yearly leave balances' },
+  { name: 'leave-balances.carry-forward', displayName: 'Carry forward leave balances', description: 'Allow recalculating carry-forward leave balances' },
   // Leave requests
   { name: 'leave_requests:read', displayName: 'Read leave requests', description: 'Allow listing and viewing leave requests' },
   { name: 'leave_requests:create', displayName: 'Create leave requests', description: 'Allow creating leave requests' },

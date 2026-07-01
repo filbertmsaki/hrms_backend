@@ -65,6 +65,30 @@ export class CreateLeavePolicyDto {
   @IsOptional()
   allow_negative_balance?: boolean;
 
+  @ApiPropertyOptional({ default: false })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  attendance_balance_deduction_enabled?: boolean;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  absent_day_deduction_days?: number;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  unpaid_leave_day_deduction_days?: number;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  half_day_deduction_days?: number;
+
   @ApiPropertyOptional({ enum: LeaveRecordStatusEnum, default: 'active' })
   @IsEnum(LeaveRecordStatusEnum)
   @IsOptional()

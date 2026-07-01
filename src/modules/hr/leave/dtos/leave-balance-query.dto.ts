@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString } from 'class-validator';
+import { IsInt, IsOptional, IsString, Matches } from 'class-validator';
 import { PaginationDto } from '../../../../common/dto/pagination.dto';
 
 export class LeaveBalanceQueryDto extends PaginationDto {
@@ -13,6 +13,7 @@ export class LeaveBalanceQueryDto extends PaginationDto {
   @IsOptional()
   leave_type_id?: number;
 
+  @Matches(/^\d{4}$/)
   @IsString()
   @IsOptional()
   fiscal_year?: string;

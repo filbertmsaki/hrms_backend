@@ -1,5 +1,14 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsEnum,
+  IsInt,
+  IsNumber,
+  IsString,
+  Matches,
+  MaxLength,
+  Min,
+} from 'class-validator';
+import { LeaveBalanceAdjustmentModeEnum } from '../enums/leave-balance-adjustment-mode.enum';
 
 export class AdjustLeaveBalanceDto {
   @Type(() => Number)
@@ -10,23 +19,19 @@ export class AdjustLeaveBalanceDto {
   @IsInt()
   leave_type_id: number;
 
+  @Matches(/^\d{4}$/)
   @IsString()
   fiscal_year: string;
 
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0)
-  allocated_days: number;
+  @IsEnum(LeaveBalanceAdjustmentModeEnum)
+  mode: LeaveBalanceAdjustmentModeEnum;
 
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
-  @IsOptional()
-  carried_forward_days?: number;
+  amount: number;
 
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0)
-  @IsOptional()
-  expired_days?: number;
+  @IsString()
+  @MaxLength(500)
+  reason: string;
 }

@@ -5,12 +5,14 @@ import {
   Index,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
 import { Employee } from '../../employees/entities/employee.entity';
 import { LeaveType } from './leave-type.entity';
+import { LeaveBalanceAdjustment } from './leave-balance-adjustment.entity';
 
 @Entity('leave_balances')
 @Unique('UQ_leave_balance_employee_type_year', [
@@ -38,6 +40,12 @@ export class LeaveBalance {
   allocated_days: string;
 
   @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
+  opening_balance_days: string;
+
+  @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
+  entitlement_days: string;
+
+  @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
   used_days: string;
 
   @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
@@ -48,6 +56,15 @@ export class LeaveBalance {
 
   @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
   expired_days: string;
+
+  @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
+  adjusted_days: string;
+
+  @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
+  attendance_deduction_days: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  generated_at: Date | null;
 
   @CreateDateColumn()
   created_at: Date;
@@ -64,4 +81,10 @@ export class LeaveBalance {
   })
   @JoinColumn({ name: 'leave_type_id' })
   leave_type: LeaveType;
+
+  @OneToMany(
+    () => LeaveBalanceAdjustment,
+    (adjustment) => adjustment.leave_balance,
+  )
+  adjustments: LeaveBalanceAdjustment[];
 }

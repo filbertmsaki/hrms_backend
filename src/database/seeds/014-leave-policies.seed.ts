@@ -69,6 +69,10 @@ export default class LeavePoliciesSeeder implements Seeder {
           max_consecutive_days: 30,
           min_service_months: 0,
           allow_negative_balance: false,
+          attendance_balance_deduction_enabled: true,
+          absent_day_deduction_days: '1.00',
+          unpaid_leave_day_deduction_days: '1.00',
+          half_day_deduction_days: '0.50',
           status: LeaveRecordStatusEnum.ACTIVE,
         });
       } else {
@@ -77,6 +81,10 @@ export default class LeavePoliciesSeeder implements Seeder {
         policy.status = LeaveRecordStatusEnum.ACTIVE;
         policy.applicable_department_id = null;
         policy.applicable_position_id = null;
+        policy.attendance_balance_deduction_enabled = true;
+        policy.absent_day_deduction_days = '1.00';
+        policy.unpaid_leave_day_deduction_days = '1.00';
+        policy.half_day_deduction_days = '0.50';
       }
       await policyRepo.save(policy);
 

@@ -50,6 +50,7 @@ const SELF_SERVICE_PERMISSIONS = [
   'leave_requests:create',
   'leave_requests:cancel',
   'leave_balances:read',
+  'leave-balances.view-own',
   'attendance_summaries:read',
   'attendance_mobile_punches:create',
   'shift_change_requests:read',
@@ -186,6 +187,11 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'holidays:delete',
       'leave_balances:read',
       'leave_balances:adjust',
+      'leave-balances.view',
+      'leave-balances.manage',
+      'leave-balances.adjust',
+      'leave-balances.generate',
+      'leave-balances.carry-forward',
       'leave_requests:read',
       'leave_requests:create',
       'leave_requests:update',
@@ -428,6 +434,11 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'holidays:update',
       'holidays:delete',
       'leave_balances:adjust',
+      'leave-balances.view',
+      'leave-balances.manage',
+      'leave-balances.adjust',
+      'leave-balances.generate',
+      'leave-balances.carry-forward',
       'leave_requests:update',
       'leave_requests:approve',
       // Attendance (full management except hardware sync)
@@ -609,6 +620,9 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'leave_policies:read',
       'leave_workflows:read',
       'holidays:read',
+      'leave-balances.view',
+      'leave-balances.manage',
+      'leave-balances.adjust',
       'leave_requests:update',
       'leave_requests:approve',
       // Attendance
@@ -661,6 +675,7 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       // Self-service (covers view_company_data, employees:read, leave, attendance, shift change)
       ...SELF_SERVICE_PERMISSIONS,
       ...ORG_STRUCTURE_READ_PERMISSIONS,
+      'leave-balances.view',
       // Team approval
       ...TEAM_APPROVAL_PERMISSIONS,
       ...TEAM_ATTENDANCE_PERMISSIONS,
@@ -688,6 +703,7 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       ...SELF_SERVICE_PERMISSIONS,
       // ORG_STRUCTURE_READ_PERMISSIONS already includes branches:read
       ...ORG_STRUCTURE_READ_PERMISSIONS,
+      'leave-balances.view',
       // Team approval
       ...TEAM_APPROVAL_PERMISSIONS,
       ...TEAM_ATTENDANCE_PERMISSIONS,
@@ -739,6 +755,7 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'leave_workflows:read',
       ...HOLIDAY_READ_PERMISSIONS,
       'leave_balances:read',
+      'leave-balances.view',
       'leave_requests:read',
       // Attendance (read only)
       ...ATTENDANCE_READ_PERMISSIONS,

@@ -27,16 +27,20 @@ type LeavePdfPayload = {
   reason: string;
   status: string;
   applied_at?: Date | null;
-  approved_at?: Date | null;
-  current_balance: {
-    fiscal_year: string;
-    allocated_days: string;
-    used_days: string;
-    pending_days: string;
-    carried_forward_days: string;
-    expired_days: string;
-    available_days: string;
-  } | null;
+    approved_at?: Date | null;
+    current_balance: {
+      fiscal_year: string;
+      allocated_days: string;
+      opening_balance_days?: string;
+      entitlement_days?: string;
+      used_days: string;
+      pending_days: string;
+      carried_forward_days: string;
+      expired_days: string;
+      adjusted_days?: string;
+      attendance_deduction_days?: string;
+      available_days: string;
+    } | null;
   approval_history: ApprovalHistoryItem[];
 };
 
@@ -113,14 +117,31 @@ export class LeavePdfService {
         'Fiscal Year',
         payload.current_balance.fiscal_year,
       );
-      this.writeLabelValue(
-        document,
-        'Allocated Days',
-        payload.current_balance.allocated_days,
-      );
-      this.writeLabelValue(
-        document,
-        'Used Days',
+        this.writeLabelValue(
+          document,
+          'Opening Balance',
+          payload.current_balance.opening_balance_days ??
+            payload.current_balance.carried_forward_days,
+        );
+        this.writeLabelValue(
+          document,
+          'Yearly Entitlement',
+          payload.current_balance.entitlement_days ??
+            payload.current_balance.allocated_days,
+        );
+        this.writeLabelValue(
+          document,
+          'Allocated Days',
+          payload.current_balance.allocated_days,
+        );
+        this.writeLabelValue(
+          document,
+          'Adjusted Days',
+          payload.current_balance.adjusted_days ?? '0.00',
+        );
+        this.writeLabelValue(
+          document,
+          'Used Days',
         payload.current_balance.used_days,
       );
       this.writeLabelValue(
@@ -133,14 +154,19 @@ export class LeavePdfService {
         'Carried Forward',
         payload.current_balance.carried_forward_days,
       );
-      this.writeLabelValue(
-        document,
-        'Expired Days',
-        payload.current_balance.expired_days,
-      );
-      this.writeLabelValue(
-        document,
-        'Available Days',
+        this.writeLabelValue(
+          document,
+          'Expired Days',
+          payload.current_balance.expired_days,
+        );
+        this.writeLabelValue(
+          document,
+          'Attendance Deductions',
+          payload.current_balance.attendance_deduction_days ?? '0.00',
+        );
+        this.writeLabelValue(
+          document,
+          'Available Days',
         payload.current_balance.available_days,
       );
     }

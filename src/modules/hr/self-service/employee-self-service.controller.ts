@@ -104,6 +104,8 @@ export class EmployeeSelfServiceController {
   }
 
   @Get('leave/balances')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave-balances.view-own')
   @ApiOperation({ summary: 'Get my leave balances' })
   getLeaveBalances(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },

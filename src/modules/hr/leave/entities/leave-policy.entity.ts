@@ -58,6 +58,18 @@ export class LeavePolicy {
   @Column({ default: false })
   allow_negative_balance: boolean;
 
+  @Column({ default: false })
+  attendance_balance_deduction_enabled: boolean;
+
+  @Column({ type: 'decimal', precision: 8, scale: 2, default: 1 })
+  absent_day_deduction_days: string;
+
+  @Column({ type: 'decimal', precision: 8, scale: 2, default: 1 })
+  unpaid_leave_day_deduction_days: string;
+
+  @Column({ type: 'decimal', precision: 8, scale: 2, default: 0.5 })
+  half_day_deduction_days: string;
+
   @Column({
     type: 'enum',
     enum: LeaveRecordStatusEnum,

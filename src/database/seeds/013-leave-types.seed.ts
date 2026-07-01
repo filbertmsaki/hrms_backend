@@ -29,7 +29,7 @@ const LEAVE_TYPE_SEEDS: LeaveTypeSeed[] = [
     isPaid: true,
     requiresAttachment: false,
     isCarryForwardAllowed: true,
-    maxCarryForwardDays: 10,
+    maxCarryForwardDays: 0,
     maxDaysPerYear: 28,
     genderRestriction: LeaveGenderRestrictionEnum.ANY,
   },

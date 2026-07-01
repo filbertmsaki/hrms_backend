@@ -85,7 +85,13 @@ describe('LeaveService', () => {
     toDecimal: jest.Mock;
     toNumber: jest.Mock;
     getFiscalYearFromDate: jest.Mock;
+    resolvePolicyAssignment: jest.Mock;
     ensureBalanceForEmployee: jest.Mock;
+    ensureBalancesForEmployeeYear: jest.Mock;
+    recalculateBalance: jest.Mock;
+    applyManualAdjustment: jest.Mock;
+    findBalanceAdjustments: jest.Mock;
+    generateBalancesForCompany: jest.Mock;
     reserveDays: jest.Mock;
     consumeReservedDays: jest.Mock;
     releaseReservedDays: jest.Mock;
@@ -133,7 +139,13 @@ describe('LeaveService', () => {
         value === null || value === undefined ? 0 : Number(value),
       ),
       getFiscalYearFromDate: jest.fn(() => '2026'),
+      resolvePolicyAssignment: jest.fn(),
       ensureBalanceForEmployee: jest.fn(),
+      ensureBalancesForEmployeeYear: jest.fn(),
+      recalculateBalance: jest.fn(async (_companyId, _employee, _leaveTypeId, _fiscalYear, _manager, balance) => balance),
+      applyManualAdjustment: jest.fn(),
+      findBalanceAdjustments: jest.fn(),
+      generateBalancesForCompany: jest.fn(),
       reserveDays: jest.fn(),
       consumeReservedDays: jest.fn(),
       releaseReservedDays: jest.fn(),
@@ -287,24 +299,17 @@ describe('LeaveService', () => {
       requires_attachment: false,
       description: null,
     });
-    leavePolicyRepository.find!.mockResolvedValue([
-      {
-        company_id: 10,
-        status: LeaveRecordStatusEnum.ACTIVE,
-        applicable_department_id: null,
-        applicable_position_id: null,
+    leaveBalanceService.resolvePolicyAssignment.mockResolvedValue({
+      policy: {
         allow_negative_balance: false,
         max_consecutive_days: null,
         min_service_months: 0,
-        leave_types: [
-          {
-            leave_type_id: 7,
-            max_per_request_days: null,
-            requires_approval: false,
-          },
-        ],
       },
-    ]);
+      policyType: {
+        max_per_request_days: null,
+        requires_approval: false,
+      },
+    });
     leaveBalanceService.ensureBalanceForEmployee.mockResolvedValue(balance);
     dataSource.transaction.mockImplementation(async (callback) =>
       callback(manager),
