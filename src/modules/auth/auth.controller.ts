@@ -14,7 +14,6 @@ import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import type { Request as ExpressRequest } from 'express';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
-import { RegisterDto } from './dtos/register.dto';
 import { LoginDto } from './dtos/login.dto';
 import { RefreshTokenDto } from './dtos/refresh-token.dto';
 import { LogoutDto } from './dtos/logout.dto';
@@ -26,7 +25,6 @@ import { SwitchCompanyDto } from './dtos/switch-company.dto';
 import {
   ApiAuthRequired,
   ApiAuthErrorResponses,
-  ApiConflictResponse,
   ApiOperationSummary,
   ApiSuccessResponse,
   ApiValidationErrorResponse,
@@ -40,35 +38,7 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   // ────────────────────────────────
-  //  Step 1: Register
-  // ────────────────────────────────
-
-  @Post('register')
-  @Throttle({ default: { limit: 5, ttl: 600000 } })
-  @ApiOperationSummary(
-    'Register a new account',
-    'Creates a company and administrator profile for a new tenant. ' +
-      'This is the first step for any new organization onboarding onto the platform.',
-    'Auth_register',
-  )
-  @ApiSuccessResponse(201, 'Account registered successfully', {
-    schema: {
-      example: {
-        message:
-          'Registration successful. Please check your email to verify your account.',
-        user: { id: 1, email: 'amina.moshi@acme.co.tz' },
-      },
-    },
-  })
-  @ApiValidationErrorResponse()
-  @ApiConflictResponse('Email')
-  @ApiTooManyRequestsResponse()
-  async register(@Body() registerDto: RegisterDto) {
-    return this.authService.register(registerDto);
-  }
-
-  // ────────────────────────────────
-  //  Step 2: Login
+  //  Step 1: Login
   // ────────────────────────────────
 
   @Post('login')

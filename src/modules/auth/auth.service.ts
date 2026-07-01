@@ -29,7 +29,6 @@ import { ForgotPasswordDto } from './dtos/forgot-password.dto';
 import { LoginDto } from './dtos/login.dto';
 import { LogoutDto } from './dtos/logout.dto';
 import { RefreshTokenDto } from './dtos/refresh-token.dto';
-import { RegisterDto } from './dtos/register.dto';
 import { ResetPasswordDto } from './dtos/reset-password.dto';
 import { TokenBlacklistService } from './token-blacklist.service';
 
@@ -323,56 +322,6 @@ export class AuthService {
     const companies = await this.companiesService.listUserCompanies(userId);
 
     return this.generateCompanyAuthResponse(user, companyContext, companies);
-  }
-
-  async register(registerDto: RegisterDto) {
-    const normalizedSlug = this.normalizeCompanySlug(registerDto.company_slug);
-    const company =
-      await this.companiesService.findActiveCompanyBySlug(normalizedSlug);
-
-    if (!company) {
-      throw new NotFoundException('Company not found');
-    }
-
-    const creationResult = await this.usersService.createForCompany(
-      company.id,
-      {
-        first_name: registerDto.first_name,
-        last_name: registerDto.last_name,
-        phone: registerDto.phone,
-        email: registerDto.email,
-        password: registerDto.password,
-      },
-    );
-
-    const createdUser =
-      'user' in creationResult ? creationResult.user : creationResult;
-    const companyContext = await this.companiesService.getMembershipContext(
-      createdUser.id,
-      company.id,
-    );
-
-    return {
-      message: 'Registered successfully',
-      user: {
-        id: createdUser.id,
-        user_no: createdUser.user_no,
-        first_name: createdUser.first_name,
-        last_name: createdUser.last_name,
-        phone: createdUser.phone,
-        email: createdUser.email,
-        status: createdUser.status,
-        user_type: createdUser.user_type,
-      },
-      company: {
-        id: company.id,
-        name: company.name,
-        slug: company.slug,
-        membership_id: companyContext.membershipId,
-        roles: companyContext.roles,
-        permissions: companyContext.permissions,
-      },
-    };
   }
 
   async refreshTokens(refreshTokenDto: RefreshTokenDto) {
@@ -954,15 +903,4 @@ export class AuthService {
     ].includes(error.name);
   }
 
-  private normalizeCompanySlug(slug: string): string {
-    const normalized = slug.trim().toLowerCase();
-
-    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalized)) {
-      throw new BadRequestException(
-        'Company slug must use lowercase letters, numbers, and hyphens only',
-      );
-    }
-
-    return normalized;
-  }
 }
