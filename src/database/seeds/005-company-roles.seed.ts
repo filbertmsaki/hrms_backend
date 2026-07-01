@@ -850,7 +850,7 @@ export default class CompanyRolesSeeder implements Seeder {
         role.display_name = seed.displayName;
         role.description = seed.description;
         role.is_system_generated = true;
-        role.permissions = seed.permissionNames
+        role.permissions = Array.from(new Set(seed.permissionNames))
           .map((n) => permissionMap.get(n))
           .filter((p): p is Permission => p !== undefined);
 
