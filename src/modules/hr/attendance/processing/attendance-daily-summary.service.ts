@@ -10,6 +10,7 @@ import {
 import { LeaveStatusEnum } from '../../leave/enums/leave-status.enum';
 import { LeaveRequest } from '../../leave/entities/leave-request.entity';
 import { LeaveType } from '../../leave/entities/leave-type.entity';
+import { LeaveBalanceService } from '../../leave/services/leave-balance.service';
 import { Employee } from '../../employees/entities/employee.entity';
 import { ShiftAssignment } from '../shift/shift-assignments/entities/shift-assignment.entity';
 import { ShiftAssignmentStatusEnum } from '../shift/shift-assignments/enums/shift-assignment-status.enum';
@@ -128,6 +129,7 @@ export class AttendanceDailySummaryService {
     private readonly timetableRepository: Repository<Timetable>,
     private readonly scheduleResolver: AttendanceScheduleResolverService,
     private readonly exceptionService: AttendanceProcessingExceptionsService,
+    private readonly leaveBalanceService: LeaveBalanceService,
   ) {}
 
   async rebuildSummariesForRange(input: {
@@ -174,6 +176,7 @@ export class AttendanceDailySummaryService {
 
     const dates = this.buildDateRange(startDate, endDate);
     let summariesUpserted = 0;
+    const fiscalYearRefreshKeys = new Set<string>();
 
     for (const targetEmployeeId of employeeIds) {
       for (const date of dates) {
@@ -181,9 +184,25 @@ export class AttendanceDailySummaryService {
           companyId,
           targetEmployeeId,
           date,
+          false,
         );
         if (changed) summariesUpserted += 1;
+        fiscalYearRefreshKeys.add(
+          `${targetEmployeeId}:${this.leaveBalanceService.getFiscalYearFromDate(
+            date,
+          )}`,
+        );
       }
+    }
+
+    for (const key of fiscalYearRefreshKeys) {
+      const [employeeIdToken, fiscalYear] = key.split(':');
+      await this.refreshAttendanceAffectedLeaveBalances(
+        companyId,
+        Number(employeeIdToken),
+        fiscalYear,
+        'Attendance summary range rebuild',
+      );
     }
 
     return {
@@ -197,6 +216,7 @@ export class AttendanceDailySummaryService {
     companyId: number,
     employeeId: number,
     attendanceDate: string,
+    refreshLeaveBalances = true,
   ): Promise<boolean> {
     const normalizedAttendanceDate = this.normalizeDate(
       attendanceDate,
@@ -225,6 +245,16 @@ export class AttendanceDailySummaryService {
     if (employee?.exit_date && normalizedAttendanceDate > employee.exit_date) {
       if (existing) {
         await this.dailySummaryRepository.remove(existing);
+        if (refreshLeaveBalances) {
+          await this.refreshAttendanceAffectedLeaveBalances(
+            companyId,
+            employeeId,
+            this.leaveBalanceService.getFiscalYearFromDate(
+              normalizedAttendanceDate,
+            ),
+            'Attendance summary removed after employee exit date',
+          );
+        }
       }
       await this.exceptionService.replaceForEmployeeDate(
         companyId,
@@ -385,6 +415,14 @@ export class AttendanceDailySummaryService {
 
     if (existing && !summaryValues.shouldPersist) {
       await this.dailySummaryRepository.remove(existing);
+      if (refreshLeaveBalances) {
+        await this.refreshAttendanceAffectedLeaveBalances(
+          companyId,
+          employeeId,
+          this.leaveBalanceService.getFiscalYearFromDate(normalizedAttendanceDate),
+          'Attendance summary removed after recalculation',
+        );
+      }
       await this.exceptionService.replaceForEmployeeDate(
         companyId,
         employeeId,
@@ -449,6 +487,15 @@ export class AttendanceDailySummaryService {
         noScheduleFound,
       }),
     );
+
+    if (refreshLeaveBalances) {
+      await this.refreshAttendanceAffectedLeaveBalances(
+        companyId,
+        employeeId,
+        this.leaveBalanceService.getFiscalYearFromDate(normalizedAttendanceDate),
+        'Attendance summary recalculated',
+      );
+    }
 
     return true;
   }
@@ -2022,6 +2069,35 @@ export class AttendanceDailySummaryService {
 
   private buildDateRange(startDate: string, endDate: string): string[] {
     return buildDateOnlyRange(startDate, endDate);
+  }
+
+  private async refreshAttendanceAffectedLeaveBalances(
+    companyId: number,
+    employeeId: number,
+    fiscalYear: string,
+    reason: string,
+  ): Promise<void> {
+    const employee = await this.employeeRepository.findOne({
+      where: { id: employeeId },
+      select: {
+        id: true,
+        primary_branch_id: true,
+        primary_department_id: true,
+        primary_position_id: true,
+      },
+    });
+
+    if (!employee) {
+      return;
+    }
+
+    await this.leaveBalanceService.synchronizeAttendanceImpactForEmployeeYear(
+      companyId,
+      employee,
+      fiscalYear,
+      undefined,
+      reason,
+    );
   }
 
   private normalizeDate(value: string, field: string): string {

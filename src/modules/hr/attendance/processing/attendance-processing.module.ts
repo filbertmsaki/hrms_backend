@@ -8,6 +8,7 @@ import { EmployeeDeviceAssignment } from '../../../access-control/employee-devic
 import { Employee } from '../../employees/entities/employee.entity';
 import { LeaveRequest } from '../../leave/entities/leave-request.entity';
 import { LeaveType } from '../../leave/entities/leave-type.entity';
+import { LeaveModule } from '../../leave/leave.module';
 import { HrSharedModule } from '../../shared/hr-shared.module';
 import { ShiftAssignment } from '../shift/shift-assignments/entities/shift-assignment.entity';
 import { ShiftBreak } from '../shift/shift-breaks/entities/shift-break.entity';
@@ -77,6 +78,7 @@ import { AttendanceCompanyConfigService } from '../shared/attendance-company-con
       AttendanceBusinessTrip,
     ]),
     HrSharedModule,
+    LeaveModule,
   ],
   controllers: [
     AttendanceProcessingController,

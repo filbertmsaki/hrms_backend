@@ -26,6 +26,7 @@ import { EmployeePosition } from './entities/employee-position.entity';
 import { EmployeeProfessionalQualification } from './entities/employee-professional-qualification.entity';
 import { EmployeeRelative } from './entities/employee-relative.entity';
 import { Employee } from './entities/employee.entity';
+import { LeaveModule } from '../leave/leave.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { Employee } from './entities/employee.entity';
     HrSharedModule,
     OnboardingModule,
     HrLaunchReadinessModule,
+    LeaveModule,
   ],
   controllers: [EmployeesController],
   providers: [EmployeesService],

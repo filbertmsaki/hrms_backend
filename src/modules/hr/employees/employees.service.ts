@@ -17,6 +17,7 @@ import { UsersService } from '../../users/users.service';
 import { Branch } from '../branches/entities/branch.entity';
 import { Designation } from '../designations/entities/designation.entity';
 import { Department } from '../departments/entities/department.entity';
+import { LeaveBalanceService } from '../leave/services/leave-balance.service';
 import { OnboardingService } from '../onboarding/onboarding.service';
 import { Position } from '../positions/entities/position.entity';
 import { HrAccessService } from '../shared/hr-access.service';
@@ -133,6 +134,7 @@ export class EmployeesService {
     private readonly usersService: UsersService,
     private readonly hrAccessService: HrAccessService,
     private readonly onboardingService: OnboardingService,
+    private readonly leaveBalanceService: LeaveBalanceService,
     private readonly attendanceReadinessService: EmployeeAttendanceReadinessService,
   ) {}
 
@@ -2106,7 +2108,7 @@ export class EmployeesService {
     dto: Partial<EmployeeMutationDto>,
     actor: AuthenticatedUser,
     manager?: EntityManager,
-  ): Promise<number> {
+  ): Promise<Employee> {
     const normalizedStatus = this.normalizeStatusFields({
       employment_status: dto.employment_status,
       exit_date: dto.exit_date,
@@ -2358,7 +2360,35 @@ export class EmployeesService {
       );
     }
 
-    return saved.id;
+    return saved;
+  }
+
+  private async initializeCurrentYearLeaveBalances(
+    companyId: number,
+    employee: Pick<
+      Employee,
+      | 'id'
+      | 'employment_status'
+      | 'primary_department_id'
+      | 'primary_position_id'
+      | 'primary_branch_id'
+    >,
+    manager: EntityManager,
+  ): Promise<void> {
+    if (employee.employment_status !== EmploymentStatusEnum.ACTIVE) {
+      return;
+    }
+
+    const fiscalYear = this.leaveBalanceService.getFiscalYearFromDate(
+      new Date(),
+    );
+
+    await this.leaveBalanceService.ensureBalancesForEmployeeYear(
+      companyId,
+      employee,
+      fiscalYear,
+      manager,
+    );
   }
 
   private async loadEmployeesByIds(
@@ -2485,11 +2515,17 @@ export class EmployeesService {
           createEmployeeDto.employment_type ?? EmploymentTypeEnum.FULL_TIME,
       });
 
-      const employeeId = await this.persistEmployee(
+      const savedEmployee = await this.persistEmployee(
         companyId,
         employee,
         createEmployeeDto,
         actor,
+        manager,
+      );
+
+      await this.initializeCurrentYearLeaveBalances(
+        companyId,
+        savedEmployee,
         manager,
       );
 
@@ -2499,7 +2535,7 @@ export class EmployeesService {
           await this.onboardingService.startOnboardingForEmployee(
             companyId,
             {
-              employee_id: employeeId,
+              employee_id: savedEmployee.id,
               workflow_id: createEmployeeDto.onboarding?.workflow_id,
               title: createEmployeeDto.onboarding?.title,
               description: createEmployeeDto.onboarding?.description,
@@ -2517,7 +2553,7 @@ export class EmployeesService {
       }
 
       return {
-        employeeId,
+        employeeId: savedEmployee.id,
         onboardingRequestId,
       };
     });
@@ -2771,13 +2807,28 @@ export class EmployeesService {
           throw new NotFoundException('Employee not found');
         }
 
-        return this.persistEmployee(
+        const wasActive =
+          employee.employment_status === EmploymentStatusEnum.ACTIVE;
+        const savedEmployee = await this.persistEmployee(
           companyId,
           employee,
           updateEmployeeDto,
           actor,
           manager,
         );
+
+        if (
+          !wasActive &&
+          savedEmployee.employment_status === EmploymentStatusEnum.ACTIVE
+        ) {
+          await this.initializeCurrentYearLeaveBalances(
+            companyId,
+            savedEmployee,
+            manager,
+          );
+        }
+
+        return savedEmployee.id;
       },
     );
 

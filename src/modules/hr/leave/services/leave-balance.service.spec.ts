@@ -9,6 +9,7 @@ import { AttendanceDailySummary } from '../../attendance/processing/entities/att
 import { LeaveBalanceAdjustment } from '../entities/leave-balance-adjustment.entity';
 import { LeaveRecordStatusEnum } from '../enums/leave-record-status.enum';
 import { LeaveBalanceAdjustmentModeEnum } from '../enums/leave-balance-adjustment-mode.enum';
+import { LeaveAuditService } from './leave-audit.service';
 
 type MockRepo<T = unknown> = Record<string, jest.Mock>;
 
@@ -38,6 +39,7 @@ describe('LeaveBalanceService', () => {
   let employeeRepository: MockRepo<Employee>;
   let attendanceDailySummaryRepository: MockRepo<AttendanceDailySummary>;
   let adjustmentRepository: MockRepo<LeaveBalanceAdjustment>;
+  let leaveAuditService: { log: jest.Mock };
 
   beforeEach(() => {
     balanceRepository = createRepositoryMock();
@@ -47,6 +49,7 @@ describe('LeaveBalanceService', () => {
     employeeRepository = createRepositoryMock();
     attendanceDailySummaryRepository = createRepositoryMock();
     adjustmentRepository = createRepositoryMock();
+    leaveAuditService = { log: jest.fn() };
 
     service = new LeaveBalanceService(
       balanceRepository as unknown as Repository<LeaveBalance>,
@@ -56,6 +59,7 @@ describe('LeaveBalanceService', () => {
       employeeRepository as unknown as Repository<Employee>,
       attendanceDailySummaryRepository as unknown as Repository<AttendanceDailySummary>,
       adjustmentRepository as unknown as Repository<LeaveBalanceAdjustment>,
+      leaveAuditService as unknown as LeaveAuditService,
     );
   });
 

@@ -21,6 +21,7 @@ import { LeavePolicyType } from '../entities/leave-policy-type.entity';
 import { LeavePolicy } from '../entities/leave-policy.entity';
 import { LeaveRequest } from '../entities/leave-request.entity';
 import { LeaveType } from '../entities/leave-type.entity';
+import { LeaveAuditService } from './leave-audit.service';
 
 type EmployeeScope = Pick<
   Employee,
@@ -61,6 +62,7 @@ export class LeaveBalanceService {
     private readonly attendanceDailySummaryRepository: Repository<AttendanceDailySummary>,
     @InjectRepository(LeaveBalanceAdjustment)
     private readonly leaveBalanceAdjustmentRepository: Repository<LeaveBalanceAdjustment>,
+    private readonly leaveAuditService: LeaveAuditService,
   ) {}
 
   private getBalanceRepository(
@@ -756,5 +758,86 @@ export class LeaveBalanceService {
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
+  }
+
+  async synchronizeAttendanceImpactForEmployeeYear(
+    companyId: number,
+    employee: EmployeeScope,
+    fiscalYear: string,
+    manager?: EntityManager,
+    reason = 'Attendance recalculation',
+  ): Promise<LeaveBalance[]> {
+    const leaveTypes = await this.getLeaveTypeRepository(manager).find({
+      where: {
+        company_id: companyId,
+        status: LeaveRecordStatusEnum.ACTIVE,
+        code: 'ANNUAL',
+      },
+    });
+
+    const changedBalances: LeaveBalance[] = [];
+
+    for (const leaveType of leaveTypes) {
+      const existing = await this.getBalanceRepository(manager).findOne({
+        where: {
+          employee_id: employee.id,
+          leave_type_id: leaveType.id,
+          fiscal_year: this.normalizeFiscalYear(fiscalYear),
+        },
+      });
+      const previousAttendanceDeduction = existing
+        ? this.toNumber(existing.attendance_deduction_days)
+        : 0;
+      const previousAvailableDays = existing
+        ? this.calculateAvailableDays(existing)
+        : 0;
+
+      const updated = await this.ensureBalanceForEmployee(
+        companyId,
+        employee,
+        leaveType.id,
+        fiscalYear,
+        manager,
+        {
+          forceRecalculate: true,
+          leaveType,
+        },
+      );
+
+      const nextAttendanceDeduction = this.toNumber(
+        updated.attendance_deduction_days,
+      );
+      const nextAvailableDays = this.calculateAvailableDays(updated);
+
+      if (
+        previousAttendanceDeduction !== nextAttendanceDeduction ||
+        previousAvailableDays !== nextAvailableDays
+      ) {
+        changedBalances.push(updated);
+        await this.leaveAuditService.log(
+          {
+            company_id: companyId,
+            action: 'leave_balance.attendance_recalculated',
+            entity_name: 'leave_balance',
+            entity_id: updated.id,
+            payload: {
+              reason,
+              fiscal_year: updated.fiscal_year,
+              employee_id: updated.employee_id,
+              leave_type_id: updated.leave_type_id,
+              previous_attendance_deduction_days: this.toDecimal(
+                previousAttendanceDeduction,
+              ),
+              next_attendance_deduction_days: updated.attendance_deduction_days,
+              previous_available_days: this.toDecimal(previousAvailableDays),
+              next_available_days: this.toDecimal(nextAvailableDays),
+            },
+          },
+          manager,
+        );
+      }
+    }
+
+    return changedBalances;
   }
 }

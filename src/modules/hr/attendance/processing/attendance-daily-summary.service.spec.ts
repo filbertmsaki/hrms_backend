@@ -21,6 +21,7 @@ import { ResolvedAttendanceSchedule } from './entities/resolved-attendance-sched
 import { AttendanceDailyRemarkEnum } from './enums/attendance-daily-remark.enum';
 import { AttendanceRoundingModeEnum } from '../policies/enums/attendance-rounding-mode.enum';
 import { AttendanceHolidayPolicyModeEnum } from '../policies/enums/attendance-holiday-policy-mode.enum';
+import { LeaveBalanceService } from '../../leave/services/leave-balance.service';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type MockRepo<T = any> = Record<string, jest.Mock>;
@@ -108,6 +109,10 @@ describe('AttendanceDailySummaryService', () => {
   let timetableDayRepository: MockRepo<TimetableDay>;
   let scheduleResolver: { resolveForDate: jest.Mock };
   let exceptionService: { replaceForEmployeeDate: jest.Mock };
+  let leaveBalanceService: {
+    getFiscalYearFromDate: jest.Mock;
+    synchronizeAttendanceImpactForEmployeeYear: jest.Mock;
+  };
   let timezoneBuilder: ReturnType<typeof createQueryBuilderMock>;
   let processedEventBuilder: ReturnType<typeof createQueryBuilderMock>;
   let mobilePunchBuilder: ReturnType<typeof createQueryBuilderMock>;
@@ -140,6 +145,10 @@ describe('AttendanceDailySummaryService', () => {
     };
     exceptionService = {
       replaceForEmployeeDate: jest.fn(async () => []),
+    };
+    leaveBalanceService = {
+      getFiscalYearFromDate: jest.fn((value: string) => value.slice(0, 4)),
+      synchronizeAttendanceImpactForEmployeeYear: jest.fn(async () => []),
     };
 
     timezoneBuilder = createQueryBuilderMock();
@@ -189,6 +198,7 @@ describe('AttendanceDailySummaryService', () => {
       timetableRepository as unknown as Repository<Timetable>,
       scheduleResolver as unknown as AttendanceScheduleResolverService,
       exceptionService as unknown as AttendanceProcessingExceptionsService,
+      leaveBalanceService as unknown as LeaveBalanceService,
     );
   });
 
@@ -220,6 +230,15 @@ describe('AttendanceDailySummaryService', () => {
       }),
     );
     expect(exceptionService.replaceForEmployeeDate).toHaveBeenCalled();
+    expect(
+      leaveBalanceService.synchronizeAttendanceImpactForEmployeeYear,
+    ).toHaveBeenCalledWith(
+      10,
+      expect.objectContaining({ id: 1 }),
+      '2026',
+      undefined,
+      'Attendance summary recalculated',
+    );
   });
 
   it('treats approved mobile punches as attendance events', async () => {
