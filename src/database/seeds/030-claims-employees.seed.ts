@@ -27,7 +27,7 @@ export const CLAIMS_EMPLOYEES: DeptEmployeeSeed[] = [
     branchCode: 'HQ',
     departmentCode: 'CLAIMS',
     positionCode: 'CLAIMS_MANAGER',
-    roleNames: ['HR_MANAGER'],
+    roleNames: ['DEPARTMENT_MANAGER'],
     reportsToEmployeeNo: 'AICL-000002',
   },
   {

@@ -31,7 +31,7 @@ export const IT_EMPLOYEES: DeptEmployeeSeed[] = [
     branchCode: 'HQ',
     departmentCode: 'IT',
     positionCode: 'IT_MANAGER',
-    roleNames: ['HR_MANAGER', 'IT_ADMINISTRATOR'],
+    roleNames: ['DEPARTMENT_MANAGER', 'IT_ADMINISTRATOR'],
     reportsToEmployeeNo: 'AICL-000002',
   },
   {

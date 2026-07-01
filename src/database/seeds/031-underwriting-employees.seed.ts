@@ -27,7 +27,7 @@ export const UNDERWRITING_EMPLOYEES: DeptEmployeeSeed[] = [
     branchCode: 'HQ',
     departmentCode: 'UNDERWRITING',
     positionCode: 'UNDERWRITING_MANAGER',
-    roleNames: ['HR_MANAGER'],
+    roleNames: ['DEPARTMENT_MANAGER'],
     reportsToEmployeeNo: 'AICL-000002',
   },
   {

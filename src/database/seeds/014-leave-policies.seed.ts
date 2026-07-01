@@ -75,6 +75,8 @@ export default class LeavePoliciesSeeder implements Seeder {
         policy.accrual_method = LeaveAccrualMethodEnum.YEARLY;
         policy.max_consecutive_days = 30;
         policy.status = LeaveRecordStatusEnum.ACTIVE;
+        policy.applicable_department_id = null;
+        policy.applicable_position_id = null;
       }
       await policyRepo.save(policy);
 
