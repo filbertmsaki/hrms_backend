@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
@@ -11,6 +12,7 @@ import { Department } from '../../departments/entities/department.entity';
 import { Employee } from './employee.entity';
 
 @Entity('employee_departments')
+@Index('IDX_employee_department_department', ['department_id'])
 @Unique('UQ_employee_department', ['employee_id', 'department_id'])
 export class EmployeeDepartment {
   @PrimaryGeneratedColumn()

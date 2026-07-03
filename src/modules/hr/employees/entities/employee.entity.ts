@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   JoinColumn,
   ManyToOne,
   OneToMany,
@@ -36,6 +37,13 @@ import { EmployeeRelative } from './employee-relative.entity';
 // properties with explicit @Column({ name: 'snake_case' }) mappings. Both patterns
 // work correctly with TypeORM. New entities should follow the camelCase pattern.
 @Entity('employees')
+@Index('IDX_employee_employee_no', ['employee_no'])
+@Index('IDX_employee_employment_status', ['employment_status'])
+@Index('IDX_employee_primary_branch', ['primary_branch_id'])
+@Index('IDX_employee_primary_department', ['primary_department_id'])
+@Index('IDX_employee_primary_position', ['primary_position_id'])
+@Index('IDX_employee_primary_designation', ['primary_designation_id'])
+@Index('IDX_employee_reports_to', ['reports_to'])
 @Unique('UQ_employee_company_user', ['company_user_id'])
 export class Employee {
   @PrimaryGeneratedColumn()

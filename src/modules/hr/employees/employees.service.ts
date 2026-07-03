@@ -771,6 +771,64 @@ export class EmployeesService {
     };
   }
 
+  private buildEmployeeRelations(includeDocuments = false) {
+    return {
+      company_user: {
+        user: true,
+      },
+      primary_branch: true,
+      primary_department: {
+        branch: true,
+        parent: true,
+      },
+      primary_position: true,
+      primary_designation: true,
+      manager: {
+        company_user: {
+          user: true,
+        },
+      },
+      department_assignments: {
+        department: {
+          branch: true,
+          parent: true,
+        },
+      },
+      position_assignments: {
+        position: true,
+        designation: true,
+      },
+      designation_assignments: {
+        designation: true,
+      },
+      contacts: true,
+      addresses: true,
+      relatives: true,
+      identifications: true,
+      bank_accounts: true,
+      academic_qualifications: {
+        uploaded_by: {
+          user: true,
+        },
+      },
+      professional_qualifications: {
+        uploaded_by: {
+          user: true,
+        },
+      },
+      experience_details: true,
+      ...(includeDocuments
+        ? {
+            documents: {
+              uploaded_by: {
+                user: true,
+              },
+            },
+          }
+        : {}),
+    };
+  }
+
   private async findMembershipByUserId(
     companyId: number,
     userId: number,
@@ -951,65 +1009,7 @@ export class EmployeesService {
           company_id: companyId,
         },
       },
-      relations: {
-        company_user: {
-          user: true,
-          role_assignments: {
-            role: {
-              permissions: true,
-            },
-          },
-          permission_assignments: {
-            permission: true,
-          },
-        },
-        primary_branch: true,
-        primary_department: {
-          branch: true,
-          parent: true,
-        },
-        primary_position: true,
-        primary_designation: true,
-        manager: {
-          company_user: {
-            user: true,
-          },
-        },
-        department_assignments: {
-          department: {
-            branch: true,
-            parent: true,
-          },
-        },
-        position_assignments: {
-          position: true,
-          designation: true,
-        },
-        designation_assignments: {
-          designation: true,
-        },
-        contacts: true,
-        addresses: true,
-        relatives: true,
-        identifications: true,
-        bank_accounts: true,
-        academic_qualifications: {
-          uploaded_by: {
-            user: true,
-          },
-        },
-        professional_qualifications: {
-          uploaded_by: {
-            user: true,
-          },
-        },
-        experience_details: true,
-        documents: {
-          uploaded_by: {
-            user: true,
-          },
-        },
-      },
+      relations: this.buildEmployeeRelations(true),
     });
 
     if (!employee) {
@@ -2406,60 +2406,7 @@ export class EmployeesService {
           company_id: companyId,
         },
       },
-      relations: {
-        company_user: {
-          user: true,
-          role_assignments: {
-            role: {
-              permissions: true,
-            },
-          },
-          permission_assignments: {
-            permission: true,
-          },
-        },
-        primary_branch: true,
-        primary_department: {
-          branch: true,
-          parent: true,
-        },
-        primary_position: true,
-        primary_designation: true,
-        manager: {
-          company_user: {
-            user: true,
-          },
-        },
-        department_assignments: {
-          department: {
-            branch: true,
-            parent: true,
-          },
-        },
-        position_assignments: {
-          position: true,
-          designation: true,
-        },
-        designation_assignments: {
-          designation: true,
-        },
-        contacts: true,
-        addresses: true,
-        relatives: true,
-        identifications: true,
-        bank_accounts: true,
-        academic_qualifications: {
-          uploaded_by: {
-            user: true,
-          },
-        },
-        professional_qualifications: {
-          uploaded_by: {
-            user: true,
-          },
-        },
-        experience_details: true,
-      },
+      relations: this.buildEmployeeRelations(),
     });
 
     const byId = new Map(employees.map((employee) => [employee.id, employee]));
@@ -2627,12 +2574,7 @@ export class EmployeesService {
     const qb = this.employeeRepository
       .createQueryBuilder('employee')
       .select('employee.id', 'id')
-      .distinct(true)
       .innerJoin('employee.company_user', 'membership')
-      .innerJoin('membership.user', 'user')
-      .leftJoin('employee.department_assignments', 'departmentAssignments')
-      .leftJoin('departmentAssignments.department', 'department')
-      .leftJoin('employee.contacts', 'contact')
       .where('membership.company_id = :companyId', { companyId });
 
     if (employment_status) {
@@ -2643,15 +2585,31 @@ export class EmployeesService {
 
     if (typeof branch_id === 'number') {
       qb.andWhere(
-        '(employee.primary_branch_id = :branchId OR department.branch_id = :branchId)',
+        `(
+          employee.primary_branch_id = :branchId
+          OR EXISTS (
+            SELECT 1
+            FROM employee_departments department_assignments
+            INNER JOIN departments department
+              ON department.id = department_assignments.department_id
+            WHERE department_assignments.employee_id = employee.id
+              AND department.branch_id = :branchId
+          )
+        )`,
         { branchId: branch_id },
       );
     }
 
     if (typeof department_id === 'number') {
-      qb.andWhere('departmentAssignments.department_id = :departmentId', {
-        departmentId: department_id,
-      });
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM employee_departments department_assignments
+          WHERE department_assignments.employee_id = employee.id
+            AND department_assignments.department_id = :departmentId
+        )`,
+        { departmentId: department_id },
+      );
     }
 
     const effectivePrimaryPositionId =
@@ -2675,18 +2633,26 @@ export class EmployeesService {
 
     if (search?.trim()) {
       const term = `%${search.trim()}%`;
+      qb.innerJoin('membership.user', 'user');
       qb.andWhere(
-        '(' +
-          'employee.employee_no LIKE :term OR ' +
-          'employee.first_name LIKE :term OR ' +
-          'employee.last_name LIKE :term OR ' +
-          'employee.preferred_name LIKE :term OR ' +
-          'user.email LIKE :term OR ' +
-          'user.phone LIKE :term OR ' +
-          'user.user_no LIKE :term OR ' +
-          'contact.email LIKE :term OR ' +
-          'contact.phone_number LIKE :term' +
-          ')',
+        `(
+          employee.employee_no LIKE :term
+          OR employee.first_name LIKE :term
+          OR employee.last_name LIKE :term
+          OR employee.preferred_name LIKE :term
+          OR user.email LIKE :term
+          OR user.phone LIKE :term
+          OR user.user_no LIKE :term
+          OR EXISTS (
+            SELECT 1
+            FROM employee_contacts contact
+            WHERE contact.employee_id = employee.id
+              AND (
+                contact.email LIKE :term
+                OR contact.phone_number LIKE :term
+              )
+          )
+        )`,
         { term },
       );
     }
@@ -2703,7 +2669,17 @@ export class EmployeesService {
 
     if (accessibleBranchIds) {
       qb.andWhere(
-        '(employee.primary_branch_id IN (:...branchIds) OR department.branch_id IN (:...branchIds))',
+        `(
+          employee.primary_branch_id IN (:...branchIds)
+          OR EXISTS (
+            SELECT 1
+            FROM employee_departments department_assignments
+            INNER JOIN departments department
+              ON department.id = department_assignments.department_id
+            WHERE department_assignments.employee_id = employee.id
+              AND department.branch_id IN (:...branchIds)
+          )
+        )`,
         { branchIds: accessibleBranchIds },
       );
     }
@@ -2724,7 +2700,7 @@ export class EmployeesService {
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
     const skip = (page - 1) * limit;
 
-    const total = await qb.getCount();
+    const total = await qb.clone().getCount();
     const rawIds = await qb
       .addSelect(`employee.${safeSortBy}`, 'sort_value')
       .orderBy(`employee.${safeSortBy}`, direction)
