@@ -1,0 +1,54 @@
+{
+  "files.watcherExclude": {
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+
+    "**/node_modules/**": true,
+    "**/dist/**": true,
+    "**/build/**": true,
+    "**/coverage/**": true,
+    "**/.cache/**": true,
+    "**/.turbo/**": true,
+    "**/.next/**": true,
+    "**/.nuxt/**": true,
+
+    "**/vendor/**": true,
+    "**/storage/framework/**": true,
+    "**/storage/logs/**": true,
+    "**/bootstrap/cache/**": true,
+    "**/public/build/**": true,
+
+    "**/*.log": true
+  },
+
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/build": true,
+    "**/coverage": true,
+    "**/.cache": true,
+    "**/.turbo": true,
+    "**/.next": true,
+    "**/.nuxt": true,
+    "**/vendor": true,
+    "**/storage": true,
+    "**/bootstrap/cache": true,
+    "**/public/build": true,
+    "**/*.log": true
+  },
+
+  "files.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/build": true,
+    "**/coverage": true,
+    "**/.cache": true,
+    "**/.turbo": true,
+    "**/.next": true,
+    "**/.nuxt": true
+  },
+
+  "typescript.tsserver.maxTsServerMemory": 4096,
+  "git.autorefresh": false,
+  "git.untrackedChanges": "hidden"
+}
