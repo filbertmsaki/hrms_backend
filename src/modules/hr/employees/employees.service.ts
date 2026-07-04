@@ -6,7 +6,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { hashPassword } from '../../../common/utils/hash.util';
@@ -38,6 +38,10 @@ import { EmployeeAcademicQualificationInputDto } from './dtos/employee-academic-
 import { EmployeeBankAccountInputDto } from './dtos/employee-bank-account-input.dto';
 import { EmployeeContactInputDto } from './dtos/employee-contact-input.dto';
 import { EmployeeDepartmentInputDto } from './dtos/employee-department-input.dto';
+import {
+  EmployeeListResponseDto,
+  EmployeeListRow,
+} from './dtos/employee-list-response.dto';
 import { EmployeeExperienceInputDto } from './dtos/employee-experience-input.dto';
 import { EmployeeIdentificationInputDto } from './dtos/employee-identification-input.dto';
 import { EmployeeProfessionalQualificationInputDto } from './dtos/employee-professional-qualification-input.dto';
@@ -2391,30 +2395,6 @@ export class EmployeesService {
     );
   }
 
-  private async loadEmployeesByIds(
-    companyId: number,
-    ids: number[],
-  ): Promise<Employee[]> {
-    if (!ids.length) {
-      return [];
-    }
-
-    const employees = await this.employeeRepository.find({
-      where: {
-        id: In(ids),
-        company_user: {
-          company_id: companyId,
-        },
-      },
-      relations: this.buildEmployeeRelations(),
-    });
-
-    const byId = new Map(employees.map((employee) => [employee.id, employee]));
-    return ids
-      .map((id) => byId.get(id))
-      .filter((employee): employee is Employee => Boolean(employee));
-  }
-
   async create(
     companyId: number,
     createEmployeeDto: CreateEmployeeDto,
@@ -2573,8 +2553,30 @@ export class EmployeesService {
 
     const qb = this.employeeRepository
       .createQueryBuilder('employee')
-      .select('employee.id', 'id')
       .innerJoin('employee.company_user', 'membership')
+      .innerJoin('membership.user', 'user')
+      .leftJoin('employee.primary_branch', 'branch')
+      .leftJoin('employee.primary_department', 'department')
+      .leftJoin('employee.primary_position', 'position')
+      .leftJoin('employee.primary_designation', 'designation')
+      .leftJoin('employee.manager', 'manager')
+      .select('employee.id', 'id')
+      .addSelect('employee.employee_no', 'employeeNo')
+      .addSelect('employee.first_name', 'firstName')
+      .addSelect('employee.middle_name', 'middleName')
+      .addSelect('employee.last_name', 'lastName')
+      .addSelect('user.email', 'email')
+      .addSelect('user.phone', 'phone')
+      .addSelect('branch.name', 'branchName')
+      .addSelect('department.name', 'departmentName')
+      .addSelect('position.name', 'positionName')
+      .addSelect('designation.name', 'designationName')
+      .addSelect('manager.first_name', 'managerFirstName')
+      .addSelect('manager.middle_name', 'managerMiddleName')
+      .addSelect('manager.last_name', 'managerLastName')
+      .addSelect('employee.employment_status', 'employmentStatus')
+      .addSelect('employee.employment_type', 'employmentType')
+      .addSelect('employee.hire_date', 'hireDate')
       .where('membership.company_id = :companyId', { companyId });
 
     if (employment_status) {
@@ -2633,11 +2635,11 @@ export class EmployeesService {
 
     if (search?.trim()) {
       const term = `%${search.trim()}%`;
-      qb.innerJoin('membership.user', 'user');
       qb.andWhere(
         `(
           employee.employee_no LIKE :term
           OR employee.first_name LIKE :term
+          OR employee.middle_name LIKE :term
           OR employee.last_name LIKE :term
           OR employee.preferred_name LIKE :term
           OR user.email LIKE :term
@@ -2701,20 +2703,16 @@ export class EmployeesService {
     const skip = (page - 1) * limit;
 
     const total = await qb.clone().getCount();
-    const rawIds = await qb
-      .addSelect(`employee.${safeSortBy}`, 'sort_value')
+    const rows = await qb
       .orderBy(`employee.${safeSortBy}`, direction)
       .addOrderBy('employee.id', 'DESC')
       .offset(skip)
       .limit(limit)
-      .getRawMany<{ id: string }>();
-
-    const ids = rawIds.map((row) => Number(row.id));
-    const employees = await this.loadEmployeesByIds(companyId, ids);
+      .getRawMany<EmployeeListRow>();
 
     return {
-      data: employees.map((employee) => this.mapEmployee(employee)),
-      meta: buildPaginationMeta(total, employees.length, limit, page),
+      data: rows.map((row) => EmployeeListResponseDto.fromRow(row)),
+      meta: buildPaginationMeta(total, rows.length, limit, page),
     };
   }
 

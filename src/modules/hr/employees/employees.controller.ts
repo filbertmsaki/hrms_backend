@@ -29,6 +29,7 @@ import { CreateEmployeeExperienceDto } from './dtos/create-employee-experience.d
 import { CreateEmployeeIdentificationDto } from './dtos/create-employee-identification.dto';
 import { CreateEmployeeProfessionalQualificationDto } from './dtos/create-employee-professional-qualification.dto';
 import { CreateEmployeeRelativeDto } from './dtos/create-employee-relative.dto';
+import { EmployeeListResponseDto } from './dtos/employee-list-response.dto';
 import { EmployeeQueryDto } from './dtos/employee-query.dto';
 import { UpdateEmployeeAddressDto } from './dtos/update-employee-address.dto';
 import { UpdateEmployeeAcademicQualificationDto } from './dtos/update-employee-academic-qualification.dto';
@@ -45,6 +46,7 @@ import {
   ApiDeleteOperation,
   ApiGetOneOperation,
   ApiListOperation,
+  ApiPaginatedResponse,
   ApiUpdateOperation,
   ApiOperationSummary,
   ApiAuthRequired,
@@ -86,6 +88,10 @@ export class EmployeesController {
   @UseGuards(PermissionsGuard)
   @Permissions('employees:read')
   @ApiListOperation('Employee', 'List employees in the active company')
+  @ApiPaginatedResponse(
+    EmployeeListResponseDto,
+    'Employee list retrieved successfully',
+  )
   findAll(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: EmployeeQueryDto,
