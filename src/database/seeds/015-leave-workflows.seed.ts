@@ -22,23 +22,18 @@ type WorkflowStepSeed = {
 
 const WORKFLOW_NAME = 'Default Leave Approval Workflow';
 
+// Level 1 is informational/reporting only: the department-manager step is now
+// resolved at runtime from departments.manager_employee_id, not from this row.
 const WORKFLOW_STEP_SEEDS: WorkflowStepSeed[] = [
   {
     approvalLevel: 1,
     approverType: LeaveApproverTypeEnum.ROLE,
-    roleName: 'HR_OFFICER',
-    actionType: LeaveApprovalActionTypeEnum.RECOMMEND,
+    roleName: 'DEPARTMENT_MANAGER',
+    actionType: LeaveApprovalActionTypeEnum.APPROVE,
     isRequired: true,
   },
   {
     approvalLevel: 2,
-    approverType: LeaveApproverTypeEnum.ROLE,
-    roleName: 'HR_MANAGER',
-    actionType: LeaveApprovalActionTypeEnum.VERIFY,
-    isRequired: true,
-  },
-  {
-    approvalLevel: 3,
     approverType: LeaveApproverTypeEnum.ROLE,
     roleName: 'HR_MANAGER',
     actionType: LeaveApprovalActionTypeEnum.APPROVE,

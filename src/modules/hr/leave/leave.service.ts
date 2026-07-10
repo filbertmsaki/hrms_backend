@@ -586,8 +586,9 @@ export class LeaveService {
       .andWhere('leaveRequest.employee_id = :employeeId', { employeeId })
       .andWhere('leaveRequest.status IN (:...statuses)', {
         statuses: [
-          LeaveStatusEnum.SUBMITTED,
-          LeaveStatusEnum.IN_REVIEW,
+          LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
+          LeaveStatusEnum.PENDING_HR,
+          LeaveStatusEnum.RETURNED_FOR_CORRECTION,
           LeaveStatusEnum.APPROVED,
         ],
       })
@@ -720,6 +721,7 @@ export class LeaveService {
     );
 
     const effectiveDate = new Date().toISOString().slice(0, 10);
+    const cycle = leaveRequest.approval_cycle;
     const reservation = await this.leaveBalanceLedgerService.reserveLeave(
       balance,
       {
@@ -734,25 +736,28 @@ export class LeaveService {
         createdByCompanyUserId: actor.companyMembershipId ?? null,
         reason: 'Leave request submitted and days reserved',
         metadata: {
-          leave_request_status: LeaveStatusEnum.SUBMITTED,
+          leave_request_status: LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
         },
-        idempotencyKey: `leave-request:${leaveRequest.id}:reserve`,
+        idempotencyKey: `leave-request:${leaveRequest.id}:cycle:${cycle}:reserve`,
       },
       manager,
     );
 
-    leaveRequest.status = LeaveStatusEnum.SUBMITTED;
     leaveRequest.current_approval_level = 0;
     leaveRequest.applied_at = new Date();
     leaveRequest.rejection_reason = null;
     leaveRequest.cancelled_at = null;
     leaveRequest.approved_at = null;
+    leaveRequest.returned_at = null;
+    leaveRequest.return_reason = null;
     await repository.save(leaveRequest);
 
     if (policyContext.requiresApproval) {
+      // initializeWorkflowForRequest sets the post-submit status/current_approval_level
       await this.leaveWorkflowService.initializeWorkflowForRequest(
         companyId,
         leaveRequest,
+        employee,
         manager,
       );
       await this.emitLeaveSubmitted(companyId, leaveRequest, employee, manager);
@@ -778,7 +783,7 @@ export class LeaveService {
         metadata: {
           leave_request_status: LeaveStatusEnum.APPROVED,
         },
-        idempotencyKey: `leave-request:${leaveRequest.id}:approve`,
+        idempotencyKey: `leave-request:${leaveRequest.id}:cycle:${cycle}:approve`,
       },
       manager,
     );
@@ -1019,8 +1024,11 @@ export class LeaveService {
       total_days: entity.total_days,
       reason: entity.reason,
       current_approval_level: entity.current_approval_level,
+      approval_cycle: entity.approval_cycle,
       status: entity.status,
       rejection_reason: entity.rejection_reason,
+      returned_at: entity.returned_at,
+      return_reason: entity.return_reason,
       applied_at: entity.applied_at,
       approved_at: entity.approved_at,
       cancelled_at: entity.cancelled_at,
@@ -3022,6 +3030,155 @@ export class LeaveService {
     return this.mapLeaveRequest(submitted);
   }
 
+  async resubmitLeaveRequest(
+    companyId: number,
+    leaveRequestId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const leaveRequest = await this.leaveRequestRepository.findOne({
+      where: {
+        id: leaveRequestId,
+        company_id: companyId,
+      },
+      relations: {
+        employee: {
+          company_user: true,
+          primary_department: true,
+          primary_position: true,
+        },
+      },
+    });
+
+    if (!leaveRequest) {
+      throw new NotFoundException('Leave request not found');
+    }
+
+    if (leaveRequest.status !== LeaveStatusEnum.RETURNED_FOR_CORRECTION) {
+      throw new BadRequestException(
+        'Only leave requests returned for correction can be resubmitted',
+      );
+    }
+
+    const normalizedStartDate = normalizeDateInput(
+      leaveRequest.start_date,
+      'start_date',
+    );
+    const normalizedEndDate = normalizeDateInput(
+      leaveRequest.end_date,
+      'end_date',
+    );
+    leaveRequest.start_date = normalizedStartDate;
+    leaveRequest.end_date = normalizedEndDate;
+
+    await this.hrAccessService.assertCanAccessEmployee(
+      actor,
+      leaveRequest.employee,
+    );
+    this.assertEmployeeCanRequestLeave(
+      leaveRequest.employee,
+      normalizedStartDate,
+      normalizedEndDate,
+    );
+
+    const leaveType = await this.findLeaveTypeOrFail(
+      companyId,
+      leaveRequest.leave_type_id,
+    );
+    if (leaveType.status !== LeaveRecordStatusEnum.ACTIVE) {
+      throw new BadRequestException('Leave type is inactive');
+    }
+
+    this.assertDateOrder(
+      normalizedStartDate,
+      normalizedEndDate,
+      'end_date cannot be before start_date',
+    );
+
+    const totalDays = await this.calculateLeaveDays(
+      companyId,
+      leaveRequest.employee.primary_branch_id ?? null,
+      normalizedStartDate,
+      normalizedEndDate,
+    );
+    if (totalDays <= 0) {
+      throw new BadRequestException(
+        'Selected period results in zero leave days after holidays/weekends',
+      );
+    }
+
+    await this.validateNoOverlap(
+      companyId,
+      leaveRequest.employee_id,
+      normalizedStartDate,
+      normalizedEndDate,
+      leaveRequest.id,
+    );
+
+    const policyContext = await this.resolvePolicyContext(
+      companyId,
+      leaveRequest.employee,
+      leaveRequest.leave_type_id,
+    );
+
+    const resubmitted = await this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(LeaveRequest);
+      const current = await repository.findOne({
+        where: { id: leaveRequest.id, company_id: companyId },
+      });
+
+      if (!current) {
+        throw new NotFoundException('Leave request not found');
+      }
+
+      if (current.status !== LeaveStatusEnum.RETURNED_FOR_CORRECTION) {
+        throw new BadRequestException(
+          'Only leave requests returned for correction can be resubmitted',
+        );
+      }
+
+      current.total_days = this.leaveBalanceService.toDecimal(totalDays);
+      current.start_date = normalizedStartDate;
+      current.end_date = normalizedEndDate;
+      current.approval_cycle += 1;
+      await repository.save(current);
+
+      await this.submitLeaveRequestRecord(
+        companyId,
+        current,
+        leaveRequest.employee,
+        policyContext,
+        actor,
+        manager,
+      );
+
+      return repository.findOneOrFail({
+        where: { id: current.id },
+        relations: {
+          employee: { primary_department: true, primary_position: true },
+          leave_type: true,
+          approvals: { approver: { user: true }, workflow_step: true },
+          medical_detail: true,
+          documents: { uploaded_by: { user: true } },
+        },
+      });
+    });
+
+    await this.leaveAuditService.log({
+      company_id: companyId,
+      leave_request_id: resubmitted.id,
+      action: 'leave_request.resubmitted',
+      entity_name: 'leave_request',
+      entity_id: resubmitted.id,
+      actor,
+      payload: {
+        status: resubmitted.status,
+        approval_cycle: resubmitted.approval_cycle,
+      },
+    });
+
+    return this.mapLeaveRequest(resubmitted);
+  }
+
   async findAllLeaveRequests(
     companyId: number,
     query: LeaveRequestQueryDto,
@@ -3226,6 +3383,8 @@ export class LeaveService {
         manager,
       );
 
+      const cycle = updatedRequest.approval_cycle;
+
       if (updatedRequest.status === LeaveStatusEnum.APPROVED) {
         await this.leaveBalanceLedgerService.consumeReservedLeave(
           balance,
@@ -3244,7 +3403,7 @@ export class LeaveService {
             metadata: {
               leave_request_status: LeaveStatusEnum.APPROVED,
             },
-            idempotencyKey: `leave-request:${leaveRequest.id}:approve`,
+            idempotencyKey: `leave-request:${leaveRequest.id}:cycle:${cycle}:approve`,
           },
           manager,
         );
@@ -3264,7 +3423,29 @@ export class LeaveService {
             metadata: {
               leave_request_status: LeaveStatusEnum.REJECTED,
             },
-            idempotencyKey: `leave-request:${leaveRequest.id}:reject-release`,
+            idempotencyKey: `leave-request:${leaveRequest.id}:cycle:${cycle}:reject-release`,
+          },
+          manager,
+        );
+      } else if (
+        updatedRequest.status === LeaveStatusEnum.RETURNED_FOR_CORRECTION
+      ) {
+        await this.leaveBalanceLedgerService.releaseReservedLeave(
+          balance,
+          {
+            companyId,
+            employeeId: employee.id,
+            leaveTypeId: leaveRequest.leave_type_id,
+            leaveYear: fiscalYear,
+            effectiveDate: new Date().toISOString().slice(0, 10),
+            days: totalDays,
+            leaveRequestId: leaveRequest.id,
+            createdByCompanyUserId: membershipId,
+            reason: 'Leave request returned for correction and reserved days released',
+            metadata: {
+              leave_request_status: LeaveStatusEnum.RETURNED_FOR_CORRECTION,
+            },
+            idempotencyKey: `leave-request:${leaveRequest.id}:cycle:${cycle}:return-release`,
           },
           manager,
         );
@@ -3285,9 +3466,7 @@ export class LeaveService {
     await this.leaveAuditService.log({
       company_id: companyId,
       leave_request_id: updated.id,
-      action: dto.approve
-        ? 'leave_request.approved_step'
-        : 'leave_request.rejected',
+      action: `leave_request.${dto.action}`,
       entity_name: 'leave_request',
       entity_id: updated.id,
       actor,
@@ -3376,9 +3555,12 @@ export class LeaveService {
         manager,
       );
 
+      const cycle = leaveRequest.approval_cycle;
+
       if (
-        leaveRequest.status === LeaveStatusEnum.SUBMITTED ||
-        leaveRequest.status === LeaveStatusEnum.IN_REVIEW
+        leaveRequest.status === LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER ||
+        leaveRequest.status === LeaveStatusEnum.PENDING_HR ||
+        leaveRequest.status === LeaveStatusEnum.RETURNED_FOR_CORRECTION
       ) {
         await this.leaveBalanceLedgerService.releaseReservedLeave(
           balance,
@@ -3395,7 +3577,7 @@ export class LeaveService {
             metadata: {
               leave_request_status: LeaveStatusEnum.CANCELLED,
             },
-            idempotencyKey: `leave-request:${leaveRequest.id}:cancel-pending`,
+            idempotencyKey: `leave-request:${leaveRequest.id}:cycle:${cycle}:cancel-pending`,
           },
           manager,
         );
@@ -3415,7 +3597,7 @@ export class LeaveService {
             metadata: {
               leave_request_status: LeaveStatusEnum.CANCELLED,
             },
-            idempotencyKey: `leave-request:${leaveRequest.id}:cancel-approved`,
+            idempotencyKey: `leave-request:${leaveRequest.id}:cycle:${cycle}:cancel-approved`,
           },
           manager,
         );

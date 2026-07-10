@@ -8,6 +8,7 @@
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
+import { LeaveApprovalActionEnum } from '../enums/leave-approval-action.enum';
 import { LeaveApprovalStatusEnum } from '../enums/leave-approval-status.enum';
 import { LeaveApprovalWorkflowStep } from './leave-approval-workflow-step.entity';
 import { LeaveRequest } from './leave-request.entity';
@@ -29,6 +30,9 @@ export class LeaveRequestApproval {
   @Column({ type: 'int' })
   approval_level: number;
 
+  @Column({ type: 'int', default: 1 })
+  approval_cycle: number;
+
   @Column({ type: 'int', nullable: true })
   approver_company_user_id: number | null;
 
@@ -38,6 +42,9 @@ export class LeaveRequestApproval {
     default: LeaveApprovalStatusEnum.PENDING,
   })
   status: LeaveApprovalStatusEnum;
+
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  action: LeaveApprovalActionEnum | null;
 
   @Column({ type: 'text', nullable: true })
   comments: string | null;

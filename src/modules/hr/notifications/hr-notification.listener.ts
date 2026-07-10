@@ -6,6 +6,7 @@ import {
   LeaveApprovalRequiredEvent,
   LeaveApprovedEvent,
   LeaveRejectedEvent,
+  LeaveReturnedForCorrectionEvent,
   LeaveSubmittedEvent,
   OnboardingApprovalRequiredEvent,
   OnboardingApprovedEvent,
@@ -58,6 +59,13 @@ export class HrNotificationListener {
   async onLeaveRejected(event: LeaveRejectedEvent): Promise<void> {
     await this.send(() =>
       this.mailService.sendLeaveRejectedNotification(event.employeeEmail, event),
+    );
+  }
+
+  @OnEvent(LeaveReturnedForCorrectionEvent.EVENT)
+  async onLeaveReturnedForCorrection(event: LeaveReturnedForCorrectionEvent): Promise<void> {
+    await this.send(() =>
+      this.mailService.sendLeaveReturnedForCorrectionNotification(event.employeeEmail, event),
     );
   }
 

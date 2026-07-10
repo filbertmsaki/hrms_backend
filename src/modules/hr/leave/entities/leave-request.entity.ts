@@ -69,6 +69,15 @@ export class LeaveRequest {
   @Column({ type: 'text', nullable: true })
   rejection_reason: string | null;
 
+  @Column({ type: 'int', default: 1 })
+  approval_cycle: number;
+
+  @Column({ type: 'timestamp', nullable: true })
+  returned_at: Date | null;
+
+  @Column({ type: 'text', nullable: true })
+  return_reason: string | null;
+
   @Column({ type: 'timestamp', nullable: true })
   applied_at: Date | null;
 

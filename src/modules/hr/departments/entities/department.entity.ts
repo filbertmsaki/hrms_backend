@@ -22,6 +22,7 @@ import { Position } from '../../positions/entities/position.entity';
 @Entity('departments')
 @Index('IDX_department_company', ['company_id'])
 @Index('IDX_department_branch', ['branch_id'])
+@Index('IDX_department_manager_employee', ['manager_employee_id'])
 @Unique('UQ_department_code_company', ['company_id', 'code'])
 export class Department {
   @PrimaryGeneratedColumn()
@@ -35,6 +36,9 @@ export class Department {
 
   @Column({ type: 'int', nullable: true })
   parent_id: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  manager_employee_id: number | null;
 
   @Column({ length: 120 })
   name: string;
@@ -81,6 +85,10 @@ export class Department {
 
   @OneToMany(() => Employee, (employee) => employee.primary_department)
   primary_employees: Employee[];
+
+  @ManyToOne(() => Employee, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'manager_employee_id' })
+  manager: Employee | null;
 
   @OneToMany(() => Designation, (designation) => designation.department)
   designations: Designation[];

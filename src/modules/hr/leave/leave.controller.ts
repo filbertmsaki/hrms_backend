@@ -553,6 +553,21 @@ export class LeaveController {
     );
   }
 
+  @Post('requests/:id/resubmit')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_requests:update')
+  @ApiOperation({ summary: 'Resubmit a leave request returned for correction' })
+  resubmitLeaveRequest(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.leaveService.resubmitLeaveRequest(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
+  }
+
   @Post('requests/:id/approval-action')
   @UseGuards(PermissionsGuard)
   @Permissions('leave_requests:approve')

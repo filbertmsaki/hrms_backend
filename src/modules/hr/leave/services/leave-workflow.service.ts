@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -12,12 +13,16 @@ import {
   LeaveApprovalRequiredEvent,
   LeaveApprovedEvent,
   LeaveRejectedEvent,
+  LeaveReturnedForCorrectionEvent,
 } from '../../../hr/notifications/events';
 import { buildNotificationRecipient } from '../../notifications/notification-recipient.util';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { CompanyUserRole } from '../../../companies/entities/company-user-role.entity';
+import { Department } from '../../departments/entities/department.entity';
+import { Employee } from '../../employees/entities/employee.entity';
 import { EmployeePositionStatusEnum } from '../../employees/enums/employee-position-status.enum';
 import { EmployeePosition } from '../../employees/entities/employee-position.entity';
+import { LeaveApprovalActionEnum } from '../enums/leave-approval-action.enum';
 import { LeaveApprovalStatusEnum } from '../enums/leave-approval-status.enum';
 import { LeaveApproverTypeEnum } from '../enums/leave-approver-type.enum';
 import { LeaveRecordStatusEnum } from '../enums/leave-record-status.enum';
@@ -27,9 +32,12 @@ import { LeaveApprovalWorkflow } from '../entities/leave-approval-workflow.entit
 import { LeaveRequestApproval } from '../entities/leave-request-approval.entity';
 import { LeaveRequest } from '../entities/leave-request.entity';
 
-type WorkflowInitResult = {
-  workflow: LeaveApprovalWorkflow;
-  initialLevel: number;
+const DEPARTMENT_MANAGER_LEVEL = 1;
+const HR_LEVEL = 2;
+
+type DepartmentManagerResolution = {
+  companyUserId: number | null;
+  auditNote: string | null;
 };
 
 @Injectable()
@@ -49,6 +57,10 @@ export class LeaveWorkflowService {
     private readonly companyUserRoleRepository: Repository<CompanyUserRole>,
     @InjectRepository(EmployeePosition)
     private readonly employeePositionRepository: Repository<EmployeePosition>,
+    @InjectRepository(Department)
+    private readonly departmentRepository: Repository<Department>,
+    @InjectRepository(Employee)
+    private readonly employeeRepository: Repository<Employee>,
     private readonly eventEmitter: EventEmitter2,
     private readonly configService: ConfigService,
   ) {}
@@ -106,6 +118,16 @@ export class LeaveWorkflowService {
       manager?.getRepository(EmployeePosition) ??
       this.employeePositionRepository
     );
+  }
+
+  private getDepartmentRepository(
+    manager?: EntityManager,
+  ): Repository<Department> {
+    return manager?.getRepository(Department) ?? this.departmentRepository;
+  }
+
+  private getEmployeeRepository(manager?: EntityManager): Repository<Employee> {
+    return manager?.getRepository(Employee) ?? this.employeeRepository;
   }
 
   async resolveWorkflow(
@@ -233,99 +255,188 @@ export class LeaveWorkflowService {
     return employees.map((item) => Number(item.company_user_id));
   }
 
-  async initializeWorkflowForRequest(
+  /**
+   * Resolves the department-manager approver for the requesting employee's
+   * primary department. If the requester IS the configured manager, escalates
+   * to their own reports_to (single hop); if that is also absent, the step is
+   * skipped with an audit note rather than allowing self-approval.
+   */
+  private async resolveDepartmentManagerApproverId(
     companyId: number,
-    leaveRequest: LeaveRequest,
+    employee: Employee,
     manager?: EntityManager,
-  ): Promise<WorkflowInitResult> {
-    const workflow = await this.resolveWorkflow(
-      companyId,
-      leaveRequest.leave_type_id,
-      manager,
-    );
+  ): Promise<DepartmentManagerResolution> {
+    if (!employee.primary_department_id) {
+      return {
+        companyUserId: null,
+        auditNote:
+          'Employee has no primary department configured; department-manager step skipped, routed to HR',
+      };
+    }
 
+    const department = await this.getDepartmentRepository(manager).findOne({
+      where: { id: employee.primary_department_id, company_id: companyId },
+    });
+
+    if (!department?.manager_employee_id) {
+      return {
+        companyUserId: null,
+        auditNote:
+          'Department has no configured manager; department-manager step skipped, routed to HR',
+      };
+    }
+
+    if (department.manager_employee_id === employee.id) {
+      if (!employee.reports_to) {
+        return {
+          companyUserId: null,
+          auditNote:
+            'Requester is the department manager with no reports_to configured; escalated directly to HR',
+        };
+      }
+
+      const escalatedManager = await this.getEmployeeRepository(
+        manager,
+      ).findOne({
+        where: { id: employee.reports_to },
+        select: ['id', 'company_user_id'],
+      });
+
+      return {
+        companyUserId: escalatedManager?.company_user_id ?? null,
+        auditNote: escalatedManager
+          ? 'Requester is the department manager; escalated to their own reports_to'
+          : 'Requester is the department manager and reports_to could not be resolved; escalated directly to HR',
+      };
+    }
+
+    const managerEmployee = await this.getEmployeeRepository(manager).findOne({
+      where: { id: department.manager_employee_id },
+      select: ['id', 'company_user_id'],
+    });
+
+    return {
+      companyUserId: managerEmployee?.company_user_id ?? null,
+      auditNote: managerEmployee
+        ? null
+        : 'Configured department manager employee record could not be resolved; department-manager step skipped, routed to HR',
+    };
+  }
+
+  private async resolveHrApproverMembershipIds(
+    companyId: number,
+    leaveTypeId: number,
+    manager?: EntityManager,
+  ): Promise<number[]> {
+    const workflow = await this.resolveWorkflow(companyId, leaveTypeId, manager);
     const steps = await this.getWorkflowStepRepository(manager).find({
       where: { workflow_id: workflow.id },
       order: { approval_level: 'ASC', id: 'ASC' },
     });
 
-    if (!steps.length) {
+    if (steps.length !== 2) {
       throw new BadRequestException(
-        'Configured workflow has no approval steps',
+        `Leave approval workflow "${workflow.name}" must have exactly 2 steps (department manager, HR); found ${steps.length}. Fix the workflow configuration.`,
       );
     }
 
+    const hrStep = steps.find((step) => step.approval_level === HR_LEVEL);
+    if (!hrStep) {
+      throw new BadRequestException(
+        `Leave approval workflow "${workflow.name}" is missing the HR step (level ${HR_LEVEL}).`,
+      );
+    }
+
+    return this.resolveApproverMembershipIds(companyId, hrStep, manager);
+  }
+
+  async initializeWorkflowForRequest(
+    companyId: number,
+    leaveRequest: LeaveRequest,
+    employee: Employee,
+    manager?: EntityManager,
+  ): Promise<void> {
     const leaveRequestApprovalRepository =
       this.getLeaveRequestApprovalRepository(manager);
+    const cycle = leaveRequest.approval_cycle;
 
-    let initialLevel = 0;
-    for (const step of steps) {
-      const membershipIds = await this.resolveApproverMembershipIds(
-        companyId,
-        step,
-        manager,
-      );
+    const deptManagerResolution = await this.resolveDepartmentManagerApproverId(
+      companyId,
+      employee,
+      manager,
+    );
 
-      if (!membershipIds.length) {
-        if (step.is_required) {
-          throw new BadRequestException(
-            `Required workflow step at level ${step.approval_level} has no eligible approver`,
-          );
-        }
+    let initialLevel: number;
 
-        await leaveRequestApprovalRepository.save(
-          leaveRequestApprovalRepository.create({
-            leave_request_id: leaveRequest.id,
-            workflow_step_id: step.id,
-            approval_level: step.approval_level,
-            approver_company_user_id: null,
-            status: LeaveApprovalStatusEnum.SKIPPED,
-            comments:
-              'Step skipped automatically due to missing eligible approver',
-            acted_at: new Date(),
-          }),
-        );
-        continue;
-      }
-
-      if (!initialLevel || step.approval_level < initialLevel) {
-        initialLevel = step.approval_level;
-      }
-
+    if (deptManagerResolution.companyUserId) {
       await leaveRequestApprovalRepository.save(
-        membershipIds.map((membershipId) =>
-          leaveRequestApprovalRepository.create({
-            leave_request_id: leaveRequest.id,
-            workflow_step_id: step.id,
-            approval_level: step.approval_level,
-            approver_company_user_id: membershipId,
-            status: LeaveApprovalStatusEnum.PENDING,
-          }),
-        ),
+        leaveRequestApprovalRepository.create({
+          leave_request_id: leaveRequest.id,
+          workflow_step_id: null,
+          approval_level: DEPARTMENT_MANAGER_LEVEL,
+          approval_cycle: cycle,
+          approver_company_user_id: deptManagerResolution.companyUserId,
+          status: LeaveApprovalStatusEnum.PENDING,
+          comments: deptManagerResolution.auditNote,
+        }),
+      );
+      initialLevel = DEPARTMENT_MANAGER_LEVEL;
+    } else {
+      await leaveRequestApprovalRepository.save(
+        leaveRequestApprovalRepository.create({
+          leave_request_id: leaveRequest.id,
+          workflow_step_id: null,
+          approval_level: DEPARTMENT_MANAGER_LEVEL,
+          approval_cycle: cycle,
+          approver_company_user_id: null,
+          status: LeaveApprovalStatusEnum.SKIPPED,
+          comments:
+            deptManagerResolution.auditNote ??
+            'Department-manager step skipped',
+          acted_at: new Date(),
+        }),
+      );
+      initialLevel = HR_LEVEL;
+    }
+
+    const hrMembershipIds = await this.resolveHrApproverMembershipIds(
+      companyId,
+      leaveRequest.leave_type_id,
+      manager,
+    );
+
+    if (!hrMembershipIds.length) {
+      throw new BadRequestException(
+        'No eligible HR approver is configured for this leave workflow',
       );
     }
 
-    if (!initialLevel) {
-      throw new BadRequestException(
-        'Workflow initialization produced no pending approvals',
-      );
-    }
+    await leaveRequestApprovalRepository.save(
+      hrMembershipIds.map((membershipId) =>
+        leaveRequestApprovalRepository.create({
+          leave_request_id: leaveRequest.id,
+          workflow_step_id: null,
+          approval_level: HR_LEVEL,
+          approval_cycle: cycle,
+          approver_company_user_id: membershipId,
+          status: LeaveApprovalStatusEnum.PENDING,
+        }),
+      ),
+    );
 
     leaveRequest.current_approval_level = initialLevel;
-    leaveRequest.status = LeaveStatusEnum.IN_REVIEW;
+    leaveRequest.status =
+      initialLevel === DEPARTMENT_MANAGER_LEVEL
+        ? LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER
+        : LeaveStatusEnum.PENDING_HR;
     await this.getLeaveRequestRepository(manager).save(leaveRequest);
-
-    return {
-      workflow,
-      initialLevel,
-    };
   }
 
   async applyApprovalAction(
     leaveRequestId: number,
     companyUserId: number,
     payload: {
-      approve: boolean;
+      action: LeaveApprovalActionEnum;
       comments?: string;
       signature_url?: string;
     },
@@ -337,6 +448,7 @@ export class LeaveWorkflowService {
 
     const leaveRequest = await leaveRequestRepository.findOne({
       where: { id: leaveRequestId },
+      relations: { employee: true },
     });
 
     if (!leaveRequest) {
@@ -344,19 +456,27 @@ export class LeaveWorkflowService {
     }
 
     if (
-      leaveRequest.status !== LeaveStatusEnum.IN_REVIEW &&
-      leaveRequest.status !== LeaveStatusEnum.SUBMITTED
+      leaveRequest.status !== LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER &&
+      leaveRequest.status !== LeaveStatusEnum.PENDING_HR
     ) {
       throw new BadRequestException(
-        'Only submitted or in-review leave requests can be acted on',
+        'Only requests pending department-manager or HR review can be acted on',
+      );
+    }
+
+    if (leaveRequest.employee.company_user_id === companyUserId) {
+      throw new ForbiddenException(
+        'You cannot approve your own leave request',
       );
     }
 
     const currentLevel = leaveRequest.current_approval_level;
+    const cycle = leaveRequest.approval_cycle;
     const candidateApprovals = await leaveRequestApprovalRepository.find({
       where: {
         leave_request_id: leaveRequest.id,
         approval_level: currentLevel,
+        approval_cycle: cycle,
         status: LeaveApprovalStatusEnum.PENDING,
       },
     });
@@ -375,17 +495,47 @@ export class LeaveWorkflowService {
       );
     }
 
-    actorApproval.status = payload.approve
-      ? LeaveApprovalStatusEnum.APPROVED
-      : LeaveApprovalStatusEnum.REJECTED;
+    const otherPending = candidateApprovals.filter(
+      (item) => item.id !== actorApproval.id,
+    );
+
+    if (payload.action === LeaveApprovalActionEnum.RETURN_FOR_CORRECTION) {
+      actorApproval.status = LeaveApprovalStatusEnum.RETURNED;
+      actorApproval.action = LeaveApprovalActionEnum.RETURN_FOR_CORRECTION;
+      actorApproval.comments = payload.comments?.trim() || null;
+      actorApproval.signature_url = payload.signature_url?.trim() || null;
+      actorApproval.acted_at = new Date();
+      await leaveRequestApprovalRepository.save(actorApproval);
+
+      if (otherPending.length) {
+        otherPending.forEach((item) => {
+          item.status = LeaveApprovalStatusEnum.SKIPPED;
+          item.comments =
+            item.comments ??
+            'Skipped because the request was returned for correction';
+          item.acted_at = new Date();
+        });
+        await leaveRequestApprovalRepository.save(otherPending);
+      }
+
+      leaveRequest.status = LeaveStatusEnum.RETURNED_FOR_CORRECTION;
+      leaveRequest.returned_at = new Date();
+      leaveRequest.return_reason = payload.comments?.trim() || null;
+      const saved = await leaveRequestRepository.save(leaveRequest);
+      await this.emitLeaveOutcome(saved, null, leaveRequestApprovalRepository, manager);
+      return saved;
+    }
+
+    actorApproval.status =
+      payload.action === LeaveApprovalActionEnum.APPROVE
+        ? LeaveApprovalStatusEnum.APPROVED
+        : LeaveApprovalStatusEnum.REJECTED;
+    actorApproval.action = payload.action;
     actorApproval.comments = payload.comments?.trim() || null;
     actorApproval.signature_url = payload.signature_url?.trim() || null;
     actorApproval.acted_at = new Date();
     await leaveRequestApprovalRepository.save(actorApproval);
 
-    const otherPending = candidateApprovals.filter(
-      (item) => item.id !== actorApproval.id,
-    );
     if (otherPending.length) {
       otherPending.forEach((item) => {
         item.status = LeaveApprovalStatusEnum.SKIPPED;
@@ -397,13 +547,14 @@ export class LeaveWorkflowService {
       await leaveRequestApprovalRepository.save(otherPending);
     }
 
-    if (!payload.approve) {
+    if (payload.action === LeaveApprovalActionEnum.REJECT) {
       leaveRequest.status = LeaveStatusEnum.REJECTED;
       leaveRequest.rejection_reason = payload.comments?.trim() || null;
 
       const futurePending = await leaveRequestApprovalRepository.find({
         where: {
           leave_request_id: leaveRequest.id,
+          approval_cycle: cycle,
           status: LeaveApprovalStatusEnum.PENDING,
         },
       });
@@ -422,25 +573,17 @@ export class LeaveWorkflowService {
       return saved;
     }
 
-    const nextPending = await leaveRequestApprovalRepository.find({
-      where: {
-        leave_request_id: leaveRequest.id,
-        status: LeaveApprovalStatusEnum.PENDING,
-      },
-      order: { approval_level: 'ASC' },
-    });
-
-    if (!nextPending.length) {
-      leaveRequest.status = LeaveStatusEnum.APPROVED;
-      leaveRequest.approved_at = new Date();
+    // approve branch
+    if (currentLevel === DEPARTMENT_MANAGER_LEVEL) {
+      leaveRequest.status = LeaveStatusEnum.PENDING_HR;
+      leaveRequest.current_approval_level = HR_LEVEL;
       const saved = await leaveRequestRepository.save(leaveRequest);
       await this.emitLeaveOutcome(saved, null, leaveRequestApprovalRepository, manager);
       return saved;
     }
 
-    leaveRequest.status = LeaveStatusEnum.IN_REVIEW;
-    leaveRequest.current_approval_level = nextPending[0].approval_level;
-    leaveRequest.approved_at = null;
+    leaveRequest.status = LeaveStatusEnum.APPROVED;
+    leaveRequest.approved_at = new Date();
     const saved = await leaveRequestRepository.save(leaveRequest);
     await this.emitLeaveOutcome(saved, null, leaveRequestApprovalRepository, manager);
     return saved;
@@ -499,11 +642,28 @@ export class LeaveWorkflowService {
       return;
     }
 
-    // Still IN_REVIEW — notify next-level pending approvers
+    if (full.status === LeaveStatusEnum.RETURNED_FOR_CORRECTION) {
+      this.eventEmitter.emit(
+        LeaveReturnedForCorrectionEvent.EVENT,
+        new LeaveReturnedForCorrectionEvent(
+          employeeName,
+          employeeEmail,
+          full.leave_type.name,
+          full.start_date,
+          full.end_date,
+          full.return_reason,
+          dashboardUrl,
+        ),
+      );
+      return;
+    }
+
+    // Still pending (moved from dept-manager to HR) — notify next-level approvers
     const nextPendingApprovals = await approvalRepo.find({
       where: {
         leave_request_id: full.id,
         approval_level: full.current_approval_level,
+        approval_cycle: full.approval_cycle,
         status: LeaveApprovalStatusEnum.PENDING,
       },
       relations: { approver: { user: true } },
@@ -543,7 +703,7 @@ export class LeaveWorkflowService {
         },
         workflow_step: true,
       },
-      order: { approval_level: 'ASC', id: 'ASC' },
+      order: { approval_cycle: 'ASC', approval_level: 'ASC', id: 'ASC' },
     });
   }
 

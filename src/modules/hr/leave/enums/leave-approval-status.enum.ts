@@ -3,4 +3,5 @@ export enum LeaveApprovalStatusEnum {
   APPROVED = 'approved',
   REJECTED = 'rejected',
   SKIPPED = 'skipped',
+  RETURNED = 'returned',
 }

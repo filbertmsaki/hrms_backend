@@ -55,6 +55,19 @@ export class LeaveRejectedEvent {
   ) {}
 }
 
+export class LeaveReturnedForCorrectionEvent {
+  static readonly EVENT = 'hr.leave.returned_for_correction';
+  constructor(
+    public readonly employeeName: string,
+    public readonly employeeEmail: string,
+    public readonly leaveTypeName: string,
+    public readonly startDate: string,
+    public readonly endDate: string,
+    public readonly returnReason: string | null,
+    public readonly dashboardUrl: string,
+  ) {}
+}
+
 export class LeaveCancelledEvent {
   static readonly EVENT = 'hr.leave.cancelled';
   constructor(

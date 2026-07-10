@@ -1321,12 +1321,20 @@ export class EmployeeSelfServiceService {
       draft: counts[LeaveStatusEnum.DRAFT] ?? 0,
       submitted: counts[LeaveStatusEnum.SUBMITTED] ?? 0,
       in_review: counts[LeaveStatusEnum.IN_REVIEW] ?? 0,
+      pending_department_manager:
+        counts[LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER] ?? 0,
+      pending_hr: counts[LeaveStatusEnum.PENDING_HR] ?? 0,
+      returned_for_correction:
+        counts[LeaveStatusEnum.RETURNED_FOR_CORRECTION] ?? 0,
       approved: counts[LeaveStatusEnum.APPROVED] ?? 0,
       rejected: counts[LeaveStatusEnum.REJECTED] ?? 0,
       cancelled: counts[LeaveStatusEnum.CANCELLED] ?? 0,
       pending_total:
         (counts[LeaveStatusEnum.SUBMITTED] ?? 0) +
-        (counts[LeaveStatusEnum.IN_REVIEW] ?? 0),
+        (counts[LeaveStatusEnum.IN_REVIEW] ?? 0) +
+        (counts[LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER] ?? 0) +
+        (counts[LeaveStatusEnum.PENDING_HR] ?? 0) +
+        (counts[LeaveStatusEnum.RETURNED_FOR_CORRECTION] ?? 0),
     };
   }
 

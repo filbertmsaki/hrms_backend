@@ -6,6 +6,7 @@ import {
   LeaveApprovalRequiredEvent,
   LeaveApprovedEvent,
   LeaveRejectedEvent,
+  LeaveReturnedForCorrectionEvent,
   LeaveSubmittedEvent,
   OnboardingApprovalRequiredEvent,
   OnboardingApprovedEvent,
@@ -165,6 +166,18 @@ export class MailService {
       to,
       subject: `Your Leave Request Was Not Approved`,
       template: 'hr-leave-rejected',
+      context: { ...this.baseCtx(), ...event },
+    });
+  }
+
+  async sendLeaveReturnedForCorrectionNotification(
+    to: string,
+    event: LeaveReturnedForCorrectionEvent,
+  ): Promise<void> {
+    await this.mailerService.sendMail({
+      to,
+      subject: `Your Leave Request Needs Correction`,
+      template: 'hr-leave-returned-for-correction',
       context: { ...this.baseCtx(), ...event },
     });
   }

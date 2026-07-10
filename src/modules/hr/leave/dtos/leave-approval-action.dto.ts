@@ -1,15 +1,14 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
+import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
+import { LeaveApprovalActionEnum } from '../enums/leave-approval-action.enum';
 
 export class LeaveApprovalActionDto {
-  @ApiPropertyOptional({
-    description: 'True to approve current step, false to reject',
-    default: true,
+  @ApiProperty({
+    enum: LeaveApprovalActionEnum,
+    description: 'Decision for the current approval step',
   })
-  @Type(() => Boolean)
-  @IsBoolean()
-  approve: boolean;
+  @IsEnum(LeaveApprovalActionEnum)
+  action: LeaveApprovalActionEnum;
 
   @IsOptional()
   @IsString()
