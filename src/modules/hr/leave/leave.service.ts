@@ -28,6 +28,7 @@ import { HolidayQueryDto } from './dtos/holiday-query.dto';
 import { LeaveApprovalActionDto } from './dtos/leave-approval-action.dto';
 import { LeaveBalanceAdjustmentQueryDto } from './dtos/leave-balance-adjustment-query.dto';
 import { LeaveBalanceQueryDto } from './dtos/leave-balance-query.dto';
+import { LeaveBalanceTransactionQueryDto } from './dtos/leave-balance-transaction-query.dto';
 import { LeavePolicyQueryDto } from './dtos/leave-policy-query.dto';
 import { LeaveRequestQueryDto } from './dtos/leave-request-query.dto';
 import { LeaveTypeQueryDto } from './dtos/leave-type-query.dto';
@@ -47,6 +48,7 @@ import { LeaveApprovalWorkflowStep } from './entities/leave-approval-workflow-st
 import { LeaveApprovalWorkflow } from './entities/leave-approval-workflow.entity';
 import { LeaveBalanceAdjustment } from './entities/leave-balance-adjustment.entity';
 import { LeaveBalance } from './entities/leave-balance.entity';
+import { LeaveBalanceTransaction } from './entities/leave-balance-transaction.entity';
 import { LeaveDocument } from './entities/leave-document.entity';
 import { LeaveMedicalDetail } from './entities/leave-medical-detail.entity';
 import { LeavePolicyType } from './entities/leave-policy-type.entity';
@@ -55,6 +57,7 @@ import { LeaveRequest } from './entities/leave-request.entity';
 import { LeaveType } from './entities/leave-type.entity';
 import { LeaveAuditService } from './services/leave-audit.service';
 import { LeaveBalanceService } from './services/leave-balance.service';
+import { LeaveBalanceLedgerService } from './services/leave-balance-ledger.service';
 import { LeavePdfService } from './services/leave-pdf.service';
 import { LeaveWorkflowService } from './services/leave-workflow.service';
 import { Employee } from '../employees/entities/employee.entity';
@@ -128,6 +131,7 @@ export class LeaveService {
     private readonly hrAccessService: HrAccessService,
     private readonly leaveAuditService: LeaveAuditService,
     private readonly leaveBalanceService: LeaveBalanceService,
+    private readonly leaveBalanceLedgerService: LeaveBalanceLedgerService,
     private readonly leaveWorkflowService: LeaveWorkflowService,
     private readonly leavePdfService: LeavePdfService,
     private readonly eventEmitter: EventEmitter2,
@@ -715,10 +719,25 @@ export class LeaveService {
       { forceRecalculate: true },
     );
 
-    await this.leaveBalanceService.reserveDays(
+    const effectiveDate = new Date().toISOString().slice(0, 10);
+    const reservation = await this.leaveBalanceLedgerService.reserveLeave(
       balance,
-      totalDays,
-      policyContext.allowNegativeBalance,
+      {
+        companyId,
+        employeeId: employee.id,
+        leaveTypeId: leaveRequest.leave_type_id,
+        leaveYear: fiscalYear,
+        effectiveDate,
+        days: totalDays,
+        allowNegativeBalance: policyContext.allowNegativeBalance,
+        leaveRequestId: leaveRequest.id,
+        createdByCompanyUserId: actor.companyMembershipId ?? null,
+        reason: 'Leave request submitted and days reserved',
+        metadata: {
+          leave_request_status: LeaveStatusEnum.SUBMITTED,
+        },
+        idempotencyKey: `leave-request:${leaveRequest.id}:reserve`,
+      },
       manager,
     );
 
@@ -744,9 +763,23 @@ export class LeaveService {
     leaveRequest.approved_at = new Date();
     leaveRequest.current_approval_level = 0;
     await repository.save(leaveRequest);
-    await this.leaveBalanceService.consumeReservedDays(
-      balance,
-      totalDays,
+    await this.leaveBalanceLedgerService.consumeReservedLeave(
+      reservation.balance,
+      {
+        companyId,
+        employeeId: employee.id,
+        leaveTypeId: leaveRequest.leave_type_id,
+        leaveYear: fiscalYear,
+        effectiveDate: leaveRequest.approved_at.toISOString().slice(0, 10),
+        days: totalDays,
+        leaveRequestId: leaveRequest.id,
+        createdByCompanyUserId: actor.companyMembershipId ?? null,
+        reason: 'Leave request auto-approved and reserved days consumed',
+        metadata: {
+          leave_request_status: LeaveStatusEnum.APPROVED,
+        },
+        idempotencyKey: `leave-request:${leaveRequest.id}:approve`,
+      },
       manager,
     );
     await this.queueAttendanceRecalculationForLeaveWindow(
@@ -849,14 +882,17 @@ export class LeaveService {
 
     return {
       id: entity.id,
+      company_id: entity.company_id,
       employee_id: entity.employee_id,
       leave_type_id: entity.leave_type_id,
       fiscal_year: entity.fiscal_year,
       allocated_days: entity.allocated_days,
       opening_balance_days: entity.opening_balance_days,
       entitlement_days: entity.entitlement_days,
+      accrued_days: entity.accrued_days,
       used_days: entity.used_days,
       pending_days: entity.pending_days,
+      approved_future_days: entity.approved_future_days,
       carried_forward_days: entity.carried_forward_days,
       expired_days: entity.expired_days,
       adjusted_days: entity.adjusted_days,
@@ -864,6 +900,10 @@ export class LeaveService {
       available_days: remainingDays,
       remaining_days: remainingDays,
       generated_at: entity.generated_at,
+      leave_year_start_date: entity.leave_year_start_date,
+      leave_year_end_date: entity.leave_year_end_date,
+      last_transaction_id: entity.last_transaction_id,
+      version: entity.version,
       updated_at: entity.updated_at,
     };
   }
@@ -903,6 +943,65 @@ export class LeaveService {
             first_name: entity.adjusted_by_company_user.user.first_name,
             last_name: entity.adjusted_by_company_user.user.last_name,
             email: entity.adjusted_by_company_user.user.email,
+          }
+        : null,
+    };
+  }
+
+  private mapLeaveBalanceTransaction(entity: LeaveBalanceTransaction) {
+    return {
+      id: entity.id,
+      company_id: entity.company_id,
+      employee_id: entity.employee_id,
+      leave_type_id: entity.leave_type_id,
+      leave_balance_id: entity.leave_balance_id,
+      leave_request_id: entity.leave_request_id,
+      transaction_type: entity.transaction_type,
+      leave_year: entity.leave_year,
+      effective_date: entity.effective_date,
+      previous_balance_days: entity.previous_balance_days,
+      amount_days: entity.amount_days,
+      new_balance_days: entity.new_balance_days,
+      previous_pending_days: entity.previous_pending_days,
+      pending_delta_days: entity.pending_delta_days,
+      new_pending_days: entity.new_pending_days,
+      previous_used_days: entity.previous_used_days,
+      used_delta_days: entity.used_delta_days,
+      new_used_days: entity.new_used_days,
+      reason: entity.reason,
+      idempotency_key: entity.idempotency_key,
+      metadata: entity.metadata,
+      is_reversal: entity.is_reversal,
+      reversed_transaction_id: entity.reversed_transaction_id,
+      created_at: entity.created_at,
+      employee: entity.employee
+        ? {
+            id: entity.employee.id,
+            employee_no: entity.employee.employee_no,
+            first_name: entity.employee.first_name,
+            last_name: entity.employee.last_name,
+          }
+        : null,
+      leave_type: entity.leave_type
+        ? {
+            id: entity.leave_type.id,
+            code: entity.leave_type.code,
+            name: entity.leave_type.name,
+          }
+        : null,
+      leave_request: entity.leave_request
+        ? {
+            id: entity.leave_request.id,
+            leave_no: entity.leave_request.leave_no,
+            status: entity.leave_request.status,
+          }
+        : null,
+      created_by: entity.created_by_company_user?.user
+        ? {
+            id: entity.created_by_company_user.user.id,
+            first_name: entity.created_by_company_user.user.first_name,
+            last_name: entity.created_by_company_user.user.last_name,
+            email: entity.created_by_company_user.user.email,
           }
         : null,
     };
@@ -2344,35 +2443,6 @@ export class LeaveService {
     );
     const normalizedFiscalYear = fiscal_year?.trim() || null;
 
-    if (typeof employee_id === 'number' && normalizedFiscalYear) {
-      const employee = await this.findEmployeeOrFail(companyId, employee_id);
-      await this.leaveBalanceService.ensureBalancesForEmployeeYear(
-        companyId,
-        employee,
-        normalizedFiscalYear,
-        undefined,
-        leave_type_id,
-        true,
-      );
-    } else if (
-      scopedEmployeeIds &&
-      scopedEmployeeIds.length === 1 &&
-      normalizedFiscalYear
-    ) {
-      const employee = await this.findEmployeeOrFail(
-        companyId,
-        scopedEmployeeIds[0],
-      );
-      await this.leaveBalanceService.ensureBalancesForEmployeeYear(
-        companyId,
-        employee,
-        normalizedFiscalYear,
-        undefined,
-        leave_type_id,
-        true,
-      );
-    }
-
     const qb = this.leaveBalanceRepository
       .createQueryBuilder('leaveBalance')
       .innerJoinAndSelect('leaveBalance.employee', 'employee')
@@ -2409,27 +2479,13 @@ export class LeaveService {
       .take(limit)
       .getManyAndCount();
 
-    const refreshedItems = await Promise.all(
-      items.map((item) =>
-        this.leaveBalanceService.recalculateBalance(
-          companyId,
-          item.employee,
-          item.leave_type_id,
-          item.fiscal_year,
-          undefined,
-          item,
-          item.leave_type,
-        ),
-      ),
-    );
-
     if (typeof employee_id === 'number') {
       await this.assertCanAccessEmployeeById(companyId, employee_id, actor);
     }
 
     return {
-      data: refreshedItems.map((item) => this.mapLeaveBalance(item)),
-      meta: buildPaginationMeta(total, refreshedItems.length, limit, page),
+      data: items.map((item) => this.mapLeaveBalance(item)),
+      meta: buildPaginationMeta(total, items.length, limit, page),
     };
   }
 
@@ -2442,18 +2498,36 @@ export class LeaveService {
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
     await this.findLeaveTypeOrFail(companyId, dto.leave_type_id);
 
-    const updated = await this.leaveBalanceService.applyManualAdjustment(
-      companyId,
-      employee,
-      dto.leave_type_id,
-      dto.fiscal_year.trim(),
-      {
-        mode: dto.mode,
-        amount: dto.amount,
-        reason: dto.reason,
-      },
-      actor.companyMembershipId ? { id: actor.companyMembershipId } : null,
-    );
+    const normalizedFiscalYear = dto.fiscal_year.trim();
+    const updated = await this.dataSource.transaction(async (manager) => {
+      const balance = await this.leaveBalanceService.ensureBalanceForEmployee(
+        companyId,
+        employee,
+        dto.leave_type_id,
+        normalizedFiscalYear,
+        manager,
+        { forceRecalculate: true },
+      );
+
+      const result = await this.leaveBalanceLedgerService.applyManualAdjustment(
+        balance,
+        {
+          companyId,
+          employeeId: employee.id,
+          leaveTypeId: dto.leave_type_id,
+          leaveYear: normalizedFiscalYear,
+          effectiveDate: new Date().toISOString().slice(0, 10),
+          mode: dto.mode,
+          amount: dto.amount,
+          reason: dto.reason,
+          createdByCompanyUserId: actor.companyMembershipId ?? null,
+          idempotencyKey: `leave-balance-adjustment:${companyId}:${employee.id}:${dto.leave_type_id}:${normalizedFiscalYear}:${dto.mode}:${Date.now()}`,
+        },
+        manager,
+      );
+
+      return result.balance;
+    });
 
     await this.leaveAuditService.log({
       company_id: companyId,
@@ -2470,6 +2544,50 @@ export class LeaveService {
     });
 
     return this.mapLeaveBalance(updated);
+  }
+
+  async listLeaveBalanceTransactions(
+    companyId: number,
+    query: LeaveBalanceTransactionQueryDto,
+    actor: AuthenticatedUser,
+  ) {
+    const {
+      employee_id,
+      leave_type_id,
+      leave_request_id,
+      fiscal_year,
+      transaction_type,
+      page = 1,
+      limit = 20,
+    } = query;
+    const scopedEmployeeIds = await this.resolveLeaveBalanceEmployeeIds(
+      companyId,
+      employee_id,
+      actor,
+    );
+
+    const [items, total] = await this.leaveBalanceLedgerService.findTransactions(
+      companyId,
+      {
+        employeeIds: scopedEmployeeIds,
+        employeeId: employee_id,
+        leaveTypeId: leave_type_id,
+        leaveRequestId: leave_request_id,
+        fiscalYear: fiscal_year,
+        transactionType: transaction_type,
+        page,
+        limit,
+      },
+    );
+
+    if (typeof employee_id === 'number') {
+      await this.assertCanAccessEmployeeById(companyId, employee_id, actor);
+    }
+
+    return {
+      data: items.map((item) => this.mapLeaveBalanceTransaction(item)),
+      meta: buildPaginationMeta(total, items.length, limit, page),
+    };
   }
 
   async listLeaveBalanceAdjustments(
@@ -3109,15 +3227,45 @@ export class LeaveService {
       );
 
       if (updatedRequest.status === LeaveStatusEnum.APPROVED) {
-        await this.leaveBalanceService.consumeReservedDays(
+        await this.leaveBalanceLedgerService.consumeReservedLeave(
           balance,
-          totalDays,
+          {
+            companyId,
+            employeeId: employee.id,
+            leaveTypeId: leaveRequest.leave_type_id,
+            leaveYear: fiscalYear,
+            effectiveDate:
+              updatedRequest.approved_at?.toISOString().slice(0, 10) ??
+              new Date().toISOString().slice(0, 10),
+            days: totalDays,
+            leaveRequestId: leaveRequest.id,
+            createdByCompanyUserId: membershipId,
+            reason: 'Leave request approved and reserved days consumed',
+            metadata: {
+              leave_request_status: LeaveStatusEnum.APPROVED,
+            },
+            idempotencyKey: `leave-request:${leaveRequest.id}:approve`,
+          },
           manager,
         );
       } else if (updatedRequest.status === LeaveStatusEnum.REJECTED) {
-        await this.leaveBalanceService.releaseReservedDays(
+        await this.leaveBalanceLedgerService.releaseReservedLeave(
           balance,
-          totalDays,
+          {
+            companyId,
+            employeeId: employee.id,
+            leaveTypeId: leaveRequest.leave_type_id,
+            leaveYear: fiscalYear,
+            effectiveDate: new Date().toISOString().slice(0, 10),
+            days: totalDays,
+            leaveRequestId: leaveRequest.id,
+            createdByCompanyUserId: membershipId,
+            reason: 'Leave request rejected and reserved days released',
+            metadata: {
+              leave_request_status: LeaveStatusEnum.REJECTED,
+            },
+            idempotencyKey: `leave-request:${leaveRequest.id}:reject-release`,
+          },
           manager,
         );
       }
@@ -3232,17 +3380,45 @@ export class LeaveService {
         leaveRequest.status === LeaveStatusEnum.SUBMITTED ||
         leaveRequest.status === LeaveStatusEnum.IN_REVIEW
       ) {
-        await this.leaveBalanceService.releaseReservedDays(
+        await this.leaveBalanceLedgerService.releaseReservedLeave(
           balance,
-          totalDays,
+          {
+            companyId,
+            employeeId: employee.id,
+            leaveTypeId: leaveRequest.leave_type_id,
+            leaveYear: fiscalYear,
+            effectiveDate: new Date().toISOString().slice(0, 10),
+            days: totalDays,
+            leaveRequestId: leaveRequest.id,
+            createdByCompanyUserId: actor.companyMembershipId ?? null,
+            reason: 'Cancelled leave request released reserved days',
+            metadata: {
+              leave_request_status: LeaveStatusEnum.CANCELLED,
+            },
+            idempotencyKey: `leave-request:${leaveRequest.id}:cancel-pending`,
+          },
           manager,
         );
       } else if (leaveRequest.status === LeaveStatusEnum.APPROVED) {
-        const used = this.leaveBalanceService.toNumber(balance.used_days);
-        balance.used_days = this.leaveBalanceService.toDecimal(
-          Math.max(0, used - totalDays),
+        await this.leaveBalanceLedgerService.reverseApprovedLeave(
+          balance,
+          {
+            companyId,
+            employeeId: employee.id,
+            leaveTypeId: leaveRequest.leave_type_id,
+            leaveYear: fiscalYear,
+            effectiveDate: new Date().toISOString().slice(0, 10),
+            days: totalDays,
+            leaveRequestId: leaveRequest.id,
+            createdByCompanyUserId: actor.companyMembershipId ?? null,
+            reason: 'Cancelled approved leave reversed used days',
+            metadata: {
+              leave_request_status: LeaveStatusEnum.CANCELLED,
+            },
+            idempotencyKey: `leave-request:${leaveRequest.id}:cancel-approved`,
+          },
+          manager,
         );
-        await manager.getRepository(LeaveBalance).save(balance);
       }
 
       await this.leaveWorkflowService.closeAllPendingApprovals(

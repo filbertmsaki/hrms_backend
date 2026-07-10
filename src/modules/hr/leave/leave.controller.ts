@@ -34,6 +34,7 @@ import { HolidayQueryDto } from './dtos/holiday-query.dto';
 import { LeaveApprovalActionDto } from './dtos/leave-approval-action.dto';
 import { LeaveBalanceAdjustmentQueryDto } from './dtos/leave-balance-adjustment-query.dto';
 import { LeaveBalanceQueryDto } from './dtos/leave-balance-query.dto';
+import { LeaveBalanceTransactionQueryDto } from './dtos/leave-balance-transaction-query.dto';
 import { LeavePolicyQueryDto } from './dtos/leave-policy-query.dto';
 import { LeaveRequestQueryDto } from './dtos/leave-request-query.dto';
 import { LeaveTypeQueryDto } from './dtos/leave-type-query.dto';
@@ -413,6 +414,21 @@ export class LeaveController {
     @Query() query: LeaveBalanceAdjustmentQueryDto,
   ) {
     return this.leaveService.listLeaveBalanceAdjustments(
+      req.user.companyId!,
+      query,
+      req.user,
+    );
+  }
+
+  @Get('balances/transactions')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave-balances.view')
+  @ApiOperation({ summary: 'List immutable leave balance transactions' })
+  listLeaveBalanceTransactions(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: LeaveBalanceTransactionQueryDto,
+  ) {
+    return this.leaveService.listLeaveBalanceTransactions(
       req.user.companyId!,
       query,
       req.user,

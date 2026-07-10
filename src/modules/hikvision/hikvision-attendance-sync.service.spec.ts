@@ -126,7 +126,7 @@ describe('HikvisionAttendanceSyncService', () => {
         maxResults: 100,
         employeeNo: null,
       },
-    } as HikvisionAttendanceSyncJob;
+    } as unknown as HikvisionAttendanceSyncJob;
 
     const queueData: HikvisionSyncJobData = {
       companyId: 1,

@@ -27,6 +27,9 @@ export class LeaveBalance {
   @PrimaryGeneratedColumn()
   id: number;
 
+  @Column({ type: 'int', nullable: true })
+  company_id: number | null;
+
   @Column()
   employee_id: number;
 
@@ -46,10 +49,16 @@ export class LeaveBalance {
   entitlement_days: string;
 
   @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
+  accrued_days: string;
+
+  @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
   used_days: string;
 
   @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
   pending_days: string;
+
+  @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
+  approved_future_days: string;
 
   @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
   carried_forward_days: string;
@@ -65,6 +74,18 @@ export class LeaveBalance {
 
   @Column({ type: 'timestamp', nullable: true })
   generated_at: Date | null;
+
+  @Column({ type: 'date', nullable: true })
+  leave_year_start_date: string | null;
+
+  @Column({ type: 'date', nullable: true })
+  leave_year_end_date: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  last_transaction_id: number | null;
+
+  @Column({ default: 1 })
+  version: number;
 
   @CreateDateColumn()
   created_at: Date;

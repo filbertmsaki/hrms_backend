@@ -1649,6 +1649,11 @@ export class EmployeesService {
 
     for (const field of directFields) {
       if (field in dto) {
+        if (field === 'gender') {
+          payload.gender = this.normalizeGender(dto[field]);
+          continue;
+        }
+
         (payload as Record<string, unknown>)[field] = dto[field];
       }
     }
@@ -1674,6 +1679,21 @@ export class EmployeesService {
     }
 
     return payload;
+  }
+
+  private normalizeGender(value: unknown): 'male' | 'female' {
+    if (typeof value !== 'string') {
+      throw new BadRequestException('gender is required');
+    }
+
+    const normalized = value.trim().toLowerCase();
+    if (normalized !== 'male' && normalized !== 'female') {
+      throw new BadRequestException(
+        'gender must be either "male" or "female"',
+      );
+    }
+
+    return normalized;
   }
 
   private async saveDepartmentAssignments(
@@ -2238,6 +2258,7 @@ export class EmployeesService {
     );
 
     Object.assign(employee, payload);
+    employee.gender = this.normalizeGender(employee.gender);
 
     if (
       !employee.primary_branch_id &&

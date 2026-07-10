@@ -67,8 +67,8 @@ export class Employee {
   @Column({ type: 'varchar', length: 100, nullable: true })
   preferred_name: string | null;
 
-  @Column({ type: 'varchar', length: 20, nullable: true })
-  gender: string | null;
+  @Column({ type: 'varchar', length: 20 })
+  gender: string;
 
   @Column({ type: 'date', nullable: true })
   date_of_birth: string | null;

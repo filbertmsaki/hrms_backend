@@ -30,6 +30,7 @@ export interface CompanyEmployeeSeed {
   hikvisionEmployeeNo: string;
   firstName: string;
   lastName: string;
+  gender: 'male' | 'female';
   email: string;
   phone: string;
   positionCode: string;
@@ -785,6 +786,7 @@ export const ALLIANCE_EMPLOYEES: CompanyEmployeeSeed[] =
       hikvisionEmployeeNo: seed.hikvisionEmployeeNo,
       firstName,
       lastName,
+      gender: inferAllianceEmployeeGender(firstName),
       email: seed.email ?? buildAllianceEmployeeEmail(firstName, lastName),
       phone: buildAllianceEmployeePhone(seed.hikvisionEmployeeNo),
       positionCode: assignment.positionCode,
@@ -1149,6 +1151,70 @@ function splitAllianceEmployeeName(fullName: string): {
     firstName: parts[0],
     lastName: parts.slice(1).join(' '),
   };
+}
+
+function inferAllianceEmployeeGender(firstName: string): 'male' | 'female' {
+  const normalized = firstName.trim().toLowerCase();
+  const femaleFirstNames = new Set([
+    'agatha',
+    'amina',
+    'asma',
+    'atuganile',
+    'avril',
+    'barbara',
+    'brenda',
+    'catherine',
+    'dayness',
+    'deborah',
+    'deepa',
+    'destera',
+    'dora',
+    'elisa',
+    'elizabeth',
+    'emmaculate',
+    'ester',
+    'eugenia',
+    'fatuma',
+    'glory',
+    'hawa',
+    'jackline',
+    'janhvi',
+    'janki',
+    'joy',
+    'judith',
+    'kausar',
+    'lidya',
+    'maria',
+    'martha',
+    'marycatherine',
+    'melina',
+    'mwaija',
+    'mwanaidi',
+    'neema',
+    'norah',
+    'poonam',
+    'preenal',
+    'prisha',
+    'rahma',
+    'ridhika',
+    'samira',
+    'scholastica',
+    'shamira',
+    'sifa',
+    'sophia',
+    'tatheer',
+    'thereza',
+    'urusla',
+    'veera',
+    'vicky',
+    'wardat',
+    'witness',
+    'yusra',
+    'zabibu',
+    'zahara',
+  ]);
+
+  return femaleFirstNames.has(normalized) ? 'female' : 'male';
 }
 
 function buildAllianceEmployeeEmail(

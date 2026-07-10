@@ -434,15 +434,21 @@ export class LeaveBalanceService {
       );
 
     balance.allocated_days = this.toDecimal(entitlementDays);
+    balance.company_id = companyId;
     balance.opening_balance_days = this.toDecimal(carriedForwardDays);
     balance.entitlement_days = this.toDecimal(entitlementDays);
+    balance.accrued_days = this.toDecimal(entitlementDays);
     balance.used_days = this.toDecimal(usage.usedDays);
     balance.pending_days = this.toDecimal(usage.pendingDays);
+    balance.approved_future_days = balance.approved_future_days ?? this.toDecimal(0);
     balance.carried_forward_days = this.toDecimal(carriedForwardDays);
     balance.expired_days = balance.expired_days ?? this.toDecimal(0);
     balance.adjusted_days = balance.adjusted_days ?? this.toDecimal(0);
     balance.attendance_deduction_days = this.toDecimal(attendanceDeductionDays);
     balance.generated_at = balance.generated_at ?? new Date();
+    balance.leave_year_start_date = `${normalizedFiscalYear}-01-01`;
+    balance.leave_year_end_date = `${normalizedFiscalYear}-12-31`;
+    balance.version = balance.version ?? 1;
 
     return balanceRepository.save(balance);
   }
@@ -592,6 +598,7 @@ export class LeaveBalanceService {
       this.toNumber(balance.adjusted_days) -
       this.toNumber(balance.used_days) -
       this.toNumber(balance.pending_days) -
+      this.toNumber(balance.approved_future_days) -
       this.toNumber(balance.expired_days) -
       this.toNumber(balance.attendance_deduction_days)
     );

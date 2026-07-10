@@ -16,7 +16,6 @@ import { OnboardingAuditLog } from './entities/onboarding-audit-log.entity';
 import { Document } from '../documents/entities/document.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { Department } from '../departments/entities/department.entity';
-import { Position } from '../positions/entities/position.entity';
 import { Branch } from '../branches/entities/branch.entity';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { CompanyUserRole } from '../../companies/entities/company-user-role.entity';
@@ -78,7 +77,6 @@ describe('OnboardingService', () => {
     const documentRepository = createRepositoryMock<Document>();
     employeeRepository = createRepositoryMock<Employee>();
     const departmentRepository = createRepositoryMock<Department>();
-    const positionRepository = createRepositoryMock<Position>();
     const branchRepository = createRepositoryMock<Branch>();
     const companyUserRepository = createRepositoryMock<CompanyUser>();
     const companyUserRoleRepository = createRepositoryMock<CompanyUserRole>();
@@ -130,7 +128,6 @@ describe('OnboardingService', () => {
       documentRepository as unknown as Repository<Document>,
       employeeRepository as unknown as Repository<Employee>,
       departmentRepository as unknown as Repository<Department>,
-      positionRepository as unknown as Repository<Position>,
       branchRepository as unknown as Repository<Branch>,
       companyUserRepository as unknown as Repository<CompanyUser>,
       companyUserRoleRepository as unknown as Repository<CompanyUserRole>,

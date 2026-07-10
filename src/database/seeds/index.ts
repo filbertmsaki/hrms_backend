@@ -55,6 +55,7 @@ import EmployeeDeviceAssignmentsSeeder from './024-employee-device-assignments.s
 import EmployeeTimetablesSeeder from './025-employee-timetables.seed';
 import EmployeeAccessCredentialsSeeder from './026-employee-access-credentials.seed';
 import HolidaysSeeder from './035-holidays.seed';
+import LeaveBalancesSeeder from './036-leave-balances.seed';
 
 const seeders = [
   PermissionsSeeder,
@@ -92,6 +93,7 @@ const seeders = [
   EmployeeTimetablesSeeder,
   EmployeeAccessCredentialsSeeder,
   HolidaysSeeder,
+  LeaveBalancesSeeder,
 ];
 
 export async function runAllSeeders(dataSource: DataSource): Promise<void> {

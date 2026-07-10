@@ -21,6 +21,7 @@ import { LeaveApprovalWorkflow } from './entities/leave-approval-workflow.entity
 import { LeaveAuditLog } from './entities/leave-audit-log.entity';
 import { LeaveBalanceAdjustment } from './entities/leave-balance-adjustment.entity';
 import { LeaveBalance } from './entities/leave-balance.entity';
+import { LeaveBalanceTransaction } from './entities/leave-balance-transaction.entity';
 import { LeaveDocument } from './entities/leave-document.entity';
 import { LeaveMedicalDetail } from './entities/leave-medical-detail.entity';
 import { LeavePolicyType } from './entities/leave-policy-type.entity';
@@ -30,6 +31,7 @@ import { LeaveRequest } from './entities/leave-request.entity';
 import { LeaveType } from './entities/leave-type.entity';
 import { LeaveAuditService } from './services/leave-audit.service';
 import { LeaveBalanceCronService } from './services/leave-balance-cron.service';
+import { LeaveBalanceLedgerService } from './services/leave-balance-ledger.service';
 import { LeaveBalanceService } from './services/leave-balance.service';
 import { LeavePdfService } from './services/leave-pdf.service';
 import { LeaveWorkflowService } from './services/leave-workflow.service';
@@ -43,6 +45,7 @@ import { LeaveWorkflowService } from './services/leave-workflow.service';
       LeavePolicyType,
       LeaveBalance,
       LeaveBalanceAdjustment,
+      LeaveBalanceTransaction,
       LeaveRequest,
       LeaveApprovalWorkflow,
       LeaveApprovalWorkflowStep,
@@ -70,10 +73,16 @@ import { LeaveWorkflowService } from './services/leave-workflow.service';
     LeaveService,
     LeaveAuditService,
     LeaveBalanceCronService,
+    LeaveBalanceLedgerService,
     LeaveBalanceService,
     LeaveWorkflowService,
     LeavePdfService,
   ],
-  exports: [LeaveService, LeaveBalanceService, TypeOrmModule],
+  exports: [
+    LeaveService,
+    LeaveBalanceLedgerService,
+    LeaveBalanceService,
+    TypeOrmModule,
+  ],
 })
 export class LeaveModule {}

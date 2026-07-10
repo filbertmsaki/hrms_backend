@@ -1,9 +1,10 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
   IsDateString,
   IsEnum,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsObject,
@@ -46,9 +47,14 @@ export class CreateEmployeeDto {
   @IsOptional()
   preferred_name?: string;
 
+  @ApiProperty({ enum: ['male', 'female'] })
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
   @IsString()
-  @IsOptional()
-  gender?: string;
+  @IsNotEmpty()
+  @IsIn(['male', 'female'])
+  gender: string;
 
   @IsDateString()
   @IsOptional()

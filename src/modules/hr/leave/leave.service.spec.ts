@@ -18,6 +18,7 @@ import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { Role } from '../../roles/entities/role.entity';
 import { HrAccessService } from '../shared/hr-access.service';
 import { LeaveAuditService } from './services/leave-audit.service';
+import { LeaveBalanceLedgerService } from './services/leave-balance-ledger.service';
 import { LeaveBalanceService } from './services/leave-balance.service';
 import { LeaveWorkflowService } from './services/leave-workflow.service';
 import { LeavePdfService } from './services/leave-pdf.service';
@@ -97,6 +98,14 @@ describe('LeaveService', () => {
     releaseReservedDays: jest.Mock;
     calculateAvailableDays: jest.Mock;
   };
+  let leaveBalanceLedgerService: {
+    reserveLeave: jest.Mock;
+    consumeReservedLeave: jest.Mock;
+    releaseReservedLeave: jest.Mock;
+    reverseApprovedLeave: jest.Mock;
+    applyManualAdjustment: jest.Mock;
+    findTransactions: jest.Mock;
+  };
   let leaveWorkflowService: {
     initializeWorkflowForRequest: jest.Mock;
     applyApprovalAction: jest.Mock;
@@ -151,6 +160,30 @@ describe('LeaveService', () => {
       releaseReservedDays: jest.fn(),
       calculateAvailableDays: jest.fn(() => 10),
     };
+    leaveBalanceLedgerService = {
+      reserveLeave: jest.fn(async (balance) => ({
+        balance,
+        created: true,
+        transaction: { id: 1 },
+      })),
+      consumeReservedLeave: jest.fn(async (balance) => ({
+        balance,
+        created: true,
+        transaction: { id: 2 },
+      })),
+      releaseReservedLeave: jest.fn(async (balance) => ({
+        balance,
+        created: true,
+        transaction: { id: 3 },
+      })),
+      reverseApprovedLeave: jest.fn(async (balance) => ({
+        balance,
+        created: true,
+        transaction: { id: 4 },
+      })),
+      applyManualAdjustment: jest.fn(),
+      findTransactions: jest.fn(),
+    };
     leaveWorkflowService = {
       initializeWorkflowForRequest: jest.fn(),
       applyApprovalAction: jest.fn(),
@@ -189,6 +222,7 @@ describe('LeaveService', () => {
       hrAccessService as unknown as HrAccessService,
       leaveAuditService as unknown as LeaveAuditService,
       leaveBalanceService as unknown as LeaveBalanceService,
+      leaveBalanceLedgerService as unknown as LeaveBalanceLedgerService,
       leaveWorkflowService as unknown as LeaveWorkflowService,
       {} as LeavePdfService,
       { emit: jest.fn() } as unknown as EventEmitter2,

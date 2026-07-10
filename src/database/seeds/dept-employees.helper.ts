@@ -18,6 +18,7 @@ export type DeptEmployeeSeed = {
   hikvisionEmployeeNo?: string;
   firstName: string;
   lastName: string;
+  gender: 'male' | 'female';
   email: string;
   phone: string;
   branchCode: string;
@@ -141,6 +142,7 @@ export async function seedDeptEmployees(
         employee_no: seed.employeeNo,
         first_name: seed.firstName,
         last_name: seed.lastName,
+        gender: seed.gender,
         primary_branch_id: branch?.id ?? null,
         primary_department_id: dept?.id ?? null,
         primary_position_id: position?.id ?? null,
@@ -158,6 +160,7 @@ export async function seedDeptEmployees(
     } else {
       employee.first_name = seed.firstName;
       employee.last_name = seed.lastName;
+      employee.gender = seed.gender;
       employee.employee_no = seed.employeeNo;
       employee.primary_branch_id = branch?.id ?? null;
       employee.primary_department_id = dept?.id ?? null;
