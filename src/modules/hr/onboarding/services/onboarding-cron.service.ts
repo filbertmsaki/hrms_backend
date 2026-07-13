@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThan, In, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ConfigService } from '@nestjs/config';
 import { OnboardingTask } from '../entities/onboarding-task.entity';
@@ -127,7 +127,9 @@ export class OnboardingCronService {
           approval.id,
           approval.approval_level,
           employeeName,
-          approval.approver_company_user_id ? [approval.approver_company_user_id] : [],
+          approval.approver_company_user_id
+            ? [approval.approver_company_user_id]
+            : [],
         ),
       );
     }

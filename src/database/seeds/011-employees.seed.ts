@@ -57,22 +57,29 @@ export default class EmployeesSeeder implements Seeder {
       }
 
       // Build lookup maps
-      const branches = await branchRepo.find({ where: { company_id: company.id } });
+      const branches = await branchRepo.find({
+        where: { company_id: company.id },
+      });
       const branchMap = new Map(branches.map((b) => [b.code!, b]));
 
       const depts = await deptRepo.find({ where: { company_id: company.id } });
       const deptMap = new Map(depts.map((d) => [d.code!, d]));
 
-      const positions = await positionRepo.find({ where: { company_id: company.id } });
+      const positions = await positionRepo.find({
+        where: { company_id: company.id },
+      });
       const positionMap = new Map(positions.map((p) => [p.code!, p]));
 
-      const designations = await designationRepo.find({ where: { company_id: company.id } });
-      const designationMap = new Map(designations.map((d) => [d.code!, d]));
+      const designations = await designationRepo.find({
+        where: { company_id: company.id },
+      });
 
       const roles = await roleRepo.find({ where: { company_id: company.id } });
       const roleMap = new Map(roles.map((r) => [r.name, r]));
 
-      const defaultPassword = await hashPassword(ALLIANCE_EMPLOYEE_DEFAULT_PASSWORD);
+      const defaultPassword = await hashPassword(
+        ALLIANCE_EMPLOYEE_DEFAULT_PASSWORD,
+      );
 
       // Map hikvision employee no → employee for reports_to linkage (second pass)
       const employeeByNo = new Map<string, Employee>();
@@ -167,7 +174,11 @@ export default class EmployeesSeeder implements Seeder {
             employment_type: EmploymentTypeEnum.FULL_TIME,
             hire_date: DEFAULT_HIRE_DATE,
             nationality: 'Tanzanian',
-            metadata: { seeded: true, source: '011-employees', hikvisionNo: seed.hikvisionEmployeeNo },
+            metadata: {
+              seeded: true,
+              source: '011-employees',
+              hikvisionNo: seed.hikvisionEmployeeNo,
+            },
           });
         } else {
           employee.first_name = seed.firstName;

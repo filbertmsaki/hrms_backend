@@ -107,6 +107,14 @@ export class HikvisionParserHelper {
     if (value === null || value === undefined) {
       return '';
     }
-    return String(value).trim();
+    if (
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean' ||
+      typeof value === 'bigint'
+    ) {
+      return String(value).trim();
+    }
+    return JSON.stringify(value).trim();
   }
 }

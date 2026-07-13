@@ -83,21 +83,25 @@ export class ShiftAssignmentsService {
     await this.ensureShift(companyId, dto.shift_id);
     await this.ensureRotationGroup(companyId, dto.rotation_group_id);
     ensureDateRangeOrder(dto.effective_from, dto.effective_to ?? null);
-    await this.attendanceAssignmentDomainService.ensureNoOverlappingShiftAssignment({
-      companyId,
-      employeeId: dto.employee_id,
-      effectiveFrom: dto.effective_from,
-      effectiveTo: dto.effective_to ?? null,
-      status: dto.status ?? ShiftAssignmentStatusEnum.ACTIVE,
-    });
-    await this.attendanceAssignmentDomainService.ensureNoConflictingAssignmentType({
-      companyId,
-      employeeId: dto.employee_id,
-      effectiveFrom: dto.effective_from,
-      effectiveTo: dto.effective_to ?? null,
-      status: dto.status ?? ShiftAssignmentStatusEnum.ACTIVE,
-      assignmentType: 'SHIFT',
-    });
+    await this.attendanceAssignmentDomainService.ensureNoOverlappingShiftAssignment(
+      {
+        companyId,
+        employeeId: dto.employee_id,
+        effectiveFrom: dto.effective_from,
+        effectiveTo: dto.effective_to ?? null,
+        status: dto.status ?? ShiftAssignmentStatusEnum.ACTIVE,
+      },
+    );
+    await this.attendanceAssignmentDomainService.ensureNoConflictingAssignmentType(
+      {
+        companyId,
+        employeeId: dto.employee_id,
+        effectiveFrom: dto.effective_from,
+        effectiveTo: dto.effective_to ?? null,
+        status: dto.status ?? ShiftAssignmentStatusEnum.ACTIVE,
+        assignmentType: 'SHIFT',
+      },
+    );
 
     const duplicate = await this.shiftAssignmentRepository.findOne({
       where: {
@@ -189,22 +193,26 @@ export class ShiftAssignmentsService {
     const status = dto.status ?? item.status;
 
     ensureDateRangeOrder(effectiveFrom, effectiveTo);
-    await this.attendanceAssignmentDomainService.ensureNoOverlappingShiftAssignment({
-      companyId,
-      employeeId,
-      effectiveFrom,
-      effectiveTo,
-      status,
-      ignoreId: item.id,
-    });
-    await this.attendanceAssignmentDomainService.ensureNoConflictingAssignmentType({
-      companyId,
-      employeeId,
-      effectiveFrom,
-      effectiveTo,
-      status,
-      assignmentType: 'SHIFT',
-    });
+    await this.attendanceAssignmentDomainService.ensureNoOverlappingShiftAssignment(
+      {
+        companyId,
+        employeeId,
+        effectiveFrom,
+        effectiveTo,
+        status,
+        ignoreId: item.id,
+      },
+    );
+    await this.attendanceAssignmentDomainService.ensureNoConflictingAssignmentType(
+      {
+        companyId,
+        employeeId,
+        effectiveFrom,
+        effectiveTo,
+        status,
+        assignmentType: 'SHIFT',
+      },
+    );
 
     item.employeeId = employeeId;
     item.shiftId = shiftId;

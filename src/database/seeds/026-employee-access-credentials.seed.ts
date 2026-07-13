@@ -145,7 +145,10 @@ export default class EmployeeAccessCredentialsSeeder implements Seeder {
         if (!existingPin) {
           const defaultPin = user?.phone
             ? user.phone.replace(/\D/g, '').slice(-6).padStart(6, '0')
-            : employee.employee_no.replace(/\D/g, '').slice(-6).padStart(6, '0');
+            : employee.employee_no
+                .replace(/\D/g, '')
+                .slice(-6)
+                .padStart(6, '0');
 
           await credRepo.save(
             credRepo.create({
@@ -177,7 +180,7 @@ export default class EmployeeAccessCredentialsSeeder implements Seeder {
       await qr.commitTransaction();
       console.log(
         `[Seeder][EmployeeAccessCredentials] Seeded ${fingerprintCount} fingerprint + ${pinCount} PIN credentials ` +
-        `(${skippedCount} fingerprint records already existed, skipped).`,
+          `(${skippedCount} fingerprint records already existed, skipped).`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

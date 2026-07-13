@@ -4,7 +4,6 @@ import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
 import { buildPaginationMeta } from '../../../shared/hr.utils';
 import { Shift } from '../../shift/shifts/entities/shift.entity';
-import { Timetable } from '../timetables/entities/timetable.entity';
 import { TimetableRotation } from '../timetable-rotations/entities/timetable-rotation.entity';
 import { TimetableRotationRule } from './entities/timetable-rotation-rule.entity';
 import { CreateTimetableRotationRuleDto } from './dtos/create-timetable-rotation-rule.dto';

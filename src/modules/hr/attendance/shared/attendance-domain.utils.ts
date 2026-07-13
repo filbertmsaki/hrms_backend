@@ -114,7 +114,9 @@ export async function ensureCompanyOwnedEntity<T extends ObjectLiteral>(
   }
 }
 
-export async function ensureUniqueEntity<T extends ObjectLiteral & { id?: number }>(
+export async function ensureUniqueEntity<
+  T extends ObjectLiteral & { id?: number },
+>(
   repository: Repository<T>,
   where: Partial<T>,
   message: string,

@@ -11,17 +11,19 @@ import { LeaveRecordStatusEnum } from '../enums/leave-record-status.enum';
 import { LeaveBalanceAdjustmentModeEnum } from '../enums/leave-balance-adjustment-mode.enum';
 import { LeaveAuditService } from './leave-audit.service';
 
-type MockRepo<T = unknown> = Record<string, jest.Mock>;
+type MockRepo = Record<string, jest.Mock>;
 
-const createRepositoryMock = <T>(): MockRepo<T> => ({
+const createRepositoryMock = (): MockRepo => ({
   findOne: jest.fn(),
   find: jest.fn(),
-  save: jest.fn(async (value) => ({ id: 1, ...value })),
-  create: jest.fn((value) => value),
+  save: jest.fn((value: Record<string, unknown>) => ({ id: 1, ...value })),
+  create: jest.fn((value: Record<string, unknown>) => value),
   createQueryBuilder: jest.fn(),
 });
 
-const createAttendanceSummaryBuilder = (rows: Array<Record<string, string>>) => ({
+const createAttendanceSummaryBuilder = (
+  rows: Array<Record<string, string>>,
+) => ({
   select: jest.fn().mockReturnThis(),
   addSelect: jest.fn().mockReturnThis(),
   where: jest.fn().mockReturnThis(),
@@ -32,13 +34,13 @@ const createAttendanceSummaryBuilder = (rows: Array<Record<string, string>>) => 
 
 describe('LeaveBalanceService', () => {
   let service: LeaveBalanceService;
-  let balanceRepository: MockRepo<LeaveBalance>;
-  let leaveTypeRepository: MockRepo<LeaveType>;
-  let leavePolicyRepository: MockRepo<LeavePolicy>;
-  let leaveRequestRepository: MockRepo<LeaveRequest>;
-  let employeeRepository: MockRepo<Employee>;
-  let attendanceDailySummaryRepository: MockRepo<AttendanceDailySummary>;
-  let adjustmentRepository: MockRepo<LeaveBalanceAdjustment>;
+  let balanceRepository: MockRepo;
+  let leaveTypeRepository: MockRepo;
+  let leavePolicyRepository: MockRepo;
+  let leaveRequestRepository: MockRepo;
+  let employeeRepository: MockRepo;
+  let attendanceDailySummaryRepository: MockRepo;
+  let adjustmentRepository: MockRepo;
   let leaveAuditService: { log: jest.Mock };
 
   beforeEach(() => {
@@ -64,7 +66,7 @@ describe('LeaveBalanceService', () => {
   });
 
   it('carries forward the full unused annual leave balance into the next year', async () => {
-    leaveTypeRepository.findOne!.mockResolvedValue({
+    leaveTypeRepository.findOne.mockResolvedValue({
       id: 7,
       company_id: 10,
       code: 'ANNUAL',
@@ -72,7 +74,7 @@ describe('LeaveBalanceService', () => {
       is_carry_forward_allowed: true,
       max_carry_forward_days: '0.00',
     });
-    leavePolicyRepository.find!.mockResolvedValue([
+    leavePolicyRepository.find.mockResolvedValue([
       {
         company_id: 10,
         status: LeaveRecordStatusEnum.ACTIVE,
@@ -86,30 +88,32 @@ describe('LeaveBalanceService', () => {
         ],
       },
     ]);
-    balanceRepository.findOne!.mockImplementation(async ({ where }) => {
-      if (where?.fiscal_year === '2026') {
-        return {
-          id: 2,
-          employee_id: 501,
-          leave_type_id: 7,
-          fiscal_year: '2026',
-          allocated_days: '28.00',
-          opening_balance_days: '0.00',
-          entitlement_days: '28.00',
-          used_days: '10.00',
-          pending_days: '0.00',
-          carried_forward_days: '0.00',
-          expired_days: '0.00',
-          adjusted_days: '0.00',
-          attendance_deduction_days: '0.00',
-          generated_at: new Date('2026-01-01T00:00:00Z'),
-        };
-      }
+    balanceRepository.findOne.mockImplementation(
+      ({ where }: { where?: { fiscal_year?: string } }) => {
+        if (where?.fiscal_year === '2026') {
+          return {
+            id: 2,
+            employee_id: 501,
+            leave_type_id: 7,
+            fiscal_year: '2026',
+            allocated_days: '28.00',
+            opening_balance_days: '0.00',
+            entitlement_days: '28.00',
+            used_days: '10.00',
+            pending_days: '0.00',
+            carried_forward_days: '0.00',
+            expired_days: '0.00',
+            adjusted_days: '0.00',
+            attendance_deduction_days: '0.00',
+            generated_at: new Date('2026-01-01T00:00:00Z'),
+          };
+        }
 
-      return null;
-    });
-    leaveRequestRepository.find!.mockResolvedValue([]);
-    attendanceDailySummaryRepository.createQueryBuilder!.mockReturnValue(
+        return null;
+      },
+    );
+    leaveRequestRepository.find.mockResolvedValue([]);
+    attendanceDailySummaryRepository.createQueryBuilder.mockReturnValue(
       createAttendanceSummaryBuilder([]),
     );
 
@@ -132,7 +136,7 @@ describe('LeaveBalanceService', () => {
   });
 
   it('applies attendance-based annual leave deductions from attendance summaries', async () => {
-    leaveTypeRepository.findOne!.mockResolvedValue({
+    leaveTypeRepository.findOne.mockResolvedValue({
       id: 7,
       company_id: 10,
       code: 'ANNUAL',
@@ -140,7 +144,7 @@ describe('LeaveBalanceService', () => {
       is_carry_forward_allowed: true,
       max_carry_forward_days: '0.00',
     });
-    leavePolicyRepository.find!.mockResolvedValue([
+    leavePolicyRepository.find.mockResolvedValue([
       {
         company_id: 10,
         status: LeaveRecordStatusEnum.ACTIVE,
@@ -158,9 +162,9 @@ describe('LeaveBalanceService', () => {
         ],
       },
     ]);
-    balanceRepository.findOne!.mockResolvedValue(null);
-    leaveRequestRepository.find!.mockResolvedValue([]);
-    attendanceDailySummaryRepository.createQueryBuilder!.mockReturnValue(
+    balanceRepository.findOne.mockResolvedValue(null);
+    leaveRequestRepository.find.mockResolvedValue([]);
+    attendanceDailySummaryRepository.createQueryBuilder.mockReturnValue(
       createAttendanceSummaryBuilder([
         { attendanceStatus: 'ABSENT', count: '2' },
         { attendanceStatus: 'HALF_DAY', count: '1' },
@@ -184,7 +188,7 @@ describe('LeaveBalanceService', () => {
   });
 
   it('tracks manual leave balance adjustments with old and new balances', async () => {
-    leaveTypeRepository.findOne!.mockResolvedValue({
+    leaveTypeRepository.findOne.mockResolvedValue({
       id: 7,
       company_id: 10,
       code: 'ANNUAL',
@@ -192,7 +196,7 @@ describe('LeaveBalanceService', () => {
       is_carry_forward_allowed: true,
       max_carry_forward_days: '0.00',
     });
-    leavePolicyRepository.find!.mockResolvedValue([
+    leavePolicyRepository.find.mockResolvedValue([
       {
         company_id: 10,
         status: LeaveRecordStatusEnum.ACTIVE,
@@ -207,33 +211,37 @@ describe('LeaveBalanceService', () => {
         ],
       },
     ]);
-    balanceRepository.findOne!.mockImplementation(async ({ where }) => {
-      if (where?.fiscal_year === '2027') {
-        return {
-          id: 3,
-          employee_id: 501,
-          leave_type_id: 7,
-          fiscal_year: '2027',
-          allocated_days: '28.00',
-          opening_balance_days: '0.00',
-          entitlement_days: '28.00',
-          used_days: '0.00',
-          pending_days: '0.00',
-          carried_forward_days: '0.00',
-          expired_days: '0.00',
-          adjusted_days: '0.00',
-          attendance_deduction_days: '0.00',
-          generated_at: new Date('2027-01-01T00:00:00Z'),
-        };
-      }
+    balanceRepository.findOne.mockImplementation(
+      ({ where }: { where?: { fiscal_year?: string } }) => {
+        if (where?.fiscal_year === '2027') {
+          return {
+            id: 3,
+            employee_id: 501,
+            leave_type_id: 7,
+            fiscal_year: '2027',
+            allocated_days: '28.00',
+            opening_balance_days: '0.00',
+            entitlement_days: '28.00',
+            used_days: '0.00',
+            pending_days: '0.00',
+            carried_forward_days: '0.00',
+            expired_days: '0.00',
+            adjusted_days: '0.00',
+            attendance_deduction_days: '0.00',
+            generated_at: new Date('2027-01-01T00:00:00Z'),
+          };
+        }
 
-      return null;
-    });
-    leaveRequestRepository.find!.mockResolvedValue([]);
-    attendanceDailySummaryRepository.createQueryBuilder!.mockReturnValue(
+        return null;
+      },
+    );
+    leaveRequestRepository.find.mockResolvedValue([]);
+    attendanceDailySummaryRepository.createQueryBuilder.mockReturnValue(
       createAttendanceSummaryBuilder([]),
     );
-    adjustmentRepository.save!.mockImplementation(async (value) => value);
+    adjustmentRepository.save.mockImplementation(
+      (value: Record<string, unknown>) => value,
+    );
 
     const result = await service.applyManualAdjustment(
       10,

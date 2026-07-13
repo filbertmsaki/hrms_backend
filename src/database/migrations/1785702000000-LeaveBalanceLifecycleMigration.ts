@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class LeaveBalanceLifecycleMigration1785702000000
-  implements MigrationInterface
-{
+export class LeaveBalanceLifecycleMigration1785702000000 implements MigrationInterface {
   name = 'LeaveBalanceLifecycleMigration1785702000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

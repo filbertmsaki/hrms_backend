@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
@@ -241,15 +245,19 @@ export class ShiftSchedulesService {
       effective_to:
         dto.effective_to !== undefined ? dto.effective_to : item.effectiveTo,
     });
-    const scheduleDate = dto.schedule_date ?? item.scheduleDate ?? effectiveFrom;
+    const scheduleDate =
+      dto.schedule_date ?? item.scheduleDate ?? effectiveFrom;
     const resolvedShiftId =
       dto.override_shift_id !== undefined
-        ? dto.override_shift_id ?? dto.shift_id ?? item.shiftId
-        : dto.shift_id ?? item.shiftId;
+        ? (dto.override_shift_id ?? dto.shift_id ?? item.shiftId)
+        : (dto.shift_id ?? item.shiftId);
 
     await this.ensureEmployee(companyId, employeeId);
     await this.ensureShift(companyId, resolvedShiftId);
-    await this.ensureShift(companyId, dto.override_shift_id ?? item.overrideShiftId);
+    await this.ensureShift(
+      companyId,
+      dto.override_shift_id ?? item.overrideShiftId,
+    );
     await this.ensureHoliday(companyId, dto.holiday_id ?? item.holidayId);
     ensureRotationRuleAssignment(
       resolvedShiftId,

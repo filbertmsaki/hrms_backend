@@ -27,13 +27,19 @@ export class QueryAttendanceDailySummariesDto extends PaginationDto {
   @IsOptional()
   employeeId?: number;
 
-  @ApiPropertyOptional({ example: 'EMP-001', description: 'Filter by employee number' })
+  @ApiPropertyOptional({
+    example: 'EMP-001',
+    description: 'Filter by employee number',
+  })
   @IsString()
   @MaxLength(50)
   @IsOptional()
   employee_no?: string;
 
-  @ApiPropertyOptional({ example: 'EMP-001', description: 'Filter by employee number' })
+  @ApiPropertyOptional({
+    example: 'EMP-001',
+    description: 'Filter by employee number',
+  })
   @IsString()
   @MaxLength(50)
   @IsOptional()
@@ -144,7 +150,7 @@ export class QueryAttendanceDailySummariesDto extends PaginationDto {
     example: AttendanceDailyStatusEnum.PRESENT,
   })
   @IsEnum(AttendanceDailyStatusEnum)
-  @Transform(({ value }) =>
+  @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim().toUpperCase() : value,
   )
   @IsOptional()

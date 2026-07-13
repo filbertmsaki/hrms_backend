@@ -5,10 +5,7 @@ import {
   ALLIANCE_COMPANY_NAME,
   ALLIANCE_COMPANY_SLUG,
 } from './company-structure.constants';
-import {
-  DeptEmployeeSeed,
-  seedDeptEmployees,
-} from './dept-employees.helper';
+import { DeptEmployeeSeed, seedDeptEmployees } from './dept-employees.helper';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Information Technology Department
@@ -142,7 +139,12 @@ export default class ItEmployeesSeeder implements Seeder {
         );
       }
 
-      await seedDeptEmployees(qr, company.id, IT_EMPLOYEES, 'Information Technology');
+      await seedDeptEmployees(
+        qr,
+        company.id,
+        IT_EMPLOYEES,
+        'Information Technology',
+      );
 
       await qr.commitTransaction();
     } catch (error) {

@@ -26,9 +26,7 @@ const HOLIDAY_READ_PERMISSIONS = [
   'attendance_holidays:read',
 ];
 
-const ATTENDANCE_READ_PERMISSIONS = [
-  'attendance_policies:read',
-];
+const ATTENDANCE_READ_PERMISSIONS = ['attendance_policies:read'];
 
 const SELF_SERVICE_OFFBOARDING_REQUEST_PERMISSIONS = [
   'offboarding_workflows:read',
@@ -41,7 +39,7 @@ const SELF_SERVICE_OFFBOARDING_REQUEST_PERMISSIONS = [
 
 const SELF_SERVICE_PERMISSIONS = [
   'view_company_data',
-  'users:update',                        // own profile
+  'users:update', // own profile
   'employees:read',
   ...HOLIDAY_READ_PERMISSIONS,
   ...ATTENDANCE_READ_PERMISSIONS,
@@ -727,9 +725,7 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
     displayName: 'Employee',
     description:
       'Self-service role. Can view profile, attendance, leave balance, and submit requests. Data is scoped to own records.',
-    permissionNames: [
-      ...SELF_SERVICE_PERMISSIONS,
-    ],
+    permissionNames: [...SELF_SERVICE_PERMISSIONS],
   },
 
   // ───────────────────────────────────────────────
@@ -813,7 +809,9 @@ export default class CompanyRolesSeeder implements Seeder {
       const companySlug = ALLIANCE_COMPANY_SLUG;
       const companyName =
         process.env.DEFAULT_COMPANY_NAME ?? ALLIANCE_COMPANY_NAME;
-      const company = await companyRepo.findOne({ where: { slug: companySlug } });
+      const company = await companyRepo.findOne({
+        where: { slug: companySlug },
+      });
       if (!company) {
         throw new Error(
           `Company "${companyName}" not found. Run 004-company.seed.ts first.`,
@@ -827,18 +825,19 @@ export default class CompanyRolesSeeder implements Seeder {
         'USER',
         'VIEWER',
         'INTERN_TRAINEE',
-        'HR_OFFICER',        // will be re-created with correct permissions
+        'HR_OFFICER', // will be re-created with correct permissions
         'IT_ADMINISTRATOR',
         'SENIOR_EMPLOYEE',
-        'HR_MANAGER',        // will be re-created with correct permissions
+        'HR_MANAGER', // will be re-created with correct permissions
         'DEPARTMENT_MANAGER', // will be re-created with correct permissions
       ];
       const legacyRoles = await roleRepo.find({
         where: { company_id: company.id },
       });
-      const toDelete = legacyRoles.filter((r) =>
-        legacyRoleNames.includes(r.name) &&
-        !COMPANY_ROLE_SEEDS.find((s) => s.name === r.name),
+      const toDelete = legacyRoles.filter(
+        (r) =>
+          legacyRoleNames.includes(r.name) &&
+          !COMPANY_ROLE_SEEDS.find((s) => s.name === r.name),
       );
       if (toDelete.length > 0) {
         await roleRepo.remove(toDelete);

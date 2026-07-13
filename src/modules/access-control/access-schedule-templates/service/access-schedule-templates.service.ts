@@ -293,21 +293,21 @@ export class AccessScheduleTemplatesService {
         const templateCfg = this.toObject(
           parsed.UserRightPlanTemplate ?? parsed,
         );
-        const hikvisionTemplateNo = String(
+        const hikvisionTemplateNo = this.toDisplayString(
           templateCfg.planTemplateNo ??
             templateCfg.templateNo ??
             templateCfg.planNo ??
             templateNoText,
         ).trim();
         const templateName =
-          String(
+          this.toDisplayString(
             templateCfg.planTemplateName ??
               templateCfg.templateName ??
               templateCfg.name ??
               '',
           ).trim() || `Template ${hikvisionTemplateNo}`;
 
-        const hikvisionWeekPlanNo = String(
+        const hikvisionWeekPlanNo = this.toDisplayString(
           templateCfg.weekPlanNo ?? templateCfg.weekPlanID ?? '0',
         ).trim();
 
@@ -481,6 +481,19 @@ export class AccessScheduleTemplatesService {
     return value as Record<string, unknown>;
   }
 
+  private toDisplayString(value: unknown): string {
+    if (value === null || value === undefined) return '';
+    if (
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean' ||
+      typeof value === 'bigint'
+    ) {
+      return String(value);
+    }
+    return JSON.stringify(value);
+  }
+
   private isSkippable(body: string): boolean {
     const lowered = (body || '').toLowerCase();
     return (
@@ -493,7 +506,7 @@ export class AccessScheduleTemplatesService {
   private normalizeScheduleType(
     value: unknown,
   ): AccessScheduleTemplateTypeEnum {
-    const normalized = String(value ?? '')
+    const normalized = this.toDisplayString(value ?? '')
       .trim()
       .toUpperCase();
     if (

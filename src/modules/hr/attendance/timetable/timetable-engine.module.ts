@@ -60,10 +60,6 @@ import { AttendanceAssignmentDomainService } from '../shared/attendance-assignme
     TimetableHolidayRulesService,
     AttendanceAssignmentDomainService,
   ],
-  exports: [
-    TypeOrmModule,
-    TimetablesService,
-    EmployeeTimetablesService,
-  ],
+  exports: [TypeOrmModule, TimetablesService, EmployeeTimetablesService],
 })
 export class TimetableEngineModule {}

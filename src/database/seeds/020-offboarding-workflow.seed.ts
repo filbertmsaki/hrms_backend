@@ -33,7 +33,8 @@ const STEP_SEEDS: OffboardingStepSeed[] = [
     approvalLevel: 1,
     stepName: 'HR Offboarding Review',
     taskTitle: 'Review offboarding request and initiate process',
-    taskDescription: 'HR Officer reviews the offboarding request, confirms exit date, and triggers the clearance process.',
+    taskDescription:
+      'HR Officer reviews the offboarding request, confirms exit date, and triggers the clearance process.',
     taskType: OffboardingTaskTypeEnum.HR,
     approverType: OffboardingApproverTypeEnum.ROLE,
     roleName: 'HR_OFFICER',
@@ -45,7 +46,8 @@ const STEP_SEEDS: OffboardingStepSeed[] = [
     approvalLevel: 2,
     stepName: 'IT Access Revocation',
     taskTitle: 'Revoke system access and collect IT equipment',
-    taskDescription: 'IT Administrator revokes all system access, deactivates accounts, and collects company IT equipment.',
+    taskDescription:
+      'IT Administrator revokes all system access, deactivates accounts, and collects company IT equipment.',
     taskType: OffboardingTaskTypeEnum.IT,
     approverType: OffboardingApproverTypeEnum.ROLE,
     roleName: 'DEPARTMENT_MANAGER',
@@ -57,7 +59,8 @@ const STEP_SEEDS: OffboardingStepSeed[] = [
     approvalLevel: 3,
     stepName: 'Finance Settlement',
     taskTitle: 'Process final pay and outstanding settlements',
-    taskDescription: 'HR Manager confirms all financial obligations including final salary, leave encashment, and outstanding advances.',
+    taskDescription:
+      'HR Manager confirms all financial obligations including final salary, leave encashment, and outstanding advances.',
     taskType: OffboardingTaskTypeEnum.FINANCE,
     approverType: OffboardingApproverTypeEnum.ROLE,
     roleName: 'HR_MANAGER',
@@ -69,7 +72,8 @@ const STEP_SEEDS: OffboardingStepSeed[] = [
     approvalLevel: 4,
     stepName: 'Manager Final Clearance',
     taskTitle: 'Final departmental clearance and handover sign-off',
-    taskDescription: 'HR Manager confirms all departmental handover tasks are complete and approves the final clearance.',
+    taskDescription:
+      'HR Manager confirms all departmental handover tasks are complete and approves the final clearance.',
     taskType: OffboardingTaskTypeEnum.MANAGER,
     approverType: OffboardingApproverTypeEnum.ROLE,
     roleName: 'HR_MANAGER',
@@ -115,7 +119,8 @@ export default class OffboardingWorkflowSeeder implements Seeder {
         workflow = workflowRepo.create({
           company_id: company.id,
           name: WORKFLOW_NAME,
-          description: 'Default offboarding workflow for all departing employees.',
+          description:
+            'Default offboarding workflow for all departing employees.',
           is_default: true,
           status: OffboardingRecordStatusEnum.ACTIVE,
         });
@@ -132,7 +137,10 @@ export default class OffboardingWorkflowSeeder implements Seeder {
         });
 
         let step = await stepRepo.findOne({
-          where: { workflow_id: workflow.id, approval_level: seed.approvalLevel },
+          where: {
+            workflow_id: workflow.id,
+            approval_level: seed.approvalLevel,
+          },
         });
         if (!step) {
           step = stepRepo.create({

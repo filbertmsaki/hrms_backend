@@ -16,6 +16,7 @@ import { AttendanceWifiNetwork } from '../wifi-networks/entities/attendance-wifi
 import { AttendanceCheckpointQueryDto } from './dtos/attendance-checkpoint-query.dto';
 import { CreateAttendanceCheckpointDto } from './dtos/create-attendance-checkpoint.dto';
 import { UpdateAttendanceCheckpointDto } from './dtos/update-attendance-checkpoint.dto';
+import { AttendanceCheckpointTypeEnum } from './enums/attendance-checkpoint-type.enum';
 
 @Injectable()
 export class AttendanceCheckpointsService {
@@ -356,13 +357,13 @@ export class AttendanceCheckpointsService {
     const { type, deviceId, geofenceId, wifiNetworkId, maxDistanceMeters } =
       params;
 
-    if (type === 'QR') {
+    if (type === AttendanceCheckpointTypeEnum.QR) {
       throw new BadRequestException(
         'QR checkpoint is not supported in Phase One. Use GPS, WIFI, DEVICE or MANUAL checkpoint.',
       );
     }
 
-    if (type === 'DEVICE') {
+    if (type === AttendanceCheckpointTypeEnum.DEVICE) {
       if (!deviceId) {
         throw new BadRequestException(
           'device_id is required for DEVICE checkpoints',
@@ -376,7 +377,7 @@ export class AttendanceCheckpointsService {
       }
     }
 
-    if (type === 'GPS') {
+    if (type === AttendanceCheckpointTypeEnum.GPS) {
       if (!geofenceId) {
         throw new BadRequestException(
           'geofence_id is required for GPS checkpoints',
@@ -390,7 +391,7 @@ export class AttendanceCheckpointsService {
       }
     }
 
-    if (type === 'WIFI') {
+    if (type === AttendanceCheckpointTypeEnum.WIFI) {
       if (!wifiNetworkId) {
         throw new BadRequestException(
           'wifi_network_id is required for WIFI checkpoints',
@@ -404,7 +405,7 @@ export class AttendanceCheckpointsService {
       }
     }
 
-    if (type === 'MANUAL') {
+    if (type === AttendanceCheckpointTypeEnum.MANUAL) {
       if (deviceId || geofenceId || wifiNetworkId) {
         throw new BadRequestException(
           `${type} checkpoints cannot include device_id, geofence_id, or wifi_network_id`,
@@ -415,7 +416,7 @@ export class AttendanceCheckpointsService {
     if (
       maxDistanceMeters !== null &&
       maxDistanceMeters !== undefined &&
-      type !== 'GPS'
+      type !== AttendanceCheckpointTypeEnum.GPS
     ) {
       throw new BadRequestException(
         'max_distance_meters is only supported for GPS checkpoints',

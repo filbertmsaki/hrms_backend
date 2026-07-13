@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddLeaveBalanceLedger1785905000000
-  implements MigrationInterface
-{
+export class AddLeaveBalanceLedger1785905000000 implements MigrationInterface {
   name = 'AddLeaveBalanceLedger1785905000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -250,7 +248,9 @@ export class AddLeaveBalanceLedger1785905000000
       ALTER TABLE "leave_balances"
       DROP CONSTRAINT IF EXISTS "FK_leave_balances_last_transaction"
     `);
-    await queryRunner.query(`DROP TABLE IF EXISTS "leave_balance_transactions"`);
+    await queryRunner.query(
+      `DROP TABLE IF EXISTS "leave_balance_transactions"`,
+    );
     await queryRunner.query(`
       DROP INDEX IF EXISTS "IDX_leave_balance_tx_company_effective_date"
     `);

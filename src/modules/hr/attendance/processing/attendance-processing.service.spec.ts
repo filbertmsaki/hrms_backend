@@ -8,14 +8,13 @@ import { AttendanceProcessedEvent } from './entities/attendance-processed-event.
 import { AttendanceExceptionTypeEnum } from './enums/attendance-exception-type.enum';
 import { AttendanceRawLogProcessingStatusEnum } from './enums/attendance-raw-log-processing-status.enum';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type MockRepo<T = any> = Record<string, jest.Mock>;
+type MockRepo = Record<string, jest.Mock>;
 
-const createRepositoryMock = <T>(): MockRepo<T> => ({
+const createRepositoryMock = <T>(): MockRepo => ({
   findOne: jest.fn(),
-  save: jest.fn(async (value) => value),
-  update: jest.fn(async () => ({ affected: 1 })),
-  create: jest.fn((value) => value),
+  save: jest.fn((value: T) => Promise.resolve(value)),
+  update: jest.fn(() => Promise.resolve({ affected: 1 })),
+  create: jest.fn((value: T) => value),
   createQueryBuilder: jest.fn(),
 });
 
@@ -29,8 +28,8 @@ const createQueryBuilderMock = (rows: HikvisionAttendanceLog[]) => ({
 
 describe('AttendanceProcessingService', () => {
   let service: AttendanceProcessingService;
-  let rawLogRepository: MockRepo<HikvisionAttendanceLog>;
-  let processedEventRepository: MockRepo<AttendanceProcessedEvent>;
+  let rawLogRepository: MockRepo;
+  let processedEventRepository: MockRepo;
   let employeeResolver: { resolveEmployeeId: jest.Mock };
   let exceptionService: { replaceForRawLog: jest.Mock };
   let dailySummaryService: { rebuildSummariesForRange: jest.Mock };
@@ -42,14 +41,16 @@ describe('AttendanceProcessingService', () => {
       resolveEmployeeId: jest.fn(),
     };
     exceptionService = {
-      replaceForRawLog: jest.fn(async () => []),
+      replaceForRawLog: jest.fn(() => Promise.resolve([])),
     };
     dailySummaryService = {
-      rebuildSummariesForRange: jest.fn(async () => ({
-        summariesUpserted: 0,
-        employeeCount: 0,
-        daysComputed: 0,
-      })),
+      rebuildSummariesForRange: jest.fn(() =>
+        Promise.resolve({
+          summariesUpserted: 0,
+          employeeCount: 0,
+          daysComputed: 0,
+        }),
+      ),
     };
 
     service = new AttendanceProcessingService(
@@ -75,10 +76,10 @@ describe('AttendanceProcessingService', () => {
       processingAttempts: 0,
     } as unknown as HikvisionAttendanceLog;
 
-    rawLogRepository.createQueryBuilder!.mockReturnValue(
+    rawLogRepository.createQueryBuilder.mockReturnValue(
       createQueryBuilderMock([rawLog]),
     );
-    processedEventRepository.findOne!.mockResolvedValue(null);
+    processedEventRepository.findOne.mockResolvedValue(null);
 
     await service.processRange(5, {
       start_date: '2026-06-12',
@@ -117,10 +118,10 @@ describe('AttendanceProcessingService', () => {
       processingAttempts: 0,
     } as unknown as HikvisionAttendanceLog;
 
-    rawLogRepository.createQueryBuilder!.mockReturnValue(
+    rawLogRepository.createQueryBuilder.mockReturnValue(
       createQueryBuilderMock([rawLog]),
     );
-    processedEventRepository.findOne!.mockResolvedValue(null);
+    processedEventRepository.findOne.mockResolvedValue(null);
     employeeResolver.resolveEmployeeId.mockResolvedValue({
       employeeId: 101,
       reason: 'ASSIGNMENT_MAP',

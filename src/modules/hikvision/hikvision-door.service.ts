@@ -313,7 +313,7 @@ export class HikvisionDoorSyncService {
 
     try {
       const client = new DigestFetch(device.apiUsername, device.apiPassword);
-      const response = await client.fetch(this.buildDeviceUrl(device, path), {
+      const response = (await client.fetch(this.buildDeviceUrl(device, path), {
         method,
         headers: {
           Accept: 'application/json, application/xml',
@@ -321,7 +321,7 @@ export class HikvisionDoorSyncService {
         },
         body,
         signal: timeoutController.signal,
-      });
+      })) as { status: number; text: () => Promise<string> };
 
       if (response.status === 401) {
         throw new UnauthorizedException(
@@ -463,7 +463,15 @@ export class HikvisionDoorSyncService {
     if (value === null || value === undefined) {
       return '';
     }
-    return String(value).trim();
+    if (
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean' ||
+      typeof value === 'bigint'
+    ) {
+      return String(value).trim();
+    }
+    return JSON.stringify(value).trim();
   }
 
   private asNullableString(value: unknown): string | null {
@@ -486,7 +494,7 @@ export class HikvisionDoorSyncService {
     if (typeof value === 'boolean') {
       return value;
     }
-    const lowered = String(value).trim().toLowerCase();
+    const lowered = this.asTrimmedString(value).toLowerCase();
     if (lowered === 'true' || lowered === '1') {
       return true;
     }

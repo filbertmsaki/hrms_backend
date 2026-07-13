@@ -63,15 +63,21 @@ export async function seedDeptEmployees(
   const depts = await deptRepo.find({ where: { company_id: companyId } });
   const deptMap = new Map(depts.map((d) => [d.code!, d]));
 
-  const positions = await positionRepo.find({ where: { company_id: companyId } });
+  const positions = await positionRepo.find({
+    where: { company_id: companyId },
+  });
   const positionMap = new Map(positions.map((p) => [p.code!, p]));
 
-  const designations = await designationRepo.find({ where: { company_id: companyId } });
+  const designations = await designationRepo.find({
+    where: { company_id: companyId },
+  });
 
   const roles = await roleRepo.find({ where: { company_id: companyId } });
   const roleMap = new Map(roles.map((r) => [r.name, r]));
 
-  const defaultPassword = await hashPassword(ALLIANCE_EMPLOYEE_DEFAULT_PASSWORD);
+  const defaultPassword = await hashPassword(
+    ALLIANCE_EMPLOYEE_DEFAULT_PASSWORD,
+  );
 
   const employeeByNo = new Map<string, Employee>();
 
@@ -154,7 +160,9 @@ export async function seedDeptEmployees(
         metadata: {
           seeded: true,
           source: label,
-          ...(seed.hikvisionEmployeeNo && { hikvisionNo: seed.hikvisionEmployeeNo }),
+          ...(seed.hikvisionEmployeeNo && {
+            hikvisionNo: seed.hikvisionEmployeeNo,
+          }),
         },
       });
     } else {
@@ -182,9 +190,10 @@ export async function seedDeptEmployees(
     let manager = employeeByNo.get(seed.reportsToEmployeeNo);
     if (!manager) {
       // Cross-department link: look up by employee_no in the DB
-      manager = await employeeRepo.findOne({
-        where: { employee_no: seed.reportsToEmployeeNo },
-      }) ?? undefined;
+      manager =
+        (await employeeRepo.findOne({
+          where: { employee_no: seed.reportsToEmployeeNo },
+        })) ?? undefined;
     }
     if (!manager) continue;
 
@@ -194,7 +203,5 @@ export async function seedDeptEmployees(
     }
   }
 
-  console.log(
-    `[Seeder][${label}] Upserted ${seeds.length} employee(s)`,
-  );
+  console.log(`[Seeder][${label}] Upserted ${seeds.length} employee(s)`);
 }

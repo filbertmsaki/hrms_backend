@@ -31,15 +31,14 @@ import { LeaveStatusEnum } from './enums/leave-status.enum';
 import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type MockRepo<T = any> = Record<string, jest.Mock>;
+type MockRepo = Record<string, jest.Mock>;
 
-const createRepositoryMock = <T>(): MockRepo<T> => ({
+const createRepositoryMock = (): MockRepo => ({
   findOne: jest.fn(),
   find: jest.fn(),
   findOneOrFail: jest.fn(),
-  save: jest.fn(async (value) => value),
-  create: jest.fn((value) => value),
+  save: jest.fn((value: unknown) => value),
+  create: jest.fn((value: unknown) => value),
   createQueryBuilder: jest.fn(),
 });
 
@@ -59,23 +58,23 @@ const createQueryBuilderMock = () => ({
 describe('LeaveService', () => {
   let service: LeaveService;
   let dataSource: { transaction: jest.Mock };
-  let leaveTypeRepository: MockRepo<LeaveType>;
-  let leavePolicyRepository: MockRepo<LeavePolicy>;
-  let leaveBalanceRepository: MockRepo<LeaveBalance>;
-  let leaveRequestRepository: MockRepo<LeaveRequest>;
-  let leaveApprovalWorkflowRepository: MockRepo<LeaveApprovalWorkflow>;
-  let leaveApprovalWorkflowStepRepository: MockRepo<LeaveApprovalWorkflowStep>;
-  let leaveMedicalDetailRepository: MockRepo<LeaveMedicalDetail>;
-  let leaveDocumentRepository: MockRepo<LeaveDocument>;
-  let attendanceHolidayRepository: MockRepo<AttendanceHoliday>;
-  let holidayGroupRepository: MockRepo<HolidayGroup>;
-  let employeeRepository: MockRepo<Employee>;
-  let branchRepository: MockRepo<Branch>;
-  let departmentRepository: MockRepo<Department>;
-  let positionRepository: MockRepo<Position>;
-  let companyUserRepository: MockRepo<CompanyUser>;
-  let roleRepository: MockRepo<Role>;
-  let attendanceRecalculationJobRepository: MockRepo<AttendanceRecalculationJob>;
+  let leaveTypeRepository: MockRepo;
+  let leavePolicyRepository: MockRepo;
+  let leaveBalanceRepository: MockRepo;
+  let leaveRequestRepository: MockRepo;
+  let leaveApprovalWorkflowRepository: MockRepo;
+  let leaveApprovalWorkflowStepRepository: MockRepo;
+  let leaveMedicalDetailRepository: MockRepo;
+  let leaveDocumentRepository: MockRepo;
+  let attendanceHolidayRepository: MockRepo;
+  let holidayGroupRepository: MockRepo;
+  let employeeRepository: MockRepo;
+  let branchRepository: MockRepo;
+  let departmentRepository: MockRepo;
+  let positionRepository: MockRepo;
+  let companyUserRepository: MockRepo;
+  let roleRepository: MockRepo;
+  let attendanceRecalculationJobRepository: MockRepo;
   let hrAccessService: {
     assertCanAccessEmployee: jest.Mock;
     assertCompanyScopedActor: jest.Mock;
@@ -151,7 +150,16 @@ describe('LeaveService', () => {
       resolvePolicyAssignment: jest.fn(),
       ensureBalanceForEmployee: jest.fn(),
       ensureBalancesForEmployeeYear: jest.fn(),
-      recalculateBalance: jest.fn(async (_companyId, _employee, _leaveTypeId, _fiscalYear, _manager, balance) => balance),
+      recalculateBalance: jest.fn(
+        (
+          _companyId: unknown,
+          _employee: unknown,
+          _leaveTypeId: unknown,
+          _fiscalYear: unknown,
+          _manager: unknown,
+          balance: unknown,
+        ) => balance,
+      ),
       applyManualAdjustment: jest.fn(),
       findBalanceAdjustments: jest.fn(),
       generateBalancesForCompany: jest.fn(),
@@ -161,22 +169,22 @@ describe('LeaveService', () => {
       calculateAvailableDays: jest.fn(() => 10),
     };
     leaveBalanceLedgerService = {
-      reserveLeave: jest.fn(async (balance) => ({
+      reserveLeave: jest.fn((balance: unknown) => ({
         balance,
         created: true,
         transaction: { id: 1 },
       })),
-      consumeReservedLeave: jest.fn(async (balance) => ({
+      consumeReservedLeave: jest.fn((balance: unknown) => ({
         balance,
         created: true,
         transaction: { id: 2 },
       })),
-      releaseReservedLeave: jest.fn(async (balance) => ({
+      releaseReservedLeave: jest.fn((balance: unknown) => ({
         balance,
         created: true,
         transaction: { id: 3 },
       })),
-      reverseApprovedLeave: jest.fn(async (balance) => ({
+      reverseApprovedLeave: jest.fn((balance: unknown) => ({
         balance,
         created: true,
         transaction: { id: 4 },
@@ -295,12 +303,12 @@ describe('LeaveService', () => {
     attendanceHolidayBuilder.getMany = jest.fn().mockResolvedValue([]);
     const managerLeaveRequestRepository = {
       findOne: jest.fn().mockResolvedValue({ ...draftRequest }),
-      save: jest.fn(async (value) => value),
+      save: jest.fn((value: unknown) => value),
       findOneOrFail: jest.fn().mockResolvedValue(finalRequest),
     };
     const managerRecalculationRepository = {
-      create: jest.fn((value) => value),
-      save: jest.fn(async (value) => value),
+      create: jest.fn((value: unknown) => value),
+      save: jest.fn((value: unknown) => value),
     };
     const manager = {
       getRepository: jest.fn((entity) => {
@@ -314,12 +322,12 @@ describe('LeaveService', () => {
       }),
     };
 
-    leaveRequestRepository.findOne!.mockResolvedValue(draftRequest);
-    leaveRequestRepository.createQueryBuilder!.mockReturnValue(overlapBuilder);
-    attendanceHolidayRepository.createQueryBuilder!.mockReturnValue(
+    leaveRequestRepository.findOne.mockResolvedValue(draftRequest);
+    leaveRequestRepository.createQueryBuilder.mockReturnValue(overlapBuilder);
+    attendanceHolidayRepository.createQueryBuilder.mockReturnValue(
       attendanceHolidayBuilder,
     );
-    leaveTypeRepository.findOne!.mockResolvedValue({
+    leaveTypeRepository.findOne.mockResolvedValue({
       id: 7,
       company_id: 10,
       name: 'Emergency Leave',
@@ -345,8 +353,8 @@ describe('LeaveService', () => {
       },
     });
     leaveBalanceService.ensureBalanceForEmployee.mockResolvedValue(balance);
-    dataSource.transaction.mockImplementation(async (callback) =>
-      callback(manager),
+    dataSource.transaction.mockImplementation(
+      (callback: (manager: unknown) => unknown) => callback(manager),
     );
 
     const result = await service.submitLeaveRequest(10, 77, actor);
@@ -374,7 +382,7 @@ describe('LeaveService', () => {
   });
 
   it('rejects leave requests for employees who are no longer active', async () => {
-    employeeRepository.findOne!.mockResolvedValue({
+    employeeRepository.findOne.mockResolvedValue({
       id: 501,
       employment_status: EmploymentStatusEnum.EXITED,
       exit_date: '2026-06-10',
@@ -458,9 +466,12 @@ describe('LeaveService', () => {
       medical_detail: null,
     };
     const managerLeaveRequestRepository = {
-      create: jest.fn((value) => value),
+      create: jest.fn((value: unknown) => value),
       createQueryBuilder: jest.fn().mockReturnValue(generateLeaveNoBuilder),
-      save: jest.fn(async (value) => ({ id: 90, ...value })),
+      save: jest.fn((value: Record<string, unknown>) => ({
+        id: 90,
+        ...value,
+      })),
       findOneOrFail: jest.fn().mockResolvedValue(savedDraft),
     };
     const manager = {
@@ -472,7 +483,7 @@ describe('LeaveService', () => {
       }),
     };
 
-    employeeRepository.findOne!.mockResolvedValue({
+    employeeRepository.findOne.mockResolvedValue({
       id: 501,
       employment_status: EmploymentStatusEnum.ACTIVE,
       exit_date: null,
@@ -486,7 +497,7 @@ describe('LeaveService', () => {
         company_id: 10,
       },
     });
-    leaveTypeRepository.findOne!.mockResolvedValue({
+    leaveTypeRepository.findOne.mockResolvedValue({
       id: 4,
       company_id: 10,
       name: 'Unpaid Leave',
@@ -500,8 +511,8 @@ describe('LeaveService', () => {
       requires_attachment: false,
       description: null,
     });
-    leaveRequestRepository.createQueryBuilder!.mockReturnValue(overlapBuilder);
-    attendanceHolidayRepository.createQueryBuilder!.mockReturnValue(
+    leaveRequestRepository.createQueryBuilder.mockReturnValue(overlapBuilder);
+    attendanceHolidayRepository.createQueryBuilder.mockReturnValue(
       attendanceHolidayBuilder,
     );
     leaveBalanceService.resolvePolicyAssignment.mockResolvedValue({
@@ -515,8 +526,8 @@ describe('LeaveService', () => {
         requires_approval: true,
       },
     });
-    dataSource.transaction.mockImplementation(async (callback) =>
-      callback(manager),
+    dataSource.transaction.mockImplementation(
+      (callback: (manager: unknown) => unknown) => callback(manager),
     );
 
     await service.createLeaveRequest(
@@ -554,7 +565,7 @@ describe('LeaveService', () => {
       },
     ]);
 
-    employeeRepository.findOne!.mockResolvedValue({
+    employeeRepository.findOne.mockResolvedValue({
       id: 501,
       employment_status: EmploymentStatusEnum.ACTIVE,
       exit_date: null,
@@ -568,7 +579,7 @@ describe('LeaveService', () => {
         company_id: 10,
       },
     });
-    leaveTypeRepository.findOne!.mockResolvedValue({
+    leaveTypeRepository.findOne.mockResolvedValue({
       id: 7,
       company_id: 10,
       name: 'Emergency Leave',
@@ -582,8 +593,8 @@ describe('LeaveService', () => {
       requires_attachment: false,
       description: null,
     });
-    leaveRequestRepository.createQueryBuilder!.mockReturnValue(overlapBuilder);
-    attendanceHolidayRepository.createQueryBuilder!.mockReturnValue(
+    leaveRequestRepository.createQueryBuilder.mockReturnValue(overlapBuilder);
+    attendanceHolidayRepository.createQueryBuilder.mockReturnValue(
       attendanceHolidayBuilder,
     );
 

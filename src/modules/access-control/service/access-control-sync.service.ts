@@ -19,12 +19,16 @@ import { AccessGroupDevice } from '../access-group-devices/entity/access-group-d
 import { AccessGroupDoor } from '../access-group-doors/entity/access-group-door.entity';
 import { AccessGroupEmployee } from '../access-group-employees/entity/access-group-employee.entity';
 import { AccessGroupEmployeeStatusEnum } from '../access-group-employees/enum/access-group-employee-status.enum';
+import { AccessGroupEmployeeSourceEnum } from '../access-group-employees/enum/access-group-employee-source.enum';
 import { AccessGroupStatusEnum } from '../access-groups/enum/access-group-status.enum';
 import { AccessGroup } from '../access-groups/entity/access-group.entity';
 import { AccessGroupSourceEnum } from '../access-groups/enum/access-group-source.enum';
 import { AccessOrganization } from '../access-organizations/entity/access-organization.entity';
+import { AccessOrganizationSourceEnum } from '../access-organizations/enum/access-organization-source.enum';
 import { AccessScheduleTemplate } from '../access-schedule-templates/entity/access-schedule-template.entity';
 import { AccessWeekPlan } from '../access-week-plans/entity/access-week-plan.entity';
+import { AccessWeekPlanSourceEnum } from '../access-week-plans/enum/access-week-plan-source.enum';
+import { AccessScheduleTemplateSourceEnum } from '../access-schedule-templates/enum/access-schedule-template-source.enum';
 import { AccessWeekPlanSegment } from '../access-week-plan-segments/entity/access-week-plan-segment.entity';
 import { EmployeeAccessCredential } from '../employee-access-credentials/entity/employee-access-credential.entity';
 import { EmployeeAccessCredentialStatusEnum } from '../employee-access-credentials/enum/employee-access-credential-status.enum';
@@ -624,9 +628,9 @@ export class AccessControlSyncService {
       const parsed = this.toObject(response.parsed);
       const doorParam = this.toObject(parsed.DoorParam ?? parsed);
       const doorName =
-        String(
+        this.toSafeString(
           doorParam.doorName ?? doorParam.name ?? `Door ${doorNo}`,
-        ).trim() || `Door ${doorNo}`;
+        ) || `Door ${doorNo}`;
 
       let door = await this.accessDoorRepository.findOne({
         where: { companyId, deviceId, doorNo },
@@ -682,7 +686,7 @@ export class AccessControlSyncService {
 
       const parsed = this.toObject(response.parsed);
       const cfg = this.toObject(parsed.UserRightWeekPlanCfg ?? parsed);
-      const resolvedPlanNo = String(cfg.weekPlanNo ?? planNoText);
+      const resolvedPlanNo = this.toSafeString(cfg.weekPlanNo ?? planNoText);
 
       let weekPlan = await this.accessWeekPlanRepository.findOne({
         where: { companyId, deviceId, hikvisionPlanNo: resolvedPlanNo },
@@ -693,7 +697,7 @@ export class AccessControlSyncService {
           companyId,
           deviceId,
           hikvisionPlanNo: resolvedPlanNo,
-          source: 'DEVICE_SYNC' as any,
+          source: AccessWeekPlanSourceEnum.DEVICE_SYNC,
           enable: true,
           isSystemDefault: false,
         });
@@ -736,11 +740,13 @@ export class AccessControlSyncService {
 
       const parsed = this.toObject(response.parsed);
       const cfg = this.toObject(parsed.UserRightPlanTemplate ?? parsed);
-      const hikvisionTemplateNo = String(cfg.planTemplateNo ?? templateNoText);
-      const templateName = String(
+      const hikvisionTemplateNo = this.toSafeString(
+        cfg.planTemplateNo ?? templateNoText,
+      );
+      const templateName = this.toSafeString(
         cfg.planTemplateName ?? `Template ${hikvisionTemplateNo}`,
       );
-      const hikvisionWeekPlanNo = String(cfg.weekPlanNo ?? '1');
+      const hikvisionWeekPlanNo = this.toSafeString(cfg.weekPlanNo ?? '1');
 
       let weekPlan = await this.accessWeekPlanRepository.findOne({
         where: { companyId, deviceId, hikvisionPlanNo: hikvisionWeekPlanNo },
@@ -752,7 +758,7 @@ export class AccessControlSyncService {
             deviceId,
             hikvisionPlanNo: hikvisionWeekPlanNo,
             enable: true,
-            source: 'DEVICE_SYNC' as any,
+            source: AccessWeekPlanSourceEnum.DEVICE_SYNC,
             isSystemDefault: false,
           }),
         );
@@ -769,7 +775,7 @@ export class AccessControlSyncService {
           templateName,
           weekPlanId: weekPlan.id,
           hikvisionWeekPlanNo,
-          source: 'DEVICE_SYNC' as any,
+          source: AccessScheduleTemplateSourceEnum.DEVICE_SYNC,
           enable: true,
         });
       }
@@ -816,7 +822,7 @@ export class AccessControlSyncService {
 
     let processed = 0;
     for (const user of users) {
-      const employeeNo = String(user.employeeNo ?? '').trim();
+      const employeeNo = this.toSafeString(user.employeeNo ?? '');
       if (!employeeNo) {
         continue;
       }
@@ -852,13 +858,13 @@ export class AccessControlSyncService {
 
       assignment.employeeId = employee?.id ?? assignment.employeeId ?? null;
       assignment.organizationId = org?.id ?? assignment.organizationId ?? null;
-      assignment.hikvisionUserType = String(
+      assignment.hikvisionUserType = this.toSafeString(
         user.userType ?? assignment.hikvisionUserType ?? '',
       );
-      assignment.userVerifyMode = String(
+      assignment.userVerifyMode = this.toSafeString(
         user.userVerifyMode ?? assignment.userVerifyMode ?? '',
       );
-      assignment.doorRight = String(
+      assignment.doorRight = this.toSafeString(
         user.doorRight ?? assignment.doorRight ?? '',
       );
       assignment.lastSyncedAt = new Date();
@@ -1002,7 +1008,7 @@ export class AccessControlSyncService {
               employeeNo: assignment.employeeNo,
               employeeName: assignment.employeeNo,
               organizationId: assignment.organizationId,
-              source: 'DEVICE_SYNC' as any,
+              source: AccessGroupEmployeeSourceEnum.DEVICE_SYNC,
               assignedAt: new Date(),
             }),
           );
@@ -1332,8 +1338,9 @@ export class AccessControlSyncService {
     deviceId: number,
     user: Record<string, unknown>,
   ): Promise<AccessOrganization | null> {
-    const orgIndex = String(user.orgIndex ?? user.groupNo ?? '').trim() || null;
-    const orgName = String(user.orgName ?? '').trim() || null;
+    const orgIndex =
+      this.toSafeString(user.orgIndex ?? user.groupNo ?? '') || null;
+    const orgName = this.toSafeString(user.orgName ?? '') || null;
 
     if (!orgIndex && !orgName) {
       return null;
@@ -1352,7 +1359,7 @@ export class AccessControlSyncService {
         orgName: fallbackName,
         hikvisionOrgIndex: orgIndex,
         hikvisionGroupNo: orgIndex,
-        source: 'DEVICE_SYNC' as any,
+        source: AccessOrganizationSourceEnum.DEVICE_SYNC,
       });
     } else {
       organization.orgName = organization.orgName || fallbackName;
@@ -1382,9 +1389,9 @@ export class AccessControlSyncService {
     for (const entry of rightPlans) {
       const row = this.toObject(entry);
       const doorNo = Number(row.doorNo ?? row.doorID ?? 0);
-      const hikvisionTemplateNo = String(
+      const hikvisionTemplateNo = this.toSafeString(
         row.planTemplateNo ?? row.templateNo ?? '',
-      ).trim();
+      );
       if (!doorNo || !hikvisionTemplateNo) {
         continue;
       }
@@ -1441,12 +1448,27 @@ export class AccessControlSyncService {
     return value as Record<string, unknown>;
   }
 
+  private toSafeString(value: unknown): string {
+    if (value === null || value === undefined) {
+      return '';
+    }
+    if (
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean' ||
+      typeof value === 'bigint'
+    ) {
+      return String(value).trim();
+    }
+    return JSON.stringify(value).trim();
+  }
+
   private toNullableString(value: unknown): string | null {
     if (value === null || value === undefined) {
       return null;
     }
 
-    const normalized = String(value).trim();
+    const normalized = this.toSafeString(value);
     return normalized ? normalized : null;
   }
 
@@ -1794,7 +1816,7 @@ export class AccessControlSyncService {
     while (stack.length && depth < 8) {
       const node = stack.shift();
       if (Array.isArray(node)) {
-        stack.push(...node);
+        stack.push(...(node as unknown[]));
         depth += 1;
         continue;
       }
@@ -1807,7 +1829,7 @@ export class AccessControlSyncService {
       const record = node as Record<string, unknown>;
       for (const [key, value] of Object.entries(record)) {
         if (keySet.has(key.toLowerCase())) {
-          const normalized = String(value ?? '').trim();
+          const normalized = this.toSafeString(value ?? '');
           if (normalized) {
             return normalized;
           }

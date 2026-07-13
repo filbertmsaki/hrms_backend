@@ -1,5 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { DocumentBuilder, OpenAPIObject, SwaggerModule } from '@nestjs/swagger';
+import { Response } from 'express';
 import { organizeOpenApiDocument } from './openapi-organizer';
 
 export const SWAGGER_DOCS_PATH = 'api-swagger-documentation';
@@ -192,7 +193,7 @@ export function setupOpenApiJson(
   app: INestApplication,
   document: OpenAPIObject,
 ): void {
-  app.use(OPENAPI_JSON_PATH, (_req, res) => {
+  app.use(OPENAPI_JSON_PATH, (_req, res: Response) => {
     res.type('application/json').send(document);
   });
 }

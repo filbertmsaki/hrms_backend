@@ -29,7 +29,8 @@ function coalesceString(
   ...values: Array<string | null | undefined>
 ): string | undefined {
   const match = values.find(
-    (value): value is string => typeof value === 'string' && value.trim().length > 0,
+    (value): value is string =>
+      typeof value === 'string' && value.trim().length > 0,
   );
 
   return match?.trim();
@@ -49,10 +50,7 @@ export function normalizeAttendanceSummaryQuery(
     toDate: coalesceString(query.to_date, query.toDate, query.endDate),
     branchId: coalesceNumber(query.branch_id, query.branchId),
     departmentId: coalesceNumber(query.department_id, query.departmentId),
-    organizationId: coalesceNumber(
-      query.organization_id,
-      query.organizationId,
-    ),
+    organizationId: coalesceNumber(query.organization_id, query.organizationId),
     shiftId: coalesceNumber(query.shift_id, query.shiftId),
     timetableId: coalesceNumber(query.timetable_id, query.timetableId),
     status: query.status,

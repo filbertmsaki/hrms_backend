@@ -12,8 +12,21 @@ export function toObject(value: unknown): Record<string, unknown> {
 
 export function toNullableString(value: unknown): string | null {
   if (value === null || value === undefined) return null;
-  const normalized = String(value).trim();
+  const normalized = toDisplayString(value).trim();
   return normalized || null;
+}
+
+export function toDisplayString(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+  ) {
+    return String(value);
+  }
+  return JSON.stringify(value);
 }
 
 export function toNullableNumber(value: unknown): number | null {

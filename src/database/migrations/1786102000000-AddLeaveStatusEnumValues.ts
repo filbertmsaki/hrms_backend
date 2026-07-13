@@ -3,9 +3,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 // Postgres cannot use a newly added enum value inside the same transaction that
 // added it, so this migration only adds enum values; schema/column changes that
 // reference them live in the following migration.
-export class AddLeaveStatusEnumValues1786102000000
-  implements MigrationInterface
-{
+export class AddLeaveStatusEnumValues1786102000000 implements MigrationInterface {
   name = 'AddLeaveStatusEnumValues1786102000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -23,9 +21,11 @@ export class AddLeaveStatusEnumValues1786102000000
     `);
   }
 
-  public async down(queryRunner: QueryRunner): Promise<void> {
+  public down(queryRunner: QueryRunner): Promise<void> {
     // Postgres does not support DROP VALUE on enum types; reverting these
     // values requires recreating the enum type, which is not safe to do
     // automatically once rows may reference them. Intentional no-op.
+    void queryRunner;
+    return Promise.resolve();
   }
 }

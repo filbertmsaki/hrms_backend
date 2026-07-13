@@ -1,5 +1,12 @@
 import { Type } from 'class-transformer';
-import { IsDateString, IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
+import {
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  Max,
+  Min,
+} from 'class-validator';
 import { HikvisionSyncLogDirectionEnum } from '../enum/hikvision-sync-log-direction.enum';
 import { HikvisionSyncLogStatusEnum } from '../enum/hikvision-sync-log-status.enum';
 import { HikvisionSyncLogTypeEnum } from '../enum/hikvision-sync-log-type.enum';

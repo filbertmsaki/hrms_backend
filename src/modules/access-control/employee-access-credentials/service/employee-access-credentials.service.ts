@@ -252,26 +252,23 @@ export class EmployeeAccessCredentialsService {
       qb.andWhere(
         new Brackets((where) => {
           where
-            .where(
-              "LOWER(COALESCE(credential.employee_no, '')) LIKE :search",
-              { search },
-            )
+            .where("LOWER(COALESCE(credential.employee_no, '')) LIKE :search", {
+              search,
+            })
             .orWhere(
               "LOWER(COALESCE(credential.credential_no, '')) LIKE :search",
               { search },
             )
-            .orWhere(
-              "LOWER(COALESCE(credential.card_no, '')) LIKE :search",
-              { search },
-            )
+            .orWhere("LOWER(COALESCE(credential.card_no, '')) LIKE :search", {
+              search,
+            })
             .orWhere(
               "LOWER(COALESCE(credential.fingerprint_id, '')) LIKE :search",
               { search },
             )
-            .orWhere(
-              "LOWER(COALESCE(credential.face_id, '')) LIKE :search",
-              { search },
-            );
+            .orWhere("LOWER(COALESCE(credential.face_id, '')) LIKE :search", {
+              search,
+            });
         }),
       );
     }
@@ -659,7 +656,12 @@ export class EmployeeAccessCredentialsService {
       return null;
     }
 
-    const normalized = String(value).trim();
+    const normalized =
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean'
+        ? String(value).trim()
+        : '';
     return normalized ? normalized : null;
   }
 
@@ -699,9 +701,7 @@ export class EmployeeAccessCredentialsService {
         note: 'Backend lifecycle/status updated only. Device operation must be done using employee-device credential APIs.',
       },
       lifecycle_metadata: {
-        ...this.toObject(
-          this.toObject(credential.metadata).lifecycle_metadata,
-        ),
+        ...this.toObject(this.toObject(credential.metadata).lifecycle_metadata),
         ...(params.metadata ?? {}),
       },
     };

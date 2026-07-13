@@ -11,6 +11,19 @@ import {
   HikvisionRequestOptions,
 } from '../interfaces/hikvision-client.interface';
 
+interface DigestFetchResponseLike {
+  status: number;
+  ok: boolean;
+  text: () => Promise<string>;
+}
+
+interface DigestFetchClientLike {
+  fetch: (
+    url: string,
+    options?: Record<string, unknown>,
+  ) => Promise<DigestFetchResponseLike>;
+}
+
 @Injectable()
 export class HikvisionDigestClient {
   constructor(private readonly configService: ConfigService) {}
@@ -25,7 +38,10 @@ export class HikvisionDigestClient {
       Number(
         this.configService.get<string>('HIKVISION_REQUEST_TIMEOUT_MS') ?? 15000,
       );
-    const client = new DigestFetch(credentials.username, credentials.password);
+    const client = new DigestFetch(
+      credentials.username,
+      credentials.password,
+    ) as unknown as DigestFetchClientLike;
 
     const timeoutController = new AbortController();
     const timeoutHandle =

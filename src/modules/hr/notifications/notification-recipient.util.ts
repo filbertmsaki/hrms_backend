@@ -6,10 +6,7 @@ type UserLike = {
   email?: string | null;
 };
 
-export const HR_NOTIFICATION_ROLE_NAMES = [
-  'HR_OFFICER',
-  'HR_MANAGER',
-] as const;
+export const HR_NOTIFICATION_ROLE_NAMES = ['HR_OFFICER', 'HR_MANAGER'] as const;
 
 export function buildNotificationRecipient(
   user: UserLike | null | undefined,

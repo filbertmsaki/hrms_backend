@@ -39,7 +39,12 @@ export class AttendanceCorrectionRequest {
   })
   requestedCheckOutAt: Date | null;
 
-  @Column({ name: 'requested_status', type: 'varchar', length: 50, nullable: true })
+  @Column({
+    name: 'requested_status',
+    type: 'varchar',
+    length: 50,
+    nullable: true,
+  })
   requestedStatus: string | null;
 
   @Column({ name: 'reason', type: 'text', nullable: true })

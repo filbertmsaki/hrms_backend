@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -328,7 +327,11 @@ export class LeaveWorkflowService {
     leaveTypeId: number,
     manager?: EntityManager,
   ): Promise<number[]> {
-    const workflow = await this.resolveWorkflow(companyId, leaveTypeId, manager);
+    const workflow = await this.resolveWorkflow(
+      companyId,
+      leaveTypeId,
+      manager,
+    );
     const steps = await this.getWorkflowStepRepository(manager).find({
       where: { workflow_id: workflow.id },
       order: { approval_level: 'ASC', id: 'ASC' },
@@ -465,9 +468,7 @@ export class LeaveWorkflowService {
     }
 
     if (leaveRequest.employee.company_user_id === companyUserId) {
-      throw new ForbiddenException(
-        'You cannot approve your own leave request',
-      );
+      throw new ForbiddenException('You cannot approve your own leave request');
     }
 
     const currentLevel = leaveRequest.current_approval_level;
@@ -522,7 +523,12 @@ export class LeaveWorkflowService {
       leaveRequest.returned_at = new Date();
       leaveRequest.return_reason = payload.comments?.trim() || null;
       const saved = await leaveRequestRepository.save(leaveRequest);
-      await this.emitLeaveOutcome(saved, null, leaveRequestApprovalRepository, manager);
+      await this.emitLeaveOutcome(
+        saved,
+        null,
+        leaveRequestApprovalRepository,
+        manager,
+      );
       return saved;
     }
 
@@ -569,7 +575,12 @@ export class LeaveWorkflowService {
       }
 
       const saved = await leaveRequestRepository.save(leaveRequest);
-      await this.emitLeaveOutcome(saved, payload.comments ?? null, leaveRequestApprovalRepository, manager);
+      await this.emitLeaveOutcome(
+        saved,
+        payload.comments ?? null,
+        leaveRequestApprovalRepository,
+        manager,
+      );
       return saved;
     }
 
@@ -578,14 +589,24 @@ export class LeaveWorkflowService {
       leaveRequest.status = LeaveStatusEnum.PENDING_HR;
       leaveRequest.current_approval_level = HR_LEVEL;
       const saved = await leaveRequestRepository.save(leaveRequest);
-      await this.emitLeaveOutcome(saved, null, leaveRequestApprovalRepository, manager);
+      await this.emitLeaveOutcome(
+        saved,
+        null,
+        leaveRequestApprovalRepository,
+        manager,
+      );
       return saved;
     }
 
     leaveRequest.status = LeaveStatusEnum.APPROVED;
     leaveRequest.approved_at = new Date();
     const saved = await leaveRequestRepository.save(leaveRequest);
-    await this.emitLeaveOutcome(saved, null, leaveRequestApprovalRepository, manager);
+    await this.emitLeaveOutcome(
+      saved,
+      null,
+      leaveRequestApprovalRepository,
+      manager,
+    );
     return saved;
   }
 
@@ -607,7 +628,9 @@ export class LeaveWorkflowService {
 
     const employeeName = `${full.employee.first_name} ${full.employee.last_name}`;
     const employeeEmail = full.employee.company_user?.user?.email ?? '';
-    const appUrl = this.configService.get<string>('APP_FRONTEND_URL') ?? 'http://localhost:5173';
+    const appUrl =
+      this.configService.get<string>('APP_FRONTEND_URL') ??
+      'http://localhost:5173';
     const dashboardUrl = `${appUrl}/leave/${full.id}`;
 
     if (full.status === LeaveStatusEnum.APPROVED) {
@@ -669,11 +692,10 @@ export class LeaveWorkflowService {
       relations: { approver: { user: true } },
     });
 
-    const approvers = nextPendingApprovals
-      .flatMap((approval) => {
-        const recipient = buildNotificationRecipient(approval.approver?.user);
-        return recipient ? [recipient] : [];
-      });
+    const approvers = nextPendingApprovals.flatMap((approval) => {
+      const recipient = buildNotificationRecipient(approval.approver?.user);
+      return recipient ? [recipient] : [];
+    });
 
     if (approvers.length) {
       this.eventEmitter.emit(

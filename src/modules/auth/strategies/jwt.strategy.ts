@@ -13,6 +13,7 @@ import { CompaniesService } from '../../companies/companies.service';
 import { UsersService } from '../../users/users.service';
 import { TokenBlacklistService } from '../token-blacklist.service';
 import { Request } from 'express';
+import { User } from '../../users/entities/user.entity';
 
 type JwtAccessPayload = {
   sub: number;
@@ -67,7 +68,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Token has been revoked');
     }
 
-    let user;
+    let user: User;
 
     try {
       user = await this.usersService.findById(payload.sub);

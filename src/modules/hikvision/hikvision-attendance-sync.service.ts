@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -12,6 +11,7 @@ import { In, IsNull, Repository } from 'typeorm';
 import {
   isDuplicateDbError,
   sleep,
+  toDisplayString,
   toNullableDate,
   toNullableNumber,
   toNullableString,
@@ -461,7 +461,7 @@ export class HikvisionAttendanceSyncService {
         syncJob.id,
         syncJob.createdAt,
       );
-      const queuedJob = await this.hikvisionSyncQueue.add(
+      await this.hikvisionSyncQueue.add(
         HikvisionSyncJobName.SYNC_ATTENDANCE,
         {
           companyId,
@@ -1700,7 +1700,7 @@ export class HikvisionAttendanceSyncService {
       return null;
     }
 
-    const text = String(value);
+    const text = toDisplayString(value);
     return text.trim() ? text : null;
   }
 
@@ -1733,10 +1733,11 @@ export class HikvisionAttendanceSyncService {
     const infoList = this.toObjectArray(rawInfoList);
 
     return {
-      searchID: String(root.searchID ?? '').trim() || 'attendance_sync',
+      searchID: toDisplayString(root.searchID).trim() || 'attendance_sync',
       responseStatusStrg:
-        String(root.responseStatusStrg ?? root.responseStatus ?? '').trim() ||
-        'OK',
+        toDisplayString(
+          root.responseStatusStrg ?? root.responseStatus,
+        ).trim() || 'OK',
       numOfMatches: toNullableNumber(root.numOfMatches) ?? infoList.length,
       totalMatches: toNullableNumber(root.totalMatches) ?? infoList.length,
       infoList,
@@ -2319,7 +2320,7 @@ export class HikvisionAttendanceSyncService {
   }
 
   private ensureEmployeeNo(value: unknown): string {
-    const text = String(value ?? '').trim();
+    const text = toDisplayString(value).trim();
     if (!text) {
       return '';
     }
@@ -2338,7 +2339,11 @@ export class HikvisionAttendanceSyncService {
     value: unknown,
     fieldName: string,
   ): Date | null {
-    if (value === null || value === undefined || String(value).trim() === '') {
+    if (
+      value === null ||
+      value === undefined ||
+      toDisplayString(value).trim() === ''
+    ) {
       return null;
     }
 
@@ -2385,7 +2390,7 @@ export class HikvisionAttendanceSyncService {
     while (queue.length > 0) {
       const node = queue.shift();
       if (Array.isArray(node)) {
-        queue.push(...node);
+        queue.push(...(node as unknown[]));
         continue;
       }
 

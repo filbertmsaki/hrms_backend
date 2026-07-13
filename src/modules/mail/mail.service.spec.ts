@@ -55,7 +55,7 @@ describe('MailService', () => {
           leaveTypeName: 'Annual Leave',
           dashboardUrl: 'http://localhost:5173/leave/12',
           appName: 'HRMS',
-        }),
+        }) as unknown,
       }),
     );
   });
@@ -85,7 +85,7 @@ describe('MailService', () => {
           employeeName: 'Amina John',
           taskTitle: 'Prepare laptop',
           taskUrl: 'http://localhost:5173/onboarding/15/tasks',
-        }),
+        }) as unknown,
       }),
     );
   });
@@ -114,7 +114,7 @@ describe('MailService', () => {
           employeeName: 'Amina John',
           clearanceType: 'system_access',
           clearanceUrl: 'http://localhost:5173/offboarding/4/clearances',
-        }),
+        }) as unknown,
       }),
     );
   });

@@ -69,7 +69,9 @@ export default class AttendanceDevicesSeeder implements Seeder {
         );
       }
 
-      const branches = await branchRepo.find({ where: { company_id: company.id } });
+      const branches = await branchRepo.find({
+        where: { company_id: company.id },
+      });
       const branchMap = new Map(branches.map((b) => [b.code!, b]));
 
       for (const seed of DEVICE_SEEDS) {

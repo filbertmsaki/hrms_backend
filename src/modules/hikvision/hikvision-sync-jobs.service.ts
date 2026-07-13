@@ -102,7 +102,7 @@ export class HikvisionSyncJobsService {
           ? job.progress
           : (job.progress ?? null),
       data: job.data,
-      result: job.returnvalue ?? null,
+      result: (job.returnvalue as unknown) ?? null,
       failed_reason: job.failedReason || null,
       created_at: job.timestamp ? new Date(job.timestamp).toISOString() : null,
       processed_at: job.processedOn

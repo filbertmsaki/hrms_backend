@@ -94,7 +94,10 @@ export default class LeaveWorkflowsSeeder implements Seeder {
         });
 
         let step = await stepRepo.findOne({
-          where: { workflow_id: workflow.id, approval_level: seed.approvalLevel },
+          where: {
+            workflow_id: workflow.id,
+            approval_level: seed.approvalLevel,
+          },
         });
         if (!step) {
           step = stepRepo.create({

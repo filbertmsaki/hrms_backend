@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, QueryFailedError, Repository, SelectQueryBuilder } from 'typeorm';
+import { QueryFailedError, Repository, SelectQueryBuilder } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import {
@@ -229,12 +229,11 @@ export class AttendanceDailySummaryService {
     employeeDates: Array<{ employeeId: number; attendanceDate: string }>;
     refreshLeaveBalances?: boolean;
   }) {
-    const {
-      companyId,
-      employeeDates,
-      refreshLeaveBalances = true,
-    } = input;
-    const uniquePairs = new Map<string, { employeeId: number; attendanceDate: string }>();
+    const { companyId, employeeDates, refreshLeaveBalances = true } = input;
+    const uniquePairs = new Map<
+      string,
+      { employeeId: number; attendanceDate: string }
+    >();
 
     for (const employeeDate of employeeDates) {
       if (!employeeDate?.employeeId) {
@@ -437,11 +436,7 @@ export class AttendanceDailySummaryService {
       (left, right) => left.eventTime.getTime() - right.eventTime.getTime(),
     );
 
-    const punchAnalysis = this.preparePunches(
-      events,
-      schedule,
-      normalizedAttendanceDate,
-    );
+    const punchAnalysis = this.preparePunches(events, schedule);
     const effectiveBreakMinutes =
       punchAnalysis.breakMinutes > 0
         ? punchAnalysis.breakMinutes
@@ -511,7 +506,9 @@ export class AttendanceDailySummaryService {
         await this.refreshAttendanceAffectedLeaveBalances(
           companyId,
           employeeId,
-          this.leaveBalanceService.getFiscalYearFromDate(normalizedAttendanceDate),
+          this.leaveBalanceService.getFiscalYearFromDate(
+            normalizedAttendanceDate,
+          ),
           'Attendance summary removed after recalculation',
         );
       }
@@ -584,7 +581,9 @@ export class AttendanceDailySummaryService {
       await this.refreshAttendanceAffectedLeaveBalances(
         companyId,
         employeeId,
-        this.leaveBalanceService.getFiscalYearFromDate(normalizedAttendanceDate),
+        this.leaveBalanceService.getFiscalYearFromDate(
+          normalizedAttendanceDate,
+        ),
         'Attendance summary recalculated',
       );
     }
@@ -847,10 +846,7 @@ export class AttendanceDailySummaryService {
         employeeNumber: row.employeeNumber,
         attendanceDate: row.attendanceDate,
         shiftName: resolveReportLabel(row.shiftName, row.shiftCode),
-        timetableName: resolveReportLabel(
-          row.timetableName,
-          row.timetableCode,
-        ),
+        timetableName: resolveReportLabel(row.timetableName, row.timetableCode),
         attendanceStatus: row.attendanceStatus,
         checkInAt: row.checkInAt ? new Date(row.checkInAt) : null,
         checkOutAt: row.checkOutAt ? new Date(row.checkOutAt) : null,
@@ -1221,7 +1217,9 @@ export class AttendanceDailySummaryService {
 
     if (typeof upsertFn !== 'function') {
       return existing
-        ? await this.dailySummaryRepository.save(Object.assign(existing, payload))
+        ? await this.dailySummaryRepository.save(
+            Object.assign(existing, payload),
+          )
         : await this.dailySummaryRepository.save(
             this.dailySummaryRepository.create(payload),
           );
@@ -1297,7 +1295,7 @@ export class AttendanceDailySummaryService {
       .andWhere('event.employee_id = :employeeId', { employeeId })
       .andWhere('event.is_valid = :isValid', { isValid: true });
 
-    const window = this.buildEventWindow(schedule, attendanceDate);
+    const window = this.buildEventWindow(schedule);
     if (window) {
       qb.andWhere('event.event_time >= :windowStart', {
         windowStart: window.start,
@@ -1331,7 +1329,7 @@ export class AttendanceDailySummaryService {
         ],
       });
 
-    const window = this.buildEventWindow(schedule, attendanceDate);
+    const window = this.buildEventWindow(schedule);
     if (window) {
       qb.andWhere('punch.punch_time >= :windowStart', {
         windowStart: window.start,
@@ -1350,7 +1348,6 @@ export class AttendanceDailySummaryService {
 
   private buildEventWindow(
     schedule: ResolvedAttendanceSchedule,
-    attendanceDate: string,
   ): { start: Date; end: Date } | null {
     if (!schedule.scheduleStartAt || !schedule.scheduleEndAt) {
       return null;
@@ -1401,7 +1398,6 @@ export class AttendanceDailySummaryService {
   private preparePunches(
     events: AttendanceEventPoint[],
     schedule: ResolvedAttendanceSchedule,
-    attendanceDate: string,
   ): PreparedPunchAnalysis {
     const effectivePunches: AttendanceEventPoint[] = [];
     const duplicatePunches: AttendanceEventPoint[] = [];
@@ -1462,13 +1458,13 @@ export class AttendanceDailySummaryService {
       (event) => event.direction === AttendanceProcessedEventDirectionEnum.OUT,
     );
 
-    let checkInAt: Date | null = inPunches[0]?.eventTime ?? null;
+    const checkInAt: Date | null = inPunches[0]?.eventTime ?? null;
     let checkOutAt: Date | null = null;
     let hasSameTimeCheckInOut = false;
 
     if (checkInAt) {
       const validOutAfterCheckIn = outPunches.filter(
-        (event) => event.eventTime.getTime() > checkInAt!.getTime(),
+        (event) => event.eventTime.getTime() > checkInAt.getTime(),
       );
 
       checkOutAt =
@@ -1477,7 +1473,7 @@ export class AttendanceDailySummaryService {
           : null;
 
       const invalidOutBeforeCheckIn = outPunches.filter(
-        (event) => event.eventTime.getTime() <= checkInAt!.getTime(),
+        (event) => event.eventTime.getTime() <= checkInAt.getTime(),
       );
 
       invalidPunches.push(...invalidOutBeforeCheckIn);

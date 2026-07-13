@@ -12,24 +12,24 @@ import {
 export class CreateCompanyDto {
   @IsString()
   @IsNotEmpty()
-  @Transform(({ value }) => {
-    if (typeof value !== 'string') return value;
+  @Transform(({ value }: TransformFnParams): unknown => {
+    if (typeof value !== 'string') return value as unknown;
     return value.trim();
   })
   company_name: string;
 
   @IsString()
   @IsOptional()
-  @Transform(({ value }) => {
-    if (typeof value !== 'string') return value;
+  @Transform(({ value }: TransformFnParams): unknown => {
+    if (typeof value !== 'string') return value as unknown;
     return value.trim();
   })
   company_slug?: string;
 
   @IsString()
   @IsNotEmpty()
-  @Transform(({ value }) => {
-    if (typeof value !== 'string') return value;
+  @Transform(({ value }: TransformFnParams): unknown => {
+    if (typeof value !== 'string') return value as unknown;
     const trimmed = value.trim();
     return trimmed
       .split(/\s+/)
@@ -43,8 +43,8 @@ export class CreateCompanyDto {
 
   @IsString()
   @IsNotEmpty()
-  @Transform(({ value }) => {
-    if (typeof value !== 'string') return value;
+  @Transform(({ value }: TransformFnParams): unknown => {
+    if (typeof value !== 'string') return value as unknown;
     const trimmed = value.trim();
     return trimmed
       .split(/\s+/)
@@ -62,8 +62,8 @@ export class CreateCompanyDto {
 
   @IsString()
   @IsNotEmpty({ message: 'Administrator phone number is required' })
-  @Transform(({ value }: TransformFnParams) => {
-    if (typeof value !== 'string') return value;
+  @Transform(({ value }: TransformFnParams): unknown => {
+    if (typeof value !== 'string') return value as unknown;
     return value.replace(/\s+/g, '').trim();
   })
   @Matches(/^(0\d{9}|255\d{9}|\+255\d{9})$/, {

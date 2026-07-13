@@ -15,30 +15,28 @@ import { Employee } from '../../employees/entities/employee.entity';
 import { LeaveApprovalActionEnum } from '../enums/leave-approval-action.enum';
 import { LeaveApprovalStatusEnum } from '../enums/leave-approval-status.enum';
 import { LeaveApproverTypeEnum } from '../enums/leave-approver-type.enum';
-import { LeaveRecordStatusEnum } from '../enums/leave-record-status.enum';
 import { LeaveStatusEnum } from '../enums/leave-status.enum';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type MockRepo<T = any> = Record<string, jest.Mock>;
+type MockRepo = Record<string, jest.Mock>;
 
-const createRepositoryMock = <T>(): MockRepo<T> => ({
+const createRepositoryMock = (): MockRepo => ({
   findOne: jest.fn(),
   find: jest.fn(),
-  save: jest.fn(async (value) => value),
-  create: jest.fn((value) => value),
+  save: jest.fn((value: unknown) => Promise.resolve(value)),
+  create: jest.fn((value: unknown) => value),
 });
 
 describe('LeaveWorkflowService', () => {
   let service: LeaveWorkflowService;
-  let workflowRepository: MockRepo<LeaveApprovalWorkflow>;
-  let workflowStepRepository: MockRepo<LeaveApprovalWorkflowStep>;
-  let leaveRequestApprovalRepository: MockRepo<LeaveRequestApproval>;
-  let leaveRequestRepository: MockRepo<LeaveRequest>;
-  let companyUserRepository: MockRepo<CompanyUser>;
-  let companyUserRoleRepository: MockRepo<CompanyUserRole>;
-  let employeePositionRepository: MockRepo<EmployeePosition>;
-  let departmentRepository: MockRepo<Department>;
-  let employeeRepository: MockRepo<Employee>;
+  let workflowRepository: MockRepo;
+  let workflowStepRepository: MockRepo;
+  let leaveRequestApprovalRepository: MockRepo;
+  let leaveRequestRepository: MockRepo;
+  let companyUserRepository: MockRepo;
+  let companyUserRoleRepository: MockRepo;
+  let employeePositionRepository: MockRepo;
+  let departmentRepository: MockRepo;
+  let employeeRepository: MockRepo;
 
   const HR_ROLE_ID = 1;
   const COMPANY_ID = 10;
@@ -96,8 +94,8 @@ describe('LeaveWorkflowService', () => {
     departmentRepository = createRepositoryMock();
     employeeRepository = createRepositoryMock();
 
-    workflowRepository.findOne!.mockResolvedValue(buildWorkflow());
-    workflowStepRepository.find!.mockResolvedValue(buildSteps());
+    workflowRepository.findOne.mockResolvedValue(buildWorkflow());
+    workflowStepRepository.find.mockResolvedValue(buildSteps());
     companyUserRoleRepository.createQueryBuilder = jest
       .fn()
       .mockReturnValue(roleAssignmentQueryBuilder([77]));
@@ -119,12 +117,12 @@ describe('LeaveWorkflowService', () => {
 
   describe('initializeWorkflowForRequest', () => {
     it('creates a pending department-manager approval and sets PENDING_DEPARTMENT_MANAGER', async () => {
-      departmentRepository.findOne!.mockResolvedValue({
+      departmentRepository.findOne.mockResolvedValue({
         id: 2,
         company_id: COMPANY_ID,
         manager_employee_id: 900,
       });
-      employeeRepository.findOne!.mockResolvedValue({
+      employeeRepository.findOne.mockResolvedValue({
         id: 900,
         company_user_id: 12,
       });
@@ -158,7 +156,7 @@ describe('LeaveWorkflowService', () => {
     });
 
     it('skips to HR when the department has no configured manager', async () => {
-      departmentRepository.findOne!.mockResolvedValue({
+      departmentRepository.findOne.mockResolvedValue({
         id: 2,
         company_id: COMPANY_ID,
         manager_employee_id: null,
@@ -183,12 +181,12 @@ describe('LeaveWorkflowService', () => {
     });
 
     it('escalates to reports_to when the requester is the department manager', async () => {
-      departmentRepository.findOne!.mockResolvedValue({
+      departmentRepository.findOne.mockResolvedValue({
         id: 2,
         company_id: COMPANY_ID,
         manager_employee_id: 501,
       });
-      employeeRepository.findOne!.mockResolvedValue({
+      employeeRepository.findOne.mockResolvedValue({
         id: 800,
         company_user_id: 33,
       });
@@ -219,7 +217,7 @@ describe('LeaveWorkflowService', () => {
     });
 
     it('skips to HR when requester is department manager with no reports_to', async () => {
-      departmentRepository.findOne!.mockResolvedValue({
+      departmentRepository.findOne.mockResolvedValue({
         id: 2,
         company_id: COMPANY_ID,
         manager_employee_id: 501,
@@ -244,8 +242,8 @@ describe('LeaveWorkflowService', () => {
     });
 
     it('throws when the resolved workflow does not have exactly 2 steps', async () => {
-      workflowStepRepository.find!.mockResolvedValue([buildSteps()[0]]);
-      departmentRepository.findOne!.mockResolvedValue({
+      workflowStepRepository.find.mockResolvedValue([buildSteps()[0]]);
+      departmentRepository.findOne.mockResolvedValue({
         id: 2,
         company_id: COMPANY_ID,
         manager_employee_id: null,
@@ -281,7 +279,7 @@ describe('LeaveWorkflowService', () => {
     });
 
     beforeEach(() => {
-      leaveRequestRepository.findOne!.mockResolvedValue({
+      leaveRequestRepository.findOne.mockResolvedValue({
         id: 55,
         current_approval_level: 1,
         approval_cycle: 1,
@@ -291,23 +289,27 @@ describe('LeaveWorkflowService', () => {
     });
 
     it('moves PENDING_DEPARTMENT_MANAGER -> PENDING_HR on department-manager approve', async () => {
-      leaveRequestApprovalRepository.find!.mockResolvedValue([
-        buildApproval(),
-      ]);
-      leaveRequestRepository.findOne!.mockResolvedValueOnce({
-        id: 55,
-        current_approval_level: 1,
-        approval_cycle: 1,
-        status: LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
-        employee: { id: 501, company_user_id: 44 },
-      }).mockResolvedValueOnce({
-        id: 55,
-        employee: { first_name: 'A', last_name: 'B', company_user: { user: { email: 'a@b.com' } } },
-        leave_type: { name: 'Annual' },
-        status: LeaveStatusEnum.PENDING_HR,
-        current_approval_level: 2,
-        approval_cycle: 1,
-      });
+      leaveRequestApprovalRepository.find.mockResolvedValue([buildApproval()]);
+      leaveRequestRepository.findOne
+        .mockResolvedValueOnce({
+          id: 55,
+          current_approval_level: 1,
+          approval_cycle: 1,
+          status: LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
+          employee: { id: 501, company_user_id: 44 },
+        })
+        .mockResolvedValueOnce({
+          id: 55,
+          employee: {
+            first_name: 'A',
+            last_name: 'B',
+            company_user: { user: { email: 'a@b.com' } },
+          },
+          leave_type: { name: 'Annual' },
+          status: LeaveStatusEnum.PENDING_HR,
+          current_approval_level: 2,
+          approval_cycle: 1,
+        });
 
       const result = await service.applyApprovalAction(55, 12, {
         action: LeaveApprovalActionEnum.APPROVE,
@@ -318,7 +320,7 @@ describe('LeaveWorkflowService', () => {
     });
 
     it('rejects when the requester tries to approve their own request', async () => {
-      leaveRequestRepository.findOne!.mockResolvedValue({
+      leaveRequestRepository.findOne.mockResolvedValue({
         id: 55,
         current_approval_level: 1,
         approval_cycle: 1,
@@ -334,7 +336,7 @@ describe('LeaveWorkflowService', () => {
     });
 
     it('rejects acting on the HR step before department-manager approval', async () => {
-      leaveRequestApprovalRepository.find!.mockResolvedValue([]);
+      leaveRequestApprovalRepository.find.mockResolvedValue([]);
 
       await expect(
         service.applyApprovalAction(55, 77, {
@@ -344,7 +346,7 @@ describe('LeaveWorkflowService', () => {
     });
 
     it('rejects a second action on an already-decided step', async () => {
-      leaveRequestApprovalRepository.find!.mockResolvedValue([]);
+      leaveRequestApprovalRepository.find.mockResolvedValue([]);
 
       await expect(
         service.applyApprovalAction(55, 12, {
@@ -354,9 +356,7 @@ describe('LeaveWorkflowService', () => {
     });
 
     it('sets RETURNED_FOR_CORRECTION and returned_at/return_reason on return action', async () => {
-      leaveRequestApprovalRepository.find!.mockResolvedValue([
-        buildApproval(),
-      ]);
+      leaveRequestApprovalRepository.find.mockResolvedValue([buildApproval()]);
       const leaveRequest = {
         id: 55,
         current_approval_level: 1,
@@ -364,12 +364,18 @@ describe('LeaveWorkflowService', () => {
         status: LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
         employee: { id: 501, company_user_id: 44 },
       };
-      leaveRequestRepository.findOne!.mockResolvedValueOnce(leaveRequest).mockResolvedValueOnce({
-        ...leaveRequest,
-        employee: { first_name: 'A', last_name: 'B', company_user: { user: { email: 'a@b.com' } } },
-        leave_type: { name: 'Annual' },
-        return_reason: 'Missing attachment',
-      });
+      leaveRequestRepository.findOne
+        .mockResolvedValueOnce(leaveRequest)
+        .mockResolvedValueOnce({
+          ...leaveRequest,
+          employee: {
+            first_name: 'A',
+            last_name: 'B',
+            company_user: { user: { email: 'a@b.com' } },
+          },
+          leave_type: { name: 'Annual' },
+          return_reason: 'Missing attachment',
+        });
 
       const result = await service.applyApprovalAction(55, 12, {
         action: LeaveApprovalActionEnum.RETURN_FOR_CORRECTION,
@@ -382,9 +388,9 @@ describe('LeaveWorkflowService', () => {
     });
 
     it('sets REJECTED and rejection_reason on reject action', async () => {
-      leaveRequestApprovalRepository.find!.mockResolvedValueOnce([
-        buildApproval(),
-      ]).mockResolvedValueOnce([]);
+      leaveRequestApprovalRepository.find
+        .mockResolvedValueOnce([buildApproval()])
+        .mockResolvedValueOnce([]);
       const leaveRequest = {
         id: 55,
         current_approval_level: 1,
@@ -392,13 +398,19 @@ describe('LeaveWorkflowService', () => {
         status: LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
         employee: { id: 501, company_user_id: 44 },
       };
-      leaveRequestRepository.findOne!.mockResolvedValueOnce(leaveRequest).mockResolvedValueOnce({
-        ...leaveRequest,
-        employee: { first_name: 'A', last_name: 'B', company_user: { user: { email: 'a@b.com' } } },
-        leave_type: { name: 'Annual' },
-        status: LeaveStatusEnum.REJECTED,
-        rejection_reason: 'Not eligible',
-      });
+      leaveRequestRepository.findOne
+        .mockResolvedValueOnce(leaveRequest)
+        .mockResolvedValueOnce({
+          ...leaveRequest,
+          employee: {
+            first_name: 'A',
+            last_name: 'B',
+            company_user: { user: { email: 'a@b.com' } },
+          },
+          leave_type: { name: 'Annual' },
+          status: LeaveStatusEnum.REJECTED,
+          rejection_reason: 'Not eligible',
+        });
 
       const result = await service.applyApprovalAction(55, 12, {
         action: LeaveApprovalActionEnum.REJECT,

@@ -128,7 +128,11 @@ export class Shift {
   })
   holidayMultiplier: string;
 
-  @Column({ name: 'overtime_requires_approval', type: 'boolean', default: false })
+  @Column({
+    name: 'overtime_requires_approval',
+    type: 'boolean',
+    default: false,
+  })
   overtimeRequiresApproval: boolean;
 
   @Column({ name: 'overtime_auto_calculate', type: 'boolean', default: true })

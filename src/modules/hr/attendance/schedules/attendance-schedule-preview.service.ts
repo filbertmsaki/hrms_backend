@@ -72,10 +72,10 @@ export class AttendanceSchedulePreviewService {
         this.mapResolvedSchedule({
           resolved,
           shift: resolved.shiftId
-            ? shiftMap.get(resolved.shiftId) ?? null
+            ? (shiftMap.get(resolved.shiftId) ?? null)
             : null,
           timetable: resolved.timetableId
-            ? timetableMap.get(resolved.timetableId) ?? null
+            ? (timetableMap.get(resolved.timetableId) ?? null)
             : null,
           includePolicy: query.include_policy ?? false,
         }),
@@ -83,11 +83,7 @@ export class AttendanceSchedulePreviewService {
     };
   }
 
-  private validateDateRange(
-    fromDate: string,
-    toDate: string,
-    maxDays: number,
-  ) {
+  private validateDateRange(fromDate: string, toDate: string, maxDays: number) {
     if (toDate < fromDate) {
       throw new BadRequestException(
         'to_date cannot be earlier than from_date.',
@@ -171,9 +167,7 @@ export class AttendanceSchedulePreviewService {
       },
     });
 
-    return new Map(
-      timetables.map((timetable) => [timetable.id, timetable]),
-    );
+    return new Map(timetables.map((timetable) => [timetable.id, timetable]));
   }
 
   private mapResolvedSchedule(params: {
@@ -199,10 +193,7 @@ export class AttendanceSchedulePreviewService {
       holiday_id: resolved.holidayId,
       start_at: resolved.scheduleStartAt?.toISOString() ?? null,
       end_at: resolved.scheduleEndAt?.toISOString() ?? null,
-      start_time: this.extractTime(
-        resolved.scheduleStartAt,
-        resolved.timezone,
-      ),
+      start_time: this.extractTime(resolved.scheduleStartAt, resolved.timezone),
       end_time: this.extractTime(resolved.scheduleEndAt, resolved.timezone),
       shift: shift
         ? this.mapShift(shift)
@@ -246,8 +237,7 @@ export class AttendanceSchedulePreviewService {
             allow_early_checkin: resolved.allowEarlyCheckin,
             allow_late_checkout: resolved.allowLateCheckout,
             auto_absent_if_no_checkin: resolved.autoAbsentIfNoCheckin,
-            overtime_start_after_minutes:
-              resolved.overtimeStartAfterMinutes,
+            overtime_start_after_minutes: resolved.overtimeStartAfterMinutes,
             max_overtime_minutes: resolved.maxOvertimeMinutes,
             ignore_missing_checkout_if_hours_valid:
               resolved.ignoreMissingCheckoutIfHoursValid,

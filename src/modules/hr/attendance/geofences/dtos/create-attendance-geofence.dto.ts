@@ -31,19 +31,28 @@ export class CreateAttendanceGeofenceDto {
   @IsEnum(AttendanceGeofenceTypeEnum)
   type?: AttendanceGeofenceTypeEnum;
 
-  @ValidateIf((o) => !o.type || o.type === AttendanceGeofenceTypeEnum.CIRCLE)
+  @ValidateIf(
+    (o: CreateAttendanceGeofenceDto) =>
+      !o.type || o.type === AttendanceGeofenceTypeEnum.CIRCLE,
+  )
   @IsNumber()
   @Min(-90)
   @Max(90)
   latitude?: number;
 
-  @ValidateIf((o) => !o.type || o.type === AttendanceGeofenceTypeEnum.CIRCLE)
+  @ValidateIf(
+    (o: CreateAttendanceGeofenceDto) =>
+      !o.type || o.type === AttendanceGeofenceTypeEnum.CIRCLE,
+  )
   @IsNumber()
   @Min(-180)
   @Max(180)
   longitude?: number;
 
-  @ValidateIf((o) => !o.type || o.type === AttendanceGeofenceTypeEnum.CIRCLE)
+  @ValidateIf(
+    (o: CreateAttendanceGeofenceDto) =>
+      !o.type || o.type === AttendanceGeofenceTypeEnum.CIRCLE,
+  )
   @IsInt()
   @Min(5)
   radiusMeters?: number;
@@ -57,7 +66,10 @@ export class CreateAttendanceGeofenceDto {
   @IsBoolean()
   strictAccuracy?: boolean;
 
-  @ValidateIf((o) => o.type === AttendanceGeofenceTypeEnum.POLYGON)
+  @ValidateIf(
+    (o: CreateAttendanceGeofenceDto) =>
+      o.type === AttendanceGeofenceTypeEnum.POLYGON,
+  )
   @IsArray()
   polygonCoordinates?: Array<{
     latitude: number;

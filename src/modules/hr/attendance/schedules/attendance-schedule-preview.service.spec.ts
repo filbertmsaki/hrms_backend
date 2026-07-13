@@ -2,6 +2,8 @@ import { BadRequestException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { AttendanceScheduleResolverService } from '../processing/attendance-schedule-resolver.service';
 import { AttendanceSchedulePreviewService } from './attendance-schedule-preview.service';
+import { Shift } from '../shift/shifts/entities/shift.entity';
+import { Timetable } from '../timetable/timetables/entities/timetable.entity';
 
 describe('AttendanceSchedulePreviewService', () => {
   let service: AttendanceSchedulePreviewService;
@@ -28,8 +30,8 @@ describe('AttendanceSchedulePreviewService', () => {
 
     service = new AttendanceSchedulePreviewService(
       scheduleResolver as unknown as AttendanceScheduleResolverService,
-      shiftRepository as unknown as Repository<any>,
-      timetableRepository as unknown as Repository<any>,
+      shiftRepository as unknown as Repository<Shift>,
+      timetableRepository as unknown as Repository<Timetable>,
     );
   });
 

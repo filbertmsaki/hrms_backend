@@ -148,11 +148,12 @@ export class AttendanceMobilePunchRepository {
       where: [
         {
           isProcessed: false,
-          validationStatus: 'APPROVED' as any,
+          validationStatus: AttendancePunchValidationStatusEnum.APPROVED,
         },
         {
           isProcessed: false,
-          validationStatus: 'OVERRIDE_APPROVED' as any,
+          validationStatus:
+            AttendancePunchValidationStatusEnum.OVERRIDE_APPROVED,
         },
       ],
       order: {

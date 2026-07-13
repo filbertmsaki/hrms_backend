@@ -68,24 +68,20 @@ export class MailService {
     name: string,
     verificationLink: string,
   ): Promise<void> {
-    try {
-      await this.mailerService.sendMail({
-        to,
-        subject: 'Verify Your Email Address',
-        template: 'verification-email',
-        context: {
-          name: name || 'User',
-          verificationLink,
-          appName: this.configService.get<string>('APP_NAME') ?? 'Your App',
-          supportEmail:
-            this.configService.get<string>('SUPPORT_EMAIL') ??
-            'support@yourapp.co.tz',
-          year: new Date().getFullYear(),
-        },
-      });
-    } catch (error) {
-      throw error;
-    }
+    await this.mailerService.sendMail({
+      to,
+      subject: 'Verify Your Email Address',
+      template: 'verification-email',
+      context: {
+        name: name || 'User',
+        verificationLink,
+        appName: this.configService.get<string>('APP_NAME') ?? 'Your App',
+        supportEmail:
+          this.configService.get<string>('SUPPORT_EMAIL') ??
+          'support@yourapp.co.tz',
+        year: new Date().getFullYear(),
+      },
+    });
   }
 
   /**
@@ -381,7 +377,8 @@ export class MailService {
     return {
       appName: this.configService.get<string>('APP_NAME') ?? 'HRMS',
       supportEmail:
-        this.configService.get<string>('SUPPORT_EMAIL') ?? 'support@alliance.co.tz',
+        this.configService.get<string>('SUPPORT_EMAIL') ??
+        'support@alliance.co.tz',
       year: new Date().getFullYear(),
     };
   }

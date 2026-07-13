@@ -120,10 +120,17 @@ export function decryptDeviceSecret(value: string): string {
   const decipher = createDecipheriv('aes-256-gcm', getSecretKey(), iv);
   decipher.setAuthTag(authTag);
 
-  return Buffer.concat([
-    decipher.update(encrypted),
-    decipher.final(),
-  ]).toString('utf8');
+  return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString(
+    'utf8',
+  );
+}
+
+function safeStringify(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return '';
 }
 
 export function maskSecret(value: unknown): unknown {
@@ -131,7 +138,7 @@ export function maskSecret(value: unknown): unknown {
     return value;
   }
 
-  const text = String(value);
+  const text = safeStringify(value);
 
   if (!text) {
     return text;
@@ -149,7 +156,7 @@ export function maskCardValue(value: unknown): unknown {
     return value;
   }
 
-  const text = String(value).trim();
+  const text = safeStringify(value).trim();
 
   if (!text) {
     return text;
@@ -164,7 +171,7 @@ export function maskCardValue(value: unknown): unknown {
 
 export function maskSensitiveObject<T = unknown>(value: T): T {
   if (Array.isArray(value)) {
-    return value.map((item) => maskSensitiveObject(item)) as T;
+    return (value as unknown[]).map((item) => maskSensitiveObject(item)) as T;
   }
 
   if (!value || typeof value !== 'object') {

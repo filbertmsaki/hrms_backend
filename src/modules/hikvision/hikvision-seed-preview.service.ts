@@ -1,8 +1,4 @@
-import {
-  ForbiddenException,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -139,12 +135,19 @@ export class HikvisionSeedPreviewService {
       );
     }
 
-    await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, deviceId, true);
+    await this.hikvisionHelper.findHikvisionDeviceOrFail(
+      companyId,
+      deviceId,
+      true,
+    );
 
     const queriedAt = new Date().toISOString();
 
     // 1. Fetch all users from device (paginated)
-    const paginatedUsers = await this.paginateAllDeviceUsers(companyId, deviceId);
+    const paginatedUsers = await this.paginateAllDeviceUsers(
+      companyId,
+      deviceId,
+    );
     const deviceUsers = paginatedUsers.users;
 
     // 2. Filter by employee no range if provided
@@ -169,17 +172,17 @@ export class HikvisionSeedPreviewService {
     const fingerprintMap = await this.fetchFingerprintsForUsers(
       companyId,
       deviceId,
-      filtered.map((u) => String(u.employeeNo ?? '')),
+      filtered.map((u) => this.toSafeString(u.employeeNo ?? '')),
     );
 
     // 6. Classify each device user
     const users: HikvisionUserPreviewItem[] = [];
     for (const user of filtered) {
-      const employeeNo = String(user.employeeNo ?? '');
-      const name = user.name ? String(user.name) : null;
+      const employeeNo = this.toSafeString(user.employeeNo ?? '');
+      const name = user.name ? this.toSafeString(user.name) : null;
       const passwordConfigured = Boolean(user.password);
       const userVerifyMode = user.userVerifyMode
-        ? String(user.userVerifyMode)
+        ? this.toSafeString(user.userVerifyMode)
         : null;
       const validEnable = this.extractValidEnable(user);
 
@@ -269,11 +272,20 @@ export class HikvisionSeedPreviewService {
       );
     }
 
-    await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, deviceId, true);
+    await this.hikvisionHelper.findHikvisionDeviceOrFail(
+      companyId,
+      deviceId,
+      true,
+    );
 
     // ── 1. Fetch ALL users directly from the device (paginated) ─────────────
-    this.logger.log(`generateConstantsFromSync: fetching all users from device ${deviceId}`);
-    const paginatedUsers = await this.paginateAllDeviceUsers(companyId, deviceId);
+    this.logger.log(
+      `generateConstantsFromSync: fetching all users from device ${deviceId}`,
+    );
+    const paginatedUsers = await this.paginateAllDeviceUsers(
+      companyId,
+      deviceId,
+    );
     const deviceUsers = paginatedUsers.users;
     this.logger.log(
       `generateConstantsFromSync: fetched=${paginatedUsers.totalFetchedFromDevice}, unique=${paginatedUsers.totalUniqueUsers}, duplicatesSkipped=${paginatedUsers.duplicatesSkipped}`,
@@ -330,11 +342,13 @@ export class HikvisionSeedPreviewService {
     }
 
     // ── 3. Merge: device user list + DB enrichment ───────────────────────────
-    const existingNos = new Set(ALLIANCE_EMPLOYEES.map((e) => e.hikvisionEmployeeNo));
+    const existingNos = new Set(
+      ALLIANCE_EMPLOYEES.map((e) => e.hikvisionEmployeeNo),
+    );
 
     const entries: SyncedEmployeeConstantEntry[] = deviceUsers.map((u) => {
-      const employeeNo = String(u.employeeNo ?? '');
-      const deviceName = u.name ? String(u.name) : null;
+      const employeeNo = this.toSafeString(u.employeeNo ?? '');
+      const deviceName = u.name ? this.toSafeString(u.name) : null;
       const db = dbMap.get(employeeNo);
 
       // Prefer DB name (more reliable); fall back to device name
@@ -344,11 +358,15 @@ export class HikvisionSeedPreviewService {
 
       // Auto-generate email from name (same logic as seeder)
       const slug = (s: string) =>
-        s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+        s
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '');
       const parts = fullName.trim().split(/\s+/);
-      const autoEmail = parts.length > 1
-        ? `${slug(parts[0])}.${slug(parts.slice(1).join(' ')).replace(/-/g, '.')}@alliance.co.tz`
-        : `${slug(parts[0])}@alliance.co.tz`;
+      const autoEmail =
+        parts.length > 1
+          ? `${slug(parts[0])}.${slug(parts.slice(1).join(' ')).replace(/-/g, '.')}@alliance.co.tz`
+          : `${slug(parts[0])}@alliance.co.tz`;
 
       return {
         hikvisionEmployeeNo: employeeNo,
@@ -364,12 +382,14 @@ export class HikvisionSeedPreviewService {
     });
 
     // Sort by employeeNo ascending while preserving leading zeroes
-    entries.sort((a, b) => a.hikvisionEmployeeNo.localeCompare(b.hikvisionEmployeeNo));
+    entries.sort((a, b) =>
+      a.hikvisionEmployeeNo.localeCompare(b.hikvisionEmployeeNo),
+    );
 
     const newEntries = entries.filter(
       (entry) => !existingNos.has(entry.hikvisionEmployeeNo),
     );
-    const outputFile = await this.writeConstantsFile(
+    const outputFile = this.writeConstantsFile(
       entries,
       newEntries,
       existingNos,
@@ -405,10 +425,20 @@ export class HikvisionSeedPreviewService {
       );
     }
 
-    await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, deviceId, false);
+    await this.hikvisionHelper.findHikvisionDeviceOrFail(
+      companyId,
+      deviceId,
+      false,
+    );
 
     const constantsPath = path.resolve(
-      __dirname, '..', '..', '..', 'src', 'database', 'seeds',
+      __dirname,
+      '..',
+      '..',
+      '..',
+      'src',
+      'database',
+      'seeds',
       'company-structure.constants.ts',
     );
 
@@ -418,7 +448,10 @@ export class HikvisionSeedPreviewService {
     fs.writeFileSync(constantsPath + '.bak', original, 'utf-8');
 
     // Fetch all DB-synced employees for this device
-    const syncResult = await this.generateConstantsFromSync(companyId, deviceId);
+    const syncResult = await this.generateConstantsFromSync(
+      companyId,
+      deviceId,
+    );
 
     const existingNos = new Set(
       ALLIANCE_EMPLOYEES.map((employee) => employee.hikvisionEmployeeNo),
@@ -459,14 +492,17 @@ export class HikvisionSeedPreviewService {
         const fullName = e.fullName || 'Unknown Employee';
         // Only add email field if it differs from the auto-generated one
         const slug = (s: string) =>
-          s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+          s
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
         const parts = fullName.trim().split(/\s+/);
-        const autoEmail = parts.length > 1
-          ? `${slug(parts[0])}.${slug(parts.slice(1).join(' ')).replace(/-/g, '.')}@alliance.co.tz`
-          : `${slug(parts[0])}@alliance.co.tz`;
-        const emailPart = e.email && e.email !== autoEmail
-          ? `, email: '${e.email}'`
-          : '';
+        const autoEmail =
+          parts.length > 1
+            ? `${slug(parts[0])}.${slug(parts.slice(1).join(' ')).replace(/-/g, '.')}@alliance.co.tz`
+            : `${slug(parts[0])}@alliance.co.tz`;
+        const emailPart =
+          e.email && e.email !== autoEmail ? `, email: '${e.email}'` : '';
         return `  { hikvisionEmployeeNo: '${e.hikvisionEmployeeNo}', fullName: '${fullName}'${emailPart} },`;
       })
       .join('\n');
@@ -502,27 +538,21 @@ export class HikvisionSeedPreviewService {
     ) {
       throw new Error(
         `Array insertion marker not found in constants file. ` +
-        `Expected either employee 00000108 block or the end of ALLIANCE_HIKVISION_EMPLOYEES array`,
+          `Expected either employee 00000108 block or the end of ALLIANCE_HIKVISION_EMPLOYEES array`,
       );
     }
     if (!original.includes(ASSIGN_MARKER)) {
       throw new Error(
         `Assign insertion marker not found in constants file. ` +
-        `Expected line: ${ASSIGN_MARKER}`,
+          `Expected line: ${ASSIGN_MARKER}`,
       );
     }
 
     let updated = original;
     if (ARRAY_MARKER_REGEX.test(updated)) {
-      updated = updated.replace(
-        ARRAY_MARKER_REGEX,
-        `${arrayLines}\r\n$1`,
-      );
+      updated = updated.replace(ARRAY_MARKER_REGEX, `${arrayLines}\r\n$1`);
     } else {
-      updated = updated.replace(
-        ARRAY_FALLBACK_REGEX,
-        `${arrayLines}\r\n$1`,
-      );
+      updated = updated.replace(ARRAY_FALLBACK_REGEX, `${arrayLines}\r\n$1`);
     }
 
     updated = updated.replace(
@@ -548,19 +578,30 @@ export class HikvisionSeedPreviewService {
     };
   }
 
-  private async writeConstantsFile(
+  private writeConstantsFile(
     all: SyncedEmployeeConstantEntry[],
     newEntries: SyncedEmployeeConstantEntry[],
     existingNos: Set<string>,
-  ): Promise<string> {
-    const seedsDir = path.resolve(__dirname, '..', '..', '..', 'src', 'database', 'seeds');
+  ): string {
+    const seedsDir = path.resolve(
+      __dirname,
+      '..',
+      '..',
+      '..',
+      'src',
+      'database',
+      'seeds',
+    );
     const outPath = path.join(seedsDir, 'hikvision-device-sync.generated.ts');
 
     const formatEntry = (e: SyncedEmployeeConstantEntry, isNew: boolean) => {
-      const marker = isNew ? '// ⚠ NEW — not yet in ALLIANCE_HIKVISION_EMPLOYEES' : '// already in constants';
-      const fpNote = e.fingerprintCount > 0
-        ? `fingerprints: ${e.fingerprintCount}`
-        : 'no fingerprints';
+      const marker = isNew
+        ? '// ⚠ NEW — not yet in ALLIANCE_HIKVISION_EMPLOYEES'
+        : '// already in constants';
+      const fpNote =
+        e.fingerprintCount > 0
+          ? `fingerprints: ${e.fingerprintCount}`
+          : 'no fingerprints';
       const pinNote = e.hasPin ? 'has PIN' : 'no PIN';
       return (
         `  ${marker}\n` +
@@ -600,13 +641,18 @@ export class HikvisionSeedPreviewService {
       `//          Department/position codes pulled from DB; verify before merging`,
       `// ════════════════════════════════════════════════════════════════════════`,
       `// function body additions:`,
-      ...all.map((e) => `//   ${formatAssign(e, !existingNos.has(e.hikvisionEmployeeNo))}`),
+      ...all.map(
+        (e) =>
+          `//   ${formatAssign(e, !existingNos.has(e.hikvisionEmployeeNo))}`,
+      ),
       ``,
       `export {}; // keeps TypeScript happy`,
     ];
 
     fs.writeFileSync(outPath, lines.join('\n'), 'utf-8');
-    this.logger.log(`Constants file written: ${outPath} (${all.length} employees, ${newEntries.length} new)`);
+    this.logger.log(
+      `Constants file written: ${outPath} (${all.length} employees, ${newEntries.length} new)`,
+    );
     return outPath;
   }
 
@@ -629,7 +675,7 @@ export class HikvisionSeedPreviewService {
       `Seed preview user query started for device ${deviceId}: searchId=${searchId}, startPosition=${position}, maxResults=${PAGE_SIZE}`,
     );
 
-    do {
+    for (;;) {
       if (seenPositions.has(position)) {
         this.logger.warn(
           `Seed preview user query detected repeated searchResultPosition=${position} for device ${deviceId}; stopping to prevent an infinite loop`,
@@ -656,7 +702,8 @@ export class HikvisionSeedPreviewService {
       const root = this.toObject(
         parsed.UserInfoSearch ?? parsed.UserInfoSearchResult ?? parsed,
       );
-      const userList = root.UserInfo ?? root.UserInfoList ?? root.userInfoList ?? [];
+      const userList =
+        root.UserInfo ?? root.UserInfoList ?? root.userInfoList ?? [];
       const users = Array.isArray(userList)
         ? userList.map((u) => this.toObject(u))
         : userList && typeof userList === 'object'
@@ -664,11 +711,9 @@ export class HikvisionSeedPreviewService {
           : [];
 
       rawUsers.push(...users);
-      const responseStatusStrg = String(
+      const responseStatusStrg = this.toSafeString(
         root.responseStatusStrg ?? root.responseStatus ?? 'OK',
-      )
-        .trim()
-        .toUpperCase();
+      ).toUpperCase();
       const currentSearchPosition = this.toSafeNumber(
         root.searchResultPosition,
         position,
@@ -731,7 +776,7 @@ export class HikvisionSeedPreviewService {
 
       position = nextPosition;
       page += 1;
-    } while (true);
+    }
 
     this.logger.log(
       `Seed preview user query completed for device ${deviceId}: totalFetched=${totalFetchedFromDevice}, totalUniqueUsers=${uniqueUsers.size}, duplicatesSkipped=${duplicatesSkipped}`,
@@ -753,7 +798,7 @@ export class HikvisionSeedPreviewService {
   ): Record<string, unknown>[] {
     if (!from && !to) return users;
     return users.filter((u) => {
-      const no = String(u.employeeNo ?? '');
+      const no = this.toSafeString(u.employeeNo ?? '');
       if (from && no < from) return false;
       if (to && no > to) return false;
       return true;
@@ -783,7 +828,10 @@ export class HikvisionSeedPreviewService {
     try {
       const payload = {
         CardInfoSearchCond: {
-          searchID: buildAttendanceDeviceSearchId('seed-preview-cards', deviceId),
+          searchID: buildAttendanceDeviceSearchId(
+            'seed-preview-cards',
+            deviceId,
+          ),
           searchResultPosition: 0,
           maxResults: 1000,
         },
@@ -805,8 +853,8 @@ export class HikvisionSeedPreviewService {
         : [];
 
       for (const card of cards) {
-        const empNo = String(card.employeeNo ?? '');
-        const cardNo = String(card.cardNo ?? '');
+        const empNo = this.toSafeString(card.employeeNo ?? '');
+        const cardNo = this.toSafeString(card.cardNo ?? '');
         if (empNo && cardNo) {
           map.set(empNo, cardNo);
         }
@@ -904,12 +952,24 @@ export class HikvisionSeedPreviewService {
         payload,
       );
 
-      const raw = JSON.stringify(response?.parsed ?? response ?? {}).toLowerCase();
+      const raw = JSON.stringify(
+        response?.parsed ?? response ?? {},
+      ).toLowerCase();
 
       const negativeMarkers = [
-        'notsupport', 'notexist', 'not exist', 'notfound', 'not found',
-        'norecord', 'no record', 'nodata', 'no data', 'nomatch', 'no match',
-        'no fingerprint', 'fingerprint not found',
+        'notsupport',
+        'notexist',
+        'not exist',
+        'notfound',
+        'not found',
+        'norecord',
+        'no record',
+        'nodata',
+        'no data',
+        'nomatch',
+        'no match',
+        'no fingerprint',
+        'fingerprint not found',
       ];
       if (negativeMarkers.some((m) => raw.includes(m))) return false;
 
@@ -940,10 +1000,7 @@ export class HikvisionSeedPreviewService {
     if (
       seederEntry &&
       name &&
-      !this.namesMatch(
-        name,
-        `${seederEntry.firstName} ${seederEntry.lastName}`,
-      )
+      !this.namesMatch(name, `${seederEntry.firstName} ${seederEntry.lastName}`)
     ) {
       return 'AMEND';
     }
@@ -952,7 +1009,8 @@ export class HikvisionSeedPreviewService {
   }
 
   private namesMatch(a: string, b: string): boolean {
-    const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+    const normalize = (s: string) =>
+      s.toLowerCase().replace(/\s+/g, ' ').trim();
     return normalize(a) === normalize(b);
   }
 
@@ -966,7 +1024,8 @@ export class HikvisionSeedPreviewService {
       _suggestedDepartment: 'REVIEW_REQUIRED',
       _suggestedPositionCode: 'REVIEW_REQUIRED',
       _suggestedReportsToEmployeeNo: null,
-      _action: 'Use WRITE_TO_CONSTANTS action to persist into company-structure.constants.ts',
+      _action:
+        'Use WRITE_TO_CONSTANTS action to persist into company-structure.constants.ts',
     };
   }
 
@@ -1062,8 +1121,23 @@ export class HikvisionSeedPreviewService {
     return {};
   }
 
+  private toSafeString(value: unknown): string {
+    if (value === null || value === undefined) {
+      return '';
+    }
+    if (
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean' ||
+      typeof value === 'bigint'
+    ) {
+      return String(value).trim();
+    }
+    return JSON.stringify(value).trim();
+  }
+
   private toNullableString(value: unknown): string | null {
-    const normalized = String(value ?? '').trim();
+    const normalized = this.toSafeString(value ?? '');
     return normalized.length > 0 ? normalized : null;
   }
 
@@ -1280,7 +1354,10 @@ export class HikvisionSeedPreviewService {
 
   private buildDefaultEmail(firstName: string, lastName: string): string {
     const slug = (value: string) =>
-      value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      value
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
 
     return `${slug(firstName)}.${slug(lastName).replace(/-/g, '.')}@alliance.co.tz`;
   }
@@ -1297,7 +1374,11 @@ export class HikvisionSeedPreviewService {
     userId: number | null;
   } | null> {
     const [byIdentity] = await em.query<
-      { employeeId: number | null; companyUserId: number | null; userId: number | null }[]
+      {
+        employeeId: number | null;
+        companyUserId: number | null;
+        userId: number | null;
+      }[]
     >(
       `SELECT
          e.id AS "employeeId",
@@ -1317,7 +1398,11 @@ export class HikvisionSeedPreviewService {
     }
 
     const [byEmployeeNo] = await em.query<
-      { employeeId: number | null; companyUserId: number | null; userId: number | null }[]
+      {
+        employeeId: number | null;
+        companyUserId: number | null;
+        userId: number | null;
+      }[]
     >(
       `SELECT
          e.id AS "employeeId",
@@ -1335,7 +1420,11 @@ export class HikvisionSeedPreviewService {
     }
 
     const [byEmail] = await em.query<
-      { employeeId: number | null; companyUserId: number | null; userId: number | null }[]
+      {
+        employeeId: number | null;
+        companyUserId: number | null;
+        userId: number | null;
+      }[]
     >(
       `SELECT
          e.id AS "employeeId",
@@ -1385,7 +1474,8 @@ export class HikvisionSeedPreviewService {
 
     const nextFirstName =
       this.toNullableString(user.firstName) ?? profile.firstName;
-    const nextLastName = this.toNullableString(user.lastName) ?? profile.lastName;
+    const nextLastName =
+      this.toNullableString(user.lastName) ?? profile.lastName;
     const nextPhone = this.toNullableString(user.phone) ?? profile.phone;
 
     const changed =
@@ -1464,7 +1554,8 @@ export class HikvisionSeedPreviewService {
       nextFirstName !== this.toNullableString(employee.firstName) ||
       nextLastName !== this.toNullableString(employee.lastName) ||
       nextDepartmentId !== employee.primaryDepartmentId ||
-      JSON.stringify(nextMetadata) !== JSON.stringify(employee.metadata ?? null);
+      JSON.stringify(nextMetadata) !==
+        JSON.stringify(employee.metadata ?? null);
 
     if (!changed) {
       return false;
@@ -1491,9 +1582,7 @@ export class HikvisionSeedPreviewService {
     return true;
   }
 
-  private async writeGeneratedFile(
-    missing: HikvisionUserPreviewItem[],
-  ): Promise<string> {
+  private writeGeneratedFile(missing: HikvisionUserPreviewItem[]): string {
     const seedsDir = path.resolve(
       __dirname,
       '..',
@@ -1503,7 +1592,10 @@ export class HikvisionSeedPreviewService {
       'database',
       'seeds',
     );
-    const outPath = path.join(seedsDir, 'hikvision-import-preview.generated.ts');
+    const outPath = path.join(
+      seedsDir,
+      'hikvision-import-preview.generated.ts',
+    );
 
     const hikvisionLines = missing
       .map(

@@ -132,7 +132,9 @@ describe('AttendanceProcessingCronService', () => {
     reconciliationRawLogBuilder.getRawMany.mockResolvedValue([
       { companyId: '1' },
     ]);
-    timetableAssignmentBuilder.getRawMany.mockResolvedValue([{ companyId: '2' }]);
+    timetableAssignmentBuilder.getRawMany.mockResolvedValue([
+      { companyId: '2' },
+    ]);
     shiftAssignmentBuilder.getRawMany.mockResolvedValue([]);
     shiftScheduleBuilder.getRawMany.mockResolvedValue([]);
     defaultTimetableBuilder.getRawMany.mockResolvedValue([]);
@@ -174,21 +176,21 @@ describe('AttendanceProcessingCronService', () => {
       1,
       '2026-06-22',
     );
-    expect(dailySummaryService.rebuildSummariesForEmployeeDates).toHaveBeenCalledWith(
-      {
-        companyId: 1,
-        employeeDates: [
-          {
-            employeeId: 7,
-            attendanceDate: '2026-06-22',
-          },
-          {
-            employeeId: 7,
-            attendanceDate: '2026-06-22',
-          },
-        ],
-      },
-    );
+    expect(
+      dailySummaryService.rebuildSummariesForEmployeeDates,
+    ).toHaveBeenCalledWith({
+      companyId: 1,
+      employeeDates: [
+        {
+          employeeId: 7,
+          attendanceDate: '2026-06-22',
+        },
+        {
+          employeeId: 7,
+          attendanceDate: '2026-06-22',
+        },
+      ],
+    });
     expect(mobilePunchRepository.update).toHaveBeenCalledWith([11, 12], {
       isProcessed: true,
     });
@@ -203,7 +205,9 @@ describe('AttendanceProcessingCronService', () => {
   it('falls back to scheduled reconciliation for companies without active attendance policies', async () => {
     pendingRawLogBuilder.getRawMany.mockResolvedValue([]);
     reconciliationRawLogBuilder.getRawMany.mockResolvedValue([]);
-    timetableAssignmentBuilder.getRawMany.mockResolvedValue([{ companyId: '2' }]);
+    timetableAssignmentBuilder.getRawMany.mockResolvedValue([
+      { companyId: '2' },
+    ]);
     shiftAssignmentBuilder.getRawMany.mockResolvedValue([]);
     shiftScheduleBuilder.getRawMany.mockResolvedValue([]);
     defaultTimetableBuilder.getRawMany.mockResolvedValue([]);

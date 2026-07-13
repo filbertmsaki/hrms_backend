@@ -11,18 +11,18 @@ import { MailService } from './mail.service';
     MailerModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: async (config: ConfigService) => ({
+      useFactory: (config: ConfigService) => ({
         transport: {
-          host: config.get('MAIL_HOST'),
-          port: Number(config.get('MAIL_PORT')),
-          secure: config.get('MAIL_SECURE') === 'true', // true for 465, false for 587
+          host: config.get<string>('MAIL_HOST'),
+          port: Number(config.get<string>('MAIL_PORT')),
+          secure: config.get<string>('MAIL_SECURE') === 'true', // true for 465, false for 587
           auth: {
-            user: config.get('MAIL_USER'),
-            pass: config.get('MAIL_PASS'),
+            user: config.get<string>('MAIL_USER'),
+            pass: config.get<string>('MAIL_PASS'),
           },
         },
         defaults: {
-          from: `"${config.get('APP_NAME')}" <${config.get('MAIL_FROM')}>`,
+          from: `"${config.get<string>('APP_NAME')}" <${config.get<string>('MAIL_FROM')}>`,
         },
         template: {
           dir: join(__dirname, 'templates'),

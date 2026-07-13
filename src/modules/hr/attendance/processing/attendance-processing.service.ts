@@ -503,9 +503,7 @@ export class AttendanceProcessingService {
     const err = error as QueryFailedError & { code?: string; errno?: number };
     // PostgreSQL unique violation: 23505; MySQL duplicate entry: ER_DUP_ENTRY / 1062
     return (
-      err.code === '23505' ||
-      err.code === 'ER_DUP_ENTRY' ||
-      err.errno === 1062
+      err.code === '23505' || err.code === 'ER_DUP_ENTRY' || err.errno === 1062
     );
   }
 }

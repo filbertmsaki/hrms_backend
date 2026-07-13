@@ -28,13 +28,16 @@ import { Seeder, SeederFactoryManager } from 'typeorm-extension';
 //   DELETE FROM shift_assignments WHERE company_id = <company_id>;
 
 export default class ShiftAssignmentsSeeder implements Seeder {
-  public async run(
-    _dataSource: DataSource,
-    _factoryManager: SeederFactoryManager,
+  public run(
+    dataSource: DataSource,
+    factoryManager: SeederFactoryManager,
   ): Promise<void> {
+    void dataSource;
+    void factoryManager;
     console.log(
       '[Seeder][ShiftAssignments] Skipped — Alliance Company uses timetable-based scheduling. ' +
-      'See 017-timetables.seed.ts.',
+        'See 017-timetables.seed.ts.',
     );
+    return Promise.resolve();
   }
 }

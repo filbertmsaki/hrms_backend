@@ -54,7 +54,7 @@ export default class LeaveBalancesSeeder implements Seeder {
         qr.manager.getRepository(Employee),
         qr.manager.getRepository(AttendanceDailySummary),
         qr.manager.getRepository(LeaveBalanceAdjustment),
-        { log: async () => undefined } as unknown as LeaveAuditService,
+        { log: () => undefined } as unknown as LeaveAuditService,
       );
 
       const fiscalYear = leaveBalanceService.normalizeFiscalYear(
@@ -62,12 +62,13 @@ export default class LeaveBalancesSeeder implements Seeder {
           String(new Date().getUTCFullYear()),
       );
 
-      const generationResult = await leaveBalanceService.generateBalancesForCompany(
-        company.id,
-        fiscalYear,
-        {},
-        qr.manager,
-      );
+      const generationResult =
+        await leaveBalanceService.generateBalancesForCompany(
+          company.id,
+          fiscalYear,
+          {},
+          qr.manager,
+        );
 
       const balances = await balanceRepo.find({
         where: {
@@ -95,9 +96,8 @@ export default class LeaveBalancesSeeder implements Seeder {
         });
 
         if (!transaction) {
-          const availableDays = leaveBalanceService.calculateAvailableDays(
-            seededBalance,
-          );
+          const availableDays =
+            leaveBalanceService.calculateAvailableDays(seededBalance);
 
           transaction = await transactionRepo.save(
             transactionRepo.create({

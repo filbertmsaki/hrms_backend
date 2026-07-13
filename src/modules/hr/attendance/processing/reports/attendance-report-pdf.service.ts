@@ -61,7 +61,7 @@ export class AttendanceReportPdfService {
     let cursorY = this.drawPageHeader(document, context, true);
     let rowIndex = 0;
 
-    await readRows(async (rows) => {
+    await readRows((rows) => {
       for (const row of rows) {
         const cellValues = [
           row.employeeName,
@@ -84,6 +84,8 @@ export class AttendanceReportPdfService {
         cursorY += rowHeight;
         rowIndex += 1;
       }
+
+      return Promise.resolve();
     });
 
     if (rowIndex === 0) {
@@ -132,35 +134,40 @@ export class AttendanceReportPdfService {
     cursorY = document.y + 2;
 
     document.font('Helvetica').fontSize(9);
-    document.text(`Reporting Period: ${context.reportingPeriodLabel}`, left, cursorY);
+    document.text(
+      `Reporting Period: ${context.reportingPeriodLabel}`,
+      left,
+      cursorY,
+    );
     cursorY = document.y + 2;
-    document.text(`Generated At: ${context.generatedAt.toISOString()}`, left, cursorY);
+    document.text(
+      `Generated At: ${context.generatedAt.toISOString()}`,
+      left,
+      cursorY,
+    );
     cursorY = document.y + 12;
 
     return this.drawTableHeader(document, cursorY);
   }
 
-  private drawTableHeader(
-    document: PDFKit.PDFDocument,
-    y: number,
-  ): number {
+  private drawTableHeader(document: PDFKit.PDFDocument, y: number): number {
     const left = document.page.margins.left;
     const widths = this.resolveColumnWidths(document);
     const headerHeight = 24;
 
     document.save();
-    document.rect(left, y, this.contentWidth(document), headerHeight).fill('#e2e8f0');
+    document
+      .rect(left, y, this.contentWidth(document), headerHeight)
+      .fill('#e2e8f0');
     document.restore();
 
     let x = left;
     document.font('Helvetica-Bold').fontSize(8);
     this.columns.forEach((column, index) => {
-      document
-        .fillColor('#0f172a')
-        .text(column.label, x + 4, y + 7, {
-          width: widths[index] - 8,
-          align: 'left',
-        });
+      document.fillColor('#0f172a').text(column.label, x + 4, y + 7, {
+        width: widths[index] - 8,
+        align: 'left',
+      });
       x += widths[index];
     });
 

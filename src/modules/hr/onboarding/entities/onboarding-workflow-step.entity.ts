@@ -17,7 +17,10 @@ import { OnboardingTask } from './onboarding-task.entity';
 import { OnboardingWorkflow } from './onboarding-workflow.entity';
 
 @Entity('onboarding_workflow_steps')
-@Unique('UQ_onboarding_workflow_step_workflow_order', ['workflow_id', 'step_order'])
+@Unique('UQ_onboarding_workflow_step_workflow_order', [
+  'workflow_id',
+  'step_order',
+])
 @Index('IDX_onboarding_workflow_step_workflow', ['workflow_id'])
 @Index('IDX_onboarding_workflow_step_role', ['assigned_role_id'])
 @Index('IDX_onboarding_workflow_step_user', ['assigned_user_id'])

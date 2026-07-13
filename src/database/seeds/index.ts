@@ -17,10 +17,6 @@ import DepartmentsSeeder from './008-departments.seed';
 import DesignationsSeeder from './009-designations.seed';
 import PositionsSeeder from './010-positions.seed';
 
-// Phase 4 — Employees (Hikvision import)
-import EmployeesSeeder from './011-employees.seed';
-import EmployeeProfilesSeeder from './012-employee-profiles.seed';
-
 // Phase 4b — Department Employees (structured onboarding seed)
 import ExecEmployeesSeeder from './027-exec-employees.seed';
 import HrEmployeesSeeder from './028-hr-employees.seed';

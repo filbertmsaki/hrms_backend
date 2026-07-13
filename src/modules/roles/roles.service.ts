@@ -5,10 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
-import {
-  PaginationDto,
-  SortDirection,
-} from '../../common/dto/pagination.dto';
+import { PaginationDto, SortDirection } from '../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import {
   assertCanManageScopedRbacRecord,
@@ -313,8 +310,7 @@ export class RolesService {
       updated_at: 'user.updated_at',
     };
 
-    const safeSortColumn =
-      sortColumnMap[sortBy] ?? sortColumnMap.assigned_at;
+    const safeSortColumn = sortColumnMap[sortBy] ?? sortColumnMap.assigned_at;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
     qb.orderBy(safeSortColumn, direction).addOrderBy('assignment.id', 'DESC');
@@ -364,7 +360,9 @@ export class RolesService {
     });
 
     if (!membership) {
-      throw new NotFoundException('User is not an active member of this company');
+      throw new NotFoundException(
+        'User is not an active member of this company',
+      );
     }
 
     let assignment = await this.companyUserRoleRepository.findOne({
@@ -431,7 +429,9 @@ export class RolesService {
     });
 
     if (!membership) {
-      throw new NotFoundException('User is not an active member of this company');
+      throw new NotFoundException(
+        'User is not an active member of this company',
+      );
     }
 
     await this.companyUserRoleRepository.delete({

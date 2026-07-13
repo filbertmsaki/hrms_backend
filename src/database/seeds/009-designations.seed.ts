@@ -64,7 +64,8 @@ const DESIGNATION_SEEDS: DesignationSeed[] = [
     hierarchyLevel: 2,
     gradeLevel: 2,
     isManagerial: false,
-    description: 'Experienced individual contributors with specialist expertise.',
+    description:
+      'Experienced individual contributors with specialist expertise.',
   },
   {
     code: 'OFFICER',

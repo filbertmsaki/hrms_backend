@@ -329,7 +329,10 @@ export class LeaveService {
       });
 
       for (const employee of directReports) {
-        if (employee.company_user?.company_id !== companyId || seen.has(employee.id)) {
+        if (
+          employee.company_user?.company_id !== companyId ||
+          seen.has(employee.id)
+        ) {
           continue;
         }
 
@@ -347,7 +350,11 @@ export class LeaveService {
     actor: AuthenticatedUser,
   ): Promise<number[] | null> {
     if (typeof requestedEmployeeId === 'number') {
-      await this.assertCanAccessEmployeeById(companyId, requestedEmployeeId, actor);
+      await this.assertCanAccessEmployeeById(
+        companyId,
+        requestedEmployeeId,
+        actor,
+      );
       return [requestedEmployeeId];
     }
 
@@ -368,7 +375,8 @@ export class LeaveService {
         'leave_balances:read',
       ])
     ) {
-      const branchIds = (await this.hrAccessService.getAccessibleBranchIds(actor)) ?? [];
+      const branchIds =
+        (await this.hrAccessService.getAccessibleBranchIds(actor)) ?? [];
       if (
         actor.roles.includes('BRANCH_MANAGER') &&
         typeof employee.primary_branch_id === 'number'
@@ -523,7 +531,9 @@ export class LeaveService {
     const attendanceHolidaysQuery = this.attendanceHolidayRepository
       .createQueryBuilder('holiday')
       .where('holiday.company_id = :companyId', { companyId })
-      .andWhere('holiday.date >= :startDate', { startDate: normalizedStartDate })
+      .andWhere('holiday.date >= :startDate', {
+        startDate: normalizedStartDate,
+      })
       .andWhere('holiday.date <= :endDate', { endDate: normalizedEndDate });
 
     if (branchId === null) {
@@ -2574,9 +2584,8 @@ export class LeaveService {
       actor,
     );
 
-    const [items, total] = await this.leaveBalanceLedgerService.findTransactions(
-      companyId,
-      {
+    const [items, total] =
+      await this.leaveBalanceLedgerService.findTransactions(companyId, {
         employeeIds: scopedEmployeeIds,
         employeeId: employee_id,
         leaveTypeId: leave_type_id,
@@ -2585,8 +2594,7 @@ export class LeaveService {
         transactionType: transaction_type,
         page,
         limit,
-      },
-    );
+      });
 
     if (typeof employee_id === 'number') {
       await this.assertCanAccessEmployeeById(companyId, employee_id, actor);
@@ -2616,17 +2624,15 @@ export class LeaveService {
       actor,
     );
 
-    const [items, total] = await this.leaveBalanceService.findBalanceAdjustments(
-      companyId,
-      {
+    const [items, total] =
+      await this.leaveBalanceService.findBalanceAdjustments(companyId, {
         employeeIds: scopedEmployeeIds,
         employeeId: employee_id,
         leaveTypeId: leave_type_id,
         fiscalYear: fiscal_year,
         page,
         limit,
-      },
-    );
+      });
 
     return {
       data: items.map((item) => this.mapLeaveBalanceAdjustment(item)),
@@ -2644,7 +2650,10 @@ export class LeaveService {
       this.leaveBalanceService.getFiscalYearFromDate(new Date());
 
     if (typeof dto.employee_id === 'number') {
-      const employee = await this.findEmployeeOrFail(companyId, dto.employee_id);
+      const employee = await this.findEmployeeOrFail(
+        companyId,
+        dto.employee_id,
+      );
       await this.hrAccessService.assertCanAccessEmployee(actor, employee);
     }
 
@@ -2727,9 +2736,10 @@ export class LeaveService {
     );
 
     if (
-      leaveType.gender_restriction !== 'any' &&
+      leaveType.gender_restriction !== LeaveGenderRestrictionEnum.ANY &&
       employee.gender &&
-      employee.gender.toLowerCase() !== leaveType.gender_restriction
+      (employee.gender.toLowerCase() as LeaveGenderRestrictionEnum) !==
+        leaveType.gender_restriction
     ) {
       throw new BadRequestException(
         `Leave type is restricted to ${leaveType.gender_restriction}`,
@@ -2910,9 +2920,9 @@ export class LeaveService {
     );
 
     if (
-      leaveType.gender_restriction !== 'any' &&
+      leaveType.gender_restriction !== LeaveGenderRestrictionEnum.ANY &&
       leaveRequest.employee.gender &&
-      leaveRequest.employee.gender.toLowerCase() !==
+      (leaveRequest.employee.gender.toLowerCase() as LeaveGenderRestrictionEnum) !==
         leaveType.gender_restriction
     ) {
       throw new BadRequestException(
@@ -3441,7 +3451,8 @@ export class LeaveService {
             days: totalDays,
             leaveRequestId: leaveRequest.id,
             createdByCompanyUserId: membershipId,
-            reason: 'Leave request returned for correction and reserved days released',
+            reason:
+              'Leave request returned for correction and reserved days released',
             metadata: {
               leave_request_status: LeaveStatusEnum.RETURNED_FOR_CORRECTION,
             },
@@ -3539,11 +3550,12 @@ export class LeaveService {
         },
         relations: { approver: { user: true } },
       });
-    const pendingApprovers: NotificationRecipient[] = pendingApprovals
-      .flatMap((approval) => {
+    const pendingApprovers: NotificationRecipient[] = pendingApprovals.flatMap(
+      (approval) => {
         const recipient = buildNotificationRecipient(approval.approver?.user);
         return recipient ? [recipient] : [];
-      });
+      },
+    );
 
     const cancelled = await this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(LeaveRequest);
@@ -3883,13 +3895,14 @@ export class LeaveService {
             status: LeaveApprovalStatusEnum.PENDING,
           },
           relations: { approver: { user: true } },
-      });
+        });
 
-      const approvers: NotificationRecipient[] = initialApprovals
-        .flatMap((approval) => {
+      const approvers: NotificationRecipient[] = initialApprovals.flatMap(
+        (approval) => {
           const recipient = buildNotificationRecipient(approval.approver?.user);
           return recipient ? [recipient] : [];
-        });
+        },
+      );
 
       if (!approvers.length) return;
 
@@ -3916,7 +3929,7 @@ export class LeaveService {
           `${frontendUrl}/leave/${leaveRequest.id}/review`,
         ),
       );
-    } catch (err) {
+    } catch {
       // never block submit on notification failure
     }
   }
@@ -3943,7 +3956,7 @@ export class LeaveService {
           pendingApprovers,
         ),
       );
-    } catch (err) {
+    } catch {
       // never block cancel on notification failure
     }
   }

@@ -117,7 +117,10 @@ export class HikvisionService {
     id: number,
     dto: UpdateHikvisionDeviceDto,
   ) {
-    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, id);
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(
+      companyId,
+      id,
+    );
 
     if (dto.branch_id !== undefined) {
       await this.ensureBranch(companyId, dto.branch_id);
@@ -197,7 +200,10 @@ export class HikvisionService {
     companyId: number,
     id: number,
   ): Promise<{ message: string }> {
-    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, id);
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(
+      companyId,
+      id,
+    );
     await this.deviceRepository.softRemove(device);
     return { message: 'Hikvision device deleted successfully' };
   }
@@ -237,13 +243,18 @@ export class HikvisionService {
   }
 
   async getDevice(companyId: number, id: number) {
-    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, id);
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(
+      companyId,
+      id,
+    );
     return this.mapDevice(device);
   }
 
   async testDeviceConnection(companyId: number, id: number) {
-    const device =
-      await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, id);
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(
+      companyId,
+      id,
+    );
     const credentials = this.buildCredentialsFromDevice(device);
     const startedAt = Date.now();
 
@@ -367,7 +378,7 @@ export class HikvisionService {
           latency_ms: result.latencyMs,
           message: result.success
             ? 'Hikvision connection test succeeded.'
-            : result.errorMessage ?? 'Hikvision connection test failed.',
+            : (result.errorMessage ?? 'Hikvision connection test failed.'),
         },
       },
       hikvision: {
@@ -376,7 +387,7 @@ export class HikvisionService {
         last_connection_test_success: result.success,
         last_connection_test_error: result.success
           ? null
-          : result.errorMessage ?? 'Unknown error',
+          : (result.errorMessage ?? 'Unknown error'),
         last_connection_test_capabilities: result.capabilities ?? undefined,
         last_connection_test_device_info: result.deviceInfo ?? undefined,
       },
@@ -384,7 +395,10 @@ export class HikvisionService {
   }
 
   async syncDevice(companyId: number, id: number) {
-    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, id);
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(
+      companyId,
+      id,
+    );
     try {
       const snapshot = await this.fetchSnapshot(
         this.buildCredentialsFromDevice(device),
@@ -590,72 +604,72 @@ export class HikvisionService {
       {
         key: 'deviceName',
         getCurrent: () => device.deviceName,
-        setCurrent: async (value: string) => {
+        setCurrent: (value: string) => {
           device.deviceName = value;
-          return true;
+          return Promise.resolve(true);
         },
         label: 'device_name',
       },
       {
         key: 'deviceSerialNumber',
         getCurrent: () => device.deviceSerialNumber,
-        setCurrent: async (value: string) => {
+        setCurrent: (value: string) => {
           device.deviceSerialNumber = value;
-          return true;
+          return Promise.resolve(true);
         },
         label: 'device_serial_number',
       },
       {
         key: 'deviceModel',
         getCurrent: () => device.deviceModel,
-        setCurrent: async (value: string) => {
+        setCurrent: (value: string) => {
           device.deviceModel = value;
-          return true;
+          return Promise.resolve(true);
         },
         label: 'device_model',
       },
       {
         key: 'firmwareVersion',
         getCurrent: () => device.firmwareVersion,
-        setCurrent: async (value: string) => {
+        setCurrent: (value: string) => {
           device.firmwareVersion = value;
-          return true;
+          return Promise.resolve(true);
         },
         label: 'firmware_version',
       },
       {
         key: 'macAddress',
         getCurrent: () => device.macAddress,
-        setCurrent: async (value: string) => {
+        setCurrent: (value: string) => {
           device.macAddress = value;
-          return true;
+          return Promise.resolve(true);
         },
         label: 'mac_address',
       },
       {
         key: 'deviceType',
         getCurrent: () => device.deviceType,
-        setCurrent: async (value: string) => {
+        setCurrent: (value: string) => {
           device.deviceType = value;
-          return true;
+          return Promise.resolve(true);
         },
         label: 'device_type',
       },
       {
         key: 'timezone',
         getCurrent: () => device.timezone,
-        setCurrent: async (value: string) => {
+        setCurrent: (value: string) => {
           device.timezone = value;
-          return true;
+          return Promise.resolve(true);
         },
         label: 'timezone',
       },
       {
         key: 'vendorName',
         getCurrent: () => device.vendorName,
-        setCurrent: async (value: string) => {
+        setCurrent: (value: string) => {
           device.vendorName = value;
-          return true;
+          return Promise.resolve(true);
         },
         label: 'vendor_name',
       },
@@ -1128,9 +1142,18 @@ export class HikvisionService {
             valueRoot.options,
             valueRoot.option,
           ]
-            .map((item) =>
-              item === null || item === undefined ? '' : String(item).trim(),
-            )
+            .map((item) => {
+              if (item === null || item === undefined) {
+                return '';
+              }
+              const stringValue =
+                typeof item === 'string' ||
+                typeof item === 'number' ||
+                typeof item === 'boolean'
+                  ? String(item)
+                  : JSON.stringify(item);
+              return stringValue.trim();
+            })
             .find((item) => item.length > 0);
 
           if (raw) {

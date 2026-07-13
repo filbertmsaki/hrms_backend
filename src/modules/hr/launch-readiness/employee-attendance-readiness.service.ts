@@ -103,7 +103,11 @@ export class EmployeeAttendanceReadinessService {
   ): Promise<EmployeeAttendanceReadinessItem | null> {
     const hasCompanyDefaultTimetable = await this.timetableRepo
       .count({
-        where: { companyId, isDefault: true, status: TimetableStatusEnum.ACTIVE },
+        where: {
+          companyId,
+          isDefault: true,
+          status: TimetableStatusEnum.ACTIVE,
+        },
       })
       .then((n) => n > 0);
 
@@ -128,14 +132,19 @@ export class EmployeeAttendanceReadinessService {
     if (!emp) return null;
 
     const ids = [employeeId];
-    const [activeTimetable, activeShift, deviceAssigned, fingerprint, cardOrPin] =
-      await Promise.all([
-        this.getEmployeesWithActiveTimetable(companyId, ids),
-        this.getEmployeesWithActiveShift(companyId, ids),
-        this.getEmployeesWithDeviceAssignment(companyId, ids),
-        this.getEmployeesWithFingerprint(companyId, ids),
-        this.getEmployeesWithCardOrPin(companyId, ids),
-      ]);
+    const [
+      activeTimetable,
+      activeShift,
+      deviceAssigned,
+      fingerprint,
+      cardOrPin,
+    ] = await Promise.all([
+      this.getEmployeesWithActiveTimetable(companyId, ids),
+      this.getEmployeesWithActiveShift(companyId, ids),
+      this.getEmployeesWithDeviceAssignment(companyId, ids),
+      this.getEmployeesWithFingerprint(companyId, ids),
+      this.getEmployeesWithCardOrPin(companyId, ids),
+    ]);
 
     const cu = emp.company_user as CompanyUser & { user: User };
     const user = cu?.user;
@@ -148,7 +157,8 @@ export class EmployeeAttendanceReadinessService {
       hasActiveUser: cu?.status === 'active',
       hasBranch: emp.primary_branch_id != null,
       hasDepartment: emp.primary_department_id != null,
-      hasTimetable: activeTimetable.has(employeeId) || hasCompanyDefaultTimetable,
+      hasTimetable:
+        activeTimetable.has(employeeId) || hasCompanyDefaultTimetable,
       hasShift:
         activeShift.has(employeeId) ||
         activeTimetable.has(employeeId) ||
@@ -181,7 +191,11 @@ export class EmployeeAttendanceReadinessService {
   async check(companyId: number): Promise<EmployeeAttendanceReadinessReport> {
     const hasCompanyDefaultTimetable = await this.timetableRepo
       .count({
-        where: { companyId, isDefault: true, status: TimetableStatusEnum.ACTIVE },
+        where: {
+          companyId,
+          isDefault: true,
+          status: TimetableStatusEnum.ACTIVE,
+        },
       })
       .then((n) => n > 0);
 
@@ -278,9 +292,7 @@ export class EmployeeAttendanceReadinessService {
       readyCount: ready.length,
       notReadyCount: notReady.length,
       readinessPercentage:
-        items.length > 0
-          ? Math.round((ready.length / items.length) * 100)
-          : 0,
+        items.length > 0 ? Math.round((ready.length / items.length) * 100) : 0,
       missingTimetable: items.filter((i) => !i.checks.hasTimetable).length,
       missingShift: items.filter((i) => !i.checks.hasShift).length,
       missingDevice: items.filter((i) => !i.checks.hasDeviceAssignment).length,
@@ -402,7 +414,8 @@ export class EmployeeAttendanceReadinessService {
     if (!checks.hasDepartment) issues.push('No department assigned');
     if (!checks.hasTimetable) issues.push('No timetable assigned or available');
     if (!checks.hasShift) issues.push('No shift resolved for this employee');
-    if (!checks.hasDeviceAssignment) issues.push('No attendance device assigned');
+    if (!checks.hasDeviceAssignment)
+      issues.push('No attendance device assigned');
     if (!checks.hasFingerprint) issues.push('No active fingerprint registered');
     return issues;
   }

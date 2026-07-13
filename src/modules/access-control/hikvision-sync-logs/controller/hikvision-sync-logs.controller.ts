@@ -31,7 +31,10 @@ export class HikvisionSyncLogsController {
   @Get('hikvision-sync-logs')
   @UseGuards(PermissionsGuard)
   @Permissions('access_control_sync:execute')
-  @ApiListOperation('Hikvision Sync Logs', 'List Hikvision device sync operation logs')
+  @ApiListOperation(
+    'Hikvision Sync Logs',
+    'List Hikvision device sync operation logs',
+  )
   findAll(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: QueryHikvisionSyncLogDto,
@@ -42,7 +45,10 @@ export class HikvisionSyncLogsController {
   @Get('hikvision-sync-logs/:id')
   @UseGuards(PermissionsGuard)
   @Permissions('access_control_sync:execute')
-  @ApiGetOneOperation('Hikvision Sync Log', 'Get one Hikvision sync operation log')
+  @ApiGetOneOperation(
+    'Hikvision Sync Log',
+    'Get one Hikvision sync operation log',
+  )
   findOne(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,

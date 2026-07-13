@@ -52,7 +52,8 @@ export class LeaveBalanceLedgerService {
     manager?: EntityManager,
   ): Repository<LeaveBalanceTransaction> {
     return (
-      manager?.getRepository(LeaveBalanceTransaction) ?? this.transactionRepository
+      manager?.getRepository(LeaveBalanceTransaction) ??
+      this.transactionRepository
     );
   }
 
@@ -66,7 +67,8 @@ export class LeaveBalanceLedgerService {
     manager?: EntityManager,
   ): Repository<LeaveBalanceAdjustment> {
     return (
-      manager?.getRepository(LeaveBalanceAdjustment) ?? this.adjustmentRepository
+      manager?.getRepository(LeaveBalanceAdjustment) ??
+      this.adjustmentRepository
     );
   }
 
@@ -120,7 +122,8 @@ export class LeaveBalanceLedgerService {
   ): void {
     const bounds = this.getLeaveYearBounds(leaveYear);
     balance.company_id = companyId;
-    balance.leave_year_start_date = balance.leave_year_start_date ?? bounds.startDate;
+    balance.leave_year_start_date =
+      balance.leave_year_start_date ?? bounds.startDate;
     balance.leave_year_end_date = balance.leave_year_end_date ?? bounds.endDate;
     balance.generated_at = balance.generated_at ?? new Date();
     balance.version = (balance.version ?? 1) + 1;
@@ -131,9 +134,8 @@ export class LeaveBalanceLedgerService {
       error instanceof QueryFailedError &&
       typeof (error as QueryFailedError & { driverError?: { code?: string } })
         .driverError?.code === 'string' &&
-      (
-        error as QueryFailedError & { driverError?: { code?: string } }
-      ).driverError?.code === '23505'
+      (error as QueryFailedError & { driverError?: { code?: string } })
+        .driverError?.code === '23505'
     );
   }
 
@@ -313,7 +315,10 @@ export class LeaveBalanceLedgerService {
     manager?: EntityManager,
   ): Promise<LedgerMutationResult> {
     const previousPendingDays = this.toNumber(balance.pending_days);
-    const releasableDays = Math.min(previousPendingDays, Math.max(0, params.days));
+    const releasableDays = Math.min(
+      previousPendingDays,
+      Math.max(0, params.days),
+    );
 
     return this.createTransaction(
       {
@@ -354,7 +359,10 @@ export class LeaveBalanceLedgerService {
     manager?: EntityManager,
   ): Promise<LedgerMutationResult> {
     const previousPendingDays = this.toNumber(balance.pending_days);
-    const consumedPendingDays = Math.min(previousPendingDays, Math.max(0, params.days));
+    const consumedPendingDays = Math.min(
+      previousPendingDays,
+      Math.max(0, params.days),
+    );
 
     return this.createTransaction(
       {
@@ -472,9 +480,13 @@ export class LeaveBalanceLedgerService {
       return result;
     }
 
-    balance.adjusted_days = this.toDecimal(this.toNumber(balance.adjusted_days) + delta);
+    balance.adjusted_days = this.toDecimal(
+      this.toNumber(balance.adjusted_days) + delta,
+    );
     result.balance.adjusted_days = balance.adjusted_days;
-    result.balance = await this.getBalanceRepository(manager).save(result.balance);
+    result.balance = await this.getBalanceRepository(manager).save(
+      result.balance,
+    );
 
     const nextAvailableDays = this.calculateAvailableDays(result.balance);
     const adjustment = await this.getAdjustmentRepository(manager).save(

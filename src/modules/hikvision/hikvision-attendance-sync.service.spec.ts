@@ -19,8 +19,44 @@ import { HikvisionAccessControlService } from './hikvision-access-control.servic
 import { HikvisionHelperService } from './helpers/hikvision-helper.service';
 import { HikvisionSyncJobData } from './hikvision-sync-job.constants';
 
+interface HikvisionAttendanceSyncServiceInternals {
+  isValidPunchEvent(event: Record<string, unknown>): boolean;
+  buildAttendanceEventKey(
+    deviceId: number,
+    employeeNoString: string,
+    time: Date,
+    major: number,
+    minor: number,
+    serialNo: string | null,
+    door: number,
+  ): string;
+  buildAttendanceSyncQueueJobId(
+    syncJobId: number,
+    companyId: number,
+    deviceId: number,
+    createdAt: Date,
+  ): string;
+  doesQueueJobMatchAttendanceSyncRecord(
+    syncJob: HikvisionAttendanceSyncJob,
+    queueData: HikvisionSyncJobData,
+  ): boolean;
+  syncByCondition(
+    companyId: number,
+    device: AttendanceDevice,
+    condition: Record<string, unknown>,
+    options: Record<string, unknown>,
+  ): Promise<{
+    totalMatches: number;
+    totalFetched: number;
+    inserted: number;
+    duplicatesSkipped: number;
+    status: string;
+  }>;
+}
+
 describe('HikvisionAttendanceSyncService', () => {
   let service: HikvisionAttendanceSyncService;
+  let internals: HikvisionAttendanceSyncServiceInternals;
 
   beforeEach(() => {
     service = new HikvisionAttendanceSyncService(
@@ -30,14 +66,15 @@ describe('HikvisionAttendanceSyncService', () => {
       {} as Repository<AttendanceRecalculationJob>,
       {} as Repository<HikvisionAttendanceSyncJob>,
       {} as Repository<HikvisionSyncLog>,
-      {} as Queue,
+      {} as Queue<HikvisionSyncJobData>,
       {} as HikvisionAccessControlService,
       {} as HikvisionHelperService,
     );
+    internals = service as unknown as HikvisionAttendanceSyncServiceInternals;
   });
 
   it('skips anonymous unknown attendance events', () => {
-    const result = (service as any).isValidPunchEvent({
+    const result = internals.isValidPunchEvent({
       major: 5,
       minor: 21,
       time: '2026-06-26T12:03:16+03:00',
@@ -54,7 +91,7 @@ describe('HikvisionAttendanceSyncService', () => {
   });
 
   it('keeps employee-identified attendance events even when the minor code is uncommon', () => {
-    const result = (service as any).isValidPunchEvent({
+    const result = internals.isValidPunchEvent({
       major: 5,
       minor: 21,
       time: '2026-06-26T12:03:16+03:00',
@@ -65,7 +102,7 @@ describe('HikvisionAttendanceSyncService', () => {
   });
 
   it('keeps supported attendance minor codes', () => {
-    const result = (service as any).isValidPunchEvent({
+    const result = internals.isValidPunchEvent({
       major: 5,
       minor: 38,
       time: '2026-06-26T11:27:28+03:00',
@@ -75,7 +112,7 @@ describe('HikvisionAttendanceSyncService', () => {
   });
 
   it('builds the preferred dedupe key from device id and serial number', () => {
-    const result = (service as any).buildAttendanceEventKey(
+    const result = internals.buildAttendanceEventKey(
       12,
       '00000001',
       new Date('2026-05-25T08:30:00+03:00'),
@@ -89,7 +126,7 @@ describe('HikvisionAttendanceSyncService', () => {
   });
 
   it('falls back to device, employee, time, major, minor, and door for dedupe when serial number is missing', () => {
-    const result = (service as any).buildAttendanceEventKey(
+    const result = internals.buildAttendanceEventKey(
       12,
       '00000001',
       new Date('2026-05-25T08:30:00+03:00'),
@@ -105,7 +142,7 @@ describe('HikvisionAttendanceSyncService', () => {
   });
 
   it('builds queue job ids with the sync job timestamp to avoid collisions after database resets', () => {
-    const result = (service as any).buildAttendanceSyncQueueJobId(
+    const result = internals.buildAttendanceSyncQueueJobId(
       1,
       1,
       2,
@@ -140,7 +177,7 @@ describe('HikvisionAttendanceSyncService', () => {
       attendanceMaxResults: 3,
     };
 
-    const result = (service as any).doesQueueJobMatchAttendanceSyncRecord(
+    const result = internals.doesQueueJobMatchAttendanceSyncRecord(
       syncJob,
       queueData,
     );
@@ -169,7 +206,11 @@ describe('HikvisionAttendanceSyncService', () => {
     jest
       .spyOn(service as any, 'requestAcsEventsWithRetry')
       .mockImplementation(
-        async (_companyId: number, _deviceId: number, payload: any) => {
+        (
+          _companyId: number,
+          _deviceId: number,
+          payload: { AcsEventCond: { searchResultPosition: number } },
+        ) => {
           requestedPositions.push(payload.AcsEventCond.searchResultPosition);
 
           const position = payload.AcsEventCond.searchResultPosition;
@@ -232,7 +273,7 @@ describe('HikvisionAttendanceSyncService', () => {
     jest
       .spyOn(service as any, 'persistAttendanceEvents')
       .mockImplementation(
-        async (
+        (
           _device: AttendanceDevice,
           events: Array<Record<string, unknown>>,
         ) => ({
@@ -256,7 +297,7 @@ describe('HikvisionAttendanceSyncService', () => {
       .spyOn(service as any, 'queueAttendanceProcessingRecalculation')
       .mockResolvedValue(undefined);
 
-    const result = await (service as any).syncByCondition(
+    const result = await internals.syncByCondition(
       7,
       device,
       {

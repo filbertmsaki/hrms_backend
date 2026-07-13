@@ -385,8 +385,10 @@ export class AccessControlAttendanceDevicesService {
     const startedAt = Date.now();
 
     try {
-      const syncResult =
-        await this.deviceManagementHikvisionService.syncDevice(companyId, id);
+      const syncResult = await this.deviceManagementHikvisionService.syncDevice(
+        companyId,
+        id,
+      );
 
       const refreshed = await this.findOrFail(companyId, id);
 

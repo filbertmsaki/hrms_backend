@@ -1,9 +1,5 @@
 import { createCipheriv, createHash, randomBytes } from 'crypto';
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { buildAttendanceDeviceSearchId } from '../access-control/attendance-devices/utils/attendance-device-search-id.util';
@@ -152,7 +148,10 @@ export class HikvisionPeopleCredentialSyncService {
     companyId: number,
     deviceId: number,
   ): Promise<SyncUsersResult> {
-    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, deviceId);
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(
+      companyId,
+      deviceId,
+    );
     const startedAt = new Date();
     const counters = this.createCounters();
     const syncedUsers: SyncedUserRef[] = [];
@@ -394,7 +393,10 @@ export class HikvisionPeopleCredentialSyncService {
     deviceId: number,
     employeeNo: string,
   ): Promise<SyncFingerprintsResult> {
-    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, deviceId);
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(
+      companyId,
+      deviceId,
+    );
     const counters = this.createCounters();
     const startedAt = new Date();
     const normalizedEmployeeNo = this.normalizeEmployeeNo(employeeNo);
@@ -616,7 +618,10 @@ export class HikvisionPeopleCredentialSyncService {
     companyId: number,
     deviceId: number,
   ): Promise<SyncCardsResult> {
-    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, deviceId);
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(
+      companyId,
+      deviceId,
+    );
     const startedAt = new Date();
     const counters = this.createCounters();
     const pageSize = DEFAULT_DEVICE_SYNC_PAGE_SIZE;
@@ -745,7 +750,10 @@ export class HikvisionPeopleCredentialSyncService {
 
   async syncUsersFingerprintsAndCards(companyId: number, deviceId: number) {
     const startedAt = new Date();
-    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, deviceId);
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(
+      companyId,
+      deviceId,
+    );
     const users = await this.syncUsers(companyId, device.id);
     const zeroFingerprints: SyncFingerprintsResult = {
       deviceId: device.id,
@@ -1291,14 +1299,11 @@ export class HikvisionPeopleCredentialSyncService {
     const employeeNo = this.normalizeEmployeeNo(
       raw.employeeNo ?? fallbackEmployeeNo,
     );
-    const fingerData = toNullableString(
-      raw.fingerData ?? raw.fingerprintData,
-    );
+    const fingerData = toNullableString(raw.fingerData ?? raw.fingerprintData);
     return {
       employeeNo,
       fingerprintId,
-      cardReaderNo:
-        toNullableNumber(raw.cardReaderNo) ?? fallbackCardReaderNo,
+      cardReaderNo: toNullableNumber(raw.cardReaderNo) ?? fallbackCardReaderNo,
       fingerType: toNullableString(raw.fingerType),
       leaderCard: toNullableString(raw.leaderCard),
       fingerprintHash: fingerData
@@ -1361,7 +1366,10 @@ export class HikvisionPeopleCredentialSyncService {
         ? new Date(assignment.lastSyncedAt)
         : null,
       metadata: assignment.metadata
-        ? JSON.parse(JSON.stringify(assignment.metadata))
+        ? (JSON.parse(JSON.stringify(assignment.metadata)) as Record<
+            string,
+            unknown
+          >)
         : null,
     });
   }
@@ -1372,7 +1380,7 @@ export class HikvisionPeopleCredentialSyncService {
     return this.employeeDeviceRightPlanRepository.create({
       ...plan,
       metadata: plan.metadata
-        ? JSON.parse(JSON.stringify(plan.metadata))
+        ? (JSON.parse(JSON.stringify(plan.metadata)) as Record<string, unknown>)
         : null,
     });
   }
@@ -1386,7 +1394,10 @@ export class HikvisionPeopleCredentialSyncService {
         ? new Date(credential.lastSyncedAt)
         : null,
       metadata: credential.metadata
-        ? JSON.parse(JSON.stringify(credential.metadata))
+        ? (JSON.parse(JSON.stringify(credential.metadata)) as Record<
+            string,
+            unknown
+          >)
         : null,
     });
   }
@@ -1617,7 +1628,7 @@ export class HikvisionPeopleCredentialSyncService {
     while (queue.length > 0) {
       const current = queue.shift();
       if (Array.isArray(current)) {
-        queue.push(...current);
+        queue.push(...(current as unknown[]));
         continue;
       }
       if (!current || typeof current !== 'object') {
@@ -1627,7 +1638,10 @@ export class HikvisionPeopleCredentialSyncService {
       const record = current as Record<string, unknown>;
       for (const [key, value] of Object.entries(record)) {
         if (wanted.has(key.toLowerCase())) {
-          const normalized = String(value ?? '').trim();
+          const normalized =
+            typeof value === 'string' || typeof value === 'number'
+              ? String(value).trim()
+              : '';
           if (normalized) {
             return normalized;
           }
@@ -1844,9 +1858,7 @@ export class HikvisionPeopleCredentialSyncService {
   ): Record<string, unknown> {
     return this.maskSensitivePayload({
       ...payload,
-      password: toNullableString(payload.password)
-        ? '***MASKED***'
-        : undefined,
+      password: toNullableString(payload.password) ? '***MASKED***' : undefined,
     });
   }
 
@@ -1922,7 +1934,11 @@ export class HikvisionPeopleCredentialSyncService {
     if (typeof value === 'boolean') {
       return value;
     }
-    const normalized = String(value ?? '')
+    const normalized = (
+      typeof value === 'string' || typeof value === 'number'
+        ? String(value)
+        : ''
+    )
       .trim()
       .toLowerCase();
     return normalized === 'true' || normalized === '1';
@@ -1961,7 +1977,6 @@ export class HikvisionPeopleCredentialSyncService {
     }
     return `${'*'.repeat(Math.max(value.length - 4, 0))}${value.slice(-4)}`;
   }
-
 }
 
 const rawOr = <T>(value: T | null | undefined, fallback: T): T =>

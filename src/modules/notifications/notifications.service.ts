@@ -47,7 +47,8 @@ export class NotificationsService {
         company_id: input.company_id,
         sender_company_user_id: input.sender_company_user_id ?? null,
         receiver_company_user_id: input.receiver_company_user_id,
-        type: (input.type ?? NotificationTypeEnum.GENERAL) as NotificationTypeEnum,
+        type: (input.type ??
+          NotificationTypeEnum.GENERAL) as NotificationTypeEnum,
         title: input.title,
         message: input.message,
         entity_type: input.entity_type ?? null,

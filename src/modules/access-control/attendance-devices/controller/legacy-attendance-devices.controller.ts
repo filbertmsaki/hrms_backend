@@ -150,10 +150,7 @@ export class AttendanceDevicesController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.attendanceDevicesService.getSyncStatus(
-      req.user.companyId!,
-      id,
-    );
+    return this.attendanceDevicesService.getSyncStatus(req.user.companyId!, id);
   }
 
   @Delete(':id')

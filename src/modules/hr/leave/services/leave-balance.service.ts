@@ -10,7 +10,6 @@ import { Employee } from '../../employees/entities/employee.entity';
 import { EmploymentStatusEnum } from '../../employees/enums/employment-status.enum';
 import { AttendanceDailySummary } from '../../attendance/processing/entities/attendance-daily-summary.entity';
 import { AttendanceDailyStatusEnum } from '../../attendance/processing/enums/attendance-daily-status.enum';
-import { LeaveApprovalStatusEnum } from '../enums/leave-approval-status.enum';
 import { LeaveBalanceAdjustmentModeEnum } from '../enums/leave-balance-adjustment-mode.enum';
 import { LeaveBalanceAdjustmentSourceEnum } from '../enums/leave-balance-adjustment-source.enum';
 import { LeaveRecordStatusEnum } from '../enums/leave-record-status.enum';
@@ -423,15 +422,14 @@ export class LeaveBalanceService {
       normalizedFiscalYear,
       manager,
     );
-    const attendanceDeductionDays =
-      await this.calculateAttendanceDeductionDays(
-        companyId,
-        employee.id,
-        leaveType,
-        normalizedFiscalYear,
-        assignment,
-        manager,
-      );
+    const attendanceDeductionDays = await this.calculateAttendanceDeductionDays(
+      companyId,
+      employee.id,
+      leaveType,
+      normalizedFiscalYear,
+      assignment,
+      manager,
+    );
 
     balance.allocated_days = this.toDecimal(entitlementDays);
     balance.company_id = companyId;
@@ -440,7 +438,8 @@ export class LeaveBalanceService {
     balance.accrued_days = this.toDecimal(entitlementDays);
     balance.used_days = this.toDecimal(usage.usedDays);
     balance.pending_days = this.toDecimal(usage.pendingDays);
-    balance.approved_future_days = balance.approved_future_days ?? this.toDecimal(0);
+    balance.approved_future_days =
+      balance.approved_future_days ?? this.toDecimal(0);
     balance.carried_forward_days = this.toDecimal(carriedForwardDays);
     balance.expired_days = balance.expired_days ?? this.toDecimal(0);
     balance.adjusted_days = balance.adjusted_days ?? this.toDecimal(0);
@@ -544,17 +543,18 @@ export class LeaveBalanceService {
     const normalizedFiscalYear = this.normalizeFiscalYear(fiscalYear);
     const employeeRepository = this.getEmployeeRepository(manager);
 
-    const employees = typeof options.employeeId === 'number'
-      ? await employeeRepository.find({
-          where: { id: options.employeeId },
-          relations: { company_user: true },
-        })
-      : await employeeRepository.find({
-          where: {
-            employment_status: EmploymentStatusEnum.ACTIVE,
-          },
-          relations: { company_user: true },
-        });
+    const employees =
+      typeof options.employeeId === 'number'
+        ? await employeeRepository.find({
+            where: { id: options.employeeId },
+            relations: { company_user: true },
+          })
+        : await employeeRepository.find({
+            where: {
+              employment_status: EmploymentStatusEnum.ACTIVE,
+            },
+            relations: { company_user: true },
+          });
 
     const scopedEmployees = employees.filter(
       (employee) => employee.company_user?.company_id === companyId,

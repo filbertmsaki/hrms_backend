@@ -62,21 +62,6 @@ type EmployeeProfileShape = {
   [key: string]: unknown;
 };
 
-type UserProfileShape = {
-  id?: number;
-  status?: string;
-  roles?: Array<{ id?: number; name?: string; display_name?: string }>;
-  permissions?: Array<{ id?: number; name?: string; display_name?: string }>;
-  active_company?: {
-    id: number;
-    name: string;
-    slug: string;
-    status: string;
-    metadata?: Record<string, unknown> | null;
-  } | null;
-  [key: string]: unknown;
-};
-
 @Injectable()
 export class EmployeeSelfServiceService {
   constructor(
@@ -428,7 +413,6 @@ export class EmployeeSelfServiceService {
           ),
         );
         if (explicit) {
-          const activeShift = explicit.overrideShift ?? explicit.shift ?? null;
           return {
             date,
             source: 'shift_schedule',
@@ -534,40 +518,40 @@ export class EmployeeSelfServiceService {
       actor,
     );
 
-      const totals = Array.isArray(response.data)
-        ? response.data.reduce(
-            (acc, item: Record<string, unknown>) => {
-              acc.allocated_days += this.toNumber(item.allocated_days);
-              acc.opening_balance_days += this.toNumber(
-                item.opening_balance_days,
-              );
-              acc.entitlement_days += this.toNumber(item.entitlement_days);
-              acc.used_days += this.toNumber(item.used_days);
-              acc.pending_days += this.toNumber(item.pending_days);
-              acc.carried_forward_days += this.toNumber(
-                item.carried_forward_days,
-              );
-              acc.expired_days += this.toNumber(item.expired_days);
-              acc.adjusted_days += this.toNumber(item.adjusted_days);
-              acc.attendance_deduction_days += this.toNumber(
-                item.attendance_deduction_days,
-              );
-              acc.available_days += this.toNumber(item.available_days);
-              return acc;
-            },
-            {
-              allocated_days: 0,
-              opening_balance_days: 0,
-              entitlement_days: 0,
-              used_days: 0,
-              pending_days: 0,
-              carried_forward_days: 0,
-              expired_days: 0,
-              adjusted_days: 0,
-              attendance_deduction_days: 0,
-              available_days: 0,
-            },
-          )
+    const totals = Array.isArray(response.data)
+      ? response.data.reduce(
+          (acc, item: Record<string, unknown>) => {
+            acc.allocated_days += this.toNumber(item.allocated_days);
+            acc.opening_balance_days += this.toNumber(
+              item.opening_balance_days,
+            );
+            acc.entitlement_days += this.toNumber(item.entitlement_days);
+            acc.used_days += this.toNumber(item.used_days);
+            acc.pending_days += this.toNumber(item.pending_days);
+            acc.carried_forward_days += this.toNumber(
+              item.carried_forward_days,
+            );
+            acc.expired_days += this.toNumber(item.expired_days);
+            acc.adjusted_days += this.toNumber(item.adjusted_days);
+            acc.attendance_deduction_days += this.toNumber(
+              item.attendance_deduction_days,
+            );
+            acc.available_days += this.toNumber(item.available_days);
+            return acc;
+          },
+          {
+            allocated_days: 0,
+            opening_balance_days: 0,
+            entitlement_days: 0,
+            used_days: 0,
+            pending_days: 0,
+            carried_forward_days: 0,
+            expired_days: 0,
+            adjusted_days: 0,
+            attendance_deduction_days: 0,
+            available_days: 0,
+          },
+        )
       : null;
 
     return {
@@ -1460,7 +1444,7 @@ export class EmployeeSelfServiceService {
     actor: AuthenticatedUser,
     query: MyAttendanceOverviewQueryDto,
   ) {
-    const companyId = this.ensureCompanyId(actor);
+    this.ensureCompanyId(actor);
     const employeeId = await this.resolveEmployeeId(actor);
 
     const timezone = this.getSelfServiceTimezone();

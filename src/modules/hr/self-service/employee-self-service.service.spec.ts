@@ -13,12 +13,18 @@ jest.mock('../leave/leave.service', () => ({
 jest.mock('../attendance/processing/attendance-daily-summary.service', () => ({
   AttendanceDailySummaryService: class AttendanceDailySummaryService {},
 }));
-jest.mock('../attendance/mobile-punches/attendance-mobile-punches.service', () => ({
-  AttendanceMobilePunchesService: class AttendanceMobilePunchesService {},
-}));
-jest.mock('../attendance/processing/attendance-schedule-resolver.service', () => ({
-  AttendanceScheduleResolverService: class AttendanceScheduleResolverService {},
-}));
+jest.mock(
+  '../attendance/mobile-punches/attendance-mobile-punches.service',
+  () => ({
+    AttendanceMobilePunchesService: class AttendanceMobilePunchesService {},
+  }),
+);
+jest.mock(
+  '../attendance/processing/attendance-schedule-resolver.service',
+  () => ({
+    AttendanceScheduleResolverService: class AttendanceScheduleResolverService {},
+  }),
+);
 import { AttendanceMobilePunchesService } from '../attendance/mobile-punches/attendance-mobile-punches.service';
 import { AttendanceDailySummaryService } from '../attendance/processing/attendance-daily-summary.service';
 import { AttendanceScheduleResolverService } from '../attendance/processing/attendance-schedule-resolver.service';
@@ -26,6 +32,16 @@ import { EmployeesService } from '../employees/employees.service';
 import { LeaveService } from '../leave/leave.service';
 import { UsersService } from '../../users/users.service';
 import { EmployeeSelfServiceService } from './employee-self-service.service';
+import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
+import { AttendanceMobilePunch } from '../attendance/mobile-punches/entities/attendance-mobile-punch.entity';
+import { LeaveRequest } from '../leave/entities/leave-request.entity';
+import { ShiftSchedule } from '../attendance/shift/shift-schedules/entities/shift-schedule.entity';
+import { ShiftAssignment } from '../attendance/shift/shift-assignments/entities/shift-assignment.entity';
+import { EmployeeTimetable } from '../attendance/timetable/employee-timetables/entities/employee-timetable.entity';
+import { Shift } from '../attendance/shift/shifts/entities/shift.entity';
+import { Timetable } from '../attendance/timetable/timetables/entities/timetable.entity';
+import { AttendanceCorrectionRequest } from './entities/attendance-correction-request.entity';
+import { EmployeeProfileUpdateRequest } from './entities/employee-profile-update-request.entity';
 
 describe('EmployeeSelfServiceService', () => {
   let service: EmployeeSelfServiceService;
@@ -122,16 +138,16 @@ describe('EmployeeSelfServiceService', () => {
       attendanceDailySummaryService as unknown as AttendanceDailySummaryService,
       attendanceMobilePunchesService as unknown as AttendanceMobilePunchesService,
       attendanceScheduleResolverService as unknown as AttendanceScheduleResolverService,
-      {} as Repository<any>,
-      {} as Repository<any>,
-      {} as Repository<any>,
-      shiftScheduleRepository as unknown as Repository<any>,
-      shiftAssignmentRepository as unknown as Repository<any>,
-      employeeTimetableRepository as unknown as Repository<any>,
-      shiftRepository as unknown as Repository<any>,
-      timetableRepository as unknown as Repository<any>,
-      {} as Repository<any>,
-      {} as Repository<any>,
+      {} as Repository<AttendanceDailySummary>,
+      {} as Repository<AttendanceMobilePunch>,
+      {} as Repository<LeaveRequest>,
+      shiftScheduleRepository as unknown as Repository<ShiftSchedule>,
+      shiftAssignmentRepository as unknown as Repository<ShiftAssignment>,
+      employeeTimetableRepository as unknown as Repository<EmployeeTimetable>,
+      shiftRepository as unknown as Repository<Shift>,
+      timetableRepository as unknown as Repository<Timetable>,
+      {} as Repository<AttendanceCorrectionRequest>,
+      {} as Repository<EmployeeProfileUpdateRequest>,
     );
   });
 
@@ -257,11 +273,9 @@ describe('EmployeeSelfServiceService', () => {
       to_date: '2026-06-22',
     });
 
-    expect(attendanceScheduleResolverService.resolveForDate).toHaveBeenCalledWith(
-      7,
-      15,
-      '2026-06-22',
-    );
+    expect(
+      attendanceScheduleResolverService.resolveForDate,
+    ).toHaveBeenCalledWith(7, 15, '2026-06-22');
     expect(result.days[0]).toEqual(
       expect.objectContaining({
         source: 'shift_assignment',
@@ -274,7 +288,7 @@ describe('EmployeeSelfServiceService', () => {
         shift: expect.objectContaining({
           id: 25,
           name: 'Resolved Shift',
-        }),
+        }) as unknown,
       }),
     );
   });
@@ -305,19 +319,17 @@ describe('EmployeeSelfServiceService', () => {
       summary: null,
       first_punch: null,
       last_punch: null,
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof service.getTodayAttendance>>);
     jest.spyOn(service, 'getLeaveBalances').mockResolvedValue({
       data: [],
       meta: {},
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof service.getLeaveBalances>>);
     jest.spyOn(service, 'getAttendanceSchedule').mockResolvedValue({
       from_date: '2026-06-22',
       to_date: '2026-06-28',
       days: [],
-    } as any);
-    jest
-      .spyOn(service as any, 'buildAttendanceStats')
-      .mockResolvedValue({});
+    } as unknown as Awaited<ReturnType<typeof service.getAttendanceSchedule>>);
+    jest.spyOn(service as any, 'buildAttendanceStats').mockResolvedValue({});
     jest.spyOn(service as any, 'buildLeaveCounts').mockResolvedValue({});
     jest
       .spyOn(service as any, 'findUpcomingApprovedLeave')

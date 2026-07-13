@@ -329,7 +329,8 @@ export class AttendanceSetupCompletionService {
     if (!gpsRequired) {
       params.completed.push({
         code: 'GPS_GEOFENCE_NOT_REQUIRED',
-        message: 'GPS/geofence validation is not required by the active policy.',
+        message:
+          'GPS/geofence validation is not required by the active policy.',
         severity: 'INFO',
       });
       return;
@@ -458,8 +459,7 @@ export class AttendanceSetupCompletionService {
     if (activeWifiCount > 0) {
       params.completed.push({
         code: 'ACTIVE_WIFI_NETWORK_FOUND',
-        message:
-          'Active WiFi network is configured for attendance validation.',
+        message: 'Active WiFi network is configured for attendance validation.',
         severity: 'INFO',
         metadata: {
           activeWifiCount,
@@ -537,8 +537,7 @@ export class AttendanceSetupCompletionService {
             autoCalculateAttendance:
               params.activePolicy.auto_calculate_attendance,
             requireGeoFencing: params.activePolicy.require_geo_fencing,
-            allowMultiDeviceLogin:
-              params.activePolicy.allow_multi_device_login,
+            allowMultiDeviceLogin: params.activePolicy.allow_multi_device_login,
             holidayPolicyMode: params.activePolicy.holiday_policy_mode,
             roundingMode: params.activePolicy.rounding_mode,
             maxMissingPunchAllowed:

@@ -713,7 +713,10 @@ const ALLIANCE_HIKVISION_EMPLOYEES: AllianceHikvisionEmployeeInput[] = [
   { hikvisionEmployeeNo: '00000050', fullName: 'Kiza Benjamin Aochi' },
   { hikvisionEmployeeNo: '00000052', fullName: 'Martha Ibrahim Wauda' },
   { hikvisionEmployeeNo: '00000053', fullName: 'Martin Jackson Hoka' },
-  { hikvisionEmployeeNo: '00000054', fullName: 'MaryCatherine Leopold Ngakoka' },
+  {
+    hikvisionEmployeeNo: '00000054',
+    fullName: 'MaryCatherine Leopold Ngakoka',
+  },
   { hikvisionEmployeeNo: '00000055', fullName: 'Mchama Mohamed Mwinyimvua' },
   { hikvisionEmployeeNo: '00000056', fullName: 'Melina Epaphra Moshi' },
   { hikvisionEmployeeNo: '00000057', fullName: 'Mohamed Hassan Mlyande' },
@@ -865,12 +868,7 @@ function buildAllianceEmployeeAssignments(): Record<
     ALLIANCE_IT_MANAGER_HIKVISION_EMPLOYEE_NO,
   );
 
-  assign(
-    '00000004',
-    'BANCASSURANCE',
-    'BANCASSURANCE_MANAGER',
-    null,
-  );
+  assign('00000004', 'BANCASSURANCE', 'BANCASSURANCE_MANAGER', null);
   assign(
     '00000005',
     'BANCASSURANCE',

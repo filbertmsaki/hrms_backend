@@ -9,7 +9,6 @@ import {
   IsOptional,
   IsString,
   Matches,
-  Max,
   Min,
   MaxLength,
 } from 'class-validator';

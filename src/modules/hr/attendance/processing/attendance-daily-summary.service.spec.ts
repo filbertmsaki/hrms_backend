@@ -24,15 +24,14 @@ import { AttendanceHolidayPolicyModeEnum } from '../policies/enums/attendance-ho
 import { LeaveBalanceService } from '../../leave/services/leave-balance.service';
 import { HrAccessService } from '../../shared/hr-access.service';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type MockRepo<T = any> = Record<string, jest.Mock>;
+type MockRepo<T = unknown> = Record<string, jest.Mock> & { __entity?: T };
 
 const createRepositoryMock = <T>(): MockRepo<T> => ({
   find: jest.fn(),
   findOne: jest.fn(),
-  save: jest.fn(async (value) => value),
-  create: jest.fn((value) => value),
-  remove: jest.fn(async (value) => value),
+  save: jest.fn((value: unknown) => value),
+  create: jest.fn((value: unknown) => value),
+  remove: jest.fn((value: unknown) => value),
   createQueryBuilder: jest.fn(),
 });
 
@@ -146,11 +145,13 @@ describe('AttendanceDailySummaryService', () => {
       resolveForDate: jest.fn(),
     };
     exceptionService = {
-      replaceForEmployeeDate: jest.fn(async () => []),
+      replaceForEmployeeDate: jest.fn(() => Promise.resolve([])),
     };
     leaveBalanceService = {
       getFiscalYearFromDate: jest.fn((value: string) => value.slice(0, 4)),
-      synchronizeAttendanceImpactForEmployeeYear: jest.fn(async () => []),
+      synchronizeAttendanceImpactForEmployeeYear: jest.fn(() =>
+        Promise.resolve([]),
+      ),
     };
     hrAccessService = {
       getAccessibleEmployeeIds: jest.fn(),
@@ -166,25 +167,27 @@ describe('AttendanceDailySummaryService', () => {
     shiftExpectationBuilder = createQueryBuilderMock();
     timetableExpectationBuilder = createQueryBuilderMock();
 
-    processedEventRepository
-      .createQueryBuilder!.mockReturnValueOnce(timezoneBuilder)
+    processedEventRepository.createQueryBuilder
+      .mockReturnValueOnce(timezoneBuilder)
       .mockReturnValueOnce(processedEventBuilder);
-    employeeRepository.createQueryBuilder!.mockReturnValue(employeeFilterBuilder);
-    mobilePunchRepository.createQueryBuilder!.mockReturnValue(
+    employeeRepository.createQueryBuilder.mockReturnValue(
+      employeeFilterBuilder,
+    );
+    mobilePunchRepository.createQueryBuilder.mockReturnValue(
       mobilePunchBuilder,
     );
-    leaveRequestRepository.createQueryBuilder!.mockReturnValue(leaveBuilder);
-    businessTripRepository.createQueryBuilder!.mockReturnValue(tripBuilder);
-    shiftScheduleRepository.createQueryBuilder!.mockReturnValue(
+    leaveRequestRepository.createQueryBuilder.mockReturnValue(leaveBuilder);
+    businessTripRepository.createQueryBuilder.mockReturnValue(tripBuilder);
+    shiftScheduleRepository.createQueryBuilder.mockReturnValue(
       shiftScheduleExpectationBuilder,
     );
-    shiftAssignmentRepository.createQueryBuilder!.mockReturnValue(
+    shiftAssignmentRepository.createQueryBuilder.mockReturnValue(
       shiftExpectationBuilder,
     );
-    employeeTimetableRepository.createQueryBuilder!.mockReturnValue(
+    employeeTimetableRepository.createQueryBuilder.mockReturnValue(
       timetableExpectationBuilder,
     );
-    timetableRepository.findOne!.mockResolvedValue(null);
+    timetableRepository.findOne.mockResolvedValue(null);
 
     service = new AttendanceDailySummaryService(
       processedEventRepository as unknown as Repository<AttendanceProcessedEvent>,
@@ -209,8 +212,8 @@ describe('AttendanceDailySummaryService', () => {
   });
 
   it('persists absences for scheduled no-show days', async () => {
-    employeeRepository.findOne!.mockResolvedValue({ id: 1, exit_date: null });
-    dailySummaryRepository.findOne!.mockResolvedValue(null);
+    employeeRepository.findOne.mockResolvedValue({ id: 1, exit_date: null });
+    dailySummaryRepository.findOne.mockResolvedValue(null);
     timezoneBuilder.getRawOne.mockResolvedValue(null);
     scheduleResolver.resolveForDate.mockResolvedValue(buildSchedule());
     processedEventBuilder.getMany.mockResolvedValue([]);
@@ -220,8 +223,8 @@ describe('AttendanceDailySummaryService', () => {
     shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
     shiftExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
     timetableExpectationBuilder.getOne.mockResolvedValue(null);
-    adjustmentRepository.findOne!.mockResolvedValue(null);
-    shiftBreakRepository.find!.mockResolvedValue([]);
+    adjustmentRepository.findOne.mockResolvedValue(null);
+    shiftBreakRepository.find.mockResolvedValue([]);
 
     const result = await service.recomputeForEmployeeDate(10, 1, '2026-06-12');
 
@@ -232,7 +235,7 @@ describe('AttendanceDailySummaryService', () => {
         attendanceDate: '2026-06-12',
         remarks: expect.arrayContaining([
           AttendanceDailyRemarkEnum.MISSING_BOTH_CHECK_IN_AND_CHECK_OUT,
-        ]),
+        ]) as AttendanceDailyRemarkEnum[],
       }),
     );
     expect(exceptionService.replaceForEmployeeDate).toHaveBeenCalled();
@@ -248,8 +251,8 @@ describe('AttendanceDailySummaryService', () => {
   });
 
   it('treats approved mobile punches as attendance events', async () => {
-    employeeRepository.findOne!.mockResolvedValue({ id: 1, exit_date: null });
-    dailySummaryRepository.findOne!.mockResolvedValue(null);
+    employeeRepository.findOne.mockResolvedValue({ id: 1, exit_date: null });
+    dailySummaryRepository.findOne.mockResolvedValue(null);
     timezoneBuilder.getRawOne.mockResolvedValue(null);
     scheduleResolver.resolveForDate.mockResolvedValue(
       buildSchedule({ requiresCheckout: false, maxMissingPunchAllowed: 1 }),
@@ -266,8 +269,8 @@ describe('AttendanceDailySummaryService', () => {
     shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
     shiftExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
     timetableExpectationBuilder.getOne.mockResolvedValue(null);
-    adjustmentRepository.findOne!.mockResolvedValue(null);
-    shiftBreakRepository.find!.mockResolvedValue([]);
+    adjustmentRepository.findOne.mockResolvedValue(null);
+    shiftBreakRepository.find.mockResolvedValue([]);
 
     const result = await service.recomputeForEmployeeDate(10, 1, '2026-06-12');
 
@@ -282,8 +285,8 @@ describe('AttendanceDailySummaryService', () => {
   });
 
   it('deducts unpaid shift breaks from worked minutes', async () => {
-    employeeRepository.findOne!.mockResolvedValue({ id: 1, exit_date: null });
-    dailySummaryRepository.findOne!.mockResolvedValue(null);
+    employeeRepository.findOne.mockResolvedValue({ id: 1, exit_date: null });
+    dailySummaryRepository.findOne.mockResolvedValue(null);
     timezoneBuilder.getRawOne.mockResolvedValue(null);
     scheduleResolver.resolveForDate.mockResolvedValue(buildSchedule());
     processedEventBuilder.getMany.mockResolvedValue([
@@ -308,8 +311,8 @@ describe('AttendanceDailySummaryService', () => {
     shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
     shiftExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
     timetableExpectationBuilder.getOne.mockResolvedValue(null);
-    adjustmentRepository.findOne!.mockResolvedValue(null);
-    shiftBreakRepository.find!.mockResolvedValue([
+    adjustmentRepository.findOne.mockResolvedValue(null);
+    shiftBreakRepository.find.mockResolvedValue([
       { durationMinutes: 60, isPaid: false },
     ]);
 
@@ -324,11 +327,11 @@ describe('AttendanceDailySummaryService', () => {
   });
 
   it('removes summaries after an employee exit date', async () => {
-    employeeRepository.findOne!.mockResolvedValue({
+    employeeRepository.findOne.mockResolvedValue({
       id: 1,
       exit_date: '2026-06-10',
     });
-    dailySummaryRepository.findOne!.mockResolvedValue({
+    dailySummaryRepository.findOne.mockResolvedValue({
       id: 99,
       companyId: 10,
       employeeId: 1,
@@ -345,9 +348,13 @@ describe('AttendanceDailySummaryService', () => {
   });
 
   it('skips recomputation when the employee record is missing', async () => {
-    employeeRepository.findOne!.mockResolvedValue(null);
+    employeeRepository.findOne.mockResolvedValue(null);
 
-    const result = await service.recomputeForEmployeeDate(10, 999, '2026-06-12');
+    const result = await service.recomputeForEmployeeDate(
+      10,
+      999,
+      '2026-06-12',
+    );
 
     expect(result).toBe(false);
     expect(dailySummaryRepository.save).not.toHaveBeenCalled();
@@ -376,8 +383,8 @@ describe('AttendanceDailySummaryService', () => {
   });
 
   it('marks a day as late when check-in crosses only the late threshold', async () => {
-    employeeRepository.findOne!.mockResolvedValue({ id: 1, exit_date: null });
-    dailySummaryRepository.findOne!.mockResolvedValue(null);
+    employeeRepository.findOne.mockResolvedValue({ id: 1, exit_date: null });
+    dailySummaryRepository.findOne.mockResolvedValue(null);
     timezoneBuilder.getRawOne.mockResolvedValue(null);
     scheduleResolver.resolveForDate.mockResolvedValue(
       buildSchedule({
@@ -408,8 +415,8 @@ describe('AttendanceDailySummaryService', () => {
     shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
     shiftExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
     timetableExpectationBuilder.getOne.mockResolvedValue(null);
-    adjustmentRepository.findOne!.mockResolvedValue(null);
-    shiftBreakRepository.find!.mockResolvedValue([]);
+    adjustmentRepository.findOne.mockResolvedValue(null);
+    shiftBreakRepository.find.mockResolvedValue([]);
 
     await service.recomputeForEmployeeDate(10, 1, '2026-06-12');
 
@@ -422,8 +429,8 @@ describe('AttendanceDailySummaryService', () => {
   });
 
   it('caps overtime minutes using the resolved schedule limits', async () => {
-    employeeRepository.findOne!.mockResolvedValue({ id: 1, exit_date: null });
-    dailySummaryRepository.findOne!.mockResolvedValue(null);
+    employeeRepository.findOne.mockResolvedValue({ id: 1, exit_date: null });
+    dailySummaryRepository.findOne.mockResolvedValue(null);
     timezoneBuilder.getRawOne.mockResolvedValue(null);
     scheduleResolver.resolveForDate.mockResolvedValue(
       buildSchedule({
@@ -454,8 +461,8 @@ describe('AttendanceDailySummaryService', () => {
     shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
     shiftExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
     timetableExpectationBuilder.getOne.mockResolvedValue(null);
-    adjustmentRepository.findOne!.mockResolvedValue(null);
-    shiftBreakRepository.find!.mockResolvedValue([]);
+    adjustmentRepository.findOne.mockResolvedValue(null);
+    shiftBreakRepository.find.mockResolvedValue([]);
 
     await service.recomputeForEmployeeDate(10, 1, '2026-06-12');
 
@@ -468,8 +475,8 @@ describe('AttendanceDailySummaryService', () => {
   });
 
   it('keeps off-day status while counting worked minutes as overtime', async () => {
-    employeeRepository.findOne!.mockResolvedValue({ id: 1, exit_date: null });
-    dailySummaryRepository.findOne!.mockResolvedValue(null);
+    employeeRepository.findOne.mockResolvedValue({ id: 1, exit_date: null });
+    dailySummaryRepository.findOne.mockResolvedValue(null);
     timezoneBuilder.getRawOne.mockResolvedValue(null);
     scheduleResolver.resolveForDate.mockResolvedValue(
       buildSchedule({
@@ -498,8 +505,8 @@ describe('AttendanceDailySummaryService', () => {
     shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
     shiftExpectationBuilder.getOne.mockResolvedValue(null);
     timetableExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
-    adjustmentRepository.findOne!.mockResolvedValue(null);
-    shiftBreakRepository.find!.mockResolvedValue([]);
+    adjustmentRepository.findOne.mockResolvedValue(null);
+    shiftBreakRepository.find.mockResolvedValue([]);
 
     await service.recomputeForEmployeeDate(10, 1, '2026-06-12');
 
@@ -512,8 +519,8 @@ describe('AttendanceDailySummaryService', () => {
   });
 
   it('treats optional holidays with attendance events as worked days', async () => {
-    employeeRepository.findOne!.mockResolvedValue({ id: 1, exit_date: null });
-    dailySummaryRepository.findOne!.mockResolvedValue(null);
+    employeeRepository.findOne.mockResolvedValue({ id: 1, exit_date: null });
+    dailySummaryRepository.findOne.mockResolvedValue(null);
     timezoneBuilder.getRawOne.mockResolvedValue(null);
     scheduleResolver.resolveForDate.mockResolvedValue(
       buildSchedule({
@@ -544,13 +551,14 @@ describe('AttendanceDailySummaryService', () => {
     shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
     shiftExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
     timetableExpectationBuilder.getOne.mockResolvedValue(null);
-    adjustmentRepository.findOne!.mockResolvedValue(null);
-    shiftBreakRepository.find!.mockResolvedValue([]);
+    adjustmentRepository.findOne.mockResolvedValue(null);
+    shiftBreakRepository.find.mockResolvedValue([]);
 
     await service.recomputeForEmployeeDate(10, 1, '2026-06-12');
 
-    const savedSummary = (dailySummaryRepository.save as jest.Mock).mock
-      .calls[0][0];
+    const saveCalls = (dailySummaryRepository.save as jest.Mock).mock
+      .calls as Partial<AttendanceDailySummary>[][];
+    const savedSummary = saveCalls[0][0];
 
     expect(savedSummary.attendanceStatus).not.toBe(
       AttendanceDailyStatusEnum.HOLIDAY,
@@ -563,8 +571,8 @@ describe('AttendanceDailySummaryService', () => {
   });
 
   it('rounds work and overtime minutes and marks overtime for manual review when approval is required', async () => {
-    employeeRepository.findOne!.mockResolvedValue({ id: 1, exit_date: null });
-    dailySummaryRepository.findOne!.mockResolvedValue(null);
+    employeeRepository.findOne.mockResolvedValue({ id: 1, exit_date: null });
+    dailySummaryRepository.findOne.mockResolvedValue(null);
     timezoneBuilder.getRawOne.mockResolvedValue(null);
     scheduleResolver.resolveForDate.mockResolvedValue(
       buildSchedule({
@@ -596,8 +604,8 @@ describe('AttendanceDailySummaryService', () => {
     shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
     shiftExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
     timetableExpectationBuilder.getOne.mockResolvedValue(null);
-    adjustmentRepository.findOne!.mockResolvedValue(null);
-    shiftBreakRepository.find!.mockResolvedValue([]);
+    adjustmentRepository.findOne.mockResolvedValue(null);
+    shiftBreakRepository.find.mockResolvedValue([]);
 
     await service.recomputeForEmployeeDate(10, 1, '2026-06-12');
 
@@ -608,18 +616,18 @@ describe('AttendanceDailySummaryService', () => {
         overtimeMinutes: 10,
         remarks: expect.arrayContaining([
           AttendanceDailyRemarkEnum.MANUAL_REVIEW_REQUIRED,
-        ]),
+        ]) as AttendanceDailyRemarkEnum[],
         flags: expect.objectContaining({
           roundingMode: AttendanceRoundingModeEnum.UP,
           overtimeRequiresApproval: true,
-        }),
+        }) as Record<string, unknown>,
       }),
     );
   });
 
   it('marks single-punch days for manual review when they exceed the allowed missing punch count', async () => {
-    employeeRepository.findOne!.mockResolvedValue({ id: 1, exit_date: null });
-    dailySummaryRepository.findOne!.mockResolvedValue(null);
+    employeeRepository.findOne.mockResolvedValue({ id: 1, exit_date: null });
+    dailySummaryRepository.findOne.mockResolvedValue(null);
     timezoneBuilder.getRawOne.mockResolvedValue(null);
     scheduleResolver.resolveForDate.mockResolvedValue(
       buildSchedule({
@@ -639,8 +647,8 @@ describe('AttendanceDailySummaryService', () => {
     shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
     shiftExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
     timetableExpectationBuilder.getOne.mockResolvedValue(null);
-    adjustmentRepository.findOne!.mockResolvedValue(null);
-    shiftBreakRepository.find!.mockResolvedValue([]);
+    adjustmentRepository.findOne.mockResolvedValue(null);
+    shiftBreakRepository.find.mockResolvedValue([]);
 
     await service.recomputeForEmployeeDate(10, 1, '2026-06-12');
 
@@ -649,10 +657,10 @@ describe('AttendanceDailySummaryService', () => {
         attendanceStatus: AttendanceDailyStatusEnum.PRESENT,
         remarks: expect.arrayContaining([
           AttendanceDailyRemarkEnum.MANUAL_REVIEW_REQUIRED,
-        ]),
+        ]) as AttendanceDailyRemarkEnum[],
         flags: expect.objectContaining({
           maxMissingPunchAllowed: 0,
-        }),
+        }) as Record<string, unknown>,
       }),
     );
   });

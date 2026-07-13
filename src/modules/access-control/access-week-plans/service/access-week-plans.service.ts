@@ -274,7 +274,7 @@ export class AccessWeekPlansService {
 
         const parsed = this.toObject(response.parsed);
         const cfg = this.toObject(parsed.UserRightWeekPlanCfg ?? parsed);
-        const resolvedPlanNo = String(
+        const resolvedPlanNo = this.toDisplayString(
           cfg.weekPlanNo ?? cfg.planNo ?? cfg.weekPlanID ?? fallbackPlanNo,
         ).trim();
         const normalizedSegments = this.extractSegmentsFromHikvisionCfg(cfg);
@@ -305,8 +305,9 @@ export class AccessWeekPlansService {
         }
 
         weekPlan.name =
-          String(cfg.name ?? cfg.weekPlanName ?? weekPlan.name ?? '').trim() ||
-          weekPlan.name;
+          this.toDisplayString(
+            cfg.name ?? cfg.weekPlanName ?? weekPlan.name ?? '',
+          ).trim() || weekPlan.name;
         weekPlan.enable = this.toBoolean(cfg.enable, weekPlan.enable ?? true);
         weekPlan.lastSyncedAt = new Date();
         weekPlan.metadata = {
@@ -599,9 +600,7 @@ export class AccessWeekPlansService {
   }
 
   private normalizeDayOfWeek(value: unknown): AccessDayOfWeekEnum | null {
-    const normalized = String(value ?? '')
-      .trim()
-      .toUpperCase();
+    const normalized = this.toDisplayString(value).trim().toUpperCase();
     const map: Record<string, AccessDayOfWeekEnum> = {
       MONDAY: AccessDayOfWeekEnum.MONDAY,
       TUESDAY: AccessDayOfWeekEnum.TUESDAY,
@@ -615,7 +614,7 @@ export class AccessWeekPlansService {
   }
 
   private normalizeTimeValue(value: unknown): string | null {
-    const normalized = String(value ?? '').trim();
+    const normalized = this.toDisplayString(value).trim();
     if (!normalized) {
       return null;
     }
@@ -674,6 +673,19 @@ export class AccessWeekPlansService {
     }
 
     return value as Record<string, unknown>;
+  }
+
+  private toDisplayString(value: unknown): string {
+    if (value === null || value === undefined) return '';
+    if (
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean' ||
+      typeof value === 'bigint'
+    ) {
+      return String(value);
+    }
+    return JSON.stringify(value);
   }
 
   private toArray(value: unknown): unknown[] {

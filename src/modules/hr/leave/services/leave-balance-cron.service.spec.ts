@@ -3,15 +3,15 @@ import { LeaveBalanceCronService } from './leave-balance-cron.service';
 import { Company } from '../../../companies/entities/company.entity';
 import { LeaveBalanceService } from './leave-balance.service';
 
-type MockRepo<T = unknown> = Record<string, jest.Mock>;
+type MockRepo = Record<string, jest.Mock>;
 
-const createRepositoryMock = <T>(): MockRepo<T> => ({
+const createRepositoryMock = (): MockRepo => ({
   find: jest.fn(),
 });
 
 describe('LeaveBalanceCronService', () => {
   let service: LeaveBalanceCronService;
-  let companyRepository: MockRepo<Company>;
+  let companyRepository: MockRepo;
   let leaveBalanceService: {
     getFiscalYearFromDate: jest.Mock;
     generateBalancesForCompany: jest.Mock;
@@ -43,18 +43,14 @@ describe('LeaveBalanceCronService', () => {
     expect(companyRepository.find).toHaveBeenCalledWith({
       select: ['id', 'name'],
     });
-    expect(leaveBalanceService.generateBalancesForCompany).toHaveBeenCalledTimes(
-      2,
-    );
-    expect(leaveBalanceService.generateBalancesForCompany).toHaveBeenNthCalledWith(
-      1,
-      1,
-      '2026',
-    );
-    expect(leaveBalanceService.generateBalancesForCompany).toHaveBeenNthCalledWith(
-      2,
-      2,
-      '2026',
-    );
+    expect(
+      leaveBalanceService.generateBalancesForCompany,
+    ).toHaveBeenCalledTimes(2);
+    expect(
+      leaveBalanceService.generateBalancesForCompany,
+    ).toHaveBeenNthCalledWith(1, 1, '2026');
+    expect(
+      leaveBalanceService.generateBalancesForCompany,
+    ).toHaveBeenNthCalledWith(2, 2, '2026');
   });
 });

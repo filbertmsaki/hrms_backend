@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class OptimizeEmployeeListingIndexes1785802600000
-  implements MigrationInterface
-{
+export class OptimizeEmployeeListingIndexes1785802600000 implements MigrationInterface {
   name = 'OptimizeEmployeeListingIndexes1785802600000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

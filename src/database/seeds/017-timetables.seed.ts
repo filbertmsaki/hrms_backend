@@ -37,7 +37,7 @@ const DEFAULT_TIMETABLE_CODE = 'STD-OFFICE';
 
 const TIMETABLE_DAY_SEEDS: TimetableDaySeed[] = [
   {
-    dayOfWeek: 0,  // Sunday — off
+    dayOfWeek: 0, // Sunday — off
     isWorkingDay: false,
     shiftCode: null,
     expectedCheckIn: null,
@@ -48,7 +48,7 @@ const TIMETABLE_DAY_SEEDS: TimetableDaySeed[] = [
     overtimeAllowed: false,
   },
   {
-    dayOfWeek: 1,  // Monday
+    dayOfWeek: 1, // Monday
     isWorkingDay: true,
     shiftCode: 'SHIFT-DAY',
     expectedCheckIn: '08:15:00',
@@ -59,7 +59,7 @@ const TIMETABLE_DAY_SEEDS: TimetableDaySeed[] = [
     overtimeAllowed: false,
   },
   {
-    dayOfWeek: 2,  // Tuesday
+    dayOfWeek: 2, // Tuesday
     isWorkingDay: true,
     shiftCode: 'SHIFT-DAY',
     expectedCheckIn: '08:15:00',
@@ -70,7 +70,7 @@ const TIMETABLE_DAY_SEEDS: TimetableDaySeed[] = [
     overtimeAllowed: false,
   },
   {
-    dayOfWeek: 3,  // Wednesday
+    dayOfWeek: 3, // Wednesday
     isWorkingDay: true,
     shiftCode: 'SHIFT-DAY',
     expectedCheckIn: '08:15:00',
@@ -81,7 +81,7 @@ const TIMETABLE_DAY_SEEDS: TimetableDaySeed[] = [
     overtimeAllowed: false,
   },
   {
-    dayOfWeek: 4,  // Thursday
+    dayOfWeek: 4, // Thursday
     isWorkingDay: true,
     shiftCode: 'SHIFT-DAY',
     expectedCheckIn: '08:15:00',
@@ -92,7 +92,7 @@ const TIMETABLE_DAY_SEEDS: TimetableDaySeed[] = [
     overtimeAllowed: false,
   },
   {
-    dayOfWeek: 5,  // Friday
+    dayOfWeek: 5, // Friday
     isWorkingDay: true,
     shiftCode: 'SHIFT-DAY',
     expectedCheckIn: '08:15:00',
@@ -103,7 +103,7 @@ const TIMETABLE_DAY_SEEDS: TimetableDaySeed[] = [
     overtimeAllowed: false,
   },
   {
-    dayOfWeek: 6,  // Saturday — half day
+    dayOfWeek: 6, // Saturday — half day
     isWorkingDay: true,
     shiftCode: 'SHIFT-SAT',
     expectedCheckIn: '09:00:00',

@@ -30,7 +30,7 @@ describe('AttendanceRecalculationService', () => {
     jobRepository = {
       createQueryBuilder: jest.fn(() => claimBuilder),
       findOne: jest.fn(),
-      save: jest.fn(async (job) => job),
+      save: jest.fn((job: AttendanceRecalculationJob) => job),
       find: jest.fn(),
     };
     employeeRepository = {

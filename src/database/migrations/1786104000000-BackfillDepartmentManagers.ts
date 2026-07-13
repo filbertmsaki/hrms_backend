@@ -4,9 +4,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 // assigned to it whose primary position is flagged is_manager = true, preferring
 // one whose own manager reports outside the department (or has no manager).
 // Departments with zero qualifying candidates are left NULL and reported below.
-export class BackfillDepartmentManagers1786104000000
-  implements MigrationInterface
-{
+export class BackfillDepartmentManagers1786104000000 implements MigrationInterface {
   name = 'BackfillDepartmentManagers1786104000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -33,13 +31,11 @@ export class BackfillDepartmentManagers1786104000000
       WHERE c."department_id" = d."id" AND c."rn" = 1
     `);
 
-    const unresolved: Array<{ id: number; name: string }> =
-      await queryRunner.query(`
+    const unresolved = (await queryRunner.query(`
       SELECT "id", "name" FROM "departments" WHERE "manager_employee_id" IS NULL
-    `);
+    `)) as Array<{ id: number; name: string }>;
 
     if (unresolved.length) {
-      // eslint-disable-next-line no-console
       console.warn(
         `[BackfillDepartmentManagers] ${unresolved.length} department(s) have no resolvable manager and require manual setup: ` +
           unresolved.map((d) => `${d.name} (id=${d.id})`).join(', '),
@@ -47,7 +43,7 @@ export class BackfillDepartmentManagers1786104000000
     }
   }
 
-  public async down(queryRunner: QueryRunner): Promise<void> {
+  public async down(): Promise<void> {
     // Best-effort backfill; reverting cannot distinguish rows this migration set
     // from manager assignments made afterward, so this is intentionally a no-op.
   }

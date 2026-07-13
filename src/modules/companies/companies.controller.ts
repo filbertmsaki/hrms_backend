@@ -231,7 +231,10 @@ export class CompaniesController {
   @UseGuards(RolesGuard, PermissionsGuard)
   @Roles('SUPER_ADMIN')
   @Permissions('companies:update')
-  @ApiActionOperation('Activate Company', 'Activate a suspended company (SUPER_ADMIN only)')
+  @ApiActionOperation(
+    'Activate Company',
+    'Activate a suspended company (SUPER_ADMIN only)',
+  )
   async activateCompany(@Param('id', ParseIntPipe) id: number) {
     return this.companiesService.activateCompany(id);
   }
@@ -240,7 +243,10 @@ export class CompaniesController {
   @UseGuards(RolesGuard, PermissionsGuard)
   @Roles('SUPER_ADMIN')
   @Permissions('companies:update')
-  @ApiActionOperation('Suspend Company', 'Suspend an active company (SUPER_ADMIN only)')
+  @ApiActionOperation(
+    'Suspend Company',
+    'Suspend an active company (SUPER_ADMIN only)',
+  )
   async suspendCompany(@Param('id', ParseIntPipe) id: number) {
     return this.companiesService.suspendCompany(id);
   }

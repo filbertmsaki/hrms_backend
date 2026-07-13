@@ -41,7 +41,9 @@ export class AttendanceCompanyConfigService {
     return policy;
   }
 
-  async resolveRuntimeDefaults(companyId: number): Promise<AttendancePolicy | null> {
+  async resolveRuntimeDefaults(
+    companyId: number,
+  ): Promise<AttendancePolicy | null> {
     return this.findActivePolicy(companyId);
   }
 }

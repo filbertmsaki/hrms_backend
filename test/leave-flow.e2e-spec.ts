@@ -31,8 +31,9 @@ jest.mock('@nestjs/passport', () => ({
 import 'reflect-metadata';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 import request from 'supertest';
+import type { App } from 'supertest/types';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { LeaveController } from '../src/modules/hr/leave/leave.controller';
 import { LeaveService } from '../src/modules/hr/leave/leave.service';
@@ -61,15 +62,14 @@ import { LeaveStatusEnum } from '../src/modules/hr/leave/enums/leave-status.enum
 import { LeaveRecordStatusEnum } from '../src/modules/hr/leave/enums/leave-record-status.enum';
 import { LeaveGenderRestrictionEnum } from '../src/modules/hr/leave/enums/leave-gender-restriction.enum';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type MockRepo<T = any> = Record<string, jest.Mock>;
+type MockRepo = Record<string, jest.Mock>;
 
-const createRepositoryMock = <T>(): MockRepo<T> => ({
+const createRepositoryMock = (): MockRepo => ({
   findOne: jest.fn(),
   find: jest.fn(),
   findOneOrFail: jest.fn(),
-  save: jest.fn(async (value) => value),
-  create: jest.fn((value) => value),
+  save: jest.fn((value: unknown) => value),
+  create: jest.fn((value: unknown) => value),
   createQueryBuilder: jest.fn(),
 });
 
@@ -88,22 +88,22 @@ const createQueryBuilderMock = () => ({
 describe('Leave Flow (e2e)', () => {
   let app: INestApplication;
   let dataSource: { transaction: jest.Mock };
-  let leaveTypeRepository: MockRepo<LeaveType>;
-  let leavePolicyRepository: MockRepo<LeavePolicy>;
-  let leaveBalanceRepository: MockRepo<LeaveBalance>;
-  let leaveRequestRepository: MockRepo<LeaveRequest>;
-  let leaveApprovalWorkflowRepository: MockRepo<LeaveApprovalWorkflow>;
-  let leaveApprovalWorkflowStepRepository: MockRepo<LeaveApprovalWorkflowStep>;
-  let leaveMedicalDetailRepository: MockRepo<LeaveMedicalDetail>;
-  let leaveDocumentRepository: MockRepo<LeaveDocument>;
-  let holidayRepository: MockRepo<Holiday>;
-  let employeeRepository: MockRepo<Employee>;
-  let branchRepository: MockRepo<Branch>;
-  let departmentRepository: MockRepo<Department>;
-  let positionRepository: MockRepo<Position>;
-  let companyUserRepository: MockRepo<CompanyUser>;
-  let roleRepository: MockRepo<Role>;
-  let attendanceRecalculationJobRepository: MockRepo<AttendanceRecalculationJob>;
+  let leaveTypeRepository: MockRepo;
+  let leavePolicyRepository: MockRepo;
+  let leaveBalanceRepository: MockRepo;
+  let leaveRequestRepository: MockRepo;
+  let leaveApprovalWorkflowRepository: MockRepo;
+  let leaveApprovalWorkflowStepRepository: MockRepo;
+  let leaveMedicalDetailRepository: MockRepo;
+  let leaveDocumentRepository: MockRepo;
+  let holidayRepository: MockRepo;
+  let employeeRepository: MockRepo;
+  let branchRepository: MockRepo;
+  let departmentRepository: MockRepo;
+  let positionRepository: MockRepo;
+  let companyUserRepository: MockRepo;
+  let roleRepository: MockRepo;
+  let attendanceRecalculationJobRepository: MockRepo;
   let hrAccessService: {
     assertCanAccessEmployee: jest.Mock;
     assertCompanyScopedActor: jest.Mock;
@@ -301,15 +301,15 @@ describe('Leave Flow (e2e)', () => {
     overlapBuilder.getOne.mockResolvedValue(null);
     const managerLeaveRequestRepository = {
       findOne: jest.fn().mockResolvedValue({ ...draftRequest }),
-      save: jest.fn(async (value) => value),
+      save: jest.fn((value: unknown) => value),
       findOneOrFail: jest.fn().mockResolvedValue(finalRequest),
     };
     const managerRecalculationRepository = {
-      create: jest.fn((value) => value),
-      save: jest.fn(async (value) => value),
+      create: jest.fn((value: unknown) => value),
+      save: jest.fn((value: unknown) => value),
     };
     const manager = {
-      getRepository: jest.fn((entity) => {
+      getRepository: jest.fn((entity: unknown) => {
         if (entity === LeaveRequest) {
           return managerLeaveRequestRepository;
         }
@@ -320,9 +320,9 @@ describe('Leave Flow (e2e)', () => {
       }),
     };
 
-    leaveRequestRepository.findOne!.mockResolvedValue(draftRequest);
-    leaveRequestRepository.createQueryBuilder!.mockReturnValue(overlapBuilder);
-    leaveTypeRepository.findOne!.mockResolvedValue({
+    leaveRequestRepository.findOne.mockResolvedValue(draftRequest);
+    leaveRequestRepository.createQueryBuilder.mockReturnValue(overlapBuilder);
+    leaveTypeRepository.findOne.mockResolvedValue({
       id: 7,
       company_id: 10,
       name: 'Emergency Leave',
@@ -336,8 +336,8 @@ describe('Leave Flow (e2e)', () => {
       requires_attachment: false,
       description: null,
     });
-    holidayRepository.find!.mockResolvedValue([]);
-    leavePolicyRepository.find!.mockResolvedValue([
+    holidayRepository.find.mockResolvedValue([]);
+    leavePolicyRepository.find.mockResolvedValue([
       {
         company_id: 10,
         status: LeaveRecordStatusEnum.ACTIVE,
@@ -363,21 +363,22 @@ describe('Leave Flow (e2e)', () => {
       carried_forward_days: '0.00',
       expired_days: '0.00',
     });
-    dataSource.transaction.mockImplementation(async (callback) =>
-      callback(manager),
+    dataSource.transaction.mockImplementation(
+      (callback: (manager: unknown) => unknown) => callback(manager),
     );
 
-    const response = await request(app.getHttpServer())
+    const response = await request(app.getHttpServer() as App)
       .post('/leave/requests/77/submit')
       .expect(201);
 
-    expect(response.body.status).toBe(LeaveStatusEnum.APPROVED);
-    expect(response.body.leave_no).toBe('LV-2026-000001');
+    const body = response.body as { status: string; leave_no: string };
+    expect(body.status).toBe(LeaveStatusEnum.APPROVED);
+    expect(body.leave_no).toBe('LV-2026-000001');
     expect(managerRecalculationRepository.save).toHaveBeenCalledTimes(1);
   });
 
   it('queues attendance recalculation after approval through HTTP', async () => {
-    leaveRequestRepository.findOne!.mockResolvedValue({
+    leaveRequestRepository.findOne.mockResolvedValue({
       id: 88,
       company_id: 10,
       employee_id: 501,
@@ -386,7 +387,7 @@ describe('Leave Flow (e2e)', () => {
       start_date: '2026-06-11',
       end_date: '2026-06-12',
     });
-    employeeRepository.findOne!.mockResolvedValue({
+    employeeRepository.findOne.mockResolvedValue({
       id: 501,
       company_user: { company_id: 10 },
       primary_department_id: 2,
@@ -404,50 +405,52 @@ describe('Leave Flow (e2e)', () => {
       used_days: '0.00',
       pending_days: '2.00',
     });
-    dataSource.transaction.mockImplementation(async (callback) =>
-      callback({
-        getRepository: jest.fn(() => ({
-          findOneOrFail: jest.fn().mockResolvedValue({
-            id: 88,
-            company_id: 10,
-            employee_id: 501,
-            leave_type_id: 7,
-            leave_no: 'LV-2026-000002',
-            start_date: '2026-06-11',
-            end_date: '2026-06-12',
-            total_days: '2.00',
-            reason: 'Travel',
-            current_approval_level: 0,
-            status: LeaveStatusEnum.APPROVED,
-            rejection_reason: null,
-            applied_at: new Date('2026-06-09T01:00:00Z'),
-            approved_at: new Date('2026-06-09T02:00:00Z'),
-            cancelled_at: null,
-            created_at: new Date('2026-06-09T00:00:00Z'),
-            updated_at: new Date('2026-06-09T02:00:00Z'),
-            employee: {
-              id: 501,
-              employee_no: 'EMP-501',
-              first_name: 'Alice',
-              last_name: 'Jones',
-              primary_department: { id: 2, name: 'Operations' },
-              primary_position: { id: 3, name: 'Analyst' },
-            },
-            leave_type: { id: 7, name: 'Emergency Leave', code: 'EL' },
-            approvals: [],
-            documents: [],
-            medical_detail: null,
-          }),
-        })),
-      }),
+    dataSource.transaction.mockImplementation(
+      (callback: (manager: unknown) => unknown) =>
+        callback({
+          getRepository: jest.fn(() => ({
+            findOneOrFail: jest.fn().mockResolvedValue({
+              id: 88,
+              company_id: 10,
+              employee_id: 501,
+              leave_type_id: 7,
+              leave_no: 'LV-2026-000002',
+              start_date: '2026-06-11',
+              end_date: '2026-06-12',
+              total_days: '2.00',
+              reason: 'Travel',
+              current_approval_level: 0,
+              status: LeaveStatusEnum.APPROVED,
+              rejection_reason: null,
+              applied_at: new Date('2026-06-09T01:00:00Z'),
+              approved_at: new Date('2026-06-09T02:00:00Z'),
+              cancelled_at: null,
+              created_at: new Date('2026-06-09T00:00:00Z'),
+              updated_at: new Date('2026-06-09T02:00:00Z'),
+              employee: {
+                id: 501,
+                employee_no: 'EMP-501',
+                first_name: 'Alice',
+                last_name: 'Jones',
+                primary_department: { id: 2, name: 'Operations' },
+                primary_position: { id: 3, name: 'Analyst' },
+              },
+              leave_type: { id: 7, name: 'Emergency Leave', code: 'EL' },
+              approvals: [],
+              documents: [],
+              medical_detail: null,
+            }),
+          })),
+        }),
     );
 
-    const response = await request(app.getHttpServer())
+    const response = await request(app.getHttpServer() as App)
       .post('/leave/requests/88/approval-action')
       .send({ approve: true, comments: 'Approved' })
       .expect(201);
 
-    expect(response.body.status).toBe(LeaveStatusEnum.APPROVED);
+    const body = response.body as { status: string };
+    expect(body.status).toBe(LeaveStatusEnum.APPROVED);
     expect(attendanceRecalculationJobRepository.save).toHaveBeenCalledWith(
       expect.objectContaining({
         companyId: 10,
@@ -460,7 +463,7 @@ describe('Leave Flow (e2e)', () => {
   });
 
   it('queues attendance recalculation after cancellation through HTTP', async () => {
-    leaveRequestRepository.findOne!.mockResolvedValue({
+    leaveRequestRepository.findOne.mockResolvedValue({
       id: 99,
       company_id: 10,
       employee_id: 501,
@@ -476,7 +479,7 @@ describe('Leave Flow (e2e)', () => {
       },
       rejection_reason: null,
     });
-    employeeRepository.findOne!.mockResolvedValue({
+    employeeRepository.findOne.mockResolvedValue({
       id: 501,
       company_user: { company_id: 10 },
       primary_department_id: 2,
@@ -488,15 +491,16 @@ describe('Leave Flow (e2e)', () => {
       used_days: '1.00',
       pending_days: '0.00',
     });
-    dataSource.transaction.mockImplementation(async (callback) =>
-      callback({
-        getRepository: jest.fn((entity) => ({
-          save: jest.fn(async (value) => value),
-        })),
-      }),
+    dataSource.transaction.mockImplementation(
+      (callback: (manager: unknown) => unknown) =>
+        callback({
+          getRepository: jest.fn(() => ({
+            save: jest.fn((value: unknown) => value),
+          })),
+        }),
     );
 
-    await request(app.getHttpServer())
+    await request(app.getHttpServer() as App)
       .post('/leave/requests/99/cancel')
       .send({ reason: 'Trip postponed' })
       .expect(201);

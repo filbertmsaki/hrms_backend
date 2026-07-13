@@ -1,4 +1,4 @@
-import { IsEnum, IsInt, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsInt, IsOptional } from 'class-validator';
 import { Type } from 'class-transformer';
 import { AttendanceGeofenceStatusEnum } from '../enums/attendance-geofence-status.enum';
 import { AttendanceGeofenceTypeEnum } from '../enums/attendance-geofence-type.enum';

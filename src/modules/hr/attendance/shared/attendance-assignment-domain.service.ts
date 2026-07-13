@@ -72,7 +72,7 @@ export class AttendanceAssignmentDomainService {
     }
   }
 
-  async ensureNoConflictingAssignmentType(input: {
+  ensureNoConflictingAssignmentType(input: {
     companyId: number;
     employeeId: number;
     effectiveFrom: string;
@@ -81,6 +81,7 @@ export class AttendanceAssignmentDomainService {
     assignmentType: 'SHIFT' | 'TIMETABLE';
     ignoreId?: number;
   }): Promise<void> {
+    void input;
     /**
      * Phase 2 rule:
      *
@@ -95,7 +96,7 @@ export class AttendanceAssignmentDomainService {
      * So this method is kept only for backward compatibility with existing
      * service calls.
      */
-    return;
+    return Promise.resolve();
   }
 
   private async findConflictingEmployeeTimetable(input: {

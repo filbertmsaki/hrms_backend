@@ -103,6 +103,7 @@ export class AuthService {
     }
 
     const { password, ...result } = user;
+    void password;
     return result;
   }
 
@@ -484,9 +485,12 @@ export class AuthService {
 
   async resetPassword(dto: ResetPasswordDto) {
     try {
-      const payload = this.jwtService.verify(dto.token, {
-        secret: this.getResetTokenSecret(),
-      });
+      const payload = this.jwtService.verify<{ type: string; sub: number }>(
+        dto.token,
+        {
+          secret: this.getResetTokenSecret(),
+        },
+      );
 
       if (payload.type !== 'password_reset') {
         throw new BadRequestException('Invalid reset token');
@@ -814,7 +818,9 @@ export class AuthService {
   }
 
   private getTokenExpiryTimestamp(token: string): number {
-    const decoded = this.jwtService.decode(token);
+    const decoded = this.jwtService.decode<string | { exp?: number } | null>(
+      token,
+    );
 
     if (
       !decoded ||
@@ -833,7 +839,9 @@ export class AuthService {
     token: string,
     fallbackSeconds: number,
   ): number {
-    const decoded = this.jwtService.decode(token);
+    const decoded = this.jwtService.decode<string | { exp?: number } | null>(
+      token,
+    );
 
     if (
       !decoded ||
@@ -902,5 +910,4 @@ export class AuthService {
       'NotBeforeError',
     ].includes(error.name);
   }
-
 }

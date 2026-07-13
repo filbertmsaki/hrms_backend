@@ -78,7 +78,8 @@ export default class AccessGroupsSeeder implements Seeder {
 
       group.name = groupName;
       group.groupCode = 'ALL-ACCESS';
-      group.description = 'Virtual group granting all-access to all enrolled employees';
+      group.description =
+        'Virtual group granting all-access to all enrolled employees';
       group.organizationId = org.id;
       group.source = AccessGroupSourceEnum.BACKEND;
       group.status = AccessGroupStatusEnum.ACTIVE;

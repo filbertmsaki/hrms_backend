@@ -81,9 +81,12 @@ export class AttendanceGeofenceRepository {
       .orderBy('geofence.id', 'ASC');
 
     if (branchId) {
-      qb.andWhere('(geofence.branch_id IS NULL OR geofence.branch_id = :branchId)', {
-        branchId,
-      });
+      qb.andWhere(
+        '(geofence.branch_id IS NULL OR geofence.branch_id = :branchId)',
+        {
+          branchId,
+        },
+      );
     }
 
     return qb.getMany();

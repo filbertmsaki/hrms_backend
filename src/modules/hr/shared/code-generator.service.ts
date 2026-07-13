@@ -1,5 +1,5 @@
 import { ConflictException, Injectable } from '@nestjs/common';
-import { ObjectLiteral, Repository } from 'typeorm';
+import { FindOptionsWhere, ObjectLiteral, Repository } from 'typeorm';
 
 export interface CodeGeneratorConfig {
   /** Prefix to prepend to the generated code (e.g., 'BR-' for branches) */
@@ -52,7 +52,9 @@ export class CodeGeneratorService {
     let nextNumber = 1;
 
     if (lastRecord) {
-      const lastCode = (lastRecord as any)[codeColumn] as string;
+      const lastCode = (lastRecord as unknown as Record<string, unknown>)[
+        codeColumn
+      ] as string;
       // Extract the numeric part from the code
       const numericPart = lastCode
         .replace(prefix, '')
@@ -75,8 +77,11 @@ export class CodeGeneratorService {
 
       // Check uniqueness scoped to the company
       const existing = await repository.findOne({
-        where: { [codeColumn]: code, [companyColumn]: companyId } as any,
-        select: ['id'] as any,
+        where: {
+          [codeColumn]: code,
+          [companyColumn]: companyId,
+        } as FindOptionsWhere<T>,
+        select: ['id'] as unknown as (keyof T)[],
       });
 
       if (!existing) {

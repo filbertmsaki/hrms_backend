@@ -36,10 +36,11 @@ export class LeaveBalanceCronService implements OnModuleInit {
 
     for (const company of companies) {
       try {
-        const result = await this.leaveBalanceService.generateBalancesForCompany(
-          company.id,
-          fiscalYear,
-        );
+        const result =
+          await this.leaveBalanceService.generateBalancesForCompany(
+            company.id,
+            fiscalYear,
+          );
         this.logger.log(
           `Generated ${result.generated_balances} leave balances for company ${company.id} (${company.name}) in fiscal year ${fiscalYear} via ${trigger}`,
         );

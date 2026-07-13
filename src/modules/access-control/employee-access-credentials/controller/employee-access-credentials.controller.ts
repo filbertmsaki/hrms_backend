@@ -146,10 +146,7 @@ export class EmployeeAccessCredentialsController {
   @Patch('access-credentials/:id/block')
   @UseGuards(PermissionsGuard)
   @Permissions('employee_access_credentials:update')
-  @ApiActionOperation(
-    'Block Credential',
-    'Block credential in backend only.',
-  )
+  @ApiActionOperation('Block Credential', 'Block credential in backend only.')
   block(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,

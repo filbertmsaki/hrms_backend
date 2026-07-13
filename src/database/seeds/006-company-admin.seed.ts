@@ -49,18 +49,12 @@ export default class CompanyAdminSeeder implements Seeder {
         );
       }
 
-      const email =
-        process.env.COMPANY_ADMIN_EMAIL ?? 'admin@alliance.co.tz';
-      const phone =
-        process.env.COMPANY_ADMIN_PHONE ?? '+255700000002';
-      const firstName =
-        process.env.COMPANY_ADMIN_FIRST_NAME ?? 'System';
-      const lastName =
-        process.env.COMPANY_ADMIN_LAST_NAME ?? 'Administrator';
-      const rawPassword =
-        process.env.COMPANY_ADMIN_PASSWORD ?? 'Admin123!';
-      const userNo =
-        process.env.COMPANY_ADMIN_USER_NO ?? 'ADM-00001';
+      const email = process.env.COMPANY_ADMIN_EMAIL ?? 'admin@alliance.co.tz';
+      const phone = process.env.COMPANY_ADMIN_PHONE ?? '+255700000002';
+      const firstName = process.env.COMPANY_ADMIN_FIRST_NAME ?? 'System';
+      const lastName = process.env.COMPANY_ADMIN_LAST_NAME ?? 'Administrator';
+      const rawPassword = process.env.COMPANY_ADMIN_PASSWORD ?? 'Admin123!';
+      const userNo = process.env.COMPANY_ADMIN_USER_NO ?? 'ADM-00001';
 
       let user =
         (await userRepo.findOne({ where: { email } })) ??

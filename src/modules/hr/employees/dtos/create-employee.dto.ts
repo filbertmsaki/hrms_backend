@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform, Type } from 'class-transformer';
+import { Transform, TransformFnParams, Type } from 'class-transformer';
 import {
   IsArray,
   IsDateString,
@@ -26,7 +26,9 @@ import { EmploymentTypeEnum } from '../enums/employment-type.enum';
 import { EmployeeOnboardingInputDto } from '../../onboarding/dtos/employee-onboarding-input.dto';
 
 export class CreateEmployeeDto {
-  @ApiPropertyOptional({ description: 'Leave blank to auto-generate (AICL-XXXXXX)' })
+  @ApiPropertyOptional({
+    description: 'Leave blank to auto-generate (AICL-XXXXXX)',
+  })
   @IsString()
   @IsOptional()
   employee_no?: string;
@@ -48,7 +50,7 @@ export class CreateEmployeeDto {
   preferred_name?: string;
 
   @ApiProperty({ enum: ['male', 'female'] })
-  @Transform(({ value }) =>
+  @Transform(({ value }: TransformFnParams): unknown =>
     typeof value === 'string' ? value.trim().toLowerCase() : value,
   )
   @IsString()

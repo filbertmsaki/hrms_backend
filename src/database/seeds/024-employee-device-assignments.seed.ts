@@ -80,7 +80,9 @@ export default class EmployeeDeviceAssignmentsSeeder implements Seeder {
           where: { employeeId: employee.id, deviceId: device.id },
         });
 
-        const hikvisionNo = employee.metadata?.hikvisionNo as string | undefined;
+        const hikvisionNo = employee.metadata?.hikvisionNo as
+          | string
+          | undefined;
         if (!hikvisionNo) continue;
 
         if (!existing) {
@@ -104,7 +106,10 @@ export default class EmployeeDeviceAssignmentsSeeder implements Seeder {
               maxOpenDoorTime: 0,
               openDoorTime: 0,
               syncStatus: EmployeeDeviceAssignmentSyncStatusEnum.PENDING,
-              metadata: { seeded: true, source: '024-employee-device-assignments' },
+              metadata: {
+                seeded: true,
+                source: '024-employee-device-assignments',
+              },
             }),
           );
           assignedCount++;

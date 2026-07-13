@@ -45,7 +45,6 @@ import { UpdateOffboardingRequestDto } from './dtos/update-offboarding-request.d
 import { UpdateOffboardingWorkflowStepDto } from './dtos/update-offboarding-workflow-step.dto';
 import { UpdateOffboardingWorkflowDto } from './dtos/update-offboarding-workflow.dto';
 import { UploadOffboardingDocumentDto } from './dtos/upload-offboarding-document.dto';
-import { OffboardingApprovalActionTypeEnum } from './enums/offboarding-approval-action-type.enum';
 import { OffboardingApprovalStatusEnum } from './enums/offboarding-approval-status.enum';
 import { OffboardingApproverTypeEnum } from './enums/offboarding-approver-type.enum';
 import { OffboardingAuditActionEnum } from './enums/offboarding-audit-action.enum';
@@ -227,7 +226,9 @@ export class OffboardingService {
   private getShiftScheduleRepository(
     manager?: EntityManager,
   ): Repository<ShiftSchedule> {
-    return manager?.getRepository(ShiftSchedule) ?? this.shiftScheduleRepository;
+    return (
+      manager?.getRepository(ShiftSchedule) ?? this.shiftScheduleRepository
+    );
   }
 
   private getAttendanceDailySummaryRepository(
@@ -310,9 +311,7 @@ export class OffboardingService {
     );
   }
 
-  private isSelfServiceOnlyOffboardingActor(
-    actor: AuthenticatedUser,
-  ): boolean {
+  private isSelfServiceOnlyOffboardingActor(actor: AuthenticatedUser): boolean {
     return (
       actor.roles.includes('EMPLOYEE') &&
       !this.hasElevatedOffboardingAccess(actor)
@@ -2429,10 +2428,7 @@ export class OffboardingService {
         );
       }
 
-      if (
-        typeof employee_id === 'number' &&
-        employee_id !== actor.employeeId
-      ) {
+      if (typeof employee_id === 'number' && employee_id !== actor.employeeId) {
         throw new ForbiddenException(
           'Employees can only query their own offboarding records',
         );
@@ -2592,7 +2588,11 @@ export class OffboardingService {
     companyId: number,
     offboardingRequestId: number,
     documentId: number,
-    dto: { title?: string; description?: string | null; expiry_date?: string | null },
+    dto: {
+      title?: string;
+      description?: string | null;
+      expiry_date?: string | null;
+    },
     actor: AuthenticatedUser,
     context?: RequestContext,
   ) {
@@ -3264,7 +3264,9 @@ export class OffboardingService {
           `${frontendUrl}/offboarding/${offboardingRequestId}/review`,
         ),
       );
-    } catch (_) {}
+    } catch {
+      // intentionally ignored
+    }
   }
 
   private async emitOffboardingCompleted(
@@ -3286,8 +3288,7 @@ export class OffboardingService {
       const employee = loaded.employee;
       const employeeName = `${employee.first_name} ${employee.last_name}`;
       const employeeEmail = employee.company_user.user.email;
-      const managerEmail =
-        employee.manager?.company_user?.user?.email ?? null;
+      const managerEmail = employee.manager?.company_user?.user?.email ?? null;
       const managerName = employee.manager
         ? `${employee.manager.first_name} ${employee.manager.last_name}`
         : null;
@@ -3306,6 +3307,8 @@ export class OffboardingService {
           ),
         ),
       );
-    } catch (_) {}
+    } catch {
+      // intentionally ignored
+    }
   }
 }

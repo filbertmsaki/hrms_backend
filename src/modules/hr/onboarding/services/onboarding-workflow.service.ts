@@ -65,7 +65,7 @@ export class OnboardingWorkflowService {
   }
 
   private getDefaultRepo<T extends object>(entity: new () => T): Repository<T> {
-    const map = new Map<Function, Repository<any>>([
+    const map = new Map<new () => object, Repository<any>>([
       [OnboardingWorkflow, this.workflowRepository],
       [OnboardingWorkflowStep, this.workflowStepRepository],
       [OnboardingApproval, this.onboardingApprovalRepository],
@@ -158,7 +158,11 @@ export class OnboardingWorkflowService {
   ): Promise<number[]> {
     if (step.assigned_user_id) {
       const membership = await this.repo(CompanyUser, manager).findOne({
-        where: { id: step.assigned_user_id, company_id: companyId, status: 'active' },
+        where: {
+          id: step.assigned_user_id,
+          company_id: companyId,
+          status: 'active',
+        },
         select: ['id'],
       });
       return membership ? [membership.id] : [];
@@ -173,7 +177,9 @@ export class OnboardingWorkflowService {
           'membership.id = assignment.company_user_id AND membership.company_id = :companyId AND membership.status = :status',
           { companyId, status: 'active' },
         )
-        .where('assignment.role_id = :roleId', { roleId: step.assigned_role_id })
+        .where('assignment.role_id = :roleId', {
+          roleId: step.assigned_role_id,
+        })
         .select('assignment.company_user_id', 'company_user_id')
         .groupBy('assignment.company_user_id')
         .getRawMany<{ company_user_id: number }>();
@@ -224,7 +230,8 @@ export class OnboardingWorkflowService {
             approval_level: step.step_order,
             approver_company_user_id: null,
             status: OnboardingApprovalStatusEnum.SKIPPED,
-            comments: 'Step skipped automatically due to missing eligible approver',
+            comments:
+              'Step skipped automatically due to missing eligible approver',
             acted_at: new Date(),
           }),
         );
@@ -287,7 +294,9 @@ export class OnboardingWorkflowService {
       onboardingRequest.status !== OnboardingRequestStatusEnum.IN_REVIEW &&
       onboardingRequest.status !== OnboardingRequestStatusEnum.IN_PROGRESS
     ) {
-      throw new BadRequestException('Only active onboarding requests can be acted on');
+      throw new BadRequestException(
+        'Only active onboarding requests can be acted on',
+      );
     }
 
     const currentLevel = onboardingRequest.current_approval_level;
@@ -320,12 +329,15 @@ export class OnboardingWorkflowService {
     actorApproval.acted_at = new Date();
     await approvalRepository.save(actorApproval);
 
-    const otherPending = candidateApprovals.filter((e) => e.id !== actorApproval.id);
+    const otherPending = candidateApprovals.filter(
+      (e) => e.id !== actorApproval.id,
+    );
     if (otherPending.length) {
       otherPending.forEach((entry) => {
         entry.status = OnboardingApprovalStatusEnum.SKIPPED;
         entry.comments =
-          entry.comments ?? 'Skipped because another approver completed this level';
+          entry.comments ??
+          'Skipped because another approver completed this level';
         entry.acted_at = new Date();
       });
       await approvalRepository.save(otherPending);
@@ -345,7 +357,8 @@ export class OnboardingWorkflowService {
       if (futurePending.length) {
         futurePending.forEach((entry) => {
           entry.status = OnboardingApprovalStatusEnum.SKIPPED;
-          entry.comments = entry.comments ?? 'Skipped after onboarding rejection';
+          entry.comments =
+            entry.comments ?? 'Skipped after onboarding rejection';
           entry.acted_at = new Date();
         });
         await approvalRepository.save(futurePending);
@@ -437,7 +450,8 @@ export class OnboardingWorkflowService {
     const employeeName = `${employee.first_name} ${employee.last_name}`;
     const employeeEmail = employee.company_user.user.email;
     const frontendUrl =
-      this.configService.get<string>('APP_FRONTEND_URL') ?? 'http://localhost:5173';
+      this.configService.get<string>('APP_FRONTEND_URL') ??
+      'http://localhost:5173';
     const dashboardUrl = `${frontendUrl}/onboarding/${onboardingRequest.id}`;
 
     if (loaded.status === OnboardingRequestStatusEnum.REJECTED) {
@@ -480,10 +494,12 @@ export class OnboardingWorkflowService {
         },
         relations: { approver: { user: true } },
       });
-      const approvers: NotificationRecipient[] = nextApprovals.flatMap((approval) => {
-        const recipient = buildNotificationRecipient(approval.approver?.user);
-        return recipient ? [recipient] : [];
-      });
+      const approvers: NotificationRecipient[] = nextApprovals.flatMap(
+        (approval) => {
+          const recipient = buildNotificationRecipient(approval.approver?.user);
+          return recipient ? [recipient] : [];
+        },
+      );
       if (approvers.length) {
         this.eventEmitter.emit(
           OnboardingApprovalRequiredEvent.EVENT,

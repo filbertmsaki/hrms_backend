@@ -286,7 +286,8 @@ export class EmployeeSelfServiceApprovalService {
     };
 
     await this.employeeRepository.save(employee);
-    const savedRequest = await this.profileUpdateRequestRepository.save(request);
+    const savedRequest =
+      await this.profileUpdateRequestRepository.save(request);
 
     return {
       message: 'Profile update request approved and applied successfully.',

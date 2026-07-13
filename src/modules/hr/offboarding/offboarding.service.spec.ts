@@ -32,14 +32,13 @@ import { OffboardingTaskStatusEnum } from './enums/offboarding-task-status.enum'
 import { OffboardingTypeEnum } from './enums/offboarding-type.enum';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type MockRepo<T = any> = Record<string, jest.Mock>;
+type MockRepo<T = unknown> = Record<string, jest.Mock> & { __entity?: T };
 
 const createRepositoryMock = <T>(): MockRepo<T> => ({
   find: jest.fn().mockResolvedValue([]),
   findOne: jest.fn(),
   findOneOrFail: jest.fn(),
-  save: jest.fn(async (value) => value),
+  save: jest.fn((value: unknown) => value),
 });
 
 describe('OffboardingService', () => {
@@ -125,7 +124,7 @@ describe('OffboardingService', () => {
   });
 
   it('finalizes employee exit and closes future attendance assignments and summaries', async () => {
-    offboardingRequestRepository.findOne!.mockResolvedValue({
+    offboardingRequestRepository.findOne.mockResolvedValue({
       id: 77,
       employee_id: 501,
       status: OffboardingRequestStatusEnum.IN_PROGRESS,
@@ -139,7 +138,7 @@ describe('OffboardingService', () => {
     });
 
     const requestRepo = {
-      save: jest.fn(async (value) => value),
+      save: jest.fn((value: unknown) => value),
       findOneOrFail: jest
         .fn()
         .mockResolvedValueOnce({
@@ -167,7 +166,7 @@ describe('OffboardingService', () => {
         exit_date: null,
         exit_reason: null,
       }),
-      save: jest.fn(async (value) => value),
+      save: jest.fn((value: unknown) => value),
     };
     const shiftAssignments = [
       {
@@ -187,7 +186,7 @@ describe('OffboardingService', () => {
     ];
     const shiftAssignmentRepo = {
       find: jest.fn().mockResolvedValue(shiftAssignments),
-      save: jest.fn(async (value) => value),
+      save: jest.fn((value: unknown) => value),
     };
     const shiftSchedules = [
       {
@@ -205,8 +204,8 @@ describe('OffboardingService', () => {
     ];
     const shiftScheduleRepo = {
       find: jest.fn().mockResolvedValue(shiftSchedules),
-      save: jest.fn(async (value) => value),
-      remove: jest.fn(async (value) => value),
+      save: jest.fn((value: unknown) => value),
+      remove: jest.fn((value: unknown) => value),
     };
     const employeeTimetables = [
       {
@@ -226,7 +225,7 @@ describe('OffboardingService', () => {
     ];
     const employeeTimetableRepo = {
       find: jest.fn().mockResolvedValue(employeeTimetables),
-      save: jest.fn(async (value) => value),
+      save: jest.fn((value: unknown) => value),
     };
     const deleteBuilder = {
       delete: jest.fn().mockReturnThis(),
@@ -240,7 +239,7 @@ describe('OffboardingService', () => {
     };
 
     const manager = {
-      getRepository: jest.fn((entity) => {
+      getRepository: jest.fn((entity: { name?: string }) => {
         if (entity === OffboardingRequest) return requestRepo;
         if (entity === Employee) return employeeRepo;
         if (entity === ShiftAssignment) return shiftAssignmentRepo;
@@ -251,8 +250,8 @@ describe('OffboardingService', () => {
       }),
     } as unknown as EntityManager;
 
-    dataSource.transaction.mockImplementation(async (callback) =>
-      callback(manager),
+    dataSource.transaction.mockImplementation(
+      (callback: (manager: EntityManager) => unknown) => callback(manager),
     );
 
     await service.completeOffboardingRequest(10, 77, actor);

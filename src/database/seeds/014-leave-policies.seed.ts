@@ -21,18 +21,78 @@ type PolicyTypeSeed = {
 const POLICY_NAME = 'General Leave Policy';
 
 const POLICY_TYPE_SEEDS: PolicyTypeSeed[] = [
-  { leaveTypeCode: 'ANNUAL', annualQuotaDays: 28, maxPerRequestDays: 28, requiresApproval: true },
-  { leaveTypeCode: 'PAID_OCCASIONAL', annualQuotaDays: 0, maxPerRequestDays: null, requiresApproval: true },
-  { leaveTypeCode: 'SICK', annualQuotaDays: 126, maxPerRequestDays: 126, requiresApproval: true },
-  { leaveTypeCode: 'MATERNITY', annualQuotaDays: 84, maxPerRequestDays: 84, requiresApproval: true },
-  { leaveTypeCode: 'MATERNITY_MULTIPLE', annualQuotaDays: 100, maxPerRequestDays: 100, requiresApproval: true },
-  { leaveTypeCode: 'MATERNITY_CHILD_LOSS', annualQuotaDays: 84, maxPerRequestDays: 84, requiresApproval: true },
-  { leaveTypeCode: 'MATERNITY_PREMATURE', annualQuotaDays: 0, maxPerRequestDays: null, requiresApproval: true },
-  { leaveTypeCode: 'PATERNITY', annualQuotaDays: 3, maxPerRequestDays: 3, requiresApproval: true },
-  { leaveTypeCode: 'PATERNITY_PREMATURE', annualQuotaDays: 7, maxPerRequestDays: 7, requiresApproval: true },
-  { leaveTypeCode: 'UNPAID', annualQuotaDays: 30, maxPerRequestDays: 30, requiresApproval: true },
-  { leaveTypeCode: 'COMPASSIONATE', annualQuotaDays: 4, maxPerRequestDays: 4, requiresApproval: true },
-  { leaveTypeCode: 'TRADE_UNION', annualQuotaDays: 0, maxPerRequestDays: null, requiresApproval: true },
+  {
+    leaveTypeCode: 'ANNUAL',
+    annualQuotaDays: 28,
+    maxPerRequestDays: 28,
+    requiresApproval: true,
+  },
+  {
+    leaveTypeCode: 'PAID_OCCASIONAL',
+    annualQuotaDays: 0,
+    maxPerRequestDays: null,
+    requiresApproval: true,
+  },
+  {
+    leaveTypeCode: 'SICK',
+    annualQuotaDays: 126,
+    maxPerRequestDays: 126,
+    requiresApproval: true,
+  },
+  {
+    leaveTypeCode: 'MATERNITY',
+    annualQuotaDays: 84,
+    maxPerRequestDays: 84,
+    requiresApproval: true,
+  },
+  {
+    leaveTypeCode: 'MATERNITY_MULTIPLE',
+    annualQuotaDays: 100,
+    maxPerRequestDays: 100,
+    requiresApproval: true,
+  },
+  {
+    leaveTypeCode: 'MATERNITY_CHILD_LOSS',
+    annualQuotaDays: 84,
+    maxPerRequestDays: 84,
+    requiresApproval: true,
+  },
+  {
+    leaveTypeCode: 'MATERNITY_PREMATURE',
+    annualQuotaDays: 0,
+    maxPerRequestDays: null,
+    requiresApproval: true,
+  },
+  {
+    leaveTypeCode: 'PATERNITY',
+    annualQuotaDays: 3,
+    maxPerRequestDays: 3,
+    requiresApproval: true,
+  },
+  {
+    leaveTypeCode: 'PATERNITY_PREMATURE',
+    annualQuotaDays: 7,
+    maxPerRequestDays: 7,
+    requiresApproval: true,
+  },
+  {
+    leaveTypeCode: 'UNPAID',
+    annualQuotaDays: 30,
+    maxPerRequestDays: 30,
+    requiresApproval: true,
+  },
+  {
+    leaveTypeCode: 'COMPASSIONATE',
+    annualQuotaDays: 4,
+    maxPerRequestDays: 4,
+    requiresApproval: true,
+  },
+  {
+    leaveTypeCode: 'TRADE_UNION',
+    annualQuotaDays: 0,
+    maxPerRequestDays: null,
+    requiresApproval: true,
+  },
 ];
 
 export default class LeavePoliciesSeeder implements Seeder {
@@ -112,9 +172,10 @@ export default class LeavePoliciesSeeder implements Seeder {
           });
         }
         policyType.annual_quota_days = String(seed.annualQuotaDays);
-        policyType.max_per_request_days = seed.maxPerRequestDays !== null
-          ? String(seed.maxPerRequestDays)
-          : null;
+        policyType.max_per_request_days =
+          seed.maxPerRequestDays !== null
+            ? String(seed.maxPerRequestDays)
+            : null;
         policyType.requires_approval = seed.requiresApproval;
 
         await policyTypeRepo.save(policyType);

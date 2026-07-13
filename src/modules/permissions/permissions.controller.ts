@@ -10,7 +10,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
 import { Permissions } from '../../common/decorators/permissions.decorator';
@@ -39,7 +39,10 @@ export class PermissionsController {
   @Post()
   @UseGuards(RolesGuard)
   @Roles('SUPER_ADMIN')
-  @ApiCreateOperation('Permission', 'Create a new permission (SUPER_ADMIN only)')
+  @ApiCreateOperation(
+    'Permission',
+    'Create a new permission (SUPER_ADMIN only)',
+  )
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() createPermissionDto: CreatePermissionDto,

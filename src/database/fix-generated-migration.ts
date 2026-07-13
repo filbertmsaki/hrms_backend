@@ -88,15 +88,21 @@ function patchMigrationContent(content: string): string {
 
   let didPatch = false;
 
-  let next = content.replace(dropRegex, (full, line, tableName, fkName) => {
-    didPatch = true;
-    return buildSafeDropFk(line, tableName, fkName);
-  });
+  let next = content.replace(
+    dropRegex,
+    (full: string, line: string, tableName: string, fkName: string) => {
+      didPatch = true;
+      return buildSafeDropFk(line, tableName, fkName);
+    },
+  );
 
-  next = next.replace(addRegex, (full, line, tableName, fkName) => {
-    didPatch = true;
-    return buildSafeAddFk(line, tableName, fkName);
-  });
+  next = next.replace(
+    addRegex,
+    (full: string, line: string, tableName: string, fkName: string) => {
+      didPatch = true;
+      return buildSafeAddFk(line, tableName, fkName);
+    },
+  );
 
   if (!didPatch) {
     return content;

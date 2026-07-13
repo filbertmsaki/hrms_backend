@@ -220,7 +220,9 @@ export class TimetableScheduleGenerationService {
     return {
       timetable,
       effectiveFrom:
-        employee?.hire_date || formatDateOnly(timetable.createdAt) || scheduleDate,
+        employee?.hire_date ||
+        formatDateOnly(timetable.createdAt) ||
+        scheduleDate,
       assignmentSource: 'COMPANY_DEFAULT_TIMETABLE',
     };
   }

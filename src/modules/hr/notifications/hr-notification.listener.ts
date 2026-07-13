@@ -34,16 +34,26 @@ export class HrNotificationListener {
   async onLeaveSubmitted(event: LeaveSubmittedEvent): Promise<void> {
     for (const approver of event.approvers) {
       await this.send(() =>
-        this.mailService.sendLeaveSubmittedNotification(approver.email, approver.name, event),
+        this.mailService.sendLeaveSubmittedNotification(
+          approver.email,
+          approver.name,
+          event,
+        ),
       );
     }
   }
 
   @OnEvent(LeaveApprovalRequiredEvent.EVENT)
-  async onLeaveApprovalRequired(event: LeaveApprovalRequiredEvent): Promise<void> {
+  async onLeaveApprovalRequired(
+    event: LeaveApprovalRequiredEvent,
+  ): Promise<void> {
     for (const approver of event.approvers) {
       await this.send(() =>
-        this.mailService.sendLeaveApprovalRequiredNotification(approver.email, approver.name, event),
+        this.mailService.sendLeaveApprovalRequiredNotification(
+          approver.email,
+          approver.name,
+          event,
+        ),
       );
     }
   }
@@ -51,21 +61,32 @@ export class HrNotificationListener {
   @OnEvent(LeaveApprovedEvent.EVENT)
   async onLeaveApproved(event: LeaveApprovedEvent): Promise<void> {
     await this.send(() =>
-      this.mailService.sendLeaveApprovedNotification(event.employeeEmail, event),
+      this.mailService.sendLeaveApprovedNotification(
+        event.employeeEmail,
+        event,
+      ),
     );
   }
 
   @OnEvent(LeaveRejectedEvent.EVENT)
   async onLeaveRejected(event: LeaveRejectedEvent): Promise<void> {
     await this.send(() =>
-      this.mailService.sendLeaveRejectedNotification(event.employeeEmail, event),
+      this.mailService.sendLeaveRejectedNotification(
+        event.employeeEmail,
+        event,
+      ),
     );
   }
 
   @OnEvent(LeaveReturnedForCorrectionEvent.EVENT)
-  async onLeaveReturnedForCorrection(event: LeaveReturnedForCorrectionEvent): Promise<void> {
+  async onLeaveReturnedForCorrection(
+    event: LeaveReturnedForCorrectionEvent,
+  ): Promise<void> {
     await this.send(() =>
-      this.mailService.sendLeaveReturnedForCorrectionNotification(event.employeeEmail, event),
+      this.mailService.sendLeaveReturnedForCorrectionNotification(
+        event.employeeEmail,
+        event,
+      ),
     );
   }
 
@@ -73,7 +94,11 @@ export class HrNotificationListener {
   async onLeaveCancelled(event: LeaveCancelledEvent): Promise<void> {
     for (const approver of event.pendingApprovers) {
       await this.send(() =>
-        this.mailService.sendLeaveCancelledNotification(approver.email, approver.name, event),
+        this.mailService.sendLeaveCancelledNotification(
+          approver.email,
+          approver.name,
+          event,
+        ),
       );
     }
   }
@@ -83,20 +108,33 @@ export class HrNotificationListener {
   @OnEvent(OnboardingSubmittedEvent.EVENT)
   async onOnboardingSubmitted(event: OnboardingSubmittedEvent): Promise<void> {
     await this.send(() =>
-      this.mailService.sendOnboardingSubmittedToEmployee(event.employeeEmail, event),
+      this.mailService.sendOnboardingSubmittedToEmployee(
+        event.employeeEmail,
+        event,
+      ),
     );
     for (const approver of event.approvers) {
       await this.send(() =>
-        this.mailService.sendOnboardingSubmittedToApprover(approver.email, approver.name, event),
+        this.mailService.sendOnboardingSubmittedToApprover(
+          approver.email,
+          approver.name,
+          event,
+        ),
       );
     }
   }
 
   @OnEvent(OnboardingApprovalRequiredEvent.EVENT)
-  async onOnboardingApprovalRequired(event: OnboardingApprovalRequiredEvent): Promise<void> {
+  async onOnboardingApprovalRequired(
+    event: OnboardingApprovalRequiredEvent,
+  ): Promise<void> {
     for (const approver of event.approvers) {
       await this.send(() =>
-        this.mailService.sendOnboardingApprovalRequiredNotification(approver.email, approver.name, event),
+        this.mailService.sendOnboardingApprovalRequiredNotification(
+          approver.email,
+          approver.name,
+          event,
+        ),
       );
     }
   }
@@ -104,11 +142,19 @@ export class HrNotificationListener {
   @OnEvent(OnboardingApprovedEvent.EVENT)
   async onOnboardingApproved(event: OnboardingApprovedEvent): Promise<void> {
     await this.send(() =>
-      this.mailService.sendOnboardingApprovedNotification(event.employeeEmail, event.employeeName, event),
+      this.mailService.sendOnboardingApprovedNotification(
+        event.employeeEmail,
+        event.employeeName,
+        event,
+      ),
     );
     for (const hr of event.hrRecipients) {
       await this.send(() =>
-        this.mailService.sendOnboardingApprovedNotification(hr.email, hr.name, event),
+        this.mailService.sendOnboardingApprovedNotification(
+          hr.email,
+          hr.name,
+          event,
+        ),
       );
     }
   }
@@ -116,25 +162,41 @@ export class HrNotificationListener {
   @OnEvent(OnboardingRejectedEvent.EVENT)
   async onOnboardingRejected(event: OnboardingRejectedEvent): Promise<void> {
     await this.send(() =>
-      this.mailService.sendOnboardingRejectedNotification(event.employeeEmail, event),
+      this.mailService.sendOnboardingRejectedNotification(
+        event.employeeEmail,
+        event,
+      ),
     );
   }
 
   @OnEvent(OnboardingTaskAssignedEvent.EVENT)
-  async onOnboardingTaskAssigned(event: OnboardingTaskAssignedEvent): Promise<void> {
+  async onOnboardingTaskAssigned(
+    event: OnboardingTaskAssignedEvent,
+  ): Promise<void> {
     await this.send(() =>
-      this.mailService.sendOnboardingTaskAssignedNotification(event.assigneeEmail, event),
+      this.mailService.sendOnboardingTaskAssignedNotification(
+        event.assigneeEmail,
+        event,
+      ),
     );
   }
 
   @OnEvent(OnboardingCompletedEvent.EVENT)
   async onOnboardingCompleted(event: OnboardingCompletedEvent): Promise<void> {
     await this.send(() =>
-      this.mailService.sendOnboardingCompletedNotification(event.employeeEmail, event.employeeName, event),
+      this.mailService.sendOnboardingCompletedNotification(
+        event.employeeEmail,
+        event.employeeName,
+        event,
+      ),
     );
     if (event.managerEmail && event.managerName) {
       await this.send(() =>
-        this.mailService.sendOnboardingCompletedNotification(event.managerEmail!, event.managerName!, event),
+        this.mailService.sendOnboardingCompletedNotification(
+          event.managerEmail!,
+          event.managerName!,
+          event,
+        ),
       );
     }
   }
@@ -142,22 +204,37 @@ export class HrNotificationListener {
   // ── OFFBOARDING ────────────────────────────────────────────────────────────
 
   @OnEvent(OffboardingSubmittedEvent.EVENT)
-  async onOffboardingSubmitted(event: OffboardingSubmittedEvent): Promise<void> {
+  async onOffboardingSubmitted(
+    event: OffboardingSubmittedEvent,
+  ): Promise<void> {
     await this.send(() =>
-      this.mailService.sendOffboardingSubmittedToEmployee(event.employeeEmail, event),
+      this.mailService.sendOffboardingSubmittedToEmployee(
+        event.employeeEmail,
+        event,
+      ),
     );
     for (const approver of event.approvers) {
       await this.send(() =>
-        this.mailService.sendOffboardingSubmittedToApprover(approver.email, approver.name, event),
+        this.mailService.sendOffboardingSubmittedToApprover(
+          approver.email,
+          approver.name,
+          event,
+        ),
       );
     }
   }
 
   @OnEvent(OffboardingApprovalRequiredEvent.EVENT)
-  async onOffboardingApprovalRequired(event: OffboardingApprovalRequiredEvent): Promise<void> {
+  async onOffboardingApprovalRequired(
+    event: OffboardingApprovalRequiredEvent,
+  ): Promise<void> {
     for (const approver of event.approvers) {
       await this.send(() =>
-        this.mailService.sendOffboardingApprovalRequiredNotification(approver.email, approver.name, event),
+        this.mailService.sendOffboardingApprovalRequiredNotification(
+          approver.email,
+          approver.name,
+          event,
+        ),
       );
     }
   }
@@ -165,42 +242,74 @@ export class HrNotificationListener {
   @OnEvent(OffboardingApprovedEvent.EVENT)
   async onOffboardingApproved(event: OffboardingApprovedEvent): Promise<void> {
     await this.send(() =>
-      this.mailService.sendOffboardingApprovedNotification(event.employeeEmail, event.employeeName, event),
+      this.mailService.sendOffboardingApprovedNotification(
+        event.employeeEmail,
+        event.employeeName,
+        event,
+      ),
     );
     for (const hr of event.hrRecipients) {
       await this.send(() =>
-        this.mailService.sendOffboardingApprovedNotification(hr.email, hr.name, event),
+        this.mailService.sendOffboardingApprovedNotification(
+          hr.email,
+          hr.name,
+          event,
+        ),
       );
     }
   }
 
   @OnEvent(OffboardingTaskAssignedEvent.EVENT)
-  async onOffboardingTaskAssigned(event: OffboardingTaskAssignedEvent): Promise<void> {
+  async onOffboardingTaskAssigned(
+    event: OffboardingTaskAssignedEvent,
+  ): Promise<void> {
     await this.send(() =>
-      this.mailService.sendOffboardingTaskAssignedNotification(event.assigneeEmail, event),
+      this.mailService.sendOffboardingTaskAssignedNotification(
+        event.assigneeEmail,
+        event,
+      ),
     );
   }
 
   @OnEvent(OffboardingClearanceRequiredEvent.EVENT)
-  async onOffboardingClearanceRequired(event: OffboardingClearanceRequiredEvent): Promise<void> {
+  async onOffboardingClearanceRequired(
+    event: OffboardingClearanceRequiredEvent,
+  ): Promise<void> {
     await this.send(() =>
-      this.mailService.sendOffboardingClearanceRequiredNotification(event.ownerEmail, event),
+      this.mailService.sendOffboardingClearanceRequiredNotification(
+        event.ownerEmail,
+        event,
+      ),
     );
   }
 
   @OnEvent(OffboardingCompletedEvent.EVENT)
-  async onOffboardingCompleted(event: OffboardingCompletedEvent): Promise<void> {
+  async onOffboardingCompleted(
+    event: OffboardingCompletedEvent,
+  ): Promise<void> {
     await this.send(() =>
-      this.mailService.sendOffboardingCompletedNotification(event.employeeEmail, event.employeeName, event),
+      this.mailService.sendOffboardingCompletedNotification(
+        event.employeeEmail,
+        event.employeeName,
+        event,
+      ),
     );
     if (event.managerEmail && event.managerName) {
       await this.send(() =>
-        this.mailService.sendOffboardingCompletedNotification(event.managerEmail!, event.managerName!, event),
+        this.mailService.sendOffboardingCompletedNotification(
+          event.managerEmail!,
+          event.managerName!,
+          event,
+        ),
       );
     }
     for (const hr of event.hrRecipients) {
       await this.send(() =>
-        this.mailService.sendOffboardingCompletedNotification(hr.email, hr.name, event),
+        this.mailService.sendOffboardingCompletedNotification(
+          hr.email,
+          hr.name,
+          event,
+        ),
       );
     }
   }
@@ -211,7 +320,10 @@ export class HrNotificationListener {
     try {
       await fn();
     } catch (err) {
-      this.logger.error('HR notification email failed', err instanceof Error ? err.stack : String(err));
+      this.logger.error(
+        'HR notification email failed',
+        err instanceof Error ? err.stack : String(err),
+      );
     }
   }
 }

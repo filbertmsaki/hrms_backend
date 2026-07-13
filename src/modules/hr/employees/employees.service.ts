@@ -79,18 +79,6 @@ import { Employee } from './entities/employee.entity';
 
 type EmployeeMutationDto = CreateEmployeeDto | UpdateEmployeeDto;
 
-type EmployeeProfileCollectionsDto = Pick<
-  CreateEmployeeDto,
-  | 'contacts'
-  | 'addresses'
-  | 'relatives'
-  | 'identifications'
-  | 'bank_accounts'
-  | 'academic_qualifications'
-  | 'professional_qualifications'
-  | 'experience_details'
->;
-
 @Injectable()
 export class EmployeesService {
   constructor(
@@ -1688,9 +1676,7 @@ export class EmployeesService {
 
     const normalized = value.trim().toLowerCase();
     if (normalized !== 'male' && normalized !== 'female') {
-      throw new BadRequestException(
-        'gender must be either "male" or "female"',
-      );
+      throw new BadRequestException('gender must be either "male" or "female"');
     }
 
     return normalized;
@@ -2836,7 +2822,9 @@ export class EmployeesService {
     changeEmployeeStatusDto: ChangeEmployeeStatusDto,
     actor: AuthenticatedUser,
   ) {
-    if (changeEmployeeStatusDto.employment_status === EmploymentStatusEnum.ACTIVE) {
+    if (
+      changeEmployeeStatusDto.employment_status === EmploymentStatusEnum.ACTIVE
+    ) {
       await this.assertAttendanceReady(companyId, employeeId);
     }
     return this.update(companyId, employeeId, changeEmployeeStatusDto, actor);
@@ -2860,7 +2848,8 @@ export class EmployeesService {
 
     if (blockingIssues.length > 0) {
       throw new UnprocessableEntityException({
-        message: 'Employee cannot be activated: attendance setup is incomplete.',
+        message:
+          'Employee cannot be activated: attendance setup is incomplete.',
         issues: blockingIssues,
         readinessScore: readiness.readinessScore,
         hint: 'Complete the listed setup items before activating this employee.',

@@ -364,7 +364,11 @@ export class OnboardingController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.onboardingService.findAllTasks(req.user.companyId!, id, req.user);
+    return this.onboardingService.findAllTasks(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
   }
 
   @Get('requests/:id/tasks/:taskId')
@@ -376,7 +380,12 @@ export class OnboardingController {
     @Param('id', ParseIntPipe) id: number,
     @Param('taskId', ParseIntPipe) taskId: number,
   ) {
-    return this.onboardingService.findOneTask(req.user.companyId!, id, taskId, req.user);
+    return this.onboardingService.findOneTask(
+      req.user.companyId!,
+      id,
+      taskId,
+      req.user,
+    );
   }
 
   @Patch('requests/:id/tasks/:taskId/assign')
@@ -389,7 +398,13 @@ export class OnboardingController {
     @Param('taskId', ParseIntPipe) taskId: number,
     @Body() dto: ReassignOnboardingTaskDto,
   ) {
-    return this.onboardingService.reassignTask(req.user.companyId!, id, taskId, dto, req.user);
+    return this.onboardingService.reassignTask(
+      req.user.companyId!,
+      id,
+      taskId,
+      dto,
+      req.user,
+    );
   }
 
   @Post('requests/:id/tasks')

@@ -578,7 +578,6 @@ export class CompaniesService {
     const companyUserRoleRepository =
       this.getCompanyUserRoleRepository(manager);
     const userRepository = this.getUserRepository(manager);
-    const roleRepository = this.getRoleRepository(manager);
 
     const company = await companyRepository.findOne({
       where: { id: companyId, status: 'active' },
@@ -667,7 +666,7 @@ export class CompaniesService {
       roleIds.add(viewerRole.id);
     }
 
-    const resolvedRoles = await this.resolveRolesByIdsForCompany(
+    await this.resolveRolesByIdsForCompany(
       Array.from(roleIds),
       companyId,
       manager,

@@ -32,9 +32,9 @@ export class TwoFaService {
       throw new BadRequestException('2FA is already enabled for this account');
     }
 
-    const secret = generateSecret({ length: 32 });
-    const serviceName = this.configService.get('APP_NAME') || 'YourApp';
-    const otpAuthUrl = generateURI({
+    const secret: string = generateSecret({ length: 32 });
+    const serviceName = this.configService.get<string>('APP_NAME') || 'YourApp';
+    const otpAuthUrl: string = generateURI({
       issuer: serviceName,
       label: user.email,
       secret,

@@ -21,7 +21,8 @@ export class RebuildAttendanceSummariesDto {
 
   @ApiPropertyOptional({
     example: 123,
-    description: 'Limit to a single employee. Omit to rebuild for all employees in the range.',
+    description:
+      'Limit to a single employee. Omit to rebuild for all employees in the range.',
   })
   @Type(() => Number)
   @IsInt()
@@ -31,7 +32,8 @@ export class RebuildAttendanceSummariesDto {
 
   @ApiPropertyOptional({
     default: true,
-    description: 'Delete existing summaries before rebuilding. Use false to only upsert without clearing.',
+    description:
+      'Delete existing summaries before rebuilding. Use false to only upsert without clearing.',
   })
   @IsBoolean()
   @IsOptional()
@@ -39,7 +41,8 @@ export class RebuildAttendanceSummariesDto {
 
   @ApiPropertyOptional({
     example: 'Shift rules updated',
-    description: 'Reason for the rebuild. Recorded on the job when async is true.',
+    description:
+      'Reason for the rebuild. Recorded on the job when async is true.',
   })
   @IsString()
   @MaxLength(255)

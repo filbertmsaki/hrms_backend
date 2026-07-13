@@ -211,7 +211,7 @@ export class AttendanceGeofencesService {
     polygonCoordinates?: Array<{ latitude: number; longitude: number }> | null;
   }) {
     const type = payload.type ?? AttendanceGeofenceTypeEnum.CIRCLE;
-    
+
     if (type === AttendanceGeofenceTypeEnum.CIRCLE) {
       if (payload.latitude === undefined || payload.longitude === undefined) {
         throw new BadRequestException(

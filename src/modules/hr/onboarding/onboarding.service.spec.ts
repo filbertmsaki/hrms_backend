@@ -39,20 +39,19 @@ import { EmployeeTimetablesService } from '../attendance/timetable/employee-time
 import { EmployeeDeviceAssignmentsService } from '../../access-control/employee-device-assignments/service/employee-device-assignments.service';
 import { OnboardingAttendanceModeEnum } from './enums/onboarding-attendance-mode.enum';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type MockRepo<T = any> = Record<string, jest.Mock>;
+type MockRepo = Record<string, jest.Mock>;
 
-const createRepositoryMock = <T>(): MockRepo<T> => ({
+const createRepositoryMock = <T>(): MockRepo => ({
   findOne: jest.fn(),
   findOneOrFail: jest.fn(),
-  create: jest.fn((value) => value),
-  save: jest.fn(async (value) => value),
+  create: jest.fn((value: T) => value),
+  save: jest.fn((value: T) => Promise.resolve(value)),
 });
 
 describe('OnboardingService', () => {
   let service: OnboardingService;
-  let onboardingRequestRepository: MockRepo<OnboardingRequest>;
-  let employeeRepository: MockRepo<Employee>;
+  let onboardingRequestRepository: MockRepo;
+  let employeeRepository: MockRepo;
   let dataSource: { transaction: jest.Mock };
   let leaveBalanceService: {
     getFiscalYearFromDate: jest.Mock;
@@ -153,7 +152,7 @@ describe('OnboardingService', () => {
   });
 
   it('activates the employee and initializes active leave balances on completion', async () => {
-    onboardingRequestRepository.findOne!.mockResolvedValue({
+    onboardingRequestRepository.findOne.mockResolvedValue({
       id: 55,
       employee_id: 501,
       status: OnboardingRequestStatusEnum.IN_PROGRESS,
@@ -163,7 +162,7 @@ describe('OnboardingService', () => {
     });
 
     const requestRepo = {
-      save: jest.fn(async (value) => value),
+      save: jest.fn((value: unknown) => Promise.resolve(value)),
       findOneOrFail: jest
         .fn()
         .mockResolvedValueOnce({
@@ -189,7 +188,7 @@ describe('OnboardingService', () => {
         employment_status: EmploymentStatusEnum.ONBOARDING,
         hire_date: null,
       }),
-      save: jest.fn(async (value) => value),
+      save: jest.fn((value: Partial<Employee>) => Promise.resolve(value)),
     };
     const leaveTypeRepo = {
       find: jest.fn().mockResolvedValue([
@@ -199,7 +198,7 @@ describe('OnboardingService', () => {
     };
 
     const manager = {
-      getRepository: jest.fn((entity) => {
+      getRepository: jest.fn((entity: { name?: string }) => {
         if (entity === OnboardingRequest) return requestRepo;
         if (entity === Employee) return employeeRepo;
         if (entity === LeaveType) return leaveTypeRepo;
@@ -207,8 +206,8 @@ describe('OnboardingService', () => {
       }),
     } as unknown as EntityManager;
 
-    dataSource.transaction.mockImplementation(async (callback) =>
-      callback(manager),
+    dataSource.transaction.mockImplementation(
+      (callback: (manager: EntityManager) => unknown) => callback(manager),
     );
 
     await service.completeOnboarding(10, 55, actor);
@@ -216,7 +215,9 @@ describe('OnboardingService', () => {
     expect(employeeRepo.save).toHaveBeenCalledWith(
       expect.objectContaining({
         employment_status: EmploymentStatusEnum.ACTIVE,
-        hire_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+        hire_date: expect.stringMatching(
+          /^\d{4}-\d{2}-\d{2}$/,
+        ) as unknown as string,
       }),
     );
     expect(leaveBalanceService.getFiscalYearFromDate).toHaveBeenCalled();
@@ -236,7 +237,7 @@ describe('OnboardingService', () => {
   });
 
   it('stores normalized provisioning metadata when onboarding starts', async () => {
-    employeeRepository.findOne!.mockResolvedValue({
+    employeeRepository.findOne.mockResolvedValue({
       id: 501,
       company_user: { company_id: 10 },
       first_name: 'Jane',
@@ -250,8 +251,8 @@ describe('OnboardingService', () => {
     }));
 
     const requestRepo = {
-      create: jest.fn((value) => value),
-      save: jest.fn(async (value) => value),
+      create: jest.fn((value: Partial<OnboardingRequest>) => value),
+      save: jest.fn((value: unknown) => Promise.resolve(value)),
       findOneOrFail: jest.fn().mockResolvedValue({
         id: 77,
         company_id: 10,
@@ -290,7 +291,7 @@ describe('OnboardingService', () => {
     };
 
     const manager = {
-      getRepository: jest.fn((entity) => {
+      getRepository: jest.fn((entity: { name?: string }) => {
         if (entity === Employee) {
           return {
             findOne: jest.fn().mockResolvedValue({
@@ -309,8 +310,8 @@ describe('OnboardingService', () => {
       }),
     } as unknown as EntityManager;
 
-    dataSource.transaction.mockImplementation(async (callback) =>
-      callback(manager),
+    dataSource.transaction.mockImplementation(
+      (callback: (manager: EntityManager) => unknown) => callback(manager),
     );
 
     const created = await service.startOnboardingForEmployee(
@@ -364,7 +365,7 @@ describe('OnboardingService', () => {
   });
 
   it('rejects onboarding provisioning that mixes shift and timetable setup', async () => {
-    employeeRepository.findOne!.mockResolvedValue({
+    employeeRepository.findOne.mockResolvedValue({
       id: 501,
       company_user: { company_id: 10 },
       first_name: 'Jane',
@@ -378,8 +379,8 @@ describe('OnboardingService', () => {
     }));
 
     const requestRepo = {
-      create: jest.fn((value) => value),
-      save: jest.fn(async (value) => value),
+      create: jest.fn((value: Partial<OnboardingRequest>) => value),
+      save: jest.fn((value: unknown) => Promise.resolve(value)),
       findOneOrFail: jest.fn(),
       createQueryBuilder: jest.fn(() => ({
         where: jest.fn().mockReturnThis(),
@@ -389,7 +390,7 @@ describe('OnboardingService', () => {
       })),
     };
     const manager = {
-      getRepository: jest.fn((entity) => {
+      getRepository: jest.fn((entity: { name?: string }) => {
         if (entity === Employee) {
           return {
             findOne: jest.fn().mockResolvedValue({
@@ -408,8 +409,8 @@ describe('OnboardingService', () => {
       }),
     } as unknown as EntityManager;
 
-    dataSource.transaction.mockImplementation(async (callback) =>
-      callback(manager),
+    dataSource.transaction.mockImplementation(
+      (callback: (manager: EntityManager) => unknown) => callback(manager),
     );
 
     await expect(

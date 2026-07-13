@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
+import { Transform, TransformFnParams } from 'class-transformer';
 import { IsEnum } from 'class-validator';
 import { QueryAttendanceDailySummariesDto } from './query-attendance-daily-summaries.dto';
 import { AttendanceReportFormatEnum } from './attendance-report-format.enum';
@@ -10,7 +10,7 @@ export class DownloadAttendanceReportDto extends QueryAttendanceDailySummariesDt
     example: AttendanceReportFormatEnum.XLSX,
     description: 'Supported report output formats',
   })
-  @Transform(({ value }) =>
+  @Transform(({ value }: TransformFnParams): unknown =>
     typeof value === 'string' ? value.trim().toLowerCase() : value,
   )
   @IsEnum(AttendanceReportFormatEnum, {

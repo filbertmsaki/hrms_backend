@@ -7,17 +7,24 @@ import { AttendanceReportService } from './attendance-report.service';
 import { AttendanceReportXlsxService } from './attendance-report-xlsx.service';
 
 describe('AttendanceReportService', () => {
+  const streamReportRowsMock = jest.fn().mockResolvedValue(0);
+  const csvExportMock = jest
+    .fn<Promise<void>, [unknown, { filename: string; companyName: string }]>()
+    .mockResolvedValue(undefined);
+  const pdfExportMock = jest.fn().mockResolvedValue(undefined);
+  const xlsxExportMock = jest.fn().mockResolvedValue(undefined);
+
   const dailySummaryService = {
-    streamReportRows: jest.fn().mockResolvedValue(0),
+    streamReportRows: streamReportRowsMock,
   } as unknown as AttendanceDailySummaryService;
   const csvService = {
-    export: jest.fn().mockResolvedValue(undefined),
+    export: csvExportMock,
   } as unknown as AttendanceReportCsvService;
   const pdfService = {
-    export: jest.fn().mockResolvedValue(undefined),
+    export: pdfExportMock,
   } as unknown as AttendanceReportPdfService;
   const xlsxService = {
-    export: jest.fn().mockResolvedValue(undefined),
+    export: xlsxExportMock,
   } as unknown as AttendanceReportXlsxService;
 
   const service = new AttendanceReportService(
@@ -45,11 +52,14 @@ describe('AttendanceReportService', () => {
 
     await service.downloadReport(response, actor, query);
 
-    expect((csvService.export as jest.Mock).mock.calls).toHaveLength(1);
-    expect(pdfService.export).not.toHaveBeenCalled();
-    expect(xlsxService.export).not.toHaveBeenCalled();
+    expect(csvExportMock.mock.calls).toHaveLength(1);
+    expect(pdfExportMock).not.toHaveBeenCalled();
+    expect(xlsxExportMock).not.toHaveBeenCalled();
 
-    const context = (csvService.export as jest.Mock).mock.calls[0][1];
+    const context = csvExportMock.mock.calls[0][1] as {
+      filename: string;
+      companyName: string;
+    };
     expect(context.filename).toBe('attendance-report-2026-07.csv');
     expect(context.companyName).toBe('OpenAI HR');
   });

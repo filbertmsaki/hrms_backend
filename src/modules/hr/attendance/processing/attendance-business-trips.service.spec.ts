@@ -10,14 +10,13 @@ import { EmploymentStatusEnum } from '../../employees/enums/employment-status.en
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type MockRepo<T = any> = Record<string, jest.Mock>;
+type MockRepo = Record<string, jest.Mock>;
 
-const createRepositoryMock = <T>(): MockRepo<T> => ({
+const createRepositoryMock = (): MockRepo => ({
   findOne: jest.fn(),
-  save: jest.fn(async (value) => value),
-  create: jest.fn((value) => value),
-  remove: jest.fn(async (value) => value),
+  save: jest.fn((value: unknown) => Promise.resolve(value)),
+  create: jest.fn((value: unknown) => value),
+  remove: jest.fn((value: unknown) => Promise.resolve(value)),
   createQueryBuilder: jest.fn(),
 });
 
@@ -33,9 +32,9 @@ const createQueryBuilderMock = () => ({
 
 describe('AttendanceBusinessTripsService', () => {
   let service: AttendanceBusinessTripsService;
-  let businessTripRepository: MockRepo<AttendanceBusinessTrip>;
-  let employeeRepository: MockRepo<Employee>;
-  let recalculationJobRepository: MockRepo<AttendanceRecalculationJob>;
+  let businessTripRepository: MockRepo;
+  let employeeRepository: MockRepo;
+  let recalculationJobRepository: MockRepo;
   let hrAccessService: { assertCanAccessEmployee: jest.Mock };
   let actor: AuthenticatedUser;
 
@@ -68,8 +67,8 @@ describe('AttendanceBusinessTripsService', () => {
   it('creates a submitted business trip for an active employee', async () => {
     const overlapBuilder = createQueryBuilderMock();
     overlapBuilder.getOne.mockResolvedValue(null);
-    businessTripRepository.createQueryBuilder!.mockReturnValue(overlapBuilder);
-    employeeRepository.findOne!.mockResolvedValue({
+    businessTripRepository.createQueryBuilder.mockReturnValue(overlapBuilder);
+    employeeRepository.findOne.mockResolvedValue({
       id: 501,
       company_user: { company_id: 10 },
       primary_department: null,
@@ -102,7 +101,7 @@ describe('AttendanceBusinessTripsService', () => {
   });
 
   it('queues attendance recalculation when a submitted trip is approved', async () => {
-    businessTripRepository.findOne!.mockResolvedValue({
+    businessTripRepository.findOne.mockResolvedValue({
       id: 7,
       companyId: 10,
       employeeId: 501,
@@ -113,7 +112,7 @@ describe('AttendanceBusinessTripsService', () => {
       approvedByCompanyUserId: null,
       metadata: null,
     });
-    employeeRepository.findOne!.mockResolvedValue({
+    employeeRepository.findOne.mockResolvedValue({
       id: 501,
       company_user: { company_id: 10 },
       primary_department: null,
@@ -143,7 +142,7 @@ describe('AttendanceBusinessTripsService', () => {
   });
 
   it('queues attendance recalculation when an approved trip is cancelled', async () => {
-    businessTripRepository.findOne!.mockResolvedValue({
+    businessTripRepository.findOne.mockResolvedValue({
       id: 8,
       companyId: 10,
       employeeId: 501,
@@ -154,7 +153,7 @@ describe('AttendanceBusinessTripsService', () => {
       approvedByCompanyUserId: 42,
       metadata: null,
     });
-    employeeRepository.findOne!.mockResolvedValue({
+    employeeRepository.findOne.mockResolvedValue({
       id: 501,
       company_user: { company_id: 10 },
       primary_department: null,
@@ -180,7 +179,7 @@ describe('AttendanceBusinessTripsService', () => {
   it('maps created_at to createdAt when listing business trips', async () => {
     const qb = createQueryBuilderMock();
     qb.getManyAndCount.mockResolvedValue([[], 0]);
-    businessTripRepository.createQueryBuilder!.mockReturnValue(qb);
+    businessTripRepository.createQueryBuilder.mockReturnValue(qb);
 
     await service.findAll(10, {
       page: 1,

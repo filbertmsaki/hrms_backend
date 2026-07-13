@@ -12,9 +12,9 @@ type MockRepo<T extends ObjectLiteral> = Partial<
 
 const createRepositoryMock = <T extends ObjectLiteral>(): MockRepo<T> => ({
   findOne: jest.fn(),
-  save: jest.fn(async (value) => value),
-  create: jest.fn((value) => value),
-  remove: jest.fn(async (value) => value),
+  save: jest.fn((value: unknown) => value),
+  create: jest.fn((value: unknown) => value),
+  remove: jest.fn((value: unknown) => value),
   createQueryBuilder: jest.fn(),
 });
 
@@ -64,7 +64,10 @@ describe('ShiftRotationRulesService', () => {
   });
 
   it('rejects non-off-day rotation rules that do not point to a shift', async () => {
-    rotationGroupRepository.findOne!.mockResolvedValue({ id: 3, companyId: 10 });
+    rotationGroupRepository.findOne!.mockResolvedValue({
+      id: 3,
+      companyId: 10,
+    });
 
     await expect(
       service.create(10, {

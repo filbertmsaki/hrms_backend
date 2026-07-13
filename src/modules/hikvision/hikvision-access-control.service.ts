@@ -5,7 +5,10 @@ import { DeviceCommandTypeEnum } from './device-command-logs/enum/device-command
 import { HikvisionDigestClient } from './helpers/hikvision-digest.client';
 import { HikvisionHelperService } from './helpers/hikvision-helper.service';
 import { HikvisionParserHelper } from './helpers/hikvision-parser.helper';
-import { buildCredentialsFromDevice } from './helpers/hikvision-utils';
+import {
+  buildCredentialsFromDevice,
+  toDisplayString,
+} from './helpers/hikvision-utils';
 import { HikvisionRequestOptions } from './interfaces/hikvision-client.interface';
 
 export type HikvisionRemoteDoorCommand =
@@ -139,7 +142,7 @@ export class HikvisionAccessControlService {
     payload: Record<string, unknown>,
   ) {
     const name = this.escapeXml(
-      String(payload.groupName ?? payload.name ?? `Group ${groupNo}`),
+      toDisplayString(payload.groupName ?? payload.name ?? `Group ${groupNo}`),
     );
     const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<GroupCfg version="2.0" xmlns="http://www.isapi.org/ver20/XMLSchema">\n  <groupNo>${this.escapeXml(groupNo)}</groupNo>\n  <groupName>${name}</groupName>\n</GroupCfg>`;
 
@@ -415,7 +418,6 @@ export class HikvisionAccessControlService {
     );
   }
 
-
   async getAcsEventCapabilities(companyId: number, deviceId: number) {
     return this.requestToDevice(
       companyId,
@@ -481,7 +483,10 @@ export class HikvisionAccessControlService {
     raw: string;
     parsed: Record<string, unknown> | string;
   }> {
-    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(companyId, deviceId);
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(
+      companyId,
+      deviceId,
+    );
     const credentials = buildCredentialsFromDevice(device);
     const requestMethod = (
       options.method ?? 'GET'
@@ -690,7 +695,7 @@ export class HikvisionAccessControlService {
       return body as Record<string, unknown>;
     }
 
-    return { raw: String(body) };
+    return { raw: toDisplayString(body) };
   }
 
   private toObject(
@@ -705,13 +710,15 @@ export class HikvisionAccessControlService {
 
   private buildDoorParamXml(payload: Record<string, unknown>): string {
     const doorName = this.escapeXml(
-      String(payload.doorName ?? payload.door_name ?? 'Door'),
+      toDisplayString(payload.doorName ?? payload.door_name ?? 'Door'),
     );
     const magneticType = this.escapeXml(
-      String(payload.magneticType ?? payload.magnetic_type ?? 'alwaysClose'),
+      toDisplayString(
+        payload.magneticType ?? payload.magnetic_type ?? 'alwaysClose',
+      ),
     );
     const openButtonType = this.escapeXml(
-      String(
+      toDisplayString(
         payload.openButtonType ?? payload.open_button_type ?? 'alwaysOpen',
       ),
     );
@@ -728,7 +735,9 @@ export class HikvisionAccessControlService {
       payload.enableLeaderCard ?? payload.enable_leader_card ?? false,
     );
     const leaderCardMode = this.escapeXml(
-      String(payload.leaderCardMode ?? payload.leader_card_mode ?? 'disable'),
+      toDisplayString(
+        payload.leaderCardMode ?? payload.leader_card_mode ?? 'disable',
+      ),
     );
     const leaderCardOpenDuration = Number(
       payload.leaderCardOpenDuration ?? payload.leader_card_open_duration ?? 10,
@@ -742,7 +751,7 @@ export class HikvisionAccessControlService {
       return value ? 'true' : 'false';
     }
 
-    const normalized = String(value ?? '')
+    const normalized = toDisplayString(value ?? '')
       .trim()
       .toLowerCase();
     if (normalized === 'true' || normalized === '1') {
@@ -760,5 +769,4 @@ export class HikvisionAccessControlService {
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&apos;');
   }
-
 }

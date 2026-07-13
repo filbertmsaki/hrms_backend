@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddDepartmentManagerAndLeaveApprovalCycle1786103000000
-  implements MigrationInterface
-{
+export class AddDepartmentManagerAndLeaveApprovalCycle1786103000000 implements MigrationInterface {
   name = 'AddDepartmentManagerAndLeaveApprovalCycle1786103000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

@@ -416,7 +416,10 @@ export class OnboardingService {
   }
 
   private normalizeProvisioning(
-    provisioning?: OnboardingProvisioningDto | OnboardingProvisioningPayload | null,
+    provisioning?:
+      | OnboardingProvisioningDto
+      | OnboardingProvisioningPayload
+      | null,
   ): OnboardingProvisioningPayload | null {
     if (!provisioning) {
       return null;
@@ -424,7 +427,11 @@ export class OnboardingService {
 
     const uniqueNumbers = (values?: number[]) =>
       values?.length
-        ? [...new Set(values.filter((value) => Number.isInteger(value) && value > 0))]
+        ? [
+            ...new Set(
+              values.filter((value) => Number.isInteger(value) && value > 0),
+            ),
+          ]
         : undefined;
 
     const normalized: OnboardingProvisioningPayload = {};
@@ -463,9 +470,10 @@ export class OnboardingService {
 
     if (provisioning.device_assignment) {
       normalized.device_assignment = {
-        employee_no: this.normalizeOptionalString(
-          provisioning.device_assignment.employee_no,
-        ) ?? undefined,
+        employee_no:
+          this.normalizeOptionalString(
+            provisioning.device_assignment.employee_no,
+          ) ?? undefined,
         access_group_id: provisioning.device_assignment.access_group_id,
         organization_id:
           provisioning.device_assignment.organization_id ?? undefined,
@@ -473,21 +481,18 @@ export class OnboardingService {
         valid_begin_time: provisioning.device_assignment.valid_begin_time,
         valid_end_time: provisioning.device_assignment.valid_end_time,
         local_ui_right: provisioning.device_assignment.local_ui_right,
-        close_delay_enabled:
-          provisioning.device_assignment.close_delay_enabled,
-        max_open_door_time:
-          provisioning.device_assignment.max_open_door_time,
+        close_delay_enabled: provisioning.device_assignment.close_delay_enabled,
+        max_open_door_time: provisioning.device_assignment.max_open_door_time,
         open_door_time: provisioning.device_assignment.open_door_time,
-        user_verify_mode: this.normalizeOptionalString(
-          provisioning.device_assignment.user_verify_mode,
-        ) ?? undefined,
+        user_verify_mode:
+          this.normalizeOptionalString(
+            provisioning.device_assignment.user_verify_mode,
+          ) ?? undefined,
         metadata: provisioning.device_assignment.metadata ?? undefined,
-        device_ids: uniqueNumbers(
-          provisioning.device_assignment.device_ids,
-        ) ?? [],
+        device_ids:
+          uniqueNumbers(provisioning.device_assignment.device_ids) ?? [],
         sync_now: provisioning.device_assignment.sync_now,
-        continue_on_error:
-          provisioning.device_assignment.continue_on_error,
+        continue_on_error: provisioning.device_assignment.continue_on_error,
       };
     }
 
@@ -535,7 +540,10 @@ export class OnboardingService {
 
   private withProvisioningMetadata(
     metadata: Record<string, unknown> | null | undefined,
-    provisioning?: OnboardingProvisioningDto | OnboardingProvisioningPayload | null,
+    provisioning?:
+      | OnboardingProvisioningDto
+      | OnboardingProvisioningPayload
+      | null,
   ): Record<string, unknown> | null {
     const normalizedProvisioning = this.normalizeProvisioning(provisioning);
     const nextMetadata = { ...(metadata ?? {}) };
@@ -553,8 +561,9 @@ export class OnboardingService {
     request: Pick<OnboardingRequest, 'metadata'>,
   ): OnboardingProvisioningPayload | null {
     return this.normalizeProvisioning(
-      (request.metadata?.provisioning as OnboardingProvisioningPayload | undefined) ??
-        null,
+      (request.metadata?.provisioning as
+        | OnboardingProvisioningPayload
+        | undefined) ?? null,
     );
   }
 
@@ -769,15 +778,14 @@ export class OnboardingService {
 
     const missingDeviceIds: number[] = [];
     for (const deviceId of provisioning.device_assignment.device_ids) {
-      const existing = await this.getEmployeeDeviceAssignmentRepository().findOne(
-        {
+      const existing =
+        await this.getEmployeeDeviceAssignmentRepository().findOne({
           where: {
             companyId,
             employeeId: employee.id,
             deviceId,
           },
-        },
-      );
+        });
 
       if (!existing) {
         missingDeviceIds.push(deviceId);
@@ -788,26 +796,28 @@ export class OnboardingService {
       return;
     }
 
-    await this.employeeDeviceAssignmentsService.assignDevices(companyId, employee.id, {
-      employee_no: provisioning.device_assignment.employee_no,
-      access_group_id: provisioning.device_assignment.access_group_id,
-      organization_id: provisioning.device_assignment.organization_id,
-      valid_enabled: provisioning.device_assignment.valid_enabled,
-      valid_begin_time: provisioning.device_assignment.valid_begin_time,
-      valid_end_time: provisioning.device_assignment.valid_end_time,
-      local_ui_right: provisioning.device_assignment.local_ui_right,
-      close_delay_enabled:
-        provisioning.device_assignment.close_delay_enabled,
-      max_open_door_time:
-        provisioning.device_assignment.max_open_door_time,
-      open_door_time: provisioning.device_assignment.open_door_time,
-      user_verify_mode: provisioning.device_assignment.user_verify_mode,
-      metadata: provisioning.device_assignment.metadata,
-      device_ids: missingDeviceIds,
-      sync_now: provisioning.device_assignment.sync_now ?? true,
-      continue_on_error:
-        provisioning.device_assignment.continue_on_error ?? false,
-    });
+    await this.employeeDeviceAssignmentsService.assignDevices(
+      companyId,
+      employee.id,
+      {
+        employee_no: provisioning.device_assignment.employee_no,
+        access_group_id: provisioning.device_assignment.access_group_id,
+        organization_id: provisioning.device_assignment.organization_id,
+        valid_enabled: provisioning.device_assignment.valid_enabled,
+        valid_begin_time: provisioning.device_assignment.valid_begin_time,
+        valid_end_time: provisioning.device_assignment.valid_end_time,
+        local_ui_right: provisioning.device_assignment.local_ui_right,
+        close_delay_enabled: provisioning.device_assignment.close_delay_enabled,
+        max_open_door_time: provisioning.device_assignment.max_open_door_time,
+        open_door_time: provisioning.device_assignment.open_door_time,
+        user_verify_mode: provisioning.device_assignment.user_verify_mode,
+        metadata: provisioning.device_assignment.metadata,
+        device_ids: missingDeviceIds,
+        sync_now: provisioning.device_assignment.sync_now ?? true,
+        continue_on_error:
+          provisioning.device_assignment.continue_on_error ?? false,
+      },
+    );
   }
 
   private async applyProvisioningSelections(
@@ -1286,7 +1296,8 @@ export class OnboardingService {
     manager?: EntityManager,
   ): Promise<void> {
     const taskRepository = this.getOnboardingTaskRepository(manager);
-    const employeeName = `${onboardingRequest.employee?.first_name ?? ''} ${onboardingRequest.employee?.last_name ?? ''}`.trim();
+    const employeeName =
+      `${onboardingRequest.employee?.first_name ?? ''} ${onboardingRequest.employee?.last_name ?? ''}`.trim();
     const frontendUrl =
       this.configService.get<string>('APP_FRONTEND_URL') ??
       'http://localhost:5173';
@@ -1698,7 +1709,9 @@ export class OnboardingService {
         existingStep.name = dto.name.trim();
       }
       if (dto.description !== undefined) {
-        existingStep.description = this.normalizeOptionalString(dto.description);
+        existingStep.description = this.normalizeOptionalString(
+          dto.description,
+        );
       }
       if (dto.step_type !== undefined) {
         existingStep.step_type = dto.step_type;
@@ -1716,7 +1729,9 @@ export class OnboardingService {
         existingStep.due_days = dto.due_days ?? null;
       }
 
-      return this.getOnboardingWorkflowStepRepository(manager).save(existingStep);
+      return this.getOnboardingWorkflowStepRepository(manager).save(
+        existingStep,
+      );
     });
 
     await this.onboardingAuditService.log({
@@ -1933,7 +1948,11 @@ export class OnboardingService {
     const employee = await this.findEmployeeOrFail(companyId, dto.employee_id);
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
-    const request = await this.startOnboardingForEmployee(companyId, dto, actor);
+    const request = await this.startOnboardingForEmployee(
+      companyId,
+      dto,
+      actor,
+    );
 
     await this.onboardingAuditService.log({
       company_id: companyId,
@@ -2259,7 +2278,12 @@ export class OnboardingService {
         relations: { employee: { company_user: true } },
       });
 
-      await this.applyProvisioningSelections(companyId, current, actor, manager);
+      await this.applyProvisioningSelections(
+        companyId,
+        current,
+        actor,
+        manager,
+      );
 
       current.status = OnboardingRequestStatusEnum.COMPLETED;
       current.completed_at = new Date();
@@ -2601,7 +2625,11 @@ export class OnboardingService {
     companyId: number,
     onboardingRequestId: number,
     taskId: number,
-    dto: { assigned_company_user_id?: number; assigned_department_id?: number; due_date?: string },
+    dto: {
+      assigned_company_user_id?: number;
+      assigned_department_id?: number;
+      due_date?: string;
+    },
     actor: AuthenticatedUser,
   ) {
     const request = await this.findOnboardingRequestOrFail(
@@ -2845,7 +2873,11 @@ export class OnboardingService {
     companyId: number,
     onboardingRequestId: number,
     documentId: number,
-    dto: { title?: string; description?: string | null; expiry_date?: string | null },
+    dto: {
+      title?: string;
+      description?: string | null;
+      expiry_date?: string | null;
+    },
     actor: AuthenticatedUser,
   ) {
     const request = await this.findOnboardingRequestOrFail(
@@ -3049,7 +3081,9 @@ export class OnboardingService {
           `${frontendUrl}/onboarding/${request.id}/review`,
         ),
       );
-    } catch (_) {}
+    } catch {
+      // Ignore errors when best-effort notification fails.
+    }
   }
 
   private async notifyOnboardingSubmittedRealtime(
@@ -3088,7 +3122,9 @@ export class OnboardingService {
       .map((approval) => approval.approval_level)
       .filter((level) => level > 0);
 
-    const firstLevel = approvalLevels.length ? Math.min(...approvalLevels) : null;
+    const firstLevel = approvalLevels.length
+      ? Math.min(...approvalLevels)
+      : null;
 
     if (firstLevel) {
       const approvers = loaded.approvals.filter(
@@ -3155,8 +3191,7 @@ export class OnboardingService {
       const employee = loaded.employee;
       const employeeName = `${employee.first_name} ${employee.last_name}`;
       const employeeEmail = employee.company_user.user.email;
-      const managerEmail =
-        employee.manager?.company_user?.user?.email ?? null;
+      const managerEmail = employee.manager?.company_user?.user?.email ?? null;
       const managerName = employee.manager
         ? `${employee.manager.first_name} ${employee.manager.last_name}`
         : null;
@@ -3174,7 +3209,9 @@ export class OnboardingService {
           `${frontendUrl}/onboarding/${request.id}`,
         ),
       );
-    } catch (_) {}
+    } catch {
+      // Ignore errors when best-effort notification fails.
+    }
   }
 
   private async notifyOnboardingTaskAssignedRealtime(

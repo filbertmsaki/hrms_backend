@@ -3,14 +3,13 @@ import { Repository } from 'typeorm';
 import { AttendancePoliciesService } from './attendance-policies.service';
 import { AttendancePolicy } from './entities/attendance-policy.entity';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type MockRepo<T = any> = Record<string, jest.Mock | { transaction: jest.Mock }>;
+type MockRepo = Record<string, jest.Mock | { transaction: jest.Mock }>;
 
-const createRepositoryMock = <T>(): MockRepo<T> => ({
+const createRepositoryMock = (): MockRepo => ({
   findOne: jest.fn(),
-  save: jest.fn(async (value) => value),
-  create: jest.fn((value) => value),
-  remove: jest.fn(async (value) => value),
+  save: jest.fn((value: unknown) => value),
+  create: jest.fn((value: unknown) => value),
+  remove: jest.fn((value: unknown) => value),
   createQueryBuilder: jest.fn(),
   manager: {
     transaction: jest.fn(),
@@ -19,7 +18,7 @@ const createRepositoryMock = <T>(): MockRepo<T> => ({
 
 describe('AttendancePoliciesService', () => {
   let service: AttendancePoliciesService;
-  let attendancePolicyRepository: MockRepo<AttendancePolicy>;
+  let attendancePolicyRepository: MockRepo;
 
   beforeEach(() => {
     attendancePolicyRepository = createRepositoryMock();
@@ -39,6 +38,8 @@ describe('AttendancePoliciesService', () => {
       }),
     ).rejects.toThrow(BadRequestException);
 
-    expect(attendancePolicyRepository.createQueryBuilder).not.toHaveBeenCalled();
+    expect(
+      attendancePolicyRepository.createQueryBuilder,
+    ).not.toHaveBeenCalled();
   });
 });

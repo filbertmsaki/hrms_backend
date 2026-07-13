@@ -74,7 +74,14 @@ export function toExcelTime(
 }
 
 export function escapeCsvCell(value: unknown): string {
-  const normalized = value == null ? '' : String(value);
+  const normalized =
+    value == null
+      ? ''
+      : typeof value === 'string' ||
+          typeof value === 'number' ||
+          typeof value === 'boolean'
+        ? String(value)
+        : JSON.stringify(value);
   if (!/[",\r\n]/.test(normalized)) {
     return normalized;
   }

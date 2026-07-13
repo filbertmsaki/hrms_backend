@@ -41,4 +41,7 @@ async function bootstrap() {
   console.log(`Scalar API Docs: http://localhost:${port}${SCALAR_DOCS_PATH}`);
   console.log(`OpenAPI JSON: http://localhost:${port}${OPENAPI_JSON_PATH}`);
 }
-bootstrap();
+bootstrap().catch((error) => {
+  console.error('Failed to bootstrap application', error);
+  process.exit(1);
+});

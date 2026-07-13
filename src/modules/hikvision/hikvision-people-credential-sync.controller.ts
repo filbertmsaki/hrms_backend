@@ -86,6 +86,7 @@ export class HikvisionPeopleCredentialSyncController {
     const companyId = req.user.companyId!;
     const userId = req.user.id;
     const membershipId = req.user.companyMembershipId ?? null;
+    const requestedAction: string = body.action;
 
     switch (body.action) {
       case HikvisionDeviceAction.SYNC_ALL:
@@ -136,8 +137,8 @@ export class HikvisionPeopleCredentialSyncController {
 
       default:
         throw new BadRequestException(
-          `Unknown action "${(body as HikvisionDeviceManageDto).action}". ` +
-          `Valid values: ${Object.values(HikvisionDeviceAction).join(', ')}`,
+          `Unknown action "${requestedAction}". ` +
+            `Valid values: ${Object.values(HikvisionDeviceAction).join(', ')}`,
         );
     }
   }

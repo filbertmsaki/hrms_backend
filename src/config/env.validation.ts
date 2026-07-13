@@ -94,11 +94,7 @@ export function validateEnv(env: Env) {
     'production',
   );
   const APP_URL = optionalString(env, 'APP_URL', `http://localhost:${PORT}`);
-  const APP_FRONTEND_URL = optionalString(
-    env,
-    'APP_FRONTEND_URL',
-    APP_URL,
-  );
+  const APP_FRONTEND_URL = optionalString(env, 'APP_FRONTEND_URL', APP_URL);
   const APP_NAME = optionalString(env, 'APP_NAME', 'HRMS');
   const SUPPORT_EMAIL = optionalString(env, 'SUPPORT_EMAIL', '');
 
@@ -112,11 +108,7 @@ export function validateEnv(env: Env) {
 
   // ── Redis ───────────────────────────────────────────────────────────────
   const USE_REDIS = optionalBool(env, 'USE_REDIS', false);
-  const REDIS_URL = optionalString(
-    env,
-    'REDIS_URL',
-    'redis://127.0.0.1:6379',
-  );
+  const REDIS_URL = optionalString(env, 'REDIS_URL', 'redis://127.0.0.1:6379');
 
   // ── Throttler ───────────────────────────────────────────────────────────
   const THROTTLER_TTL = optionalInt(env, 'THROTTLER_TTL', 60000);

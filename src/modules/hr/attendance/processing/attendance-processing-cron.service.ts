@@ -66,12 +66,10 @@ export class AttendanceProcessingCronService {
 
       await this.processApprovedMobilePunches();
 
-      const companyIds = await this.findCompaniesForScheduledReconciliation(
-        today,
-      );
-      const dueCompanyIds = await this.filterCompaniesDueForCalculation(
-        companyIds,
-      );
+      const companyIds =
+        await this.findCompaniesForScheduledReconciliation(today);
+      const dueCompanyIds =
+        await this.filterCompaniesDueForCalculation(companyIds);
 
       for (const companyId of dueCompanyIds) {
         await this.processingService.processRange(companyId, {

@@ -596,8 +596,8 @@ export class OffboardingWorkflowService {
       const approvers: NotificationRecipient[] = nextApprovals
         .filter(
           (approval) =>
-            (nextLevel === undefined ||
-              approval.workflow_step?.approval_level === nextLevel),
+            nextLevel === undefined ||
+            approval.workflow_step?.approval_level === nextLevel,
         )
         .flatMap((approval) => {
           const recipient = buildNotificationRecipient(

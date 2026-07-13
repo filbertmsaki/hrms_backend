@@ -58,7 +58,7 @@ export class AttendanceReportXlsxService {
     headerRow.alignment = { vertical: 'middle' };
     headerRow.commit();
 
-    await readRows(async (rows) => {
+    await readRows((rows) => {
       for (const row of rows) {
         const excelRow = worksheet.addRow({
           employeeName: row.employeeName,
@@ -87,9 +87,11 @@ export class AttendanceReportXlsxService {
 
         excelRow.commit();
       }
+
+      return Promise.resolve();
     });
 
-    await worksheet.commit();
+    worksheet.commit();
     await workbook.commit();
   }
 }

@@ -8,14 +8,13 @@ import { ShiftRotationGroup } from '../shift-rotation-groups/entities/shift-rota
 import { ShiftAssignmentStatusEnum } from './enums/shift-assignment-status.enum';
 import { AttendanceAssignmentDomainService } from '../../shared/attendance-assignment-domain.service';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type MockRepo<T = any> = Record<string, jest.Mock>;
+type MockRepo = Record<string, jest.Mock>;
 
-const createRepositoryMock = <T>(): MockRepo<T> => ({
+const createRepositoryMock = (): MockRepo => ({
   findOne: jest.fn(),
-  save: jest.fn(async (value) => value),
-  create: jest.fn((value) => value),
-  remove: jest.fn(async (value) => value),
+  save: jest.fn((value: unknown) => value),
+  create: jest.fn((value: unknown) => value),
+  remove: jest.fn((value: unknown) => value),
   createQueryBuilder: jest.fn(),
 });
 
@@ -30,10 +29,10 @@ const createQueryBuilderMock = () => ({
 
 describe('ShiftAssignmentsService', () => {
   let service: ShiftAssignmentsService;
-  let shiftAssignmentRepository: MockRepo<ShiftAssignment>;
-  let shiftRepository: MockRepo<Shift>;
-  let employeeRepository: MockRepo<Employee>;
-  let rotationGroupRepository: MockRepo<ShiftRotationGroup>;
+  let shiftAssignmentRepository: MockRepo;
+  let shiftRepository: MockRepo;
+  let employeeRepository: MockRepo;
+  let rotationGroupRepository: MockRepo;
   let attendanceAssignmentDomainService: {
     ensureNoOverlappingShiftAssignment: jest.Mock;
     ensureNoConflictingAssignmentType: jest.Mock;
@@ -60,11 +59,10 @@ describe('ShiftAssignmentsService', () => {
 
   it('rejects overlapping active shift assignments for the same employee', async () => {
     const employeeBuilder = createQueryBuilderMock();
-    const overlapBuilder = createQueryBuilderMock();
 
-    employeeRepository.createQueryBuilder!.mockReturnValue(employeeBuilder);
+    employeeRepository.createQueryBuilder.mockReturnValue(employeeBuilder);
     employeeBuilder.getOne.mockResolvedValue({ id: 9 });
-    shiftRepository.findOne!.mockResolvedValue({ id: 4 });
+    shiftRepository.findOne.mockResolvedValue({ id: 4 });
     attendanceAssignmentDomainService.ensureNoOverlappingShiftAssignment.mockRejectedValue(
       new ConflictException(),
     );

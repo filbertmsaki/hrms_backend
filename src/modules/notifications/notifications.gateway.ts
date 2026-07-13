@@ -87,15 +87,15 @@ export class NotificationsGateway
         return;
       }
 
-      client.data.user = {
+      (client.data as Record<string, unknown>).user = {
         user_id: payload.sub,
         company_id: payload.companyId,
         company_membership_id: payload.membershipId,
         email: payload.email,
       };
 
-      client.join(`company:${payload.companyId}`);
-      client.join(`company-user:${payload.membershipId}`);
+      void client.join(`company:${payload.companyId}`);
+      void client.join(`company-user:${payload.membershipId}`);
 
       this.logger.log(
         `Notification socket connected: companyUser=${payload.membershipId}, socket=${client.id}`,
@@ -140,7 +140,7 @@ export class NotificationsGateway
   }
 
   private extractToken(client: Socket): string | null {
-    const authToken = client.handshake.auth?.token;
+    const authToken = client.handshake.auth?.token as unknown;
 
     if (typeof authToken === 'string' && authToken.trim()) {
       return authToken.trim();

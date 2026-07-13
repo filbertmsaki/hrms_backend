@@ -311,7 +311,10 @@ export class AttendanceBusinessTripsService {
     const employee = await this.findEmployeeOrFail(companyId, trip.employeeId);
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
-    if (trip.status !== AttendanceBusinessTripStatusEnum.DRAFT) {
+    if (
+      (trip.status as AttendanceBusinessTripStatusEnum) !==
+      AttendanceBusinessTripStatusEnum.DRAFT
+    ) {
       throw new BadRequestException(
         'Only draft business trips can be submitted.',
       );
@@ -338,7 +341,10 @@ export class AttendanceBusinessTripsService {
     const employee = await this.findEmployeeOrFail(companyId, trip.employeeId);
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
-    if (trip.status !== AttendanceBusinessTripStatusEnum.SUBMITTED) {
+    if (
+      (trip.status as AttendanceBusinessTripStatusEnum) !==
+      AttendanceBusinessTripStatusEnum.SUBMITTED
+    ) {
       throw new BadRequestException(
         'Only submitted business trips can be approved.',
       );
@@ -374,7 +380,10 @@ export class AttendanceBusinessTripsService {
     const employee = await this.findEmployeeOrFail(companyId, trip.employeeId);
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
-    if (trip.status !== AttendanceBusinessTripStatusEnum.SUBMITTED) {
+    if (
+      (trip.status as AttendanceBusinessTripStatusEnum) !==
+      AttendanceBusinessTripStatusEnum.SUBMITTED
+    ) {
       throw new BadRequestException(
         'Only submitted business trips can be rejected.',
       );
@@ -413,7 +422,8 @@ export class AttendanceBusinessTripsService {
     }
 
     const wasApproved =
-      trip.status === AttendanceBusinessTripStatusEnum.APPROVED;
+      (trip.status as AttendanceBusinessTripStatusEnum) ===
+      AttendanceBusinessTripStatusEnum.APPROVED;
     trip.status = AttendanceBusinessTripStatusEnum.CANCELLED;
     trip.approvedByCompanyUserId = null;
     trip.metadata = {
@@ -442,7 +452,10 @@ export class AttendanceBusinessTripsService {
     const employee = await this.findEmployeeOrFail(companyId, trip.employeeId);
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
-    if (trip.status === AttendanceBusinessTripStatusEnum.APPROVED) {
+    if (
+      (trip.status as AttendanceBusinessTripStatusEnum) ===
+      AttendanceBusinessTripStatusEnum.APPROVED
+    ) {
       await this.queueAttendanceRecalculation(
         companyId,
         trip.employeeId,

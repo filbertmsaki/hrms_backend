@@ -113,7 +113,7 @@ export default class EmployeeTimetablesSeeder implements Seeder {
       await qr.commitTransaction();
       console.log(
         `[Seeder][EmployeeTimetables] Assigned ${assignedCount} employees to "${timetable.name}" ` +
-        `(${skippedCount} already had assignment, skipped).`,
+          `(${skippedCount} already had assignment, skipped).`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

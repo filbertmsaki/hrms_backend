@@ -552,7 +552,7 @@ export class AccessOrganizationsService {
 
         const parsed = this.toObject(response.parsed);
         const groupCfg = this.toObject(parsed.GroupCfg ?? parsed);
-        const groupName = String(groupCfg.groupName ?? '').trim();
+        const groupName = this.toDisplayString(groupCfg.groupName ?? '').trim();
 
         if (!groupName) {
           skipped += 1;
@@ -816,6 +816,19 @@ export class AccessOrganizationsService {
     }
 
     return value as Record<string, unknown>;
+  }
+
+  private toDisplayString(value: unknown): string {
+    if (value === null || value === undefined) return '';
+    if (
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean' ||
+      typeof value === 'bigint'
+    ) {
+      return String(value);
+    }
+    return JSON.stringify(value);
   }
 
   private buildEmployeeDisplayName(employee: Employee): string {

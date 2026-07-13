@@ -19,18 +19,12 @@ export default class PlatformUsersSeeder implements Seeder {
       const userRepo = qr.manager.getRepository(User);
       const roleRepo = qr.manager.getRepository(Role);
 
-      const email =
-        process.env.INITIAL_OWNER_EMAIL ?? 'info@alliance.co.tz';
-      const phone =
-        process.env.INITIAL_OWNER_PHONE ?? '+255700000001';
-      const firstName =
-        process.env.INITIAL_OWNER_FIRST_NAME ?? 'Alliance';
-      const lastName =
-        process.env.INITIAL_OWNER_LAST_NAME ?? 'Insurance';
-      const rawPassword =
-        process.env.INITIAL_OWNER_PASSWORD ?? 'Owner123!';
-      const userNo =
-        process.env.INITIAL_OWNER_USER_NO ?? 'OWNER-00001';
+      const email = process.env.INITIAL_OWNER_EMAIL ?? 'info@alliance.co.tz';
+      const phone = process.env.INITIAL_OWNER_PHONE ?? '+255700000001';
+      const firstName = process.env.INITIAL_OWNER_FIRST_NAME ?? 'Alliance';
+      const lastName = process.env.INITIAL_OWNER_LAST_NAME ?? 'Insurance';
+      const rawPassword = process.env.INITIAL_OWNER_PASSWORD ?? 'Owner123!';
+      const userNo = process.env.INITIAL_OWNER_USER_NO ?? 'OWNER-00001';
 
       let user =
         (await userRepo.findOne({ where: { email } })) ??

@@ -38,27 +38,18 @@ describe('HrNotificationListener', () => {
 
     await listener.onOffboardingApproved(event);
 
-    expect(mailService.sendOffboardingApprovedNotification).toHaveBeenCalledTimes(
-      3,
-    );
-    expect(mailService.sendOffboardingApprovedNotification).toHaveBeenNthCalledWith(
-      1,
-      'amina@example.com',
-      'Amina John',
-      event,
-    );
-    expect(mailService.sendOffboardingApprovedNotification).toHaveBeenNthCalledWith(
-      2,
-      'hr1@example.com',
-      'HR One',
-      event,
-    );
-    expect(mailService.sendOffboardingApprovedNotification).toHaveBeenNthCalledWith(
-      3,
-      'hr2@example.com',
-      'HR Two',
-      event,
-    );
+    expect(
+      mailService.sendOffboardingApprovedNotification,
+    ).toHaveBeenCalledTimes(3);
+    expect(
+      mailService.sendOffboardingApprovedNotification,
+    ).toHaveBeenNthCalledWith(1, 'amina@example.com', 'Amina John', event);
+    expect(
+      mailService.sendOffboardingApprovedNotification,
+    ).toHaveBeenNthCalledWith(2, 'hr1@example.com', 'HR One', event);
+    expect(
+      mailService.sendOffboardingApprovedNotification,
+    ).toHaveBeenNthCalledWith(3, 'hr2@example.com', 'HR Two', event);
   });
 
   it('passes the task-assigned event directly to the mail service', async () => {

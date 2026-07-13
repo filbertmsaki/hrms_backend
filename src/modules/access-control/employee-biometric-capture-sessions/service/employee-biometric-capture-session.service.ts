@@ -30,7 +30,6 @@ import { UpdateBiometricCaptureSessionDto } from '../dto/update-biometric-captur
 import { EmployeeBiometricCaptureSession } from '../entity/employee-biometric-capture-session.entity';
 import { EmployeeBiometricCaptureStatusEnum } from '../enum/employee-biometric-capture-status.enum';
 import { EmployeeBiometricCaptureTypeEnum } from '../enum/employee-biometric-capture-type.enum';
-import { DeviceCommandTypeEnum } from '../../../hikvision/device-command-logs/enum/device-command-type.enum';
 
 type FingerprintActor = {
   performedByCompanyUserId?: number;
@@ -350,7 +349,7 @@ export class EmployeeBiometricCaptureSessionService {
           },
           actor,
         );
-        syncStatus = String(syncResult.sync_status ?? 'SYNCED');
+        syncStatus = this.toSafeString(syncResult.sync_status ?? 'SYNCED');
       } catch (error) {
         syncStatus = 'FAILED';
         syncErrorMessage = (error as Error).message;
@@ -552,7 +551,7 @@ export class EmployeeBiometricCaptureSessionService {
     );
     const metadata = this.toObject(credential.metadata);
     const fingerprint = this.toObject(metadata.fingerprint);
-    const fingerData = String(fingerprint.finger_data ?? '').trim();
+    const fingerData = this.toSafeString(fingerprint.finger_data ?? '');
     if (!fingerData) {
       throw new BadRequestException('Saved fingerprint is missing fingerData');
     }
@@ -1461,7 +1460,7 @@ export class EmployeeBiometricCaptureSessionService {
         device_id: device.id,
         employee_no: deviceEmployeeNo,
         enabled,
-        sync_status: String(
+        sync_status: this.toSafeString(
           this.toObject(deviceSyncs[String(device.id)]).sync_status ??
             fingerprint.sync_status ??
             'SAVED',
@@ -1578,7 +1577,7 @@ export class EmployeeBiometricCaptureSessionService {
     const credentials = await this.credentialRepository.find({
       where: [
         { companyId, employeeId, deviceId },
-        { companyId, employeeId, deviceId: IsNull() as any },
+        { companyId, employeeId, deviceId: IsNull() },
       ],
     });
 
@@ -1734,8 +1733,9 @@ export class EmployeeBiometricCaptureSessionService {
       company_id: item.companyId,
       employee_id: item.employeeId,
       employee_no:
-        String(scopedDeviceSync.employee_no ?? item.employeeNo ?? '').trim() ||
-        null,
+        this.toSafeString(
+          scopedDeviceSync.employee_no ?? item.employeeNo ?? '',
+        ) || null,
       device_id: deviceId ?? item.deviceId,
       source_device_id: item.deviceId,
       fingerprint_id: item.fingerprintId ?? item.credentialNo,
@@ -1870,12 +1870,27 @@ export class EmployeeBiometricCaptureSessionService {
     return Number.isInteger(parsed) ? parsed : null;
   }
 
+  private toSafeString(value: unknown): string {
+    if (value === null || value === undefined) {
+      return '';
+    }
+    if (
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean' ||
+      typeof value === 'bigint'
+    ) {
+      return String(value).trim();
+    }
+    return JSON.stringify(value).trim();
+  }
+
   private toNullableString(value: unknown): string | null {
     if (value === null || value === undefined) {
       return null;
     }
 
-    const normalized = String(value).trim();
+    const normalized = this.toSafeString(value);
     return normalized ? normalized : null;
   }
 

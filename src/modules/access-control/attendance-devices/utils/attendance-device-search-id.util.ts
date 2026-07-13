@@ -1,9 +1,10 @@
 let searchSequence = 0;
 
 export const buildAttendanceDeviceSearchId = (
-  _prefix = 'search',
+  prefix = 'search',
   ...parts: Array<string | number | null | undefined>
 ): string => {
+  void prefix;
   searchSequence = (searchSequence + 1) % 1000;
 
   const numericSeed = [

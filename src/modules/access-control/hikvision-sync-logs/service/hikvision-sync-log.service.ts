@@ -33,7 +33,9 @@ export class HikvisionSyncLogService {
     if (direction) qb.andWhere('log.direction = :direction', { direction });
     if (status) qb.andWhere('log.status = :status', { status });
     if (dateFrom)
-      qb.andWhere('log.started_at >= :dateFrom', { dateFrom: new Date(dateFrom) });
+      qb.andWhere('log.started_at >= :dateFrom', {
+        dateFrom: new Date(dateFrom),
+      });
     if (dateTo)
       qb.andWhere('log.started_at <= :dateTo', { dateTo: new Date(dateTo) });
 

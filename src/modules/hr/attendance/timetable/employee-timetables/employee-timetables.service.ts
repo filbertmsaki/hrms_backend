@@ -70,21 +70,25 @@ export class EmployeeTimetablesService {
     await this.ensureEmployee(companyId, dto.employee_id);
     await this.ensureTimetable(companyId, dto.timetable_id);
     ensureDateRangeOrder(dto.effective_from, dto.effective_to ?? null);
-    await this.attendanceAssignmentDomainService.ensureNoOverlappingEmployeeTimetable({
-      companyId,
-      employeeId: dto.employee_id,
-      effectiveFrom: dto.effective_from,
-      effectiveTo: dto.effective_to ?? null,
-      status: dto.status ?? EmployeeTimetableStatusEnum.ACTIVE,
-    });
-    await this.attendanceAssignmentDomainService.ensureNoConflictingAssignmentType({
-      companyId,
-      employeeId: dto.employee_id,
-      effectiveFrom: dto.effective_from,
-      effectiveTo: dto.effective_to ?? null,
-      status: dto.status ?? EmployeeTimetableStatusEnum.ACTIVE,
-      assignmentType: 'TIMETABLE',
-    });
+    await this.attendanceAssignmentDomainService.ensureNoOverlappingEmployeeTimetable(
+      {
+        companyId,
+        employeeId: dto.employee_id,
+        effectiveFrom: dto.effective_from,
+        effectiveTo: dto.effective_to ?? null,
+        status: dto.status ?? EmployeeTimetableStatusEnum.ACTIVE,
+      },
+    );
+    await this.attendanceAssignmentDomainService.ensureNoConflictingAssignmentType(
+      {
+        companyId,
+        employeeId: dto.employee_id,
+        effectiveFrom: dto.effective_from,
+        effectiveTo: dto.effective_to ?? null,
+        status: dto.status ?? EmployeeTimetableStatusEnum.ACTIVE,
+        assignmentType: 'TIMETABLE',
+      },
+    );
 
     const duplicate = await this.employeeTimetableRepository.findOne({
       where: {
@@ -171,22 +175,26 @@ export class EmployeeTimetablesService {
     const status = dto.status ?? item.status;
 
     ensureDateRangeOrder(effectiveFrom, effectiveTo);
-    await this.attendanceAssignmentDomainService.ensureNoOverlappingEmployeeTimetable({
-      companyId,
-      employeeId,
-      effectiveFrom,
-      effectiveTo,
-      status,
-      ignoreId: item.id,
-    });
-    await this.attendanceAssignmentDomainService.ensureNoConflictingAssignmentType({
-      companyId,
-      employeeId,
-      effectiveFrom,
-      effectiveTo,
-      status,
-      assignmentType: 'TIMETABLE',
-    });
+    await this.attendanceAssignmentDomainService.ensureNoOverlappingEmployeeTimetable(
+      {
+        companyId,
+        employeeId,
+        effectiveFrom,
+        effectiveTo,
+        status,
+        ignoreId: item.id,
+      },
+    );
+    await this.attendanceAssignmentDomainService.ensureNoConflictingAssignmentType(
+      {
+        companyId,
+        employeeId,
+        effectiveFrom,
+        effectiveTo,
+        status,
+        assignmentType: 'TIMETABLE',
+      },
+    );
 
     item.employeeId = employeeId;
     item.timetableId = timetableId;

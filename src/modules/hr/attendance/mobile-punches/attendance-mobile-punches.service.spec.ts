@@ -6,7 +6,6 @@ import { AttendanceGeofenceRepository } from '../geofences/repositories/attendan
 import { AttendanceWifiNetworkRepository } from '../wifi-networks/repositories/attendance-wifi-network.repository';
 import { GeofenceDistanceService } from '../geofences/geofence-distance.service';
 import { WifiNetworkValidatorService } from '../wifi-networks/validators/wifi-network-validator.service';
-import { AttendancePolicy } from '../policies/entities/attendance-policy.entity';
 import { AttendanceCheckpoint } from '../checkpoints/entities/attendance-checkpoint.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { AttendancePunchTypeEnum } from './enums/attendance-punch-type.enum';
@@ -123,8 +122,8 @@ describe('AttendanceMobilePunchesService', () => {
     jest.setSystemTime(new Date('2026-06-18T09:30:00.000Z'));
 
     punchRepo = {
-      createEntity: jest.fn((value) => value),
-      save: jest.fn(async (value) => value),
+      createEntity: jest.fn((value: unknown) => value),
+      save: jest.fn((value: unknown) => Promise.resolve(value)),
       findApprovedForEmployeeWindow: jest.fn().mockResolvedValue([]),
     };
     geofenceRepo = {
