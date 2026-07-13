@@ -55,11 +55,19 @@ echo "Saving PM2 process list..."
 sudo -n pm2 save
 
 echo "Checking backend health on port $APP_PORT..."
-HTTP_CODE="$(curl -sS -o /dev/null -w "%{http_code}" "http://127.0.0.1:${APP_PORT}/api" || true)"
+for i in {1..30}; do
+  HTTP_CODE="$(curl -sS -o /dev/null -w "%{http_code}" "http://127.0.0.1:${APP_PORT}/api" || true)"
 
-if [[ "$HTTP_CODE" =~ ^(2|3|4) ]]; then
-  echo "Backend is responding. HTTP status: $HTTP_CODE"
-else
+  if [[ "$HTTP_CODE" =~ ^(2|3|4) ]]; then
+    echo "Backend is responding. HTTP status: $HTTP_CODE"
+    break
+  fi
+
+  echo "Waiting for backend to start... attempt $i/30, status=$HTTP_CODE"
+  sleep 1
+done
+
+if ! [[ "$HTTP_CODE" =~ ^(2|3|4) ]]; then
   echo "Backend health check failed. HTTP status: $HTTP_CODE"
   echo "Showing PM2 backend logs..."
   sudo -n pm2 logs "$API_PM2_NAME" --lines 80 --nostream
