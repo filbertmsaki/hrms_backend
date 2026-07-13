@@ -37,6 +37,7 @@ lerna-debug.log*
 .settings/
 *.sublime-workspace
 .tmp-tsc-check
+.tmp-test-logs
 
 # IDE - VSCode
 .vscode/*
