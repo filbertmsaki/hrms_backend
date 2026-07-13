@@ -1,0 +1,36 @@
+name: Deploy HRMS Production
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hrms-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Production Server
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/hrms_prod_key
+          chmod 600 ~/.ssh/hrms_prod_key
+          ssh-keyscan -p "${{ secrets.PROD_PORT }}" "${{ secrets.PROD_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy HRMS backend through SSH
+        run: |
+          ssh -i ~/.ssh/hrms_prod_key \
+            -p "${{ secrets.PROD_PORT }}" \
+            "${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}" \
+            'cd /opt/apps/hrms/prod/backend && bash scripts/deploy-production.sh'
