@@ -29,6 +29,8 @@ import { LeaveRecordStatusEnum } from '../leave/enums/leave-record-status.enum';
 import { LeaveBalanceService } from '../leave/services/leave-balance.service';
 import { EmployeeDeviceAssignmentsService } from '../../access-control/employee-device-assignments/service/employee-device-assignments.service';
 import { EmployeeDeviceAssignment } from '../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
+import { NotificationTypeEnum } from '../../notifications/enums/notification-type.enum';
+import { NotificationsService } from '../../notifications/notifications.service';
 import { HrAccessService } from '../shared/hr-access.service';
 import { buildPaginationMeta, formatDateOnly } from '../shared/hr.utils';
 import { CancelOnboardingRequestDto } from './dtos/cancel-onboarding-request.dto';
@@ -163,6 +165,7 @@ export class OnboardingService {
     private readonly employeeDeviceAssignmentsService: EmployeeDeviceAssignmentsService,
     private readonly eventEmitter: EventEmitter2,
     private readonly configService: ConfigService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   private getOnboardingWorkflowRepository(
@@ -1945,8 +1948,11 @@ export class OnboardingService {
       },
     });
 
-    if (request.status === OnboardingRequestStatusEnum.SUBMITTED) {
+    if (request.submitted_at) {
       this.emitOnboardingSubmitted(companyId, request).catch(() => {});
+      this.notifyOnboardingSubmittedRealtime(companyId, request, actor).catch(
+        () => {},
+      );
     }
 
     const documents = await this.documentRepository.find({
@@ -2301,6 +2307,9 @@ export class OnboardingService {
     });
 
     this.emitOnboardingCompleted(completed).catch(() => {});
+    this.notifyOnboardingCompletedRealtime(companyId, completed, actor).catch(
+      () => {},
+    );
 
     return {
       message: 'Onboarding completed successfully',
@@ -2462,6 +2471,13 @@ export class OnboardingService {
       entity_id: created.id,
       actor,
     });
+
+    this.notifyOnboardingTaskAssignedRealtime(
+      companyId,
+      onboardingRequestId,
+      created,
+      actor,
+    ).catch(() => {});
 
     return this.mapTask(created);
   }
@@ -3036,6 +3052,91 @@ export class OnboardingService {
     } catch (_) {}
   }
 
+  private async notifyOnboardingSubmittedRealtime(
+    companyId: number,
+    request: OnboardingRequest,
+    actor: AuthenticatedUser,
+  ): Promise<void> {
+    const loaded = await this.onboardingRequestRepository.findOne({
+      where: { id: request.id, company_id: companyId },
+      relations: {
+        employee: {
+          company_user: { user: true },
+        },
+        created_by_company_user: {
+          user: true,
+        },
+        approvals: {
+          approver: { user: true },
+        },
+      },
+    });
+
+    if (!loaded) {
+      return;
+    }
+
+    const employeeName =
+      `${loaded.employee?.first_name ?? ''} ${
+        loaded.employee?.last_name ?? ''
+      }`.trim() || 'Employee';
+
+    const senderCompanyUserId =
+      actor.companyMembershipId ?? loaded.created_by_company_user_id ?? null;
+
+    const approvalLevels = loaded.approvals
+      .map((approval) => approval.approval_level)
+      .filter((level) => level > 0);
+
+    const firstLevel = approvalLevels.length ? Math.min(...approvalLevels) : null;
+
+    if (firstLevel) {
+      const approvers = loaded.approvals.filter(
+        (approval) =>
+          approval.approval_level === firstLevel && approval.approver?.id,
+      );
+
+      for (const approval of approvers) {
+        await this.notificationsService.createAndPush({
+          company_id: companyId,
+          sender_company_user_id: senderCompanyUserId,
+          receiver_company_user_id: approval.approver!.id,
+          type: NotificationTypeEnum.ONBOARDING_SUBMITTED,
+          title: 'New Onboarding Request',
+          message: `${employeeName} has a new onboarding request waiting for your review.`,
+          entity_type: 'ONBOARDING_REQUEST',
+          entity_id: loaded.id,
+          action_url: `/onboarding/${loaded.id}/review`,
+          metadata: {
+            onboarding_no: loaded.onboarding_no,
+            employee_id: loaded.employee_id,
+            employee_name: employeeName,
+            approval_level: firstLevel,
+          },
+        });
+      }
+    }
+
+    if (loaded.employee?.company_user?.id) {
+      await this.notificationsService.createAndPush({
+        company_id: companyId,
+        sender_company_user_id: senderCompanyUserId,
+        receiver_company_user_id: loaded.employee.company_user.id,
+        type: NotificationTypeEnum.ONBOARDING_SUBMITTED,
+        title: 'Onboarding Started',
+        message: `Your onboarding request ${loaded.onboarding_no} has been started.`,
+        entity_type: 'ONBOARDING_REQUEST',
+        entity_id: loaded.id,
+        action_url: `/onboarding/${loaded.id}`,
+        metadata: {
+          onboarding_no: loaded.onboarding_no,
+          employee_id: loaded.employee_id,
+          employee_name: employeeName,
+        },
+      });
+    }
+  }
+
   private async emitOnboardingCompleted(
     request: OnboardingRequest,
   ): Promise<void> {
@@ -3074,5 +3175,122 @@ export class OnboardingService {
         ),
       );
     } catch (_) {}
+  }
+
+  private async notifyOnboardingTaskAssignedRealtime(
+    companyId: number,
+    onboardingRequestId: number,
+    task: OnboardingTask,
+    actor: AuthenticatedUser,
+  ): Promise<void> {
+    const loadedTask = await this.onboardingTaskRepository.findOne({
+      where: {
+        id: task.id,
+        onboarding_request_id: onboardingRequestId,
+      },
+      relations: {
+        assigned_company_user: { user: true },
+        onboarding_request: {
+          employee: true,
+        },
+      },
+    });
+
+    if (!loadedTask?.assigned_company_user_id) {
+      return;
+    }
+
+    const employee = loadedTask.onboarding_request?.employee;
+    const employeeName =
+      `${employee?.first_name ?? ''} ${employee?.last_name ?? ''}`.trim() ||
+      'Employee';
+
+    await this.notificationsService.createAndPush({
+      company_id: companyId,
+      sender_company_user_id: actor.companyMembershipId ?? null,
+      receiver_company_user_id: loadedTask.assigned_company_user_id,
+      type: NotificationTypeEnum.ONBOARDING_TASK_ASSIGNED,
+      title: 'Onboarding Task Assigned',
+      message: `You have been assigned onboarding task "${loadedTask.title}" for ${employeeName}.`,
+      entity_type: 'ONBOARDING_TASK',
+      entity_id: loadedTask.id,
+      action_url: `/onboarding/${onboardingRequestId}/tasks`,
+      metadata: {
+        onboarding_request_id: onboardingRequestId,
+        task_id: loadedTask.id,
+        task_no: loadedTask.task_no,
+        task_title: loadedTask.title,
+        employee_name: employeeName,
+        due_date: loadedTask.due_date,
+      },
+    });
+  }
+
+  private async notifyOnboardingCompletedRealtime(
+    companyId: number,
+    request: OnboardingRequest,
+    actor: AuthenticatedUser,
+  ): Promise<void> {
+    const loaded = await this.onboardingRequestRepository.findOne({
+      where: { id: request.id, company_id: companyId },
+      relations: {
+        employee: {
+          company_user: { user: true },
+          manager: {
+            company_user: { user: true },
+          },
+        },
+      },
+    });
+
+    if (!loaded?.employee) {
+      return;
+    }
+
+    const employee = loaded.employee;
+    const employeeName =
+      `${employee.first_name ?? ''} ${employee.last_name ?? ''}`.trim() ||
+      'Employee';
+
+    const senderCompanyUserId =
+      actor.companyMembershipId ?? loaded.finalized_by_company_user_id ?? null;
+
+    if (employee.company_user?.id) {
+      await this.notificationsService.createAndPush({
+        company_id: companyId,
+        sender_company_user_id: senderCompanyUserId,
+        receiver_company_user_id: employee.company_user.id,
+        type: NotificationTypeEnum.ONBOARDING_COMPLETED,
+        title: 'Onboarding Completed',
+        message: 'Your onboarding has been completed successfully.',
+        entity_type: 'ONBOARDING_REQUEST',
+        entity_id: loaded.id,
+        action_url: `/onboarding/${loaded.id}`,
+        metadata: {
+          onboarding_no: loaded.onboarding_no,
+          employee_id: employee.id,
+          employee_name: employeeName,
+        },
+      });
+    }
+
+    if (employee.manager?.company_user?.id) {
+      await this.notificationsService.createAndPush({
+        company_id: companyId,
+        sender_company_user_id: senderCompanyUserId,
+        receiver_company_user_id: employee.manager.company_user.id,
+        type: NotificationTypeEnum.ONBOARDING_COMPLETED,
+        title: 'Employee Onboarding Completed',
+        message: `${employeeName}'s onboarding has been completed.`,
+        entity_type: 'ONBOARDING_REQUEST',
+        entity_id: loaded.id,
+        action_url: `/onboarding/${loaded.id}`,
+        metadata: {
+          onboarding_no: loaded.onboarding_no,
+          employee_id: employee.id,
+          employee_name: employeeName,
+        },
+      });
+    }
   }
 }
