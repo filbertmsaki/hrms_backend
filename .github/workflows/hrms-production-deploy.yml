@@ -1,11 +1,19 @@
 name: Deploy HRMS Production
 
 on:
-  push:
+  workflow_dispatch:
+    inputs:
+      deploy_sha:
+        description: Commit SHA to deploy to production
+        required: true
+        type: string
+  workflow_run:
+    workflows:
+      - Deploy HRMS UAT
+    types:
+      - completed
     branches:
       - main
-
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,22 +24,27 @@ concurrency:
 
 jobs:
   deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     name: Deploy HRMS Production
+    environment: production
     runs-on:
       - self-hosted
       - hrms-prod
+    env:
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_sha || github.event.workflow_run.head_sha }}
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Show runner info
         run: |
           echo "Runner user: $(whoami)"
           echo "Runner host: $(hostname)"
           echo "Current path: $(pwd)"
+          echo "Deploy SHA: $DEPLOY_SHA"
 
-      - name: Deploy HRMS production locally
+      - name: Deploy HRMS production
         run: |
-          cd /opt/apps/hrms/prod/backend
-          git fetch origin main
-          git reset --hard origin/main
           chmod +x scripts/deploy-production.sh
-          bash scripts/deploy-production.sh
+          bash scripts/deploy-production.sh "$DEPLOY_SHA"

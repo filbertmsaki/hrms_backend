@@ -1,17 +1,27 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-APP_DIR="/opt/apps/hrms/prod/backend"
-ECOSYSTEM_FILE="/opt/apps/hrms/ecosystem.config.js"
-BRANCH="main"
+DEPLOY_SHA="${1:-}"
 
-API_PM2_NAME="hrms-prod-api"
-WEB_PM2_NAME="hrms-prod-web"
-APP_PORT="8888"
+if [ -z "$DEPLOY_SHA" ]; then
+  echo "Usage: $0 <commit-sha>"
+  exit 1
+fi
+
+APP_DIR="${APP_DIR:-/opt/apps/hrms/prod/backend}"
+ECOSYSTEM_FILE="${ECOSYSTEM_FILE:-/opt/apps/hrms/ecosystem.config.js}"
+BRANCH="${BRANCH:-main}"
+
+API_PM2_NAME="${API_PM2_NAME:-hrms-prod-api}"
+WEB_PM2_NAME="${WEB_PM2_NAME:-hrms-prod-web}"
+APP_PORT="${APP_PORT:-8888}"
+PREVIOUS_SHA_FILE="${PREVIOUS_SHA_FILE:-$APP_DIR/.previous-deploy-sha}"
 
 echo "======================================"
 echo "HRMS Production Deployment Started"
 echo "======================================"
+echo "Target directory: $APP_DIR"
+echo "Target commit: $DEPLOY_SHA"
 
 cd "$APP_DIR"
 
@@ -21,8 +31,22 @@ echo "Current user: $(whoami)"
 echo "Fetching latest code from GitHub..."
 git fetch origin "$BRANCH"
 
-echo "Resetting code to origin/$BRANCH..."
-git reset --hard "origin/$BRANCH"
+if ! git cat-file -e "${DEPLOY_SHA}^{commit}" 2>/dev/null; then
+  echo "ERROR: commit $DEPLOY_SHA is not available after fetch."
+  exit 1
+fi
+
+if ! git merge-base --is-ancestor "$DEPLOY_SHA" "origin/$BRANCH"; then
+  echo "ERROR: commit $DEPLOY_SHA is not part of origin/$BRANCH."
+  exit 1
+fi
+
+CURRENT_SHA="$(git rev-parse HEAD)"
+echo "Current commit before deploy: $CURRENT_SHA"
+echo "$CURRENT_SHA" > "$PREVIOUS_SHA_FILE"
+
+echo "Checking out commit $DEPLOY_SHA..."
+git checkout --force "$DEPLOY_SHA"
 
 echo "Checking Node and npm versions..."
 node -v
@@ -69,11 +93,13 @@ done
 
 if ! [[ "$HTTP_CODE" =~ ^(2|3|4) ]]; then
   echo "Backend health check failed. HTTP status: $HTTP_CODE"
+  echo "Previous commit saved in $PREVIOUS_SHA_FILE: $(cat "$PREVIOUS_SHA_FILE")"
   echo "Showing PM2 backend logs..."
   sudo -n pm2 logs "$API_PM2_NAME" --lines 80 --nostream
   exit 1
 fi
 
+echo "Deployment succeeded at commit $DEPLOY_SHA"
 echo "======================================"
 echo "HRMS Production Deployment Completed"
 echo "======================================"
