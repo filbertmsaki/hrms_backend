@@ -90,7 +90,7 @@ export function validateEnv(env: Env) {
   const NODE_ENV = optionalEnum(
     env,
     'NODE_ENV',
-    ['development', 'production', 'test','uat'],
+    ['development', 'production', 'test', 'uat'],
     'production',
   );
   const APP_URL = optionalString(env, 'APP_URL', `http://localhost:${PORT}`);
