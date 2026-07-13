@@ -2,10 +2,12 @@
 set -Eeuo pipefail
 
 APP_DIR="/opt/apps/hrms/prod/backend"
+ECOSYSTEM_FILE="/opt/apps/hrms/ecosystem.config.js"
 BRANCH="main"
 
 API_PM2_NAME="hrms-prod-api"
 WEB_PM2_NAME="hrms-prod-web"
+APP_PORT="8888"
 
 echo "======================================"
 echo "HRMS Production Deployment Started"
@@ -32,23 +34,37 @@ npm ci
 echo "Building NestJS backend..."
 npm run build
 
+echo "Checking build output..."
+if [ ! -f "$APP_DIR/dist/main.js" ]; then
+  echo "ERROR: dist/main.js was not found."
+  echo "Available main.js files:"
+  find "$APP_DIR/dist" -name "main.js" -type f || true
+  exit 1
+fi
+
 echo "Running TypeORM migrations..."
 npm run migration:run
 
-echo "Restarting PM2 backend: $API_PM2_NAME"
-sudo -n pm2 restart "$API_PM2_NAME" --update-env
+echo "Reloading PM2 backend: $API_PM2_NAME"
+sudo -n pm2 reload "$ECOSYSTEM_FILE" --only "$API_PM2_NAME" --update-env
 
-echo "Restarting PM2 web: $WEB_PM2_NAME"
-sudo -n pm2 restart "$WEB_PM2_NAME" --update-env
+echo "Reloading PM2 web: $WEB_PM2_NAME"
+sudo -n pm2 reload "$ECOSYSTEM_FILE" --only "$WEB_PM2_NAME" --update-env
 
 echo "Saving PM2 process list..."
 sudo -n pm2 save
 
-APP_PORT="$(grep -E '^PORT=' .env 2>/dev/null | cut -d '=' -f2- | tr -d '\"' | tr -d "'"'"'" || true)"
-APP_PORT="${APP_PORT:-3000}"
-
 echo "Checking backend health on port $APP_PORT..."
-curl -fsS "http://127.0.0.1:${APP_PORT}/" > /dev/null
+HTTP_CODE="$(curl -sS -o /dev/null -w "%{http_code}" "http://127.0.0.1:${APP_PORT}/api" || true)"
+
+if [[ "$HTTP_CODE" =~ ^(2|3|4) ]]; then
+  echo "Backend is responding. HTTP status: $HTTP_CODE"
+else
+  echo "Backend health check failed. HTTP status: $HTTP_CODE"
+  echo "Showing PM2 backend logs..."
+  sudo -n pm2 logs "$API_PM2_NAME" --lines 80 --nostream
+  exit 1
+fi
 
 echo "======================================"
 echo "HRMS Production Deployment Completed"
