@@ -16,49 +16,22 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy to Production Server
-    runs-on: ubuntu-latest
-    environment: production
+    name: Deploy HRMS Production
+    runs-on:
+      - self-hosted
+      - hrms-prod
 
     steps:
-      - name: Prepare SSH key
+      - name: Show runner info
         run: |
-          if [ -z "${{ secrets.PROD_HOST }}" ]; then
-            echo "ERROR: PROD_HOST secret is missing."
-            exit 1
-          fi
+          echo "Runner user: $(whoami)"
+          echo "Runner host: $(hostname)"
+          echo "Current path: $(pwd)"
 
-          if [ -z "${{ secrets.PROD_PORT }}" ]; then
-            echo "ERROR: PROD_PORT secret is missing."
-            exit 1
-          fi
-
-          if [ -z "${{ secrets.PROD_USER }}" ]; then
-            echo "ERROR: PROD_USER secret is missing."
-            exit 1
-          fi
-
-          if [ -z "${{ secrets.PROD_SSH_KEY }}" ]; then
-            echo "ERROR: PROD_SSH_KEY secret is missing."
-            exit 1
-          fi
-
-          mkdir -p ~/.ssh
-          echo "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/hrms_prod_key
-          chmod 600 ~/.ssh/hrms_prod_key
-
-          ssh-keyscan -H -p "${{ secrets.PROD_PORT }}" "${{ secrets.PROD_HOST }}" >> ~/.ssh/known_hosts
-
-      - name: Test SSH connection
+      - name: Deploy HRMS production locally
         run: |
-          ssh -i ~/.ssh/hrms_prod_key \
-            -p "${{ secrets.PROD_PORT }}" \
-            "${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}" \
-            'echo "SSH connection successful"; whoami; hostname'
-
-      - name: Deploy HRMS backend through SSH
-        run: |
-          ssh -i ~/.ssh/hrms_prod_key \
-            -p "${{ secrets.PROD_PORT }}" \
-            "${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}" \
-            'cd /opt/apps/hrms/prod/backend && bash scripts/deploy-production.sh'
+          cd /opt/apps/hrms/prod/backend
+          git fetch origin main
+          git reset --hard origin/main
+          chmod +x scripts/deploy-production.sh
+          bash scripts/deploy-production.sh
