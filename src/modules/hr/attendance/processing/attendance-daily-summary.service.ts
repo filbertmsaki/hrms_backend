@@ -224,6 +224,86 @@ export class AttendanceDailySummaryService {
     };
   }
 
+  async rebuildSummariesForEmployeeDates(input: {
+    companyId: number;
+    employeeDates: Array<{ employeeId: number; attendanceDate: string }>;
+    refreshLeaveBalances?: boolean;
+  }) {
+    const {
+      companyId,
+      employeeDates,
+      refreshLeaveBalances = true,
+    } = input;
+    const uniquePairs = new Map<string, { employeeId: number; attendanceDate: string }>();
+
+    for (const employeeDate of employeeDates) {
+      if (!employeeDate?.employeeId) {
+        continue;
+      }
+
+      const normalizedAttendanceDate = this.normalizeDate(
+        employeeDate.attendanceDate,
+        'attendanceDate',
+      );
+      uniquePairs.set(
+        `${employeeDate.employeeId}:${normalizedAttendanceDate}`,
+        {
+          employeeId: employeeDate.employeeId,
+          attendanceDate: normalizedAttendanceDate,
+        },
+      );
+    }
+
+    if (uniquePairs.size === 0) {
+      return {
+        employeeCount: 0,
+        daysComputed: 0,
+        summariesUpserted: 0,
+      };
+    }
+
+    let summariesUpserted = 0;
+    const uniqueEmployeeIds = new Set<number>();
+    const fiscalYearRefreshKeys = new Set<string>();
+
+    for (const employeeDate of uniquePairs.values()) {
+      const changed = await this.recomputeForEmployeeDate(
+        companyId,
+        employeeDate.employeeId,
+        employeeDate.attendanceDate,
+        false,
+      );
+      if (changed) {
+        summariesUpserted += 1;
+      }
+
+      uniqueEmployeeIds.add(employeeDate.employeeId);
+      fiscalYearRefreshKeys.add(
+        `${employeeDate.employeeId}:${this.leaveBalanceService.getFiscalYearFromDate(
+          employeeDate.attendanceDate,
+        )}`,
+      );
+    }
+
+    if (refreshLeaveBalances) {
+      for (const key of fiscalYearRefreshKeys) {
+        const [employeeIdToken, fiscalYear] = key.split(':');
+        await this.refreshAttendanceAffectedLeaveBalances(
+          companyId,
+          Number(employeeIdToken),
+          fiscalYear,
+          'Attendance summary incremental rebuild',
+        );
+      }
+    }
+
+    return {
+      employeeCount: uniqueEmployeeIds.size,
+      daysComputed: uniquePairs.size,
+      summariesUpserted,
+    };
+  }
+
   async recomputeForEmployeeDate(
     companyId: number,
     employeeId: number,

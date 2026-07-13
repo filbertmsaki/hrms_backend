@@ -12,6 +12,11 @@ import { AttendanceDailySummaryService } from './attendance-daily-summary.servic
 import { ProcessAttendanceRangeDto } from './dtos/process-attendance-range.dto';
 import { formatDateOnly, normalizeDateInput } from '../../shared/hr.utils';
 
+type AttendanceEmployeeDateTarget = {
+  employeeId: number;
+  attendanceDate: string;
+};
+
 @Injectable()
 export class AttendanceProcessingService {
   private readonly logger = new Logger(AttendanceProcessingService.name);
@@ -47,14 +52,18 @@ export class AttendanceProcessingService {
       summariesUpserted: 0,
     };
 
+    const { start, endExclusive } = this.buildDateRangeBounds(
+      startDate,
+      endDate,
+    );
     let cursor = 0;
 
     while (true) {
       const qb = this.rawLogRepository
         .createQueryBuilder('log')
         .where('log.company_id = :companyId', { companyId })
-        .andWhere('DATE(log.event_time) >= :startDate', { startDate })
-        .andWhere('DATE(log.event_time) <= :endDate', { endDate })
+        .andWhere('log.event_time >= :start', { start })
+        .andWhere('log.event_time < :endExclusive', { endExclusive })
         .andWhere('log.id > :cursor', { cursor })
         .orderBy('log.id', 'ASC')
         .take(batchSize);
@@ -114,6 +123,91 @@ export class AttendanceProcessingService {
     };
   }
 
+  async processIncrementalDate(
+    companyId: number,
+    attendanceDate: string,
+    batchSize = 500,
+  ) {
+    const normalizedAttendanceDate = this.normalizeDate(
+      attendanceDate,
+      'attendanceDate',
+    );
+    const { start, endExclusive } = this.buildDateRangeBounds(
+      normalizedAttendanceDate,
+      normalizedAttendanceDate,
+    );
+    const targetKeys = new Set<string>();
+    const counters = {
+      rawLogsScanned: 0,
+      processedInserted: 0,
+      processedUpdated: 0,
+      processedSkipped: 0,
+      processedFailed: 0,
+      unmatchedEmployee: 0,
+      summariesUpserted: 0,
+      affectedEmployeeDates: 0,
+    };
+
+    let cursor = 0;
+
+    while (true) {
+      const rows = await this.rawLogRepository
+        .createQueryBuilder('log')
+        .where('log.company_id = :companyId', { companyId })
+        .andWhere('log.event_time >= :start', { start })
+        .andWhere('log.event_time < :endExclusive', { endExclusive })
+        .andWhere('log.processing_status IN (:...statuses)', {
+          statuses: [
+            AttendanceRawLogProcessingStatusEnum.PENDING,
+            AttendanceRawLogProcessingStatusEnum.FAILED,
+          ],
+        })
+        .andWhere('log.id > :cursor', { cursor })
+        .orderBy('log.id', 'ASC')
+        .take(batchSize)
+        .getMany();
+
+      if (rows.length === 0) break;
+
+      for (const row of rows) {
+        counters.rawLogsScanned += 1;
+        cursor = row.id;
+
+        const result = await this.processRawLog(companyId, row);
+        counters.processedInserted += result.inserted;
+        counters.processedUpdated += result.updated;
+        counters.processedSkipped += result.skipped;
+        counters.processedFailed += result.failed;
+        counters.unmatchedEmployee += result.unmatched;
+
+        for (const target of result.affectedEmployeeDates) {
+          targetKeys.add(this.toEmployeeDateKey(target));
+        }
+      }
+    }
+
+    const affectedEmployeeDates = Array.from(targetKeys).map((key) =>
+      this.fromEmployeeDateKey(key),
+    );
+    counters.affectedEmployeeDates = affectedEmployeeDates.length;
+
+    if (affectedEmployeeDates.length > 0) {
+      const summaryResult =
+        await this.dailySummaryService.rebuildSummariesForEmployeeDates({
+          companyId,
+          employeeDates: affectedEmployeeDates,
+        });
+      counters.summariesUpserted = summaryResult.summariesUpserted;
+    }
+
+    return {
+      companyId,
+      attendanceDate: normalizedAttendanceDate,
+      ...counters,
+      status: counters.processedFailed > 0 ? 'PARTIAL' : 'SUCCESS',
+    };
+  }
+
   private async processRawLog(
     companyId: number,
     rawLog: HikvisionAttendanceLog,
@@ -124,6 +218,7 @@ export class AttendanceProcessingService {
       skipped: 0,
       failed: 0,
       unmatched: 0,
+      affectedEmployeeDates: [] as AttendanceEmployeeDateTarget[],
     };
     const nextProcessingAttempt = (rawLog.processingAttempts ?? 0) + 1;
 
@@ -156,6 +251,20 @@ export class AttendanceProcessingService {
       const existing = await this.processedEventRepository.findOne({
         where: { rawLogId: rawLog.id },
       });
+      const existingTarget =
+        existing?.employeeId && existing.attendanceDate
+          ? {
+              employeeId: existing.employeeId,
+              attendanceDate: existing.attendanceDate,
+            }
+          : null;
+      const nextTarget =
+        resolution.employeeId && rawLog.eventTime
+          ? {
+              employeeId: resolution.employeeId,
+              attendanceDate: this.asDate(rawLog.eventTime),
+            }
+          : null;
 
       let processedEvent: AttendanceProcessedEvent;
       if (existing) {
@@ -226,6 +335,13 @@ export class AttendanceProcessingService {
               },
             },
           ];
+
+      if (existingTarget) {
+        counters.affectedEmployeeDates.push(existingTarget);
+      }
+      if (nextTarget) {
+        counters.affectedEmployeeDates.push(nextTarget);
+      }
 
       await this.exceptionService.replaceForRawLog(rawLog.id, rawLogExceptions);
 
@@ -326,6 +442,26 @@ export class AttendanceProcessingService {
 
   private asDate(value: Date): string {
     return formatDateOnly(new Date(value));
+  }
+
+  private buildDateRangeBounds(startDate: string, endDate: string) {
+    const start = new Date(`${startDate}T00:00:00.000Z`);
+    const endExclusive = new Date(`${endDate}T00:00:00.000Z`);
+    endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+
+    return { start, endExclusive };
+  }
+
+  private toEmployeeDateKey(target: AttendanceEmployeeDateTarget): string {
+    return `${target.employeeId}:${target.attendanceDate}`;
+  }
+
+  private fromEmployeeDateKey(key: string): AttendanceEmployeeDateTarget {
+    const separatorIndex = key.indexOf(':');
+    return {
+      employeeId: Number(key.slice(0, separatorIndex)),
+      attendanceDate: key.slice(separatorIndex + 1),
+    };
   }
 
   /**

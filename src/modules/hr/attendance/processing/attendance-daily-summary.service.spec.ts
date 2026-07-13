@@ -22,6 +22,7 @@ import { AttendanceDailyRemarkEnum } from './enums/attendance-daily-remark.enum'
 import { AttendanceRoundingModeEnum } from '../policies/enums/attendance-rounding-mode.enum';
 import { AttendanceHolidayPolicyModeEnum } from '../policies/enums/attendance-holiday-policy-mode.enum';
 import { LeaveBalanceService } from '../../leave/services/leave-balance.service';
+import { HrAccessService } from '../../shared/hr-access.service';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type MockRepo<T = any> = Record<string, jest.Mock>;
@@ -113,6 +114,7 @@ describe('AttendanceDailySummaryService', () => {
     getFiscalYearFromDate: jest.Mock;
     synchronizeAttendanceImpactForEmployeeYear: jest.Mock;
   };
+  let hrAccessService: { getAccessibleEmployeeIds: jest.Mock };
   let timezoneBuilder: ReturnType<typeof createQueryBuilderMock>;
   let processedEventBuilder: ReturnType<typeof createQueryBuilderMock>;
   let mobilePunchBuilder: ReturnType<typeof createQueryBuilderMock>;
@@ -149,6 +151,9 @@ describe('AttendanceDailySummaryService', () => {
     leaveBalanceService = {
       getFiscalYearFromDate: jest.fn((value: string) => value.slice(0, 4)),
       synchronizeAttendanceImpactForEmployeeYear: jest.fn(async () => []),
+    };
+    hrAccessService = {
+      getAccessibleEmployeeIds: jest.fn(),
     };
 
     timezoneBuilder = createQueryBuilderMock();
@@ -199,6 +204,7 @@ describe('AttendanceDailySummaryService', () => {
       scheduleResolver as unknown as AttendanceScheduleResolverService,
       exceptionService as unknown as AttendanceProcessingExceptionsService,
       leaveBalanceService as unknown as LeaveBalanceService,
+      hrAccessService as unknown as HrAccessService,
     );
   });
 

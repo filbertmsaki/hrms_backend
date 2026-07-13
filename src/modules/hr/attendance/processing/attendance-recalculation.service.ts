@@ -73,17 +73,42 @@ export class AttendanceRecalculationService {
   }
 
   async executeJob(jobId: number) {
-    const job = await this.jobRepository.findOne({ where: { id: jobId } });
-    if (!job) throw new BadRequestException('Recalculation job not found');
+    const claimResult = await this.jobRepository
+      .createQueryBuilder()
+      .update(AttendanceRecalculationJob)
+      .set({
+        status: AttendanceProcessingJobStatusEnum.PROCESSING,
+        lastError: null,
+        attempts: () => 'attempts + 1',
+      })
+      .where('id = :jobId', { jobId })
+      .andWhere('status IN (:...statuses)', {
+        statuses: [
+          AttendanceProcessingJobStatusEnum.PENDING,
+          AttendanceProcessingJobStatusEnum.FAILED,
+        ],
+      })
+      .execute();
 
-    if (job.status === AttendanceProcessingJobStatusEnum.PROCESSING) {
-      throw new BadRequestException('Recalculation job is already processing');
+    if (!claimResult.affected) {
+      const existingJob = await this.jobRepository.findOne({
+        where: { id: jobId },
+      });
+      if (!existingJob) {
+        throw new BadRequestException('Recalculation job not found');
+      }
+      if (existingJob.status === AttendanceProcessingJobStatusEnum.PROCESSING) {
+        throw new BadRequestException(
+          'Recalculation job is already processing',
+        );
+      }
+      throw new BadRequestException(
+        `Recalculation job cannot be executed from status ${existingJob.status}`,
+      );
     }
 
-    job.status = AttendanceProcessingJobStatusEnum.PROCESSING;
-    job.attempts += 1;
-    job.lastError = null;
-    await this.jobRepository.save(job);
+    const job = await this.jobRepository.findOne({ where: { id: jobId } });
+    if (!job) throw new BadRequestException('Recalculation job not found');
 
     try {
       const result = await this.attendanceProcessingService.processRange(

@@ -3,6 +3,8 @@ import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HikvisionAttendanceLog } from '../../../hikvision/entities/hikvision-attendance-log.entity';
+import { AttendanceMobilePunch } from '../mobile-punches/entities/attendance-mobile-punch.entity';
+import { AttendancePunchValidationStatusEnum } from '../mobile-punches/enums/attendance-punch-validation-status.enum';
 import { ShiftAssignment } from '../shift/shift-assignments/entities/shift-assignment.entity';
 import { ShiftAssignmentStatusEnum } from '../shift/shift-assignments/enums/shift-assignment-status.enum';
 import { ShiftSchedule } from '../shift/shift-schedules/entities/shift-schedule.entity';
@@ -14,14 +16,20 @@ import { AttendanceProcessingService } from './attendance-processing.service';
 import { AttendanceRecalculationService } from './attendance-recalculation.service';
 import { formatDateOnly } from '../../shared/hr.utils';
 import { AttendancePolicy } from '../policies/entities/attendance-policy.entity';
+import { AttendanceDailySummaryService } from './attendance-daily-summary.service';
+import { AttendanceRawLogProcessingStatusEnum } from './enums/attendance-raw-log-processing-status.enum';
 
 @Injectable()
 export class AttendanceProcessingCronService {
   private readonly logger = new Logger(AttendanceProcessingCronService.name);
+  private incrementalRunInProgress = false;
+  private recalculationRunInProgress = false;
 
   constructor(
     @InjectRepository(HikvisionAttendanceLog)
     private readonly rawLogRepository: Repository<HikvisionAttendanceLog>,
+    @InjectRepository(AttendanceMobilePunch)
+    private readonly mobilePunchRepository: Repository<AttendanceMobilePunch>,
     @InjectRepository(EmployeeTimetable)
     private readonly employeeTimetableRepository: Repository<EmployeeTimetable>,
     @InjectRepository(ShiftAssignment)
@@ -33,86 +41,37 @@ export class AttendanceProcessingCronService {
     @InjectRepository(AttendancePolicy)
     private readonly attendancePolicyRepository: Repository<AttendancePolicy>,
     private readonly processingService: AttendanceProcessingService,
+    private readonly dailySummaryService: AttendanceDailySummaryService,
     private readonly recalculationService: AttendanceRecalculationService,
   ) {}
 
   @Cron(process.env.ATTENDANCE_INCREMENTAL_CRON || '*/5 * * * *')
   async runIncrementalProcessing() {
     if (!this.isEnabled()) return;
+    if (this.incrementalRunInProgress) {
+      this.logger.warn(
+        'Skipping attendance incremental processing because a previous run is still active.',
+      );
+      return;
+    }
 
+    this.incrementalRunInProgress = true;
     const today = this.formatDate(new Date());
     try {
-      const rawLogRows = await this.rawLogRepository
-        .createQueryBuilder('log')
-        .select('DISTINCT log.company_id', 'companyId')
-        .where('DATE(log.event_time) = :today', { today })
-        .getRawMany<{ companyId: string }>();
-
-      const timetableRows = await this.employeeTimetableRepository
-        .createQueryBuilder('assignment')
-        .select('DISTINCT assignment.company_id', 'companyId')
-        .where('assignment.status = :status', {
-          status: EmployeeTimetableStatusEnum.ACTIVE,
-        })
-        .andWhere('assignment.effective_from <= :today', { today })
-        .andWhere(
-          '(assignment.effective_to IS NULL OR assignment.effective_to >= :today)',
-          {
-            today,
-          },
-        )
-        .getRawMany<{ companyId: string }>();
-
-      const shiftAssignmentRows = await this.shiftAssignmentRepository
-        .createQueryBuilder('assignment')
-        .select('DISTINCT assignment.company_id', 'companyId')
-        .where('assignment.status = :status', {
-          status: ShiftAssignmentStatusEnum.ACTIVE,
-        })
-        .andWhere('assignment.effective_from <= :today', { today })
-        .andWhere(
-          '(assignment.effective_to IS NULL OR assignment.effective_to >= :today)',
-          {
-            today,
-          },
-        )
-        .getRawMany<{ companyId: string }>();
-
-      const shiftScheduleRows = await this.shiftScheduleRepository
-        .createQueryBuilder('schedule')
-        .select('DISTINCT schedule.company_id', 'companyId')
-        .where('schedule.effective_from <= :today', { today })
-        .andWhere(
-          '(schedule.effective_to IS NULL OR schedule.effective_to >= :today)',
-          { today },
-        )
-        .getRawMany<{ companyId: string }>();
-
-      const defaultTimetableRows = await this.timetableRepository
-        .createQueryBuilder('timetable')
-        .select('DISTINCT timetable.company_id', 'companyId')
-        .where('timetable.is_default = :isDefault', { isDefault: true })
-        .andWhere('timetable.status = :status', {
-          status: TimetableStatusEnum.ACTIVE,
-        })
-        .getRawMany<{ companyId: string }>();
-
-      const companyIds = new Set<number>();
-      for (const row of [
-        ...rawLogRows,
-        ...timetableRows,
-        ...shiftAssignmentRows,
-        ...shiftScheduleRows,
-        ...defaultTimetableRows,
-      ]) {
-        const companyId = Number(row.companyId);
-        if (Number.isInteger(companyId) && companyId > 0) {
-          companyIds.add(companyId);
-        }
+      const companyIdsWithPendingRawLogs =
+        await this.findCompaniesWithPendingRawLogs(today);
+      for (const companyId of companyIdsWithPendingRawLogs) {
+        await this.processingService.processIncrementalDate(companyId, today);
       }
 
-      const dueCompanyIds =
-        await this.filterCompaniesDueForCalculation(companyIds);
+      await this.processApprovedMobilePunches();
+
+      const companyIds = await this.findCompaniesForScheduledReconciliation(
+        today,
+      );
+      const dueCompanyIds = await this.filterCompaniesDueForCalculation(
+        companyIds,
+      );
 
       for (const companyId of dueCompanyIds) {
         await this.processingService.processRange(companyId, {
@@ -125,19 +84,30 @@ export class AttendanceProcessingCronService {
       this.logger.warn(
         `Incremental attendance processing skipped: ${(error as Error).message}`,
       );
+    } finally {
+      this.incrementalRunInProgress = false;
     }
   }
 
   @Cron(process.env.ATTENDANCE_RECALCULATION_CRON || '*/10 * * * *')
   async processPendingRecalculationJobs() {
     if (!this.isEnabled()) return;
+    if (this.recalculationRunInProgress) {
+      this.logger.warn(
+        'Skipping attendance recalculation jobs because a previous job sweep is still active.',
+      );
+      return;
+    }
 
+    this.recalculationRunInProgress = true;
     try {
       await this.recalculationService.processPendingJobs(20);
     } catch (error) {
       this.logger.warn(
         `Pending recalculation processing failed: ${(error as Error).message}`,
       );
+    } finally {
+      this.recalculationRunInProgress = false;
     }
   }
 
@@ -150,6 +120,197 @@ export class AttendanceProcessingCronService {
 
   private formatDate(date: Date): string {
     return formatDateOnly(date);
+  }
+
+  private async findCompaniesWithPendingRawLogs(
+    attendanceDate: string,
+  ): Promise<number[]> {
+    const { start, endExclusive } = this.buildDateRangeBounds(
+      attendanceDate,
+      attendanceDate,
+    );
+    const rows = await this.rawLogRepository
+      .createQueryBuilder('log')
+      .select('DISTINCT log.company_id', 'companyId')
+      .where('log.event_time >= :start', { start })
+      .andWhere('log.event_time < :endExclusive', { endExclusive })
+      .andWhere('log.processing_status IN (:...statuses)', {
+        statuses: [
+          AttendanceRawLogProcessingStatusEnum.PENDING,
+          AttendanceRawLogProcessingStatusEnum.FAILED,
+        ],
+      })
+      .getRawMany<{ companyId: string }>();
+
+    return this.normalizeCompanyIdRows(rows);
+  }
+
+  private async processApprovedMobilePunches(batchSize = 200) {
+    while (true) {
+      const punches = await this.mobilePunchRepository.find({
+        where: [
+          {
+            isProcessed: false,
+            validationStatus: AttendancePunchValidationStatusEnum.APPROVED,
+          },
+          {
+            isProcessed: false,
+            validationStatus:
+              AttendancePunchValidationStatusEnum.OVERRIDE_APPROVED,
+          },
+        ],
+        select: {
+          id: true,
+          companyId: true,
+          employeeId: true,
+          attendanceDate: true,
+        },
+        order: {
+          punchTime: 'ASC',
+          id: 'ASC',
+        },
+        take: batchSize,
+      });
+
+      if (punches.length === 0) {
+        return;
+      }
+
+      const groupedPairs = new Map<
+        number,
+        Array<{ employeeId: number; attendanceDate: string }>
+      >();
+      for (const punch of punches) {
+        const employeeDates = groupedPairs.get(punch.companyId) ?? [];
+        employeeDates.push({
+          employeeId: punch.employeeId,
+          attendanceDate: punch.attendanceDate,
+        });
+        groupedPairs.set(punch.companyId, employeeDates);
+      }
+
+      for (const [companyId, employeeDates] of groupedPairs.entries()) {
+        await this.dailySummaryService.rebuildSummariesForEmployeeDates({
+          companyId,
+          employeeDates,
+        });
+      }
+
+      await this.mobilePunchRepository.update(
+        punches.map((punch) => punch.id),
+        {
+          isProcessed: true,
+        },
+      );
+
+      if (punches.length < batchSize) {
+        return;
+      }
+    }
+  }
+
+  private async findCompaniesForScheduledReconciliation(
+    attendanceDate: string,
+  ): Promise<Set<number>> {
+    const { start, endExclusive } = this.buildDateRangeBounds(
+      attendanceDate,
+      attendanceDate,
+    );
+    const rawLogRows = await this.rawLogRepository
+      .createQueryBuilder('log')
+      .select('DISTINCT log.company_id', 'companyId')
+      .where('log.event_time >= :start', { start })
+      .andWhere('log.event_time < :endExclusive', { endExclusive })
+      .getRawMany<{ companyId: string }>();
+
+    const timetableRows = await this.employeeTimetableRepository
+      .createQueryBuilder('assignment')
+      .select('DISTINCT assignment.company_id', 'companyId')
+      .where('assignment.status = :status', {
+        status: EmployeeTimetableStatusEnum.ACTIVE,
+      })
+      .andWhere('assignment.effective_from <= :attendanceDate', {
+        attendanceDate,
+      })
+      .andWhere(
+        '(assignment.effective_to IS NULL OR assignment.effective_to >= :attendanceDate)',
+        {
+          attendanceDate,
+        },
+      )
+      .getRawMany<{ companyId: string }>();
+
+    const shiftAssignmentRows = await this.shiftAssignmentRepository
+      .createQueryBuilder('assignment')
+      .select('DISTINCT assignment.company_id', 'companyId')
+      .where('assignment.status = :status', {
+        status: ShiftAssignmentStatusEnum.ACTIVE,
+      })
+      .andWhere('assignment.effective_from <= :attendanceDate', {
+        attendanceDate,
+      })
+      .andWhere(
+        '(assignment.effective_to IS NULL OR assignment.effective_to >= :attendanceDate)',
+        {
+          attendanceDate,
+        },
+      )
+      .getRawMany<{ companyId: string }>();
+
+    const shiftScheduleRows = await this.shiftScheduleRepository
+      .createQueryBuilder('schedule')
+      .select('DISTINCT schedule.company_id', 'companyId')
+      .where('schedule.effective_from <= :attendanceDate', {
+        attendanceDate,
+      })
+      .andWhere(
+        '(schedule.effective_to IS NULL OR schedule.effective_to >= :attendanceDate)',
+        { attendanceDate },
+      )
+      .getRawMany<{ companyId: string }>();
+
+    const defaultTimetableRows = await this.timetableRepository
+      .createQueryBuilder('timetable')
+      .select('DISTINCT timetable.company_id', 'companyId')
+      .where('timetable.is_default = :isDefault', { isDefault: true })
+      .andWhere('timetable.status = :status', {
+        status: TimetableStatusEnum.ACTIVE,
+      })
+      .getRawMany<{ companyId: string }>();
+
+    const companyIds = new Set<number>();
+    for (const companyId of this.normalizeCompanyIdRows([
+      ...rawLogRows,
+      ...timetableRows,
+      ...shiftAssignmentRows,
+      ...shiftScheduleRows,
+      ...defaultTimetableRows,
+    ])) {
+      companyIds.add(companyId);
+    }
+
+    return companyIds;
+  }
+
+  private normalizeCompanyIdRows(rows: Array<{ companyId: string }>): number[] {
+    const companyIds: number[] = [];
+
+    for (const row of rows) {
+      const companyId = Number(row.companyId);
+      if (Number.isInteger(companyId) && companyId > 0) {
+        companyIds.push(companyId);
+      }
+    }
+
+    return companyIds;
+  }
+
+  private buildDateRangeBounds(startDate: string, endDate: string) {
+    const start = new Date(`${startDate}T00:00:00.000Z`);
+    const endExclusive = new Date(`${endDate}T00:00:00.000Z`);
+    endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+
+    return { start, endExclusive };
   }
 
   private async filterCompaniesDueForCalculation(

@@ -297,6 +297,8 @@ export class AttendanceMobilePunchesService {
     punch.overrideReviewedBy = params.reviewedBy;
     punch.overrideReviewedAt = new Date();
     punch.overrideReviewNote = params.dto.reviewNote ?? null;
+    punch.isProcessed = false;
+    punch.processedEventId = null;
 
     return this.punchRepo.save(punch);
   }
