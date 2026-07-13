@@ -23,10 +23,38 @@ jobs:
     steps:
       - name: Prepare SSH key
         run: |
+          if [ -z "${{ secrets.PROD_HOST }}" ]; then
+            echo "ERROR: PROD_HOST secret is missing."
+            exit 1
+          fi
+
+          if [ -z "${{ secrets.PROD_PORT }}" ]; then
+            echo "ERROR: PROD_PORT secret is missing."
+            exit 1
+          fi
+
+          if [ -z "${{ secrets.PROD_USER }}" ]; then
+            echo "ERROR: PROD_USER secret is missing."
+            exit 1
+          fi
+
+          if [ -z "${{ secrets.PROD_SSH_KEY }}" ]; then
+            echo "ERROR: PROD_SSH_KEY secret is missing."
+            exit 1
+          fi
+
           mkdir -p ~/.ssh
           echo "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/hrms_prod_key
           chmod 600 ~/.ssh/hrms_prod_key
-          ssh-keyscan -p "${{ secrets.PROD_PORT }}" "${{ secrets.PROD_HOST }}" >> ~/.ssh/known_hosts
+
+          ssh-keyscan -H -p "${{ secrets.PROD_PORT }}" "${{ secrets.PROD_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Test SSH connection
+        run: |
+          ssh -i ~/.ssh/hrms_prod_key \
+            -p "${{ secrets.PROD_PORT }}" \
+            "${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}" \
+            'echo "SSH connection successful"; whoami; hostname'
 
       - name: Deploy HRMS backend through SSH
         run: |
