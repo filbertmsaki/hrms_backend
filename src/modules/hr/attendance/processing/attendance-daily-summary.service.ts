@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, QueryFailedError, Repository } from 'typeorm';
+import { In, QueryFailedError, Repository, SelectQueryBuilder } from 'typeorm';
+import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import {
   buildDateOnlyRange,
@@ -40,6 +41,16 @@ import { AttendanceHolidayPolicyModeEnum } from '../policies/enums/attendance-ho
 import { AttendanceRoundingModeEnum } from '../policies/enums/attendance-rounding-mode.enum';
 import { AttendanceProcessedEventDirectionEnum } from './enums/attendance-processed-event-direction.enum';
 import { AttendancePunchTypeEnum } from '../mobile-punches/enums/attendance-punch-type.enum';
+import {
+  NormalizedAttendanceSummaryQuery,
+  normalizeAttendanceSummaryQuery,
+} from './attendance-summary-query.util';
+import { HrAccessService } from '../../shared/hr-access.service';
+import { AttendanceReportRow } from './reports/attendance-report.types';
+import {
+  buildEmployeeFullName,
+  resolveReportLabel,
+} from './reports/attendance-report.utils';
 
 type AttendanceEventPoint = {
   id: string;
@@ -130,6 +141,7 @@ export class AttendanceDailySummaryService {
     private readonly scheduleResolver: AttendanceScheduleResolverService,
     private readonly exceptionService: AttendanceProcessingExceptionsService,
     private readonly leaveBalanceService: LeaveBalanceService,
+    private readonly hrAccessService: HrAccessService,
   ) {}
 
   async rebuildSummariesForRange(input: {
@@ -616,58 +628,49 @@ export class AttendanceDailySummaryService {
   async findDailySummaries(
     companyId: number,
     query: QueryAttendanceDailySummariesDto,
+    actor?: AuthenticatedUser,
   ) {
+    const normalizedQuery = normalizeAttendanceSummaryQuery(query);
     const {
-      page = 1,
-      limit = 20,
+      page,
+      limit,
       sortBy = 'attendance_date',
       sortOrder = SortDirection.DESC,
-      employee_id,
-      employee_no,
-      from_date,
-      to_date,
-      organization_id,
-      status,
-    } = query;
+    } = normalizedQuery;
 
     const qb = this.dailySummaryRepository
       .createQueryBuilder('summary')
       .leftJoinAndSelect('summary.employee', 'employee')
-      .where('summary.company_id = :companyId', { companyId });
+      .leftJoinAndSelect('summary.shift', 'shift')
+      .leftJoinAndSelect('summary.timetable', 'timetable');
 
-    if (employee_id)
-      qb.andWhere('summary.employee_id = :employeeId', {
-        employeeId: employee_id,
-      });
-    if (employee_no?.trim())
-      qb.andWhere('employee.employee_no = :employeeNo', {
-        employeeNo: employee_no.trim(),
-      });
-    if (from_date)
-      qb.andWhere('summary.attendance_date >= :fromDate', {
-        fromDate: from_date,
-      });
-    if (to_date)
-      qb.andWhere('summary.attendance_date <= :toDate', {
-        toDate: to_date,
-      });
-    if (organization_id)
-      qb.andWhere('summary.branch_id = :branchId', {
-        branchId: organization_id,
-      });
-    if (status) qb.andWhere('summary.attendance_status = :status', { status });
+    const isAccessible = await this.applyDailySummaryFilters(
+      qb,
+      companyId,
+      normalizedQuery,
+      actor,
+    );
+
+    if (!isAccessible) {
+      return {
+        data: [],
+        meta: buildPaginationMeta(0, 0, limit, page),
+      };
+    }
 
     const sortableColumns = new Set([
       'attendance_date',
       'created_at',
       'updated_at',
       'employee_id',
+      'attendance_status',
     ]);
     const columnPropertyMap: Record<string, string> = {
       attendance_date: 'attendanceDate',
       created_at: 'createdAt',
       updated_at: 'updatedAt',
       employee_id: 'employeeId',
+      attendance_status: 'attendanceStatus',
     };
     const safeSortBy = sortableColumns.has(sortBy) ? sortBy : 'attendance_date';
     const safeSortProperty = columnPropertyMap[safeSortBy] ?? safeSortBy;
@@ -683,6 +686,107 @@ export class AttendanceDailySummaryService {
       data: rows,
       meta: buildPaginationMeta(total, rows.length, limit, page),
     };
+  }
+
+  async streamReportRows(
+    companyId: number,
+    query: QueryAttendanceDailySummariesDto,
+    actor: AuthenticatedUser | undefined,
+    onBatch: (rows: AttendanceReportRow[]) => Promise<void>,
+    batchSize = 1000,
+  ): Promise<number> {
+    const normalizedQuery = normalizeAttendanceSummaryQuery(query);
+    let lastSummaryId = 0;
+    let totalRows = 0;
+
+    while (true) {
+      const qb = this.dailySummaryRepository
+        .createQueryBuilder('summary')
+        .innerJoin('summary.employee', 'employee')
+        .leftJoin('summary.shift', 'shift')
+        .leftJoin('summary.timetable', 'timetable')
+        .select('summary.id', 'summaryId')
+        .addSelect('summary.attendance_date', 'attendanceDate')
+        .addSelect('summary.attendance_status', 'attendanceStatus')
+        .addSelect('summary.check_in_at', 'checkInAt')
+        .addSelect('summary.check_out_at', 'checkOutAt')
+        .addSelect('summary.timezone', 'timezone')
+        .addSelect('employee.employee_no', 'employeeNumber')
+        .addSelect('employee.first_name', 'employeeFirstName')
+        .addSelect('employee.middle_name', 'employeeMiddleName')
+        .addSelect('employee.last_name', 'employeeLastName')
+        .addSelect('shift.name', 'shiftName')
+        .addSelect('shift.code', 'shiftCode')
+        .addSelect('timetable.name', 'timetableName')
+        .addSelect('timetable.code', 'timetableCode');
+
+      const isAccessible = await this.applyDailySummaryFilters(
+        qb,
+        companyId,
+        normalizedQuery,
+        actor,
+      );
+
+      if (!isAccessible) {
+        return 0;
+      }
+
+      qb.andWhere('summary.id > :lastSummaryId', { lastSummaryId })
+        .orderBy('summary.id', 'ASC')
+        .take(batchSize);
+
+      const rows = await qb.getRawMany<{
+        summaryId: number | string;
+        attendanceDate: string;
+        attendanceStatus: string;
+        checkInAt: Date | null;
+        checkOutAt: Date | null;
+        timezone: string;
+        employeeNumber: string;
+        employeeFirstName: string;
+        employeeMiddleName: string | null;
+        employeeLastName: string;
+        shiftName: string | null;
+        shiftCode: string | null;
+        timetableName: string | null;
+        timetableCode: string | null;
+      }>();
+
+      if (rows.length === 0) {
+        break;
+      }
+
+      const mappedRows = rows.map((row) => ({
+        summaryId: Number(row.summaryId),
+        employeeName:
+          buildEmployeeFullName([
+            row.employeeFirstName,
+            row.employeeMiddleName,
+            row.employeeLastName,
+          ]) || row.employeeNumber,
+        employeeNumber: row.employeeNumber,
+        attendanceDate: row.attendanceDate,
+        shiftName: resolveReportLabel(row.shiftName, row.shiftCode),
+        timetableName: resolveReportLabel(
+          row.timetableName,
+          row.timetableCode,
+        ),
+        attendanceStatus: row.attendanceStatus,
+        checkInAt: row.checkInAt ? new Date(row.checkInAt) : null,
+        checkOutAt: row.checkOutAt ? new Date(row.checkOutAt) : null,
+        timezone: row.timezone,
+      }));
+
+      totalRows += mappedRows.length;
+      lastSummaryId = mappedRows[mappedRows.length - 1].summaryId;
+      await onBatch(mappedRows);
+
+      if (rows.length < batchSize) {
+        break;
+      }
+    }
+
+    return totalRows;
   }
 
   async findUnmatchedLogs(
@@ -737,6 +841,141 @@ export class AttendanceDailySummaryService {
       data: rows,
       meta: buildPaginationMeta(total, rows.length, limit, page),
     };
+  }
+
+  private async applyDailySummaryFilters(
+    qb: SelectQueryBuilder<AttendanceDailySummary>,
+    companyId: number,
+    query: NormalizedAttendanceSummaryQuery,
+    actor?: AuthenticatedUser,
+  ): Promise<boolean> {
+    qb.where('summary.company_id = :companyId', { companyId });
+
+    if (query.employeeId) {
+      qb.andWhere('summary.employee_id = :employeeId', {
+        employeeId: query.employeeId,
+      });
+    }
+
+    if (query.employeeNo) {
+      qb.andWhere('employee.employee_no = :employeeNo', {
+        employeeNo: query.employeeNo,
+      });
+    }
+
+    if (query.fromDate) {
+      qb.andWhere('summary.attendance_date >= :fromDate', {
+        fromDate: query.fromDate,
+      });
+    }
+
+    if (query.toDate) {
+      qb.andWhere('summary.attendance_date <= :toDate', {
+        toDate: query.toDate,
+      });
+    }
+
+    if (query.branchId && actor) {
+      await this.hrAccessService.assertCanAccessBranch(actor, query.branchId);
+    }
+
+    if (query.branchId) {
+      qb.andWhere(
+        `(
+          summary.branch_id = :branchId
+          OR employee.primary_branch_id = :branchId
+          OR EXISTS (
+            SELECT 1
+            FROM employee_departments department_assignments
+            INNER JOIN departments department
+              ON department.id = department_assignments.department_id
+            WHERE department_assignments.employee_id = employee.id
+              AND department.branch_id = :branchId
+          )
+        )`,
+        { branchId: query.branchId },
+      );
+    }
+
+    if (query.departmentId) {
+      qb.andWhere(
+        `(
+          employee.primary_department_id = :departmentId
+          OR EXISTS (
+            SELECT 1
+            FROM employee_departments department_assignments
+            WHERE department_assignments.employee_id = employee.id
+              AND department_assignments.department_id = :departmentId
+          )
+        )`,
+        { departmentId: query.departmentId },
+      );
+    }
+
+    if (query.organizationId) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM organization_employees organization_assignments
+          INNER JOIN access_organizations organization
+            ON organization.id = organization_assignments.organization_id
+          WHERE organization_assignments.employee_id = employee.id
+            AND organization_assignments.organization_id = :organizationId
+            AND organization.company_id = :companyId
+        )`,
+        {
+          organizationId: query.organizationId,
+          companyId,
+        },
+      );
+    }
+
+    if (query.shiftId) {
+      qb.andWhere('summary.shift_id = :shiftId', { shiftId: query.shiftId });
+    }
+
+    if (query.timetableId) {
+      qb.andWhere('summary.timetable_id = :timetableId', {
+        timetableId: query.timetableId,
+      });
+    }
+
+    if (query.status) {
+      qb.andWhere('summary.attendance_status = :status', {
+        status: query.status,
+      });
+    }
+
+    if (!actor) {
+      return true;
+    }
+
+    const accessibleBranchIds =
+      await this.hrAccessService.getAccessibleBranchIds(actor);
+
+    if (accessibleBranchIds?.length === 0) {
+      return false;
+    }
+
+    if (accessibleBranchIds) {
+      qb.andWhere(
+        `(
+          summary.branch_id IN (:...branchIds)
+          OR employee.primary_branch_id IN (:...branchIds)
+          OR EXISTS (
+            SELECT 1
+            FROM employee_departments department_assignments
+            INNER JOIN departments department
+              ON department.id = department_assignments.department_id
+            WHERE department_assignments.employee_id = employee.id
+              AND department.branch_id IN (:...branchIds)
+          )
+        )`,
+        { branchIds: accessibleBranchIds },
+      );
+    }
+
+    return true;
   }
 
   private async resolveTargetEmployees(

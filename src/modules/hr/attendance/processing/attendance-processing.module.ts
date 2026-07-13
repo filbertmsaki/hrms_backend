@@ -43,6 +43,10 @@ import { AttendanceRecalculationService } from './attendance-recalculation.servi
 import { AttendanceProcessingCronService } from './attendance-processing-cron.service';
 import { TimetableScheduleGenerationService } from './timetable-schedule-generation.service';
 import { AttendanceCompanyConfigService } from '../shared/attendance-company-config.service';
+import { AttendanceReportCsvService } from './reports/attendance-report-csv.service';
+import { AttendanceReportPdfService } from './reports/attendance-report-pdf.service';
+import { AttendanceReportService } from './reports/attendance-report.service';
+import { AttendanceReportXlsxService } from './reports/attendance-report-xlsx.service';
 
 @Module({
   imports: [
@@ -95,6 +99,10 @@ import { AttendanceCompanyConfigService } from '../shared/attendance-company-con
     AttendanceRecalculationService,
     AttendanceProcessingCronService,
     AttendanceCompanyConfigService,
+    AttendanceReportCsvService,
+    AttendanceReportPdfService,
+    AttendanceReportService,
+    AttendanceReportXlsxService,
   ],
   exports: [
     AttendanceBusinessTripsService,

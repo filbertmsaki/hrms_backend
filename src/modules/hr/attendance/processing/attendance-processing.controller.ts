@@ -9,13 +9,14 @@ import {
   Post,
   Put,
   Query,
+  Res,
   Req,
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import type { Request as ExpressRequest } from 'express';
+import type { Request as ExpressRequest, Response } from 'express';
 import { Permissions } from '../../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../../common/guards/tenant.guard';
@@ -28,8 +29,10 @@ import { AttendanceDailySummaryService } from './attendance-daily-summary.servic
 import { AttendanceProcessingExceptionsService } from './attendance-processing-exceptions.service';
 import { AttendanceProcessingService } from './attendance-processing.service';
 import { AttendanceRecalculationService } from './attendance-recalculation.service';
+import { AttendanceReportService } from './reports/attendance-report.service';
 import { ProcessAttendanceRangeDto } from './dtos/process-attendance-range.dto';
 import { ProcessPendingRecalculationJobsDto } from './dtos/process-pending-recalculation-jobs.dto';
+import { DownloadAttendanceReportDto } from './dtos/download-attendance-report.dto';
 import { QueryAttendanceExceptionsDto } from './dtos/query-attendance-exceptions.dto';
 import { QueryAttendanceDailySummariesDto } from './dtos/query-attendance-daily-summaries.dto';
 import { QueryAttendanceProcessingJobsDto } from './dtos/query-attendance-processing-jobs.dto';
@@ -49,6 +52,7 @@ export class AttendanceProcessingController {
     private readonly dailySummaryService: AttendanceDailySummaryService,
     private readonly exceptionService: AttendanceProcessingExceptionsService,
     private readonly recalculationService: AttendanceRecalculationService,
+    private readonly attendanceReportService: AttendanceReportService,
   ) {}
 
   @Post('processing/run-range')
@@ -141,7 +145,23 @@ export class AttendanceProcessingController {
     return this.dailySummaryService.findDailySummaries(
       req.user.companyId!,
       query,
+      req.user,
     );
+  }
+
+  @Get('reports/download')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_summaries:read')
+  @ApiActionOperation(
+    'Download Attendance Report',
+    'Download filtered attendance summaries as XLSX, CSV, or PDF.',
+  )
+  async downloadReport(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: DownloadAttendanceReportDto,
+    @Res() res: Response,
+  ) {
+    await this.attendanceReportService.downloadReport(res, req.user, query);
   }
 
   @Post('daily-summaries/recalculate')
