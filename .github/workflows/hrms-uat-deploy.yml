@@ -1,0 +1,50 @@
+name: Deploy HRMS UAT
+
+on:
+  workflow_run:
+    workflows:
+      - HRMS Backend CI
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      deploy_sha:
+        description: Commit SHA to deploy to UAT
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hrms-uat-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    name: Deploy HRMS UAT
+    environment: uat
+    runs-on:
+      - self-hosted
+      - hrms-prod
+    env:
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_sha || github.event.workflow_run.head_sha }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show runner info
+        run: |
+          echo "Runner user: $(whoami)"
+          echo "Runner host: $(hostname)"
+          echo "Current path: $(pwd)"
+          echo "Deploy SHA: $DEPLOY_SHA"
+
+      - name: Deploy HRMS UAT
+        run: |
+          chmod +x scripts/deploy-uat.sh scripts/deploy-production.sh
+          bash scripts/deploy-uat.sh "$DEPLOY_SHA"
