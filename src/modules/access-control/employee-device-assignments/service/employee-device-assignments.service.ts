@@ -3462,7 +3462,6 @@ export class EmployeeDeviceAssignmentsService {
       primary_branch_id: employee.primary_branch_id,
       primary_department_id: employee.primary_department_id,
       primary_position_id: employee.primary_position_id,
-      primary_designation_id: employee.primary_designation_id,
     };
   }
 

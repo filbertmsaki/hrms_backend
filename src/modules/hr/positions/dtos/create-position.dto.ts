@@ -33,12 +33,6 @@ export class CreatePositionDto {
   @Type(() => Number)
   @IsInt()
   @IsOptional()
-  designation_id?: number;
-
-  @ApiPropertyOptional({ type: Number })
-  @Type(() => Number)
-  @IsInt()
-  @IsOptional()
   reports_to_position_id?: number;
 
   @ApiPropertyOptional({ type: Number })

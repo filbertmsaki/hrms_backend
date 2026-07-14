@@ -57,7 +57,6 @@ type EmployeeProfileShape = {
   primary_branch?: { id: number; name: string } | null;
   primary_department?: { id: number; name: string } | null;
   primary_position?: { id: number; name: string } | null;
-  primary_designation?: { id: number; name: string } | null;
   manager?: { id: number; first_name?: string; last_name?: string } | null;
   [key: string]: unknown;
 };
@@ -135,7 +134,6 @@ export class EmployeeSelfServiceService {
       branch: employee?.primary_branch ?? null,
       department: employee?.primary_department ?? null,
       position: employee?.primary_position ?? null,
-      designation: employee?.primary_designation ?? null,
       manager: this.mapManager(employee),
       roles: (user.roles ?? [])
         .map((role) => role.name ?? role.display_name)

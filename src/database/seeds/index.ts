@@ -14,7 +14,6 @@ import CompanyAdminSeeder from './006-company-admin.seed';
 // Phase 3 — Organizational Structure
 import BranchesSeeder from './007-branches.seed';
 import DepartmentsSeeder from './008-departments.seed';
-import DesignationsSeeder from './009-designations.seed';
 import PositionsSeeder from './010-positions.seed';
 
 // Phase 4b — Department Employees (structured onboarding seed)
@@ -62,7 +61,6 @@ const seeders = [
   CompanyAdminSeeder,
   BranchesSeeder,
   DepartmentsSeeder,
-  DesignationsSeeder,
   PositionsSeeder,
   // EmployeesSeeder,         // legacy Hikvision bulk import — replaced by per-dept seeders
   // EmployeeProfilesSeeder, // depends on EmployeesSeeder

@@ -7,7 +7,6 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
-import { Designation } from '../designations/entities/designation.entity';
 import { EmployeePositionAssignmentTypeEnum } from '../employees/enums/employee-position-assignment-type.enum';
 import { EmployeePositionStatusEnum } from '../employees/enums/employee-position-status.enum';
 import { Employee } from '../employees/entities/employee.entity';
@@ -30,8 +29,6 @@ export class EmployeePositionsService {
     private readonly employeeRepository: Repository<Employee>,
     @InjectRepository(Position)
     private readonly positionRepository: Repository<Position>,
-    @InjectRepository(Designation)
-    private readonly designationRepository: Repository<Designation>,
     private readonly hrAccessService: HrAccessService,
   ) {}
 
@@ -41,7 +38,6 @@ export class EmployeePositionsService {
       company_id: entity.company_id,
       employee_id: entity.employee_id,
       position_id: entity.position_id,
-      designation_id: entity.designation_id,
       is_primary: entity.is_primary,
       start_date: entity.start_date,
       end_date: entity.end_date,
@@ -65,13 +61,6 @@ export class EmployeePositionsService {
             code: entity.position.code,
             branch_id: entity.position.branch_id,
             department_id: entity.position.department_id,
-          }
-        : null,
-      designation: entity.designation
-        ? {
-            id: entity.designation.id,
-            name: entity.designation.name,
-            code: entity.designation.code,
           }
         : null,
     };
@@ -108,29 +97,13 @@ export class EmployeePositionsService {
     return position;
   }
 
-  private async findDesignationOrFail(
-    companyId: number,
-    id: number | null | undefined,
-  ): Promise<Designation | null> {
-    if (!id) {
-      return null;
-    }
-    const designation = await this.designationRepository.findOne({
-      where: { id, company_id: companyId },
-    });
-    if (!designation) {
-      throw new NotFoundException('Designation not found');
-    }
-    return designation;
-  }
-
   private async findAssignmentOrFail(
     companyId: number,
     id: number,
   ): Promise<EmployeePosition> {
     const assignment = await this.employeePositionRepository.findOne({
       where: { id, company_id: companyId },
-      relations: { employee: true, position: true, designation: true },
+      relations: { employee: true, position: true },
     });
     if (!assignment) {
       throw new NotFoundException('Employee position assignment not found');
@@ -156,7 +129,6 @@ export class EmployeePositionsService {
       { id: employeeId },
       {
         primary_position_id: currentPrimary?.position_id ?? null,
-        primary_designation_id: currentPrimary?.designation_id ?? null,
       },
     );
   }
@@ -181,11 +153,6 @@ export class EmployeePositionsService {
       );
     }
 
-    const designation = await this.findDesignationOrFail(
-      companyId,
-      dto.designation_id,
-    );
-
     const createdId = await this.dataSource.transaction(async (manager) => {
       if (dto.is_primary) {
         await manager.getRepository(EmployeePosition).update(
@@ -203,7 +170,6 @@ export class EmployeePositionsService {
           company_id: companyId,
           employee_id: employee.id,
           position_id: position.id,
-          designation_id: designation?.id ?? null,
           is_primary: dto.is_primary ?? false,
           start_date: dto.start_date,
           end_date: dto.end_date ?? null,
@@ -246,7 +212,6 @@ export class EmployeePositionsService {
       .createQueryBuilder('employeePosition')
       .leftJoinAndSelect('employeePosition.employee', 'employee')
       .leftJoinAndSelect('employeePosition.position', 'position')
-      .leftJoinAndSelect('employeePosition.designation', 'designation')
       .where('employeePosition.company_id = :companyId', { companyId });
 
     if (typeof employee_id === 'number') {
@@ -351,11 +316,6 @@ export class EmployeePositionsService {
       );
     }
 
-    const designation =
-      dto.designation_id === undefined
-        ? existing.designation
-        : await this.findDesignationOrFail(companyId, dto.designation_id);
-
     const startDate = dto.start_date ?? existing.start_date;
     const endDate = dto.end_date ?? existing.end_date;
     if (endDate && new Date(endDate) < new Date(startDate)) {
@@ -377,7 +337,6 @@ export class EmployeePositionsService {
       Object.assign(existing, {
         employee_id: nextEmployee.id,
         position_id: position.id,
-        designation_id: designation?.id ?? null,
         is_primary: dto.is_primary ?? existing.is_primary,
         start_date: startDate,
         end_date: endDate ?? null,

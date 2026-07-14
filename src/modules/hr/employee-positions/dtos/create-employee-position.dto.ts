@@ -21,12 +21,6 @@ export class CreateEmployeePositionDto {
   @IsInt()
   position_id: number;
 
-  @ApiPropertyOptional({ type: Number })
-  @Type(() => Number)
-  @IsInt()
-  @IsOptional()
-  designation_id?: number;
-
   @ApiPropertyOptional({ default: false })
   @Type(() => Boolean)
   @IsBoolean()

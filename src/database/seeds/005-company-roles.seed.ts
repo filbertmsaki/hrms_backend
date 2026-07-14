@@ -61,7 +61,6 @@ const ORG_STRUCTURE_READ_PERMISSIONS = [
   'branches:read',
   'departments:read',
   'positions:read',
-  'designations:read',
 ];
 
 /** Team approval permissions shared by all manager-level roles */
@@ -156,10 +155,6 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'positions:create',
       'positions:update',
       'positions:delete',
-      'designations:read',
-      'designations:create',
-      'designations:update',
-      'designations:delete',
       // Employees (full lifecycle)
       'employees:read',
       'employees:create',

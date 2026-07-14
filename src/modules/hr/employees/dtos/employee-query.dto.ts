@@ -26,10 +26,5 @@ export class EmployeeQueryDto extends PaginationDto {
   @Type(() => Number)
   @IsInt()
   @IsOptional()
-  primary_designation_id?: number;
-
-  @Type(() => Number)
-  @IsInt()
-  @IsOptional()
   position_id?: number;
 }

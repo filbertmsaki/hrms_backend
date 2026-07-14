@@ -9,7 +9,6 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Company } from '../../../companies/entities/company.entity';
-import { Designation } from '../../designations/entities/designation.entity';
 import { Position } from '../../positions/entities/position.entity';
 import { EmployeePositionAssignmentTypeEnum } from '../enums/employee-position-assignment-type.enum';
 import { EmployeePositionStatusEnum } from '../enums/employee-position-status.enum';
@@ -19,7 +18,6 @@ import { Employee } from './employee.entity';
 @Index('IDX_employee_position_company', ['company_id'])
 @Index('IDX_employee_position_employee', ['employee_id'])
 @Index('IDX_employee_position_position', ['position_id'])
-@Index('IDX_employee_position_designation', ['designation_id'])
 @Index('IDX_employee_position_is_primary', ['is_primary'])
 export class EmployeePosition {
   @PrimaryGeneratedColumn()
@@ -33,9 +31,6 @@ export class EmployeePosition {
 
   @Column()
   position_id: number;
-
-  @Column({ type: 'int', nullable: true })
-  designation_id: number | null;
 
   @Column({ default: false })
   is_primary: boolean;
@@ -84,14 +79,4 @@ export class EmployeePosition {
   })
   @JoinColumn({ name: 'position_id' })
   position: Position;
-
-  @ManyToOne(
-    () => Designation,
-    (designation) => designation.employee_positions,
-    {
-      onDelete: 'SET NULL',
-    },
-  )
-  @JoinColumn({ name: 'designation_id' })
-  designation: Designation | null;
 }

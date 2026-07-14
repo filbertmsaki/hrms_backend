@@ -5,7 +5,6 @@ import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { User } from '../../users/entities/user.entity';
 import { UsersModule } from '../../users/users.module';
 import { Branch } from '../branches/entities/branch.entity';
-import { Designation } from '../designations/entities/designation.entity';
 import { Department } from '../departments/entities/department.entity';
 import { Position } from '../positions/entities/position.entity';
 import { OnboardingModule } from '../onboarding/onboarding.module';
@@ -21,7 +20,6 @@ import { EmployeeDocument } from './entities/employee-document.entity';
 import { EmployeeExperience } from './entities/employee-experience.entity';
 import { EmployeeIdentification } from './entities/employee-identification.entity';
 import { EmployeeAcademicQualification } from './entities/employee-academic-qualification.entity';
-import { EmployeeDesignation } from './entities/employee-designation.entity';
 import { EmployeePosition } from './entities/employee-position.entity';
 import { EmployeeProfessionalQualification } from './entities/employee-professional-qualification.entity';
 import { EmployeeRelative } from './entities/employee-relative.entity';
@@ -43,13 +41,11 @@ import { LeaveModule } from '../leave/leave.module';
       EmployeeProfessionalQualification,
       EmployeeExperience,
       EmployeePosition,
-      EmployeeDesignation,
       CompanyUser,
       User,
       Branch,
       Department,
       Position,
-      Designation,
     ]),
     CompaniesModule,
     UsersModule,

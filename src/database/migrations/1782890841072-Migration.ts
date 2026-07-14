@@ -23,13 +23,10 @@ export class Migration1782890841072 implements MigrationInterface {
       `CREATE TYPE "public"."employee_positions_status_enum" AS ENUM('ACTIVE', 'INACTIVE', 'COMPLETED')`,
     );
     await queryRunner.query(
-      `CREATE TABLE "employee_positions" ("id" SERIAL NOT NULL, "company_id" integer NOT NULL, "employee_id" integer NOT NULL, "position_id" integer NOT NULL, "designation_id" integer, "is_primary" boolean NOT NULL DEFAULT false, "start_date" date NOT NULL, "end_date" date, "assignment_type" "public"."employee_positions_assignment_type_enum" NOT NULL DEFAULT 'PRIMARY', "status" "public"."employee_positions_status_enum" NOT NULL DEFAULT 'ACTIVE', "notes" text, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_8544f049d46ad635c8cb2b9fc0c" PRIMARY KEY ("id"))`,
+      `CREATE TABLE "employee_positions" ("id" SERIAL NOT NULL, "company_id" integer NOT NULL, "employee_id" integer NOT NULL, "position_id" integer NOT NULL, "is_primary" boolean NOT NULL DEFAULT false, "start_date" date NOT NULL, "end_date" date, "assignment_type" "public"."employee_positions_assignment_type_enum" NOT NULL DEFAULT 'PRIMARY', "status" "public"."employee_positions_status_enum" NOT NULL DEFAULT 'ACTIVE', "notes" text, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_8544f049d46ad635c8cb2b9fc0c" PRIMARY KEY ("id"))`,
     );
     await queryRunner.query(
       `CREATE INDEX "IDX_employee_position_is_primary" ON "employee_positions" ("is_primary") `,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "IDX_employee_position_designation" ON "employee_positions" ("designation_id") `,
     );
     await queryRunner.query(
       `CREATE INDEX "IDX_employee_position_position" ON "employee_positions" ("position_id") `,
@@ -41,16 +38,13 @@ export class Migration1782890841072 implements MigrationInterface {
       `CREATE INDEX "IDX_employee_position_company" ON "employee_positions" ("company_id") `,
     );
     await queryRunner.query(
-      `CREATE TABLE "positions" ("id" SERIAL NOT NULL, "company_id" integer NOT NULL, "branch_id" integer, "department_id" integer, "designation_id" integer, "reports_to_position_id" integer, "name" character varying(100) NOT NULL, "code" character varying(50), "level" integer, "is_manager" boolean NOT NULL DEFAULT false, "headcount" integer NOT NULL DEFAULT '1', "is_active" boolean NOT NULL DEFAULT true, "description" text, "status" character varying(20) NOT NULL DEFAULT 'active', "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "UQ_position_code_company" UNIQUE ("company_id", "code"), CONSTRAINT "PK_17e4e62ccd5749b289ae3fae6f3" PRIMARY KEY ("id"))`,
+      `CREATE TABLE "positions" ("id" SERIAL NOT NULL, "company_id" integer NOT NULL, "branch_id" integer, "department_id" integer, "reports_to_position_id" integer, "name" character varying(100) NOT NULL, "code" character varying(50), "level" integer, "is_manager" boolean NOT NULL DEFAULT false, "headcount" integer NOT NULL DEFAULT '1', "is_active" boolean NOT NULL DEFAULT true, "description" text, "status" character varying(20) NOT NULL DEFAULT 'active', "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "UQ_position_code_company" UNIQUE ("company_id", "code"), CONSTRAINT "PK_17e4e62ccd5749b289ae3fae6f3" PRIMARY KEY ("id"))`,
     );
     await queryRunner.query(
       `CREATE INDEX "IDX_position_status" ON "positions" ("status") `,
     );
     await queryRunner.query(
       `CREATE INDEX "IDX_position_reports_to" ON "positions" ("reports_to_position_id") `,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "IDX_position_designation" ON "positions" ("designation_id") `,
     );
     await queryRunner.query(
       `CREATE INDEX "IDX_position_department" ON "positions" ("department_id") `,
@@ -90,21 +84,6 @@ export class Migration1782890841072 implements MigrationInterface {
     );
     await queryRunner.query(
       `CREATE INDEX "IDX_employee_contact_employee" ON "employee_contacts" ("employee_id") `,
-    );
-    await queryRunner.query(
-      `CREATE TABLE "employee_designations" ("id" SERIAL NOT NULL, "company_id" integer NOT NULL, "employee_id" integer NOT NULL, "designation_id" integer NOT NULL, "start_date" date NOT NULL, "end_date" date, "is_current" boolean NOT NULL DEFAULT true, "remarks" text, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_7e32d92cf32559fd912e44d9325" PRIMARY KEY ("id"))`,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "IDX_employee_designation_is_current" ON "employee_designations" ("is_current") `,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "IDX_employee_designation_designation" ON "employee_designations" ("designation_id") `,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "IDX_employee_designation_employee" ON "employee_designations" ("employee_id") `,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "IDX_employee_designation_company" ON "employee_designations" ("company_id") `,
     );
     await queryRunner.query(
       `CREATE TABLE "employee_departments" ("id" SERIAL NOT NULL, "employee_id" integer NOT NULL, "department_id" integer NOT NULL, "is_primary" boolean NOT NULL DEFAULT false, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "UQ_employee_department" UNIQUE ("employee_id", "department_id"), CONSTRAINT "PK_d6f4db59d18786243c6a0607a37" PRIMARY KEY ("id"))`,
@@ -161,19 +140,7 @@ export class Migration1782890841072 implements MigrationInterface {
       `CREATE TYPE "public"."employees_employment_type_enum" AS ENUM('full_time', 'part_time', 'contract', 'intern', 'consultant', 'temporary')`,
     );
     await queryRunner.query(
-      `CREATE TABLE "employees" ("id" SERIAL NOT NULL, "company_user_id" integer NOT NULL, "employee_no" character varying(50) NOT NULL, "first_name" character varying(100) NOT NULL, "middle_name" character varying(100), "last_name" character varying(100) NOT NULL, "preferred_name" character varying(100), "gender" character varying(20), "date_of_birth" date, "marital_status" character varying(30), "nationality" character varying(100), "profile_photo_url" text, "primary_branch_id" integer, "primary_department_id" integer, "primary_position_id" integer, "primary_designation_id" integer, "employment_status" "public"."employees_employment_status_enum" NOT NULL DEFAULT 'onboarding', "employment_type" "public"."employees_employment_type_enum" NOT NULL DEFAULT 'full_time', "hire_date" date, "probation_end_date" date, "confirmation_date" date, "exit_date" date, "reports_to" integer, "exit_reason" text, "notes" text, "metadata" json, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "UQ_employee_company_user" UNIQUE ("company_user_id"), CONSTRAINT "REL_640b443f67415a68f5386f5e36" UNIQUE ("company_user_id"), CONSTRAINT "PK_b9535a98350d5b26e7eb0c26af4" PRIMARY KEY ("id"))`,
-    );
-    await queryRunner.query(
-      `CREATE TABLE "designations" ("id" SERIAL NOT NULL, "company_id" integer NOT NULL, "department_id" integer, "name" character varying(120) NOT NULL, "code" character varying(50), "hierarchy_level" integer, "grade_level" integer, "is_managerial" boolean NOT NULL DEFAULT false, "description" text, "status" character varying(20) NOT NULL DEFAULT 'active', "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "UQ_designation_code_company" UNIQUE ("company_id", "code"), CONSTRAINT "PK_a0f024b99b1491a03fc421858ea" PRIMARY KEY ("id"))`,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "IDX_designation_status" ON "designations" ("status") `,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "IDX_designation_department" ON "designations" ("department_id") `,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "IDX_designation_company" ON "designations" ("company_id") `,
+      `CREATE TABLE "employees" ("id" SERIAL NOT NULL, "company_user_id" integer NOT NULL, "employee_no" character varying(50) NOT NULL, "first_name" character varying(100) NOT NULL, "middle_name" character varying(100), "last_name" character varying(100) NOT NULL, "preferred_name" character varying(100), "gender" character varying(20), "date_of_birth" date, "marital_status" character varying(30), "nationality" character varying(100), "profile_photo_url" text, "primary_branch_id" integer, "primary_department_id" integer, "primary_position_id" integer, "employment_status" "public"."employees_employment_status_enum" NOT NULL DEFAULT 'onboarding', "employment_type" "public"."employees_employment_type_enum" NOT NULL DEFAULT 'full_time', "hire_date" date, "probation_end_date" date, "confirmation_date" date, "exit_date" date, "reports_to" integer, "exit_reason" text, "notes" text, "metadata" json, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "UQ_employee_company_user" UNIQUE ("company_user_id"), CONSTRAINT "REL_640b443f67415a68f5386f5e36" UNIQUE ("company_user_id"), CONSTRAINT "PK_b9535a98350d5b26e7eb0c26af4" PRIMARY KEY ("id"))`,
     );
     await queryRunner.query(
       `CREATE TABLE "departments" ("id" SERIAL NOT NULL, "company_id" integer NOT NULL, "branch_id" integer, "parent_id" integer, "name" character varying(120) NOT NULL, "code" character varying(50), "description" text, "status" character varying(20) NOT NULL DEFAULT 'active', "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "UQ_department_code_company" UNIQUE ("company_id", "code"), CONSTRAINT "PK_839517a681a86bb84cbcc6a1e9d" PRIMARY KEY ("id"))`,
@@ -1764,9 +1731,6 @@ export class Migration1782890841072 implements MigrationInterface {
       `ALTER TABLE "employee_positions" ADD CONSTRAINT "FK_1f97107ff3fd45a193d7d39761b" FOREIGN KEY ("position_id") REFERENCES "positions"("id") ON DELETE CASCADE ON UPDATE NO ACTION`,
     );
     await queryRunner.query(
-      `ALTER TABLE "employee_positions" ADD CONSTRAINT "FK_6003d1059182b224978835d35ef" FOREIGN KEY ("designation_id") REFERENCES "designations"("id") ON DELETE SET NULL ON UPDATE NO ACTION`,
-    );
-    await queryRunner.query(
       `ALTER TABLE "positions" ADD CONSTRAINT "FK_6844c44333df4976bc4db69aec8" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE ON UPDATE NO ACTION`,
     );
     await queryRunner.query(
@@ -1774,9 +1738,6 @@ export class Migration1782890841072 implements MigrationInterface {
     );
     await queryRunner.query(
       `ALTER TABLE "positions" ADD CONSTRAINT "FK_e413c6578fcdae9a8fd673c5bc7" FOREIGN KEY ("department_id") REFERENCES "departments"("id") ON DELETE SET NULL ON UPDATE NO ACTION`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "positions" ADD CONSTRAINT "FK_333d281ecd8a4f2deaff228d489" FOREIGN KEY ("designation_id") REFERENCES "designations"("id") ON DELETE SET NULL ON UPDATE NO ACTION`,
     );
     await queryRunner.query(
       `ALTER TABLE "positions" ADD CONSTRAINT "FK_3e83545af5e55e42004fcea83d4" FOREIGN KEY ("reports_to_position_id") REFERENCES "positions"("id") ON DELETE SET NULL ON UPDATE NO ACTION`,
@@ -1789,15 +1750,6 @@ export class Migration1782890841072 implements MigrationInterface {
     );
     await queryRunner.query(
       `ALTER TABLE "employee_contacts" ADD CONSTRAINT "FK_041514c529c086579bf5e564cd8" FOREIGN KEY ("employee_id") REFERENCES "employees"("id") ON DELETE CASCADE ON UPDATE NO ACTION`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "employee_designations" ADD CONSTRAINT "FK_969a93ad90f5becbced7353f448" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE ON UPDATE NO ACTION`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "employee_designations" ADD CONSTRAINT "FK_85d002e5beceec079282e48bf4f" FOREIGN KEY ("employee_id") REFERENCES "employees"("id") ON DELETE CASCADE ON UPDATE NO ACTION`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "employee_designations" ADD CONSTRAINT "FK_61abc802fc379b5cb73acf76043" FOREIGN KEY ("designation_id") REFERENCES "designations"("id") ON DELETE CASCADE ON UPDATE NO ACTION`,
     );
     await queryRunner.query(
       `ALTER TABLE "employee_departments" ADD CONSTRAINT "FK_ed390b2466f6f70591a7d93e0a1" FOREIGN KEY ("employee_id") REFERENCES "employees"("id") ON DELETE CASCADE ON UPDATE NO ACTION`,
@@ -1845,16 +1797,7 @@ export class Migration1782890841072 implements MigrationInterface {
       `ALTER TABLE "employees" ADD CONSTRAINT "FK_15b8425f2c72b1c6b951045a595" FOREIGN KEY ("primary_position_id") REFERENCES "positions"("id") ON DELETE SET NULL ON UPDATE NO ACTION`,
     );
     await queryRunner.query(
-      `ALTER TABLE "employees" ADD CONSTRAINT "FK_7cd9e62424388f822b59689716e" FOREIGN KEY ("primary_designation_id") REFERENCES "designations"("id") ON DELETE SET NULL ON UPDATE NO ACTION`,
-    );
-    await queryRunner.query(
       `ALTER TABLE "employees" ADD CONSTRAINT "FK_6a6e3e4cd4f6e58ffa33683e570" FOREIGN KEY ("reports_to") REFERENCES "employees"("id") ON DELETE SET NULL ON UPDATE NO ACTION`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "designations" ADD CONSTRAINT "FK_afa94101357165af73943deb8f3" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE ON UPDATE NO ACTION`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "designations" ADD CONSTRAINT "FK_97884615dba807341722aa7aa4b" FOREIGN KEY ("department_id") REFERENCES "departments"("id") ON DELETE SET NULL ON UPDATE NO ACTION`,
     );
     await queryRunner.query(
       `ALTER TABLE "departments" ADD CONSTRAINT "FK_541e3d07c93baa9cc42b149a5fb" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE ON UPDATE NO ACTION`,
@@ -3318,16 +3261,7 @@ export class Migration1782890841072 implements MigrationInterface {
       `ALTER TABLE "departments" DROP CONSTRAINT "FK_541e3d07c93baa9cc42b149a5fb"`,
     );
     await queryRunner.query(
-      `ALTER TABLE "designations" DROP CONSTRAINT "FK_97884615dba807341722aa7aa4b"`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "designations" DROP CONSTRAINT "FK_afa94101357165af73943deb8f3"`,
-    );
-    await queryRunner.query(
       `ALTER TABLE "employees" DROP CONSTRAINT "FK_6a6e3e4cd4f6e58ffa33683e570"`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "employees" DROP CONSTRAINT "FK_7cd9e62424388f822b59689716e"`,
     );
     await queryRunner.query(
       `ALTER TABLE "employees" DROP CONSTRAINT "FK_15b8425f2c72b1c6b951045a595"`,
@@ -3375,15 +3309,6 @@ export class Migration1782890841072 implements MigrationInterface {
       `ALTER TABLE "employee_departments" DROP CONSTRAINT "FK_ed390b2466f6f70591a7d93e0a1"`,
     );
     await queryRunner.query(
-      `ALTER TABLE "employee_designations" DROP CONSTRAINT "FK_61abc802fc379b5cb73acf76043"`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "employee_designations" DROP CONSTRAINT "FK_85d002e5beceec079282e48bf4f"`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "employee_designations" DROP CONSTRAINT "FK_969a93ad90f5becbced7353f448"`,
-    );
-    await queryRunner.query(
       `ALTER TABLE "employee_contacts" DROP CONSTRAINT "FK_041514c529c086579bf5e564cd8"`,
     );
     await queryRunner.query(
@@ -3396,9 +3321,6 @@ export class Migration1782890841072 implements MigrationInterface {
       `ALTER TABLE "positions" DROP CONSTRAINT "FK_3e83545af5e55e42004fcea83d4"`,
     );
     await queryRunner.query(
-      `ALTER TABLE "positions" DROP CONSTRAINT "FK_333d281ecd8a4f2deaff228d489"`,
-    );
-    await queryRunner.query(
       `ALTER TABLE "positions" DROP CONSTRAINT "FK_e413c6578fcdae9a8fd673c5bc7"`,
     );
     await queryRunner.query(
@@ -3406,9 +3328,6 @@ export class Migration1782890841072 implements MigrationInterface {
     );
     await queryRunner.query(
       `ALTER TABLE "positions" DROP CONSTRAINT "FK_6844c44333df4976bc4db69aec8"`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "employee_positions" DROP CONSTRAINT "FK_6003d1059182b224978835d35ef"`,
     );
     await queryRunner.query(
       `ALTER TABLE "employee_positions" DROP CONSTRAINT "FK_1f97107ff3fd45a193d7d39761b"`,
@@ -4722,10 +4641,6 @@ export class Migration1782890841072 implements MigrationInterface {
     await queryRunner.query(`DROP INDEX "public"."IDX_department_company"`);
     await queryRunner.query(`DROP INDEX "public"."IDX_department_branch"`);
     await queryRunner.query(`DROP TABLE "departments"`);
-    await queryRunner.query(`DROP INDEX "public"."IDX_designation_company"`);
-    await queryRunner.query(`DROP INDEX "public"."IDX_designation_department"`);
-    await queryRunner.query(`DROP INDEX "public"."IDX_designation_status"`);
-    await queryRunner.query(`DROP TABLE "designations"`);
     await queryRunner.query(`DROP TABLE "employees"`);
     await queryRunner.query(
       `DROP TYPE "public"."employees_employment_type_enum"`,
@@ -4770,19 +4685,6 @@ export class Migration1782890841072 implements MigrationInterface {
     await queryRunner.query(`DROP TABLE "employee_documents"`);
     await queryRunner.query(`DROP TABLE "employee_departments"`);
     await queryRunner.query(
-      `DROP INDEX "public"."IDX_employee_designation_company"`,
-    );
-    await queryRunner.query(
-      `DROP INDEX "public"."IDX_employee_designation_employee"`,
-    );
-    await queryRunner.query(
-      `DROP INDEX "public"."IDX_employee_designation_designation"`,
-    );
-    await queryRunner.query(
-      `DROP INDEX "public"."IDX_employee_designation_is_current"`,
-    );
-    await queryRunner.query(`DROP TABLE "employee_designations"`);
-    await queryRunner.query(
       `DROP INDEX "public"."IDX_employee_contact_employee"`,
     );
     await queryRunner.query(`DROP INDEX "public"."IDX_employee_contact_type"`);
@@ -4805,7 +4707,6 @@ export class Migration1782890841072 implements MigrationInterface {
     await queryRunner.query(`DROP INDEX "public"."IDX_position_company"`);
     await queryRunner.query(`DROP INDEX "public"."IDX_position_branch"`);
     await queryRunner.query(`DROP INDEX "public"."IDX_position_department"`);
-    await queryRunner.query(`DROP INDEX "public"."IDX_position_designation"`);
     await queryRunner.query(`DROP INDEX "public"."IDX_position_reports_to"`);
     await queryRunner.query(`DROP INDEX "public"."IDX_position_status"`);
     await queryRunner.query(`DROP TABLE "positions"`);
@@ -4817,9 +4718,6 @@ export class Migration1782890841072 implements MigrationInterface {
     );
     await queryRunner.query(
       `DROP INDEX "public"."IDX_employee_position_position"`,
-    );
-    await queryRunner.query(
-      `DROP INDEX "public"."IDX_employee_position_designation"`,
     );
     await queryRunner.query(
       `DROP INDEX "public"."IDX_employee_position_is_primary"`,

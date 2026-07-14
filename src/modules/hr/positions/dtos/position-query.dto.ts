@@ -20,10 +20,5 @@ export class PositionQueryDto extends PaginationDto {
   @Type(() => Number)
   @IsInt()
   @IsOptional()
-  designation_id?: number;
-
-  @Type(() => Number)
-  @IsInt()
-  @IsOptional()
   reports_to_position_id?: number;
 }

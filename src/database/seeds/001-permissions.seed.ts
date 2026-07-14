@@ -254,27 +254,6 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     displayName: 'Delete positions',
     description: 'Allow deleting company positions',
   },
-  // Designations
-  {
-    name: 'designations:read',
-    displayName: 'Read designations',
-    description: 'Allow listing and viewing company designations',
-  },
-  {
-    name: 'designations:create',
-    displayName: 'Create designations',
-    description: 'Allow creating company designations',
-  },
-  {
-    name: 'designations:update',
-    displayName: 'Update designations',
-    description: 'Allow updating company designations',
-  },
-  {
-    name: 'designations:delete',
-    displayName: 'Delete designations',
-    description: 'Allow deleting company designations',
-  },
   // Employees
   {
     name: 'employees:read',

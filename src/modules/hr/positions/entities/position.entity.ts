@@ -13,7 +13,6 @@ import {
 import { Company } from '../../../companies/entities/company.entity';
 import { Branch } from '../../branches/entities/branch.entity';
 import { Department } from '../../departments/entities/department.entity';
-import { Designation } from '../../designations/entities/designation.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { EmployeePosition } from '../../employees/entities/employee-position.entity';
 
@@ -21,7 +20,6 @@ import { EmployeePosition } from '../../employees/entities/employee-position.ent
 @Index('IDX_position_company', ['company_id'])
 @Index('IDX_position_branch', ['branch_id'])
 @Index('IDX_position_department', ['department_id'])
-@Index('IDX_position_designation', ['designation_id'])
 @Index('IDX_position_reports_to', ['reports_to_position_id'])
 @Index('IDX_position_status', ['status'])
 @Unique('UQ_position_code_company', ['company_id', 'code'])
@@ -37,9 +35,6 @@ export class Position {
 
   @Column({ type: 'int', nullable: true })
   department_id: number | null;
-
-  @Column({ type: 'int', nullable: true })
-  designation_id: number | null;
 
   @Column({ type: 'int', nullable: true })
   reports_to_position_id: number | null;
@@ -89,12 +84,6 @@ export class Position {
   })
   @JoinColumn({ name: 'department_id' })
   department: Department | null;
-
-  @ManyToOne(() => Designation, (designation) => designation.positions, {
-    onDelete: 'SET NULL',
-  })
-  @JoinColumn({ name: 'designation_id' })
-  designation: Designation | null;
 
   @ManyToOne(() => Position, (position) => position.subordinate_positions, {
     onDelete: 'SET NULL',

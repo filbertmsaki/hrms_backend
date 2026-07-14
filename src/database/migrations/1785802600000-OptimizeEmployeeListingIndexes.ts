@@ -20,9 +20,6 @@ export class OptimizeEmployeeListingIndexes1785802600000 implements MigrationInt
       `CREATE INDEX "IDX_employee_primary_position" ON "employees" ("primary_position_id")`,
     );
     await queryRunner.query(
-      `CREATE INDEX "IDX_employee_primary_designation" ON "employees" ("primary_designation_id")`,
-    );
-    await queryRunner.query(
       `CREATE INDEX "IDX_employee_reports_to" ON "employees" ("reports_to")`,
     );
     await queryRunner.query(
@@ -35,9 +32,6 @@ export class OptimizeEmployeeListingIndexes1785802600000 implements MigrationInt
       `DROP INDEX "public"."IDX_employee_department_department"`,
     );
     await queryRunner.query(`DROP INDEX "public"."IDX_employee_reports_to"`);
-    await queryRunner.query(
-      `DROP INDEX "public"."IDX_employee_primary_designation"`,
-    );
     await queryRunner.query(
       `DROP INDEX "public"."IDX_employee_primary_position"`,
     );

@@ -13,7 +13,6 @@ export type EmployeeListRow = {
   branchName: string | null;
   departmentName: string | null;
   positionName: string | null;
-  designationName: string | null;
   managerFirstName: string | null;
   managerMiddleName: string | null;
   managerLastName: string | null;
@@ -69,9 +68,6 @@ export class EmployeeListResponseDto {
   positionName: string | null;
 
   @ApiProperty({ nullable: true })
-  designationName: string | null;
-
-  @ApiProperty({ nullable: true })
   managerName: string | null;
 
   @ApiProperty({ enum: EmploymentStatusEnum })
@@ -114,8 +110,6 @@ export class EmployeeListResponseDto {
       getRowValue<string | null>(rawRow, 'departmentName') ?? null;
     dto.positionName =
       getRowValue<string | null>(rawRow, 'positionName') ?? null;
-    dto.designationName =
-      getRowValue<string | null>(rawRow, 'designationName') ?? null;
     dto.managerName = buildFullName(
       managerFirstName,
       managerMiddleName,

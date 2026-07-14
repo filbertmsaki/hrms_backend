@@ -10,7 +10,6 @@ import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { Branch } from '../branches/entities/branch.entity';
 import { Department } from '../departments/entities/department.entity';
-import { Designation } from '../designations/entities/designation.entity';
 import { HrAccessService } from '../shared/hr-access.service';
 import { PositionQueryDto } from './dtos/position-query.dto';
 import { CreatePositionDto } from './dtos/create-position.dto';
@@ -28,8 +27,6 @@ export class PositionsService {
     private readonly branchRepository: Repository<Branch>,
     @InjectRepository(Department)
     private readonly departmentRepository: Repository<Department>,
-    @InjectRepository(Designation)
-    private readonly designationRepository: Repository<Designation>,
     private readonly hrAccessService: HrAccessService,
     private readonly codeGeneratorService: CodeGeneratorService,
   ) {}
@@ -42,7 +39,6 @@ export class PositionsService {
       code: position.code,
       branch_id: position.branch_id,
       department_id: position.department_id,
-      designation_id: position.designation_id,
       reports_to_position_id: position.reports_to_position_id,
       level: position.level,
       is_manager: position.is_manager,
@@ -69,14 +65,6 @@ export class PositionsService {
             status: position.department.status,
           }
         : null,
-      designation: position.designation
-        ? {
-            id: position.designation.id,
-            name: position.designation.name,
-            code: position.designation.code,
-            status: position.designation.status,
-          }
-        : null,
       reports_to_position: position.reports_to_position
         ? {
             id: position.reports_to_position.id,
@@ -98,7 +86,6 @@ export class PositionsService {
       relations: {
         branch: true,
         department: true,
-        designation: true,
         reports_to_position: true,
       },
     });
@@ -150,25 +137,6 @@ export class PositionsService {
     return department;
   }
 
-  private async resolveDesignation(
-    companyId: number,
-    designationId: number | null | undefined,
-  ): Promise<Designation | null> {
-    if (!designationId) {
-      return null;
-    }
-
-    const designation = await this.designationRepository.findOne({
-      where: { id: designationId, company_id: companyId },
-    });
-
-    if (!designation) {
-      throw new NotFoundException('Designation not found');
-    }
-
-    return designation;
-  }
-
   private async resolveReportsToPosition(
     companyId: number,
     positionId: number | null | undefined,
@@ -183,7 +151,6 @@ export class PositionsService {
   private assertHierarchyConsistency(
     branch: Branch | null,
     department: Department | null,
-    designation: Designation | null,
   ): void {
     if (
       department?.branch_id &&
@@ -192,16 +159,6 @@ export class PositionsService {
     ) {
       throw new BadRequestException(
         'department_id does not belong to the selected branch_id',
-      );
-    }
-
-    if (
-      designation?.department_id &&
-      department?.id &&
-      designation.department_id !== department.id
-    ) {
-      throw new BadRequestException(
-        'designation_id does not belong to the selected department_id',
       );
     }
   }
@@ -220,16 +177,12 @@ export class PositionsService {
       companyId,
       createPositionDto.department_id,
     );
-    const designation = await this.resolveDesignation(
-      companyId,
-      createPositionDto.designation_id,
-    );
     const reportsToPosition = await this.resolveReportsToPosition(
       companyId,
       createPositionDto.reports_to_position_id,
     );
 
-    this.assertHierarchyConsistency(branch, department, designation);
+    this.assertHierarchyConsistency(branch, department);
     if (department?.branch_id) {
       await this.hrAccessService.assertCanAccessBranch(
         actor,
@@ -250,7 +203,6 @@ export class PositionsService {
       company_id: companyId,
       branch_id: branch?.id ?? department?.branch_id ?? null,
       department_id: department?.id ?? null,
-      designation_id: designation?.id ?? null,
       reports_to_position_id: reportsToPosition?.id ?? null,
       is_manager: createPositionDto.is_manager ?? false,
       headcount: createPositionDto.headcount ?? 1,
@@ -275,7 +227,6 @@ export class PositionsService {
       status,
       branch_id,
       department_id,
-      designation_id,
       reports_to_position_id,
     } = query;
 
@@ -287,7 +238,6 @@ export class PositionsService {
       .createQueryBuilder('position')
       .leftJoinAndSelect('position.branch', 'branch')
       .leftJoinAndSelect('position.department', 'department')
-      .leftJoinAndSelect('position.designation', 'designation')
       .leftJoinAndSelect('position.reports_to_position', 'reports_to_position')
       .where('position.company_id = :companyId', { companyId });
 
@@ -302,12 +252,6 @@ export class PositionsService {
     if (typeof department_id === 'number') {
       qb.andWhere('position.department_id = :departmentId', {
         departmentId: department_id,
-      });
-    }
-
-    if (typeof designation_id === 'number') {
-      qb.andWhere('position.designation_id = :designationId', {
-        designationId: designation_id,
       });
     }
 
@@ -342,7 +286,6 @@ export class PositionsService {
       'code',
       'branch_id',
       'department_id',
-      'designation_id',
       'level',
       'headcount',
       'is_active',
@@ -414,14 +357,6 @@ export class PositionsService {
             updatePositionDto.department_id,
           );
 
-    const designation =
-      updatePositionDto.designation_id === undefined
-        ? position.designation
-        : await this.resolveDesignation(
-            companyId,
-            updatePositionDto.designation_id,
-          );
-
     const reportsToPosition =
       updatePositionDto.reports_to_position_id === undefined
         ? position.reports_to_position
@@ -434,11 +369,7 @@ export class PositionsService {
       throw new BadRequestException('A position cannot report to itself');
     }
 
-    this.assertHierarchyConsistency(
-      branch ?? null,
-      department ?? null,
-      designation ?? null,
-    );
+    this.assertHierarchyConsistency(branch ?? null, department ?? null);
     if (department?.branch_id) {
       await this.hrAccessService.assertCanAccessBranch(
         actor,
@@ -466,7 +397,6 @@ export class PositionsService {
       ...updatePositionDto,
       branch_id: branch?.id ?? department?.branch_id ?? null,
       department_id: department?.id ?? null,
-      designation_id: designation?.id ?? null,
       reports_to_position_id: reportsToPosition?.id ?? null,
     });
 

@@ -6,7 +6,6 @@ import { CompanyUser } from '../../modules/companies/entities/company-user.entit
 import { CompanyUserRole } from '../../modules/companies/entities/company-user-role.entity';
 import { Branch } from '../../modules/hr/branches/entities/branch.entity';
 import { Department } from '../../modules/hr/departments/entities/department.entity';
-import { Designation } from '../../modules/hr/designations/entities/designation.entity';
 import { Employee } from '../../modules/hr/employees/entities/employee.entity';
 import { Position } from '../../modules/hr/positions/entities/position.entity';
 import { Role } from '../../modules/roles/entities/role.entity';
@@ -42,7 +41,6 @@ export default class EmployeesSeeder implements Seeder {
       const branchRepo = qr.manager.getRepository(Branch);
       const deptRepo = qr.manager.getRepository(Department);
       const positionRepo = qr.manager.getRepository(Position);
-      const designationRepo = qr.manager.getRepository(Designation);
       const employeeRepo = qr.manager.getRepository(Employee);
 
       const companyName =
@@ -70,10 +68,6 @@ export default class EmployeesSeeder implements Seeder {
       });
       const positionMap = new Map(positions.map((p) => [p.code!, p]));
 
-      const designations = await designationRepo.find({
-        where: { company_id: company.id },
-      });
-
       const roles = await roleRepo.find({ where: { company_id: company.id } });
       const roleMap = new Map(roles.map((r) => [r.name, r]));
 
@@ -88,11 +82,6 @@ export default class EmployeesSeeder implements Seeder {
         const branch = branchMap.get(seed.primaryBranchCode) ?? null;
         const dept = deptMap.get(seed.primaryDepartmentCode) ?? null;
         const position = positionMap.get(seed.positionCode) ?? null;
-
-        // Derive designation from position
-        const designation = position?.designation_id
-          ? (designations.find((d) => d.id === position.designation_id) ?? null)
-          : null;
 
         // Upsert User
         let user =
@@ -169,7 +158,6 @@ export default class EmployeesSeeder implements Seeder {
             primary_branch_id: branch?.id ?? null,
             primary_department_id: dept?.id ?? null,
             primary_position_id: position?.id ?? null,
-            primary_designation_id: designation?.id ?? null,
             employment_status: EmploymentStatusEnum.ACTIVE,
             employment_type: EmploymentTypeEnum.FULL_TIME,
             hire_date: DEFAULT_HIRE_DATE,
@@ -188,7 +176,6 @@ export default class EmployeesSeeder implements Seeder {
           employee.primary_branch_id = branch?.id ?? null;
           employee.primary_department_id = dept?.id ?? null;
           employee.primary_position_id = position?.id ?? null;
-          employee.primary_designation_id = designation?.id ?? null;
           employee.employment_status = EmploymentStatusEnum.ACTIVE;
         }
 

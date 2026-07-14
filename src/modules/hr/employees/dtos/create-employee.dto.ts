@@ -92,12 +92,6 @@ export class CreateEmployeeDto {
   @IsOptional()
   primary_position_id?: number;
 
-  @ApiPropertyOptional({ type: Number })
-  @Type(() => Number)
-  @IsInt()
-  @IsOptional()
-  primary_designation_id?: number;
-
   @ApiPropertyOptional({
     type: Number,
     description:

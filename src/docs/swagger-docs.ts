@@ -59,11 +59,6 @@ const API_TAGS = [
       'Job position management. CRUD for positions that define roles within the organizational structure.',
   },
   {
-    name: 'Designations',
-    description:
-      'Job title / designation management. CRUD for designations that accompany employee assignments.',
-  },
-  {
     name: 'Employees',
     description:
       'Employee master data — core profile, contacts, addresses, relatives, identifications, bank accounts, ' +
@@ -73,11 +68,6 @@ const API_TAGS = [
     name: 'Employee Positions',
     description:
       'Employee position assignment history — track when an employee is assigned to or moves between positions.',
-  },
-  {
-    name: 'Employee Designations',
-    description:
-      'Employee designation progression history — track when an employee is assigned to or changes designations.',
   },
   {
     name: 'Leave',

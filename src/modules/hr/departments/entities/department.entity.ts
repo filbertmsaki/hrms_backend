@@ -12,7 +12,6 @@ import {
 } from 'typeorm';
 import { Company } from '../../../companies/entities/company.entity';
 import { Branch } from '../../branches/entities/branch.entity';
-import { Designation } from '../../designations/entities/designation.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { EmployeeDepartment } from '../../employees/entities/employee-department.entity';
 import { Position } from '../../positions/entities/position.entity';
@@ -89,9 +88,6 @@ export class Department {
   @ManyToOne(() => Employee, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'manager_employee_id' })
   manager: Employee | null;
-
-  @OneToMany(() => Designation, (designation) => designation.department)
-  designations: Designation[];
 
   @OneToMany(() => Position, (position) => position.department)
   positions: Position[];

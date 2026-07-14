@@ -13,7 +13,6 @@ import {
 } from 'typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { Branch } from '../../branches/entities/branch.entity';
-import { Designation } from '../../designations/entities/designation.entity';
 import { Department } from '../../departments/entities/department.entity';
 import { Position } from '../../positions/entities/position.entity';
 import { EmploymentStatusEnum } from '../enums/employment-status.enum';
@@ -21,7 +20,6 @@ import { EmploymentTypeEnum } from '../enums/employment-type.enum';
 import { EmployeeAddress } from './employee-address.entity';
 import { EmployeeBankAccount } from './employee-bank-account.entity';
 import { EmployeeContact } from './employee-contact.entity';
-import { EmployeeDesignation } from './employee-designation.entity';
 import { EmployeeDepartment } from './employee-department.entity';
 import { EmployeeDocument } from './employee-document.entity';
 import { EmployeePosition } from './employee-position.entity';
@@ -42,7 +40,6 @@ import { EmployeeRelative } from './employee-relative.entity';
 @Index('IDX_employee_primary_branch', ['primary_branch_id'])
 @Index('IDX_employee_primary_department', ['primary_department_id'])
 @Index('IDX_employee_primary_position', ['primary_position_id'])
-@Index('IDX_employee_primary_designation', ['primary_designation_id'])
 @Index('IDX_employee_reports_to', ['reports_to'])
 @Unique('UQ_employee_company_user', ['company_user_id'])
 export class Employee {
@@ -90,9 +87,6 @@ export class Employee {
 
   @Column({ type: 'int', nullable: true })
   primary_position_id: number | null;
-
-  @Column({ type: 'int', nullable: true })
-  primary_designation_id: number | null;
 
   @Column({
     type: 'enum',
@@ -162,16 +156,6 @@ export class Employee {
   @JoinColumn({ name: 'primary_position_id' })
   primary_position: Position | null;
 
-  @ManyToOne(
-    () => Designation,
-    (designation) => designation.primary_employees,
-    {
-      onDelete: 'SET NULL',
-    },
-  )
-  @JoinColumn({ name: 'primary_designation_id' })
-  primary_designation: Designation | null;
-
   @ManyToOne(() => Employee, (employee) => employee.direct_reports, {
     onDelete: 'SET NULL',
   })
@@ -198,15 +182,6 @@ export class Employee {
     },
   )
   position_assignments: EmployeePosition[];
-
-  @OneToMany(
-    () => EmployeeDesignation,
-    (employeeDesignation) => employeeDesignation.employee,
-    {
-      cascade: true,
-    },
-  )
-  designation_assignments: EmployeeDesignation[];
 
   @OneToMany(
     () => EmployeeContact,
