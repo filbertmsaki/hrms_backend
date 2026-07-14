@@ -509,7 +509,10 @@ export class RolesService {
         permission_id: permission.id,
         actor,
         description: `Permission "${permission.name}" assigned to role "${role.name}"`,
-        new_values: { permission_id: permission.id, permission_name: permission.name },
+        new_values: {
+          permission_id: permission.id,
+          permission_name: permission.name,
+        },
       });
     }
 
