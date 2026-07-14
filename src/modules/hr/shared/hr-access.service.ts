@@ -6,6 +6,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import { hasPermission } from '../../../common/utils/permission.util';
 import { CompanyUserBranchAccess } from '../branches/entities/company-user-branch-access.entity';
 import { Employee } from '../employees/entities/employee.entity';
 
@@ -17,7 +18,10 @@ export class HrAccessService {
   ) {}
 
   hasCompanyWideBranchAccess(actor: AuthenticatedUser): boolean {
-    return actor.roles.includes('COMPANY_ADMIN');
+    return (
+      actor.roles.includes('COMPANY_ADMIN') ||
+      hasPermission(actor.permissions, 'view_company_data')
+    );
   }
 
   async getAccessibleBranchIds(

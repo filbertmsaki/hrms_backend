@@ -40,24 +40,8 @@ export class DepartmentsService {
       status: department.status,
       created_at: department.created_at,
       updated_at: department.updated_at,
-      branch: department.branch
-        ? {
-            id: department.branch.id,
-            name: department.branch.name,
-            code: department.branch.code,
-            city: department.branch.city,
-            country: department.branch.country,
-            status: department.branch.status,
-          }
-        : null,
-      parent: department.parent
-        ? {
-            id: department.parent.id,
-            name: department.parent.name,
-            branch_id: department.parent.branch_id,
-            status: department.parent.status,
-          }
-        : null,
+      branch_name: department.branch?.name ?? null,
+      parent_name: department.parent?.name ?? null,
     };
   }
 

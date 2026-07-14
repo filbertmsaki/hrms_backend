@@ -1228,11 +1228,6 @@ export class CompaniesService {
         last_login_ip: membership.user.last_login_ip,
         created_at: membership.user.created_at,
         updated_at: membership.user.updated_at,
-        roles:
-          membership.role_assignments?.map(
-            (assignment) => assignment.role.name,
-          ) ?? [],
-        permissions: this.getMembershipPermissions(membership),
       })),
       meta: {
         totalItems: total,
