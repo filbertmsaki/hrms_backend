@@ -164,6 +164,18 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     displayName: 'Delete roles',
     description: 'Compatibility permission for role delete endpoints',
   },
+  {
+    name: 'roles:assign-permission',
+    displayName: 'Assign permission to role',
+    description:
+      'Allow assigning a permission to a role, including system-generated roles',
+  },
+  {
+    name: 'roles:revoke-permission',
+    displayName: 'Revoke permission from role',
+    description:
+      'Allow revoking a permission from a role, including system-generated roles',
+  },
   // Permissions
   {
     name: 'permissions:read',

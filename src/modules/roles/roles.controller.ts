@@ -120,7 +120,7 @@ export class RolesController {
 
   @Post(':roleId/permissions')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('roles:update')
+  @Permissions('roles:assign-permission')
   @ApiActionOperation(
     'Assign Permission to Role',
     'Assign a permission to a custom company-scoped role.',
@@ -139,7 +139,7 @@ export class RolesController {
 
   @Delete(':roleId/permissions/:permissionId')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('roles:update')
+  @Permissions('roles:revoke-permission')
   @ApiDeleteOperation(
     'Role Permission Assignment',
     'Revoke a permission assignment from a role',

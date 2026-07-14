@@ -24,6 +24,8 @@ import { Permission } from '../permissions/entities/permission.entity';
 import { CreateRoleDto } from './dtos/create-role.dto';
 import { UpdateRoleDto } from './dtos/update-role.dto';
 import { Role } from './entities/role.entity';
+import { RoleAuditActionEnum } from './enums/role-audit-action.enum';
+import { RoleAuditService } from './services/role-audit.service';
 
 @Injectable()
 export class RolesService {
@@ -38,6 +40,7 @@ export class RolesService {
     private readonly companyUserRepository: Repository<CompanyUser>,
     @InjectRepository(CompanyUserRole)
     private readonly companyUserRoleRepository: Repository<CompanyUserRole>,
+    private readonly roleAuditService: RoleAuditService,
   ) {}
 
   private createBaseQuery() {
@@ -484,7 +487,6 @@ export class RolesService {
     const { role } = await this.findCurrentCompanyRoleOrFail(roleId, actor);
 
     assertCanManageScopedRbacRecord(actor, role, 'role');
-    assertCanMutateSystemGeneratedRbacRecord(actor, role, 'role');
 
     const permission = await this.permissionsRepository.findOne({
       where: { id: permissionId },
@@ -500,6 +502,15 @@ export class RolesService {
     if (!exists) {
       role.permissions = [...currentPermissions, permission];
       await this.rolesRepository.save(role);
+
+      await this.roleAuditService.log({
+        action: RoleAuditActionEnum.PERMISSION_ASSIGNED,
+        role_id: role.id,
+        permission_id: permission.id,
+        actor,
+        description: `Permission "${permission.name}" assigned to role "${role.name}"`,
+        new_values: { permission_id: permission.id, permission_name: permission.name },
+      });
     }
 
     const updated = await this.findAccessibleRoleOrFail(role.id, actor);
@@ -526,7 +537,6 @@ export class RolesService {
     const { role } = await this.findCurrentCompanyRoleOrFail(roleId, actor);
 
     assertCanManageScopedRbacRecord(actor, role, 'role');
-    assertCanMutateSystemGeneratedRbacRecord(actor, role, 'role');
 
     const permissionExists = role.permissions?.some(
       (permission) => permission.id === permissionId,
@@ -552,6 +562,15 @@ export class RolesService {
     );
 
     await this.rolesRepository.save(role);
+
+    await this.roleAuditService.log({
+      action: RoleAuditActionEnum.PERMISSION_REVOKED,
+      role_id: role.id,
+      permission_id: permissionId,
+      actor,
+      description: `Permission id ${permissionId} revoked from role "${role.name}"`,
+      old_values: { permission_id: permissionId },
+    });
 
     const updated = await this.findAccessibleRoleOrFail(role.id, actor);
 

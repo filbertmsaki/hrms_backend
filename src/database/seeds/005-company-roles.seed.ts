@@ -140,6 +140,8 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'roles:create',
       'roles:update',
       'roles:delete',
+      'roles:assign-permission',
+      'roles:revoke-permission',
       'permissions:read',
       // Org structure
       'branches:read',
@@ -587,6 +589,9 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'offboarding_documents:delete',
       'offboarding_documents:create',
       'offboarding_documents:read',
+      // Role permission management
+      'roles:assign-permission',
+      'roles:revoke-permission',
     ],
   },
 
