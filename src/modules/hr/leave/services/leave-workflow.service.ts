@@ -527,6 +527,7 @@ export class LeaveWorkflowService {
         saved,
         null,
         leaveRequestApprovalRepository,
+        companyUserId,
         manager,
       );
       return saved;
@@ -579,6 +580,7 @@ export class LeaveWorkflowService {
         saved,
         payload.comments ?? null,
         leaveRequestApprovalRepository,
+        companyUserId,
         manager,
       );
       return saved;
@@ -593,6 +595,7 @@ export class LeaveWorkflowService {
         saved,
         null,
         leaveRequestApprovalRepository,
+        companyUserId,
         manager,
       );
       return saved;
@@ -605,6 +608,7 @@ export class LeaveWorkflowService {
       saved,
       null,
       leaveRequestApprovalRepository,
+      companyUserId,
       manager,
     );
     return saved;
@@ -614,6 +618,7 @@ export class LeaveWorkflowService {
     leaveRequest: LeaveRequest,
     rejectionComments: string | null,
     approvalRepo: Repository<LeaveRequestApproval>,
+    actorCompanyUserId: number | null,
     manager?: EntityManager,
   ): Promise<void> {
     const requestRepo = this.getLeaveRequestRepository(manager);
@@ -644,6 +649,10 @@ export class LeaveWorkflowService {
           full.end_date,
           Number(full.total_days),
           dashboardUrl,
+          full.id,
+          full.company_id,
+          actorCompanyUserId,
+          full.employee.company_user?.id ?? null,
         ),
       );
       return;
@@ -660,6 +669,10 @@ export class LeaveWorkflowService {
           full.end_date,
           rejectionComments,
           dashboardUrl,
+          full.id,
+          full.company_id,
+          actorCompanyUserId,
+          full.employee.company_user?.id ?? null,
         ),
       );
       return;
@@ -676,6 +689,10 @@ export class LeaveWorkflowService {
           full.end_date,
           full.return_reason,
           dashboardUrl,
+          full.id,
+          full.company_id,
+          actorCompanyUserId,
+          full.employee.company_user?.id ?? null,
         ),
       );
       return;
@@ -693,7 +710,9 @@ export class LeaveWorkflowService {
     });
 
     const approvers = nextPendingApprovals.flatMap((approval) => {
-      const recipient = buildNotificationRecipient(approval.approver?.user);
+      const recipient = buildNotificationRecipient(approval.approver?.user, {
+        companyUserId: approval.approver?.id,
+      });
       return recipient ? [recipient] : [];
     });
 
@@ -708,6 +727,9 @@ export class LeaveWorkflowService {
           Number(full.total_days),
           approvers,
           `${appUrl}/leave/${full.id}/review`,
+          full.id,
+          full.company_id,
+          actorCompanyUserId,
         ),
       );
     }

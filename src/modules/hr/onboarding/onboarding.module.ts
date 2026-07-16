@@ -17,7 +17,6 @@ import { LeaveModule } from '../leave/leave.module';
 import { HrSharedModule } from '../shared/hr-shared.module';
 import { EmployeeDeviceAssignmentsModule } from '../../access-control/employee-device-assignments/employee-device-assignments.module';
 import { EmployeeDeviceAssignment } from '../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
-import { NotificationsModule } from '../../notifications/notifications.module';
 import { OnboardingController } from './onboarding.controller';
 import { OnboardingService } from './onboarding.service';
 import { OnboardingApproval } from './entities/onboarding-approval.entity';
@@ -57,7 +56,6 @@ import { OnboardingWorkflowService } from './services/onboarding-workflow.servic
     ShiftEngineModule,
     TimetableEngineModule,
     EmployeeDeviceAssignmentsModule,
-    NotificationsModule,
   ],
   controllers: [OnboardingController],
   providers: [

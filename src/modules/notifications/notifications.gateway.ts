@@ -1,4 +1,9 @@
-import { Logger } from '@nestjs/common';
+import {
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import {
   OnGatewayConnection,
@@ -7,6 +12,7 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { InjectRepository } from '@nestjs/typeorm';
+import { createClient, RedisClientType } from 'redis';
 import { Server, Socket } from 'socket.io';
 import { Repository } from 'typeorm';
 import { CompanyUser } from '../companies/entities/company-user.entity';
@@ -20,6 +26,12 @@ type NotificationSocketPayload = {
   membershipId?: number;
 };
 
+type RealtimeEnvelope = {
+  event: string;
+  room: string;
+  payload: Record<string, unknown>;
+};
+
 @WebSocketGateway({
   namespace: 'notifications',
   cors: {
@@ -28,18 +40,80 @@ type NotificationSocketPayload = {
   },
 })
 export class NotificationsGateway
-  implements OnGatewayConnection, OnGatewayDisconnect
+  implements
+    OnGatewayConnection,
+    OnGatewayDisconnect,
+    OnModuleInit,
+    OnModuleDestroy
 {
   private readonly logger = new Logger(NotificationsGateway.name);
+  private readonly redisChannel = 'hrms:notifications:realtime';
+  private publisher: RedisClientType | null = null;
+  private subscriber: RedisClientType | null = null;
 
   @WebSocketServer()
   server: Server;
 
   constructor(
     private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
     @InjectRepository(CompanyUser)
     private readonly companyUserRepository: Repository<CompanyUser>,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    const redisUrl = this.configService.get<string>('REDIS_URL');
+    if (!redisUrl?.trim()) {
+      return;
+    }
+
+    try {
+      this.publisher = createClient({ url: redisUrl });
+      this.subscriber = createClient({ url: redisUrl });
+
+      this.publisher.on('error', (error) =>
+        this.logger.warn(`Notification Redis publisher error: ${error.message}`),
+      );
+      this.subscriber.on('error', (error) =>
+        this.logger.warn(
+          `Notification Redis subscriber error: ${error.message}`,
+        ),
+      );
+
+      await this.publisher.connect();
+      await this.subscriber.connect();
+
+      await this.subscriber.subscribe(this.redisChannel, (message) => {
+        try {
+          const envelope = JSON.parse(message) as RealtimeEnvelope;
+          this.server.to(envelope.room).emit(envelope.event, envelope.payload);
+        } catch (error) {
+          this.logger.warn(
+            `Failed to process notification relay message: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      });
+
+      this.logger.log('Notification realtime relay connected to Redis');
+    } catch (error) {
+      this.logger.warn(
+        `Notification realtime relay is running in local-only mode: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      await this.safeQuit(this.publisher);
+      await this.safeQuit(this.subscriber);
+      this.publisher = null;
+      this.subscriber = null;
+    }
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await this.safeQuit(this.subscriber);
+    await this.safeQuit(this.publisher);
+  }
 
   async handleConnection(client: Socket): Promise<void> {
     try {
@@ -76,6 +150,9 @@ export class NotificationsGateway
         },
         relations: {
           user: true,
+          role_assignments: { role: true },
+          branch_accesses: true,
+          employee: true,
         },
       });
 
@@ -94,8 +171,10 @@ export class NotificationsGateway
         email: payload.email,
       };
 
-      void client.join(`company:${payload.companyId}`);
-      void client.join(`company-user:${payload.membershipId}`);
+      const rooms = this.getMembershipRooms(membership);
+      for (const room of rooms) {
+        void client.join(room);
+      }
 
       this.logger.log(
         `Notification socket connected: companyUser=${payload.membershipId}, socket=${client.id}`,
@@ -106,6 +185,7 @@ export class NotificationsGateway
         socket_id: client.id,
         company_id: payload.companyId,
         company_membership_id: payload.membershipId,
+        rooms,
       });
     } catch (error) {
       this.logger.warn(
@@ -130,13 +210,116 @@ export class NotificationsGateway
     companyUserId: number,
     payload: Record<string, unknown>,
   ): void {
-    this.server
-      .to(`company-user:${companyUserId}`)
-      .emit('notification:new', payload);
+    void this.dispatchToRoom(
+      this.companyUserRoom(companyUserId),
+      'notification:new',
+      payload,
+    );
+  }
+
+  emitUnreadCount(companyUserId: number, unreadCount: number): void {
+    void this.dispatchToRoom(
+      this.companyUserRoom(companyUserId),
+      'notification:counter',
+      {
+        unread_count: unreadCount,
+      },
+    );
+  }
+
+  emitNotificationUpdate(
+    companyUserId: number,
+    payload: Record<string, unknown>,
+  ): void {
+    void this.dispatchToRoom(
+      this.companyUserRoom(companyUserId),
+      'notification:updated',
+      payload,
+    );
+  }
+
+  emitNotificationBulkUpdate(
+    companyUserId: number,
+    payload: Record<string, unknown>,
+  ): void {
+    void this.dispatchToRoom(
+      this.companyUserRoom(companyUserId),
+      'notification:bulk-updated',
+      payload,
+    );
   }
 
   emitToCompany(companyId: number, payload: Record<string, unknown>): void {
-    this.server.to(`company:${companyId}`).emit('notification:new', payload);
+    void this.dispatchToRoom(this.companyRoom(companyId), 'notification:new', payload);
+  }
+
+  private getMembershipRooms(membership: CompanyUser): string[] {
+    const rooms = new Set<string>([
+      this.companyRoom(membership.company_id),
+      this.companyUserRoom(membership.id),
+    ]);
+
+    membership.role_assignments?.forEach((assignment) => {
+      if (assignment.role?.name) {
+        rooms.add(this.roleRoom(membership.company_id, assignment.role.name));
+      }
+    });
+
+    membership.branch_accesses?.forEach((access) => {
+      rooms.add(this.branchRoom(membership.company_id, access.branch_id));
+    });
+
+    if (membership.employee?.primary_branch_id) {
+      rooms.add(
+        this.branchRoom(membership.company_id, membership.employee.primary_branch_id),
+      );
+    }
+
+    if (membership.employee?.primary_department_id) {
+      rooms.add(
+        this.departmentRoom(
+          membership.company_id,
+          membership.employee.primary_department_id,
+        ),
+      );
+    }
+
+    return [...rooms];
+  }
+
+  private companyRoom(companyId: number): string {
+    return `company:${companyId}`;
+  }
+
+  private companyUserRoom(companyUserId: number): string {
+    return `company-user:${companyUserId}`;
+  }
+
+  private roleRoom(companyId: number, roleName: string): string {
+    return `company:${companyId}:role:${roleName}`;
+  }
+
+  private branchRoom(companyId: number, branchId: number): string {
+    return `company:${companyId}:branch:${branchId}`;
+  }
+
+  private departmentRoom(companyId: number, departmentId: number): string {
+    return `company:${companyId}:department:${departmentId}`;
+  }
+
+  private async dispatchToRoom(
+    room: string,
+    event: string,
+    payload: Record<string, unknown>,
+  ) {
+    const envelope: RealtimeEnvelope = { room, event, payload };
+
+    if (this.publisher && this.subscriber) {
+      await this.publisher.publish(this.redisChannel, JSON.stringify(envelope));
+      return;
+    }
+
+    this.server.to(room).emit(event, payload);
   }
 
   private extractToken(client: Socket): string | null {
@@ -156,5 +339,21 @@ export class NotificationsGateway
     }
 
     return null;
+  }
+
+  private async safeQuit(client: RedisClientType | null) {
+    if (!client) {
+      return;
+    }
+
+    try {
+      await client.quit();
+    } catch {
+      try {
+        client.destroy();
+      } catch {
+        // Ignore cleanup errors.
+      }
+    }
   }
 }

@@ -770,7 +770,13 @@ export class LeaveService {
         employee,
         manager,
       );
-      await this.emitLeaveSubmitted(companyId, leaveRequest, employee, manager);
+      await this.emitLeaveSubmitted(
+        companyId,
+        leaveRequest,
+        employee,
+        actor,
+        manager,
+      );
       return;
     }
 
@@ -3552,7 +3558,9 @@ export class LeaveService {
       });
     const pendingApprovers: NotificationRecipient[] = pendingApprovals.flatMap(
       (approval) => {
-        const recipient = buildNotificationRecipient(approval.approver?.user);
+        const recipient = buildNotificationRecipient(approval.approver?.user, {
+          companyUserId: approval.approver?.id,
+        });
         return recipient ? [recipient] : [];
       },
     );
@@ -3646,7 +3654,12 @@ export class LeaveService {
       actor,
     );
 
-    await this.emitLeaveCancelled(cancelled, employee, pendingApprovers);
+    await this.emitLeaveCancelled(
+      cancelled,
+      employee,
+      pendingApprovers,
+      actor.companyMembershipId ?? null,
+    );
 
     return {
       message: 'Leave request cancelled successfully',
@@ -3883,6 +3896,7 @@ export class LeaveService {
     companyId: number,
     leaveRequest: LeaveRequest,
     employee: Employee,
+    actor: AuthenticatedUser,
     manager: EntityManager,
   ): Promise<void> {
     try {
@@ -3899,7 +3913,9 @@ export class LeaveService {
 
       const approvers: NotificationRecipient[] = initialApprovals.flatMap(
         (approval) => {
-          const recipient = buildNotificationRecipient(approval.approver?.user);
+          const recipient = buildNotificationRecipient(approval.approver?.user, {
+            companyUserId: approval.approver?.id,
+          });
           return recipient ? [recipient] : [];
         },
       );
@@ -3927,6 +3943,9 @@ export class LeaveService {
           leaveRequest.reason ?? null,
           approvers,
           `${frontendUrl}/leave/${leaveRequest.id}/review`,
+          leaveRequest.id,
+          actor.companyMembershipId ?? null,
+          employee.company_user?.id ?? null,
         ),
       );
     } catch {
@@ -3938,6 +3957,7 @@ export class LeaveService {
     leaveRequest: LeaveRequest,
     employee: Employee,
     pendingApprovers: NotificationRecipient[],
+    senderCompanyUserId: number | null,
   ): Promise<void> {
     try {
       if (!pendingApprovers.length) return;
@@ -3954,6 +3974,9 @@ export class LeaveService {
           leaveRequest.start_date,
           leaveRequest.end_date,
           pendingApprovers,
+          leaveRequest.id,
+          leaveRequest.company_id,
+          senderCompanyUserId,
         ),
       );
     } catch {

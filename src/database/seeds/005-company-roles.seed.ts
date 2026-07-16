@@ -41,6 +41,9 @@ const SELF_SERVICE_PERMISSIONS = [
   'view_company_data',
   'users:update', // own profile
   'employees:read',
+  'notifications:read',
+  'notifications:update',
+  'notifications:delete',
   ...HOLIDAY_READ_PERMISSIONS,
   ...ATTENDANCE_READ_PERMISSIONS,
   'leave_types:read',
@@ -143,6 +146,7 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'roles:assign-permission',
       'roles:revoke-permission',
       'permissions:read',
+      'notifications:send',
       // Org structure
       'branches:read',
       'branches:create',
@@ -592,6 +596,7 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       // Role permission management
       'roles:assign-permission',
       'roles:revoke-permission',
+      'notifications:send',
     ],
   },
 

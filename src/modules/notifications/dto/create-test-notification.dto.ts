@@ -1,4 +1,5 @@
 import {
+  IsEnum,
   IsInt,
   IsNotEmpty,
   IsObject,
@@ -6,6 +7,8 @@ import {
   IsString,
   MaxLength,
 } from 'class-validator';
+import { NotificationCategoryEnum } from '../enums/notification-category.enum';
+import { NotificationPriorityEnum } from '../enums/notification-priority.enum';
 
 export class CreateTestNotificationDto {
   @IsInt()
@@ -24,6 +27,18 @@ export class CreateTestNotificationDto {
   @IsOptional()
   type?: string;
 
+  @IsEnum(NotificationCategoryEnum)
+  @IsOptional()
+  category?: NotificationCategoryEnum;
+
+  @IsEnum(NotificationPriorityEnum)
+  @IsOptional()
+  priority?: NotificationPriorityEnum;
+
+  @IsString()
+  @IsOptional()
+  related_module?: string;
+
   @IsString()
   @IsOptional()
   entity_type?: string;
@@ -35,6 +50,10 @@ export class CreateTestNotificationDto {
   @IsString()
   @IsOptional()
   action_url?: string;
+
+  @IsString()
+  @IsOptional()
+  dedupe_key?: string;
 
   @IsObject()
   @IsOptional()

@@ -148,6 +148,7 @@ export class OffboardingWorkflowService {
       .where('role.company_id = :companyId', { companyId })
       .andWhere('role.name IN (:...roleNames)', { roleNames: [...roleNames] })
       .select([
+        'membership.id AS company_user_id',
         'user.first_name AS first_name',
         'user.last_name AS last_name',
         'user.email AS email',
@@ -157,13 +158,16 @@ export class OffboardingWorkflowService {
       .addGroupBy('user.last_name')
       .addGroupBy('user.email')
       .getRawMany<{
+        company_user_id: number;
         first_name: string | null;
         last_name: string | null;
         email: string | null;
       }>();
 
     return rows.flatMap((user) => {
-      const recipient = buildNotificationRecipient(user);
+      const recipient = buildNotificationRecipient(user, {
+        companyUserId: user.company_user_id,
+      });
       return recipient ? [recipient] : [];
     });
   }
@@ -574,6 +578,10 @@ export class OffboardingWorkflowService {
             manager,
           ),
           `${frontendUrl}/offboarding/${request.id}`,
+          loaded.id,
+          loaded.company_id,
+          null,
+          loaded.employee.company_user?.id ?? null,
         ),
       );
       return;
@@ -602,6 +610,9 @@ export class OffboardingWorkflowService {
         .flatMap((approval) => {
           const recipient = buildNotificationRecipient(
             approval.approver_company_user?.user,
+            {
+              companyUserId: approval.approver_company_user?.id,
+            },
           );
           return recipient ? [recipient] : [];
         });
@@ -613,6 +624,9 @@ export class OffboardingWorkflowService {
             exitDate,
             approvers,
             `${frontendUrl}/offboarding/${request.id}/review`,
+            loaded.id,
+            loaded.company_id,
+            null,
           ),
         );
       }

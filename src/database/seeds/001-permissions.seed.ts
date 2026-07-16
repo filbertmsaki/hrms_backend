@@ -1462,6 +1462,26 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow reviewing employee self-service approval requests',
   },
   {
+    name: 'notifications:read',
+    displayName: 'Read notifications',
+    description: 'Allow viewing notifications in the active company context',
+  },
+  {
+    name: 'notifications:update',
+    displayName: 'Update notifications',
+    description: 'Allow marking notifications as seen or read',
+  },
+  {
+    name: 'notifications:delete',
+    displayName: 'Archive notifications',
+    description: 'Allow archiving notifications in the active company context',
+  },
+  {
+    name: 'notifications:send',
+    displayName: 'Send notifications',
+    description: 'Allow sending test or operational notifications',
+  },
+  {
     name: 'hrms_launch_readiness:read',
     displayName: 'Read HRMS launch readiness',
     description: 'Allow viewing the HRMS launch readiness report',

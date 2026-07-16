@@ -34,6 +34,10 @@ describe('HrNotificationListener', () => {
         { name: 'HR Two', email: 'hr2@example.com' },
       ],
       'http://localhost:5173/offboarding/8',
+      8,
+      1,
+      2,
+      3,
     );
 
     await listener.onOffboardingApproved(event);
@@ -61,6 +65,12 @@ describe('HrNotificationListener', () => {
       null,
       null,
       'http://localhost:5173/onboarding/15/tasks',
+      1,
+      15,
+      20,
+      30,
+      40,
+      'ONB-TASK-001',
     );
 
     await listener.onOnboardingTaskAssigned(event);
@@ -83,6 +93,10 @@ describe('HrNotificationListener', () => {
       '2026-06-28',
       5,
       'http://localhost:5173/leave/12',
+      12,
+      1,
+      2,
+      3,
     );
 
     await expect(listener.onLeaveApproved(event)).resolves.toBeUndefined();

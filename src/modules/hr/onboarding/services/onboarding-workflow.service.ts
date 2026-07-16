@@ -94,6 +94,7 @@ export class OnboardingWorkflowService {
       .where('role.company_id = :companyId', { companyId })
       .andWhere('role.name IN (:...roleNames)', { roleNames: [...roleNames] })
       .select([
+        'membership.id AS company_user_id',
         'user.first_name AS first_name',
         'user.last_name AS last_name',
         'user.email AS email',
@@ -103,13 +104,16 @@ export class OnboardingWorkflowService {
       .addGroupBy('user.last_name')
       .addGroupBy('user.email')
       .getRawMany<{
+        company_user_id: number;
         first_name: string | null;
         last_name: string | null;
         email: string | null;
       }>();
 
     return rows.flatMap((user) => {
-      const recipient = buildNotificationRecipient(user);
+      const recipient = buildNotificationRecipient(user, {
+        companyUserId: user.company_user_id,
+      });
       return recipient ? [recipient] : [];
     });
   }
@@ -365,7 +369,7 @@ export class OnboardingWorkflowService {
       }
 
       const saved = await requestRepository.save(onboardingRequest);
-      this.emitOnboardingOutcome(saved, manager).catch((e) =>
+      this.emitOnboardingOutcome(saved, companyUserId, manager).catch((e) =>
         this.logger.error('Onboarding rejected emit failed', e),
       );
       return saved;
@@ -384,7 +388,7 @@ export class OnboardingWorkflowService {
       onboardingRequest.current_approval_level = 0;
       onboardingRequest.rejection_reason = null;
       const saved = await requestRepository.save(onboardingRequest);
-      this.emitOnboardingOutcome(saved, manager).catch((e) =>
+      this.emitOnboardingOutcome(saved, companyUserId, manager).catch((e) =>
         this.logger.error('Onboarding approved emit failed', e),
       );
       return saved;
@@ -394,7 +398,7 @@ export class OnboardingWorkflowService {
     onboardingRequest.current_approval_level = nextPending[0].approval_level;
     onboardingRequest.rejection_reason = null;
     const advanced = await requestRepository.save(onboardingRequest);
-    this.emitOnboardingOutcome(advanced, manager).catch((e) =>
+    this.emitOnboardingOutcome(advanced, companyUserId, manager).catch((e) =>
       this.logger.error('Onboarding in-review emit failed', e),
     );
     return advanced;
@@ -437,6 +441,7 @@ export class OnboardingWorkflowService {
 
   private async emitOnboardingOutcome(
     onboardingRequest: OnboardingRequest,
+    senderCompanyUserId: number | null,
     manager?: EntityManager,
   ): Promise<void> {
     const repo = this.repo(OnboardingRequest, manager);
@@ -462,6 +467,11 @@ export class OnboardingWorkflowService {
           employeeEmail,
           loaded.rejection_reason ?? null,
           dashboardUrl,
+          loaded.id,
+          loaded.company_id,
+          senderCompanyUserId,
+          employee.company_user.id,
+          loaded.onboarding_no,
         ),
       );
       return;
@@ -479,6 +489,11 @@ export class OnboardingWorkflowService {
             manager,
           ),
           dashboardUrl,
+          loaded.id,
+          loaded.company_id,
+          senderCompanyUserId,
+          employee.company_user.id,
+          loaded.onboarding_no,
         ),
       );
       return;
@@ -496,7 +511,9 @@ export class OnboardingWorkflowService {
       });
       const approvers: NotificationRecipient[] = nextApprovals.flatMap(
         (approval) => {
-          const recipient = buildNotificationRecipient(approval.approver?.user);
+          const recipient = buildNotificationRecipient(approval.approver?.user, {
+            companyUserId: approval.approver?.id,
+          });
           return recipient ? [recipient] : [];
         },
       );
@@ -507,6 +524,10 @@ export class OnboardingWorkflowService {
             employeeName,
             approvers,
             `${frontendUrl}/onboarding/${onboardingRequest.id}/review`,
+            loaded.id,
+            loaded.company_id,
+            senderCompanyUserId,
+            loaded.onboarding_no,
           ),
         );
       }

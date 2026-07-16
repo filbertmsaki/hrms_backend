@@ -42,6 +42,10 @@ describe('MailService', () => {
       '2026-06-28',
       5,
       'http://localhost:5173/leave/12',
+      12,
+      1,
+      2,
+      3,
     );
 
     await service.sendLeaveApprovedNotification(event.employeeEmail, event);
@@ -69,6 +73,12 @@ describe('MailService', () => {
       'Install required tools',
       new Date('2026-06-25T09:00:00.000Z'),
       'http://localhost:5173/onboarding/15/tasks',
+      1,
+      15,
+      20,
+      30,
+      40,
+      'ONB-TASK-001',
     );
 
     await service.sendOnboardingTaskAssignedNotification(
@@ -98,6 +108,11 @@ describe('MailService', () => {
       'system_access',
       '2026-06-30',
       'http://localhost:5173/offboarding/4/clearances',
+      1,
+      4,
+      7,
+      12,
+      14,
     );
 
     await service.sendOffboardingClearanceRequiredNotification(

@@ -9,6 +9,9 @@ export class OffboardingSubmittedEvent {
     public readonly exitDate: string | null,
     public readonly approvers: NotificationRecipient[],
     public readonly reviewUrl: string,
+    public readonly offboardingRequestId: number,
+    public readonly senderCompanyUserId: number | null,
+    public readonly employeeCompanyUserId: number | null,
   ) {}
 }
 
@@ -19,6 +22,9 @@ export class OffboardingApprovalRequiredEvent {
     public readonly exitDate: string | null,
     public readonly approvers: NotificationRecipient[],
     public readonly reviewUrl: string,
+    public readonly offboardingRequestId: number,
+    public readonly companyId: number,
+    public readonly senderCompanyUserId: number | null,
   ) {}
 }
 
@@ -30,6 +36,10 @@ export class OffboardingApprovedEvent {
     public readonly exitDate: string | null,
     public readonly hrRecipients: NotificationRecipient[],
     public readonly dashboardUrl: string,
+    public readonly offboardingRequestId: number,
+    public readonly companyId: number,
+    public readonly senderCompanyUserId: number | null,
+    public readonly employeeCompanyUserId: number | null,
   ) {}
 }
 
@@ -44,6 +54,11 @@ export class OffboardingTaskAssignedEvent {
     public readonly dueDate: Date | null,
     public readonly exitDate: string | null,
     public readonly taskUrl: string,
+    public readonly companyId: number,
+    public readonly offboardingRequestId: number,
+    public readonly taskId: number,
+    public readonly assigneeCompanyUserId: number | null,
+    public readonly senderCompanyUserId: number | null,
   ) {}
 }
 
@@ -56,6 +71,11 @@ export class OffboardingClearanceRequiredEvent {
     public readonly clearanceType: string,
     public readonly exitDate: string | null,
     public readonly clearanceUrl: string,
+    public readonly companyId: number,
+    public readonly offboardingRequestId: number,
+    public readonly clearanceId: number,
+    public readonly ownerCompanyUserId: number | null,
+    public readonly senderCompanyUserId: number | null,
   ) {}
 }
 
@@ -68,5 +88,10 @@ export class OffboardingCompletedEvent {
     public readonly managerEmail: string | null,
     public readonly managerName: string | null,
     public readonly hrRecipients: NotificationRecipient[],
+    public readonly offboardingRequestId: number,
+    public readonly companyId: number,
+    public readonly senderCompanyUserId: number | null,
+    public readonly employeeCompanyUserId: number | null,
+    public readonly managerCompanyUserId: number | null,
   ) {}
 }

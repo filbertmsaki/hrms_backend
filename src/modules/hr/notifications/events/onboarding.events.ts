@@ -8,6 +8,10 @@ export class OnboardingSubmittedEvent {
     public readonly employeeEmail: string,
     public readonly approvers: NotificationRecipient[],
     public readonly reviewUrl: string,
+    public readonly onboardingRequestId: number,
+    public readonly senderCompanyUserId: number | null,
+    public readonly employeeCompanyUserId: number | null,
+    public readonly onboardingNo: string | null,
   ) {}
 }
 
@@ -17,6 +21,10 @@ export class OnboardingApprovalRequiredEvent {
     public readonly employeeName: string,
     public readonly approvers: NotificationRecipient[],
     public readonly reviewUrl: string,
+    public readonly onboardingRequestId: number,
+    public readonly companyId: number,
+    public readonly senderCompanyUserId: number | null,
+    public readonly onboardingNo: string | null,
   ) {}
 }
 
@@ -27,6 +35,11 @@ export class OnboardingApprovedEvent {
     public readonly employeeEmail: string,
     public readonly hrRecipients: NotificationRecipient[],
     public readonly dashboardUrl: string,
+    public readonly onboardingRequestId: number,
+    public readonly companyId: number,
+    public readonly senderCompanyUserId: number | null,
+    public readonly employeeCompanyUserId: number | null,
+    public readonly onboardingNo: string | null,
   ) {}
 }
 
@@ -37,6 +50,11 @@ export class OnboardingRejectedEvent {
     public readonly employeeEmail: string,
     public readonly rejectionComments: string | null,
     public readonly dashboardUrl: string,
+    public readonly onboardingRequestId: number,
+    public readonly companyId: number,
+    public readonly senderCompanyUserId: number | null,
+    public readonly employeeCompanyUserId: number | null,
+    public readonly onboardingNo: string | null,
   ) {}
 }
 
@@ -50,6 +68,12 @@ export class OnboardingTaskAssignedEvent {
     public readonly taskDescription: string | null,
     public readonly dueDate: Date | null,
     public readonly taskUrl: string,
+    public readonly companyId: number,
+    public readonly onboardingRequestId: number,
+    public readonly taskId: number,
+    public readonly assigneeCompanyUserId: number | null,
+    public readonly senderCompanyUserId: number | null,
+    public readonly taskNo: string | null,
   ) {}
 }
 
@@ -61,6 +85,12 @@ export class OnboardingCompletedEvent {
     public readonly managerEmail: string | null,
     public readonly managerName: string | null,
     public readonly dashboardUrl: string,
+    public readonly onboardingRequestId: number,
+    public readonly companyId: number,
+    public readonly senderCompanyUserId: number | null,
+    public readonly employeeCompanyUserId: number | null,
+    public readonly managerCompanyUserId: number | null,
+    public readonly onboardingNo: string | null,
   ) {}
 }
 

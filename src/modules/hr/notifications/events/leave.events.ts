@@ -1,4 +1,11 @@
-export type NotificationRecipient = { name: string; email: string };
+export type NotificationRecipient = {
+  companyUserId?: number | null;
+  employeeId?: number | null;
+  branchId?: number | null;
+  departmentId?: number | null;
+  name: string;
+  email: string;
+};
 
 export class LeaveSubmittedEvent {
   static readonly EVENT = 'hr.leave.submitted';
@@ -13,6 +20,9 @@ export class LeaveSubmittedEvent {
     public readonly reason: string | null,
     public readonly approvers: NotificationRecipient[],
     public readonly reviewUrl: string,
+    public readonly leaveRequestId: number,
+    public readonly senderCompanyUserId: number | null,
+    public readonly employeeCompanyUserId: number | null,
   ) {}
 }
 
@@ -26,6 +36,9 @@ export class LeaveApprovalRequiredEvent {
     public readonly totalDays: number,
     public readonly approvers: NotificationRecipient[],
     public readonly reviewUrl: string,
+    public readonly leaveRequestId: number,
+    public readonly companyId: number,
+    public readonly senderCompanyUserId: number | null,
   ) {}
 }
 
@@ -39,6 +52,10 @@ export class LeaveApprovedEvent {
     public readonly endDate: string,
     public readonly totalDays: number,
     public readonly dashboardUrl: string,
+    public readonly leaveRequestId: number,
+    public readonly companyId: number,
+    public readonly senderCompanyUserId: number | null,
+    public readonly employeeCompanyUserId: number | null,
   ) {}
 }
 
@@ -52,6 +69,10 @@ export class LeaveRejectedEvent {
     public readonly endDate: string,
     public readonly rejectionComments: string | null,
     public readonly dashboardUrl: string,
+    public readonly leaveRequestId: number,
+    public readonly companyId: number,
+    public readonly senderCompanyUserId: number | null,
+    public readonly employeeCompanyUserId: number | null,
   ) {}
 }
 
@@ -65,6 +86,10 @@ export class LeaveReturnedForCorrectionEvent {
     public readonly endDate: string,
     public readonly returnReason: string | null,
     public readonly dashboardUrl: string,
+    public readonly leaveRequestId: number,
+    public readonly companyId: number,
+    public readonly senderCompanyUserId: number | null,
+    public readonly employeeCompanyUserId: number | null,
   ) {}
 }
 
@@ -76,5 +101,8 @@ export class LeaveCancelledEvent {
     public readonly startDate: string,
     public readonly endDate: string,
     public readonly pendingApprovers: NotificationRecipient[],
+    public readonly leaveRequestId: number,
+    public readonly companyId: number,
+    public readonly senderCompanyUserId: number | null,
   ) {}
 }

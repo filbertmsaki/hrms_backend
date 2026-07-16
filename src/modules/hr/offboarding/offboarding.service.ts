@@ -365,7 +365,9 @@ export class OffboardingService {
       relations: { user: true },
     });
 
-    return buildNotificationRecipient(membership?.user);
+    return buildNotificationRecipient(membership?.user, {
+      companyUserId: membership?.id ?? null,
+    });
   }
 
   private async resolveCompanyRoleRecipients(
@@ -386,6 +388,7 @@ export class OffboardingService {
       .where('role.company_id = :companyId', { companyId })
       .andWhere('role.name IN (:...roleNames)', { roleNames: [...roleNames] })
       .select([
+        'membership.id AS company_user_id',
         'user.first_name AS first_name',
         'user.last_name AS last_name',
         'user.email AS email',
@@ -395,13 +398,16 @@ export class OffboardingService {
       .addGroupBy('user.last_name')
       .addGroupBy('user.email')
       .getRawMany<{
+        company_user_id: number;
         first_name: string | null;
         last_name: string | null;
         email: string | null;
       }>();
 
     return rows.flatMap((user) => {
-      const recipient = buildNotificationRecipient(user);
+      const recipient = buildNotificationRecipient(user, {
+        companyUserId: user.company_user_id,
+      });
       return recipient ? [recipient] : [];
     });
   }
@@ -2363,7 +2369,7 @@ export class OffboardingService {
       user_agent: context?.user_agent ?? null,
     });
 
-    this.emitOffboardingCompleted(companyId, completed).catch(() => {});
+    this.emitOffboardingCompleted(companyId, completed, actor).catch(() => {});
 
     const documents = await this.documentRepository.find({
       where: {
@@ -2757,6 +2763,11 @@ export class OffboardingService {
             this.configService.get<string>('APP_FRONTEND_URL') ??
             'http://localhost:5173'
           }/offboarding/${offboardingRequestId}/tasks`,
+          companyId,
+          offboardingRequestId,
+          created.id,
+          created.assigned_to_company_user_id,
+          actor.companyMembershipId ?? null,
         ),
       );
     }
@@ -3028,6 +3039,11 @@ export class OffboardingService {
               this.configService.get<string>('APP_FRONTEND_URL') ??
               'http://localhost:5173'
             }/offboarding/${offboardingRequestId}/clearances`,
+            companyId,
+            offboardingRequestId,
+            created.id,
+            ownerRecipient.companyUserId ?? null,
+            actor.companyMembershipId ?? null,
           ),
         );
       }
@@ -3249,6 +3265,9 @@ export class OffboardingService {
         .flatMap((approval) => {
           const recipient = buildNotificationRecipient(
             approval.approver_company_user?.user,
+            {
+              companyUserId: approval.approver_company_user?.id,
+            },
           );
           return recipient ? [recipient] : [];
         });
@@ -3262,6 +3281,9 @@ export class OffboardingService {
           request.last_working_date ?? null,
           approvers,
           `${frontendUrl}/offboarding/${offboardingRequestId}/review`,
+          request.id,
+          request.created_by_company_user_id ?? null,
+          request.employee.company_user?.id ?? null,
         ),
       );
     } catch {
@@ -3272,6 +3294,7 @@ export class OffboardingService {
   private async emitOffboardingCompleted(
     companyId: number,
     request: OffboardingRequest,
+    actor: AuthenticatedUser,
   ): Promise<void> {
     try {
       const loaded = await this.offboardingRequestRepository.findOne({
@@ -3305,6 +3328,11 @@ export class OffboardingService {
             companyId,
             HR_NOTIFICATION_ROLE_NAMES,
           ),
+          loaded.id,
+          companyId,
+          actor.companyMembershipId ?? null,
+          employee.company_user.id,
+          employee.manager?.company_user?.id ?? null,
         ),
       );
     } catch {

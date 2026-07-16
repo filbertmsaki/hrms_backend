@@ -29,8 +29,6 @@ import { LeaveRecordStatusEnum } from '../leave/enums/leave-record-status.enum';
 import { LeaveBalanceService } from '../leave/services/leave-balance.service';
 import { EmployeeDeviceAssignmentsService } from '../../access-control/employee-device-assignments/service/employee-device-assignments.service';
 import { EmployeeDeviceAssignment } from '../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
-import { NotificationTypeEnum } from '../../notifications/enums/notification-type.enum';
-import { NotificationsService } from '../../notifications/notifications.service';
 import { HrAccessService } from '../shared/hr-access.service';
 import { buildPaginationMeta, formatDateOnly } from '../shared/hr.utils';
 import { CancelOnboardingRequestDto } from './dtos/cancel-onboarding-request.dto';
@@ -165,7 +163,6 @@ export class OnboardingService {
     private readonly employeeDeviceAssignmentsService: EmployeeDeviceAssignmentsService,
     private readonly eventEmitter: EventEmitter2,
     private readonly configService: ConfigService,
-    private readonly notificationsService: NotificationsService,
   ) {}
 
   private getOnboardingWorkflowRepository(
@@ -1310,7 +1307,7 @@ export class OnboardingService {
         ? new Date(Date.now() + step.due_days * 86400000)
         : null;
 
-      await taskRepository.save(
+      const savedTask = await taskRepository.save(
         taskRepository.create({
           onboarding_request_id: onboardingRequest.id,
           workflow_step_id: step.id,
@@ -1346,6 +1343,12 @@ export class OnboardingService {
               step.description ?? null,
               dueDate,
               `${frontendUrl}/onboarding/${onboardingRequest.id}/tasks`,
+              onboardingRequest.company_id,
+              onboardingRequest.id,
+              savedTask.id,
+              companyUser.id,
+              onboardingRequest.created_by_company_user_id ?? null,
+              savedTask.task_no ?? taskNo,
             ),
           );
         }
@@ -1968,10 +1971,7 @@ export class OnboardingService {
     });
 
     if (request.submitted_at) {
-      this.emitOnboardingSubmitted(companyId, request).catch(() => {});
-      this.notifyOnboardingSubmittedRealtime(companyId, request, actor).catch(
-        () => {},
-      );
+      this.emitOnboardingSubmitted(companyId, request, actor).catch(() => {});
     }
 
     const documents = await this.documentRepository.find({
@@ -2330,10 +2330,7 @@ export class OnboardingService {
       actor,
     });
 
-    this.emitOnboardingCompleted(completed).catch(() => {});
-    this.notifyOnboardingCompletedRealtime(companyId, completed, actor).catch(
-      () => {},
-    );
+    this.emitOnboardingCompleted(companyId, completed, actor).catch(() => {});
 
     return {
       message: 'Onboarding completed successfully',
@@ -2496,7 +2493,7 @@ export class OnboardingService {
       actor,
     });
 
-    this.notifyOnboardingTaskAssignedRealtime(
+    this.emitOnboardingTaskAssigned(
       companyId,
       onboardingRequestId,
       created,
@@ -3042,6 +3039,7 @@ export class OnboardingService {
   private async emitOnboardingSubmitted(
     companyId: number,
     request: OnboardingRequest,
+    actor: AuthenticatedUser,
   ): Promise<void> {
     try {
       const loaded = await this.onboardingRequestRepository.findOne({
@@ -3067,7 +3065,9 @@ export class OnboardingService {
       const approvers: NotificationRecipient[] = loaded.approvals
         .filter((approval) => approval.approval_level === firstLevel)
         .flatMap((approval) => {
-          const recipient = buildNotificationRecipient(approval.approver?.user);
+          const recipient = buildNotificationRecipient(approval.approver?.user, {
+            companyUserId: approval.approver?.id,
+          });
           return recipient ? [recipient] : [];
         });
 
@@ -3079,6 +3079,10 @@ export class OnboardingService {
           employeeEmail,
           approvers,
           `${frontendUrl}/onboarding/${request.id}/review`,
+          loaded.id,
+          actor.companyMembershipId ?? loaded.created_by_company_user_id ?? null,
+          loaded.employee.company_user.id,
+          loaded.onboarding_no,
         ),
       );
     } catch {
@@ -3086,95 +3090,10 @@ export class OnboardingService {
     }
   }
 
-  private async notifyOnboardingSubmittedRealtime(
+  private async emitOnboardingCompleted(
     companyId: number,
     request: OnboardingRequest,
     actor: AuthenticatedUser,
-  ): Promise<void> {
-    const loaded = await this.onboardingRequestRepository.findOne({
-      where: { id: request.id, company_id: companyId },
-      relations: {
-        employee: {
-          company_user: { user: true },
-        },
-        created_by_company_user: {
-          user: true,
-        },
-        approvals: {
-          approver: { user: true },
-        },
-      },
-    });
-
-    if (!loaded) {
-      return;
-    }
-
-    const employeeName =
-      `${loaded.employee?.first_name ?? ''} ${
-        loaded.employee?.last_name ?? ''
-      }`.trim() || 'Employee';
-
-    const senderCompanyUserId =
-      actor.companyMembershipId ?? loaded.created_by_company_user_id ?? null;
-
-    const approvalLevels = loaded.approvals
-      .map((approval) => approval.approval_level)
-      .filter((level) => level > 0);
-
-    const firstLevel = approvalLevels.length
-      ? Math.min(...approvalLevels)
-      : null;
-
-    if (firstLevel) {
-      const approvers = loaded.approvals.filter(
-        (approval) =>
-          approval.approval_level === firstLevel && approval.approver?.id,
-      );
-
-      for (const approval of approvers) {
-        await this.notificationsService.createAndPush({
-          company_id: companyId,
-          sender_company_user_id: senderCompanyUserId,
-          receiver_company_user_id: approval.approver!.id,
-          type: NotificationTypeEnum.ONBOARDING_SUBMITTED,
-          title: 'New Onboarding Request',
-          message: `${employeeName} has a new onboarding request waiting for your review.`,
-          entity_type: 'ONBOARDING_REQUEST',
-          entity_id: loaded.id,
-          action_url: `/onboarding/${loaded.id}/review`,
-          metadata: {
-            onboarding_no: loaded.onboarding_no,
-            employee_id: loaded.employee_id,
-            employee_name: employeeName,
-            approval_level: firstLevel,
-          },
-        });
-      }
-    }
-
-    if (loaded.employee?.company_user?.id) {
-      await this.notificationsService.createAndPush({
-        company_id: companyId,
-        sender_company_user_id: senderCompanyUserId,
-        receiver_company_user_id: loaded.employee.company_user.id,
-        type: NotificationTypeEnum.ONBOARDING_SUBMITTED,
-        title: 'Onboarding Started',
-        message: `Your onboarding request ${loaded.onboarding_no} has been started.`,
-        entity_type: 'ONBOARDING_REQUEST',
-        entity_id: loaded.id,
-        action_url: `/onboarding/${loaded.id}`,
-        metadata: {
-          onboarding_no: loaded.onboarding_no,
-          employee_id: loaded.employee_id,
-          employee_name: employeeName,
-        },
-      });
-    }
-  }
-
-  private async emitOnboardingCompleted(
-    request: OnboardingRequest,
   ): Promise<void> {
     try {
       const loaded = await this.onboardingRequestRepository.findOne({
@@ -3207,6 +3126,12 @@ export class OnboardingService {
           managerEmail,
           managerName,
           `${frontendUrl}/onboarding/${request.id}`,
+          loaded.id,
+          companyId,
+          actor.companyMembershipId ?? loaded.finalized_by_company_user_id ?? null,
+          employee.company_user.id,
+          employee.manager?.company_user?.id ?? null,
+          loaded.onboarding_no,
         ),
       );
     } catch {
@@ -3214,7 +3139,7 @@ export class OnboardingService {
     }
   }
 
-  private async notifyOnboardingTaskAssignedRealtime(
+  private async emitOnboardingTaskAssigned(
     companyId: number,
     onboardingRequestId: number,
     task: OnboardingTask,
@@ -3242,92 +3167,35 @@ export class OnboardingService {
       `${employee?.first_name ?? ''} ${employee?.last_name ?? ''}`.trim() ||
       'Employee';
 
-    await this.notificationsService.createAndPush({
-      company_id: companyId,
-      sender_company_user_id: actor.companyMembershipId ?? null,
-      receiver_company_user_id: loadedTask.assigned_company_user_id,
-      type: NotificationTypeEnum.ONBOARDING_TASK_ASSIGNED,
-      title: 'Onboarding Task Assigned',
-      message: `You have been assigned onboarding task "${loadedTask.title}" for ${employeeName}.`,
-      entity_type: 'ONBOARDING_TASK',
-      entity_id: loadedTask.id,
-      action_url: `/onboarding/${onboardingRequestId}/tasks`,
-      metadata: {
-        onboarding_request_id: onboardingRequestId,
-        task_id: loadedTask.id,
-        task_no: loadedTask.task_no,
-        task_title: loadedTask.title,
-        employee_name: employeeName,
-        due_date: loadedTask.due_date,
-      },
-    });
-  }
-
-  private async notifyOnboardingCompletedRealtime(
-    companyId: number,
-    request: OnboardingRequest,
-    actor: AuthenticatedUser,
-  ): Promise<void> {
-    const loaded = await this.onboardingRequestRepository.findOne({
-      where: { id: request.id, company_id: companyId },
-      relations: {
-        employee: {
-          company_user: { user: true },
-          manager: {
-            company_user: { user: true },
-          },
-        },
-      },
-    });
-
-    if (!loaded?.employee) {
+    const assignee = loadedTask.assigned_company_user?.user;
+    if (!assignee?.email) {
       return;
     }
 
-    const employee = loaded.employee;
-    const employeeName =
-      `${employee.first_name ?? ''} ${employee.last_name ?? ''}`.trim() ||
-      'Employee';
+    const assigneeName =
+      `${assignee.first_name ?? ''} ${assignee.last_name ?? ''}`.trim() ||
+      assignee.email;
 
-    const senderCompanyUserId =
-      actor.companyMembershipId ?? loaded.finalized_by_company_user_id ?? null;
-
-    if (employee.company_user?.id) {
-      await this.notificationsService.createAndPush({
-        company_id: companyId,
-        sender_company_user_id: senderCompanyUserId,
-        receiver_company_user_id: employee.company_user.id,
-        type: NotificationTypeEnum.ONBOARDING_COMPLETED,
-        title: 'Onboarding Completed',
-        message: 'Your onboarding has been completed successfully.',
-        entity_type: 'ONBOARDING_REQUEST',
-        entity_id: loaded.id,
-        action_url: `/onboarding/${loaded.id}`,
-        metadata: {
-          onboarding_no: loaded.onboarding_no,
-          employee_id: employee.id,
-          employee_name: employeeName,
-        },
-      });
-    }
-
-    if (employee.manager?.company_user?.id) {
-      await this.notificationsService.createAndPush({
-        company_id: companyId,
-        sender_company_user_id: senderCompanyUserId,
-        receiver_company_user_id: employee.manager.company_user.id,
-        type: NotificationTypeEnum.ONBOARDING_COMPLETED,
-        title: 'Employee Onboarding Completed',
-        message: `${employeeName}'s onboarding has been completed.`,
-        entity_type: 'ONBOARDING_REQUEST',
-        entity_id: loaded.id,
-        action_url: `/onboarding/${loaded.id}`,
-        metadata: {
-          onboarding_no: loaded.onboarding_no,
-          employee_id: employee.id,
-          employee_name: employeeName,
-        },
-      });
-    }
+    this.eventEmitter.emit(
+      OnboardingTaskAssignedEvent.EVENT,
+      new OnboardingTaskAssignedEvent(
+        assigneeName,
+        assignee.email,
+        employeeName,
+        loadedTask.title,
+        loadedTask.description,
+        loadedTask.due_date,
+        `${
+          this.configService.get<string>('APP_FRONTEND_URL') ??
+          'http://localhost:5173'
+        }/onboarding/${onboardingRequestId}/tasks`,
+        companyId,
+        onboardingRequestId,
+        loadedTask.id,
+        loadedTask.assigned_company_user_id,
+        actor.companyMembershipId ?? null,
+        loadedTask.task_no ?? null,
+      ),
+    );
   }
 }

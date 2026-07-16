@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
@@ -65,13 +66,32 @@ export class NotificationsController {
       sender_company_user_id: companyMembershipId,
       receiver_company_user_id: dto.receiver_company_user_id,
       type: dto.type,
+      category: dto.category,
+      priority: dto.priority,
       title: dto.title,
       message: dto.message,
+      related_module: dto.related_module ?? 'notifications',
       entity_type: dto.entity_type ?? 'TEST',
       entity_id: dto.entity_id ?? null,
       action_url: dto.action_url ?? null,
+      dedupe_key: dto.dedupe_key ?? null,
       metadata: dto.metadata ?? null,
     });
+  }
+
+  @Patch(':id/seen')
+  markAsSeen(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    const { companyId, companyMembershipId } =
+      this.notificationsService.assertCompanyActor(req.user);
+
+    return this.notificationsService.markAsSeen(
+      companyId,
+      companyMembershipId,
+      id,
+    );
   }
 
   @Patch(':id/read')
@@ -98,5 +118,16 @@ export class NotificationsController {
       companyId,
       companyMembershipId,
     );
+  }
+
+  @Delete(':id')
+  archive(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    const { companyId, companyMembershipId } =
+      this.notificationsService.assertCompanyActor(req.user);
+
+    return this.notificationsService.archive(companyId, companyMembershipId, id);
   }
 }
