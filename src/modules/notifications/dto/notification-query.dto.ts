@@ -34,14 +34,14 @@ export class NotificationQueryDto extends PaginationDto {
   @IsOptional()
   entity_id?: string;
 
-  @Transform(({ value }) =>
+  @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.toLowerCase() === 'true' : value,
   )
   @IsBoolean()
   @IsOptional()
   seen?: boolean;
 
-  @Transform(({ value }) =>
+  @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.toLowerCase() === 'true' : value,
   )
   @IsBoolean()

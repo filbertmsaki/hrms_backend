@@ -128,6 +128,10 @@ export class NotificationsController {
     const { companyId, companyMembershipId } =
       this.notificationsService.assertCompanyActor(req.user);
 
-    return this.notificationsService.archive(companyId, companyMembershipId, id);
+    return this.notificationsService.archive(
+      companyId,
+      companyMembershipId,
+      id,
+    );
   }
 }

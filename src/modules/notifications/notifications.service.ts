@@ -79,7 +79,8 @@ export class NotificationsService {
         company_id: input.company_id,
         sender_company_user_id: input.sender_company_user_id ?? null,
         receiver_company_user_id: input.receiver_company_user_id,
-        type: (input.type ?? NotificationTypeEnum.GENERAL) as NotificationTypeEnum,
+        type: (input.type ??
+          NotificationTypeEnum.GENERAL) as NotificationTypeEnum,
         category: input.category ?? NotificationCategoryEnum.GENERAL,
         priority: input.priority ?? NotificationPriorityEnum.MEDIUM,
         title: input.title,
@@ -97,7 +98,8 @@ export class NotificationsService {
         status: NotificationStatusEnum.UNREAD,
         seen_at: null,
         read_at: null,
-        delivery_channel: input.delivery_channel ?? NotificationChannelEnum.IN_APP,
+        delivery_channel:
+          input.delivery_channel ?? NotificationChannelEnum.IN_APP,
         delivery_status:
           input.delivery_status ?? NotificationDeliveryStatusEnum.DELIVERED,
         dedupe_key: input.dedupe_key?.trim() || null,
@@ -110,7 +112,10 @@ export class NotificationsService {
     const response = this.mapNotification(notification);
 
     this.gateway.emitToCompanyUser(input.receiver_company_user_id, response);
-    await this.emitUnreadCount(input.company_id, input.receiver_company_user_id);
+    await this.emitUnreadCount(
+      input.company_id,
+      input.receiver_company_user_id,
+    );
 
     return response;
   }

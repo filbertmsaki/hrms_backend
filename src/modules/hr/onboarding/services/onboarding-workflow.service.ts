@@ -511,9 +511,12 @@ export class OnboardingWorkflowService {
       });
       const approvers: NotificationRecipient[] = nextApprovals.flatMap(
         (approval) => {
-          const recipient = buildNotificationRecipient(approval.approver?.user, {
-            companyUserId: approval.approver?.id,
-          });
+          const recipient = buildNotificationRecipient(
+            approval.approver?.user,
+            {
+              companyUserId: approval.approver?.id,
+            },
+          );
           return recipient ? [recipient] : [];
         },
       );

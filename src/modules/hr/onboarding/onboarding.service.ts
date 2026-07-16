@@ -3065,9 +3065,12 @@ export class OnboardingService {
       const approvers: NotificationRecipient[] = loaded.approvals
         .filter((approval) => approval.approval_level === firstLevel)
         .flatMap((approval) => {
-          const recipient = buildNotificationRecipient(approval.approver?.user, {
-            companyUserId: approval.approver?.id,
-          });
+          const recipient = buildNotificationRecipient(
+            approval.approver?.user,
+            {
+              companyUserId: approval.approver?.id,
+            },
+          );
           return recipient ? [recipient] : [];
         });
 
@@ -3080,7 +3083,9 @@ export class OnboardingService {
           approvers,
           `${frontendUrl}/onboarding/${request.id}/review`,
           loaded.id,
-          actor.companyMembershipId ?? loaded.created_by_company_user_id ?? null,
+          actor.companyMembershipId ??
+            loaded.created_by_company_user_id ??
+            null,
           loaded.employee.company_user.id,
           loaded.onboarding_no,
         ),
@@ -3128,7 +3133,9 @@ export class OnboardingService {
           `${frontendUrl}/onboarding/${request.id}`,
           loaded.id,
           companyId,
-          actor.companyMembershipId ?? loaded.finalized_by_company_user_id ?? null,
+          actor.companyMembershipId ??
+            loaded.finalized_by_company_user_id ??
+            null,
           employee.company_user.id,
           employee.manager?.company_user?.id ?? null,
           loaded.onboarding_no,

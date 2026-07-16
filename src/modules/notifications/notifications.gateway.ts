@@ -1,8 +1,4 @@
-import {
-  Logger,
-  OnModuleDestroy,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import {
@@ -71,10 +67,12 @@ export class NotificationsGateway
       this.publisher = createClient({ url: redisUrl });
       this.subscriber = createClient({ url: redisUrl });
 
-      this.publisher.on('error', (error) =>
-        this.logger.warn(`Notification Redis publisher error: ${error.message}`),
+      this.publisher.on('error', (error: Error) =>
+        this.logger.warn(
+          `Notification Redis publisher error: ${error.message}`,
+        ),
       );
-      this.subscriber.on('error', (error) =>
+      this.subscriber.on('error', (error: Error) =>
         this.logger.warn(
           `Notification Redis subscriber error: ${error.message}`,
         ),
@@ -250,7 +248,11 @@ export class NotificationsGateway
   }
 
   emitToCompany(companyId: number, payload: Record<string, unknown>): void {
-    void this.dispatchToRoom(this.companyRoom(companyId), 'notification:new', payload);
+    void this.dispatchToRoom(
+      this.companyRoom(companyId),
+      'notification:new',
+      payload,
+    );
   }
 
   private getMembershipRooms(membership: CompanyUser): string[] {
@@ -271,7 +273,10 @@ export class NotificationsGateway
 
     if (membership.employee?.primary_branch_id) {
       rooms.add(
-        this.branchRoom(membership.company_id, membership.employee.primary_branch_id),
+        this.branchRoom(
+          membership.company_id,
+          membership.employee.primary_branch_id,
+        ),
       );
     }
 

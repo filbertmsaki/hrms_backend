@@ -3913,9 +3913,12 @@ export class LeaveService {
 
       const approvers: NotificationRecipient[] = initialApprovals.flatMap(
         (approval) => {
-          const recipient = buildNotificationRecipient(approval.approver?.user, {
-            companyUserId: approval.approver?.id,
-          });
+          const recipient = buildNotificationRecipient(
+            approval.approver?.user,
+            {
+              companyUserId: approval.approver?.id,
+            },
+          );
           return recipient ? [recipient] : [];
         },
       );
