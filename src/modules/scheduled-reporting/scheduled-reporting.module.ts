@@ -9,6 +9,8 @@ import { ReportScheduleWeekday } from './entities/report-schedule-weekday.entity
 import { ReportSmtpConfiguration } from './entities/report-smtp-configuration.entity';
 import { ReportTemplate } from './entities/report-template.entity';
 import { ReportTemplateRecipient } from './entities/report-template-recipient.entity';
+import { ScheduledReportingController } from './scheduled-reporting.controller';
+import { ScheduledReportingService } from './scheduled-reporting.service';
 
 @Module({
   imports: [
@@ -24,6 +26,8 @@ import { ReportTemplateRecipient } from './entities/report-template-recipient.en
       ReportExecutionAttempt,
     ]),
   ],
-  exports: [TypeOrmModule],
+  controllers: [ScheduledReportingController],
+  providers: [ScheduledReportingService],
+  exports: [TypeOrmModule, ScheduledReportingService],
 })
 export class ScheduledReportingModule {}
