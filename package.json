@@ -29,7 +29,8 @@
     "seed:run:built": "node dist/database/seeds/run-seed.js",
     "seed:reset": "npm run migration:revert && npm run migration:run && npm run seed:run",
     "db:fresh": "npm run migration:run && npm run seed:run",
-    "db:reset": "npm run migration:revert -- -- -f && npm run migration:run && npm run seed:run"
+    "db:reset": "npm run migration:revert -- -- -f && npm run migration:run && npm run seed:run",
+    "report:daily:setup-send": "ts-node -r tsconfig-paths/register src/scripts/setup-and-send-daily-attendance-report.ts"
   },
   "dependencies": {
     "@nestjs-modules/mailer": "^2.0.2",

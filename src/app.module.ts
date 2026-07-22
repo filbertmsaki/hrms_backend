@@ -19,6 +19,7 @@ import { HrModule } from './modules/hr/hr.module';
 import { HikvisionModule } from './modules/hikvision/hikvision.module';
 import { AccessControlModule } from './modules/access-control/access-control.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { ScheduledReportingModule } from './modules/scheduled-reporting/scheduled-reporting.module';
 import { TenantGuard } from './common/guards/tenant.guard';
 
 @Module({
@@ -77,6 +78,7 @@ import { TenantGuard } from './common/guards/tenant.guard';
     HikvisionModule,
     AccessControlModule,
     NotificationsModule,
+    ScheduledReportingModule,
   ],
   controllers: [AppController],
   providers: [

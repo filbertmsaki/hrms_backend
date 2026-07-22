@@ -30,6 +30,8 @@ jest.mock('@nestjs/passport', () => ({
 
 import 'reflect-metadata';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { DataSource } from 'typeorm';
 import request from 'supertest';
@@ -58,9 +60,14 @@ import { LeaveWorkflowService } from '../src/modules/hr/leave/services/leave-wor
 import { LeavePdfService } from '../src/modules/hr/leave/services/leave-pdf.service';
 import { HrAccessService } from '../src/modules/hr/shared/hr-access.service';
 import { AttendanceRecalculationJob } from '../src/modules/hr/attendance/processing/entities/attendance-recalculation-job.entity';
+import { AttendanceHoliday } from '../src/modules/hr/attendance/holidays/entities/holiday.entity';
+import { HolidayGroup } from '../src/modules/hr/attendance/holidays/entities/holiday-group.entity';
+import { EmploymentStatusEnum } from '../src/modules/hr/employees/enums/employment-status.enum';
+import { LeaveApprovalActionEnum } from '../src/modules/hr/leave/enums/leave-approval-action.enum';
 import { LeaveStatusEnum } from '../src/modules/hr/leave/enums/leave-status.enum';
 import { LeaveRecordStatusEnum } from '../src/modules/hr/leave/enums/leave-record-status.enum';
 import { LeaveGenderRestrictionEnum } from '../src/modules/hr/leave/enums/leave-gender-restriction.enum';
+import { LeaveBalanceLedgerService } from '../src/modules/hr/leave/services/leave-balance-ledger.service';
 
 type MockRepo = Record<string, jest.Mock>;
 
@@ -87,7 +94,7 @@ const createQueryBuilderMock = () => ({
 
 describe('Leave Flow (e2e)', () => {
   let app: INestApplication;
-  let dataSource: { transaction: jest.Mock };
+  let dataSource: { transaction: jest.Mock; getRepository: jest.Mock };
   let leaveTypeRepository: MockRepo;
   let leavePolicyRepository: MockRepo;
   let leaveBalanceRepository: MockRepo;
@@ -97,6 +104,8 @@ describe('Leave Flow (e2e)', () => {
   let leaveMedicalDetailRepository: MockRepo;
   let leaveDocumentRepository: MockRepo;
   let holidayRepository: MockRepo;
+  let attendanceHolidayRepository: MockRepo;
+  let holidayGroupRepository: MockRepo;
   let employeeRepository: MockRepo;
   let branchRepository: MockRepo;
   let departmentRepository: MockRepo;
@@ -115,6 +124,7 @@ describe('Leave Flow (e2e)', () => {
     toNumber: jest.Mock;
     getFiscalYearFromDate: jest.Mock;
     ensureBalanceForEmployee: jest.Mock;
+    resolvePolicyAssignment: jest.Mock;
     reserveDays: jest.Mock;
     consumeReservedDays: jest.Mock;
     releaseReservedDays: jest.Mock;
@@ -125,10 +135,23 @@ describe('Leave Flow (e2e)', () => {
     applyApprovalAction: jest.Mock;
     closeAllPendingApprovals: jest.Mock;
   };
+  let leaveBalanceLedgerService: {
+    reserveLeave: jest.Mock;
+    consumeReservedLeave: jest.Mock;
+    releaseReservedLeave: jest.Mock;
+    reverseApprovedLeave: jest.Mock;
+  };
+  let eventEmitter: {
+    emit: jest.Mock;
+  };
+  let configService: {
+    get: jest.Mock;
+  };
 
   beforeEach(async () => {
     dataSource = {
       transaction: jest.fn(),
+      getRepository: jest.fn(),
     };
     leaveTypeRepository = createRepositoryMock();
     leavePolicyRepository = createRepositoryMock();
@@ -139,6 +162,8 @@ describe('Leave Flow (e2e)', () => {
     leaveMedicalDetailRepository = createRepositoryMock();
     leaveDocumentRepository = createRepositoryMock();
     holidayRepository = createRepositoryMock();
+    attendanceHolidayRepository = createRepositoryMock();
+    holidayGroupRepository = createRepositoryMock();
     employeeRepository = createRepositoryMock();
     branchRepository = createRepositoryMock();
     departmentRepository = createRepositoryMock();
@@ -161,6 +186,7 @@ describe('Leave Flow (e2e)', () => {
       ),
       getFiscalYearFromDate: jest.fn(() => '2026'),
       ensureBalanceForEmployee: jest.fn(),
+      resolvePolicyAssignment: jest.fn(),
       reserveDays: jest.fn(),
       consumeReservedDays: jest.fn(),
       releaseReservedDays: jest.fn(),
@@ -170,6 +196,18 @@ describe('Leave Flow (e2e)', () => {
       initializeWorkflowForRequest: jest.fn(),
       applyApprovalAction: jest.fn(),
       closeAllPendingApprovals: jest.fn(),
+    };
+    leaveBalanceLedgerService = {
+      reserveLeave: jest.fn(),
+      consumeReservedLeave: jest.fn(),
+      releaseReservedLeave: jest.fn(),
+      reverseApprovedLeave: jest.fn(),
+    };
+    eventEmitter = {
+      emit: jest.fn(),
+    };
+    configService = {
+      get: jest.fn(),
     };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
@@ -210,6 +248,14 @@ describe('Leave Flow (e2e)', () => {
           useValue: leaveDocumentRepository,
         },
         { provide: getRepositoryToken(Holiday), useValue: holidayRepository },
+        {
+          provide: getRepositoryToken(AttendanceHoliday),
+          useValue: attendanceHolidayRepository,
+        },
+        {
+          provide: getRepositoryToken(HolidayGroup),
+          useValue: holidayGroupRepository,
+        },
         { provide: getRepositoryToken(Employee), useValue: employeeRepository },
         { provide: getRepositoryToken(Branch), useValue: branchRepository },
         {
@@ -229,8 +275,14 @@ describe('Leave Flow (e2e)', () => {
         { provide: HrAccessService, useValue: hrAccessService },
         { provide: LeaveAuditService, useValue: leaveAuditService },
         { provide: LeaveBalanceService, useValue: leaveBalanceService },
+        {
+          provide: LeaveBalanceLedgerService,
+          useValue: leaveBalanceLedgerService,
+        },
         { provide: LeaveWorkflowService, useValue: leaveWorkflowService },
         { provide: LeavePdfService, useValue: {} },
+        { provide: EventEmitter2, useValue: eventEmitter },
+        { provide: ConfigService, useValue: configService },
       ],
     }).compile();
 
@@ -244,7 +296,9 @@ describe('Leave Flow (e2e)', () => {
   });
 
   afterEach(async () => {
-    await app.close();
+    if (app) {
+      await app.close();
+    }
   });
 
   it('submits a draft leave request through HTTP', async () => {
@@ -274,7 +328,9 @@ describe('Leave Flow (e2e)', () => {
         last_name: 'Jones',
         middle_name: null,
         gender: 'female',
+        employment_status: EmploymentStatusEnum.ACTIVE,
         hire_date: '2025-01-01',
+        primary_branch_id: 1,
         primary_department_id: 2,
         primary_position_id: 3,
         primary_department: { id: 2, name: 'Operations' },
@@ -297,6 +353,13 @@ describe('Leave Flow (e2e)', () => {
       documents: [],
       medical_detail: null,
     };
+    const attendanceHolidayBuilder = createQueryBuilderMock() as ReturnType<
+      typeof createQueryBuilderMock
+    > & { getMany: jest.Mock };
+    attendanceHolidayBuilder.getMany = jest.fn().mockResolvedValue([]);
+    attendanceHolidayRepository.createQueryBuilder.mockReturnValue(
+      attendanceHolidayBuilder,
+    );
     const overlapBuilder = createQueryBuilderMock();
     overlapBuilder.getOne.mockResolvedValue(null);
     const managerLeaveRequestRepository = {
@@ -355,6 +418,17 @@ describe('Leave Flow (e2e)', () => {
         ],
       },
     ]);
+    leaveBalanceService.resolvePolicyAssignment.mockResolvedValue({
+      policy: {
+        allow_negative_balance: false,
+        max_consecutive_days: null,
+        min_service_months: 0,
+      },
+      policyType: {
+        requires_approval: false,
+        max_per_request_days: null,
+      },
+    });
     leaveBalanceService.ensureBalanceForEmployee.mockResolvedValue({
       id: 1,
       used_days: '0.00',
@@ -362,6 +436,9 @@ describe('Leave Flow (e2e)', () => {
       allocated_days: '10.00',
       carried_forward_days: '0.00',
       expired_days: '0.00',
+    });
+    leaveBalanceLedgerService.reserveLeave.mockResolvedValue({
+      balance: { id: 1 },
     });
     dataSource.transaction.mockImplementation(
       (callback: (manager: unknown) => unknown) => callback(manager),
@@ -446,7 +523,7 @@ describe('Leave Flow (e2e)', () => {
 
     const response = await request(app.getHttpServer() as App)
       .post('/leave/requests/88/approval-action')
-      .send({ approve: true, comments: 'Approved' })
+      .send({ action: LeaveApprovalActionEnum.APPROVE, comments: 'Approved' })
       .expect(201);
 
     const body = response.body as { status: string };
@@ -490,6 +567,13 @@ describe('Leave Flow (e2e)', () => {
       id: 1,
       used_days: '1.00',
       pending_days: '0.00',
+    });
+    dataSource.getRepository.mockReturnValue({
+      find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn().mockResolvedValue({
+        id: 7,
+        name: 'Emergency Leave',
+      }),
     });
     dataSource.transaction.mockImplementation(
       (callback: (manager: unknown) => unknown) =>
