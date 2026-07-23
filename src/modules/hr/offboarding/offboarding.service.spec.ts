@@ -6,9 +6,13 @@ import { OffboardingWorkflow } from './entities/offboarding-workflow.entity';
 import { OffboardingWorkflowStep } from './entities/offboarding-workflow-step.entity';
 import { OffboardingRequest } from './entities/offboarding-request.entity';
 import { OffboardingTask } from './entities/offboarding-task.entity';
+import { OffboardingAction } from './entities/offboarding-action.entity';
+import { OffboardingAssetReturn } from './entities/offboarding-asset-return.entity';
 import { OffboardingApproval } from './entities/offboarding-approval.entity';
 import { OffboardingClearance } from './entities/offboarding-clearance.entity';
 import { OffboardingAuditLog } from './entities/offboarding-audit-log.entity';
+import { OffboardingExitInterview } from './entities/offboarding-exit-interview.entity';
+import { OffboardingSettlementItem } from './entities/offboarding-settlement-item.entity';
 import { Document } from '../documents/entities/document.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { Department } from '../departments/entities/department.entity';
@@ -28,9 +32,11 @@ import { OffboardingAuditService } from './services/offboarding-audit.service';
 import { OffboardingWorkflowService } from './services/offboarding-workflow.service';
 import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
 import { OffboardingRequestStatusEnum } from './enums/offboarding-request-status.enum';
+import { OffboardingSettlementStatusEnum } from './enums/offboarding-settlement-status.enum';
 import { OffboardingTaskStatusEnum } from './enums/offboarding-task-status.enum';
 import { OffboardingTypeEnum } from './enums/offboarding-type.enum';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import { FilesService } from '../../files/files.service';
 
 type MockRepo<T = unknown> = Record<string, jest.Mock> & { __entity?: T };
 
@@ -38,13 +44,18 @@ const createRepositoryMock = <T>(): MockRepo<T> => ({
   find: jest.fn().mockResolvedValue([]),
   findOne: jest.fn(),
   findOneOrFail: jest.fn(),
+  create: jest.fn((value: unknown) => value),
   save: jest.fn((value: unknown) => value),
 });
 
 describe('OffboardingService', () => {
   let service: OffboardingService;
   let offboardingRequestRepository: MockRepo<OffboardingRequest>;
+  let documentRepository: MockRepo<Document>;
   let dataSource: { transaction: jest.Mock };
+  let hrAccessService: { assertCanAccessEmployee: jest.Mock };
+  let offboardingAuditService: { log: jest.Mock };
+  let filesService: { saveBase64File: jest.Mock };
   let actor: AuthenticatedUser;
 
   beforeEach(() => {
@@ -54,13 +65,21 @@ describe('OffboardingService', () => {
       createRepositoryMock<OffboardingWorkflowStep>();
     offboardingRequestRepository = createRepositoryMock<OffboardingRequest>();
     const offboardingTaskRepository = createRepositoryMock<OffboardingTask>();
+    const offboardingActionRepository =
+      createRepositoryMock<OffboardingAction>();
+    const offboardingAssetReturnRepository =
+      createRepositoryMock<OffboardingAssetReturn>();
+    const offboardingSettlementItemRepository =
+      createRepositoryMock<OffboardingSettlementItem>();
     const offboardingApprovalRepository =
       createRepositoryMock<OffboardingApproval>();
     const offboardingClearanceRepository =
       createRepositoryMock<OffboardingClearance>();
+    const offboardingExitInterviewRepository =
+      createRepositoryMock<OffboardingExitInterview>();
     const offboardingAuditLogRepository =
       createRepositoryMock<OffboardingAuditLog>();
-    const documentRepository = createRepositoryMock<Document>();
+    documentRepository = createRepositoryMock<Document>();
     const employeeRepository = createRepositoryMock<Employee>();
     const shiftAssignmentRepository = createRepositoryMock<ShiftAssignment>();
     const shiftScheduleRepository = createRepositoryMock<ShiftSchedule>();
@@ -77,6 +96,15 @@ describe('OffboardingService', () => {
 
     dataSource = {
       transaction: jest.fn(),
+    };
+    hrAccessService = {
+      assertCanAccessEmployee: jest.fn(),
+    };
+    offboardingAuditService = {
+      log: jest.fn(),
+    };
+    filesService = {
+      saveBase64File: jest.fn(),
     };
 
     actor = {
@@ -96,8 +124,12 @@ describe('OffboardingService', () => {
       offboardingWorkflowStepRepository as unknown as Repository<OffboardingWorkflowStep>,
       offboardingRequestRepository as unknown as Repository<OffboardingRequest>,
       offboardingTaskRepository as unknown as Repository<OffboardingTask>,
+      offboardingActionRepository as unknown as Repository<OffboardingAction>,
+      offboardingAssetReturnRepository as unknown as Repository<OffboardingAssetReturn>,
+      offboardingSettlementItemRepository as unknown as Repository<OffboardingSettlementItem>,
       offboardingApprovalRepository as unknown as Repository<OffboardingApproval>,
       offboardingClearanceRepository as unknown as Repository<OffboardingClearance>,
+      offboardingExitInterviewRepository as unknown as Repository<OffboardingExitInterview>,
       offboardingAuditLogRepository as unknown as Repository<OffboardingAuditLog>,
       documentRepository as unknown as Repository<Document>,
       employeeRepository as unknown as Repository<Employee>,
@@ -111,15 +143,12 @@ describe('OffboardingService', () => {
       companyUserRepository as unknown as Repository<CompanyUser>,
       companyUserRoleRepository as unknown as Repository<CompanyUserRole>,
       roleRepository as unknown as Repository<Role>,
-      {
-        assertCanAccessEmployee: jest.fn(),
-      } as unknown as HrAccessService,
-      {
-        log: jest.fn(),
-      } as unknown as OffboardingAuditService,
+      hrAccessService as unknown as HrAccessService,
+      offboardingAuditService as unknown as OffboardingAuditService,
       {} as OffboardingWorkflowService,
       { emit: jest.fn() } as unknown as EventEmitter2,
       { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService,
+      filesService as unknown as FilesService,
     );
   });
 
@@ -138,6 +167,45 @@ describe('OffboardingService', () => {
     });
 
     const requestRepo = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 77,
+        company_id: 10,
+        employee_id: 501,
+        status: OffboardingRequestStatusEnum.COMPLETED,
+        offboarding_type: OffboardingTypeEnum.TERMINATION,
+        title: 'Employee exit',
+        description: null,
+        reason: 'Policy breach',
+        notice_date: null,
+        last_working_date: '2026-06-12',
+        submitted_at: null,
+        completed_at: new Date('2026-06-12T10:00:00.000Z'),
+        cancelled_at: null,
+        progress_percentage: '100.00',
+        metadata: null,
+        created_at: new Date('2026-06-01T10:00:00.000Z'),
+        updated_at: new Date('2026-06-12T10:00:00.000Z'),
+        workflow: null,
+        tasks: [{ status: OffboardingTaskStatusEnum.COMPLETED }],
+        actions: [],
+        asset_returns: [],
+        settlement_items: [],
+        approvals: [],
+        clearances: [],
+        exit_interview: null,
+        employee: {
+          id: 501,
+          employee_no: 'EMP-501',
+          first_name: 'Jane',
+          middle_name: null,
+          last_name: 'Doe',
+          employment_status: EmploymentStatusEnum.TERMINATED,
+          company_user: {
+            id: 11,
+            user: { email: 'jane.doe@example.com' },
+          },
+        },
+      }),
       save: jest.fn((value: unknown) => value),
       findOneOrFail: jest
         .fn()
@@ -288,5 +356,81 @@ describe('OffboardingService', () => {
       }),
     );
     expect(deleteBuilder.execute).toHaveBeenCalled();
+  });
+
+  it('blocks finalization while settlement items are unresolved', async () => {
+    offboardingRequestRepository.findOne.mockResolvedValue({
+      id: 88,
+      employee_id: 501,
+      status: OffboardingRequestStatusEnum.IN_PROGRESS,
+      offboarding_type: OffboardingTypeEnum.RESIGNATION,
+      last_working_date: '2026-06-12',
+      reason: 'Resigned',
+      tasks: [{ status: OffboardingTaskStatusEnum.COMPLETED }],
+      actions: [],
+      asset_returns: [],
+      settlement_items: [{ status: OffboardingSettlementStatusEnum.PENDING }],
+      approvals: [],
+      clearances: [],
+      employee: { id: 501, company_user: { id: 11 } },
+    });
+
+    await expect(
+      service.completeOffboardingRequest(10, 88, actor),
+    ).rejects.toThrow(
+      'All settlement items must be resolved before finalization',
+    );
+
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+  });
+
+  it('stores offboarding documents through the shared files service', async () => {
+    jest
+      .spyOn(service as any, 'findOffboardingRequestOrFail')
+      .mockResolvedValue({ employee: { id: 501 } });
+    filesService.saveBase64File.mockResolvedValue({
+      storedFileName: 'offboarding-77-stored.pdf',
+      originalFileName: 'clearance-form.pdf',
+      mimeType: 'application/pdf',
+      fileExtension: '.pdf',
+      fileSize: 16,
+      publicPath: '/uploads/documents/offboarding/company-10/offboarding.pdf',
+    });
+    documentRepository.save.mockImplementation((value: object) => ({
+      id: 22,
+      ...value,
+    }));
+
+    await service.addDocument(
+      10,
+      77,
+      {
+        title: 'Clearance Form',
+        file: {
+          fileName: 'clearance-form.pdf',
+          fileSize: 16,
+          mimeType: 'application/pdf',
+          fileString: Buffer.from('clearance-form').toString('base64'),
+        },
+      },
+      actor,
+    );
+
+    expect(filesService.saveBase64File).toHaveBeenCalledWith(
+      expect.objectContaining({ fileName: 'clearance-form.pdf' }),
+      expect.objectContaining({
+        directorySegments: ['documents', 'offboarding', 'company-10'],
+      }),
+    );
+    expect(documentRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        file_name: 'offboarding-77-stored.pdf',
+        original_file_name: 'clearance-form.pdf',
+        mime_type: 'application/pdf',
+        file_extension: '.pdf',
+        file_size: '16',
+        file_path: '/uploads/documents/offboarding/company-10/offboarding.pdf',
+      }),
+    );
   });
 });

@@ -15,6 +15,7 @@ import { OffboardingRequest } from './offboarding-request.entity';
 @Entity('offboarding_clearances')
 @Index('IDX_offboarding_clearance_request', ['offboarding_request_id'])
 @Index('IDX_offboarding_clearance_status', ['status'])
+@Index('IDX_offboarding_clearance_owner', ['owner_company_user_id'])
 export class OffboardingClearance {
   @PrimaryGeneratedColumn()
   id: number;
@@ -39,6 +40,12 @@ export class OffboardingClearance {
   remarks: string | null;
 
   @Column({ type: 'int', nullable: true })
+  owner_company_user_id: number | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  due_date: Date | null;
+
+  @Column({ type: 'int', nullable: true })
   cleared_by_company_user_id: number | null;
 
   @Column({ type: 'timestamp', nullable: true })
@@ -52,6 +59,10 @@ export class OffboardingClearance {
   })
   @JoinColumn({ name: 'offboarding_request_id' })
   offboarding_request: OffboardingRequest;
+
+  @ManyToOne(() => CompanyUser, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'owner_company_user_id' })
+  owner_company_user: CompanyUser | null;
 
   @ManyToOne(() => CompanyUser, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'cleared_by_company_user_id' })

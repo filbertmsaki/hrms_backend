@@ -2,9 +2,11 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MailerModule } from '@nestjs-modules/mailer';
 import { PugAdapter } from '@nestjs-modules/mailer/dist/adapters/pug.adapter';
+import { MAILER_TRANSPORT_FACTORY } from '@nestjs-modules/mailer/dist/constants/mailer.constant';
 import { join } from 'path';
 
 import { MailService } from './mail.service';
+import { SafeMailerTransportFactory } from './safe-mailer-transport.factory';
 
 @Module({
   imports: [
@@ -15,7 +17,7 @@ import { MailService } from './mail.service';
         transport: {
           host: config.get<string>('MAIL_HOST'),
           port: Number(config.get<string>('MAIL_PORT')),
-          secure: config.get<string>('MAIL_SECURE') === 'true', // true for 465, false for 587
+          secure: config.get<boolean>('MAIL_SECURE') === true,
           auth: {
             user: config.get<string>('MAIL_USER'),
             pass: config.get<string>('MAIL_PASS'),
@@ -32,9 +34,15 @@ import { MailService } from './mail.service';
           },
         },
       }),
+      extraProviders: [
+        {
+          provide: MAILER_TRANSPORT_FACTORY,
+          useClass: SafeMailerTransportFactory,
+        },
+      ],
     }),
   ],
   providers: [MailService],
-  exports: [MailService], // ← Export so AuthService can use it
+  exports: [MailService],
 })
 export class MailModule {}

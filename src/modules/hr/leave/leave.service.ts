@@ -80,6 +80,7 @@ import {
 import { buildNotificationRecipient } from '../notifications/notification-recipient.util';
 import { LeaveRequestApproval } from './entities/leave-request-approval.entity';
 import { LeaveApprovalStatusEnum } from './enums/leave-approval-status.enum';
+import { FilesService } from '../../files/files.service';
 
 type PolicyContext = {
   allowNegativeBalance: boolean;
@@ -136,6 +137,7 @@ export class LeaveService {
     private readonly leavePdfService: LeavePdfService,
     private readonly eventEmitter: EventEmitter2,
     private readonly configService: ConfigService,
+    private readonly filesService: FilesService,
   ) {}
 
   private normalizeOptionalString(value: unknown): string | null {
@@ -3686,13 +3688,17 @@ export class LeaveService {
       actor,
       leaveRequest.employee,
     );
+    const storedFile = await this.filesService.saveBase64File(dto.file, {
+      directorySegments: ['documents', 'leave', `company-${companyId}`],
+      fileNamePrefix: `leave-${leaveRequestId}`,
+    });
 
     const document = await this.leaveDocumentRepository.save(
       this.leaveDocumentRepository.create({
         leave_request_id: leaveRequest.id,
-        file_url: dto.file_url.trim(),
-        file_name: dto.file_name.trim(),
-        file_type: dto.file_type.trim(),
+        file_url: storedFile.publicPath,
+        file_name: storedFile.originalFileName,
+        file_type: storedFile.mimeType,
         uploaded_by_company_user_id: actor.companyMembershipId!,
       }),
     );

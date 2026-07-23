@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -8,31 +9,39 @@ import {
   Query,
   Req,
   Res,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request as ExpressRequest, Response } from 'express';
 import { Permissions } from '../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import { AttendanceMobilePunchQueryDto } from '../attendance/mobile-punches/dtos/attendance-mobile-punch-query.dto';
+import { QueryAttendanceDailySummariesDto } from '../attendance/processing/dtos/query-attendance-daily-summaries.dto';
 import { CancelLeaveRequestDto } from '../leave/dtos/cancel-leave-request.dto';
 import { LeaveBalanceQueryDto } from '../leave/dtos/leave-balance-query.dto';
 import { LeaveRequestQueryDto } from '../leave/dtos/leave-request-query.dto';
-import { AttendanceMobilePunchQueryDto } from '../attendance/mobile-punches/dtos/attendance-mobile-punch-query.dto';
-import { QueryAttendanceDailySummariesDto } from '../attendance/processing/dtos/query-attendance-daily-summaries.dto';
-import { CreateMyLeaveRequestDto } from './dtos/create-my-leave-request.dto';
-import { MyScheduleQueryDto } from './dtos/my-schedule-query.dto';
-import { EmployeeSelfServiceService } from './employee-self-service.service';
-
-import { CreateMyAttendancePunchDto } from './dtos/create-my-attendance-punch.dto';
-import { MyAttendanceOverviewQueryDto } from './dtos/my-attendance-overview-query.dto';
-import { MyAttendanceAssignmentQueryDto } from './dtos/my-attendance-assignment-query.dto';
 import { CreateAttendanceCorrectionRequestDto } from './dtos/create-attendance-correction-request.dto';
-import { QuerySelfServiceRequestDto } from './dtos/query-self-service-request.dto';
+import { CreateMyAttendancePunchDto } from './dtos/create-my-attendance-punch.dto';
+import { CreateMyLeaveRequestDto } from './dtos/create-my-leave-request.dto';
 import { CreateProfileUpdateRequestDto } from './dtos/create-profile-update-request.dto';
+import { MyAttendanceAssignmentQueryDto } from './dtos/my-attendance-assignment-query.dto';
+import { MyAttendanceOverviewQueryDto } from './dtos/my-attendance-overview-query.dto';
+import { MyScheduleQueryDto } from './dtos/my-schedule-query.dto';
+import { QuerySelfServiceRequestDto } from './dtos/query-self-service-request.dto';
 import { TeamAttendanceQueryDto } from './dtos/team-attendance-query.dto';
+import { EmployeeSelfServiceService } from './employee-self-service.service';
 
 @ApiTags('Employee Self Service')
 @ApiBearerAuth('access-token')
@@ -42,6 +51,12 @@ export class EmployeeSelfServiceController {
   constructor(
     private readonly employeeSelfServiceService: EmployeeSelfServiceService,
   ) {}
+
+  private readonly allowedProfilePhotoMimeTypes = new Set([
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+  ]);
 
   @Get('dashboard')
   @ApiOperation({ summary: 'Get my dashboard overview' })
@@ -53,6 +68,55 @@ export class EmployeeSelfServiceController {
   @ApiOperation({ summary: 'Get my combined user and employee profile' })
   getProfile(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
     return this.employeeSelfServiceService.getProfile(req.user);
+  }
+
+  @Post('profile/photo')
+  @ApiOperation({ summary: 'Upload my profile picture' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file'],
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+    },
+  })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: {
+        fileSize: 5 * 1024 * 1024,
+      },
+    }),
+  )
+  uploadProfilePhoto(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @UploadedFile()
+    file?: {
+      originalname: string;
+      mimetype: string;
+      size: number;
+      buffer: Buffer;
+    },
+  ) {
+    if (!file) {
+      throw new BadRequestException('Profile picture file is required.');
+    }
+
+    if (!this.allowedProfilePhotoMimeTypes.has(file.mimetype)) {
+      throw new BadRequestException(
+        'Only JPEG, PNG, and WEBP profile pictures are allowed.',
+      );
+    }
+
+    if (!file.buffer?.length) {
+      throw new BadRequestException('Uploaded profile picture is empty.');
+    }
+
+    return this.employeeSelfServiceService.uploadProfilePhoto(req.user, file);
   }
 
   @Get('status')

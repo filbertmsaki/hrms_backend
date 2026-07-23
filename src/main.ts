@@ -1,6 +1,8 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { RequestMethod, ValidationPipe } from '@nestjs/common';
+import { join } from 'path';
+import { static as expressStatic } from 'express';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import {
   createSwaggerDocument,
@@ -26,6 +28,7 @@ async function bootstrap() {
   );
 
   app.enableCors();
+  app.use('/uploads', expressStatic(join(process.cwd(), 'uploads')));
 
   const document = createSwaggerDocument(app);
   setupSwaggerDocumentation(app, document);

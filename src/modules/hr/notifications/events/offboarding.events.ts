@@ -95,3 +95,53 @@ export class OffboardingCompletedEvent {
     public readonly managerCompanyUserId: number | null,
   ) {}
 }
+
+export class OffboardingTaskOverdueEvent {
+  static readonly EVENT = 'hr.offboarding.task_overdue';
+  constructor(
+    public readonly companyId: number,
+    public readonly offboardingRequestId: number,
+    public readonly taskId: number,
+    public readonly taskTitle: string,
+    public readonly employeeName: string,
+    public readonly assigneeCompanyUserId: number | null,
+    public readonly assigneeName: string | null,
+    public readonly assigneeEmail: string | null,
+    public readonly dueDate: Date,
+    public readonly exitDate: string | null,
+    public readonly taskUrl: string,
+  ) {}
+}
+
+export class OffboardingClearanceOverdueEvent {
+  static readonly EVENT = 'hr.offboarding.clearance_overdue';
+  constructor(
+    public readonly companyId: number,
+    public readonly offboardingRequestId: number,
+    public readonly clearanceId: number,
+    public readonly clearanceType: string,
+    public readonly employeeName: string,
+    public readonly ownerCompanyUserId: number | null,
+    public readonly ownerName: string | null,
+    public readonly ownerEmail: string | null,
+    public readonly dueDate: Date,
+    public readonly exitDate: string | null,
+    public readonly clearanceUrl: string,
+  ) {}
+}
+
+export class OffboardingApprovalReminderEvent {
+  static readonly EVENT = 'hr.offboarding.approval_reminder';
+  constructor(
+    public readonly companyId: number,
+    public readonly offboardingRequestId: number,
+    public readonly approvalId: number,
+    public readonly approvalLevel: number | null,
+    public readonly employeeName: string,
+    public readonly approverCompanyUserId: number | null,
+    public readonly approverName: string | null,
+    public readonly approverEmail: string | null,
+    public readonly exitDate: string | null,
+    public readonly reviewUrl: string,
+  ) {}
+}

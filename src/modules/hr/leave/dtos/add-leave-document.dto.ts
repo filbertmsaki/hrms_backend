@@ -1,14 +1,10 @@
-import { IsString, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsDefined, ValidateNested } from 'class-validator';
+import { Base64FileDto } from '../../../files/dtos/base64-file.dto';
 
 export class AddLeaveDocumentDto {
-  @IsString()
-  file_url: string;
-
-  @IsString()
-  @MaxLength(180)
-  file_name: string;
-
-  @IsString()
-  @MaxLength(80)
-  file_type: string;
+  @IsDefined()
+  @Type(() => Base64FileDto)
+  @ValidateNested()
+  file: Base64FileDto;
 }

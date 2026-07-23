@@ -1,4 +1,13 @@
-import { IsDateString, IsOptional, IsString, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsDateString,
+  IsDefined,
+  IsOptional,
+  IsString,
+  MaxLength,
+  ValidateNested,
+} from 'class-validator';
+import { Base64FileDto } from '../../../files/dtos/base64-file.dto';
 
 export class UploadDocumentDto {
   @IsOptional()
@@ -15,31 +24,10 @@ export class UploadDocumentDto {
   @MaxLength(2000)
   description?: string;
 
-  @IsString()
-  @MaxLength(255)
-  file_name: string;
-
-  @IsString()
-  @MaxLength(255)
-  original_file_name: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(150)
-  mime_type?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(20)
-  file_extension?: string;
-
-  @IsOptional()
-  @IsString()
-  file_size?: string;
-
-  @IsString()
-  @MaxLength(3000)
-  file_path: string;
+  @IsDefined()
+  @Type(() => Base64FileDto)
+  @ValidateNested()
+  file: Base64FileDto;
 
   @IsOptional()
   @IsDateString()

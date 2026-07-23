@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { FilesModule } from '../../files/files.module';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { CompanyUserRole } from '../../companies/entities/company-user-role.entity';
 import { Role } from '../../roles/entities/role.entity';
@@ -17,13 +18,18 @@ import { HrSharedModule } from '../shared/hr-shared.module';
 import { OffboardingController } from './offboarding.controller';
 import { OffboardingService } from './offboarding.service';
 import { OffboardingApproval } from './entities/offboarding-approval.entity';
+import { OffboardingAction } from './entities/offboarding-action.entity';
+import { OffboardingAssetReturn } from './entities/offboarding-asset-return.entity';
 import { OffboardingAuditLog } from './entities/offboarding-audit-log.entity';
 import { OffboardingClearance } from './entities/offboarding-clearance.entity';
+import { OffboardingExitInterview } from './entities/offboarding-exit-interview.entity';
 import { OffboardingRequest } from './entities/offboarding-request.entity';
+import { OffboardingSettlementItem } from './entities/offboarding-settlement-item.entity';
 import { OffboardingTask } from './entities/offboarding-task.entity';
 import { OffboardingWorkflowStep } from './entities/offboarding-workflow-step.entity';
 import { OffboardingWorkflow } from './entities/offboarding-workflow.entity';
 import { OffboardingAuditService } from './services/offboarding-audit.service';
+import { OffboardingCronService } from './services/offboarding-cron.service';
 import { OffboardingWorkflowService } from './services/offboarding-workflow.service';
 
 @Module({
@@ -33,8 +39,12 @@ import { OffboardingWorkflowService } from './services/offboarding-workflow.serv
       OffboardingWorkflowStep,
       OffboardingRequest,
       OffboardingTask,
+      OffboardingAction,
+      OffboardingAssetReturn,
+      OffboardingSettlementItem,
       OffboardingApproval,
       OffboardingClearance,
+      OffboardingExitInterview,
       OffboardingAuditLog,
       Document,
       Employee,
@@ -50,6 +60,7 @@ import { OffboardingWorkflowService } from './services/offboarding-workflow.serv
       CompanyUserRole,
       Role,
     ]),
+    FilesModule,
     HrSharedModule,
   ],
   controllers: [OffboardingController],
@@ -57,6 +68,7 @@ import { OffboardingWorkflowService } from './services/offboarding-workflow.serv
     OffboardingService,
     OffboardingAuditService,
     OffboardingWorkflowService,
+    OffboardingCronService,
   ],
   exports: [OffboardingService, TypeOrmModule],
 })

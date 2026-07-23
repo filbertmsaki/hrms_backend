@@ -20,6 +20,10 @@ import { OffboardingWorkflowStep } from './offboarding-workflow-step.entity';
 @Index('IDX_offboarding_task_request', ['offboarding_request_id'])
 @Index('IDX_offboarding_task_status', ['status'])
 @Index('IDX_offboarding_task_assignee', ['assigned_to_company_user_id'])
+@Index('IDX_offboarding_task_reopened_by', ['reopened_by_company_user_id'])
+@Index('IDX_offboarding_task_reassigned_by', [
+  'last_reassigned_by_company_user_id',
+])
 export class OffboardingTask {
   @PrimaryGeneratedColumn()
   id: number;
@@ -69,6 +73,18 @@ export class OffboardingTask {
   @Column({ type: 'timestamp', nullable: true })
   completed_at: Date | null;
 
+  @Column({ type: 'timestamp', nullable: true })
+  reopened_at: Date | null;
+
+  @Column({ type: 'int', nullable: true })
+  reopened_by_company_user_id: number | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  reassigned_at: Date | null;
+
+  @Column({ type: 'int', nullable: true })
+  last_reassigned_by_company_user_id: number | null;
+
   @Column({ type: 'text', nullable: true })
   remarks: string | null;
 
@@ -96,4 +112,12 @@ export class OffboardingTask {
   @ManyToOne(() => CompanyUser, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'assigned_to_company_user_id' })
   assigned_to_company_user: CompanyUser | null;
+
+  @ManyToOne(() => CompanyUser, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'reopened_by_company_user_id' })
+  reopened_by_company_user: CompanyUser | null;
+
+  @ManyToOne(() => CompanyUser, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'last_reassigned_by_company_user_id' })
+  last_reassigned_by_company_user: CompanyUser | null;
 }

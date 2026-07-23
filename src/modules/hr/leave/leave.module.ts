@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { FilesModule } from '../../files/files.module';
 import { Company } from '../../companies/entities/company.entity';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { CompanyUserRole } from '../../companies/entities/company-user-role.entity';
@@ -66,6 +67,7 @@ import { LeaveWorkflowService } from './services/leave-workflow.service';
       AttendanceHoliday,
       HolidayGroup,
     ]),
+    FilesModule,
     HrSharedModule,
   ],
   controllers: [LeaveController],

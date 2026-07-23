@@ -54,6 +54,9 @@ describe('MailService', () => {
       expect.objectContaining({
         to: 'amina@example.com',
         template: 'hr-leave-approved',
+        mailSafetyContext: {
+          sourceModule: 'HrNotificationListener.sendLeaveApprovedNotification',
+        },
         context: expect.objectContaining({
           employeeName: 'Amina John',
           leaveTypeName: 'Annual Leave',
@@ -90,6 +93,10 @@ describe('MailService', () => {
       expect.objectContaining({
         to: 'neema@example.com',
         template: 'hr-onboarding-task-assigned',
+        mailSafetyContext: {
+          sourceModule:
+            'HrNotificationListener.sendOnboardingTaskAssignedNotification',
+        },
         context: expect.objectContaining({
           assigneeName: 'Neema Manager',
           employeeName: 'Amina John',
@@ -124,6 +131,10 @@ describe('MailService', () => {
       expect.objectContaining({
         to: 'john@example.com',
         template: 'hr-offboarding-clearance-required',
+        mailSafetyContext: {
+          sourceModule:
+            'HrNotificationListener.sendOffboardingClearanceRequiredNotification',
+        },
         context: expect.objectContaining({
           ownerName: 'John HR',
           employeeName: 'Amina John',

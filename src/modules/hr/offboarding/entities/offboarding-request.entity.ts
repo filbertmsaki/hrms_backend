@@ -7,6 +7,7 @@
   JoinColumn,
   ManyToOne,
   OneToMany,
+  OneToOne,
   PrimaryGeneratedColumn,
   Unique,
   UpdateDateColumn,
@@ -19,8 +20,12 @@ import { Employee } from '../../employees/entities/employee.entity';
 import { OffboardingRequestStatusEnum } from '../enums/offboarding-request-status.enum';
 import { OffboardingTypeEnum } from '../enums/offboarding-type.enum';
 import { OffboardingApproval } from './offboarding-approval.entity';
+import { OffboardingAction } from './offboarding-action.entity';
+import { OffboardingAssetReturn } from './offboarding-asset-return.entity';
 import { OffboardingAuditLog } from './offboarding-audit-log.entity';
 import { OffboardingClearance } from './offboarding-clearance.entity';
+import { OffboardingExitInterview } from './offboarding-exit-interview.entity';
+import { OffboardingSettlementItem } from './offboarding-settlement-item.entity';
 import { OffboardingTask } from './offboarding-task.entity';
 import { OffboardingWorkflow } from './offboarding-workflow.entity';
 
@@ -142,6 +147,29 @@ export class OffboardingRequest {
   })
   tasks: OffboardingTask[];
 
+  @OneToMany(() => OffboardingAction, (action) => action.offboarding_request, {
+    cascade: true,
+  })
+  actions: OffboardingAction[];
+
+  @OneToMany(
+    () => OffboardingAssetReturn,
+    (assetReturn) => assetReturn.offboarding_request,
+    {
+      cascade: true,
+    },
+  )
+  asset_returns: OffboardingAssetReturn[];
+
+  @OneToMany(
+    () => OffboardingSettlementItem,
+    (settlementItem) => settlementItem.offboarding_request,
+    {
+      cascade: true,
+    },
+  )
+  settlement_items: OffboardingSettlementItem[];
+
   @OneToMany(
     () => OffboardingApproval,
     (approval) => approval.offboarding_request,
@@ -162,4 +190,10 @@ export class OffboardingRequest {
 
   @OneToMany(() => OffboardingAuditLog, (audit) => audit.offboarding_request)
   audit_logs: OffboardingAuditLog[];
+
+  @OneToOne(
+    () => OffboardingExitInterview,
+    (exitInterview) => exitInterview.offboarding_request,
+  )
+  exit_interview: OffboardingExitInterview | null;
 }

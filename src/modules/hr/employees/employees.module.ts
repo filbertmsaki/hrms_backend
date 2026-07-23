@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { FilesModule } from '../../files/files.module';
 import { CompaniesModule } from '../../companies/companies.module';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { User } from '../../users/entities/user.entity';
@@ -47,6 +48,7 @@ import { LeaveModule } from '../leave/leave.module';
       Department,
       Position,
     ]),
+    FilesModule,
     CompaniesModule,
     UsersModule,
     HrSharedModule,

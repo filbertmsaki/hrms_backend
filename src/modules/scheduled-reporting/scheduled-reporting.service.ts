@@ -3,12 +3,19 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
+import {
+  applyMailRecipientSafety,
+  resolveMailRecipientSafetyConfigFromConfigService,
+  type SafeSendMailOptions,
+} from '../mail/mail-recipient-safety.util';
 import { buildPaginationMeta } from '../hr/shared/hr.utils';
 import {
   CreateReportScheduleDto,
@@ -55,7 +62,7 @@ type ReportMailTransportOptions = {
   };
 };
 
-type ReportMailSendOptions = {
+type ReportMailSendOptions = SafeSendMailOptions & {
   from: string;
   to: string;
   subject: string;
@@ -84,6 +91,8 @@ async function loadNodemailerModule(): Promise<NodemailerModule> {
 
 @Injectable()
 export class ScheduledReportingService {
+  private readonly logger = new Logger(ScheduledReportingService.name);
+
   constructor(
     @InjectRepository(ReportDefinition)
     private readonly reportDefinitionRepository: Repository<ReportDefinition>,
@@ -103,6 +112,7 @@ export class ScheduledReportingService {
     private readonly reportExecutionRecipientRepository: Repository<ReportExecutionRecipient>,
     @InjectRepository(ReportExecutionAttempt)
     private readonly reportExecutionAttemptRepository: Repository<ReportExecutionAttempt>,
+    private readonly configService: ConfigService,
   ) {}
 
   assertCompanyActor(user: AuthenticatedUser) {
@@ -307,12 +317,17 @@ export class ScheduledReportingService {
       let mailResult: ReportMailSendResult | null = null;
       if (dto.sendTestEmail ?? true) {
         const to = dto.toEmail ?? item.senderEmail;
-        mailResult = await transporter.sendMail({
+        const mailOptions: ReportMailSendOptions = {
           from: `"${item.senderName || item.name}" <${item.senderEmail}>`,
           to,
           subject: 'Scheduled Reporting SMTP Test',
           text: 'This is a scheduled reporting SMTP test email.',
-        });
+          mailSafetyContext: {
+            sourceModule: 'ScheduledReportingService.testSmtpConfiguration',
+          },
+        };
+        this.applyMailSafety(mailOptions);
+        mailResult = await transporter.sendMail(mailOptions);
       }
 
       item.lastTestStatus = ReportSmtpTestStatusEnum.SUCCESS;
@@ -1243,5 +1258,13 @@ export class ScheduledReportingService {
             .map((attempt) => this.mapExecutionAttempt(attempt))
         : undefined,
     };
+  }
+
+  private applyMailSafety(options: SafeSendMailOptions) {
+    applyMailRecipientSafety(
+      options,
+      resolveMailRecipientSafetyConfigFromConfigService(this.configService),
+      this.logger,
+    );
   }
 }

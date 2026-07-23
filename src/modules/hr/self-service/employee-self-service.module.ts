@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { FilesModule } from '../../files/files.module';
 import { UsersModule } from '../../users/users.module';
 import { AttendanceMobilePunch } from '../attendance/mobile-punches/entities/attendance-mobile-punch.entity';
 import { AttendanceModule } from '../attendance/attendance.module';
@@ -36,6 +37,7 @@ import { EmployeeSelfServiceApprovalService } from './employee-self-service-appr
       EmployeeProfileUpdateRequest,
       Employee,
     ]),
+    FilesModule,
     UsersModule,
     EmployeesModule,
     LeaveModule,

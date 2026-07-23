@@ -30,6 +30,7 @@ import { LeaveGenderRestrictionEnum } from './enums/leave-gender-restriction.enu
 import { LeaveStatusEnum } from './enums/leave-status.enum';
 import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import { FilesService } from '../../files/files.service';
 
 type MockRepo = Record<string, jest.Mock>;
 
@@ -110,6 +111,7 @@ describe('LeaveService', () => {
     applyApprovalAction: jest.Mock;
     closeAllPendingApprovals: jest.Mock;
   };
+  let filesService: { saveBase64File: jest.Mock };
   let actor: AuthenticatedUser;
 
   beforeEach(() => {
@@ -197,6 +199,9 @@ describe('LeaveService', () => {
       applyApprovalAction: jest.fn(),
       closeAllPendingApprovals: jest.fn(),
     };
+    filesService = {
+      saveBase64File: jest.fn(),
+    };
     actor = {
       id: 9,
       email: 'approver@example.com',
@@ -235,6 +240,7 @@ describe('LeaveService', () => {
       {} as LeavePdfService,
       { emit: jest.fn() } as unknown as EventEmitter2,
       { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService,
+      filesService as unknown as FilesService,
     );
   });
 
@@ -613,6 +619,51 @@ describe('LeaveService', () => {
       ),
     ).rejects.toThrow(
       'Selected period results in zero leave days after holidays/weekends',
+    );
+  });
+
+  it('stores leave documents through the shared files service', async () => {
+    leaveRequestRepository.findOne.mockResolvedValue({
+      id: 77,
+      company_id: 10,
+      employee: { id: 501 },
+    });
+    filesService.saveBase64File.mockResolvedValue({
+      originalFileName: 'medical-note.pdf',
+      mimeType: 'application/pdf',
+      publicPath: '/uploads/documents/leave/company-10/medical-note.pdf',
+    });
+    leaveDocumentRepository.save.mockImplementation((value: object) => ({
+      id: 31,
+      ...value,
+    }));
+
+    await service.addLeaveDocument(
+      10,
+      77,
+      {
+        file: {
+          fileName: 'medical-note.pdf',
+          fileSize: 12,
+          mimeType: 'application/pdf',
+          fileString: Buffer.from('medical-note').toString('base64'),
+        },
+      },
+      actor,
+    );
+
+    expect(filesService.saveBase64File).toHaveBeenCalledWith(
+      expect.objectContaining({ fileName: 'medical-note.pdf' }),
+      expect.objectContaining({
+        directorySegments: ['documents', 'leave', 'company-10'],
+      }),
+    );
+    expect(leaveDocumentRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        file_url: '/uploads/documents/leave/company-10/medical-note.pdf',
+        file_name: 'medical-note.pdf',
+        file_type: 'application/pdf',
+      }),
     );
   });
 });

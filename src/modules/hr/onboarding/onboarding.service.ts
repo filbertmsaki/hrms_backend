@@ -71,6 +71,7 @@ import {
   OnboardingTaskAssignedEvent,
 } from '../notifications/events';
 import { buildNotificationRecipient } from '../notifications/notification-recipient.util';
+import { FilesService } from '../../files/files.service';
 
 type ProgressSummary = {
   total_tasks: number;
@@ -163,6 +164,7 @@ export class OnboardingService {
     private readonly employeeDeviceAssignmentsService: EmployeeDeviceAssignmentsService,
     private readonly eventEmitter: EventEmitter2,
     private readonly configService: ConfigService,
+    private readonly filesService: FilesService,
   ) {}
 
   private getOnboardingWorkflowRepository(
@@ -2759,6 +2761,10 @@ export class OnboardingService {
       onboardingRequestId,
     );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    const storedFile = await this.filesService.saveBase64File(dto.file, {
+      directorySegments: ['documents', 'onboarding', `company-${companyId}`],
+      fileNamePrefix: `onboarding-${onboardingRequestId}`,
+    });
 
     const document = await this.getDocumentRepository().save(
       this.getDocumentRepository().create({
@@ -2769,12 +2775,12 @@ export class OnboardingService {
         document_type: this.normalizeOptionalString(dto.document_type),
         title: dto.title.trim(),
         description: this.normalizeOptionalString(dto.description),
-        file_name: dto.file_name.trim(),
-        original_file_name: dto.original_file_name.trim(),
-        mime_type: this.normalizeOptionalString(dto.mime_type),
-        file_extension: this.normalizeOptionalString(dto.file_extension),
-        file_size: this.normalizeOptionalString(dto.file_size),
-        file_path: dto.file_path.trim(),
+        file_name: storedFile.storedFileName,
+        original_file_name: storedFile.originalFileName,
+        mime_type: storedFile.mimeType,
+        file_extension: storedFile.fileExtension,
+        file_size: String(storedFile.fileSize),
+        file_path: storedFile.publicPath,
         uploaded_by_company_user_id: actor.companyMembershipId ?? null,
         expiry_date: dto.expiry_date ? new Date(dto.expiry_date) : null,
       }),

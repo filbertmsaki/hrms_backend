@@ -13,6 +13,7 @@ import { Branch } from '../branches/entities/branch.entity';
 import { Document } from '../documents/entities/document.entity';
 import { Department } from '../departments/entities/department.entity';
 import { Employee } from '../employees/entities/employee.entity';
+import { FilesModule } from '../../files/files.module';
 import { LeaveModule } from '../leave/leave.module';
 import { HrSharedModule } from '../shared/hr-shared.module';
 import { EmployeeDeviceAssignmentsModule } from '../../access-control/employee-device-assignments/employee-device-assignments.module';
@@ -50,6 +51,7 @@ import { OnboardingWorkflowService } from './services/onboarding-workflow.servic
       EmployeeTimetable,
       EmployeeDeviceAssignment,
     ]),
+    FilesModule,
     HrSharedModule,
     LeaveModule,
     CompaniesModule,

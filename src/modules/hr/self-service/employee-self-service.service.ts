@@ -46,10 +46,12 @@ import { TimetableStatusEnum } from '../attendance/timetable/timetables/enums/ti
 import { CreateMyAttendancePunchDto } from './dtos/create-my-attendance-punch.dto';
 import { MyAttendanceOverviewQueryDto } from './dtos/my-attendance-overview-query.dto';
 import { MyAttendanceAssignmentQueryDto } from './dtos/my-attendance-assignment-query.dto';
+import { FilesService } from '../../files/files.service';
 
 type EmployeeProfileShape = {
   id?: number;
   employee_no?: string;
+  profile_photo_url?: string | null;
   employment_status?: string;
   employment_type?: string;
   hire_date?: string | null;
@@ -59,6 +61,13 @@ type EmployeeProfileShape = {
   primary_position?: { id: number; name: string } | null;
   manager?: { id: number; first_name?: string; last_name?: string } | null;
   [key: string]: unknown;
+};
+
+type UploadedProfilePhoto = {
+  originalname: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
 };
 
 @Injectable()
@@ -90,6 +99,7 @@ export class EmployeeSelfServiceService {
     private readonly correctionRequestRepository: Repository<AttendanceCorrectionRequest>,
     @InjectRepository(EmployeeProfileUpdateRequest)
     private readonly profileUpdateRequestRepository: Repository<EmployeeProfileUpdateRequest>,
+    private readonly filesService: FilesService,
   ) {}
 
   async getProfile(actor: AuthenticatedUser) {
@@ -115,6 +125,43 @@ export class EmployeeSelfServiceService {
         leave_requests: '/me/leave/requests',
       },
     };
+  }
+
+  async uploadProfilePhoto(
+    actor: AuthenticatedUser,
+    file: UploadedProfilePhoto,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    const employee = await this.requireMyEmployeeProfile(actor);
+    const employeeId = employee.id!;
+    const storedFile = await this.filesService.saveBufferFile({
+      buffer: file.buffer,
+      fileName: file.originalname,
+      fileSize: file.size,
+      mimeType: file.mimetype,
+      directorySegments: ['profile-photos', `company-${companyId}`],
+      fileNamePrefix: `employee-${employeeId}`,
+      allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+    });
+
+    try {
+      const updatedEmployee = await this.employeesService.updateMyProfilePhoto(
+        companyId,
+        actor.id,
+        storedFile.publicPath,
+      );
+
+      await this.filesService.removeManagedFile(employee.profile_photo_url);
+
+      return {
+        message: 'Profile picture uploaded successfully.',
+        profile_photo_url: storedFile.publicPath,
+        employee: updatedEmployee,
+      };
+    } catch (error) {
+      await this.filesService.removeManagedFile(storedFile.publicPath);
+      throw error;
+    }
   }
 
   async getStatus(actor: AuthenticatedUser) {

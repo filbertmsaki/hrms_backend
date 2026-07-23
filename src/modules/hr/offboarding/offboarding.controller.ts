@@ -18,24 +18,38 @@ import { Permissions } from '../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import { AssignOffboardingClearanceDto } from './dtos/assign-offboarding-clearance.dto';
 import { CancelOffboardingRequestDto } from './dtos/cancel-offboarding-request.dto';
 import { CompleteOffboardingClearanceDto } from './dtos/complete-offboarding-clearance.dto';
 import { CompleteOffboardingTaskDto } from './dtos/complete-offboarding-task.dto';
+import { CreateOffboardingActionDto } from './dtos/create-offboarding-action.dto';
+import { CreateOffboardingAssetReturnDto } from './dtos/create-offboarding-asset-return.dto';
 import { CreateOffboardingClearanceDto } from './dtos/create-offboarding-clearance.dto';
 import { CreateOffboardingRequestDto } from './dtos/create-offboarding-request.dto';
+import { CreateOffboardingSettlementItemDto } from './dtos/create-offboarding-settlement-item.dto';
 import { CreateOffboardingTaskDto } from './dtos/create-offboarding-task.dto';
 import { CreateOffboardingWorkflowStepDto } from './dtos/create-offboarding-workflow-step.dto';
 import { CreateOffboardingWorkflowDto } from './dtos/create-offboarding-workflow.dto';
+import { MyOffboardingApprovalQueryDto } from './dtos/my-offboarding-approval-query.dto';
+import { MyOffboardingClearanceQueryDto } from './dtos/my-offboarding-clearance-query.dto';
+import { MyOffboardingTaskQueryDto } from './dtos/my-offboarding-task-query.dto';
 import { OffboardingApprovalActionDto } from './dtos/offboarding-approval-action.dto';
+import { OffboardingDashboardQueryDto } from './dtos/offboarding-dashboard-query.dto';
 import { OffboardingRequestQueryDto } from './dtos/offboarding-request-query.dto';
 import { OffboardingWorkflowQueryDto } from './dtos/offboarding-workflow-query.dto';
+import { ReassignOffboardingTaskDto } from './dtos/reassign-offboarding-task.dto';
+import { ReopenOffboardingTaskDto } from './dtos/reopen-offboarding-task.dto';
 import { RejectOffboardingTaskDto } from './dtos/reject-offboarding-task.dto';
 import { RejectOffboardingDto } from './dtos/reject-offboarding.dto';
 import { SubmitOffboardingRequestDto } from './dtos/submit-offboarding-request.dto';
+import { UpdateOffboardingActionDto } from './dtos/update-offboarding-action.dto';
+import { UpdateOffboardingAssetReturnDto } from './dtos/update-offboarding-asset-return.dto';
 import { UpdateOffboardingRequestDto } from './dtos/update-offboarding-request.dto';
+import { UpdateOffboardingSettlementItemDto } from './dtos/update-offboarding-settlement-item.dto';
 import { UpdateOffboardingWorkflowStepDto } from './dtos/update-offboarding-workflow-step.dto';
 import { UpdateOffboardingWorkflowDto } from './dtos/update-offboarding-workflow.dto';
 import { UpdateOffboardingDocumentDto } from './dtos/update-offboarding-document.dto';
+import { UpsertOffboardingExitInterviewDto } from './dtos/upsert-offboarding-exit-interview.dto';
 import { UploadOffboardingDocumentDto } from './dtos/upload-offboarding-document.dto';
 import { OffboardingService } from './offboarding.service';
 
@@ -301,6 +315,52 @@ export class OffboardingController {
     );
   }
 
+  @Get('dashboard')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_requests:read')
+  @ApiOperation({ summary: 'Get offboarding operational dashboard' })
+  getDashboard(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: OffboardingDashboardQueryDto,
+  ) {
+    return this.offboardingService.getDashboard(
+      req.user.companyId!,
+      query,
+      req.user,
+    );
+  }
+
+  @Get('tasks/my')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_tasks:read')
+  @ApiOperation({ summary: 'List my assigned offboarding tasks' })
+  listMyTasks(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: MyOffboardingTaskQueryDto,
+  ) {
+    return this.offboardingService.findMyOffboardingTasks(req.user, query);
+  }
+
+  @Get('clearances/my')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_clearances:read')
+  @ApiOperation({ summary: 'List my assigned offboarding clearances' })
+  listMyClearances(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: MyOffboardingClearanceQueryDto,
+  ) {
+    return this.offboardingService.findMyOffboardingClearances(req.user, query);
+  }
+
+  @Get('approvals/my')
+  @ApiOperation({ summary: 'List my offboarding approvals' })
+  listMyApprovals(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: MyOffboardingApprovalQueryDto,
+  ) {
+    return this.offboardingService.findMyOffboardingApprovals(req.user, query);
+  }
+
   @Post('requests/:id/documents')
   @UseGuards(PermissionsGuard)
   @Permissions('offboarding_documents:create')
@@ -390,6 +450,198 @@ export class OffboardingController {
     );
   }
 
+  @Get('requests/:id/actions')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_requests:read')
+  @ApiOperation({ summary: 'List offboarding actions' })
+  listActions(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.offboardingService.listActions(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
+  }
+
+  @Post('requests/:id/actions')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_requests:update')
+  @ApiOperation({ summary: 'Create offboarding action' })
+  createAction(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateOffboardingActionDto,
+  ) {
+    return this.offboardingService.createAction(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+      this.getRequestContext(req),
+    );
+  }
+
+  @Patch('requests/:id/actions/:actionId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_requests:update')
+  @ApiOperation({ summary: 'Update offboarding action' })
+  updateAction(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('actionId', ParseIntPipe) actionId: number,
+    @Body() dto: UpdateOffboardingActionDto,
+  ) {
+    return this.offboardingService.updateAction(
+      req.user.companyId!,
+      id,
+      actionId,
+      dto,
+      req.user,
+      this.getRequestContext(req),
+    );
+  }
+
+  @Get('requests/:id/assets')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_requests:read')
+  @ApiOperation({ summary: 'List offboarding asset returns' })
+  listAssetReturns(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.offboardingService.listAssetReturns(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
+  }
+
+  @Post('requests/:id/assets')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_requests:update')
+  @ApiOperation({ summary: 'Create offboarding asset return entry' })
+  createAssetReturn(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateOffboardingAssetReturnDto,
+  ) {
+    return this.offboardingService.createAssetReturn(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+      this.getRequestContext(req),
+    );
+  }
+
+  @Patch('requests/:id/assets/:assetReturnId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_requests:update')
+  @ApiOperation({ summary: 'Update offboarding asset return entry' })
+  updateAssetReturn(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('assetReturnId', ParseIntPipe) assetReturnId: number,
+    @Body() dto: UpdateOffboardingAssetReturnDto,
+  ) {
+    return this.offboardingService.updateAssetReturn(
+      req.user.companyId!,
+      id,
+      assetReturnId,
+      dto,
+      req.user,
+      this.getRequestContext(req),
+    );
+  }
+
+  @Get('requests/:id/settlements')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_requests:read')
+  @ApiOperation({ summary: 'List offboarding settlement items' })
+  listSettlementItems(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.offboardingService.listSettlementItems(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
+  }
+
+  @Post('requests/:id/settlements')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_requests:update')
+  @ApiOperation({ summary: 'Create offboarding settlement item' })
+  createSettlementItem(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateOffboardingSettlementItemDto,
+  ) {
+    return this.offboardingService.createSettlementItem(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+      this.getRequestContext(req),
+    );
+  }
+
+  @Patch('requests/:id/settlements/:itemId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_requests:update')
+  @ApiOperation({ summary: 'Update offboarding settlement item' })
+  updateSettlementItem(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('itemId', ParseIntPipe) itemId: number,
+    @Body() dto: UpdateOffboardingSettlementItemDto,
+  ) {
+    return this.offboardingService.updateSettlementItem(
+      req.user.companyId!,
+      id,
+      itemId,
+      dto,
+      req.user,
+      this.getRequestContext(req),
+    );
+  }
+
+  @Get('requests/:id/exit-interview')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_requests:read')
+  @ApiOperation({ summary: 'Get offboarding exit interview' })
+  getExitInterview(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.offboardingService.getExitInterview(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
+  }
+
+  @Patch('requests/:id/exit-interview')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_requests:update')
+  @ApiOperation({ summary: 'Create or update offboarding exit interview' })
+  upsertExitInterview(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpsertOffboardingExitInterviewDto,
+  ) {
+    return this.offboardingService.upsertExitInterview(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+      this.getRequestContext(req),
+    );
+  }
+
   @Post('requests/:id/tasks/:taskId/complete')
   @UseGuards(PermissionsGuard)
   @Permissions('offboarding_tasks:complete')
@@ -401,6 +653,46 @@ export class OffboardingController {
     @Body() dto: CompleteOffboardingTaskDto,
   ) {
     return this.offboardingService.completeTask(
+      req.user.companyId!,
+      id,
+      taskId,
+      dto,
+      req.user,
+      this.getRequestContext(req),
+    );
+  }
+
+  @Patch('requests/:id/tasks/:taskId/reassign')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_tasks:create')
+  @ApiOperation({ summary: 'Reassign offboarding task' })
+  reassignTask(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('taskId', ParseIntPipe) taskId: number,
+    @Body() dto: ReassignOffboardingTaskDto,
+  ) {
+    return this.offboardingService.reassignTask(
+      req.user.companyId!,
+      id,
+      taskId,
+      dto,
+      req.user,
+      this.getRequestContext(req),
+    );
+  }
+
+  @Post('requests/:id/tasks/:taskId/reopen')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_tasks:create')
+  @ApiOperation({ summary: 'Reopen offboarding task' })
+  reopenTask(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('taskId', ParseIntPipe) taskId: number,
+    @Body() dto: ReopenOffboardingTaskDto,
+  ) {
+    return this.offboardingService.reopenTask(
       req.user.companyId!,
       id,
       taskId,
@@ -431,8 +723,6 @@ export class OffboardingController {
   }
 
   @Post('requests/:id/approve')
-  @UseGuards(PermissionsGuard)
-  @Permissions('offboarding_requests:approve')
   @ApiOperation({ summary: 'Approve offboarding request at current level' })
   approveOffboarding(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -449,8 +739,6 @@ export class OffboardingController {
   }
 
   @Post('requests/:id/reject')
-  @UseGuards(PermissionsGuard)
-  @Permissions('offboarding_requests:approve')
   @ApiOperation({ summary: 'Reject offboarding request at current level' })
   rejectOffboarding(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -495,6 +783,26 @@ export class OffboardingController {
     @Body() dto: CompleteOffboardingClearanceDto,
   ) {
     return this.offboardingService.completeClearance(
+      req.user.companyId!,
+      id,
+      clearanceId,
+      dto,
+      req.user,
+      this.getRequestContext(req),
+    );
+  }
+
+  @Patch('requests/:id/clearances/:clearanceId/assign')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_clearances:create')
+  @ApiOperation({ summary: 'Assign offboarding clearance owner' })
+  assignClearance(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('clearanceId', ParseIntPipe) clearanceId: number,
+    @Body() dto: AssignOffboardingClearanceDto,
+  ) {
+    return this.offboardingService.assignClearance(
       req.user.companyId!,
       id,
       clearanceId,

@@ -74,6 +74,7 @@ import { EmployeeAcademicQualification } from './entities/employee-academic-qual
 import { EmployeeProfessionalQualification } from './entities/employee-professional-qualification.entity';
 import { EmployeeRelative } from './entities/employee-relative.entity';
 import { Employee } from './entities/employee.entity';
+import { FilesService } from '../../files/files.service';
 
 type EmployeeMutationDto = CreateEmployeeDto | UpdateEmployeeDto;
 
@@ -122,6 +123,7 @@ export class EmployeesService {
     private readonly onboardingService: OnboardingService,
     private readonly leaveBalanceService: LeaveBalanceService,
     private readonly attendanceReadinessService: EmployeeAttendanceReadinessService,
+    private readonly filesService: FilesService,
   ) {}
 
   private getEmployeeRepository(manager?: EntityManager): Repository<Employee> {
@@ -2335,6 +2337,31 @@ export class EmployeesService {
     return this.mapEmployee(employee, true);
   }
 
+  async updateMyProfilePhoto(
+    companyId: number,
+    userId: number,
+    profilePhotoUrl: string | null,
+  ) {
+    const membership = await this.findMembershipByUserId(companyId, userId);
+
+    if (!membership) {
+      throw new NotFoundException('Active company membership not found');
+    }
+
+    const employee = await this.employeeRepository.findOne({
+      where: { company_user_id: membership.id },
+    });
+
+    if (!employee) {
+      throw new NotFoundException('Employee not found');
+    }
+
+    employee.profile_photo_url = profilePhotoUrl;
+    await this.employeeRepository.save(employee);
+
+    return this.findMyProfile(companyId, userId);
+  }
+
   async findAll(
     companyId: number,
     query: EmployeeQueryDto,
@@ -2651,15 +2678,22 @@ export class EmployeesService {
   ) {
     const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+    const storedFile = await this.filesService.saveBase64File(
+      addEmployeeDocumentDto.file,
+      {
+        directorySegments: ['documents', 'employees', `company-${companyId}`],
+        fileNamePrefix: `employee-${employeeId}`,
+      },
+    );
 
     const documentRepository = this.getEmployeeDocumentRepository();
     const document = await documentRepository.save(
       documentRepository.create({
         employee_id: employee.id,
-        type: addEmployeeDocumentDto.type ?? null,
-        title: addEmployeeDocumentDto.title ?? null,
-        file_url: addEmployeeDocumentDto.file_url,
-        notes: addEmployeeDocumentDto.notes ?? null,
+        type: this.normalizeOptionalString(addEmployeeDocumentDto.type),
+        title: this.normalizeOptionalString(addEmployeeDocumentDto.title),
+        file_url: storedFile.publicPath,
+        notes: this.normalizeOptionalString(addEmployeeDocumentDto.notes),
         uploaded_by_company_user_id: actor.companyMembershipId ?? null,
       }),
     );

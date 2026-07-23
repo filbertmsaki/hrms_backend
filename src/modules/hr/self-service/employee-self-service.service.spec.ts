@@ -32,6 +32,7 @@ import { EmployeesService } from '../employees/employees.service';
 import { LeaveService } from '../leave/leave.service';
 import { UsersService } from '../../users/users.service';
 import { EmployeeSelfServiceService } from './employee-self-service.service';
+import { FilesService } from '../../files/files.service';
 import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
 import { AttendanceMobilePunch } from '../attendance/mobile-punches/entities/attendance-mobile-punch.entity';
 import { LeaveRequest } from '../leave/entities/leave-request.entity';
@@ -61,6 +62,7 @@ describe('EmployeeSelfServiceService', () => {
   };
   let employeesService: {
     findMyProfile: jest.Mock;
+    updateMyProfilePhoto: jest.Mock;
   };
   let usersService: {
     findMyProfileById: jest.Mock;
@@ -79,6 +81,10 @@ describe('EmployeeSelfServiceService', () => {
   };
   let timetableRepository: {
     findOne: jest.Mock;
+  };
+  let filesService: {
+    saveBufferFile: jest.Mock;
+    removeManagedFile: jest.Mock;
   };
 
   const actor: AuthenticatedUser = {
@@ -111,6 +117,7 @@ describe('EmployeeSelfServiceService', () => {
     };
     employeesService = {
       findMyProfile: jest.fn(),
+      updateMyProfilePhoto: jest.fn(),
     };
     usersService = {
       findMyProfileById: jest.fn(),
@@ -130,6 +137,10 @@ describe('EmployeeSelfServiceService', () => {
     timetableRepository = {
       findOne: jest.fn().mockResolvedValue(null),
     };
+    filesService = {
+      saveBufferFile: jest.fn(),
+      removeManagedFile: jest.fn(),
+    };
 
     service = new EmployeeSelfServiceService(
       usersService as unknown as UsersService,
@@ -148,6 +159,7 @@ describe('EmployeeSelfServiceService', () => {
       timetableRepository as unknown as Repository<Timetable>,
       {} as Repository<AttendanceCorrectionRequest>,
       {} as Repository<EmployeeProfileUpdateRequest>,
+      filesService as unknown as FilesService,
     );
   });
 
@@ -365,5 +377,51 @@ describe('EmployeeSelfServiceService', () => {
     await expect(
       service.getProfile({ ...actor, employeeId: undefined }),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('uploads a profile photo and updates the employee profile url', async () => {
+    employeesService.findMyProfile.mockResolvedValue({
+      id: 15,
+      employee_no: 'EMP-0015',
+      profile_photo_url: '/uploads/profile-photos/company-7/old-photo.jpg',
+    });
+    employeesService.updateMyProfilePhoto.mockResolvedValue({
+      id: 15,
+      profile_photo_url: '/uploads/profile-photos/company-7/new-photo.jpg',
+    });
+    filesService.saveBufferFile.mockResolvedValue({
+      publicPath: '/uploads/profile-photos/company-7/employee-15-new-photo.png',
+    });
+
+    const result = await service.uploadProfilePhoto(actor, {
+      originalname: 'avatar.png',
+      mimetype: 'image/png',
+      size: 128,
+      buffer: Buffer.from('png'),
+    });
+
+    expect(filesService.saveBufferFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileName: 'avatar.png',
+        mimeType: 'image/png',
+        fileSize: 128,
+        directorySegments: ['profile-photos', 'company-7'],
+      }),
+    );
+    expect(employeesService.updateMyProfilePhoto).toHaveBeenCalledWith(
+      7,
+      9,
+      '/uploads/profile-photos/company-7/employee-15-new-photo.png',
+    );
+    expect(filesService.removeManagedFile).toHaveBeenCalledWith(
+      '/uploads/profile-photos/company-7/old-photo.jpg',
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        message: 'Profile picture uploaded successfully.',
+        profile_photo_url:
+          '/uploads/profile-photos/company-7/employee-15-new-photo.png',
+      }),
+    );
   });
 });

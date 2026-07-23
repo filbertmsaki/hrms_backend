@@ -57,6 +57,67 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
+## Email safety override
+
+Use the shared recipient-override mechanism to prevent non-production email sends from reaching real users.
+
+Example non-production configuration:
+
+```env
+NODE_ENV=development
+
+MAIL_OVERRIDE_ENABLED=true
+MAIL_TEST_TO=test@example.com
+MAIL_TEST_CC=developer@example.com
+MAIL_TEST_BCC=qa@example.com
+```
+
+Behavior:
+
+- `local`, `development`, and `uat` never send to original recipients when `MAIL_OVERRIDE_ENABLED=true`.
+- Original `to`, `cc`, and `bcc` recipients are replaced with the configured test recipients.
+- The original recipients, current environment, and source module are appended to the generated email body for debugging.
+
+## File upload payloads
+
+Document-style uploads now use one shared Base64 payload structure across HR modules:
+
+```json
+{
+  "fileName": "document.pdf",
+  "fileSize": 245678,
+  "mimeType": "application/pdf",
+  "fileString": "base64-encoded-file-content"
+}
+```
+
+Current document endpoints expect that payload inside a `file` property:
+
+- `POST /onboarding/requests/:id/documents`
+- `POST /offboarding/requests/:id/documents`
+- `POST /leave/requests/:id/documents`
+- `POST /employees/:id/documents`
+
+The backend validates the file name, file size, MIME type, and Base64 content before saving, and all document/profile-photo files are persisted through the shared `FilesService`.
+- Original BCC recipients are never copied into normal email headers.
+- If recipient override is enabled in `local`, `development`, or `uat` and `MAIL_TEST_TO` is empty or invalid, delivery is blocked.
+- If recipient override is disabled in `local`, `development`, or `uat`, delivery is blocked as an additional safety guard.
+- `prod`, `production`, and `live` always send to the original recipients, and `MAIL_OVERRIDE_ENABLED=true` is ignored there.
+
+Supported environment aliases:
+
+- `local`
+- `dev`, `development`
+- `uat`
+- `prod`, `production`, `live`
+- `test`
+
+Verification:
+
+```bash
+$ npm test -- --runInBand --runTestsByPath src/modules/mail/mail-recipient-safety.util.spec.ts src/modules/mail/mail.service.spec.ts src/modules/hr/notifications/hr-notification.listener.spec.ts
+```
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.

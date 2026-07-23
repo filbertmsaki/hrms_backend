@@ -1,8 +1,14 @@
 import ExcelJS from 'exceljs';
+import { Logger } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { Company } from '../../companies/entities/company.entity';
 import { AttendanceDailySummary } from '../../hr/attendance/processing/entities/attendance-daily-summary.entity';
 import { AttendanceReportRow } from '../../hr/attendance/processing/reports/attendance-report.types';
+import {
+  applyMailRecipientSafety,
+  resolveMailRecipientSafetyConfigFromEnv,
+  type SafeSendMailOptions,
+} from '../../mail/mail-recipient-safety.util';
 import {
   buildEmployeeFullName,
   formatAttendanceTime,
@@ -74,7 +80,7 @@ type ReportMailTransportOptions = {
   };
 };
 
-type ReportMailSendOptions = {
+type ReportMailSendOptions = SafeSendMailOptions & {
   from: string;
   to: string;
   subject: string;
@@ -106,6 +112,7 @@ async function loadNodemailerModule(): Promise<NodemailerModule> {
 }
 
 export class DailyAttendanceReportRunner {
+  private readonly logger = new Logger(DailyAttendanceReportRunner.name);
   private readonly companyRepository: Repository<Company>;
   private readonly attendanceDailySummaryRepository: Repository<AttendanceDailySummary>;
   private readonly reportDefinitionRepository: Repository<ReportDefinition>;
@@ -342,7 +349,7 @@ export class DailyAttendanceReportRunner {
           : undefined,
       });
 
-      const mailResult = await transporter.sendMail({
+      const mailOptions: ReportMailSendOptions = {
         from: `"${smtpConfiguration.senderName || input.appName}" <${smtpConfiguration.senderEmail}>`,
         to: recipientEmail,
         subject,
@@ -354,7 +361,12 @@ export class DailyAttendanceReportRunner {
             contentType: attachment.mimeType,
           },
         ],
-      });
+        mailSafetyContext: {
+          sourceModule: 'DailyAttendanceReportRunner.setupTemplateAndSend',
+        },
+      };
+      this.applyMailSafety(mailOptions);
+      const mailResult = await transporter.sendMail(mailOptions);
 
       await this.reportExecutionAttemptRepository.save(
         this.reportExecutionAttemptRepository.create({
@@ -893,6 +905,14 @@ export class DailyAttendanceReportRunner {
         Number.isFinite(minute) ? minute : 0,
         Number.isFinite(second) ? second : 0,
       ),
+    );
+  }
+
+  private applyMailSafety(options: SafeSendMailOptions) {
+    applyMailRecipientSafety(
+      options,
+      resolveMailRecipientSafetyConfigFromEnv(process.env),
+      this.logger,
     );
   }
 }

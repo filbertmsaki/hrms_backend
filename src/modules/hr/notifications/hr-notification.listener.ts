@@ -15,11 +15,14 @@ import {
   OnboardingSubmittedEvent,
   OnboardingTaskAssignedEvent,
   OffboardingApprovalRequiredEvent,
+  OffboardingApprovalReminderEvent,
   OffboardingApprovedEvent,
+  OffboardingClearanceOverdueEvent,
   OffboardingClearanceRequiredEvent,
   OffboardingCompletedEvent,
   OffboardingSubmittedEvent,
   OffboardingTaskAssignedEvent,
+  OffboardingTaskOverdueEvent,
 } from './events';
 
 @Injectable()
@@ -271,6 +274,38 @@ export class HrNotificationListener {
     );
   }
 
+  @OnEvent(OffboardingTaskOverdueEvent.EVENT)
+  async onOffboardingTaskOverdue(
+    event: OffboardingTaskOverdueEvent,
+  ): Promise<void> {
+    if (!event.assigneeEmail) {
+      return;
+    }
+
+    await this.send(() =>
+      this.mailService.sendOffboardingTaskOverdueNotification(
+        event.assigneeEmail!,
+        event,
+      ),
+    );
+  }
+
+  @OnEvent(OffboardingApprovalReminderEvent.EVENT)
+  async onOffboardingApprovalReminder(
+    event: OffboardingApprovalReminderEvent,
+  ): Promise<void> {
+    if (!event.approverEmail) {
+      return;
+    }
+
+    await this.send(() =>
+      this.mailService.sendOffboardingApprovalReminderNotification(
+        event.approverEmail!,
+        event,
+      ),
+    );
+  }
+
   @OnEvent(OffboardingClearanceRequiredEvent.EVENT)
   async onOffboardingClearanceRequired(
     event: OffboardingClearanceRequiredEvent,
@@ -278,6 +313,22 @@ export class HrNotificationListener {
     await this.send(() =>
       this.mailService.sendOffboardingClearanceRequiredNotification(
         event.ownerEmail,
+        event,
+      ),
+    );
+  }
+
+  @OnEvent(OffboardingClearanceOverdueEvent.EVENT)
+  async onOffboardingClearanceOverdue(
+    event: OffboardingClearanceOverdueEvent,
+  ): Promise<void> {
+    if (!event.ownerEmail) {
+      return;
+    }
+
+    await this.send(() =>
+      this.mailService.sendOffboardingClearanceOverdueNotification(
+        event.ownerEmail!,
         event,
       ),
     );

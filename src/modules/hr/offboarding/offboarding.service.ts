@@ -28,37 +28,60 @@ import { EmployeeTimetableStatusEnum } from '../attendance/timetable/employee-ti
 import { Position } from '../positions/entities/position.entity';
 import { HrAccessService } from '../shared/hr-access.service';
 import { buildPaginationMeta } from '../shared/hr.utils';
+import { AssignOffboardingClearanceDto } from './dtos/assign-offboarding-clearance.dto';
 import { CancelOffboardingRequestDto } from './dtos/cancel-offboarding-request.dto';
 import { CompleteOffboardingClearanceDto } from './dtos/complete-offboarding-clearance.dto';
 import { CompleteOffboardingTaskDto } from './dtos/complete-offboarding-task.dto';
+import { CreateOffboardingActionDto } from './dtos/create-offboarding-action.dto';
+import { CreateOffboardingAssetReturnDto } from './dtos/create-offboarding-asset-return.dto';
 import { CreateOffboardingClearanceDto } from './dtos/create-offboarding-clearance.dto';
 import { CreateOffboardingRequestDto } from './dtos/create-offboarding-request.dto';
+import { CreateOffboardingSettlementItemDto } from './dtos/create-offboarding-settlement-item.dto';
 import { CreateOffboardingTaskDto } from './dtos/create-offboarding-task.dto';
 import { CreateOffboardingWorkflowStepDto } from './dtos/create-offboarding-workflow-step.dto';
 import { CreateOffboardingWorkflowDto } from './dtos/create-offboarding-workflow.dto';
+import { MyOffboardingApprovalQueryDto } from './dtos/my-offboarding-approval-query.dto';
+import { MyOffboardingClearanceQueryDto } from './dtos/my-offboarding-clearance-query.dto';
+import { MyOffboardingTaskQueryDto } from './dtos/my-offboarding-task-query.dto';
+import { OffboardingDashboardQueryDto } from './dtos/offboarding-dashboard-query.dto';
 import { OffboardingRequestQueryDto } from './dtos/offboarding-request-query.dto';
 import { OffboardingWorkflowQueryDto } from './dtos/offboarding-workflow-query.dto';
 import { OffboardingWorkflowStepInputDto } from './dtos/offboarding-workflow-step-input.dto';
+import { ReassignOffboardingTaskDto } from './dtos/reassign-offboarding-task.dto';
+import { ReopenOffboardingTaskDto } from './dtos/reopen-offboarding-task.dto';
 import { RejectOffboardingTaskDto } from './dtos/reject-offboarding-task.dto';
 import { SubmitOffboardingRequestDto } from './dtos/submit-offboarding-request.dto';
+import { UpdateOffboardingActionDto } from './dtos/update-offboarding-action.dto';
+import { UpdateOffboardingAssetReturnDto } from './dtos/update-offboarding-asset-return.dto';
 import { UpdateOffboardingRequestDto } from './dtos/update-offboarding-request.dto';
+import { UpdateOffboardingSettlementItemDto } from './dtos/update-offboarding-settlement-item.dto';
 import { UpdateOffboardingWorkflowStepDto } from './dtos/update-offboarding-workflow-step.dto';
 import { UpdateOffboardingWorkflowDto } from './dtos/update-offboarding-workflow.dto';
+import { UpsertOffboardingExitInterviewDto } from './dtos/upsert-offboarding-exit-interview.dto';
 import { UploadOffboardingDocumentDto } from './dtos/upload-offboarding-document.dto';
+import { OffboardingActionStatusEnum } from './enums/offboarding-action-status.enum';
 import { OffboardingApprovalStatusEnum } from './enums/offboarding-approval-status.enum';
 import { OffboardingApproverTypeEnum } from './enums/offboarding-approver-type.enum';
+import { OffboardingAssetStatusEnum } from './enums/offboarding-asset-status.enum';
+import { OffboardingExitInterviewStatusEnum } from './enums/offboarding-exit-interview-status.enum';
+import { OffboardingKnowledgeTransferStatusEnum } from './enums/offboarding-knowledge-transfer-status.enum';
 import { OffboardingAuditActionEnum } from './enums/offboarding-audit-action.enum';
 import { OffboardingClearanceStatusEnum } from './enums/offboarding-clearance-status.enum';
 import { OffboardingRecordStatusEnum } from './enums/offboarding-record-status.enum';
 import { OffboardingRequestStatusEnum } from './enums/offboarding-request-status.enum';
+import { OffboardingSettlementStatusEnum } from './enums/offboarding-settlement-status.enum';
 import { OffboardingTaskPriorityEnum } from './enums/offboarding-task-priority.enum';
 import { OffboardingTaskStatusEnum } from './enums/offboarding-task-status.enum';
 import { OffboardingTaskTypeEnum } from './enums/offboarding-task-type.enum';
 import { OffboardingTypeEnum } from './enums/offboarding-type.enum';
 import { OffboardingApproval } from './entities/offboarding-approval.entity';
+import { OffboardingAction } from './entities/offboarding-action.entity';
+import { OffboardingAssetReturn } from './entities/offboarding-asset-return.entity';
 import { OffboardingAuditLog } from './entities/offboarding-audit-log.entity';
 import { OffboardingClearance } from './entities/offboarding-clearance.entity';
+import { OffboardingExitInterview } from './entities/offboarding-exit-interview.entity';
 import { OffboardingRequest } from './entities/offboarding-request.entity';
+import { OffboardingSettlementItem } from './entities/offboarding-settlement-item.entity';
 import { OffboardingTask } from './entities/offboarding-task.entity';
 import { OffboardingWorkflowStep } from './entities/offboarding-workflow-step.entity';
 import { OffboardingWorkflow } from './entities/offboarding-workflow.entity';
@@ -77,14 +100,24 @@ import {
   buildNotificationRecipient,
   HR_NOTIFICATION_ROLE_NAMES,
 } from '../notifications/notification-recipient.util';
+import { FilesService } from '../../files/files.service';
 
 type ProgressSummary = {
   total_tasks: number;
   completed_tasks: number;
+  overdue_tasks: number;
+  total_actions: number;
+  completed_actions: number;
+  failed_actions: number;
   total_approvals: number;
   approved_approvals: number;
   total_clearances: number;
   cleared_clearances: number;
+  overdue_clearances: number;
+  total_assets: number;
+  returned_assets: number;
+  total_settlements: number;
+  completed_settlements: number;
   progress_percentage: string;
 };
 
@@ -106,10 +139,18 @@ export class OffboardingService {
     private readonly offboardingRequestRepository: Repository<OffboardingRequest>,
     @InjectRepository(OffboardingTask)
     private readonly offboardingTaskRepository: Repository<OffboardingTask>,
+    @InjectRepository(OffboardingAction)
+    private readonly offboardingActionRepository: Repository<OffboardingAction>,
+    @InjectRepository(OffboardingAssetReturn)
+    private readonly offboardingAssetReturnRepository: Repository<OffboardingAssetReturn>,
+    @InjectRepository(OffboardingSettlementItem)
+    private readonly offboardingSettlementItemRepository: Repository<OffboardingSettlementItem>,
     @InjectRepository(OffboardingApproval)
     private readonly offboardingApprovalRepository: Repository<OffboardingApproval>,
     @InjectRepository(OffboardingClearance)
     private readonly offboardingClearanceRepository: Repository<OffboardingClearance>,
+    @InjectRepository(OffboardingExitInterview)
+    private readonly offboardingExitInterviewRepository: Repository<OffboardingExitInterview>,
     @InjectRepository(OffboardingAuditLog)
     private readonly offboardingAuditLogRepository: Repository<OffboardingAuditLog>,
     @InjectRepository(Document)
@@ -141,6 +182,7 @@ export class OffboardingService {
     private readonly offboardingWorkflowService: OffboardingWorkflowService,
     private readonly eventEmitter: EventEmitter2,
     private readonly configService: ConfigService,
+    private readonly filesService: FilesService,
   ) {}
 
   private getOffboardingWorkflowRepository(
@@ -187,12 +229,48 @@ export class OffboardingService {
     );
   }
 
+  private getOffboardingActionRepository(
+    manager?: EntityManager,
+  ): Repository<OffboardingAction> {
+    return (
+      manager?.getRepository(OffboardingAction) ??
+      this.offboardingActionRepository
+    );
+  }
+
+  private getOffboardingAssetReturnRepository(
+    manager?: EntityManager,
+  ): Repository<OffboardingAssetReturn> {
+    return (
+      manager?.getRepository(OffboardingAssetReturn) ??
+      this.offboardingAssetReturnRepository
+    );
+  }
+
+  private getOffboardingSettlementItemRepository(
+    manager?: EntityManager,
+  ): Repository<OffboardingSettlementItem> {
+    return (
+      manager?.getRepository(OffboardingSettlementItem) ??
+      this.offboardingSettlementItemRepository
+    );
+  }
+
   private getOffboardingClearanceRepository(
     manager?: EntityManager,
   ): Repository<OffboardingClearance> {
     return (
       manager?.getRepository(OffboardingClearance) ??
       this.offboardingClearanceRepository
+    );
+  }
+
+  private getOffboardingExitInterviewRepository(
+    manager?: EntityManager,
+  ): Repository<OffboardingExitInterview> {
+    return (
+      manager?.getRepository(OffboardingExitInterview) ??
+      this.offboardingExitInterviewRepository
     );
   }
 
@@ -285,6 +363,10 @@ export class OffboardingService {
     return value;
   }
 
+  private hasPermission(actor: AuthenticatedUser, permission: string): boolean {
+    return actor.permissions.includes(permission);
+  }
+
   private hasElevatedOffboardingAccess(actor: AuthenticatedUser): boolean {
     const elevatedPermissions = new Set([
       'offboarding_workflows:read',
@@ -315,6 +397,60 @@ export class OffboardingService {
     return (
       actor.roles.includes('EMPLOYEE') &&
       !this.hasElevatedOffboardingAccess(actor)
+    );
+  }
+
+  private canOperateAssignedTask(
+    actor: AuthenticatedUser,
+    task: Pick<OffboardingTask, 'assigned_to_company_user_id'>,
+  ): boolean {
+    return (
+      this.hasElevatedOffboardingAccess(actor) ||
+      (actor.companyMembershipId !== undefined &&
+        actor.companyMembershipId !== null &&
+        task.assigned_to_company_user_id === actor.companyMembershipId)
+    );
+  }
+
+  private canOperateOwnedClearance(
+    actor: AuthenticatedUser,
+    clearance: Pick<OffboardingClearance, 'owner_company_user_id'>,
+  ): boolean {
+    return (
+      this.hasElevatedOffboardingAccess(actor) ||
+      (actor.companyMembershipId !== undefined &&
+        actor.companyMembershipId !== null &&
+        clearance.owner_company_user_id === actor.companyMembershipId)
+    );
+  }
+
+  private isActorAssignedAtCurrentApprovalLevel(
+    request: Pick<OffboardingRequest, 'approvals'>,
+    membershipId: number | null | undefined,
+  ): boolean {
+    if (!membershipId) {
+      return false;
+    }
+
+    const pendingApprovals = (request.approvals ?? [])
+      .filter(
+        (approval) => approval.status === OffboardingApprovalStatusEnum.PENDING,
+      )
+      .sort(
+        (left, right) =>
+          (left.workflow_step?.approval_level ?? Number.MAX_SAFE_INTEGER) -
+          (right.workflow_step?.approval_level ?? Number.MAX_SAFE_INTEGER),
+      );
+
+    if (!pendingApprovals.length) {
+      return false;
+    }
+
+    const currentLevel = pendingApprovals[0].workflow_step?.approval_level ?? 0;
+    return pendingApprovals.some(
+      (approval) =>
+        (approval.workflow_step?.approval_level ?? 0) === currentLevel &&
+        approval.approver_company_user_id === membershipId,
     );
   }
 
@@ -530,15 +666,38 @@ export class OffboardingService {
           primary_position: true,
         },
         workflow: true,
-        tasks: { assigned_to_company_user: { user: true } },
+        tasks: {
+          assigned_to_company_user: { user: true },
+          reopened_by_company_user: { user: true },
+          last_reassigned_by_company_user: { user: true },
+        },
+        actions: {
+          owner_company_user: { user: true },
+        },
+        asset_returns: {
+          owner_company_user: { user: true },
+          received_by_company_user: { user: true },
+        },
+        settlement_items: {
+          owner_company_user: { user: true },
+        },
         approvals: {
           approver_company_user: { user: true },
           workflow_step: true,
         },
-        clearances: { cleared_by_company_user: { user: true } },
+        clearances: {
+          owner_company_user: { user: true },
+          cleared_by_company_user: { user: true },
+        },
+        exit_interview: {
+          conducted_by_company_user: { user: true },
+        },
       },
       order: {
         tasks: { id: 'ASC' },
+        actions: { id: 'ASC' },
+        asset_returns: { id: 'ASC' },
+        settlement_items: { id: 'ASC' },
         approvals: { id: 'ASC' },
         clearances: { id: 'ASC' },
       },
@@ -998,6 +1157,66 @@ export class OffboardingService {
     };
   }
 
+  private isTaskOverdue(entity: Pick<OffboardingTask, 'status' | 'due_date'>) {
+    return Boolean(
+      entity.due_date &&
+      entity.due_date.getTime() < Date.now() &&
+      entity.status !== OffboardingTaskStatusEnum.COMPLETED &&
+      entity.status !== OffboardingTaskStatusEnum.CANCELLED,
+    );
+  }
+
+  private isClearanceOverdue(
+    entity: Pick<OffboardingClearance, 'status' | 'due_date'>,
+  ) {
+    return Boolean(
+      entity.due_date &&
+      entity.due_date.getTime() < Date.now() &&
+      entity.status === OffboardingClearanceStatusEnum.PENDING,
+    );
+  }
+
+  private isActionComplete(entity: Pick<OffboardingAction, 'status'>) {
+    return entity.status === OffboardingActionStatusEnum.COMPLETED;
+  }
+
+  private isActionFailed(entity: Pick<OffboardingAction, 'status'>) {
+    return entity.status === OffboardingActionStatusEnum.FAILED;
+  }
+
+  private isActionOpen(entity: Pick<OffboardingAction, 'status'>) {
+    return (
+      entity.status === OffboardingActionStatusEnum.PENDING ||
+      entity.status === OffboardingActionStatusEnum.IN_PROGRESS
+    );
+  }
+
+  private isAssetResolved(entity: Pick<OffboardingAssetReturn, 'status'>) {
+    return (
+      entity.status === OffboardingAssetStatusEnum.RETURNED ||
+      entity.status === OffboardingAssetStatusEnum.WAIVED
+    );
+  }
+
+  private isAssetBlocking(entity: Pick<OffboardingAssetReturn, 'status'>) {
+    return entity.status === OffboardingAssetStatusEnum.MISSING;
+  }
+
+  private isSettlementResolved(
+    entity: Pick<OffboardingSettlementItem, 'status'>,
+  ) {
+    return (
+      entity.status === OffboardingSettlementStatusEnum.COMPLETED ||
+      entity.status === OffboardingSettlementStatusEnum.WAIVED
+    );
+  }
+
+  private isSettlementBlocking(
+    entity: Pick<OffboardingSettlementItem, 'status'>,
+  ) {
+    return entity.status === OffboardingSettlementStatusEnum.BLOCKED;
+  }
+
   private mapTask(entity: OffboardingTask) {
     return {
       id: entity.id,
@@ -1011,7 +1230,13 @@ export class OffboardingService {
       status: entity.status,
       priority: entity.priority,
       due_date: entity.due_date,
+      is_overdue: this.isTaskOverdue(entity),
       completed_at: entity.completed_at,
+      reopened_at: entity.reopened_at,
+      reopened_by_company_user_id: entity.reopened_by_company_user_id,
+      reassigned_at: entity.reassigned_at,
+      last_reassigned_by_company_user_id:
+        entity.last_reassigned_by_company_user_id,
       remarks: entity.remarks,
       metadata: entity.metadata,
       created_at: entity.created_at,
@@ -1022,6 +1247,51 @@ export class OffboardingService {
             first_name: entity.assigned_to_company_user.user.first_name,
             last_name: entity.assigned_to_company_user.user.last_name,
             email: entity.assigned_to_company_user.user.email,
+          }
+        : null,
+      reopened_by: entity.reopened_by_company_user?.user
+        ? {
+            id: entity.reopened_by_company_user.user.id,
+            first_name: entity.reopened_by_company_user.user.first_name,
+            last_name: entity.reopened_by_company_user.user.last_name,
+            email: entity.reopened_by_company_user.user.email,
+          }
+        : null,
+      last_reassigned_by: entity.last_reassigned_by_company_user?.user
+        ? {
+            id: entity.last_reassigned_by_company_user.user.id,
+            first_name: entity.last_reassigned_by_company_user.user.first_name,
+            last_name: entity.last_reassigned_by_company_user.user.last_name,
+            email: entity.last_reassigned_by_company_user.user.email,
+          }
+        : null,
+    };
+  }
+
+  private mapAction(entity: OffboardingAction) {
+    return {
+      id: entity.id,
+      company_id: entity.company_id,
+      offboarding_request_id: entity.offboarding_request_id,
+      action_type: entity.action_type,
+      system_name: entity.system_name,
+      owner_company_user_id: entity.owner_company_user_id,
+      status: entity.status,
+      due_date: entity.due_date,
+      requested_at: entity.requested_at,
+      completed_at: entity.completed_at,
+      external_reference: entity.external_reference,
+      error_message: entity.error_message,
+      notes: entity.notes,
+      metadata: entity.metadata,
+      created_at: entity.created_at,
+      updated_at: entity.updated_at,
+      owner: entity.owner_company_user?.user
+        ? {
+            id: entity.owner_company_user.user.id,
+            first_name: entity.owner_company_user.user.first_name,
+            last_name: entity.owner_company_user.user.last_name,
+            email: entity.owner_company_user.user.email,
           }
         : null,
     };
@@ -1051,6 +1321,71 @@ export class OffboardingService {
     };
   }
 
+  private mapAssetReturn(entity: OffboardingAssetReturn) {
+    return {
+      id: entity.id,
+      company_id: entity.company_id,
+      offboarding_request_id: entity.offboarding_request_id,
+      asset_type: entity.asset_type,
+      asset_label: entity.asset_label,
+      asset_identifier: entity.asset_identifier,
+      owner_company_user_id: entity.owner_company_user_id,
+      status: entity.status,
+      due_date: entity.due_date,
+      returned_at: entity.returned_at,
+      received_by_company_user_id: entity.received_by_company_user_id,
+      condition_notes: entity.condition_notes,
+      remarks: entity.remarks,
+      metadata: entity.metadata,
+      created_at: entity.created_at,
+      updated_at: entity.updated_at,
+      owner: entity.owner_company_user?.user
+        ? {
+            id: entity.owner_company_user.user.id,
+            first_name: entity.owner_company_user.user.first_name,
+            last_name: entity.owner_company_user.user.last_name,
+            email: entity.owner_company_user.user.email,
+          }
+        : null,
+      received_by: entity.received_by_company_user?.user
+        ? {
+            id: entity.received_by_company_user.user.id,
+            first_name: entity.received_by_company_user.user.first_name,
+            last_name: entity.received_by_company_user.user.last_name,
+            email: entity.received_by_company_user.user.email,
+          }
+        : null,
+    };
+  }
+
+  private mapSettlementItem(entity: OffboardingSettlementItem) {
+    return {
+      id: entity.id,
+      company_id: entity.company_id,
+      offboarding_request_id: entity.offboarding_request_id,
+      item_type: entity.item_type,
+      title: entity.title,
+      owner_company_user_id: entity.owner_company_user_id,
+      status: entity.status,
+      amount: entity.amount,
+      currency: entity.currency,
+      due_date: entity.due_date,
+      completed_at: entity.completed_at,
+      remarks: entity.remarks,
+      metadata: entity.metadata,
+      created_at: entity.created_at,
+      updated_at: entity.updated_at,
+      owner: entity.owner_company_user?.user
+        ? {
+            id: entity.owner_company_user.user.id,
+            first_name: entity.owner_company_user.user.first_name,
+            last_name: entity.owner_company_user.user.last_name,
+            email: entity.owner_company_user.user.email,
+          }
+        : null,
+    };
+  }
+
   private mapClearance(entity: OffboardingClearance) {
     return {
       id: entity.id,
@@ -1058,15 +1393,50 @@ export class OffboardingService {
       clearance_type: entity.clearance_type,
       status: entity.status,
       remarks: entity.remarks,
+      owner_company_user_id: entity.owner_company_user_id,
+      due_date: entity.due_date,
+      is_overdue: this.isClearanceOverdue(entity),
       cleared_by_company_user_id: entity.cleared_by_company_user_id,
       cleared_at: entity.cleared_at,
       created_at: entity.created_at,
+      owner: entity.owner_company_user?.user
+        ? {
+            id: entity.owner_company_user.user.id,
+            first_name: entity.owner_company_user.user.first_name,
+            last_name: entity.owner_company_user.user.last_name,
+            email: entity.owner_company_user.user.email,
+          }
+        : null,
       cleared_by: entity.cleared_by_company_user?.user
         ? {
             id: entity.cleared_by_company_user.user.id,
             first_name: entity.cleared_by_company_user.user.first_name,
             last_name: entity.cleared_by_company_user.user.last_name,
             email: entity.cleared_by_company_user.user.email,
+          }
+        : null,
+    };
+  }
+
+  private mapQueueRequestSummary(
+    entity: OffboardingRequest | null | undefined,
+  ) {
+    if (!entity) {
+      return null;
+    }
+
+    return {
+      id: entity.id,
+      offboarding_code: entity.offboarding_code,
+      title: entity.title,
+      status: entity.status,
+      last_working_date: entity.last_working_date,
+      employee: entity.employee
+        ? {
+            id: entity.employee.id,
+            employee_no: entity.employee.employee_no,
+            first_name: entity.employee.first_name,
+            last_name: entity.employee.last_name,
           }
         : null,
     };
@@ -1092,6 +1462,41 @@ export class OffboardingService {
       uploaded_by_company_user_id: entity.uploaded_by_company_user_id,
       created_at: entity.created_at,
       updated_at: entity.updated_at,
+    };
+  }
+
+  private mapExitInterview(
+    entity: OffboardingExitInterview | null | undefined,
+  ) {
+    if (!entity) {
+      return null;
+    }
+
+    return {
+      id: entity.id,
+      offboarding_request_id: entity.offboarding_request_id,
+      conducted_by_company_user_id: entity.conducted_by_company_user_id,
+      status: entity.status,
+      exit_reason_category: entity.exit_reason_category,
+      employee_feedback: entity.employee_feedback,
+      manager_feedback: entity.manager_feedback,
+      rehire_eligible: entity.rehire_eligible,
+      knowledge_transfer_status: entity.knowledge_transfer_status,
+      handover_notes: entity.handover_notes,
+      final_notes: entity.final_notes,
+      submitted_at: entity.submitted_at,
+      completed_at: entity.completed_at,
+      metadata: entity.metadata,
+      created_at: entity.created_at,
+      updated_at: entity.updated_at,
+      conducted_by: entity.conducted_by_company_user?.user
+        ? {
+            id: entity.conducted_by_company_user.user.id,
+            first_name: entity.conducted_by_company_user.user.first_name,
+            last_name: entity.conducted_by_company_user.user.last_name,
+            email: entity.conducted_by_company_user.user.email,
+          }
+        : null,
     };
   }
 
@@ -1129,11 +1534,21 @@ export class OffboardingService {
       },
       workflow: this.mapWorkflow(entity.workflow),
       tasks: entity.tasks?.map((task) => this.mapTask(task)) ?? [],
+      actions: entity.actions?.map((action) => this.mapAction(action)) ?? [],
+      asset_returns:
+        entity.asset_returns?.map((assetReturn) =>
+          this.mapAssetReturn(assetReturn),
+        ) ?? [],
+      settlement_items:
+        entity.settlement_items?.map((settlementItem) =>
+          this.mapSettlementItem(settlementItem),
+        ) ?? [],
       approvals:
         entity.approvals?.map((approval) => this.mapApproval(approval)) ?? [],
       clearances:
         entity.clearances?.map((clearance) => this.mapClearance(clearance)) ??
         [],
+      exit_interview: this.mapExitInterview(entity.exit_interview),
       documents: documents.map((document) => this.mapDocument(document)),
     };
   }
@@ -1158,12 +1573,31 @@ export class OffboardingService {
     manager?: EntityManager,
   ): Promise<ProgressSummary> {
     const taskRepository = this.getOffboardingTaskRepository(manager);
+    const actionRepository = this.getOffboardingActionRepository(manager);
+    const assetReturnRepository =
+      this.getOffboardingAssetReturnRepository(manager);
+    const settlementItemRepository =
+      this.getOffboardingSettlementItemRepository(manager);
     const approvalRepository = this.getOffboardingApprovalRepository(manager);
     const clearanceRepository = this.getOffboardingClearanceRepository(manager);
     const requestRepository = this.getOffboardingRequestRepository(manager);
 
-    const [tasks, approvals, clearances] = await Promise.all([
+    const [
+      tasks,
+      actions,
+      assetReturns,
+      settlementItems,
+      approvals,
+      clearances,
+    ] = await Promise.all([
       taskRepository.find({ where: { offboarding_request_id: request.id } }),
+      actionRepository.find({ where: { offboarding_request_id: request.id } }),
+      assetReturnRepository.find({
+        where: { offboarding_request_id: request.id },
+      }),
+      settlementItemRepository.find({
+        where: { offboarding_request_id: request.id },
+      }),
       approvalRepository.find({
         where: { offboarding_request_id: request.id },
       }),
@@ -1176,6 +1610,16 @@ export class OffboardingService {
     const completedTasks = tasks.filter(
       (task) => task.status === OffboardingTaskStatusEnum.COMPLETED,
     ).length;
+    const overdueTasks = tasks.filter((task) =>
+      this.isTaskOverdue(task),
+    ).length;
+    const totalActions = actions.length;
+    const completedActions = actions.filter((action) =>
+      this.isActionComplete(action),
+    ).length;
+    const failedActions = actions.filter((action) =>
+      this.isActionFailed(action),
+    ).length;
     const totalApprovals = approvals.length;
     const approvedApprovals = approvals.filter(
       (approval) =>
@@ -1187,16 +1631,36 @@ export class OffboardingService {
       (clearance) =>
         clearance.status === OffboardingClearanceStatusEnum.CLEARED,
     ).length;
+    const overdueClearances = clearances.filter((clearance) =>
+      this.isClearanceOverdue(clearance),
+    ).length;
+    const totalAssets = assetReturns.length;
+    const returnedAssets = assetReturns.filter((assetReturn) =>
+      this.isAssetResolved(assetReturn),
+    ).length;
+    const totalSettlements = settlementItems.length;
+    const completedSettlements = settlementItems.filter((settlementItem) =>
+      this.isSettlementResolved(settlementItem),
+    ).length;
 
     const ratios: number[] = [];
     if (totalTasks > 0) {
       ratios.push(completedTasks / totalTasks);
+    }
+    if (totalActions > 0) {
+      ratios.push(completedActions / totalActions);
     }
     if (totalApprovals > 0) {
       ratios.push(approvedApprovals / totalApprovals);
     }
     if (totalClearances > 0) {
       ratios.push(clearedClearances / totalClearances);
+    }
+    if (totalAssets > 0) {
+      ratios.push(returnedAssets / totalAssets);
+    }
+    if (totalSettlements > 0) {
+      ratios.push(completedSettlements / totalSettlements);
     }
 
     const progressValue = ratios.length
@@ -1221,12 +1685,27 @@ export class OffboardingService {
             task.status === OffboardingTaskStatusEnum.PENDING ||
             task.status === OffboardingTaskStatusEnum.IN_PROGRESS,
         );
+        const hasOpenActions = actions.some((action) =>
+          this.isActionOpen(action),
+        );
         const hasOpenClearances = clearances.some(
           (clearance) =>
             clearance.status === OffboardingClearanceStatusEnum.PENDING,
         );
+        const hasOpenAssets = assetReturns.some(
+          (assetReturn) => !this.isAssetResolved(assetReturn),
+        );
+        const hasOpenSettlements = settlementItems.some(
+          (settlementItem) => !this.isSettlementResolved(settlementItem),
+        );
 
-        if (hasOpenTasks || hasOpenClearances) {
+        if (
+          hasOpenTasks ||
+          hasOpenActions ||
+          hasOpenClearances ||
+          hasOpenAssets ||
+          hasOpenSettlements
+        ) {
           request.status = OffboardingRequestStatusEnum.IN_PROGRESS;
         } else if (totalApprovals > 0) {
           request.status = OffboardingRequestStatusEnum.APPROVED;
@@ -1239,10 +1718,19 @@ export class OffboardingService {
     return {
       total_tasks: totalTasks,
       completed_tasks: completedTasks,
+      overdue_tasks: overdueTasks,
+      total_actions: totalActions,
+      completed_actions: completedActions,
+      failed_actions: failedActions,
       total_approvals: totalApprovals,
       approved_approvals: approvedApprovals,
       total_clearances: totalClearances,
       cleared_clearances: clearedClearances,
+      overdue_clearances: overdueClearances,
+      total_assets: totalAssets,
+      returned_assets: returnedAssets,
+      total_settlements: totalSettlements,
+      completed_settlements: completedSettlements,
       progress_percentage: request.progress_percentage,
     };
   }
@@ -1254,6 +1742,9 @@ export class OffboardingService {
       department_id?: number | null;
       workflow_id?: number | null;
       assigned_to_company_user_id?: number | null;
+      owner_company_user_id?: number | null;
+      received_by_company_user_id?: number | null;
+      conducted_by_company_user_id?: number | null;
     },
     manager?: EntityManager,
   ): Promise<void> {
@@ -1295,6 +1786,42 @@ export class OffboardingService {
       });
       if (!companyUser) {
         throw new NotFoundException('Assigned company user not found');
+      }
+    }
+
+    if (payload.owner_company_user_id) {
+      const companyUser = await this.getCompanyUserRepository(manager).findOne({
+        where: {
+          id: payload.owner_company_user_id,
+          company_id: companyId,
+        },
+      });
+      if (!companyUser) {
+        throw new NotFoundException('Clearance owner not found');
+      }
+    }
+
+    if (payload.received_by_company_user_id) {
+      const companyUser = await this.getCompanyUserRepository(manager).findOne({
+        where: {
+          id: payload.received_by_company_user_id,
+          company_id: companyId,
+        },
+      });
+      if (!companyUser) {
+        throw new NotFoundException('Receiving company user not found');
+      }
+    }
+
+    if (payload.conducted_by_company_user_id) {
+      const companyUser = await this.getCompanyUserRepository(manager).findOne({
+        where: {
+          id: payload.conducted_by_company_user_id,
+          company_id: companyId,
+        },
+      });
+      if (!companyUser) {
+        throw new NotFoundException('Interview conductor not found');
       }
     }
   }
@@ -1906,23 +2433,7 @@ export class OffboardingService {
         );
       }
 
-      return repository.findOneOrFail({
-        where: { id: saved.id, company_id: companyId },
-        relations: {
-          employee: {
-            company_user: true,
-            primary_department: true,
-            primary_position: true,
-          },
-          workflow: true,
-          tasks: { assigned_to_company_user: { user: true } },
-          approvals: {
-            approver_company_user: { user: true },
-            workflow_step: true,
-          },
-          clearances: { cleared_by_company_user: { user: true } },
-        },
-      });
+      return this.findOffboardingRequestOrFail(companyId, saved.id, manager);
     });
 
     await this.offboardingAuditService.log({
@@ -2114,23 +2625,7 @@ export class OffboardingService {
       await repository.save(current);
       await this.updateRequestProgress(current, manager);
 
-      return repository.findOneOrFail({
-        where: { id: current.id, company_id: companyId },
-        relations: {
-          employee: {
-            company_user: true,
-            primary_department: true,
-            primary_position: true,
-          },
-          workflow: true,
-          tasks: { assigned_to_company_user: { user: true } },
-          approvals: {
-            approver_company_user: { user: true },
-            workflow_step: true,
-          },
-          clearances: { cleared_by_company_user: { user: true } },
-        },
-      });
+      return this.findOffboardingRequestOrFail(companyId, current.id, manager);
     });
 
     await this.offboardingAuditService.log({
@@ -2309,6 +2804,60 @@ export class OffboardingService {
       );
     }
 
+    const hasOpenActions = (request.actions ?? []).some((action) =>
+      this.isActionOpen(action),
+    );
+    if (hasOpenActions) {
+      throw new BadRequestException(
+        'All access-revocation actions must be completed before finalization',
+      );
+    }
+
+    const hasFailedAction = (request.actions ?? []).some((action) =>
+      this.isActionFailed(action),
+    );
+    if (hasFailedAction) {
+      throw new BadRequestException(
+        'Cannot complete offboarding with failed operational actions',
+      );
+    }
+
+    const hasPendingAssets = (request.asset_returns ?? []).some(
+      (assetReturn) => !this.isAssetResolved(assetReturn),
+    );
+    if (hasPendingAssets) {
+      throw new BadRequestException(
+        'All asset-return items must be resolved before finalization',
+      );
+    }
+
+    const hasBlockingAsset = (request.asset_returns ?? []).some((assetReturn) =>
+      this.isAssetBlocking(assetReturn),
+    );
+    if (hasBlockingAsset) {
+      throw new BadRequestException(
+        'Cannot complete offboarding with missing or unresolved assets',
+      );
+    }
+
+    const hasPendingSettlements = (request.settlement_items ?? []).some(
+      (settlementItem) => !this.isSettlementResolved(settlementItem),
+    );
+    if (hasPendingSettlements) {
+      throw new BadRequestException(
+        'All settlement items must be resolved before finalization',
+      );
+    }
+
+    const hasBlockedSettlements = (request.settlement_items ?? []).some(
+      (settlementItem) => this.isSettlementBlocking(settlementItem),
+    );
+    if (hasBlockedSettlements) {
+      throw new BadRequestException(
+        'Cannot complete offboarding with blocked settlement items',
+      );
+    }
+
     const completed = await this.dataSource.transaction(async (manager) => {
       const requestRepository = this.getOffboardingRequestRepository(manager);
       const employeeRepository = this.getEmployeeRepository(manager);
@@ -2338,23 +2887,7 @@ export class OffboardingService {
         manager,
       );
 
-      return requestRepository.findOneOrFail({
-        where: { id: current.id, company_id: companyId },
-        relations: {
-          employee: {
-            company_user: true,
-            primary_department: true,
-            primary_position: true,
-          },
-          workflow: true,
-          tasks: { assigned_to_company_user: { user: true } },
-          approvals: {
-            approver_company_user: { user: true },
-            workflow_step: true,
-          },
-          clearances: { cleared_by_company_user: { user: true } },
-        },
-      });
+      return this.findOffboardingRequestOrFail(companyId, current.id, manager);
     });
 
     await this.offboardingAuditService.log({
@@ -2518,6 +3051,982 @@ export class OffboardingService {
     };
   }
 
+  async findMyOffboardingTasks(
+    actor: AuthenticatedUser,
+    query: MyOffboardingTaskQueryDto,
+  ) {
+    this.hrAccessService.assertCompanyScopedActor(actor);
+    if (!actor.companyMembershipId || !actor.companyId) {
+      throw new ForbiddenException(
+        'Company membership is required to access assigned offboarding tasks',
+      );
+    }
+
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const sortBy = query.sortBy ?? 'due_date';
+    const sortOrder = query.sortOrder ?? SortDirection.ASC;
+    const qb = this.offboardingTaskRepository
+      .createQueryBuilder('task')
+      .leftJoinAndSelect('task.assigned_to_company_user', 'assignedMembership')
+      .leftJoinAndSelect('assignedMembership.user', 'assignedUser')
+      .leftJoinAndSelect('task.reopened_by_company_user', 'reopenedMembership')
+      .leftJoinAndSelect('reopenedMembership.user', 'reopenedUser')
+      .leftJoinAndSelect(
+        'task.last_reassigned_by_company_user',
+        'reassignedMembership',
+      )
+      .leftJoinAndSelect('reassignedMembership.user', 'reassignedUser')
+      .leftJoinAndSelect('task.offboarding_request', 'request')
+      .leftJoinAndSelect('request.employee', 'employee')
+      .where('task.company_id = :companyId', { companyId: actor.companyId })
+      .andWhere('task.assigned_to_company_user_id = :membershipId', {
+        membershipId: actor.companyMembershipId,
+      });
+
+    if (query.status) {
+      qb.andWhere('task.status = :status', { status: query.status });
+    }
+
+    if (query.priority) {
+      qb.andWhere('task.priority = :priority', { priority: query.priority });
+    }
+
+    if (query.search) {
+      qb.andWhere(
+        '(task.title LIKE :search OR request.offboarding_code LIKE :search OR employee.first_name LIKE :search OR employee.last_name LIKE :search)',
+        {
+          search: `%${query.search}%`,
+        },
+      );
+    }
+
+    const sortableColumns = new Set([
+      'id',
+      'created_at',
+      'updated_at',
+      'due_date',
+      'priority',
+      'status',
+      'title',
+    ]);
+    const safeSortBy = sortableColumns.has(sortBy) ? sortBy : 'due_date';
+
+    const [items, total] = await qb
+      .orderBy(
+        `task.${safeSortBy}`,
+        sortOrder === SortDirection.DESC ? 'DESC' : 'ASC',
+        safeSortBy === 'due_date' ? 'NULLS LAST' : undefined,
+      )
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    return {
+      data: items.map((item) => ({
+        ...this.mapTask(item),
+        request: this.mapQueueRequestSummary(item.offboarding_request),
+      })),
+      meta: buildPaginationMeta(total, items.length, limit, page),
+    };
+  }
+
+  async findMyOffboardingClearances(
+    actor: AuthenticatedUser,
+    query: MyOffboardingClearanceQueryDto,
+  ) {
+    this.hrAccessService.assertCompanyScopedActor(actor);
+    if (!actor.companyMembershipId || !actor.companyId) {
+      throw new ForbiddenException(
+        'Company membership is required to access assigned offboarding clearances',
+      );
+    }
+
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const sortBy = query.sortBy ?? 'due_date';
+    const sortOrder = query.sortOrder ?? SortDirection.ASC;
+    const qb = this.offboardingClearanceRepository
+      .createQueryBuilder('clearance')
+      .leftJoinAndSelect('clearance.owner_company_user', 'ownerMembership')
+      .leftJoinAndSelect('ownerMembership.user', 'ownerUser')
+      .leftJoinAndSelect(
+        'clearance.cleared_by_company_user',
+        'clearedMembership',
+      )
+      .leftJoinAndSelect('clearedMembership.user', 'clearedUser')
+      .leftJoinAndSelect('clearance.offboarding_request', 'request')
+      .leftJoinAndSelect('request.employee', 'employee')
+      .leftJoinAndSelect('request.company', 'company')
+      .where('request.company_id = :companyId', { companyId: actor.companyId })
+      .andWhere('clearance.owner_company_user_id = :membershipId', {
+        membershipId: actor.companyMembershipId,
+      });
+
+    if (query.status) {
+      qb.andWhere('clearance.status = :status', { status: query.status });
+    }
+
+    if (query.clearance_type) {
+      qb.andWhere('clearance.clearance_type = :clearanceType', {
+        clearanceType: query.clearance_type,
+      });
+    }
+
+    if (query.search) {
+      qb.andWhere(
+        '(request.offboarding_code LIKE :search OR employee.first_name LIKE :search OR employee.last_name LIKE :search)',
+        {
+          search: `%${query.search}%`,
+        },
+      );
+    }
+
+    const sortableColumns = new Set([
+      'id',
+      'created_at',
+      'due_date',
+      'status',
+      'clearance_type',
+    ]);
+    const safeSortBy = sortableColumns.has(sortBy) ? sortBy : 'due_date';
+
+    const [items, total] = await qb
+      .orderBy(
+        `clearance.${safeSortBy}`,
+        sortOrder === SortDirection.DESC ? 'DESC' : 'ASC',
+        safeSortBy === 'due_date' ? 'NULLS LAST' : undefined,
+      )
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    return {
+      data: items.map((item) => ({
+        ...this.mapClearance(item),
+        request: this.mapQueueRequestSummary(item.offboarding_request),
+      })),
+      meta: buildPaginationMeta(total, items.length, limit, page),
+    };
+  }
+
+  async findMyOffboardingApprovals(
+    actor: AuthenticatedUser,
+    query: MyOffboardingApprovalQueryDto,
+  ) {
+    this.hrAccessService.assertCompanyScopedActor(actor);
+    if (!actor.companyMembershipId || !actor.companyId) {
+      throw new ForbiddenException(
+        'Company membership is required to access offboarding approvals',
+      );
+    }
+
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const sortBy = query.sortBy ?? 'created_at';
+    const sortOrder = query.sortOrder ?? SortDirection.ASC;
+    const qb = this.offboardingApprovalRepository
+      .createQueryBuilder('approval')
+      .leftJoinAndSelect('approval.workflow_step', 'workflowStep')
+      .leftJoinAndSelect('approval.approver_company_user', 'approverMembership')
+      .leftJoinAndSelect('approverMembership.user', 'approverUser')
+      .leftJoinAndSelect('approval.offboarding_request', 'request')
+      .leftJoinAndSelect('request.employee', 'employee')
+      .where('approval.approver_company_user_id = :membershipId', {
+        membershipId: actor.companyMembershipId,
+      })
+      .andWhere('request.company_id = :companyId', {
+        companyId: actor.companyId,
+      });
+
+    if (query.status) {
+      qb.andWhere('approval.status = :status', { status: query.status });
+    }
+
+    if (query.search) {
+      qb.andWhere(
+        '(request.offboarding_code LIKE :search OR request.title LIKE :search OR employee.first_name LIKE :search OR employee.last_name LIKE :search)',
+        {
+          search: `%${query.search}%`,
+        },
+      );
+    }
+
+    const sortableColumns = new Set([
+      'id',
+      'created_at',
+      'updated_at',
+      'status',
+      'acted_at',
+    ]);
+    const safeSortBy = sortableColumns.has(sortBy) ? sortBy : 'created_at';
+
+    const [items, total] = await qb
+      .orderBy(
+        `approval.${safeSortBy}`,
+        sortOrder === SortDirection.DESC ? 'DESC' : 'ASC',
+      )
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    return {
+      data: items.map((item) => ({
+        ...this.mapApproval(item),
+        request: this.mapQueueRequestSummary(item.offboarding_request),
+      })),
+      meta: buildPaginationMeta(total, items.length, limit, page),
+    };
+  }
+
+  async getDashboard(
+    companyId: number,
+    query: OffboardingDashboardQueryDto,
+    actor: AuthenticatedUser,
+  ) {
+    this.hrAccessService.assertCompanyScopedActor(actor);
+    if (!this.hasElevatedOffboardingAccess(actor)) {
+      throw new ForbiddenException(
+        'Elevated offboarding access is required to view the dashboard',
+      );
+    }
+
+    await this.validateReferenceIds(companyId, {
+      branch_id: query.branch_id ?? null,
+      department_id: query.department_id ?? null,
+    });
+
+    const qb = this.offboardingRequestRepository
+      .createQueryBuilder('request')
+      .where('request.company_id = :companyId', { companyId });
+
+    if (query.branch_id) {
+      qb.andWhere('request.branch_id = :branchId', {
+        branchId: query.branch_id,
+      });
+    }
+
+    if (query.department_id) {
+      qb.andWhere('request.department_id = :departmentId', {
+        departmentId: query.department_id,
+      });
+    }
+
+    if (query.status) {
+      qb.andWhere('request.status = :status', { status: query.status });
+    }
+
+    if (query.offboarding_type) {
+      qb.andWhere('request.offboarding_type = :offboardingType', {
+        offboardingType: query.offboarding_type,
+      });
+    }
+
+    if (query.date_from) {
+      qb.andWhere('request.created_at >= :dateFrom', {
+        dateFrom: `${query.date_from} 00:00:00`,
+      });
+    }
+
+    if (query.date_to) {
+      qb.andWhere('request.created_at <= :dateTo', {
+        dateTo: `${query.date_to} 23:59:59`,
+      });
+    }
+
+    const requests = await qb.getMany();
+    const requestIds = requests.map((request) => request.id);
+
+    const [actions, assetReturns, settlementItems, tasks, clearances] =
+      requestIds.length > 0
+        ? await Promise.all([
+            this.offboardingActionRepository.find({
+              where: { offboarding_request_id: In(requestIds) },
+            }),
+            this.offboardingAssetReturnRepository.find({
+              where: { offboarding_request_id: In(requestIds) },
+            }),
+            this.offboardingSettlementItemRepository.find({
+              where: { offboarding_request_id: In(requestIds) },
+            }),
+            this.offboardingTaskRepository.find({
+              where: { offboarding_request_id: In(requestIds) },
+            }),
+            this.offboardingClearanceRepository.find({
+              where: { offboarding_request_id: In(requestIds) },
+            }),
+          ])
+        : [[], [], [], [], []];
+
+    const status_counts = Object.values(OffboardingRequestStatusEnum).reduce(
+      (acc, status) => ({
+        ...acc,
+        [status]: requests.filter((request) => request.status === status)
+          .length,
+      }),
+      {} as Record<string, number>,
+    );
+
+    const type_counts = Object.values(OffboardingTypeEnum).reduce(
+      (acc, type) => ({
+        ...acc,
+        [type]: requests.filter((request) => request.offboarding_type === type)
+          .length,
+      }),
+      {} as Record<string, number>,
+    );
+
+    const completedRequests = requests.filter(
+      (request) =>
+        request.status === OffboardingRequestStatusEnum.COMPLETED &&
+        request.completed_at,
+    );
+    const average_completion_days = completedRequests.length
+      ? Number(
+          (
+            completedRequests.reduce((sum, request) => {
+              const completedAt = request.completed_at!;
+              const createdAt = request.created_at;
+              return (
+                sum + (completedAt.getTime() - createdAt.getTime()) / 86400000
+              );
+            }, 0) / completedRequests.length
+          ).toFixed(2),
+        )
+      : 0;
+
+    return {
+      filters: query,
+      totals: {
+        requests: requests.length,
+        overdue_tasks: tasks.filter((task) => this.isTaskOverdue(task)).length,
+        overdue_clearances: clearances.filter((clearance) =>
+          this.isClearanceOverdue(clearance),
+        ).length,
+        failed_actions: actions.filter((action) => this.isActionFailed(action))
+          .length,
+        blocked_assets: assetReturns.filter((assetReturn) =>
+          this.isAssetBlocking(assetReturn),
+        ).length,
+        blocked_settlements: settlementItems.filter((settlementItem) =>
+          this.isSettlementBlocking(settlementItem),
+        ).length,
+      },
+      status_counts,
+      type_counts,
+      averages: {
+        completion_days: average_completion_days,
+      },
+      work_queues: {
+        actions: {
+          total: actions.length,
+          pending: actions.filter((action) => this.isActionOpen(action)).length,
+          completed: actions.filter((action) => this.isActionComplete(action))
+            .length,
+        },
+        assets: {
+          total: assetReturns.length,
+          resolved: assetReturns.filter((assetReturn) =>
+            this.isAssetResolved(assetReturn),
+          ).length,
+        },
+        settlements: {
+          total: settlementItems.length,
+          resolved: settlementItems.filter((settlementItem) =>
+            this.isSettlementResolved(settlementItem),
+          ).length,
+        },
+      },
+    };
+  }
+
+  async listActions(
+    companyId: number,
+    offboardingRequestId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
+    return request.actions?.map((action) => this.mapAction(action)) ?? [];
+  }
+
+  async createAction(
+    companyId: number,
+    offboardingRequestId: number,
+    dto: CreateOffboardingActionDto,
+    actor: AuthenticatedUser,
+    context?: RequestContext,
+  ) {
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
+
+    if (
+      request.status === OffboardingRequestStatusEnum.CANCELLED ||
+      request.status === OffboardingRequestStatusEnum.COMPLETED
+    ) {
+      throw new BadRequestException(
+        'Cannot add actions to a closed offboarding request',
+      );
+    }
+
+    await this.validateReferenceIds(companyId, {
+      owner_company_user_id: dto.owner_company_user_id ?? null,
+    });
+
+    const created = await this.dataSource.transaction(async (manager) => {
+      const actionRepository = this.getOffboardingActionRepository(manager);
+      const requestRepository = this.getOffboardingRequestRepository(manager);
+      const status = dto.status ?? OffboardingActionStatusEnum.PENDING;
+
+      const action = await actionRepository.save(
+        actionRepository.create({
+          company_id: companyId,
+          offboarding_request_id: offboardingRequestId,
+          action_type: dto.action_type,
+          system_name: this.normalizeOptionalString(dto.system_name),
+          owner_company_user_id: dto.owner_company_user_id ?? null,
+          status,
+          due_date: dto.due_date ? new Date(dto.due_date) : null,
+          requested_at: dto.requested_at
+            ? new Date(dto.requested_at)
+            : new Date(),
+          completed_at:
+            status === OffboardingActionStatusEnum.COMPLETED
+              ? new Date()
+              : null,
+          external_reference: this.normalizeOptionalString(
+            dto.external_reference,
+          ),
+          error_message: this.normalizeOptionalString(dto.error_message),
+          notes: this.normalizeOptionalString(dto.notes),
+          metadata: dto.metadata ?? null,
+        }),
+      );
+
+      const currentRequest = await requestRepository.findOneOrFail({
+        where: { id: offboardingRequestId, company_id: companyId },
+      });
+      await this.updateRequestProgress(currentRequest, manager);
+      return action;
+    });
+
+    await this.offboardingAuditService.log({
+      action: OffboardingAuditActionEnum.UPDATED,
+      offboarding_request_id: offboardingRequestId,
+      actor,
+      description: 'Offboarding action created',
+      metadata: { action_id: created.id, action_type: created.action_type },
+      ip_address: context?.ip_address ?? null,
+      user_agent: context?.user_agent ?? null,
+    });
+
+    return this.mapAction(created);
+  }
+
+  async updateAction(
+    companyId: number,
+    offboardingRequestId: number,
+    actionId: number,
+    dto: UpdateOffboardingActionDto,
+    actor: AuthenticatedUser,
+    context?: RequestContext,
+  ) {
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
+
+    await this.validateReferenceIds(companyId, {
+      owner_company_user_id: dto.owner_company_user_id ?? null,
+    });
+
+    const saved = await this.dataSource.transaction(async (manager) => {
+      const actionRepository = this.getOffboardingActionRepository(manager);
+      const requestRepository = this.getOffboardingRequestRepository(manager);
+      const action = await actionRepository.findOneOrFail({
+        where: { id: actionId, offboarding_request_id: offboardingRequestId },
+      });
+
+      if (dto.action_type !== undefined) action.action_type = dto.action_type;
+      if (dto.system_name !== undefined)
+        action.system_name = this.normalizeOptionalString(dto.system_name);
+      if (dto.owner_company_user_id !== undefined)
+        action.owner_company_user_id = dto.owner_company_user_id ?? null;
+      if (dto.status !== undefined) action.status = dto.status;
+      if (dto.due_date !== undefined)
+        action.due_date = dto.due_date ? new Date(dto.due_date) : null;
+      if (dto.requested_at !== undefined)
+        action.requested_at = dto.requested_at
+          ? new Date(dto.requested_at)
+          : null;
+      if (dto.external_reference !== undefined)
+        action.external_reference = this.normalizeOptionalString(
+          dto.external_reference,
+        );
+      if (dto.error_message !== undefined)
+        action.error_message = this.normalizeOptionalString(dto.error_message);
+      if (dto.notes !== undefined)
+        action.notes = this.normalizeOptionalString(dto.notes);
+      if (dto.metadata !== undefined) action.metadata = dto.metadata ?? null;
+
+      action.completed_at =
+        action.status === OffboardingActionStatusEnum.COMPLETED
+          ? (action.completed_at ?? new Date())
+          : null;
+
+      const persisted = await actionRepository.save(action);
+      const currentRequest = await requestRepository.findOneOrFail({
+        where: { id: offboardingRequestId, company_id: companyId },
+      });
+      await this.updateRequestProgress(currentRequest, manager);
+      return persisted;
+    });
+
+    await this.offboardingAuditService.log({
+      action: OffboardingAuditActionEnum.UPDATED,
+      offboarding_request_id: offboardingRequestId,
+      actor,
+      description: 'Offboarding action updated',
+      metadata: { action_id: saved.id, status: saved.status },
+      ip_address: context?.ip_address ?? null,
+      user_agent: context?.user_agent ?? null,
+    });
+
+    return this.mapAction(saved);
+  }
+
+  async listAssetReturns(
+    companyId: number,
+    offboardingRequestId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
+    return (
+      request.asset_returns?.map((assetReturn) =>
+        this.mapAssetReturn(assetReturn),
+      ) ?? []
+    );
+  }
+
+  async createAssetReturn(
+    companyId: number,
+    offboardingRequestId: number,
+    dto: CreateOffboardingAssetReturnDto,
+    actor: AuthenticatedUser,
+    context?: RequestContext,
+  ) {
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
+
+    await this.validateReferenceIds(companyId, {
+      owner_company_user_id: dto.owner_company_user_id ?? null,
+      received_by_company_user_id: dto.received_by_company_user_id ?? null,
+    });
+
+    const created = await this.dataSource.transaction(async (manager) => {
+      const assetReturnRepository =
+        this.getOffboardingAssetReturnRepository(manager);
+      const requestRepository = this.getOffboardingRequestRepository(manager);
+      const status = dto.status ?? OffboardingAssetStatusEnum.PENDING;
+
+      const assetReturn = await assetReturnRepository.save(
+        assetReturnRepository.create({
+          company_id: companyId,
+          offboarding_request_id: offboardingRequestId,
+          asset_type: dto.asset_type,
+          asset_label: dto.asset_label.trim(),
+          asset_identifier: this.normalizeOptionalString(dto.asset_identifier),
+          owner_company_user_id: dto.owner_company_user_id ?? null,
+          status,
+          due_date: dto.due_date ? new Date(dto.due_date) : null,
+          returned_at:
+            status === OffboardingAssetStatusEnum.RETURNED ? new Date() : null,
+          received_by_company_user_id: dto.received_by_company_user_id ?? null,
+          condition_notes: this.normalizeOptionalString(dto.condition_notes),
+          remarks: this.normalizeOptionalString(dto.remarks),
+          metadata: dto.metadata ?? null,
+        }),
+      );
+
+      const currentRequest = await requestRepository.findOneOrFail({
+        where: { id: offboardingRequestId, company_id: companyId },
+      });
+      await this.updateRequestProgress(currentRequest, manager);
+      return assetReturn;
+    });
+
+    await this.offboardingAuditService.log({
+      action: OffboardingAuditActionEnum.UPDATED,
+      offboarding_request_id: offboardingRequestId,
+      actor,
+      description: 'Offboarding asset return created',
+      metadata: { asset_return_id: created.id, asset_type: created.asset_type },
+      ip_address: context?.ip_address ?? null,
+      user_agent: context?.user_agent ?? null,
+    });
+
+    return this.mapAssetReturn(created);
+  }
+
+  async updateAssetReturn(
+    companyId: number,
+    offboardingRequestId: number,
+    assetReturnId: number,
+    dto: UpdateOffboardingAssetReturnDto,
+    actor: AuthenticatedUser,
+    context?: RequestContext,
+  ) {
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
+
+    await this.validateReferenceIds(companyId, {
+      owner_company_user_id: dto.owner_company_user_id ?? null,
+      received_by_company_user_id: dto.received_by_company_user_id ?? null,
+    });
+
+    const saved = await this.dataSource.transaction(async (manager) => {
+      const assetReturnRepository =
+        this.getOffboardingAssetReturnRepository(manager);
+      const requestRepository = this.getOffboardingRequestRepository(manager);
+      const assetReturn = await assetReturnRepository.findOneOrFail({
+        where: {
+          id: assetReturnId,
+          offboarding_request_id: offboardingRequestId,
+        },
+      });
+
+      if (dto.asset_type !== undefined) assetReturn.asset_type = dto.asset_type;
+      if (dto.asset_label !== undefined)
+        assetReturn.asset_label = dto.asset_label.trim();
+      if (dto.asset_identifier !== undefined)
+        assetReturn.asset_identifier = this.normalizeOptionalString(
+          dto.asset_identifier,
+        );
+      if (dto.owner_company_user_id !== undefined)
+        assetReturn.owner_company_user_id = dto.owner_company_user_id ?? null;
+      if (dto.status !== undefined) assetReturn.status = dto.status;
+      if (dto.due_date !== undefined)
+        assetReturn.due_date = dto.due_date ? new Date(dto.due_date) : null;
+      if (dto.received_by_company_user_id !== undefined)
+        assetReturn.received_by_company_user_id =
+          dto.received_by_company_user_id ?? null;
+      if (dto.condition_notes !== undefined)
+        assetReturn.condition_notes = this.normalizeOptionalString(
+          dto.condition_notes,
+        );
+      if (dto.remarks !== undefined)
+        assetReturn.remarks = this.normalizeOptionalString(dto.remarks);
+      if (dto.metadata !== undefined)
+        assetReturn.metadata = dto.metadata ?? null;
+
+      assetReturn.returned_at =
+        assetReturn.status === OffboardingAssetStatusEnum.RETURNED
+          ? (assetReturn.returned_at ?? new Date())
+          : null;
+
+      const persisted = await assetReturnRepository.save(assetReturn);
+      const currentRequest = await requestRepository.findOneOrFail({
+        where: { id: offboardingRequestId, company_id: companyId },
+      });
+      await this.updateRequestProgress(currentRequest, manager);
+      return persisted;
+    });
+
+    await this.offboardingAuditService.log({
+      action: OffboardingAuditActionEnum.UPDATED,
+      offboarding_request_id: offboardingRequestId,
+      actor,
+      description: 'Offboarding asset return updated',
+      metadata: { asset_return_id: saved.id, status: saved.status },
+      ip_address: context?.ip_address ?? null,
+      user_agent: context?.user_agent ?? null,
+    });
+
+    return this.mapAssetReturn(saved);
+  }
+
+  async listSettlementItems(
+    companyId: number,
+    offboardingRequestId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
+    return (
+      request.settlement_items?.map((settlementItem) =>
+        this.mapSettlementItem(settlementItem),
+      ) ?? []
+    );
+  }
+
+  async createSettlementItem(
+    companyId: number,
+    offboardingRequestId: number,
+    dto: CreateOffboardingSettlementItemDto,
+    actor: AuthenticatedUser,
+    context?: RequestContext,
+  ) {
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
+
+    await this.validateReferenceIds(companyId, {
+      owner_company_user_id: dto.owner_company_user_id ?? null,
+    });
+
+    const created = await this.dataSource.transaction(async (manager) => {
+      const settlementItemRepository =
+        this.getOffboardingSettlementItemRepository(manager);
+      const requestRepository = this.getOffboardingRequestRepository(manager);
+      const status = dto.status ?? OffboardingSettlementStatusEnum.PENDING;
+
+      const settlementItem = await settlementItemRepository.save(
+        settlementItemRepository.create({
+          company_id: companyId,
+          offboarding_request_id: offboardingRequestId,
+          item_type: dto.item_type,
+          title: dto.title.trim(),
+          owner_company_user_id: dto.owner_company_user_id ?? null,
+          status,
+          amount: this.normalizeOptionalString(dto.amount),
+          currency: this.normalizeOptionalString(dto.currency),
+          due_date: dto.due_date ? new Date(dto.due_date) : null,
+          completed_at:
+            status === OffboardingSettlementStatusEnum.COMPLETED
+              ? new Date()
+              : null,
+          remarks: this.normalizeOptionalString(dto.remarks),
+          metadata: dto.metadata ?? null,
+        }),
+      );
+
+      const currentRequest = await requestRepository.findOneOrFail({
+        where: { id: offboardingRequestId, company_id: companyId },
+      });
+      await this.updateRequestProgress(currentRequest, manager);
+      return settlementItem;
+    });
+
+    await this.offboardingAuditService.log({
+      action: OffboardingAuditActionEnum.UPDATED,
+      offboarding_request_id: offboardingRequestId,
+      actor,
+      description: 'Offboarding settlement item created',
+      metadata: {
+        settlement_item_id: created.id,
+        item_type: created.item_type,
+      },
+      ip_address: context?.ip_address ?? null,
+      user_agent: context?.user_agent ?? null,
+    });
+
+    return this.mapSettlementItem(created);
+  }
+
+  async updateSettlementItem(
+    companyId: number,
+    offboardingRequestId: number,
+    itemId: number,
+    dto: UpdateOffboardingSettlementItemDto,
+    actor: AuthenticatedUser,
+    context?: RequestContext,
+  ) {
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
+
+    await this.validateReferenceIds(companyId, {
+      owner_company_user_id: dto.owner_company_user_id ?? null,
+    });
+
+    const saved = await this.dataSource.transaction(async (manager) => {
+      const settlementItemRepository =
+        this.getOffboardingSettlementItemRepository(manager);
+      const requestRepository = this.getOffboardingRequestRepository(manager);
+      const settlementItem = await settlementItemRepository.findOneOrFail({
+        where: { id: itemId, offboarding_request_id: offboardingRequestId },
+      });
+
+      if (dto.item_type !== undefined) settlementItem.item_type = dto.item_type;
+      if (dto.title !== undefined) settlementItem.title = dto.title.trim();
+      if (dto.owner_company_user_id !== undefined)
+        settlementItem.owner_company_user_id =
+          dto.owner_company_user_id ?? null;
+      if (dto.status !== undefined) settlementItem.status = dto.status;
+      if (dto.amount !== undefined)
+        settlementItem.amount = this.normalizeOptionalString(dto.amount);
+      if (dto.currency !== undefined)
+        settlementItem.currency = this.normalizeOptionalString(dto.currency);
+      if (dto.due_date !== undefined)
+        settlementItem.due_date = dto.due_date ? new Date(dto.due_date) : null;
+      if (dto.remarks !== undefined)
+        settlementItem.remarks = this.normalizeOptionalString(dto.remarks);
+      if (dto.metadata !== undefined)
+        settlementItem.metadata = dto.metadata ?? null;
+
+      settlementItem.completed_at = this.isSettlementResolved(settlementItem)
+        ? (settlementItem.completed_at ?? new Date())
+        : null;
+
+      const persisted = await settlementItemRepository.save(settlementItem);
+      const currentRequest = await requestRepository.findOneOrFail({
+        where: { id: offboardingRequestId, company_id: companyId },
+      });
+      await this.updateRequestProgress(currentRequest, manager);
+      return persisted;
+    });
+
+    await this.offboardingAuditService.log({
+      action: OffboardingAuditActionEnum.UPDATED,
+      offboarding_request_id: offboardingRequestId,
+      actor,
+      description: 'Offboarding settlement item updated',
+      metadata: { settlement_item_id: saved.id, status: saved.status },
+      ip_address: context?.ip_address ?? null,
+      user_agent: context?.user_agent ?? null,
+    });
+
+    return this.mapSettlementItem(saved);
+  }
+
+  async getExitInterview(
+    companyId: number,
+    offboardingRequestId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
+    return this.mapExitInterview(request.exit_interview);
+  }
+
+  async upsertExitInterview(
+    companyId: number,
+    offboardingRequestId: number,
+    dto: UpsertOffboardingExitInterviewDto,
+    actor: AuthenticatedUser,
+    context?: RequestContext,
+  ) {
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
+
+    await this.validateReferenceIds(companyId, {
+      conducted_by_company_user_id: actor.companyMembershipId ?? null,
+    });
+
+    const saved = await this.dataSource.transaction(async (manager) => {
+      const exitInterviewRepository =
+        this.getOffboardingExitInterviewRepository(manager);
+
+      let exitInterview = await exitInterviewRepository.findOne({
+        where: { offboarding_request_id: offboardingRequestId },
+      });
+
+      if (!exitInterview) {
+        exitInterview = exitInterviewRepository.create({
+          offboarding_request_id: offboardingRequestId,
+          conducted_by_company_user_id: actor.companyMembershipId ?? null,
+          status: OffboardingExitInterviewStatusEnum.DRAFT,
+          exit_reason_category: null,
+          employee_feedback: null,
+          manager_feedback: null,
+          rehire_eligible: null,
+          knowledge_transfer_status:
+            OffboardingKnowledgeTransferStatusEnum.NOT_STARTED,
+          handover_notes: null,
+          final_notes: null,
+          submitted_at: new Date(),
+          completed_at: null,
+          metadata: null,
+        });
+      }
+
+      exitInterview.conducted_by_company_user_id =
+        actor.companyMembershipId ?? null;
+      if (dto.status !== undefined) exitInterview.status = dto.status;
+      if (dto.exit_reason_category !== undefined)
+        exitInterview.exit_reason_category = this.normalizeOptionalString(
+          dto.exit_reason_category,
+        );
+      if (dto.employee_feedback !== undefined)
+        exitInterview.employee_feedback = this.normalizeOptionalString(
+          dto.employee_feedback,
+        );
+      if (dto.manager_feedback !== undefined)
+        exitInterview.manager_feedback = this.normalizeOptionalString(
+          dto.manager_feedback,
+        );
+      if (dto.rehire_eligible !== undefined)
+        exitInterview.rehire_eligible = dto.rehire_eligible;
+      if (dto.knowledge_transfer_status !== undefined)
+        exitInterview.knowledge_transfer_status = dto.knowledge_transfer_status;
+      if (dto.handover_notes !== undefined)
+        exitInterview.handover_notes = this.normalizeOptionalString(
+          dto.handover_notes,
+        );
+      if (dto.final_notes !== undefined)
+        exitInterview.final_notes = this.normalizeOptionalString(
+          dto.final_notes,
+        );
+      if (dto.metadata !== undefined)
+        exitInterview.metadata = dto.metadata ?? null;
+
+      exitInterview.submitted_at = exitInterview.submitted_at ?? new Date();
+      exitInterview.completed_at =
+        exitInterview.status === OffboardingExitInterviewStatusEnum.COMPLETED
+          ? (exitInterview.completed_at ?? new Date())
+          : null;
+
+      return exitInterviewRepository.save(exitInterview);
+    });
+
+    await this.offboardingAuditService.log({
+      action: OffboardingAuditActionEnum.UPDATED,
+      offboarding_request_id: offboardingRequestId,
+      actor,
+      description: 'Offboarding exit interview updated',
+      metadata: { exit_interview_id: saved.id, status: saved.status },
+      ip_address: context?.ip_address ?? null,
+      user_agent: context?.user_agent ?? null,
+    });
+
+    const loaded = await this.getOffboardingExitInterviewRepository().findOne({
+      where: { id: saved.id },
+      relations: { conducted_by_company_user: { user: true } },
+    });
+
+    return this.mapExitInterview(loaded ?? saved);
+  }
+
   async addDocument(
     companyId: number,
     offboardingRequestId: number,
@@ -2530,6 +4039,10 @@ export class OffboardingService {
       offboardingRequestId,
     );
     await this.assertCanAccessOffboardingEmployee(actor, request.employee);
+    const storedFile = await this.filesService.saveBase64File(dto.file, {
+      directorySegments: ['documents', 'offboarding', `company-${companyId}`],
+      fileNamePrefix: `offboarding-${offboardingRequestId}`,
+    });
 
     const document = await this.getDocumentRepository().save(
       this.getDocumentRepository().create({
@@ -2540,12 +4053,12 @@ export class OffboardingService {
         document_type: this.normalizeOptionalString(dto.document_type),
         title: dto.title.trim(),
         description: this.normalizeOptionalString(dto.description),
-        file_name: dto.file_name.trim(),
-        original_file_name: dto.original_file_name.trim(),
-        mime_type: this.normalizeOptionalString(dto.mime_type),
-        file_extension: this.normalizeOptionalString(dto.file_extension),
-        file_size: this.normalizeOptionalString(dto.file_size),
-        file_path: dto.file_path.trim(),
+        file_name: storedFile.storedFileName,
+        original_file_name: storedFile.originalFileName,
+        mime_type: storedFile.mimeType,
+        file_extension: storedFile.fileExtension,
+        file_size: String(storedFile.fileSize),
+        file_path: storedFile.publicPath,
         uploaded_by_company_user_id: actor.companyMembershipId ?? null,
         expiry_date: dto.expiry_date ? new Date(dto.expiry_date) : null,
       }),
@@ -2722,6 +4235,10 @@ export class OffboardingService {
           status: OffboardingTaskStatusEnum.PENDING,
           priority: dto.priority ?? OffboardingTaskPriorityEnum.MEDIUM,
           due_date: dto.due_date ? new Date(dto.due_date) : null,
+          reopened_at: null,
+          reopened_by_company_user_id: null,
+          reassigned_at: null,
+          last_reassigned_by_company_user_id: null,
           remarks: null,
           metadata: dto.metadata ?? null,
         }),
@@ -2787,13 +4304,15 @@ export class OffboardingService {
       companyId,
       offboardingRequestId,
     );
-    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
 
     const task = await this.offboardingTaskRepository.findOne({
       where: { id: taskId, offboarding_request_id: offboardingRequestId },
     });
     if (!task) {
       throw new NotFoundException('Offboarding task not found');
+    }
+    if (!this.canOperateAssignedTask(actor, task)) {
+      await this.assertCanAccessOffboardingEmployee(actor, request.employee);
     }
 
     if (task.status === OffboardingTaskStatusEnum.COMPLETED) {
@@ -2837,6 +4356,209 @@ export class OffboardingService {
     return this.mapTask(saved);
   }
 
+  async reassignTask(
+    companyId: number,
+    offboardingRequestId: number,
+    taskId: number,
+    dto: ReassignOffboardingTaskDto,
+    actor: AuthenticatedUser,
+    context?: RequestContext,
+  ) {
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
+
+    if (
+      request.status === OffboardingRequestStatusEnum.CANCELLED ||
+      request.status === OffboardingRequestStatusEnum.COMPLETED
+    ) {
+      throw new BadRequestException(
+        'Cannot reassign tasks on a closed offboarding request',
+      );
+    }
+
+    await this.validateReferenceIds(companyId, {
+      assigned_to_company_user_id: dto.assigned_to_company_user_id,
+    });
+
+    const currentTask = await this.offboardingTaskRepository.findOne({
+      where: { id: taskId, offboarding_request_id: offboardingRequestId },
+      relations: { assigned_to_company_user: { user: true } },
+    });
+    if (!currentTask) {
+      throw new NotFoundException('Offboarding task not found');
+    }
+
+    if (currentTask.status === OffboardingTaskStatusEnum.CANCELLED) {
+      throw new BadRequestException('Cancelled task cannot be reassigned');
+    }
+
+    const saved = await this.dataSource.transaction(async (manager) => {
+      const taskRepository = this.getOffboardingTaskRepository(manager);
+      const task = await taskRepository.findOneOrFail({
+        where: { id: taskId, offboarding_request_id: offboardingRequestId },
+      });
+
+      task.assigned_to_company_user_id = dto.assigned_to_company_user_id;
+      if (dto.due_date !== undefined) {
+        task.due_date = dto.due_date ? new Date(dto.due_date) : null;
+      }
+      task.reassigned_at = new Date();
+      task.last_reassigned_by_company_user_id =
+        actor.companyMembershipId ?? null;
+      task.remarks = this.normalizeOptionalString(dto.remarks) ?? task.remarks;
+
+      return taskRepository.save(task);
+    });
+
+    await this.offboardingAuditService.log({
+      action: OffboardingAuditActionEnum.TASK_REASSIGNED,
+      offboarding_request_id: offboardingRequestId,
+      actor,
+      description: 'Offboarding task reassigned',
+      metadata: {
+        task_id: saved.id,
+        assigned_to_company_user_id: saved.assigned_to_company_user_id,
+        due_date: saved.due_date,
+      },
+      ip_address: context?.ip_address ?? null,
+      user_agent: context?.user_agent ?? null,
+    });
+
+    const assigneeRecipient = await this.findMembershipRecipient(
+      companyId,
+      saved.assigned_to_company_user_id,
+    );
+    if (assigneeRecipient) {
+      this.eventEmitter.emit(
+        OffboardingTaskAssignedEvent.EVENT,
+        new OffboardingTaskAssignedEvent(
+          assigneeRecipient.name,
+          assigneeRecipient.email,
+          `${request.employee.first_name} ${request.employee.last_name}`.trim(),
+          saved.title,
+          saved.description,
+          saved.due_date,
+          request.last_working_date ?? null,
+          `${
+            this.configService.get<string>('APP_FRONTEND_URL') ??
+            'http://localhost:5173'
+          }/offboarding/${offboardingRequestId}/tasks`,
+          companyId,
+          offboardingRequestId,
+          saved.id,
+          saved.assigned_to_company_user_id,
+          actor.companyMembershipId ?? null,
+        ),
+      );
+    }
+
+    return this.mapTask(saved);
+  }
+
+  async reopenTask(
+    companyId: number,
+    offboardingRequestId: number,
+    taskId: number,
+    dto: ReopenOffboardingTaskDto,
+    actor: AuthenticatedUser,
+    context?: RequestContext,
+  ) {
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
+
+    if (
+      request.status === OffboardingRequestStatusEnum.CANCELLED ||
+      request.status === OffboardingRequestStatusEnum.COMPLETED
+    ) {
+      throw new BadRequestException(
+        'Cannot reopen tasks on a closed offboarding request',
+      );
+    }
+
+    if (dto.assigned_to_company_user_id !== undefined) {
+      await this.validateReferenceIds(companyId, {
+        assigned_to_company_user_id: dto.assigned_to_company_user_id,
+      });
+    }
+
+    const currentTask = await this.offboardingTaskRepository.findOne({
+      where: { id: taskId, offboarding_request_id: offboardingRequestId },
+    });
+    if (!currentTask) {
+      throw new NotFoundException('Offboarding task not found');
+    }
+
+    if (currentTask.status === OffboardingTaskStatusEnum.CANCELLED) {
+      throw new BadRequestException('Cancelled task cannot be reopened');
+    }
+
+    if (
+      currentTask.status !== OffboardingTaskStatusEnum.COMPLETED &&
+      currentTask.status !== OffboardingTaskStatusEnum.REJECTED
+    ) {
+      throw new BadRequestException(
+        'Only completed or rejected tasks can be reopened',
+      );
+    }
+
+    const saved = await this.dataSource.transaction(async (manager) => {
+      const taskRepository = this.getOffboardingTaskRepository(manager);
+      const requestRepository = this.getOffboardingRequestRepository(manager);
+
+      const task = await taskRepository.findOneOrFail({
+        where: { id: taskId, offboarding_request_id: offboardingRequestId },
+      });
+      task.status = OffboardingTaskStatusEnum.PENDING;
+      task.completed_at = null;
+      task.reopened_at = new Date();
+      task.reopened_by_company_user_id = actor.companyMembershipId ?? null;
+      task.remarks = this.normalizeOptionalString(dto.remarks);
+
+      if (dto.assigned_to_company_user_id !== undefined) {
+        task.assigned_to_company_user_id = dto.assigned_to_company_user_id;
+        task.reassigned_at = new Date();
+        task.last_reassigned_by_company_user_id =
+          actor.companyMembershipId ?? null;
+      }
+      if (dto.due_date !== undefined) {
+        task.due_date = dto.due_date ? new Date(dto.due_date) : null;
+      }
+
+      await taskRepository.save(task);
+
+      const currentRequest = await requestRepository.findOneOrFail({
+        where: { id: offboardingRequestId, company_id: companyId },
+      });
+      if (currentRequest.status === OffboardingRequestStatusEnum.REJECTED) {
+        currentRequest.status = OffboardingRequestStatusEnum.IN_PROGRESS;
+      }
+      await this.updateRequestProgress(currentRequest, manager);
+
+      return task;
+    });
+
+    await this.offboardingAuditService.log({
+      action: OffboardingAuditActionEnum.TASK_REOPENED,
+      offboarding_request_id: offboardingRequestId,
+      actor,
+      description: 'Offboarding task reopened',
+      metadata: {
+        task_id: saved.id,
+        assigned_to_company_user_id: saved.assigned_to_company_user_id,
+      },
+      ip_address: context?.ip_address ?? null,
+      user_agent: context?.user_agent ?? null,
+    });
+
+    return this.mapTask(saved);
+  }
+
   async rejectTask(
     companyId: number,
     offboardingRequestId: number,
@@ -2849,13 +4571,15 @@ export class OffboardingService {
       companyId,
       offboardingRequestId,
     );
-    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
 
     const task = await this.offboardingTaskRepository.findOne({
       where: { id: taskId, offboarding_request_id: offboardingRequestId },
     });
     if (!task) {
       throw new NotFoundException('Offboarding task not found');
+    }
+    if (!this.canOperateAssignedTask(actor, task)) {
+      await this.assertCanAccessOffboardingEmployee(actor, request.employee);
     }
 
     if (task.status === OffboardingTaskStatusEnum.COMPLETED) {
@@ -2915,7 +4639,9 @@ export class OffboardingService {
       companyId,
       offboardingRequestId,
     );
-    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
+    if (!this.isActorAssignedAtCurrentApprovalLevel(request, membershipId)) {
+      await this.assertCanAccessOffboardingEmployee(actor, request.employee);
+    }
 
     await this.dataSource.transaction(async (manager) => {
       const current = await this.offboardingWorkflowService.applyApprovalAction(
@@ -2961,6 +4687,13 @@ export class OffboardingService {
     );
     await this.assertCanAccessOffboardingEmployee(actor, request.employee);
 
+    const ownerCompanyUserId =
+      dto.owner_company_user_id ?? actor.companyMembershipId ?? null;
+
+    await this.validateReferenceIds(companyId, {
+      owner_company_user_id: ownerCompanyUserId,
+    });
+
     const existing = await this.offboardingClearanceRepository.findOne({
       where: {
         offboarding_request_id: offboardingRequestId,
@@ -2984,6 +4717,8 @@ export class OffboardingService {
           clearance_type: dto.clearance_type,
           status: dto.status ?? OffboardingClearanceStatusEnum.PENDING,
           remarks: this.normalizeOptionalString(dto.remarks),
+          owner_company_user_id: ownerCompanyUserId,
+          due_date: dto.due_date ? new Date(dto.due_date) : null,
           cleared_by_company_user_id:
             dto.status && dto.status !== OffboardingClearanceStatusEnum.PENDING
               ? (actor.companyMembershipId ?? null)
@@ -3015,16 +4750,16 @@ export class OffboardingService {
         clearance_id: created.id,
         clearance_type: created.clearance_type,
         status: created.status,
+        owner_company_user_id: created.owner_company_user_id,
       },
       ip_address: context?.ip_address ?? null,
       user_agent: context?.user_agent ?? null,
     });
 
     if (created.status === OffboardingClearanceStatusEnum.PENDING) {
-      // Until clearance ownership is modeled explicitly, notify the creator.
       const ownerRecipient = await this.findMembershipRecipient(
         companyId,
-        actor.companyMembershipId,
+        created.owner_company_user_id,
       );
       if (ownerRecipient) {
         this.eventEmitter.emit(
@@ -3064,13 +4799,16 @@ export class OffboardingService {
       companyId,
       offboardingRequestId,
     );
-    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
 
     const clearance = await this.offboardingClearanceRepository.findOne({
       where: { id: clearanceId, offboarding_request_id: offboardingRequestId },
+      relations: { owner_company_user: true },
     });
     if (!clearance) {
       throw new NotFoundException('Offboarding clearance not found');
+    }
+    if (!this.canOperateOwnedClearance(actor, clearance)) {
+      await this.assertCanAccessOffboardingEmployee(actor, request.employee);
     }
 
     const saved = await this.dataSource.transaction(async (manager) => {
@@ -3126,6 +4864,103 @@ export class OffboardingService {
     return this.mapClearance(saved);
   }
 
+  async assignClearance(
+    companyId: number,
+    offboardingRequestId: number,
+    clearanceId: number,
+    dto: AssignOffboardingClearanceDto,
+    actor: AuthenticatedUser,
+    context?: RequestContext,
+  ) {
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
+
+    if (
+      request.status === OffboardingRequestStatusEnum.CANCELLED ||
+      request.status === OffboardingRequestStatusEnum.COMPLETED
+    ) {
+      throw new BadRequestException(
+        'Cannot assign clearance on a closed offboarding request',
+      );
+    }
+
+    await this.validateReferenceIds(companyId, {
+      owner_company_user_id: dto.owner_company_user_id,
+    });
+
+    const currentClearance = await this.offboardingClearanceRepository.findOne({
+      where: { id: clearanceId, offboarding_request_id: offboardingRequestId },
+    });
+    if (!currentClearance) {
+      throw new NotFoundException('Offboarding clearance not found');
+    }
+
+    const saved = await this.dataSource.transaction(async (manager) => {
+      const clearanceRepository =
+        this.getOffboardingClearanceRepository(manager);
+      const clearance = await clearanceRepository.findOneOrFail({
+        where: {
+          id: clearanceId,
+          offboarding_request_id: offboardingRequestId,
+        },
+      });
+      clearance.owner_company_user_id = dto.owner_company_user_id;
+      if (dto.due_date !== undefined) {
+        clearance.due_date = dto.due_date ? new Date(dto.due_date) : null;
+      }
+      if (dto.remarks !== undefined) {
+        clearance.remarks = this.normalizeOptionalString(dto.remarks);
+      }
+
+      return clearanceRepository.save(clearance);
+    });
+
+    await this.offboardingAuditService.log({
+      action: OffboardingAuditActionEnum.CLEARANCE_ASSIGNED,
+      offboarding_request_id: offboardingRequestId,
+      actor,
+      description: 'Offboarding clearance assigned',
+      metadata: {
+        clearance_id: saved.id,
+        owner_company_user_id: saved.owner_company_user_id,
+        due_date: saved.due_date,
+      },
+      ip_address: context?.ip_address ?? null,
+      user_agent: context?.user_agent ?? null,
+    });
+
+    const ownerRecipient = await this.findMembershipRecipient(
+      companyId,
+      saved.owner_company_user_id,
+    );
+    if (ownerRecipient) {
+      this.eventEmitter.emit(
+        OffboardingClearanceRequiredEvent.EVENT,
+        new OffboardingClearanceRequiredEvent(
+          ownerRecipient.name,
+          ownerRecipient.email,
+          `${request.employee.first_name} ${request.employee.last_name}`.trim(),
+          saved.clearance_type,
+          request.last_working_date ?? null,
+          `${
+            this.configService.get<string>('APP_FRONTEND_URL') ??
+            'http://localhost:5173'
+          }/offboarding/${offboardingRequestId}/clearances`,
+          companyId,
+          offboardingRequestId,
+          saved.id,
+          ownerRecipient.companyUserId ?? null,
+          actor.companyMembershipId ?? null,
+        ),
+      );
+    }
+
+    return this.mapClearance(saved);
+  }
+
   async getProgress(
     companyId: number,
     offboardingRequestId: number,
@@ -3154,6 +4989,12 @@ export class OffboardingService {
       tasks: {
         total: summary.total_tasks,
         completed: summary.completed_tasks,
+        overdue: summary.overdue_tasks,
+      },
+      actions: {
+        total: summary.total_actions,
+        completed: summary.completed_actions,
+        failed: summary.failed_actions,
       },
       approvals: {
         total: summary.total_approvals,
@@ -3162,6 +5003,15 @@ export class OffboardingService {
       clearances: {
         total: summary.total_clearances,
         cleared: summary.cleared_clearances,
+        overdue: summary.overdue_clearances,
+      },
+      assets: {
+        total: summary.total_assets,
+        resolved: summary.returned_assets,
+      },
+      settlements: {
+        total: summary.total_settlements,
+        resolved: summary.completed_settlements,
       },
     };
   }

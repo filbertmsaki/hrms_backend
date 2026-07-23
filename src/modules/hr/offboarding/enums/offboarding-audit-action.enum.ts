@@ -6,8 +6,11 @@ export enum OffboardingAuditActionEnum {
   REJECTED = 'rejected',
   TASK_CREATED = 'task_created',
   TASK_COMPLETED = 'task_completed',
+  TASK_REASSIGNED = 'task_reassigned',
+  TASK_REOPENED = 'task_reopened',
   CLEARANCE_COMPLETED = 'clearance_completed',
   CLEARANCE_FAILED = 'clearance_failed',
+  CLEARANCE_ASSIGNED = 'clearance_assigned',
   COMPLETED = 'completed',
   CANCELLED = 'cancelled',
 }

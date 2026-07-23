@@ -19,12 +19,15 @@ import {
   OnboardingSubmittedEvent,
   OnboardingTaskAssignedEvent,
   OnboardingTaskOverdueEvent,
+  OffboardingApprovalReminderEvent,
   OffboardingApprovalRequiredEvent,
   OffboardingApprovedEvent,
+  OffboardingClearanceOverdueEvent,
   OffboardingClearanceRequiredEvent,
   OffboardingCompletedEvent,
   OffboardingSubmittedEvent,
   OffboardingTaskAssignedEvent,
+  OffboardingTaskOverdueEvent,
 } from './events';
 
 @Injectable()
@@ -697,6 +700,70 @@ export class HrInAppNotificationListener {
     });
   }
 
+  @OnEvent(OffboardingTaskOverdueEvent.EVENT)
+  async onOffboardingTaskOverdue(
+    event: OffboardingTaskOverdueEvent,
+  ): Promise<void> {
+    if (!event.assigneeCompanyUserId) {
+      return;
+    }
+
+    const dayKey = new Date().toISOString().slice(0, 10);
+
+    await this.sendOne({
+      company_id: event.companyId,
+      receiver_company_user_id: event.assigneeCompanyUserId,
+      type: NotificationTypeEnum.OFFBOARDING_TASK_OVERDUE,
+      category: NotificationCategoryEnum.HR,
+      priority: NotificationPriorityEnum.HIGH,
+      title: 'Offboarding Task Overdue',
+      message: `The offboarding task "${event.taskTitle}" for ${event.employeeName} is overdue.`,
+      related_module: 'offboarding',
+      entity_type: 'OFFBOARDING_TASK',
+      entity_id: event.taskId,
+      action_url: `/offboarding/${event.offboardingRequestId}/tasks`,
+      dedupe_key: `offboarding:task-overdue:${event.taskId}:${event.assigneeCompanyUserId}:${dayKey}`,
+      metadata: {
+        offboarding_request_id: event.offboardingRequestId,
+        employee_name: event.employeeName,
+        exit_date: event.exitDate,
+        due_date: event.dueDate,
+      },
+    });
+  }
+
+  @OnEvent(OffboardingApprovalReminderEvent.EVENT)
+  async onOffboardingApprovalReminder(
+    event: OffboardingApprovalReminderEvent,
+  ): Promise<void> {
+    if (!event.approverCompanyUserId) {
+      return;
+    }
+
+    const dayKey = new Date().toISOString().slice(0, 10);
+
+    await this.sendOne({
+      company_id: event.companyId,
+      receiver_company_user_id: event.approverCompanyUserId,
+      type: NotificationTypeEnum.OFFBOARDING_APPROVAL_REMINDER,
+      category: NotificationCategoryEnum.HR,
+      priority: NotificationPriorityEnum.MEDIUM,
+      title: 'Offboarding Approval Reminder',
+      message: `${event.employeeName}'s offboarding request still needs your review.`,
+      related_module: 'offboarding',
+      entity_type: 'OFFBOARDING_APPROVAL',
+      entity_id: event.approvalId,
+      action_url: `/offboarding/${event.offboardingRequestId}/review`,
+      dedupe_key: `offboarding:approval-reminder:${event.approvalId}:${event.approverCompanyUserId}:${dayKey}`,
+      metadata: {
+        offboarding_request_id: event.offboardingRequestId,
+        approval_level: event.approvalLevel,
+        employee_name: event.employeeName,
+        exit_date: event.exitDate,
+      },
+    });
+  }
+
   @OnEvent(OffboardingClearanceRequiredEvent.EVENT)
   async onOffboardingClearanceRequired(
     event: OffboardingClearanceRequiredEvent,
@@ -723,6 +790,39 @@ export class HrInAppNotificationListener {
         employee_name: event.employeeName,
         clearance_type: event.clearanceType,
         exit_date: event.exitDate,
+      },
+    });
+  }
+
+  @OnEvent(OffboardingClearanceOverdueEvent.EVENT)
+  async onOffboardingClearanceOverdue(
+    event: OffboardingClearanceOverdueEvent,
+  ): Promise<void> {
+    if (!event.ownerCompanyUserId) {
+      return;
+    }
+
+    const dayKey = new Date().toISOString().slice(0, 10);
+
+    await this.sendOne({
+      company_id: event.companyId,
+      receiver_company_user_id: event.ownerCompanyUserId,
+      type: NotificationTypeEnum.OFFBOARDING_CLEARANCE_OVERDUE,
+      category: NotificationCategoryEnum.HR,
+      priority: NotificationPriorityEnum.HIGH,
+      title: 'Offboarding Clearance Overdue',
+      message: `${event.clearanceType} clearance for ${event.employeeName} is overdue.`,
+      related_module: 'offboarding',
+      entity_type: 'OFFBOARDING_CLEARANCE',
+      entity_id: event.clearanceId,
+      action_url: `/offboarding/${event.offboardingRequestId}/clearances`,
+      dedupe_key: `offboarding:clearance-overdue:${event.clearanceId}:${event.ownerCompanyUserId}:${dayKey}`,
+      metadata: {
+        offboarding_request_id: event.offboardingRequestId,
+        employee_name: event.employeeName,
+        clearance_type: event.clearanceType,
+        exit_date: event.exitDate,
+        due_date: event.dueDate,
       },
     });
   }

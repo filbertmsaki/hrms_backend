@@ -5,6 +5,11 @@
  * exits immediately with a clear message rather than failing later.
  */
 
+import {
+  normalizeConfiguredEnvironment,
+  resolveMailRecipientSafetyConfig,
+} from '../modules/mail/mail-recipient-safety.util';
+
 type Env = Record<string, string | undefined>;
 
 function required(env: Env, key: string): string {
@@ -42,36 +47,17 @@ function optionalBool(env: Env, key: string, fallback: boolean): boolean {
   );
 }
 
-function optionalEnum<T extends string>(
-  env: Env,
-  key: string,
-  allowed: T[],
-  fallback: T,
-): T {
-  const raw = env[key];
-  if (!raw || raw.trim() === '') return fallback;
-  if (!(allowed as string[]).includes(raw)) {
-    throw new Error(
-      `Environment variable ${key} must be one of [${allowed.join(', ')}], got: "${raw}"`,
-    );
-  }
-  return raw as T;
-}
-
 export function validateEnv(env: Env) {
-  // ── Database ────────────────────────────────────────────────────────────
   const DB_HOST = optionalString(env, 'DB_HOST', 'localhost');
   const DB_PORT = optionalInt(env, 'DB_PORT', 5432);
   const DB_USERNAME = optionalString(env, 'DB_USERNAME', 'postgres');
   const DB_PASSWORD = optionalString(env, 'DB_PASSWORD', '');
   const DB_NAME = required(env, 'DB_NAME');
 
-  // ── JWT secrets ─────────────────────────────────────────────────────────
   const JWT_ACCESS_SECRET = required(env, 'JWT_ACCESS_SECRET');
   const JWT_REFRESH_SECRET = required(env, 'JWT_REFRESH_SECRET');
   const JWT_RESET_SECRET = required(env, 'JWT_RESET_SECRET');
 
-  // ── JWT options ─────────────────────────────────────────────────────────
   const JWT_ACCESS_EXPIRATION = optionalString(
     env,
     'JWT_ACCESS_EXPIRATION',
@@ -85,36 +71,62 @@ export function validateEnv(env: Env) {
   const JWT_ISSUER = optionalString(env, 'JWT_ISSUER', 'hrms');
   const JWT_AUDIENCE = optionalString(env, 'JWT_AUDIENCE', 'hrms-client');
 
-  // ── App ─────────────────────────────────────────────────────────────────
   const PORT = optionalInt(env, 'PORT', 3000);
-  const NODE_ENV = optionalEnum(
-    env,
+  const NODE_ENV = normalizeConfiguredEnvironment(
+    env.NODE_ENV,
     'NODE_ENV',
-    ['development', 'production', 'test', 'uat'],
     'production',
+  );
+  const APP_ENV = normalizeConfiguredEnvironment(
+    env.APP_ENV,
+    'APP_ENV',
+    NODE_ENV,
   );
   const APP_URL = optionalString(env, 'APP_URL', `http://localhost:${PORT}`);
   const APP_FRONTEND_URL = optionalString(env, 'APP_FRONTEND_URL', APP_URL);
   const APP_NAME = optionalString(env, 'APP_NAME', 'HRMS');
   const SUPPORT_EMAIL = optionalString(env, 'SUPPORT_EMAIL', '');
 
-  // ── Mail ────────────────────────────────────────────────────────────────
   const MAIL_HOST = required(env, 'MAIL_HOST');
   const MAIL_PORT = optionalInt(env, 'MAIL_PORT', 587);
   const MAIL_USER = required(env, 'MAIL_USER');
   const MAIL_PASS = required(env, 'MAIL_PASS');
   const MAIL_FROM = optionalString(env, 'MAIL_FROM', MAIL_USER);
   const MAIL_SECURE = optionalBool(env, 'MAIL_SECURE', false);
+  const MAIL_OVERRIDE_ENABLED = optionalBool(
+    env,
+    'MAIL_OVERRIDE_ENABLED',
+    false,
+  );
+  const MAIL_TEST_TO = optionalString(env, 'MAIL_TEST_TO', '');
+  const MAIL_TEST_CC = optionalString(env, 'MAIL_TEST_CC', '');
+  const MAIL_TEST_BCC = optionalString(env, 'MAIL_TEST_BCC', '');
 
-  // ── Redis ───────────────────────────────────────────────────────────────
+  const mailSafetyConfig = resolveMailRecipientSafetyConfig({
+    appEnv: APP_ENV,
+    nodeEnv: NODE_ENV,
+    overrideEnabled: MAIL_OVERRIDE_ENABLED,
+    testTo: MAIL_TEST_TO,
+    testCc: MAIL_TEST_CC,
+    testBcc: MAIL_TEST_BCC,
+  });
+
+  if (
+    ['local', 'development', 'uat'].includes(mailSafetyConfig.environment) &&
+    MAIL_OVERRIDE_ENABLED &&
+    mailSafetyConfig.testTo.length === 0
+  ) {
+    throw new Error(
+      `MAIL_TEST_TO must contain at least one valid email address when MAIL_OVERRIDE_ENABLED=true in ${mailSafetyConfig.environment}.`,
+    );
+  }
+
   const USE_REDIS = optionalBool(env, 'USE_REDIS', false);
   const REDIS_URL = optionalString(env, 'REDIS_URL', 'redis://127.0.0.1:6379');
 
-  // ── Throttler ───────────────────────────────────────────────────────────
   const THROTTLER_TTL = optionalInt(env, 'THROTTLER_TTL', 60000);
   const THROTTLER_LIMIT = optionalInt(env, 'THROTTLER_LIMIT', 100);
 
-  // ── Feature flags ───────────────────────────────────────────────────────
   const ENABLE_EMAIL_VERIFICATION = optionalBool(
     env,
     'ENABLE_EMAIL_VERIFICATION',
@@ -141,6 +153,7 @@ export function validateEnv(env: Env) {
     JWT_AUDIENCE,
     PORT,
     NODE_ENV,
+    APP_ENV,
     APP_URL,
     APP_FRONTEND_URL,
     APP_NAME,
@@ -151,6 +164,10 @@ export function validateEnv(env: Env) {
     MAIL_PASS,
     MAIL_FROM,
     MAIL_SECURE,
+    MAIL_OVERRIDE_ENABLED,
+    MAIL_TEST_TO,
+    MAIL_TEST_CC,
+    MAIL_TEST_BCC,
     USE_REDIS,
     REDIS_URL,
     THROTTLER_TTL,

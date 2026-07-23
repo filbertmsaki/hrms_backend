@@ -38,6 +38,7 @@ import { ShiftSchedulesService } from '../attendance/shift/shift-schedules/shift
 import { EmployeeTimetablesService } from '../attendance/timetable/employee-timetables/employee-timetables.service';
 import { EmployeeDeviceAssignmentsService } from '../../access-control/employee-device-assignments/service/employee-device-assignments.service';
 import { OnboardingAttendanceModeEnum } from './enums/onboarding-attendance-mode.enum';
+import { FilesService } from '../../files/files.service';
 
 type MockRepo = Record<string, jest.Mock>;
 
@@ -52,11 +53,15 @@ describe('OnboardingService', () => {
   let service: OnboardingService;
   let onboardingRequestRepository: MockRepo;
   let employeeRepository: MockRepo;
+  let documentRepository: MockRepo;
   let dataSource: { transaction: jest.Mock };
   let leaveBalanceService: {
     getFiscalYearFromDate: jest.Mock;
     ensureBalanceForEmployee: jest.Mock;
   };
+  let hrAccessService: { assertCanAccessEmployee: jest.Mock };
+  let onboardingAuditService: { log: jest.Mock };
+  let filesService: { saveBase64File: jest.Mock };
   let shiftSchedulesService: { create: jest.Mock };
   let employeeTimetablesService: { create: jest.Mock };
   let employeeDeviceAssignmentsService: { assignDevices: jest.Mock };
@@ -73,7 +78,7 @@ describe('OnboardingService', () => {
       createRepositoryMock<OnboardingApproval>();
     const onboardingAuditLogRepository =
       createRepositoryMock<OnboardingAuditLog>();
-    const documentRepository = createRepositoryMock<Document>();
+    documentRepository = createRepositoryMock<Document>();
     employeeRepository = createRepositoryMock<Employee>();
     const departmentRepository = createRepositoryMock<Department>();
     const branchRepository = createRepositoryMock<Branch>();
@@ -94,6 +99,15 @@ describe('OnboardingService', () => {
     leaveBalanceService = {
       getFiscalYearFromDate: jest.fn(() => '2026'),
       ensureBalanceForEmployee: jest.fn(),
+    };
+    hrAccessService = {
+      assertCanAccessEmployee: jest.fn(),
+    };
+    onboardingAuditService = {
+      log: jest.fn(),
+    };
+    filesService = {
+      saveBase64File: jest.fn(),
     };
     shiftSchedulesService = {
       create: jest.fn(),
@@ -135,12 +149,8 @@ describe('OnboardingService', () => {
       shiftScheduleRepository as unknown as Repository<ShiftSchedule>,
       employeeTimetableRepository as unknown as Repository<EmployeeTimetable>,
       employeeDeviceAssignmentRepository as unknown as Repository<EmployeeDeviceAssignment>,
-      {
-        assertCanAccessEmployee: jest.fn(),
-      } as unknown as HrAccessService,
-      {
-        log: jest.fn(),
-      } as unknown as OnboardingAuditService,
+      hrAccessService as unknown as HrAccessService,
+      onboardingAuditService as unknown as OnboardingAuditService,
       {} as OnboardingWorkflowService,
       leaveBalanceService as unknown as LeaveBalanceService,
       shiftSchedulesService as unknown as ShiftSchedulesService,
@@ -148,6 +158,7 @@ describe('OnboardingService', () => {
       employeeDeviceAssignmentsService as unknown as EmployeeDeviceAssignmentsService,
       { emit: jest.fn() } as unknown as EventEmitter2,
       { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService,
+      filesService as unknown as FilesService,
     );
   });
 
@@ -431,5 +442,55 @@ describe('OnboardingService', () => {
         actor,
       ),
     ).rejects.toThrow(BadRequestException);
+  });
+
+  it('stores onboarding documents through the shared files service', async () => {
+    jest
+      .spyOn(service as any, 'findOnboardingRequestOrFail')
+      .mockResolvedValue({ employee: { id: 501 } });
+    filesService.saveBase64File.mockResolvedValue({
+      storedFileName: 'onboarding-55-stored.pdf',
+      originalFileName: 'offer-letter.pdf',
+      mimeType: 'application/pdf',
+      fileExtension: '.pdf',
+      fileSize: 18,
+      publicPath: '/uploads/documents/onboarding/company-10/onboarding.pdf',
+    });
+    documentRepository.save.mockImplementation((value: object) => ({
+      id: 14,
+      ...value,
+    }));
+
+    await service.addDocument(
+      10,
+      55,
+      {
+        title: 'Offer Letter',
+        file: {
+          fileName: 'offer-letter.pdf',
+          fileSize: 18,
+          mimeType: 'application/pdf',
+          fileString: Buffer.from('offer-letter-pdf').toString('base64'),
+        },
+      },
+      actor,
+    );
+
+    expect(filesService.saveBase64File).toHaveBeenCalledWith(
+      expect.objectContaining({ fileName: 'offer-letter.pdf' }),
+      expect.objectContaining({
+        directorySegments: ['documents', 'onboarding', 'company-10'],
+      }),
+    );
+    expect(documentRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        file_name: 'onboarding-55-stored.pdf',
+        original_file_name: 'offer-letter.pdf',
+        mime_type: 'application/pdf',
+        file_extension: '.pdf',
+        file_size: '18',
+        file_path: '/uploads/documents/onboarding/company-10/onboarding.pdf',
+      }),
+    );
   });
 });
