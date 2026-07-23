@@ -1,0 +1,13 @@
+doctype html
+html(lang="en")
+  body(style="font-family: Arial, sans-serif; color: #1f2937;")
+    h2 Offboarding approval reminder
+    p Hello #{approverName || 'Approver'},
+    p #{employeeName}'s offboarding request is still waiting for your review.
+    if approvalLevel
+      p Approval level: #{approvalLevel}
+    if exitDate
+      p Exit date: #{exitDate}
+    p
+      a(href=reviewUrl) Open review page
+    p #{appName}
