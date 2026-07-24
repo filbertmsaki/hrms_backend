@@ -1168,6 +1168,7 @@ export class CompaniesService {
       .createQueryBuilder('membership')
       .innerJoinAndSelect('membership.user', 'user')
       .innerJoinAndSelect('membership.company', 'company')
+      .leftJoinAndSelect('membership.employee', 'employee')
       .leftJoinAndSelect('membership.role_assignments', 'roleAssignments')
       .leftJoinAndSelect('roleAssignments.role', 'roles')
       .leftJoinAndSelect('roles.permissions', 'rolePermissions')
@@ -1221,6 +1222,7 @@ export class CompaniesService {
         last_name: membership.user.last_name,
         phone: membership.user.phone,
         email: membership.user.email,
+        profile_photo_url: membership.employee?.profile_photo_url ?? null,
         status: membership.user.status,
         is_email_verified: membership.user.is_email_verified,
         is_two_factor_enabled: membership.user.is_two_factor_enabled,

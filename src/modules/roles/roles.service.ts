@@ -158,6 +158,7 @@ export class RolesService {
       full_name: `${user.first_name} ${user.last_name}`.trim(),
       email: user.email,
       phone: user.phone,
+      profile_photo_url: membership.employee?.profile_photo_url ?? null,
       user_status: user.status,
       membership_status: membership.status,
       assigned_at: assignment.created_at,
@@ -282,6 +283,7 @@ export class RolesService {
       .createQueryBuilder('assignment')
       .innerJoinAndSelect('assignment.company_user', 'membership')
       .innerJoinAndSelect('membership.user', 'user')
+      .leftJoinAndSelect('membership.employee', 'employee')
       .where('assignment.role_id = :roleId', { roleId: role.id })
       .andWhere('membership.company_id = :companyId', { companyId })
       .andWhere('membership.status = :status', { status: 'active' });
@@ -359,6 +361,7 @@ export class RolesService {
       },
       relations: {
         user: true,
+        employee: true,
       },
     });
 
@@ -376,6 +379,7 @@ export class RolesService {
       relations: {
         company_user: {
           user: true,
+          employee: true,
         },
       },
     });
@@ -393,6 +397,7 @@ export class RolesService {
         relations: {
           company_user: {
             user: true,
+            employee: true,
           },
         },
       });
@@ -428,6 +433,7 @@ export class RolesService {
       },
       relations: {
         user: true,
+        employee: true,
       },
     });
 
@@ -457,6 +463,7 @@ export class RolesService {
         last_name: membership.user.last_name,
         email: membership.user.email,
         phone: membership.user.phone,
+        profile_photo_url: membership.employee?.profile_photo_url ?? null,
       },
     };
   }

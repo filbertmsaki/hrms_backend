@@ -59,6 +59,8 @@ export class BranchesService {
             last_name: access.company_user.user.last_name,
             email: access.company_user.user.email,
             phone: access.company_user.user.phone,
+            profile_photo_url:
+              access.company_user.employee?.profile_photo_url ?? null,
             status: access.company_user.user.status,
           }
         : null,
@@ -235,6 +237,7 @@ export class BranchesService {
       relations: {
         company_user: {
           user: true,
+          employee: true,
         },
       },
       order: {
@@ -260,6 +263,7 @@ export class BranchesService {
       },
       relations: {
         user: true,
+        employee: true,
       },
     });
 
@@ -275,6 +279,7 @@ export class BranchesService {
       relations: {
         company_user: {
           user: true,
+          employee: true,
         },
       },
     });
@@ -292,6 +297,7 @@ export class BranchesService {
         relations: {
           company_user: {
             user: true,
+            employee: true,
           },
         },
       });

@@ -181,6 +181,7 @@ export class UsersService {
     return membershipRepository
       .createQueryBuilder('membership')
       .innerJoinAndSelect('membership.company', 'company')
+      .leftJoinAndSelect('membership.employee', 'employee')
       .leftJoinAndSelect('membership.role_assignments', 'roleAssignments')
       .leftJoinAndSelect('roleAssignments.role', 'role')
       .leftJoinAndSelect('role.permissions', 'rolePermissions')
@@ -374,6 +375,7 @@ export class UsersService {
       last_name: user.last_name,
       phone: user.phone,
       email: user.email,
+      profile_photo_url: membership?.employee?.profile_photo_url ?? null,
       status: user.status,
       user_type: user.user_type,
       is_email_verified: user.is_email_verified,
@@ -439,6 +441,7 @@ export class UsersService {
       last_name: user.last_name,
       phone: user.phone,
       email: user.email,
+      profile_photo_url: membership?.employee?.profile_photo_url ?? null,
       status: user.status,
       user_type: user.user_type,
       is_email_verified: user.is_email_verified,

@@ -13,6 +13,11 @@ export class UserProfileDto {
   phone: string;
   @ApiProperty({ example: 'john.doe@acme.co.tz' })
   email: string;
+  @ApiPropertyOptional({
+    example: '/uploads/profile-photos/company-7/employee-15-avatar.png',
+    nullable: true,
+  })
+  profile_photo_url?: string | null;
   @ApiProperty({ example: 'active' })
   status: string;
   @ApiProperty({ example: 'employee' })
