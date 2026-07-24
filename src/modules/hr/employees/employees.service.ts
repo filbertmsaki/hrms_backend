@@ -402,6 +402,7 @@ export class EmployeesService {
             last_name: membership.user.last_name,
             phone: membership.user.phone,
             email: membership.user.email,
+            profile_photo_url: membership.employee?.profile_photo_url ?? null,
             status: membership.user.status,
             user_type: membership.user.user_type,
           }
@@ -428,6 +429,7 @@ export class EmployeesService {
             last_name: membership.user.last_name,
             phone: membership.user.phone,
             email: membership.user.email,
+            profile_photo_url: membership.employee?.profile_photo_url ?? null,
             status: membership.user.status,
             user_type: membership.user.user_type,
           }
@@ -452,6 +454,8 @@ export class EmployeesService {
             first_name: document.uploaded_by.user.first_name,
             last_name: document.uploaded_by.user.last_name,
             email: document.uploaded_by.user.email,
+            profile_photo_url:
+              document.uploaded_by.employee?.profile_photo_url ?? null,
           }
         : null,
     };
@@ -562,6 +566,9 @@ export class EmployeesService {
             first_name: academicQualification.uploaded_by.user.first_name,
             last_name: academicQualification.uploaded_by.user.last_name,
             email: academicQualification.uploaded_by.user.email,
+            profile_photo_url:
+              academicQualification.uploaded_by.employee?.profile_photo_url ??
+              null,
           }
         : null,
     };
@@ -592,6 +599,9 @@ export class EmployeesService {
             first_name: professionalQualification.uploaded_by.user.first_name,
             last_name: professionalQualification.uploaded_by.user.last_name,
             email: professionalQualification.uploaded_by.user.email,
+            profile_photo_url:
+              professionalQualification.uploaded_by.employee
+                ?.profile_photo_url ?? null,
           }
         : null,
     };
@@ -653,6 +663,7 @@ export class EmployeesService {
             employee_no: employee.manager.employee_no,
             first_name: employee.manager.first_name,
             last_name: employee.manager.last_name,
+            profile_photo_url: employee.manager.profile_photo_url,
             company_user: this.mapMembershipWithoutAccessDetails(
               employee.manager.company_user,
             ),
@@ -716,6 +727,7 @@ export class EmployeesService {
     return {
       company_user: {
         user: true,
+        employee: true,
       },
       primary_branch: true,
       primary_department: {
@@ -726,6 +738,7 @@ export class EmployeesService {
       manager: {
         company_user: {
           user: true,
+          employee: true,
         },
       },
       department_assignments: {
@@ -745,11 +758,13 @@ export class EmployeesService {
       academic_qualifications: {
         uploaded_by: {
           user: true,
+          employee: true,
         },
       },
       professional_qualifications: {
         uploaded_by: {
           user: true,
+          employee: true,
         },
       },
       experience_details: true,
@@ -758,6 +773,7 @@ export class EmployeesService {
             documents: {
               uploaded_by: {
                 user: true,
+                employee: true,
               },
             },
           }
@@ -780,6 +796,7 @@ export class EmployeesService {
       },
       relations: {
         user: true,
+        employee: true,
         role_assignments: {
           role: {
             permissions: true,
@@ -2216,82 +2233,13 @@ export class EmployeesService {
         manager,
       );
 
-      const existingEmployee = await this.getEmployeeRepository(
-        manager,
-      ).findOne({
-        where: { company_user_id: membership.id },
-      });
-
-      if (existingEmployee) {
-        throw new ConflictException(
-          'This company user already has an employee profile',
-        );
-      }
-
-      const employeeNo =
-        createEmployeeDto.employee_no ||
-        (await this.generateNextEmployeeNo(companyId, manager));
-
-      await this.assertUniqueEmployeeNumber(
+      return this.createForCompanyUserMembership(
         companyId,
-        employeeNo,
-        undefined,
-        manager,
-      );
-
-      const employee = this.getEmployeeRepository(manager).create({
-        company_user_id: membership.id,
-        employee_no: employeeNo,
-        first_name: createEmployeeDto.first_name,
-        last_name: createEmployeeDto.last_name,
-        employment_status:
-          createEmployeeDto.employment_status ??
-          EmploymentStatusEnum.ONBOARDING,
-        employment_type:
-          createEmployeeDto.employment_type ?? EmploymentTypeEnum.FULL_TIME,
-      });
-
-      const savedEmployee = await this.persistEmployee(
-        companyId,
-        employee,
+        membership,
         createEmployeeDto,
         actor,
         manager,
       );
-
-      await this.initializeCurrentYearLeaveBalances(
-        companyId,
-        savedEmployee,
-        manager,
-      );
-
-      let onboardingRequestId: number | null = null;
-      if (createEmployeeDto.onboarding?.auto_start !== false) {
-        const onboardingRequest =
-          await this.onboardingService.startOnboardingForEmployee(
-            companyId,
-            {
-              employee_id: savedEmployee.id,
-              workflow_id: createEmployeeDto.onboarding?.workflow_id,
-              title: createEmployeeDto.onboarding?.title,
-              description: createEmployeeDto.onboarding?.description,
-              planned_start_date:
-                createEmployeeDto.onboarding?.planned_start_date,
-              planned_completion_date:
-                createEmployeeDto.onboarding?.planned_completion_date,
-              submit: createEmployeeDto.onboarding?.submit,
-              provisioning: createEmployeeDto.onboarding?.provisioning,
-            },
-            actor,
-            manager,
-          );
-        onboardingRequestId = onboardingRequest.id;
-      }
-
-      return {
-        employeeId: savedEmployee.id,
-        onboardingRequestId,
-      };
     });
 
     const employee = await this.findOne(companyId, creation.employeeId, actor);
@@ -2310,6 +2258,136 @@ export class EmployeesService {
     return {
       ...employee,
       onboarding_request: onboardingRequest,
+    };
+  }
+
+  async createForCompanyUser(
+    companyId: number,
+    companyUserId: number,
+    createEmployeeDto: CreateEmployeeDto,
+    actor: AuthenticatedUser,
+    manager?: EntityManager,
+  ): Promise<{ employeeId: number; onboardingRequestId: number | null }> {
+    if (manager) {
+      const membership = await this.findMembershipByCompanyUserId(
+        companyId,
+        companyUserId,
+        manager,
+      );
+
+      if (!membership) {
+        throw new NotFoundException('Company membership not found');
+      }
+
+      return this.createForCompanyUserMembership(
+        companyId,
+        membership,
+        createEmployeeDto,
+        actor,
+        manager,
+      );
+    }
+
+    return this.dataSource.transaction(async (txManager) => {
+      const membership = await this.findMembershipByCompanyUserId(
+        companyId,
+        companyUserId,
+        txManager,
+      );
+
+      if (!membership) {
+        throw new NotFoundException('Company membership not found');
+      }
+
+      return this.createForCompanyUserMembership(
+        companyId,
+        membership,
+        createEmployeeDto,
+        actor,
+        txManager,
+      );
+    });
+  }
+
+  private async createForCompanyUserMembership(
+    companyId: number,
+    membership: CompanyUser,
+    createEmployeeDto: CreateEmployeeDto,
+    actor: AuthenticatedUser,
+    manager: EntityManager,
+  ): Promise<{ employeeId: number; onboardingRequestId: number | null }> {
+    const existingEmployee = await this.getEmployeeRepository(manager).findOne({
+      where: { company_user_id: membership.id },
+    });
+
+    if (existingEmployee) {
+      throw new ConflictException(
+        'This company user already has an employee profile',
+      );
+    }
+
+    const employeeNo =
+      createEmployeeDto.employee_no ||
+      (await this.generateNextEmployeeNo(companyId, manager));
+
+    await this.assertUniqueEmployeeNumber(
+      companyId,
+      employeeNo,
+      undefined,
+      manager,
+    );
+
+    const employee = this.getEmployeeRepository(manager).create({
+      company_user_id: membership.id,
+      employee_no: employeeNo,
+      first_name: createEmployeeDto.first_name,
+      last_name: createEmployeeDto.last_name,
+      employment_status:
+        createEmployeeDto.employment_status ?? EmploymentStatusEnum.ONBOARDING,
+      employment_type:
+        createEmployeeDto.employment_type ?? EmploymentTypeEnum.FULL_TIME,
+    });
+
+    const savedEmployee = await this.persistEmployee(
+      companyId,
+      employee,
+      createEmployeeDto,
+      actor,
+      manager,
+    );
+
+    await this.initializeCurrentYearLeaveBalances(
+      companyId,
+      savedEmployee,
+      manager,
+    );
+
+    let onboardingRequestId: number | null = null;
+    if (createEmployeeDto.onboarding?.auto_start !== false) {
+      const onboardingRequest =
+        await this.onboardingService.startOnboardingForEmployee(
+          companyId,
+          {
+            employee_id: savedEmployee.id,
+            workflow_id: createEmployeeDto.onboarding?.workflow_id,
+            title: createEmployeeDto.onboarding?.title,
+            description: createEmployeeDto.onboarding?.description,
+            planned_start_date:
+              createEmployeeDto.onboarding?.planned_start_date,
+            planned_completion_date:
+              createEmployeeDto.onboarding?.planned_completion_date,
+            submit: createEmployeeDto.onboarding?.submit,
+            provisioning: createEmployeeDto.onboarding?.provisioning,
+          },
+          actor,
+          manager,
+        );
+      onboardingRequestId = onboardingRequest.id;
+    }
+
+    return {
+      employeeId: savedEmployee.id,
+      onboardingRequestId,
     };
   }
 

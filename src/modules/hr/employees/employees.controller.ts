@@ -9,11 +9,15 @@ import {
   Post,
   Query,
   Req,
+  Res,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
-import type { Request as ExpressRequest } from 'express';
+import type { Request as ExpressRequest, Response } from 'express';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Permissions } from '../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../common/guards/tenant.guard';
@@ -40,6 +44,10 @@ import { UpdateEmployeeExperienceDto } from './dtos/update-employee-experience.d
 import { UpdateEmployeeIdentificationDto } from './dtos/update-employee-identification.dto';
 import { UpdateEmployeeProfessionalQualificationDto } from './dtos/update-employee-professional-qualification.dto';
 import { UpdateEmployeeRelativeDto } from './dtos/update-employee-relative.dto';
+import { EmployeeImportConfirmDto } from './import/dto/employee-import-confirm.dto';
+import { EmployeeImportHistoryQueryDto } from './import/dto/employee-import-history-query.dto';
+import { EmployeeImportPreviewRequestDto } from './import/dto/employee-import-preview-request.dto';
+import { EmployeeImportService } from './import/employee-import.service';
 import { EmployeesService } from './employees.service';
 import {
   ApiCreateOperation,
@@ -60,7 +68,10 @@ import {
 @Controller('employees')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class EmployeesController {
-  constructor(private readonly employeesService: EmployeesService) {}
+  constructor(
+    private readonly employeesService: EmployeesService,
+    private readonly employeeImportService: EmployeeImportService,
+  ) {}
 
   // ════════════════════════════════════════════
   //  CORE PROFILE CRUD
@@ -97,6 +108,135 @@ export class EmployeesController {
     @Query() query: EmployeeQueryDto,
   ) {
     return this.employeesService.findAll(req.user.companyId!, query, req.user);
+  }
+
+  @Get('import/template')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees.import.template.download')
+  async downloadImportTemplate(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Res() res: Response,
+  ) {
+    const result = await this.employeeImportService.downloadTemplate(
+      req.user.companyId!,
+      req.user,
+    );
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=${result.fileName}`,
+    );
+    res.send(result.buffer);
+  }
+
+  @Post('import')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees.import.preview')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: {
+        fileSize: 10 * 1024 * 1024,
+      },
+    }),
+  )
+  previewImportAlias(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @UploadedFile()
+    file: {
+      originalname: string;
+      mimetype: string;
+      size: number;
+      buffer: Buffer;
+    },
+    @Body() dto: EmployeeImportPreviewRequestDto,
+  ) {
+    return this.employeeImportService.previewImport(
+      req.user.companyId!,
+      file,
+      dto,
+      req.user,
+    );
+  }
+
+  @Post('import/preview')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees.import.preview')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: {
+        fileSize: 10 * 1024 * 1024,
+      },
+    }),
+  )
+  previewImport(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @UploadedFile()
+    file: {
+      originalname: string;
+      mimetype: string;
+      size: number;
+      buffer: Buffer;
+    },
+    @Body() dto: EmployeeImportPreviewRequestDto,
+  ) {
+    return this.employeeImportService.previewImport(
+      req.user.companyId!,
+      file,
+      dto,
+      req.user,
+    );
+  }
+
+  @Post('import/confirm')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees.import.execute')
+  confirmImport(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: EmployeeImportConfirmDto,
+  ) {
+    return this.employeeImportService.confirmImport(
+      req.user.companyId!,
+      dto,
+      req.user,
+    );
+  }
+
+  @Get('import/history')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees.import.history.view')
+  getImportHistory(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: EmployeeImportHistoryQueryDto,
+  ) {
+    return this.employeeImportService.listHistory(req.user.companyId!, query);
+  }
+
+  @Get('import/:batchId/result')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees.import.result.download')
+  async downloadImportResult(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('batchId') batchId: string,
+    @Res() res: Response,
+  ) {
+    const result = await this.employeeImportService.downloadResult(
+      req.user.companyId!,
+      batchId,
+    );
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=${result.fileName}`,
+    );
+    res.send(result.buffer);
   }
 
   @Get('me')

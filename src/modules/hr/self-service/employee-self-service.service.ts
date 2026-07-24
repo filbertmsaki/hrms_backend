@@ -59,7 +59,12 @@ type EmployeeProfileShape = {
   primary_branch?: { id: number; name: string } | null;
   primary_department?: { id: number; name: string } | null;
   primary_position?: { id: number; name: string } | null;
-  manager?: { id: number; first_name?: string; last_name?: string } | null;
+  manager?: {
+    id: number;
+    first_name?: string;
+    last_name?: string;
+    profile_photo_url?: string | null;
+  } | null;
   [key: string]: unknown;
 };
 
@@ -1164,6 +1169,7 @@ export class EmployeeSelfServiceService {
     return {
       id: manager.id,
       name: [manager.first_name, manager.last_name].filter(Boolean).join(' '),
+      profile_photo_url: manager.profile_photo_url ?? null,
     };
   }
 

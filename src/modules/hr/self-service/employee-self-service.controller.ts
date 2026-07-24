@@ -60,24 +60,29 @@ export class EmployeeSelfServiceController {
 
   @Get('dashboard')
   @ApiOperation({ summary: 'Get my dashboard overview' })
-  getDashboard(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
-    return this.employeeSelfServiceService.getDashboard(req.user);
+  async getDashboard(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    const dashboard = await this.employeeSelfServiceService.getDashboard(
+      req.user,
+    );
+
+    return this.withAbsoluteProfilePhotoUrls(req, dashboard);
   }
 
   @Get('profile')
   @ApiOperation({ summary: 'Get my combined user and employee profile' })
   async getProfile(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
     const profile = await this.employeeSelfServiceService.getProfile(req.user);
+    const normalizedProfile = this.withAbsoluteProfilePhotoUrls(req, profile);
     const employee = profile.employee as
       | { profile_photo_url?: string | null }
       | null
       | undefined;
 
     return {
-      ...profile,
+      ...normalizedProfile,
       employee: employee
         ? {
-            ...employee,
+            ...(normalizedProfile.employee as Record<string, unknown>),
             profile_photo_path: employee.profile_photo_url ?? null,
             has_profile_photo: Boolean(employee.profile_photo_url),
             profile_photo_url: this.buildAbsoluteUrl(
@@ -159,8 +164,9 @@ export class EmployeeSelfServiceController {
 
   @Get('status')
   @ApiOperation({ summary: 'Get my current employment and attendance status' })
-  getStatus(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
-    return this.employeeSelfServiceService.getStatus(req.user);
+  async getStatus(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    const status = await this.employeeSelfServiceService.getStatus(req.user);
+    return this.withAbsoluteProfilePhotoUrls(req, status);
   }
 
   @Get('attendance/today')
@@ -506,6 +512,40 @@ export class EmployeeSelfServiceController {
     }
 
     return `${protocol}://${host}${assetPath}`;
+  }
+
+  private withAbsoluteProfilePhotoUrls<T>(req: ExpressRequest, value: T): T {
+    return this.normalizeProfilePhotoUrls(req, value) as T;
+  }
+
+  private normalizeProfilePhotoUrls(
+    req: ExpressRequest,
+    value: unknown,
+  ): unknown {
+    if (Array.isArray(value)) {
+      return value.map((item) => this.normalizeProfilePhotoUrls(req, item));
+    }
+
+    if (value && typeof value === 'object') {
+      const record = value as Record<string, unknown>;
+      const normalized: Record<string, unknown> = {};
+
+      for (const [key, nestedValue] of Object.entries(record)) {
+        if (key === 'profile_photo_url') {
+          normalized[key] =
+            typeof nestedValue === 'string' || nestedValue === null
+              ? this.buildAbsoluteUrl(req, nestedValue)
+              : nestedValue;
+          continue;
+        }
+
+        normalized[key] = this.normalizeProfilePhotoUrls(req, nestedValue);
+      }
+
+      return normalized;
+    }
+
+    return value;
   }
 
   private readForwardedHeaderValue(

@@ -167,6 +167,11 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'employees:update',
       'employees:delete',
       'employees:change-status',
+      'employees.import.template.download',
+      'employees.import.preview',
+      'employees.import.execute',
+      'employees.import.history.view',
+      'employees.import.result.download',
       // Leave (full management)
       'leave_types:read',
       'leave_types:create',
@@ -415,6 +420,11 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'employees:create',
       'employees:delete',
       'employees:change-status',
+      'employees.import.template.download',
+      'employees.import.preview',
+      'employees.import.execute',
+      'employees.import.history.view',
+      'employees.import.result.download',
       // Leave (full management)
       'leave_types:read',
       'leave_types:create',
@@ -618,6 +628,11 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'users:read',
       // Employees (no delete, no status change)
       'employees:update',
+      'employees.import.template.download',
+      'employees.import.preview',
+      'employees.import.execute',
+      'employees.import.history.view',
+      'employees.import.result.download',
       // Leave (read + day-to-day ops, no policy/type management)
       'leave_types:read',
       'leave_policies:read',
@@ -750,6 +765,8 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       ...ORG_STRUCTURE_READ_PERMISSIONS,
       'users:read',
       'employees:read',
+      'employees.import.history.view',
+      'employees.import.result.download',
       // Leave (read only)
       'leave_types:read',
       'leave_policies:read',

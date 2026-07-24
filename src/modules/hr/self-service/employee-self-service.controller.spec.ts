@@ -10,8 +10,10 @@ import { EmployeeSelfServiceService } from './employee-self-service.service';
 describe('EmployeeSelfServiceController', () => {
   let controller: EmployeeSelfServiceController;
   let employeeSelfServiceService: {
+    getDashboard: jest.Mock;
     getProfile: jest.Mock;
     getProfilePhoto: jest.Mock;
+    getStatus: jest.Mock;
   };
 
   const user: AuthenticatedUser = {
@@ -29,8 +31,10 @@ describe('EmployeeSelfServiceController', () => {
 
   beforeEach(() => {
     employeeSelfServiceService = {
+      getDashboard: jest.fn(),
       getProfile: jest.fn(),
       getProfilePhoto: jest.fn(),
+      getStatus: jest.fn(),
     };
 
     controller = new EmployeeSelfServiceController(
@@ -88,24 +92,47 @@ describe('EmployeeSelfServiceController', () => {
     employeeSelfServiceService.getProfile.mockResolvedValue({
       user: {
         id: 9,
+        profile_photo_url:
+          '/uploads/profile-photos/company-7/user-9-avatar.png',
       },
       employee: {
         id: 15,
         employee_no: 'EMP-0015',
         profile_photo_url:
           '/uploads/profile-photos/company-7/employee-15-avatar.png',
+        manager: {
+          id: 21,
+          profile_photo_url:
+            '/uploads/profile-photos/company-7/employee-21-avatar.png',
+        },
       },
       links: {
         profile: '/me/profile',
       },
     });
 
-    const result = await controller.getProfile({
+    const rawResult: unknown = await controller.getProfile({
       user,
       protocol: 'http',
       headers: {},
       get: jest.fn().mockReturnValue('localhost:3000'),
     } as unknown as ExpressRequest & { user: AuthenticatedUser });
+    const result = rawResult as {
+      user: {
+        id: number;
+        profile_photo_url: string;
+      };
+      employee: {
+        id: number;
+        profile_photo_path: string;
+        has_profile_photo: boolean;
+        profile_photo_url: string;
+        manager: {
+          id: number;
+          profile_photo_url: string;
+        };
+      };
+    };
 
     expect(result.employee).toEqual(
       expect.objectContaining({
@@ -116,6 +143,95 @@ describe('EmployeeSelfServiceController', () => {
         profile_photo_url:
           'http://localhost:3000/uploads/profile-photos/company-7/employee-15-avatar.png',
       }),
+    );
+    expect(result.user).toEqual(
+      expect.objectContaining({
+        id: 9,
+        profile_photo_url:
+          'http://localhost:3000/uploads/profile-photos/company-7/user-9-avatar.png',
+      }),
+    );
+    expect(result.employee.manager).toEqual(
+      expect.objectContaining({
+        id: 21,
+        profile_photo_url:
+          'http://localhost:3000/uploads/profile-photos/company-7/employee-21-avatar.png',
+      }),
+    );
+  });
+
+  it('adds absolute profile photo urls to nested dashboard relationships', async () => {
+    employeeSelfServiceService.getDashboard.mockResolvedValue({
+      user: {
+        id: 9,
+        profile_photo_url:
+          '/uploads/profile-photos/company-7/user-9-avatar.png',
+      },
+      employee: {
+        id: 15,
+        profile_photo_url:
+          '/uploads/profile-photos/company-7/employee-15-avatar.png',
+        manager: {
+          id: 21,
+          name: 'Manager One',
+          profile_photo_url:
+            '/uploads/profile-photos/company-7/employee-21-avatar.png',
+        },
+      },
+      leave: {
+        recent_requests: [
+          {
+            approvals: [
+              {
+                approver: {
+                  id: 31,
+                  profile_photo_url:
+                    '/uploads/profile-photos/company-7/employee-31-avatar.png',
+                },
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const rawResult: unknown = await controller.getDashboard({
+      user,
+      protocol: 'http',
+      headers: {},
+      get: jest.fn().mockReturnValue('localhost:3000'),
+    } as unknown as ExpressRequest & {
+      user: AuthenticatedUser;
+    });
+    const result = rawResult as {
+      employee: {
+        manager: {
+          id: number;
+          profile_photo_url: string;
+        };
+      };
+      leave: {
+        recent_requests: Array<{
+          approvals: Array<{
+            approver: {
+              profile_photo_url: string;
+            };
+          }>;
+        }>;
+      };
+    };
+
+    expect(result.employee.manager).toEqual(
+      expect.objectContaining({
+        id: 21,
+        profile_photo_url:
+          'http://localhost:3000/uploads/profile-photos/company-7/employee-21-avatar.png',
+      }),
+    );
+    expect(
+      result.leave.recent_requests[0].approvals[0].approver.profile_photo_url,
+    ).toBe(
+      'http://localhost:3000/uploads/profile-photos/company-7/employee-31-avatar.png',
     );
   });
 });

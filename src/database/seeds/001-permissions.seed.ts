@@ -292,6 +292,32 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     displayName: 'Change employee status',
     description: 'Allow managing employee lifecycle statuses',
   },
+  {
+    name: 'employees.import.template.download',
+    displayName: 'Download employee import template',
+    description: 'Allow downloading the employee Excel import template',
+  },
+  {
+    name: 'employees.import.preview',
+    displayName: 'Preview employee imports',
+    description:
+      'Allow uploading employee Excel files for validation preview before import',
+  },
+  {
+    name: 'employees.import.execute',
+    displayName: 'Execute employee imports',
+    description: 'Allow confirming and executing employee Excel imports',
+  },
+  {
+    name: 'employees.import.history.view',
+    displayName: 'View employee import history',
+    description: 'Allow viewing employee Excel import history and summaries',
+  },
+  {
+    name: 'employees.import.result.download',
+    displayName: 'Download employee import results',
+    description: 'Allow downloading employee Excel import result workbooks',
+  },
   // Leave types
   {
     name: 'leave_types:read',

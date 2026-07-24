@@ -1,0 +1,5 @@
+export enum EmployeeImportModeEnum {
+  CREATE_ONLY = 'CREATE_ONLY',
+  UPDATE_EXISTING = 'UPDATE_EXISTING',
+  CREATE_OR_UPDATE = 'CREATE_OR_UPDATE',
+}
