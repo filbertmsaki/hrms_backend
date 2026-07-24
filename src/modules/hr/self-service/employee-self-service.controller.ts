@@ -66,8 +66,46 @@ export class EmployeeSelfServiceController {
 
   @Get('profile')
   @ApiOperation({ summary: 'Get my combined user and employee profile' })
-  getProfile(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
-    return this.employeeSelfServiceService.getProfile(req.user);
+  async getProfile(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    const profile = await this.employeeSelfServiceService.getProfile(req.user);
+    const employee = profile.employee as
+      | { profile_photo_url?: string | null }
+      | null
+      | undefined;
+
+    return {
+      ...profile,
+      employee: employee
+        ? {
+            ...employee,
+            profile_photo_path: employee.profile_photo_url ?? null,
+            has_profile_photo: Boolean(employee.profile_photo_url),
+            profile_photo_url: this.buildAbsoluteUrl(
+              req,
+              employee.profile_photo_url ?? null,
+            ),
+          }
+        : (employee ?? null),
+    };
+  }
+
+  @Get('profile/photo')
+  @ApiOperation({ summary: 'Get my profile picture URL' })
+  async getProfilePhoto(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  ) {
+    const profilePhoto = await this.employeeSelfServiceService.getProfilePhoto(
+      req.user,
+    );
+
+    return {
+      ...profilePhoto,
+      has_profile_photo: Boolean(profilePhoto.profile_photo_path),
+      profile_photo_url: this.buildAbsoluteUrl(
+        req,
+        profilePhoto.profile_photo_path,
+      ),
+    };
   }
 
   @Post('profile/photo')
@@ -440,5 +478,42 @@ export class EmployeeSelfServiceController {
     @Query() query: TeamAttendanceQueryDto,
   ) {
     return this.employeeSelfServiceService.getMyTeamAttendance(req.user, query);
+  }
+
+  private buildAbsoluteUrl(
+    req: ExpressRequest,
+    assetPath: string | null,
+  ): string | null {
+    if (!assetPath) {
+      return null;
+    }
+
+    if (/^https?:\/\//i.test(assetPath)) {
+      return assetPath;
+    }
+
+    const forwardedProtocol = this.readForwardedHeaderValue(
+      req.headers['x-forwarded-proto'],
+    );
+    const forwardedHost = this.readForwardedHeaderValue(
+      req.headers['x-forwarded-host'],
+    );
+    const protocol = forwardedProtocol || req.protocol || 'http';
+    const host = forwardedHost || req.get('host') || req.headers.host;
+
+    if (!host) {
+      return assetPath;
+    }
+
+    return `${protocol}://${host}${assetPath}`;
+  }
+
+  private readForwardedHeaderValue(
+    value: string | string[] | undefined,
+  ): string | null {
+    const firstValue = Array.isArray(value) ? value[0] : value;
+    const normalized = firstValue?.split(',')[0]?.trim();
+
+    return normalized || null;
   }
 }

@@ -127,6 +127,15 @@ export class EmployeeSelfServiceService {
     };
   }
 
+  async getProfilePhoto(actor: AuthenticatedUser) {
+    const employee = await this.requireMyEmployeeProfile(actor);
+
+    return {
+      employee_id: employee.id ?? null,
+      profile_photo_path: employee.profile_photo_url ?? null,
+    };
+  }
+
   async uploadProfilePhoto(
     actor: AuthenticatedUser,
     file: UploadedProfilePhoto,
