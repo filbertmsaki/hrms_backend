@@ -78,7 +78,7 @@ describe('EmployeeImportService', () => {
   });
 
   it('generates an import template workbook with employee and reference sheets', async () => {
-    jest.spyOn(service as never, 'loadReferenceData').mockResolvedValue({
+    jest.spyOn(service as any, 'loadReferenceData').mockResolvedValue({
       branches: [{ id: 1, code: 'HQ', name: 'Head Office', status: 'active' }],
       departments: [
         {
@@ -120,7 +120,7 @@ describe('EmployeeImportService', () => {
       credentials: [],
     });
     jest
-      .spyOn(service as never, 'applyActorBranchValidation')
+      .spyOn(service as any, 'applyActorBranchValidation')
       .mockResolvedValue(undefined);
 
     const result = await service.downloadTemplate(10, actor);
@@ -138,15 +138,36 @@ describe('EmployeeImportService', () => {
     expect(workbook.getWorksheet('Branches')).toBeDefined();
 
     const employeeSheet = workbook.getWorksheet('Employees');
-    expect(employeeSheet?.getRow(1).values).toEqual(
-      expect.arrayContaining([
-        'first_name',
-        'last_name',
-        'email',
-        'phone_number',
-        'gender',
-      ]),
+    const headers = Array.from(
+      { length: employeeSheet?.columnCount ?? 0 },
+      (_, index) =>
+        employeeSheet
+          ?.getRow(1)
+          .getCell(index + 1)
+          .text.trim() ?? '',
     );
+
+    expect(headers).toEqual([
+      'first_name',
+      'middle_name',
+      'last_name',
+      'employee_number',
+      'email',
+      'gender',
+      'employment_date',
+      'branch_code',
+      'department_code',
+      'position_code',
+      'employment_type',
+      'access_device_codes',
+      'device_employee_number',
+    ]);
+    expect(employeeSheet?.getCell('H2').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('I2').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('J2').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('K2').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('F2').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('L2').dataValidation.type).toBe('list');
   });
 
   it('rejects unsupported file extensions before previewing', async () => {
@@ -185,14 +206,28 @@ describe('EmployeeImportService', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('reports duplicate headers and missing required columns during preview', async () => {
+  it('reports duplicate and unsupported headers during preview', async () => {
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('Employees');
-    sheet.addRow(['first_name', 'first_name', 'last_name', 'email', 'gender']);
-    sheet.addRow(['Jane', 'Jane', 'Doe', 'jane@example.com', 'female']);
+    sheet.addRow([
+      'first_name',
+      'first_name',
+      'last_name',
+      'email',
+      'gender',
+      'phone_number',
+    ]);
+    sheet.addRow([
+      'Jane',
+      'Jane',
+      'Doe',
+      'jane@example.com',
+      'female',
+      '+255712345678',
+    ]);
     const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
 
-    jest.spyOn(service as never, 'loadReferenceData').mockResolvedValue({
+    jest.spyOn(service as any, 'loadReferenceData').mockResolvedValue({
       branches: [],
       departments: [],
       positions: [],
@@ -208,16 +243,16 @@ describe('EmployeeImportService', () => {
       credentials: [],
     });
     jest
-      .spyOn(service as never, 'applyActorBranchValidation')
+      .spyOn(service as any, 'applyActorBranchValidation')
       .mockResolvedValue(undefined);
     jest
-      .spyOn(service as never, 'applyManagerValidation')
+      .spyOn(service as any, 'applyManagerValidation')
       .mockResolvedValue(undefined);
     jest
-      .spyOn(service as never, 'applyBatchDuplicateValidation')
+      .spyOn(service as any, 'applyBatchDuplicateValidation')
       .mockImplementation(() => undefined);
     jest
-      .spyOn(service as never, 'validatePreviewRow')
+      .spyOn(service as any, 'validatePreviewRow')
       .mockImplementation(
         (_: number, rowNumber: number, values: Record<string, unknown>) => ({
           rowNumber,
@@ -245,7 +280,7 @@ describe('EmployeeImportService', () => {
     } as EmployeeImportBatch;
 
     jest
-      .spyOn(service as never, 'persistPreviewBatch')
+      .spyOn(service as any, 'persistPreviewBatch')
       .mockResolvedValue(previewBatch);
 
     const result = await service.previewImport(
@@ -265,7 +300,7 @@ describe('EmployeeImportService', () => {
     expect(result.rows[0]?.errors).toEqual(
       expect.arrayContaining([
         expect.stringContaining('Duplicate header "first_name"'),
-        expect.stringContaining('Missing required columns: phone_number'),
+        expect.stringContaining('Unsupported columns detected: phone_number'),
       ]),
     );
   });
@@ -277,23 +312,27 @@ describe('EmployeeImportService', () => {
       'first_name',
       'last_name',
       'email',
-      'phone_number',
       'gender',
-      'shift_code',
-      'timetable_code',
+      'branch_code',
+      'department_code',
+      'position_code',
+      'access_device_codes',
+      'device_employee_number',
     ]);
     sheet.addRow([
       'Jane',
       'Doe',
       'jane.optional@example.com',
-      '+255712345678',
       'female',
+      '',
+      '',
+      '',
       '',
       '',
     ]);
     const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
 
-    jest.spyOn(service as never, 'loadReferenceData').mockResolvedValue({
+    jest.spyOn(service as any, 'loadReferenceData').mockResolvedValue({
       branches: [],
       departments: [],
       positions: [],
@@ -309,16 +348,16 @@ describe('EmployeeImportService', () => {
       credentials: [],
     });
     jest
-      .spyOn(service as never, 'applyActorBranchValidation')
+      .spyOn(service as any, 'applyActorBranchValidation')
       .mockResolvedValue(undefined);
     jest
-      .spyOn(service as never, 'applyManagerValidation')
+      .spyOn(service as any, 'applyManagerValidation')
       .mockResolvedValue(undefined);
     jest
-      .spyOn(service as never, 'applyBatchDuplicateValidation')
+      .spyOn(service as any, 'applyBatchDuplicateValidation')
       .mockImplementation(() => undefined);
     jest
-      .spyOn(service as never, 'persistPreviewBatch')
+      .spyOn(service as any, 'persistPreviewBatch')
       .mockImplementation(
         (
           _companyId: number,
@@ -356,11 +395,68 @@ describe('EmployeeImportService', () => {
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0]?.errors).not.toEqual(
       expect.arrayContaining([
-        'shift_code does not match any active shift',
-        'timetable_code does not match any active timetable',
+        'branch_code "" does not match any branch code',
+        'department_code "" does not match any department code',
+        'position_code "" does not match any position code',
       ]),
     );
     expect(result.rows[0]?.status).toBe('READY');
+  });
+
+  it('returns clear validation errors for invalid codes and device mappings', () => {
+    const row = (
+      service as unknown as {
+        validatePreviewRow: (
+          companyId: number,
+          rowNumber: number,
+          values: Record<string, unknown>,
+          dto: Record<string, unknown>,
+          references: Record<string, unknown>,
+        ) => { errors: string[] };
+      }
+    ).validatePreviewRow(
+      10,
+      2,
+      {
+        first_name: 'Jane',
+        last_name: 'Doe',
+        email: 'jane@example.com',
+        gender: 'female',
+        branch_code: 'UNKNOWN-BRANCH',
+        department_code: 'UNKNOWN-DEPT',
+        position_code: 'UNKNOWN-POS',
+        employment_type: 'casual',
+        access_device_codes: 'UNKNOWN-DEVICE',
+        device_employee_number: 'DEV-1001',
+      },
+      {},
+      {
+        branches: [],
+        departments: [],
+        positions: [],
+        shifts: [],
+        timetables: [],
+        devices: [],
+        roles: [],
+        employees: [],
+        companyUsers: [],
+        users: [],
+        identifications: [],
+        deviceAssignments: [],
+        credentials: [],
+      },
+    );
+
+    expect(row.errors).toEqual(
+      expect.arrayContaining([
+        'branch_code "UNKNOWN-BRANCH" does not match any branch code',
+        'department_code "UNKNOWN-DEPT" does not match any department code',
+        'position_code "UNKNOWN-POS" does not match any position code',
+        expect.stringContaining('employment_type must be one of:'),
+        'access_device_codes contain invalid device code(s): UNKNOWN-DEVICE',
+        'device_employee_number requires at least one valid access_device_codes value',
+      ]),
+    );
   });
 
   it('creates company membership in the same transaction when importing a new system user', async () => {
@@ -434,6 +530,79 @@ describe('EmployeeImportService', () => {
       expect.objectContaining({
         id: 18,
         user_id: 91,
+      }),
+    );
+  });
+
+  it('creates an inactive placeholder membership when importing without phone details', async () => {
+    const addUserToCompany = jest.fn().mockResolvedValue(undefined);
+    (
+      service as unknown as {
+        companiesService: { addUserToCompany: jest.Mock };
+      }
+    ).companiesService = {
+      addUserToCompany,
+    };
+    (
+      service as unknown as { usersService: { generateUserNo: jest.Mock } }
+    ).usersService = {
+      generateUserNo: jest.fn().mockResolvedValue('USER-2026-00092'),
+    };
+
+    const userRepo = createRepositoryMock();
+    const companyUserRepo = createRepositoryMock();
+
+    userRepo.findOne.mockResolvedValue(null);
+    userRepo.save.mockResolvedValue({
+      id: 92,
+      status: 'inactive',
+    });
+    companyUserRepo.findOne.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      id: 19,
+      company_id: 10,
+      user_id: 92,
+      status: 'active',
+    });
+    companyUserRepo.save.mockResolvedValue({
+      id: 19,
+      company_id: 10,
+      user_id: 92,
+      status: 'active',
+    });
+
+    const membership = await (
+      service as unknown as {
+        ensureMembershipForImportRow: (
+          companyId: number,
+          normalizedData: Record<string, unknown>,
+          actor: AuthenticatedUser,
+          userRepo: MockRepo,
+          companyUserRepo: MockRepo,
+          createSystemUser: boolean,
+          roleId: number | null,
+          manager?: unknown,
+        ) => Promise<{ id: number; user_id: number }>;
+      }
+    ).ensureMembershipForImportRow(
+      10,
+      {
+        first_name: 'Api',
+        last_name: 'Import',
+        email: 'api.import.placeholder@example.com',
+      },
+      actor,
+      userRepo as unknown as MockRepo,
+      companyUserRepo as unknown as MockRepo,
+      false,
+      null,
+    );
+
+    expect(addUserToCompany).not.toHaveBeenCalled();
+    expect(companyUserRepo.save).toHaveBeenCalled();
+    expect(membership).toEqual(
+      expect.objectContaining({
+        id: 19,
+        user_id: 92,
       }),
     );
   });

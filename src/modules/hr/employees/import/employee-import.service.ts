@@ -108,42 +108,23 @@ const SUPPORTED_MIME_TYPES = new Set([
 ]);
 const MAX_IMPORT_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 const PREVIEW_TTL_MS = 30 * 60 * 1000;
+const TEMPLATE_VALIDATION_ROW_COUNT = 500;
+const GENDER_VALUES = ['male', 'female'] as const;
 
 const IMPORT_COLUMNS = [
   'first_name',
   'middle_name',
   'last_name',
-  'preferred_name',
   'employee_number',
   'email',
-  'phone_number',
   'gender',
-  'date_of_birth',
   'employment_date',
   'branch_code',
   'department_code',
   'position_code',
-  'manager_employee_number',
   'employment_type',
-  'employee_status',
-  'shift_code',
-  'shift_effective_from',
-  'timetable_code',
-  'timetable_effective_from',
   'access_device_codes',
   'device_employee_number',
-  'card_number',
-  'access_password',
-  'create_system_user',
-  'user_role',
-  'temporary_password',
-  'national_id',
-  'marital_status',
-  'nationality',
-  'address',
-  'emergency_contact_name',
-  'emergency_contact_phone',
-  'notes',
 ] as const;
 
 type ImportColumn = (typeof IMPORT_COLUMNS)[number];
@@ -152,7 +133,6 @@ const REQUIRED_COLUMNS: ImportColumn[] = [
   'first_name',
   'last_name',
   'email',
-  'phone_number',
   'gender',
 ];
 
@@ -207,6 +187,43 @@ export class EmployeeImportService {
     const employeeSheet = workbook.addWorksheet(EMPLOYEE_SHEET);
     const instructionsSheet = workbook.addWorksheet(INSTRUCTIONS_SHEET);
     const references = await this.loadReferenceData(companyId);
+    const branchReferenceRows = references.branches
+      .filter((branch) => this.optionalString(branch.code))
+      .map((branch) => ({
+        code: branch.code ?? '',
+        name: branch.name,
+        status: branch.status,
+      }));
+    const departmentReferenceRows = references.departments
+      .filter((department) => this.optionalString(department.code))
+      .map((department) => ({
+        code: department.code ?? '',
+        name: department.name,
+        branch_code:
+          references.branches.find(
+            (branch) => branch.id === department.branch_id,
+          )?.code ?? '',
+        status: department.status,
+      }));
+    const positionReferenceRows = references.positions
+      .filter((position) => this.optionalString(position.code))
+      .map((position) => ({
+        code: position.code ?? '',
+        name: position.name,
+        department_code:
+          references.departments.find(
+            (department) => department.id === position.department_id,
+          )?.code ?? '',
+        branch_code:
+          references.branches.find((branch) => branch.id === position.branch_id)
+            ?.code ?? '',
+        status: position.status,
+      }));
+    const accessDeviceReferenceRows = references.devices.map((device) => ({
+      device_code: device.deviceCode,
+      device_name: device.deviceName,
+      status: device.status,
+    }));
 
     employeeSheet.addRow(IMPORT_COLUMNS);
     const headerRow = employeeSheet.getRow(1);
@@ -234,36 +251,15 @@ export class EmployeeImportService {
       'Jane',
       '',
       'Doe',
-      '',
-      '',
       'jane.doe@example.com',
-      '+255712345678',
       'female',
-      '1994-01-10',
       '2026-07-24',
-      references.branches[0]?.code ?? '',
-      references.departments[0]?.code ?? '',
-      references.positions[0]?.code ?? '',
-      '',
+      branchReferenceRows[0]?.code ?? '',
+      departmentReferenceRows[0]?.code ?? '',
+      positionReferenceRows[0]?.code ?? '',
       EmploymentTypeEnum.FULL_TIME,
-      EmploymentStatusEnum.ONBOARDING,
-      references.shifts[0]?.code ?? '',
-      '2026-07-24',
-      references.timetables[0]?.code ?? '',
-      '2026-07-24',
-      references.devices[0]?.deviceCode ?? '',
-      '',
-      '',
-      '',
-      'true',
-      references.roles[0]?.name ?? 'EMPLOYEE',
-      'Temp#2026Pass',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
+      accessDeviceReferenceRows[0]?.device_code ?? '',
+      accessDeviceReferenceRows[0]?.device_code ? 'DEV-0001' : '',
     ]);
     employeeSheet.getRow(2).font = { italic: true };
 
@@ -280,24 +276,19 @@ export class EmployeeImportService {
         IMPORT_COLUMNS.filter((column) => !requiredSet.has(column)).join(', '),
       ],
       ['Date format', 'Use ISO date values like YYYY-MM-DD.'],
-      ['Boolean values', 'Use true or false.'],
-      ['Gender values', 'Use male or female.'],
-      [
-        'Employee status values',
-        Object.values(EmploymentStatusEnum).join(', '),
-      ],
+      ['Gender values', GENDER_VALUES.join(', ')],
       ['Employment type values', Object.values(EmploymentTypeEnum).join(', ')],
       [
         'Access devices',
-        'Separate multiple device codes with commas. Device employee number is required when devices are supplied.',
+        'Select a single device code from the dropdown, or enter multiple device codes as a comma-separated list using values from the Access Devices sheet. device_employee_number is required whenever access_device_codes are supplied and the same device employee number is applied to every selected device.',
       ],
       [
         'Lookup strategy',
-        'Use branch, department, position, shift, timetable, role, and device codes where possible. Numeric IDs are also accepted.',
+        'Use branch_code, department_code, position_code, and access_device_codes exactly as listed in the reference sheets. Only records with populated codes appear in the dropdowns.',
       ],
       [
         'Unique values',
-        'Employee number is unique per company. Email and phone are globally unique for users. Device employee number must be unique per device. Card number cannot be reused by another employee.',
+        'Employee number is unique per company when provided. Email is unique per user. device_employee_number must be unique per selected device.',
       ],
       [
         'Optional blanks',
@@ -305,11 +296,11 @@ export class EmployeeImportService {
       ],
       [
         'Existing employee matching',
-        'Rows are matched using employee number, email, phone, or national ID. CREATE_ONLY rejects matches, UPDATE_EXISTING requires a match.',
+        'Rows are matched using employee_number and email. CREATE_ONLY rejects matches, UPDATE_EXISTING requires a match.',
       ],
       [
-        'System users',
-        'The current HRMS schema always links employees to company users. When create_system_user is false, the import creates an inactive placeholder user and membership without roles.',
+        'User records',
+        'The current HRMS schema always links employees to company users. When no existing user is found by email, the import creates an inactive placeholder user and membership so the employee record can be created without extra login fields.',
       ],
       [
         'Template example row',
@@ -324,81 +315,25 @@ export class EmployeeImportService {
       workbook,
       'Branches',
       ['code', 'name', 'status'],
-      references.branches.map((branch) => ({
-        code: branch.code ?? '',
-        name: branch.name,
-        status: branch.status,
-      })),
+      branchReferenceRows,
     );
     this.addReferenceSheet(
       workbook,
       'Departments',
       ['code', 'name', 'branch_code', 'status'],
-      references.departments.map((department) => ({
-        code: department.code ?? '',
-        name: department.name,
-        branch_code:
-          references.branches.find(
-            (branch) => branch.id === department.branch_id,
-          )?.code ?? '',
-        status: department.status,
-      })),
+      departmentReferenceRows,
     );
     this.addReferenceSheet(
       workbook,
       'Positions',
       ['code', 'name', 'department_code', 'branch_code', 'status'],
-      references.positions.map((position) => ({
-        code: position.code ?? '',
-        name: position.name,
-        department_code:
-          references.departments.find(
-            (department) => department.id === position.department_id,
-          )?.code ?? '',
-        branch_code:
-          references.branches.find((branch) => branch.id === position.branch_id)
-            ?.code ?? '',
-        status: position.status,
-      })),
-    );
-    this.addReferenceSheet(
-      workbook,
-      'Shifts',
-      ['code', 'name', 'status'],
-      references.shifts.map((shift) => ({
-        code: shift.code,
-        name: shift.name,
-        status: shift.status,
-      })),
-    );
-    this.addReferenceSheet(
-      workbook,
-      'Timetables',
-      ['code', 'name', 'status'],
-      references.timetables.map((timetable) => ({
-        code: timetable.code,
-        name: timetable.name,
-        status: timetable.status,
-      })),
+      positionReferenceRows,
     );
     this.addReferenceSheet(
       workbook,
       'Access Devices',
       ['device_code', 'device_name', 'status'],
-      references.devices.map((device) => ({
-        device_code: device.deviceCode,
-        device_name: device.deviceName,
-        status: device.status,
-      })),
-    );
-    this.addReferenceSheet(
-      workbook,
-      'Roles',
-      ['name', 'display_name'],
-      references.roles.map((role) => ({
-        name: role.name,
-        display_name: role.display_name,
-      })),
+      accessDeviceReferenceRows,
     );
     this.addReferenceSheet(
       workbook,
@@ -408,9 +343,64 @@ export class EmployeeImportService {
     );
     this.addReferenceSheet(
       workbook,
-      'Employee Statuses',
+      'Genders',
       ['value'],
-      Object.values(EmploymentStatusEnum).map((value) => ({ value })),
+      GENDER_VALUES.map((value) => ({ value })),
+    );
+
+    this.addListValidationFromSheet(
+      workbook,
+      employeeSheet,
+      'branch_code',
+      'Branches',
+      1,
+      'BranchCodes',
+    );
+    this.addListValidationFromSheet(
+      workbook,
+      employeeSheet,
+      'department_code',
+      'Departments',
+      1,
+      'DepartmentCodes',
+    );
+    this.addListValidationFromSheet(
+      workbook,
+      employeeSheet,
+      'position_code',
+      'Positions',
+      1,
+      'PositionCodes',
+    );
+    this.addListValidationFromSheet(
+      workbook,
+      employeeSheet,
+      'employment_type',
+      'Employment Types',
+      1,
+      'EmploymentTypes',
+    );
+    this.addListValidationFromSheet(
+      workbook,
+      employeeSheet,
+      'gender',
+      'Genders',
+      1,
+      'GenderValues',
+    );
+    this.addListValidationFromSheet(
+      workbook,
+      employeeSheet,
+      'access_device_codes',
+      'Access Devices',
+      1,
+      'AccessDeviceCodes',
+      {
+        errorStyle: 'warning',
+        errorTitle: 'Use device codes',
+        error:
+          'Select a single device from the dropdown, or enter multiple device codes as a comma-separated list using the Access Devices sheet.',
+      },
     );
 
     await this.applyActorBranchValidation(
@@ -616,7 +606,7 @@ export class EmployeeImportService {
           const normalizedData = previewRow.normalizedData ?? {};
           const importAction = previewRow.importAction ?? 'CREATE';
           const createSystemUser =
-            (normalizedData.create_system_user as boolean | undefined) ?? true;
+            (normalizedData.create_system_user as boolean | undefined) ?? false;
           const role = await this.resolveRole(
             normalizedData.user_role,
             companyId,
@@ -756,6 +746,9 @@ export class EmployeeImportService {
         EmployeeImportRowStatusEnum.UPDATED,
       ].includes(row.status),
     ).length;
+    const skippedRows = batch.rows.filter(
+      (row) => row.status === EmployeeImportRowStatusEnum.SKIPPED,
+    ).length;
     batch.failedRows = batch.rows.filter(
       (row) => row.status === EmployeeImportRowStatusEnum.FAILED,
     ).length;
@@ -767,11 +760,16 @@ export class EmployeeImportService {
     batch.createdUsers = createdUsers;
     batch.deviceAssignmentsCreated = deviceAssignmentsCreated;
     batch.deviceSyncPending = deviceSyncPending;
+    batch.metadata = {
+      ...(batch.metadata ?? {}),
+      skipped_rows: skippedRows,
+      process_valid_rows_only: processValidRowsOnly,
+    };
     batch.completedAt = new Date();
 
     if (batch.status !== EmployeeImportBatchStatusEnum.FAILED) {
       batch.status =
-        batch.failedRows > 0
+        batch.failedRows > 0 || skippedRows > 0
           ? EmployeeImportBatchStatusEnum.COMPLETED_WITH_ERRORS
           : EmployeeImportBatchStatusEnum.COMPLETED;
     }
@@ -784,6 +782,7 @@ export class EmployeeImportService {
       totalRows: batch.totalRows,
       successfulRows: batch.successfulRows,
       failedRows: batch.failedRows,
+      skippedRows,
       warningRows: batch.warningRows,
       createdEmployees: batch.createdEmployees,
       updatedEmployees: batch.updatedEmployees,
@@ -951,42 +950,27 @@ export class EmployeeImportService {
     const firstName = this.optionalString(values.first_name);
     const middleName = this.optionalString(values.middle_name);
     const lastName = this.optionalString(values.last_name);
-    const preferredName = this.optionalString(values.preferred_name);
     const email = this.optionalString(values.email)?.toLowerCase() ?? null;
-    const phoneNumber = this.optionalString(values.phone_number);
     const gender = this.optionalString(values.gender)?.toLowerCase() ?? null;
     const employeeNumber = this.optionalString(values.employee_number);
     const deviceEmployeeNumber = this.optionalString(
       values.device_employee_number,
     );
-    const nationalId = this.optionalString(values.national_id);
-    const createSystemUser = this.parseBoolean(values.create_system_user, true);
-    const userRole = this.optionalString(values.user_role);
 
     if (!firstName) errors.push('first_name is required');
     if (!lastName) errors.push('last_name is required');
     if (!email) errors.push('email is required');
-    if (!phoneNumber) errors.push('phone_number is required');
     if (!gender) errors.push('gender is required');
-    if (gender && !['male', 'female'].includes(gender)) {
-      errors.push('gender must be male or female');
+    if (
+      gender &&
+      !GENDER_VALUES.includes(gender as (typeof GENDER_VALUES)[number])
+    ) {
+      errors.push(`gender must be one of: ${GENDER_VALUES.join(', ')}`);
     }
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       errors.push('email is not valid');
     }
-    if (
-      phoneNumber &&
-      !/^\+?[0-9]{8,20}$/.test(phoneNumber.replace(/\s+/g, ''))
-    ) {
-      errors.push('phone_number is not valid');
-    }
 
-    const employmentStatus = this.resolveEnumValue(
-      values.employee_status,
-      Object.values(EmploymentStatusEnum),
-      'employee_status',
-      errors,
-    );
     const employmentType = this.resolveEnumValue(
       values.employment_type,
       Object.values(EmploymentTypeEnum),
@@ -1006,36 +990,22 @@ export class EmployeeImportService {
       values.position_code,
       references.positions,
     );
-    const shift = this.resolveShiftReference(
-      values.shift_code,
-      references.shifts,
-    );
-    const timetable = this.resolveTimetableReference(
-      values.timetable_code,
-      references.timetables,
-    );
-    const role = this.resolveRoleReference(values.user_role, references.roles);
-    const managerEmployeeNumber = this.optionalString(
-      values.manager_employee_number,
-    );
+    const branchCode = this.optionalString(values.branch_code);
+    const departmentCode = this.optionalString(values.department_code);
+    const positionCode = this.optionalString(values.position_code);
 
-    if (this.optionalString(values.branch_code) && !branch) {
-      errors.push('branch_code does not match any active branch');
+    if (branchCode && !branch) {
+      errors.push(`branch_code "${branchCode}" does not match any branch code`);
     }
-    if (this.optionalString(values.department_code) && !department) {
-      errors.push('department_code does not match any active department');
+    if (departmentCode && !department) {
+      errors.push(
+        `department_code "${departmentCode}" does not match any department code`,
+      );
     }
-    if (this.optionalString(values.position_code) && !position) {
-      errors.push('position_code does not match any active position');
-    }
-    if (this.optionalString(values.shift_code) && !shift) {
-      errors.push('shift_code does not match any active shift');
-    }
-    if (this.optionalString(values.timetable_code) && !timetable) {
-      errors.push('timetable_code does not match any active timetable');
-    }
-    if (userRole && !role) {
-      errors.push('user_role does not match any company role');
+    if (positionCode && !position) {
+      errors.push(
+        `position_code "${positionCode}" does not match any position code`,
+      );
     }
     if (branch && department?.branch_id && department.branch_id !== branch.id) {
       errors.push(
@@ -1065,8 +1035,6 @@ export class EmployeeImportService {
       companyId,
       employeeNumber,
       email,
-      phoneNumber,
-      nationalId,
       references,
       errors,
     );
@@ -1087,6 +1055,14 @@ export class EmployeeImportService {
           'employee_number cannot be changed for an existing employee record',
         );
       }
+      if (
+        email &&
+        matchedEmployee.email?.trim().toLowerCase() !== email.toLowerCase()
+      ) {
+        errors.push(
+          'email cannot be changed for an existing employee record through this import',
+        );
+      }
     } else {
       importAction = 'CREATE';
       if (importMode === EmployeeImportModeEnum.UPDATE_EXISTING) {
@@ -1096,42 +1072,31 @@ export class EmployeeImportService {
       }
     }
 
-    const dateOfBirth = this.parseDate(
-      values.date_of_birth,
-      'date_of_birth',
-      errors,
-    );
     const employmentDate = this.parseDate(
       values.employment_date,
       'employment_date',
       errors,
     );
-    const shiftEffectiveFrom = this.parseDate(
-      values.shift_effective_from,
-      'shift_effective_from',
-      errors,
-    );
-    const timetableEffectiveFrom = this.parseDate(
-      values.timetable_effective_from,
-      'timetable_effective_from',
-      errors,
-    );
 
     const deviceCodes = this.parseMultiValue(values.access_device_codes);
+    const invalidDeviceCodes: string[] = [];
     const resolvedDevices = deviceCodes
-      .map((code) =>
-        references.devices.find(
-          (device) =>
-            device.deviceCode.toLowerCase() === code.toLowerCase() ||
-            String(device.id) === code,
-        ),
-      )
+      .map((code) => {
+        const device =
+          references.devices.find(
+            (candidate) =>
+              candidate.deviceCode.trim().toLowerCase() === code.toLowerCase(),
+          ) ?? null;
+        if (!device) {
+          invalidDeviceCodes.push(code);
+        }
+        return device;
+      })
       .filter((device): device is AttendanceDevice => Boolean(device));
-    if (
-      deviceCodes.length > 0 &&
-      resolvedDevices.length !== deviceCodes.length
-    ) {
-      errors.push('One or more access_device_codes are invalid');
+    if (invalidDeviceCodes.length > 0) {
+      errors.push(
+        `access_device_codes contain invalid device code(s): ${invalidDeviceCodes.join(', ')}`,
+      );
     }
     if (
       resolvedDevices.some(
@@ -1154,6 +1119,11 @@ export class EmployeeImportService {
         'device_employee_number is required when access_device_codes are provided',
       );
     }
+    if (deviceEmployeeNumber && resolvedDevices.length === 0) {
+      errors.push(
+        'device_employee_number requires at least one valid access_device_codes value',
+      );
+    }
     if (deviceEmployeeNumber) {
       for (const device of resolvedDevices) {
         const conflictingAssignment = references.deviceAssignments.find(
@@ -1173,37 +1143,12 @@ export class EmployeeImportService {
       }
     }
 
-    const cardNumber = this.optionalString(values.card_number);
-    if (cardNumber) {
-      const conflictingCard = references.credentials.find(
-        (credential) =>
-          credential.cardNo?.trim().toLowerCase() ===
-            cardNumber.toLowerCase() &&
-          credential.employeeId !== null &&
-          credential.employeeId !== matchedEmployee?.id &&
-          credential.credentialStatus !==
-            EmployeeAccessCredentialStatusEnum.DELETED,
-      );
-      if (conflictingCard) {
-        errors.push('card_number is already assigned to another employee');
-      }
-    }
-
-    if (!createSystemUser && userRole) {
-      warnings.push(
-        'user_role is ignored when create_system_user is false because the placeholder membership is created without roles.',
-      );
-    }
-
     normalizedData.first_name = firstName ?? null;
     normalizedData.middle_name = middleName;
     normalizedData.last_name = lastName ?? null;
-    normalizedData.preferred_name = preferredName;
     normalizedData.employee_number = employeeNumber;
     normalizedData.email = email;
-    normalizedData.phone_number = phoneNumber;
     normalizedData.gender = gender;
-    normalizedData.date_of_birth = dateOfBirth;
     normalizedData.employment_date = employmentDate;
     normalizedData.branch_code = branch?.code ?? null;
     normalizedData.branch_id = branch?.id ?? null;
@@ -1211,42 +1156,12 @@ export class EmployeeImportService {
     normalizedData.department_id = department?.id ?? null;
     normalizedData.position_code = position?.code ?? null;
     normalizedData.position_id = position?.id ?? null;
-    normalizedData.manager_employee_number = managerEmployeeNumber;
     normalizedData.employment_type = employmentType;
-    normalizedData.employee_status = employmentStatus;
-    normalizedData.shift_code = shift?.code ?? null;
-    normalizedData.shift_id = shift?.id ?? null;
-    normalizedData.shift_effective_from = shiftEffectiveFrom;
-    normalizedData.timetable_code = timetable?.code ?? null;
-    normalizedData.timetable_id = timetable?.id ?? null;
-    normalizedData.timetable_effective_from = timetableEffectiveFrom;
     normalizedData.access_device_codes = resolvedDevices.map(
       (device) => device.deviceCode,
     );
     normalizedData.device_ids = resolvedDevices.map((device) => device.id);
     normalizedData.device_employee_number = deviceEmployeeNumber;
-    normalizedData.card_number = cardNumber;
-    normalizedData.access_password = this.optionalString(
-      values.access_password,
-    );
-    normalizedData.create_system_user = createSystemUser;
-    normalizedData.user_role = createSystemUser
-      ? (role?.name ?? userRole)
-      : null;
-    normalizedData.temporary_password = this.optionalString(
-      values.temporary_password,
-    );
-    normalizedData.national_id = nationalId;
-    normalizedData.marital_status = this.optionalString(values.marital_status);
-    normalizedData.nationality = this.optionalString(values.nationality);
-    normalizedData.address = this.optionalString(values.address);
-    normalizedData.emergency_contact_name = this.optionalString(
-      values.emergency_contact_name,
-    );
-    normalizedData.emergency_contact_phone = this.optionalString(
-      values.emergency_contact_phone,
-    );
-    normalizedData.notes = this.optionalString(values.notes);
 
     return {
       rowNumber,
@@ -1272,7 +1187,6 @@ export class EmployeeImportService {
       {
         contact_type: ContactTypeEnum.WORK,
         email: String(normalizedData.email),
-        phone_number: String(normalizedData.phone_number),
         is_primary: true,
         is_verified: false,
       },
@@ -1413,12 +1327,16 @@ export class EmployeeImportService {
     manager?: EntityManager,
   ): Promise<CompanyUser> {
     const email = String(normalizedData.email).trim().toLowerCase();
-    const phone = String(normalizedData.phone_number).trim();
+    const phone =
+      this.optionalString(normalizedData.phone_number) ??
+      (await this.generateImportPlaceholderPhone(userRepo));
     const firstName = String(normalizedData.first_name).trim();
     const lastName = String(normalizedData.last_name).trim();
 
     const existingByEmail = await userRepo.findOne({ where: { email } });
-    const existingByPhone = await userRepo.findOne({ where: { phone } });
+    const existingByPhone = this.optionalString(normalizedData.phone_number)
+      ? await userRepo.findOne({ where: { phone } })
+      : null;
 
     if (
       existingByEmail &&
@@ -1435,29 +1353,31 @@ export class EmployeeImportService {
       const temporaryPassword =
         this.optionalString(normalizedData.temporary_password) ??
         this.generateTemporaryPassword();
+      const createActiveSystemUser =
+        createSystemUser && this.optionalString(normalizedData.phone_number);
       user = await userRepo.save(
         userRepo.create({
-          user_no: await this.usersService.generateUserNo(),
+          user_no: await this.usersService.generateUserNo(manager),
           first_name: firstName,
           last_name: lastName,
           phone,
           email,
           password: await hashPassword(temporaryPassword),
-          status: createSystemUser ? 'active' : 'inactive',
+          status: createActiveSystemUser ? 'active' : 'inactive',
           user_type: 'COMPANY_USER',
-          is_email_verified: createSystemUser,
+          is_email_verified: Boolean(createActiveSystemUser),
         }),
       );
-    } else if (!createSystemUser && user.status !== 'inactive') {
-      user.status = 'inactive';
-      await userRepo.save(user);
     }
 
     let membership = await companyUserRepo.findOne({
       where: { company_id: companyId, user_id: user.id, status: 'active' },
     });
     if (!membership) {
-      if (createSystemUser) {
+      if (
+        createSystemUser &&
+        this.optionalString(normalizedData.phone_number)
+      ) {
         await this.companiesService.addUserToCompany(
           user.id,
           companyId,
@@ -1701,21 +1621,7 @@ export class EmployeeImportService {
       (row) => this.optionalString(row.normalizedData?.email),
       'email',
     );
-    this.addDuplicateErrors(
-      rows,
-      (row) => this.optionalString(row.normalizedData?.phone_number),
-      'phone_number',
-    );
-    this.addDuplicateErrors(
-      rows,
-      'deviceEmployeeNumber',
-      'device_employee_number',
-    );
-    this.addDuplicateErrors(
-      rows,
-      (row) => this.optionalString(row.normalizedData?.card_number),
-      'card_number',
-    );
+    this.addDeviceEmployeeNumberDuplicateErrors(rows);
   }
 
   private applyManagerValidation(
@@ -1804,16 +1710,16 @@ export class EmployeeImportService {
 
   private buildValidationSummary(rows: PreviewRow[]): Record<string, unknown> {
     return {
-      missingBranches: rows.filter((row) =>
+      invalidBranches: rows.filter((row) =>
         row.errors.some((error) => error.includes('branch_code')),
       ).length,
-      missingDepartments: rows.filter((row) =>
+      invalidDepartments: rows.filter((row) =>
         row.errors.some((error) => error.includes('department_code')),
       ).length,
-      missingPositions: rows.filter((row) =>
+      invalidPositions: rows.filter((row) =>
         row.errors.some((error) => error.includes('position_code')),
       ).length,
-      missingDevices: rows.filter((row) =>
+      invalidDevices: rows.filter((row) =>
         row.errors.some((error) => error.includes('access_device_codes')),
       ).length,
       invalidDates: rows.filter((row) =>
@@ -1822,8 +1728,14 @@ export class EmployeeImportService {
       invalidEmails: rows.filter((row) =>
         row.errors.some((error) => error.includes('email')),
       ).length,
-      invalidPhones: rows.filter((row) =>
-        row.errors.some((error) => error.includes('phone_number')),
+      invalidGenders: rows.filter((row) =>
+        row.errors.some((error) => error.includes('gender')),
+      ).length,
+      invalidEmploymentTypes: rows.filter((row) =>
+        row.errors.some((error) => error.includes('employment_type')),
+      ).length,
+      missingDeviceEmployeeNumbers: rows.filter((row) =>
+        row.errors.some((error) => error.includes('device_employee_number')),
       ).length,
       duplicateRows: rows.filter((row) =>
         row.errors.some((error) => error.toLowerCase().includes('duplicate')),
@@ -1861,6 +1773,10 @@ export class EmployeeImportService {
       duplicateRows: item.duplicateRows,
       successfulRows: item.successfulRows,
       failedRows: item.failedRows,
+      skippedRows:
+        Number(item.metadata?.skipped_rows) > 0
+          ? Number(item.metadata?.skipped_rows)
+          : 0,
       warningRows: item.warningRows,
       createdEmployees: item.createdEmployees,
       updatedEmployees: item.updatedEmployees,
@@ -2144,6 +2060,60 @@ export class EmployeeImportService {
     });
   }
 
+  private addListValidationFromSheet(
+    workbook: ExcelJS.Workbook,
+    employeeSheet: ExcelJS.Worksheet,
+    column: ImportColumn,
+    sourceSheetName: string,
+    sourceColumnNumber: number,
+    definedName: string,
+    overrides?: Partial<ExcelJS.DataValidation>,
+  ): void {
+    const sourceSheet = workbook.getWorksheet(sourceSheetName);
+    if (!sourceSheet) {
+      return;
+    }
+
+    const lastRow = Math.max(sourceSheet.rowCount, 2);
+    const columnLetter = this.getExcelColumnLetter(sourceColumnNumber);
+    workbook.definedNames.add(
+      definedName,
+      `'${sourceSheetName}'!$${columnLetter}$2:$${columnLetter}$${lastRow}`,
+    );
+
+    const employeeColumnIndex = IMPORT_COLUMNS.indexOf(column) + 1;
+    if (employeeColumnIndex <= 0) {
+      return;
+    }
+
+    for (
+      let rowNumber = 2;
+      rowNumber <= TEMPLATE_VALIDATION_ROW_COUNT;
+      rowNumber += 1
+    ) {
+      employeeSheet
+        .getRow(rowNumber)
+        .getCell(employeeColumnIndex).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        showErrorMessage: true,
+        formulae: [`=${definedName}`],
+        ...overrides,
+      };
+    }
+  }
+
+  private getExcelColumnLetter(columnNumber: number): string {
+    let current = columnNumber;
+    let letters = '';
+    while (current > 0) {
+      const remainder = (current - 1) % 26;
+      letters = String.fromCharCode(65 + remainder) + letters;
+      current = Math.floor((current - 1) / 26);
+    }
+    return letters;
+  }
+
   private generateBatchId(): string {
     const date = new Date();
     const yyyymmdd = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
@@ -2158,10 +2128,7 @@ export class EmployeeImportService {
     if (!text) return null;
     return (
       branches.find(
-        (branch) =>
-          String(branch.id) === text ||
-          branch.code?.trim().toLowerCase() === text.toLowerCase() ||
-          branch.name.trim().toLowerCase() === text.toLowerCase(),
+        (branch) => branch.code?.trim().toLowerCase() === text.toLowerCase(),
       ) ?? null
     );
   }
@@ -2175,9 +2142,7 @@ export class EmployeeImportService {
     return (
       departments.find(
         (department) =>
-          String(department.id) === text ||
-          department.code?.trim().toLowerCase() === text.toLowerCase() ||
-          department.name.trim().toLowerCase() === text.toLowerCase(),
+          department.code?.trim().toLowerCase() === text.toLowerCase(),
       ) ?? null
     );
   }
@@ -2191,9 +2156,7 @@ export class EmployeeImportService {
     return (
       positions.find(
         (position) =>
-          String(position.id) === text ||
-          position.code?.trim().toLowerCase() === text.toLowerCase() ||
-          position.name.trim().toLowerCase() === text.toLowerCase(),
+          position.code?.trim().toLowerCase() === text.toLowerCase(),
       ) ?? null
     );
   }
@@ -2266,8 +2229,6 @@ export class EmployeeImportService {
     companyId: number,
     employeeNumber: string | null,
     email: string | null,
-    phoneNumber: string | null,
-    nationalId: string | null,
     references: ReferenceData,
     errors: string[],
   ) {
@@ -2287,30 +2248,10 @@ export class EmployeeImportService {
       );
       if (employee) matches.set(employee.id, employee);
     }
-    if (phoneNumber) {
-      const employee = references.employees.find(
-        (item) => item.phone?.trim() === phoneNumber,
-      );
-      if (employee) matches.set(employee.id, employee);
-    }
-    if (nationalId) {
-      const identification = references.identifications.find(
-        (item) =>
-          item.identification_type === IdentificationTypeEnum.NATIONAL_ID &&
-          item.identification_number.trim().toLowerCase() ===
-            nationalId.toLowerCase(),
-      );
-      if (identification) {
-        const employee = references.employees.find(
-          (item) => item.id === identification.employee_id,
-        );
-        if (employee) matches.set(employee.id, employee);
-      }
-    }
 
     if (matches.size > 1) {
       errors.push(
-        'Row matches different existing employees across employee_number, email, phone_number, or national_id',
+        'Row matches different existing employees across employee_number and email',
       );
       return null;
     }
@@ -2422,6 +2363,56 @@ export class EmployeeImportService {
         );
       });
     });
+  }
+
+  private addDeviceEmployeeNumberDuplicateErrors(rows: PreviewRow[]): void {
+    const groups = new Map<string, PreviewRow[]>();
+
+    rows.forEach((row) => {
+      const employeeNumber = this.optionalString(row.deviceEmployeeNumber);
+      const deviceCodes =
+        (row.normalizedData?.access_device_codes as string[] | undefined) ?? [];
+
+      if (!employeeNumber || deviceCodes.length === 0) {
+        return;
+      }
+
+      for (const deviceCode of deviceCodes) {
+        const key = `${deviceCode.toLowerCase()}::${employeeNumber.toLowerCase()}`;
+        const items = groups.get(key) ?? [];
+        items.push(row);
+        groups.set(key, items);
+      }
+    });
+
+    groups.forEach((items, key) => {
+      if (items.length <= 1) {
+        return;
+      }
+
+      const [deviceCode, deviceEmployeeNumber] = key.split('::');
+      items.forEach((row) => {
+        row.errors.push(
+          `Duplicate device_employee_number "${deviceEmployeeNumber}" found for access device "${deviceCode}" in the import file`,
+        );
+      });
+    });
+  }
+
+  private async generateImportPlaceholderPhone(
+    userRepo: Repository<User>,
+  ): Promise<string> {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const candidate = `+999${crypto.randomInt(100000000, 999999999)}`;
+      const existing = await userRepo.findOne({ where: { phone: candidate } });
+      if (!existing) {
+        return candidate;
+      }
+    }
+
+    throw new ConflictException(
+      'Could not generate a unique placeholder phone number for the import user',
+    );
   }
 
   private normalizeHeader(value: string): string {
