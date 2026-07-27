@@ -976,12 +976,23 @@ export class EmployeesService {
     companyId: number,
     manager?: EntityManager,
   ): Promise<string> {
-    const result = await this.getEmployeeRepository(manager)
+    const repository = this.getEmployeeRepository(manager);
+    const databaseType = this.dataSource.options.type;
+    const numericPatternCondition =
+      databaseType === 'postgres'
+        ? "employee.employee_no ~ '^[0-9]+$'"
+        : "employee.employee_no REGEXP '^[0-9]+$'";
+    const numericCastExpression =
+      databaseType === 'postgres'
+        ? 'MAX(CAST(employee.employee_no AS INTEGER))'
+        : 'MAX(CAST(employee.employee_no AS UNSIGNED))';
+
+    const result = await repository
       .createQueryBuilder('employee')
       .innerJoin('employee.company_user', 'membership')
       .where('membership.company_id = :companyId', { companyId })
-      .andWhere("employee.employee_no REGEXP '^[0-9]+$'")
-      .select('MAX(CAST(employee.employee_no AS UNSIGNED))', 'max')
+      .andWhere(numericPatternCondition)
+      .select(numericCastExpression, 'max')
       .getRawOne<{ max: number | null }>();
 
     const nextSeq = result?.max ? result.max + 1 : 1;
@@ -1563,6 +1574,10 @@ export class EmployeesService {
 
     for (const field of directFields) {
       if (field in dto) {
+        if (dto[field] === undefined) {
+          continue;
+        }
+
         if (field === 'gender') {
           payload.gender = this.normalizeGender(dto[field]);
           continue;
