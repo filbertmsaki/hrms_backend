@@ -24,6 +24,7 @@ import { EmployeeAccessCredential } from '../../../access-control/employee-acces
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { EmployeeImportBatchStatusEnum } from './enums/employee-import-batch-status.enum';
 import { EmployeeImportModeEnum } from './enums/employee-import-mode.enum';
+import { EmployeeImportRowStatusEnum } from './enums/employee-import-row-status.enum';
 
 type MockRepo = Record<string, jest.Mock>;
 
@@ -631,6 +632,171 @@ describe('EmployeeImportService', () => {
       expect.objectContaining({
         id: 19,
         user_id: 92,
+      }),
+    );
+  });
+
+  it('uses the next standard employee number when import employee_number is blank', async () => {
+    const batchRepository = (
+      service as unknown as {
+        batchRepository: MockRepo;
+      }
+    ).batchRepository;
+    const rowRepository = (
+      service as unknown as {
+        rowRepository: MockRepo;
+      }
+    ).rowRepository;
+    const employeesService = {
+      createForCompanyUser: jest.fn().mockResolvedValue({
+        employeeId: 37,
+        onboardingRequestId: null,
+      }),
+      update: jest.fn(),
+    };
+    const txEmployeeRepository = {
+      findOneOrFail: jest.fn().mockResolvedValue({
+        id: 37,
+        employee_no: '000037',
+      }),
+    };
+    const txManager = {
+      getRepository: jest.fn((entity: unknown) => {
+        if (entity === Employee) {
+          return txEmployeeRepository;
+        }
+        return createRepositoryMock();
+      }),
+    };
+    (
+      service as unknown as {
+        employeesService: typeof employeesService;
+        dataSource: {
+          transaction: jest.Mock;
+        };
+      }
+    ).employeesService = employeesService;
+    (
+      service as unknown as {
+        dataSource: {
+          transaction: jest.Mock;
+        };
+      }
+    ).dataSource = {
+      transaction: jest.fn((callback: (manager: unknown) => unknown) =>
+        callback(txManager),
+      ),
+    };
+
+    const storedRow = {
+      rowNumber: 2,
+      rawData: {
+        first_name: 'Ahlam',
+        last_name: 'Salim',
+        email: 'ahlam.import@example.com',
+        gender: 'female',
+      },
+      errors: [],
+      warnings: [],
+      normalizedData: null,
+      importAction: null,
+      employeeName: 'Ahlam Salim',
+      employeeNumber: null,
+      deviceEmployeeNumber: null,
+      matchedEmployeeId: null,
+      status: EmployeeImportRowStatusEnum.READY,
+    } as EmployeeImportRow;
+
+    batchRepository.findOne.mockResolvedValue({
+      batchId: 'IMPORT-20260727-BLANK-EMP-NO',
+      previewToken: 'preview-token',
+      status: EmployeeImportBatchStatusEnum.PREVIEW_READY,
+      importMode: EmployeeImportModeEnum.CREATE_ONLY,
+      metadata: {
+        process_valid_rows_only: true,
+      },
+      rows: [storedRow],
+    });
+    batchRepository.save.mockImplementation((value: unknown) => value);
+    rowRepository.save.mockImplementation((value: unknown) => value);
+
+    jest.spyOn(service as any, 'loadReferenceData').mockResolvedValue({
+      branches: [],
+      departments: [],
+      positions: [],
+      shifts: [],
+      timetables: [],
+      devices: [],
+      roles: [],
+      employees: [],
+      companyUsers: [],
+      users: [],
+      identifications: [],
+      deviceAssignments: [],
+      credentials: [],
+    });
+    jest
+      .spyOn(service as any, 'applyActorBranchValidation')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(service as any, 'applyBatchDuplicateValidation')
+      .mockImplementation(() => undefined);
+    jest
+      .spyOn(service as any, 'applyManagerValidation')
+      .mockImplementation(() => undefined);
+    jest.spyOn(service as any, 'resolveRole').mockResolvedValue(null);
+    jest
+      .spyOn(service as any, 'ensureMembershipForImportRow')
+      .mockResolvedValue({ id: 18, user_id: 41 });
+    jest
+      .spyOn(service as any, 'applyAssignmentsAndCredentials')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(service as any, 'applyManagerAssignments')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(service as any, 'validatePreviewRow')
+      .mockImplementation(
+        (_: number, rowNumber: number, values: Record<string, unknown>) => ({
+          rowNumber,
+          rawData: values,
+          normalizedData: {
+            first_name: 'Ahlam',
+            last_name: 'Salim',
+            email: 'ahlam.import@example.com',
+            gender: 'female',
+            employee_number: null,
+            access_device_codes: [],
+          },
+          errors: [],
+          warnings: [],
+          importAction: 'CREATE',
+          matchedEmployeeId: null,
+          employeeNumber: null,
+          deviceEmployeeNumber: null,
+          employeeName: 'Ahlam Salim',
+        }),
+      );
+
+    const result = await service.confirmImport(
+      10,
+      {
+        preview_token: 'preview-token',
+        process_valid_rows_only: true,
+      },
+      actor,
+    );
+
+    expect(employeesService.createForCompanyUser).toHaveBeenCalled();
+    expect(result.successfulRows).toBe(1);
+    expect(result.failedRows).toBe(0);
+    expect(result.createdEmployees).toBe(1);
+    expect(result.rows[0]).toEqual(
+      expect.objectContaining({
+        status: 'IMPORTED',
+        employeeId: 37,
+        userId: 41,
+        employeeNumber: '000037',
       }),
     );
   });

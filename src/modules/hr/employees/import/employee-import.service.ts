@@ -683,6 +683,7 @@ export class EmployeeImportService {
         const employeeNumber = result.employee.employee_no?.trim();
         if (employeeNumber) {
           importedEmployeesByNumber.set(employeeNumber, result.employee.id);
+          storedRow.employeeNumber = employeeNumber;
         }
 
         storedRow.createdEmployeeId = result.employee.id;
