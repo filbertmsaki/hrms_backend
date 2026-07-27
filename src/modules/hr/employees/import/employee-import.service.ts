@@ -251,15 +251,16 @@ export class EmployeeImportService {
       'Jane',
       '',
       'Doe',
+      'EMP-0001',
       'jane.doe@example.com',
       'female',
       '2026-07-24',
-      branchReferenceRows[0]?.code ?? '',
-      departmentReferenceRows[0]?.code ?? '',
-      positionReferenceRows[0]?.code ?? '',
+      'ARU',
+      'ACCOUNTS_FINANCE',
+      'ACCOUNTANT',
       EmploymentTypeEnum.FULL_TIME,
-      accessDeviceReferenceRows[0]?.device_code ?? '',
-      accessDeviceReferenceRows[0]?.device_code ? 'DEV-0001' : '',
+      'ALLIANCE-HQ-MAIN',
+      'DEV-0001',
     ]);
     employeeSheet.getRow(2).font = { italic: true };
 
