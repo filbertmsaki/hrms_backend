@@ -269,4 +269,172 @@ describe('EmployeeImportService', () => {
       ]),
     );
   });
+
+  it('ignores blank optional lookup cells during preview validation', async () => {
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Employees');
+    sheet.addRow([
+      'first_name',
+      'last_name',
+      'email',
+      'phone_number',
+      'gender',
+      'shift_code',
+      'timetable_code',
+    ]);
+    sheet.addRow([
+      'Jane',
+      'Doe',
+      'jane.optional@example.com',
+      '+255712345678',
+      'female',
+      '',
+      '',
+    ]);
+    const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+
+    jest.spyOn(service as never, 'loadReferenceData').mockResolvedValue({
+      branches: [],
+      departments: [],
+      positions: [],
+      shifts: [],
+      timetables: [],
+      devices: [],
+      roles: [],
+      employees: [],
+      companyUsers: [],
+      users: [],
+      identifications: [],
+      deviceAssignments: [],
+      credentials: [],
+    });
+    jest
+      .spyOn(service as never, 'applyActorBranchValidation')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(service as never, 'applyManagerValidation')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(service as never, 'applyBatchDuplicateValidation')
+      .mockImplementation(() => undefined);
+    jest
+      .spyOn(service as never, 'persistPreviewBatch')
+      .mockImplementation(
+        (
+          _companyId: number,
+          _file: unknown,
+          _dto: unknown,
+          _actor: unknown,
+          rows: Array<{ errors: string[] }>,
+        ) =>
+          Promise.resolve({
+            batchId: 'IMPORT-20260727-BLANKS',
+            previewToken: 'preview-token',
+            status: EmployeeImportBatchStatusEnum.PREVIEW_READY,
+            importMode: EmployeeImportModeEnum.CREATE_ONLY,
+            totalRows: rows.length,
+            validRows: rows.filter((row) => row.errors.length === 0).length,
+            invalidRows: rows.filter((row) => row.errors.length > 0).length,
+            duplicateRows: 0,
+            validationSummary: {},
+          } as EmployeeImportBatch),
+      );
+
+    const result = await service.previewImport(
+      10,
+      {
+        originalname: 'employees.xlsx',
+        mimetype:
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        size: buffer.length,
+        buffer,
+      },
+      {},
+      actor,
+    );
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]?.errors).not.toEqual(
+      expect.arrayContaining([
+        'shift_code does not match any active shift',
+        'timetable_code does not match any active timetable',
+      ]),
+    );
+    expect(result.rows[0]?.status).toBe('READY');
+  });
+
+  it('creates company membership in the same transaction when importing a new system user', async () => {
+    const addUserToCompany = jest.fn().mockResolvedValue(undefined);
+    (
+      service as unknown as {
+        companiesService: { addUserToCompany: jest.Mock };
+      }
+    ).companiesService = {
+      addUserToCompany,
+    };
+    (
+      service as unknown as { usersService: { generateUserNo: jest.Mock } }
+    ).usersService = {
+      generateUserNo: jest.fn().mockResolvedValue('USER-2026-00091'),
+    };
+
+    const userRepo = createRepositoryMock();
+    const companyUserRepo = createRepositoryMock();
+    const transactionalManager = { name: 'tx-manager' };
+
+    userRepo.findOne.mockResolvedValue(null);
+    userRepo.save.mockResolvedValue({
+      id: 91,
+      status: 'active',
+    });
+    companyUserRepo.findOne.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      id: 18,
+      company_id: 10,
+      user_id: 91,
+      status: 'active',
+    });
+
+    const membership = await (
+      service as unknown as {
+        ensureMembershipForImportRow: (
+          companyId: number,
+          normalizedData: Record<string, unknown>,
+          actor: AuthenticatedUser,
+          userRepo: MockRepo,
+          companyUserRepo: MockRepo,
+          createSystemUser: boolean,
+          roleId: number | null,
+          manager?: unknown,
+        ) => Promise<{ id: number; user_id: number }>;
+      }
+    ).ensureMembershipForImportRow(
+      10,
+      {
+        first_name: 'Api',
+        last_name: 'Import',
+        email: 'api.import.tx@example.com',
+        phone_number: '+255700000001',
+        temporary_password: 'Employee123!',
+      },
+      actor,
+      userRepo as unknown as MockRepo,
+      companyUserRepo as unknown as MockRepo,
+      true,
+      7,
+      transactionalManager,
+    );
+
+    expect(addUserToCompany).toHaveBeenCalledWith(
+      91,
+      10,
+      { roleIds: [7] },
+      transactionalManager,
+    );
+    expect(membership).toEqual(
+      expect.objectContaining({
+        id: 18,
+        user_id: 91,
+      }),
+    );
+  });
 });

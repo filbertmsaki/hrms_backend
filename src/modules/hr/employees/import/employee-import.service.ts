@@ -7,7 +7,7 @@ import {
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import * as crypto from 'crypto';
 import ExcelJS from 'exceljs';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { hashPassword } from '../../../../common/utils/hash.util';
 import { CompaniesService } from '../../../companies/companies.service';
@@ -644,6 +644,7 @@ export class EmployeeImportService {
               manager.getRepository(CompanyUser),
               createSystemUser,
               role?.id ?? null,
+              manager,
             );
 
             createdUserId = companyUser.user_id;
@@ -1018,19 +1019,19 @@ export class EmployeeImportService {
       values.manager_employee_number,
     );
 
-    if (values.branch_code !== undefined && !branch) {
+    if (this.optionalString(values.branch_code) && !branch) {
       errors.push('branch_code does not match any active branch');
     }
-    if (values.department_code !== undefined && !department) {
+    if (this.optionalString(values.department_code) && !department) {
       errors.push('department_code does not match any active department');
     }
-    if (values.position_code !== undefined && !position) {
+    if (this.optionalString(values.position_code) && !position) {
       errors.push('position_code does not match any active position');
     }
-    if (values.shift_code !== undefined && !shift) {
+    if (this.optionalString(values.shift_code) && !shift) {
       errors.push('shift_code does not match any active shift');
     }
-    if (values.timetable_code !== undefined && !timetable) {
+    if (this.optionalString(values.timetable_code) && !timetable) {
       errors.push('timetable_code does not match any active timetable');
     }
     if (userRole && !role) {
@@ -1409,6 +1410,7 @@ export class EmployeeImportService {
     companyUserRepo: Repository<CompanyUser>,
     createSystemUser: boolean,
     roleId: number | null,
+    manager?: EntityManager,
   ): Promise<CompanyUser> {
     const email = String(normalizedData.email).trim().toLowerCase();
     const phone = String(normalizedData.phone_number).trim();
@@ -1460,6 +1462,7 @@ export class EmployeeImportService {
           user.id,
           companyId,
           roleId ? { roleIds: [roleId] } : undefined,
+          manager,
         );
       } else {
         membership = await companyUserRepo.save(
