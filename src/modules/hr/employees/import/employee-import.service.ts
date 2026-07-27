@@ -2077,8 +2077,8 @@ export class EmployeeImportService {
     const lastRow = Math.max(sourceSheet.rowCount, 2);
     const columnLetter = this.getExcelColumnLetter(sourceColumnNumber);
     workbook.definedNames.add(
-      definedName,
       `'${sourceSheetName}'!$${columnLetter}$2:$${columnLetter}$${lastRow}`,
+      definedName,
     );
 
     const employeeColumnIndex = IMPORT_COLUMNS.indexOf(column) + 1;
@@ -2097,7 +2097,7 @@ export class EmployeeImportService {
         type: 'list',
         allowBlank: true,
         showErrorMessage: true,
-        formulae: [`=${definedName}`],
+        formulae: [definedName],
         ...overrides,
       };
     }

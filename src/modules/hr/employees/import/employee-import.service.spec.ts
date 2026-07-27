@@ -163,11 +163,39 @@ describe('EmployeeImportService', () => {
       'device_employee_number',
     ]);
     expect(employeeSheet?.getCell('H2').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('H2').dataValidation.formulae).toEqual([
+      'BranchCodes',
+    ]);
     expect(employeeSheet?.getCell('I2').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('I2').dataValidation.formulae).toEqual([
+      'DepartmentCodes',
+    ]);
     expect(employeeSheet?.getCell('J2').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('J2').dataValidation.formulae).toEqual([
+      'PositionCodes',
+    ]);
     expect(employeeSheet?.getCell('K2').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('K2').dataValidation.formulae).toEqual([
+      'EmploymentTypes',
+    ]);
     expect(employeeSheet?.getCell('F2').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('F2').dataValidation.formulae).toEqual([
+      'GenderValues',
+    ]);
     expect(employeeSheet?.getCell('L2').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('L2').dataValidation.formulae).toEqual([
+      'AccessDeviceCodes',
+    ]);
+    expect(workbook.definedNames.model).toEqual(
+      expect.arrayContaining([
+        { name: 'BranchCodes', ranges: ['Branches!$A$2'] },
+        { name: 'DepartmentCodes', ranges: ['Departments!$A$2'] },
+        { name: 'PositionCodes', ranges: ['Positions!$A$2'] },
+        { name: 'EmploymentTypes', ranges: ["'Employment Types'!$A$2:$A$7"] },
+        { name: 'GenderValues', ranges: ['Genders!$A$2:$A$3'] },
+        { name: 'AccessDeviceCodes', ranges: ["'Access Devices'!$A$2"] },
+      ]),
+    );
   });
 
   it('rejects unsupported file extensions before previewing', async () => {
