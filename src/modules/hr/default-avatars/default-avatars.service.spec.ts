@@ -375,4 +375,45 @@ describe('DefaultAvatarsService', () => {
       }),
     );
   });
+
+  it('preserves the original create error when rollback cleanup fails', async () => {
+    const originalError = new BadRequestException('Malformed SVG payload.');
+
+    imageProcessingService.processDefaultAvatarBase64File.mockReturnValue({
+      buffer: Buffer.from('png-data'),
+      originalFileName: 'avatar.png',
+      mimeType: 'image/png',
+      fileExtension: '.png',
+      fileSize: 8,
+      width: 128,
+      height: 128,
+    });
+    filesService.saveBufferFile.mockResolvedValue({
+      originalFileName: 'avatar.png',
+      storedFileName: 'default-avatar-uuid.png',
+      mimeType: 'image/png',
+      fileExtension: '.png',
+      fileSize: 8,
+      absolutePath:
+        'D:/Projects/Office/HRMS/backend/uploads/default-avatars/company-7/default-avatar-uuid.png',
+      publicPath: '/uploads/default-avatars/company-7/default-avatar-uuid.png',
+    });
+    defaultAvatarRepository.save.mockRejectedValue(originalError);
+    filesService.removeManagedFile.mockRejectedValue(
+      new Error('cleanup failed'),
+    );
+
+    await expect(
+      service.create(7, {
+        avatar_name: 'PNG Avatar',
+        gender_category: DefaultAvatarGenderEnum.NEUTRAL,
+        image_file: {
+          fileName: 'avatar.png',
+          fileSize: 8,
+          mimeType: 'image/png',
+          fileString: Buffer.from('png-data').toString('base64'),
+        },
+      }),
+    ).rejects.toBe(originalError);
+  });
 });

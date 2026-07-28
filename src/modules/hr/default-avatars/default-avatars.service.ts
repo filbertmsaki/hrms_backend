@@ -169,7 +169,7 @@ export class DefaultAvatarsService {
 
       return this.findOne(companyId, savedAvatar.id);
     } catch (error) {
-      await this.filesService.removeManagedFile(storedFile.publicPath);
+      await this.removeManagedFileSafely(storedFile.publicPath);
       throw error;
     }
   }
@@ -243,13 +243,13 @@ export class DefaultAvatarsService {
       }
 
       if (dto.image_file && previousImagePath !== savedAvatar.image_path) {
-        await this.filesService.removeManagedFile(previousImagePath);
+        await this.removeManagedFileSafely(previousImagePath);
       }
 
       return this.findOne(companyId, savedAvatar.id);
     } catch (error) {
       if (dto.image_file && avatar.image_path !== previousImagePath) {
-        await this.filesService.removeManagedFile(avatar.image_path);
+        await this.removeManagedFileSafely(avatar.image_path);
         avatar.image_path = previousImagePath;
       }
       throw error;
@@ -623,5 +623,13 @@ export class DefaultAvatarsService {
     });
 
     return exists;
+  }
+
+  private async removeManagedFileSafely(publicPath: string | null | undefined) {
+    try {
+      await this.filesService.removeManagedFile(publicPath);
+    } catch {
+      // Preserve the original service outcome when best-effort file cleanup fails.
+    }
   }
 }
