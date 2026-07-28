@@ -9,10 +9,12 @@ import { EntityManager, MoreThan, Repository } from 'typeorm';
 
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { comparePasswords, hashPassword } from 'src/common/utils/hash.util';
+import { hasPermission } from 'src/common/utils/permission.util';
 import { CompaniesService } from '../companies/companies.service';
 import { CompanyUser } from '../companies/entities/company-user.entity';
 import { Permission } from '../permissions/entities/permission.entity';
 import { Role } from '../roles/entities/role.entity';
+import { encryptTwoFactorSecret } from '../auth/2fa/utils/two-factor-secret.util';
 import { CreateUserDto } from './dtos/create-user.dto';
 import { UpdateUserDto } from './dtos/update-user.dto';
 import { UserProfileDto } from './dtos/user-profile-dto';
@@ -106,6 +108,26 @@ export class UsersService {
       created_at: permission.created_at,
       updated_at: permission.updated_at,
     }));
+  }
+
+  private getMembershipPermissionNames(membership: CompanyUser): string[] {
+    const permissionNames = new Set<string>();
+
+    membership.permission_assignments?.forEach((assignment) => {
+      if (assignment.permission?.name) {
+        permissionNames.add(assignment.permission.name);
+      }
+    });
+
+    membership.role_assignments?.forEach((assignment) => {
+      assignment.role?.permissions?.forEach((permission) => {
+        if (permission?.name) {
+          permissionNames.add(permission.name);
+        }
+      });
+    });
+
+    return Array.from(permissionNames);
   }
 
   private async resolveRoleEntitiesByNames(
@@ -323,6 +345,8 @@ export class UsersService {
         'last_login_ip',
         'is_email_verified',
         'is_two_factor_enabled',
+        'two_factor_setup_required',
+        'auth_token_invalid_before',
       ],
       relations: ['roles', 'roles.permissions', 'permissions'],
     });
@@ -347,6 +371,30 @@ export class UsersService {
 
   async findById(id: number): Promise<User> {
     return this.findOrFail(id);
+  }
+
+  async findByIdWithTwoFactor(id: number): Promise<User> {
+    const user = await this.userRepository
+      .createQueryBuilder('user')
+      .addSelect([
+        'user.two_factor_secret',
+        'user.two_factor_backup_codes',
+        'user.two_factor_setup_required',
+        'user.two_factor_enabled_at',
+        'user.two_factor_enabled_by',
+        'user.two_factor_disabled_at',
+        'user.two_factor_disabled_by',
+        'user.two_factor_disabled_reason',
+        'user.auth_token_invalid_before',
+      ])
+      .where('user.id = :id', { id })
+      .getOne();
+
+    if (!user) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+
+    return user;
   }
 
   async findMyProfileById(
@@ -390,6 +438,7 @@ export class UsersService {
       user_type: user.user_type,
       is_email_verified: user.is_email_verified,
       is_two_factor_enabled: user.is_two_factor_enabled,
+      two_factor_setup_required: user.two_factor_setup_required,
       email_verification_expires: user.email_verification_expires,
       last_login_at: user.last_login_at,
       last_login_ip: user.last_login_ip,
@@ -464,6 +513,7 @@ export class UsersService {
       user_type: user.user_type,
       is_email_verified: user.is_email_verified,
       is_two_factor_enabled: user.is_two_factor_enabled,
+      two_factor_setup_required: user.two_factor_setup_required,
       email_verification_expires: user.email_verification_expires,
       last_login_at: user.last_login_at,
       last_login_ip: user.last_login_ip,
@@ -605,19 +655,48 @@ export class UsersService {
   }
 
   async update2FASecret(userId: number, secret: string): Promise<void> {
-    await this.userRepository.update(userId, { two_factor_secret: secret });
+    await this.userRepository.update(userId, {
+      two_factor_secret: encryptTwoFactorSecret(secret),
+      two_factor_backup_codes: null,
+      two_factor_setup_required: true,
+    });
   }
 
-  async activate2FA(
+  async complete2FASetup(
     userId: number,
     secret: string,
     backupCodes: string[],
   ): Promise<void> {
-    await this.userRepository.update(userId, {
+    const current = await this.findByIdWithTwoFactor(userId);
+    const update: {
+      is_two_factor_enabled: boolean;
+      two_factor_setup_required: boolean;
+      two_factor_secret: string | null;
+      two_factor_backup_codes: string[];
+      two_factor_disabled_at: null;
+      two_factor_disabled_by: null;
+      two_factor_disabled_reason: null;
+      two_factor_enabled_at?: Date;
+      two_factor_enabled_by?: null;
+    } = {
       is_two_factor_enabled: true,
-      two_factor_secret: secret,
+      two_factor_setup_required: false,
+      two_factor_secret: encryptTwoFactorSecret(secret),
       two_factor_backup_codes: backupCodes,
-    });
+      two_factor_disabled_at: null,
+      two_factor_disabled_by: null,
+      two_factor_disabled_reason: null,
+    };
+
+    if (!current.is_two_factor_enabled || !current.two_factor_enabled_at) {
+      update.two_factor_enabled_at = new Date();
+    }
+
+    if (!current.is_two_factor_enabled) {
+      update.two_factor_enabled_by = null;
+    }
+
+    await this.userRepository.update(userId, update);
   }
 
   async updateBackupCodes(
@@ -632,8 +711,93 @@ export class UsersService {
   async disable2FA(userId: number): Promise<void> {
     await this.userRepository.update(userId, {
       is_two_factor_enabled: false,
+      two_factor_setup_required: false,
       two_factor_secret: null,
       two_factor_backup_codes: null,
+    });
+  }
+
+  async adminEnableTwoFactor(
+    userId: number,
+    administratorId: number,
+  ): Promise<void> {
+    await this.userRepository.update(userId, {
+      is_two_factor_enabled: true,
+      two_factor_setup_required: true,
+      two_factor_secret: null,
+      two_factor_backup_codes: null,
+      two_factor_enabled_at: new Date(),
+      two_factor_enabled_by: administratorId,
+      two_factor_disabled_at: null,
+      two_factor_disabled_by: null,
+      two_factor_disabled_reason: null,
+    });
+  }
+
+  async adminDisableTwoFactor(
+    userId: number,
+    administratorId: number,
+    reason: string | null,
+    revokedAt: Date,
+  ): Promise<void> {
+    await this.userRepository.update(userId, {
+      is_two_factor_enabled: false,
+      two_factor_setup_required: false,
+      two_factor_secret: null,
+      two_factor_backup_codes: null,
+      two_factor_disabled_at: revokedAt,
+      two_factor_disabled_by: administratorId,
+      two_factor_disabled_reason: reason,
+      auth_token_invalid_before: revokedAt,
+    });
+  }
+
+  async markAuthTokensInvalidBefore(
+    userId: number,
+    invalidBefore: Date,
+  ): Promise<void> {
+    await this.userRepository.update(userId, {
+      auth_token_invalid_before: invalidBefore,
+    });
+  }
+
+  async hasAnotherProtectedTwoFactorAdmin(
+    companyId: number,
+    excludedUserId: number,
+  ): Promise<boolean> {
+    const membershipRepository =
+      this.userRepository.manager.getRepository(CompanyUser);
+
+    const memberships = await membershipRepository.find({
+      where: {
+        company_id: companyId,
+        status: 'active',
+      },
+      relations: {
+        user: true,
+        role_assignments: {
+          role: {
+            permissions: true,
+          },
+        },
+        permission_assignments: {
+          permission: true,
+        },
+      },
+    });
+
+    return memberships.some((membership) => {
+      if (
+        membership.user_id === excludedUserId ||
+        membership.user?.status !== 'active' ||
+        !membership.user.is_two_factor_enabled ||
+        membership.user.two_factor_setup_required
+      ) {
+        return false;
+      }
+
+      const permissionNames = this.getMembershipPermissionNames(membership);
+      return hasPermission(permissionNames, 'users:disable-2fa');
     });
   }
 

@@ -59,6 +59,7 @@ type RefreshTokenPayload = {
   companyId?: number;
   membershipId?: number;
   type: 'refresh';
+  iat?: number;
 };
 
 type TwoFactorTempTokenPayload = {
@@ -69,6 +70,7 @@ type TwoFactorTempTokenPayload = {
   companyId?: number;
   temp: true;
   type: '2fa-temp';
+  iat?: number;
 };
 
 type PlatformAccessContext = {
@@ -134,9 +136,11 @@ export class AuthService {
 
     if (this.isOwnerUser(user)) {
       const platformContext = this.buildPlatformAccessContext(user as User);
-      const is2FAEnabled = await this.twoFaService.is2FARequired(user.id);
+      const twoFactorStatus = await this.twoFaService.getTwoFactorStatus(
+        user.id,
+      );
 
-      if (is2FAEnabled) {
+      if (twoFactorStatus.fullyConfigured) {
         const tempToken = this.jwtService.sign<TwoFactorTempTokenPayload>(
           {
             sub: user.id,
@@ -160,7 +164,21 @@ export class AuthService {
       }
 
       await this.usersService.updateLastLogin(user.id, new Date(), ip ?? null);
-      return this.generatePlatformAuthResponse(user as User, platformContext);
+      const response = this.generatePlatformAuthResponse(
+        user as User,
+        platformContext,
+      );
+
+      if (twoFactorStatus.enabled && twoFactorStatus.setupRequired) {
+        return {
+          ...response,
+          requires2FASetup: true,
+          message:
+            'Two-factor authentication has been enabled for your account. Complete setup now before continuing.',
+        };
+      }
+
+      return response;
     }
 
     const companies = await this.companiesService.listUserCompanies(user.id);
@@ -172,8 +190,8 @@ export class AuthService {
 
     const activeCompany = this.resolveActiveCompany(companies);
 
-    const is2FAEnabled = await this.twoFaService.is2FARequired(user.id);
-    if (is2FAEnabled) {
+    const twoFactorStatus = await this.twoFaService.getTwoFactorStatus(user.id);
+    if (twoFactorStatus.fullyConfigured) {
       const tempToken = this.jwtService.sign<TwoFactorTempTokenPayload>(
         {
           sub: user.id,
@@ -209,11 +227,22 @@ export class AuthService {
       user.id,
     );
 
-    return this.generateCompanyAuthResponse(
+    const response = this.generateCompanyAuthResponse(
       user as User,
       activeCompanyContext,
       availableCompanies,
     );
+
+    if (twoFactorStatus.enabled && twoFactorStatus.setupRequired) {
+      return {
+        ...response,
+        requires2FASetup: true,
+        message:
+          'Two-factor authentication has been enabled for your account. Complete setup now before continuing.',
+      };
+    }
+
+    return response;
   }
 
   async complete2FALogin(tempToken: string, code: string, ip?: string) {
@@ -229,16 +258,22 @@ export class AuthService {
         throw new UnauthorizedException('Invalid temporary token');
       }
 
-      const isValid = await this.twoFaService.verify2FALogin(payload.sub, code);
-      if (!isValid) {
-        throw new UnauthorizedException('Invalid 2FA code');
-      }
-
       const user = await this.usersService.findById(payload.sub);
       if (user.status !== 'active') {
         throw new ForbiddenException(
           'Your account is inactive. Please contact an administrator.',
         );
+      }
+
+      this.assertTokenStillValid(
+        payload.iat,
+        user.auth_token_invalid_before,
+        'The 2FA login step is no longer valid. Please log in again.',
+      );
+
+      const isValid = await this.twoFaService.verify2FALogin(payload.sub, code);
+      if (!isValid) {
+        throw new UnauthorizedException('Invalid 2FA code');
       }
 
       await this.usersService.updateLastLogin(user.id, new Date(), ip ?? null);
@@ -355,6 +390,12 @@ export class AuthService {
           'Your account is inactive. Please contact an administrator.',
         );
       }
+
+      this.assertTokenStillValid(
+        payload.iat,
+        user.auth_token_invalid_before,
+        'Refresh token has been revoked. Please log in again.',
+      );
 
       if (payload.scope === 'platform') {
         if (!this.isOwnerUser(user) || payload.userType !== 'OWNER') {
@@ -665,6 +706,7 @@ export class AuthService {
         roles: platformContext.roles,
         permissions: platformContext.permissions,
         isTwoFactorEnabled: user.is_two_factor_enabled,
+        twoFactorSetupRequired: user.two_factor_setup_required,
       },
     };
   }
@@ -700,6 +742,7 @@ export class AuthService {
         roles: companyContext.roles,
         permissions: companyContext.permissions,
         isTwoFactorEnabled: user.is_two_factor_enabled,
+        twoFactorSetupRequired: user.two_factor_setup_required,
       },
     };
   }
@@ -853,6 +896,21 @@ export class AuthService {
 
     const ttl = decoded.exp - Math.floor(Date.now() / 1000);
     return ttl > 0 ? ttl : 1;
+  }
+
+  private assertTokenStillValid(
+    issuedAtSeconds: number | undefined,
+    invalidBefore: Date | null,
+    message: string,
+  ): void {
+    if (!issuedAtSeconds || !invalidBefore) {
+      return;
+    }
+
+    const invalidBeforeSeconds = Math.floor(invalidBefore.getTime() / 1000);
+    if (issuedAtSeconds <= invalidBeforeSeconds) {
+      throw new UnauthorizedException(message);
+    }
   }
 
   private getAccessTokenSecret(): string {

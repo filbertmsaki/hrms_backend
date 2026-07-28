@@ -139,6 +139,7 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'users:delete',
       'users:assign-role',
       'users:revoke-role',
+      'users:manage-2fa',
       'roles:read',
       'roles:create',
       'roles:update',

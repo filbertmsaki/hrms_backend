@@ -5,6 +5,8 @@ const PERMISSION_ALIASES: Record<string, string[]> = {
   'leave-balances.adjust': ['leave_balances:adjust'],
   'leave-balances.generate': ['leave_balances:adjust'],
   'leave-balances.carry-forward': ['leave_balances:adjust'],
+  'users:enable-2fa': ['users:manage-2fa'],
+  'users:disable-2fa': ['users:manage-2fa'],
 };
 
 export function expandPermissionAliases(permission: string): string[] {

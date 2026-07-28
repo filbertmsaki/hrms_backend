@@ -7,16 +7,18 @@ import { TwoFaModule } from '../auth/2fa/2fa.module';
 import { CompaniesModule } from '../companies/companies.module';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import { DefaultAvatarsModule } from '../hr/default-avatars/default-avatars.module';
+import { UserTwoFactorAuditLog } from './entities/user-two-factor-audit-log.entity';
+import { UserTwoFactorAuditService } from './services/user-two-factor-audit.service';
 
 @Module({
   imports: [
     forwardRef(() => TwoFaModule),
-    TypeOrmModule.forFeature([User]),
+    TypeOrmModule.forFeature([User, UserTwoFactorAuditLog]),
     CompaniesModule,
     DefaultAvatarsModule,
   ],
   controllers: [UsersController],
-  providers: [UsersService, TenantGuard],
-  exports: [UsersService, TypeOrmModule],
+  providers: [UsersService, UserTwoFactorAuditService, TenantGuard],
+  exports: [UsersService, UserTwoFactorAuditService, TypeOrmModule],
 })
 export class UsersModule {}

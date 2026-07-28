@@ -57,11 +57,32 @@ export class User {
   @Column({ default: false })
   is_two_factor_enabled: boolean;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ default: false })
+  two_factor_setup_required: boolean;
+
+  @Column({ type: 'text', nullable: true, select: false })
   two_factor_secret: string | null;
 
-  @Column({ type: 'json', nullable: true })
+  @Column({ type: 'json', nullable: true, select: false })
   two_factor_backup_codes: string[] | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  two_factor_enabled_at: Date | null;
+
+  @Column({ type: 'int', nullable: true })
+  two_factor_enabled_by: number | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  two_factor_disabled_at: Date | null;
+
+  @Column({ type: 'int', nullable: true })
+  two_factor_disabled_by: number | null;
+
+  @Column({ type: 'text', nullable: true })
+  two_factor_disabled_reason: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  auth_token_invalid_before: Date | null;
 
   @CreateDateColumn()
   created_at: Date;

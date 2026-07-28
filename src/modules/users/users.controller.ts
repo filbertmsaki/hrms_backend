@@ -1,35 +1,26 @@
 import {
-  Controller,
-  Get,
-  Post,
   Body,
-  Patch,
-  Param,
+  Controller,
   Delete,
+  Get,
+  Param,
   ParseIntPipe,
-  UseGuards,
-  Req,
+  Patch,
+  Post,
   Query,
+  Req,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
-
-import { UsersService } from './users.service';
-import { CreateUserDto } from './dtos/create-user.dto';
-import { UpdateUserDto } from './dtos/update-user.dto';
-
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { PermissionsGuard } from '../../common/guards/permissions.guard';
-import { TenantGuard } from '../../common/guards/tenant.guard';
-import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import type { Request as ExpressRequest } from 'express';
 
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
-import { TwoFaService } from '../auth/2fa/2fa.service';
-import { Verify2FaDto } from '../auth/2fa/dto/verify-2fa.dto';
-import { ChangePasswordDto } from './dtos/change-password.dto';
-import { PaginationDto } from '../../common/dto/pagination.dto';
+import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { TenantGuard } from '../../common/guards/tenant.guard';
+import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import {
   ApiAuthRequired,
   ApiConflictResponse,
@@ -38,6 +29,14 @@ import {
   ApiSuccessResponse,
   ApiValidationErrorResponse,
 } from '../../docs/swagger-decorators';
+import { TwoFaService } from '../auth/2fa/2fa.service';
+import { Verify2FaDto } from '../auth/2fa/dto/verify-2fa.dto';
+import { PaginationDto } from '../../common/dto/pagination.dto';
+import { ChangePasswordDto } from './dtos/change-password.dto';
+import { CreateUserDto } from './dtos/create-user.dto';
+import { UpdateUserDto } from './dtos/update-user.dto';
+import { UsersService } from './users.service';
+import { AdminDisableUser2FADto } from './dtos/admin-disable-user-2fa.dto';
 
 @ApiTags('Users')
 @ApiBearerAuth('access-token')
@@ -48,10 +47,6 @@ export class UsersController {
     private readonly usersService: UsersService,
     private readonly twoFaService: TwoFaService,
   ) {}
-
-  // ────────────────────────────────
-  //  Self-service: Get My Profile
-  // ────────────────────────────────
 
   @Get('me')
   @ApiOperationSummary(
@@ -79,10 +74,6 @@ export class UsersController {
     );
   }
 
-  // ────────────────────────────────
-  //  Self-service: Update My Profile
-  // ────────────────────────────────
-
   @Patch('me')
   @ApiOperationSummary(
     'Update my profile',
@@ -98,10 +89,6 @@ export class UsersController {
   ) {
     return this.usersService.update(req.user.id, updateUserDto);
   }
-
-  // ────────────────────────────────
-  //  Self-service: Change Password
-  // ────────────────────────────────
 
   @Post('me/change-password')
   @ApiOperationSummary(
@@ -122,10 +109,6 @@ export class UsersController {
       dto.new_password,
     );
   }
-
-  // ────────────────────────────────
-  //  Admin: Create User
-  // ────────────────────────────────
 
   @Post()
   @UseGuards(RolesGuard, PermissionsGuard)
@@ -149,10 +132,6 @@ export class UsersController {
     );
   }
 
-  // ────────────────────────────────
-  //  Admin: List Users
-  // ────────────────────────────────
-
   @Get()
   @UseGuards(PermissionsGuard)
   @Permissions('users:read')
@@ -173,10 +152,6 @@ export class UsersController {
     );
   }
 
-  // ────────────────────────────────
-  //  Admin: Get User by ID
-  // ────────────────────────────────
-
   @Get(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('users:read')
@@ -194,10 +169,6 @@ export class UsersController {
   ) {
     return this.usersService.findProfileInCompany(id, req.user.companyId!);
   }
-
-  // ────────────────────────────────
-  //  Admin: Update User
-  // ────────────────────────────────
 
   @Patch(':id')
   @UseGuards(PermissionsGuard)
@@ -223,10 +194,6 @@ export class UsersController {
     );
   }
 
-  // ────────────────────────────────
-  //  Admin: Delete User
-  // ────────────────────────────────
-
   @Delete(':id')
   @UseGuards(RolesGuard, PermissionsGuard)
   @Roles('COMPANY_ADMIN')
@@ -245,10 +212,6 @@ export class UsersController {
   ) {
     return this.usersService.removeFromCompany(req.user.companyId!, id);
   }
-
-  // ────────────────────────────────
-  //  Admin: Assign Role
-  // ────────────────────────────────
 
   @Post(':userId/roles/:roleId')
   @UseGuards(RolesGuard, PermissionsGuard)
@@ -274,10 +237,6 @@ export class UsersController {
     );
   }
 
-  // ────────────────────────────────
-  //  Admin: Revoke Role
-  // ────────────────────────────────
-
   @Delete(':userId/roles/:roleId')
   @UseGuards(RolesGuard, PermissionsGuard)
   @Roles('COMPANY_ADMIN')
@@ -302,9 +261,92 @@ export class UsersController {
     );
   }
 
-  // ────────────────────────────────
-  //  2FA: Setup
-  // ────────────────────────────────
+  @Patch(':userId/two-factor/enable')
+  @UseGuards(PermissionsGuard)
+  @Permissions('users:enable-2fa')
+  @ApiOperationSummary(
+    'Enable two-factor authentication for a user',
+    'Allows an authorized administrator to enable 2FA for a selected user without exposing a secret. The user must complete setup during the next login.',
+    'Users_enableUser2FA',
+  )
+  @ApiAuthRequired()
+  @ApiConflictResponse('Two-factor authentication')
+  @ApiNotFoundResponse('User')
+  @ApiSuccessResponse(200, 'User 2FA enabled successfully', {
+    schema: {
+      example: {
+        success: true,
+        message:
+          'Two-factor authentication has been enabled for the user. The user must complete 2FA setup during the next login.',
+        data: {
+          userId: 12,
+          twoFactorEnabled: true,
+          twoFactorSetupRequired: true,
+        },
+      },
+    },
+  })
+  async enableUser2FA(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('userId', ParseIntPipe) userId: number,
+  ) {
+    return this.twoFaService.adminEnable2FA(
+      req.user.companyId!,
+      userId,
+      req.user,
+      {
+        ipAddress: req.ip,
+        userAgent:
+          typeof req.headers['user-agent'] === 'string'
+            ? req.headers['user-agent']
+            : null,
+      },
+    );
+  }
+
+  @Patch(':userId/two-factor/disable')
+  @UseGuards(PermissionsGuard)
+  @Permissions('users:disable-2fa')
+  @ApiOperationSummary(
+    'Disable two-factor authentication for a user',
+    'Allows an authorized administrator to disable 2FA for a selected user, revoke recovery data, and invalidate active sessions.',
+    'Users_disableUser2FA',
+  )
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiNotFoundResponse('User')
+  @ApiSuccessResponse(200, 'User 2FA disabled successfully', {
+    schema: {
+      example: {
+        success: true,
+        message: 'Two-factor authentication has been disabled for the user.',
+        data: {
+          userId: 12,
+          twoFactorEnabled: false,
+          twoFactorSetupRequired: false,
+        },
+      },
+    },
+  })
+  async disableUser2FA(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('userId', ParseIntPipe) userId: number,
+    @Body() dto: AdminDisableUser2FADto,
+  ) {
+    return this.twoFaService.adminDisable2FA(
+      req.user.companyId!,
+      userId,
+      req.user,
+      dto.reason,
+      {
+        ipAddress: req.ip,
+        userAgent:
+          typeof req.headers['user-agent'] === 'string'
+            ? req.headers['user-agent']
+            : null,
+      },
+    );
+  }
 
   @Post('2fa/setup')
   @ApiOperationSummary(
@@ -325,10 +367,6 @@ export class UsersController {
     return this.twoFaService.generate2FASetup(req.user.id);
   }
 
-  // ────────────────────────────────
-  //  2FA: Verify & Activate
-  // ────────────────────────────────
-
   @Post('2fa/verify')
   @ApiOperationSummary(
     'Verify and activate 2FA',
@@ -345,10 +383,6 @@ export class UsersController {
     return this.twoFaService.verifyAndActivate2FA(req.user.id, dto.token);
   }
 
-  // ────────────────────────────────
-  //  2FA: Disable
-  // ────────────────────────────────
-
   @Post('2fa/disable')
   @ApiOperationSummary(
     'Disable two-factor authentication',
@@ -364,10 +398,6 @@ export class UsersController {
   ) {
     return this.twoFaService.disable2FA(req.user.id, dto.token);
   }
-
-  // ────────────────────────────────
-  //  2FA: Regenerate Backup Codes
-  // ────────────────────────────────
 
   @Post('2fa/backup-codes/regenerate')
   @ApiOperationSummary(

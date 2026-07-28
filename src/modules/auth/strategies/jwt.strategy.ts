@@ -29,6 +29,7 @@ type JwtAccessPayload = {
   roles?: string[];
   permissions?: string[];
   type?: string;
+  iat?: number;
 };
 
 @Injectable()
@@ -86,6 +87,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     if (user.status !== 'active') {
       throw new UnauthorizedException('User account is inactive');
+    }
+
+    if (
+      payload.iat &&
+      user.auth_token_invalid_before &&
+      payload.iat <= Math.floor(user.auth_token_invalid_before.getTime() / 1000)
+    ) {
+      throw new UnauthorizedException('Session has been revoked');
     }
 
     if (payload.scope === 'platform') {

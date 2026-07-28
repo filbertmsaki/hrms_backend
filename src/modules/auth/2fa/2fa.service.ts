@@ -1,19 +1,32 @@
 import {
+  ConflictException,
   Injectable,
   BadRequestException,
+  ForbiddenException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { generateSecret, generateURI, verify } from 'otplib';
 import * as qrcode from 'qrcode';
 import * as crypto from 'crypto';
+import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import { CompaniesService } from '../../companies/companies.service';
 import { UsersService } from '../../users/users.service';
+import { UserTwoFactorAuditService } from '../../users/services/user-two-factor-audit.service';
+import { decryptTwoFactorSecret } from './utils/two-factor-secret.util';
+
+type AuditContext = {
+  ipAddress?: string | null;
+  userAgent?: string | null;
+};
 
 @Injectable()
 export class TwoFaService {
   constructor(
     private usersService: UsersService,
     private configService: ConfigService,
+    private companiesService: CompaniesService,
+    private userTwoFactorAuditService: UserTwoFactorAuditService,
   ) {}
 
   private normalizeCode(code: string): string {
@@ -24,11 +37,57 @@ export class TwoFaService {
     return codes.map((code) => code.match(/.{1,5}/g)?.join('-') ?? code);
   }
 
+  private isFullyConfigured(user: {
+    is_two_factor_enabled: boolean;
+    two_factor_setup_required: boolean;
+    two_factor_secret?: string | null;
+  }): boolean {
+    return Boolean(
+      user.is_two_factor_enabled &&
+      !user.two_factor_setup_required &&
+      user.two_factor_secret,
+    );
+  }
+
+  private hasAnyTwoFactorState(user: {
+    is_two_factor_enabled: boolean;
+    two_factor_setup_required: boolean;
+    two_factor_secret?: string | null;
+    two_factor_backup_codes?: string[] | null;
+  }): boolean {
+    return Boolean(
+      user.is_two_factor_enabled ||
+      user.two_factor_setup_required ||
+      user.two_factor_secret ||
+      user.two_factor_backup_codes?.length,
+    );
+  }
+
+  async getTwoFactorStatus(userId: number): Promise<{
+    enabled: boolean;
+    setupRequired: boolean;
+    fullyConfigured: boolean;
+  }> {
+    const user = await this.usersService.findByIdWithTwoFactor(userId);
+
+    return {
+      enabled: user.is_two_factor_enabled ?? false,
+      setupRequired: user.two_factor_setup_required ?? false,
+      fullyConfigured: this.isFullyConfigured(user),
+    };
+  }
+
   async generate2FASetup(userId: number) {
-    const user = await this.usersService.findById(userId);
+    const user = await this.usersService.findByIdWithTwoFactor(userId);
     if (!user) throw new BadRequestException('User not found');
 
-    if (user.is_two_factor_enabled) {
+    if (user.status !== 'active') {
+      throw new ForbiddenException(
+        'Inactive users cannot configure two-factor authentication',
+      );
+    }
+
+    if (user.is_two_factor_enabled && !user.two_factor_setup_required) {
       throw new BadRequestException('2FA is already enabled for this account');
     }
 
@@ -52,16 +111,27 @@ export class TwoFaService {
   }
 
   async verifyAndActivate2FA(userId: number, token: string) {
-    const user = await this.usersService.findById(userId);
+    const user = await this.usersService.findByIdWithTwoFactor(userId);
     if (!user) throw new BadRequestException('User not found');
+
+    if (user.status !== 'active') {
+      throw new ForbiddenException(
+        'Inactive users cannot configure two-factor authentication',
+      );
+    }
 
     if (!user.two_factor_secret) {
       throw new BadRequestException('No 2FA setup in progress');
     }
 
+    const decryptedSecret = decryptTwoFactorSecret(user.two_factor_secret);
+    if (!decryptedSecret) {
+      throw new BadRequestException('No 2FA setup in progress');
+    }
+
     const normalizedToken = this.normalizeCode(token);
     const result = await verify({
-      secret: user.two_factor_secret,
+      secret: decryptedSecret,
       token: normalizedToken,
     });
 
@@ -77,7 +147,7 @@ export class TwoFaService {
       crypto.createHash('sha256').update(code).digest('hex'),
     );
 
-    await this.usersService.activate2FA(userId, user.two_factor_secret, hashed);
+    await this.usersService.complete2FASetup(userId, decryptedSecret, hashed);
 
     const formattedBackupCodes = this.formatBackupCodes(backupCodes);
 
@@ -92,15 +162,24 @@ export class TwoFaService {
    * Verify 2FA code during login (TOTP or backup code)
    */
   async verify2FALogin(userId: number, token: string): Promise<boolean> {
-    const user = await this.usersService.findById(userId);
-    if (!user || !user.is_two_factor_enabled || !user.two_factor_secret) {
-      throw new BadRequestException('2FA is not enabled for this user');
+    const user = await this.usersService.findByIdWithTwoFactor(userId);
+    if (!user || !this.isFullyConfigured(user)) {
+      throw new BadRequestException(
+        '2FA is not fully configured for this user',
+      );
+    }
+
+    const decryptedSecret = decryptTwoFactorSecret(user.two_factor_secret);
+    if (!decryptedSecret) {
+      throw new BadRequestException(
+        '2FA is not fully configured for this user',
+      );
     }
 
     const normalizedToken = this.normalizeCode(token);
 
     const totpResult = await verify({
-      secret: user.two_factor_secret,
+      secret: decryptedSecret,
       token: normalizedToken,
     });
     if (totpResult.valid) return true;
@@ -126,9 +205,13 @@ export class TwoFaService {
   }
 
   async disable2FA(userId: number, token: string) {
-    const user = await this.usersService.findById(userId);
+    const user = await this.usersService.findByIdWithTwoFactor(userId);
     if (!user || !user.is_two_factor_enabled) {
       throw new BadRequestException('2FA is not enabled');
+    }
+
+    if (!this.isFullyConfigured(user)) {
+      throw new BadRequestException('2FA setup is not complete for this user');
     }
 
     const isValid = await this.verify2FALogin(userId, token);
@@ -137,24 +220,27 @@ export class TwoFaService {
     }
 
     await this.usersService.disable2FA(userId);
+    await this.usersService.markAuthTokensInvalidBefore(userId, new Date());
 
     return { message: '2FA successfully disabled' };
   }
 
   async is2FARequired(userId: number): Promise<boolean> {
-    const user = await this.usersService.findById(userId);
-    if (!user) {
-      throw new BadRequestException('User not found');
-    }
-    return user.is_two_factor_enabled ?? false;
+    const status = await this.getTwoFactorStatus(userId);
+    return status.fullyConfigured;
+  }
+
+  async is2FASetupRequired(userId: number): Promise<boolean> {
+    const status = await this.getTwoFactorStatus(userId);
+    return status.enabled && status.setupRequired;
   }
 
   async regenerateBackupCodes(
     userId: number,
     token: string,
   ): Promise<{ backupCodes: string[]; message: string }> {
-    const user = await this.usersService.findById(userId);
-    if (!user?.is_two_factor_enabled) {
+    const user = await this.usersService.findByIdWithTwoFactor(userId);
+    if (!user || !this.isFullyConfigured(user)) {
       throw new BadRequestException('2FA is not enabled');
     }
 
@@ -176,6 +262,148 @@ export class TwoFaService {
     return {
       backupCodes: formatted,
       message: 'New backup codes generated. Old ones are invalidated.',
+    };
+  }
+
+  async adminEnable2FA(
+    companyId: number,
+    userId: number,
+    actor: AuthenticatedUser,
+    auditContext: AuditContext = {},
+  ) {
+    await this.companiesService.findCompanyUserContext(companyId, userId);
+
+    const user = await this.usersService.findByIdWithTwoFactor(userId);
+
+    if (user.status !== 'active') {
+      throw new BadRequestException(
+        'Inactive users cannot have 2FA enabled by an administrator',
+      );
+    }
+
+    if (user.is_two_factor_enabled) {
+      throw new ConflictException(
+        'Two-factor authentication is already enabled for this user',
+      );
+    }
+
+    await this.usersService.adminEnableTwoFactor(userId, actor.id);
+
+    await this.userTwoFactorAuditService.log({
+      company_id: companyId,
+      target_user_id: user.id,
+      target_user_email: user.email,
+      previous_status: false,
+      new_status: true,
+      action: 'user_2fa.enabled',
+      actor,
+      ip_address: auditContext.ipAddress ?? null,
+      user_agent: auditContext.userAgent ?? null,
+      payload: {
+        target_user_no: user.user_no,
+        two_factor_setup_required: true,
+      },
+    });
+
+    return {
+      success: true,
+      message:
+        'Two-factor authentication has been enabled for the user. The user must complete 2FA setup during the next login.',
+      data: {
+        userId: user.id,
+        twoFactorEnabled: true,
+        twoFactorSetupRequired: true,
+      },
+    };
+  }
+
+  async adminDisable2FA(
+    companyId: number,
+    userId: number,
+    actor: AuthenticatedUser,
+    reason?: string,
+    auditContext: AuditContext = {},
+  ) {
+    await this.companiesService.findCompanyUserContext(companyId, userId);
+
+    const user = await this.usersService.findByIdWithTwoFactor(userId);
+    const normalizedReason = reason?.trim() || null;
+
+    if (
+      actor.id === user.id &&
+      !(await this.usersService.hasAnotherProtectedTwoFactorAdmin(
+        companyId,
+        actor.id,
+      ))
+    ) {
+      throw new ForbiddenException(
+        'You cannot disable your own 2FA because it would leave the company without another protected administrator account.',
+      );
+    }
+
+    if (!this.hasAnyTwoFactorState(user)) {
+      await this.userTwoFactorAuditService.log({
+        company_id: companyId,
+        target_user_id: user.id,
+        target_user_email: user.email,
+        previous_status: false,
+        new_status: false,
+        action: 'user_2fa.disable_noop',
+        actor,
+        ip_address: auditContext.ipAddress ?? null,
+        user_agent: auditContext.userAgent ?? null,
+        disable_reason: normalizedReason,
+        payload: {
+          target_user_no: user.user_no,
+          already_disabled: true,
+        },
+      });
+
+      return {
+        success: true,
+        message: 'Two-factor authentication is already disabled for the user.',
+        data: {
+          userId: user.id,
+          twoFactorEnabled: false,
+          twoFactorSetupRequired: false,
+        },
+      };
+    }
+
+    const revokedAt = new Date();
+    await this.usersService.adminDisableTwoFactor(
+      user.id,
+      actor.id,
+      normalizedReason,
+      revokedAt,
+    );
+
+    await this.userTwoFactorAuditService.log({
+      company_id: companyId,
+      target_user_id: user.id,
+      target_user_email: user.email,
+      previous_status: user.is_two_factor_enabled,
+      new_status: false,
+      action: 'user_2fa.disabled',
+      actor,
+      ip_address: auditContext.ipAddress ?? null,
+      user_agent: auditContext.userAgent ?? null,
+      disable_reason: normalizedReason,
+      payload: {
+        target_user_no: user.user_no,
+        previous_setup_required: user.two_factor_setup_required,
+        sessions_revoked: true,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Two-factor authentication has been disabled for the user.',
+      data: {
+        userId: user.id,
+        twoFactorEnabled: false,
+        twoFactorSetupRequired: false,
+      },
     };
   }
 }

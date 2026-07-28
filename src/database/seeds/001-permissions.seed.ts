@@ -143,6 +143,24 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     displayName: 'Revoke user roles',
     description: 'Compatibility permission for role revocation endpoints',
   },
+  {
+    name: 'users:manage-2fa',
+    displayName: 'Manage user 2FA',
+    description:
+      'Allow administrators to enable or disable two-factor authentication for company users',
+  },
+  {
+    name: 'users:enable-2fa',
+    displayName: 'Enable user 2FA',
+    description:
+      'Allow administrators to enable two-factor authentication for company users',
+  },
+  {
+    name: 'users:disable-2fa',
+    displayName: 'Disable user 2FA',
+    description:
+      'Allow administrators to disable two-factor authentication for company users',
+  },
   // Roles
   {
     name: 'roles:read',
