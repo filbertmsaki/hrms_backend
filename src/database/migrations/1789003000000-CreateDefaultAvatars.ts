@@ -24,7 +24,9 @@ const DEFAULT_AVATAR_PERMISSIONS = [
 ] as const;
 
 const DEFAULT_AVATAR_ROLE_BACKFILL: Record<string, string[]> = {
-  COMPANY_ADMIN: DEFAULT_AVATAR_PERMISSIONS.map((permission) => permission.name),
+  COMPANY_ADMIN: DEFAULT_AVATAR_PERMISSIONS.map(
+    (permission) => permission.name,
+  ),
   HR_MANAGER: DEFAULT_AVATAR_PERMISSIONS.map((permission) => permission.name),
   HR_OFFICER: ['default_avatars:read', 'default_avatars:update'],
 };

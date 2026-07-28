@@ -1232,8 +1232,7 @@ export class CompaniesService {
           phone: membership.user.phone,
           email: membership.user.email,
           profile_photo_url: resolvedAvatar.profile_photo_url,
-          uploaded_profile_photo_url:
-            resolvedAvatar.uploaded_profile_photo_url,
+          uploaded_profile_photo_url: resolvedAvatar.uploaded_profile_photo_url,
           profile_photo_source: resolvedAvatar.profile_photo_source,
           default_avatar_id: resolvedAvatar.default_avatar_id,
           status: membership.user.status,

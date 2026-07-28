@@ -93,7 +93,12 @@ export class DefaultAvatarsService {
     const storedFile = await this.filesService.saveBase64File(dto.image_file, {
       directorySegments: ['default-avatars', `company-${companyId}`],
       fileNamePrefix: dto.avatar_name,
-      allowedMimeTypes: ['image/jpeg', 'image/png', 'image/svg+xml', 'image/webp'],
+      allowedMimeTypes: [
+        'image/jpeg',
+        'image/png',
+        'image/svg+xml',
+        'image/webp',
+      ],
     });
 
     try {
@@ -110,7 +115,11 @@ export class DefaultAvatarsService {
       const savedAvatar = await this.defaultAvatarRepository.save(avatar);
 
       if (savedAvatar.is_default) {
-        await this.applyDefaultFlag(companyId, savedAvatar.id, savedAvatar.gender_category);
+        await this.applyDefaultFlag(
+          companyId,
+          savedAvatar.id,
+          savedAvatar.gender_category,
+        );
       }
 
       return this.findOne(companyId, savedAvatar.id);
@@ -120,7 +129,11 @@ export class DefaultAvatarsService {
     }
   }
 
-  async update(companyId: number, avatarId: number, dto: UpdateDefaultAvatarDto) {
+  async update(
+    companyId: number,
+    avatarId: number,
+    dto: UpdateDefaultAvatarDto,
+  ) {
     const avatar = await this.findAvatarEntityOrFail(companyId, avatarId);
     const previousImagePath = avatar.image_path;
 
@@ -144,18 +157,30 @@ export class DefaultAvatarsService {
     }
 
     if (dto.image_file) {
-      const storedFile = await this.filesService.saveBase64File(dto.image_file, {
-        directorySegments: ['default-avatars', `company-${companyId}`],
-        fileNamePrefix: dto.avatar_name ?? avatar.avatar_name,
-        allowedMimeTypes: ['image/jpeg', 'image/png', 'image/svg+xml', 'image/webp'],
-      });
+      const storedFile = await this.filesService.saveBase64File(
+        dto.image_file,
+        {
+          directorySegments: ['default-avatars', `company-${companyId}`],
+          fileNamePrefix: dto.avatar_name ?? avatar.avatar_name,
+          allowedMimeTypes: [
+            'image/jpeg',
+            'image/png',
+            'image/svg+xml',
+            'image/webp',
+          ],
+        },
+      );
       avatar.image_path = storedFile.publicPath;
     }
 
     try {
       const savedAvatar = await this.defaultAvatarRepository.save(avatar);
       if (savedAvatar.is_default) {
-        await this.applyDefaultFlag(companyId, savedAvatar.id, savedAvatar.gender_category);
+        await this.applyDefaultFlag(
+          companyId,
+          savedAvatar.id,
+          savedAvatar.gender_category,
+        );
       }
 
       if (dto.image_file && previousImagePath !== savedAvatar.image_path) {
@@ -201,17 +226,16 @@ export class DefaultAvatarsService {
     const avatar = await this.findAvatarEntityOrFail(companyId, avatarId);
 
     if (avatar.status !== DefaultAvatarStatusEnum.ACTIVE) {
-      throw new BadRequestException('Only active avatars can be set as default.');
+      throw new BadRequestException(
+        'Only active avatars can be set as default.',
+      );
     }
 
     await this.applyDefaultFlag(companyId, avatar.id, avatar.gender_category);
     return this.findOne(companyId, avatar.id);
   }
 
-  async listAvailableForGender(
-    companyId: number,
-    gender?: string | null,
-  ) {
+  async listAvailableForGender(companyId: number, gender?: string | null) {
     const normalizedGender = this.normalizeEmployeeGender(gender);
     const allowedGenders =
       normalizedGender === DefaultAvatarGenderEnum.MALE
@@ -303,7 +327,9 @@ export class DefaultAvatarsService {
         uploaded_profile_photo_url: uploadedProfilePhotoUrl,
         profile_photo_source: ProfileImageSourceEnum.UPLOADED,
         default_avatar_id: selectedAvatar?.id ?? null,
-        selected_default_avatar: selectedAvatar ? this.mapAvatar(selectedAvatar) : null,
+        selected_default_avatar: selectedAvatar
+          ? this.mapAvatar(selectedAvatar)
+          : null,
       };
     }
 
@@ -312,11 +338,11 @@ export class DefaultAvatarsService {
       selectedAvatarAvailable
     ) {
       return {
-        profile_photo_url: selectedAvatar!.image_path,
+        profile_photo_url: selectedAvatar.image_path,
         uploaded_profile_photo_url: uploadedProfilePhotoUrl,
         profile_photo_source: ProfileImageSourceEnum.DEFAULT_AVATAR,
-        default_avatar_id: selectedAvatar!.id,
-        selected_default_avatar: this.mapAvatar(selectedAvatar!),
+        default_avatar_id: selectedAvatar.id,
+        selected_default_avatar: this.mapAvatar(selectedAvatar),
       };
     }
 
@@ -326,17 +352,19 @@ export class DefaultAvatarsService {
         uploaded_profile_photo_url: uploadedProfilePhotoUrl,
         profile_photo_source: ProfileImageSourceEnum.UPLOADED,
         default_avatar_id: selectedAvatar?.id ?? null,
-        selected_default_avatar: selectedAvatar ? this.mapAvatar(selectedAvatar) : null,
+        selected_default_avatar: selectedAvatar
+          ? this.mapAvatar(selectedAvatar)
+          : null,
       };
     }
 
     if (selectedAvatarAvailable) {
       return {
-        profile_photo_url: selectedAvatar!.image_path,
+        profile_photo_url: selectedAvatar.image_path,
         uploaded_profile_photo_url: uploadedProfilePhotoUrl,
         profile_photo_source: ProfileImageSourceEnum.DEFAULT_AVATAR,
-        default_avatar_id: selectedAvatar!.id,
-        selected_default_avatar: this.mapAvatar(selectedAvatar!),
+        default_avatar_id: selectedAvatar.id,
+        selected_default_avatar: this.mapAvatar(selectedAvatar),
       };
     }
 
@@ -354,7 +382,9 @@ export class DefaultAvatarsService {
             ? 'neutral_default'
             : 'gender_default',
         default_avatar_id: selectedAvatar?.id ?? null,
-        selected_default_avatar: selectedAvatar ? this.mapAvatar(selectedAvatar) : null,
+        selected_default_avatar: selectedAvatar
+          ? this.mapAvatar(selectedAvatar)
+          : null,
       };
     }
 
@@ -363,7 +393,9 @@ export class DefaultAvatarsService {
       uploaded_profile_photo_url: uploadedProfilePhotoUrl,
       profile_photo_source: 'none',
       default_avatar_id: selectedAvatar?.id ?? null,
-      selected_default_avatar: selectedAvatar ? this.mapAvatar(selectedAvatar) : null,
+      selected_default_avatar: selectedAvatar
+        ? this.mapAvatar(selectedAvatar)
+        : null,
     };
   }
 

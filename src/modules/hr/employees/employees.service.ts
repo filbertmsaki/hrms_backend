@@ -77,7 +77,6 @@ import { Employee } from './entities/employee.entity';
 import { FilesService } from '../../files/files.service';
 import { Base64FileDto } from '../../files/dtos/base64-file.dto';
 import { DefaultAvatarsService } from '../default-avatars/default-avatars.service';
-import { DefaultAvatar } from '../default-avatars/entities/default-avatar.entity';
 import { ProfileImageSourceEnum } from './enums/profile-image-source.enum';
 
 type EmployeeMutationDto = CreateEmployeeDto | UpdateEmployeeDto;
@@ -630,10 +629,11 @@ export class EmployeesService {
 
   private async mapEmployee(employee: Employee, includeDocuments = false) {
     const companyId = employee.company_user?.company_id;
-    const resolvedAvatar = await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
-      companyId ?? 0,
-      employee,
-    );
+    const resolvedAvatar =
+      await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
+        companyId ?? 0,
+        employee,
+      );
     const managerAvatar =
       employee.manager && companyId
         ? await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
@@ -682,7 +682,7 @@ export class EmployeesService {
       primary_position: this.mapPosition(employee.primary_position),
       position: this.mapPosition(employee.primary_position),
       manager: employee.manager
-          ? {
+        ? {
             id: employee.manager.id,
             employee_no: employee.manager.employee_no,
             first_name: employee.manager.first_name,
@@ -1719,14 +1719,12 @@ export class EmployeesService {
             employee.gender,
           );
         employee.default_avatar_id = selectedAvatar.id;
-        employee.default_avatar = selectedAvatar as DefaultAvatar;
+        employee.default_avatar = selectedAvatar;
       }
     }
 
     if ('profile_photo_url' in dto && dto.profile_photo_url !== undefined) {
-      const requestedProfilePhotoUrl = (
-        dto as Record<string, unknown>
-      ).profile_photo_url;
+      const requestedProfilePhotoUrl: unknown = dto.profile_photo_url;
 
       if (this.isDataUrlProfilePhoto(requestedProfilePhotoUrl)) {
         const storedFile = await this.filesService.saveBase64File(
@@ -1747,7 +1745,10 @@ export class EmployeesService {
       }
     }
 
-    if ('profile_image_source' in dto && dto.profile_image_source !== undefined) {
+    if (
+      'profile_image_source' in dto &&
+      dto.profile_image_source !== undefined
+    ) {
       employee.profile_image_source = dto.profile_image_source;
     } else if (this.isDataUrlProfilePhoto(dto.profile_photo_url)) {
       employee.profile_image_source = ProfileImageSourceEnum.UPLOADED;
@@ -2869,18 +2870,14 @@ export class EmployeesService {
           await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
             companyId,
             {
-              id:
-                typeof row.id === 'string' ? Number(row.id) : (row.id as number),
+              id: typeof row.id === 'string' ? Number(row.id) : row.id,
               gender: row.gender ?? null,
               profile_photo_url: row.uploadedProfilePhotoUrl ?? null,
-              profile_image_source:
-                (row as Record<string, unknown>).storedProfileImageSource as
-                  | ProfileImageSourceEnum
-                  | null,
+              profile_image_source: row.storedProfileImageSource ?? null,
               default_avatar_id:
                 typeof row.defaultAvatarId === 'string'
                   ? Number(row.defaultAvatarId)
-                  : (row.defaultAvatarId as number | null | undefined) ?? null,
+                  : (row.defaultAvatarId ?? null),
             },
           );
 

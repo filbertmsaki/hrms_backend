@@ -28,9 +28,7 @@ import { DefaultAvatarsService } from './default-avatars.service';
 @Controller('default-avatars')
 @UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
 export class DefaultAvatarsController {
-  constructor(
-    private readonly defaultAvatarsService: DefaultAvatarsService,
-  ) {}
+  constructor(private readonly defaultAvatarsService: DefaultAvatarsService) {}
 
   @Get()
   @Permissions('default_avatars:read')

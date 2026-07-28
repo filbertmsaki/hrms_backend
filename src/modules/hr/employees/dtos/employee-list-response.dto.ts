@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { EmploymentStatusEnum } from '../enums/employment-status.enum';
 import { EmploymentTypeEnum } from '../enums/employment-type.enum';
+import { ProfileImageSourceEnum } from '../enums/profile-image-source.enum';
 
 export type EmployeeListRow = {
   id: number | string;
@@ -14,6 +15,7 @@ export type EmployeeListRow = {
   profilePhotoUrl?: string | null;
   uploadedProfilePhotoUrl?: string | null;
   profilePhotoSource?: string | null;
+  storedProfileImageSource?: ProfileImageSourceEnum | null;
   defaultAvatarId?: number | string | null;
   branchName: string | null;
   departmentName: string | null;
