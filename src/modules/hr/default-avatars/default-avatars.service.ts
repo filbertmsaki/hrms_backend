@@ -41,11 +41,17 @@ type ResolvedAvatarPayload = {
 };
 
 type ProfilePicturePayload = {
-  source: 'CUSTOM_UPLOAD' | 'DEFAULT_AVATAR' | 'AUTOMATIC_FALLBACK';
+  source:
+    | 'SELECTED_AVATAR'
+    | 'CUSTOM_UPLOAD'
+    | 'GENDER_DEFAULT'
+    | 'NEUTRAL_DEFAULT'
+    | 'SYSTEM_PLACEHOLDER';
   avatar_id: number | null;
   url: string | null;
-  is_custom: boolean;
-  is_fallback: boolean;
+  is_override: boolean;
+  has_custom_profile_picture: boolean;
+  is_automatic_fallback: boolean;
 };
 
 @Injectable()
@@ -326,6 +332,16 @@ export class DefaultAvatarsService {
       selectedAvatar.status === DefaultAvatarStatusEnum.ACTIVE &&
       (await this.pathExists(selectedAvatar.image_path));
 
+    if (selectedAvatarAvailable) {
+      return {
+        profile_photo_url: selectedAvatar.image_path,
+        uploaded_profile_photo_url: uploadedProfilePhotoUrl,
+        profile_photo_source: ProfileImageSourceEnum.DEFAULT_AVATAR,
+        default_avatar_id: selectedAvatar.id,
+        selected_default_avatar: this.mapAvatar(selectedAvatar),
+      };
+    }
+
     if (uploadAvailable) {
       return {
         profile_photo_url: uploadedProfilePhotoUrl,
@@ -335,16 +351,6 @@ export class DefaultAvatarsService {
         selected_default_avatar: selectedAvatar
           ? this.mapAvatar(selectedAvatar)
           : null,
-      };
-    }
-
-    if (selectedAvatarAvailable) {
-      return {
-        profile_photo_url: selectedAvatar.image_path,
-        uploaded_profile_photo_url: uploadedProfilePhotoUrl,
-        profile_photo_source: ProfileImageSourceEnum.DEFAULT_AVATAR,
-        default_avatar_id: selectedAvatar.id,
-        selected_default_avatar: this.mapAvatar(selectedAvatar),
       };
     }
 
@@ -402,24 +408,35 @@ export class DefaultAvatarsService {
   buildProfilePicturePayload(
     resolvedAvatar: ResolvedAvatarPayload,
   ): ProfilePicturePayload {
-    const isCustomUpload =
-      resolvedAvatar.profile_photo_source === ProfileImageSourceEnum.UPLOADED;
-    const isSelectedDefaultAvatar =
+    const hasCustomProfilePicture = Boolean(
+      resolvedAvatar.uploaded_profile_photo_url,
+    );
+    const isSelectedAvatar =
       resolvedAvatar.profile_photo_source ===
       ProfileImageSourceEnum.DEFAULT_AVATAR;
+    const isCustomUpload =
+      resolvedAvatar.profile_photo_source === ProfileImageSourceEnum.UPLOADED;
+    const isGenderDefault =
+      resolvedAvatar.profile_photo_source === 'gender_default';
+    const isNeutralDefault =
+      resolvedAvatar.profile_photo_source === 'neutral_default';
+    const isAutomaticFallback = isGenderDefault || isNeutralDefault;
 
     return {
-      source: isCustomUpload
-        ? 'CUSTOM_UPLOAD'
-        : isSelectedDefaultAvatar
-          ? 'DEFAULT_AVATAR'
-          : 'AUTOMATIC_FALLBACK',
-      avatar_id: isSelectedDefaultAvatar
-        ? resolvedAvatar.default_avatar_id
-        : null,
+      source: isSelectedAvatar
+        ? 'SELECTED_AVATAR'
+        : isCustomUpload
+          ? 'CUSTOM_UPLOAD'
+          : isGenderDefault
+            ? 'GENDER_DEFAULT'
+            : isNeutralDefault
+              ? 'NEUTRAL_DEFAULT'
+              : 'SYSTEM_PLACEHOLDER',
+      avatar_id: isSelectedAvatar ? resolvedAvatar.default_avatar_id : null,
       url: resolvedAvatar.profile_photo_url,
-      is_custom: isCustomUpload,
-      is_fallback: !isCustomUpload && !isSelectedDefaultAvatar,
+      is_override: isSelectedAvatar && hasCustomProfilePicture,
+      has_custom_profile_picture: hasCustomProfilePicture,
+      is_automatic_fallback: isAutomaticFallback,
     };
   }
 

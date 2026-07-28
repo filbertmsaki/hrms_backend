@@ -75,7 +75,7 @@ export class UsersController {
     );
   }
 
-  @Get('me/avatars')
+  @Get('me/available-avatars')
   @ApiOperationSummary(
     'List my available avatars',
     'Returns active default avatars available to the current user based on company and employee gender rules.',
@@ -84,6 +84,23 @@ export class UsersController {
   @ApiAuthRequired()
   @ApiSuccessResponse(200, 'Available avatars retrieved successfully')
   async listMyAvailableAvatars(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  ) {
+    return this.usersService.listMyAvailableAvatars(
+      req.user.companyId!,
+      req.user.id,
+    );
+  }
+
+  @Get('me/avatars')
+  @ApiOperationSummary(
+    'List my available avatars (legacy path)',
+    'Backward-compatible alias for listing active default avatars available to the current user.',
+    'Users_listMyAvailableAvatarsLegacy',
+  )
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'Available avatars retrieved successfully')
+  async listMyAvailableAvatarsLegacy(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
   ) {
     return this.usersService.listMyAvailableAvatars(
@@ -269,6 +286,24 @@ export class UsersController {
       id,
       dto.avatar_id,
     );
+  }
+
+  @Delete(':id/avatar')
+  @UseGuards(PermissionsGuard)
+  @Permissions('users:update')
+  @ApiOperationSummary(
+    'Clear a user avatar',
+    'Removes the selected default avatar from a specific user profile within the active company.',
+    'Users_clearAvatar',
+  )
+  @ApiAuthRequired()
+  @ApiNotFoundResponse('User or employee')
+  @ApiSuccessResponse(200, 'Avatar cleared successfully')
+  clearAvatar(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.usersService.clearUserSelectedAvatar(req.user.companyId!, id);
   }
 
   @Delete(':id')

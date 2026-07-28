@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { HrNotificationListener } from './hr-notification.listener';
 import { MailService } from '../../mail/mail.service';
 import {
@@ -9,6 +10,7 @@ import {
 describe('HrNotificationListener', () => {
   let listener: HrNotificationListener;
   let mailService: jest.Mocked<Partial<MailService>>;
+  let loggerErrorSpy: jest.SpyInstance;
 
   beforeEach(() => {
     mailService = {
@@ -20,8 +22,13 @@ describe('HrNotificationListener', () => {
         .fn()
         .mockResolvedValue(undefined),
     };
+    loggerErrorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
 
     listener = new HrNotificationListener(mailService as MailService);
+  });
+
+  afterEach(() => {
+    loggerErrorSpy.mockRestore();
   });
 
   it('fans out offboarding-approved emails to the employee and HR recipients', async () => {
@@ -100,5 +107,9 @@ describe('HrNotificationListener', () => {
     );
 
     await expect(listener.onLeaveApproved(event)).resolves.toBeUndefined();
+    expect(loggerErrorSpy).toHaveBeenCalledWith(
+      'HR notification email failed',
+      expect.stringContaining('Error: mail failed'),
+    );
   });
 });

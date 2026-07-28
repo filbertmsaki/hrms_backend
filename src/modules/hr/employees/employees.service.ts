@@ -1747,10 +1747,10 @@ export class EmployeesService {
       }
     }
 
-    if (this.isDataUrlProfilePhoto(dto.profile_photo_url)) {
-      employee.profile_image_source = ProfileImageSourceEnum.UPLOADED;
-    } else if (!employee.profile_photo_url && employee.default_avatar_id) {
+    if (employee.default_avatar_id) {
       employee.profile_image_source = ProfileImageSourceEnum.DEFAULT_AVATAR;
+    } else if (this.isDataUrlProfilePhoto(dto.profile_photo_url)) {
+      employee.profile_image_source = ProfileImageSourceEnum.UPLOADED;
     } else if (!employee.profile_photo_url) {
       employee.profile_image_source = null;
     } else {
@@ -2607,9 +2607,11 @@ export class EmployeesService {
     }
 
     employee.profile_photo_url = profilePhotoUrl;
-    employee.profile_image_source = profilePhotoUrl
-      ? ProfileImageSourceEnum.UPLOADED
-      : null;
+    employee.profile_image_source = employee.default_avatar_id
+      ? ProfileImageSourceEnum.DEFAULT_AVATAR
+      : profilePhotoUrl
+        ? ProfileImageSourceEnum.UPLOADED
+        : null;
     await this.employeeRepository.save(employee);
 
     return this.findMyProfile(companyId, userId);
@@ -2665,9 +2667,7 @@ export class EmployeesService {
         );
       employee.default_avatar_id = selectedAvatar.id;
       employee.default_avatar = selectedAvatar;
-      employee.profile_image_source = employee.profile_photo_url
-        ? ProfileImageSourceEnum.UPLOADED
-        : ProfileImageSourceEnum.DEFAULT_AVATAR;
+      employee.profile_image_source = ProfileImageSourceEnum.DEFAULT_AVATAR;
     }
 
     await this.employeeRepository.save(employee);

@@ -619,9 +619,7 @@ export class UsersService {
 
     employee.default_avatar_id = selectedAvatar.id;
     employee.default_avatar = selectedAvatar;
-    employee.profile_image_source = employee.profile_photo_url
-      ? ProfileImageSourceEnum.UPLOADED
-      : ProfileImageSourceEnum.DEFAULT_AVATAR;
+    employee.profile_image_source = ProfileImageSourceEnum.DEFAULT_AVATAR;
 
     await this.employeeRepository.save(employee);
 
@@ -646,9 +644,7 @@ export class UsersService {
 
     employee.default_avatar_id = selectedAvatar.id;
     employee.default_avatar = selectedAvatar;
-    employee.profile_image_source = employee.profile_photo_url
-      ? ProfileImageSourceEnum.UPLOADED
-      : ProfileImageSourceEnum.DEFAULT_AVATAR;
+    employee.profile_image_source = ProfileImageSourceEnum.DEFAULT_AVATAR;
 
     await this.employeeRepository.save(employee);
 
@@ -673,6 +669,26 @@ export class UsersService {
     await this.employeeRepository.save(employee);
 
     return this.findMyProfileById(userId, companyId);
+  }
+
+  async clearUserSelectedAvatar(
+    companyId: number,
+    userId: number,
+  ): Promise<UserProfileDto> {
+    const { employee } = await this.findCompanyEmployeeOrFail(
+      userId,
+      companyId,
+    );
+
+    employee.default_avatar_id = null;
+    employee.default_avatar = null;
+    employee.profile_image_source = employee.profile_photo_url
+      ? ProfileImageSourceEnum.UPLOADED
+      : null;
+
+    await this.employeeRepository.save(employee);
+
+    return this.findProfileInCompany(userId, companyId);
   }
 
   async findByPhone(phone: string): Promise<User | null> {
