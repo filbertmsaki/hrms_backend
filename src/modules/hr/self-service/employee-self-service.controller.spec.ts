@@ -60,7 +60,7 @@ describe('EmployeeSelfServiceController', () => {
       employee_id: 15,
       has_profile_photo: true,
       profile_photo_path:
-        '/uploads/profile-photos/company-7/employee-15-avatar.png',
+        'http://localhost:3000/uploads/profile-photos/company-7/employee-15-avatar.png',
       profile_photo_url:
         'http://localhost:3000/uploads/profile-photos/company-7/employee-15-avatar.png',
     });
@@ -98,6 +98,8 @@ describe('EmployeeSelfServiceController', () => {
       employee: {
         id: 15,
         employee_no: 'EMP-0015',
+        uploaded_profile_photo_url:
+          '/uploads/profile-photos/company-7/employee-15-avatar.png',
         profile_photo_url:
           '/uploads/profile-photos/company-7/employee-15-avatar.png',
         manager: {
@@ -124,7 +126,7 @@ describe('EmployeeSelfServiceController', () => {
       };
       employee: {
         id: number;
-        profile_photo_path: string;
+        profile_photo_path: string | null;
         has_profile_photo: boolean;
         profile_photo_url: string;
         manager: {
@@ -138,7 +140,7 @@ describe('EmployeeSelfServiceController', () => {
       expect.objectContaining({
         id: 15,
         profile_photo_path:
-          '/uploads/profile-photos/company-7/employee-15-avatar.png',
+          'http://localhost:3000/uploads/profile-photos/company-7/employee-15-avatar.png',
         has_profile_photo: true,
         profile_photo_url:
           'http://localhost:3000/uploads/profile-photos/company-7/employee-15-avatar.png',
