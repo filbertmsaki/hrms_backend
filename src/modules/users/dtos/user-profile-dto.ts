@@ -27,6 +27,23 @@ export class UserProfileDto {
   profile_photo_source?: string | null;
   @ApiPropertyOptional({ example: 3, nullable: true })
   default_avatar_id?: number | null;
+  @ApiPropertyOptional({
+    example: {
+      source: 'DEFAULT_AVATAR',
+      avatar_id: 3,
+      url: '/uploads/default-avatars/company-7/avatar-01.webp',
+      is_custom: false,
+      is_fallback: false,
+    },
+    nullable: true,
+  })
+  profile_picture?: {
+    source: 'CUSTOM_UPLOAD' | 'DEFAULT_AVATAR' | 'AUTOMATIC_FALLBACK';
+    avatar_id: number | null;
+    url: string | null;
+    is_custom: boolean;
+    is_fallback: boolean;
+  } | null;
   @ApiProperty({ example: 'active' })
   status: string;
   @ApiProperty({ example: 'employee' })

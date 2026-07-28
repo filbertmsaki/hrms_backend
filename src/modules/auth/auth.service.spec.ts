@@ -166,6 +166,15 @@ describe('AuthService', () => {
     expect(result.refresh_token).toBe('refresh-token');
     expect(result.user).toEqual({
       id: 9,
+      email: 'staff@example.com',
+      first_name: 'Amina',
+      last_name: 'Moshi',
+      user_type: 'COMPANY_USER',
+      employee_id: 81,
+      employee_no: 'EMP-0081',
+      my_employee_url: '/employees/me',
+      roles: ['COMPANY_ADMIN'],
+      permissions: ['users:manage-2fa'],
       isTwoFactorEnabled: true,
       twoFactorSetupRequired: true,
     });

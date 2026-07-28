@@ -9,11 +9,12 @@ import { TenantGuard } from '../../common/guards/tenant.guard';
 import { DefaultAvatarsModule } from '../hr/default-avatars/default-avatars.module';
 import { UserTwoFactorAuditLog } from './entities/user-two-factor-audit-log.entity';
 import { UserTwoFactorAuditService } from './services/user-two-factor-audit.service';
+import { Employee } from '../hr/employees/entities/employee.entity';
 
 @Module({
   imports: [
     forwardRef(() => TwoFaModule),
-    TypeOrmModule.forFeature([User, UserTwoFactorAuditLog]),
+    TypeOrmModule.forFeature([User, UserTwoFactorAuditLog, Employee]),
     CompaniesModule,
     DefaultAvatarsModule,
   ],

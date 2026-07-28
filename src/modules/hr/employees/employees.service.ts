@@ -657,6 +657,8 @@ export class EmployeesService {
       profile_photo_url: resolvedAvatar.profile_photo_url,
       uploaded_profile_photo_url: resolvedAvatar.uploaded_profile_photo_url,
       profile_photo_source: resolvedAvatar.profile_photo_source,
+      profile_picture:
+        this.defaultAvatarsService.buildProfilePicturePayload(resolvedAvatar),
       profile_image_source:
         employee.profile_image_source ?? ProfileImageSourceEnum.UPLOADED,
       default_avatar_id: employee.default_avatar_id,
@@ -1745,19 +1747,14 @@ export class EmployeesService {
       }
     }
 
-    if (
-      'profile_image_source' in dto &&
-      dto.profile_image_source !== undefined
-    ) {
-      employee.profile_image_source = dto.profile_image_source;
-    } else if (this.isDataUrlProfilePhoto(dto.profile_photo_url)) {
+    if (this.isDataUrlProfilePhoto(dto.profile_photo_url)) {
       employee.profile_image_source = ProfileImageSourceEnum.UPLOADED;
-    } else if (
-      'default_avatar_id' in dto &&
-      employee.default_avatar_id &&
-      !('profile_photo_url' in dto)
-    ) {
+    } else if (!employee.profile_photo_url && employee.default_avatar_id) {
       employee.profile_image_source = ProfileImageSourceEnum.DEFAULT_AVATAR;
+    } else if (!employee.profile_photo_url) {
+      employee.profile_image_source = null;
+    } else {
+      employee.profile_image_source = ProfileImageSourceEnum.UPLOADED;
     }
 
     if (
@@ -1767,13 +1764,6 @@ export class EmployeesService {
       throw new BadRequestException(
         'A default avatar must be selected before using it as the profile image.',
       );
-    }
-
-    if (
-      employee.profile_image_source === ProfileImageSourceEnum.UPLOADED &&
-      !employee.profile_photo_url
-    ) {
-      employee.profile_image_source = null;
     }
 
     if (
@@ -2663,13 +2653,9 @@ export class EmployeesService {
     if (defaultAvatarId === null) {
       employee.default_avatar_id = null;
       employee.default_avatar = null;
-      if (
-        employee.profile_image_source === ProfileImageSourceEnum.DEFAULT_AVATAR
-      ) {
-        employee.profile_image_source = employee.profile_photo_url
-          ? ProfileImageSourceEnum.UPLOADED
-          : null;
-      }
+      employee.profile_image_source = employee.profile_photo_url
+        ? ProfileImageSourceEnum.UPLOADED
+        : null;
     } else {
       const selectedAvatar =
         await this.defaultAvatarsService.assertAvatarAvailableForEmployee(
@@ -2679,7 +2665,9 @@ export class EmployeesService {
         );
       employee.default_avatar_id = selectedAvatar.id;
       employee.default_avatar = selectedAvatar;
-      employee.profile_image_source = ProfileImageSourceEnum.DEFAULT_AVATAR;
+      employee.profile_image_source = employee.profile_photo_url
+        ? ProfileImageSourceEnum.UPLOADED
+        : ProfileImageSourceEnum.DEFAULT_AVATAR;
     }
 
     await this.employeeRepository.save(employee);

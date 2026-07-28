@@ -37,6 +37,7 @@ import { CreateUserDto } from './dtos/create-user.dto';
 import { UpdateUserDto } from './dtos/update-user.dto';
 import { UsersService } from './users.service';
 import { AdminDisableUser2FADto } from './dtos/admin-disable-user-2fa.dto';
+import { SelectUserAvatarDto } from './dtos/select-user-avatar.dto';
 
 @ApiTags('Users')
 @ApiBearerAuth('access-token')
@@ -71,6 +72,58 @@ export class UsersController {
     return this.usersService.findMyProfileById(
       req.user.id,
       req.user.companyId!,
+    );
+  }
+
+  @Get('me/avatars')
+  @ApiOperationSummary(
+    'List my available avatars',
+    'Returns active default avatars available to the current user based on company and employee gender rules.',
+    'Users_listMyAvailableAvatars',
+  )
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'Available avatars retrieved successfully')
+  async listMyAvailableAvatars(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  ) {
+    return this.usersService.listMyAvailableAvatars(
+      req.user.companyId!,
+      req.user.id,
+    );
+  }
+
+  @Patch('me/avatar')
+  @ApiOperationSummary(
+    'Select my avatar',
+    'Assigns an existing active default avatar to the current user profile without re-uploading the image.',
+    'Users_selectMyAvatar',
+  )
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(200, 'Avatar selected successfully')
+  updateMyAvatar(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: SelectUserAvatarDto,
+  ) {
+    return this.usersService.updateMySelectedAvatar(
+      req.user.companyId!,
+      req.user.id,
+      dto.avatar_id,
+    );
+  }
+
+  @Delete('me/avatar')
+  @ApiOperationSummary(
+    'Clear my selected avatar',
+    'Removes the selected default avatar and returns the profile picture to automatic fallback resolution.',
+    'Users_clearMyAvatar',
+  )
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'Avatar selection cleared successfully')
+  clearMyAvatar(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.usersService.clearMySelectedAvatar(
+      req.user.companyId!,
+      req.user.id,
     );
   }
 
@@ -191,6 +244,30 @@ export class UsersController {
       req.user.companyId!,
       id,
       updateUserDto,
+    );
+  }
+
+  @Patch(':id/avatar')
+  @UseGuards(PermissionsGuard)
+  @Permissions('users:update')
+  @ApiOperationSummary(
+    'Assign avatar to a user',
+    'Assigns an existing active default avatar to a specific user profile within the active company.',
+    'Users_assignAvatar',
+  )
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiNotFoundResponse('User or employee')
+  @ApiSuccessResponse(200, 'Avatar assigned successfully')
+  updateAvatar(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SelectUserAvatarDto,
+  ) {
+    return this.usersService.updateUserSelectedAvatar(
+      req.user.companyId!,
+      id,
+      dto.avatar_id,
     );
   }
 

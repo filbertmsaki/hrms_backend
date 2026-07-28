@@ -20,12 +20,16 @@ import { UpdateUserDto } from './dtos/update-user.dto';
 import { UserProfileDto } from './dtos/user-profile-dto';
 import { User } from './entities/user.entity';
 import { DefaultAvatarsService } from '../hr/default-avatars/default-avatars.service';
+import { Employee } from '../hr/employees/entities/employee.entity';
+import { ProfileImageSourceEnum } from '../hr/employees/enums/profile-image-source.enum';
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(Employee)
+    private readonly employeeRepository: Repository<Employee>,
     @InjectRepository(Role)
     private readonly roleRepository: Repository<Role>,
     @InjectRepository(Permission)
@@ -219,6 +223,33 @@ export class UsersService {
       .andWhere('membership.status = :activeStatus', { activeStatus: 'active' })
       .andWhere('company.status = :companyStatus', { companyStatus: 'active' })
       .getOne();
+  }
+
+  private async findCompanyEmployeeOrFail(userId: number, companyId: number) {
+    const membership = await this.findActiveMembershipWithDetails(
+      userId,
+      companyId,
+    );
+
+    if (!membership) {
+      throw new NotFoundException('Active company membership not found');
+    }
+
+    const employee = await this.employeeRepository.findOne({
+      where: { company_user_id: membership.id },
+      relations: {
+        default_avatar: true,
+      },
+    });
+
+    if (!employee) {
+      throw new NotFoundException('Employee not found');
+    }
+
+    return {
+      membership,
+      employee,
+    };
   }
 
   async generateUserNo(manager?: EntityManager): Promise<string> {
@@ -434,6 +465,8 @@ export class UsersService {
       uploaded_profile_photo_url: resolvedAvatar.uploaded_profile_photo_url,
       profile_photo_source: resolvedAvatar.profile_photo_source,
       default_avatar_id: resolvedAvatar.default_avatar_id,
+      profile_picture:
+        this.defaultAvatarsService.buildProfilePicturePayload(resolvedAvatar),
       status: user.status,
       user_type: user.user_type,
       is_email_verified: user.is_email_verified,
@@ -509,6 +542,8 @@ export class UsersService {
       uploaded_profile_photo_url: resolvedAvatar.uploaded_profile_photo_url,
       profile_photo_source: resolvedAvatar.profile_photo_source,
       default_avatar_id: resolvedAvatar.default_avatar_id,
+      profile_picture:
+        this.defaultAvatarsService.buildProfilePicturePayload(resolvedAvatar),
       status: user.status,
       user_type: user.user_type,
       is_email_verified: user.is_email_verified,
@@ -552,6 +587,92 @@ export class UsersService {
       where: { email },
       relations: ['roles', 'roles.permissions', 'permissions'],
     });
+  }
+
+  async listMyAvailableAvatars(companyId: number, userId: number) {
+    const { employee } = await this.findCompanyEmployeeOrFail(
+      userId,
+      companyId,
+    );
+
+    return this.defaultAvatarsService.listAvailableForGender(
+      companyId,
+      employee.gender,
+    );
+  }
+
+  async updateMySelectedAvatar(
+    companyId: number,
+    userId: number,
+    avatarId: number,
+  ): Promise<UserProfileDto> {
+    const { employee } = await this.findCompanyEmployeeOrFail(
+      userId,
+      companyId,
+    );
+    const selectedAvatar =
+      await this.defaultAvatarsService.assertAvatarAvailableForEmployee(
+        companyId,
+        avatarId,
+        employee.gender,
+      );
+
+    employee.default_avatar_id = selectedAvatar.id;
+    employee.default_avatar = selectedAvatar;
+    employee.profile_image_source = employee.profile_photo_url
+      ? ProfileImageSourceEnum.UPLOADED
+      : ProfileImageSourceEnum.DEFAULT_AVATAR;
+
+    await this.employeeRepository.save(employee);
+
+    return this.findMyProfileById(userId, companyId);
+  }
+
+  async updateUserSelectedAvatar(
+    companyId: number,
+    userId: number,
+    avatarId: number,
+  ): Promise<UserProfileDto> {
+    const { employee } = await this.findCompanyEmployeeOrFail(
+      userId,
+      companyId,
+    );
+    const selectedAvatar =
+      await this.defaultAvatarsService.assertAvatarAvailableForEmployee(
+        companyId,
+        avatarId,
+        employee.gender,
+      );
+
+    employee.default_avatar_id = selectedAvatar.id;
+    employee.default_avatar = selectedAvatar;
+    employee.profile_image_source = employee.profile_photo_url
+      ? ProfileImageSourceEnum.UPLOADED
+      : ProfileImageSourceEnum.DEFAULT_AVATAR;
+
+    await this.employeeRepository.save(employee);
+
+    return this.findProfileInCompany(userId, companyId);
+  }
+
+  async clearMySelectedAvatar(
+    companyId: number,
+    userId: number,
+  ): Promise<UserProfileDto> {
+    const { employee } = await this.findCompanyEmployeeOrFail(
+      userId,
+      companyId,
+    );
+
+    employee.default_avatar_id = null;
+    employee.default_avatar = null;
+    employee.profile_image_source = employee.profile_photo_url
+      ? ProfileImageSourceEnum.UPLOADED
+      : null;
+
+    await this.employeeRepository.save(employee);
+
+    return this.findMyProfileById(userId, companyId);
   }
 
   async findByPhone(phone: string): Promise<User | null> {

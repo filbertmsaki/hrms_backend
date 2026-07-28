@@ -40,6 +40,14 @@ type ResolvedAvatarPayload = {
   > | null;
 };
 
+type ProfilePicturePayload = {
+  source: 'CUSTOM_UPLOAD' | 'DEFAULT_AVATAR' | 'AUTOMATIC_FALLBACK';
+  avatar_id: number | null;
+  url: string | null;
+  is_custom: boolean;
+  is_fallback: boolean;
+};
+
 @Injectable()
 export class DefaultAvatarsService {
   private readonly uploadsRoot = resolve(process.cwd(), 'uploads');
@@ -318,34 +326,6 @@ export class DefaultAvatarsService {
       selectedAvatar.status === DefaultAvatarStatusEnum.ACTIVE &&
       (await this.pathExists(selectedAvatar.image_path));
 
-    if (
-      employee.profile_image_source === ProfileImageSourceEnum.UPLOADED &&
-      uploadAvailable
-    ) {
-      return {
-        profile_photo_url: uploadedProfilePhotoUrl,
-        uploaded_profile_photo_url: uploadedProfilePhotoUrl,
-        profile_photo_source: ProfileImageSourceEnum.UPLOADED,
-        default_avatar_id: selectedAvatar?.id ?? null,
-        selected_default_avatar: selectedAvatar
-          ? this.mapAvatar(selectedAvatar)
-          : null,
-      };
-    }
-
-    if (
-      employee.profile_image_source === ProfileImageSourceEnum.DEFAULT_AVATAR &&
-      selectedAvatarAvailable
-    ) {
-      return {
-        profile_photo_url: selectedAvatar.image_path,
-        uploaded_profile_photo_url: uploadedProfilePhotoUrl,
-        profile_photo_source: ProfileImageSourceEnum.DEFAULT_AVATAR,
-        default_avatar_id: selectedAvatar.id,
-        selected_default_avatar: this.mapAvatar(selectedAvatar),
-      };
-    }
-
     if (uploadAvailable) {
       return {
         profile_photo_url: uploadedProfilePhotoUrl,
@@ -416,6 +396,30 @@ export class DefaultAvatarsService {
       is_default: avatar.is_default,
       created_at: avatar.created_at,
       updated_at: avatar.updated_at,
+    };
+  }
+
+  buildProfilePicturePayload(
+    resolvedAvatar: ResolvedAvatarPayload,
+  ): ProfilePicturePayload {
+    const isCustomUpload =
+      resolvedAvatar.profile_photo_source === ProfileImageSourceEnum.UPLOADED;
+    const isSelectedDefaultAvatar =
+      resolvedAvatar.profile_photo_source ===
+      ProfileImageSourceEnum.DEFAULT_AVATAR;
+
+    return {
+      source: isCustomUpload
+        ? 'CUSTOM_UPLOAD'
+        : isSelectedDefaultAvatar
+          ? 'DEFAULT_AVATAR'
+          : 'AUTOMATIC_FALLBACK',
+      avatar_id: isSelectedDefaultAvatar
+        ? resolvedAvatar.default_avatar_id
+        : null,
+      url: resolvedAvatar.profile_photo_url,
+      is_custom: isCustomUpload,
+      is_fallback: !isCustomUpload && !isSelectedDefaultAvatar,
     };
   }
 
