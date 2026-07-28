@@ -29,7 +29,11 @@ jest.mock('fs/promises', () => ({
 }));
 
 import 'reflect-metadata';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import {
+  BadRequestException,
+  INestApplication,
+  ValidationPipe,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -250,7 +254,7 @@ describe('Default Avatar Upload (e2e)', () => {
   it('returns the original upload error when cleanup also fails', async () => {
     const jpgBase64 = buildMinimalJpegBase64();
 
-    saveError = new Error('Avatar metadata is invalid.');
+    saveError = new BadRequestException('Avatar metadata is invalid.');
     jest.mocked(fs.rm).mockRejectedValueOnce(new Error('cleanup failed'));
 
     const response = await request(app.getHttpServer() as App)
@@ -265,12 +269,12 @@ describe('Default Avatar Upload (e2e)', () => {
           fileString: jpgBase64,
         },
       })
-      .expect(500);
+      .expect(400);
 
     expect(response.body).toEqual(
       expect.objectContaining({
         message: 'Avatar metadata is invalid.',
-        statusCode: 500,
+        statusCode: 400,
       }),
     );
   });
