@@ -18,20 +18,13 @@ describe('UsersService avatar management', () => {
     assertAvatarAvailableForEmployee: jest.Mock;
   };
 
-  const selectedAvatar = {
-    id: 22,
-    image_path: '/uploads/default-avatars/company-7/avatar-22.webp',
-  };
-
   beforeEach(() => {
     employeeRepository = {
       findOne: jest.fn(),
       save: jest.fn().mockResolvedValue(undefined),
     };
     defaultAvatarsService = {
-      assertAvatarAvailableForEmployee: jest
-        .fn()
-        .mockResolvedValue(selectedAvatar),
+      assertAvatarAvailableForEmployee: jest.fn(),
     };
 
     service = new UsersService(
@@ -49,6 +42,15 @@ describe('UsersService avatar management', () => {
   });
 
   it('lets a user select an avatar for themselves without changing the uploaded profile picture', async () => {
+    const selectedAvatar = {
+      id: 22,
+      image_path: '/uploads/default-avatars/company-7/avatar-22.png',
+      file_extension: 'png',
+      mime_type: 'image/png',
+    };
+    defaultAvatarsService.assertAvatarAvailableForEmployee.mockResolvedValue(
+      selectedAvatar,
+    );
     const employee = {
       id: 15,
       gender: 'female',
@@ -80,6 +82,15 @@ describe('UsersService avatar management', () => {
   });
 
   it('replaces the selected avatar id when a user changes avatars', async () => {
+    const selectedAvatar = {
+      id: 22,
+      image_path: '/uploads/default-avatars/company-7/avatar-22.jpg',
+      file_extension: 'jpg',
+      mime_type: 'image/jpeg',
+    };
+    defaultAvatarsService.assertAvatarAvailableForEmployee.mockResolvedValue(
+      selectedAvatar,
+    );
     const employee = {
       id: 15,
       gender: 'male',
@@ -106,6 +117,12 @@ describe('UsersService avatar management', () => {
   });
 
   it('removes the selected avatar and restores the uploaded profile picture as the displayed source', async () => {
+    const selectedAvatar = {
+      id: 22,
+      image_path: '/uploads/default-avatars/company-7/avatar-22.svg',
+      file_extension: 'svg',
+      mime_type: 'image/svg+xml',
+    };
     const employee = {
       id: 15,
       gender: 'male',
@@ -135,6 +152,15 @@ describe('UsersService avatar management', () => {
   });
 
   it('allows multiple users to reference the same avatar record', async () => {
+    const selectedAvatar = {
+      id: 22,
+      image_path: '/uploads/default-avatars/company-7/avatar-22.svg',
+      file_extension: 'svg',
+      mime_type: 'image/svg+xml',
+    };
+    defaultAvatarsService.assertAvatarAvailableForEmployee.mockResolvedValue(
+      selectedAvatar,
+    );
     const firstEmployee = {
       id: 15,
       gender: 'male',
@@ -184,4 +210,49 @@ describe('UsersService avatar management', () => {
       }),
     );
   });
+
+  it.each([
+    ['image/png', 'png'],
+    ['image/jpeg', 'jpg'],
+    ['image/svg+xml', 'svg'],
+  ])(
+    'selects an existing %s avatar by id without any re-upload flow',
+    async (mimeType, fileExtension) => {
+      const selectedAvatar = {
+        id: 44,
+        image_path: `/uploads/default-avatars/company-7/avatar-44.${fileExtension}`,
+        file_extension: fileExtension,
+        mime_type: mimeType,
+      };
+      defaultAvatarsService.assertAvatarAvailableForEmployee.mockResolvedValue(
+        selectedAvatar,
+      );
+      const employee = {
+        id: 15,
+        gender: 'neutral',
+        profile_photo_url: null,
+        default_avatar_id: null,
+        default_avatar: null,
+        profile_image_source: null,
+      } as Employee & { gender: string };
+
+      jest
+        .spyOn(service as never, 'findCompanyEmployeeOrFail')
+        .mockResolvedValue({ membership: { id: 11 }, employee });
+      jest
+        .spyOn(service, 'findMyProfileById')
+        .mockResolvedValue({ id: 9 } as never);
+
+      await service.updateMySelectedAvatar(7, 9, selectedAvatar.id);
+
+      expect(
+        defaultAvatarsService.assertAvatarAvailableForEmployee,
+      ).toHaveBeenCalledWith(7, selectedAvatar.id, 'neutral');
+      expect(employeeRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          default_avatar_id: selectedAvatar.id,
+        }),
+      );
+    },
+  );
 });

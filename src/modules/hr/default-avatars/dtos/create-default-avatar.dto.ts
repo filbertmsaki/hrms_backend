@@ -49,7 +49,11 @@ export class CreateDefaultAvatarDto {
   @IsOptional()
   is_default?: boolean;
 
-  @ApiProperty({ type: Base64FileDto })
+  @ApiProperty({
+    type: Base64FileDto,
+    description:
+      'Avatar image payload. Supported formats: SVG, JPG, JPEG, and PNG.',
+  })
   @IsObject()
   @ValidateNested()
   @Type(() => Base64FileDto)

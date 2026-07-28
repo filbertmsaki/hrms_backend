@@ -38,6 +38,33 @@ export class DefaultAvatar {
   @Column({ type: 'text' })
   image_path: string;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  original_file_name: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  stored_file_name: string | null;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  file_extension: string | null;
+
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  mime_type: string | null;
+
+  @Column({ type: 'bigint', nullable: true })
+  file_size: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  file_path: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  file_url: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  width: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  height: number | null;
+
   @Column({
     type: 'enum',
     enum: DefaultAvatarGenderEnum,

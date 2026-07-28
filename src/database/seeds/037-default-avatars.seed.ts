@@ -136,6 +136,15 @@ export default class DefaultAvatarsSeeder implements Seeder {
               company_id: company.id,
               avatar_name: avatarSeed.avatarName,
               image_path: publicPath,
+              original_file_name: fileName,
+              stored_file_name: fileName,
+              file_extension: 'svg',
+              mime_type: 'image/svg+xml',
+              file_size: String(Buffer.byteLength(buildAvatarSvg(avatarSeed))),
+              file_path: publicPath,
+              file_url: publicPath,
+              width: 256,
+              height: 256,
               gender_category: avatarSeed.genderCategory,
               status: DefaultAvatarStatusEnum.ACTIVE,
               display_order: avatarSeed.displayOrder,
@@ -143,6 +152,17 @@ export default class DefaultAvatarsSeeder implements Seeder {
             });
           } else {
             avatar.image_path = publicPath;
+            avatar.original_file_name = fileName;
+            avatar.stored_file_name = fileName;
+            avatar.file_extension = 'svg';
+            avatar.mime_type = 'image/svg+xml';
+            avatar.file_size = String(
+              Buffer.byteLength(buildAvatarSvg(avatarSeed)),
+            );
+            avatar.file_path = publicPath;
+            avatar.file_url = publicPath;
+            avatar.width = 256;
+            avatar.height = 256;
             avatar.gender_category = avatarSeed.genderCategory;
             avatar.status = DefaultAvatarStatusEnum.ACTIVE;
             avatar.display_order = avatarSeed.displayOrder;

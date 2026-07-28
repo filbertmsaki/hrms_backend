@@ -3,6 +3,7 @@ import { Repository } from 'typeorm';
 import { Employee } from '../employees/entities/employee.entity';
 import { ProfileImageSourceEnum } from '../employees/enums/profile-image-source.enum';
 import { FilesService } from '../../files/files.service';
+import { ImageProcessingService } from '../../files/image-processing.service';
 import { DefaultAvatarsService } from './default-avatars.service';
 import { DefaultAvatar } from './entities/default-avatar.entity';
 import { DefaultAvatarGenderEnum } from './enums/default-avatar-gender.enum';
@@ -13,9 +14,18 @@ describe('DefaultAvatarsService', () => {
   let defaultAvatarRepository: {
     find: jest.Mock;
     findOne: jest.Mock;
+    create: jest.Mock;
+    save: jest.Mock;
   };
   let employeeRepository: {
     count: jest.Mock;
+  };
+  let filesService: {
+    saveBufferFile: jest.Mock;
+    removeManagedFile: jest.Mock;
+  };
+  let imageProcessingService: {
+    processDefaultAvatarBase64File: jest.Mock;
   };
 
   const maleAvatar: DefaultAvatar = {
@@ -23,6 +33,15 @@ describe('DefaultAvatarsService', () => {
     company_id: 7,
     avatar_name: 'Male Avatar',
     image_path: '/uploads/default-avatars/company-7/male.webp',
+    original_file_name: 'male.webp',
+    stored_file_name: 'male.webp',
+    file_extension: 'webp',
+    mime_type: 'image/webp',
+    file_size: '1024',
+    file_path: '/uploads/default-avatars/company-7/male.webp',
+    file_url: '/uploads/default-avatars/company-7/male.webp',
+    width: 256,
+    height: 256,
     gender_category: DefaultAvatarGenderEnum.MALE,
     status: DefaultAvatarStatusEnum.ACTIVE,
     display_order: 1,
@@ -53,15 +72,29 @@ describe('DefaultAvatarsService', () => {
     defaultAvatarRepository = {
       find: jest.fn(),
       findOne: jest.fn(),
+      create: jest
+        .fn()
+        .mockImplementation((value: Partial<DefaultAvatar>) => value),
+      save: jest
+        .fn()
+        .mockImplementation((value: DefaultAvatar) => Promise.resolve(value)),
     };
     employeeRepository = {
       count: jest.fn(),
+    };
+    filesService = {
+      saveBufferFile: jest.fn(),
+      removeManagedFile: jest.fn(),
+    };
+    imageProcessingService = {
+      processDefaultAvatarBase64File: jest.fn(),
     };
 
     service = new DefaultAvatarsService(
       defaultAvatarRepository as unknown as Repository<DefaultAvatar>,
       employeeRepository as unknown as Repository<Employee>,
-      {} as FilesService,
+      filesService as unknown as FilesService,
+      imageProcessingService as unknown as ImageProcessingService,
     );
 
     jest
@@ -244,5 +277,102 @@ describe('DefaultAvatarsService', () => {
       has_custom_profile_picture: false,
       is_automatic_fallback: false,
     });
+  });
+
+  it('maps avatar file metadata for API responses', () => {
+    expect(service.mapAvatar(maleAvatar)).toEqual(
+      expect.objectContaining({
+        id: 8,
+        name: 'Male Avatar',
+        mime_type: 'image/webp',
+        file_extension: 'webp',
+        url: '/uploads/default-avatars/company-7/male.webp',
+        is_active: true,
+      }),
+    );
+  });
+
+  it('stores processed upload metadata when creating an avatar', async () => {
+    imageProcessingService.processDefaultAvatarBase64File.mockReturnValue({
+      buffer: Buffer.from('png-data'),
+      originalFileName: 'avatar.png',
+      mimeType: 'image/png',
+      fileExtension: '.png',
+      fileSize: 8,
+      width: 128,
+      height: 128,
+    });
+    filesService.saveBufferFile.mockResolvedValue({
+      originalFileName: 'avatar.png',
+      storedFileName: 'default-avatar-uuid.png',
+      mimeType: 'image/png',
+      fileExtension: '.png',
+      fileSize: 8,
+      absolutePath:
+        'D:/Projects/Office/HRMS/backend/uploads/default-avatars/company-7/default-avatar-uuid.png',
+      publicPath: '/uploads/default-avatars/company-7/default-avatar-uuid.png',
+    });
+    defaultAvatarRepository.save.mockResolvedValue({
+      ...maleAvatar,
+      id: 81,
+      avatar_name: 'PNG Avatar',
+      image_path: '/uploads/default-avatars/company-7/default-avatar-uuid.png',
+      original_file_name: 'avatar.png',
+      stored_file_name: 'default-avatar-uuid.png',
+      file_extension: 'png',
+      mime_type: 'image/png',
+      file_size: '8',
+      file_path: '/uploads/default-avatars/company-7/default-avatar-uuid.png',
+      file_url: '/uploads/default-avatars/company-7/default-avatar-uuid.png',
+      width: 128,
+      height: 128,
+      is_default: false,
+    });
+    defaultAvatarRepository.findOne.mockResolvedValue({
+      ...maleAvatar,
+      id: 81,
+      avatar_name: 'PNG Avatar',
+      image_path: '/uploads/default-avatars/company-7/default-avatar-uuid.png',
+      original_file_name: 'avatar.png',
+      stored_file_name: 'default-avatar-uuid.png',
+      file_extension: 'png',
+      mime_type: 'image/png',
+      file_size: '8',
+      file_path: '/uploads/default-avatars/company-7/default-avatar-uuid.png',
+      file_url: '/uploads/default-avatars/company-7/default-avatar-uuid.png',
+      width: 128,
+      height: 128,
+      is_default: false,
+    });
+
+    const result = await service.create(7, {
+      avatar_name: 'PNG Avatar',
+      gender_category: DefaultAvatarGenderEnum.NEUTRAL,
+      image_file: {
+        fileName: 'avatar.png',
+        fileSize: 8,
+        mimeType: 'image/png',
+        fileString: Buffer.from('png-data').toString('base64'),
+      },
+    });
+
+    expect(
+      imageProcessingService.processDefaultAvatarBase64File,
+    ).toHaveBeenCalled();
+    expect(filesService.saveBufferFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileName: 'avatar.png',
+        mimeType: 'image/png',
+        fileNamePrefix: 'default-avatar',
+      }),
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: 81,
+        mime_type: 'image/png',
+        file_extension: 'png',
+        url: '/uploads/default-avatars/company-7/default-avatar-uuid.png',
+      }),
+    );
   });
 });

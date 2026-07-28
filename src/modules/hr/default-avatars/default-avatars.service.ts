@@ -9,6 +9,7 @@ import * as fs from 'fs/promises';
 import { resolve } from 'path';
 import { Repository } from 'typeorm';
 import { FilesService } from '../../files/files.service';
+import { ImageProcessingService } from '../../files/image-processing.service';
 import { Employee } from '../employees/entities/employee.entity';
 import { ProfileImageSourceEnum } from '../employees/enums/profile-image-source.enum';
 import { DefaultAvatar } from './entities/default-avatar.entity';
@@ -56,6 +57,18 @@ type ProfilePicturePayload = {
 
 @Injectable()
 export class DefaultAvatarsService {
+  private readonly defaultAvatarAllowedMimeTypes = [
+    'image/svg+xml',
+    'image/jpeg',
+    'image/png',
+  ];
+  private readonly defaultAvatarAllowedExtensions = [
+    '.svg',
+    '.jpg',
+    '.jpeg',
+    '.png',
+  ];
+  private readonly defaultAvatarMaxFileSizeBytes = 5 * 1024 * 1024;
   private readonly uploadsRoot = resolve(process.cwd(), 'uploads');
   private readonly filePresenceCache = new Map<
     string,
@@ -69,6 +82,7 @@ export class DefaultAvatarsService {
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
     private readonly filesService: FilesService,
+    private readonly imageProcessingService: ImageProcessingService,
   ) {}
 
   async findAll(companyId: number, query: DefaultAvatarQueryDto = {}) {
@@ -104,15 +118,23 @@ export class DefaultAvatarsService {
   }
 
   async create(companyId: number, dto: CreateDefaultAvatarDto) {
-    const storedFile = await this.filesService.saveBase64File(dto.image_file, {
+    const processedImage =
+      this.imageProcessingService.processDefaultAvatarBase64File(
+        dto.image_file,
+        {
+          allowedMimeTypes: this.defaultAvatarAllowedMimeTypes,
+          allowedExtensions: this.defaultAvatarAllowedExtensions,
+          maxFileSizeBytes: this.defaultAvatarMaxFileSizeBytes,
+        },
+      );
+    const storedFile = await this.filesService.saveBufferFile({
+      buffer: processedImage.buffer,
+      fileName: processedImage.originalFileName,
+      fileSize: processedImage.fileSize,
+      mimeType: processedImage.mimeType,
       directorySegments: ['default-avatars', `company-${companyId}`],
-      fileNamePrefix: dto.avatar_name,
-      allowedMimeTypes: [
-        'image/jpeg',
-        'image/png',
-        'image/svg+xml',
-        'image/webp',
-      ],
+      fileNamePrefix: 'default-avatar',
+      allowedMimeTypes: this.defaultAvatarAllowedMimeTypes,
     });
 
     try {
@@ -120,6 +142,15 @@ export class DefaultAvatarsService {
         company_id: companyId,
         avatar_name: dto.avatar_name.trim(),
         image_path: storedFile.publicPath,
+        original_file_name: storedFile.originalFileName,
+        stored_file_name: storedFile.storedFileName,
+        file_extension: storedFile.fileExtension.replace(/^\./, ''),
+        mime_type: storedFile.mimeType,
+        file_size: String(storedFile.fileSize),
+        file_path: storedFile.publicPath,
+        file_url: storedFile.publicPath,
+        width: processedImage.width,
+        height: processedImage.height,
         gender_category: dto.gender_category,
         status: dto.status ?? DefaultAvatarStatusEnum.ACTIVE,
         display_order: dto.display_order ?? 0,
@@ -171,20 +202,34 @@ export class DefaultAvatarsService {
     }
 
     if (dto.image_file) {
-      const storedFile = await this.filesService.saveBase64File(
-        dto.image_file,
-        {
-          directorySegments: ['default-avatars', `company-${companyId}`],
-          fileNamePrefix: dto.avatar_name ?? avatar.avatar_name,
-          allowedMimeTypes: [
-            'image/jpeg',
-            'image/png',
-            'image/svg+xml',
-            'image/webp',
-          ],
-        },
-      );
+      const processedImage =
+        this.imageProcessingService.processDefaultAvatarBase64File(
+          dto.image_file,
+          {
+            allowedMimeTypes: this.defaultAvatarAllowedMimeTypes,
+            allowedExtensions: this.defaultAvatarAllowedExtensions,
+            maxFileSizeBytes: this.defaultAvatarMaxFileSizeBytes,
+          },
+        );
+      const storedFile = await this.filesService.saveBufferFile({
+        buffer: processedImage.buffer,
+        fileName: processedImage.originalFileName,
+        fileSize: processedImage.fileSize,
+        mimeType: processedImage.mimeType,
+        directorySegments: ['default-avatars', `company-${companyId}`],
+        fileNamePrefix: 'default-avatar',
+        allowedMimeTypes: this.defaultAvatarAllowedMimeTypes,
+      });
       avatar.image_path = storedFile.publicPath;
+      avatar.original_file_name = storedFile.originalFileName;
+      avatar.stored_file_name = storedFile.storedFileName;
+      avatar.file_extension = storedFile.fileExtension.replace(/^\./, '');
+      avatar.mime_type = storedFile.mimeType;
+      avatar.file_size = String(storedFile.fileSize);
+      avatar.file_path = storedFile.publicPath;
+      avatar.file_url = storedFile.publicPath;
+      avatar.width = processedImage.width;
+      avatar.height = processedImage.height;
     }
 
     try {
@@ -334,7 +379,7 @@ export class DefaultAvatarsService {
 
     if (selectedAvatarAvailable) {
       return {
-        profile_photo_url: selectedAvatar.image_path,
+        profile_photo_url: selectedAvatar.file_url ?? selectedAvatar.image_path,
         uploaded_profile_photo_url: uploadedProfilePhotoUrl,
         profile_photo_source: ProfileImageSourceEnum.DEFAULT_AVATAR,
         default_avatar_id: selectedAvatar.id,
@@ -361,7 +406,7 @@ export class DefaultAvatarsService {
 
     if (genderDefault) {
       return {
-        profile_photo_url: genderDefault.image_path,
+        profile_photo_url: genderDefault.file_url ?? genderDefault.image_path,
         uploaded_profile_photo_url: uploadedProfilePhotoUrl,
         profile_photo_source:
           genderDefault.gender_category === DefaultAvatarGenderEnum.NEUTRAL
@@ -393,9 +438,21 @@ export class DefaultAvatarsService {
     return {
       id: avatar.id,
       company_id: avatar.company_id,
+      name: avatar.avatar_name,
       avatar_name: avatar.avatar_name,
       image_path: avatar.image_path,
-      image_url: avatar.image_path,
+      image_url: avatar.file_url ?? avatar.image_path,
+      file_path: avatar.file_path ?? avatar.image_path,
+      file_url: avatar.file_url ?? avatar.image_path,
+      url: avatar.file_url ?? avatar.image_path,
+      original_file_name: avatar.original_file_name,
+      stored_file_name: avatar.stored_file_name,
+      file_extension: avatar.file_extension,
+      mime_type: avatar.mime_type,
+      file_size: avatar.file_size,
+      width: avatar.width,
+      height: avatar.height,
+      is_active: avatar.status === DefaultAvatarStatusEnum.ACTIVE,
       gender_category: avatar.gender_category,
       status: avatar.status,
       display_order: avatar.display_order,
