@@ -21,6 +21,7 @@ import { EmployeeSelfServiceController } from './employee-self-service.controlle
 import { EmployeeSelfServiceService } from './employee-self-service.service';
 import { EmployeeSelfServiceApprovalController } from './employee-self-service-approval.controller';
 import { EmployeeSelfServiceApprovalService } from './employee-self-service-approval.service';
+import { DefaultAvatarsModule } from '../default-avatars/default-avatars.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { EmployeeSelfServiceApprovalService } from './employee-self-service-appr
     FilesModule,
     UsersModule,
     EmployeesModule,
+    DefaultAvatarsModule,
     LeaveModule,
     AttendanceModule,
     AttendanceProcessingModule,

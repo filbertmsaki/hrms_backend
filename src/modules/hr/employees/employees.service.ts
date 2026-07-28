@@ -75,6 +75,10 @@ import { EmployeeProfessionalQualification } from './entities/employee-professio
 import { EmployeeRelative } from './entities/employee-relative.entity';
 import { Employee } from './entities/employee.entity';
 import { FilesService } from '../../files/files.service';
+import { Base64FileDto } from '../../files/dtos/base64-file.dto';
+import { DefaultAvatarsService } from '../default-avatars/default-avatars.service';
+import { DefaultAvatar } from '../default-avatars/entities/default-avatar.entity';
+import { ProfileImageSourceEnum } from './enums/profile-image-source.enum';
 
 type EmployeeMutationDto = CreateEmployeeDto | UpdateEmployeeDto;
 
@@ -124,6 +128,7 @@ export class EmployeesService {
     private readonly leaveBalanceService: LeaveBalanceService,
     private readonly attendanceReadinessService: EmployeeAttendanceReadinessService,
     private readonly filesService: FilesService,
+    private readonly defaultAvatarsService: DefaultAvatarsService,
   ) {}
 
   private getEmployeeRepository(manager?: EntityManager): Repository<Employee> {
@@ -623,7 +628,20 @@ export class EmployeesService {
     };
   }
 
-  private mapEmployee(employee: Employee, includeDocuments = false) {
+  private async mapEmployee(employee: Employee, includeDocuments = false) {
+    const companyId = employee.company_user?.company_id;
+    const resolvedAvatar = await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
+      companyId ?? 0,
+      employee,
+    );
+    const managerAvatar =
+      employee.manager && companyId
+        ? await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
+            companyId,
+            employee.manager,
+          )
+        : null;
+
     return {
       id: employee.id,
       company_user_id: employee.company_user_id,
@@ -636,7 +654,13 @@ export class EmployeesService {
       date_of_birth: employee.date_of_birth,
       marital_status: employee.marital_status,
       nationality: employee.nationality,
-      profile_photo_url: employee.profile_photo_url,
+      profile_photo_url: resolvedAvatar.profile_photo_url,
+      uploaded_profile_photo_url: resolvedAvatar.uploaded_profile_photo_url,
+      profile_photo_source: resolvedAvatar.profile_photo_source,
+      profile_image_source:
+        employee.profile_image_source ?? ProfileImageSourceEnum.UPLOADED,
+      default_avatar_id: employee.default_avatar_id,
+      selected_default_avatar: resolvedAvatar.selected_default_avatar,
       primary_branch_id: employee.primary_branch_id,
       primary_department_id: employee.primary_department_id,
       primary_position_id: employee.primary_position_id,
@@ -658,12 +682,15 @@ export class EmployeesService {
       primary_position: this.mapPosition(employee.primary_position),
       position: this.mapPosition(employee.primary_position),
       manager: employee.manager
-        ? {
+          ? {
             id: employee.manager.id,
             employee_no: employee.manager.employee_no,
             first_name: employee.manager.first_name,
             last_name: employee.manager.last_name,
-            profile_photo_url: employee.manager.profile_photo_url,
+            profile_photo_url: managerAvatar?.profile_photo_url ?? null,
+            uploaded_profile_photo_url:
+              managerAvatar?.uploaded_profile_photo_url ?? null,
+            profile_photo_source: managerAvatar?.profile_photo_source ?? 'none',
             company_user: this.mapMembershipWithoutAccessDetails(
               employee.manager.company_user,
             ),
@@ -727,8 +754,11 @@ export class EmployeesService {
     return {
       company_user: {
         user: true,
-        employee: true,
+        employee: {
+          default_avatar: true,
+        },
       },
+      default_avatar: true,
       primary_branch: true,
       primary_department: {
         branch: true,
@@ -738,8 +768,11 @@ export class EmployeesService {
       manager: {
         company_user: {
           user: true,
-          employee: true,
+          employee: {
+            default_avatar: true,
+          },
         },
+        default_avatar: true,
       },
       department_assignments: {
         department: {
@@ -796,7 +829,9 @@ export class EmployeesService {
       },
       relations: {
         user: true,
-        employee: true,
+        employee: {
+          default_avatar: true,
+        },
         role_assignments: {
           role: {
             permissions: true,
@@ -824,6 +859,9 @@ export class EmployeesService {
       },
       relations: {
         user: true,
+        employee: {
+          default_avatar: true,
+        },
         role_assignments: {
           role: {
             permissions: true,
@@ -1561,6 +1599,8 @@ export class EmployeesService {
       'marital_status',
       'nationality',
       'profile_photo_url',
+      'profile_image_source',
+      'default_avatar_id',
       'employment_status',
       'employment_type',
       'hire_date',
@@ -1617,6 +1657,131 @@ export class EmployeesService {
     }
 
     return normalized;
+  }
+
+  private isDataUrlProfilePhoto(value: unknown): value is string {
+    return (
+      typeof value === 'string' &&
+      value.trim().toLowerCase().startsWith('data:image/')
+    );
+  }
+
+  private buildBase64ProfilePhotoFile(
+    value: string,
+    employee: Employee,
+  ): Base64FileDto {
+    const mimeTypeMatch = value.match(/^data:([^;]+);base64,/i);
+    const mimeType = mimeTypeMatch?.[1]?.trim().toLowerCase() ?? 'image/png';
+    const extensionMap: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+    };
+    const extension = extensionMap[mimeType];
+
+    if (!extension) {
+      throw new BadRequestException(
+        'profile_photo_url must be a JPEG, PNG, or WEBP image.',
+      );
+    }
+
+    const normalizedPayload = value
+      .trim()
+      .replace(/^data:[^;]+;base64,/i, '')
+      .replace(/\s+/g, '');
+    const buffer = Buffer.from(normalizedPayload, 'base64');
+
+    return {
+      fileName: `employee-${employee.employee_no || employee.id || 'profile'}.${extension}`,
+      fileSize: buffer.length,
+      mimeType,
+      fileString: value.trim(),
+    };
+  }
+
+  private async applyProfileImageSelection(
+    companyId: number,
+    employee: Employee,
+    dto: Partial<EmployeeMutationDto>,
+  ) {
+    const previousManagedProfilePhoto = employee.profile_photo_url;
+
+    if ('default_avatar_id' in dto) {
+      const requestedAvatarId = dto.default_avatar_id ?? null;
+      if (requestedAvatarId === null) {
+        employee.default_avatar_id = null;
+        employee.default_avatar = null;
+      } else {
+        const selectedAvatar =
+          await this.defaultAvatarsService.assertAvatarAvailableForEmployee(
+            companyId,
+            requestedAvatarId,
+            employee.gender,
+          );
+        employee.default_avatar_id = selectedAvatar.id;
+        employee.default_avatar = selectedAvatar as DefaultAvatar;
+      }
+    }
+
+    if ('profile_photo_url' in dto && dto.profile_photo_url !== undefined) {
+      const requestedProfilePhotoUrl = (
+        dto as Record<string, unknown>
+      ).profile_photo_url;
+
+      if (this.isDataUrlProfilePhoto(requestedProfilePhotoUrl)) {
+        const storedFile = await this.filesService.saveBase64File(
+          this.buildBase64ProfilePhotoFile(requestedProfilePhotoUrl, employee),
+          {
+            directorySegments: ['profile-photos', `company-${companyId}`],
+            fileNamePrefix: `employee-${employee.employee_no || employee.id || 'profile'}`,
+            allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+          },
+        );
+
+        employee.profile_photo_url = storedFile.publicPath;
+      } else {
+        employee.profile_photo_url =
+          typeof requestedProfilePhotoUrl === 'string'
+            ? requestedProfilePhotoUrl.trim() || null
+            : null;
+      }
+    }
+
+    if ('profile_image_source' in dto && dto.profile_image_source !== undefined) {
+      employee.profile_image_source = dto.profile_image_source;
+    } else if (this.isDataUrlProfilePhoto(dto.profile_photo_url)) {
+      employee.profile_image_source = ProfileImageSourceEnum.UPLOADED;
+    } else if (
+      'default_avatar_id' in dto &&
+      employee.default_avatar_id &&
+      !('profile_photo_url' in dto)
+    ) {
+      employee.profile_image_source = ProfileImageSourceEnum.DEFAULT_AVATAR;
+    }
+
+    if (
+      employee.profile_image_source === ProfileImageSourceEnum.DEFAULT_AVATAR &&
+      !employee.default_avatar_id
+    ) {
+      throw new BadRequestException(
+        'A default avatar must be selected before using it as the profile image.',
+      );
+    }
+
+    if (
+      employee.profile_image_source === ProfileImageSourceEnum.UPLOADED &&
+      !employee.profile_photo_url
+    ) {
+      employee.profile_image_source = null;
+    }
+
+    if (
+      previousManagedProfilePhoto &&
+      previousManagedProfilePhoto !== employee.profile_photo_url &&
+      employee.profile_photo_url?.startsWith('/uploads/profile-photos/')
+    ) {
+      await this.filesService.removeManagedFile(previousManagedProfilePhoto);
+    }
   }
 
   private async saveDepartmentAssignments(
@@ -2090,6 +2255,7 @@ export class EmployeesService {
 
     Object.assign(employee, payload);
     employee.gender = this.normalizeGender(employee.gender);
+    await this.applyProfileImageSelection(companyId, employee, dto);
 
     if (
       !employee.primary_branch_id &&
@@ -2450,6 +2616,71 @@ export class EmployeesService {
     }
 
     employee.profile_photo_url = profilePhotoUrl;
+    employee.profile_image_source = profilePhotoUrl
+      ? ProfileImageSourceEnum.UPLOADED
+      : null;
+    await this.employeeRepository.save(employee);
+
+    return this.findMyProfile(companyId, userId);
+  }
+
+  async listMyAvailableDefaultAvatars(companyId: number, userId: number) {
+    const membership = await this.findMembershipByUserId(companyId, userId);
+
+    if (!membership?.employee) {
+      throw new NotFoundException('Employee not found');
+    }
+
+    return this.defaultAvatarsService.listAvailableForGender(
+      companyId,
+      membership.employee.gender,
+    );
+  }
+
+  async selectMyDefaultAvatar(
+    companyId: number,
+    userId: number,
+    defaultAvatarId: number | null,
+  ) {
+    const membership = await this.findMembershipByUserId(companyId, userId);
+
+    if (!membership) {
+      throw new NotFoundException('Active company membership not found');
+    }
+
+    const employee = await this.employeeRepository.findOne({
+      where: { company_user_id: membership.id },
+      relations: {
+        default_avatar: true,
+      },
+    });
+
+    if (!employee) {
+      throw new NotFoundException('Employee not found');
+    }
+
+    if (defaultAvatarId === null) {
+      employee.default_avatar_id = null;
+      employee.default_avatar = null;
+      if (
+        employee.profile_image_source === ProfileImageSourceEnum.DEFAULT_AVATAR
+      ) {
+        employee.profile_image_source = employee.profile_photo_url
+          ? ProfileImageSourceEnum.UPLOADED
+          : null;
+      }
+    } else {
+      const selectedAvatar =
+        await this.defaultAvatarsService.assertAvatarAvailableForEmployee(
+          companyId,
+          defaultAvatarId,
+          employee.gender,
+        );
+      employee.default_avatar_id = selectedAvatar.id;
+      employee.default_avatar = selectedAvatar;
+      employee.profile_image_source = ProfileImageSourceEnum.DEFAULT_AVATAR;
+    }
+
     await this.employeeRepository.save(employee);
 
     return this.findMyProfile(companyId, userId);
@@ -2490,6 +2721,10 @@ export class EmployeesService {
       .addSelect('employee.first_name', 'firstName')
       .addSelect('employee.middle_name', 'middleName')
       .addSelect('employee.last_name', 'lastName')
+      .addSelect('employee.gender', 'gender')
+      .addSelect('employee.profile_photo_url', 'uploadedProfilePhotoUrl')
+      .addSelect('employee.profile_image_source', 'storedProfileImageSource')
+      .addSelect('employee.default_avatar_id', 'defaultAvatarId')
       .addSelect('user.email', 'email')
       .addSelect('user.phone', 'phone')
       .addSelect('branch.name', 'branchName')
@@ -2628,9 +2863,39 @@ export class EmployeesService {
       .limit(limit)
       .getRawMany<EmployeeListRow>();
 
+    const resolvedRows = await Promise.all(
+      rows.map(async (row) => {
+        const resolvedAvatar =
+          await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
+            companyId,
+            {
+              id:
+                typeof row.id === 'string' ? Number(row.id) : (row.id as number),
+              gender: row.gender ?? null,
+              profile_photo_url: row.uploadedProfilePhotoUrl ?? null,
+              profile_image_source:
+                (row as Record<string, unknown>).storedProfileImageSource as
+                  | ProfileImageSourceEnum
+                  | null,
+              default_avatar_id:
+                typeof row.defaultAvatarId === 'string'
+                  ? Number(row.defaultAvatarId)
+                  : (row.defaultAvatarId as number | null | undefined) ?? null,
+            },
+          );
+
+        return {
+          ...row,
+          profilePhotoUrl: resolvedAvatar.profile_photo_url,
+          uploadedProfilePhotoUrl: resolvedAvatar.uploaded_profile_photo_url,
+          profilePhotoSource: resolvedAvatar.profile_photo_source,
+        };
+      }),
+    );
+
     return {
-      data: rows.map((row) => EmployeeListResponseDto.fromRow(row)),
-      meta: buildPaginationMeta(total, rows.length, limit, page),
+      data: resolvedRows.map((row) => EmployeeListResponseDto.fromRow(row)),
+      meta: buildPaginationMeta(total, resolvedRows.length, limit, page),
     };
   }
 

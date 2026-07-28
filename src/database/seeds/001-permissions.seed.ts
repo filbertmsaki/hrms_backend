@@ -288,6 +288,26 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow deleting employee profiles',
   },
   {
+    name: 'default_avatars:read',
+    displayName: 'Read default avatars',
+    description: 'Allow viewing the company default avatar library',
+  },
+  {
+    name: 'default_avatars:create',
+    displayName: 'Create default avatars',
+    description: 'Allow adding new default avatar templates',
+  },
+  {
+    name: 'default_avatars:update',
+    displayName: 'Update default avatars',
+    description: 'Allow updating default avatar metadata and defaults',
+  },
+  {
+    name: 'default_avatars:delete',
+    displayName: 'Delete default avatars',
+    description: 'Allow deleting default avatar templates that are not in use',
+  },
+  {
     name: 'employees:change-status',
     displayName: 'Change employee status',
     description: 'Allow managing employee lifecycle statuses',

@@ -26,6 +26,7 @@ import { UpdateRoleDto } from './dtos/update-role.dto';
 import { Role } from './entities/role.entity';
 import { RoleAuditActionEnum } from './enums/role-audit-action.enum';
 import { RoleAuditService } from './services/role-audit.service';
+import { DefaultAvatarsService } from '../hr/default-avatars/default-avatars.service';
 
 @Injectable()
 export class RolesService {
@@ -41,6 +42,7 @@ export class RolesService {
     @InjectRepository(CompanyUserRole)
     private readonly companyUserRoleRepository: Repository<CompanyUserRole>,
     private readonly roleAuditService: RoleAuditService,
+    private readonly defaultAvatarsService: DefaultAvatarsService,
   ) {}
 
   private createBaseQuery() {
@@ -144,9 +146,14 @@ export class RolesService {
     };
   }
 
-  private mapRoleUserAssignment(assignment: CompanyUserRole) {
+  private async mapRoleUserAssignment(assignment: CompanyUserRole) {
     const membership = assignment.company_user;
     const user = membership.user;
+    const resolvedAvatar =
+      await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
+        membership.company_id,
+        membership.employee,
+      );
 
     return {
       assignment_id: assignment.id,
@@ -158,7 +165,9 @@ export class RolesService {
       full_name: `${user.first_name} ${user.last_name}`.trim(),
       email: user.email,
       phone: user.phone,
-      profile_photo_url: membership.employee?.profile_photo_url ?? null,
+      profile_photo_url: resolvedAvatar.profile_photo_url,
+      uploaded_profile_photo_url: resolvedAvatar.uploaded_profile_photo_url,
+      profile_photo_source: resolvedAvatar.profile_photo_source,
       user_status: user.status,
       membership_status: membership.status,
       assigned_at: assignment.created_at,
@@ -323,6 +332,10 @@ export class RolesService {
     const skip = (page - 1) * limit;
     const [items, total] = await qb.skip(skip).take(limit).getManyAndCount();
 
+    const data = await Promise.all(
+      items.map((item) => this.mapRoleUserAssignment(item)),
+    );
+
     return {
       role: {
         id: role.id,
@@ -330,7 +343,7 @@ export class RolesService {
         display_name: role.display_name,
         company_id: role.company_id,
       },
-      data: items.map((item) => this.mapRoleUserAssignment(item)),
+      data,
       meta: {
         totalItems: total,
         itemCount: items.length,
@@ -411,7 +424,7 @@ export class RolesService {
         display_name: role.display_name,
         company_id: role.company_id,
       },
-      assignment: this.mapRoleUserAssignment(assignment),
+      assignment: await this.mapRoleUserAssignment(assignment),
     };
   }
 

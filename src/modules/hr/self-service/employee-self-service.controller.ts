@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   ParseIntPipe,
   Post,
   Query,
@@ -42,6 +43,7 @@ import { MyScheduleQueryDto } from './dtos/my-schedule-query.dto';
 import { QuerySelfServiceRequestDto } from './dtos/query-self-service-request.dto';
 import { TeamAttendanceQueryDto } from './dtos/team-attendance-query.dto';
 import { EmployeeSelfServiceService } from './employee-self-service.service';
+import { SelectDefaultAvatarDto } from '../default-avatars/dtos/select-default-avatar.dto';
 
 @ApiTags('Employee Self Service')
 @ApiBearerAuth('access-token')
@@ -74,7 +76,10 @@ export class EmployeeSelfServiceController {
     const profile = await this.employeeSelfServiceService.getProfile(req.user);
     const normalizedProfile = this.withAbsoluteProfilePhotoUrls(req, profile);
     const employee = profile.employee as
-      | { profile_photo_url?: string | null }
+      | {
+          profile_photo_url?: string | null;
+          uploaded_profile_photo_url?: string | null;
+        }
       | null
       | undefined;
 
@@ -83,7 +88,10 @@ export class EmployeeSelfServiceController {
       employee: employee
         ? {
             ...(normalizedProfile.employee as Record<string, unknown>),
-            profile_photo_path: employee.profile_photo_url ?? null,
+            profile_photo_path: this.buildAbsoluteUrl(
+              req,
+              employee.uploaded_profile_photo_url ?? null,
+            ),
             has_profile_photo: Boolean(employee.profile_photo_url),
             profile_photo_url: this.buildAbsoluteUrl(
               req,
@@ -102,14 +110,20 @@ export class EmployeeSelfServiceController {
     const profilePhoto = await this.employeeSelfServiceService.getProfilePhoto(
       req.user,
     );
+    const profilePhotoPath =
+      typeof profilePhoto.profile_photo_path === 'string'
+        ? profilePhoto.profile_photo_path
+        : null;
+    const profilePhotoUrl =
+      typeof profilePhoto.profile_photo_url === 'string'
+        ? profilePhoto.profile_photo_url
+        : profilePhotoPath;
 
     return {
       ...profilePhoto,
-      has_profile_photo: Boolean(profilePhoto.profile_photo_path),
-      profile_photo_url: this.buildAbsoluteUrl(
-        req,
-        profilePhoto.profile_photo_path,
-      ),
+      has_profile_photo: Boolean(profilePhotoPath),
+      profile_photo_path: this.buildAbsoluteUrl(req, profilePhotoPath),
+      profile_photo_url: this.buildAbsoluteUrl(req, profilePhotoUrl),
     };
   }
 
@@ -160,6 +174,29 @@ export class EmployeeSelfServiceController {
     }
 
     return this.employeeSelfServiceService.uploadProfilePhoto(req.user, file);
+  }
+
+  @Get('profile/avatar-options')
+  @ApiOperation({
+    summary: 'List default profile avatars available for the current employee',
+  })
+  listProfileAvatarOptions(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  ) {
+    return this.employeeSelfServiceService.listAvailableProfileAvatars(
+      req.user,
+    );
+  }
+
+  @Patch('profile/avatar')
+  @ApiOperation({
+    summary: 'Select a default profile avatar for the current employee',
+  })
+  selectProfileAvatar(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: SelectDefaultAvatarDto,
+  ) {
+    return this.employeeSelfServiceService.selectProfileAvatar(req.user, dto);
   }
 
   @Get('status')

@@ -32,6 +32,7 @@ import {
   CompanyMembershipContext,
   CompanySummary,
 } from './interfaces/company-membership-context.interface';
+import { DefaultAvatarsService } from '../hr/default-avatars/default-avatars.service';
 
 @Injectable()
 export class CompaniesService {
@@ -68,6 +69,7 @@ export class CompaniesService {
 
     @InjectRepository(AttendancePolicy)
     private readonly attendancePolicyRepository: Repository<AttendancePolicy>,
+    private readonly defaultAvatarsService: DefaultAvatarsService,
 
     @InjectRepository(Timetable)
     private readonly timetableRepository: Repository<Timetable>,
@@ -1214,23 +1216,39 @@ export class CompaniesService {
     const skip = (page - 1) * limit;
     const [items, total] = await qb.skip(skip).take(limit).getManyAndCount();
 
+    const data = await Promise.all(
+      items.map(async (membership) => {
+        const resolvedAvatar =
+          await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
+            companyId,
+            membership.employee,
+          );
+
+        return {
+          id: membership.user.id,
+          user_no: membership.user.user_no,
+          first_name: membership.user.first_name,
+          last_name: membership.user.last_name,
+          phone: membership.user.phone,
+          email: membership.user.email,
+          profile_photo_url: resolvedAvatar.profile_photo_url,
+          uploaded_profile_photo_url:
+            resolvedAvatar.uploaded_profile_photo_url,
+          profile_photo_source: resolvedAvatar.profile_photo_source,
+          default_avatar_id: resolvedAvatar.default_avatar_id,
+          status: membership.user.status,
+          is_email_verified: membership.user.is_email_verified,
+          is_two_factor_enabled: membership.user.is_two_factor_enabled,
+          last_login_at: membership.user.last_login_at,
+          last_login_ip: membership.user.last_login_ip,
+          created_at: membership.user.created_at,
+          updated_at: membership.user.updated_at,
+        };
+      }),
+    );
+
     return {
-      data: items.map((membership) => ({
-        id: membership.user.id,
-        user_no: membership.user.user_no,
-        first_name: membership.user.first_name,
-        last_name: membership.user.last_name,
-        phone: membership.user.phone,
-        email: membership.user.email,
-        profile_photo_url: membership.employee?.profile_photo_url ?? null,
-        status: membership.user.status,
-        is_email_verified: membership.user.is_email_verified,
-        is_two_factor_enabled: membership.user.is_two_factor_enabled,
-        last_login_at: membership.user.last_login_at,
-        last_login_ip: membership.user.last_login_ip,
-        created_at: membership.user.created_at,
-        updated_at: membership.user.updated_at,
-      })),
+      data,
       meta: {
         totalItems: total,
         itemCount: items.length,

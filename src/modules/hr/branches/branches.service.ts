@@ -16,6 +16,7 @@ import { CodeGeneratorService } from '../shared/code-generator.service';
 import { buildPaginationMeta } from '../shared/hr.utils';
 import { Branch } from './entities/branch.entity';
 import { CompanyUserBranchAccess } from './entities/company-user-branch-access.entity';
+import { DefaultAvatarsService } from '../default-avatars/default-avatars.service';
 
 @Injectable()
 export class BranchesService {
@@ -28,6 +29,7 @@ export class BranchesService {
     private readonly branchAccessRepository: Repository<CompanyUserBranchAccess>,
     private readonly hrAccessService: HrAccessService,
     private readonly codeGeneratorService: CodeGeneratorService,
+    private readonly defaultAvatarsService: DefaultAvatarsService,
   ) {}
 
   private mapBranch(branch: Branch) {
@@ -45,7 +47,13 @@ export class BranchesService {
     };
   }
 
-  private mapBranchAccess(access: CompanyUserBranchAccess) {
+  private async mapBranchAccess(access: CompanyUserBranchAccess) {
+    const resolvedAvatar =
+      await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
+        access.company_user?.company_id ?? 0,
+        access.company_user?.employee,
+      );
+
     return {
       id: access.id,
       branch_id: access.branch_id,
@@ -59,8 +67,10 @@ export class BranchesService {
             last_name: access.company_user.user.last_name,
             email: access.company_user.user.email,
             phone: access.company_user.user.phone,
-            profile_photo_url:
-              access.company_user.employee?.profile_photo_url ?? null,
+            profile_photo_url: resolvedAvatar.profile_photo_url,
+            uploaded_profile_photo_url:
+              resolvedAvatar.uploaded_profile_photo_url,
+            profile_photo_source: resolvedAvatar.profile_photo_source,
             status: access.company_user.user.status,
           }
         : null,
@@ -245,7 +255,9 @@ export class BranchesService {
       },
     });
 
-    return assignments.map((assignment) => this.mapBranchAccess(assignment));
+    return Promise.all(
+      assignments.map((assignment) => this.mapBranchAccess(assignment)),
+    );
   }
 
   async grantAccess(

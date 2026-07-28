@@ -8,8 +8,13 @@ export type EmployeeListRow = {
   firstName: string;
   middleName: string | null;
   lastName: string;
+  gender?: string | null;
   email: string;
   phone: string;
+  profilePhotoUrl?: string | null;
+  uploadedProfilePhotoUrl?: string | null;
+  profilePhotoSource?: string | null;
+  defaultAvatarId?: number | string | null;
   branchName: string | null;
   departmentName: string | null;
   positionName: string | null;
@@ -51,6 +56,15 @@ export class EmployeeListResponseDto {
 
   @ApiProperty()
   fullName: string;
+
+  @ApiProperty({ nullable: true })
+  profilePhotoUrl: string | null;
+
+  @ApiProperty({ nullable: true })
+  uploadedProfilePhotoUrl: string | null;
+
+  @ApiProperty({ nullable: true })
+  profilePhotoSource: string | null;
 
   @ApiProperty()
   email: string;
@@ -103,6 +117,12 @@ export class EmployeeListResponseDto {
     dto.id = typeof id === 'string' ? Number(id) : (id ?? 0);
     dto.employeeNo = employeeNo;
     dto.fullName = buildFullName(firstName, middleName, lastName) ?? employeeNo;
+    dto.profilePhotoUrl =
+      getRowValue<string | null>(rawRow, 'profilePhotoUrl') ?? null;
+    dto.uploadedProfilePhotoUrl =
+      getRowValue<string | null>(rawRow, 'uploadedProfilePhotoUrl') ?? null;
+    dto.profilePhotoSource =
+      getRowValue<string | null>(rawRow, 'profilePhotoSource') ?? null;
     dto.email = getRowValue<string>(rawRow, 'email') ?? '';
     dto.phone = getRowValue<string>(rawRow, 'phone') ?? '';
     dto.branchName = getRowValue<string | null>(rawRow, 'branchName') ?? null;

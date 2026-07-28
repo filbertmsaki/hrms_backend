@@ -28,6 +28,8 @@ import { EmployeeIdentification } from './employee-identification.entity';
 import { EmployeeAcademicQualification } from './employee-academic-qualification.entity';
 import { EmployeeProfessionalQualification } from './employee-professional-qualification.entity';
 import { EmployeeRelative } from './employee-relative.entity';
+import { ProfileImageSourceEnum } from '../enums/profile-image-source.enum';
+import { DefaultAvatar } from '../../default-avatars/entities/default-avatar.entity';
 
 // NAMING CONVENTION: This entity uses snake_case TypeScript property names that map
 // directly to snake_case DB columns (no explicit @Column({ name }) mapping needed).
@@ -78,6 +80,16 @@ export class Employee {
 
   @Column({ type: 'text', nullable: true })
   profile_photo_url: string | null;
+
+  @Column({
+    type: 'enum',
+    enum: ProfileImageSourceEnum,
+    nullable: true,
+  })
+  profile_image_source: ProfileImageSourceEnum | null;
+
+  @Column({ type: 'int', nullable: true })
+  default_avatar_id: number | null;
 
   @Column({ type: 'int', nullable: true })
   primary_branch_id: number | null;
@@ -155,6 +167,12 @@ export class Employee {
   })
   @JoinColumn({ name: 'primary_position_id' })
   primary_position: Position | null;
+
+  @ManyToOne(() => DefaultAvatar, (defaultAvatar) => defaultAvatar.employees, {
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'default_avatar_id' })
+  default_avatar: DefaultAvatar | null;
 
   @ManyToOne(() => Employee, (employee) => employee.direct_reports, {
     onDelete: 'SET NULL',

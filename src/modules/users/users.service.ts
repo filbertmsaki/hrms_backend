@@ -17,6 +17,7 @@ import { CreateUserDto } from './dtos/create-user.dto';
 import { UpdateUserDto } from './dtos/update-user.dto';
 import { UserProfileDto } from './dtos/user-profile-dto';
 import { User } from './entities/user.entity';
+import { DefaultAvatarsService } from '../hr/default-avatars/default-avatars.service';
 
 @Injectable()
 export class UsersService {
@@ -28,6 +29,7 @@ export class UsersService {
     @InjectRepository(Permission)
     private readonly permissionRepository: Repository<Permission>,
     private readonly companiesService: CompaniesService,
+    private readonly defaultAvatarsService: DefaultAvatarsService,
   ) {}
 
   private extractRoleIds(
@@ -367,6 +369,11 @@ export class UsersService {
     const permissionEntities = membership
       ? this.getMembershipPermissionEntities(membership)
       : await this.resolvePermissionEntitiesByNames(currentCompany.permissions);
+    const resolvedAvatar =
+      await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
+        companyId,
+        membership?.employee,
+      );
 
     return new UserProfileDto({
       id: user.id,
@@ -375,7 +382,10 @@ export class UsersService {
       last_name: user.last_name,
       phone: user.phone,
       email: user.email,
-      profile_photo_url: membership?.employee?.profile_photo_url ?? null,
+      profile_photo_url: resolvedAvatar.profile_photo_url,
+      uploaded_profile_photo_url: resolvedAvatar.uploaded_profile_photo_url,
+      profile_photo_source: resolvedAvatar.profile_photo_source,
+      default_avatar_id: resolvedAvatar.default_avatar_id,
       status: user.status,
       user_type: user.user_type,
       is_email_verified: user.is_email_verified,
@@ -433,6 +443,11 @@ export class UsersService {
     const permissionEntities = membership
       ? this.getMembershipPermissionEntities(membership)
       : await this.resolvePermissionEntitiesByNames(companyContext.permissions);
+    const resolvedAvatar =
+      await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
+        companyId,
+        membership?.employee,
+      );
 
     return new UserProfileDto({
       id: user.id,
@@ -441,7 +456,10 @@ export class UsersService {
       last_name: user.last_name,
       phone: user.phone,
       email: user.email,
-      profile_photo_url: membership?.employee?.profile_photo_url ?? null,
+      profile_photo_url: resolvedAvatar.profile_photo_url,
+      uploaded_profile_photo_url: resolvedAvatar.uploaded_profile_photo_url,
+      profile_photo_source: resolvedAvatar.profile_photo_source,
+      default_avatar_id: resolvedAvatar.default_avatar_id,
       status: user.status,
       user_type: user.user_type,
       is_email_verified: user.is_email_verified,

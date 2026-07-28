@@ -13,6 +13,7 @@ import { TimetableEngineModule } from './attendance/timetable/timetable-engine.m
 import { ShiftEngineModule } from './attendance/shift/shift-engine.module';
 import { HrLaunchReadinessModule } from './launch-readiness/hr-launch-readiness.module';
 import { HrNotificationModule } from './notifications/hr-notification.module';
+import { DefaultAvatarsModule } from './default-avatars/default-avatars.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { HrNotificationModule } from './notifications/hr-notification.module';
     BranchesModule,
     DepartmentsModule,
     PositionsModule,
+    DefaultAvatarsModule,
     EmployeesModule,
     EmployeePositionsModule,
     LeaveModule,

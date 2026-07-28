@@ -6,12 +6,14 @@ import { UsersController } from './users.controller';
 import { TwoFaModule } from '../auth/2fa/2fa.module';
 import { CompaniesModule } from '../companies/companies.module';
 import { TenantGuard } from '../../common/guards/tenant.guard';
+import { DefaultAvatarsModule } from '../hr/default-avatars/default-avatars.module';
 
 @Module({
   imports: [
     forwardRef(() => TwoFaModule),
     TypeOrmModule.forFeature([User]),
     CompaniesModule,
+    DefaultAvatarsModule,
   ],
   controllers: [UsersController],
   providers: [UsersService, TenantGuard],

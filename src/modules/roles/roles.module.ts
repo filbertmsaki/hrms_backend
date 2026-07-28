@@ -9,6 +9,7 @@ import { RoleAuditLog } from './entities/role-audit-log.entity';
 import { RolesController } from './roles.controller';
 import { RolesService } from './roles.service';
 import { RoleAuditService } from './services/role-audit.service';
+import { DefaultAvatarsModule } from '../hr/default-avatars/default-avatars.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { RoleAuditService } from './services/role-audit.service';
       CompanyUserRole,
       RoleAuditLog,
     ]),
+    DefaultAvatarsModule,
   ],
   controllers: [RolesController],
   providers: [RolesService, RoleAuditService],

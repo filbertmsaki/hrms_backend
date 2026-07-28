@@ -24,6 +24,7 @@ import { EmployeeRelativeInputDto } from './employee-relative-input.dto';
 import { EmploymentStatusEnum } from '../enums/employment-status.enum';
 import { EmploymentTypeEnum } from '../enums/employment-type.enum';
 import { EmployeeOnboardingInputDto } from '../../onboarding/dtos/employee-onboarding-input.dto';
+import { ProfileImageSourceEnum } from '../enums/profile-image-source.enum';
 
 export class CreateEmployeeDto {
   @ApiPropertyOptional({
@@ -73,6 +74,20 @@ export class CreateEmployeeDto {
   @IsString()
   @IsOptional()
   profile_photo_url?: string;
+
+  @ApiPropertyOptional({ type: Number, nullable: true })
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  default_avatar_id?: number | null;
+
+  @ApiPropertyOptional({ enum: ProfileImageSourceEnum })
+  @Transform(({ value }: TransformFnParams): unknown =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
+  @IsEnum(ProfileImageSourceEnum)
+  @IsOptional()
+  profile_image_source?: ProfileImageSourceEnum;
 
   @ApiPropertyOptional({ type: Number })
   @Type(() => Number)

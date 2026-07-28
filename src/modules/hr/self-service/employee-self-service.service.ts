@@ -39,6 +39,7 @@ import { EmployeeTimetableStatusEnum } from '../attendance/timetable/employee-ti
 import { AttendanceScheduleResolverService } from '../attendance/processing/attendance-schedule-resolver.service';
 import { CreateMyLeaveRequestDto } from './dtos/create-my-leave-request.dto';
 import { MyScheduleQueryDto } from './dtos/my-schedule-query.dto';
+import { SelectDefaultAvatarDto } from '../default-avatars/dtos/select-default-avatar.dto';
 import { CreateAttendanceMobilePunchDto } from '../attendance/mobile-punches/dtos/create-attendance-mobile-punch.dto';
 import { Shift } from '../attendance/shift/shifts/entities/shift.entity';
 import { Timetable } from '../attendance/timetable/timetables/entities/timetable.entity';
@@ -137,7 +138,10 @@ export class EmployeeSelfServiceService {
 
     return {
       employee_id: employee.id ?? null,
-      profile_photo_path: employee.profile_photo_url ?? null,
+      profile_photo_path: employee.uploaded_profile_photo_url ?? null,
+      profile_photo_url: employee.profile_photo_url ?? null,
+      profile_photo_source: employee.profile_photo_source ?? null,
+      default_avatar_id: employee.default_avatar_id ?? null,
     };
   }
 
@@ -176,6 +180,28 @@ export class EmployeeSelfServiceService {
       await this.filesService.removeManagedFile(storedFile.publicPath);
       throw error;
     }
+  }
+
+  async listAvailableProfileAvatars(actor: AuthenticatedUser) {
+    const companyId = this.ensureCompanyId(actor);
+
+    return this.employeesService.listMyAvailableDefaultAvatars(
+      companyId,
+      actor.id,
+    );
+  }
+
+  async selectProfileAvatar(
+    actor: AuthenticatedUser,
+    dto: SelectDefaultAvatarDto,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+
+    return this.employeesService.selectMyDefaultAvatar(
+      companyId,
+      actor.id,
+      dto.default_avatar_id ?? null,
+    );
   }
 
   async getStatus(actor: AuthenticatedUser) {

@@ -40,6 +40,7 @@ import { AttendanceDevice } from '../../access-control/attendance-devices/entiti
 import { Role } from '../../roles/entities/role.entity';
 import { EmployeeDeviceAssignment } from '../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
 import { EmployeeAccessCredential } from '../../access-control/employee-access-credentials/entity/employee-access-credential.entity';
+import { DefaultAvatarsModule } from '../default-avatars/default-avatars.module';
 
 @Module({
   imports: [
@@ -73,6 +74,7 @@ import { EmployeeAccessCredential } from '../../access-control/employee-access-c
     FilesModule,
     CompaniesModule,
     UsersModule,
+    DefaultAvatarsModule,
     HrSharedModule,
     OnboardingModule,
     HrLaunchReadinessModule,

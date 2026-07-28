@@ -18,6 +18,15 @@ export class UserProfileDto {
     nullable: true,
   })
   profile_photo_url?: string | null;
+  @ApiPropertyOptional({
+    example: '/uploads/profile-photos/company-7/employee-15-avatar.png',
+    nullable: true,
+  })
+  uploaded_profile_photo_url?: string | null;
+  @ApiPropertyOptional({ example: 'default_avatar', nullable: true })
+  profile_photo_source?: string | null;
+  @ApiPropertyOptional({ example: 3, nullable: true })
+  default_avatar_id?: number | null;
   @ApiProperty({ example: 'active' })
   status: string;
   @ApiProperty({ example: 'employee' })

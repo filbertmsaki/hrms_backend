@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { User } from '../../users/entities/user.entity';
 import { HrSharedModule } from '../shared/hr-shared.module';
+import { DefaultAvatarsModule } from '../default-avatars/default-avatars.module';
 import { BranchesController } from './branches.controller';
 import { BranchesService } from './branches.service';
 import { Branch } from './entities/branch.entity';
@@ -17,6 +18,7 @@ import { CompanyUserBranchAccess } from './entities/company-user-branch-access.e
       User,
     ]),
     HrSharedModule,
+    DefaultAvatarsModule,
   ],
   controllers: [BranchesController],
   providers: [BranchesService],
