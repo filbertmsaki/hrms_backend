@@ -93,6 +93,51 @@ export class ImageProcessingService {
     };
   }
 
+  processProfilePhotoBuffer(
+    file: {
+      buffer: Buffer;
+      fileName: string;
+      fileSize: number;
+      mimeType: string;
+    },
+    options: ImageValidationOptions,
+  ): ProcessedImageFile {
+    const originalFileName = file.fileName.trim();
+    const fileExtension = this.normalizeExtension(
+      extname(originalFileName).toLowerCase(),
+    );
+    const normalizedMimeType = file.mimeType.trim().toLowerCase();
+
+    this.assertAllowedExtension(fileExtension, options.allowedExtensions);
+    this.assertAllowedMimeType(normalizedMimeType, options.allowedMimeTypes);
+    this.assertExtensionMimeMatch(fileExtension, normalizedMimeType);
+    this.assertMaxFileSize(file.fileSize, options.maxFileSizeBytes);
+
+    if (file.buffer.length !== file.fileSize) {
+      throw new BadRequestException(
+        'fileSize does not match the uploaded file content.',
+      );
+    }
+
+    const processed = this.processImageBuffer(
+      file.buffer,
+      fileExtension,
+      normalizedMimeType,
+    );
+
+    this.assertMaxFileSize(processed.buffer.length, options.maxFileSizeBytes);
+
+    return {
+      buffer: processed.buffer,
+      originalFileName,
+      mimeType: processed.mimeType,
+      fileExtension,
+      fileSize: processed.buffer.length,
+      width: processed.width,
+      height: processed.height,
+    };
+  }
+
   private processImageBuffer(
     buffer: Buffer,
     fileExtension: string,
@@ -147,6 +192,23 @@ export class ImageProcessingService {
       return {
         buffer,
         mimeType: 'image/jpeg',
+        width: dimensions.width,
+        height: dimensions.height,
+      };
+    }
+
+    if (fileExtension === '.webp') {
+      const dimensions = this.validateWebp(buffer);
+
+      if (declaredMimeType !== 'image/webp') {
+        throw new BadRequestException(
+          'mimeType does not match the actual file content.',
+        );
+      }
+
+      return {
+        buffer,
+        mimeType: 'image/webp',
         width: dimensions.width,
         height: dimensions.height,
       };
@@ -249,6 +311,79 @@ export class ImageProcessingService {
     }
 
     throw new BadRequestException('The JPEG file appears to be corrupted.');
+  }
+
+  private validateWebp(buffer: Buffer): RasterDimensions {
+    if (
+      buffer.length < 30 ||
+      buffer.subarray(0, 4).toString('ascii') !== 'RIFF' ||
+      buffer.subarray(8, 12).toString('ascii') !== 'WEBP'
+    ) {
+      throw new BadRequestException('The WEBP file content is invalid.');
+    }
+
+    const chunkType = buffer.subarray(12, 16).toString('ascii');
+
+    if (chunkType === 'VP8X') {
+      if (buffer.length < 30) {
+        throw new BadRequestException('WEBP image dimensions are invalid.');
+      }
+
+      const width =
+        1 + buffer.readUIntLE(24, 3);
+      const height =
+        1 + buffer.readUIntLE(27, 3);
+
+      if (width < 1 || height < 1) {
+        throw new BadRequestException('WEBP image dimensions are invalid.');
+      }
+
+      return { width, height };
+    }
+
+    if (chunkType === 'VP8L') {
+      if (buffer.length < 25) {
+        throw new BadRequestException('WEBP image dimensions are invalid.');
+      }
+
+      const signature = buffer[20];
+      if (signature !== 0x2f) {
+        throw new BadRequestException('The WEBP file content is invalid.');
+      }
+
+      const bits =
+        buffer[21] |
+        (buffer[22] << 8) |
+        (buffer[23] << 16) |
+        (buffer[24] << 24);
+      const width = (bits & 0x3fff) + 1;
+      const height = ((bits >> 14) & 0x3fff) + 1;
+
+      if (width < 1 || height < 1) {
+        throw new BadRequestException('WEBP image dimensions are invalid.');
+      }
+
+      return { width, height };
+    }
+
+    if (chunkType === 'VP8 ') {
+      const frameMarker = Buffer.from([0x9d, 0x01, 0x2a]);
+      const markerIndex = buffer.indexOf(frameMarker, 20);
+      if (markerIndex === -1 || markerIndex + 7 >= buffer.length) {
+        throw new BadRequestException('WEBP image dimensions are invalid.');
+      }
+
+      const width = buffer.readUInt16LE(markerIndex + 3) & 0x3fff;
+      const height = buffer.readUInt16LE(markerIndex + 5) & 0x3fff;
+
+      if (width < 1 || height < 1) {
+        throw new BadRequestException('WEBP image dimensions are invalid.');
+      }
+
+      return { width, height };
+    }
+
+    throw new BadRequestException('The WEBP file content is invalid.');
   }
 
   private validateAndSanitizeSvg(buffer: Buffer): {
@@ -521,6 +656,8 @@ export class ImageProcessingService {
         return ['image/jpeg'];
       case '.png':
         return ['image/png'];
+      case '.webp':
+        return ['image/webp'];
       default:
         return [];
     }

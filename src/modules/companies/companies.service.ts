@@ -29,6 +29,10 @@ import { AddCompanyUserDto } from './dtos/add-company-user.dto';
 import { UpdateCompanyDto } from './dtos/update-company.dto';
 import { CreateCompanyDto } from './dtos/create-company.dto';
 import {
+  assertCompanyScopedPermissionAssignment,
+  assertCompanyScopedRoleAssignment,
+} from '../../common/utils/permission-scope.util';
+import {
   CompanyMembershipContext,
   CompanySummary,
 } from './interfaces/company-membership-context.interface';
@@ -110,15 +114,9 @@ export class CompaniesService {
     return roleRepository
       .createQueryBuilder('role')
       .where('role.name = :name', { name })
-      .andWhere('(role.company_id = :companyId OR role.company_id IS NULL)', {
+      .andWhere('role.company_id = :companyId', {
         companyId,
       })
-      .orderBy(
-        'CASE WHEN role.company_id = :companyId THEN 0 ELSE 1 END',
-        'ASC',
-      )
-      .addOrderBy('role.id', 'ASC')
-      .setParameter('companyId', companyId)
       .getOne();
   }
 
@@ -140,9 +138,7 @@ export class CompaniesService {
 
     if (
       roles.length !== uniqueRoleIds.length ||
-      roles.some(
-        (role) => role.company_id !== null && role.company_id !== companyId,
-      )
+      roles.some((role) => role.company_id !== companyId)
     ) {
       throw new NotFoundException('One or more requested roles were not found');
     }
@@ -713,9 +709,11 @@ export class CompaniesService {
     }
 
     const role = await this.roleRepository.findOne({ where: { id: roleId } });
-    if (!role || (role.company_id !== null && role.company_id !== companyId)) {
+    if (!role || role.company_id !== companyId) {
       throw new NotFoundException('Role not found');
     }
+
+    assertCompanyScopedRoleAssignment(role);
 
     const existingAssignment = await this.companyUserRoleRepository.findOne({
       where: {
@@ -918,6 +916,8 @@ export class CompaniesService {
     if (!permission) {
       throw new NotFoundException('Permission not found');
     }
+
+    assertCompanyScopedPermissionAssignment(permission);
 
     const existing = await this.companyUserPermissionRepository.findOne({
       where: { company_user_id: membership.id, permission_id: permissionId },

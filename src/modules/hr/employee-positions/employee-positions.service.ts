@@ -13,6 +13,7 @@ import { Employee } from '../employees/entities/employee.entity';
 import { EmployeePosition } from '../employees/entities/employee-position.entity';
 import { Position } from '../positions/entities/position.entity';
 import { HrAccessService } from '../shared/hr-access.service';
+import { PositionAvailabilityService } from '../shared/position-availability.service';
 import { buildPaginationMeta } from '../shared/hr.utils';
 import { CreateEmployeePositionDto } from './dtos/create-employee-position.dto';
 import { EmployeePositionQueryDto } from './dtos/employee-position-query.dto';
@@ -30,6 +31,7 @@ export class EmployeePositionsService {
     @InjectRepository(Position)
     private readonly positionRepository: Repository<Position>,
     private readonly hrAccessService: HrAccessService,
+    private readonly positionAvailabilityService: PositionAvailabilityService,
   ) {}
 
   private mapAssignment(entity: EmployeePosition) {
@@ -133,6 +135,38 @@ export class EmployeePositionsService {
     );
   }
 
+  private async assertPositionMatchesEmployeeContext(
+    companyId: number,
+    employee: Employee,
+    position: Position,
+  ): Promise<void> {
+    if (
+      employee.primary_department_id &&
+      !(await this.positionAvailabilityService.isPositionAvailableForDepartment(
+        companyId,
+        position,
+        employee.primary_department_id,
+      ))
+    ) {
+      throw new BadRequestException(
+        'position_id does not belong to the employee primary department',
+      );
+    }
+
+    if (
+      employee.primary_branch_id &&
+      !(await this.positionAvailabilityService.isPositionAvailableForBranch(
+        companyId,
+        position,
+        employee.primary_branch_id,
+      ))
+    ) {
+      throw new BadRequestException(
+        'position_id does not belong to the employee primary branch',
+      );
+    }
+  }
+
   async create(
     companyId: number,
     dto: CreateEmployeePositionDto,
@@ -152,6 +186,11 @@ export class EmployeePositionsService {
         position.branch_id,
       );
     }
+    await this.assertPositionMatchesEmployeeContext(
+      companyId,
+      employee,
+      position,
+    );
 
     const createdId = await this.dataSource.transaction(async (manager) => {
       if (dto.is_primary) {
@@ -315,6 +354,11 @@ export class EmployeePositionsService {
         position.branch_id,
       );
     }
+    await this.assertPositionMatchesEmployeeContext(
+      companyId,
+      nextEmployee,
+      position,
+    );
 
     const startDate = dto.start_date ?? existing.start_date;
     const endDate = dto.end_date ?? existing.end_date;

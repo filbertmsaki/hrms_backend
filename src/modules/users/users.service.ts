@@ -148,7 +148,7 @@ export class UsersService {
     const roles = await this.roleRepository
       .createQueryBuilder('role')
       .where('role.name IN (:...roleNames)', { roleNames: uniqueNames })
-      .andWhere('(role.company_id = :companyId OR role.company_id IS NULL)', {
+      .andWhere('role.company_id = :companyId', {
         companyId,
       })
       .getMany();

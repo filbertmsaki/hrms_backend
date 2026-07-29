@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { DepartmentPosition } from '../departments/entities/department-position.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { EmployeePosition } from '../employees/entities/employee-position.entity';
 import { Position } from '../positions/entities/position.entity';
@@ -9,7 +10,12 @@ import { EmployeePositionsService } from './employee-positions.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([EmployeePosition, Employee, Position]),
+    TypeOrmModule.forFeature([
+      EmployeePosition,
+      Employee,
+      Position,
+      DepartmentPosition,
+    ]),
     HrSharedModule,
   ],
   controllers: [EmployeePositionsController],

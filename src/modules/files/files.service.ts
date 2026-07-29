@@ -27,6 +27,10 @@ type SaveBase64FileOptions = Omit<
 @Injectable()
 export class FilesService {
   private readonly uploadsRoot = resolve(process.cwd(), 'uploads');
+  private readonly privateUploadsRoot = resolve(
+    process.cwd(),
+    'private-uploads',
+  );
 
   async saveBase64File(
     file: Base64FileDto,
@@ -44,6 +48,60 @@ export class FilesService {
   }
 
   async saveBufferFile(options: SaveBufferFileOptions): Promise<StoredFile> {
+    return this.saveBufferFileToRoot(options, {
+      absoluteRoot: this.uploadsRoot,
+      publicPrefix: '/uploads',
+    });
+  }
+
+  async savePrivateBufferFile(
+    options: SaveBufferFileOptions,
+  ): Promise<StoredFile> {
+    return this.saveBufferFileToRoot(options, {
+      absoluteRoot: this.privateUploadsRoot,
+      publicPrefix: '/private-uploads',
+    });
+  }
+
+  async removeManagedFile(
+    publicPath: string | null | undefined,
+  ): Promise<void> {
+    const resolved = this.resolveManagedFile(publicPath);
+    if (!resolved) {
+      return;
+    }
+
+    await fs.rm(resolved.absolutePath, { force: true });
+  }
+
+  async readManagedFile(
+    publicPath: string | null | undefined,
+  ): Promise<Buffer | null> {
+    const resolved = this.resolveManagedFile(publicPath);
+    if (!resolved) {
+      return null;
+    }
+
+    try {
+      return await fs.readFile(resolved.absolutePath);
+    } catch {
+      return null;
+    }
+  }
+
+  resolveManagedFileAbsolutePath(
+    publicPath: string | null | undefined,
+  ): string | null {
+    return this.resolveManagedFile(publicPath)?.absolutePath ?? null;
+  }
+
+  private async saveBufferFileToRoot(
+    options: SaveBufferFileOptions,
+    rootConfig: {
+      absoluteRoot: string;
+      publicPrefix: '/uploads' | '/private-uploads';
+    },
+  ): Promise<StoredFile> {
     const normalizedMimeType = this.normalizeMimeType(options.mimeType);
     this.assertFileName(options.fileName);
     this.assertAllowedMimeType(normalizedMimeType, options.allowedMimeTypes);
@@ -51,6 +109,7 @@ export class FilesService {
 
     const extension = this.resolveFileExtension(options.fileName);
     const targetDirectory = await this.ensureTargetDirectory(
+      rootConfig.absoluteRoot,
       options.directorySegments,
     );
     const storedFileName = this.buildStoredFileName(
@@ -69,31 +128,11 @@ export class FilesService {
       fileExtension: extension,
       fileSize: options.buffer.length,
       absolutePath,
-      publicPath: this.buildPublicPath([
+      publicPath: this.buildPublicPath(rootConfig.publicPrefix, [
         ...this.normalizeDirectorySegments(options.directorySegments),
         storedFileName,
       ]),
     };
-  }
-
-  async removeManagedFile(
-    publicPath: string | null | undefined,
-  ): Promise<void> {
-    if (!publicPath || !publicPath.startsWith('/uploads/')) {
-      return;
-    }
-
-    const relativeSegments = publicPath
-      .slice('/uploads/'.length)
-      .split('/')
-      .filter((segment) => segment.length);
-    const absolutePath = resolve(this.uploadsRoot, ...relativeSegments);
-
-    if (!absolutePath.startsWith(this.uploadsRoot)) {
-      return;
-    }
-
-    await fs.rm(absolutePath, { force: true });
   }
 
   private decodeBase64FileString(value: string): Buffer {
@@ -192,10 +231,13 @@ export class FilesService {
     return `${safePrefix || 'file'}-${randomUUID()}${extension}`;
   }
 
-  private async ensureTargetDirectory(directorySegments: string[]) {
+  private async ensureTargetDirectory(
+    rootDirectory: string,
+    directorySegments: string[],
+  ) {
     const normalizedSegments =
       this.normalizeDirectorySegments(directorySegments);
-    const directory = join(this.uploadsRoot, ...normalizedSegments);
+    const directory = join(rootDirectory, ...normalizedSegments);
 
     await fs.mkdir(directory, { recursive: true });
 
@@ -222,7 +264,50 @@ export class FilesService {
     });
   }
 
-  private buildPublicPath(pathSegments: string[]) {
-    return `/uploads/${pathSegments.join('/')}`;
+  private buildPublicPath(
+    prefix: '/uploads' | '/private-uploads',
+    pathSegments: string[],
+  ) {
+    return `${prefix}/${pathSegments.join('/')}`;
+  }
+
+  private resolveManagedFile(publicPath: string | null | undefined):
+    | {
+        absolutePath: string;
+      }
+    | null {
+    if (!publicPath) {
+      return null;
+    }
+
+    const rootConfig = publicPath.startsWith('/uploads/')
+      ? {
+          prefix: '/uploads/',
+          absoluteRoot: this.uploadsRoot,
+        }
+      : publicPath.startsWith('/private-uploads/')
+        ? {
+            prefix: '/private-uploads/',
+            absoluteRoot: this.privateUploadsRoot,
+          }
+        : null;
+
+    if (!rootConfig) {
+      return null;
+    }
+
+    const relativeSegments = publicPath
+      .slice(rootConfig.prefix.length)
+      .split('/')
+      .filter((segment) => segment.length);
+    const absolutePath = resolve(rootConfig.absoluteRoot, ...relativeSegments);
+
+    if (!absolutePath.startsWith(rootConfig.absoluteRoot)) {
+      return null;
+    }
+
+    return {
+      absolutePath,
+    };
   }
 }

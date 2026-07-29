@@ -13,6 +13,7 @@ import {
 import { Company } from '../../../companies/entities/company.entity';
 import { Branch } from '../../branches/entities/branch.entity';
 import { Department } from '../../departments/entities/department.entity';
+import { DepartmentPosition } from '../../departments/entities/department-position.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { EmployeePosition } from '../../employees/entities/employee-position.entity';
 
@@ -93,6 +94,12 @@ export class Position {
 
   @OneToMany(() => Position, (position) => position.reports_to_position)
   subordinate_positions: Position[];
+
+  @OneToMany(
+    () => DepartmentPosition,
+    (departmentPosition) => departmentPosition.position,
+  )
+  department_mappings: DepartmentPosition[];
 
   @OneToMany(() => Employee, (employee) => employee.primary_position)
   primary_employees: Employee[];

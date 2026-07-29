@@ -43,6 +43,7 @@ import { Shift } from '../attendance/shift/shifts/entities/shift.entity';
 import { Timetable } from '../attendance/timetable/timetables/entities/timetable.entity';
 import { AttendanceCorrectionRequest } from './entities/attendance-correction-request.entity';
 import { EmployeeProfileUpdateRequest } from './entities/employee-profile-update-request.entity';
+import { ProfileChangeRequestsService } from './profile-change-requests.service';
 
 describe('EmployeeSelfServiceService', () => {
   let service: EmployeeSelfServiceService;
@@ -85,6 +86,9 @@ describe('EmployeeSelfServiceService', () => {
   let filesService: {
     saveBufferFile: jest.Mock;
     removeManagedFile: jest.Mock;
+  };
+  let profileChangeRequestsService: {
+    getPendingSummary: jest.Mock;
   };
 
   const actor: AuthenticatedUser = {
@@ -141,6 +145,12 @@ describe('EmployeeSelfServiceService', () => {
       saveBufferFile: jest.fn(),
       removeManagedFile: jest.fn(),
     };
+    profileChangeRequestsService = {
+      getPendingSummary: jest.fn().mockResolvedValue({
+        has_pending_profile_change: false,
+        pending_request_count: 0,
+      }),
+    };
 
     service = new EmployeeSelfServiceService(
       usersService as unknown as UsersService,
@@ -160,6 +170,7 @@ describe('EmployeeSelfServiceService', () => {
       {} as Repository<AttendanceCorrectionRequest>,
       {} as Repository<EmployeeProfileUpdateRequest>,
       filesService as unknown as FilesService,
+      profileChangeRequestsService as unknown as ProfileChangeRequestsService,
     );
   });
 

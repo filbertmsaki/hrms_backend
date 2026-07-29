@@ -24,7 +24,7 @@ export function assertCanCreateSystemGeneratedRbacRecord(
 ): void {
   if (isSystemGenerated && !hasOwnerRole(actor)) {
     throw new ForbiddenException(
-      `Only users with the SUPER_ADMIN role can create system-generated ${resource}s`,
+      `Only platform-scoped users can create system-generated ${resource}s`,
     );
   }
 }

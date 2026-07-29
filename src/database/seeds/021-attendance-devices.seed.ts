@@ -10,6 +10,8 @@ import {
   ALLIANCE_COMPANY_SLUG,
 } from './company-structure.constants';
 
+const LEGACY_DEVICE_CODES = ['ALLIANCE-HQ-MAIN'];
+
 type DeviceSeed = {
   deviceCode: string;
   deviceName: string;
@@ -27,8 +29,8 @@ type DeviceSeed = {
 
 const DEVICE_SEEDS: DeviceSeed[] = [
   {
-    deviceCode: 'ALLIANCE-HQ-MAIN',
-    deviceName: 'Main Entrance Attendance Device',
+    deviceCode: '255',
+    deviceName: 'T&A Access Controller',
     deviceModel: 'DS-K1T201AMF',
     deviceSerialNumber: 'AA4693697',
     ipAddress: '192.168.1.216',
@@ -38,7 +40,7 @@ const DEVICE_SEEDS: DeviceSeed[] = [
     integrationType: 'hikvision',
     apiUsername: 'admin',
     apiPassword: 'Hikvision12',
-    locationDescription: 'HQ Main Entrance',
+    locationDescription: 'HQ 8th Floor Main Entrance',
   },
 ];
 
@@ -82,9 +84,22 @@ export default class AttendanceDevicesSeeder implements Seeder {
         });
 
         if (!device) {
-          device = deviceRepo.create({ deviceCode: seed.deviceCode });
+          device = await deviceRepo.findOne({
+            where: LEGACY_DEVICE_CODES.map((deviceCode) => ({ deviceCode })),
+          });
         }
 
+        if (!device) {
+          device = await deviceRepo.findOne({
+            where: { deviceSerialNumber: seed.deviceSerialNumber },
+          });
+        }
+
+        if (!device) {
+          device = deviceRepo.create();
+        }
+
+        device.deviceCode = seed.deviceCode;
         device.companyId = company.id;
         device.branchId = branch?.id ?? null;
         device.deviceName = seed.deviceName;

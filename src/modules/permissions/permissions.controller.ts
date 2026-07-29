@@ -14,9 +14,8 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
 import { Permissions } from '../../common/decorators/permissions.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { PlatformGuard } from '../../common/guards/platform.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { CreatePermissionDto } from './dtos/create-permission.dto';
 import { UpdatePermissionDto } from './dtos/update-permission.dto';
@@ -37,12 +36,9 @@ export class PermissionsController {
   constructor(private readonly permissionsService: PermissionsService) {}
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('SUPER_ADMIN')
-  @ApiCreateOperation(
-    'Permission',
-    'Create a new permission (SUPER_ADMIN only)',
-  )
+  @UseGuards(PlatformGuard, PermissionsGuard)
+  @Permissions('permissions:create')
+  @ApiCreateOperation('Permission', 'Create a new permission in platform scope')
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() createPermissionDto: CreatePermissionDto,
@@ -73,9 +69,9 @@ export class PermissionsController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('SUPER_ADMIN')
-  @ApiUpdateOperation('Permission', 'Update a permission (SUPER_ADMIN only)')
+  @UseGuards(PlatformGuard, PermissionsGuard)
+  @Permissions('permissions:update')
+  @ApiUpdateOperation('Permission', 'Update a permission in platform scope')
   update(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -85,9 +81,9 @@ export class PermissionsController {
   }
 
   @Delete(':id')
-  @UseGuards(RolesGuard)
-  @Roles('SUPER_ADMIN')
-  @ApiDeleteOperation('Permission', 'Delete a permission (SUPER_ADMIN only)')
+  @UseGuards(PlatformGuard, PermissionsGuard)
+  @Permissions('permissions:delete')
+  @ApiDeleteOperation('Permission', 'Delete a permission in platform scope')
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,

@@ -68,6 +68,7 @@ import { LeaveStatusEnum } from '../src/modules/hr/leave/enums/leave-status.enum
 import { LeaveRecordStatusEnum } from '../src/modules/hr/leave/enums/leave-record-status.enum';
 import { LeaveGenderRestrictionEnum } from '../src/modules/hr/leave/enums/leave-gender-restriction.enum';
 import { LeaveBalanceLedgerService } from '../src/modules/hr/leave/services/leave-balance-ledger.service';
+import { FilesService } from '../src/modules/files/files.service';
 
 type MockRepo = Record<string, jest.Mock>;
 
@@ -147,6 +148,9 @@ describe('Leave Flow (e2e)', () => {
   let configService: {
     get: jest.Mock;
   };
+  let filesService: {
+    saveBase64File: jest.Mock;
+  };
 
   beforeEach(async () => {
     dataSource = {
@@ -208,6 +212,9 @@ describe('Leave Flow (e2e)', () => {
     };
     configService = {
       get: jest.fn(),
+    };
+    filesService = {
+      saveBase64File: jest.fn(),
     };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
@@ -283,6 +290,7 @@ describe('Leave Flow (e2e)', () => {
         { provide: LeavePdfService, useValue: {} },
         { provide: EventEmitter2, useValue: eventEmitter },
         { provide: ConfigService, useValue: configService },
+        { provide: FilesService, useValue: filesService },
       ],
     }).compile();
 

@@ -31,6 +31,7 @@ import { TimetableStatusEnum } from '../../attendance/timetable/timetables/enums
 import { Timetable } from '../../attendance/timetable/timetables/entities/timetable.entity';
 import { Branch } from '../../branches/entities/branch.entity';
 import { Department } from '../../departments/entities/department.entity';
+import { DepartmentPosition } from '../../departments/entities/department-position.entity';
 import { CreateEmployeeDto } from '../dtos/create-employee.dto';
 import { EmployeeContactInputDto } from '../dtos/employee-contact-input.dto';
 import { EmployeeImportBatch } from './entities/employee-import-batch.entity';
@@ -78,6 +79,7 @@ type ReferenceData = {
   branches: Branch[];
   departments: Department[];
   positions: Position[];
+  departmentPositionMappings: DepartmentPosition[];
   shifts: Shift[];
   timetables: Timetable[];
   devices: AttendanceDevice[];
@@ -155,6 +157,8 @@ export class EmployeeImportService {
     private readonly branchRepository: Repository<Branch>,
     @InjectRepository(Department)
     private readonly departmentRepository: Repository<Department>,
+    @InjectRepository(DepartmentPosition)
+    private readonly departmentPositionRepository: Repository<DepartmentPosition>,
     @InjectRepository(Position)
     private readonly positionRepository: Repository<Position>,
     @InjectRepository(Shift)
@@ -187,6 +191,18 @@ export class EmployeeImportService {
     const employeeSheet = workbook.addWorksheet(EMPLOYEE_SHEET);
     const instructionsSheet = workbook.addWorksheet(INSTRUCTIONS_SHEET);
     const references = await this.loadReferenceData(companyId);
+    const branchById = new Map(
+      references.branches.map((branch) => [branch.id, branch]),
+    );
+    const departmentById = new Map(
+      references.departments.map((department) => [department.id, department]),
+    );
+    const mappingsByPositionId = new Map<number, DepartmentPosition[]>();
+    references.departmentPositionMappings.forEach((mapping) => {
+      const existing = mappingsByPositionId.get(mapping.position_id) ?? [];
+      existing.push(mapping);
+      mappingsByPositionId.set(mapping.position_id, existing);
+    });
     const branchReferenceRows = references.branches
       .filter((branch) => this.optionalString(branch.code))
       .map((branch) => ({
@@ -207,18 +223,36 @@ export class EmployeeImportService {
       }));
     const positionReferenceRows = references.positions
       .filter((position) => this.optionalString(position.code))
-      .map((position) => ({
-        code: position.code ?? '',
-        name: position.name,
-        department_code:
-          references.departments.find(
-            (department) => department.id === position.department_id,
-          )?.code ?? '',
-        branch_code:
-          references.branches.find((branch) => branch.id === position.branch_id)
-            ?.code ?? '',
-        status: position.status,
-      }));
+      .flatMap((position) => {
+        const mappings = mappingsByPositionId.get(position.id) ?? [];
+        if (!mappings.length) {
+          return [
+            {
+              code: position.code ?? '',
+              name: position.name,
+              department_code:
+                departmentById.get(position.department_id ?? 0)?.code ?? '',
+              branch_code: branchById.get(position.branch_id ?? 0)?.code ?? '',
+              status: position.status,
+            },
+          ];
+        }
+
+        return mappings.map((mapping) => {
+          const department = departmentById.get(mapping.department_id);
+          const branch = department
+            ? branchById.get(department.branch_id ?? 0)
+            : undefined;
+
+          return {
+            code: position.code ?? '',
+            name: position.name,
+            department_code: department?.code ?? '',
+            branch_code: branch?.code ?? '',
+            status: position.status,
+          };
+        });
+      });
     const accessDeviceReferenceRows = references.devices.map((device) => ({
       device_code: device.deviceCode,
       device_name: device.deviceName,
@@ -256,10 +290,10 @@ export class EmployeeImportService {
       'female',
       '2026-07-24',
       'ARU',
-      'ACCOUNTS_FINANCE',
-      'ACCOUNTANT',
+      'ARU_ACCOUNTS_FINANCE',
+      'EXECUTIVE',
       EmploymentTypeEnum.FULL_TIME,
-      'ALLIANCE-HQ-MAIN',
+      '255',
       'DEV-0001',
     ]);
     employeeSheet.getRow(2).font = { italic: true };
@@ -285,7 +319,7 @@ export class EmployeeImportService {
       ],
       [
         'Lookup strategy',
-        'Use branch_code, department_code, position_code, and access_device_codes exactly as listed in the reference sheets. Only records with populated codes appear in the dropdowns.',
+        'Use branch_code, department_code, position_code, and access_device_codes exactly as listed in the reference sheets. Department codes are branch-specific, and position codes are reusable but only valid where mapped in the Positions sheet.',
       ],
       [
         'Unique values',
@@ -1017,8 +1051,11 @@ export class EmployeeImportService {
     if (
       position &&
       department &&
-      position.department_id &&
-      position.department_id !== department.id
+      !this.isPositionAvailableForDepartment(
+        position,
+        department.id,
+        references.departmentPositionMappings,
+      )
     ) {
       errors.push(
         'position_code does not belong to the selected department_code',
@@ -1027,8 +1064,12 @@ export class EmployeeImportService {
     if (
       position &&
       branch &&
-      position.branch_id &&
-      position.branch_id !== branch.id
+      !this.isPositionAvailableForBranch(
+        position,
+        branch.id,
+        references.departments,
+        references.departmentPositionMappings,
+      )
     ) {
       errors.push('position_code does not belong to the selected branch_code');
     }
@@ -1930,6 +1971,7 @@ export class EmployeeImportService {
       branches,
       departments,
       positions,
+      departmentPositionMappings,
       shifts,
       timetables,
       devices,
@@ -1952,6 +1994,10 @@ export class EmployeeImportService {
       this.positionRepository.find({
         where: { company_id: companyId },
         order: { name: 'ASC' },
+      }),
+      this.departmentPositionRepository.find({
+        where: { company_id: companyId },
+        order: { id: 'ASC' },
       }),
       this.shiftRepository.find({
         where: { companyId },
@@ -2008,6 +2054,7 @@ export class EmployeeImportService {
       branches,
       departments,
       positions,
+      departmentPositionMappings,
       shifts,
       timetables,
       devices,
@@ -2042,6 +2089,59 @@ export class EmployeeImportService {
     }
 
     void companyId;
+  }
+
+  private isPositionAvailableForDepartment(
+    position: Position,
+    departmentId: number,
+    mappings: DepartmentPosition[],
+  ): boolean {
+    if (position.department_id !== null) {
+      return position.department_id === departmentId;
+    }
+
+    const hasMappings = mappings.some(
+      (mapping) => mapping.position_id === position.id,
+    );
+    if (!hasMappings) {
+      return true;
+    }
+
+    return mappings.some(
+      (mapping) =>
+        mapping.position_id === position.id &&
+        mapping.department_id === departmentId,
+    );
+  }
+
+  private isPositionAvailableForBranch(
+    position: Position,
+    branchId: number,
+    departments: Department[],
+    mappings: DepartmentPosition[],
+  ): boolean {
+    if (position.branch_id !== null) {
+      return position.branch_id === branchId;
+    }
+
+    const hasMappings = mappings.some(
+      (mapping) => mapping.position_id === position.id,
+    );
+    if (!hasMappings) {
+      return true;
+    }
+
+    const branchDepartmentIds = new Set(
+      departments
+        .filter((department) => department.branch_id === branchId)
+        .map((department) => department.id),
+    );
+
+    return mappings.some(
+      (mapping) =>
+        mapping.position_id === position.id &&
+        branchDepartmentIds.has(mapping.department_id),
+    );
   }
 
   private addReferenceSheet(

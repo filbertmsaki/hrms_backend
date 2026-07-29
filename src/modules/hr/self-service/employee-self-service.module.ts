@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { FilesModule } from '../../files/files.module';
+import { NotificationsModule } from '../../notifications/notifications.module';
 import { UsersModule } from '../../users/users.module';
 import { AttendanceMobilePunch } from '../attendance/mobile-punches/entities/attendance-mobile-punch.entity';
 import { AttendanceModule } from '../attendance/attendance.module';
@@ -22,6 +23,21 @@ import { EmployeeSelfServiceService } from './employee-self-service.service';
 import { EmployeeSelfServiceApprovalController } from './employee-self-service-approval.controller';
 import { EmployeeSelfServiceApprovalService } from './employee-self-service-approval.service';
 import { DefaultAvatarsModule } from '../default-avatars/default-avatars.module';
+import { EmployeeContact } from '../employees/entities/employee-contact.entity';
+import { EmployeeAddress } from '../employees/entities/employee-address.entity';
+import { EmployeeRelative } from '../employees/entities/employee-relative.entity';
+import { Branch } from '../branches/entities/branch.entity';
+import { Department } from '../departments/entities/department.entity';
+import { HrSharedModule } from '../shared/hr-shared.module';
+import { ProfileChangeRequest } from './entities/profile-change-request.entity';
+import { ProfileChangeRequestItem } from './entities/profile-change-request-item.entity';
+import { ProfileChangeRequestFile } from './entities/profile-change-request-file.entity';
+import { ProfileChangeRequestAudit } from './entities/profile-change-request-audit.entity';
+import { ProfileChangeFieldPolicyService } from './profile-change-field-policy.service';
+import { ProfileChangeRequestsService } from './profile-change-requests.service';
+import { MeProfileChangeRequestsController } from './me-profile-change-requests.controller';
+import { HrProfileChangeRequestsController } from './hr-profile-change-requests.controller';
+import { User } from '../../users/entities/user.entity';
 
 @Module({
   imports: [
@@ -37,11 +53,23 @@ import { DefaultAvatarsModule } from '../default-avatars/default-avatars.module'
       AttendanceCorrectionRequest,
       EmployeeProfileUpdateRequest,
       Employee,
+      User,
+      EmployeeContact,
+      EmployeeAddress,
+      EmployeeRelative,
+      Branch,
+      Department,
+      ProfileChangeRequest,
+      ProfileChangeRequestItem,
+      ProfileChangeRequestFile,
+      ProfileChangeRequestAudit,
     ]),
     FilesModule,
+    NotificationsModule,
     UsersModule,
     EmployeesModule,
     DefaultAvatarsModule,
+    HrSharedModule,
     LeaveModule,
     AttendanceModule,
     AttendanceProcessingModule,
@@ -49,8 +77,19 @@ import { DefaultAvatarsModule } from '../default-avatars/default-avatars.module'
   controllers: [
     EmployeeSelfServiceController,
     EmployeeSelfServiceApprovalController,
+    MeProfileChangeRequestsController,
+    HrProfileChangeRequestsController,
   ],
-  providers: [EmployeeSelfServiceService, EmployeeSelfServiceApprovalService],
-  exports: [EmployeeSelfServiceService, EmployeeSelfServiceApprovalService],
+  providers: [
+    EmployeeSelfServiceService,
+    EmployeeSelfServiceApprovalService,
+    ProfileChangeFieldPolicyService,
+    ProfileChangeRequestsService,
+  ],
+  exports: [
+    EmployeeSelfServiceService,
+    EmployeeSelfServiceApprovalService,
+    ProfileChangeRequestsService,
+  ],
 })
 export class EmployeeSelfServiceModule {}

@@ -6,6 +6,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
+import { assertActorCanAccessPermission } from '../../common/utils/permission-scope.util';
 import {
   assertCanMutateSystemGeneratedRbacRecord,
   hasOwnerRole,
@@ -13,6 +14,7 @@ import {
 import { CreatePermissionDto } from './dtos/create-permission.dto';
 import { UpdatePermissionDto } from './dtos/update-permission.dto';
 import { Permission } from './entities/permission.entity';
+import { PermissionScope } from './enums/permission-scope.enum';
 
 @Injectable()
 export class PermissionsService {
@@ -29,8 +31,6 @@ export class PermissionsService {
     id: number,
     actor?: AuthenticatedUser,
   ): Promise<Permission> {
-    void actor;
-
     const permission = await this.createBaseQuery()
       .where('permission.id = :id', { id })
       .getOne();
@@ -38,6 +38,8 @@ export class PermissionsService {
     if (!permission) {
       throw new NotFoundException('Permission not found');
     }
+
+    assertActorCanAccessPermission(actor, permission);
 
     return permission;
   }
@@ -48,7 +50,7 @@ export class PermissionsService {
   ): Promise<Permission> {
     if (!hasOwnerRole(actor)) {
       throw new ForbiddenException(
-        'Only users with the SUPER_ADMIN role can create permissions',
+        'Only platform-scoped users can create permissions',
       );
     }
 
@@ -56,6 +58,7 @@ export class PermissionsService {
       name: createPermissionDto.name,
       display_name: createPermissionDto.display_name,
       description: createPermissionDto.description ?? null,
+      scope: createPermissionDto.scope ?? PermissionScope.COMPANY,
       is_system_generated: false,
     });
 
@@ -63,15 +66,21 @@ export class PermissionsService {
   }
 
   async findAll(actor?: AuthenticatedUser): Promise<Permission[]> {
-    void actor;
+    const query = this.createBaseQuery().orderBy('permission.name', 'ASC');
 
-    return this.createBaseQuery().orderBy('permission.name', 'ASC').getMany();
+    if (!hasOwnerRole(actor)) {
+      query.where('permission.scope IN (:...scopes)', {
+        scopes: [PermissionScope.COMPANY, PermissionScope.SHARED],
+      });
+    }
+
+    return query.getMany();
   }
 
   private assertCanManagePermissions(actor?: AuthenticatedUser): void {
     if (!hasOwnerRole(actor)) {
       throw new ForbiddenException(
-        'Only users with the SUPER_ADMIN role can modify permissions',
+        'Only platform-scoped users can modify permissions',
       );
     }
   }
@@ -98,6 +107,7 @@ export class PermissionsService {
       updatePermissionDto.description !== undefined
         ? (updatePermissionDto.description ?? null)
         : permission.description;
+    permission.scope = updatePermissionDto.scope ?? permission.scope;
 
     return this.permissionsRepository.save(permission);
   }

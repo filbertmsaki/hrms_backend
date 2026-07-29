@@ -15,9 +15,8 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
 import { Permissions } from '../../common/decorators/permissions.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { PlatformGuard } from '../../common/guards/platform.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { PaginationDto } from '../../common/dto/pagination.dto';
@@ -47,10 +46,9 @@ export class CompaniesController {
   constructor(private readonly companiesService: CompaniesService) {}
 
   @Get()
-  @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('SUPER_ADMIN')
+  @UseGuards(PlatformGuard, PermissionsGuard)
   @Permissions('companies:read')
-  @ApiListOperation('Company', 'List all companies as the platform owner')
+  @ApiListOperation('Company', 'List all companies in platform scope')
   async listCompanies() {
     return this.companiesService.findAllCompanies();
   }
@@ -207,19 +205,17 @@ export class CompaniesController {
   // ─── Platform owner routes (/:id must come after /current and /my) ────────
 
   @Get(':id')
-  @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('SUPER_ADMIN')
+  @UseGuards(PlatformGuard, PermissionsGuard)
   @Permissions('companies:read')
-  @ApiGetOneOperation('Company', 'Get a company by ID (SUPER_ADMIN only)')
+  @ApiGetOneOperation('Company', 'Get a company by ID in platform scope')
   async findOneCompany(@Param('id', ParseIntPipe) id: number) {
     return this.companiesService.findOneCompany(id);
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('SUPER_ADMIN')
+  @UseGuards(PlatformGuard, PermissionsGuard)
   @Permissions('companies:update')
-  @ApiUpdateOperation('Company', 'Update a company (SUPER_ADMIN only)')
+  @ApiUpdateOperation('Company', 'Update a company in platform scope')
   async updateCompany(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateCompanyDto,
@@ -228,36 +224,33 @@ export class CompaniesController {
   }
 
   @Post(':id/activate')
-  @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('SUPER_ADMIN')
+  @UseGuards(PlatformGuard, PermissionsGuard)
   @Permissions('companies:update')
   @ApiActionOperation(
     'Activate Company',
-    'Activate a suspended company (SUPER_ADMIN only)',
+    'Activate a suspended company in platform scope',
   )
   async activateCompany(@Param('id', ParseIntPipe) id: number) {
     return this.companiesService.activateCompany(id);
   }
 
   @Post(':id/suspend')
-  @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('SUPER_ADMIN')
+  @UseGuards(PlatformGuard, PermissionsGuard)
   @Permissions('companies:update')
   @ApiActionOperation(
     'Suspend Company',
-    'Suspend an active company (SUPER_ADMIN only)',
+    'Suspend an active company in platform scope',
   )
   async suspendCompany(@Param('id', ParseIntPipe) id: number) {
     return this.companiesService.suspendCompany(id);
   }
 
   @Post()
-  @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('SUPER_ADMIN')
+  @UseGuards(PlatformGuard, PermissionsGuard)
   @Permissions('companies:create')
   @ApiCreateOperation(
     'Company',
-    'Create a company and its first administrator (SUPER_ADMIN only)',
+    'Create a company and its first administrator in platform scope',
   )
   async createCompany(@Body() createCompanyDto: CreateCompanyDto) {
     return this.companiesService.createCompanyWithAdministrator(

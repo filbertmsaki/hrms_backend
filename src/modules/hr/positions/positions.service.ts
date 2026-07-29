@@ -16,6 +16,7 @@ import { CreatePositionDto } from './dtos/create-position.dto';
 import { UpdatePositionDto } from './dtos/update-position.dto';
 import { CodeGeneratorService } from '../shared/code-generator.service';
 import { buildPaginationMeta } from '../shared/hr.utils';
+import { PositionAvailabilityService } from '../shared/position-availability.service';
 import { Position } from './entities/position.entity';
 
 @Injectable()
@@ -29,6 +30,7 @@ export class PositionsService {
     private readonly departmentRepository: Repository<Department>,
     private readonly hrAccessService: HrAccessService,
     private readonly codeGeneratorService: CodeGeneratorService,
+    private readonly positionAvailabilityService: PositionAvailabilityService,
   ) {}
 
   private mapPosition(position: Position) {
@@ -246,13 +248,59 @@ export class PositionsService {
     }
 
     if (typeof branch_id === 'number') {
-      qb.andWhere('position.branch_id = :branchId', { branchId: branch_id });
+      qb.andWhere(
+        `(
+          position.branch_id = :branchId
+          OR EXISTS (
+            SELECT 1
+            FROM department_positions department_position
+            INNER JOIN departments mapped_department
+              ON mapped_department.id = department_position.department_id
+            WHERE department_position.company_id = position.company_id
+              AND department_position.position_id = position.id
+              AND mapped_department.branch_id = :branchId
+          )
+          OR (
+            position.branch_id IS NULL
+            AND position.department_id IS NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM department_positions any_department_position
+              WHERE any_department_position.company_id = position.company_id
+                AND any_department_position.position_id = position.id
+            )
+          )
+        )`,
+        { branchId: branch_id },
+      );
     }
 
     if (typeof department_id === 'number') {
-      qb.andWhere('position.department_id = :departmentId', {
-        departmentId: department_id,
-      });
+      qb.andWhere(
+        `(
+          position.department_id = :departmentId
+          OR EXISTS (
+            SELECT 1
+            FROM department_positions department_position
+            WHERE department_position.company_id = position.company_id
+              AND department_position.position_id = position.id
+              AND department_position.department_id = :departmentId
+          )
+          OR (
+            position.branch_id IS NULL
+            AND position.department_id IS NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM department_positions any_department_position
+              WHERE any_department_position.company_id = position.company_id
+                AND any_department_position.position_id = position.id
+            )
+          )
+        )`,
+        {
+          departmentId: department_id,
+        },
+      );
     }
 
     if (typeof reports_to_position_id === 'number') {
@@ -272,10 +320,40 @@ export class PositionsService {
     const accessibleBranchIds =
       await this.hrAccessService.getAccessibleBranchIds(actor);
     if (accessibleBranchIds?.length === 0) {
-      qb.andWhere('position.branch_id IS NULL');
+      qb.andWhere(
+        `position.branch_id IS NULL
+         AND position.department_id IS NULL
+         AND NOT EXISTS (
+           SELECT 1
+           FROM department_positions any_department_position
+           WHERE any_department_position.company_id = position.company_id
+             AND any_department_position.position_id = position.id
+         )`,
+      );
     } else if (accessibleBranchIds) {
       qb.andWhere(
-        '(position.branch_id IS NULL OR position.branch_id IN (:...branchIds))',
+        `(
+          position.branch_id IN (:...branchIds)
+          OR EXISTS (
+            SELECT 1
+            FROM department_positions department_position
+            INNER JOIN departments mapped_department
+              ON mapped_department.id = department_position.department_id
+            WHERE department_position.company_id = position.company_id
+              AND department_position.position_id = position.id
+              AND mapped_department.branch_id IN (:...branchIds)
+          )
+          OR (
+            position.branch_id IS NULL
+            AND position.department_id IS NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM department_positions any_department_position
+              WHERE any_department_position.company_id = position.company_id
+                AND any_department_position.position_id = position.id
+            )
+          )
+        )`,
         { branchIds: accessibleBranchIds },
       );
     }
@@ -322,6 +400,29 @@ export class PositionsService {
         actor,
         position.branch_id,
       );
+    } else if (
+      await this.positionAvailabilityService.positionHasMappings(
+        companyId,
+        position.id,
+      )
+    ) {
+      const accessibleBranchIds =
+        await this.hrAccessService.getAccessibleBranchIds(actor);
+
+      if (accessibleBranchIds === null) {
+        return this.mapPosition(position);
+      }
+
+      if (
+        accessibleBranchIds.length === 0 ||
+        !(await this.positionAvailabilityService.positionHasAccessibleMappings(
+          companyId,
+          position.id,
+          accessibleBranchIds,
+        ))
+      ) {
+        throw new NotFoundException('Position not found');
+      }
     }
     return this.mapPosition(position);
   }

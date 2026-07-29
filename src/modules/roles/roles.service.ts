@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import { PaginationDto, SortDirection } from '../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
+import { assertPermissionsMatchRoleScope } from '../../common/utils/permission-scope.util';
 import {
   assertCanManageScopedRbacRecord,
   ensureCompanyScopedActor,
@@ -71,10 +72,9 @@ export class RolesService {
 
     if (!hasOwnerRole(actor)) {
       const companyActor = ensureCompanyScopedActor(actor);
-      query.andWhere(
-        '(role.company_id IS NULL OR role.company_id = :companyId)',
-        { companyId: companyActor.companyId },
-      );
+      query.andWhere('role.company_id = :companyId', {
+        companyId: companyActor.companyId,
+      });
     }
 
     const role = await query.getOne();
@@ -88,6 +88,7 @@ export class RolesService {
 
   private async resolvePermissions(
     permissionIds: number[],
+    roleCompanyId: number | null,
   ): Promise<Permission[]> {
     const ids = Array.from(new Set(permissionIds));
 
@@ -104,6 +105,11 @@ export class RolesService {
     if (permissions.length !== ids.length) {
       throw new NotFoundException('One or more permissions were not found');
     }
+
+    assertPermissionsMatchRoleScope(permissions, {
+      company_id: roleCompanyId,
+      name: roleCompanyId === null ? 'platform role' : 'company role',
+    });
 
     return permissions;
   }
@@ -220,6 +226,7 @@ export class RolesService {
 
     const permissions = await this.resolvePermissions(
       createRoleDto.permission_ids ?? [],
+      companyId,
     );
 
     const role = this.rolesRepository.create({
@@ -239,7 +246,7 @@ export class RolesService {
 
     if (!hasOwnerRole(actor)) {
       const companyActor = ensureCompanyScopedActor(actor);
-      query.where('(role.company_id IS NULL OR role.company_id = :companyId)', {
+      query.where('role.company_id = :companyId', {
         companyId: companyActor.companyId,
       });
     }
@@ -516,6 +523,8 @@ export class RolesService {
       throw new NotFoundException('Permission not found');
     }
 
+    assertPermissionsMatchRoleScope([permission], role);
+
     const currentPermissions = role.permissions ?? [];
     const exists = currentPermissions.some((item) => item.id === permission.id);
 
@@ -639,6 +648,7 @@ export class RolesService {
     if (updateRoleDto.permission_ids !== undefined) {
       role.permissions = await this.resolvePermissions(
         updateRoleDto.permission_ids,
+        updatedCompanyId,
       );
     }
 

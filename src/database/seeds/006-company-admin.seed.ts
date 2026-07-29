@@ -57,8 +57,8 @@ export default class CompanyAdminSeeder implements Seeder {
       const userNo = process.env.COMPANY_ADMIN_USER_NO ?? 'ADM-00001';
 
       let user =
-        (await userRepo.findOne({ where: { email } })) ??
-        (await userRepo.findOne({ where: { phone } }));
+        (await userRepo.findOne({ where: { email }, relations: ['roles'] })) ??
+        (await userRepo.findOne({ where: { phone }, relations: ['roles'] }));
 
       if (!user) {
         user = userRepo.create({
@@ -78,6 +78,8 @@ export default class CompanyAdminSeeder implements Seeder {
         user.last_name = lastName;
         user.user_type = 'COMPANY_USER';
         user.status = 'active';
+        user.is_email_verified = true;
+        user.roles = [];
         await userRepo.save(user);
       }
 

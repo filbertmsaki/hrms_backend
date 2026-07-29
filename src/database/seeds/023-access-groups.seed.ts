@@ -13,7 +13,7 @@ import {
 } from './company-structure.constants';
 
 const ROOT_ORG_NAME = 'Alliance staff';
-const DEFAULT_DEVICE_CODE = 'ALLIANCE-HQ-MAIN';
+const DEFAULT_DEVICE_CODE = '255';
 
 export default class AccessGroupsSeeder implements Seeder {
   public async run(

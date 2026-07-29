@@ -48,6 +48,7 @@ import { CreateMyAttendancePunchDto } from './dtos/create-my-attendance-punch.dt
 import { MyAttendanceOverviewQueryDto } from './dtos/my-attendance-overview-query.dto';
 import { MyAttendanceAssignmentQueryDto } from './dtos/my-attendance-assignment-query.dto';
 import { FilesService } from '../../files/files.service';
+import { ProfileChangeRequestsService } from './profile-change-requests.service';
 
 type EmployeeProfileShape = {
   id?: number;
@@ -106,16 +107,22 @@ export class EmployeeSelfServiceService {
     @InjectRepository(EmployeeProfileUpdateRequest)
     private readonly profileUpdateRequestRepository: Repository<EmployeeProfileUpdateRequest>,
     private readonly filesService: FilesService,
+    private readonly profileChangeRequestsService: ProfileChangeRequestsService,
   ) {}
 
   async getProfile(actor: AuthenticatedUser) {
     const companyId = this.ensureCompanyId(actor);
     const employee = await this.requireMyEmployeeProfile(actor);
     const user = await this.usersService.findMyProfileById(actor.id, companyId);
+    const pending = await this.profileChangeRequestsService.getPendingSummary(
+      companyId,
+      employee.id!,
+    );
 
     return {
       user,
       employee,
+      pending_profile_change: pending,
       links: {
         dashboard: '/me/dashboard',
         profile: '/me/profile',
@@ -211,6 +218,10 @@ export class EmployeeSelfServiceService {
       this.usersService.findMyProfileById(actor.id, companyId),
       this.getTodayAttendance(actor),
     ]);
+    const pending = await this.profileChangeRequestsService.getPendingSummary(
+      companyId,
+      employee.id!,
+    );
 
     return {
       account_status: user.status ?? null,
@@ -242,6 +253,7 @@ export class EmployeeSelfServiceService {
         can_request_leave:
           (employee?.employment_status ?? '').toLowerCase() === 'active',
       },
+      pending_profile_change: pending,
     };
   }
 
@@ -293,6 +305,10 @@ export class EmployeeSelfServiceService {
       this.findUpcomingApprovedLeave(companyId, employeeId, today),
       this.getAttendanceSchedule(actor, { from_date: today, days: 7 }),
     ]);
+    const pending = await this.profileChangeRequestsService.getPendingSummary(
+      companyId,
+      employee.id!,
+    );
 
     return {
       generated_at: new Date().toISOString(),
@@ -324,6 +340,7 @@ export class EmployeeSelfServiceService {
           (employee?.employment_status ?? '').toLowerCase() === 'active',
         has_employee_profile: !!employee,
       },
+      pending_profile_change: pending,
       links: {
         profile: '/me/profile',
         status: '/me/status',

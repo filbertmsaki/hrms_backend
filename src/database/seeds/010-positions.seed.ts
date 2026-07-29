@@ -1,7 +1,6 @@
 import { DataSource } from 'typeorm';
 import { Seeder, SeederFactoryManager } from 'typeorm-extension';
 import { Company } from '../../modules/companies/entities/company.entity';
-import { Department } from '../../modules/hr/departments/entities/department.entity';
 import { Position } from '../../modules/hr/positions/entities/position.entity';
 import {
   ALLIANCE_COMPANY_NAME,
@@ -22,7 +21,6 @@ export default class PositionsSeeder implements Seeder {
 
     try {
       const companyRepo = qr.manager.getRepository(Company);
-      const deptRepo = qr.manager.getRepository(Department);
       const positionRepo = qr.manager.getRepository(Position);
 
       const companyName =
@@ -36,15 +34,7 @@ export default class PositionsSeeder implements Seeder {
         );
       }
 
-      const depts = await deptRepo.find({ where: { company_id: company.id } });
-      const deptMap = new Map(depts.map((d) => [d.code!, d]));
-
-      // Pass 1: upsert all positions (without reports_to_position_id — parent may not exist yet)
       for (const seed of ALLIANCE_POSITIONS) {
-        const dept = seed.departmentCode
-          ? (deptMap.get(seed.departmentCode) ?? null)
-          : null;
-
         let position = await positionRepo.findOne({
           where: { company_id: company.id, code: seed.code },
         });
@@ -52,7 +42,8 @@ export default class PositionsSeeder implements Seeder {
         if (!position) {
           position = positionRepo.create({
             company_id: company.id,
-            department_id: dept?.id ?? null,
+            branch_id: null,
+            department_id: null,
             name: seed.name,
             code: seed.code,
             level: seed.level,
@@ -63,7 +54,8 @@ export default class PositionsSeeder implements Seeder {
             headcount: seed.headcount ?? 1,
           });
         } else {
-          position.department_id = dept?.id ?? null;
+          position.branch_id = null;
+          position.department_id = null;
           position.name = seed.name;
           position.level = seed.level;
           position.is_manager = seed.isManager;
@@ -78,28 +70,32 @@ export default class PositionsSeeder implements Seeder {
         await positionRepo.save(position);
       }
 
-      // Pass 2: set reports_to_position_id now that all positions exist
       const allPositions = await positionRepo.find({
         where: { company_id: company.id },
       });
-      const positionByCode = new Map(allPositions.map((p) => [p.code!, p]));
+      const positionByCode = new Map(
+        allPositions.map((position) => [position.code!, position]),
+      );
 
       for (const seed of ALLIANCE_POSITIONS) {
-        if (!seed.reportsToPositionCode) continue;
-
         const position = positionByCode.get(seed.code);
-        const reportsTo = positionByCode.get(seed.reportsToPositionCode);
-        if (!position || !reportsTo) continue;
+        if (!position) {
+          continue;
+        }
 
-        if (position.reports_to_position_id !== reportsTo.id) {
-          position.reports_to_position_id = reportsTo.id;
+        const reportsTo = seed.reportsToPositionCode
+          ? (positionByCode.get(seed.reportsToPositionCode) ?? null)
+          : null;
+
+        if (position.reports_to_position_id !== (reportsTo?.id ?? null)) {
+          position.reports_to_position_id = reportsTo?.id ?? null;
           await positionRepo.save(position);
         }
       }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][Positions] Upserted ${ALLIANCE_POSITIONS.length} positions for company "${company.name}"`,
+        `[Seeder][Positions] Upserted ${ALLIANCE_POSITIONS.length} reusable positions for company "${company.name}"`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

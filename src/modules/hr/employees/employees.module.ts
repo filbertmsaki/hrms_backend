@@ -10,6 +10,7 @@ import { EmployeeAccessCredentialsModule } from '../../access-control/employee-a
 import { EmployeeDeviceAssignmentsModule } from '../../access-control/employee-device-assignments/employee-device-assignments.module';
 import { Branch } from '../branches/entities/branch.entity';
 import { Department } from '../departments/entities/department.entity';
+import { DepartmentPosition } from '../departments/entities/department-position.entity';
 import { ShiftEngineModule } from '../attendance/shift/shift-engine.module';
 import { TimetableEngineModule } from '../attendance/timetable/timetable-engine.module';
 import { Position } from '../positions/entities/position.entity';
@@ -61,6 +62,7 @@ import { DefaultAvatarsModule } from '../default-avatars/default-avatars.module'
       User,
       Branch,
       Department,
+      DepartmentPosition,
       Position,
       Shift,
       Timetable,

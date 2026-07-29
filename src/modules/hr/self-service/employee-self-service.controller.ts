@@ -44,6 +44,7 @@ import { QuerySelfServiceRequestDto } from './dtos/query-self-service-request.dt
 import { TeamAttendanceQueryDto } from './dtos/team-attendance-query.dto';
 import { EmployeeSelfServiceService } from './employee-self-service.service';
 import { SelectDefaultAvatarDto } from '../default-avatars/dtos/select-default-avatar.dto';
+import { ProfileChangeRequestsService } from './profile-change-requests.service';
 
 @ApiTags('Employee Self Service')
 @ApiBearerAuth('access-token')
@@ -52,9 +53,11 @@ import { SelectDefaultAvatarDto } from '../default-avatars/dtos/select-default-a
 export class EmployeeSelfServiceController {
   constructor(
     private readonly employeeSelfServiceService: EmployeeSelfServiceService,
+    private readonly profileChangeRequestsService: ProfileChangeRequestsService,
   ) {}
 
   private readonly allowedProfilePhotoMimeTypes = new Set([
+    'image/svg+xml',
     'image/jpeg',
     'image/png',
     'image/webp',
@@ -173,7 +176,11 @@ export class EmployeeSelfServiceController {
       throw new BadRequestException('Uploaded profile picture is empty.');
     }
 
-    return this.employeeSelfServiceService.uploadProfilePhoto(req.user, file);
+    return this.profileChangeRequestsService.createProfilePhotoRequest(
+      req.user,
+      file,
+      this.buildRequestContext(req),
+    );
   }
 
   @Get('profile/avatar-options')
@@ -196,7 +203,11 @@ export class EmployeeSelfServiceController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: SelectDefaultAvatarDto,
   ) {
-    return this.employeeSelfServiceService.selectProfileAvatar(req.user, dto);
+    return this.profileChangeRequestsService.submitAvatarSelectionRequest(
+      req.user,
+      dto.default_avatar_id ?? null,
+      this.buildRequestContext(req),
+    );
   }
 
   @Get('status')
@@ -592,5 +603,19 @@ export class EmployeeSelfServiceController {
     const normalized = firstValue?.split(',')[0]?.trim();
 
     return normalized || null;
+  }
+
+  private buildRequestContext(req: ExpressRequest) {
+    return {
+      ipAddress: req.ip,
+      userAgent:
+        typeof req.headers['user-agent'] === 'string'
+          ? req.headers['user-agent']
+          : null,
+      requestIdHeader:
+        typeof req.headers['x-request-id'] === 'string'
+          ? req.headers['x-request-id']
+          : null,
+    };
   }
 }

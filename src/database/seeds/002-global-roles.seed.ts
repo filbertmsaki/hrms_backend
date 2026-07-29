@@ -10,12 +10,12 @@ type RoleSeed = {
   permissionNames: string[];
 };
 
-const GLOBAL_ROLE_SEEDS: RoleSeed[] = [
+const PLATFORM_ROLE_SEEDS: RoleSeed[] = [
   {
     name: 'SUPER_ADMIN',
-    displayName: 'Super Admin',
+    displayName: 'Platform Super Admin',
     description:
-      'Full access to the entire platform. Can manage all companies, plans, users, settings, and data.',
+      'Full access to platform administration, tenant provisioning, permissions, and scoped RBAC management.',
     permissionNames: [
       'create_company',
       'view_companies',
@@ -36,6 +36,53 @@ const GLOBAL_ROLE_SEEDS: RoleSeed[] = [
       'permissions:delete',
     ],
   },
+  {
+    name: 'PLATFORM_ADMINISTRATOR',
+    displayName: 'Platform Administrator',
+    description:
+      'Manages tenant provisioning and platform-wide RBAC visibility without destructive permission mutation.',
+    permissionNames: [
+      'create_company',
+      'view_companies',
+      'update_company',
+      'create_company_admin',
+      'companies:create',
+      'companies:read',
+      'companies:update',
+      'roles:read',
+      'roles:create',
+      'roles:update',
+      'roles:delete',
+      'roles:assign-permission',
+      'roles:revoke-permission',
+      'permissions:read',
+    ],
+  },
+  {
+    name: 'PLATFORM_SUPPORT',
+    displayName: 'Platform Support',
+    description:
+      'Handles tenant support and troubleshooting with read access plus limited company status maintenance.',
+    permissionNames: [
+      'view_companies',
+      'companies:read',
+      'companies:update',
+      'roles:read',
+      'permissions:read',
+    ],
+  },
+  {
+    name: 'PLATFORM_AUDITOR',
+    displayName: 'Platform Auditor',
+    description:
+      'Read-only visibility into platform companies, roles, and permissions for governance and audit work.',
+    permissionNames: [
+      'view_companies',
+      'companies:read',
+      'roles:read',
+      'permissions:read',
+    ],
+  },
 ];
 
 export default class GlobalRolesSeeder implements Seeder {
@@ -53,7 +100,7 @@ export default class GlobalRolesSeeder implements Seeder {
       const roleRepo = qr.manager.getRepository(Role);
       const permissionRepo = qr.manager.getRepository(Permission);
 
-      const allPermissionNames = GLOBAL_ROLE_SEEDS.flatMap(
+      const allPermissionNames = PLATFORM_ROLE_SEEDS.flatMap(
         (r) => r.permissionNames,
       );
       const permissions = await permissionRepo.find({
@@ -69,7 +116,7 @@ export default class GlobalRolesSeeder implements Seeder {
         await roleRepo.delete(legacyOwner.id);
       }
 
-      for (const seed of GLOBAL_ROLE_SEEDS) {
+      for (const seed of PLATFORM_ROLE_SEEDS) {
         let role = await roleRepo.findOne({
           where: { name: seed.name, company_id: IsNull() },
           relations: ['permissions'],
@@ -98,7 +145,7 @@ export default class GlobalRolesSeeder implements Seeder {
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][GlobalRoles] Upserted ${GLOBAL_ROLE_SEEDS.length} global role(s)`,
+        `[Seeder][GlobalRoles] Upserted ${PLATFORM_ROLE_SEEDS.length} platform role(s)`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

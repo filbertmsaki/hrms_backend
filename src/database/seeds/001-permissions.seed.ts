@@ -1,12 +1,50 @@
 import { DataSource, Repository } from 'typeorm';
 import { Seeder, SeederFactoryManager } from 'typeorm-extension';
 import { Permission } from '../../modules/permissions/entities/permission.entity';
+import { PermissionScope } from '../../modules/permissions/enums/permission-scope.enum';
 
 type PermissionSeed = {
   name: string;
   displayName: string;
   description: string;
 };
+
+const PLATFORM_PERMISSION_NAMES = new Set<string>([
+  'create_company',
+  'view_companies',
+  'update_company',
+  'delete_company',
+  'create_company_admin',
+  'companies:create',
+  'companies:update',
+  'companies:delete',
+  'permissions:create',
+  'permissions:update',
+  'permissions:delete',
+]);
+
+const SHARED_PERMISSION_NAMES = new Set<string>([
+  'companies:read',
+  'roles:read',
+  'roles:create',
+  'roles:update',
+  'roles:delete',
+  'roles:assign-permission',
+  'roles:revoke-permission',
+  'permissions:read',
+]);
+
+function resolvePermissionScope(name: string): PermissionScope {
+  if (PLATFORM_PERMISSION_NAMES.has(name)) {
+    return PermissionScope.PLATFORM;
+  }
+
+  if (SHARED_PERMISSION_NAMES.has(name)) {
+    return PermissionScope.SHARED;
+  }
+
+  return PermissionScope.COMPANY;
+}
 
 const PERMISSION_SEEDS: PermissionSeed[] = [
   // Company management
@@ -1574,11 +1612,13 @@ export default class PermissionsSeeder implements Seeder {
             name: seed.name,
             display_name: seed.displayName,
             description: seed.description,
+            scope: resolvePermissionScope(seed.name),
             is_system_generated: true,
           });
         } else {
           permission.display_name = seed.displayName;
           permission.description = seed.description;
+          permission.scope = resolvePermissionScope(seed.name);
           permission.is_system_generated = true;
         }
 
@@ -1586,8 +1626,22 @@ export default class PermissionsSeeder implements Seeder {
       }
 
       await qr.commitTransaction();
+      const totals = PERMISSION_SEEDS.reduce(
+        (acc, seed) => {
+          acc[resolvePermissionScope(seed.name)] += 1;
+          return acc;
+        },
+        {
+          [PermissionScope.PLATFORM]: 0,
+          [PermissionScope.COMPANY]: 0,
+          [PermissionScope.SHARED]: 0,
+        },
+      );
       console.log(
-        `[Seeder][Permissions] Upserted ${PERMISSION_SEEDS.length} permissions`,
+        `[Seeder][Permissions] Upserted ${PERMISSION_SEEDS.length} permissions ` +
+          `(platform=${totals[PermissionScope.PLATFORM]}, ` +
+          `company=${totals[PermissionScope.COMPANY]}, ` +
+          `shared=${totals[PermissionScope.SHARED]})`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -122,6 +123,12 @@ export class UsersController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: SelectUserAvatarDto,
   ) {
+    if (req.user.employeeId) {
+      throw new BadRequestException(
+        'Employee avatar changes require HR approval. Use /me/profile-change-requests or /me/profile/avatar instead.',
+      );
+    }
+
     return this.usersService.updateMySelectedAvatar(
       req.user.companyId!,
       req.user.id,
@@ -138,6 +145,12 @@ export class UsersController {
   @ApiAuthRequired()
   @ApiSuccessResponse(200, 'Avatar selection cleared successfully')
   clearMyAvatar(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    if (req.user.employeeId) {
+      throw new BadRequestException(
+        'Employee avatar changes require HR approval. Use /me/profile-change-requests or /me/profile/avatar instead.',
+      );
+    }
+
     return this.usersService.clearMySelectedAvatar(
       req.user.companyId!,
       req.user.id,
@@ -157,6 +170,17 @@ export class UsersController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() updateUserDto: UpdateUserDto,
   ) {
+    const employeeControlledFields = ['first_name', 'last_name', 'phone', 'email'];
+    const attemptedControlledFields = employeeControlledFields.filter(
+      (field) => field in (updateUserDto as Record<string, unknown>),
+    );
+
+    if (req.user.employeeId && attemptedControlledFields.length > 0) {
+      throw new BadRequestException(
+        `Employee profile fields (${attemptedControlledFields.join(', ')}) require HR approval. Use /me/profile-change-requests instead.`,
+      );
+    }
+
     return this.usersService.update(req.user.id, updateUserDto);
   }
 

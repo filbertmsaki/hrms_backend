@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import { Role } from '../../roles/entities/role.entity';
 import { User } from '../../users/entities/user.entity';
+import { PermissionScope } from '../enums/permission-scope.enum';
 
 @Entity('permissions')
 @Index('UQ_permission_name', ['name'], { unique: true })
@@ -25,6 +26,19 @@ export class Permission {
 
   @Column({ type: 'text', nullable: true })
   description: string | null;
+
+  @ApiProperty({
+    description:
+      'Scope that controls whether this permission is platform-only, company-only, or reusable in both contexts',
+    enum: PermissionScope,
+    default: PermissionScope.COMPANY,
+  })
+  @Column({
+    type: 'varchar',
+    length: 20,
+    default: PermissionScope.COMPANY,
+  })
+  scope: PermissionScope;
 
   @ApiProperty({
     description:

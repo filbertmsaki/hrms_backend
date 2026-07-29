@@ -30,7 +30,6 @@ import { HikvisionDigestClient } from './helpers/hikvision-digest.client';
 import { HikvisionHelperService } from './helpers/hikvision-helper.service';
 import { HikvisionParserHelper } from './helpers/hikvision-parser.helper';
 import { HIKVISION_SYNC_QUEUE } from './hikvision-sync-job.constants';
-import { HikvisionSeedPreviewService } from './hikvision-seed-preview.service';
 import { HikvisionSyncJobsService } from './hikvision-sync-jobs.service';
 import { HikvisionSyncProcessor } from './hikvision-sync.processor';
 
@@ -73,7 +72,6 @@ import { HikvisionSyncProcessor } from './hikvision-sync.processor';
     HikvisionHelperService,
     HikvisionDigestClient,
     HikvisionParserHelper,
-    HikvisionSeedPreviewService,
     HikvisionSyncJobsService,
     HikvisionSyncProcessor,
   ],
@@ -89,7 +87,6 @@ import { HikvisionSyncProcessor } from './hikvision-sync.processor';
     HikvisionPeopleCredentialSyncService,
     HikvisionUserManagementService,
     DeviceCommandLogService,
-    HikvisionSeedPreviewService,
     HikvisionSyncJobsService,
   ],
 })

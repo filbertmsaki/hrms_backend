@@ -20,9 +20,7 @@ import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { ApiActionOperation } from '../../docs/swagger-decorators';
-import { HikvisionSeedPreviewQueryDto } from './dto/hikvision-seed-preview-query.dto';
 import { HikvisionPeopleCredentialSyncService } from './hikvision-people-credential-sync.service';
-import { HikvisionSeedPreviewService } from './hikvision-seed-preview.service';
 import { HikvisionSyncJobsService } from './hikvision-sync-jobs.service';
 
 // ── Unified action enum ────────────────────────────────────────────────────────
@@ -36,17 +34,11 @@ export enum HikvisionDeviceAction {
   SYNC_FINGERPRINTS = 'SYNC_FINGERPRINTS',
   /** Synchronous: cards only */
   SYNC_CARDS = 'SYNC_CARDS',
-  /** Dev only: preview which device users are missing from seeder constants */
-  SEED_PREVIEW = 'SEED_PREVIEW',
-  /** Dev only: read DB-synced employees and write a constants snippet file */
-  GENERATE_CONSTANTS = 'GENERATE_CONSTANTS',
-  /** Dev only: write missing employees directly into company-structure.constants.ts */
-  WRITE_TO_CONSTANTS = 'WRITE_TO_CONSTANTS',
 }
 
 // ── Unified request DTO ────────────────────────────────────────────────────────
 
-class HikvisionDeviceManageDto extends HikvisionSeedPreviewQueryDto {
+class HikvisionDeviceManageDto {
   @IsEnum(HikvisionDeviceAction)
   action!: HikvisionDeviceAction;
 
@@ -64,7 +56,6 @@ export class HikvisionPeopleCredentialSyncController {
   constructor(
     private readonly peopleCredentialSyncService: HikvisionPeopleCredentialSyncService,
     private readonly hikvisionSyncJobsService: HikvisionSyncJobsService,
-    private readonly seedPreviewService: HikvisionSeedPreviewService,
   ) {}
 
   @Post('devices/:deviceId/manage')
@@ -75,8 +66,7 @@ export class HikvisionPeopleCredentialSyncController {
     'Manage Device',
     `Single entry point for all Hikvision device operations.
     Pass \`action\` in the body to choose what to run:
-    SYNC_ALL | SYNC_USERS | SYNC_FINGERPRINTS | SYNC_CARDS |
-    SEED_PREVIEW | GENERATE_CONSTANTS | WRITE_TO_CONSTANTS`,
+    SYNC_ALL | SYNC_USERS | SYNC_FINGERPRINTS | SYNC_CARDS`,
   )
   async manage(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -113,27 +103,6 @@ export class HikvisionPeopleCredentialSyncController {
 
       case HikvisionDeviceAction.SYNC_CARDS:
         return this.peopleCredentialSyncService.syncCards(companyId, deviceId);
-
-      case HikvisionDeviceAction.SEED_PREVIEW:
-        return this.seedPreviewService.generateSeedPreview(
-          companyId,
-          deviceId,
-          body,
-        );
-
-      case HikvisionDeviceAction.GENERATE_CONSTANTS:
-        return this.seedPreviewService.generateConstantsFromSync(
-          companyId,
-          deviceId,
-        );
-
-      case HikvisionDeviceAction.WRITE_TO_CONSTANTS:
-        return this.seedPreviewService.writeToConstantsFile(
-          companyId,
-          deviceId,
-          body.defaultDepartmentCode,
-          body.defaultPositionCode,
-        );
 
       default:
         throw new BadRequestException(

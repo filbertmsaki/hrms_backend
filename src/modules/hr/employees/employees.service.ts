@@ -20,6 +20,7 @@ import { LeaveBalanceService } from '../leave/services/leave-balance.service';
 import { OnboardingService } from '../onboarding/onboarding.service';
 import { Position } from '../positions/entities/position.entity';
 import { HrAccessService } from '../shared/hr-access.service';
+import { PositionAvailabilityService } from '../shared/position-availability.service';
 import { buildPaginationMeta, formatDateOnly } from '../shared/hr.utils';
 import { AddEmployeeDocumentDto } from './dtos/add-employee-document.dto';
 import { ChangeEmployeeStatusDto } from './dtos/change-employee-status.dto';
@@ -123,6 +124,7 @@ export class EmployeesService {
     private readonly companiesService: CompaniesService,
     private readonly usersService: UsersService,
     private readonly hrAccessService: HrAccessService,
+    private readonly positionAvailabilityService: PositionAvailabilityService,
     private readonly onboardingService: OnboardingService,
     private readonly leaveBalanceService: LeaveBalanceService,
     private readonly attendanceReadinessService: EmployeeAttendanceReadinessService,
@@ -2194,9 +2196,13 @@ export class EmployeesService {
         : (employee.primary_position ?? null);
 
     if (
-      primaryPosition?.department_id &&
+      primaryPosition &&
       primaryDepartment?.id &&
-      primaryPosition.department_id !== primaryDepartment.id
+      !(await this.positionAvailabilityService.isPositionAvailableForDepartment(
+        companyId,
+        primaryPosition,
+        primaryDepartment.id,
+      ))
     ) {
       throw new BadRequestException(
         'primary_position_id does not belong to the selected primary_department_id',
@@ -2204,9 +2210,13 @@ export class EmployeesService {
     }
 
     if (
-      primaryPosition?.branch_id &&
+      primaryPosition &&
       branch?.id &&
-      primaryPosition.branch_id !== branch.id
+      !(await this.positionAvailabilityService.isPositionAvailableForBranch(
+        companyId,
+        primaryPosition,
+        branch.id,
+      ))
     ) {
       throw new BadRequestException(
         'primary_position_id does not belong to the selected primary_branch_id',
