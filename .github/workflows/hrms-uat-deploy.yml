@@ -7,12 +7,13 @@ on:
     types:
       - completed
     branches:
-      - main
+      - uat
+
   workflow_dispatch:
     inputs:
       deploy_sha:
-        description: Commit SHA to deploy to UAT
-        required: true
+        description: Optional commit SHA from the uat branch. Leave blank to deploy the latest uat commit.
+        required: false
         type: string
 
 permissions:
@@ -24,27 +25,81 @@ concurrency:
 
 jobs:
   deploy:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     name: Deploy HRMS UAT
+
+    if: >-
+      ${{
+        (
+          github.event_name == 'workflow_run' &&
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.event == 'push'
+        ) ||
+        github.event_name == 'workflow_dispatch'
+      }}
+
     environment: uat
+    timeout-minutes: 30
+
     runs-on:
       - self-hosted
       - hrms-prod
-    env:
-      DEPLOY_SHA: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_sha || github.event.workflow_run.head_sha }}
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Show runner info
+      - name: Resolve deployment reference
+        id: deployment
+        shell: bash
         run: |
+          set -Eeuo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            DEPLOY_REF="${{ github.event.workflow_run.head_sha }}"
+          elif [[ -n "${{ inputs.deploy_sha }}" ]]; then
+            DEPLOY_REF="${{ inputs.deploy_sha }}"
+          else
+            DEPLOY_REF="uat"
+          fi
+
+          echo "ref=$DEPLOY_REF" >> "$GITHUB_OUTPUT"
+          echo "Selected deployment reference: $DEPLOY_REF"
+
+      - name: Checkout exact deployment commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.deployment.outputs.ref }}
+          fetch-depth: 0
+          clean: true
+
+      - name: Validate UAT deployment commit
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          git fetch origin uat --no-tags
+          DEPLOY_SHA="$(git rev-parse HEAD)"
+
+          if ! git merge-base --is-ancestor "$DEPLOY_SHA" "origin/uat"; then
+            echo "Refusing deployment: $DEPLOY_SHA is not part of the uat branch."
+            exit 1
+          fi
+
+          echo "DEPLOY_SHA=$DEPLOY_SHA" >> "$GITHUB_ENV"
+          echo "Validated UAT deployment SHA: $DEPLOY_SHA"
+
+      - name: Show runner information
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
           echo "Runner user: $(whoami)"
           echo "Runner host: $(hostname)"
           echo "Current path: $(pwd)"
           echo "Deploy SHA: $DEPLOY_SHA"
 
       - name: Deploy HRMS UAT
+        shell: bash
         run: |
-          chmod +x scripts/deploy-uat.sh scripts/deploy-production.sh
+          set -Eeuo pipefail
+
+          test -f scripts/deploy-uat.sh
+          chmod +x scripts/deploy-uat.sh
           bash scripts/deploy-uat.sh "$DEPLOY_SHA"

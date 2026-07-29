@@ -1257,7 +1257,7 @@ export class EmployeeImportService {
       employment_status:
         (this.optionalString(
           normalizedData.employee_status,
-        ) as EmploymentStatusEnum | null) ?? undefined,
+        ) as EmploymentStatusEnum | null) ?? EmploymentStatusEnum.ACTIVE,
       employment_type:
         (this.optionalString(
           normalizedData.employment_type,
@@ -1265,6 +1265,9 @@ export class EmployeeImportService {
       hire_date:
         this.optionalString(normalizedData.employment_date) ?? undefined,
       notes: this.optionalString(normalizedData.notes) ?? undefined,
+      onboarding: {
+        auto_start: false,
+      },
       contacts,
       identifications: this.optionalString(normalizedData.national_id)
         ? [

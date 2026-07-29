@@ -13,6 +13,7 @@ import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { User } from '../../../users/entities/user.entity';
 import { Branch } from '../../branches/entities/branch.entity';
 import { Department } from '../../departments/entities/department.entity';
+import { DepartmentPosition } from '../../departments/entities/department-position.entity';
 import { Position } from '../../positions/entities/position.entity';
 import { Shift } from '../../attendance/shift/shifts/entities/shift.entity';
 import { Timetable } from '../../attendance/timetable/timetables/entities/timetable.entity';
@@ -25,6 +26,7 @@ import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-u
 import { EmployeeImportBatchStatusEnum } from './enums/employee-import-batch-status.enum';
 import { EmployeeImportModeEnum } from './enums/employee-import-mode.enum';
 import { EmployeeImportRowStatusEnum } from './enums/employee-import-row-status.enum';
+import { EmploymentStatusEnum } from '../enums/employment-status.enum';
 
 type MockRepo = Record<string, jest.Mock>;
 
@@ -61,6 +63,7 @@ describe('EmployeeImportService', () => {
       createRepositoryMock() as unknown as Repository<User>,
       createRepositoryMock() as unknown as Repository<Branch>,
       createRepositoryMock() as unknown as Repository<Department>,
+      createRepositoryMock() as unknown as Repository<DepartmentPosition>,
       createRepositoryMock() as unknown as Repository<Position>,
       createRepositoryMock() as unknown as Repository<Shift>,
       createRepositoryMock() as unknown as Repository<Timetable>,
@@ -100,6 +103,7 @@ describe('EmployeeImportService', () => {
           status: 'active',
         },
       ],
+      departmentPositionMappings: [],
       shifts: [{ id: 4, code: 'DAY', name: 'Day Shift', status: 'active' }],
       timetables: [
         { id: 5, code: 'STD', name: 'Standard Week', status: 'active' },
@@ -260,6 +264,7 @@ describe('EmployeeImportService', () => {
       branches: [],
       departments: [],
       positions: [],
+      departmentPositionMappings: [],
       shifts: [],
       timetables: [],
       devices: [],
@@ -787,7 +792,18 @@ describe('EmployeeImportService', () => {
       actor,
     );
 
-    expect(employeesService.createForCompanyUser).toHaveBeenCalled();
+    expect(employeesService.createForCompanyUser).toHaveBeenCalledWith(
+      10,
+      18,
+      expect.objectContaining({
+        employment_status: EmploymentStatusEnum.ACTIVE,
+        onboarding: {
+          auto_start: false,
+        },
+      }),
+      actor,
+      txManager,
+    );
     expect(result.successfulRows).toBe(1);
     expect(result.failedRows).toBe(0);
     expect(result.createdEmployees).toBe(1);

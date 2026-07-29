@@ -139,11 +139,12 @@ export class HrProfileChangeRequestsController {
     @Param('id', ParseIntPipe) id: number,
     @Param('fileId', ParseIntPipe) fileId: number,
   ) {
-    const file = await this.profileChangeRequestsService.getPendingFileForReviewer(
-      req.user,
-      id,
-      fileId,
-    );
+    const file =
+      await this.profileChangeRequestsService.getPendingFileForReviewer(
+        req.user,
+        id,
+        fileId,
+      );
 
     res.setHeader('Content-Type', file.mimeType);
     res.setHeader(

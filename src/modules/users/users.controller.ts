@@ -170,7 +170,12 @@ export class UsersController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() updateUserDto: UpdateUserDto,
   ) {
-    const employeeControlledFields = ['first_name', 'last_name', 'phone', 'email'];
+    const employeeControlledFields = [
+      'first_name',
+      'last_name',
+      'phone',
+      'email',
+    ];
     const attemptedControlledFields = employeeControlledFields.filter(
       (field) => field in (updateUserDto as Record<string, unknown>),
     );

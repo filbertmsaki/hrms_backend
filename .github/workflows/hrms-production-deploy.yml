@@ -4,16 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       deploy_sha:
-        description: Commit SHA to deploy to production
-        required: true
+        description: Optional commit SHA from the main branch. Leave blank to deploy the latest main commit.
+        required: false
         type: string
-  workflow_run:
-    workflows:
-      - Deploy HRMS UAT
-    types:
-      - completed
-    branches:
-      - main
 
 permissions:
   contents: read
@@ -24,27 +17,72 @@ concurrency:
 
 jobs:
   deploy:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     name: Deploy HRMS Production
+
+    # The workflow must be started from the main branch.
+    if: ${{ github.ref == 'refs/heads/main' }}
+
     environment: production
+    timeout-minutes: 30
+
     runs-on:
       - self-hosted
       - hrms-prod
-    env:
-      DEPLOY_SHA: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_sha || github.event.workflow_run.head_sha }}
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Show runner info
+      - name: Resolve deployment reference
+        id: deployment
+        shell: bash
         run: |
+          set -Eeuo pipefail
+
+          if [[ -n "${{ inputs.deploy_sha }}" ]]; then
+            DEPLOY_REF="${{ inputs.deploy_sha }}"
+          else
+            DEPLOY_REF="main"
+          fi
+
+          echo "ref=$DEPLOY_REF" >> "$GITHUB_OUTPUT"
+          echo "Selected deployment reference: $DEPLOY_REF"
+
+      - name: Checkout exact deployment commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.deployment.outputs.ref }}
+          fetch-depth: 0
+          clean: true
+
+      - name: Validate production deployment commit
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          git fetch origin main --no-tags
+          DEPLOY_SHA="$(git rev-parse HEAD)"
+
+          if ! git merge-base --is-ancestor "$DEPLOY_SHA" "origin/main"; then
+            echo "Refusing deployment: $DEPLOY_SHA is not part of the main branch."
+            exit 1
+          fi
+
+          echo "DEPLOY_SHA=$DEPLOY_SHA" >> "$GITHUB_ENV"
+          echo "Validated production deployment SHA: $DEPLOY_SHA"
+
+      - name: Show runner information
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
           echo "Runner user: $(whoami)"
           echo "Runner host: $(hostname)"
           echo "Current path: $(pwd)"
           echo "Deploy SHA: $DEPLOY_SHA"
 
-      - name: Deploy HRMS production
+      - name: Deploy HRMS Production
+        shell: bash
         run: |
+          set -Eeuo pipefail
+
+          test -f scripts/deploy-production.sh
           chmod +x scripts/deploy-production.sh
           bash scripts/deploy-production.sh "$DEPLOY_SHA"
