@@ -23,6 +23,19 @@ import { HikvisionSyncJobData } from './hikvision-sync-job.constants';
 
 interface HikvisionAttendanceSyncServiceInternals {
   isValidPunchEvent(event: Record<string, unknown>): boolean;
+  persistAttendanceEvents(
+    device: AttendanceDevice,
+    events: Record<string, unknown>[],
+  ): Promise<{
+    received: number;
+    validPunchRecords: number;
+    skippedSystemEvents: number;
+    created: number;
+    skipped: number;
+    failed: number;
+    updated: number;
+    unmappedEmployees: number;
+  }>;
   buildAttendanceEventKey(
     deviceId: number,
     employeeNoString: string,
@@ -64,18 +77,30 @@ interface HikvisionAttendanceSyncServiceInternals {
 describe('HikvisionAttendanceSyncService', () => {
   let service: HikvisionAttendanceSyncService;
   let internals: HikvisionAttendanceSyncServiceInternals;
+  let attendanceLogRepository: {
+    find: jest.Mock;
+    findOne: jest.Mock;
+    save: jest.Mock;
+    create: jest.Mock;
+  };
   let attendanceEmployeeResolver: {
     resolveEmployeeId: jest.Mock;
   };
 
   beforeEach(() => {
     jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    attendanceLogRepository = {
+      find: jest.fn(),
+      findOne: jest.fn(),
+      save: jest.fn(),
+      create: jest.fn((value: Partial<HikvisionAttendanceLog>) => value),
+    };
     attendanceEmployeeResolver = {
       resolveEmployeeId: jest.fn(),
     };
     service = new HikvisionAttendanceSyncService(
       {} as Repository<AttendanceDevice>,
-      {} as Repository<HikvisionAttendanceLog>,
+      attendanceLogRepository as unknown as Repository<HikvisionAttendanceLog>,
       {} as Repository<Employee>,
       {} as Repository<AttendanceRecalculationJob>,
       {} as Repository<HikvisionAttendanceSyncJob>,
@@ -334,6 +359,69 @@ describe('HikvisionAttendanceSyncService', () => {
     expect(result.inserted).toBe(232);
     expect(result.duplicatesSkipped).toBe(0);
     expect(result.status).toBe('SUCCESS');
+  });
+
+  it('skips storing device events that do not map to an employee in the database', async () => {
+    const device = {
+      id: 44,
+      companyId: 7,
+      branchId: 2,
+    } as AttendanceDevice;
+    jest.spyOn(service as any, 'mapEventsToRows').mockResolvedValue([
+      {
+        companyId: 7,
+        branchId: 2,
+        deviceId: 44,
+        employeeId: null,
+        isEmployeeMapped: false,
+        employeeNo: 'DEV-404',
+        employeeName: null,
+        cardNo: null,
+        eventTime: new Date('2026-07-24T08:00:00.000Z'),
+        major: 5,
+        minor: 38,
+        eventType: 'VALID_FINGERPRINT_OR_CARD_OR_PASSWORD_ACCESS',
+        attendanceStatus: null,
+        verifyMode: null,
+        doorNo: 1,
+        cardReaderNo: 1,
+        cardReaderKind: '0',
+        serialNo: 'SER-404',
+        deviceTime: new Date('2026-07-24T08:00:00.000Z'),
+        deviceNo: '0',
+        remoteHostAddr: '0.0.0.0',
+        netUser: null,
+        userType: 'normal',
+        statusValue: 0,
+        eventKey: 'device:44:serial:SER-404',
+        processingStatus: 'UNMATCHED_EMPLOYEE',
+        rawPayload: {
+          employeeNoString: 'DEV-404',
+          time: '2026-07-24T11:00:00+03:00',
+        },
+      },
+    ]);
+    attendanceLogRepository.find.mockResolvedValue([]);
+
+    const result = await internals.persistAttendanceEvents(device, [
+      {
+        employeeNoString: 'DEV-404',
+        time: '2026-07-24T11:00:00+03:00',
+      },
+    ]);
+
+    expect(result).toEqual({
+      received: 1,
+      validPunchRecords: 1,
+      skippedSystemEvents: 0,
+      created: 0,
+      skipped: 1,
+      failed: 0,
+      updated: 0,
+      unmappedEmployees: 1,
+    });
+    expect(attendanceLogRepository.findOne).not.toHaveBeenCalled();
+    expect(attendanceLogRepository.save).not.toHaveBeenCalled();
   });
 
   it('resolves attendance employee numbers through the device assignment resolver before falling back to employee_no', async () => {

@@ -48,7 +48,7 @@ export class AttendanceRecalculationService {
       }
     }
 
-    const job = await this.jobRepository.save(
+    let job = await this.jobRepository.save(
       this.jobRepository.create({
         companyId,
         employeeId: dto.employee_id ?? null,
@@ -64,6 +64,14 @@ export class AttendanceRecalculationService {
     let executionResult: unknown = null;
     if (dto.process_immediately ?? true) {
       executionResult = await this.executeJob(job.id);
+      const refreshedJob = await this.jobRepository.findOne({
+        where: { id: job.id },
+      });
+      if (refreshedJob) {
+        job = refreshedJob;
+      }
+    } else {
+      void this.executeQueuedJobInBackground(job.id);
     }
 
     return {
@@ -166,6 +174,16 @@ export class AttendanceRecalculationService {
       processed: jobs.length,
       results,
     };
+  }
+
+  private async executeQueuedJobInBackground(jobId: number): Promise<void> {
+    try {
+      await this.executeJob(jobId);
+    } catch (error) {
+      this.logger.warn(
+        `Queued recalculation job ${jobId} failed during immediate background start: ${(error as Error).message}`,
+      );
+    }
   }
 
   async findJobs(companyId: number, query: QueryAttendanceProcessingJobsDto) {

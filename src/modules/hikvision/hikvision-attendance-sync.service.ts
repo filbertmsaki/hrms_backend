@@ -1265,6 +1265,8 @@ export class HikvisionAttendanceSyncService {
         counters.validPunchRecords += 1;
         if (!mapped.isEmployeeMapped) {
           counters.unmappedEmployees += 1;
+          counters.skipped += 1;
+          continue;
         }
 
         const existing =
