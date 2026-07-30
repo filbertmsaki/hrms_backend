@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
@@ -54,6 +55,7 @@ import { buildPaginationMeta } from '../../shared/hr.utils';
 import { AddressTypeEnum } from '../enums/address-type.enum';
 import { IdentificationTypeEnum } from '../enums/identification-type.enum';
 import { ContactTypeEnum } from '../enums/contact-type.enum';
+import { HikvisionImportSyncService } from '../../../hikvision/hikvision-import-sync.service';
 
 type UploadedExcelFile = {
   originalname: string;
@@ -222,6 +224,8 @@ const REQUIRED_COLUMNS: ImportColumn[] = [
 
 @Injectable()
 export class EmployeeImportService {
+  private readonly logger = new Logger(EmployeeImportService.name);
+
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
@@ -263,6 +267,7 @@ export class EmployeeImportService {
     private readonly shiftAssignmentsService: ShiftAssignmentsService,
     private readonly employeeTimetablesService: EmployeeTimetablesService,
     private readonly hrAccessService: HrAccessService,
+    private readonly hikvisionImportSyncService: HikvisionImportSyncService,
   ) {}
 
   async downloadTemplate(
@@ -1088,6 +1093,71 @@ export class EmployeeImportService {
 
     await this.batchRepository.save(batch);
 
+    let hikvisionSyncSummary:
+      | {
+          scheduled: boolean;
+          scheduledFor: string | null;
+          message: string;
+        }
+      | undefined;
+    const successfulImportCandidates = batch.rows
+      .filter((row) =>
+        [
+          EmployeeImportRowStatusEnum.IMPORTED,
+          EmployeeImportRowStatusEnum.UPDATED,
+        ].includes(row.status),
+      )
+      .filter((row) => Number.isInteger(row.createdEmployeeId))
+      .map((row) => ({
+        employeeId: row.createdEmployeeId as number,
+        employeeNumber: this.optionalString(row.employeeNumber),
+        providedDeviceEmployeeNumber: this.optionalString(
+          row.normalizedData?.device_employee_number,
+        ),
+      }));
+
+    if (successfulImportCandidates.length > 0) {
+      try {
+        const syncSchedule =
+          await this.hikvisionImportSyncService.scheduleImportedEmployeesSync({
+            companyId,
+            importBatchId: batch.batchId,
+            importFileName: batch.originalFileName,
+            requestedByUserId: actor.id ?? null,
+            requestedByCompanyUserId:
+              actor.companyMembershipId ??
+              batch.uploadedByCompanyUserId ??
+              null,
+            employees: successfulImportCandidates,
+          });
+
+        hikvisionSyncSummary = syncSchedule.scheduled
+          ? {
+              scheduled: true,
+              scheduledFor: syncSchedule.scheduledFor,
+              message:
+                'Employees were imported successfully. Hikvision synchronization will run automatically in the background at the configured synchronization time.',
+            }
+          : {
+              scheduled: false,
+              scheduledFor: null,
+              message:
+                'Employees were imported successfully. Hikvision synchronization was not queued because automatic synchronization is disabled or no eligible employees were available.',
+            };
+      } catch (error) {
+        this.logger.error(
+          `Failed to queue Hikvision synchronization for import batch ${batch.batchId}: ${(error as Error).message}`,
+          error instanceof Error ? error.stack : undefined,
+        );
+        hikvisionSyncSummary = {
+          scheduled: false,
+          scheduledFor: null,
+          message:
+            'Employees were imported successfully. Hikvision synchronization could not be queued automatically.',
+        };
+      }
+    }
+
     return {
       batchId: batch.batchId,
       status: batch.status,
@@ -1101,7 +1171,12 @@ export class EmployeeImportService {
       createdUsers: batch.createdUsers,
       deviceAssignmentsCreated: batch.deviceAssignmentsCreated,
       deviceSyncPending: batch.deviceSyncPending,
-      summary,
+      summary: hikvisionSyncSummary
+        ? {
+            ...summary,
+            hikvisionSync: hikvisionSyncSummary,
+          }
+        : summary,
       rows: rowResults,
     };
   }

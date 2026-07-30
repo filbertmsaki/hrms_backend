@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 jest.mock('./hikvision-access-control.service', () => ({
   HikvisionAccessControlService: class HikvisionAccessControlService {},
 }));
@@ -59,6 +60,7 @@ describe('HikvisionAttendanceSyncService', () => {
   let internals: HikvisionAttendanceSyncServiceInternals;
 
   beforeEach(() => {
+    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
     service = new HikvisionAttendanceSyncService(
       {} as Repository<AttendanceDevice>,
       {} as Repository<HikvisionAttendanceLog>,

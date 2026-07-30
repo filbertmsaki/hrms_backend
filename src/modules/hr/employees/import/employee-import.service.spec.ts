@@ -124,6 +124,9 @@ async function createMappedImportWorkbookBuffer() {
 
 describe('EmployeeImportService', () => {
   let service: EmployeeImportService;
+  let hikvisionImportSyncService: {
+    scheduleImportedEmployeesSync: jest.Mock;
+  };
 
   const actor: AuthenticatedUser = {
     id: 9,
@@ -138,6 +141,11 @@ describe('EmployeeImportService', () => {
 
   beforeEach(() => {
     jest.useRealTimers();
+    hikvisionImportSyncService = {
+      scheduleImportedEmployeesSync: jest
+        .fn()
+        .mockResolvedValue({ scheduled: false, scheduledFor: null }),
+    };
     service = new EmployeeImportService(
       {} as DataSource,
       createRepositoryMock() as unknown as Repository<EmployeeImportBatch>,
@@ -162,6 +170,7 @@ describe('EmployeeImportService', () => {
       {} as never,
       {} as never,
       {} as never,
+      hikvisionImportSyncService as never,
     );
   });
 
@@ -1296,14 +1305,24 @@ describe('EmployeeImportService', () => {
         }),
       );
 
-    const result = await service.confirmImport(
+    const result = (await service.confirmImport(
       10,
       {
         preview_token: 'preview-token',
         process_valid_rows_only: true,
       },
       actor,
-    );
+    )) as {
+      successfulRows: number;
+      failedRows: number;
+      createdEmployees: number;
+      summary: Record<string, unknown> & {
+        hikvisionSync?: {
+          scheduled: boolean;
+        };
+      };
+      rows: [Record<string, unknown>];
+    };
 
     expect(employeesService.createForCompanyUser).toHaveBeenCalledWith(
       10,
@@ -1317,9 +1336,25 @@ describe('EmployeeImportService', () => {
       actor,
       txManager,
     );
+    expect(
+      hikvisionImportSyncService.scheduleImportedEmployeesSync,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: 10,
+        importBatchId: 'IMPORT-20260727-BLANK-EMP-NO',
+        employees: [
+          expect.objectContaining({
+            employeeId: 37,
+            employeeNumber: '000037',
+            providedDeviceEmployeeNumber: null,
+          }),
+        ],
+      }),
+    );
     expect(result.successfulRows).toBe(1);
     expect(result.failedRows).toBe(0);
     expect(result.createdEmployees).toBe(1);
+    expect(result.summary.hikvisionSync?.scheduled).toBe(false);
     expect(result.rows[0]).toEqual(
       expect.objectContaining({
         status: 'IMPORTED',
