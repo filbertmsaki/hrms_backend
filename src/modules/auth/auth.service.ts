@@ -232,17 +232,24 @@ export class AuthService {
       activeCompanyContext,
       availableCompanies,
     );
+    const responseWithPasswordRequirement =
+      await this.applyCompanyPasswordChangeRequirement(
+        user as User,
+        activeCompanyContext.companyId,
+        response,
+      );
 
     if (twoFactorStatus.enabled && twoFactorStatus.setupRequired) {
       return {
-        ...response,
+        ...responseWithPasswordRequirement,
         requires2FASetup: true,
-        message:
-          'Two-factor authentication has been enabled for your account. Complete setup now before continuing.',
+        message: responseWithPasswordRequirement.requiresPasswordChange
+          ? 'You must change your temporary password before continuing.'
+          : 'Two-factor authentication has been enabled for your account. Complete setup now before continuing.',
       };
     }
 
-    return response;
+    return responseWithPasswordRequirement;
   }
 
   async complete2FALogin(tempToken: string, code: string, ip?: string) {
@@ -305,7 +312,11 @@ export class AuthService {
         payload.sub,
       );
 
-      return this.generateCompanyAuthResponse(user, companyContext, companies);
+      return this.applyCompanyPasswordChangeRequirement(
+        user,
+        companyContext.companyId,
+        this.generateCompanyAuthResponse(user, companyContext, companies),
+      );
     } catch (error) {
       if (
         error instanceof UnauthorizedException ||
@@ -743,8 +754,46 @@ export class AuthService {
         permissions: companyContext.permissions,
         isTwoFactorEnabled: user.is_two_factor_enabled,
         twoFactorSetupRequired: user.two_factor_setup_required,
+        requiresPasswordChange: false,
       },
     };
+  }
+
+  private async applyCompanyPasswordChangeRequirement<T extends object>(
+    user: User,
+    companyId: number,
+    response: T,
+  ): Promise<T & { requiresPasswordChange: boolean }> {
+    const requiresPasswordChange =
+      await this.usersService.hasPendingImportedPasswordChange(
+        user.id,
+        companyId,
+      );
+
+    const responseRecord = response as Record<string, unknown>;
+    const responseUser =
+      typeof responseRecord.user === 'object' && responseRecord.user !== null
+        ? (responseRecord.user as Record<string, unknown>)
+        : null;
+
+    return {
+      ...(response as Record<string, unknown>),
+      requiresPasswordChange,
+      ...(requiresPasswordChange
+        ? {
+            message:
+              'You must change your temporary password before continuing.',
+          }
+        : {}),
+      ...(responseUser
+        ? {
+            user: {
+              ...responseUser,
+              requiresPasswordChange,
+            },
+          }
+        : {}),
+    } as T & { requiresPasswordChange: boolean };
   }
 
   private buildCompanyAccessTokenPayload(

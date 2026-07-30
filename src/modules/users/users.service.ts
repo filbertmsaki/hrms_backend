@@ -29,6 +29,12 @@ type EmployeeImportAccountResult = {
   action: 'CREATED';
 };
 
+type EmployeeImportAccountMetadata = {
+  provisioned?: boolean;
+  requires_password_change?: boolean;
+  provisioned_at?: string;
+};
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -258,6 +264,64 @@ export class UsersService {
     };
   }
 
+  private readEmployeeImportAccountMetadata(
+    metadata: Record<string, unknown> | null | undefined,
+  ): EmployeeImportAccountMetadata | null {
+    if (!metadata || typeof metadata !== 'object') {
+      return null;
+    }
+
+    const raw = metadata.employee_import_account;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return null;
+    }
+
+    return raw as EmployeeImportAccountMetadata;
+  }
+
+  private hasPendingEmployeeImportPasswordChange(
+    metadata: Record<string, unknown> | null | undefined,
+  ): boolean {
+    return (
+      this.readEmployeeImportAccountMetadata(metadata)
+        ?.requires_password_change === true
+    );
+  }
+
+  private clearEmployeeImportPasswordChangeMetadata(
+    metadata: Record<string, unknown> | null | undefined,
+  ): Record<string, unknown> | null {
+    if (!metadata || typeof metadata !== 'object') {
+      return metadata ?? null;
+    }
+
+    const current = this.readEmployeeImportAccountMetadata(metadata);
+    if (!current?.requires_password_change) {
+      return metadata;
+    }
+
+    return {
+      ...metadata,
+      employee_import_account: {
+        ...current,
+        requires_password_change: false,
+      },
+    };
+  }
+
+  private async findEmployeesForUser(userId: number, companyId?: number) {
+    const query = this.employeeRepository
+      .createQueryBuilder('employee')
+      .innerJoin('employee.company_user', 'membership')
+      .where('membership.user_id = :userId', { userId });
+
+    if (companyId) {
+      query.andWhere('membership.company_id = :companyId', { companyId });
+    }
+
+    return query.getMany();
+  }
+
   async generateUserNo(manager?: EntityManager): Promise<string> {
     const repository = manager?.getRepository(User) ?? this.userRepository;
     const year = new Date().getFullYear();
@@ -375,6 +439,35 @@ export class UsersService {
       membership,
       action: 'CREATED',
     };
+  }
+
+  async hasPendingImportedPasswordChange(
+    userId: number,
+    companyId?: number,
+  ): Promise<boolean> {
+    const employees = await this.findEmployeesForUser(userId, companyId);
+    return employees.some((employee) =>
+      this.hasPendingEmployeeImportPasswordChange(employee.metadata),
+    );
+  }
+
+  async clearPendingImportedPasswordChange(userId: number): Promise<void> {
+    const employees = await this.findEmployeesForUser(userId);
+    const employeesToUpdate = employees.filter((employee) =>
+      this.hasPendingEmployeeImportPasswordChange(employee.metadata),
+    );
+
+    if (employeesToUpdate.length === 0) {
+      return;
+    }
+
+    for (const employee of employeesToUpdate) {
+      employee.metadata = this.clearEmployeeImportPasswordChangeMetadata(
+        employee.metadata,
+      );
+    }
+
+    await this.employeeRepository.save(employeesToUpdate);
   }
 
   async createForCompany(
@@ -572,6 +665,9 @@ export class UsersService {
       is_email_verified: user.is_email_verified,
       is_two_factor_enabled: user.is_two_factor_enabled,
       two_factor_setup_required: user.two_factor_setup_required,
+      requires_password_change: this.hasPendingEmployeeImportPasswordChange(
+        membership?.employee?.metadata,
+      ),
       email_verification_expires: user.email_verification_expires,
       last_login_at: user.last_login_at,
       last_login_ip: user.last_login_ip,
@@ -649,6 +745,9 @@ export class UsersService {
       is_email_verified: user.is_email_verified,
       is_two_factor_enabled: user.is_two_factor_enabled,
       two_factor_setup_required: user.two_factor_setup_required,
+      requires_password_change: this.hasPendingEmployeeImportPasswordChange(
+        membership?.employee?.metadata,
+      ),
       email_verification_expires: user.email_verification_expires,
       last_login_at: user.last_login_at,
       last_login_ip: user.last_login_ip,
@@ -816,6 +915,7 @@ export class UsersService {
 
   async updatePassword(id: number, hashedPassword: string): Promise<void> {
     await this.userRepository.update(id, { password: hashedPassword });
+    await this.clearPendingImportedPasswordChange(id);
   }
 
   async update(id: number, updateUserDto: UpdateUserDto): Promise<User> {
@@ -857,8 +957,15 @@ export class UsersService {
       throw new UnauthorizedException('Current password incorrect');
     }
 
+    const isSamePassword = await comparePasswords(newPassword, user.password);
+    if (isSamePassword) {
+      throw new UnauthorizedException(
+        'New password must be different from the current password',
+      );
+    }
+
     const hashed = await hashPassword(newPassword);
-    await this.userRepository.update(userId, { password: hashed });
+    await this.updatePassword(userId, hashed);
 
     return { message: 'Password changed successfully' };
   }

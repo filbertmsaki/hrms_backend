@@ -12,6 +12,7 @@ export interface AuthenticatedUser {
   companyMembershipId?: number;
   employeeId?: number;
   employeeNo?: string;
+  requiresPasswordChange?: boolean;
   roles: string[];
   permissions: string[];
 }

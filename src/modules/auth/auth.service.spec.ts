@@ -21,6 +21,7 @@ describe('AuthService', () => {
   let usersService: {
     findById: jest.Mock;
     updateLastLogin: jest.Mock;
+    hasPendingImportedPasswordChange: jest.Mock;
   };
   let jwtService: {
     sign: jest.Mock;
@@ -40,6 +41,7 @@ describe('AuthService', () => {
     usersService = {
       findById: jest.fn(),
       updateLastLogin: jest.fn(),
+      hasPendingImportedPasswordChange: jest.fn().mockResolvedValue(false),
     };
     jwtService = {
       sign: jest
@@ -175,9 +177,78 @@ describe('AuthService', () => {
       my_employee_url: '/employees/me',
       roles: ['COMPANY_ADMIN'],
       permissions: ['users:manage-2fa'],
+      requiresPasswordChange: false,
       isTwoFactorEnabled: true,
       twoFactorSetupRequired: true,
     });
+  });
+
+  it('returns a password-change-required login response for imported employee accounts', async () => {
+    jest.spyOn(service, 'validateUser').mockResolvedValue({
+      id: 9,
+      email: 'staff@example.com',
+      first_name: 'Amina',
+      last_name: 'Moshi',
+      status: 'active',
+      user_type: 'COMPANY_USER',
+      is_email_verified: true,
+      is_two_factor_enabled: false,
+      two_factor_setup_required: false,
+    } as never);
+
+    companiesService.listUserCompanies.mockResolvedValue([
+      {
+        companyId: 12,
+        companyName: 'Acme HR',
+        companySlug: 'acme-hr',
+        membershipId: 44,
+        employeeId: 81,
+        employeeNo: 'EMP-0081',
+        isDefault: true,
+        roles: ['EMPLOYEE'],
+        permissions: [],
+      },
+    ]);
+    companiesService.setActiveMembership.mockResolvedValue({
+      companyId: 12,
+      companyName: 'Acme HR',
+      companySlug: 'acme-hr',
+      membershipId: 44,
+      employeeId: 81,
+      employeeNo: 'EMP-0081',
+      isDefault: true,
+      roles: ['EMPLOYEE'],
+      permissions: [],
+      status: 'active',
+    });
+    twoFaService.getTwoFactorStatus.mockResolvedValue({
+      enabled: false,
+      setupRequired: false,
+      fullyConfigured: false,
+    });
+    usersService.hasPendingImportedPasswordChange.mockResolvedValue(true);
+
+    const rawResult: unknown = await service.login(
+      { email: 'staff@example.com', password: 'ChangeMe@123' },
+      '197.250.10.22',
+    );
+    const result = rawResult as {
+      requiresPasswordChange: boolean;
+      access_token: string;
+      refresh_token: string;
+      message: string;
+      user: {
+        requiresPasswordChange: boolean;
+      };
+    };
+
+    expect(result.requiresPasswordChange).toBe(true);
+    expect(result.message).toBe(
+      'You must change your temporary password before continuing.',
+    );
+    expect(result.user.requiresPasswordChange).toBe(true);
+    expect(result.access_token).toBe('access-token');
+    expect(result.refresh_token).toBe('refresh-token');
   });
 
   it('returns a temporary token when the user has fully configured 2FA', async () => {

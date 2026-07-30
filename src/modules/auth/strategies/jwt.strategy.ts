@@ -36,6 +36,25 @@ type JwtAccessPayload = {
 export class JwtStrategy extends PassportStrategy(Strategy) {
   private readonly logger = new Logger(JwtStrategy.name);
 
+  private isPasswordChangeAllowedRoute(req: Request): boolean {
+    const method = req.method.toUpperCase();
+    const path = req.originalUrl.split('?')[0] ?? req.path;
+
+    if (method === 'GET' && path === '/api/users/me') {
+      return true;
+    }
+
+    if (method === 'POST' && path === '/api/users/me/change-password') {
+      return true;
+    }
+
+    if (method === 'POST' && path === '/api/auth/logout') {
+      return true;
+    }
+
+    return false;
+  }
+
   constructor(
     private configService: ConfigService,
     private blacklistService: TokenBlacklistService,
@@ -137,6 +156,17 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Invalid company access token');
     }
 
+    const requiresPasswordChange =
+      await this.usersService.hasPendingImportedPasswordChange(
+        user.id,
+        payload.companyId,
+      );
+    if (requiresPasswordChange && !this.isPasswordChangeAllowedRoute(req)) {
+      throw new UnauthorizedException(
+        'You must change your temporary password before continuing.',
+      );
+    }
+
     try {
       const companyContext = await this.companiesService.getMembershipContext(
         payload.sub,
@@ -154,6 +184,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         companyMembershipId: companyContext.membershipId,
         employeeId: companyContext.employeeId ?? undefined,
         employeeNo: companyContext.employeeNo ?? undefined,
+        requiresPasswordChange,
         roles: companyContext.roles,
         permissions: companyContext.permissions,
       };
@@ -182,6 +213,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
           companyMembershipId: payload.membershipId,
           employeeId: payload.employeeId ?? undefined,
           employeeNo: payload.employeeNo ?? undefined,
+          requiresPasswordChange,
           roles: payload.roles ?? [],
           permissions: payload.permissions ?? [],
         };

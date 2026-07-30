@@ -1133,7 +1133,7 @@ export class EmployeeImportService {
       failedDuringImport: batch.failedRows,
       userProvisioningMessage:
         createdUsers > 0
-          ? 'Imported employee accounts were created using the configured temporary password. No dedicated first-login password-change flag exists in the current schema, so users follow the existing authentication flow after sign-in.'
+          ? 'Imported employee accounts were created using the configured temporary password. Imported users must change that password before they can continue using the application.'
           : undefined,
     };
     batch.validationSummary = {
@@ -1946,6 +1946,13 @@ export class EmployeeImportService {
       hire_date:
         this.optionalString(normalizedData.employment_date) ?? undefined,
       notes: this.optionalString(normalizedData.notes) ?? undefined,
+      metadata: {
+        employee_import_account: {
+          provisioned: true,
+          requires_password_change: true,
+          provisioned_at: new Date().toISOString(),
+        },
+      },
       onboarding: {
         auto_start: false,
       },
@@ -2054,8 +2061,7 @@ export class EmployeeImportService {
       companyId,
     );
     const roleLabel = employeeRole?.display_name ?? 'Employee';
-    const limitation =
-      'No dedicated first-login password-change flag exists in the current schema.';
+    const limitation = null;
 
     if (row.importAction === 'UPDATE') {
       if (!row.existingEmployee?.userId) {
@@ -2155,7 +2161,7 @@ export class EmployeeImportService {
         userStatus: null,
         existingUserId: null,
         message,
-        passwordChangeRequiredOnFirstLogin: false,
+        passwordChangeRequiredOnFirstLogin: true,
         limitation,
       };
     }
