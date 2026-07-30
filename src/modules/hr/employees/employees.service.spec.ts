@@ -28,6 +28,8 @@ import { OnboardingService } from '../onboarding/onboarding.service';
 import { LeaveBalanceService } from '../leave/services/leave-balance.service';
 import { EmployeeAttendanceReadinessService } from '../launch-readiness/employee-attendance-readiness.service';
 import { FilesService } from '../../files/files.service';
+import { PositionAvailabilityService } from '../shared/position-availability.service';
+import { DefaultAvatarsService } from '../default-avatars/default-avatars.service';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 
 type MockRepo = Record<string, jest.Mock>;
@@ -89,10 +91,12 @@ describe('EmployeesService', () => {
       {} as CompaniesService,
       {} as UsersService,
       hrAccessService as unknown as HrAccessService,
+      {} as PositionAvailabilityService,
       {} as OnboardingService,
       {} as LeaveBalanceService,
       {} as EmployeeAttendanceReadinessService,
       filesService as unknown as FilesService,
+      {} as DefaultAvatarsService,
     );
   });
 
