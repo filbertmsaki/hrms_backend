@@ -1,8 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import ExcelJS from 'exceljs';
-import fs from 'fs';
-import path from 'path';
 jest.mock('digest-fetch', () => ({
   __esModule: true,
   default: jest.fn(),
@@ -32,13 +30,6 @@ import { EmploymentStatusEnum } from '../enums/employment-status.enum';
 
 type MockRepo = Record<string, jest.Mock>;
 
-const employeeImportFixturePath = path.resolve(
-  process.cwd(),
-  'test',
-  'fixtures',
-  'employee-import-mapped.xlsx',
-);
-
 const createRepositoryMock = (): MockRepo => ({
   find: jest.fn(),
   findOne: jest.fn(),
@@ -47,6 +38,89 @@ const createRepositoryMock = (): MockRepo => ({
   save: jest.fn((value: unknown) => value),
   createQueryBuilder: jest.fn(),
 });
+
+async function createMappedImportWorkbookBuffer() {
+  const workbook = new ExcelJS.Workbook();
+
+  const employeeSheet = workbook.addWorksheet('Employees');
+  employeeSheet.addRow([
+    'first_name',
+    'middle_name',
+    'last_name',
+    'employee_number',
+    'email',
+    'gender',
+    'employment_date',
+    'branch_code',
+    'department_code',
+    'position_code',
+    'employment_type',
+    'access_device_codes',
+    'device_employee_number',
+  ]);
+
+  for (let index = 1; index <= 119; index += 1) {
+    const rowNumber = index + 1;
+    const firstName = `Employee${index}`;
+    const lastName = 'Imported';
+    const row = [
+      firstName,
+      '',
+      lastName,
+      `AICL-${String(index).padStart(5, '0')}`,
+      `employee${index}@example.com`,
+      index % 2 === 0 ? 'female' : 'male',
+      '2026-07-01',
+      'HQ',
+      'HR',
+      'HRO',
+      'full_time',
+      '',
+      '',
+    ];
+
+    if (rowNumber === 59) {
+      row[0] = 'Jayman';
+      row[1] = 'Hiten';
+      row[2] = 'Chohan';
+      row[6] = '2026-08-15';
+    }
+
+    if (rowNumber === 68) {
+      row[0] = 'KVA';
+      row[1] = '';
+      row[2] = 'Krishnan';
+      row[11] = 'DEVICE-DSM-01';
+      row[12] = '';
+    }
+
+    employeeSheet.addRow(row);
+  }
+
+  const branchesSheet = workbook.addWorksheet('Branches');
+  branchesSheet.addRow(['Code', 'Name', 'Status']);
+  branchesSheet.addRow(['HQ', 'Head Office', 'active']);
+
+  const departmentsSheet = workbook.addWorksheet('Departments');
+  departmentsSheet.addRow(['Code', 'Name', 'Branch Code', 'Status']);
+  departmentsSheet.addRow(['HR', 'Human Resources', 'HQ', 'active']);
+
+  const positionsSheet = workbook.addWorksheet('Positions');
+  positionsSheet.addRow([
+    'Code',
+    'Name',
+    'Branch Code',
+    'Department Code',
+    'Status',
+  ]);
+  positionsSheet.addRow(['HRO', 'HR Officer', 'HQ', 'HR', 'active']);
+
+  const devicesSheet = workbook.addWorksheet('Access Devices');
+  devicesSheet.addRow(['Device Code', 'Device Name', 'Status']);
+  devicesSheet.addRow(['DEVICE-DSM-01', 'Main Gate', 'active']);
+
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+}
 
 describe('EmployeeImportService', () => {
   let service: EmployeeImportService;
@@ -350,7 +424,7 @@ describe('EmployeeImportService', () => {
   });
 
   it('validates the mapped employee import workbook fixture against current rules', async () => {
-    const workbookBuffer = fs.readFileSync(employeeImportFixturePath);
+    const workbookBuffer = await createMappedImportWorkbookBuffer();
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(workbookBuffer);
 
