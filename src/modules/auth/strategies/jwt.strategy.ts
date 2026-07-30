@@ -38,17 +38,28 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   private isPasswordChangeAllowedRoute(req: Request): boolean {
     const method = req.method.toUpperCase();
-    const path = req.originalUrl.split('?')[0] ?? req.path;
+    const path = (
+      req.originalUrl.split('?')[0] ??
+      req.path ??
+      ''
+    ).toLowerCase();
 
-    if (method === 'GET' && path === '/api/users/me') {
+    const matchesRoute = (expectedPath: string) =>
+      path === expectedPath || path.endsWith(expectedPath);
+
+    if (method === 'GET' && matchesRoute('/users/me')) {
       return true;
     }
 
-    if (method === 'POST' && path === '/api/users/me/change-password') {
+    if (method === 'POST' && matchesRoute('/users/me/change-password')) {
       return true;
     }
 
-    if (method === 'POST' && path === '/api/auth/logout') {
+    if (method === 'POST' && matchesRoute('/auth/logout')) {
+      return true;
+    }
+
+    if (method === 'POST' && matchesRoute('/auth/refresh')) {
       return true;
     }
 

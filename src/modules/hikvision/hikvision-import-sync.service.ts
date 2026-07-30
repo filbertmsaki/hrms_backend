@@ -7,6 +7,7 @@ import { AttendanceDevice } from '../access-control/attendance-devices/entities/
 import { AttendanceDeviceStatusEnum } from '../access-control/attendance-devices/enums/attendance-device-status.enum';
 import { AttendanceDeviceSyncModeEnum } from '../access-control/attendance-devices/enums/attendance-device-sync-mode.enum';
 import { EmployeeDeviceAssignment } from '../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
+import { AccessControlSyncService } from '../access-control/service/access-control-sync.service';
 import { Employee } from '../hr/employees/entities/employee.entity';
 import { HikvisionPeopleCredentialSyncService } from './hikvision-people-credential-sync.service';
 import {
@@ -70,6 +71,7 @@ export class HikvisionImportSyncService {
     private readonly hikvisionUserManagementService: HikvisionUserManagementService,
     private readonly hikvisionPeopleCredentialSyncService: HikvisionPeopleCredentialSyncService,
     private readonly hikvisionAttendanceSyncService: HikvisionAttendanceSyncService,
+    private readonly accessControlSyncService: AccessControlSyncService,
   ) {}
 
   async scheduleImportedEmployeesSync(input: {
@@ -258,6 +260,8 @@ export class HikvisionImportSyncService {
 
     for (const [deviceId, deviceTarget] of deviceTargets.entries()) {
       try {
+        await this.syncAccessControlStructures(jobData.companyId, deviceId);
+
         const foundEmployeeNos = new Set<string>();
         const requestedChunks = this.chunk(
           deviceTarget.requestedEmployeeNos,
@@ -319,6 +323,7 @@ export class HikvisionImportSyncService {
             continue_on_error: true,
           },
         );
+        await this.regenerateAccessGroups(jobData.companyId, deviceId);
 
         await this.hikvisionPeopleCredentialSyncService.syncAllFingerprintsForSyncedUsers(
           jobData.companyId,
@@ -418,6 +423,45 @@ export class HikvisionImportSyncService {
       deviceEmployeeNumber:
         employee.providedDeviceEmployeeNumber?.trim() || null,
     };
+  }
+
+  private async syncAccessControlStructures(
+    companyId: number,
+    deviceId: number,
+  ): Promise<void> {
+    try {
+      await this.accessControlSyncService.syncDeviceDoors(companyId, deviceId);
+      await this.accessControlSyncService.syncDeviceWeekPlans(
+        companyId,
+        deviceId,
+      );
+      await this.accessControlSyncService.syncDeviceTemplates(
+        companyId,
+        deviceId,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Hikvision access-control metadata synchronization failed for device ${deviceId}: ${(error as Error).message}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+  }
+
+  private async regenerateAccessGroups(
+    companyId: number,
+    deviceId: number,
+  ): Promise<void> {
+    try {
+      await this.accessControlSyncService.generateVirtualGroups(
+        companyId,
+        deviceId,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Hikvision virtual access-group generation failed for device ${deviceId}: ${(error as Error).message}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
   }
 
   private isEligibleHikvisionDevice(

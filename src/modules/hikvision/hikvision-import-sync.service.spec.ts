@@ -9,6 +9,7 @@ import { AttendanceDevice } from '../access-control/attendance-devices/entities/
 import { AttendanceDeviceStatusEnum } from '../access-control/attendance-devices/enums/attendance-device-status.enum';
 import { AttendanceDeviceSyncModeEnum } from '../access-control/attendance-devices/enums/attendance-device-sync-mode.enum';
 import { EmployeeDeviceAssignment } from '../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
+import { AccessControlSyncService } from '../access-control/service/access-control-sync.service';
 import { Employee } from '../hr/employees/entities/employee.entity';
 import { HikvisionImportSyncService } from './hikvision-import-sync.service';
 import {
@@ -39,6 +40,12 @@ describe('HikvisionImportSyncService', () => {
     syncLatestAttendanceWindow: jest.Mock;
     syncAttendance: jest.Mock;
   };
+  let accessControlSyncService: {
+    syncDeviceDoors: jest.Mock;
+    syncDeviceWeekPlans: jest.Mock;
+    syncDeviceTemplates: jest.Mock;
+    generateVirtualGroups: jest.Mock;
+  };
   const originalStartTime = process.env.HIKVISION_AUTO_SYNC_START_TIME;
   const originalTz = process.env.TZ;
 
@@ -64,6 +71,12 @@ describe('HikvisionImportSyncService', () => {
       syncLatestAttendanceWindow: jest.fn(),
       syncAttendance: jest.fn(),
     };
+    accessControlSyncService = {
+      syncDeviceDoors: jest.fn(),
+      syncDeviceWeekPlans: jest.fn(),
+      syncDeviceTemplates: jest.fn(),
+      generateVirtualGroups: jest.fn(),
+    };
 
     service = new HikvisionImportSyncService(
       queue as unknown as Queue<HikvisionSyncJobData>,
@@ -72,6 +85,7 @@ describe('HikvisionImportSyncService', () => {
       userManagementService as never,
       peopleCredentialSyncService as never,
       attendanceSyncService as never,
+      accessControlSyncService as unknown as AccessControlSyncService,
     );
   });
 
@@ -222,6 +236,18 @@ describe('HikvisionImportSyncService', () => {
     attendanceSyncService.syncLatestAttendanceWindow.mockResolvedValue({
       status: 'SUCCESS',
     });
+    accessControlSyncService.syncDeviceDoors.mockResolvedValue({
+      status: 'SUCCESS',
+    });
+    accessControlSyncService.syncDeviceWeekPlans.mockResolvedValue({
+      status: 'SUCCESS',
+    });
+    accessControlSyncService.syncDeviceTemplates.mockResolvedValue({
+      status: 'SUCCESS',
+    });
+    accessControlSyncService.generateVirtualGroups.mockResolvedValue({
+      status: 'SUCCESS',
+    });
 
     const result = await service.runQueuedImportedEmployeesSync({
       companyId: 10,
@@ -260,6 +286,22 @@ describe('HikvisionImportSyncService', () => {
         employee_nos: ['DEV-002'],
         continue_on_error: true,
       }),
+    );
+    expect(accessControlSyncService.syncDeviceDoors).toHaveBeenCalledWith(
+      10,
+      5,
+    );
+    expect(accessControlSyncService.syncDeviceWeekPlans).toHaveBeenCalledWith(
+      10,
+      5,
+    );
+    expect(accessControlSyncService.syncDeviceTemplates).toHaveBeenCalledWith(
+      10,
+      5,
+    );
+    expect(accessControlSyncService.generateVirtualGroups).toHaveBeenCalledWith(
+      10,
+      5,
     );
     expect(
       peopleCredentialSyncService.syncAllFingerprintsForSyncedUsers,
@@ -348,6 +390,18 @@ describe('HikvisionImportSyncService', () => {
       { status: 'SUCCESS' },
     );
     peopleCredentialSyncService.syncCards.mockResolvedValue({
+      status: 'SUCCESS',
+    });
+    accessControlSyncService.syncDeviceDoors.mockResolvedValue({
+      status: 'SUCCESS',
+    });
+    accessControlSyncService.syncDeviceWeekPlans.mockResolvedValue({
+      status: 'SUCCESS',
+    });
+    accessControlSyncService.syncDeviceTemplates.mockResolvedValue({
+      status: 'SUCCESS',
+    });
+    accessControlSyncService.generateVirtualGroups.mockResolvedValue({
       status: 'SUCCESS',
     });
     attendanceSyncService.syncAttendance

@@ -11,6 +11,7 @@ import { Queue } from 'bullmq';
 import { Repository } from 'typeorm';
 import { AttendanceDevice } from '../access-control/attendance-devices/entities/attendance-device.entity';
 import { HikvisionSyncLog } from '../access-control/hikvision-sync-logs/entity/hikvision-sync-log.entity';
+import { AttendanceEmployeeResolverService } from '../hr/attendance/processing/attendance-employee-resolver.service';
 import { AttendanceRecalculationJob } from '../hr/attendance/processing/entities/attendance-recalculation-job.entity';
 import { Employee } from '../hr/employees/entities/employee.entity';
 import { HikvisionAttendanceSyncService } from './hikvision-attendance-sync.service';
@@ -53,14 +54,25 @@ interface HikvisionAttendanceSyncServiceInternals {
     duplicatesSkipped: number;
     status: string;
   }>;
+  resolveEmployeeMappings(
+    companyId: number,
+    deviceId: number,
+    employeeNumbers: string[],
+  ): Promise<Map<string, number>>;
 }
 
 describe('HikvisionAttendanceSyncService', () => {
   let service: HikvisionAttendanceSyncService;
   let internals: HikvisionAttendanceSyncServiceInternals;
+  let attendanceEmployeeResolver: {
+    resolveEmployeeId: jest.Mock;
+  };
 
   beforeEach(() => {
     jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    attendanceEmployeeResolver = {
+      resolveEmployeeId: jest.fn(),
+    };
     service = new HikvisionAttendanceSyncService(
       {} as Repository<AttendanceDevice>,
       {} as Repository<HikvisionAttendanceLog>,
@@ -71,6 +83,7 @@ describe('HikvisionAttendanceSyncService', () => {
       {} as Queue<HikvisionSyncJobData>,
       {} as HikvisionAccessControlService,
       {} as HikvisionHelperService,
+      attendanceEmployeeResolver as unknown as AttendanceEmployeeResolverService,
     );
     internals = service as unknown as HikvisionAttendanceSyncServiceInternals;
   });
@@ -321,5 +334,32 @@ describe('HikvisionAttendanceSyncService', () => {
     expect(result.inserted).toBe(232);
     expect(result.duplicatesSkipped).toBe(0);
     expect(result.status).toBe('SUCCESS');
+  });
+
+  it('resolves attendance employee numbers through the device assignment resolver before falling back to employee_no', async () => {
+    attendanceEmployeeResolver.resolveEmployeeId
+      .mockResolvedValueOnce({ employeeId: 41, reason: 'ASSIGNMENT_MAP' })
+      .mockResolvedValueOnce({ employeeId: null, reason: 'IDENTITY_NOT_FOUND' })
+      .mockResolvedValueOnce({ employeeId: 77, reason: 'EMPLOYEE_NO_MATCH' });
+
+    const result = await internals.resolveEmployeeMappings(7, 44, [
+      'DEV-001',
+      'DEV-404',
+      'EMP-077',
+    ]);
+
+    expect(
+      attendanceEmployeeResolver.resolveEmployeeId,
+    ).toHaveBeenNthCalledWith(1, 7, 'DEV-001', 44);
+    expect(
+      attendanceEmployeeResolver.resolveEmployeeId,
+    ).toHaveBeenNthCalledWith(2, 7, 'DEV-404', 44);
+    expect(
+      attendanceEmployeeResolver.resolveEmployeeId,
+    ).toHaveBeenNthCalledWith(3, 7, 'EMP-077', 44);
+    expect([...result.entries()]).toEqual([
+      ['DEV-001', 41],
+      ['EMP-077', 77],
+    ]);
   });
 });

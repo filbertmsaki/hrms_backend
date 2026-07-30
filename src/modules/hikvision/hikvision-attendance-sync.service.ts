@@ -26,6 +26,7 @@ import { HikvisionSyncLogDirectionEnum } from '../access-control/hikvision-sync-
 import { HikvisionSyncLogStatusEnum } from '../access-control/hikvision-sync-logs/enum/hikvision-sync-log-status.enum';
 import { HikvisionSyncLogTypeEnum } from '../access-control/hikvision-sync-logs/enum/hikvision-sync-log-type.enum';
 import { buildPaginationMeta } from '../hr/shared/hr.utils';
+import { AttendanceEmployeeResolverService } from '../hr/attendance/processing/attendance-employee-resolver.service';
 import { AttendanceProcessingJobStatusEnum } from '../hr/attendance/processing/enums/attendance-processing-job-status.enum';
 import { AttendanceRawLogProcessingStatusEnum } from '../hr/attendance/processing/enums/attendance-raw-log-processing-status.enum';
 import { AttendanceRecalculationJob } from '../hr/attendance/processing/entities/attendance-recalculation-job.entity';
@@ -177,6 +178,7 @@ export class HikvisionAttendanceSyncService {
     private readonly hikvisionSyncQueue: Queue<HikvisionSyncJobData>,
     private readonly hikvisionAccessControlService: HikvisionAccessControlService,
     private readonly hikvisionHelper: HikvisionHelperService,
+    private readonly attendanceEmployeeResolver: AttendanceEmployeeResolverService,
   ) {}
 
   async getAcsEventCapabilities(companyId: number, deviceId: number) {
@@ -1571,6 +1573,7 @@ export class HikvisionAttendanceSyncService {
     ];
     const employeeMappings = await this.resolveEmployeeMappings(
       device.companyId,
+      device.id,
       employeeNumbers,
     );
 
@@ -1585,26 +1588,22 @@ export class HikvisionAttendanceSyncService {
 
   private async resolveEmployeeMappings(
     companyId: number,
+    deviceId: number,
     employeeNumbers: string[],
   ): Promise<Map<string, number>> {
     if (employeeNumbers.length === 0) {
       return new Map();
     }
 
-    const employees = await this.employeeRepository
-      .createQueryBuilder('employee')
-      .innerJoin('employee.company_user', 'companyUser')
-      .where('companyUser.company_id = :companyId', { companyId })
-      .andWhere('employee.employee_no IN (:...employeeNumbers)', {
-        employeeNumbers,
-      })
-      .orderBy('employee.id', 'ASC')
-      .getMany();
-
     const mapping = new Map<string, number>();
-    for (const employee of employees) {
-      if (!mapping.has(employee.employee_no)) {
-        mapping.set(employee.employee_no, employee.id);
+    for (const employeeNo of employeeNumbers) {
+      const result = await this.attendanceEmployeeResolver.resolveEmployeeId(
+        companyId,
+        employeeNo,
+        deviceId,
+      );
+      if (result.employeeId && !mapping.has(employeeNo)) {
+        mapping.set(employeeNo, result.employeeId);
       }
     }
 
@@ -1906,7 +1905,7 @@ export class HikvisionAttendanceSyncService {
   }): Promise<void> {
     const employeeId = input.employeeNo
       ? ((
-          await this.resolveEmployeeMappings(input.companyId, [
+          await this.resolveEmployeeMappings(input.companyId, input.deviceId, [
             input.employeeNo,
           ])
         ).get(input.employeeNo) ?? null)
