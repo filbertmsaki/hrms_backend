@@ -1,6 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import ExcelJS from 'exceljs';
+import fs from 'fs';
+import path from 'path';
 jest.mock('digest-fetch', () => ({
   __esModule: true,
   default: jest.fn(),
@@ -30,6 +32,13 @@ import { EmploymentStatusEnum } from '../enums/employment-status.enum';
 
 type MockRepo = Record<string, jest.Mock>;
 
+const employeeImportFixturePath = path.resolve(
+  process.cwd(),
+  'test',
+  'fixtures',
+  'employee-import-mapped.xlsx',
+);
+
 const createRepositoryMock = (): MockRepo => ({
   find: jest.fn(),
   findOne: jest.fn(),
@@ -54,6 +63,7 @@ describe('EmployeeImportService', () => {
   };
 
   beforeEach(() => {
+    jest.useRealTimers();
     service = new EmployeeImportService(
       {} as DataSource,
       createRepositoryMock() as unknown as Repository<EmployeeImportBatch>,
@@ -339,6 +349,159 @@ describe('EmployeeImportService', () => {
     );
   });
 
+  it('validates the mapped employee import workbook fixture against current rules', async () => {
+    const workbookBuffer = fs.readFileSync(employeeImportFixturePath);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(workbookBuffer);
+
+    const branchesSheet = workbook.getWorksheet('Branches');
+    const departmentsSheet = workbook.getWorksheet('Departments');
+    const positionsSheet = workbook.getWorksheet('Positions');
+    const devicesSheet = workbook.getWorksheet('Access Devices');
+
+    const branches = Array.from(
+      { length: (branchesSheet?.rowCount ?? 1) - 1 },
+      (_, index) => {
+        const row = branchesSheet!.getRow(index + 2);
+        return {
+          id: index + 1,
+          code: row.getCell(1).text.trim(),
+          name: row.getCell(2).text.trim(),
+          status: row.getCell(3).text.trim().toLowerCase(),
+        };
+      },
+    );
+    const branchIdByCode = new Map(
+      branches.map((branch) => [branch.code, branch.id]),
+    );
+
+    const departments = Array.from(
+      { length: (departmentsSheet?.rowCount ?? 1) - 1 },
+      (_, index) => {
+        const row = departmentsSheet!.getRow(index + 2);
+        return {
+          id: index + 1,
+          code: row.getCell(1).text.trim(),
+          name: row.getCell(2).text.trim(),
+          branch_id: branchIdByCode.get(row.getCell(3).text.trim()) ?? null,
+          status: row.getCell(4).text.trim().toLowerCase(),
+        };
+      },
+    );
+
+    const positions = Array.from(
+      { length: (positionsSheet?.rowCount ?? 1) - 1 },
+      (_, index) => {
+        const row = positionsSheet!.getRow(index + 2);
+        return {
+          id: index + 1,
+          code: row.getCell(1).text.trim(),
+          name: row.getCell(2).text.trim(),
+          branch_id: null,
+          department_id: null,
+          status: row.getCell(5).text.trim().toLowerCase(),
+        };
+      },
+    );
+
+    const devices = Array.from(
+      { length: (devicesSheet?.rowCount ?? 1) - 1 },
+      (_, index) => {
+        const row = devicesSheet!.getRow(index + 2);
+        return {
+          id: index + 1,
+          deviceCode: row.getCell(1).text.trim(),
+          deviceName: row.getCell(2).text.trim(),
+          status: row.getCell(3).text.trim(),
+        };
+      },
+    );
+
+    jest.spyOn(service as any, 'loadReferenceData').mockResolvedValue({
+      branches,
+      departments,
+      positions,
+      departmentPositionMappings: [],
+      shifts: [],
+      timetables: [],
+      devices,
+      roles: [],
+      employees: [],
+      companyUsers: [],
+      users: [],
+      identifications: [],
+      deviceAssignments: [],
+      credentials: [],
+    });
+    jest
+      .spyOn(service as any, 'applyActorBranchValidation')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(service as any, 'applyManagerValidation')
+      .mockImplementation(() => undefined);
+    jest.spyOn(service as any, 'getTodayIsoDate').mockReturnValue('2026-07-30');
+
+    const result = await service.previewImport(
+      10,
+      {
+        originalname: 'employee-import-mapped.xlsx',
+        mimetype:
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        size: workbookBuffer.length,
+        buffer: workbookBuffer,
+      },
+      {
+        import_mode: EmployeeImportModeEnum.CREATE_OR_UPDATE,
+        process_valid_rows_only: true,
+      },
+      actor,
+    );
+
+    expect(result.totalRows).toBe(119);
+    expect(result.validRows).toBe(118);
+    expect(result.invalidRows).toBe(1);
+    expect(result.duplicateRows).toBe(0);
+    expect(result.summary).toEqual(
+      expect.objectContaining({
+        totalRows: 119,
+        readyForImport: 118,
+        invalidRecords: 1,
+        duplicateInFileRecords: 0,
+      }),
+    );
+
+    const futureDateRow = result.rows.find((row) => row.rowNumber === 59);
+    expect(futureDateRow).toEqual(
+      expect.objectContaining({
+        status: 'INVALID_RECORD',
+        identifier: 'Jayman Hiten Chohan',
+      }),
+    );
+    expect(futureDateRow?.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: 'employment_date',
+          message: 'Employment date cannot be in the future',
+        }),
+      ]),
+    );
+
+    const missingDeviceEmployeeNumberRow = result.rows.find(
+      (row) => row.rowNumber === 68,
+    );
+    expect(missingDeviceEmployeeNumberRow).toEqual(
+      expect.objectContaining({
+        status: 'READY_FOR_IMPORT',
+        identifier: 'KVA Krishnan',
+      }),
+    );
+    expect(missingDeviceEmployeeNumberRow?.warnings).toEqual(
+      expect.arrayContaining([
+        'Device employee number is blank. HRMS will use the employee number for access-device assignment during import.',
+      ]),
+    );
+  }, 20000);
+
   it('ignores blank optional lookup cells during preview validation', async () => {
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('Employees');
@@ -434,7 +597,103 @@ describe('EmployeeImportService', () => {
         'position_code "" does not match any position code',
       ]),
     );
-    expect(result.rows[0]?.status).toBe('READY');
+    expect(result.rows[0]?.status).toBe('READY_FOR_IMPORT');
+  });
+
+  it('allows previews when both device columns are omitted from the workbook', async () => {
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Employees');
+    sheet.addRow([
+      'first_name',
+      'last_name',
+      'email',
+      'gender',
+      'branch_code',
+      'department_code',
+      'position_code',
+    ]);
+    sheet.addRow([
+      'John',
+      'Importer',
+      'john.importer@example.com',
+      'male',
+      '',
+      '',
+      '',
+    ]);
+    const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+
+    jest.spyOn(service as any, 'loadReferenceData').mockResolvedValue({
+      branches: [],
+      departments: [],
+      positions: [],
+      shifts: [],
+      timetables: [],
+      devices: [],
+      roles: [],
+      employees: [],
+      companyUsers: [],
+      users: [],
+      identifications: [],
+      deviceAssignments: [],
+      credentials: [],
+    });
+    jest
+      .spyOn(service as any, 'applyActorBranchValidation')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(service as any, 'applyManagerValidation')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(service as any, 'applyBatchDuplicateValidation')
+      .mockImplementation(() => undefined);
+    jest
+      .spyOn(service as any, 'persistPreviewBatch')
+      .mockImplementation(
+        (
+          _companyId: number,
+          _file: unknown,
+          _dto: unknown,
+          _actor: unknown,
+          rows: Array<{ errors: string[] }>,
+        ) =>
+          Promise.resolve({
+            batchId: 'IMPORT-20260730-NO-DEVICE-COLUMNS',
+            previewToken: 'preview-token',
+            status: EmployeeImportBatchStatusEnum.PREVIEW_READY,
+            importMode: EmployeeImportModeEnum.CREATE_ONLY,
+            totalRows: rows.length,
+            validRows: rows.filter((row) => row.errors.length === 0).length,
+            invalidRows: rows.filter((row) => row.errors.length > 0).length,
+            duplicateRows: 0,
+            validationSummary: {},
+          } as EmployeeImportBatch),
+      );
+
+    const result = await service.previewImport(
+      10,
+      {
+        originalname: 'employees-no-device-columns.xlsx',
+        mimetype:
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        size: buffer.length,
+        buffer,
+      },
+      {},
+      actor,
+    );
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toEqual(
+      expect.objectContaining({
+        status: 'READY_FOR_IMPORT',
+        warnings: [],
+        deviceAssignmentStatus: 'NO_DEVICE_ASSIGNMENT',
+        deviceCodes: [],
+        providedDeviceEmployeeNumber: null,
+        effectiveDeviceEmployeeNumber: null,
+      }),
+    );
   });
 
   it('returns clear validation errors for invalid codes and device mappings', () => {
@@ -483,14 +742,193 @@ describe('EmployeeImportService', () => {
 
     expect(row.errors).toEqual(
       expect.arrayContaining([
-        'branch_code "UNKNOWN-BRANCH" does not match any branch code',
-        'department_code "UNKNOWN-DEPT" does not match any department code',
-        'position_code "UNKNOWN-POS" does not match any position code',
+        'Branch code "UNKNOWN-BRANCH" was not found',
+        'Department code "UNKNOWN-DEPT" was not found',
+        'Position code "UNKNOWN-POS" was not found',
         expect.stringContaining('employment_type must be one of:'),
-        'access_device_codes contain invalid device code(s): UNKNOWN-DEVICE',
-        'device_employee_number requires at least one valid access_device_codes value',
+        'Access device code "UNKNOWN-DEVICE" does not exist or is inactive.',
       ]),
     );
+  });
+
+  it('allows device codes without a device employee number and warns about the fallback', () => {
+    const row = (
+      service as unknown as {
+        validatePreviewRow: (
+          companyId: number,
+          rowNumber: number,
+          values: Record<string, unknown>,
+          dto: Record<string, unknown>,
+          references: Record<string, unknown>,
+        ) => {
+          errors: string[];
+          warnings: string[];
+          previewStatus: string;
+          normalizedData: Record<string, unknown>;
+        };
+      }
+    ).validatePreviewRow(
+      10,
+      3,
+      {
+        first_name: 'Mary',
+        last_name: 'Joseph',
+        email: 'mary@example.com',
+        gender: 'female',
+        access_device_codes: 'DEVICE-DSM-01',
+        device_employee_number: '',
+      },
+      {},
+      {
+        branches: [],
+        departments: [],
+        positions: [],
+        shifts: [],
+        timetables: [],
+        devices: [
+          {
+            id: 1,
+            deviceCode: 'DEVICE-DSM-01',
+            deviceName: 'Main Gate',
+            status: 'active',
+          },
+        ],
+        roles: [],
+        employees: [],
+        companyUsers: [],
+        users: [],
+        identifications: [],
+        deviceAssignments: [],
+        credentials: [],
+      },
+    );
+
+    expect(row.errors).toEqual([]);
+    expect(row.previewStatus).toBe('READY_FOR_IMPORT');
+    expect(row.normalizedData.access_device_codes).toEqual(['DEVICE-DSM-01']);
+    expect(row.warnings).toEqual(
+      expect.arrayContaining([
+        'Device employee number is blank. HRMS will use the employee number for access-device assignment during import.',
+      ]),
+    );
+  });
+
+  it('allows a device employee number without device codes and warns that it will be ignored', () => {
+    const row = (
+      service as unknown as {
+        validatePreviewRow: (
+          companyId: number,
+          rowNumber: number,
+          values: Record<string, unknown>,
+          dto: Record<string, unknown>,
+          references: Record<string, unknown>,
+        ) => {
+          errors: string[];
+          warnings: string[];
+          previewStatus: string;
+        };
+      }
+    ).validatePreviewRow(
+      10,
+      4,
+      {
+        first_name: 'John',
+        last_name: 'Doe',
+        email: 'john@example.com',
+        gender: 'male',
+        access_device_codes: '   ',
+        device_employee_number: 'DEV-001',
+      },
+      {},
+      {
+        branches: [],
+        departments: [],
+        positions: [],
+        shifts: [],
+        timetables: [],
+        devices: [],
+        roles: [],
+        employees: [],
+        companyUsers: [],
+        users: [],
+        identifications: [],
+        deviceAssignments: [],
+        credentials: [],
+      },
+    );
+
+    expect(row.errors).toEqual([]);
+    expect(row.previewStatus).toBe('READY_FOR_IMPORT');
+    expect(row.warnings).toEqual(
+      expect.arrayContaining([
+        'Device employee number was provided without access device codes. It will be ignored during import.',
+      ]),
+    );
+  });
+
+  it('parses multiple device codes, trims spaces, and ignores empty values', () => {
+    const row = (
+      service as unknown as {
+        validatePreviewRow: (
+          companyId: number,
+          rowNumber: number,
+          values: Record<string, unknown>,
+          dto: Record<string, unknown>,
+          references: Record<string, unknown>,
+        ) => {
+          errors: string[];
+          previewStatus: string;
+          normalizedData: Record<string, unknown>;
+        };
+      }
+    ).validatePreviewRow(
+      10,
+      5,
+      {
+        first_name: 'Janet',
+        last_name: 'Moshi',
+        email: 'janet@example.com',
+        gender: 'female',
+        access_device_codes: 'DEVICE-DSM-01,  , DEVICE-DSM-02  , DEVICE-DSM-01',
+        device_employee_number: '000125',
+      },
+      {},
+      {
+        branches: [],
+        departments: [],
+        positions: [],
+        shifts: [],
+        timetables: [],
+        devices: [
+          {
+            id: 1,
+            deviceCode: 'DEVICE-DSM-01',
+            deviceName: 'Gate 1',
+            status: 'active',
+          },
+          {
+            id: 2,
+            deviceCode: 'DEVICE-DSM-02',
+            deviceName: 'Gate 2',
+            status: 'active',
+          },
+        ],
+        roles: [],
+        employees: [],
+        companyUsers: [],
+        users: [],
+        identifications: [],
+        deviceAssignments: [],
+        credentials: [],
+      },
+    );
+
+    expect(row.errors).toEqual([]);
+    expect(row.previewStatus).toBe('READY_FOR_IMPORT');
+    expect(row.normalizedData.access_device_codes).toEqual([
+      'DEVICE-DSM-01',
+      'DEVICE-DSM-02',
+    ]);
   });
 
   it('creates company membership in the same transaction when importing a new system user', async () => {
@@ -771,6 +1209,7 @@ describe('EmployeeImportService', () => {
             email: 'ahlam.import@example.com',
             gender: 'female',
             employee_number: null,
+            employee_status: EmploymentStatusEnum.ONBOARDING,
             access_device_codes: [],
           },
           errors: [],
@@ -814,6 +1253,280 @@ describe('EmployeeImportService', () => {
         userId: 41,
         employeeNumber: '000037',
       }),
+    );
+  });
+
+  it('returns batch result details as JSON summary data', async () => {
+    const batchRepository = (
+      service as unknown as {
+        batchRepository: MockRepo;
+      }
+    ).batchRepository;
+
+    batchRepository.findOne.mockResolvedValue({
+      id: 14,
+      batchId: 'IMPORT-20260730-RESULT',
+      previewToken: 'preview-token',
+      status: EmployeeImportBatchStatusEnum.COMPLETED_WITH_ERRORS,
+      importMode: EmployeeImportModeEnum.CREATE_ONLY,
+      originalFileName: 'employees.xlsx',
+      fileSize: '2048',
+      totalRows: 3,
+      validRows: 1,
+      invalidRows: 2,
+      duplicateRows: 1,
+      successfulRows: 1,
+      failedRows: 0,
+      warningRows: 0,
+      createdEmployees: 1,
+      updatedEmployees: 0,
+      createdUsers: 1,
+      deviceAssignmentsCreated: 0,
+      deviceSyncPending: 0,
+      metadata: {
+        skipped_rows: 2,
+      },
+      validationSummary: {
+        preview: {
+          readyForImport: 1,
+          existingRecords: 1,
+        },
+        result: {
+          selectedForImport: 1,
+          successfullyImported: 1,
+          existingSkipped: 1,
+        },
+      },
+      rows: [
+        {
+          id: 77,
+          rowNumber: 2,
+          employeeName: 'Jane Doe',
+          employeeNumber: 'EMP-0001',
+          deviceEmployeeNumber: null,
+          importAction: 'CREATE',
+          matchedEmployeeId: null,
+          createdEmployeeId: 501,
+          createdUserId: 601,
+          status: EmployeeImportRowStatusEnum.IMPORTED,
+          errors: [],
+          warnings: [],
+          resultData: {
+            preview_status: 'READY_FOR_IMPORT',
+            final_status: 'IMPORTED',
+            identifier: 'Jane Doe',
+            issues: [],
+          },
+        },
+      ],
+      startedAt: new Date('2026-07-30T08:00:00.000Z'),
+      completedAt: new Date('2026-07-30T08:05:00.000Z'),
+      createdAt: new Date('2026-07-30T07:55:00.000Z'),
+      updatedAt: new Date('2026-07-30T08:05:00.000Z'),
+      previewExpiresAt: new Date('2026-07-30T08:30:00.000Z'),
+    });
+
+    const result = (await service.getResult(10, 'IMPORT-20260730-RESULT')) as {
+      batchId: string;
+      status: EmployeeImportBatchStatusEnum;
+      summary: {
+        selectedForImport: number;
+        successfullyImported: number;
+      };
+      previewSummary: {
+        readyForImport: number;
+        existingRecords: number;
+      };
+      rows: Array<Record<string, unknown>>;
+    };
+
+    expect(result.batchId).toBe('IMPORT-20260730-RESULT');
+    expect(result.status).toBe(
+      EmployeeImportBatchStatusEnum.COMPLETED_WITH_ERRORS,
+    );
+    expect(result.summary.selectedForImport).toBe(1);
+    expect(result.summary.successfullyImported).toBe(1);
+    expect(result.previewSummary.readyForImport).toBe(1);
+    expect(result.previewSummary.existingRecords).toBe(1);
+    expect(result.rows[0]).toEqual(
+      expect.objectContaining({
+        rowId: 77,
+        status: 'IMPORTED',
+        previewStatus: 'READY_FOR_IMPORT',
+        employeeId: 501,
+        userId: 601,
+      }),
+    );
+  });
+
+  it('returns stored preview rows for an existing import batch', async () => {
+    const batchRepository = (
+      service as unknown as {
+        batchRepository: MockRepo;
+      }
+    ).batchRepository;
+
+    batchRepository.findOne.mockResolvedValue({
+      id: 19,
+      batchId: 'IMPORT-20260730-PREVIEW',
+      previewToken: 'preview-token',
+      status: EmployeeImportBatchStatusEnum.COMPLETED_WITH_ERRORS,
+      importMode: EmployeeImportModeEnum.CREATE_OR_UPDATE,
+      totalRows: 2,
+      metadata: {
+        process_valid_rows_only: true,
+      },
+      validationSummary: {
+        preview: {
+          totalRows: 2,
+          readyForImport: 1,
+          invalidRecords: 1,
+          duplicateInFileRecords: 0,
+        },
+      },
+      rows: [
+        {
+          id: 11,
+          rowNumber: 2,
+          employeeName: 'Jane Doe',
+          employeeNumber: 'EMP-0001',
+          deviceEmployeeNumber: null,
+          importAction: 'CREATE',
+          errors: [],
+          warnings: [],
+          resultData: {
+            preview_status: 'READY_FOR_IMPORT',
+            identifier: 'Jane Doe',
+            issues: [],
+          },
+        },
+        {
+          id: 12,
+          rowNumber: 3,
+          employeeName: 'John Smith',
+          employeeNumber: 'EMP-0002',
+          deviceEmployeeNumber: null,
+          importAction: null,
+          errors: ['Email is required'],
+          warnings: [],
+          resultData: {
+            preview_status: 'INVALID_RECORD',
+            identifier: 'John Smith',
+            issues: [
+              {
+                field: 'email',
+                value: '',
+                message: 'Email is required',
+              },
+            ],
+          },
+        },
+      ],
+      previewExpiresAt: new Date('2026-07-30T08:30:00.000Z'),
+    });
+
+    const result = (await service.getPreview(
+      10,
+      'IMPORT-20260730-PREVIEW',
+    )) as {
+      batchId: string;
+      previewToken: string;
+      process_valid_rows_only: boolean;
+      totalRows: number;
+      validRows: number;
+      invalidRows: number;
+      rowsReadyForImport: number;
+      summary: {
+        readyForImport: number;
+        invalidRecords: number;
+      };
+      rows: Array<Record<string, unknown>>;
+    };
+
+    expect(result.batchId).toBe('IMPORT-20260730-PREVIEW');
+    expect(result.previewToken).toBe('preview-token');
+    expect(result.process_valid_rows_only).toBe(true);
+    expect(result.totalRows).toBe(2);
+    expect(result.validRows).toBe(1);
+    expect(result.invalidRows).toBe(1);
+    expect(result.rowsReadyForImport).toBe(1);
+    expect(result.summary.readyForImport).toBe(1);
+    expect(result.summary.invalidRecords).toBe(1);
+    expect(result.rows).toEqual([
+      expect.objectContaining({
+        rowId: 11,
+        rowNumber: 2,
+        status: 'READY_FOR_IMPORT',
+        selectable: true,
+      }),
+      expect.objectContaining({
+        rowId: 12,
+        rowNumber: 3,
+        status: 'INVALID_RECORD',
+        selectable: false,
+      }),
+    ]);
+  });
+
+  it('downloads an enriched workbook report for an import batch', async () => {
+    const batchRepository = (
+      service as unknown as {
+        batchRepository: MockRepo;
+      }
+    ).batchRepository;
+
+    batchRepository.findOne.mockResolvedValue({
+      batchId: 'IMPORT-20260730-REPORT',
+      rows: [
+        {
+          rowNumber: 4,
+          rawData: {
+            first_name: 'Mary',
+            last_name: 'Joseph',
+            email: 'mary@example.com',
+          },
+          status: EmployeeImportRowStatusEnum.SKIPPED,
+          importAction: 'CREATE',
+          createdEmployeeId: null,
+          createdUserId: null,
+          errors: ['Department code "FIN" was not found'],
+          warnings: [],
+          resultData: {
+            preview_status: 'INVALID_RECORD',
+            matched_by: ['email'],
+            existing_employee: {
+              fullName: 'Mary Joseph',
+            },
+          },
+        },
+      ],
+    });
+
+    const result = await service.downloadResult(10, 'IMPORT-20260730-REPORT');
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(
+      result.buffer.buffer.slice(
+        result.buffer.byteOffset,
+        result.buffer.byteOffset + result.buffer.byteLength,
+      ) as ArrayBuffer,
+    );
+
+    expect(result.fileName).toBe('IMPORT-20260730-REPORT-result.xlsx');
+    const sheet = workbook.getWorksheet('Import Results');
+    expect(sheet?.getRow(1).values).toEqual(
+      expect.arrayContaining([
+        'preview_status',
+        'matched_by',
+        'existing_employee',
+      ]),
+    );
+    expect(sheet?.getRow(2).values).toEqual(
+      expect.arrayContaining([
+        'SKIPPED',
+        'INVALID_RECORD',
+        'email',
+        'Mary Joseph',
+      ]),
     );
   });
 });

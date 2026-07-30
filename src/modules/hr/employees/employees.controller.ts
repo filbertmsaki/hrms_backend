@@ -215,7 +215,27 @@ export class EmployeesController {
     return this.employeeImportService.listHistory(req.user.companyId!, query);
   }
 
+  @Get('import/:batchId/preview')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees.import.history.view')
+  getImportPreview(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('batchId') batchId: string,
+  ) {
+    return this.employeeImportService.getPreview(req.user.companyId!, batchId);
+  }
+
   @Get('import/:batchId/result')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees.import.result.download')
+  getImportResult(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('batchId') batchId: string,
+  ) {
+    return this.employeeImportService.getResult(req.user.companyId!, batchId);
+  }
+
+  @Get('import/:batchId/errors/download')
   @UseGuards(PermissionsGuard)
   @Permissions('employees.import.result.download')
   async downloadImportResult(

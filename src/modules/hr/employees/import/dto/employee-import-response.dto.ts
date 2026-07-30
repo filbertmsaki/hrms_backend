@@ -11,4 +11,5 @@ export class EmployeeImportResponseDto {
   createdUsers: number;
   deviceAssignmentsCreated: number;
   deviceSyncPending: number;
+  summary?: Record<string, unknown>;
 }

@@ -62,14 +62,95 @@ type UploadedExcelFile = {
   buffer: Buffer;
 };
 
+type PreviewRecordStatus =
+  | 'READY_FOR_IMPORT'
+  | 'EXISTING_RECORD'
+  | 'DUPLICATE_IN_FILE'
+  | 'INVALID_RECORD';
+
+type FinalRecordStatus =
+  | PreviewRecordStatus
+  | 'EXCLUDED_BY_USER'
+  | 'IMPORTED'
+  | 'IMPORT_FAILED';
+
+type DeviceAssignmentPreviewStatus =
+  | 'NO_DEVICE_ASSIGNMENT'
+  | 'DEVICE_ASSIGNMENT_READY'
+  | 'INVALID_DEVICE_CODE'
+  | 'INVALID_DEVICE_EMPLOYEE_NUMBER'
+  | 'DUPLICATE_DEVICE_EMPLOYEE_NUMBER'
+  | 'DEVICE_ASSIGNMENT_WARNING';
+
+type RowIssue = {
+  field: string;
+  value: unknown;
+  message: string;
+  suggestion?: string;
+  type?: 'validation' | 'duplicate' | 'existing';
+};
+
+type ExistingEmployeeSummary = {
+  id: number;
+  employeeNumber: string | null;
+  fullName: string;
+  email: string | null;
+  phone: string | null;
+};
+
+type ExistingEmployeeMatch = {
+  employee: ExistingEmployeeSummary;
+  matchedBy: string[];
+};
+
+type DuplicateInFileIssue = {
+  field: string;
+  value: string;
+  rowNumbers: number[];
+  identifiers: string[];
+};
+
+type DeviceAssignmentPreview = {
+  status: DeviceAssignmentPreviewStatus;
+  message: string;
+  deviceCodes: string[];
+  providedDeviceEmployeeNumber: string | null;
+  effectiveDeviceEmployeeNumber: string | null;
+};
+
+type DeviceAssignmentSourceRow = Pick<
+  EmployeeImportRow,
+  | 'rawData'
+  | 'normalizedData'
+  | 'warnings'
+  | 'errors'
+  | 'resultData'
+  | 'deviceEmployeeNumber'
+>;
+
+type PreviewResponseRowSource = DeviceAssignmentSourceRow & {
+  id: number | null;
+  rowNumber: number;
+  employeeName: string | null;
+  employeeNumber: string | null;
+  importAction: string | null;
+  matchedEmployeeId: number | null;
+};
+
 type PreviewRow = {
   rowNumber: number;
+  identifier: string;
   rawData: Record<string, unknown>;
   normalizedData: Record<string, unknown> | null;
   errors: string[];
   warnings: string[];
+  issues: RowIssue[];
   importAction: string | null;
   matchedEmployeeId: number | null;
+  matchedBy: string[];
+  existingEmployee: ExistingEmployeeSummary | null;
+  duplicateInFile: DuplicateInFileIssue[];
+  previewStatus: PreviewRecordStatus;
   employeeNumber: string | null;
   deviceEmployeeNumber: string | null;
   employeeName: string | null;
@@ -109,6 +190,7 @@ const SUPPORTED_MIME_TYPES = new Set([
   'application/octet-stream',
 ]);
 const MAX_IMPORT_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+const MAX_IMPORT_ROW_COUNT = 1000;
 const PREVIEW_TTL_MS = 30 * 60 * 1000;
 const TEMPLATE_VALIDATION_ROW_COUNT = 500;
 const GENDER_VALUES = ['male', 'female'] as const;
@@ -293,8 +375,8 @@ export class EmployeeImportService {
       'ARU_ACCOUNTS_FINANCE',
       'EXECUTIVE',
       EmploymentTypeEnum.FULL_TIME,
-      '255',
-      'DEV-0001',
+      '',
+      '',
     ]);
     employeeSheet.getRow(2).font = { italic: true };
 
@@ -315,7 +397,11 @@ export class EmployeeImportService {
       ['Employment type values', Object.values(EmploymentTypeEnum).join(', ')],
       [
         'Access devices',
-        'Select a single device code from the dropdown, or enter multiple device codes as a comma-separated list using values from the Access Devices sheet. device_employee_number is required whenever access_device_codes are supplied and the same device employee number is applied to every selected device.',
+        'Optional. Enter one or more active access-device codes separated by commas using values from the Access Devices sheet. Leave blank to import the employee without any device assignment.',
+      ],
+      [
+        'Device employee number',
+        'Optional. Enter the employee number to use on the access-control device. If access devices are provided and this field is blank, HRMS uses the employee number generated for the imported employee.',
       ],
       [
         'Lookup strategy',
@@ -327,7 +413,7 @@ export class EmployeeImportService {
       ],
       [
         'Optional blanks',
-        'Blank optional cells are ignored. In update mode, blank cells do not clear existing values.',
+        'Blank optional cells are ignored. Employees can be imported successfully without access-device assignment. In update mode, blank cells do not clear existing values.',
       ],
       [
         'Existing employee matching',
@@ -463,6 +549,16 @@ export class EmployeeImportService {
     const { headers, unsupportedHeaders } = this.readHeaders(employeeSheet);
     const headerErrors = this.validateHeaders(headers, unsupportedHeaders);
     const rawRows = this.readEmployeeRows(employeeSheet, headers);
+    if (rawRows.length === 0) {
+      throw new BadRequestException(
+        'The uploaded Excel file does not contain any employee records',
+      );
+    }
+    if (rawRows.length > MAX_IMPORT_ROW_COUNT) {
+      throw new BadRequestException(
+        `The uploaded Excel file exceeds the maximum supported row count of ${MAX_IMPORT_ROW_COUNT}`,
+      );
+    }
     const references = await this.loadReferenceData(companyId);
     await this.applyActorBranchValidation(
       companyId,
@@ -482,12 +578,26 @@ export class EmployeeImportService {
 
     this.applyBatchDuplicateValidation(rows);
     this.applyManagerValidation(companyId, rows, references);
+    rows.forEach((row) => {
+      row.previewStatus = this.determinePreviewStatus(row);
+    });
 
     if (headerErrors.length > 0) {
       rows.forEach((row) => {
-        row.errors.push(...headerErrors);
+        headerErrors.forEach((error) =>
+          this.addIssue(
+            row,
+            '__file__',
+            null,
+            error,
+            error.toLowerCase().includes('missing required columns')
+              ? 'Update the worksheet headers to match the template before re-uploading.'
+              : undefined,
+          ),
+        );
         row.importAction = null;
         row.normalizedData = null;
+        row.previewStatus = 'INVALID_RECORD';
       });
     }
 
@@ -498,30 +608,69 @@ export class EmployeeImportService {
       actor,
       rows,
     );
+    const summary = this.buildPreviewSummary(rows);
 
     return {
       batchId: batch.batchId,
       previewToken: batch.previewToken,
       status: batch.status,
       importMode: batch.importMode,
+      previewExpiresAt: batch.previewExpiresAt,
+      process_valid_rows_only:
+        (batch.metadata?.process_valid_rows_only as boolean | undefined) ??
+        true,
       totalRows: batch.totalRows,
-      validRows: batch.validRows,
-      invalidRows: batch.invalidRows,
-      duplicateRows: batch.duplicateRows,
-      rowsReadyForImport: batch.validRows,
-      summary: batch.validationSummary,
-      rows: rows.map((row) => ({
-        rowNumber: row.rowNumber,
-        employeeName: row.employeeName,
-        employeeNumber: row.employeeNumber,
-        deviceEmployeeNumber: row.deviceEmployeeNumber,
-        importAction: row.importAction,
-        status: row.errors.length
-          ? EmployeeImportRowStatusEnum.INVALID
-          : EmployeeImportRowStatusEnum.READY,
-        errors: row.errors,
-        warnings: row.warnings,
-      })),
+      validRows: summary.readyForImport,
+      invalidRows: summary.invalidRecords,
+      duplicateRows: summary.duplicateInFileRecords,
+      rowsReadyForImport: summary.readyForImport,
+      summary,
+      rows: batch.rows?.length
+        ? batch.rows
+            .sort((left, right) => left.rowNumber - right.rowNumber)
+            .map((storedRow) => {
+              const previewRow =
+                rows.find((row) => row.rowNumber === storedRow.rowNumber) ??
+                null;
+              return this.buildPreviewResponseRow(storedRow, previewRow);
+            })
+        : rows.map((previewRow) =>
+            this.buildPreviewResponseRow(
+              {
+                id: null,
+                rowNumber: previewRow.rowNumber,
+                employeeName: previewRow.employeeName,
+                employeeNumber: previewRow.employeeNumber,
+                deviceEmployeeNumber: previewRow.deviceEmployeeNumber,
+                importAction: previewRow.importAction,
+                rawData: previewRow.rawData,
+                normalizedData: previewRow.normalizedData,
+                errors: previewRow.errors,
+                warnings: previewRow.warnings,
+                matchedEmployeeId: previewRow.matchedEmployeeId,
+                resultData: {
+                  preview_status: previewRow.previewStatus,
+                  identifier: previewRow.identifier,
+                  issues: previewRow.issues,
+                  matched_by: previewRow.matchedBy,
+                  existing_employee: previewRow.existingEmployee,
+                  duplicate_in_file: previewRow.duplicateInFile,
+                  device_assignment: this.buildDeviceAssignmentPreview(
+                    {
+                      rawData: previewRow.rawData,
+                      normalizedData: previewRow.normalizedData,
+                      warnings: previewRow.warnings,
+                      errors: previewRow.errors,
+                      resultData: null,
+                      deviceEmployeeNumber: previewRow.deviceEmployeeNumber,
+                    },
+                    previewRow,
+                  ),
+                },
+              },
+              previewRow,
+            ),
+          ),
     };
   }
 
@@ -530,10 +679,18 @@ export class EmployeeImportService {
     dto: EmployeeImportConfirmDto,
     actor: AuthenticatedUser,
   ): Promise<EmployeeImportResponseDto & { rows: Record<string, unknown>[] }> {
+    const batchId = this.optionalString(dto.batch_id);
+    const previewToken = this.optionalString(dto.preview_token);
+    if (!batchId && !previewToken) {
+      throw new BadRequestException(
+        'batch_id or preview_token is required to confirm an employee import',
+      );
+    }
+
     const batch = await this.batchRepository.findOne({
       where: {
         companyId,
-        previewToken: dto.preview_token.trim(),
+        ...(batchId ? { batchId } : { previewToken: previewToken! }),
       },
       relations: {
         rows: true,
@@ -577,9 +734,59 @@ export class EmployeeImportService {
 
     this.applyBatchDuplicateValidation(previewRows);
     this.applyManagerValidation(companyId, previewRows, references);
+    previewRows.forEach((row) => {
+      row.previewStatus = this.determinePreviewStatus(row);
+    });
 
-    const invalidRows = previewRows.filter((row) => row.errors.length > 0);
+    const previewRowsByStoredId = new Map<number, PreviewRow>();
+    batch.rows.forEach((storedRow) => {
+      const previewRow =
+        previewRows.find((row) => row.rowNumber === storedRow.rowNumber) ??
+        null;
+      if (previewRow) {
+        previewRowsByStoredId.set(this.getStoredRowKey(storedRow), previewRow);
+      }
+    });
+
+    const invalidRows = previewRows.filter(
+      (row) => row.previewStatus !== 'READY_FOR_IMPORT',
+    );
     const processValidRowsOnly = dto.process_valid_rows_only ?? true;
+    const selectedRowIds = this.resolveSelectedRowIds(
+      batch.rows,
+      previewRowsByStoredId,
+      dto,
+    );
+    const requestedInvalidSelections = Array.from(selectedRowIds).filter(
+      (rowId) =>
+        previewRowsByStoredId.get(rowId)?.previewStatus !== 'READY_FOR_IMPORT',
+    );
+    if (requestedInvalidSelections.length > 0) {
+      throw new BadRequestException(
+        `Only rows that are ready for import can be confirmed. Invalid selection row IDs: ${requestedInvalidSelections.join(', ')}`,
+      );
+    }
+
+    const existingRows = previewRows.filter(
+      (row) => row.previewStatus === 'EXISTING_RECORD',
+    );
+    if (existingRows.length > 0 && dto.skip_existing_records !== true) {
+      throw new BadRequestException(
+        'Existing records were detected in the preview. Set skip_existing_records to true after review before confirming the import.',
+      );
+    }
+
+    const invalidOrDuplicateRows = previewRows.filter((row) =>
+      ['INVALID_RECORD', 'DUPLICATE_IN_FILE'].includes(row.previewStatus),
+    );
+    if (
+      invalidOrDuplicateRows.length > 0 &&
+      dto.exclude_invalid_records !== true
+    ) {
+      throw new BadRequestException(
+        'Invalid or duplicate rows were detected in the preview. Set exclude_invalid_records to true after review before confirming the import.',
+      );
+    }
 
     if (!processValidRowsOnly && invalidRows.length > 0) {
       throw new BadRequestException(
@@ -598,6 +805,10 @@ export class EmployeeImportService {
     let createdUsers = 0;
     let deviceAssignmentsCreated = 0;
     let deviceSyncPending = 0;
+    let existingSkipped = 0;
+    let invalidSkipped = 0;
+    let duplicateInFileSkipped = 0;
+    let excludedByUser = 0;
 
     for (const previewRow of previewRows) {
       const storedRow =
@@ -615,23 +826,47 @@ export class EmployeeImportService {
       storedRow.employeeNumber = previewRow.employeeNumber;
       storedRow.deviceEmployeeNumber = previewRow.deviceEmployeeNumber;
       storedRow.matchedEmployeeId = previewRow.matchedEmployeeId;
+      storedRow.resultData = {
+        ...(storedRow.resultData ?? {}),
+        preview_status: previewRow.previewStatus,
+        identifier: previewRow.identifier,
+        issues: previewRow.issues,
+        matched_by: previewRow.matchedBy,
+        existing_employee: previewRow.existingEmployee,
+        duplicate_in_file: previewRow.duplicateInFile,
+        device_assignment: this.buildDeviceAssignmentPreview(
+          storedRow,
+          previewRow,
+        ),
+      };
 
-      if (previewRow.errors.length > 0) {
-        storedRow.status = EmployeeImportRowStatusEnum.INVALID;
-        if (!processValidRowsOnly) {
-          storedRow.resultData = {
-            status: 'FAILED',
-            reason: 'Validation failed',
-          };
-          rowResults.push(this.buildRowResult(storedRow));
-          continue;
+      if (previewRow.previewStatus !== 'READY_FOR_IMPORT') {
+        storedRow.status = EmployeeImportRowStatusEnum.SKIPPED;
+        const finalStatus = previewRow.previewStatus;
+        storedRow.resultData = {
+          ...(storedRow.resultData ?? {}),
+          final_status: finalStatus,
+          reason: this.describeNonReadyPreviewRow(previewRow),
+        };
+        if (finalStatus === 'EXISTING_RECORD') {
+          existingSkipped += 1;
+        } else if (finalStatus === 'DUPLICATE_IN_FILE') {
+          duplicateInFileSkipped += 1;
+        } else {
+          invalidSkipped += 1;
         }
+        rowResults.push(this.buildRowResult(storedRow));
+        continue;
+      }
 
+      if (!selectedRowIds.has(this.getStoredRowKey(storedRow))) {
         storedRow.status = EmployeeImportRowStatusEnum.SKIPPED;
         storedRow.resultData = {
-          status: 'SKIPPED',
-          reason: 'Validation failed',
+          ...(storedRow.resultData ?? {}),
+          final_status: 'EXCLUDED_BY_USER',
+          reason: 'Excluded during import confirmation',
         };
+        excludedByUser += 1;
         rowResults.push(this.buildRowResult(storedRow));
         continue;
       }
@@ -719,6 +954,16 @@ export class EmployeeImportService {
           importedEmployeesByNumber.set(employeeNumber, result.employee.id);
           storedRow.employeeNumber = employeeNumber;
         }
+        const assignedDeviceCodes = this.parseMultiValue(
+          previewRow.normalizedData?.access_device_codes,
+        );
+        const effectiveDeviceEmployeeNumber =
+          assignedDeviceCodes.length > 0
+            ? (previewRow.deviceEmployeeNumber ?? employeeNumber ?? null)
+            : null;
+        if (effectiveDeviceEmployeeNumber) {
+          storedRow.deviceEmployeeNumber = effectiveDeviceEmployeeNumber;
+        }
 
         storedRow.createdEmployeeId = result.employee.id;
         storedRow.createdUserId = result.createdUserId;
@@ -727,9 +972,16 @@ export class EmployeeImportService {
             ? EmployeeImportRowStatusEnum.UPDATED
             : EmployeeImportRowStatusEnum.IMPORTED;
         storedRow.resultData = {
+          ...(storedRow.resultData ?? {}),
+          final_status: 'IMPORTED',
           status: result.action === 'UPDATE' ? 'UPDATED' : 'IMPORTED',
           employee_id: result.employee.id,
           user_id: result.createdUserId,
+          device_assignment: this.buildDeviceAssignmentPreview(
+            storedRow,
+            previewRow,
+            effectiveDeviceEmployeeNumber,
+          ),
         };
         rowResults.push(this.buildRowResult(storedRow));
 
@@ -756,7 +1008,11 @@ export class EmployeeImportService {
           ...(storedRow.errors ?? []),
           error instanceof Error ? error.message : 'Import failed',
         ];
-        storedRow.resultData = { status: 'FAILED' };
+        storedRow.resultData = {
+          ...(storedRow.resultData ?? {}),
+          final_status: 'IMPORT_FAILED',
+          status: 'FAILED',
+        };
         rowResults.push(this.buildRowResult(storedRow));
 
         if (!processValidRowsOnly) {
@@ -800,8 +1056,28 @@ export class EmployeeImportService {
       ...(batch.metadata ?? {}),
       skipped_rows: skippedRows,
       process_valid_rows_only: processValidRowsOnly,
+      selected_row_ids: Array.from(selectedRowIds),
+      existing_skipped: existingSkipped,
+      invalid_skipped: invalidSkipped,
+      duplicate_in_file_skipped: duplicateInFileSkipped,
+      excluded_by_user: excludedByUser,
     };
     batch.completedAt = new Date();
+    const summary = {
+      totalUploaded: batch.rows.length,
+      selectedForImport: selectedRowIds.size,
+      successfullyImported: batch.successfulRows,
+      existingSkipped,
+      invalidSkipped,
+      duplicateInFileSkipped,
+      excludedByUser,
+      failedDuringImport: batch.failedRows,
+    };
+    batch.validationSummary = {
+      ...(batch.validationSummary ?? {}),
+      preview: this.buildPreviewSummary(previewRows),
+      result: summary,
+    };
 
     if (batch.status !== EmployeeImportBatchStatusEnum.FAILED) {
       batch.status =
@@ -825,6 +1101,7 @@ export class EmployeeImportService {
       createdUsers: batch.createdUsers,
       deviceAssignmentsCreated: batch.deviceAssignmentsCreated,
       deviceSyncPending: batch.deviceSyncPending,
+      summary,
       rows: rowResults,
     };
   }
@@ -842,6 +1119,95 @@ export class EmployeeImportService {
     return {
       data: items.map((item) => this.mapBatch(item)),
       meta: buildPaginationMeta(total, items.length, limit, page),
+    };
+  }
+
+  async getPreview(companyId: number, batchId: string) {
+    const batch = await this.batchRepository.findOne({
+      where: { companyId, batchId },
+      relations: { rows: true },
+    });
+
+    if (!batch) {
+      throw new NotFoundException('Employee import batch not found');
+    }
+
+    const rows = [...(batch.rows ?? [])]
+      .sort((left, right) => left.rowNumber - right.rowNumber)
+      .map((row) => this.buildPreviewResponseRow(row, null));
+    const storedPreviewSummary =
+      batch.validationSummary?.preview &&
+      typeof batch.validationSummary.preview === 'object' &&
+      !Array.isArray(batch.validationSummary.preview)
+        ? (batch.validationSummary.preview as Record<string, unknown>)
+        : null;
+    const summary =
+      storedPreviewSummary ?? this.buildStoredPreviewSummary(rows);
+    const readyForImport =
+      typeof summary.readyForImport === 'number'
+        ? summary.readyForImport
+        : rows.filter((row) => row.status === 'READY_FOR_IMPORT').length;
+    const invalidRecords =
+      typeof summary.invalidRecords === 'number'
+        ? summary.invalidRecords
+        : rows.filter((row) => row.status === 'INVALID_RECORD').length;
+    const duplicateInFileRecords =
+      typeof summary.duplicateInFileRecords === 'number'
+        ? summary.duplicateInFileRecords
+        : rows.filter((row) => row.status === 'DUPLICATE_IN_FILE').length;
+
+    return {
+      batchId: batch.batchId,
+      previewToken: batch.previewToken,
+      status: batch.status,
+      importMode: batch.importMode,
+      previewExpiresAt: batch.previewExpiresAt,
+      process_valid_rows_only:
+        (batch.metadata?.process_valid_rows_only as boolean | undefined) ??
+        true,
+      totalRows: batch.totalRows,
+      validRows: readyForImport,
+      invalidRows: invalidRecords,
+      duplicateRows: duplicateInFileRecords,
+      rowsReadyForImport: readyForImport,
+      summary,
+      rows,
+    };
+  }
+
+  async getResult(companyId: number, batchId: string) {
+    const batch = await this.batchRepository.findOne({
+      where: { companyId, batchId },
+      relations: { rows: true },
+    });
+
+    if (!batch) {
+      throw new NotFoundException('Employee import batch not found');
+    }
+
+    const rows = [...(batch.rows ?? [])]
+      .sort((left, right) => left.rowNumber - right.rowNumber)
+      .map((row) => this.buildRowResult(row));
+    const previewSummary =
+      batch.validationSummary?.preview &&
+      typeof batch.validationSummary.preview === 'object' &&
+      !Array.isArray(batch.validationSummary.preview)
+        ? (batch.validationSummary.preview as Record<string, unknown>)
+        : null;
+    const resultSummary =
+      batch.validationSummary?.result &&
+      typeof batch.validationSummary.result === 'object' &&
+      !Array.isArray(batch.validationSummary.result)
+        ? (batch.validationSummary.result as Record<string, unknown>)
+        : null;
+
+    return {
+      ...this.mapBatch(batch),
+      previewToken: batch.previewToken,
+      previewExpiresAt: batch.previewExpiresAt,
+      summary: resultSummary ?? null,
+      previewSummary: previewSummary ?? null,
+      rows,
     };
   }
 
@@ -864,9 +1230,16 @@ export class EmployeeImportService {
       'row_number',
       ...IMPORT_COLUMNS,
       'status',
+      'preview_status',
+      'device_assignment_status',
+      'device_assignment_message',
+      'device_codes',
+      'effective_device_employee_number',
       'import_action',
       'employee_id',
       'user_id',
+      'matched_by',
+      'existing_employee',
       'errors',
       'warnings',
     ];
@@ -882,6 +1255,10 @@ export class EmployeeImportService {
     for (const row of batch.rows.sort(
       (left, right) => left.rowNumber - right.rowNumber,
     )) {
+      const deviceAssignment =
+        (row.resultData?.device_assignment as
+          | DeviceAssignmentPreview
+          | undefined) ?? this.buildDeviceAssignmentPreview(row, null);
       const output: Record<string, unknown> = {
         row_number: row.rowNumber,
       };
@@ -891,9 +1268,25 @@ export class EmployeeImportService {
       }
 
       output.status = row.status;
+      output.preview_status = row.resultData?.preview_status ?? '';
+      output.device_assignment_status = deviceAssignment.status;
+      output.device_assignment_message = deviceAssignment.message;
+      output.device_codes = deviceAssignment.deviceCodes.join(', ');
+      output.effective_device_employee_number =
+        deviceAssignment.effectiveDeviceEmployeeNumber ?? '';
       output.import_action = row.importAction ?? '';
       output.employee_id = row.createdEmployeeId ?? '';
       output.user_id = row.createdUserId ?? '';
+      output.matched_by = Array.isArray(row.resultData?.matched_by)
+        ? (row.resultData?.matched_by as string[]).join(', ')
+        : '';
+      output.existing_employee =
+        row.resultData?.existing_employee &&
+        typeof row.resultData.existing_employee === 'object' &&
+        !Array.isArray(row.resultData.existing_employee)
+          ? ((row.resultData.existing_employee as { fullName?: string })
+              .fullName ?? '')
+          : '';
       output.errors = (row.errors ?? []).join(' | ');
       output.warnings = (row.warnings ?? []).join(' | ');
       resultSheet.addRow(columns.map((column) => output[column] ?? ''));
@@ -939,8 +1332,11 @@ export class EmployeeImportService {
       uploadedByCompanyUserId: actor.companyMembershipId ?? null,
       previewExpiresAt: new Date(Date.now() + PREVIEW_TTL_MS),
       totalRows: rows.length,
-      validRows: rows.filter((row) => row.errors.length === 0).length,
-      invalidRows: rows.filter((row) => row.errors.length > 0).length,
+      validRows: rows.filter((row) => row.previewStatus === 'READY_FOR_IMPORT')
+        .length,
+      invalidRows: rows.filter(
+        (row) => row.previewStatus !== 'READY_FOR_IMPORT',
+      ).length,
       duplicateRows,
       validationSummary: this.buildValidationSummary(rows),
       metadata: {
@@ -965,6 +1361,25 @@ export class EmployeeImportService {
         warnings: row.warnings,
         errors: row.errors,
         matchedEmployeeId: row.matchedEmployeeId,
+        resultData: {
+          preview_status: row.previewStatus,
+          identifier: row.identifier,
+          issues: row.issues,
+          matched_by: row.matchedBy,
+          existing_employee: row.existingEmployee,
+          duplicate_in_file: row.duplicateInFile,
+          device_assignment: this.buildDeviceAssignmentPreview(
+            {
+              rawData: row.rawData,
+              normalizedData: row.normalizedData,
+              warnings: row.warnings,
+              errors: row.errors,
+              resultData: null,
+              deviceEmployeeNumber: row.deviceEmployeeNumber,
+            },
+            row,
+          ),
+        },
       }),
     );
     await this.rowRepository.save(rowEntities);
@@ -979,9 +1394,27 @@ export class EmployeeImportService {
     dto: EmployeeImportPreviewRequestDto,
     references: ReferenceData,
   ): PreviewRow {
-    const errors: string[] = [];
-    const warnings: string[] = [];
+    const identifier = this.buildPreviewIdentifier(values);
+    const row: PreviewRow = {
+      rowNumber,
+      identifier,
+      rawData: values,
+      normalizedData: {},
+      errors: [],
+      warnings: [],
+      issues: [],
+      importAction: null,
+      matchedEmployeeId: null,
+      matchedBy: [],
+      existingEmployee: null,
+      duplicateInFile: [],
+      previewStatus: 'READY_FOR_IMPORT',
+      employeeNumber: null,
+      deviceEmployeeNumber: null,
+      employeeName: identifier,
+    };
     const normalizedData: Record<string, unknown> = {};
+    const warnings: string[] = [];
 
     const firstName = this.optionalString(values.first_name);
     const middleName = this.optionalString(values.middle_name);
@@ -993,25 +1426,62 @@ export class EmployeeImportService {
       values.device_employee_number,
     );
 
-    if (!firstName) errors.push('first_name is required');
-    if (!lastName) errors.push('last_name is required');
-    if (!email) errors.push('email is required');
-    if (!gender) errors.push('gender is required');
+    if (!firstName) {
+      this.addIssue(
+        row,
+        'first_name',
+        values.first_name ?? null,
+        'First name is required',
+      );
+    }
+    if (!lastName) {
+      this.addIssue(
+        row,
+        'last_name',
+        values.last_name ?? null,
+        'Last name is required',
+      );
+    }
+    if (!email) {
+      this.addIssue(row, 'email', values.email ?? null, 'Email is required');
+    }
+    if (!gender) {
+      this.addIssue(row, 'gender', values.gender ?? null, 'Gender is required');
+    }
     if (
       gender &&
       !GENDER_VALUES.includes(gender as (typeof GENDER_VALUES)[number])
     ) {
-      errors.push(`gender must be one of: ${GENDER_VALUES.join(', ')}`);
+      this.addIssue(
+        row,
+        'gender',
+        values.gender ?? null,
+        `Gender must be one of: ${GENDER_VALUES.join(', ')}`,
+      );
     }
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      errors.push('email is not valid');
+      this.addIssue(
+        row,
+        'email',
+        values.email ?? null,
+        'Email address format is invalid',
+      );
     }
 
+    const employmentTypeErrors: string[] = [];
     const employmentType = this.resolveEnumValue(
       values.employment_type,
       Object.values(EmploymentTypeEnum),
       'employment_type',
-      errors,
+      employmentTypeErrors,
+    );
+    employmentTypeErrors.forEach((message) =>
+      this.addIssue(
+        row,
+        'employment_type',
+        values.employment_type ?? null,
+        message,
+      ),
     );
 
     const branch = this.resolveBranchReference(
@@ -1031,21 +1501,35 @@ export class EmployeeImportService {
     const positionCode = this.optionalString(values.position_code);
 
     if (branchCode && !branch) {
-      errors.push(`branch_code "${branchCode}" does not match any branch code`);
+      this.addIssue(
+        row,
+        'branch_code',
+        branchCode,
+        `Branch code "${branchCode}" was not found`,
+      );
     }
     if (departmentCode && !department) {
-      errors.push(
-        `department_code "${departmentCode}" does not match any department code`,
+      this.addIssue(
+        row,
+        'department_code',
+        departmentCode,
+        `Department code "${departmentCode}" was not found`,
       );
     }
     if (positionCode && !position) {
-      errors.push(
-        `position_code "${positionCode}" does not match any position code`,
+      this.addIssue(
+        row,
+        'position_code',
+        positionCode,
+        `Position code "${positionCode}" was not found`,
       );
     }
     if (branch && department?.branch_id && department.branch_id !== branch.id) {
-      errors.push(
-        'department_code does not belong to the selected branch_code',
+      this.addIssue(
+        row,
+        'department_code',
+        departmentCode,
+        'Department code does not belong to the selected branch code',
       );
     }
     if (
@@ -1057,8 +1541,11 @@ export class EmployeeImportService {
         references.departmentPositionMappings,
       )
     ) {
-      errors.push(
-        'position_code does not belong to the selected department_code',
+      this.addIssue(
+        row,
+        'position_code',
+        positionCode,
+        'Position code does not belong to the selected department code',
       );
     }
     if (
@@ -1071,7 +1558,12 @@ export class EmployeeImportService {
         references.departmentPositionMappings,
       )
     ) {
-      errors.push('position_code does not belong to the selected branch_code');
+      this.addIssue(
+        row,
+        'position_code',
+        positionCode,
+        'Position code does not belong to the selected branch code',
+      );
     }
 
     const matchedEmployee = this.matchExistingEmployee(
@@ -1079,74 +1571,112 @@ export class EmployeeImportService {
       employeeNumber,
       email,
       references,
-      errors,
+      row,
     );
     const importMode = dto.import_mode ?? EmployeeImportModeEnum.CREATE_ONLY;
     let importAction: string | null = null;
 
     if (matchedEmployee) {
       importAction = 'UPDATE';
+      row.matchedBy = matchedEmployee.matchedBy;
+      row.existingEmployee = matchedEmployee.employee;
       if (importMode === EmployeeImportModeEnum.CREATE_ONLY) {
-        errors.push('employee already exists and CREATE_ONLY mode is enabled');
+        this.addIssue(
+          row,
+          matchedEmployee.matchedBy[0] ?? 'employee',
+          employeeNumber ?? email,
+          'Employee already exists and create-only mode is enabled',
+          'Exclude this row or switch to an update-capable import mode.',
+          'existing',
+        );
       }
       if (
         employeeNumber &&
-        matchedEmployee.employee_no &&
-        matchedEmployee.employee_no !== employeeNumber
+        matchedEmployee.employee.employeeNumber &&
+        matchedEmployee.employee.employeeNumber !== employeeNumber
       ) {
-        errors.push(
-          'employee_number cannot be changed for an existing employee record',
+        this.addIssue(
+          row,
+          'employee_number',
+          employeeNumber,
+          'Employee number cannot be changed for an existing employee record',
+          undefined,
+          'existing',
         );
       }
       if (
         email &&
-        matchedEmployee.email?.trim().toLowerCase() !== email.toLowerCase()
+        matchedEmployee.employee.email?.trim().toLowerCase() !==
+          email.toLowerCase()
       ) {
-        errors.push(
-          'email cannot be changed for an existing employee record through this import',
+        this.addIssue(
+          row,
+          'email',
+          email,
+          'Email cannot be changed for an existing employee record through this import',
+          undefined,
+          'existing',
         );
       }
     } else {
       importAction = 'CREATE';
       if (importMode === EmployeeImportModeEnum.UPDATE_EXISTING) {
-        errors.push(
-          'existing employee was not found and UPDATE_EXISTING mode is enabled',
+        this.addIssue(
+          row,
+          'employee',
+          employeeNumber ?? email,
+          'Existing employee was not found and update-existing mode is enabled',
+          'Provide a matching employee number or email that already exists in this company.',
         );
       }
     }
 
+    const employmentDateErrors: string[] = [];
     const employmentDate = this.parseDate(
       values.employment_date,
       'employment_date',
-      errors,
+      employmentDateErrors,
     );
-
-    const deviceCodes = this.parseMultiValue(values.access_device_codes);
-    const invalidDeviceCodes: string[] = [];
-    const resolvedDevices = deviceCodes
-      .map((code) => {
-        const device =
-          references.devices.find(
-            (candidate) =>
-              candidate.deviceCode.trim().toLowerCase() === code.toLowerCase(),
-          ) ?? null;
-        if (!device) {
-          invalidDeviceCodes.push(code);
-        }
-        return device;
-      })
-      .filter((device): device is AttendanceDevice => Boolean(device));
-    if (invalidDeviceCodes.length > 0) {
-      errors.push(
-        `access_device_codes contain invalid device code(s): ${invalidDeviceCodes.join(', ')}`,
+    employmentDateErrors.forEach((message) =>
+      this.addIssue(
+        row,
+        'employment_date',
+        values.employment_date ?? null,
+        message,
+        'Use an ISO date like YYYY-MM-DD.',
+      ),
+    );
+    if (employmentDate && employmentDate > this.getTodayIsoDate()) {
+      this.addIssue(
+        row,
+        'employment_date',
+        values.employment_date ?? null,
+        'Employment date cannot be in the future',
+        'Use today or an earlier employment date before importing this row.',
       );
     }
-    if (
-      resolvedDevices.some(
-        (device) => device.status === AttendanceDeviceStatusEnum.INACTIVE,
-      )
-    ) {
-      errors.push('Inactive access devices cannot be assigned during import');
+
+    const deviceCodes = this.parseMultiValue(values.access_device_codes);
+    const resolvedDevices: AttendanceDevice[] = [];
+    for (const code of deviceCodes) {
+      const device =
+        references.devices.find(
+          (candidate) =>
+            candidate.deviceCode.trim().toLowerCase() === code.toLowerCase(),
+        ) ?? null;
+
+      if (!device || device.status === AttendanceDeviceStatusEnum.INACTIVE) {
+        this.addIssue(
+          row,
+          'access_device_codes',
+          code,
+          `Access device code "${code}" does not exist or is inactive.`,
+          'Use only active access-device codes from the template reference sheet.',
+        );
+        continue;
+      }
+
+      resolvedDevices.push(device);
     }
     if (
       resolvedDevices.some(
@@ -1157,14 +1687,22 @@ export class EmployeeImportService {
         'One or more devices are currently offline. Sync will remain pending.',
       );
     }
-    if (resolvedDevices.length > 0 && !deviceEmployeeNumber) {
-      errors.push(
-        'device_employee_number is required when access_device_codes are provided',
+    if (deviceEmployeeNumber && deviceEmployeeNumber.length > 100) {
+      this.addIssue(
+        row,
+        'device_employee_number',
+        deviceEmployeeNumber,
+        'Device employee number cannot exceed 100 characters',
       );
     }
-    if (deviceEmployeeNumber && resolvedDevices.length === 0) {
-      errors.push(
-        'device_employee_number requires at least one valid access_device_codes value',
+    if (resolvedDevices.length > 0 && !deviceEmployeeNumber) {
+      warnings.push(
+        'Device employee number is blank. HRMS will use the employee number for access-device assignment during import.',
+      );
+    }
+    if (deviceEmployeeNumber && deviceCodes.length === 0) {
+      warnings.push(
+        'Device employee number was provided without access device codes. It will be ignored during import.',
       );
     }
     if (deviceEmployeeNumber) {
@@ -1175,11 +1713,16 @@ export class EmployeeImportService {
             assignment.employeeNo.trim().toLowerCase() ===
               deviceEmployeeNumber.toLowerCase() &&
             assignment.employeeId !== null &&
-            assignment.employeeId !== matchedEmployee?.id,
+            assignment.employeeId !== matchedEmployee?.employee.id,
         );
         if (conflictingAssignment) {
-          errors.push(
-            `device_employee_number is already assigned on device ${device.deviceCode}`,
+          this.addIssue(
+            row,
+            'device_employee_number',
+            deviceEmployeeNumber,
+            `Device employee number is already assigned on device ${device.deviceCode}`,
+            undefined,
+            'existing',
           );
           break;
         }
@@ -1206,21 +1749,20 @@ export class EmployeeImportService {
     normalizedData.device_ids = resolvedDevices.map((device) => device.id);
     normalizedData.device_employee_number = deviceEmployeeNumber;
 
-    return {
-      rowNumber,
-      rawData: values,
-      normalizedData,
-      errors,
-      warnings,
-      importAction,
-      matchedEmployeeId: matchedEmployee?.id ?? null,
-      employeeNumber,
-      deviceEmployeeNumber,
-      employeeName: [firstName, middleName, lastName]
-        .filter((value): value is string => Boolean(value))
-        .join(' ')
-        .trim(),
-    };
+    row.normalizedData = normalizedData;
+    row.warnings = warnings;
+    row.importAction = importAction;
+    row.matchedEmployeeId = matchedEmployee?.employee.id ?? null;
+    row.employeeNumber = employeeNumber;
+    row.deviceEmployeeNumber = deviceEmployeeNumber;
+    row.employeeName = [firstName, middleName, lastName]
+      .filter((value): value is string => Boolean(value))
+      .join(' ')
+      .trim();
+    row.identifier = row.employeeName || identifier;
+    row.previewStatus = this.determinePreviewStatus(row);
+
+    return row;
   }
 
   private buildEmployeeCreateDto(
@@ -1254,10 +1796,8 @@ export class EmployeeImportService {
         this.toNumber(normalizedData.department_id) ?? undefined,
       primary_position_id:
         this.toNumber(normalizedData.position_id) ?? undefined,
-      employment_status:
-        (this.optionalString(
-          normalizedData.employee_status,
-        ) as EmploymentStatusEnum | null) ?? EmploymentStatusEnum.ACTIVE,
+      // Employee imports always create active employees.
+      employment_status: EmploymentStatusEnum.ACTIVE,
       employment_type:
         (this.optionalString(
           normalizedData.employment_type,
@@ -1695,8 +2235,11 @@ export class EmployeeImportService {
       }
 
       if (row.employeeNumber && row.employeeNumber === managerEmployeeNumber) {
-        row.errors.push(
-          'manager_employee_number cannot match the employee row',
+        this.addIssue(
+          row,
+          'manager_employee_number',
+          managerEmployeeNumber,
+          'Manager employee number cannot match the employee row',
         );
         continue;
       }
@@ -1705,8 +2248,11 @@ export class EmployeeImportService {
         !existingEmployeeNumbers.has(managerEmployeeNumber) &&
         !rowEmployeeNumbers.has(managerEmployeeNumber)
       ) {
-        row.errors.push(
-          'manager_employee_number was not found in this company',
+        this.addIssue(
+          row,
+          'manager_employee_number',
+          managerEmployeeNumber,
+          'Manager employee number was not found in this company',
         );
       }
     }
@@ -1744,8 +2290,11 @@ export class EmployeeImportService {
       if (detectCycle(employeeNumber)) {
         const row = rowEmployeeNumbers.get(employeeNumber);
         if (row) {
-          row.errors.push(
-            'manager_employee_number creates a circular reporting line',
+          this.addIssue(
+            row,
+            'manager_employee_number',
+            row.normalizedData?.manager_employee_number ?? null,
+            'Manager employee number creates a circular reporting line',
           );
         }
       }
@@ -1754,56 +2303,362 @@ export class EmployeeImportService {
     void companyId;
   }
 
-  private buildValidationSummary(rows: PreviewRow[]): Record<string, unknown> {
+  private buildPreviewSummary(rows: PreviewRow[]) {
+    const readyRows = rows.filter(
+      (row) => row.previewStatus === 'READY_FOR_IMPORT',
+    );
+    const matchedReadyRows = readyRows.filter(
+      (row) => row.importAction === 'UPDATE',
+    );
+    const newReadyRows = readyRows.filter(
+      (row) => row.importAction !== 'UPDATE',
+    );
     return {
+      totalRows: rows.length,
+      validNewRecords: newReadyRows.length,
+      readyForImport: readyRows.length,
+      existingRecords: rows.filter(
+        (row) => row.previewStatus === 'EXISTING_RECORD',
+      ).length,
+      duplicateInFileRecords: rows.filter(
+        (row) => row.previewStatus === 'DUPLICATE_IN_FILE',
+      ).length,
+      invalidRecords: rows.filter(
+        (row) => row.previewStatus === 'INVALID_RECORD',
+      ).length,
+      updateReadyRecords: matchedReadyRows.length,
+      selectedByDefault: readyRows.length,
+    };
+  }
+
+  private buildStoredPreviewSummary(rows: Record<string, unknown>[]) {
+    const readyRows = rows.filter((row) => row.status === 'READY_FOR_IMPORT');
+    const matchedReadyRows = readyRows.filter(
+      (row) => row.importAction === 'UPDATE',
+    );
+    const newReadyRows = readyRows.filter(
+      (row) => row.importAction !== 'UPDATE',
+    );
+    return {
+      totalRows: rows.length,
+      validNewRecords: newReadyRows.length,
+      readyForImport: readyRows.length,
+      existingRecords: rows.filter((row) => row.status === 'EXISTING_RECORD')
+        .length,
+      duplicateInFileRecords: rows.filter(
+        (row) => row.status === 'DUPLICATE_IN_FILE',
+      ).length,
+      invalidRecords: rows.filter((row) => row.status === 'INVALID_RECORD')
+        .length,
+      updateReadyRecords: matchedReadyRows.length,
+      selectedByDefault: readyRows.length,
+    };
+  }
+
+  private buildValidationSummary(rows: PreviewRow[]): Record<string, unknown> {
+    const previewSummary = this.buildPreviewSummary(rows);
+    return {
+      ...previewSummary,
       invalidBranches: rows.filter((row) =>
-        row.errors.some((error) => error.includes('branch_code')),
+        row.issues.some((issue) => issue.field === 'branch_code'),
       ).length,
       invalidDepartments: rows.filter((row) =>
-        row.errors.some((error) => error.includes('department_code')),
+        row.issues.some((issue) => issue.field === 'department_code'),
       ).length,
       invalidPositions: rows.filter((row) =>
-        row.errors.some((error) => error.includes('position_code')),
+        row.issues.some((issue) => issue.field === 'position_code'),
       ).length,
       invalidDevices: rows.filter((row) =>
-        row.errors.some((error) => error.includes('access_device_codes')),
+        row.issues.some((issue) => issue.field === 'access_device_codes'),
       ).length,
       invalidDates: rows.filter((row) =>
-        row.errors.some((error) => error.toLowerCase().includes('date')),
+        row.issues.some((issue) => issue.field.includes('date')),
       ).length,
       invalidEmails: rows.filter((row) =>
-        row.errors.some((error) => error.includes('email')),
+        row.issues.some((issue) => issue.field === 'email'),
       ).length,
       invalidGenders: rows.filter((row) =>
-        row.errors.some((error) => error.includes('gender')),
+        row.issues.some((issue) => issue.field === 'gender'),
       ).length,
       invalidEmploymentTypes: rows.filter((row) =>
-        row.errors.some((error) => error.includes('employment_type')),
+        row.issues.some((issue) => issue.field === 'employment_type'),
       ).length,
       missingDeviceEmployeeNumbers: rows.filter((row) =>
-        row.errors.some((error) => error.includes('device_employee_number')),
+        row.issues.some((issue) => issue.field === 'device_employee_number'),
       ).length,
-      duplicateRows: rows.filter((row) =>
-        row.errors.some((error) => error.toLowerCase().includes('duplicate')),
-      ).length,
+      duplicateRows: previewSummary.duplicateInFileRecords,
       existingEmployees: rows.filter((row) => row.matchedEmployeeId !== null)
         .length,
     };
   }
 
-  private buildRowResult(row: EmployeeImportRow): Record<string, unknown> {
+  private buildDeviceAssignmentPreview(
+    storedRow: DeviceAssignmentSourceRow,
+    previewRow: PreviewRow | null,
+    effectiveDeviceEmployeeNumber?: string | null,
+  ): DeviceAssignmentPreview {
+    const issues =
+      previewRow?.issues ??
+      (storedRow.resultData?.issues as RowIssue[] | undefined) ??
+      [];
+    const warnings = previewRow?.warnings ?? storedRow.warnings ?? [];
+    const normalizedData =
+      previewRow?.normalizedData ?? storedRow.normalizedData ?? {};
+    const rawData =
+      previewRow?.rawData ??
+      (storedRow.rawData as Record<string, unknown> | null) ??
+      {};
+    const deviceCodes = Array.isArray(normalizedData.access_device_codes)
+      ? (normalizedData.access_device_codes as unknown[])
+          .filter(
+            (value): value is string =>
+              typeof value === 'string' && value.trim().length > 0,
+          )
+          .map((value) => value.trim())
+      : this.parseMultiValue(rawData.access_device_codes);
+    const providedDeviceEmployeeNumber =
+      previewRow?.deviceEmployeeNumber ??
+      this.optionalString(normalizedData.device_employee_number) ??
+      this.optionalString(rawData.device_employee_number) ??
+      null;
+    const effectiveNumber =
+      effectiveDeviceEmployeeNumber ??
+      (storedRow.resultData?.effective_device_employee_number as
+        | string
+        | undefined) ??
+      (deviceCodes.length > 0
+        ? this.optionalString(storedRow.deviceEmployeeNumber)
+        : null) ??
+      providedDeviceEmployeeNumber;
+
+    const deviceCodeIssue = issues.find(
+      (issue) => issue.field === 'access_device_codes',
+    );
+    if (deviceCodeIssue) {
+      return {
+        status: 'INVALID_DEVICE_CODE',
+        message: deviceCodeIssue.message,
+        deviceCodes,
+        providedDeviceEmployeeNumber,
+        effectiveDeviceEmployeeNumber: effectiveNumber,
+      };
+    }
+
+    const deviceEmployeeNumberIssue = issues.find(
+      (issue) => issue.field === 'device_employee_number',
+    );
+    if (deviceEmployeeNumberIssue) {
+      const lowered = deviceEmployeeNumberIssue.message.toLowerCase();
+      return {
+        status:
+          lowered.includes('already assigned') || lowered.includes('duplicate')
+            ? 'DUPLICATE_DEVICE_EMPLOYEE_NUMBER'
+            : 'INVALID_DEVICE_EMPLOYEE_NUMBER',
+        message: deviceEmployeeNumberIssue.message,
+        deviceCodes,
+        providedDeviceEmployeeNumber,
+        effectiveDeviceEmployeeNumber: effectiveNumber,
+      };
+    }
+
+    const deviceWarning = warnings.find(
+      (warning) =>
+        warning.toLowerCase().includes('device employee number') ||
+        warning.toLowerCase().includes('device') ||
+        warning.toLowerCase().includes('sync will remain pending'),
+    );
+    if (deviceWarning) {
+      return {
+        status: 'DEVICE_ASSIGNMENT_WARNING',
+        message: deviceWarning,
+        deviceCodes,
+        providedDeviceEmployeeNumber,
+        effectiveDeviceEmployeeNumber: effectiveNumber,
+      };
+    }
+
+    if (deviceCodes.length > 0) {
+      return {
+        status: 'DEVICE_ASSIGNMENT_READY',
+        message: providedDeviceEmployeeNumber
+          ? 'Device assignment is ready.'
+          : 'Device assignment is ready and will use the employee number during import.',
+        deviceCodes,
+        providedDeviceEmployeeNumber,
+        effectiveDeviceEmployeeNumber: effectiveNumber,
+      };
+    }
+
     return {
+      status: 'NO_DEVICE_ASSIGNMENT',
+      message: 'No access-device assignment will be created.',
+      deviceCodes: [],
+      providedDeviceEmployeeNumber,
+      effectiveDeviceEmployeeNumber: null,
+    };
+  }
+
+  private buildPreviewResponseRow(
+    storedRow: PreviewResponseRowSource,
+    previewRow: PreviewRow | null,
+  ): Record<string, unknown> {
+    const previewStatus =
+      (storedRow.resultData?.preview_status as
+        | PreviewRecordStatus
+        | undefined) ??
+      previewRow?.previewStatus ??
+      'INVALID_RECORD';
+    const identifier =
+      (storedRow.resultData?.identifier as string | undefined) ??
+      previewRow?.identifier ??
+      storedRow.employeeName ??
+      `Row ${storedRow.rowNumber}`;
+    const issues =
+      (storedRow.resultData?.issues as RowIssue[] | undefined) ??
+      previewRow?.issues ??
+      [];
+    const existingEmployee =
+      (storedRow.resultData?.existing_employee as
+        | ExistingEmployeeSummary
+        | undefined) ??
+      previewRow?.existingEmployee ??
+      null;
+    const duplicateInFile =
+      (storedRow.resultData?.duplicate_in_file as
+        | DuplicateInFileIssue[]
+        | undefined) ??
+      previewRow?.duplicateInFile ??
+      [];
+    const matchedBy =
+      (storedRow.resultData?.matched_by as string[] | undefined) ??
+      previewRow?.matchedBy ??
+      [];
+    const deviceAssignment =
+      (storedRow.resultData?.device_assignment as
+        | DeviceAssignmentPreview
+        | undefined) ??
+      this.buildDeviceAssignmentPreview(storedRow, previewRow);
+
+    return {
+      rowId: storedRow.id,
+      rowNumber: storedRow.rowNumber,
+      identifier,
+      employeeName: storedRow.employeeName,
+      employeeNumber: storedRow.employeeNumber,
+      deviceEmployeeNumber: storedRow.deviceEmployeeNumber,
+      importAction: storedRow.importAction,
+      status: previewStatus,
+      selectable: previewStatus === 'READY_FOR_IMPORT',
+      selectedByDefault: previewStatus === 'READY_FOR_IMPORT',
+      existingEmployee,
+      matchedBy,
+      duplicateInFile,
+      issues,
+      errors: storedRow.errors ?? [],
+      warnings: storedRow.warnings ?? [],
+      deviceAssignmentStatus: deviceAssignment.status,
+      deviceAssignmentMessage: deviceAssignment.message,
+      deviceCodes: deviceAssignment.deviceCodes,
+      providedDeviceEmployeeNumber:
+        deviceAssignment.providedDeviceEmployeeNumber,
+      effectiveDeviceEmployeeNumber:
+        deviceAssignment.effectiveDeviceEmployeeNumber,
+    };
+  }
+
+  private buildRowResult(row: EmployeeImportRow): Record<string, unknown> {
+    const previewStatus =
+      (row.resultData?.preview_status as PreviewRecordStatus | undefined) ??
+      'INVALID_RECORD';
+    const finalStatus =
+      (row.resultData?.final_status as FinalRecordStatus | undefined) ??
+      (row.status === EmployeeImportRowStatusEnum.FAILED
+        ? 'IMPORT_FAILED'
+        : row.status === EmployeeImportRowStatusEnum.IMPORTED ||
+            row.status === EmployeeImportRowStatusEnum.UPDATED
+          ? 'IMPORTED'
+          : previewStatus);
+    const deviceAssignment =
+      (row.resultData?.device_assignment as
+        | DeviceAssignmentPreview
+        | undefined) ?? this.buildDeviceAssignmentPreview(row, null);
+    return {
+      rowId: row.id,
       rowNumber: row.rowNumber,
+      identifier:
+        (row.resultData?.identifier as string | undefined) ??
+        row.employeeName ??
+        `Row ${row.rowNumber}`,
       employeeName: row.employeeName,
       employeeNumber: row.employeeNumber,
       deviceEmployeeNumber: row.deviceEmployeeNumber,
       importAction: row.importAction,
       employeeId: row.createdEmployeeId ?? row.matchedEmployeeId,
       userId: row.createdUserId,
-      status: row.status,
+      status: finalStatus,
+      previewStatus,
+      matchedBy: (row.resultData?.matched_by as string[] | undefined) ?? [],
+      existingEmployee:
+        (row.resultData?.existing_employee as
+          | ExistingEmployeeSummary
+          | undefined) ?? null,
+      duplicateInFile:
+        (row.resultData?.duplicate_in_file as
+          | DuplicateInFileIssue[]
+          | undefined) ?? [],
+      issues: (row.resultData?.issues as RowIssue[] | undefined) ?? [],
       errors: row.errors ?? [],
       warnings: row.warnings ?? [],
+      deviceAssignmentStatus: deviceAssignment.status,
+      deviceAssignmentMessage: deviceAssignment.message,
+      deviceCodes: deviceAssignment.deviceCodes,
+      providedDeviceEmployeeNumber:
+        deviceAssignment.providedDeviceEmployeeNumber,
+      effectiveDeviceEmployeeNumber:
+        deviceAssignment.effectiveDeviceEmployeeNumber,
     };
+  }
+
+  private resolveSelectedRowIds(
+    storedRows: EmployeeImportRow[],
+    previewRowsByStoredId: Map<number, PreviewRow>,
+    dto: EmployeeImportConfirmDto,
+  ): Set<number> {
+    const explicitlySelected = new Set(dto.row_ids ?? []);
+    const explicitlyExcluded = new Set(dto.excluded_row_ids ?? []);
+    const defaultSelected = storedRows
+      .filter(
+        (row) =>
+          previewRowsByStoredId.get(this.getStoredRowKey(row))
+            ?.previewStatus === 'READY_FOR_IMPORT',
+      )
+      .map((row) => this.getStoredRowKey(row));
+
+    const seed =
+      explicitlySelected.size > 0
+        ? Array.from(explicitlySelected)
+        : defaultSelected;
+    return new Set(seed.filter((rowId) => !explicitlyExcluded.has(rowId)));
+  }
+
+  private getStoredRowKey(
+    row: Pick<EmployeeImportRow, 'id' | 'rowNumber'>,
+  ): number {
+    return typeof row.id === 'number' && Number.isFinite(row.id)
+      ? row.id
+      : row.rowNumber * -1;
+  }
+
+  private describeNonReadyPreviewRow(row: PreviewRow): string {
+    switch (row.previewStatus) {
+      case 'EXISTING_RECORD':
+        return 'Existing employee record was reviewed and skipped';
+      case 'DUPLICATE_IN_FILE':
+        return 'Duplicate row in the uploaded file was skipped';
+      case 'INVALID_RECORD':
+      default:
+        return 'Row failed validation and was skipped';
+    }
   }
 
   private mapBatch(item: EmployeeImportBatch) {
@@ -2335,9 +3190,12 @@ export class EmployeeImportService {
     employeeNumber: string | null,
     email: string | null,
     references: ReferenceData,
-    errors: string[],
-  ) {
-    const matches = new Map<number, ReferenceData['employees'][number]>();
+    row: PreviewRow,
+  ): ExistingEmployeeMatch | null {
+    const matches = new Map<
+      number,
+      { employee: ReferenceData['employees'][number]; matchedBy: Set<string> }
+    >();
 
     if (employeeNumber) {
       const employee = references.employees.find(
@@ -2345,24 +3203,67 @@ export class EmployeeImportService {
           item.employee_no.trim().toLowerCase() ===
           employeeNumber.toLowerCase(),
       );
-      if (employee) matches.set(employee.id, employee);
+      if (employee) {
+        const existing = matches.get(employee.id) ?? {
+          employee,
+          matchedBy: new Set<string>(),
+        };
+        existing.matchedBy.add('employee_number');
+        matches.set(employee.id, existing);
+      }
     }
     if (email) {
       const employee = references.employees.find(
         (item) => item.email?.trim().toLowerCase() === email.toLowerCase(),
       );
-      if (employee) matches.set(employee.id, employee);
+      if (employee) {
+        const existing = matches.get(employee.id) ?? {
+          employee,
+          matchedBy: new Set<string>(),
+        };
+        existing.matchedBy.add('email');
+        matches.set(employee.id, existing);
+      }
     }
 
     if (matches.size > 1) {
-      errors.push(
-        'Row matches different existing employees across employee_number and email',
+      this.addIssue(
+        row,
+        'employee',
+        employeeNumber ?? email,
+        'This row matches different existing employees across employee number and email',
+        'Ensure employee number and email belong to the same employee before importing.',
+        'existing',
       );
       return null;
     }
 
     void companyId;
-    return Array.from(matches.values())[0] ?? null;
+    const matched = Array.from(matches.values())[0] ?? null;
+    if (!matched) {
+      return null;
+    }
+
+    const employee = matched.employee;
+    return {
+      employee: {
+        id: employee.id,
+        employeeNumber: this.optionalString(employee.employee_no),
+        fullName: [
+          employee.first_name,
+          employee.middle_name,
+          employee.last_name,
+        ]
+          .filter((value): value is string =>
+            Boolean(this.optionalString(value)),
+          )
+          .join(' ')
+          .trim(),
+        email: this.optionalString(employee.email),
+        phone: this.optionalString(employee.phone),
+      },
+      matchedBy: Array.from(matched.matchedBy),
+    };
   }
 
   private resolveEnumValue(
@@ -2405,6 +3306,10 @@ export class EmployeeImportService {
     }
 
     return parsed.toISOString().slice(0, 10);
+  }
+
+  private getTodayIsoDate(): string {
+    return new Date().toISOString().slice(0, 10);
   }
 
   private parseBoolean(value: unknown, defaultValue: boolean): boolean {
@@ -2462,9 +3367,23 @@ export class EmployeeImportService {
       if (items.length <= 1) {
         return;
       }
+      const duplicateIssue: DuplicateInFileIssue = {
+        field: label,
+        value,
+        rowNumbers: items
+          .map((row) => row.rowNumber)
+          .sort((left, right) => left - right),
+        identifiers: items.map((row) => row.identifier),
+      };
       items.forEach((row) => {
-        row.errors.push(
-          `Duplicate ${label} "${value}" found in the import file`,
+        row.duplicateInFile.push(duplicateIssue);
+        this.addIssue(
+          row,
+          label,
+          value,
+          `Duplicate ${label} "${value}" was found more than once in this import file`,
+          'Keep only one row for each duplicate value, or exclude the extra rows.',
+          'duplicate',
         );
       });
     });
@@ -2496,12 +3415,75 @@ export class EmployeeImportService {
       }
 
       const [deviceCode, deviceEmployeeNumber] = key.split('::');
+      const duplicateIssue: DuplicateInFileIssue = {
+        field: 'device_employee_number',
+        value: deviceEmployeeNumber,
+        rowNumbers: items
+          .map((row) => row.rowNumber)
+          .sort((left, right) => left - right),
+        identifiers: items.map((row) => row.identifier),
+      };
       items.forEach((row) => {
-        row.errors.push(
-          `Duplicate device_employee_number "${deviceEmployeeNumber}" found for access device "${deviceCode}" in the import file`,
+        row.duplicateInFile.push(duplicateIssue);
+        this.addIssue(
+          row,
+          'device_employee_number',
+          deviceEmployeeNumber,
+          `Duplicate device employee number "${deviceEmployeeNumber}" was found for access device "${deviceCode}" in this import file`,
+          'Use a unique device employee number per device, or exclude the extra rows.',
+          'duplicate',
         );
       });
     });
+  }
+
+  private addIssue(
+    row: PreviewRow,
+    field: string,
+    value: unknown,
+    message: string,
+    suggestion?: string,
+    type: RowIssue['type'] = 'validation',
+  ): void {
+    row.errors = row.errors ?? [];
+    row.issues = row.issues ?? [];
+    row.errors.push(message);
+    row.issues.push({
+      field,
+      value,
+      message,
+      suggestion,
+      type,
+    });
+  }
+
+  private buildPreviewIdentifier(values: Record<string, unknown>): string {
+    const firstName = this.optionalString(values.first_name);
+    const middleName = this.optionalString(values.middle_name);
+    const lastName = this.optionalString(values.last_name);
+    const fullName = [firstName, middleName, lastName]
+      .filter((value): value is string => Boolean(value))
+      .join(' ')
+      .trim();
+    return (
+      fullName ||
+      this.optionalString(values.employee_number) ||
+      this.optionalString(values.email) ||
+      'Employee row'
+    );
+  }
+
+  private determinePreviewStatus(row: PreviewRow): PreviewRecordStatus {
+    if ((row.issues ?? []).some((issue) => issue.type === 'duplicate')) {
+      return 'DUPLICATE_IN_FILE';
+    }
+    if (row.matchedEmployeeId !== null && row.importAction !== 'UPDATE') {
+      return 'EXISTING_RECORD';
+    }
+    if (row.errors.length > 0) {
+      return 'INVALID_RECORD';
+    }
+    return 'READY_FOR_IMPORT';
   }
 
   private async generateImportPlaceholderPhone(
