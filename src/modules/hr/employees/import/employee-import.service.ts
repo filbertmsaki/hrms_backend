@@ -1,16 +1,16 @@
 import {
   BadRequestException,
-  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import * as crypto from 'crypto';
 import ExcelJS from 'exceljs';
+import { validateSync } from 'class-validator';
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
-import { hashPassword } from '../../../../common/utils/hash.util';
 import { CompaniesService } from '../../../companies/companies.service';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { Role } from '../../../roles/entities/role.entity';
@@ -56,6 +56,8 @@ import { AddressTypeEnum } from '../enums/address-type.enum';
 import { IdentificationTypeEnum } from '../enums/identification-type.enum';
 import { ContactTypeEnum } from '../enums/contact-type.enum';
 import { HikvisionImportSyncService } from '../../../hikvision/hikvision-import-sync.service';
+import { BranchesService } from '../../branches/branches.service';
+import { ResetPasswordDto } from '../../../auth/dtos/reset-password.dto';
 
 type UploadedExcelFile = {
   originalname: string;
@@ -94,6 +96,8 @@ type RowIssue = {
 
 type ExistingEmployeeSummary = {
   id: number;
+  companyUserId: number;
+  userId: number | null;
   employeeNumber: string | null;
   fullName: string;
   email: string | null;
@@ -139,6 +143,24 @@ type PreviewResponseRowSource = DeviceAssignmentSourceRow & {
   matchedEmployeeId: number | null;
 };
 
+type UserAccountAction =
+  | 'CREATE_NEW_USER'
+  | 'REUSE_EXISTING_LINKED_USER'
+  | 'USER_CONFLICT'
+  | 'CANNOT_CREATE_USER';
+
+type UserAccountPreview = {
+  action: UserAccountAction;
+  loginIdentifier: string | null;
+  role: string | null;
+  status: 'VALID' | 'INVALID';
+  userStatus: string | null;
+  existingUserId: number | null;
+  message: string;
+  passwordChangeRequiredOnFirstLogin: boolean;
+  limitation: string | null;
+};
+
 type PreviewRow = {
   rowNumber: number;
   identifier: string;
@@ -156,6 +178,7 @@ type PreviewRow = {
   employeeNumber: string | null;
   deviceEmployeeNumber: string | null;
   employeeName: string | null;
+  userAccount: UserAccountPreview | null;
 };
 
 type ReferenceData = {
@@ -174,6 +197,7 @@ type ReferenceData = {
     middle_name: string | null;
     last_name: string;
     company_user_id: number;
+    user_id: number | null;
     reports_to: number | null;
     email: string | null;
     phone: string | null;
@@ -267,6 +291,8 @@ export class EmployeeImportService {
     private readonly shiftAssignmentsService: ShiftAssignmentsService,
     private readonly employeeTimetablesService: EmployeeTimetablesService,
     private readonly hrAccessService: HrAccessService,
+    private readonly configService: ConfigService,
+    private readonly branchesService: BranchesService,
     private readonly hikvisionImportSyncService: HikvisionImportSyncService,
   ) {}
 
@@ -808,12 +834,18 @@ export class EmployeeImportService {
     let createdEmployees = 0;
     let updatedEmployees = 0;
     let createdUsers = 0;
+    let existingUsersReused = 0;
+    let employeeRoleAssignmentsCompleted = 0;
+    let failedUserCreations = 0;
     let deviceAssignmentsCreated = 0;
     let deviceSyncPending = 0;
     let existingSkipped = 0;
     let invalidSkipped = 0;
     let duplicateInFileSkipped = 0;
     let excludedByUser = 0;
+    const userConflicts = previewRows.filter(
+      (row) => row.userAccount?.action === 'USER_CONFLICT',
+    ).length;
 
     for (const previewRow of previewRows) {
       const storedRow =
@@ -839,6 +871,7 @@ export class EmployeeImportService {
         matched_by: previewRow.matchedBy,
         existing_employee: previewRow.existingEmployee,
         duplicate_in_file: previewRow.duplicateInFile,
+        user_account: previewRow.userAccount,
         device_assignment: this.buildDeviceAssignmentPreview(
           storedRow,
           previewRow,
@@ -880,16 +913,12 @@ export class EmployeeImportService {
         const result = await this.dataSource.transaction(async (manager) => {
           const normalizedData = previewRow.normalizedData ?? {};
           const importAction = previewRow.importAction ?? 'CREATE';
-          const createSystemUser =
-            (normalizedData.create_system_user as boolean | undefined) ?? false;
-          const role = await this.resolveRole(
-            normalizedData.user_role,
-            companyId,
-            manager.getRepository(Role),
-          );
-
           let employeeId: number;
           let createdUserId: number | null = null;
+          let linkedUserId: number | null =
+            previewRow.existingEmployee?.userId ?? null;
+          let userAction: UserAccountAction =
+            previewRow.userAccount?.action ?? 'CANNOT_CREATE_USER';
 
           if (importAction === 'UPDATE') {
             employeeId = previewRow.matchedEmployeeId!;
@@ -901,47 +930,45 @@ export class EmployeeImportService {
               actor,
             );
           } else {
-            const companyUser = await this.ensureMembershipForImportRow(
+            const account = await this.ensureMembershipForImportRow(
               companyId,
-              normalizedData,
-              actor,
-              manager.getRepository(User),
-              manager.getRepository(CompanyUser),
-              createSystemUser,
-              role?.id ?? null,
+              previewRow,
               manager,
             );
 
-            createdUserId = companyUser.user_id;
-            if (!previewRow.matchedEmployeeId) {
-              const creation = await this.employeesService.createForCompanyUser(
-                companyId,
-                companyUser.id,
-                this.buildEmployeeCreateDto(normalizedData),
-                actor,
-                manager,
-              );
-              employeeId = creation.employeeId;
-            } else {
-              employeeId = previewRow.matchedEmployeeId;
-              await this.employeesService.update(
-                companyId,
-                employeeId,
-                this.buildEmployeeUpdateDto(normalizedData),
-                actor,
-              );
-            }
+            createdUserId = account.createdUserId;
+            linkedUserId = account.linkedUserId;
+            userAction = account.userAction;
+
+            const creation = await this.employeesService.createForCompanyUser(
+              companyId,
+              account.membership.id,
+              this.buildEmployeeCreateDto(normalizedData),
+              actor,
+              manager,
+            );
+            employeeId = creation.employeeId;
           }
 
           const employee = await manager.getRepository(Employee).findOneOrFail({
             where: { id: employeeId },
           });
 
+          const primaryBranchId = this.toNumber(normalizedData.branch_id);
+          if (linkedUserId && primaryBranchId) {
+            await this.branchesService.grantAccess(
+              companyId,
+              primaryBranchId,
+              linkedUserId,
+              manager,
+            );
+          }
+
           await this.applyAssignmentsAndCredentials(
             companyId,
             employee,
             normalizedData,
-            role?.id ?? null,
+            null,
             importedEmployeesByNumber,
             manager.getRepository(EmployeeDeviceAssignment),
             manager.getRepository(EmployeeAccessCredential),
@@ -950,7 +977,9 @@ export class EmployeeImportService {
           return {
             employee,
             createdUserId,
+            linkedUserId,
             action: importAction,
+            userAction,
           };
         });
 
@@ -981,7 +1010,14 @@ export class EmployeeImportService {
           final_status: 'IMPORTED',
           status: result.action === 'UPDATE' ? 'UPDATED' : 'IMPORTED',
           employee_id: result.employee.id,
-          user_id: result.createdUserId,
+          user_id: result.linkedUserId,
+          user_account: {
+            ...(previewRow.userAccount ?? {}),
+            action:
+              result.userAction ??
+              previewRow.userAccount?.action ??
+              'REUSE_EXISTING_LINKED_USER',
+          },
           device_assignment: this.buildDeviceAssignmentPreview(
             storedRow,
             previewRow,
@@ -998,6 +1034,9 @@ export class EmployeeImportService {
 
         if (result.createdUserId) {
           createdUsers += 1;
+          employeeRoleAssignmentsCompleted += 1;
+        } else if (result.userAction === 'REUSE_EXISTING_LINKED_USER') {
+          existingUsersReused += 1;
         }
 
         const deviceCodes = this.parseMultiValue(
@@ -1018,6 +1057,12 @@ export class EmployeeImportService {
           final_status: 'IMPORT_FAILED',
           status: 'FAILED',
         };
+        if (
+          previewRow.userAccount?.action === 'CREATE_NEW_USER' ||
+          previewRow.userAccount?.action === 'CANNOT_CREATE_USER'
+        ) {
+          failedUserCreations += 1;
+        }
         rowResults.push(this.buildRowResult(storedRow));
 
         if (!processValidRowsOnly) {
@@ -1066,17 +1111,30 @@ export class EmployeeImportService {
       invalid_skipped: invalidSkipped,
       duplicate_in_file_skipped: duplicateInFileSkipped,
       excluded_by_user: excludedByUser,
+      existing_users_reused: existingUsersReused,
+      employee_role_assignments_completed: employeeRoleAssignmentsCompleted,
+      user_conflicts: userConflicts,
+      failed_user_creations: failedUserCreations,
     };
     batch.completedAt = new Date();
     const summary = {
       totalUploaded: batch.rows.length,
       selectedForImport: selectedRowIds.size,
       successfullyImported: batch.successfulRows,
+      usersCreated: createdUsers,
+      existingUsersReused,
+      employeeRoleAssignmentsCompleted,
+      userConflicts,
+      failedUserCreations,
       existingSkipped,
       invalidSkipped,
       duplicateInFileSkipped,
       excludedByUser,
       failedDuringImport: batch.failedRows,
+      userProvisioningMessage:
+        createdUsers > 0
+          ? 'Imported employee accounts were created using the configured temporary password. No dedicated first-login password-change flag exists in the current schema, so users follow the existing authentication flow after sign-in.'
+          : undefined,
     };
     batch.validationSummary = {
       ...(batch.validationSummary ?? {}),
@@ -1443,6 +1501,7 @@ export class EmployeeImportService {
           matched_by: row.matchedBy,
           existing_employee: row.existingEmployee,
           duplicate_in_file: row.duplicateInFile,
+          user_account: row.userAccount,
           device_assignment: this.buildDeviceAssignmentPreview(
             {
               rawData: row.rawData,
@@ -1487,6 +1546,7 @@ export class EmployeeImportService {
       employeeNumber: null,
       deviceEmployeeNumber: null,
       employeeName: identifier,
+      userAccount: null,
     };
     const normalizedData: Record<string, unknown> = {};
     const warnings: string[] = [];
@@ -1835,6 +1895,12 @@ export class EmployeeImportService {
       .join(' ')
       .trim();
     row.identifier = row.employeeName || identifier;
+    row.userAccount = this.buildUserAccountPreview(
+      companyId,
+      row,
+      references,
+      email,
+    );
     row.previewStatus = this.determinePreviewStatus(row);
 
     return row;
@@ -1977,97 +2043,246 @@ export class EmployeeImportService {
     return dto;
   }
 
+  private buildUserAccountPreview(
+    companyId: number,
+    row: PreviewRow,
+    references: ReferenceData,
+    email: string | null,
+  ): UserAccountPreview {
+    const employeeRole = this.findDefaultEmployeeRole(
+      references.roles,
+      companyId,
+    );
+    const roleLabel = employeeRole?.display_name ?? 'Employee';
+    const limitation =
+      'No dedicated first-login password-change flag exists in the current schema.';
+
+    if (row.importAction === 'UPDATE') {
+      if (!row.existingEmployee?.userId) {
+        this.addIssueOnce(
+          row,
+          'user_account',
+          row.employeeNumber ?? email,
+          'Existing employee is missing a linked system user account.',
+          'Fix the employee-company user relationship before retrying the import.',
+          'existing',
+        );
+
+        return {
+          action: 'CANNOT_CREATE_USER',
+          loginIdentifier: email,
+          role: roleLabel,
+          status: 'INVALID',
+          userStatus: null,
+          existingUserId: null,
+          message:
+            'Existing employee does not have a linked system user account.',
+          passwordChangeRequiredOnFirstLogin: false,
+          limitation,
+        };
+      }
+
+      return {
+        action: 'REUSE_EXISTING_LINKED_USER',
+        loginIdentifier: email ?? row.existingEmployee.email,
+        role: roleLabel,
+        status: row.errors.length > 0 ? 'INVALID' : 'VALID',
+        userStatus: 'active',
+        existingUserId: row.existingEmployee.userId,
+        message:
+          'Existing linked system user will be reused without resetting the password.',
+        passwordChangeRequiredOnFirstLogin: false,
+        limitation,
+      };
+    }
+
+    if (!email) {
+      return {
+        action: 'CANNOT_CREATE_USER',
+        loginIdentifier: null,
+        role: roleLabel,
+        status: 'INVALID',
+        userStatus: null,
+        existingUserId: null,
+        message:
+          'A system user cannot be created because email login is required and the email address is missing.',
+        passwordChangeRequiredOnFirstLogin: false,
+        limitation,
+      };
+    }
+
+    if (row.issues.some((issue) => issue.field === 'email')) {
+      return {
+        action: 'CANNOT_CREATE_USER',
+        loginIdentifier: email,
+        role: roleLabel,
+        status: 'INVALID',
+        userStatus: null,
+        existingUserId: null,
+        message:
+          'A system user cannot be created until the email address issue is fixed.',
+        passwordChangeRequiredOnFirstLogin: false,
+        limitation,
+      };
+    }
+
+    const passwordConfigError =
+      this.resolveEmployeeImportDefaultPasswordValidationError();
+    if (passwordConfigError) {
+      this.addIssueOnce(row, 'user_account', email, passwordConfigError);
+      return {
+        action: 'CANNOT_CREATE_USER',
+        loginIdentifier: email,
+        role: roleLabel,
+        status: 'INVALID',
+        userStatus: null,
+        existingUserId: null,
+        message: passwordConfigError,
+        passwordChangeRequiredOnFirstLogin: false,
+        limitation,
+      };
+    }
+
+    if (!employeeRole) {
+      const message =
+        'The default Employee role is not configured for this company. Employee user accounts cannot be created.';
+      this.addIssueOnce(row, 'user_account', email, message);
+      return {
+        action: 'CANNOT_CREATE_USER',
+        loginIdentifier: email,
+        role: roleLabel,
+        status: 'INVALID',
+        userStatus: null,
+        existingUserId: null,
+        message,
+        passwordChangeRequiredOnFirstLogin: false,
+        limitation,
+      };
+    }
+
+    const existingUser = references.users.find(
+      (candidate) =>
+        candidate.email?.trim().toLowerCase() === email.toLowerCase(),
+    );
+    if (existingUser) {
+      const existingMembership =
+        references.companyUsers.find(
+          (companyUser) => companyUser.user_id === existingUser.id,
+        ) ?? null;
+      const linkedEmployee =
+        existingMembership === null
+          ? null
+          : (references.employees.find(
+              (employee) => employee.company_user_id === existingMembership.id,
+            ) ?? null);
+      const message = linkedEmployee
+        ? `A user already exists with email ${email}, but the account is linked to a different employee.`
+        : `A user already exists with email ${email}.`;
+      this.addIssueOnce(row, 'email', email, message, undefined, 'existing');
+
+      return {
+        action: 'USER_CONFLICT',
+        loginIdentifier: email,
+        role: roleLabel,
+        status: 'INVALID',
+        userStatus: existingUser.status ?? null,
+        existingUserId: existingUser.id,
+        message,
+        passwordChangeRequiredOnFirstLogin: false,
+        limitation,
+      };
+    }
+
+    return {
+      action: 'CREATE_NEW_USER',
+      loginIdentifier: email,
+      role: roleLabel,
+      status: 'VALID',
+      userStatus: 'active',
+      existingUserId: null,
+      message:
+        'A new active system user will be created and assigned the Employee role.',
+      passwordChangeRequiredOnFirstLogin: false,
+      limitation,
+    };
+  }
+
   private async ensureMembershipForImportRow(
     companyId: number,
-    normalizedData: Record<string, unknown>,
-    actor: AuthenticatedUser,
-    userRepo: Repository<User>,
-    companyUserRepo: Repository<CompanyUser>,
-    createSystemUser: boolean,
-    roleId: number | null,
+    previewRow: PreviewRow,
     manager?: EntityManager,
-  ): Promise<CompanyUser> {
-    const email = String(normalizedData.email).trim().toLowerCase();
-    const phone =
-      this.optionalString(normalizedData.phone_number) ??
-      (await this.generateImportPlaceholderPhone(userRepo));
-    const firstName = String(normalizedData.first_name).trim();
-    const lastName = String(normalizedData.last_name).trim();
+  ): Promise<{
+    membership: CompanyUser;
+    createdUserId: number | null;
+    linkedUserId: number;
+    userAction: UserAccountAction;
+  }> {
+    const normalizedData = previewRow.normalizedData ?? {};
+    const companyUserRepository =
+      manager?.getRepository(CompanyUser) ?? this.companyUserRepository;
 
-    const existingByEmail = await userRepo.findOne({ where: { email } });
-    const existingByPhone = this.optionalString(normalizedData.phone_number)
-      ? await userRepo.findOne({ where: { phone } })
-      : null;
-
-    if (
-      existingByEmail &&
-      existingByPhone &&
-      existingByEmail.id !== existingByPhone.id
-    ) {
-      throw new ConflictException(
-        'Email and phone belong to different existing users',
-      );
-    }
-
-    let user = existingByEmail ?? existingByPhone ?? null;
-    if (!user) {
-      const temporaryPassword =
-        this.optionalString(normalizedData.temporary_password) ??
-        this.generateTemporaryPassword();
-      const createActiveSystemUser =
-        createSystemUser && this.optionalString(normalizedData.phone_number);
-      user = await userRepo.save(
-        userRepo.create({
-          user_no: await this.usersService.generateUserNo(manager),
-          first_name: firstName,
-          last_name: lastName,
-          phone,
-          email,
-          password: await hashPassword(temporaryPassword),
-          status: createActiveSystemUser ? 'active' : 'inactive',
-          user_type: 'COMPANY_USER',
-          is_email_verified: Boolean(createActiveSystemUser),
-        }),
-      );
-    }
-
-    let membership = await companyUserRepo.findOne({
-      where: { company_id: companyId, user_id: user.id, status: 'active' },
-    });
-    if (!membership) {
-      if (
-        createSystemUser &&
-        this.optionalString(normalizedData.phone_number)
-      ) {
-        await this.companiesService.addUserToCompany(
-          user.id,
-          companyId,
-          roleId ? { roleIds: [roleId] } : undefined,
-          manager,
-        );
-      } else {
-        membership = await companyUserRepo.save(
-          companyUserRepo.create({
-            company_id: companyId,
-            user_id: user.id,
-            status: 'active',
-            is_default: false,
-          }),
+    if (previewRow.importAction === 'UPDATE') {
+      const companyUserId = previewRow.existingEmployee?.companyUserId;
+      const linkedUserId = previewRow.existingEmployee?.userId;
+      if (!companyUserId || !linkedUserId) {
+        throw new BadRequestException(
+          'Existing employee is missing a linked system user account.',
         );
       }
+
+      const membership = await companyUserRepository.findOne({
+        where: {
+          id: companyUserId,
+          company_id: companyId,
+          status: 'active',
+        },
+      });
+
+      if (!membership) {
+        throw new NotFoundException('Company membership not found');
+      }
+
+      return {
+        membership,
+        createdUserId: null,
+        linkedUserId,
+        userAction: 'REUSE_EXISTING_LINKED_USER',
+      };
     }
 
-    membership =
-      membership ??
-      (await companyUserRepo.findOne({
-        where: { company_id: companyId, user_id: user.id, status: 'active' },
-      }));
-
-    if (!membership) {
-      throw new NotFoundException('Company membership could not be created');
+    const email = this.optionalString(normalizedData.email)?.toLowerCase();
+    const firstName = this.optionalString(normalizedData.first_name);
+    const lastName = this.optionalString(normalizedData.last_name);
+    if (!email || !firstName || !lastName) {
+      throw new BadRequestException(
+        'The import row is missing the required employee identity details for user creation.',
+      );
     }
 
-    return membership;
+    const defaultPassword = this.getRequiredEmployeeImportDefaultPassword();
+    const role = await this.getRequiredDefaultEmployeeRole(
+      companyId,
+      manager?.getRepository(Role) ?? this.roleRepository,
+    );
+
+    const account = await this.usersService.ensureEmployeeImportAccount(
+      companyId,
+      {
+        email,
+        firstName,
+        lastName,
+        defaultPassword,
+        roleNames: [role.name],
+      },
+      manager,
+    );
+
+    return {
+      membership: account.membership,
+      createdUserId: account.user.id,
+      linkedUserId: account.user.id,
+      userAction: 'CREATE_NEW_USER',
+    };
   }
 
   private async applyAssignmentsAndCredentials(
@@ -2403,6 +2618,18 @@ export class EmployeeImportService {
       ).length,
       updateReadyRecords: matchedReadyRows.length,
       selectedByDefault: readyRows.length,
+      usersPlannedToCreate: rows.filter(
+        (row) => row.userAccount?.action === 'CREATE_NEW_USER',
+      ).length,
+      existingUsersReused: rows.filter(
+        (row) => row.userAccount?.action === 'REUSE_EXISTING_LINKED_USER',
+      ).length,
+      userConflicts: rows.filter(
+        (row) => row.userAccount?.action === 'USER_CONFLICT',
+      ).length,
+      userCreationBlocked: rows.filter(
+        (row) => row.userAccount?.action === 'CANNOT_CREATE_USER',
+      ).length,
     };
   }
 
@@ -2427,6 +2654,17 @@ export class EmployeeImportService {
         .length,
       updateReadyRecords: matchedReadyRows.length,
       selectedByDefault: readyRows.length,
+      usersPlannedToCreate: rows.filter(
+        (row) => row.userAction === 'CREATE_NEW_USER',
+      ).length,
+      existingUsersReused: rows.filter(
+        (row) => row.userAction === 'REUSE_EXISTING_LINKED_USER',
+      ).length,
+      userConflicts: rows.filter((row) => row.userAction === 'USER_CONFLICT')
+        .length,
+      userCreationBlocked: rows.filter(
+        (row) => row.userAction === 'CANNOT_CREATE_USER',
+      ).length,
     };
   }
 
@@ -2457,6 +2695,12 @@ export class EmployeeImportService {
       ).length,
       invalidEmploymentTypes: rows.filter((row) =>
         row.issues.some((issue) => issue.field === 'employment_type'),
+      ).length,
+      userConflicts: rows.filter(
+        (row) => row.userAccount?.action === 'USER_CONFLICT',
+      ).length,
+      userCreationBlocked: rows.filter(
+        (row) => row.userAccount?.action === 'CANNOT_CREATE_USER',
       ).length,
       missingDeviceEmployeeNumbers: rows.filter((row) =>
         row.issues.some((issue) => issue.field === 'device_employee_number'),
@@ -2613,6 +2857,10 @@ export class EmployeeImportService {
         | DeviceAssignmentPreview
         | undefined) ??
       this.buildDeviceAssignmentPreview(storedRow, previewRow);
+    const userAccount =
+      (storedRow.resultData?.user_account as UserAccountPreview | undefined) ??
+      previewRow?.userAccount ??
+      null;
 
     return {
       rowId: storedRow.id,
@@ -2631,6 +2879,15 @@ export class EmployeeImportService {
       issues,
       errors: storedRow.errors ?? [],
       warnings: storedRow.warnings ?? [],
+      userAction: userAccount?.action ?? null,
+      loginIdentifier: userAccount?.loginIdentifier ?? null,
+      userStatus: userAccount?.userStatus ?? null,
+      defaultRole: userAccount?.role ?? null,
+      userMessage: userAccount?.message ?? null,
+      existingUserId: userAccount?.existingUserId ?? null,
+      passwordChangeRequiredOnFirstLogin:
+        userAccount?.passwordChangeRequiredOnFirstLogin ?? false,
+      authLimitation: userAccount?.limitation ?? null,
       deviceAssignmentStatus: deviceAssignment.status,
       deviceAssignmentMessage: deviceAssignment.message,
       deviceCodes: deviceAssignment.deviceCodes,
@@ -2657,6 +2914,8 @@ export class EmployeeImportService {
       (row.resultData?.device_assignment as
         | DeviceAssignmentPreview
         | undefined) ?? this.buildDeviceAssignmentPreview(row, null);
+    const userAccount =
+      (row.resultData?.user_account as UserAccountPreview | undefined) ?? null;
     return {
       rowId: row.id,
       rowNumber: row.rowNumber,
@@ -2669,7 +2928,8 @@ export class EmployeeImportService {
       deviceEmployeeNumber: row.deviceEmployeeNumber,
       importAction: row.importAction,
       employeeId: row.createdEmployeeId ?? row.matchedEmployeeId,
-      userId: row.createdUserId,
+      userId:
+        (row.resultData?.user_id as number | undefined) ?? row.createdUserId,
       status: finalStatus,
       previewStatus,
       matchedBy: (row.resultData?.matched_by as string[] | undefined) ?? [],
@@ -2684,6 +2944,15 @@ export class EmployeeImportService {
       issues: (row.resultData?.issues as RowIssue[] | undefined) ?? [],
       errors: row.errors ?? [],
       warnings: row.warnings ?? [],
+      userAction: userAccount?.action ?? null,
+      loginIdentifier: userAccount?.loginIdentifier ?? null,
+      userStatus: userAccount?.userStatus ?? null,
+      defaultRole: userAccount?.role ?? null,
+      userMessage: userAccount?.message ?? null,
+      existingUserId: userAccount?.existingUserId ?? null,
+      passwordChangeRequiredOnFirstLogin:
+        userAccount?.passwordChangeRequiredOnFirstLogin ?? false,
+      authLimitation: userAccount?.limitation ?? null,
       deviceAssignmentStatus: deviceAssignment.status,
       deviceAssignmentMessage: deviceAssignment.message,
       deviceCodes: deviceAssignment.deviceCodes,
@@ -2960,6 +3229,7 @@ export class EmployeeImportService {
           'employee.middle_name AS middle_name',
           'employee.last_name AS last_name',
           'employee.company_user_id AS company_user_id',
+          'user.id AS user_id',
           'employee.reports_to AS reports_to',
           'user.email AS email',
           'user.phone AS phone',
@@ -3240,26 +3510,6 @@ export class EmployeeImportService {
     );
   }
 
-  private async resolveRole(
-    value: unknown,
-    companyId: number,
-    repository: Repository<Role>,
-  ): Promise<Role | null> {
-    const text = this.optionalString(value);
-    if (!text) {
-      return null;
-    }
-    return (
-      (await repository.findOne({
-        where: [
-          { id: Number.isFinite(Number(text)) ? Number(text) : -1 },
-          { name: text, company_id: companyId },
-          { name: text, company_id: IsNull() },
-        ],
-      })) ?? null
-    );
-  }
-
   private matchExistingEmployee(
     companyId: number,
     employeeNumber: string | null,
@@ -3323,6 +3573,8 @@ export class EmployeeImportService {
     return {
       employee: {
         id: employee.id,
+        companyUserId: employee.company_user_id,
+        userId: employee.user_id,
         employeeNumber: this.optionalString(employee.employee_no),
         fullName: [
           employee.first_name,
@@ -3532,6 +3784,24 @@ export class EmployeeImportService {
     });
   }
 
+  private addIssueOnce(
+    row: PreviewRow,
+    field: string,
+    value: unknown,
+    message: string,
+    suggestion?: string,
+    type: RowIssue['type'] = 'validation',
+  ): void {
+    const exists = (row.issues ?? []).some(
+      (issue) => issue.field === field && issue.message === message,
+    );
+    if (exists) {
+      return;
+    }
+
+    this.addIssue(row, field, value, message, suggestion, type);
+  }
+
   private buildPreviewIdentifier(values: Record<string, unknown>): string {
     const firstName = this.optionalString(values.first_name);
     const middleName = this.optionalString(values.middle_name);
@@ -3561,20 +3831,84 @@ export class EmployeeImportService {
     return 'READY_FOR_IMPORT';
   }
 
-  private async generateImportPlaceholderPhone(
-    userRepo: Repository<User>,
-  ): Promise<string> {
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      const candidate = `+999${crypto.randomInt(100000000, 999999999)}`;
-      const existing = await userRepo.findOne({ where: { phone: candidate } });
-      if (!existing) {
-        return candidate;
-      }
+  private findDefaultEmployeeRole(
+    roles: Role[],
+    companyId: number,
+  ): Role | null {
+    return (
+      roles.find(
+        (role) =>
+          role.company_id === companyId &&
+          role.name.trim().toUpperCase() === 'EMPLOYEE',
+      ) ??
+      roles.find(
+        (role) =>
+          role.company_id === null &&
+          role.name.trim().toUpperCase() === 'EMPLOYEE',
+      ) ??
+      null
+    );
+  }
+
+  private resolveEmployeeImportDefaultPasswordValidationError(): string | null {
+    const defaultPassword = this.optionalString(
+      this.configService.get<string>('EMPLOYEE_IMPORT_DEFAULT_PASSWORD'),
+    );
+    if (!defaultPassword) {
+      return (
+        'Employee import cannot create user accounts because ' +
+        'EMPLOYEE_IMPORT_DEFAULT_PASSWORD is missing or does not meet the password policy.'
+      );
     }
 
-    throw new ConflictException(
-      'Could not generate a unique placeholder phone number for the import user',
-    );
+    const dto = new ResetPasswordDto();
+    dto.token = 'employee-import';
+    dto.new_password = defaultPassword;
+    const validationErrors = validateSync(dto);
+    if (validationErrors.length > 0) {
+      return (
+        'Employee import cannot create user accounts because ' +
+        'EMPLOYEE_IMPORT_DEFAULT_PASSWORD is missing or does not meet the password policy.'
+      );
+    }
+
+    return null;
+  }
+
+  private getRequiredEmployeeImportDefaultPassword(): string {
+    const validationError =
+      this.resolveEmployeeImportDefaultPasswordValidationError();
+    if (validationError) {
+      throw new BadRequestException(validationError);
+    }
+
+    return String(
+      this.configService.get<string>('EMPLOYEE_IMPORT_DEFAULT_PASSWORD'),
+    ).trim();
+  }
+
+  private async getRequiredDefaultEmployeeRole(
+    companyId: number,
+    repository: Repository<Role>,
+  ): Promise<Role> {
+    const role =
+      (await repository.findOne({
+        where: [
+          { company_id: companyId, name: 'EMPLOYEE' },
+          { company_id: IsNull(), name: 'EMPLOYEE' },
+        ],
+        order: {
+          company_id: 'DESC',
+        },
+      })) ?? null;
+
+    if (!role) {
+      throw new BadRequestException(
+        'The default Employee role is not configured for this company. Employee user accounts cannot be created.',
+      );
+    }
+
+    return role;
   }
 
   private normalizeHeader(value: string): string {
@@ -3641,10 +3975,6 @@ export class EmployeeImportService {
       return Number.isFinite(parsed) ? parsed : null;
     }
     return null;
-  }
-
-  private generateTemporaryPassword(): string {
-    return `Temp#${crypto.randomBytes(6).toString('base64url')}1`;
   }
 
   private exportSafeCellValue(value: unknown): string | number {

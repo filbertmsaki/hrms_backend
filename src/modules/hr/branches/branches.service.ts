@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
@@ -80,8 +80,11 @@ export class BranchesService {
   private async findBranchOrFail(
     companyId: number,
     branchId: number,
+    manager?: EntityManager,
   ): Promise<Branch> {
-    const branch = await this.branchRepository.findOne({
+    const branchRepository =
+      manager?.getRepository(Branch) ?? this.branchRepository;
+    const branch = await branchRepository.findOne({
       where: { id: branchId, company_id: companyId },
     });
 
@@ -264,10 +267,17 @@ export class BranchesService {
     companyId: number,
     branchId: number,
     userId: number,
+    manager?: EntityManager,
   ): Promise<ReturnType<BranchesService['mapBranchAccess']>> {
-    await this.findBranchOrFail(companyId, branchId);
+    const companyUserRepository =
+      manager?.getRepository(CompanyUser) ?? this.companyUserRepository;
+    const branchAccessRepository =
+      manager?.getRepository(CompanyUserBranchAccess) ??
+      this.branchAccessRepository;
 
-    const membership = await this.companyUserRepository.findOne({
+    await this.findBranchOrFail(companyId, branchId, manager);
+
+    const membership = await companyUserRepository.findOne({
       where: {
         company_id: companyId,
         user_id: userId,
@@ -283,7 +293,7 @@ export class BranchesService {
       throw new NotFoundException('Company user not found');
     }
 
-    let assignment = await this.branchAccessRepository.findOne({
+    let assignment = await branchAccessRepository.findOne({
       where: {
         company_user_id: membership.id,
         branch_id: branchId,
@@ -297,14 +307,14 @@ export class BranchesService {
     });
 
     if (!assignment) {
-      assignment = await this.branchAccessRepository.save(
-        this.branchAccessRepository.create({
+      assignment = await branchAccessRepository.save(
+        branchAccessRepository.create({
           company_user_id: membership.id,
           branch_id: branchId,
         }),
       );
 
-      assignment = await this.branchAccessRepository.findOneOrFail({
+      assignment = await branchAccessRepository.findOneOrFail({
         where: { id: assignment.id },
         relations: {
           company_user: {

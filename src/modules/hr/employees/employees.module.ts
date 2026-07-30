@@ -43,6 +43,7 @@ import { EmployeeDeviceAssignment } from '../../access-control/employee-device-a
 import { EmployeeAccessCredential } from '../../access-control/employee-access-credentials/entity/employee-access-credential.entity';
 import { DefaultAvatarsModule } from '../default-avatars/default-avatars.module';
 import { HikvisionModule } from '../../hikvision/hikvision.module';
+import { BranchesModule } from '../branches/branches.module';
 
 @Module({
   imports: [
@@ -87,6 +88,7 @@ import { HikvisionModule } from '../../hikvision/hikvision.module';
     AccessControlAttendanceDevicesModule,
     EmployeeDeviceAssignmentsModule,
     EmployeeAccessCredentialsModule,
+    BranchesModule,
     HikvisionModule,
   ],
   controllers: [EmployeesController],

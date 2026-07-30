@@ -23,6 +23,12 @@ import { DefaultAvatarsService } from '../hr/default-avatars/default-avatars.ser
 import { Employee } from '../hr/employees/entities/employee.entity';
 import { ProfileImageSourceEnum } from '../hr/employees/enums/profile-image-source.enum';
 
+type EmployeeImportAccountResult = {
+  user: User;
+  membership: CompanyUser;
+  action: 'CREATED';
+};
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -275,6 +281,100 @@ export class UsersService {
     }
 
     return `${prefix}${String(nextNumber).padStart(5, '0')}`;
+  }
+
+  private async generateImportPlaceholderPhone(
+    manager?: EntityManager,
+  ): Promise<string> {
+    const repository = manager?.getRepository(User) ?? this.userRepository;
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const candidate = `+999${Math.floor(
+        100000000 + Math.random() * 900000000,
+      )}`;
+      const existing = await repository.findOne({
+        where: { phone: candidate },
+      });
+      if (!existing) {
+        return candidate;
+      }
+    }
+
+    throw new ConflictException(
+      'Could not generate a unique placeholder phone number for the import user',
+    );
+  }
+
+  async ensureEmployeeImportAccount(
+    companyId: number,
+    input: {
+      email: string;
+      firstName: string;
+      lastName: string;
+      defaultPassword: string;
+      roleNames?: string[];
+    },
+    manager?: EntityManager,
+  ): Promise<EmployeeImportAccountResult> {
+    const repository = manager?.getRepository(User) ?? this.userRepository;
+    const membershipRepository =
+      manager?.getRepository(CompanyUser) ??
+      this.userRepository.manager.getRepository(CompanyUser);
+
+    const email = input.email.trim().toLowerCase();
+    const existingUser = await repository.findOne({
+      where: { email },
+      select: ['id', 'email'],
+    });
+
+    if (existingUser) {
+      throw new ConflictException(`A user already exists with email ${email}.`);
+    }
+
+    const hashedPassword = await hashPassword(input.defaultPassword);
+    const user = await repository.save(
+      repository.create({
+        user_no: await this.generateUserNo(manager),
+        first_name: input.firstName.trim(),
+        last_name: input.lastName.trim(),
+        phone: await this.generateImportPlaceholderPhone(manager),
+        email,
+        password: hashedPassword,
+        status: 'active',
+        user_type: 'COMPANY_USER',
+        is_email_verified: true,
+      }),
+    );
+
+    await this.companiesService.addUserToCompany(
+      user.id,
+      companyId,
+      {
+        roleNames:
+          input.roleNames?.length && input.roleNames.length > 0
+            ? input.roleNames
+            : ['EMPLOYEE'],
+      },
+      manager,
+    );
+
+    const membership = await membershipRepository.findOne({
+      where: {
+        company_id: companyId,
+        user_id: user.id,
+        status: 'active',
+      },
+    });
+
+    if (!membership) {
+      throw new NotFoundException('Company membership could not be created');
+    }
+
+    return {
+      user,
+      membership,
+      action: 'CREATED',
+    };
   }
 
   async createForCompany(

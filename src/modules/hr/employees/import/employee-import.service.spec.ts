@@ -124,6 +124,12 @@ async function createMappedImportWorkbookBuffer() {
 
 describe('EmployeeImportService', () => {
   let service: EmployeeImportService;
+  let configService: {
+    get: jest.Mock;
+  };
+  let branchesService: {
+    grantAccess: jest.Mock;
+  };
   let hikvisionImportSyncService: {
     scheduleImportedEmployeesSync: jest.Mock;
   };
@@ -141,6 +147,17 @@ describe('EmployeeImportService', () => {
 
   beforeEach(() => {
     jest.useRealTimers();
+    configService = {
+      get: jest.fn().mockImplementation((key: string) => {
+        if (key === 'EMPLOYEE_IMPORT_DEFAULT_PASSWORD') {
+          return 'ChangeMe@123';
+        }
+        return undefined;
+      }),
+    };
+    branchesService = {
+      grantAccess: jest.fn().mockResolvedValue(undefined),
+    };
     hikvisionImportSyncService = {
       scheduleImportedEmployeesSync: jest
         .fn()
@@ -170,8 +187,16 @@ describe('EmployeeImportService', () => {
       {} as never,
       {} as never,
       {} as never,
+      configService as never,
+      branchesService as never,
       hikvisionImportSyncService as never,
     );
+    jest.spyOn(service as any, 'findDefaultEmployeeRole').mockReturnValue({
+      id: 7,
+      name: 'EMPLOYEE',
+      display_name: 'Employee',
+      company_id: 10,
+    });
   });
 
   it('generates an import template workbook with employee and reference sheets', async () => {
@@ -1014,111 +1039,229 @@ describe('EmployeeImportService', () => {
     ]);
   });
 
-  it('creates company membership in the same transaction when importing a new system user', async () => {
-    const addUserToCompany = jest.fn().mockResolvedValue(undefined);
-    (
+  it('marks the row invalid when EMPLOYEE_IMPORT_DEFAULT_PASSWORD is missing', () => {
+    configService.get.mockReturnValueOnce(undefined);
+
+    const row = (
       service as unknown as {
-        companiesService: { addUserToCompany: jest.Mock };
-      }
-    ).companiesService = {
-      addUserToCompany,
-    };
-    (
-      service as unknown as { usersService: { generateUserNo: jest.Mock } }
-    ).usersService = {
-      generateUserNo: jest.fn().mockResolvedValue('USER-2026-00091'),
-    };
-
-    const userRepo = createRepositoryMock();
-    const companyUserRepo = createRepositoryMock();
-    const transactionalManager = { name: 'tx-manager' };
-
-    userRepo.findOne.mockResolvedValue(null);
-    userRepo.save.mockResolvedValue({
-      id: 91,
-      status: 'active',
-    });
-    companyUserRepo.findOne.mockResolvedValueOnce(null).mockResolvedValueOnce({
-      id: 18,
-      company_id: 10,
-      user_id: 91,
-      status: 'active',
-    });
-
-    const membership = await (
-      service as unknown as {
-        ensureMembershipForImportRow: (
+        validatePreviewRow: (
           companyId: number,
-          normalizedData: Record<string, unknown>,
-          actor: AuthenticatedUser,
-          userRepo: MockRepo,
-          companyUserRepo: MockRepo,
-          createSystemUser: boolean,
-          roleId: number | null,
-          manager?: unknown,
-        ) => Promise<{ id: number; user_id: number }>;
+          rowNumber: number,
+          values: Record<string, unknown>,
+          dto: Record<string, unknown>,
+          references: Record<string, unknown>,
+        ) => {
+          errors: string[];
+          previewStatus: string;
+          userAccount: { action: string; message: string };
+        };
       }
-    ).ensureMembershipForImportRow(
+    ).validatePreviewRow(
       10,
+      6,
       {
-        first_name: 'Api',
-        last_name: 'Import',
-        email: 'api.import.tx@example.com',
-        phone_number: '+255700000001',
-        temporary_password: 'Employee123!',
+        first_name: 'Config',
+        last_name: 'Missing',
+        email: 'config.missing@example.com',
+        gender: 'male',
       },
-      actor,
-      userRepo as unknown as MockRepo,
-      companyUserRepo as unknown as MockRepo,
-      true,
-      7,
-      transactionalManager,
+      {},
+      {
+        branches: [],
+        departments: [],
+        positions: [],
+        shifts: [],
+        timetables: [],
+        devices: [],
+        roles: [],
+        employees: [],
+        companyUsers: [],
+        users: [],
+        identifications: [],
+        deviceAssignments: [],
+        credentials: [],
+      },
     );
 
-    expect(addUserToCompany).toHaveBeenCalledWith(
-      91,
-      10,
-      { roleIds: [7] },
-      transactionalManager,
-    );
-    expect(membership).toEqual(
-      expect.objectContaining({
-        id: 18,
-        user_id: 91,
-      }),
+    expect(row.previewStatus).toBe('INVALID_RECORD');
+    expect(row.userAccount.action).toBe('CANNOT_CREATE_USER');
+    expect(row.userAccount.message).toContain(
+      'EMPLOYEE_IMPORT_DEFAULT_PASSWORD',
     );
   });
 
-  it('creates an inactive placeholder membership when importing without phone details', async () => {
-    const addUserToCompany = jest.fn().mockResolvedValue(undefined);
+  it('marks the row invalid when the default Employee role is not configured', () => {
+    jest
+      .spyOn(service as any, 'findDefaultEmployeeRole')
+      .mockReturnValueOnce(null);
+
+    const row = (
+      service as unknown as {
+        validatePreviewRow: (
+          companyId: number,
+          rowNumber: number,
+          values: Record<string, unknown>,
+          dto: Record<string, unknown>,
+          references: Record<string, unknown>,
+        ) => {
+          errors: string[];
+          previewStatus: string;
+          userAccount: { action: string; message: string };
+        };
+      }
+    ).validatePreviewRow(
+      10,
+      7,
+      {
+        first_name: 'Role',
+        last_name: 'Missing',
+        email: 'role.missing@example.com',
+        gender: 'female',
+      },
+      {},
+      {
+        branches: [],
+        departments: [],
+        positions: [],
+        shifts: [],
+        timetables: [],
+        devices: [],
+        roles: [],
+        employees: [],
+        companyUsers: [],
+        users: [],
+        identifications: [],
+        deviceAssignments: [],
+        credentials: [],
+      },
+    );
+
+    expect(row.previewStatus).toBe('INVALID_RECORD');
+    expect(row.userAccount.action).toBe('CANNOT_CREATE_USER');
+    expect(row.userAccount.message).toContain('Employee role');
+  });
+
+  it('flags duplicate email addresses as user conflicts during preview', () => {
+    const row = (
+      service as unknown as {
+        validatePreviewRow: (
+          companyId: number,
+          rowNumber: number,
+          values: Record<string, unknown>,
+          dto: Record<string, unknown>,
+          references: Record<string, unknown>,
+        ) => {
+          errors: string[];
+          previewStatus: string;
+          userAccount: { action: string; existingUserId: number | null };
+        };
+      }
+    ).validatePreviewRow(
+      10,
+      8,
+      {
+        first_name: 'Mary',
+        last_name: 'Joseph',
+        email: 'mary.joseph@example.com',
+        gender: 'female',
+      },
+      {},
+      {
+        branches: [],
+        departments: [],
+        positions: [],
+        shifts: [],
+        timetables: [],
+        devices: [],
+        roles: [],
+        employees: [],
+        companyUsers: [],
+        users: [
+          {
+            id: 44,
+            email: 'mary.joseph@example.com',
+            status: 'active',
+          },
+        ],
+        identifications: [],
+        deviceAssignments: [],
+        credentials: [],
+      },
+    );
+
+    expect(row.previewStatus).toBe('INVALID_RECORD');
+    expect(row.userAccount.action).toBe('USER_CONFLICT');
+    expect(row.userAccount.existingUserId).toBe(44);
+  });
+
+  it('creates a company membership through UsersService for a new import user', async () => {
+    const ensureEmployeeImportAccount = jest.fn().mockResolvedValue({
+      user: { id: 91 },
+      membership: {
+        id: 18,
+        company_id: 10,
+        user_id: 91,
+        status: 'active',
+      },
+    });
     (
       service as unknown as {
-        companiesService: { addUserToCompany: jest.Mock };
+        usersService: { ensureEmployeeImportAccount: jest.Mock };
       }
-    ).companiesService = {
-      addUserToCompany,
-    };
-    (
-      service as unknown as { usersService: { generateUserNo: jest.Mock } }
     ).usersService = {
-      generateUserNo: jest.fn().mockResolvedValue('USER-2026-00092'),
+      ensureEmployeeImportAccount,
     };
+    jest
+      .spyOn(service as any, 'getRequiredDefaultEmployeeRole')
+      .mockResolvedValue({ id: 7, name: 'EMPLOYEE' });
 
-    const userRepo = createRepositoryMock();
-    const companyUserRepo = createRepositoryMock();
+    const membership = await (
+      service as unknown as {
+        ensureMembershipForImportRow: (
+          companyId: number,
+          previewRow: Record<string, unknown>,
+          manager?: unknown,
+        ) => Promise<{
+          membership: { id: number; user_id: number };
+          createdUserId: number;
+          linkedUserId: number;
+          userAction: string;
+        }>;
+      }
+    ).ensureMembershipForImportRow(10, {
+      importAction: 'CREATE',
+      normalizedData: {
+        first_name: 'Api',
+        last_name: 'Import',
+        email: 'api.import.tx@example.com',
+      },
+    });
 
-    userRepo.findOne.mockResolvedValue(null);
-    userRepo.save.mockResolvedValue({
-      id: 92,
-      status: 'inactive',
-    });
-    companyUserRepo.findOne.mockResolvedValueOnce(null).mockResolvedValueOnce({
-      id: 19,
-      company_id: 10,
-      user_id: 92,
-      status: 'active',
-    });
-    companyUserRepo.save.mockResolvedValue({
+    expect(ensureEmployeeImportAccount).toHaveBeenCalledWith(
+      10,
+      {
+        email: 'api.import.tx@example.com',
+        firstName: 'Api',
+        lastName: 'Import',
+        defaultPassword: 'ChangeMe@123',
+        roleNames: ['EMPLOYEE'],
+      },
+      undefined,
+    );
+    expect(membership.membership.id).toBe(18);
+    expect(membership.membership.user_id).toBe(91);
+    expect(membership.createdUserId).toBe(91);
+    expect(membership.linkedUserId).toBe(91);
+    expect(membership.userAction).toBe('CREATE_NEW_USER');
+  });
+
+  it('reuses the existing linked membership for update rows', async () => {
+    const companyUserRepository = (
+      service as unknown as {
+        companyUserRepository: MockRepo;
+      }
+    ).companyUserRepository;
+    companyUserRepository.findOne.mockResolvedValue({
       id: 19,
       company_id: 10,
       user_id: 92,
@@ -1129,37 +1272,29 @@ describe('EmployeeImportService', () => {
       service as unknown as {
         ensureMembershipForImportRow: (
           companyId: number,
-          normalizedData: Record<string, unknown>,
-          actor: AuthenticatedUser,
-          userRepo: MockRepo,
-          companyUserRepo: MockRepo,
-          createSystemUser: boolean,
-          roleId: number | null,
+          previewRow: Record<string, unknown>,
           manager?: unknown,
-        ) => Promise<{ id: number; user_id: number }>;
+        ) => Promise<{
+          membership: { id: number; user_id: number };
+          createdUserId: number | null;
+          linkedUserId: number;
+          userAction: string;
+        }>;
       }
-    ).ensureMembershipForImportRow(
-      10,
-      {
-        first_name: 'Api',
-        last_name: 'Import',
-        email: 'api.import.placeholder@example.com',
+    ).ensureMembershipForImportRow(10, {
+      importAction: 'UPDATE',
+      existingEmployee: {
+        companyUserId: 19,
+        userId: 92,
       },
-      actor,
-      userRepo as unknown as MockRepo,
-      companyUserRepo as unknown as MockRepo,
-      false,
-      null,
-    );
+      normalizedData: {},
+    });
 
-    expect(addUserToCompany).not.toHaveBeenCalled();
-    expect(companyUserRepo.save).toHaveBeenCalled();
-    expect(membership).toEqual(
-      expect.objectContaining({
-        id: 19,
-        user_id: 92,
-      }),
-    );
+    expect(membership.membership.id).toBe(19);
+    expect(membership.membership.user_id).toBe(92);
+    expect(membership.createdUserId).toBeNull();
+    expect(membership.linkedUserId).toBe(92);
+    expect(membership.userAction).toBe('REUSE_EXISTING_LINKED_USER');
   });
 
   it('uses the next standard employee number when import employee_number is blank', async () => {
@@ -1270,10 +1405,14 @@ describe('EmployeeImportService', () => {
     jest
       .spyOn(service as any, 'applyManagerValidation')
       .mockImplementation(() => undefined);
-    jest.spyOn(service as any, 'resolveRole').mockResolvedValue(null);
     jest
       .spyOn(service as any, 'ensureMembershipForImportRow')
-      .mockResolvedValue({ id: 18, user_id: 41 });
+      .mockResolvedValue({
+        membership: { id: 18, user_id: 41 },
+        createdUserId: 41,
+        linkedUserId: 41,
+        userAction: 'CREATE_NEW_USER',
+      });
     jest
       .spyOn(service as any, 'applyAssignmentsAndCredentials')
       .mockResolvedValue(undefined);
@@ -1302,6 +1441,17 @@ describe('EmployeeImportService', () => {
           employeeNumber: null,
           deviceEmployeeNumber: null,
           employeeName: 'Ahlam Salim',
+          userAccount: {
+            action: 'CREATE_NEW_USER',
+            loginIdentifier: 'ahlam.import@example.com',
+            role: 'Employee',
+            status: 'VALID',
+            userStatus: 'active',
+            existingUserId: null,
+            message: 'A new active system user will be created.',
+            passwordChangeRequiredOnFirstLogin: false,
+            limitation: null,
+          },
         }),
       );
 

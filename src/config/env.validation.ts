@@ -137,6 +137,11 @@ export function validateEnv(env: Env) {
     'EMAIL_VERIFICATION_EXPIRY_HOURS',
     24,
   );
+  const EMPLOYEE_IMPORT_DEFAULT_PASSWORD = optionalString(
+    env,
+    'EMPLOYEE_IMPORT_DEFAULT_PASSWORD',
+    '',
+  );
 
   return {
     DB_HOST,
@@ -174,5 +179,6 @@ export function validateEnv(env: Env) {
     THROTTLER_LIMIT,
     ENABLE_EMAIL_VERIFICATION,
     EMAIL_VERIFICATION_EXPIRY_HOURS,
+    EMPLOYEE_IMPORT_DEFAULT_PASSWORD,
   };
 }
