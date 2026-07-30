@@ -27,6 +27,7 @@ import { HikvisionSyncLogStatusEnum } from '../access-control/hikvision-sync-log
 import { HikvisionSyncLogTypeEnum } from '../access-control/hikvision-sync-logs/enum/hikvision-sync-log-type.enum';
 import { buildPaginationMeta } from '../hr/shared/hr.utils';
 import { AttendanceEmployeeResolverService } from '../hr/attendance/processing/attendance-employee-resolver.service';
+import { AttendanceRecalculationService } from '../hr/attendance/processing/attendance-recalculation.service';
 import { AttendanceProcessingJobStatusEnum } from '../hr/attendance/processing/enums/attendance-processing-job-status.enum';
 import { AttendanceRawLogProcessingStatusEnum } from '../hr/attendance/processing/enums/attendance-raw-log-processing-status.enum';
 import { AttendanceRecalculationJob } from '../hr/attendance/processing/entities/attendance-recalculation-job.entity';
@@ -179,6 +180,7 @@ export class HikvisionAttendanceSyncService {
     private readonly hikvisionAccessControlService: HikvisionAccessControlService,
     private readonly hikvisionHelper: HikvisionHelperService,
     private readonly attendanceEmployeeResolver: AttendanceEmployeeResolverService,
+    private readonly attendanceRecalculationService: AttendanceRecalculationService,
   ) {}
 
   async getAcsEventCapabilities(companyId: number, deviceId: number) {
@@ -1913,7 +1915,7 @@ export class HikvisionAttendanceSyncService {
         ).get(input.employeeNo) ?? null)
       : null;
 
-    await this.attendanceRecalculationJobRepository.save(
+    const job = await this.attendanceRecalculationJobRepository.save(
       this.attendanceRecalculationJobRepository.create({
         companyId: input.companyId,
         employeeId,
@@ -1936,10 +1938,23 @@ export class HikvisionAttendanceSyncService {
         },
       }),
     );
+    void this.startQueuedAttendanceRecalculationJob(job.id);
 
     this.logger.log(
       `Prepared attendance recalculation job for device ${input.deviceId}: dateFrom=${this.toDateOnly(input.startTime)}, dateTo=${this.toDateOnly(input.endTime)}, employeeNo=${input.employeeNo ?? 'ALL'}`,
     );
+  }
+
+  private async startQueuedAttendanceRecalculationJob(
+    jobId: number,
+  ): Promise<void> {
+    try {
+      await this.attendanceRecalculationService.executeJob(jobId);
+    } catch (error) {
+      this.logger.warn(
+        `Queued attendance recalculation job ${jobId} will remain pending for scheduled retry: ${(error as Error).message}`,
+      );
+    }
   }
 
   private async requestAcsEventsWithRetry(

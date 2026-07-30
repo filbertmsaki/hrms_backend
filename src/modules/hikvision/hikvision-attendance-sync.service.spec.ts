@@ -12,6 +12,7 @@ import { Repository } from 'typeorm';
 import { AttendanceDevice } from '../access-control/attendance-devices/entities/attendance-device.entity';
 import { HikvisionSyncLog } from '../access-control/hikvision-sync-logs/entity/hikvision-sync-log.entity';
 import { AttendanceEmployeeResolverService } from '../hr/attendance/processing/attendance-employee-resolver.service';
+import { AttendanceRecalculationService } from '../hr/attendance/processing/attendance-recalculation.service';
 import { AttendanceRecalculationJob } from '../hr/attendance/processing/entities/attendance-recalculation-job.entity';
 import { Employee } from '../hr/employees/entities/employee.entity';
 import { HikvisionAttendanceSyncService } from './hikvision-attendance-sync.service';
@@ -86,6 +87,9 @@ describe('HikvisionAttendanceSyncService', () => {
   let attendanceEmployeeResolver: {
     resolveEmployeeId: jest.Mock;
   };
+  let attendanceRecalculationService: {
+    executeJob: jest.Mock;
+  };
 
   beforeEach(() => {
     jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
@@ -98,6 +102,9 @@ describe('HikvisionAttendanceSyncService', () => {
     attendanceEmployeeResolver = {
       resolveEmployeeId: jest.fn(),
     };
+    attendanceRecalculationService = {
+      executeJob: jest.fn(),
+    };
     service = new HikvisionAttendanceSyncService(
       {} as Repository<AttendanceDevice>,
       attendanceLogRepository as unknown as Repository<HikvisionAttendanceLog>,
@@ -109,6 +116,7 @@ describe('HikvisionAttendanceSyncService', () => {
       {} as HikvisionAccessControlService,
       {} as HikvisionHelperService,
       attendanceEmployeeResolver as unknown as AttendanceEmployeeResolverService,
+      attendanceRecalculationService as unknown as AttendanceRecalculationService,
     );
     internals = service as unknown as HikvisionAttendanceSyncServiceInternals;
   });

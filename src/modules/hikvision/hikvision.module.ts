@@ -22,6 +22,7 @@ import { AccessControlSyncService } from '../access-control/service/access-contr
 import { Branch } from '../hr/branches/entities/branch.entity';
 import { AttendanceDevice } from '../access-control/attendance-devices/entities/attendance-device.entity';
 import { AttendanceEmployeeResolverService } from '../hr/attendance/processing/attendance-employee-resolver.service';
+import { AttendanceProcessingModule } from '../hr/attendance/processing/attendance-processing.module';
 import { EmployeeDeviceIdentity } from '../hr/attendance/processing/entities/employee-device-identity.entity';
 import { AttendanceRecalculationJob } from '../hr/attendance/processing/entities/attendance-recalculation-job.entity';
 import { Employee } from '../hr/employees/entities/employee.entity';
@@ -77,6 +78,7 @@ import { HikvisionSyncProcessor } from './hikvision-sync.processor';
     BullModule.registerQueue({
       name: HIKVISION_SYNC_QUEUE,
     }),
+    AttendanceProcessingModule,
   ],
   controllers: [
     HikvisionAttendanceController,
