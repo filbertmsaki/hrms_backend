@@ -83,6 +83,9 @@ describe('EmployeeSelfServiceService', () => {
   let timetableRepository: {
     findOne: jest.Mock;
   };
+  let profileUpdateRequestRepository: {
+    count: jest.Mock;
+  };
   let filesService: {
     saveBufferFile: jest.Mock;
     removeManagedFile: jest.Mock;
@@ -141,6 +144,9 @@ describe('EmployeeSelfServiceService', () => {
     timetableRepository = {
       findOne: jest.fn().mockResolvedValue(null),
     };
+    profileUpdateRequestRepository = {
+      count: jest.fn().mockResolvedValue(0),
+    };
     filesService = {
       saveBufferFile: jest.fn(),
       removeManagedFile: jest.fn(),
@@ -168,7 +174,7 @@ describe('EmployeeSelfServiceService', () => {
       shiftRepository as unknown as Repository<Shift>,
       timetableRepository as unknown as Repository<Timetable>,
       {} as Repository<AttendanceCorrectionRequest>,
-      {} as Repository<EmployeeProfileUpdateRequest>,
+      profileUpdateRequestRepository as unknown as Repository<EmployeeProfileUpdateRequest>,
       filesService as unknown as FilesService,
       profileChangeRequestsService as unknown as ProfileChangeRequestsService,
     );
@@ -366,6 +372,65 @@ describe('EmployeeSelfServiceService', () => {
 
     expect(result.links.profile).toBe('/me/profile');
     expect((result.links as Record<string, unknown>).links).toBeUndefined();
+  });
+
+  it('falls back to employee profile update requests when the legacy profile change table is unavailable', async () => {
+    usersService.findMyProfileById.mockResolvedValue({
+      status: 'ACTIVE',
+      active_company: { id: 7, name: 'Acme', slug: 'acme', status: 'ACTIVE' },
+    });
+    employeesService.findMyProfile.mockResolvedValue({
+      id: 15,
+      employment_status: 'active',
+      employment_type: 'full_time',
+    });
+    leaveService.findMyLeaveRequests.mockResolvedValue({
+      data: [],
+      meta: {},
+    });
+    profileChangeRequestsService.getPendingSummary.mockRejectedValueOnce(
+      new Error('relation "profile_change_requests" does not exist'),
+    );
+    profileUpdateRequestRepository.count.mockResolvedValue(2);
+    jest.spyOn(service, 'getTodayAttendance').mockResolvedValue({
+      date: '2026-06-22',
+      punches: [],
+      punch_state: 'not_checked_in',
+      processing_state: 'no_activity',
+      action_flags: {
+        can_check_in: true,
+        can_check_out: false,
+      },
+      summary: null,
+      first_punch: null,
+      last_punch: null,
+    } as unknown as Awaited<ReturnType<typeof service.getTodayAttendance>>);
+    jest.spyOn(service, 'getLeaveBalances').mockResolvedValue({
+      data: [],
+      meta: {},
+    } as unknown as Awaited<ReturnType<typeof service.getLeaveBalances>>);
+    jest.spyOn(service, 'getAttendanceSchedule').mockResolvedValue({
+      from_date: '2026-06-22',
+      to_date: '2026-06-28',
+      days: [],
+    } as unknown as Awaited<ReturnType<typeof service.getAttendanceSchedule>>);
+    jest.spyOn(service as any, 'buildAttendanceStats').mockResolvedValue({});
+    jest.spyOn(service as any, 'buildLeaveCounts').mockResolvedValue({});
+    jest
+      .spyOn(service as any, 'findUpcomingApprovedLeave')
+      .mockResolvedValue([]);
+    attendanceDailySummaryService.findDailySummaries.mockResolvedValue({
+      data: [],
+      meta: {},
+    });
+
+    const result = await service.getDashboard(actor);
+
+    expect(profileUpdateRequestRepository.count).toHaveBeenCalledTimes(1);
+    expect(result.pending_profile_change).toEqual({
+      has_pending_profile_change: true,
+      pending_request_count: 2,
+    });
   });
 
   it('requires an active company context', async () => {

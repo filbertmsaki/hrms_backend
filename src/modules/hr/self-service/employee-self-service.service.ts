@@ -3,9 +3,10 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { AttendanceCorrectionRequest } from './entities/attendance-correction-request.entity';
 import { EmployeeProfileUpdateRequest } from './entities/employee-profile-update-request.entity';
 import { SelfServiceRequestStatusEnum } from './enums/self-service-request-status.enum';
@@ -77,6 +78,11 @@ type UploadedProfilePhoto = {
   buffer: Buffer;
 };
 
+const ACTIVE_PROFILE_UPDATE_REQUEST_STATUSES = [
+  SelfServiceRequestStatusEnum.DRAFT,
+  SelfServiceRequestStatusEnum.SUBMITTED,
+];
+
 @Injectable()
 export class EmployeeSelfServiceService {
   constructor(
@@ -114,7 +120,7 @@ export class EmployeeSelfServiceService {
     const companyId = this.ensureCompanyId(actor);
     const employee = await this.requireMyEmployeeProfile(actor);
     const user = await this.usersService.findMyProfileById(actor.id, companyId);
-    const pending = await this.profileChangeRequestsService.getPendingSummary(
+    const pending = await this.getPendingProfileChangeSummary(
       companyId,
       employee.id!,
     );
@@ -218,7 +224,7 @@ export class EmployeeSelfServiceService {
       this.usersService.findMyProfileById(actor.id, companyId),
       this.getTodayAttendance(actor),
     ]);
-    const pending = await this.profileChangeRequestsService.getPendingSummary(
+    const pending = await this.getPendingProfileChangeSummary(
       companyId,
       employee.id!,
     );
@@ -305,7 +311,7 @@ export class EmployeeSelfServiceService {
       this.findUpcomingApprovedLeave(companyId, employeeId, today),
       this.getAttendanceSchedule(actor, { from_date: today, days: 7 }),
     ]);
-    const pending = await this.profileChangeRequestsService.getPendingSummary(
+    const pending = await this.getPendingProfileChangeSummary(
       companyId,
       employee.id!,
     );
@@ -1103,6 +1109,51 @@ export class EmployeeSelfServiceService {
     }
 
     return actor.companyId;
+  }
+
+  private async getPendingProfileChangeSummary(
+    companyId: number,
+    employeeId: number,
+  ) {
+    try {
+      return await this.profileChangeRequestsService.getPendingSummary(
+        companyId,
+        employeeId,
+      );
+    } catch (error) {
+      if (!this.isMissingLegacyProfileChangeTableError(error)) {
+        throw error;
+      }
+
+      try {
+        const count = await this.profileUpdateRequestRepository.count({
+          where: {
+            companyId,
+            employeeId,
+            status: In(ACTIVE_PROFILE_UPDATE_REQUEST_STATUSES),
+          },
+        });
+
+        return {
+          has_pending_profile_change: count > 0,
+          pending_request_count: count,
+        };
+      } catch {
+        throw new ServiceUnavailableException(
+          'Profile change request data is not available. Please complete the self-service profile request setup.',
+        );
+      }
+    }
+  }
+
+  private isMissingLegacyProfileChangeTableError(error: unknown) {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+
+    return /relation "profile_change_requests" does not exist/i.test(
+      error.message,
+    );
   }
 
   private async findMyEmployeeProfile(
