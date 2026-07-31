@@ -18,6 +18,7 @@ import { Permissions } from '../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import { AssignDepartmentPositionDto } from './dtos/assign-department-position.dto';
 import { CreateDepartmentDto } from './dtos/create-department.dto';
 import { DepartmentQueryDto } from './dtos/department-query.dto';
 import { UpdateDepartmentDto } from './dtos/update-department.dto';
@@ -104,5 +105,54 @@ export class DepartmentsController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.departmentsService.remove(req.user.companyId!, id, req.user);
+  }
+
+  @Get(':id/positions')
+  @UseGuards(PermissionsGuard)
+  @Permissions('positions:read')
+  @ApiListOperation('Position', 'List positions assigned to a department')
+  listPositions(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.departmentsService.listPositions(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
+  }
+
+  @Post(':id/positions')
+  @UseGuards(PermissionsGuard)
+  @Permissions('positions:assign-department')
+  @ApiCreateOperation('Position', 'Assign an existing position to a department')
+  assignPosition(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() assignDepartmentPositionDto: AssignDepartmentPositionDto,
+  ) {
+    return this.departmentsService.assignPosition(
+      req.user.companyId!,
+      id,
+      assignDepartmentPositionDto.position_id,
+      req.user,
+    );
+  }
+
+  @Delete(':id/positions/:positionId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('positions:assign-department')
+  @ApiDeleteOperation('Position', 'Remove a position from a department')
+  removePosition(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('positionId', ParseIntPipe) positionId: number,
+  ) {
+    return this.departmentsService.removePosition(
+      req.user.companyId!,
+      id,
+      positionId,
+      req.user,
+    );
   }
 }

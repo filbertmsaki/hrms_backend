@@ -30,6 +30,14 @@ export class CreateEmployeeDto {
   @ApiPropertyOptional({
     description: 'Leave blank to auto-generate (AICL-XXXXXX)',
   })
+  @Transform(({ value }: TransformFnParams): unknown => {
+    if (typeof value !== 'string') {
+      return value;
+    }
+
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : undefined;
+  })
   @IsString()
   @IsOptional()
   employee_no?: string;

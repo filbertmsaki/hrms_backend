@@ -14,6 +14,7 @@ import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { Role } from '../../roles/entities/role.entity';
 import { HrAccessService } from '../shared/hr-access.service';
 import { buildPaginationMeta, normalizeDateInput } from '../shared/hr.utils';
+import { PositionAvailabilityService } from '../shared/position-availability.service';
 import { AddLeaveDocumentDto } from './dtos/add-leave-document.dto';
 import { AdjustLeaveBalanceDto } from './dtos/adjust-leave-balance.dto';
 import { CancelLeaveRequestDto } from './dtos/cancel-leave-request.dto';
@@ -130,6 +131,7 @@ export class LeaveService {
     @InjectRepository(AttendanceRecalculationJob)
     private readonly attendanceRecalculationJobRepository: Repository<AttendanceRecalculationJob>,
     private readonly hrAccessService: HrAccessService,
+    private readonly positionAvailabilityService: PositionAvailabilityService,
     private readonly leaveAuditService: LeaveAuditService,
     private readonly leaveBalanceService: LeaveBalanceService,
     private readonly leaveBalanceLedgerService: LeaveBalanceLedgerService,
@@ -1793,8 +1795,11 @@ export class LeaveService {
 
       if (
         step.assigned_branch_id &&
-        position.branch_id &&
-        position.branch_id !== step.assigned_branch_id
+        !(await this.positionAvailabilityService.isPositionAvailableForBranch(
+          companyId,
+          position,
+          step.assigned_branch_id,
+        ))
       ) {
         throw new BadRequestException(
           `Position ${step.position_id} does not belong to branch ${step.assigned_branch_id}`,
@@ -1803,8 +1808,11 @@ export class LeaveService {
 
       if (
         step.assigned_department_id &&
-        position.department_id &&
-        position.department_id !== step.assigned_department_id
+        !(await this.positionAvailabilityService.isPositionAvailableForDepartment(
+          companyId,
+          position,
+          step.assigned_department_id,
+        ))
       ) {
         throw new BadRequestException(
           `Position ${step.position_id} does not belong to department ${step.assigned_department_id}`,

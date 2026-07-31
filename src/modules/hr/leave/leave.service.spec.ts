@@ -17,6 +17,7 @@ import { Position } from '../positions/entities/position.entity';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { Role } from '../../roles/entities/role.entity';
 import { HrAccessService } from '../shared/hr-access.service';
+import { PositionAvailabilityService } from '../shared/position-availability.service';
 import { LeaveAuditService } from './services/leave-audit.service';
 import { LeaveBalanceLedgerService } from './services/leave-balance-ledger.service';
 import { LeaveBalanceService } from './services/leave-balance.service';
@@ -81,6 +82,10 @@ describe('LeaveService', () => {
     assertCompanyScopedActor: jest.Mock;
     hasCompanyWideBranchAccess: jest.Mock;
   };
+  let positionAvailabilityService: {
+    isPositionAvailableForBranch: jest.Mock;
+    isPositionAvailableForDepartment: jest.Mock;
+  };
   let leaveAuditService: { log: jest.Mock };
   let leaveBalanceService: {
     toDecimal: jest.Mock;
@@ -139,6 +144,10 @@ describe('LeaveService', () => {
       assertCanAccessEmployee: jest.fn(),
       assertCompanyScopedActor: jest.fn(),
       hasCompanyWideBranchAccess: jest.fn().mockReturnValue(true),
+    };
+    positionAvailabilityService = {
+      isPositionAvailableForBranch: jest.fn().mockResolvedValue(true),
+      isPositionAvailableForDepartment: jest.fn().mockResolvedValue(true),
     };
     leaveAuditService = {
       log: jest.fn(),
@@ -233,6 +242,7 @@ describe('LeaveService', () => {
       roleRepository as unknown as Repository<Role>,
       attendanceRecalculationJobRepository as unknown as Repository<AttendanceRecalculationJob>,
       hrAccessService as unknown as HrAccessService,
+      positionAvailabilityService as unknown as PositionAvailabilityService,
       leaveAuditService as unknown as LeaveAuditService,
       leaveBalanceService as unknown as LeaveBalanceService,
       leaveBalanceLedgerService as unknown as LeaveBalanceLedgerService,

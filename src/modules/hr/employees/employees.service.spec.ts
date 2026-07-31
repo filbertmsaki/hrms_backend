@@ -43,6 +43,7 @@ const createRepositoryMock = (): MockRepo => ({
 
 describe('EmployeesService', () => {
   let service: EmployeesService;
+  let dataSource: { transaction: jest.Mock };
   let employeeRepository: MockRepo;
   let employeeDocumentRepository: MockRepo;
   let hrAccessService: { assertCanAccessEmployee: jest.Mock };
@@ -60,6 +61,9 @@ describe('EmployeesService', () => {
   };
 
   beforeEach(() => {
+    dataSource = {
+      transaction: jest.fn(),
+    };
     employeeRepository = createRepositoryMock();
     employeeDocumentRepository = createRepositoryMock();
     hrAccessService = {
@@ -70,7 +74,7 @@ describe('EmployeesService', () => {
     };
 
     service = new EmployeesService(
-      {} as DataSource,
+      dataSource as unknown as DataSource,
       employeeRepository as unknown as Repository<Employee>,
       createRepositoryMock() as unknown as Repository<EmployeeDepartment>,
       employeeDocumentRepository as unknown as Repository<EmployeeDocument>,
@@ -98,6 +102,103 @@ describe('EmployeesService', () => {
       filesService as unknown as FilesService,
       {} as DefaultAvatarsService,
     );
+  });
+
+  it('generates an employee number when registration leaves employee_no blank', async () => {
+    const manager = {
+      getRepository: jest.fn(() => employeeRepository),
+    };
+    const membership = { id: 71 } as CompanyUser;
+    const persistedEmployee = {
+      id: 55,
+      employee_no: '000123',
+      first_name: 'Jane',
+      last_name: 'Doe',
+    };
+    const serviceInternals = service as unknown as {
+      createForCompanyUserMembership: (
+        companyId: number,
+        membership: CompanyUser,
+        createEmployeeDto: {
+          employee_no?: string;
+          first_name: string;
+          last_name: string;
+          gender: string;
+          onboarding?: {
+            auto_start?: boolean;
+          };
+        },
+        actor: AuthenticatedUser,
+        manager: { getRepository: jest.Mock },
+      ) => Promise<{ employeeId: number; onboardingRequestId: number | null }>;
+      generateNextEmployeeNo: jest.Mock<
+        Promise<string>,
+        [number, { getRepository: jest.Mock }]
+      >;
+      assertUniqueEmployeeNumber: jest.Mock<
+        Promise<void>,
+        [number, string, number | undefined, { getRepository: jest.Mock }]
+      >;
+      persistEmployee: jest.Mock;
+      initializeCurrentYearLeaveBalances: jest.Mock<
+        Promise<void>,
+        [number, object, { getRepository: jest.Mock }]
+      >;
+    };
+
+    employeeRepository.findOne.mockResolvedValue(null);
+    serviceInternals.generateNextEmployeeNo = jest
+      .fn<Promise<string>, [number, { getRepository: jest.Mock }]>()
+      .mockResolvedValue('000123');
+    serviceInternals.assertUniqueEmployeeNumber = jest
+      .fn<
+        Promise<void>,
+        [number, string, number | undefined, { getRepository: jest.Mock }]
+      >()
+      .mockResolvedValue(undefined);
+    serviceInternals.persistEmployee = jest
+      .fn()
+      .mockResolvedValue(persistedEmployee);
+    serviceInternals.initializeCurrentYearLeaveBalances = jest
+      .fn<Promise<void>, [number, object, { getRepository: jest.Mock }]>()
+      .mockResolvedValue(undefined);
+
+    const result = await serviceInternals.createForCompanyUserMembership(
+      10,
+      membership,
+      {
+        employee_no: '   ',
+        first_name: 'Jane',
+        last_name: 'Doe',
+        gender: 'female',
+        onboarding: {
+          auto_start: false,
+        },
+      },
+      actor,
+      manager,
+    );
+
+    expect(serviceInternals.generateNextEmployeeNo).toHaveBeenCalledWith(
+      10,
+      manager,
+    );
+    expect(serviceInternals.assertUniqueEmployeeNumber).toHaveBeenCalledWith(
+      10,
+      '000123',
+      undefined,
+      manager,
+    );
+    expect(employeeRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        company_user_id: 71,
+        employee_no: '000123',
+      }),
+    );
+    expect(result).toEqual({
+      employeeId: 55,
+      onboardingRequestId: null,
+    });
   });
 
   it('stores employee documents through the shared files service', async () => {

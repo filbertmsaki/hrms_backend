@@ -28,6 +28,7 @@ import { EmployeeTimetable } from '../attendance/timetable/employee-timetables/e
 import { EmployeeTimetableStatusEnum } from '../attendance/timetable/employee-timetables/enums/employee-timetable-status.enum';
 import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
 import { HrAccessService } from '../shared/hr-access.service';
+import { PositionAvailabilityService } from '../shared/position-availability.service';
 import { OffboardingAuditService } from './services/offboarding-audit.service';
 import { OffboardingWorkflowService } from './services/offboarding-workflow.service';
 import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
@@ -54,6 +55,10 @@ describe('OffboardingService', () => {
   let documentRepository: MockRepo<Document>;
   let dataSource: { transaction: jest.Mock };
   let hrAccessService: { assertCanAccessEmployee: jest.Mock };
+  let positionAvailabilityService: {
+    isPositionAvailableForBranch: jest.Mock;
+    isPositionAvailableForDepartment: jest.Mock;
+  };
   let offboardingAuditService: { log: jest.Mock };
   let filesService: { saveBase64File: jest.Mock };
   let actor: AuthenticatedUser;
@@ -100,6 +105,10 @@ describe('OffboardingService', () => {
     hrAccessService = {
       assertCanAccessEmployee: jest.fn(),
     };
+    positionAvailabilityService = {
+      isPositionAvailableForBranch: jest.fn().mockResolvedValue(true),
+      isPositionAvailableForDepartment: jest.fn().mockResolvedValue(true),
+    };
     offboardingAuditService = {
       log: jest.fn(),
     };
@@ -144,6 +153,7 @@ describe('OffboardingService', () => {
       companyUserRoleRepository as unknown as Repository<CompanyUserRole>,
       roleRepository as unknown as Repository<Role>,
       hrAccessService as unknown as HrAccessService,
+      positionAvailabilityService as unknown as PositionAvailabilityService,
       offboardingAuditService as unknown as OffboardingAuditService,
       {} as OffboardingWorkflowService,
       { emit: jest.fn() } as unknown as EventEmitter2,

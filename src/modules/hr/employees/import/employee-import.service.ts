@@ -3305,15 +3305,16 @@ export class EmployeeImportService {
     departmentId: number,
     mappings: DepartmentPosition[],
   ): boolean {
-    if (position.department_id !== null) {
-      return position.department_id === departmentId;
+    if (position.department_id === departmentId) {
+      return true;
     }
 
     const hasMappings = mappings.some(
       (mapping) => mapping.position_id === position.id,
     );
+
     if (!hasMappings) {
-      return true;
+      return position.department_id === null;
     }
 
     return mappings.some(
@@ -3329,15 +3330,16 @@ export class EmployeeImportService {
     departments: Department[],
     mappings: DepartmentPosition[],
   ): boolean {
-    if (position.branch_id !== null) {
-      return position.branch_id === branchId;
+    if (position.branch_id === branchId) {
+      return true;
     }
 
     const hasMappings = mappings.some(
       (mapping) => mapping.position_id === position.id,
     );
+
     if (!hasMappings) {
-      return true;
+      return position.branch_id === null;
     }
 
     const branchDepartmentIds = new Set(

@@ -1,6 +1,13 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsInt, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import {
+  ArrayUnique,
+  IsArray,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
 export class CreateDepartmentDto {
   @IsString()
@@ -31,4 +38,16 @@ export class CreateDepartmentDto {
   @IsString()
   @IsOptional()
   status?: string;
+
+  @ApiPropertyOptional({
+    type: [Number],
+    description:
+      'Existing position IDs to assign to this department. On update, replaces the full set of assignments; a position removed from this list is unassigned unless employees currently depend on it, in which case the request fails.',
+  })
+  @Type(() => Number)
+  @IsArray()
+  @IsInt({ each: true })
+  @ArrayUnique()
+  @IsOptional()
+  position_ids?: number[];
 }

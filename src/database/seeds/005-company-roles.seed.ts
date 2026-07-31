@@ -182,6 +182,7 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'positions:create',
       'positions:update',
       'positions:delete',
+      'positions:assign-department',
       // Employees (full lifecycle)
       'employees:read',
       'employees:create',

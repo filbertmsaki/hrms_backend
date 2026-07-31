@@ -231,7 +231,19 @@ export class LeaveWorkflowService {
 
     if (step.assigned_branch_id) {
       assignments.andWhere(
-        '(position.branch_id = :branchId OR employee.primary_branch_id = :branchId)',
+        `(
+          position.branch_id = :branchId
+          OR employee.primary_branch_id = :branchId
+          OR EXISTS (
+            SELECT 1
+            FROM department_positions department_position
+            INNER JOIN departments mapped_department
+              ON mapped_department.id = department_position.department_id
+            WHERE department_position.company_id = :companyId
+              AND department_position.position_id = position.id
+              AND mapped_department.branch_id = :branchId
+          )
+        )`,
         {
           branchId: step.assigned_branch_id,
         },
@@ -240,7 +252,17 @@ export class LeaveWorkflowService {
 
     if (step.assigned_department_id) {
       assignments.andWhere(
-        '(position.department_id = :departmentId OR employee.primary_department_id = :departmentId)',
+        `(
+          position.department_id = :departmentId
+          OR employee.primary_department_id = :departmentId
+          OR EXISTS (
+            SELECT 1
+            FROM department_positions department_position
+            WHERE department_position.company_id = :companyId
+              AND department_position.position_id = position.id
+              AND department_position.department_id = :departmentId
+          )
+        )`,
         {
           departmentId: step.assigned_department_id,
         },

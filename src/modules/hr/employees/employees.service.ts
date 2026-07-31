@@ -1069,6 +1069,15 @@ export class EmployeesService {
     }
   }
 
+  private normalizeOptionalEmployeeNumber(value: string | null | undefined) {
+    if (typeof value !== 'string') {
+      return undefined;
+    }
+
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
   private normalizeDepartmentInputs(
     departments: EmployeeDepartmentInputDto[] | undefined,
     primaryDepartmentId: number | null | undefined,
@@ -2234,10 +2243,14 @@ export class EmployeesService {
           )
         : (employee.manager ?? null);
 
-    if ('employee_no' in dto && dto.employee_no) {
+    const normalizedEmployeeNo = this.normalizeOptionalEmployeeNumber(
+      dto.employee_no,
+    );
+
+    if ('employee_no' in dto && normalizedEmployeeNo) {
       await this.assertUniqueEmployeeNumber(
         companyId,
-        dto.employee_no,
+        normalizedEmployeeNo,
         employee.id || undefined,
         manager,
       );
@@ -2246,6 +2259,8 @@ export class EmployeesService {
     const payload = this.buildEmployeeEntityPayload(
       {
         ...dto,
+        employee_no:
+          'employee_no' in dto ? normalizedEmployeeNo : dto.employee_no,
         ...normalizedStatus,
       },
       branch,
@@ -2509,7 +2524,7 @@ export class EmployeesService {
     }
 
     const employeeNo =
-      createEmployeeDto.employee_no ||
+      this.normalizeOptionalEmployeeNumber(createEmployeeDto.employee_no) ||
       (await this.generateNextEmployeeNo(companyId, manager));
 
     await this.assertUniqueEmployeeNumber(

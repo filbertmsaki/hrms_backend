@@ -322,6 +322,12 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     displayName: 'Delete positions',
     description: 'Allow deleting company positions',
   },
+  {
+    name: 'positions:assign-department',
+    displayName: 'Assign positions to departments',
+    description:
+      'Allow assigning and removing department-position relationships',
+  },
   // Employees
   {
     name: 'employees:read',

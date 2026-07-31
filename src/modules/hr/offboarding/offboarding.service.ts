@@ -28,6 +28,7 @@ import { EmployeeTimetableStatusEnum } from '../attendance/timetable/employee-ti
 import { Position } from '../positions/entities/position.entity';
 import { HrAccessService } from '../shared/hr-access.service';
 import { buildPaginationMeta } from '../shared/hr.utils';
+import { PositionAvailabilityService } from '../shared/position-availability.service';
 import { AssignOffboardingClearanceDto } from './dtos/assign-offboarding-clearance.dto';
 import { CancelOffboardingRequestDto } from './dtos/cancel-offboarding-request.dto';
 import { CompleteOffboardingClearanceDto } from './dtos/complete-offboarding-clearance.dto';
@@ -178,6 +179,7 @@ export class OffboardingService {
     @InjectRepository(Role)
     private readonly roleRepository: Repository<Role>,
     private readonly hrAccessService: HrAccessService,
+    private readonly positionAvailabilityService: PositionAvailabilityService,
     private readonly offboardingAuditService: OffboardingAuditService,
     private readonly offboardingWorkflowService: OffboardingWorkflowService,
     private readonly eventEmitter: EventEmitter2,
@@ -903,9 +905,13 @@ export class OffboardingService {
         });
 
         if (
-          position?.branch_id &&
+          position &&
           step.assigned_branch_id &&
-          position.branch_id !== step.assigned_branch_id
+          !(await this.positionAvailabilityService.isPositionAvailableForBranch(
+            companyId,
+            position,
+            step.assigned_branch_id,
+          ))
         ) {
           throw new BadRequestException(
             `Position ${step.position_id} does not belong to branch ${step.assigned_branch_id}`,
@@ -913,9 +919,13 @@ export class OffboardingService {
         }
 
         if (
-          position?.department_id &&
+          position &&
           step.assigned_department_id &&
-          position.department_id !== step.assigned_department_id
+          !(await this.positionAvailabilityService.isPositionAvailableForDepartment(
+            companyId,
+            position,
+            step.assigned_department_id,
+          ))
         ) {
           throw new BadRequestException(
             `Position ${step.position_id} does not belong to department ${step.assigned_department_id}`,
