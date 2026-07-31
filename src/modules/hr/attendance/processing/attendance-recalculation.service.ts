@@ -3,12 +3,16 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import { buildPaginationMeta } from '../../shared/hr.utils';
-import { Employee } from '../../employees/entities/employee.entity';
 import { AttendanceRecalculationJob } from './entities/attendance-recalculation-job.entity';
 import { AttendanceProcessingJobStatusEnum } from './enums/attendance-processing-job-status.enum';
-import { RecalculateAttendanceDto } from './dtos/recalculate-attendance.dto';
 import { QueryAttendanceProcessingJobsDto } from './dtos/query-attendance-processing-jobs.dto';
+import {
+  AttendanceRefreshExecutionEnum,
+  AttendanceRefreshModeEnum,
+  RefreshAttendanceDailySummariesDto,
+} from './dtos/refresh-attendance-daily-summaries.dto';
 import { AttendanceProcessingService } from './attendance-processing.service';
+import { AttendanceDailySummaryService } from './attendance-daily-summary.service';
 import { normalizeDateInput } from '../../shared/hr.utils';
 
 @Injectable()
@@ -18,15 +22,14 @@ export class AttendanceRecalculationService {
   constructor(
     @InjectRepository(AttendanceRecalculationJob)
     private readonly jobRepository: Repository<AttendanceRecalculationJob>,
-    @InjectRepository(Employee)
-    private readonly employeeRepository: Repository<Employee>,
     private readonly attendanceProcessingService: AttendanceProcessingService,
+    private readonly attendanceDailySummaryService: AttendanceDailySummaryService,
   ) {}
 
-  async queueRecalculation(
+  async refreshSummaries(
     companyId: number,
     requestedByCompanyUserId: number | null,
-    dto: RecalculateAttendanceDto,
+    dto: RefreshAttendanceDailySummariesDto,
   ) {
     const startDate = this.normalizeDate(dto.start_date, 'start_date');
     const endDate = this.normalizeDate(dto.end_date, 'end_date');
@@ -34,49 +37,41 @@ export class AttendanceRecalculationService {
       throw new BadRequestException('end_date cannot be before start_date');
     }
 
-    if (dto.employee_id) {
-      const employee = await this.employeeRepository
-        .createQueryBuilder('employee')
-        .innerJoin('employee.company_user', 'companyUser')
-        .where('employee.id = :id', { id: dto.employee_id })
-        .andWhere('companyUser.company_id = :companyId', { companyId })
-        .getOne();
-      if (!employee) {
-        throw new BadRequestException(
-          `Employee with id ${dto.employee_id} not found in this company`,
-        );
-      }
-    }
-
-    let job = await this.jobRepository.save(
-      this.jobRepository.create({
+    if (dto.execution === AttendanceRefreshExecutionEnum.ASYNC) {
+      let job = await this.createJob({
         companyId,
-        employeeId: dto.employee_id ?? null,
+        employeeId: null,
         dateFrom: startDate,
         dateTo: endDate,
-        reason: dto.reason?.trim() || null,
-        status: AttendanceProcessingJobStatusEnum.PENDING,
-        attempts: 0,
         requestedByCompanyUserId,
-      }),
-    );
+        metadata: {
+          refresh_mode: dto.mode,
+        },
+      });
 
-    let executionResult: unknown = null;
-    if (dto.process_immediately ?? true) {
-      executionResult = await this.executeJob(job.id);
+      void this.executeQueuedJobInBackground(job.id);
+
       const refreshedJob = await this.jobRepository.findOne({
         where: { id: job.id },
       });
       if (refreshedJob) {
         job = refreshedJob;
       }
-    } else {
-      void this.executeQueuedJobInBackground(job.id);
+
+      return {
+        job,
+        executionResult: null,
+      };
     }
 
     return {
-      job,
-      executionResult,
+      job: null,
+      executionResult: await this.executeRefreshMode({
+        companyId,
+        startDate,
+        endDate,
+        mode: dto.mode,
+      }),
     };
   }
 
@@ -119,20 +114,22 @@ export class AttendanceRecalculationService {
     if (!job) throw new BadRequestException('Recalculation job not found');
 
     try {
-      const result = await this.attendanceProcessingService.processRange(
-        job.companyId,
-        {
-          start_date: job.dateFrom,
-          end_date: job.dateTo,
-          employee_id: job.employeeId ?? undefined,
-          rebuild_summaries: true,
-          force_rebuild_summaries: true,
-        },
-      );
+      const mode = this.resolveRefreshMode(job);
+      const result = await this.executeRefreshMode({
+        companyId: job.companyId,
+        startDate: job.dateFrom,
+        endDate: job.dateTo,
+        employeeId: job.employeeId ?? undefined,
+        mode,
+      });
 
       job.status = AttendanceProcessingJobStatusEnum.SUCCESS;
       job.processedAt = new Date();
-      job.metadata = { result };
+      job.metadata = {
+        ...(job.metadata ?? {}),
+        refresh_mode: mode,
+        result,
+      };
       await this.jobRepository.save(job);
 
       return {
@@ -174,6 +171,72 @@ export class AttendanceRecalculationService {
       processed: jobs.length,
       results,
     };
+  }
+
+  private async createJob(input: {
+    companyId: number;
+    employeeId: number | null;
+    dateFrom: string;
+    dateTo: string;
+    requestedByCompanyUserId: number | null;
+    reason?: string | null;
+    metadata?: Record<string, unknown>;
+  }) {
+    return this.jobRepository.save(
+      this.jobRepository.create({
+        companyId: input.companyId,
+        employeeId: input.employeeId,
+        dateFrom: input.dateFrom,
+        dateTo: input.dateTo,
+        reason: input.reason ?? null,
+        status: AttendanceProcessingJobStatusEnum.PENDING,
+        attempts: 0,
+        requestedByCompanyUserId: input.requestedByCompanyUserId,
+        metadata: input.metadata ?? null,
+      }),
+    );
+  }
+
+  private resolveRefreshMode(
+    job: AttendanceRecalculationJob,
+  ): AttendanceRefreshModeEnum {
+    const metadata = job.metadata ?? {};
+    const mode =
+      metadata.refresh_mode ??
+      metadata.mode ??
+      AttendanceRefreshModeEnum.FROM_RAW_LOGS;
+
+    if (mode === AttendanceRefreshModeEnum.SUMMARIES_ONLY) {
+      return AttendanceRefreshModeEnum.SUMMARIES_ONLY;
+    }
+
+    return AttendanceRefreshModeEnum.FROM_RAW_LOGS;
+  }
+
+  private async executeRefreshMode(input: {
+    companyId: number;
+    startDate: string;
+    endDate: string;
+    mode: AttendanceRefreshModeEnum;
+    employeeId?: number;
+  }) {
+    if (input.mode === AttendanceRefreshModeEnum.SUMMARIES_ONLY) {
+      return this.attendanceDailySummaryService.rebuildSummariesForRange({
+        companyId: input.companyId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        employeeId: input.employeeId,
+        forceRebuild: true,
+      });
+    }
+
+    return this.attendanceProcessingService.processRange(input.companyId, {
+      start_date: input.startDate,
+      end_date: input.endDate,
+      employee_id: input.employeeId,
+      rebuild_summaries: true,
+      force_rebuild_summaries: true,
+    });
   }
 
   private async executeQueuedJobInBackground(jobId: number): Promise<void> {

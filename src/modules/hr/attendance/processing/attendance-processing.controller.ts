@@ -37,10 +37,9 @@ import { QueryAttendanceExceptionsDto } from './dtos/query-attendance-exceptions
 import { QueryAttendanceDailySummariesDto } from './dtos/query-attendance-daily-summaries.dto';
 import { QueryAttendanceProcessingJobsDto } from './dtos/query-attendance-processing-jobs.dto';
 import { QueryUnmatchedAttendanceLogsDto } from './dtos/query-unmatched-attendance-logs.dto';
-import { RebuildAttendanceSummariesDto } from './dtos/rebuild-attendance-summaries.dto';
+import { RefreshAttendanceDailySummariesDto } from './dtos/refresh-attendance-daily-summaries.dto';
 import { UpdateAttendanceExceptionStatusDto } from './dtos/update-attendance-exception-status.dto';
 import { UpsertAttendanceDailySummaryAdjustmentDto } from './dtos/upsert-attendance-daily-summary-adjustment.dto';
-import { RecalculateAttendanceDto } from './dtos/recalculate-attendance.dto';
 
 @ApiTags('Attendance Processing')
 @ApiBearerAuth('access-token')
@@ -94,40 +93,22 @@ export class AttendanceProcessingController {
     return this.recalculationService.findJobs(req.user.companyId!, query);
   }
 
-  @Post('daily-summaries/rebuild')
+  @Post('daily-summaries/refresh')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_recalculation:execute')
   @ApiActionOperation(
-    'Rebuild Attendance Summaries',
-    'Rebuild daily attendance summaries for a date range. ' +
-      'Set async=true to queue a background job and return immediately; ' +
-      'omit or set async=false to run synchronously and return the result.',
+    'Refresh Attendance Daily Summaries',
+    'Refresh attendance for a date range by either rebuilding summaries only or reprocessing from raw logs.',
   )
-  rebuildSummaries(
+  refreshDailySummaries(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
-    @Body() dto: RebuildAttendanceSummariesDto,
+    @Body() dto: RefreshAttendanceDailySummariesDto,
   ) {
-    if (dto.async) {
-      return this.recalculationService.queueRecalculation(
-        req.user.companyId!,
-        req.user.companyMembershipId ?? null,
-        {
-          start_date: dto.start_date,
-          end_date: dto.end_date,
-          employee_id: dto.employee_id,
-          reason: dto.reason,
-          process_immediately: false,
-        },
-      );
-    }
-
-    return this.dailySummaryService.rebuildSummariesForRange({
-      companyId: req.user.companyId!,
-      startDate: dto.start_date,
-      endDate: dto.end_date,
-      employeeId: dto.employee_id,
-      forceRebuild: dto.force_rebuild ?? true,
-    });
+    return this.recalculationService.refreshSummaries(
+      req.user.companyId!,
+      req.user.companyMembershipId ?? null,
+      dto,
+    );
   }
 
   @Get('daily-summaries')
@@ -162,24 +143,6 @@ export class AttendanceProcessingController {
     @Res() res: Response,
   ) {
     await this.attendanceReportService.downloadReport(res, req.user, query);
-  }
-
-  @Post('daily-summaries/recalculate')
-  @UseGuards(PermissionsGuard)
-  @Permissions('attendance_recalculation:execute')
-  @ApiActionOperation(
-    'Recalculate Attendance',
-    'Queue or immediately execute attendance recalculation for a date range.',
-  )
-  recalculateAttendance(
-    @Req() req: ExpressRequest & { user: AuthenticatedUser },
-    @Body() dto: RecalculateAttendanceDto,
-  ) {
-    return this.recalculationService.queueRecalculation(
-      req.user.companyId!,
-      req.user.companyMembershipId ?? null,
-      dto,
-    );
   }
 
   @Get('daily-summaries/:employeeId/:date')
