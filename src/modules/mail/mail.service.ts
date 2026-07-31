@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MailerService } from '@nestjs-modules/mailer';
 import type { ISendMailOptions } from '@nestjs-modules/mailer';
@@ -29,6 +29,8 @@ import type { SafeSendMailOptions } from './mail-recipient-safety.util';
 
 @Injectable()
 export class MailService {
+  private readonly logger = new Logger(MailService.name);
+
   constructor(
     private readonly mailerService: MailerService,
     private readonly configService: ConfigService,
@@ -496,7 +498,15 @@ export class MailService {
       },
     };
 
-    await this.mailerService.sendMail(safeOptions as ISendMailOptions);
+    const result = (await this.mailerService.sendMail(
+      safeOptions as ISendMailOptions,
+    )) as { messageId?: string; response?: string } | undefined;
+
+    if (result?.messageId || result?.response) {
+      this.logger.log(
+        `Email sent via ${sourceModule}. Message ID: ${result.messageId ?? 'n/a'}. Provider response: ${result.response ?? 'n/a'}.`,
+      );
+    }
   }
 
   private baseCtx() {

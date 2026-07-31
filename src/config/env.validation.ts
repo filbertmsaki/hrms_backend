@@ -101,23 +101,44 @@ export function validateEnv(env: Env) {
   const MAIL_TEST_TO = optionalString(env, 'MAIL_TEST_TO', '');
   const MAIL_TEST_CC = optionalString(env, 'MAIL_TEST_CC', '');
   const MAIL_TEST_BCC = optionalString(env, 'MAIL_TEST_BCC', '');
+  const MAIL_OVERRIDE_ADD_ORIGINAL_RECIPIENTS_TO_BODY = optionalBool(
+    env,
+    'MAIL_OVERRIDE_ADD_ORIGINAL_RECIPIENTS_TO_BODY',
+    true,
+  );
+  const MAIL_OVERRIDE_SUBJECT_PREFIX = optionalString(
+    env,
+    'MAIL_OVERRIDE_SUBJECT_PREFIX',
+    '',
+  );
 
   const mailSafetyConfig = resolveMailRecipientSafetyConfig({
     appEnv: APP_ENV,
     nodeEnv: NODE_ENV,
+    appName: APP_NAME,
     overrideEnabled: MAIL_OVERRIDE_ENABLED,
     testTo: MAIL_TEST_TO,
     testCc: MAIL_TEST_CC,
     testBcc: MAIL_TEST_BCC,
+    addOriginalRecipientsToBody: MAIL_OVERRIDE_ADD_ORIGINAL_RECIPIENTS_TO_BODY,
+    subjectPrefix: MAIL_OVERRIDE_SUBJECT_PREFIX,
   });
 
-  if (
-    ['local', 'development', 'uat'].includes(mailSafetyConfig.environment) &&
-    MAIL_OVERRIDE_ENABLED &&
-    mailSafetyConfig.testTo.length === 0
-  ) {
+  if (MAIL_OVERRIDE_ENABLED && mailSafetyConfig.testTo.length === 0) {
     throw new Error(
-      `MAIL_TEST_TO must contain at least one valid email address when MAIL_OVERRIDE_ENABLED=true in ${mailSafetyConfig.environment}.`,
+      'MAIL_TEST_TO must contain at least one valid email address when MAIL_OVERRIDE_ENABLED=true.',
+    );
+  }
+
+  const invalidOverrideRecipients = [
+    ...mailSafetyConfig.invalidTestTo,
+    ...mailSafetyConfig.invalidTestCc,
+    ...mailSafetyConfig.invalidTestBcc,
+  ];
+
+  if (invalidOverrideRecipients.length > 0) {
+    throw new Error(
+      `MAIL_TEST_TO, MAIL_TEST_CC, and MAIL_TEST_BCC must contain only valid email addresses when MAIL_OVERRIDE_ENABLED=true. Invalid values: ${invalidOverrideRecipients.join(', ')}`,
     );
   }
 
@@ -173,6 +194,8 @@ export function validateEnv(env: Env) {
     MAIL_TEST_TO,
     MAIL_TEST_CC,
     MAIL_TEST_BCC,
+    MAIL_OVERRIDE_ADD_ORIGINAL_RECIPIENTS_TO_BODY,
+    MAIL_OVERRIDE_SUBJECT_PREFIX,
     USE_REDIS,
     REDIS_URL,
     THROTTLER_TTL,

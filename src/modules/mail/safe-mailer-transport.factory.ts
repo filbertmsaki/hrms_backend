@@ -65,11 +65,17 @@ export class SafeMailerTransportFactory implements MailerTransportFactory {
 
     transporter.use('stream', (mail, callback) => {
       try {
-        appendMailRecipientSafetyDebugFooter(
-          mail.data,
-          mail.data.__mailRecipientSafetyResult ??
-            applyMailRecipientSafety(mail.data, this.safetyConfig, this.logger),
-        );
+        const safetyResult = mail.data.__mailRecipientSafetyResult;
+
+        if (safetyResult) {
+          appendMailRecipientSafetyDebugFooter(
+            mail.data,
+            safetyResult,
+            this.safetyConfig,
+          );
+        } else {
+          applyMailRecipientSafety(mail.data, this.safetyConfig, this.logger);
+        }
         callback();
       } catch (error) {
         callback(error as Error);

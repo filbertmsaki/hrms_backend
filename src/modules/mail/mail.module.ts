@@ -6,6 +6,7 @@ import { MAILER_TRANSPORT_FACTORY } from '@nestjs-modules/mailer/dist/constants/
 import { join } from 'path';
 
 import { MailService } from './mail.service';
+import { MailOverrideWarningService } from './mail-override-warning.service';
 import { SafeMailerTransportFactory } from './safe-mailer-transport.factory';
 
 @Module({
@@ -42,7 +43,7 @@ import { SafeMailerTransportFactory } from './safe-mailer-transport.factory';
       ],
     }),
   ],
-  providers: [MailService],
+  providers: [MailService, MailOverrideWarningService],
   exports: [MailService],
 })
 export class MailModule {}
