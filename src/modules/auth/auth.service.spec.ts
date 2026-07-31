@@ -161,6 +161,9 @@ describe('AuthService', () => {
       '197.250.10.22',
     );
     expect(result.requires2FASetup).toBe(true);
+    expect((result as { dashboard_type?: string }).dashboard_type).toBe(
+      'employee',
+    );
     expect(result.message).toBe(
       'Two-factor authentication has been enabled for your account. Complete setup now before continuing.',
     );
@@ -175,6 +178,7 @@ describe('AuthService', () => {
       employee_id: 81,
       employee_no: 'EMP-0081',
       my_employee_url: '/employees/me',
+      dashboard_type: 'employee',
       roles: ['COMPANY_ADMIN'],
       permissions: ['users:manage-2fa'],
       requiresPasswordChange: false,

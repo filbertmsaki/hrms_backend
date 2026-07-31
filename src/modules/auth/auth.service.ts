@@ -16,6 +16,7 @@ import {
   UserType,
 } from '../../common/interfaces/authenticated-user.interface';
 import { comparePasswords, hashPassword } from '../../common/utils/hash.util';
+import { hasPermission } from '../../common/utils/permission.util';
 import { CompaniesService } from '../companies/companies.service';
 import {
   CompanyMembershipContext,
@@ -37,6 +38,7 @@ type AccessTokenPayload = {
   email: string;
   scope: AuthScope;
   userType: UserType;
+  dashboardType?: 'admin' | 'employee';
   companyId?: number;
   companySlug?: string;
   companyName?: string;
@@ -79,6 +81,8 @@ type PlatformAccessContext = {
   roles: string[];
   permissions: string[];
 };
+
+type DashboardType = 'admin' | 'employee';
 
 @Injectable()
 export class AuthService {
@@ -683,6 +687,12 @@ export class AuthService {
     return Array.from(permissions);
   }
 
+  private resolveDashboardType(permissions: string[]): DashboardType {
+    return hasPermission(permissions, 'view_company_dashboard')
+      ? 'admin'
+      : 'employee';
+  }
+
   private buildPlatformAccessContext(user: User): PlatformAccessContext {
     return {
       scope: 'platform',
@@ -701,9 +711,11 @@ export class AuthService {
     platformContext: PlatformAccessContext,
   ) {
     const tokens = this.generatePlatformTokenPair(user, platformContext);
+    const dashboardType: DashboardType = 'admin';
 
     return {
       scope: platformContext.scope,
+      dashboard_type: dashboardType,
       access_token: tokens.accessToken,
       access_expires_at: tokens.accessExpiresAt,
       refresh_token: tokens.refreshToken,
@@ -714,6 +726,7 @@ export class AuthService {
         first_name: user.first_name,
         last_name: user.last_name,
         user_type: user.user_type,
+        dashboard_type: dashboardType,
         roles: platformContext.roles,
         permissions: platformContext.permissions,
         isTwoFactorEnabled: user.is_two_factor_enabled,
@@ -728,9 +741,11 @@ export class AuthService {
     companies: CompanySummary[],
   ) {
     const tokens = this.generateCompanyTokenPair(user, companyContext);
+    const dashboardType = this.resolveDashboardType(companyContext.permissions);
 
     return {
       scope: 'company' as const,
+      dashboard_type: dashboardType,
       access_token: tokens.accessToken,
       access_expires_at: tokens.accessExpiresAt,
       refresh_token: tokens.refreshToken,
@@ -750,6 +765,7 @@ export class AuthService {
         employee_id: companyContext.employeeId,
         employee_no: companyContext.employeeNo,
         my_employee_url: '/employees/me',
+        dashboard_type: dashboardType,
         roles: companyContext.roles,
         permissions: companyContext.permissions,
         isTwoFactorEnabled: user.is_two_factor_enabled,
@@ -800,11 +816,14 @@ export class AuthService {
     user: User,
     companyContext: CompanySummary,
   ): AccessTokenPayload {
+    const dashboardType = this.resolveDashboardType(companyContext.permissions);
+
     return {
       sub: user.id,
       email: user.email,
       scope: 'company',
       userType: 'COMPANY_USER',
+      dashboardType,
       companyId: companyContext.companyId,
       companySlug: companyContext.companySlug,
       companyName: companyContext.companyName,
@@ -831,6 +850,7 @@ export class AuthService {
       email: user.email,
       scope: platformContext.scope,
       userType: platformContext.userType,
+      dashboardType: 'admin',
       roles: platformContext.roles,
       permissions: platformContext.permissions,
       type: 'access',

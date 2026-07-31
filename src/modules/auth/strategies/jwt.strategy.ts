@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import { hasPermission } from '../../../common/utils/permission.util';
 import { CompaniesService } from '../../companies/companies.service';
 import { UsersService } from '../../users/users.service';
 import { TokenBlacklistService } from '../token-blacklist.service';
@@ -20,6 +21,7 @@ type JwtAccessPayload = {
   email: string;
   scope?: 'platform' | 'company';
   userType?: 'OWNER' | 'COMPANY_USER';
+  dashboardType?: 'admin' | 'employee';
   companyId?: number;
   companyName?: string;
   companySlug?: string;
@@ -35,6 +37,14 @@ type JwtAccessPayload = {
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   private readonly logger = new Logger(JwtStrategy.name);
+
+  private resolveDashboardType(
+    permissions: string[] | undefined,
+  ): 'admin' | 'employee' {
+    return hasPermission(permissions, 'view_company_dashboard')
+      ? 'admin'
+      : 'employee';
+  }
 
   private isPasswordChangeAllowedRoute(req: Request): boolean {
     const method = req.method.toUpperCase();
@@ -153,6 +163,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         email: user.email,
         scope: 'platform',
         userType: 'OWNER',
+        dashboardType: 'admin',
         roles: user.roles?.map((role) => role.name) ?? [],
         permissions: Array.from(permissions),
       };
@@ -189,6 +200,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         email: user.email,
         scope: 'company',
         userType: 'COMPANY_USER',
+        dashboardType: this.resolveDashboardType(companyContext.permissions),
         companyId: companyContext.companyId,
         companyName: companyContext.companyName,
         companySlug: companyContext.companySlug,
@@ -218,6 +230,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
           email: user.email,
           scope: 'company',
           userType: 'COMPANY_USER',
+          dashboardType:
+            payload.dashboardType ??
+            this.resolveDashboardType(payload.permissions ?? []),
           companyId: payload.companyId,
           companyName: payload.companyName,
           companySlug: payload.companySlug,

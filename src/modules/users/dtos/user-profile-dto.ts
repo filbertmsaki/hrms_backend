@@ -55,6 +55,8 @@ export class UserProfileDto {
   status: string;
   @ApiProperty({ example: 'employee' })
   user_type: string;
+  @ApiPropertyOptional({ example: 'employee', enum: ['admin', 'employee'] })
+  dashboard_type?: 'admin' | 'employee';
   @ApiProperty({ example: true })
   is_email_verified: boolean;
   @ApiProperty({ example: false })

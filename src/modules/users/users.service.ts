@@ -641,6 +641,12 @@ export class UsersService {
     const permissionEntities = membership
       ? this.getMembershipPermissionEntities(membership)
       : await this.resolvePermissionEntitiesByNames(currentCompany.permissions);
+    const dashboardType = hasPermission(
+      permissionEntities.map((permission) => permission.name),
+      'view_company_dashboard',
+    )
+      ? 'admin'
+      : 'employee';
     const resolvedAvatar =
       await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
         companyId,
@@ -662,6 +668,7 @@ export class UsersService {
         this.defaultAvatarsService.buildProfilePicturePayload(resolvedAvatar),
       status: user.status,
       user_type: user.user_type,
+      dashboard_type: dashboardType,
       is_email_verified: user.is_email_verified,
       is_two_factor_enabled: user.is_two_factor_enabled,
       two_factor_setup_required: user.two_factor_setup_required,
@@ -721,6 +728,12 @@ export class UsersService {
     const permissionEntities = membership
       ? this.getMembershipPermissionEntities(membership)
       : await this.resolvePermissionEntitiesByNames(companyContext.permissions);
+    const dashboardType = hasPermission(
+      permissionEntities.map((permission) => permission.name),
+      'view_company_dashboard',
+    )
+      ? 'admin'
+      : 'employee';
     const resolvedAvatar =
       await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
         companyId,
@@ -742,6 +755,7 @@ export class UsersService {
         this.defaultAvatarsService.buildProfilePicturePayload(resolvedAvatar),
       status: user.status,
       user_type: user.user_type,
+      dashboard_type: dashboardType,
       is_email_verified: user.is_email_verified,
       is_two_factor_enabled: user.is_two_factor_enabled,
       two_factor_setup_required: user.two_factor_setup_required,
