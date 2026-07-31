@@ -81,7 +81,7 @@ export class CreateReportTemplateRecipientDto {
   displayName?: string;
 }
 
-export class CreateReportSmtpConfigurationDto {
+export class ReportSmtpConfigurationFieldsDto {
   @IsString()
   @MaxLength(150)
   name: string;
@@ -137,9 +137,40 @@ export class CreateReportSmtpConfigurationDto {
   isDefault?: boolean;
 }
 
+export class TestDraftReportSmtpConfigurationDto extends ReportSmtpConfigurationFieldsDto {
+  @IsEmail()
+  @IsOptional()
+  testRecipientEmail?: string;
+
+  @Transform(({ value }: { value: unknown }) => toBoolean(value))
+  @IsBoolean()
+  @IsOptional()
+  sendTestEmail?: boolean;
+}
+
+export class CreateReportSmtpConfigurationDto extends ReportSmtpConfigurationFieldsDto {
+  @IsString()
+  @MaxLength(2000)
+  @IsOptional()
+  smtpTestToken?: string;
+
+  @IsEmail()
+  @IsOptional()
+  testRecipientEmail?: string;
+}
+
 export class UpdateReportSmtpConfigurationDto extends PartialType(
-  CreateReportSmtpConfigurationDto,
-) {}
+  ReportSmtpConfigurationFieldsDto,
+) {
+  @IsString()
+  @MaxLength(2000)
+  @IsOptional()
+  smtpTestToken?: string;
+
+  @IsEmail()
+  @IsOptional()
+  testRecipientEmail?: string;
+}
 
 export class TestReportSmtpConfigurationDto {
   @IsEmail()

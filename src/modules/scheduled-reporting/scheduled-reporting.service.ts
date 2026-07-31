@@ -11,11 +11,15 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
+import { CompanyUser } from '../companies/entities/company-user.entity';
+import { Department } from '../hr/departments/entities/department.entity';
+import { Employee } from '../hr/employees/entities/employee.entity';
 import {
   applyMailRecipientSafety,
   resolveMailRecipientSafetyConfigFromConfigService,
   type SafeSendMailOptions,
 } from '../mail/mail-recipient-safety.util';
+import { Role } from '../roles/entities/role.entity';
 import { buildPaginationMeta } from '../hr/shared/hr.utils';
 import {
   CreateReportScheduleDto,
@@ -26,12 +30,15 @@ import {
   QueryReportSchedulesDto,
   QueryReportSmtpConfigurationsDto,
   QueryReportTemplatesDto,
+  TestDraftReportSmtpConfigurationDto,
   TestReportSmtpConfigurationDto,
   UpdateReportScheduleDto,
   UpdateReportSmtpConfigurationDto,
   UpdateReportTemplateDto,
 } from './dto/scheduled-reporting.dto';
 import { ReportEmailDeliveryStatusEnum } from './enums/report-email-delivery-status.enum';
+import { ReportOutputFormatEnum } from './enums/report-output-format.enum';
+import { ReportRecipientChannelEnum } from './enums/report-recipient-channel.enum';
 import { ReportRecipientTypeEnum } from './enums/report-recipient-type.enum';
 import { ReportScheduleTypeEnum } from './enums/report-schedule-type.enum';
 import { ReportSmtpSecurityTypeEnum } from './enums/report-smtp-security-type.enum';
@@ -46,48 +53,12 @@ import { ReportSchedule } from './entities/report-schedule.entity';
 import { ReportSmtpConfiguration } from './entities/report-smtp-configuration.entity';
 import { ReportTemplateRecipient } from './entities/report-template-recipient.entity';
 import { ReportTemplate } from './entities/report-template.entity';
+import { ReportRegistryService } from './services/report-registry.service';
+import { ReportSmtpService } from './services/report-smtp.service';
 import {
   decryptReportSmtpSecret,
   encryptReportSmtpSecret,
 } from './utils/report-smtp-secret.util';
-
-type ReportMailTransportOptions = {
-  host: string;
-  port: number;
-  secure: boolean;
-  requireTLS: boolean;
-  auth?: {
-    user: string;
-    pass: string;
-  };
-};
-
-type ReportMailSendOptions = SafeSendMailOptions & {
-  from: string;
-  to: string;
-  subject: string;
-  text: string;
-};
-
-type ReportMailSendResult = {
-  accepted: string[];
-  rejected: string[];
-  response: string;
-  messageId: string;
-};
-
-type ReportMailTransporter = {
-  verify(): Promise<void>;
-  sendMail(options: ReportMailSendOptions): Promise<ReportMailSendResult>;
-};
-
-type NodemailerModule = {
-  createTransport(options: ReportMailTransportOptions): ReportMailTransporter;
-};
-
-async function loadNodemailerModule(): Promise<NodemailerModule> {
-  return (await import('nodemailer')) as unknown as NodemailerModule;
-}
 
 @Injectable()
 export class ScheduledReportingService {
@@ -112,7 +83,17 @@ export class ScheduledReportingService {
     private readonly reportExecutionRecipientRepository: Repository<ReportExecutionRecipient>,
     @InjectRepository(ReportExecutionAttempt)
     private readonly reportExecutionAttemptRepository: Repository<ReportExecutionAttempt>,
+    @InjectRepository(CompanyUser)
+    private readonly companyUserRepository: Repository<CompanyUser>,
+    @InjectRepository(Employee)
+    private readonly employeeRepository: Repository<Employee>,
+    @InjectRepository(Department)
+    private readonly departmentRepository: Repository<Department>,
+    @InjectRepository(Role)
+    private readonly roleRepository: Repository<Role>,
     private readonly configService: ConfigService,
+    private readonly reportRegistryService: ReportRegistryService,
+    private readonly reportSmtpService: ReportSmtpService,
   ) {}
 
   assertCompanyActor(user: AuthenticatedUser) {
@@ -139,6 +120,7 @@ export class ScheduledReportingService {
 
   async createSmtpConfiguration(
     companyId: number,
+    actor: AuthenticatedUser,
     dto: CreateReportSmtpConfigurationDto,
   ) {
     await this.ensureUniqueSmtpConfigurationName(companyId, dto.name);
@@ -147,23 +129,37 @@ export class ScheduledReportingService {
       throw new BadRequestException('password is required');
     }
 
+    const smtpDraft = this.buildSmtpDraftInput({
+      ...dto,
+      password: dto.password,
+    });
+    const testedAt = await this.ensureSmtpConfigurationTested(
+      companyId,
+      actor,
+      smtpDraft,
+      dto.smtpTestToken,
+      dto.testRecipientEmail,
+    );
+
     const entity = this.reportSmtpConfigurationRepository.create({
       companyId,
       name: dto.name.trim(),
       host: dto.host.trim(),
       port: dto.port,
-      securityType: dto.securityType,
+      securityType: dto.securityType ?? ReportSmtpSecurityTypeEnum.STARTTLS,
       username: dto.username?.trim() || null,
       encryptedPassword: encryptReportSmtpSecret(dto.password),
       senderName: dto.senderName?.trim() || null,
-      senderEmail: dto.senderEmail.trim(),
-      replyToEmail: dto.replyToEmail?.trim() || null,
+      senderEmail: dto.senderEmail.trim().toLowerCase(),
+      replyToEmail: dto.replyToEmail?.trim().toLowerCase() || null,
       connectionTimeoutMs: dto.connectionTimeoutMs ?? 10000,
       isActive: dto.isActive ?? true,
       isDefault: dto.isDefault ?? false,
-      lastTestStatus: ReportSmtpTestStatusEnum.UNTESTED,
-      lastTestedAt: null,
+      lastTestStatus: ReportSmtpTestStatusEnum.SUCCESS,
+      lastTestedAt: testedAt,
       lastTestError: null,
+      createdByCompanyUserId: actor.companyMembershipId ?? null,
+      updatedByCompanyUserId: actor.companyMembershipId ?? null,
     });
 
     const saved = await this.reportSmtpConfigurationRepository.save(entity);
@@ -174,6 +170,30 @@ export class ScheduledReportingService {
     );
 
     return this.findOneSmtpConfiguration(companyId, saved.id);
+  }
+
+  async testDraftSmtpConfiguration(
+    companyId: number,
+    actor: AuthenticatedUser,
+    dto: TestDraftReportSmtpConfigurationDto,
+  ) {
+    const result = await this.reportSmtpService.testDraftConfiguration(
+      companyId,
+      actor.email,
+      this.buildSmtpDraftInput(dto),
+      dto.testRecipientEmail,
+      dto.sendTestEmail ?? true,
+    );
+
+    return {
+      status: 'success',
+      testedAt: result.testedAt,
+      expiresAt: result.expiresAt,
+      smtpTestToken: result.smtpTestToken,
+      accepted: result.accepted,
+      rejected: result.rejected,
+      messageId: result.messageId,
+    };
   }
 
   async findSmtpConfigurations(
@@ -232,10 +252,30 @@ export class ScheduledReportingService {
 
   async updateSmtpConfiguration(
     companyId: number,
+    actor: AuthenticatedUser,
     id: number,
     dto: UpdateReportSmtpConfigurationDto,
   ) {
     const item = await this.findSmtpConfigurationOrFail(companyId, id);
+    const currentPassword = decryptReportSmtpSecret(item.encryptedPassword);
+    const resolvedPassword =
+      dto.password !== undefined
+        ? dto.password?.trim() || null
+        : currentPassword;
+    const smtpDraft = this.buildSmtpDraftInput({
+      name: dto.name ?? item.name,
+      host: dto.host ?? item.host,
+      port: dto.port ?? item.port,
+      securityType: dto.securityType ?? item.securityType,
+      username: dto.username ?? item.username,
+      password: resolvedPassword,
+      senderName: dto.senderName ?? item.senderName,
+      senderEmail: dto.senderEmail ?? item.senderEmail,
+      replyToEmail: dto.replyToEmail ?? item.replyToEmail,
+      connectionTimeoutMs: dto.connectionTimeoutMs ?? item.connectionTimeoutMs,
+    });
+    const requiresRetest = this.smtpConfigurationRequiresRetest(item, dto);
+    let testedAt = item.lastTestedAt;
 
     if (dto.name !== undefined && dto.name.trim() !== item.name) {
       await this.ensureUniqueSmtpConfigurationName(
@@ -259,13 +299,30 @@ export class ScheduledReportingService {
     if (dto.senderName !== undefined)
       item.senderName = dto.senderName?.trim() || null;
     if (dto.senderEmail !== undefined)
-      item.senderEmail = dto.senderEmail.trim();
+      item.senderEmail = dto.senderEmail.trim().toLowerCase();
     if (dto.replyToEmail !== undefined)
-      item.replyToEmail = dto.replyToEmail?.trim() || null;
+      item.replyToEmail = dto.replyToEmail?.trim().toLowerCase() || null;
     if (dto.connectionTimeoutMs !== undefined)
       item.connectionTimeoutMs = dto.connectionTimeoutMs;
     if (dto.isActive !== undefined) item.isActive = dto.isActive;
     if (dto.isDefault !== undefined) item.isDefault = dto.isDefault;
+    item.updatedByCompanyUserId = actor.companyMembershipId ?? null;
+
+    if (
+      requiresRetest ||
+      item.lastTestStatus !== ReportSmtpTestStatusEnum.SUCCESS
+    ) {
+      testedAt = await this.ensureSmtpConfigurationTested(
+        companyId,
+        actor,
+        smtpDraft,
+        dto.smtpTestToken,
+        dto.testRecipientEmail,
+      );
+      item.lastTestStatus = ReportSmtpTestStatusEnum.SUCCESS;
+      item.lastTestedAt = testedAt;
+      item.lastTestError = null;
+    }
 
     const saved = await this.reportSmtpConfigurationRepository.save(item);
     await this.syncDefaultSmtpConfiguration(
@@ -285,6 +342,7 @@ export class ScheduledReportingService {
 
   async testSmtpConfiguration(
     companyId: number,
+    actor: AuthenticatedUser,
     id: number,
     dto: TestReportSmtpConfigurationDto,
   ) {
@@ -298,70 +356,76 @@ export class ScheduledReportingService {
     }
 
     try {
-      const nodemailerModule = await loadNodemailerModule();
-      const transporter = nodemailerModule.createTransport({
-        host: item.host,
-        port: item.port,
-        secure: item.securityType === ReportSmtpSecurityTypeEnum.SSL_TLS,
-        requireTLS: item.securityType === ReportSmtpSecurityTypeEnum.STARTTLS,
-        auth: item.username
-          ? {
-              user: item.username,
-              pass: password ?? '',
-            }
-          : undefined,
-      });
-
-      await transporter.verify();
-
-      let mailResult: ReportMailSendResult | null = null;
-      if (dto.sendTestEmail ?? true) {
-        const to = dto.toEmail ?? item.senderEmail;
-        const mailOptions: ReportMailSendOptions = {
-          from: `"${item.senderName || item.name}" <${item.senderEmail}>`,
-          to,
-          subject: 'Scheduled Reporting SMTP Test',
-          text: 'This is a scheduled reporting SMTP test email.',
-          mailSafetyContext: {
-            sourceModule: 'ScheduledReportingService.testSmtpConfiguration',
-          },
-        };
-        this.applyMailSafety(mailOptions);
-        mailResult = await transporter.sendMail(mailOptions);
-      }
+      const result = await this.reportSmtpService.testDraftConfiguration(
+        companyId,
+        actor.email,
+        this.buildSmtpDraftInput({
+          name: item.name,
+          host: item.host,
+          port: item.port,
+          securityType: item.securityType,
+          username: item.username,
+          password,
+          senderName: item.senderName,
+          senderEmail: item.senderEmail,
+          replyToEmail: item.replyToEmail,
+          connectionTimeoutMs: item.connectionTimeoutMs,
+        }),
+        dto.toEmail,
+        dto.sendTestEmail ?? true,
+      );
 
       item.lastTestStatus = ReportSmtpTestStatusEnum.SUCCESS;
-      item.lastTestedAt = new Date();
+      item.lastTestedAt = result.testedAt;
       item.lastTestError = null;
+      item.updatedByCompanyUserId = actor.companyMembershipId ?? null;
       await this.reportSmtpConfigurationRepository.save(item);
 
       return {
         status: 'success',
-        testedAt: item.lastTestedAt,
-        mailResponse: mailResult?.response ?? null,
-        accepted: mailResult?.accepted ?? [],
-        rejected: mailResult?.rejected ?? [],
-        messageId: mailResult?.messageId ?? null,
+        testedAt: result.testedAt,
+        expiresAt: result.expiresAt,
+        accepted: result.accepted,
+        rejected: result.rejected,
+        messageId: result.messageId,
       };
     } catch (error) {
       item.lastTestStatus = ReportSmtpTestStatusEnum.FAILED;
       item.lastTestedAt = new Date();
       item.lastTestError =
         error instanceof Error ? error.message : 'Unknown SMTP test failure';
+      item.updatedByCompanyUserId = actor.companyMembershipId ?? null;
       await this.reportSmtpConfigurationRepository.save(item);
       throw error;
     }
   }
 
-  async createTemplate(companyId: number, dto: CreateReportTemplateDto) {
+  async createTemplate(
+    companyId: number,
+    actor: AuthenticatedUser,
+    dto: CreateReportTemplateDto,
+  ) {
     await this.ensureUniqueTemplateName(companyId, dto.name);
-    await this.ensureReportDefinition(companyId, dto.reportDefinitionId);
+    const reportDefinition = await this.ensureReportDefinition(
+      companyId,
+      dto.reportDefinitionId,
+    );
+    this.validateReportDefinitionCompatibility(
+      reportDefinition,
+      dto.outputFormat ?? null,
+      dto.reportFilters ?? null,
+    );
     if (dto.smtpConfigurationId) {
-      await this.findSmtpConfigurationOrFail(
+      await this.ensureActiveTestedSmtpConfiguration(
         companyId,
         dto.smtpConfigurationId,
       );
     }
+    await this.validateTemplateRecipients(companyId, dto.recipients ?? []);
+    this.validateTemplateActivation(dto.isActive ?? true, {
+      smtpConfigurationId: dto.smtpConfigurationId ?? null,
+      recipients: dto.recipients ?? [],
+    });
 
     const entity = this.reportTemplateRepository.create({
       companyId,
@@ -378,6 +442,8 @@ export class ScheduledReportingService {
       reportFilters: dto.reportFilters ?? null,
       attachReport: dto.attachReport ?? true,
       isActive: dto.isActive ?? true,
+      createdByCompanyUserId: actor.companyMembershipId ?? null,
+      updatedByCompanyUserId: actor.companyMembershipId ?? null,
     });
 
     const saved = await this.reportTemplateRepository.save(entity);
@@ -452,10 +518,33 @@ export class ScheduledReportingService {
 
   async updateTemplate(
     companyId: number,
+    actor: AuthenticatedUser,
     id: number,
     dto: UpdateReportTemplateDto,
   ) {
     const item = await this.findTemplateOrFail(companyId, id, true);
+    const nextReportDefinitionId =
+      dto.reportDefinitionId ?? item.reportDefinitionId;
+    const nextOutputFormat =
+      dto.outputFormat !== undefined ? dto.outputFormat : item.outputFormat;
+    const nextReportFilters =
+      dto.reportFilters !== undefined ? dto.reportFilters : item.reportFilters;
+    const nextRecipients =
+      dto.recipients !== undefined ? dto.recipients : (item.recipients ?? []);
+    const nextSmtpConfigurationId =
+      dto.smtpConfigurationId !== undefined
+        ? (dto.smtpConfigurationId ?? null)
+        : item.smtpConfigurationId;
+    const nextIsActive = dto.isActive ?? item.isActive;
+    const reportDefinition = await this.ensureReportDefinition(
+      companyId,
+      nextReportDefinitionId,
+    );
+    this.validateReportDefinitionCompatibility(
+      reportDefinition,
+      nextOutputFormat,
+      nextReportFilters,
+    );
 
     if (dto.name !== undefined && dto.name.trim() !== item.name) {
       await this.ensureUniqueTemplateName(companyId, dto.name, item.id);
@@ -469,7 +558,7 @@ export class ScheduledReportingService {
 
     if (dto.smtpConfigurationId !== undefined) {
       if (dto.smtpConfigurationId) {
-        await this.findSmtpConfigurationOrFail(
+        await this.ensureActiveTestedSmtpConfiguration(
           companyId,
           dto.smtpConfigurationId,
         );
@@ -495,6 +584,13 @@ export class ScheduledReportingService {
       item.reportFilters = dto.reportFilters ?? null;
     if (dto.attachReport !== undefined) item.attachReport = dto.attachReport;
     if (dto.isActive !== undefined) item.isActive = dto.isActive;
+    item.updatedByCompanyUserId = actor.companyMembershipId ?? null;
+
+    await this.validateTemplateRecipients(companyId, nextRecipients);
+    this.validateTemplateActivation(nextIsActive, {
+      smtpConfigurationId: nextSmtpConfigurationId,
+      recipients: nextRecipients,
+    });
 
     const saved = await this.reportTemplateRepository.save(item);
 
@@ -524,9 +620,22 @@ export class ScheduledReportingService {
     return { message: 'Report template deleted successfully' };
   }
 
-  async createSchedule(companyId: number, dto: CreateReportScheduleDto) {
+  async createSchedule(
+    companyId: number,
+    actor: AuthenticatedUser,
+    dto: CreateReportScheduleDto,
+  ) {
     await this.ensureUniqueScheduleName(companyId, dto.name);
-    await this.findTemplateOrFail(companyId, dto.templateId);
+    const template = await this.findTemplateOrFail(
+      companyId,
+      dto.templateId,
+      true,
+    );
+    const normalizedTimezone = this.validateTimezone(
+      dto.timezone?.trim() || 'Africa/Dar_es_Salaam',
+    );
+    this.validateScheduleConfiguration(dto, normalizedTimezone);
+    this.validateScheduleActivation(template, dto.isActive ?? true);
 
     const entity = this.reportScheduleRepository.create({
       companyId,
@@ -535,7 +644,7 @@ export class ScheduledReportingService {
       scheduleType: dto.scheduleType,
       executionTime: dto.executionTime?.trim() || null,
       dayOfMonth: dto.dayOfMonth ?? null,
-      timezone: dto.timezone?.trim() || 'Africa/Dar_es_Salaam',
+      timezone: normalizedTimezone,
       startDate: dto.startDate ?? null,
       endDate: dto.endDate ?? null,
       oneTimeRunAt: dto.oneTimeRunAt ? new Date(dto.oneTimeRunAt) : null,
@@ -545,6 +654,8 @@ export class ScheduledReportingService {
       isActive: dto.isActive ?? true,
       pausedAt: null,
       nextRunAt: dto.oneTimeRunAt ? new Date(dto.oneTimeRunAt) : null,
+      createdByCompanyUserId: actor.companyMembershipId ?? null,
+      updatedByCompanyUserId: actor.companyMembershipId ?? null,
     });
 
     const saved = await this.reportScheduleRepository.save(entity);
@@ -618,10 +729,49 @@ export class ScheduledReportingService {
 
   async updateSchedule(
     companyId: number,
+    actor: AuthenticatedUser,
     id: number,
     dto: UpdateReportScheduleDto,
   ) {
     const item = await this.findScheduleOrFail(companyId, id, true);
+    const nextTemplateId = dto.templateId ?? item.templateId;
+    const template = await this.findTemplateOrFail(
+      companyId,
+      nextTemplateId,
+      true,
+    );
+    const normalizedTimezone = this.validateTimezone(
+      dto.timezone?.trim() || item.timezone || 'Africa/Dar_es_Salaam',
+    );
+    const candidate = {
+      templateId: nextTemplateId,
+      name: dto.name ?? item.name,
+      scheduleType: dto.scheduleType ?? item.scheduleType,
+      executionTime:
+        dto.executionTime !== undefined
+          ? dto.executionTime
+          : item.executionTime,
+      dayOfMonth:
+        dto.dayOfMonth !== undefined ? dto.dayOfMonth : item.dayOfMonth,
+      timezone: normalizedTimezone,
+      startDate: dto.startDate !== undefined ? dto.startDate : item.startDate,
+      endDate: dto.endDate !== undefined ? dto.endDate : item.endDate,
+      oneTimeRunAt:
+        dto.oneTimeRunAt !== undefined
+          ? dto.oneTimeRunAt
+          : (item.oneTimeRunAt?.toISOString() ?? null),
+      cronExpression:
+        dto.cronExpression !== undefined
+          ? dto.cronExpression
+          : item.cronExpression,
+      misfireHandling: dto.misfireHandling ?? item.misfireHandling,
+      maxRetryAttempts: dto.maxRetryAttempts ?? item.maxRetryAttempts,
+      isActive: dto.isActive ?? item.isActive,
+      weekdays:
+        dto.weekdays ?? item.weekdays?.map((weekday) => weekday.weekday) ?? [],
+    };
+    this.validateScheduleConfiguration(candidate, normalizedTimezone);
+    this.validateScheduleActivation(template, candidate.isActive);
 
     if (dto.name !== undefined && dto.name.trim() !== item.name) {
       await this.ensureUniqueScheduleName(companyId, dto.name, item.id);
@@ -637,8 +787,7 @@ export class ScheduledReportingService {
     if (dto.executionTime !== undefined)
       item.executionTime = dto.executionTime?.trim() || null;
     if (dto.dayOfMonth !== undefined) item.dayOfMonth = dto.dayOfMonth ?? null;
-    if (dto.timezone !== undefined)
-      item.timezone = dto.timezone?.trim() || 'Africa/Dar_es_Salaam';
+    if (dto.timezone !== undefined) item.timezone = normalizedTimezone;
     if (dto.startDate !== undefined) item.startDate = dto.startDate ?? null;
     if (dto.endDate !== undefined) item.endDate = dto.endDate ?? null;
     if (dto.oneTimeRunAt !== undefined) {
@@ -652,6 +801,7 @@ export class ScheduledReportingService {
     if (dto.maxRetryAttempts !== undefined)
       item.maxRetryAttempts = dto.maxRetryAttempts;
     if (dto.isActive !== undefined) item.isActive = dto.isActive;
+    item.updatedByCompanyUserId = actor.companyMembershipId ?? null;
 
     const saved = await this.reportScheduleRepository.save(item);
 
@@ -840,6 +990,14 @@ export class ScheduledReportingService {
     if (!definition) {
       throw new NotFoundException('Report definition not found');
     }
+
+    if (!definition.isActive) {
+      throw new BadRequestException(
+        `The selected report "${definition.reportCode}" is inactive and cannot be scheduled.`,
+      );
+    }
+
+    this.reportRegistryService.require(definition.reportCode);
 
     return definition;
   }
@@ -1038,7 +1196,349 @@ export class ScheduledReportingService {
     }
   }
 
+  private buildSmtpDraftInput(input: {
+    name: string;
+    host: string;
+    port: number;
+    securityType?: ReportSmtpSecurityTypeEnum;
+    username?: string | null;
+    password?: string | null;
+    senderName?: string | null;
+    senderEmail: string;
+    replyToEmail?: string | null;
+    connectionTimeoutMs?: number;
+  }) {
+    return {
+      name: input.name,
+      host: input.host,
+      port: input.port,
+      securityType: input.securityType,
+      username: input.username,
+      password: input.password,
+      senderName: input.senderName,
+      senderEmail: input.senderEmail,
+      replyToEmail: input.replyToEmail,
+      connectionTimeoutMs: input.connectionTimeoutMs,
+    };
+  }
+
+  private async ensureSmtpConfigurationTested(
+    companyId: number,
+    actor: AuthenticatedUser,
+    smtpDraft: ReturnType<typeof this.buildSmtpDraftInput>,
+    smtpTestToken?: string | null,
+    testRecipientEmail?: string | null,
+  ) {
+    if (smtpTestToken?.trim()) {
+      this.reportSmtpService.verifyProofOrThrow(
+        companyId,
+        smtpTestToken,
+        smtpDraft,
+      );
+      return new Date();
+    }
+
+    const result = await this.reportSmtpService.testDraftConfiguration(
+      companyId,
+      actor.email,
+      smtpDraft,
+      testRecipientEmail,
+      true,
+    );
+    return result.testedAt;
+  }
+
+  private smtpConfigurationRequiresRetest(
+    item: ReportSmtpConfiguration,
+    dto: UpdateReportSmtpConfigurationDto,
+  ) {
+    return (
+      dto.host !== undefined ||
+      dto.port !== undefined ||
+      dto.securityType !== undefined ||
+      dto.username !== undefined ||
+      dto.password !== undefined ||
+      dto.senderName !== undefined ||
+      dto.senderEmail !== undefined ||
+      dto.replyToEmail !== undefined ||
+      dto.connectionTimeoutMs !== undefined
+    );
+  }
+
+  private validateReportDefinitionCompatibility(
+    definition: ReportDefinition,
+    outputFormat: ReportOutputFormatEnum | null | undefined,
+    reportFilters: Record<string, unknown> | null | undefined,
+  ) {
+    this.reportRegistryService.ensureFormatSupported(
+      definition.reportCode,
+      outputFormat,
+    );
+    this.reportRegistryService.ensureFiltersSupported(
+      definition.reportCode,
+      reportFilters,
+    );
+
+    if (outputFormat && !definition.supportedFormats.includes(outputFormat)) {
+      throw new BadRequestException(
+        `The selected report "${definition.reportCode}" does not allow output format "${outputFormat}" in its definition.`,
+      );
+    }
+  }
+
+  private async ensureActiveTestedSmtpConfiguration(
+    companyId: number,
+    smtpConfigurationId: number,
+  ) {
+    const smtpConfiguration = await this.findSmtpConfigurationOrFail(
+      companyId,
+      smtpConfigurationId,
+    );
+
+    if (!smtpConfiguration.isActive) {
+      throw new BadRequestException(
+        'The selected SMTP configuration is inactive and cannot be used by an active report template.',
+      );
+    }
+
+    if (smtpConfiguration.lastTestStatus !== ReportSmtpTestStatusEnum.SUCCESS) {
+      throw new BadRequestException(
+        'The selected SMTP configuration must pass a successful SMTP test before it can be used.',
+      );
+    }
+
+    return smtpConfiguration;
+  }
+
+  private async validateTemplateRecipients(
+    companyId: number,
+    recipients: Array<
+      CreateReportTemplateRecipientDto | ReportTemplateRecipient
+    >,
+  ) {
+    for (const recipient of recipients) {
+      switch (recipient.recipientType) {
+        case ReportRecipientTypeEnum.COMPANY_USER: {
+          const companyUserId =
+            'companyUserId' in recipient ? recipient.companyUserId : null;
+          if (!companyUserId) {
+            throw new BadRequestException(
+              'companyUserId is required for COMPANY_USER recipients.',
+            );
+          }
+          const companyUser = await this.companyUserRepository.findOne({
+            where: {
+              id: companyUserId,
+              company_id: companyId,
+            },
+            select: ['id'],
+          });
+          if (!companyUser) {
+            throw new BadRequestException(
+              `Company user ${companyUserId} does not belong to this company.`,
+            );
+          }
+          break;
+        }
+        case ReportRecipientTypeEnum.EMPLOYEE: {
+          const employeeId =
+            'employeeId' in recipient ? recipient.employeeId : null;
+          if (!employeeId) {
+            throw new BadRequestException(
+              'employeeId is required for EMPLOYEE recipients.',
+            );
+          }
+          const employee = await this.employeeRepository
+            .createQueryBuilder('employee')
+            .innerJoin('employee.company_user', 'companyUser')
+            .where('employee.id = :employeeId', { employeeId })
+            .andWhere('companyUser.company_id = :companyId', { companyId })
+            .select(['employee.id'])
+            .getOne();
+          if (!employee) {
+            throw new BadRequestException(
+              `Employee ${employeeId} does not belong to this company.`,
+            );
+          }
+          break;
+        }
+        case ReportRecipientTypeEnum.DEPARTMENT:
+        case ReportRecipientTypeEnum.DEPARTMENT_MANAGER: {
+          const departmentId =
+            'departmentId' in recipient ? recipient.departmentId : null;
+          if (!departmentId) {
+            throw new BadRequestException(
+              'departmentId is required for department-based recipients.',
+            );
+          }
+          const department = await this.departmentRepository.findOne({
+            where: {
+              id: departmentId,
+              company_id: companyId,
+            },
+            select: ['id'],
+          });
+          if (!department) {
+            throw new BadRequestException(
+              `Department ${departmentId} does not belong to this company.`,
+            );
+          }
+          break;
+        }
+        case ReportRecipientTypeEnum.ROLE: {
+          const roleId = 'roleId' in recipient ? recipient.roleId : null;
+          if (!roleId) {
+            throw new BadRequestException(
+              'roleId is required for ROLE recipients.',
+            );
+          }
+          const role = await this.roleRepository.findOne({
+            where: {
+              id: roleId,
+              company_id: companyId,
+            },
+            select: ['id'],
+          });
+          if (!role) {
+            throw new BadRequestException(
+              `Role ${roleId} does not belong to this company.`,
+            );
+          }
+          break;
+        }
+        default:
+          break;
+      }
+    }
+  }
+
+  private validateTemplateActivation(
+    isActive: boolean,
+    input: {
+      smtpConfigurationId: number | null;
+      recipients: Array<
+        CreateReportTemplateRecipientDto | ReportTemplateRecipient
+      >;
+    },
+  ) {
+    if (!isActive) {
+      return;
+    }
+
+    if (!input.smtpConfigurationId) {
+      throw new BadRequestException(
+        'An active report template must have an active tested SMTP configuration.',
+      );
+    }
+
+    const toRecipients = input.recipients.filter(
+      (recipient) => recipient.channel === ReportRecipientChannelEnum.TO,
+    );
+    if (!toRecipients.length) {
+      throw new BadRequestException(
+        'An active report template must contain at least one TO recipient.',
+      );
+    }
+  }
+
+  private validateTimezone(timezone: string) {
+    try {
+      Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(new Date());
+      return timezone;
+    } catch {
+      throw new BadRequestException(
+        `The timezone "${timezone}" is invalid for scheduled reporting.`,
+      );
+    }
+  }
+
+  private validateScheduleConfiguration(
+    input: {
+      scheduleType: ReportScheduleTypeEnum;
+      executionTime?: string | null;
+      dayOfMonth?: number | null;
+      oneTimeRunAt?: string | null;
+      startDate?: string | null;
+      endDate?: string | null;
+      weekdays?: ReportWeekdayEnum[];
+    },
+    timezone: string,
+  ) {
+    void timezone;
+
+    if (input.startDate && input.endDate && input.startDate > input.endDate) {
+      throw new BadRequestException(
+        'The schedule startDate cannot be after endDate.',
+      );
+    }
+
+    switch (input.scheduleType) {
+      case ReportScheduleTypeEnum.DAILY:
+        if (!input.executionTime?.trim()) {
+          throw new BadRequestException(
+            'executionTime is required for DAILY schedules.',
+          );
+        }
+        break;
+      case ReportScheduleTypeEnum.WEEKLY:
+        if (!input.executionTime?.trim()) {
+          throw new BadRequestException(
+            'executionTime is required for WEEKLY schedules.',
+          );
+        }
+        if (!input.weekdays?.length) {
+          throw new BadRequestException(
+            'At least one weekday is required for WEEKLY schedules.',
+          );
+        }
+        break;
+      case ReportScheduleTypeEnum.MONTHLY:
+        if (!input.executionTime?.trim()) {
+          throw new BadRequestException(
+            'executionTime is required for MONTHLY schedules.',
+          );
+        }
+        if (
+          !input.dayOfMonth ||
+          input.dayOfMonth < 1 ||
+          input.dayOfMonth > 31
+        ) {
+          throw new BadRequestException(
+            'dayOfMonth must be between 1 and 31 for MONTHLY schedules.',
+          );
+        }
+        break;
+      case ReportScheduleTypeEnum.ONE_TIME:
+        if (!input.oneTimeRunAt) {
+          throw new BadRequestException(
+            'oneTimeRunAt is required for ONE_TIME schedules.',
+          );
+        }
+        break;
+      case ReportScheduleTypeEnum.MANUAL:
+        break;
+      default:
+        throw new BadRequestException('Unsupported schedule type.');
+    }
+  }
+
+  private validateScheduleActivation(
+    template: ReportTemplate,
+    isActive: boolean,
+  ) {
+    if (!isActive) {
+      return;
+    }
+
+    if (!template.isActive) {
+      throw new BadRequestException(
+        'An active report schedule must reference an active report template.',
+      );
+    }
+  }
+
   private mapDefinition(definition: ReportDefinition) {
+    const registered = this.reportRegistryService.find(definition.reportCode);
     return {
       id: definition.id,
       reportCode: definition.reportCode,
@@ -1048,7 +1548,8 @@ export class ScheduledReportingService {
       supportedFormats: definition.supportedFormats,
       generatorService: definition.generatorService,
       isActive: definition.isActive,
-      isRunnableNow: definition.reportCode === 'ATTENDANCE_SUMMARY',
+      isRunnableNow: Boolean(registered),
+      isRegistered: Boolean(registered),
       createdAt: definition.createdAt,
       updatedAt: definition.updatedAt,
     };

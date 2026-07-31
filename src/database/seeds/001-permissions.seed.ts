@@ -1622,6 +1622,49 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow sending test or operational notifications',
   },
   {
+    name: 'scheduled_reports:read',
+    displayName: 'Read scheduled reports',
+    description:
+      'Allow viewing scheduled report definitions, templates, and schedules',
+  },
+  {
+    name: 'scheduled_reports:create',
+    displayName: 'Create scheduled reports',
+    description: 'Allow creating report templates and schedules',
+  },
+  {
+    name: 'scheduled_reports:update',
+    displayName: 'Update scheduled reports',
+    description: 'Allow updating report templates and schedules',
+  },
+  {
+    name: 'scheduled_reports:delete',
+    displayName: 'Delete scheduled reports',
+    description: 'Allow deleting report templates and schedules',
+  },
+  {
+    name: 'scheduled_reports:run',
+    displayName: 'Run scheduled reports',
+    description: 'Allow manually running scheduled reports and test deliveries',
+  },
+  {
+    name: 'scheduled_reports:manage_smtp',
+    displayName: 'Manage scheduled report SMTP',
+    description:
+      'Allow creating, updating, and deleting scheduled-report SMTP configurations',
+  },
+  {
+    name: 'scheduled_reports:test_smtp',
+    displayName: 'Test scheduled report SMTP',
+    description:
+      'Allow validating SMTP configurations before they are saved or activated',
+  },
+  {
+    name: 'scheduled_reports:view_history',
+    displayName: 'View scheduled report history',
+    description: 'Allow viewing scheduled report execution history',
+  },
+  {
     name: 'hrms_launch_readiness:read',
     displayName: 'Read HRMS launch readiness',
     description: 'Allow viewing the HRMS launch readiness report',
