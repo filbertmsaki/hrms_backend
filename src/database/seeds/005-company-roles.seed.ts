@@ -94,6 +94,15 @@ const COMPANY_USER_ADMIN_PERMISSIONS = [
 const TEAM_ATTENDANCE_PERMISSIONS = ['team_attendance:read'];
 
 const SELF_SERVICE_APPROVAL_PERMISSIONS = ['self_service_requests:approve'];
+const PROFILE_CHANGE_APPROVAL_PERMISSIONS = [
+  'profile_change_request.view_all',
+  'profile_change_request.review',
+  'profile_change_request.approve',
+  'profile_change_request.reject',
+  'profile_change_request.request_correction',
+  'profile_change_request.view_audit',
+  'profile_change_request.view_pending_files',
+];
 
 const ATTENDANCE_BUSINESS_TRIP_FULL_PERMISSIONS = [
   'attendance_business_trips:read',
@@ -402,6 +411,7 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'offboarding_documents:create',
       'offboarding_documents:read',
       ...SELF_SERVICE_APPROVAL_PERMISSIONS,
+      ...PROFILE_CHANGE_APPROVAL_PERMISSIONS,
     ],
   },
 
@@ -494,6 +504,7 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       ...TEAM_ATTENDANCE_PERMISSIONS,
       ...ATTENDANCE_BUSINESS_TRIP_FULL_PERMISSIONS,
       ...SELF_SERVICE_APPROVAL_PERMISSIONS,
+      ...PROFILE_CHANGE_APPROVAL_PERMISSIONS,
       'hrms_launch_readiness:read',
       // Shifts (full management)
       'shifts:read',
@@ -658,6 +669,7 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'attendance_processing:read',
       ...ATTENDANCE_BUSINESS_TRIP_OPERATIONAL_PERMISSIONS,
       ...SELF_SERVICE_APPROVAL_PERMISSIONS,
+      ...PROFILE_CHANGE_APPROVAL_PERMISSIONS,
       'hrms_launch_readiness:read',
       // Shifts (read only)
       'shifts:read',

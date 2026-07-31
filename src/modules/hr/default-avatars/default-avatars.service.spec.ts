@@ -109,7 +109,7 @@ describe('DefaultAvatarsService', () => {
       );
   });
 
-  it('resolves a selected avatar ahead of an uploaded profile picture', async () => {
+  it('resolves an uploaded profile picture ahead of a selected avatar', async () => {
     const resolved = await service.resolveEmployeeProfileAvatar(7, {
       id: 15,
       gender: 'male',
@@ -121,18 +121,18 @@ describe('DefaultAvatarsService', () => {
 
     expect(resolved).toEqual(
       expect.objectContaining({
-        profile_photo_url: maleAvatar.image_path,
+        profile_photo_url: '/uploads/profile-photos/company-7/employee-15.webp',
         uploaded_profile_photo_url:
           '/uploads/profile-photos/company-7/employee-15.webp',
-        profile_photo_source: ProfileImageSourceEnum.DEFAULT_AVATAR,
+        profile_photo_source: ProfileImageSourceEnum.UPLOADED,
         default_avatar_id: maleAvatar.id,
       }),
     );
     expect(service.buildProfilePicturePayload(resolved)).toEqual({
-      source: 'SELECTED_AVATAR',
-      avatar_id: maleAvatar.id,
-      url: maleAvatar.image_path,
-      is_override: true,
+      source: 'CUSTOM_UPLOAD',
+      avatar_id: null,
+      url: '/uploads/profile-photos/company-7/employee-15.webp',
+      is_override: false,
       has_custom_profile_picture: true,
       is_automatic_fallback: false,
     });

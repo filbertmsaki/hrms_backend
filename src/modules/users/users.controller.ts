@@ -125,7 +125,7 @@ export class UsersController {
   ) {
     if (req.user.employeeId) {
       throw new BadRequestException(
-        'Employee avatar changes require HR approval. Use /me/profile-change-requests or /me/profile/avatar instead.',
+        'Employees must use /me/profile/avatar to manage their default avatar selection.',
       );
     }
 
@@ -147,7 +147,7 @@ export class UsersController {
   clearMyAvatar(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
     if (req.user.employeeId) {
       throw new BadRequestException(
-        'Employee avatar changes require HR approval. Use /me/profile-change-requests or /me/profile/avatar instead.',
+        'Employees must use /me/profile/avatar to manage their default avatar selection.',
       );
     }
 

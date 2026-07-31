@@ -1564,6 +1564,44 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow reviewing employee self-service approval requests',
   },
   {
+    name: 'profile_change_request.view_all',
+    displayName: 'View profile change requests',
+    description: 'Allow listing profile change requests for HR review',
+  },
+  {
+    name: 'profile_change_request.review',
+    displayName: 'Start profile change review',
+    description: 'Allow starting review of employee profile change requests',
+  },
+  {
+    name: 'profile_change_request.approve',
+    displayName: 'Approve profile changes',
+    description: 'Allow approving employee profile change requests',
+  },
+  {
+    name: 'profile_change_request.reject',
+    displayName: 'Reject profile changes',
+    description: 'Allow rejecting employee profile change requests',
+  },
+  {
+    name: 'profile_change_request.request_correction',
+    displayName: 'Request profile change correction',
+    description:
+      'Allow returning employee profile change requests for correction',
+  },
+  {
+    name: 'profile_change_request.view_audit',
+    displayName: 'View profile change audit',
+    description:
+      'Allow viewing audit history for employee profile change requests',
+  },
+  {
+    name: 'profile_change_request.view_pending_files',
+    displayName: 'View pending profile change files',
+    description:
+      'Allow previewing pending files attached to employee profile change requests',
+  },
+  {
     name: 'notifications:read',
     displayName: 'Read notifications',
     description: 'Allow viewing notifications in the active company context',

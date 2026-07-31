@@ -377,16 +377,6 @@ export class DefaultAvatarsService {
       selectedAvatar.status === DefaultAvatarStatusEnum.ACTIVE &&
       (await this.pathExists(selectedAvatar.image_path));
 
-    if (selectedAvatarAvailable) {
-      return {
-        profile_photo_url: selectedAvatar.file_url ?? selectedAvatar.image_path,
-        uploaded_profile_photo_url: uploadedProfilePhotoUrl,
-        profile_photo_source: ProfileImageSourceEnum.DEFAULT_AVATAR,
-        default_avatar_id: selectedAvatar.id,
-        selected_default_avatar: this.mapAvatar(selectedAvatar),
-      };
-    }
-
     if (uploadAvailable) {
       return {
         profile_photo_url: uploadedProfilePhotoUrl,
@@ -396,6 +386,16 @@ export class DefaultAvatarsService {
         selected_default_avatar: selectedAvatar
           ? this.mapAvatar(selectedAvatar)
           : null,
+      };
+    }
+
+    if (selectedAvatarAvailable) {
+      return {
+        profile_photo_url: selectedAvatar.file_url ?? selectedAvatar.image_path,
+        uploaded_profile_photo_url: uploadedProfilePhotoUrl,
+        profile_photo_source: ProfileImageSourceEnum.DEFAULT_AVATAR,
+        default_avatar_id: selectedAvatar.id,
+        selected_default_avatar: this.mapAvatar(selectedAvatar),
       };
     }
 

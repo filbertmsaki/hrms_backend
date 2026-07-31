@@ -131,7 +131,7 @@ export class EmployeeSelfServiceController {
   }
 
   @Post('profile/photo')
-  @ApiOperation({ summary: 'Upload my profile picture' })
+  @ApiOperation({ summary: 'Submit my profile picture for approval' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -168,7 +168,7 @@ export class EmployeeSelfServiceController {
 
     if (!this.allowedProfilePhotoMimeTypes.has(file.mimetype)) {
       throw new BadRequestException(
-        'Only JPEG, PNG, and WEBP profile pictures are allowed.',
+        'Only SVG, JPEG, PNG, and WEBP profile pictures are allowed.',
       );
     }
 
@@ -203,11 +203,7 @@ export class EmployeeSelfServiceController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: SelectDefaultAvatarDto,
   ) {
-    return this.profileChangeRequestsService.submitAvatarSelectionRequest(
-      req.user,
-      dto.default_avatar_id ?? null,
-      this.buildRequestContext(req),
-    );
+    return this.employeeSelfServiceService.selectProfileAvatar(req.user, dto);
   }
 
   @Get('status')
