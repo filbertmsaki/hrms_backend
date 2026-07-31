@@ -8,6 +8,7 @@ import { AttendanceScheduleResolverService } from './attendance-schedule-resolve
 import { AttendanceMobilePunch } from '../mobile-punches/entities/attendance-mobile-punch.entity';
 import { LeaveRequest } from '../../leave/entities/leave-request.entity';
 import { LeaveType } from '../../leave/entities/leave-type.entity';
+import { EmployeeDeviceAssignment } from '../../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { EmployeeTimetable } from '../timetable/employee-timetables/entities/employee-timetable.entity';
 import { Timetable } from '../timetable/timetables/entities/timetable.entity';
@@ -101,6 +102,7 @@ describe('AttendanceDailySummaryService', () => {
   let leaveTypeRepository: MockRepo<LeaveType>;
   let businessTripRepository: MockRepo<AttendanceBusinessTrip>;
   let employeeRepository: MockRepo<Employee>;
+  let employeeDeviceAssignmentRepository: MockRepo<EmployeeDeviceAssignment>;
   let employeeTimetableRepository: MockRepo<EmployeeTimetable>;
   let timetableRepository: MockRepo<Timetable>;
   let shiftAssignmentRepository: MockRepo<ShiftAssignment>;
@@ -135,6 +137,7 @@ describe('AttendanceDailySummaryService', () => {
     leaveTypeRepository = createRepositoryMock();
     businessTripRepository = createRepositoryMock();
     employeeRepository = createRepositoryMock();
+    employeeDeviceAssignmentRepository = createRepositoryMock();
     employeeTimetableRepository = createRepositoryMock();
     timetableRepository = createRepositoryMock();
     shiftAssignmentRepository = createRepositoryMock();
@@ -198,6 +201,7 @@ describe('AttendanceDailySummaryService', () => {
       leaveTypeRepository as unknown as Repository<LeaveType>,
       businessTripRepository as unknown as Repository<AttendanceBusinessTrip>,
       employeeRepository as unknown as Repository<Employee>,
+      employeeDeviceAssignmentRepository as unknown as Repository<EmployeeDeviceAssignment>,
       employeeTimetableRepository as unknown as Repository<EmployeeTimetable>,
       shiftAssignmentRepository as unknown as Repository<ShiftAssignment>,
       shiftScheduleRepository as unknown as Repository<ShiftSchedule>,

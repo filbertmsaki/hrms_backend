@@ -1,5 +1,7 @@
 import {
   BadRequestException,
+  forwardRef,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -116,6 +118,11 @@ type SyncByConditionOptions = {
   trigger: AttendanceSyncTrigger;
   updateSyncCursor: boolean;
   requestedByCompanyUserId?: number | null;
+  queueAttendanceRecalculation?: boolean;
+};
+
+type AttendanceSyncExecutionOptions = {
+  queueAttendanceRecalculation?: boolean;
 };
 
 type AttendanceSyncByConditionResult = {
@@ -180,6 +187,7 @@ export class HikvisionAttendanceSyncService {
     private readonly hikvisionAccessControlService: HikvisionAccessControlService,
     private readonly hikvisionHelper: HikvisionHelperService,
     private readonly attendanceEmployeeResolver: AttendanceEmployeeResolverService,
+    @Inject(forwardRef(() => AttendanceRecalculationService))
     private readonly attendanceRecalculationService: AttendanceRecalculationService,
   ) {}
 
@@ -218,6 +226,7 @@ export class HikvisionAttendanceSyncService {
     timezone?: string,
     employeeNo?: string,
     maxResults = this.defaultAttendancePageSize,
+    options: AttendanceSyncExecutionOptions = {},
   ) {
     const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(
       companyId,
@@ -235,6 +244,51 @@ export class HikvisionAttendanceSyncService {
       endTime,
       employeeNo,
       maxResults,
+      null,
+      options,
+    );
+  }
+
+  async syncAttendanceByDateRangeForDeviceTimezone(
+    companyId: number,
+    deviceId: number,
+    startDate: string,
+    endDate: string,
+    employeeNo?: string,
+    maxResults = this.defaultAttendancePageSize,
+    requestedByCompanyUserId: number | null = null,
+    options: AttendanceSyncExecutionOptions = {},
+  ) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+      throw new BadRequestException('startDate must be in YYYY-MM-DD format');
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+      throw new BadRequestException('endDate must be in YYYY-MM-DD format');
+    }
+    if (endDate < startDate) {
+      throw new BadRequestException('endDate cannot be before startDate');
+    }
+
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(
+      companyId,
+      deviceId,
+      true,
+    );
+    const selectedTimezone = device.timezone?.trim() || 'UTC';
+    this.ensureValidTimeZone(selectedTimezone);
+
+    const startOffset = this.resolveOffsetForDate(selectedTimezone, startDate);
+    const endOffset = this.resolveOffsetForDate(selectedTimezone, endDate);
+
+    return this.syncAttendance(
+      companyId,
+      deviceId,
+      `${startDate}T00:00:00${startOffset}`,
+      `${endDate}T23:59:59${endOffset}`,
+      employeeNo,
+      maxResults,
+      requestedByCompanyUserId,
+      options,
     );
   }
 
@@ -277,6 +331,7 @@ export class HikvisionAttendanceSyncService {
     employeeNo?: string,
     maxResults = this.defaultAttendancePageSize,
     requestedByCompanyUserId: number | null = null,
+    options: AttendanceSyncExecutionOptions = {},
   ) {
     if (employeeNo?.trim()) {
       return this.syncAttendanceByEmployee(
@@ -287,6 +342,7 @@ export class HikvisionAttendanceSyncService {
         endTime,
         maxResults,
         requestedByCompanyUserId,
+        options,
       );
     }
 
@@ -297,6 +353,7 @@ export class HikvisionAttendanceSyncService {
       endTime,
       maxResults,
       requestedByCompanyUserId,
+      options,
     );
   }
 
@@ -307,6 +364,7 @@ export class HikvisionAttendanceSyncService {
     endTime: string,
     maxResults = this.defaultAttendancePageSize,
     requestedByCompanyUserId: number | null = null,
+    options: AttendanceSyncExecutionOptions = {},
   ) {
     this.ensureIsoRange(startTime, endTime);
 
@@ -337,6 +395,8 @@ export class HikvisionAttendanceSyncService {
         trigger: 'MANUAL',
         updateSyncCursor: true,
         requestedByCompanyUserId,
+        queueAttendanceRecalculation:
+          options.queueAttendanceRecalculation ?? true,
       },
     );
   }
@@ -522,6 +582,7 @@ export class HikvisionAttendanceSyncService {
     endTime: string,
     maxResults = this.defaultAttendancePageSize,
     requestedByCompanyUserId: number | null = null,
+    options: AttendanceSyncExecutionOptions = {},
   ) {
     this.ensureIsoRange(startTime, endTime);
     const normalizedEmployeeNo = this.ensureEmployeeNo(employeeNo);
@@ -558,6 +619,8 @@ export class HikvisionAttendanceSyncService {
         trigger: 'MANUAL',
         updateSyncCursor: false,
         requestedByCompanyUserId,
+        queueAttendanceRecalculation:
+          options.queueAttendanceRecalculation ?? true,
       },
     );
   }
@@ -1161,7 +1224,8 @@ export class HikvisionAttendanceSyncService {
       status !== 'FAILED' &&
       normalized.startTime &&
       normalized.endTime &&
-      (counters.recordsCreated > 0 || counters.recordsUpdated > 0)
+      (counters.recordsCreated > 0 || counters.recordsUpdated > 0) &&
+      options.queueAttendanceRecalculation !== false
     ) {
       try {
         await this.queueAttendanceProcessingRecalculation({

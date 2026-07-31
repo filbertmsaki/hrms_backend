@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CompanyUser } from '../companies/entities/company-user.entity';
@@ -78,7 +78,7 @@ import { HikvisionSyncProcessor } from './hikvision-sync.processor';
     BullModule.registerQueue({
       name: HIKVISION_SYNC_QUEUE,
     }),
-    AttendanceProcessingModule,
+    forwardRef(() => AttendanceProcessingModule),
   ],
   controllers: [
     HikvisionAttendanceController,

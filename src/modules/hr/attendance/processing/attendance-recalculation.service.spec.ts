@@ -1,11 +1,20 @@
+jest.mock('../../../hikvision/hikvision-attendance-sync.service', () => ({
+  HikvisionAttendanceSyncService: class HikvisionAttendanceSyncService {},
+}));
+
 import { Repository } from 'typeorm';
+import { ModuleRef } from '@nestjs/core';
+import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
+import { EmployeeDeviceAssignment } from '../../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
 import { AttendanceRecalculationService } from './attendance-recalculation.service';
 import { AttendanceRecalculationJob } from './entities/attendance-recalculation-job.entity';
 import { AttendanceProcessingJobStatusEnum } from './enums/attendance-processing-job-status.enum';
 import { AttendanceProcessingService } from './attendance-processing.service';
 import { AttendanceDailySummaryService } from './attendance-daily-summary.service';
 import {
+  AttendanceRefreshExecutionModeEnum,
   AttendanceRefreshExecutionEnum,
+  AttendanceRefreshProcessingSourceEnum,
   AttendanceRefreshModeEnum,
 } from './dtos/refresh-attendance-daily-summaries.dto';
 
@@ -31,6 +40,15 @@ describe('AttendanceRecalculationService', () => {
   let attendanceDailySummaryService: {
     rebuildSummariesForRange: jest.Mock;
   };
+  let attendanceDeviceRepository: {
+    findOne: jest.Mock;
+    createQueryBuilder: jest.Mock;
+  };
+  let employeeDeviceAssignmentRepository: { find: jest.Mock };
+  let moduleRef: { get: jest.Mock };
+  let hikvisionAttendanceSyncService: {
+    syncAttendanceByDateRangeForDeviceTimezone: jest.Mock;
+  };
 
   beforeEach(() => {
     claimBuilder = createClaimBuilderMock(1);
@@ -49,9 +67,25 @@ describe('AttendanceRecalculationService', () => {
         .fn()
         .mockResolvedValue({ summariesUpserted: 31 }),
     };
+    attendanceDeviceRepository = {
+      findOne: jest.fn(),
+      createQueryBuilder: jest.fn(),
+    };
+    employeeDeviceAssignmentRepository = {
+      find: jest.fn(),
+    };
+    hikvisionAttendanceSyncService = {
+      syncAttendanceByDateRangeForDeviceTimezone: jest.fn(),
+    };
+    moduleRef = {
+      get: jest.fn(() => hikvisionAttendanceSyncService),
+    };
 
     service = new AttendanceRecalculationService(
       jobRepository as unknown as Repository<AttendanceRecalculationJob>,
+      attendanceDeviceRepository as unknown as Repository<AttendanceDevice>,
+      employeeDeviceAssignmentRepository as unknown as Repository<EmployeeDeviceAssignment>,
+      moduleRef as unknown as ModuleRef,
       attendanceProcessingService as unknown as AttendanceProcessingService,
       attendanceDailySummaryService as unknown as AttendanceDailySummaryService,
     );
@@ -77,6 +111,7 @@ describe('AttendanceRecalculationService', () => {
       start_date: '2026-07-01',
       end_date: '2026-07-31',
       employee_id: 7,
+      device_id: undefined,
       rebuild_summaries: true,
       force_rebuild_summaries: true,
     });
@@ -163,6 +198,7 @@ describe('AttendanceRecalculationService', () => {
       startDate: '2026-07-01',
       endDate: '2026-07-31',
       employeeId: undefined,
+      deviceId: undefined,
       forceRebuild: true,
     });
     expect(result).toEqual({
@@ -170,5 +206,91 @@ describe('AttendanceRecalculationService', () => {
       executionResult: { summariesUpserted: 31 },
     });
     expect(attendanceProcessingService.processRange).not.toHaveBeenCalled();
+  });
+
+  it('fetches from Hikvision first and then processes stored data through the existing range processor', async () => {
+    const deviceQueryBuilder = {
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([
+        {
+          id: 12,
+          companyId: 3,
+          deviceCode: 'HQ-ENTRY',
+          status: 'ACTIVE',
+          syncMode: 'PULL',
+          integrationType: 'hikvision',
+          vendorName: 'Hikvision',
+        },
+      ]),
+    };
+    attendanceDeviceRepository.createQueryBuilder.mockReturnValue(
+      deviceQueryBuilder,
+    );
+    hikvisionAttendanceSyncService.syncAttendanceByDateRangeForDeviceTimezone.mockResolvedValue(
+      {
+        status: 'SUCCESS',
+        recordsReceived: 18,
+        recordsCreated: 10,
+        recordsUpdated: 4,
+        duplicatesSkipped: 4,
+        unmappedEmployees: 0,
+        recordsFailed: 0,
+        validPunchRecords: 18,
+      },
+    );
+    attendanceProcessingService.processRange.mockResolvedValue({
+      status: 'SUCCESS',
+      summary: { summariesUpserted: 5 },
+    });
+
+    const result = await service.refreshSummaries(3, 9, {
+      start_date: '2026-07-01',
+      end_date: '2026-07-31',
+      processing_source:
+        AttendanceRefreshProcessingSourceEnum.FETCH_AND_PROCESS,
+      execution_mode: AttendanceRefreshExecutionModeEnum.IMMEDIATE,
+    });
+
+    expect(
+      hikvisionAttendanceSyncService.syncAttendanceByDateRangeForDeviceTimezone,
+    ).toHaveBeenCalledWith(
+      3,
+      12,
+      '2026-07-01',
+      '2026-07-31',
+      undefined,
+      undefined,
+      9,
+      {
+        queueAttendanceRecalculation: false,
+      },
+    );
+    expect(attendanceProcessingService.processRange).toHaveBeenCalledWith(3, {
+      start_date: '2026-07-01',
+      end_date: '2026-07-31',
+      employee_id: undefined,
+      device_id: undefined,
+      rebuild_summaries: true,
+      force_rebuild_summaries: true,
+    });
+    expect(result.job).toBeNull();
+    expect(result.executionResult).toEqual(
+      expect.objectContaining({
+        processingSource:
+          AttendanceRefreshProcessingSourceEnum.FETCH_AND_PROCESS,
+        status: 'SUCCESS',
+      }),
+    );
+    expect(result.executionResult).toMatchObject({
+      fetch: {
+        devices_succeeded: 1,
+        records_created: 10,
+      },
+      process: {
+        status: 'SUCCESS',
+      },
+    });
   });
 });

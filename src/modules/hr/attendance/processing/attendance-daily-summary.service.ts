@@ -12,6 +12,7 @@ import { LeaveStatusEnum } from '../../leave/enums/leave-status.enum';
 import { LeaveRequest } from '../../leave/entities/leave-request.entity';
 import { LeaveType } from '../../leave/entities/leave-type.entity';
 import { LeaveBalanceService } from '../../leave/services/leave-balance.service';
+import { EmployeeDeviceAssignment } from '../../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { ShiftAssignment } from '../shift/shift-assignments/entities/shift-assignment.entity';
 import { ShiftAssignmentStatusEnum } from '../shift/shift-assignments/enums/shift-assignment-status.enum';
@@ -126,6 +127,8 @@ export class AttendanceDailySummaryService {
     private readonly businessTripRepository: Repository<AttendanceBusinessTrip>,
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
+    @InjectRepository(EmployeeDeviceAssignment)
+    private readonly employeeDeviceAssignmentRepository: Repository<EmployeeDeviceAssignment>,
     @InjectRepository(EmployeeTimetable)
     private readonly employeeTimetableRepository: Repository<EmployeeTimetable>,
     @InjectRepository(ShiftAssignment)
@@ -149,6 +152,7 @@ export class AttendanceDailySummaryService {
     startDate: string;
     endDate: string;
     employeeId?: number;
+    deviceId?: number;
     forceRebuild?: boolean;
   }) {
     const {
@@ -156,6 +160,7 @@ export class AttendanceDailySummaryService {
       startDate,
       endDate,
       employeeId,
+      deviceId,
       forceRebuild = false,
     } = input;
 
@@ -164,6 +169,7 @@ export class AttendanceDailySummaryService {
       startDate,
       endDate,
       employeeId,
+      deviceId,
     );
 
     if (employeeIds.length === 0) {
@@ -597,6 +603,9 @@ export class AttendanceDailySummaryService {
     attendanceDate: string,
     dto: UpsertAttendanceDailySummaryAdjustmentDto,
     appliedByCompanyUserId: number | null,
+    options?: {
+      metadata?: Record<string, unknown> | null;
+    },
   ) {
     const normalizedAttendanceDate = this.normalizeDate(
       attendanceDate,
@@ -646,6 +655,7 @@ export class AttendanceDailySummaryService {
         notes: dto.notes?.trim() || null,
         metadata: {
           source: 'MANUAL_ADJUSTMENT',
+          ...(options?.metadata ?? {}),
         },
         isActive: true,
         appliedByCompanyUserId,
@@ -1059,9 +1069,41 @@ export class AttendanceDailySummaryService {
     startDate: string,
     endDate: string,
     employeeId?: number,
+    deviceId?: number,
   ): Promise<number[]> {
     if (employeeId) {
       return this.filterExistingEmployeeIds(companyId, [employeeId]);
+    }
+
+    if (deviceId) {
+      const [assignmentRows, eventRows] = await Promise.all([
+        this.employeeDeviceAssignmentRepository
+          .createQueryBuilder('assignment')
+          .select('DISTINCT assignment.employee_id', 'employeeId')
+          .where('assignment.company_id = :companyId', { companyId })
+          .andWhere('assignment.device_id = :deviceId', { deviceId })
+          .andWhere('assignment.employee_id IS NOT NULL')
+          .getRawMany<{ employeeId: string }>(),
+        this.processedEventRepository
+          .createQueryBuilder('event')
+          .select('DISTINCT event.employee_id', 'employeeId')
+          .where('event.company_id = :companyId', { companyId })
+          .andWhere('event.device_id = :deviceId', { deviceId })
+          .andWhere('event.employee_id IS NOT NULL')
+          .andWhere('event.attendance_date >= :startDate', { startDate })
+          .andWhere('event.attendance_date <= :endDate', { endDate })
+          .getRawMany<{ employeeId: string }>(),
+      ]);
+
+      const deviceEmployeeIds = new Set<number>();
+      for (const row of [...assignmentRows, ...eventRows]) {
+        const value = Number(row.employeeId);
+        if (Number.isInteger(value) && value > 0) {
+          deviceEmployeeIds.add(value);
+        }
+      }
+
+      return this.filterExistingEmployeeIds(companyId, [...deviceEmployeeIds]);
     }
 
     const eventRows = await this.processedEventRepository

@@ -1,3 +1,7 @@
+jest.mock('./attendance-recalculation.service', () => ({
+  AttendanceRecalculationService: class AttendanceRecalculationService {},
+}));
+
 import { Repository } from 'typeorm';
 import { AttendanceProcessingCronService } from './attendance-processing-cron.service';
 import { HikvisionAttendanceLog } from '../../../hikvision/entities/hikvision-attendance-log.entity';

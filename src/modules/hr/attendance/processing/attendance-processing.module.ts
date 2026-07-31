@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { HikvisionAttendanceLog } from '../../../hikvision/entities/hikvision-attendance-log.entity';
@@ -47,6 +47,7 @@ import { AttendanceReportCsvService } from './reports/attendance-report-csv.serv
 import { AttendanceReportPdfService } from './reports/attendance-report-pdf.service';
 import { AttendanceReportService } from './reports/attendance-report.service';
 import { AttendanceReportXlsxService } from './reports/attendance-report-xlsx.service';
+import { HikvisionModule } from '../../../hikvision/hikvision.module';
 
 @Module({
   imports: [
@@ -83,6 +84,7 @@ import { AttendanceReportXlsxService } from './reports/attendance-report-xlsx.se
     ]),
     HrSharedModule,
     LeaveModule,
+    forwardRef(() => HikvisionModule),
   ],
   controllers: [
     AttendanceProcessingController,

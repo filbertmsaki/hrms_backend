@@ -68,6 +68,12 @@ export class AttendanceProcessingService {
         .orderBy('log.id', 'ASC')
         .take(batchSize);
 
+      if (dto.device_id) {
+        qb.andWhere('log.device_id = :deviceId', {
+          deviceId: dto.device_id,
+        });
+      }
+
       const rows = await qb.getMany();
       if (rows.length === 0) break;
 
@@ -108,6 +114,7 @@ export class AttendanceProcessingService {
         startDate,
         endDate,
         employeeId: dto.employee_id,
+        deviceId: dto.device_id,
         forceRebuild,
       });
       counters.summariesUpserted = summaryResult.summariesUpserted;
@@ -117,6 +124,7 @@ export class AttendanceProcessingService {
       companyId,
       startDate,
       endDate,
+      deviceId: dto.device_id ?? null,
       ...counters,
       summary: summaryResult,
       status: counters.processedFailed > 0 ? 'PARTIAL' : 'SUCCESS',
