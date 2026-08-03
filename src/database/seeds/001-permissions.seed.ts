@@ -417,6 +417,42 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow managing employee lifecycle statuses',
   },
   {
+    name: 'employees:force-exit-status',
+    displayName: 'Force employee exit status',
+    description:
+      'Allow applying exit-related employee statuses outside the offboarding workflow',
+  },
+  {
+    name: 'employees:override-number',
+    displayName: 'Override employee number',
+    description:
+      'Allow manually supplying or reserving employee numbers during approved migration operations',
+  },
+  {
+    name: 'employee_numbering:read',
+    displayName: 'Read employee numbering',
+    description:
+      'Allow viewing company employee-number configuration and next-sequence settings',
+  },
+  {
+    name: 'employee_numbering:update',
+    displayName: 'Update employee numbering',
+    description:
+      'Allow configuring company employee-number prefixes, padding and next sequence values',
+  },
+  {
+    name: 'employee_assignments:read',
+    displayName: 'Read employee assignments',
+    description:
+      'Allow viewing employee assignment history and current branch, department, position and reporting-line data',
+  },
+  {
+    name: 'employee_assignments:update',
+    displayName: 'Update employee assignments',
+    description:
+      'Allow changing employee branch, department, position, manager, grade and cost centre assignments',
+  },
+  {
     name: 'employees.import.template.download',
     displayName: 'Download employee import template',
     description: 'Allow downloading the employee Excel import template',
@@ -441,6 +477,46 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     name: 'employees.import.result.download',
     displayName: 'Download employee import results',
     description: 'Allow downloading employee Excel import result workbooks',
+  },
+  {
+    name: 'employee_grades:read',
+    displayName: 'Read employee grades',
+    description: 'Allow listing and viewing employee grades',
+  },
+  {
+    name: 'employee_grades:create',
+    displayName: 'Create employee grades',
+    description: 'Allow creating employee grades',
+  },
+  {
+    name: 'employee_grades:update',
+    displayName: 'Update employee grades',
+    description: 'Allow updating employee grades',
+  },
+  {
+    name: 'employee_grades:delete',
+    displayName: 'Delete employee grades',
+    description: 'Allow deleting employee grades',
+  },
+  {
+    name: 'cost_centers:read',
+    displayName: 'Read cost centers',
+    description: 'Allow listing and viewing company cost centers',
+  },
+  {
+    name: 'cost_centers:create',
+    displayName: 'Create cost centers',
+    description: 'Allow creating company cost centers',
+  },
+  {
+    name: 'cost_centers:update',
+    displayName: 'Update cost centers',
+    description: 'Allow updating company cost centers',
+  },
+  {
+    name: 'cost_centers:delete',
+    displayName: 'Delete cost centers',
+    description: 'Allow deleting company cost centers',
   },
   // Leave types
   {

@@ -5,6 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomBytes } from 'crypto';
 import { EntityManager, MoreThan, Repository } from 'typeorm';
 
 import { PaginationDto } from 'src/common/dto/pagination.dto';
@@ -375,7 +376,6 @@ export class UsersService {
       email: string;
       firstName: string;
       lastName: string;
-      defaultPassword: string;
       roleNames?: string[];
     },
     manager?: EntityManager,
@@ -395,7 +395,9 @@ export class UsersService {
       throw new ConflictException(`A user already exists with email ${email}.`);
     }
 
-    const hashedPassword = await hashPassword(input.defaultPassword);
+    const hashedPassword = await hashPassword(
+      randomBytes(24).toString('base64url'),
+    );
     const user = await repository.save(
       repository.create({
         user_no: await this.generateUserNo(manager),
@@ -404,9 +406,12 @@ export class UsersService {
         phone: await this.generateImportPlaceholderPhone(manager),
         email,
         password: hashedPassword,
-        status: 'active',
+        status: 'inactive',
         user_type: 'COMPANY_USER',
-        is_email_verified: true,
+        is_email_verified: false,
+        must_set_password: true,
+        activated_at: null,
+        account_provisioning_status: 'pending_activation',
       }),
     );
 

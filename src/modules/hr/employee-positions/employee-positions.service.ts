@@ -14,6 +14,7 @@ import { EmployeePosition } from '../employees/entities/employee-position.entity
 import { Position } from '../positions/entities/position.entity';
 import { HrAccessService } from '../shared/hr-access.service';
 import { PositionAvailabilityService } from '../shared/position-availability.service';
+import { formatDateOnly } from '../shared/hr.utils';
 import { buildPaginationMeta } from '../shared/hr.utils';
 import { CreateEmployeePositionDto } from './dtos/create-employee-position.dto';
 import { EmployeePositionQueryDto } from './dtos/employee-position-query.dto';
@@ -46,6 +47,9 @@ export class EmployeePositionsService {
       assignment_type: entity.assignment_type,
       status: entity.status,
       notes: entity.notes,
+      assignment_reason: entity.assignment_reason,
+      assigned_by_company_user_id: entity.assigned_by_company_user_id,
+      ended_by_company_user_id: entity.ended_by_company_user_id,
       created_at: entity.created_at,
       updated_at: entity.updated_at,
       employee: entity.employee
@@ -413,10 +417,13 @@ export class EmployeePositionsService {
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
     await this.dataSource.transaction(async (manager) => {
-      await manager.getRepository(EmployeePosition).remove(assignment);
+      assignment.status = EmployeePositionStatusEnum.COMPLETED;
+      assignment.end_date = assignment.end_date ?? formatDateOnly(new Date());
+      assignment.ended_by_company_user_id = actor.companyMembershipId ?? null;
+      await manager.getRepository(EmployeePosition).save(assignment);
       await this.syncEmployeePrimarySnapshot(employee.id, companyId);
     });
 
-    return { message: 'Employee position assignment deleted successfully' };
+    return { message: 'Employee position assignment ended successfully' };
   }
 }

@@ -1,5 +1,7 @@
 import {
   BadRequestException,
+  ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -8,11 +10,13 @@ import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import * as crypto from 'crypto';
 import ExcelJS from 'exceljs';
-import { validateSync } from 'class-validator';
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
+import type { AuditRequestContext } from '../../../../common/interfaces/audit-request-context.interface';
+import { hasPermission } from '../../../../common/utils/permission.util';
 import { CompaniesService } from '../../../companies/companies.service';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
+import { FilesService } from '../../../files/files.service';
 import { Role } from '../../../roles/entities/role.entity';
 import { UsersService } from '../../../users/users.service';
 import { User } from '../../../users/entities/user.entity';
@@ -34,15 +38,22 @@ import { Branch } from '../../branches/entities/branch.entity';
 import { Department } from '../../departments/entities/department.entity';
 import { DepartmentPosition } from '../../departments/entities/department-position.entity';
 import { CreateEmployeeDto } from '../dtos/create-employee.dto';
+import { ChangeEmployeeAssignmentDto } from '../dtos/change-employee-assignment.dto';
 import { EmployeeContactInputDto } from '../dtos/employee-contact-input.dto';
+import { EmployeeAssignmentService } from '../employee-assignment.service';
 import { EmployeeImportBatch } from './entities/employee-import-batch.entity';
+import { EmployeeImportOutboxEvent } from './entities/employee-import-outbox-event.entity';
 import { EmployeeImportRow } from './entities/employee-import-row.entity';
 import { EmployeeImportConfirmDto } from './dto/employee-import-confirm.dto';
 import { EmployeeImportHistoryQueryDto } from './dto/employee-import-history-query.dto';
 import { EmployeeImportPreviewRequestDto } from './dto/employee-import-preview-request.dto';
 import { EmployeeImportResponseDto } from './dto/employee-import-response.dto';
+import { EmployeeImportActivationModeEnum } from './enums/employee-import-activation-mode.enum';
 import { EmployeeImportBatchStatusEnum } from './enums/employee-import-batch-status.enum';
 import { EmployeeImportModeEnum } from './enums/employee-import-mode.enum';
+import { EmployeeImportNumberModeEnum } from './enums/employee-import-number-mode.enum';
+import { EmployeeImportOutboxEventType } from './enums/employee-import-outbox-event-type.enum';
+import { EmployeeImportOutboxStatus } from './enums/employee-import-outbox-status.enum';
 import { EmployeeImportRowStatusEnum } from './enums/employee-import-row-status.enum';
 import { Employee } from '../entities/employee.entity';
 import { EmployeeIdentification } from '../entities/employee-identification.entity';
@@ -57,7 +68,9 @@ import { IdentificationTypeEnum } from '../enums/identification-type.enum';
 import { ContactTypeEnum } from '../enums/contact-type.enum';
 import { HikvisionImportSyncService } from '../../../hikvision/hikvision-import-sync.service';
 import { BranchesService } from '../../branches/branches.service';
-import { ResetPasswordDto } from '../../../auth/dtos/reset-password.dto';
+import {
+  EmployeeImportJobData,
+} from './employee-import-job.constants';
 
 type UploadedExcelFile = {
   originalname: string;
@@ -211,15 +224,18 @@ type ReferenceData = {
 
 const EMPLOYEE_SHEET = 'Employees';
 const INSTRUCTIONS_SHEET = 'Instructions';
+const EMPLOYEE_IMPORT_SCHEMA_VERSION = '2.0';
 const SUPPORTED_MIME_TYPES = new Set([
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/octet-stream',
 ]);
-const MAX_IMPORT_FILE_SIZE_BYTES = 10 * 1024 * 1024;
-const MAX_IMPORT_ROW_COUNT = 1000;
-const PREVIEW_TTL_MS = 30 * 60 * 1000;
 const TEMPLATE_VALIDATION_ROW_COUNT = 500;
 const GENDER_VALUES = ['male', 'female'] as const;
+const EMPTY_AUDIT_CONTEXT: AuditRequestContext = {
+  ipAddress: null,
+  userAgent: null,
+  requestId: null,
+};
 
 const IMPORT_COLUMNS = [
   'first_name',
@@ -227,14 +243,33 @@ const IMPORT_COLUMNS = [
   'last_name',
   'employee_number',
   'email',
+  'phone',
   'gender',
+  'date_of_birth',
+  'marital_status',
+  'nationality',
   'employment_date',
+  'employment_type',
   'branch_code',
   'department_code',
   'position_code',
-  'employment_type',
+  'manager_employee_number',
+  'grade_code',
+  'cost_center_code',
+  'shift_code',
+  'timetable_code',
+  'national_id',
+  'tax_id',
+  'social_security_number',
+  'passport_number',
+  'work_permit_number',
+  'address',
+  'emergency_contact_name',
+  'emergency_contact_phone',
   'access_device_codes',
   'device_employee_number',
+  'card_number',
+  'notes',
 ] as const;
 
 type ImportColumn = (typeof IMPORT_COLUMNS)[number];
@@ -244,6 +279,7 @@ const REQUIRED_COLUMNS: ImportColumn[] = [
   'last_name',
   'email',
   'gender',
+  'employment_date',
 ];
 
 @Injectable()
@@ -257,6 +293,8 @@ export class EmployeeImportService {
     private readonly batchRepository: Repository<EmployeeImportBatch>,
     @InjectRepository(EmployeeImportRow)
     private readonly rowRepository: Repository<EmployeeImportRow>,
+    @InjectRepository(EmployeeImportOutboxEvent)
+    private readonly outboxRepository: Repository<EmployeeImportOutboxEvent>,
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
     @InjectRepository(CompanyUser)
@@ -288,12 +326,14 @@ export class EmployeeImportService {
     private readonly employeesService: EmployeesService,
     private readonly companiesService: CompaniesService,
     private readonly usersService: UsersService,
+    private readonly filesService: FilesService,
     private readonly shiftAssignmentsService: ShiftAssignmentsService,
     private readonly employeeTimetablesService: EmployeeTimetablesService,
     private readonly hrAccessService: HrAccessService,
     private readonly configService: ConfigService,
     private readonly branchesService: BranchesService,
     private readonly hikvisionImportSyncService: HikvisionImportSyncService,
+    private readonly employeeAssignmentService: EmployeeAssignmentService,
   ) {}
 
   async downloadTemplate(
@@ -398,14 +438,33 @@ export class EmployeeImportService {
       'Jane',
       '',
       'Doe',
-      'EMP-0001',
+      '',
       'jane.doe@example.com',
+      '+255700000000',
       'female',
-      '2026-07-24',
-      'ARU',
-      'ARU_ACCOUNTS_FINANCE',
-      'EXECUTIVE',
+      '1995-01-01',
+      'single',
+      'Tanzanian',
+      '2026-08-03',
       EmploymentTypeEnum.FULL_TIME,
+      'HQ',
+      'IT',
+      'EXECUTIVE',
+      '',
+      'G3',
+      'IT001',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      'Dar es Salaam',
+      'John Doe',
+      '+255700000001',
+      '',
+      '',
       '',
       '',
     ]);
@@ -418,6 +477,7 @@ export class EmployeeImportService {
     instructionsSheet.getRow(1).font = { bold: true };
     instructionsSheet.views = [{ state: 'frozen', ySplit: 1 }];
     const instructionRows = [
+      ['Template version', EMPLOYEE_IMPORT_SCHEMA_VERSION],
       ['Required columns', REQUIRED_COLUMNS.join(', ')],
       [
         'Optional columns',
@@ -426,6 +486,18 @@ export class EmployeeImportService {
       ['Date format', 'Use ISO date values like YYYY-MM-DD.'],
       ['Gender values', GENDER_VALUES.join(', ')],
       ['Employment type values', Object.values(EmploymentTypeEnum).join(', ')],
+      [
+        'Employee number',
+        'Leave blank when employee_number_mode is GENERATE. The application will allocate the next company employee number.',
+      ],
+      [
+        'Preserving numbers',
+        'PRESERVE_SOURCE is for approved migration only and requires employees:override-number.',
+      ],
+      [
+        'Activation mode',
+        'CREATE_ONBOARDING creates employees in onboarding status. MIGRATE_AS_ACTIVE is intended only for verified migration of existing employees.',
+      ],
       [
         'Access devices',
         'Optional. Enter one or more active access-device codes separated by commas using values from the Access Devices sheet. Leave blank to import the employee without any device assignment.',
@@ -452,7 +524,7 @@ export class EmployeeImportService {
       ],
       [
         'User records',
-        'The current HRMS schema always links employees to company users. When no existing user is found by email, the import creates an inactive placeholder user and membership so the employee record can be created without extra login fields.',
+        'The import creates inactive pending user accounts with unique random credentials. Imported users remain unverified and must set a password during activation.',
       ],
       [
         'Template example row',
@@ -574,6 +646,7 @@ export class EmployeeImportService {
     dto: EmployeeImportPreviewRequestDto,
     actor: AuthenticatedUser,
   ) {
+    this.assertPhaseThreeImportPermissions(actor, dto);
     this.assertSupportedFile(file);
     const workbook = await this.loadWorkbook(file.buffer);
     const employeeSheet = this.resolveEmployeeWorksheet(workbook);
@@ -585,9 +658,9 @@ export class EmployeeImportService {
         'The uploaded Excel file does not contain any employee records',
       );
     }
-    if (rawRows.length > MAX_IMPORT_ROW_COUNT) {
+    if (rawRows.length > this.getMaxImportRows()) {
       throw new BadRequestException(
-        `The uploaded Excel file exceeds the maximum supported row count of ${MAX_IMPORT_ROW_COUNT}`,
+        `The uploaded Excel file exceeds the maximum supported row count of ${this.getMaxImportRows()}`,
       );
     }
     const references = await this.loadReferenceData(companyId);
@@ -632,32 +705,42 @@ export class EmployeeImportService {
       });
     }
 
-    const batch = await this.persistPreviewBatch(
+    const persistedPreview = await this.persistPreviewBatch(
       companyId,
       file,
       dto,
       actor,
       rows,
     );
+    const persistedBatch =
+      'batch' in persistedPreview
+        ? persistedPreview.batch
+        : (persistedPreview as unknown as EmployeeImportBatch);
+    const previewToken =
+      'previewToken' in persistedPreview
+        ? persistedPreview.previewToken
+        : null;
     const summary = this.buildPreviewSummary(rows);
 
     return {
-      batchId: batch.batchId,
-      previewToken: batch.previewToken,
-      status: batch.status,
-      importMode: batch.importMode,
-      previewExpiresAt: batch.previewExpiresAt,
+      batchId: persistedBatch.batchId,
+      previewToken,
+      status: persistedBatch.status,
+      importMode: persistedBatch.importMode,
+      previewExpiresAt: persistedBatch.previewExpiresAt,
       process_valid_rows_only:
-        (batch.metadata?.process_valid_rows_only as boolean | undefined) ??
+        (persistedBatch.metadata?.process_valid_rows_only as
+          | boolean
+          | undefined) ??
         true,
-      totalRows: batch.totalRows,
+      totalRows: persistedBatch.totalRows,
       validRows: summary.readyForImport,
       invalidRows: summary.invalidRecords,
       duplicateRows: summary.duplicateInFileRecords,
       rowsReadyForImport: summary.readyForImport,
       summary,
-      rows: batch.rows?.length
-        ? batch.rows
+      rows: persistedBatch.rows?.length
+        ? persistedBatch.rows
             .sort((left, right) => left.rowNumber - right.rowNumber)
             .map((storedRow) => {
               const previewRow =
@@ -709,6 +792,8 @@ export class EmployeeImportService {
     companyId: number,
     dto: EmployeeImportConfirmDto,
     actor: AuthenticatedUser,
+    context: AuditRequestContext = EMPTY_AUDIT_CONTEXT,
+    idempotencyKey?: string | null,
   ): Promise<EmployeeImportResponseDto & { rows: Record<string, unknown>[] }> {
     const batchId = this.optionalString(dto.batch_id);
     const previewToken = this.optionalString(dto.preview_token);
@@ -718,10 +803,290 @@ export class EmployeeImportService {
       );
     }
 
+    const normalizedIdempotencyKey =
+      this.normalizeIdempotencyKey(idempotencyKey);
+    if (!normalizedIdempotencyKey) {
+      throw new BadRequestException(
+        'The Idempotency-Key header is required to confirm an employee import.',
+      );
+    }
+
+    const idempotencyKeyHash =
+      this.hashIdempotencyKey(normalizedIdempotencyKey);
+    const result = await this.dataSource.transaction(async (manager) => {
+      const batchRepository = manager.getRepository(EmployeeImportBatch);
+      const rowRepository = manager.getRepository(EmployeeImportRow);
+      const outboxRepository =
+        manager.getRepository(EmployeeImportOutboxEvent);
+
+      const batch = await this.findBatchForProcessing(
+        batchRepository,
+        companyId,
+        batchId,
+        previewToken,
+      );
+
+      if (!batch) {
+        throw new NotFoundException('Import preview batch not found');
+      }
+
+      if (
+        batch.previewExpiresAt &&
+        batch.previewExpiresAt.getTime() < Date.now()
+      ) {
+        batch.status = EmployeeImportBatchStatusEnum.EXPIRED;
+        await batchRepository.save(batch);
+        throw new BadRequestException('Import preview token has expired');
+      }
+
+      if (
+        batch.idempotencyKeyHash === idempotencyKeyHash &&
+        [
+          EmployeeImportBatchStatusEnum.QUEUED,
+          EmployeeImportBatchStatusEnum.IMPORTING,
+          EmployeeImportBatchStatusEnum.COMPLETED,
+          EmployeeImportBatchStatusEnum.COMPLETED_WITH_ERRORS,
+        ].includes(batch.status)
+      ) {
+        return {
+          batch,
+          replayed: true,
+        };
+      }
+
+      if (batch.status !== EmployeeImportBatchStatusEnum.PREVIEW_READY) {
+        throw new ConflictException(
+          'This import batch has already been confirmed or is no longer available for confirmation.',
+        );
+      }
+
+      this.assertPhaseThreeImportPermissions(
+        actor,
+        this.buildPreviewRequestDtoFromBatch(batch),
+      );
+
+      const references = await this.loadReferenceData(companyId);
+      await this.applyActorBranchValidation(
+        companyId,
+        actor,
+        references.branches,
+      );
+
+      const previewDto = this.buildPreviewRequestDtoFromBatch(batch, dto);
+      const previewRows = batch.rows.map((row) =>
+        this.validatePreviewRow(
+          companyId,
+          row.rowNumber,
+          row.rawData,
+          previewDto,
+          references,
+        ),
+      );
+      this.applyBatchDuplicateValidation(previewRows);
+      this.applyManagerValidation(companyId, previewRows, references);
+      previewRows.forEach((row) => {
+        row.previewStatus = this.determinePreviewStatus(row);
+      });
+
+      const previewRowsByStoredId = new Map<number, PreviewRow>();
+      batch.rows.forEach((storedRow) => {
+        const previewRow =
+          previewRows.find((row) => row.rowNumber === storedRow.rowNumber) ??
+          null;
+        if (previewRow) {
+          previewRowsByStoredId.set(this.getStoredRowKey(storedRow), previewRow);
+        }
+      });
+
+      const invalidRows = previewRows.filter(
+        (row) => row.previewStatus !== 'READY_FOR_IMPORT',
+      );
+      const processValidRowsOnly = dto.process_valid_rows_only ?? true;
+      const selectedRowIds = this.resolveSelectedRowIds(
+        batch.rows,
+        previewRowsByStoredId,
+        dto,
+      );
+      const requestedInvalidSelections = Array.from(selectedRowIds).filter(
+        (rowId) =>
+          previewRowsByStoredId.get(rowId)?.previewStatus !== 'READY_FOR_IMPORT',
+      );
+      if (requestedInvalidSelections.length > 0) {
+        throw new BadRequestException(
+          `Only rows that are ready for import can be confirmed. Invalid selection row IDs: ${requestedInvalidSelections.join(', ')}`,
+        );
+      }
+
+      const existingRows = previewRows.filter(
+        (row) => row.previewStatus === 'EXISTING_RECORD',
+      );
+      if (existingRows.length > 0 && dto.skip_existing_records !== true) {
+        throw new BadRequestException(
+          'Existing records were detected in the preview. Set skip_existing_records to true after review before confirming the import.',
+        );
+      }
+
+      const invalidOrDuplicateRows = previewRows.filter((row) =>
+        ['INVALID_RECORD', 'DUPLICATE_IN_FILE'].includes(row.previewStatus),
+      );
+      if (
+        invalidOrDuplicateRows.length > 0 &&
+        dto.exclude_invalid_records !== true
+      ) {
+        throw new BadRequestException(
+          'Invalid or duplicate rows were detected in the preview. Set exclude_invalid_records to true after review before confirming the import.',
+        );
+      }
+
+      if (!processValidRowsOnly && invalidRows.length > 0) {
+        throw new BadRequestException(
+          'The import contains invalid rows and cannot be processed in all-or-nothing mode.',
+        );
+      }
+
+      let queuedRows = 0;
+      let existingSkipped = 0;
+      let invalidSkipped = 0;
+      let duplicateInFileSkipped = 0;
+      let excludedByUser = 0;
+      for (const storedRow of batch.rows) {
+        const previewRow =
+          previewRows.find((row) => row.rowNumber === storedRow.rowNumber) ??
+          null;
+        if (!previewRow) {
+          continue;
+        }
+
+        storedRow.rowKey = this.createRowKey(
+          batch.batchId,
+          storedRow.rowNumber,
+          previewRow.normalizedData,
+        );
+        storedRow.errors = previewRow.errors;
+        storedRow.warnings = previewRow.warnings;
+        storedRow.normalizedData = previewRow.normalizedData;
+        storedRow.importAction = previewRow.importAction;
+        storedRow.employeeName = previewRow.employeeName;
+        storedRow.employeeNumber = previewRow.employeeNumber;
+        storedRow.deviceEmployeeNumber = previewRow.deviceEmployeeNumber;
+        storedRow.matchedEmployeeId = previewRow.matchedEmployeeId;
+        storedRow.resultData = {
+          ...(storedRow.resultData ?? {}),
+          preview_status: previewRow.previewStatus,
+          identifier: previewRow.identifier,
+          issues: previewRow.issues,
+          matched_by: previewRow.matchedBy,
+          existing_employee: previewRow.existingEmployee,
+          duplicate_in_file: previewRow.duplicateInFile,
+          user_account: previewRow.userAccount,
+          device_assignment: this.buildDeviceAssignmentPreview(
+            storedRow,
+            previewRow,
+          ),
+        };
+
+        if (previewRow.previewStatus !== 'READY_FOR_IMPORT') {
+          storedRow.status = EmployeeImportRowStatusEnum.SKIPPED;
+          storedRow.resultData = {
+            ...(storedRow.resultData ?? {}),
+            final_status: previewRow.previewStatus,
+            reason: this.describeNonReadyPreviewRow(previewRow),
+          };
+          if (previewRow.previewStatus === 'EXISTING_RECORD') {
+            existingSkipped += 1;
+          } else if (previewRow.previewStatus === 'DUPLICATE_IN_FILE') {
+            duplicateInFileSkipped += 1;
+          } else {
+            invalidSkipped += 1;
+          }
+          continue;
+        }
+
+        if (!selectedRowIds.has(this.getStoredRowKey(storedRow))) {
+          storedRow.status = EmployeeImportRowStatusEnum.SKIPPED;
+          storedRow.resultData = {
+            ...(storedRow.resultData ?? {}),
+            final_status: 'EXCLUDED_BY_USER',
+            reason: 'Excluded during import confirmation',
+          };
+          excludedByUser += 1;
+          continue;
+        }
+
+        storedRow.status = EmployeeImportRowStatusEnum.QUEUED;
+        storedRow.errorCode = null;
+        storedRow.startedAt = null;
+        storedRow.processedAt = null;
+        storedRow.lastErrorAt = null;
+        storedRow.resultData = {
+          ...(storedRow.resultData ?? {}),
+          final_status: 'QUEUED',
+          status: EmployeeImportRowStatusEnum.QUEUED,
+        };
+        queuedRows += 1;
+      }
+
+      batch.status = EmployeeImportBatchStatusEnum.QUEUED;
+      batch.idempotencyKeyHash = idempotencyKeyHash;
+      batch.confirmedByCompanyUserId = actor.companyMembershipId ?? null;
+      batch.confirmedAt = new Date();
+      batch.queuedAt = new Date();
+      batch.workerId = null;
+      batch.lastHeartbeatAt = null;
+      batch.failureReason = null;
+      batch.metadata = {
+        ...(batch.metadata ?? {}),
+        process_valid_rows_only: processValidRowsOnly,
+        selected_row_ids: Array.from(selectedRowIds),
+        requested_idempotency_key: normalizedIdempotencyKey,
+        existing_skipped: existingSkipped,
+        invalid_skipped: invalidSkipped,
+        duplicate_in_file_skipped: duplicateInFileSkipped,
+        excluded_by_user: excludedByUser,
+        requested_by: this.buildActorSnapshot(actor),
+        audit_context: context,
+      };
+
+      await rowRepository.save(batch.rows);
+      const savedBatch = await batchRepository.save(batch);
+      await outboxRepository.save(
+        outboxRepository.create({
+          eventId: crypto.randomUUID(),
+          companyId,
+          batchId: savedBatch.id,
+          eventType: EmployeeImportOutboxEventType.PROCESS_IMPORT_BATCH,
+          payload: {
+            companyId,
+            databaseBatchId: savedBatch.id,
+            batchId: savedBatch.batchId,
+            requestedByUserId: actor.id ?? null,
+            requestedByCompanyUserId: actor.companyMembershipId ?? null,
+          },
+        }),
+      );
+
+      return {
+        batch: savedBatch,
+        replayed: false,
+        queuedRows,
+      };
+    });
+
+    return this.buildQueuedImportResponse(
+      result.batch,
+      result.queuedRows ?? 0,
+      result.replayed,
+    );
+  }
+
+  async processQueuedBatch(
+    jobData: EmployeeImportJobData,
+    workerId: string,
+  ): Promise<void> {
     const batch = await this.batchRepository.findOne({
       where: {
-        companyId,
-        ...(batchId ? { batchId } : { previewToken: previewToken! }),
+        id: jobData.databaseBatchId,
+        companyId: jobData.companyId,
       },
       relations: {
         rows: true,
@@ -729,107 +1094,66 @@ export class EmployeeImportService {
     });
 
     if (!batch) {
-      throw new NotFoundException('Import preview batch not found');
+      this.logger.warn(
+        `Employee import batch ${jobData.databaseBatchId} was not found for processing.`,
+      );
+      return;
     }
 
     if (
-      batch.previewExpiresAt &&
-      batch.previewExpiresAt.getTime() < Date.now()
+      ![
+        EmployeeImportBatchStatusEnum.QUEUED,
+        EmployeeImportBatchStatusEnum.IMPORTING,
+      ].includes(batch.status)
     ) {
-      batch.status = EmployeeImportBatchStatusEnum.EXPIRED;
-      await this.batchRepository.save(batch);
-      throw new BadRequestException('Import preview token has expired');
+      return;
     }
 
-    const references = await this.loadReferenceData(companyId);
-    await this.applyActorBranchValidation(
-      companyId,
-      actor,
-      references.branches,
-    );
+    const actor = this.buildImportActorFromBatch(batch, jobData);
+    const context = this.buildAuditContextFromBatch(batch);
+    const previewDto = this.buildPreviewRequestDtoFromBatch(batch);
+    const processValidRowsOnly =
+      (batch.metadata?.process_valid_rows_only as boolean | undefined) ?? true;
 
+    await this.dataSource.transaction(async (manager) => {
+      const lockedBatch = await manager
+        .getRepository(EmployeeImportBatch)
+        .createQueryBuilder('batch')
+        .where('batch.id = :id', { id: batch.id })
+        .setLock('pessimistic_write')
+        .getOne();
+
+      if (!lockedBatch) {
+        throw new NotFoundException('Employee import batch not found');
+      }
+
+      lockedBatch.status = EmployeeImportBatchStatusEnum.IMPORTING;
+      lockedBatch.startedAt = lockedBatch.startedAt ?? new Date();
+      lockedBatch.lastHeartbeatAt = new Date();
+      lockedBatch.workerId = workerId;
+      lockedBatch.attemptCount += 1;
+      await manager.getRepository(EmployeeImportBatch).save(lockedBatch);
+    });
+
+    const references = await this.loadReferenceData(jobData.companyId);
     const previewRows = batch.rows.map((row) =>
       this.validatePreviewRow(
-        companyId,
+        jobData.companyId,
         row.rowNumber,
         row.rawData,
-        {
-          import_mode: batch.importMode,
-          process_valid_rows_only:
-            (batch.metadata?.process_valid_rows_only as boolean | undefined) ??
-            true,
-        },
+        previewDto,
         references,
       ),
     );
-
     this.applyBatchDuplicateValidation(previewRows);
-    this.applyManagerValidation(companyId, previewRows, references);
+    this.applyManagerValidation(jobData.companyId, previewRows, references);
     previewRows.forEach((row) => {
       row.previewStatus = this.determinePreviewStatus(row);
     });
-
-    const previewRowsByStoredId = new Map<number, PreviewRow>();
-    batch.rows.forEach((storedRow) => {
-      const previewRow =
-        previewRows.find((row) => row.rowNumber === storedRow.rowNumber) ??
-        null;
-      if (previewRow) {
-        previewRowsByStoredId.set(this.getStoredRowKey(storedRow), previewRow);
-      }
-    });
-
-    const invalidRows = previewRows.filter(
-      (row) => row.previewStatus !== 'READY_FOR_IMPORT',
+    const previewRowMap = new Map(
+      previewRows.map((row) => [row.rowNumber, row] as const),
     );
-    const processValidRowsOnly = dto.process_valid_rows_only ?? true;
-    const selectedRowIds = this.resolveSelectedRowIds(
-      batch.rows,
-      previewRowsByStoredId,
-      dto,
-    );
-    const requestedInvalidSelections = Array.from(selectedRowIds).filter(
-      (rowId) =>
-        previewRowsByStoredId.get(rowId)?.previewStatus !== 'READY_FOR_IMPORT',
-    );
-    if (requestedInvalidSelections.length > 0) {
-      throw new BadRequestException(
-        `Only rows that are ready for import can be confirmed. Invalid selection row IDs: ${requestedInvalidSelections.join(', ')}`,
-      );
-    }
 
-    const existingRows = previewRows.filter(
-      (row) => row.previewStatus === 'EXISTING_RECORD',
-    );
-    if (existingRows.length > 0 && dto.skip_existing_records !== true) {
-      throw new BadRequestException(
-        'Existing records were detected in the preview. Set skip_existing_records to true after review before confirming the import.',
-      );
-    }
-
-    const invalidOrDuplicateRows = previewRows.filter((row) =>
-      ['INVALID_RECORD', 'DUPLICATE_IN_FILE'].includes(row.previewStatus),
-    );
-    if (
-      invalidOrDuplicateRows.length > 0 &&
-      dto.exclude_invalid_records !== true
-    ) {
-      throw new BadRequestException(
-        'Invalid or duplicate rows were detected in the preview. Set exclude_invalid_records to true after review before confirming the import.',
-      );
-    }
-
-    if (!processValidRowsOnly && invalidRows.length > 0) {
-      throw new BadRequestException(
-        'The import contains invalid rows and cannot be processed in all-or-nothing mode.',
-      );
-    }
-
-    batch.status = EmployeeImportBatchStatusEnum.IMPORTING;
-    batch.startedAt = new Date();
-    await this.batchRepository.save(batch);
-
-    const rowResults: Record<string, unknown>[] = [];
     const importedEmployeesByNumber = new Map<string, number>();
     let createdEmployees = 0;
     let updatedEmployees = 0;
@@ -839,75 +1163,20 @@ export class EmployeeImportService {
     let failedUserCreations = 0;
     let deviceAssignmentsCreated = 0;
     let deviceSyncPending = 0;
-    let existingSkipped = 0;
-    let invalidSkipped = 0;
-    let duplicateInFileSkipped = 0;
-    let excludedByUser = 0;
-    const userConflicts = previewRows.filter(
-      (row) => row.userAccount?.action === 'USER_CONFLICT',
-    ).length;
 
-    for (const previewRow of previewRows) {
-      const storedRow =
-        batch.rows.find((row) => row.rowNumber === previewRow.rowNumber) ??
-        null;
-      if (!storedRow) {
+    for (const storedRow of [...batch.rows].sort(
+      (left, right) => left.rowNumber - right.rowNumber,
+    )) {
+      const previewRow = previewRowMap.get(storedRow.rowNumber) ?? null;
+      if (!previewRow || storedRow.status !== EmployeeImportRowStatusEnum.QUEUED) {
         continue;
       }
 
-      storedRow.errors = previewRow.errors;
-      storedRow.warnings = previewRow.warnings;
-      storedRow.normalizedData = previewRow.normalizedData;
-      storedRow.importAction = previewRow.importAction;
-      storedRow.employeeName = previewRow.employeeName;
-      storedRow.employeeNumber = previewRow.employeeNumber;
-      storedRow.deviceEmployeeNumber = previewRow.deviceEmployeeNumber;
-      storedRow.matchedEmployeeId = previewRow.matchedEmployeeId;
-      storedRow.resultData = {
-        ...(storedRow.resultData ?? {}),
-        preview_status: previewRow.previewStatus,
-        identifier: previewRow.identifier,
-        issues: previewRow.issues,
-        matched_by: previewRow.matchedBy,
-        existing_employee: previewRow.existingEmployee,
-        duplicate_in_file: previewRow.duplicateInFile,
-        user_account: previewRow.userAccount,
-        device_assignment: this.buildDeviceAssignmentPreview(
-          storedRow,
-          previewRow,
-        ),
-      };
-
-      if (previewRow.previewStatus !== 'READY_FOR_IMPORT') {
-        storedRow.status = EmployeeImportRowStatusEnum.SKIPPED;
-        const finalStatus = previewRow.previewStatus;
-        storedRow.resultData = {
-          ...(storedRow.resultData ?? {}),
-          final_status: finalStatus,
-          reason: this.describeNonReadyPreviewRow(previewRow),
-        };
-        if (finalStatus === 'EXISTING_RECORD') {
-          existingSkipped += 1;
-        } else if (finalStatus === 'DUPLICATE_IN_FILE') {
-          duplicateInFileSkipped += 1;
-        } else {
-          invalidSkipped += 1;
-        }
-        rowResults.push(this.buildRowResult(storedRow));
-        continue;
-      }
-
-      if (!selectedRowIds.has(this.getStoredRowKey(storedRow))) {
-        storedRow.status = EmployeeImportRowStatusEnum.SKIPPED;
-        storedRow.resultData = {
-          ...(storedRow.resultData ?? {}),
-          final_status: 'EXCLUDED_BY_USER',
-          reason: 'Excluded during import confirmation',
-        };
-        excludedByUser += 1;
-        rowResults.push(this.buildRowResult(storedRow));
-        continue;
-      }
+      storedRow.status = EmployeeImportRowStatusEnum.PROCESSING;
+      storedRow.startedAt = new Date();
+      storedRow.attemptCount += 1;
+      storedRow.errorCode = null;
+      await this.rowRepository.save(storedRow);
 
       try {
         const result = await this.dataSource.transaction(async (manager) => {
@@ -923,15 +1192,31 @@ export class EmployeeImportService {
           if (importAction === 'UPDATE') {
             employeeId = previewRow.matchedEmployeeId!;
             const updateDto = this.buildEmployeeUpdateDto(normalizedData);
-            await this.employeesService.update(
-              companyId,
-              employeeId,
-              updateDto,
-              actor,
+            if (Object.keys(updateDto).length > 0) {
+              await this.employeesService.update(
+                jobData.companyId,
+                employeeId,
+                updateDto as never,
+                actor,
+                context,
+              );
+            }
+
+            const assignmentChange = this.buildAssignmentChangeDto(
+              normalizedData,
             );
+            if (assignmentChange) {
+              await this.employeeAssignmentService.changeAssignment(
+                jobData.companyId,
+                employeeId,
+                assignmentChange,
+                actor,
+                context,
+              );
+            }
           } else {
             const account = await this.ensureMembershipForImportRow(
-              companyId,
+              jobData.companyId,
               previewRow,
               manager,
             );
@@ -941,9 +1226,9 @@ export class EmployeeImportService {
             userAction = account.userAction;
 
             const creation = await this.employeesService.createForCompanyUser(
-              companyId,
+              jobData.companyId,
               account.membership.id,
-              this.buildEmployeeCreateDto(normalizedData),
+              this.buildEmployeeCreateDto(normalizedData, batch),
               actor,
               manager,
             );
@@ -957,7 +1242,7 @@ export class EmployeeImportService {
           const primaryBranchId = this.toNumber(normalizedData.branch_id);
           if (linkedUserId && primaryBranchId) {
             await this.branchesService.grantAccess(
-              companyId,
+              jobData.companyId,
               primaryBranchId,
               linkedUserId,
               manager,
@@ -965,7 +1250,7 @@ export class EmployeeImportService {
           }
 
           await this.applyAssignmentsAndCredentials(
-            companyId,
+            jobData.companyId,
             employee,
             normalizedData,
             null,
@@ -988,6 +1273,7 @@ export class EmployeeImportService {
           importedEmployeesByNumber.set(employeeNumber, result.employee.id);
           storedRow.employeeNumber = employeeNumber;
         }
+
         const assignedDeviceCodes = this.parseMultiValue(
           previewRow.normalizedData?.access_device_codes,
         );
@@ -1005,10 +1291,14 @@ export class EmployeeImportService {
           result.action === 'UPDATE'
             ? EmployeeImportRowStatusEnum.UPDATED
             : EmployeeImportRowStatusEnum.IMPORTED;
+        storedRow.processedAt = new Date();
         storedRow.resultData = {
           ...(storedRow.resultData ?? {}),
           final_status: 'IMPORTED',
-          status: result.action === 'UPDATE' ? 'UPDATED' : 'IMPORTED',
+          status:
+            result.action === 'UPDATE'
+              ? EmployeeImportRowStatusEnum.UPDATED
+              : EmployeeImportRowStatusEnum.IMPORTED,
           employee_id: result.employee.id,
           user_id: result.linkedUserId,
           user_account: {
@@ -1024,7 +1314,7 @@ export class EmployeeImportService {
             effectiveDeviceEmployeeNumber,
           ),
         };
-        rowResults.push(this.buildRowResult(storedRow));
+        await this.rowRepository.save(storedRow);
 
         if (result.action === 'UPDATE') {
           updatedEmployees += 1;
@@ -1039,15 +1329,15 @@ export class EmployeeImportService {
           existingUsersReused += 1;
         }
 
-        const deviceCodes = this.parseMultiValue(
-          previewRow.normalizedData?.access_device_codes,
-        );
-        if (deviceCodes.length > 0) {
-          deviceAssignmentsCreated += deviceCodes.length;
-          deviceSyncPending += deviceCodes.length;
+        if (assignedDeviceCodes.length > 0) {
+          deviceAssignmentsCreated += assignedDeviceCodes.length;
+          deviceSyncPending += assignedDeviceCodes.length;
         }
       } catch (error) {
         storedRow.status = EmployeeImportRowStatusEnum.FAILED;
+        storedRow.errorCode = 'IMPORT_FAILED';
+        storedRow.lastErrorAt = new Date();
+        storedRow.processedAt = new Date();
         storedRow.errors = [
           ...(storedRow.errors ?? []),
           error instanceof Error ? error.message : 'Import failed',
@@ -1055,15 +1345,16 @@ export class EmployeeImportService {
         storedRow.resultData = {
           ...(storedRow.resultData ?? {}),
           final_status: 'IMPORT_FAILED',
-          status: 'FAILED',
+          status: EmployeeImportRowStatusEnum.FAILED,
         };
+        await this.rowRepository.save(storedRow);
+
         if (
           previewRow.userAccount?.action === 'CREATE_NEW_USER' ||
           previewRow.userAccount?.action === 'CANNOT_CREATE_USER'
         ) {
           failedUserCreations += 1;
         }
-        rowResults.push(this.buildRowResult(storedRow));
 
         if (!processValidRowsOnly) {
           batch.status = EmployeeImportBatchStatusEnum.FAILED;
@@ -1071,15 +1362,24 @@ export class EmployeeImportService {
             error instanceof Error ? error.message : 'Import failed';
           break;
         }
+      } finally {
+        await this.batchRepository.update(batch.id, {
+          lastHeartbeatAt: new Date(),
+        });
       }
     }
 
     await this.applyManagerAssignments(
-      companyId,
+      jobData.companyId,
       batch.rows,
       importedEmployeesByNumber,
+      actor,
+      context,
     );
-    await this.rowRepository.save(batch.rows);
+    batch.rows = await this.rowRepository.find({
+      where: { batchId: batch.id },
+      order: { rowNumber: 'ASC' },
+    });
 
     batch.totalRows = batch.rows.length;
     batch.successfulRows = batch.rows.filter((row) =>
@@ -1102,38 +1402,30 @@ export class EmployeeImportService {
     batch.createdUsers = createdUsers;
     batch.deviceAssignmentsCreated = deviceAssignmentsCreated;
     batch.deviceSyncPending = deviceSyncPending;
+    batch.completedAt = new Date();
     batch.metadata = {
       ...(batch.metadata ?? {}),
       skipped_rows: skippedRows,
-      process_valid_rows_only: processValidRowsOnly,
-      selected_row_ids: Array.from(selectedRowIds),
-      existing_skipped: existingSkipped,
-      invalid_skipped: invalidSkipped,
-      duplicate_in_file_skipped: duplicateInFileSkipped,
-      excluded_by_user: excludedByUser,
       existing_users_reused: existingUsersReused,
       employee_role_assignments_completed: employeeRoleAssignmentsCompleted,
-      user_conflicts: userConflicts,
       failed_user_creations: failedUserCreations,
     };
-    batch.completedAt = new Date();
     const summary = {
       totalUploaded: batch.rows.length,
-      selectedForImport: selectedRowIds.size,
+      selectedForImport: batch.rows.filter(
+        (row) =>
+          row.status !== EmployeeImportRowStatusEnum.SKIPPED &&
+          row.status !== EmployeeImportRowStatusEnum.INVALID,
+      ).length,
       successfullyImported: batch.successfulRows,
       usersCreated: createdUsers,
       existingUsersReused,
       employeeRoleAssignmentsCompleted,
-      userConflicts,
       failedUserCreations,
-      existingSkipped,
-      invalidSkipped,
-      duplicateInFileSkipped,
-      excludedByUser,
       failedDuringImport: batch.failedRows,
       userProvisioningMessage:
         createdUsers > 0
-          ? 'Imported employee accounts were created using the configured temporary password. Imported users must change that password before they can continue using the application.'
+          ? 'Imported employee accounts were created as pending activation users. They remain inactive, unverified, and must set a password during activation.'
           : undefined,
     };
     batch.validationSummary = {
@@ -1149,15 +1441,6 @@ export class EmployeeImportService {
           : EmployeeImportBatchStatusEnum.COMPLETED;
     }
 
-    await this.batchRepository.save(batch);
-
-    let hikvisionSyncSummary:
-      | {
-          scheduled: boolean;
-          scheduledFor: string | null;
-          message: string;
-        }
-      | undefined;
     const successfulImportCandidates = batch.rows
       .filter((row) =>
         [
@@ -1174,69 +1457,53 @@ export class EmployeeImportService {
         ),
       }));
 
-    if (successfulImportCandidates.length > 0) {
-      try {
-        const syncSchedule =
-          await this.hikvisionImportSyncService.scheduleImportedEmployeesSync({
-            companyId,
+    const resultWorkbook = await this.buildResultWorkbook(batch);
+    const storedResultWorkbook = await this.filesService.savePrivateBufferFile({
+      buffer: resultWorkbook.buffer,
+      fileName: resultWorkbook.fileName,
+      mimeType:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      directorySegments: [
+        'employee-imports',
+        String(jobData.companyId),
+        batch.batchId,
+        'results',
+      ],
+      fileNamePrefix: 'result',
+      allowedMimeTypes: [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ],
+      maxFileSizeBytes: this.getMaxImportFileSizeBytes(),
+    });
+
+    batch.resultFilePath = storedResultWorkbook.publicPath;
+    batch.resultFileChecksum = crypto
+      .createHash('sha256')
+      .update(resultWorkbook.buffer)
+      .digest('hex');
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(EmployeeImportBatch).save(batch);
+
+      if (successfulImportCandidates.length > 0) {
+        await manager.getRepository(EmployeeImportOutboxEvent).save({
+          eventId: crypto.randomUUID(),
+          companyId: jobData.companyId,
+          batchId: batch.id,
+          eventType:
+            EmployeeImportOutboxEventType.SCHEDULE_HIKVISION_SYNC,
+          payload: {
+            companyId: jobData.companyId,
             importBatchId: batch.batchId,
             importFileName: batch.originalFileName,
             requestedByUserId: actor.id ?? null,
             requestedByCompanyUserId:
-              actor.companyMembershipId ??
-              batch.uploadedByCompanyUserId ??
-              null,
+              actor.companyMembershipId ?? batch.uploadedByCompanyUserId ?? null,
             employees: successfulImportCandidates,
-          });
-
-        hikvisionSyncSummary = syncSchedule.scheduled
-          ? {
-              scheduled: true,
-              scheduledFor: syncSchedule.scheduledFor,
-              message:
-                'Employees were imported successfully. Hikvision synchronization will run automatically in the background at the configured synchronization time.',
-            }
-          : {
-              scheduled: false,
-              scheduledFor: null,
-              message:
-                'Employees were imported successfully. Hikvision synchronization was not queued because automatic synchronization is disabled or no eligible employees were available.',
-            };
-      } catch (error) {
-        this.logger.error(
-          `Failed to queue Hikvision synchronization for import batch ${batch.batchId}: ${(error as Error).message}`,
-          error instanceof Error ? error.stack : undefined,
-        );
-        hikvisionSyncSummary = {
-          scheduled: false,
-          scheduledFor: null,
-          message:
-            'Employees were imported successfully. Hikvision synchronization could not be queued automatically.',
-        };
+          },
+        });
       }
-    }
-
-    return {
-      batchId: batch.batchId,
-      status: batch.status,
-      totalRows: batch.totalRows,
-      successfulRows: batch.successfulRows,
-      failedRows: batch.failedRows,
-      skippedRows,
-      warningRows: batch.warningRows,
-      createdEmployees: batch.createdEmployees,
-      updatedEmployees: batch.updatedEmployees,
-      createdUsers: batch.createdUsers,
-      deviceAssignmentsCreated: batch.deviceAssignmentsCreated,
-      deviceSyncPending: batch.deviceSyncPending,
-      summary: hikvisionSyncSummary
-        ? {
-            ...summary,
-            hikvisionSync: hikvisionSyncSummary,
-          }
-        : summary,
-      rows: rowResults,
-    };
+    });
   }
 
   async listHistory(companyId: number, query: EmployeeImportHistoryQueryDto) {
@@ -1291,7 +1558,7 @@ export class EmployeeImportService {
 
     return {
       batchId: batch.batchId,
-      previewToken: batch.previewToken,
+      previewToken: null,
       status: batch.status,
       importMode: batch.importMode,
       previewExpiresAt: batch.previewExpiresAt,
@@ -1336,7 +1603,7 @@ export class EmployeeImportService {
 
     return {
       ...this.mapBatch(batch),
-      previewToken: batch.previewToken,
+      previewToken: null,
       previewExpiresAt: batch.previewExpiresAt,
       summary: resultSummary ?? null,
       previewSummary: previewSummary ?? null,
@@ -1442,13 +1709,30 @@ export class EmployeeImportService {
     dto: EmployeeImportPreviewRequestDto,
     actor: AuthenticatedUser,
     rows: PreviewRow[],
-  ): Promise<EmployeeImportBatch> {
+  ): Promise<{ batch: EmployeeImportBatch; previewToken: string }> {
     const batchId = this.generateBatchId();
     const previewToken = crypto.randomBytes(24).toString('hex');
     const checksum = crypto
       .createHash('sha256')
       .update(file.buffer)
       .digest('hex');
+    const storedSourceFile = await this.filesService.savePrivateBufferFile({
+      buffer: file.buffer,
+      fileName: file.originalname,
+      fileSize: file.size,
+      mimeType: file.mimetype,
+      directorySegments: [
+        'employee-imports',
+        String(companyId),
+        batchId,
+        'source',
+      ],
+      fileNamePrefix: 'source',
+      allowedMimeTypes: [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ],
+      maxFileSizeBytes: this.getMaxImportFileSizeBytes(),
+    });
     const duplicateRows = rows.filter((row) =>
       row.errors.some((error) => error.toLowerCase().includes('duplicate')),
     ).length;
@@ -1456,14 +1740,17 @@ export class EmployeeImportService {
     const batch = this.batchRepository.create({
       batchId,
       companyId,
-      previewToken,
+      schemaVersion: EMPLOYEE_IMPORT_SCHEMA_VERSION,
+      previewTokenHash: this.hashPreviewToken(previewToken),
       importMode: dto.import_mode ?? EmployeeImportModeEnum.CREATE_ONLY,
       status: EmployeeImportBatchStatusEnum.PREVIEW_READY,
       originalFileName: file.originalname,
       fileSize: String(file.size),
       fileChecksum: checksum,
+      sourceFilePath: storedSourceFile.publicPath,
+      sourceMimeType: storedSourceFile.mimeType,
       uploadedByCompanyUserId: actor.companyMembershipId ?? null,
-      previewExpiresAt: new Date(Date.now() + PREVIEW_TTL_MS),
+      previewExpiresAt: new Date(Date.now() + this.getPreviewTtlMs()),
       totalRows: rows.length,
       validRows: rows.filter((row) => row.previewStatus === 'READY_FOR_IMPORT')
         .length,
@@ -1474,6 +1761,12 @@ export class EmployeeImportService {
       validationSummary: this.buildValidationSummary(rows),
       metadata: {
         process_valid_rows_only: dto.process_valid_rows_only ?? true,
+        employee_number_mode:
+          dto.employee_number_mode ?? EmployeeImportNumberModeEnum.GENERATE,
+        activation_mode:
+          dto.activation_mode ??
+          EmployeeImportActivationModeEnum.CREATE_ONBOARDING,
+        import_reason: this.optionalString(dto.import_reason) ?? null,
       },
     });
 
@@ -1482,6 +1775,7 @@ export class EmployeeImportService {
       this.rowRepository.create({
         batchId: savedBatch.id,
         rowNumber: row.rowNumber,
+        rowKey: this.createRowKey(batchId, row.rowNumber, row.normalizedData),
         status: row.errors.length
           ? EmployeeImportRowStatusEnum.INVALID
           : EmployeeImportRowStatusEnum.READY,
@@ -1518,7 +1812,10 @@ export class EmployeeImportService {
     );
     await this.rowRepository.save(rowEntities);
     savedBatch.rows = rowEntities;
-    return savedBatch;
+    return {
+      batch: savedBatch,
+      previewToken,
+    };
   }
 
   private validatePreviewRow(
@@ -1908,19 +2205,40 @@ export class EmployeeImportService {
 
   private buildEmployeeCreateDto(
     normalizedData: Record<string, unknown>,
+    batch: EmployeeImportBatch,
   ): CreateEmployeeDto {
-    const contacts: EmployeeContactInputDto[] = [
-      {
+    const contacts: EmployeeContactInputDto[] = [];
+    if (this.optionalString(normalizedData.email)) {
+      contacts.push({
         contact_type: ContactTypeEnum.WORK,
         email: String(normalizedData.email),
         is_primary: true,
         is_verified: false,
-      },
-    ];
+      });
+    }
+    if (this.optionalString(normalizedData.phone)) {
+      contacts.push({
+        contact_type: ContactTypeEnum.WORK,
+        phone_number: String(normalizedData.phone),
+        is_primary: contacts.length === 0,
+        is_verified: false,
+      });
+    }
+
+    const numberMode =
+      (this.optionalString(batch.metadata?.employee_number_mode) as
+        | EmployeeImportNumberModeEnum
+        | null) ?? EmployeeImportNumberModeEnum.GENERATE;
+    const activationMode =
+      (this.optionalString(batch.metadata?.activation_mode) as
+        | EmployeeImportActivationModeEnum
+        | null) ?? EmployeeImportActivationModeEnum.CREATE_ONBOARDING;
 
     return {
       employee_no:
-        this.optionalString(normalizedData.employee_number) ?? undefined,
+        numberMode === EmployeeImportNumberModeEnum.PRESERVE_SOURCE
+          ? (this.optionalString(normalizedData.employee_number) ?? undefined)
+          : undefined,
       first_name: String(normalizedData.first_name),
       middle_name: this.optionalString(normalizedData.middle_name) ?? undefined,
       last_name: String(normalizedData.last_name),
@@ -1937,26 +2255,32 @@ export class EmployeeImportService {
         this.toNumber(normalizedData.department_id) ?? undefined,
       primary_position_id:
         this.toNumber(normalizedData.position_id) ?? undefined,
-      // Employee imports always create active employees.
-      employment_status: EmploymentStatusEnum.ACTIVE,
+      employment_status:
+        activationMode === EmployeeImportActivationModeEnum.MIGRATE_AS_ACTIVE
+          ? EmploymentStatusEnum.ACTIVE
+          : EmploymentStatusEnum.ONBOARDING,
       employment_type:
         (this.optionalString(
           normalizedData.employment_type,
         ) as EmploymentTypeEnum | null) ?? undefined,
       hire_date:
         this.optionalString(normalizedData.employment_date) ?? undefined,
+      grade_id: this.toNumber(normalizedData.grade_id) ?? undefined,
+      cost_center_id:
+        this.toNumber(normalizedData.cost_center_id) ?? undefined,
       notes: this.optionalString(normalizedData.notes) ?? undefined,
       metadata: {
         employee_import_account: {
           provisioned: true,
           requires_password_change: true,
+          activation_mode: activationMode,
           provisioned_at: new Date().toISOString(),
         },
       },
       onboarding: {
         auto_start: false,
       },
-      contacts,
+      contacts: contacts.length > 0 ? contacts : undefined,
       identifications: this.optionalString(normalizedData.national_id)
         ? [
             {
@@ -2017,23 +2341,6 @@ export class EmployeeImportService {
     if (normalizedData.date_of_birth !== null) {
       dto.date_of_birth =
         this.optionalString(normalizedData.date_of_birth) ?? undefined;
-    }
-    if (normalizedData.branch_id !== null) {
-      dto.primary_branch_id =
-        this.toNumber(normalizedData.branch_id) ?? undefined;
-    }
-    if (normalizedData.department_id !== null) {
-      dto.primary_department_id =
-        this.toNumber(normalizedData.department_id) ?? undefined;
-    }
-    if (normalizedData.position_id !== null) {
-      dto.primary_position_id =
-        this.toNumber(normalizedData.position_id) ?? undefined;
-    }
-    if (normalizedData.employee_status !== null) {
-      dto.employment_status = this.optionalString(
-        normalizedData.employee_status,
-      ) as EmploymentStatusEnum;
     }
     if (normalizedData.employment_type !== null) {
       dto.employment_type = this.optionalString(
@@ -2132,23 +2439,6 @@ export class EmployeeImportService {
       };
     }
 
-    const passwordConfigError =
-      this.resolveEmployeeImportDefaultPasswordValidationError();
-    if (passwordConfigError) {
-      this.addIssueOnce(row, 'user_account', email, passwordConfigError);
-      return {
-        action: 'CANNOT_CREATE_USER',
-        loginIdentifier: email,
-        role: roleLabel,
-        status: 'INVALID',
-        userStatus: null,
-        existingUserId: null,
-        message: passwordConfigError,
-        passwordChangeRequiredOnFirstLogin: false,
-        limitation,
-      };
-    }
-
     if (!employeeRole) {
       const message =
         'The default Employee role is not configured for this company. Employee user accounts cannot be created.';
@@ -2204,11 +2494,11 @@ export class EmployeeImportService {
       loginIdentifier: email,
       role: roleLabel,
       status: 'VALID',
-      userStatus: 'active',
+      userStatus: 'inactive',
       existingUserId: null,
       message:
-        'A new active system user will be created and assigned the Employee role.',
-      passwordChangeRequiredOnFirstLogin: false,
+        'A new inactive pending-activation system user will be created and assigned the Employee role.',
+      passwordChangeRequiredOnFirstLogin: true,
       limitation,
     };
   }
@@ -2265,7 +2555,6 @@ export class EmployeeImportService {
       );
     }
 
-    const defaultPassword = this.getRequiredEmployeeImportDefaultPassword();
     const role = await this.getRequiredDefaultEmployeeRole(
       companyId,
       manager?.getRepository(Role) ?? this.roleRepository,
@@ -2277,7 +2566,6 @@ export class EmployeeImportService {
         email,
         firstName,
         lastName,
-        defaultPassword,
         roleNames: [role.name],
       },
       manager,
@@ -2445,6 +2733,8 @@ export class EmployeeImportService {
     companyId: number,
     rows: EmployeeImportRow[],
     importedEmployeesByNumber: Map<string, number>,
+    actor: AuthenticatedUser,
+    context: AuditRequestContext,
   ): Promise<void> {
     const employeeNumbers = rows
       .map((row) => this.optionalString(row.employeeNumber))
@@ -2490,9 +2780,19 @@ export class EmployeeImportService {
         continue;
       }
 
-      await this.employeeRepository.update(employeeId, {
-        reports_to: managerId,
-      });
+      await this.employeeAssignmentService.changeAssignment(
+        companyId,
+        employeeId,
+        {
+          effective_date:
+            this.optionalString(row.normalizedData?.employment_date) ??
+            new Date().toISOString().slice(0, 10),
+          reports_to: managerId,
+          reason: 'Employee import manager assignment',
+        },
+        actor,
+        context,
+      );
     }
   }
 
@@ -3040,6 +3340,349 @@ export class EmployeeImportService {
     };
   }
 
+  private buildQueuedImportResponse(
+    batch: EmployeeImportBatch,
+    queuedRows: number,
+    replayed = false,
+  ): EmployeeImportResponseDto & { rows: Record<string, unknown>[] } {
+    const rows = [...(batch.rows ?? [])]
+      .sort((left, right) => left.rowNumber - right.rowNumber)
+      .map((row) => this.buildRowResult(row));
+    const skippedRows = batch.rows?.filter(
+      (row) => row.status === EmployeeImportRowStatusEnum.SKIPPED,
+    ).length ?? 0;
+
+    return {
+      batchId: batch.batchId,
+      status: batch.status,
+      totalRows: batch.totalRows,
+      successfulRows: batch.successfulRows,
+      failedRows: batch.failedRows,
+      skippedRows,
+      warningRows: batch.warningRows,
+      createdEmployees: batch.createdEmployees,
+      updatedEmployees: batch.updatedEmployees,
+      createdUsers: batch.createdUsers,
+      deviceAssignmentsCreated: batch.deviceAssignmentsCreated,
+      deviceSyncPending: batch.deviceSyncPending,
+      summary: {
+        queuedRows,
+        replayed,
+        message: replayed
+          ? 'This import confirmation was already accepted for the supplied idempotency key.'
+          : 'The import batch was queued successfully and will be processed in the background.',
+      },
+      rows,
+    };
+  }
+
+  private async findBatchForProcessing(
+    repository: Repository<EmployeeImportBatch>,
+    companyId: number,
+    batchId?: string | null,
+    previewToken?: string | null,
+  ): Promise<EmployeeImportBatch | null> {
+    const query = repository
+      .createQueryBuilder('batch')
+      .leftJoinAndSelect('batch.rows', 'row')
+      .where('batch.companyId = :companyId', { companyId })
+      .orderBy('row.rowNumber', 'ASC')
+      .setLock('pessimistic_write');
+
+    if (batchId) {
+      query.andWhere('batch.batchId = :batchId', { batchId });
+    } else if (previewToken) {
+      query.andWhere('batch.previewTokenHash = :previewTokenHash', {
+        previewTokenHash: this.hashPreviewToken(previewToken),
+      });
+    }
+
+    return query.getOne();
+  }
+
+  private buildPreviewRequestDtoFromBatch(
+    batch: EmployeeImportBatch,
+    override?: EmployeeImportConfirmDto,
+  ): EmployeeImportPreviewRequestDto {
+    return {
+      import_mode: batch.importMode,
+      employee_number_mode:
+        (this.optionalString(batch.metadata?.employee_number_mode) as
+          | EmployeeImportNumberModeEnum
+          | null) ?? EmployeeImportNumberModeEnum.GENERATE,
+      activation_mode:
+        (this.optionalString(batch.metadata?.activation_mode) as
+          | EmployeeImportActivationModeEnum
+          | null) ?? EmployeeImportActivationModeEnum.CREATE_ONBOARDING,
+      process_valid_rows_only:
+        override?.process_valid_rows_only ??
+        ((batch.metadata?.process_valid_rows_only as boolean | undefined) ??
+          true),
+      import_reason: this.optionalString(batch.metadata?.import_reason) ?? undefined,
+    };
+  }
+
+  private buildActorSnapshot(actor: AuthenticatedUser): Record<string, unknown> {
+    return {
+      id: actor.id ?? null,
+      email: actor.email ?? null,
+      scope: actor.scope ?? null,
+      userType: actor.userType ?? null,
+      companyId: actor.companyId ?? null,
+      companyMembershipId: actor.companyMembershipId ?? null,
+      permissions: actor.permissions ?? [],
+      roles: actor.roles ?? [],
+    };
+  }
+
+  private buildImportActorFromBatch(
+    batch: EmployeeImportBatch,
+    jobData: EmployeeImportJobData,
+  ): AuthenticatedUser {
+    const snapshot =
+      batch.metadata?.requested_by &&
+      typeof batch.metadata.requested_by === 'object' &&
+      !Array.isArray(batch.metadata.requested_by)
+        ? (batch.metadata.requested_by as Record<string, unknown>)
+        : {};
+
+    return {
+      id:
+        this.toNumber(snapshot.id) ??
+        jobData.requestedByUserId ??
+        0,
+      email: this.optionalString(snapshot.email) ?? 'employee-import@system.local',
+      scope:
+        (this.optionalString(snapshot.scope) as AuthenticatedUser['scope']) ??
+        'company',
+      userType:
+        (this.optionalString(snapshot.userType) as AuthenticatedUser['userType']) ??
+        'COMPANY_USER',
+      companyId:
+        this.toNumber(snapshot.companyId) ?? jobData.companyId,
+      companyMembershipId:
+        this.toNumber(snapshot.companyMembershipId) ??
+        jobData.requestedByCompanyUserId ??
+        undefined,
+      permissions: Array.isArray(snapshot.permissions)
+        ? snapshot.permissions.filter(
+            (value): value is string => typeof value === 'string',
+          )
+        : [],
+      roles: Array.isArray(snapshot.roles)
+        ? snapshot.roles.filter(
+            (value): value is string => typeof value === 'string',
+          )
+        : [],
+    };
+  }
+
+  private buildAuditContextFromBatch(
+    batch: EmployeeImportBatch,
+  ): AuditRequestContext {
+    const stored =
+      batch.metadata?.audit_context &&
+      typeof batch.metadata.audit_context === 'object' &&
+      !Array.isArray(batch.metadata.audit_context)
+        ? (batch.metadata.audit_context as Record<string, unknown>)
+        : {};
+
+    return {
+      ipAddress: this.optionalString(stored.ipAddress) ?? null,
+      userAgent: this.optionalString(stored.userAgent) ?? null,
+      requestId: this.optionalString(stored.requestId) ?? null,
+    };
+  }
+
+  private normalizeIdempotencyKey(value?: string | null): string | null {
+    const normalized = this.optionalString(value);
+    return normalized ? normalized.slice(0, 255) : null;
+  }
+
+  private hashIdempotencyKey(value: string): string {
+    return crypto.createHash('sha256').update(value).digest('hex');
+  }
+
+  private hashPreviewToken(value: string): string {
+    return crypto.createHash('sha256').update(value).digest('hex');
+  }
+
+  private createRowKey(
+    batchId: string,
+    rowNumber: number,
+    normalizedData: Record<string, unknown> | null,
+  ): string {
+    return crypto
+      .createHash('sha256')
+      .update(
+        JSON.stringify({
+          batchId,
+          rowNumber,
+          normalizedData,
+        }),
+      )
+      .digest('hex');
+  }
+
+  private buildAssignmentChangeDto(
+    normalizedData: Record<string, unknown>,
+  ): ChangeEmployeeAssignmentDto | null {
+    const branchId = this.toNumber(normalizedData.branch_id);
+    const departmentId = this.toNumber(normalizedData.department_id);
+    const positionId = this.toNumber(normalizedData.position_id);
+    const gradeId = this.toNumber(normalizedData.grade_id);
+    const costCenterId = this.toNumber(normalizedData.cost_center_id);
+
+    if (
+      !branchId &&
+      !departmentId &&
+      !positionId &&
+      !gradeId &&
+      !costCenterId
+    ) {
+      return null;
+    }
+
+    return {
+      effective_date:
+        this.optionalString(normalizedData.employment_date) ??
+        new Date().toISOString().slice(0, 10),
+      branch_id: branchId ?? undefined,
+      departments: departmentId
+        ? [{ department_id: departmentId, is_primary: true }]
+        : undefined,
+      primary_position_id: positionId ?? undefined,
+      grade_id: gradeId ?? undefined,
+      cost_center_id: costCenterId ?? undefined,
+      reason: 'Employee import assignment update',
+    };
+  }
+
+  private assertPhaseThreeImportPermissions(
+    actor: AuthenticatedUser,
+    dto: EmployeeImportPreviewRequestDto,
+  ): void {
+    if (
+      dto.employee_number_mode === EmployeeImportNumberModeEnum.PRESERVE_SOURCE &&
+      !hasPermission(actor.permissions, 'employees:override-number')
+    ) {
+      throw new ForbiddenException(
+        'PRESERVE_SOURCE requires the employees:override-number permission.',
+      );
+    }
+
+    if (
+      dto.activation_mode ===
+        EmployeeImportActivationModeEnum.MIGRATE_AS_ACTIVE &&
+      !hasPermission(actor.permissions, 'employees:change-status')
+    ) {
+      throw new ForbiddenException(
+        'MIGRATE_AS_ACTIVE requires the employees:change-status permission.',
+      );
+    }
+  }
+
+  private getMaxImportFileSizeBytes(): number {
+    return this.configService.get<number>(
+      'EMPLOYEE_IMPORT_MAX_FILE_SIZE_BYTES',
+      10 * 1024 * 1024,
+    );
+  }
+
+  private getMaxImportRows(): number {
+    return this.configService.get<number>('EMPLOYEE_IMPORT_MAX_ROWS', 1000);
+  }
+
+  private getPreviewTtlMs(): number {
+    const minutes = this.configService.get<number>(
+      'EMPLOYEE_IMPORT_PREVIEW_TTL_MINUTES',
+      30,
+    );
+    return Math.max(1, minutes) * 60 * 1000;
+  }
+
+  private async buildResultWorkbook(
+    batch: EmployeeImportBatch,
+  ): Promise<{ buffer: Buffer; fileName: string }> {
+    const workbook = new ExcelJS.Workbook();
+    const resultSheet = workbook.addWorksheet('Import Results');
+    const columns = [
+      'row_number',
+      ...IMPORT_COLUMNS,
+      'status',
+      'preview_status',
+      'device_assignment_status',
+      'device_assignment_message',
+      'device_codes',
+      'effective_device_employee_number',
+      'import_action',
+      'employee_id',
+      'user_id',
+      'matched_by',
+      'existing_employee',
+      'errors',
+      'warnings',
+    ];
+
+    resultSheet.addRow(columns);
+    resultSheet.getRow(1).font = { bold: true };
+    resultSheet.views = [{ state: 'frozen', ySplit: 1 }];
+    resultSheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1, column: columns.length },
+    };
+
+    for (const row of [...(batch.rows ?? [])].sort(
+      (left, right) => left.rowNumber - right.rowNumber,
+    )) {
+      const deviceAssignment =
+        (row.resultData?.device_assignment as
+          | DeviceAssignmentPreview
+          | undefined) ?? this.buildDeviceAssignmentPreview(row, null);
+      const output: Record<string, unknown> = {
+        row_number: row.rowNumber,
+      };
+
+      for (const column of IMPORT_COLUMNS) {
+        output[column] = this.exportSafeCellValue(row.rawData[column] ?? '');
+      }
+
+      output.status = row.status;
+      output.preview_status = row.resultData?.preview_status ?? '';
+      output.device_assignment_status = deviceAssignment.status;
+      output.device_assignment_message = deviceAssignment.message;
+      output.device_codes = deviceAssignment.deviceCodes.join(', ');
+      output.effective_device_employee_number =
+        deviceAssignment.effectiveDeviceEmployeeNumber ?? '';
+      output.import_action = row.importAction ?? '';
+      output.employee_id = row.createdEmployeeId ?? '';
+      output.user_id = row.createdUserId ?? '';
+      output.matched_by = Array.isArray(row.resultData?.matched_by)
+        ? (row.resultData?.matched_by as string[]).join(', ')
+        : '';
+      output.existing_employee =
+        row.resultData?.existing_employee &&
+        typeof row.resultData.existing_employee === 'object' &&
+        !Array.isArray(row.resultData.existing_employee)
+          ? ((row.resultData.existing_employee as { fullName?: string })
+              .fullName ?? '')
+          : '';
+      output.errors = (row.errors ?? []).join(' | ');
+      output.warnings = (row.warnings ?? []).join(' | ');
+      resultSheet.addRow(columns.map((column) => output[column] ?? ''));
+    }
+
+    resultSheet.columns.forEach((column) => {
+      column.width = 22;
+    });
+
+    const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+    return {
+      buffer,
+      fileName: `${batch.batchId}-result.xlsx`,
+    };
+  }
+
   private readHeaders(worksheet: ExcelJS.Worksheet): {
     headers: string[];
     unsupportedHeaders: string[];
@@ -3167,7 +3810,7 @@ export class EmployeeImportService {
     if (!file.buffer?.length) {
       throw new BadRequestException('Uploaded Excel file is empty');
     }
-    if (file.size > MAX_IMPORT_FILE_SIZE_BYTES) {
+    if (file.size > this.getMaxImportFileSizeBytes()) {
       throw new BadRequestException(
         'Uploaded Excel file exceeds the size limit',
       );
@@ -3856,43 +4499,6 @@ export class EmployeeImportService {
       ) ??
       null
     );
-  }
-
-  private resolveEmployeeImportDefaultPasswordValidationError(): string | null {
-    const defaultPassword = this.optionalString(
-      this.configService.get<string>('EMPLOYEE_IMPORT_DEFAULT_PASSWORD'),
-    );
-    if (!defaultPassword) {
-      return (
-        'Employee import cannot create user accounts because ' +
-        'EMPLOYEE_IMPORT_DEFAULT_PASSWORD is missing or does not meet the password policy.'
-      );
-    }
-
-    const dto = new ResetPasswordDto();
-    dto.token = 'employee-import';
-    dto.new_password = defaultPassword;
-    const validationErrors = validateSync(dto);
-    if (validationErrors.length > 0) {
-      return (
-        'Employee import cannot create user accounts because ' +
-        'EMPLOYEE_IMPORT_DEFAULT_PASSWORD is missing or does not meet the password policy.'
-      );
-    }
-
-    return null;
-  }
-
-  private getRequiredEmployeeImportDefaultPassword(): string {
-    const validationError =
-      this.resolveEmployeeImportDefaultPasswordValidationError();
-    if (validationError) {
-      throw new BadRequestException(validationError);
-    }
-
-    return String(
-      this.configService.get<string>('EMPLOYEE_IMPORT_DEFAULT_PASSWORD'),
-    ).trim();
   }
 
   private async getRequiredDefaultEmployeeRole(

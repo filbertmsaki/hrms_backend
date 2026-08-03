@@ -7,6 +7,7 @@ jest.mock('digest-fetch', () => ({
 }));
 import { EmployeeImportService } from './employee-import.service';
 import { EmployeeImportBatch } from './entities/employee-import-batch.entity';
+import { EmployeeImportOutboxEvent } from './entities/employee-import-outbox-event.entity';
 import { EmployeeImportRow } from './entities/employee-import-row.entity';
 import { Employee } from '../entities/employee.entity';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
@@ -130,6 +131,9 @@ describe('EmployeeImportService', () => {
   let branchesService: {
     grantAccess: jest.Mock;
   };
+  let filesService: {
+    savePrivateBufferFile: jest.Mock;
+  };
   let hikvisionImportSyncService: {
     scheduleImportedEmployeesSync: jest.Mock;
   };
@@ -148,15 +152,19 @@ describe('EmployeeImportService', () => {
   beforeEach(() => {
     jest.useRealTimers();
     configService = {
-      get: jest.fn().mockImplementation((key: string) => {
-        if (key === 'EMPLOYEE_IMPORT_DEFAULT_PASSWORD') {
-          return 'ChangeMe@123';
-        }
-        return undefined;
-      }),
+      get: jest.fn().mockImplementation((key: string, defaultValue?: unknown) =>
+        defaultValue,
+      ),
     };
     branchesService = {
       grantAccess: jest.fn().mockResolvedValue(undefined),
+    };
+    filesService = {
+      savePrivateBufferFile: jest.fn().mockResolvedValue({
+        publicPath: '/private-uploads/employee-imports/test/source.xlsx',
+        mimeType:
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      }),
     };
     hikvisionImportSyncService = {
       scheduleImportedEmployeesSync: jest
@@ -167,6 +175,7 @@ describe('EmployeeImportService', () => {
       {} as DataSource,
       createRepositoryMock() as unknown as Repository<EmployeeImportBatch>,
       createRepositoryMock() as unknown as Repository<EmployeeImportRow>,
+      createRepositoryMock() as unknown as Repository<EmployeeImportOutboxEvent>,
       createRepositoryMock() as unknown as Repository<Employee>,
       createRepositoryMock() as unknown as Repository<CompanyUser>,
       createRepositoryMock() as unknown as Repository<User>,
@@ -184,6 +193,7 @@ describe('EmployeeImportService', () => {
       {} as never,
       {} as never,
       {} as never,
+      filesService as never,
       {} as never,
       {} as never,
       {} as never,
@@ -276,37 +286,56 @@ describe('EmployeeImportService', () => {
       'last_name',
       'employee_number',
       'email',
+      'phone',
       'gender',
+      'date_of_birth',
+      'marital_status',
+      'nationality',
       'employment_date',
+      'employment_type',
       'branch_code',
       'department_code',
       'position_code',
-      'employment_type',
+      'manager_employee_number',
+      'grade_code',
+      'cost_center_code',
+      'shift_code',
+      'timetable_code',
+      'national_id',
+      'tax_id',
+      'social_security_number',
+      'passport_number',
+      'work_permit_number',
+      'address',
+      'emergency_contact_name',
+      'emergency_contact_phone',
       'access_device_codes',
       'device_employee_number',
+      'card_number',
+      'notes',
     ]);
-    expect(employeeSheet?.getCell('H2').dataValidation.type).toBe('list');
-    expect(employeeSheet?.getCell('H2').dataValidation.formulae).toEqual([
+    expect(employeeSheet?.getCell('M2').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('M2').dataValidation.formulae).toEqual([
       'BranchCodes',
     ]);
-    expect(employeeSheet?.getCell('I2').dataValidation.type).toBe('list');
-    expect(employeeSheet?.getCell('I2').dataValidation.formulae).toEqual([
+    expect(employeeSheet?.getCell('N2').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('N2').dataValidation.formulae).toEqual([
       'DepartmentCodes',
     ]);
-    expect(employeeSheet?.getCell('J2').dataValidation.type).toBe('list');
-    expect(employeeSheet?.getCell('J2').dataValidation.formulae).toEqual([
+    expect(employeeSheet?.getCell('O2').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('O2').dataValidation.formulae).toEqual([
       'PositionCodes',
-    ]);
-    expect(employeeSheet?.getCell('K2').dataValidation.type).toBe('list');
-    expect(employeeSheet?.getCell('K2').dataValidation.formulae).toEqual([
-      'EmploymentTypes',
-    ]);
-    expect(employeeSheet?.getCell('F2').dataValidation.type).toBe('list');
-    expect(employeeSheet?.getCell('F2').dataValidation.formulae).toEqual([
-      'GenderValues',
     ]);
     expect(employeeSheet?.getCell('L2').dataValidation.type).toBe('list');
     expect(employeeSheet?.getCell('L2').dataValidation.formulae).toEqual([
+      'EmploymentTypes',
+    ]);
+    expect(employeeSheet?.getCell('G2').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('G2').dataValidation.formulae).toEqual([
+      'GenderValues',
+    ]);
+    expect(employeeSheet?.getCell('AB2').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('AB2').dataValidation.formulae).toEqual([
       'AccessDeviceCodes',
     ]);
     expect(workbook.definedNames.model).toEqual(
@@ -1039,7 +1068,7 @@ describe('EmployeeImportService', () => {
     ]);
   });
 
-  it('marks the row invalid when EMPLOYEE_IMPORT_DEFAULT_PASSWORD is missing', () => {
+  it('previews imported users as pending activation accounts', () => {
     configService.get.mockReturnValueOnce(undefined);
 
     const row = (
@@ -1083,11 +1112,10 @@ describe('EmployeeImportService', () => {
       },
     );
 
-    expect(row.previewStatus).toBe('INVALID_RECORD');
-    expect(row.userAccount.action).toBe('CANNOT_CREATE_USER');
-    expect(row.userAccount.message).toContain(
-      'EMPLOYEE_IMPORT_DEFAULT_PASSWORD',
-    );
+    expect(row.previewStatus).toBe('READY_FOR_IMPORT');
+    expect(row.userAccount.action).toBe('CREATE_NEW_USER');
+    expect(row.userAccount.userStatus).toBe('inactive');
+    expect(row.userAccount.passwordChangeRequiredOnFirstLogin).toBe(true);
   });
 
   it('marks the row invalid when the default Employee role is not configured', () => {
@@ -1243,7 +1271,6 @@ describe('EmployeeImportService', () => {
         email: 'api.import.tx@example.com',
         firstName: 'Api',
         lastName: 'Import',
-        defaultPassword: 'ChangeMe@123',
         roleNames: ['EMPLOYEE'],
       },
       undefined,
@@ -1689,7 +1716,7 @@ describe('EmployeeImportService', () => {
       'IMPORT-20260730-PREVIEW',
     )) as {
       batchId: string;
-      previewToken: string;
+      previewToken: string | null;
       process_valid_rows_only: boolean;
       totalRows: number;
       validRows: number;
@@ -1703,7 +1730,7 @@ describe('EmployeeImportService', () => {
     };
 
     expect(result.batchId).toBe('IMPORT-20260730-PREVIEW');
-    expect(result.previewToken).toBe('preview-token');
+    expect(result.previewToken).toBeNull();
     expect(result.process_valid_rows_only).toBe(true);
     expect(result.totalRows).toBe(2);
     expect(result.validRows).toBe(1);

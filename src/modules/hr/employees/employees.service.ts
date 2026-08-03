@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
@@ -9,16 +10,31 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import type { AuditRequestContext } from '../../../common/interfaces/audit-request-context.interface';
 import { hashPassword } from '../../../common/utils/hash.util';
+import { hasPermission } from '../../../common/utils/permission.util';
 import { CompaniesService } from '../../companies/companies.service';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
+import { FilesService } from '../../files/files.service';
+import { Base64FileDto } from '../../files/dtos/base64-file.dto';
+import {
+  HR_PRIVATE_DOCUMENT_MAX_BYTES,
+  HR_PRIVATE_DOCUMENT_MIME_TYPES,
+} from '../../files/file-policy';
+import { SecurityEventOutcome } from '../../security/enums/security-event-outcome.enum';
+import { SecurityEventType } from '../../security/enums/security-event-type.enum';
+import { SecurityEventsService } from '../../security/security-events.service';
 import { User } from '../../users/entities/user.entity';
 import { UsersService } from '../../users/users.service';
 import { Branch } from '../branches/entities/branch.entity';
+import { CostCenter } from '../cost-centers/entities/cost-center.entity';
+import { DefaultAvatarsService } from '../default-avatars/default-avatars.service';
 import { Department } from '../departments/entities/department.entity';
+import { EmployeeAttendanceReadinessService } from '../launch-readiness/employee-attendance-readiness.service';
 import { LeaveBalanceService } from '../leave/services/leave-balance.service';
 import { OnboardingService } from '../onboarding/onboarding.service';
 import { Position } from '../positions/entities/position.entity';
+import { EmployeeGrade } from '../grades/entities/employee-grade.entity';
 import { HrAccessService } from '../shared/hr-access.service';
 import { PositionAvailabilityService } from '../shared/position-availability.service';
 import { buildPaginationMeta, formatDateOnly } from '../shared/hr.utils';
@@ -56,8 +72,8 @@ import { UpdateEmployeeExperienceDto } from './dtos/update-employee-experience.d
 import { UpdateEmployeeIdentificationDto } from './dtos/update-employee-identification.dto';
 import { UpdateEmployeeProfessionalQualificationDto } from './dtos/update-employee-professional-qualification.dto';
 import { UpdateEmployeeRelativeDto } from './dtos/update-employee-relative.dto';
-import { EmployeeAttendanceReadinessService } from '../launch-readiness/employee-attendance-readiness.service';
 import { ContactTypeEnum } from './enums/contact-type.enum';
+import { EmployeeConfirmationStatusEnum } from './enums/employee-confirmation-status.enum';
 import { EmployeePositionAssignmentTypeEnum } from './enums/employee-position-assignment-type.enum';
 import { EmployeePositionStatusEnum } from './enums/employee-position-status.enum';
 import { EmploymentStatusEnum } from './enums/employment-status.enum';
@@ -75,16 +91,17 @@ import { EmployeeAcademicQualification } from './entities/employee-academic-qual
 import { EmployeeProfessionalQualification } from './entities/employee-professional-qualification.entity';
 import { EmployeeRelative } from './entities/employee-relative.entity';
 import { Employee } from './entities/employee.entity';
-import { FilesService } from '../../files/files.service';
-import { Base64FileDto } from '../../files/dtos/base64-file.dto';
-import {
-  HR_PRIVATE_DOCUMENT_MAX_BYTES,
-  HR_PRIVATE_DOCUMENT_MIME_TYPES,
-} from '../../files/file-policy';
-import { DefaultAvatarsService } from '../default-avatars/default-avatars.service';
 import { ProfileImageSourceEnum } from './enums/profile-image-source.enum';
+import { EmployeeAssignmentService } from './employee-assignment.service';
+import { EmployeeLifecycleService } from './employee-lifecycle.service';
+import { EmployeeNumberService } from './employee-number.service';
 
 type EmployeeMutationDto = CreateEmployeeDto | UpdateEmployeeDto;
+const EMPTY_AUDIT_CONTEXT: AuditRequestContext = {
+  ipAddress: null,
+  userAgent: null,
+  requestId: null,
+};
 
 @Injectable()
 export class EmployeesService {
@@ -134,6 +151,10 @@ export class EmployeesService {
     private readonly attendanceReadinessService: EmployeeAttendanceReadinessService,
     private readonly filesService: FilesService,
     private readonly defaultAvatarsService: DefaultAvatarsService,
+    private readonly securityEventsService: SecurityEventsService,
+    private readonly employeeNumberService: EmployeeNumberService,
+    private readonly employeeAssignmentService: EmployeeAssignmentService,
+    private readonly employeeLifecycleService: EmployeeLifecycleService,
   ) {}
 
   private getEmployeeRepository(manager?: EntityManager): Repository<Employee> {
@@ -259,6 +280,18 @@ export class EmployeesService {
       manager?.getRepository(EmployeePosition) ??
       this.employeePositionRepository
     );
+  }
+
+  private getEmployeeGradeRepository(
+    manager?: EntityManager,
+  ): Repository<EmployeeGrade> {
+    return manager?.getRepository(EmployeeGrade) ?? this.dataSource.getRepository(EmployeeGrade);
+  }
+
+  private getCostCenterRepository(
+    manager?: EntityManager,
+  ): Repository<CostCenter> {
+    return manager?.getRepository(CostCenter) ?? this.dataSource.getRepository(CostCenter);
   }
 
   private normalizeOptionalString(value: unknown): string | null {
@@ -390,6 +423,37 @@ export class EmployeesService {
       is_active: position.is_active,
       description: position.description,
       status: position.status,
+    };
+  }
+
+  private mapGrade(grade?: EmployeeGrade | null) {
+    if (!grade) {
+      return null;
+    }
+
+    return {
+      id: grade.id,
+      code: grade.code,
+      name: grade.name,
+      level: grade.level,
+      description: grade.description,
+      status: grade.status,
+    };
+  }
+
+  private mapCostCenter(costCenter?: CostCenter | null) {
+    if (!costCenter) {
+      return null;
+    }
+
+    return {
+      id: costCenter.id,
+      code: costCenter.code,
+      name: costCenter.name,
+      branch_id: costCenter.branch_id,
+      department_id: costCenter.department_id,
+      description: costCenter.description,
+      status: costCenter.status,
     };
   }
 
@@ -530,8 +594,14 @@ export class EmployeesService {
       identification_type: identification.identification_type,
       identification_number: identification.identification_number,
       issued_country: identification.issued_country,
+      issue_date: identification.issue_date,
+      issuing_authority: identification.issuing_authority,
+      document_url: identification.document_url,
       expiry_date: identification.expiry_date,
       is_primary: identification.is_primary,
+      is_verified: identification.is_verified,
+      verified_at: identification.verified_at,
+      verified_by_company_user_id: identification.verified_by_company_user_id,
       created_at: identification.created_at,
       updated_at: identification.updated_at,
     };
@@ -672,26 +742,38 @@ export class EmployeesService {
         employee.profile_image_source ?? ProfileImageSourceEnum.UPLOADED,
       default_avatar_id: employee.default_avatar_id,
       selected_default_avatar: resolvedAvatar.selected_default_avatar,
+      company_id: employee.company_id,
       primary_branch_id: employee.primary_branch_id,
       primary_department_id: employee.primary_department_id,
       primary_position_id: employee.primary_position_id,
       position_id: employee.primary_position_id,
+      grade_id: employee.grade_id,
+      cost_center_id: employee.cost_center_id,
       employment_status: employee.employment_status,
       employment_type: employee.employment_type,
       hire_date: employee.hire_date,
+      probation_start_date: employee.probation_start_date,
       probation_end_date: employee.probation_end_date,
+      confirmation_due_date: employee.confirmation_due_date,
       confirmation_date: employee.confirmation_date,
+      confirmation_status: employee.confirmation_status,
+      confirmed_by_company_user_id: employee.confirmed_by_company_user_id,
+      confirmation_notes: employee.confirmation_notes,
       exit_date: employee.exit_date,
       reports_to: employee.reports_to,
       exit_reason: employee.exit_reason,
       notes: employee.notes,
       metadata: employee.metadata,
+      status_changed_at: employee.status_changed_at,
+      status_changed_by_company_user_id: employee.status_changed_by_company_user_id,
       created_at: employee.created_at,
       updated_at: employee.updated_at,
       primary_branch: this.mapBranch(employee.primary_branch),
       primary_department: this.mapDepartment(employee.primary_department),
       primary_position: this.mapPosition(employee.primary_position),
       position: this.mapPosition(employee.primary_position),
+      grade: this.mapGrade(employee.grade),
+      cost_center: this.mapCostCenter(employee.cost_center),
       manager: employee.manager
         ? {
             id: employee.manager.id,
@@ -776,6 +858,8 @@ export class EmployeesService {
         parent: true,
       },
       primary_position: true,
+      grade: true,
+      cost_center: true,
       manager: {
         company_user: {
           user: true,
@@ -1271,6 +1355,12 @@ export class EmployeesService {
       issued_country:
         this.normalizeOptionalString(identification.issued_country) ??
         undefined,
+      issue_date: identification.issue_date,
+      issuing_authority:
+        this.normalizeOptionalString(identification.issuing_authority) ??
+        undefined,
+      document_url:
+        this.normalizeOptionalString(identification.document_url) ?? undefined,
       expiry_date: identification.expiry_date,
       is_primary: identification.is_primary ?? false,
     }));
@@ -1599,6 +1689,79 @@ export class EmployeesService {
     };
   }
 
+  private async resolveEmployeeGrade(
+    companyId: number,
+    gradeId: number | null | undefined,
+    manager?: EntityManager,
+  ): Promise<EmployeeGrade | null> {
+    if (gradeId == null) {
+      return null;
+    }
+
+    const grade = await this.getEmployeeGradeRepository(manager).findOne({
+      where: { id: gradeId, company_id: companyId },
+    });
+
+    if (!grade) {
+      throw new NotFoundException('Employee grade not found');
+    }
+
+    return grade;
+  }
+
+  private async resolveCostCenter(
+    companyId: number,
+    costCenterId: number | null | undefined,
+    actor: AuthenticatedUser,
+    manager?: EntityManager,
+  ): Promise<CostCenter | null> {
+    if (costCenterId == null) {
+      return null;
+    }
+
+    const costCenter = await this.getCostCenterRepository(manager).findOne({
+      where: { id: costCenterId, company_id: companyId },
+    });
+
+    if (!costCenter) {
+      throw new NotFoundException('Cost center not found');
+    }
+
+    if (costCenter.branch_id) {
+      await this.hrAccessService.assertCanAccessBranch(actor, costCenter.branch_id);
+    }
+
+    if (costCenter.department_id) {
+      await this.hrAccessService.assertCanAccessDepartment(
+        actor,
+        costCenter.department_id,
+      );
+    }
+
+    return costCenter;
+  }
+
+  private buildEmployeeAuditSnapshot(employee: Partial<Employee>) {
+    return {
+      company_user_id: employee.company_user_id ?? null,
+      employee_no: employee.employee_no ?? null,
+      first_name: employee.first_name ?? null,
+      middle_name: employee.middle_name ?? null,
+      last_name: employee.last_name ?? null,
+      preferred_name: employee.preferred_name ?? null,
+      gender: employee.gender ?? null,
+      date_of_birth: employee.date_of_birth ?? null,
+      marital_status: employee.marital_status ?? null,
+      nationality: employee.nationality ?? null,
+      employment_type: employee.employment_type ?? null,
+      hire_date: employee.hire_date ?? null,
+      notes: employee.notes ?? null,
+      metadata: employee.metadata ?? null,
+      default_avatar_id: employee.default_avatar_id ?? null,
+      profile_image_source: employee.profile_image_source ?? null,
+    };
+  }
+
   private buildEmployeeEntityPayload(
     dto: Record<string, unknown>,
     branch: Branch | null,
@@ -1624,8 +1787,12 @@ export class EmployeesService {
       'employment_status',
       'employment_type',
       'hire_date',
+      'probation_start_date',
       'probation_end_date',
+      'confirmation_due_date',
       'confirmation_date',
+      'confirmation_status',
+      'confirmation_notes',
       'exit_date',
       'exit_reason',
       'notes',
@@ -1824,6 +1991,7 @@ export class EmployeesService {
     companyId: number,
     employee: Employee,
     primaryPosition: Position | null,
+    actor: AuthenticatedUser,
     manager?: EntityManager,
   ): Promise<void> {
     const repository = this.getEmployeePositionRepository(manager);
@@ -1836,6 +2004,7 @@ export class EmployeesService {
         is_primary: false,
         status: EmployeePositionStatusEnum.COMPLETED,
         end_date: today,
+        ended_by_company_user_id: actor.companyMembershipId ?? null,
       })
       .where('company_id = :companyId', { companyId })
       .andWhere('employee_id = :employeeId', { employeeId: employee.id })
@@ -1882,6 +2051,8 @@ export class EmployeesService {
         assignment_type: EmployeePositionAssignmentTypeEnum.PRIMARY,
         status: EmployeePositionStatusEnum.ACTIVE,
         notes: 'Auto-synced from employee primary position',
+        assignment_reason: 'Initial employee assignment',
+        assigned_by_company_user_id: actor.companyMembershipId ?? null,
       }),
     );
   }
@@ -1990,8 +2161,14 @@ export class EmployeesService {
           identification_type: identification.identification_type,
           identification_number: identification.identification_number,
           issued_country: identification.issued_country ?? null,
+          issue_date: identification.issue_date ?? null,
+          issuing_authority: identification.issuing_authority ?? null,
+          document_url: identification.document_url ?? null,
           expiry_date: identification.expiry_date ?? null,
           is_primary: identification.is_primary ?? false,
+          is_verified: false,
+          verified_at: null,
+          verified_by_company_user_id: null,
         }),
       ),
     );
@@ -2159,10 +2336,15 @@ export class EmployeesService {
     actor: AuthenticatedUser,
     manager?: EntityManager,
   ): Promise<Employee> {
+    const lifecycleFields = dto as Partial<
+      Pick<Employee, 'employment_status' | 'exit_date' | 'exit_reason'>
+    >;
+    const numberedFields = dto as { employee_no?: string | null };
+
     const normalizedStatus = this.normalizeStatusFields({
-      employment_status: dto.employment_status,
-      exit_date: dto.exit_date,
-      exit_reason: dto.exit_reason,
+      employment_status: lifecycleFields.employment_status,
+      exit_date: lifecycleFields.exit_date,
+      exit_reason: lifecycleFields.exit_reason,
     });
 
     const branch =
@@ -2250,8 +2432,23 @@ export class EmployeesService {
           )
         : (employee.manager ?? null);
 
+    const grade =
+      'grade_id' in dto
+        ? await this.resolveEmployeeGrade(companyId, dto.grade_id, manager)
+        : null;
+
+    const costCenter =
+      'cost_center_id' in dto
+        ? await this.resolveCostCenter(
+            companyId,
+            dto.cost_center_id,
+            actor,
+            manager,
+          )
+        : null;
+
     const normalizedEmployeeNo = this.normalizeOptionalEmployeeNumber(
-      dto.employee_no,
+      numberedFields.employee_no,
     );
 
     if ('employee_no' in dto && normalizedEmployeeNo) {
@@ -2267,7 +2464,7 @@ export class EmployeesService {
       {
         ...dto,
         employee_no:
-          'employee_no' in dto ? normalizedEmployeeNo : dto.employee_no,
+          'employee_no' in dto ? normalizedEmployeeNo : numberedFields.employee_no,
         ...normalizedStatus,
       },
       branch,
@@ -2277,8 +2474,31 @@ export class EmployeesService {
     );
 
     Object.assign(employee, payload);
+    employee.company_id = companyId;
+    if ('grade_id' in dto) {
+      employee.grade_id = grade?.id ?? null;
+    }
+    if ('cost_center_id' in dto) {
+      employee.cost_center_id = costCenter?.id ?? null;
+    }
     employee.gender = this.normalizeGender(employee.gender);
     await this.applyProfileImageSelection(companyId, employee, dto);
+
+    if (
+      employee.confirmation_status === EmployeeConfirmationStatusEnum.CONFIRMED
+    ) {
+      employee.confirmed_by_company_user_id = actor.companyMembershipId ?? null;
+      employee.confirmation_date = employee.confirmation_date ?? this.getTodayDate();
+    } else if ('confirmation_status' in dto) {
+      employee.confirmed_by_company_user_id = null;
+      if (!('confirmation_date' in dto)) {
+        employee.confirmation_date = null;
+      }
+    }
+
+    if (!employee.probation_start_date && employee.probation_end_date) {
+      employee.probation_start_date = employee.hire_date ?? this.getTodayDate();
+    }
 
     if (
       !employee.primary_branch_id &&
@@ -2336,6 +2556,7 @@ export class EmployeesService {
         companyId,
         saved,
         primaryPosition,
+        actor,
         manager,
       );
     }
@@ -2429,6 +2650,7 @@ export class EmployeesService {
     companyId: number,
     createEmployeeDto: CreateEmployeeDto,
     actor: AuthenticatedUser,
+    context: AuditRequestContext = EMPTY_AUDIT_CONTEXT,
   ) {
     const creation = await this.dataSource.transaction(async (manager) => {
       const membership = await this.resolveCompanyMembershipForEmployeeCreation(
@@ -2442,6 +2664,7 @@ export class EmployeesService {
         membership,
         createEmployeeDto,
         actor,
+        context,
         manager,
       );
     });
@@ -2488,6 +2711,11 @@ export class EmployeesService {
         membership,
         createEmployeeDto,
         actor,
+        {
+          ipAddress: null,
+          userAgent: null,
+          requestId: null,
+        },
         manager,
       );
     }
@@ -2508,6 +2736,11 @@ export class EmployeesService {
         membership,
         createEmployeeDto,
         actor,
+        {
+          ipAddress: null,
+          userAgent: null,
+          requestId: null,
+        },
         txManager,
       );
     });
@@ -2518,6 +2751,7 @@ export class EmployeesService {
     membership: CompanyUser,
     createEmployeeDto: CreateEmployeeDto,
     actor: AuthenticatedUser,
+    context: AuditRequestContext,
     manager: EntityManager,
   ): Promise<{ employeeId: number; onboardingRequestId: number | null }> {
     const existingEmployee = await this.getEmployeeRepository(manager).findOne({
@@ -2530,18 +2764,28 @@ export class EmployeesService {
       );
     }
 
-    const employeeNo =
-      this.normalizeOptionalEmployeeNumber(createEmployeeDto.employee_no) ||
-      (await this.generateNextEmployeeNo(companyId, manager));
-
-    await this.assertUniqueEmployeeNumber(
-      companyId,
-      employeeNo,
-      undefined,
-      manager,
+    const requestedEmployeeNo = this.normalizeOptionalEmployeeNumber(
+      createEmployeeDto.employee_no,
     );
+    let employeeNo: string;
+
+    if (requestedEmployeeNo) {
+      if (!hasPermission(actor.permissions, 'employees:override-number')) {
+        throw new ForbiddenException(
+          'Manual employee numbers require the employees:override-number permission',
+        );
+      }
+
+      employeeNo = await this.employeeNumberService.reserveImportedNumber(
+        companyId,
+        requestedEmployeeNo,
+      );
+    } else {
+      employeeNo = await this.employeeNumberService.allocateNext(companyId);
+    }
 
     const employee = this.getEmployeeRepository(manager).create({
+      company_id: companyId,
       company_user_id: membership.id,
       employee_no: employeeNo,
       first_name: createEmployeeDto.first_name,
@@ -2563,6 +2807,12 @@ export class EmployeesService {
     await this.initializeCurrentYearLeaveBalances(
       companyId,
       savedEmployee,
+      manager,
+    );
+    await this.employeeAssignmentService.recordInitialAssignments(
+      companyId,
+      savedEmployee,
+      actor,
       manager,
     );
 
@@ -2588,6 +2838,24 @@ export class EmployeesService {
         );
       onboardingRequestId = onboardingRequest.id;
     }
+
+    await this.securityEventsService.log(
+      {
+        eventType: SecurityEventType.EMPLOYEE_CREATED,
+        outcome: SecurityEventOutcome.SUCCESS,
+        actor,
+        companyId,
+        targetCompanyUserId: savedEmployee.company_user_id,
+        resourceType: 'employee',
+        resourceId: savedEmployee.id,
+        newValues: {
+          ...this.buildEmployeeAuditSnapshot(savedEmployee),
+          onboarding_request_id: onboardingRequestId,
+        },
+        context,
+      },
+      manager,
+    );
 
     return {
       employeeId: savedEmployee.id,
@@ -2923,12 +3191,14 @@ export class EmployeesService {
     employeeId: number,
     updateEmployeeDto: UpdateEmployeeDto,
     actor: AuthenticatedUser,
+    context: AuditRequestContext = EMPTY_AUDIT_CONTEXT,
   ) {
     const existingEmployee = await this.findEmployeeByIdOrFail(
       companyId,
       employeeId,
     );
     await this.hrAccessService.assertCanAccessEmployee(actor, existingEmployee);
+    const oldValues = this.buildEmployeeAuditSnapshot(existingEmployee);
 
     const updatedEmployeeId = await this.dataSource.transaction(
       async (manager) => {
@@ -2989,6 +3259,22 @@ export class EmployeesService {
           );
         }
 
+        await this.securityEventsService.log(
+          {
+            eventType: SecurityEventType.EMPLOYEE_UPDATED,
+            outcome: SecurityEventOutcome.SUCCESS,
+            actor,
+            companyId,
+            targetCompanyUserId: savedEmployee.company_user_id,
+            resourceType: 'employee',
+            resourceId: savedEmployee.id,
+            oldValues,
+            newValues: this.buildEmployeeAuditSnapshot(savedEmployee),
+            context,
+          },
+          manager,
+        );
+
         return savedEmployee.id;
       },
     );
@@ -3001,13 +3287,119 @@ export class EmployeesService {
     employeeId: number,
     changeEmployeeStatusDto: ChangeEmployeeStatusDto,
     actor: AuthenticatedUser,
+    context: AuditRequestContext = EMPTY_AUDIT_CONTEXT,
   ) {
+    const existingEmployee = await this.findEmployeeByIdOrFail(
+      companyId,
+      employeeId,
+    );
+    await this.hrAccessService.assertCanAccessEmployee(actor, existingEmployee);
+    this.employeeLifecycleService.assertTransition(
+      existingEmployee.employment_status,
+      changeEmployeeStatusDto.employment_status,
+      actor,
+    );
+
     if (
       changeEmployeeStatusDto.employment_status === EmploymentStatusEnum.ACTIVE
     ) {
       await this.assertAttendanceReady(companyId, employeeId);
     }
-    return this.update(companyId, employeeId, changeEmployeeStatusDto, actor);
+
+    const oldValues = {
+      employment_status: existingEmployee.employment_status,
+      exit_date: existingEmployee.exit_date,
+      exit_reason: existingEmployee.exit_reason,
+      notes: existingEmployee.notes,
+      status_changed_at: existingEmployee.status_changed_at,
+      status_changed_by_company_user_id:
+        existingEmployee.status_changed_by_company_user_id,
+    };
+
+    const updatedEmployeeId = await this.dataSource.transaction(
+      async (manager) => {
+        const employee = await this.getEmployeeRepository(manager).findOne({
+          where: { id: employeeId, company_id: companyId },
+        });
+
+        if (!employee) {
+          throw new NotFoundException('Employee not found');
+        }
+
+        const wasActive =
+          employee.employment_status === EmploymentStatusEnum.ACTIVE;
+        employee.employment_status = changeEmployeeStatusDto.employment_status;
+        employee.notes =
+          changeEmployeeStatusDto.notes !== undefined
+            ? this.normalizeOptionalString(changeEmployeeStatusDto.notes)
+            : employee.notes;
+        employee.status_changed_at = new Date();
+        employee.status_changed_by_company_user_id =
+          actor.companyMembershipId ?? null;
+
+        if (
+          [
+            EmploymentStatusEnum.RESIGNED,
+            EmploymentStatusEnum.TERMINATED,
+            EmploymentStatusEnum.RETIRED,
+            EmploymentStatusEnum.EXITED,
+          ].includes(employee.employment_status)
+        ) {
+          employee.exit_date =
+            changeEmployeeStatusDto.exit_date ??
+            changeEmployeeStatusDto.effective_date;
+          employee.exit_reason =
+            this.normalizeOptionalString(changeEmployeeStatusDto.exit_reason);
+        } else {
+          employee.exit_date = null;
+          employee.exit_reason = null;
+        }
+
+        const savedEmployee = await this.getEmployeeRepository(manager).save(
+          employee,
+        );
+
+        if (
+          !wasActive &&
+          savedEmployee.employment_status === EmploymentStatusEnum.ACTIVE
+        ) {
+          await this.initializeCurrentYearLeaveBalances(
+            companyId,
+            savedEmployee,
+            manager,
+          );
+        }
+
+        await this.securityEventsService.log(
+          {
+            eventType: SecurityEventType.EMPLOYEE_STATUS_CHANGED,
+            outcome: SecurityEventOutcome.SUCCESS,
+            actor,
+            companyId,
+            targetCompanyUserId: savedEmployee.company_user_id,
+            resourceType: 'employee',
+            resourceId: savedEmployee.id,
+            oldValues,
+            newValues: {
+              employment_status: savedEmployee.employment_status,
+              exit_date: savedEmployee.exit_date,
+              exit_reason: savedEmployee.exit_reason,
+              notes: savedEmployee.notes,
+              status_changed_at: savedEmployee.status_changed_at,
+              status_changed_by_company_user_id:
+                savedEmployee.status_changed_by_company_user_id,
+              effective_date: changeEmployeeStatusDto.effective_date,
+            },
+            context,
+          },
+          manager,
+        );
+
+        return savedEmployee.id;
+      },
+    );
+
+    return this.findOne(companyId, updatedEmployeeId, actor);
   }
 
   private async assertAttendanceReady(
@@ -3436,8 +3828,14 @@ export class EmployeesService {
         identification_type: dto.identification_type,
         identification_number: dto.identification_number.trim(),
         issued_country: this.normalizeOptionalString(dto.issued_country),
+        issue_date: dto.issue_date ?? null,
+        issuing_authority: this.normalizeOptionalString(dto.issuing_authority),
+        document_url: this.normalizeOptionalString(dto.document_url),
         expiry_date: dto.expiry_date ?? null,
         is_primary: dto.is_primary ?? false,
+        is_verified: false,
+        verified_at: null,
+        verified_by_company_user_id: null,
       }),
     );
 
@@ -3470,6 +3868,15 @@ export class EmployeesService {
     if (dto.issued_country !== undefined)
       identification.issued_country = this.normalizeOptionalString(
         dto.issued_country,
+      );
+    if (dto.issue_date !== undefined) identification.issue_date = dto.issue_date;
+    if (dto.issuing_authority !== undefined)
+      identification.issuing_authority = this.normalizeOptionalString(
+        dto.issuing_authority,
+      );
+    if (dto.document_url !== undefined)
+      identification.document_url = this.normalizeOptionalString(
+        dto.document_url,
       );
     if (dto.expiry_date !== undefined)
       identification.expiry_date = dto.expiry_date ?? null;

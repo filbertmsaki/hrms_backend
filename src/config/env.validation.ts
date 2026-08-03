@@ -268,6 +268,83 @@ export function validateEnv(env: Env) {
     'AUTH_REQUIRED_2FA_ROLES',
     'SUPER_ADMIN,PLATFORM_ADMINISTRATOR,COMPANY_ADMIN,HR_MANAGER,IT_ADMIN,AUDITOR',
   );
+  const EMPLOYEE_IMPORT_MAX_FILE_SIZE_BYTES = optionalInt(
+    env,
+    'EMPLOYEE_IMPORT_MAX_FILE_SIZE_BYTES',
+    10 * 1024 * 1024,
+  );
+  const EMPLOYEE_IMPORT_MAX_ROWS = optionalInt(
+    env,
+    'EMPLOYEE_IMPORT_MAX_ROWS',
+    1000,
+  );
+  const EMPLOYEE_IMPORT_PREVIEW_TTL_MINUTES = optionalInt(
+    env,
+    'EMPLOYEE_IMPORT_PREVIEW_TTL_MINUTES',
+    30,
+  );
+  const EMPLOYEE_IMPORT_RETENTION_DAYS = optionalInt(
+    env,
+    'EMPLOYEE_IMPORT_RETENTION_DAYS',
+    90,
+  );
+  const EMPLOYEE_IMPORT_QUEUE_CONCURRENCY = optionalInt(
+    env,
+    'EMPLOYEE_IMPORT_QUEUE_CONCURRENCY',
+    1,
+  );
+  const EMPLOYEE_IMPORT_MAX_ATTEMPTS = optionalInt(
+    env,
+    'EMPLOYEE_IMPORT_MAX_ATTEMPTS',
+    3,
+  );
+  const EMPLOYEE_IMPORT_STALE_MINUTES = optionalInt(
+    env,
+    'EMPLOYEE_IMPORT_STALE_MINUTES',
+    30,
+  );
+  const EMPLOYEE_IMPORT_CREATE_PENDING_USERS = optionalBool(
+    env,
+    'EMPLOYEE_IMPORT_CREATE_PENDING_USERS',
+    true,
+  );
+  const HR_DOCUMENT_MAX_FILE_SIZE_BYTES = optionalInt(
+    env,
+    'HR_DOCUMENT_MAX_FILE_SIZE_BYTES',
+    10 * 1024 * 1024,
+  );
+  const HR_DOCUMENT_RETENTION_DAYS = optionalInt(
+    env,
+    'HR_DOCUMENT_RETENTION_DAYS',
+    365,
+  );
+  const HR_DOCUMENT_DELETE_GRACE_DAYS = optionalInt(
+    env,
+    'HR_DOCUMENT_DELETE_GRACE_DAYS',
+    30,
+  );
+  const FILE_MALWARE_SCAN_MODE = optionalString(
+    env,
+    'FILE_MALWARE_SCAN_MODE',
+    'optional',
+  ).toLowerCase();
+
+  if (!['disabled', 'optional', 'required'].includes(FILE_MALWARE_SCAN_MODE)) {
+    throw new Error(
+      'FILE_MALWARE_SCAN_MODE must be disabled, optional or required.',
+    );
+  }
+
+  const FILE_MALWARE_SCAN_COMMAND = optionalString(
+    env,
+    'FILE_MALWARE_SCAN_COMMAND',
+    'clamdscan',
+  );
+  const FILE_MALWARE_SCAN_TIMEOUT_MS = optionalInt(
+    env,
+    'FILE_MALWARE_SCAN_TIMEOUT_MS',
+    30000,
+  );
 
   return {
     DB_HOST,
@@ -319,5 +396,19 @@ export function validateEnv(env: Env) {
     EMAIL_VERIFICATION_EXPIRY_HOURS,
     EMPLOYEE_IMPORT_DEFAULT_PASSWORD,
     AUTH_REQUIRED_2FA_ROLES,
+    EMPLOYEE_IMPORT_MAX_FILE_SIZE_BYTES,
+    EMPLOYEE_IMPORT_MAX_ROWS,
+    EMPLOYEE_IMPORT_PREVIEW_TTL_MINUTES,
+    EMPLOYEE_IMPORT_RETENTION_DAYS,
+    EMPLOYEE_IMPORT_QUEUE_CONCURRENCY,
+    EMPLOYEE_IMPORT_MAX_ATTEMPTS,
+    EMPLOYEE_IMPORT_STALE_MINUTES,
+    EMPLOYEE_IMPORT_CREATE_PENDING_USERS,
+    HR_DOCUMENT_MAX_FILE_SIZE_BYTES,
+    HR_DOCUMENT_RETENTION_DAYS,
+    HR_DOCUMENT_DELETE_GRACE_DAYS,
+    FILE_MALWARE_SCAN_MODE,
+    FILE_MALWARE_SCAN_COMMAND,
+    FILE_MALWARE_SCAN_TIMEOUT_MS,
   };
 }
