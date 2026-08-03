@@ -10,7 +10,9 @@ import { LeaveApprovalWorkflow } from './entities/leave-approval-workflow.entity
 import { LeaveApprovalWorkflowStep } from './entities/leave-approval-workflow-step.entity';
 import { LeaveMedicalDetail } from './entities/leave-medical-detail.entity';
 import { LeaveDocument } from './entities/leave-document.entity';
+import { LeaveNumberSequence } from './entities/leave-number-sequence.entity';
 import { Employee } from '../employees/entities/employee.entity';
+import { EmployeeGrade } from '../grades/entities/employee-grade.entity';
 import { Branch } from '../branches/entities/branch.entity';
 import { Department } from '../departments/entities/department.entity';
 import { Position } from '../positions/entities/position.entity';
@@ -22,6 +24,7 @@ import { LeaveAuditService } from './services/leave-audit.service';
 import { LeaveBalanceLedgerService } from './services/leave-balance-ledger.service';
 import { LeaveBalanceService } from './services/leave-balance.service';
 import { LeaveWorkflowService } from './services/leave-workflow.service';
+import { LeaveDurationCalculatorService } from './services/leave-duration-calculator.service';
 import { LeavePdfService } from './services/leave-pdf.service';
 import { AttendanceRecalculationJob } from '../attendance/processing/entities/attendance-recalculation-job.entity';
 import { AttendanceHoliday } from '../attendance/holidays/entities/holiday.entity';
@@ -62,6 +65,7 @@ describe('LeaveService', () => {
   let dataSource: { transaction: jest.Mock };
   let leaveTypeRepository: MockRepo;
   let leavePolicyRepository: MockRepo;
+  let leaveNumberSequenceRepository: MockRepo;
   let leaveBalanceRepository: MockRepo;
   let leaveRequestRepository: MockRepo;
   let leaveApprovalWorkflowRepository: MockRepo;
@@ -73,6 +77,7 @@ describe('LeaveService', () => {
   let employeeRepository: MockRepo;
   let branchRepository: MockRepo;
   let departmentRepository: MockRepo;
+  let employeeGradeRepository: MockRepo;
   let positionRepository: MockRepo;
   let companyUserRepository: MockRepo;
   let roleRepository: MockRepo;
@@ -116,7 +121,11 @@ describe('LeaveService', () => {
     applyApprovalAction: jest.Mock;
     closeAllPendingApprovals: jest.Mock;
   };
-  let filesService: { saveBase64File: jest.Mock };
+  let leaveDurationCalculatorService: { calculate: jest.Mock };
+  let filesService: {
+    saveBase64File: jest.Mock;
+    savePrivateBase64File: jest.Mock;
+  };
   let actor: AuthenticatedUser;
 
   beforeEach(() => {
@@ -125,6 +134,7 @@ describe('LeaveService', () => {
     };
     leaveTypeRepository = createRepositoryMock();
     leavePolicyRepository = createRepositoryMock();
+    leaveNumberSequenceRepository = createRepositoryMock();
     leaveBalanceRepository = createRepositoryMock();
     leaveRequestRepository = createRepositoryMock();
     leaveApprovalWorkflowRepository = createRepositoryMock();
@@ -136,6 +146,7 @@ describe('LeaveService', () => {
     employeeRepository = createRepositoryMock();
     branchRepository = createRepositoryMock();
     departmentRepository = createRepositoryMock();
+    employeeGradeRepository = createRepositoryMock();
     positionRepository = createRepositoryMock();
     companyUserRepository = createRepositoryMock();
     roleRepository = createRepositoryMock();
@@ -208,8 +219,28 @@ describe('LeaveService', () => {
       applyApprovalAction: jest.fn(),
       closeAllPendingApprovals: jest.fn(),
     };
+    leaveDurationCalculatorService = {
+      calculate: jest.fn().mockResolvedValue({
+        totalDays: 1,
+        requestedMinutes: null,
+        snapshot: {
+          duration_type: 'FULL_DAY',
+          start_date: '2026-06-10',
+          end_date: '2026-06-10',
+          start_time: null,
+          end_time: null,
+          included_dates: ['2026-06-10'],
+          excluded_dates: [],
+          working_day_minutes: 480,
+          policy_id: null,
+          calculated_at: '2026-08-03T00:00:00.000Z',
+        },
+        hash: 'leave-calc-hash',
+      }),
+    };
     filesService = {
       saveBase64File: jest.fn(),
+      savePrivateBase64File: jest.fn(),
     };
     actor = {
       id: 9,
@@ -226,6 +257,7 @@ describe('LeaveService', () => {
       dataSource as unknown as DataSource,
       leaveTypeRepository as unknown as Repository<LeaveType>,
       leavePolicyRepository as unknown as Repository<LeavePolicy>,
+      leaveNumberSequenceRepository as unknown as Repository<LeaveNumberSequence>,
       leaveBalanceRepository as unknown as Repository<LeaveBalance>,
       leaveRequestRepository as unknown as Repository<LeaveRequest>,
       leaveApprovalWorkflowRepository as unknown as Repository<LeaveApprovalWorkflow>,
@@ -237,6 +269,7 @@ describe('LeaveService', () => {
       employeeRepository as unknown as Repository<Employee>,
       branchRepository as unknown as Repository<Branch>,
       departmentRepository as unknown as Repository<Department>,
+      employeeGradeRepository as unknown as Repository<EmployeeGrade>,
       positionRepository as unknown as Repository<Position>,
       companyUserRepository as unknown as Repository<CompanyUser>,
       roleRepository as unknown as Repository<Role>,
@@ -246,6 +279,7 @@ describe('LeaveService', () => {
       leaveAuditService as unknown as LeaveAuditService,
       leaveBalanceService as unknown as LeaveBalanceService,
       leaveBalanceLedgerService as unknown as LeaveBalanceLedgerService,
+      leaveDurationCalculatorService as unknown as LeaveDurationCalculatorService,
       leaveWorkflowService as unknown as LeaveWorkflowService,
       {} as LeavePdfService,
       { emit: jest.fn() } as unknown as EventEmitter2,
@@ -435,10 +469,6 @@ describe('LeaveService', () => {
   it('normalizes ISO datetime inputs when creating leave requests', async () => {
     const overlapBuilder = createQueryBuilderMock();
     overlapBuilder.getOne.mockResolvedValue(null);
-    const attendanceHolidayBuilder = createQueryBuilderMock();
-    attendanceHolidayBuilder.getMany = jest.fn().mockResolvedValue([]);
-    const generateLeaveNoBuilder = createQueryBuilderMock();
-    generateLeaveNoBuilder.getOne.mockResolvedValue(null);
     const savedDraft = {
       id: 90,
       company_id: 10,
@@ -481,9 +511,23 @@ describe('LeaveService', () => {
       documents: [],
       medical_detail: null,
     };
+    const managerSequenceBuilder = {
+      setLock: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getOne: jest.fn().mockResolvedValue(null),
+      getOneOrFail: jest.fn(),
+    };
+    const managerSequenceRepository = {
+      createQueryBuilder: jest.fn().mockReturnValue(managerSequenceBuilder),
+      create: jest.fn((value: unknown) => value),
+      save: jest.fn((value: Record<string, unknown>) => ({
+        id: 1,
+        ...value,
+      })),
+    };
     const managerLeaveRequestRepository = {
       create: jest.fn((value: unknown) => value),
-      createQueryBuilder: jest.fn().mockReturnValue(generateLeaveNoBuilder),
       save: jest.fn((value: Record<string, unknown>) => ({
         id: 90,
         ...value,
@@ -494,6 +538,9 @@ describe('LeaveService', () => {
       getRepository: jest.fn((entity) => {
         if (entity === LeaveRequest) {
           return managerLeaveRequestRepository;
+        }
+        if (entity === LeaveNumberSequence) {
+          return managerSequenceRepository;
         }
         throw new Error('Unexpected repository request');
       }),
@@ -528,9 +575,6 @@ describe('LeaveService', () => {
       description: null,
     });
     leaveRequestRepository.createQueryBuilder.mockReturnValue(overlapBuilder);
-    attendanceHolidayRepository.createQueryBuilder.mockReturnValue(
-      attendanceHolidayBuilder,
-    );
     leaveBalanceService.resolvePolicyAssignment.mockResolvedValue({
       policy: {
         allow_negative_balance: false,
@@ -561,6 +605,7 @@ describe('LeaveService', () => {
 
     expect(managerLeaveRequestRepository.save).toHaveBeenCalledWith(
       expect.objectContaining({
+        leave_no: 'LV-2026-000001',
         start_date: '2026-07-09',
         end_date: '2026-07-09',
         total_days: '1.00',
@@ -571,15 +616,23 @@ describe('LeaveService', () => {
   it('counts attendance holidays when calculating leave days for the employee branch', async () => {
     const overlapBuilder = createQueryBuilderMock();
     overlapBuilder.getOne.mockResolvedValue(null);
-    const attendanceHolidayBuilder = createQueryBuilderMock();
-    attendanceHolidayBuilder.getMany = jest.fn().mockResolvedValue([
-      {
-        id: 1,
-        companyId: 10,
-        branchId: 2,
-        date: '2026-06-10',
+    leaveDurationCalculatorService.calculate.mockResolvedValueOnce({
+      totalDays: 0,
+      requestedMinutes: null,
+      snapshot: {
+        duration_type: 'FULL_DAY',
+        start_date: '2026-06-10',
+        end_date: '2026-06-10',
+        start_time: null,
+        end_time: null,
+        included_dates: [],
+        excluded_dates: [{ date: '2026-06-10', reason: 'holiday' }],
+        working_day_minutes: 480,
+        policy_id: null,
+        calculated_at: '2026-08-03T00:00:00.000Z',
       },
-    ]);
+      hash: 'leave-calc-holiday',
+    });
 
     employeeRepository.findOne.mockResolvedValue({
       id: 501,
@@ -610,9 +663,6 @@ describe('LeaveService', () => {
       description: null,
     });
     leaveRequestRepository.createQueryBuilder.mockReturnValue(overlapBuilder);
-    attendanceHolidayRepository.createQueryBuilder.mockReturnValue(
-      attendanceHolidayBuilder,
-    );
 
     await expect(
       service.createLeaveRequest(
@@ -638,7 +688,7 @@ describe('LeaveService', () => {
       company_id: 10,
       employee: { id: 501 },
     });
-    filesService.saveBase64File.mockResolvedValue({
+    filesService.savePrivateBase64File.mockResolvedValue({
       originalFileName: 'medical-note.pdf',
       mimeType: 'application/pdf',
       publicPath: '/uploads/documents/leave/company-10/medical-note.pdf',
@@ -662,7 +712,7 @@ describe('LeaveService', () => {
       actor,
     );
 
-    expect(filesService.saveBase64File).toHaveBeenCalledWith(
+    expect(filesService.savePrivateBase64File).toHaveBeenCalledWith(
       expect.objectContaining({ fileName: 'medical-note.pdf' }),
       expect.objectContaining({
         directorySegments: ['documents', 'leave', 'company-10'],

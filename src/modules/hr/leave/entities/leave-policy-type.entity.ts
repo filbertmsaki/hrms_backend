@@ -37,6 +37,21 @@ export class LeavePolicyType {
   @Column({ default: true })
   requires_approval: boolean;
 
+  @Column({ default: false })
+  encashment_enabled: boolean;
+
+  @Column({ type: 'decimal', precision: 8, scale: 2, nullable: true })
+  maximum_encashment_days: string | null;
+
+  @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
+  minimum_balance_after_encashment: string;
+
+  @Column({ default: true })
+  encashment_requires_approval: boolean;
+
+  @Column({ type: 'decimal', precision: 8, scale: 2, nullable: true })
+  maximum_accumulation_days: string | null;
+
   @CreateDateColumn()
   created_at: Date;
 

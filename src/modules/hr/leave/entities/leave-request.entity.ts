@@ -10,10 +10,13 @@
   PrimaryGeneratedColumn,
   Unique,
   UpdateDateColumn,
+  VersionColumn,
 } from 'typeorm';
 import { Company } from '../../../companies/entities/company.entity';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { Employee } from '../../employees/entities/employee.entity';
+import { LeaveDurationTypeEnum } from '../enums/leave-duration-type.enum';
+import { LeaveHalfDaySessionEnum } from '../enums/leave-half-day-session.enum';
 import { LeaveStatusEnum } from '../enums/leave-status.enum';
 import { LeaveAuditLog } from './leave-audit-log.entity';
 import { LeaveDocument } from './leave-document.entity';
@@ -50,8 +53,40 @@ export class LeaveRequest {
   @Column({ type: 'date' })
   end_date: string;
 
+  @Column({
+    type: 'enum',
+    enum: LeaveDurationTypeEnum,
+    default: LeaveDurationTypeEnum.FULL_DAY,
+  })
+  duration_type: LeaveDurationTypeEnum;
+
+  @Column({
+    type: 'enum',
+    enum: LeaveHalfDaySessionEnum,
+    nullable: true,
+  })
+  half_day_session: LeaveHalfDaySessionEnum | null;
+
+  @Column({ type: 'time', nullable: true })
+  start_time: string | null;
+
+  @Column({ type: 'time', nullable: true })
+  end_time: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  requested_minutes: number | null;
+
   @Column({ type: 'decimal', precision: 8, scale: 2 })
   total_days: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  calculation_snapshot: Record<string, unknown> | null;
+
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  calculation_hash: string | null;
+
+  @Column({ type: 'int', default: 1 })
+  calculation_version: number;
 
   @Column({ type: 'text' })
   reason: string;
@@ -71,6 +106,12 @@ export class LeaveRequest {
 
   @Column({ type: 'int', default: 1 })
   approval_cycle: number;
+
+  @Column({ type: 'int', nullable: true })
+  workflow_version: number | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  workflow_snapshot: Record<string, unknown> | null;
 
   @Column({ type: 'timestamp', nullable: true })
   returned_at: Date | null;
@@ -95,6 +136,9 @@ export class LeaveRequest {
 
   @UpdateDateColumn()
   updated_at: Date;
+
+  @VersionColumn()
+  version: number;
 
   @ManyToOne(() => Company, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'company_id' })

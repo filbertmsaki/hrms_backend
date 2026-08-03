@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { FilesModule } from '../../files/files.module';
 import { Company } from '../../companies/entities/company.entity';
@@ -9,8 +9,10 @@ import { Branch } from '../branches/entities/branch.entity';
 import { Department } from '../departments/entities/department.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { EmployeePosition } from '../employees/entities/employee-position.entity';
+import { EmployeeGrade } from '../grades/entities/employee-grade.entity';
 import { Position } from '../positions/entities/position.entity';
 import { HrSharedModule } from '../shared/hr-shared.module';
+import { AttendanceProcessingModule } from '../attendance/processing/attendance-processing.module';
 import { AttendanceRecalculationJob } from '../attendance/processing/entities/attendance-recalculation-job.entity';
 import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
 import { AttendanceHoliday } from '../attendance/holidays/entities/holiday.entity';
@@ -27,6 +29,7 @@ import { LeaveDocument } from './entities/leave-document.entity';
 import { LeaveMedicalDetail } from './entities/leave-medical-detail.entity';
 import { LeavePolicyType } from './entities/leave-policy-type.entity';
 import { LeavePolicy } from './entities/leave-policy.entity';
+import { LeaveNumberSequence } from './entities/leave-number-sequence.entity';
 import { LeaveRequestApproval } from './entities/leave-request-approval.entity';
 import { LeaveRequest } from './entities/leave-request.entity';
 import { LeaveType } from './entities/leave-type.entity';
@@ -34,6 +37,7 @@ import { LeaveAuditService } from './services/leave-audit.service';
 import { LeaveBalanceCronService } from './services/leave-balance-cron.service';
 import { LeaveBalanceLedgerService } from './services/leave-balance-ledger.service';
 import { LeaveBalanceService } from './services/leave-balance.service';
+import { LeaveDurationCalculatorService } from './services/leave-duration-calculator.service';
 import { LeavePdfService } from './services/leave-pdf.service';
 import { LeaveWorkflowService } from './services/leave-workflow.service';
 
@@ -44,6 +48,7 @@ import { LeaveWorkflowService } from './services/leave-workflow.service';
       LeaveType,
       LeavePolicy,
       LeavePolicyType,
+      LeaveNumberSequence,
       LeaveBalance,
       LeaveBalanceAdjustment,
       LeaveBalanceTransaction,
@@ -56,6 +61,7 @@ import { LeaveWorkflowService } from './services/leave-workflow.service';
       LeaveAuditLog,
       Employee,
       EmployeePosition,
+      EmployeeGrade,
       Branch,
       Department,
       Position,
@@ -69,6 +75,7 @@ import { LeaveWorkflowService } from './services/leave-workflow.service';
     ]),
     FilesModule,
     HrSharedModule,
+    forwardRef(() => AttendanceProcessingModule),
   ],
   controllers: [LeaveController],
   providers: [
@@ -77,6 +84,7 @@ import { LeaveWorkflowService } from './services/leave-workflow.service';
     LeaveBalanceCronService,
     LeaveBalanceLedgerService,
     LeaveBalanceService,
+    LeaveDurationCalculatorService,
     LeaveWorkflowService,
     LeavePdfService,
   ],

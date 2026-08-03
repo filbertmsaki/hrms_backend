@@ -86,7 +86,7 @@ import { PostgresAdvisoryLockService } from '../../../../common/database/postgre
       AttendanceBusinessTrip,
     ]),
     HrSharedModule,
-    LeaveModule,
+    forwardRef(() => LeaveModule),
     forwardRef(() => HikvisionModule),
   ],
   controllers: [
