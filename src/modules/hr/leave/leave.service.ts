@@ -82,6 +82,10 @@ import { buildNotificationRecipient } from '../notifications/notification-recipi
 import { LeaveRequestApproval } from './entities/leave-request-approval.entity';
 import { LeaveApprovalStatusEnum } from './enums/leave-approval-status.enum';
 import { FilesService } from '../../files/files.service';
+import {
+  HR_PRIVATE_DOCUMENT_MAX_BYTES,
+  HR_PRIVATE_DOCUMENT_MIME_TYPES,
+} from '../../files/file-policy';
 
 type PolicyContext = {
   allowNegativeBalance: boolean;
@@ -256,7 +260,7 @@ export class LeaveService {
       return requestedEmployeeId;
     }
 
-    if (this.hrAccessService.hasCompanyWideBranchAccess(actor)) {
+    if (this.hrAccessService.hasCompanyScope(actor)) {
       return null;
     }
 
@@ -304,7 +308,7 @@ export class LeaveService {
 
   private actorCanManageLeaveBalances(actor: AuthenticatedUser): boolean {
     return (
-      this.hrAccessService.hasCompanyWideBranchAccess(actor) ||
+      this.hrAccessService.hasCompanyScope(actor) ||
       this.actorHasAnyPermission(actor, [
         'leave-balances.manage',
         'leave-balances.adjust',
@@ -381,12 +385,6 @@ export class LeaveService {
     ) {
       const branchIds =
         (await this.hrAccessService.getAccessibleBranchIds(actor)) ?? [];
-      if (
-        actor.roles.includes('BRANCH_MANAGER') &&
-        typeof employee.primary_branch_id === 'number'
-      ) {
-        branchIds.push(employee.primary_branch_id);
-      }
 
       const normalizedBranchIds = Array.from(new Set(branchIds));
       if (normalizedBranchIds.length) {
@@ -405,22 +403,26 @@ export class LeaveService {
         });
       }
 
-      if (
-        actor.roles.includes('DEPARTMENT_MANAGER') &&
-        typeof employee.primary_department_id === 'number'
-      ) {
-        const departmentEmployees = await this.employeeRepository.find({
-          where: { primary_department_id: employee.primary_department_id },
-          relations: { company_user: true },
-          select: {
-            id: true,
-            company_user: { company_id: true },
-          },
-        });
+      const accessibleDepartmentIds =
+        (await this.hrAccessService.getAccessibleDepartmentIds(actor)) ?? [];
+
+      if (accessibleDepartmentIds.length) {
+        const departmentEmployees = await this.employeeRepository
+          .createQueryBuilder('employee')
+          .leftJoin('employee.department_assignments', 'departmentAssignment')
+          .innerJoin('employee.company_user', 'companyUser')
+          .where('companyUser.company_id = :companyId', { companyId })
+          .andWhere(
+            '(employee.primary_department_id IN (:...departmentIds) OR departmentAssignment.department_id IN (:...departmentIds))',
+            {
+              departmentIds: accessibleDepartmentIds,
+            },
+          )
+          .select('employee.id', 'id')
+          .getRawMany<{ id: number }>();
+
         departmentEmployees.forEach((item) => {
-          if (item.company_user?.company_id === companyId) {
-            scopedEmployeeIds.add(item.id);
-          }
+          scopedEmployeeIds.add(Number(item.id));
         });
       }
 
@@ -1122,7 +1124,9 @@ export class LeaveService {
       documents:
         entity.documents?.map((document) => ({
           id: document.id,
-          file_url: document.file_url,
+          file_url:
+            `/api/leave/requests/${entity.id}` +
+            `/documents/${document.id}/download`,
           file_name: document.file_name,
           file_type: document.file_type,
           uploaded_at: document.uploaded_at,
@@ -3696,9 +3700,12 @@ export class LeaveService {
       actor,
       leaveRequest.employee,
     );
-    const storedFile = await this.filesService.saveBase64File(dto.file, {
+    const storedFile = await this.filesService.savePrivateBase64File(dto.file, {
       directorySegments: ['documents', 'leave', `company-${companyId}`],
       fileNamePrefix: `leave-${leaveRequestId}`,
+      allowedMimeTypes: [...HR_PRIVATE_DOCUMENT_MIME_TYPES],
+      maxFileSizeBytes: HR_PRIVATE_DOCUMENT_MAX_BYTES,
+      validateFileSignature: true,
     });
 
     const document = await this.leaveDocumentRepository.save(
@@ -3724,7 +3731,77 @@ export class LeaveService {
       },
     });
 
-    return document;
+    return {
+      ...document,
+      file_url:
+        `/api/leave/requests/${leaveRequest.id}` +
+        `/documents/${document.id}/download`,
+    };
+  }
+
+  async downloadLeaveDocument(
+    companyId: number,
+    leaveRequestId: number,
+    documentId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const leaveRequest = await this.leaveRequestRepository.findOne({
+      where: {
+        id: leaveRequestId,
+        company_id: companyId,
+      },
+      relations: {
+        employee: {
+          company_user: true,
+        },
+      },
+    });
+
+    if (!leaveRequest) {
+      throw new NotFoundException('Leave request not found');
+    }
+
+    await this.hrAccessService.assertCanAccessEmployee(
+      actor,
+      leaveRequest.employee,
+    );
+
+    const document = await this.leaveDocumentRepository.findOne({
+      where: {
+        id: documentId,
+        leave_request_id: leaveRequest.id,
+      },
+    });
+
+    if (!document) {
+      throw new NotFoundException('Leave document not found');
+    }
+
+    const buffer = await this.filesService.readManagedFile(document.file_url);
+
+    if (!buffer) {
+      throw new NotFoundException(
+        'Leave document file was not found in storage',
+      );
+    }
+
+    await this.leaveAuditService.log({
+      company_id: companyId,
+      leave_request_id: leaveRequest.id,
+      action: 'leave_request.document_downloaded',
+      entity_name: 'leave_document',
+      entity_id: document.id,
+      actor,
+      payload: {
+        file_name: document.file_name,
+      },
+    });
+
+    return {
+      buffer,
+      fileName: document.file_name,
+      mimeType: document.file_type || 'application/octet-stream',
+    };
   }
 
   async upsertMedicalDetail(

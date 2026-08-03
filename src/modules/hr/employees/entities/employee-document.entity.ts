@@ -26,6 +26,15 @@ export class EmployeeDocument {
   @Column({ type: 'text' })
   file_url: string;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  original_file_name: string | null;
+
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  mime_type: string | null;
+
+  @Column({ type: 'bigint', nullable: true })
+  file_size: string | null;
+
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 

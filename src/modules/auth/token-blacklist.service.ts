@@ -35,7 +35,7 @@ export class TokenBlacklistService implements OnModuleInit, OnModuleDestroy {
     if (!this.isEnabled) {
       this.logger.log(
         'Redis token blacklisting is disabled (USE_REDIS=false or not set). ' +
-          'All revocation checks will be skipped (safe fallback).',
+          'Redis token blacklist cache is disabled. Database token-version validation remains active.',
       );
       return;
     }
@@ -54,7 +54,7 @@ export class TokenBlacklistService implements OnModuleInit, OnModuleDestroy {
 
     this.client.on('error', (err) => {
       this.logger.error(
-        'Redis runtime error; blacklisting is temporarily disabled.',
+        'Redis token blacklist cache is unavailable. Database token-version validation remains active.',
         err,
       );
       this.client = null;
@@ -65,7 +65,7 @@ export class TokenBlacklistService implements OnModuleInit, OnModuleDestroy {
       this.logger.log('Redis connected successfully');
     } catch (err) {
       this.logger.error(
-        'Redis initial connection failed; blacklisting is disabled.',
+        'Redis token blacklist cache is unavailable. Database token-version validation remains active.',
         err,
       );
       this.client = null;
@@ -104,7 +104,10 @@ export class TokenBlacklistService implements OnModuleInit, OnModuleDestroy {
       const value = await this.client.get(`blacklist:${token}`);
       return value !== null;
     } catch (err) {
-      this.logger.warn('Failed to check blacklist (assuming not revoked)', err);
+      this.logger.warn(
+        'Failed to check Redis blacklist cache. Database revocation validation will still be applied.',
+        err,
+      );
       return false;
     }
   }

@@ -15,9 +15,11 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
 import { PaginationDto } from '../../common/dto/pagination.dto';
+import { CurrentAuditContext } from '../../common/decorators/audit-request-context.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
+import type { AuditRequestContext } from '../../common/interfaces/audit-request-context.interface';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { AssignRolePermissionDto } from './dtos/assign-role-permission.dto';
 import { AssignRoleUserDto } from './dtos/assign-role-user.dto';
@@ -46,9 +48,10 @@ export class RolesController {
   @ApiCreateOperation('Role', 'Create a new role with optional permissions')
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
     @Body() createRoleDto: CreateRoleDto,
   ) {
-    return this.rolesService.create(createRoleDto, req.user);
+    return this.rolesService.create(createRoleDto, req.user, context);
   }
 
   @Get()
@@ -83,10 +86,16 @@ export class RolesController {
   )
   assignUserToRole(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
     @Param('roleId', ParseIntPipe) roleId: number,
     @Body() dto: AssignRoleUserDto,
   ) {
-    return this.rolesService.assignUserToRole(roleId, dto.user_id, req.user);
+    return this.rolesService.assignUserToRole(
+      roleId,
+      dto.user_id,
+      req.user,
+      context,
+    );
   }
 
   @Delete(':roleId/users/:userId')
@@ -98,10 +107,16 @@ export class RolesController {
   )
   revokeUserFromRole(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
     @Param('roleId', ParseIntPipe) roleId: number,
     @Param('userId', ParseIntPipe) userId: number,
   ) {
-    return this.rolesService.revokeUserFromRole(roleId, userId, req.user);
+    return this.rolesService.revokeUserFromRole(
+      roleId,
+      userId,
+      req.user,
+      context,
+    );
   }
 
   @Get(':roleId/permissions')
@@ -127,6 +142,7 @@ export class RolesController {
   )
   assignPermissionToRole(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
     @Param('roleId', ParseIntPipe) roleId: number,
     @Body() dto: AssignRolePermissionDto,
   ) {
@@ -134,6 +150,7 @@ export class RolesController {
       roleId,
       dto.permission_id,
       req.user,
+      context,
     );
   }
 
@@ -146,6 +163,7 @@ export class RolesController {
   )
   revokePermissionFromRole(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
     @Param('roleId', ParseIntPipe) roleId: number,
     @Param('permissionId', ParseIntPipe) permissionId: number,
   ) {
@@ -153,6 +171,7 @@ export class RolesController {
       roleId,
       permissionId,
       req.user,
+      context,
     );
   }
 
@@ -173,10 +192,11 @@ export class RolesController {
   @ApiUpdateOperation('Role', 'Update a role and its permission assignments')
   update(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
     @Param('id', ParseIntPipe) id: number,
     @Body() updateRoleDto: UpdateRoleDto,
   ) {
-    return this.rolesService.update(id, updateRoleDto, req.user);
+    return this.rolesService.update(id, updateRoleDto, req.user, context);
   }
 
   @Delete(':id')
@@ -185,8 +205,9 @@ export class RolesController {
   @ApiDeleteOperation('Role', 'Delete a role')
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.rolesService.remove(id, req.user);
+    return this.rolesService.remove(id, req.user, context);
   }
 }

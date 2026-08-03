@@ -6,6 +6,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
+import { AuditRequestContext } from '../../common/interfaces/audit-request-context.interface';
 import { assertActorCanAccessPermission } from '../../common/utils/permission-scope.util';
 import {
   assertCanMutateSystemGeneratedRbacRecord,
@@ -15,12 +16,16 @@ import { CreatePermissionDto } from './dtos/create-permission.dto';
 import { UpdatePermissionDto } from './dtos/update-permission.dto';
 import { Permission } from './entities/permission.entity';
 import { PermissionScope } from './enums/permission-scope.enum';
+import { SecurityEventsService } from '../security/security-events.service';
+import { SecurityEventType } from '../security/enums/security-event-type.enum';
+import { SecurityEventOutcome } from '../security/enums/security-event-outcome.enum';
 
 @Injectable()
 export class PermissionsService {
   constructor(
     @InjectRepository(Permission)
     private readonly permissionsRepository: Repository<Permission>,
+    private readonly securityEventsService: SecurityEventsService,
   ) {}
 
   private createBaseQuery() {
@@ -47,6 +52,7 @@ export class PermissionsService {
   async create(
     createPermissionDto: CreatePermissionDto,
     actor?: AuthenticatedUser,
+    context?: AuditRequestContext,
   ): Promise<Permission> {
     if (!hasOwnerRole(actor)) {
       throw new ForbiddenException(
@@ -62,7 +68,27 @@ export class PermissionsService {
       is_system_generated: false,
     });
 
-    return this.permissionsRepository.save(permission);
+    const savedPermission = await this.permissionsRepository.save(permission);
+
+    if (actor) {
+      await this.securityEventsService.log({
+        eventType: SecurityEventType.PERMISSION_CREATED,
+        outcome: SecurityEventOutcome.SUCCESS,
+        actor,
+        permissionId: savedPermission.id,
+        resourceType: 'permission',
+        resourceId: savedPermission.id,
+        newValues: {
+          name: savedPermission.name,
+          display_name: savedPermission.display_name,
+          description: savedPermission.description,
+          scope: savedPermission.scope,
+        },
+        context,
+      });
+    }
+
+    return savedPermission;
   }
 
   async findAll(actor?: AuthenticatedUser): Promise<Permission[]> {
@@ -93,10 +119,17 @@ export class PermissionsService {
     id: number,
     updatePermissionDto: UpdatePermissionDto,
     actor?: AuthenticatedUser,
+    context?: AuditRequestContext,
   ): Promise<Permission> {
     this.assertCanManagePermissions(actor);
 
     const permission = await this.findAccessiblePermissionOrFail(id, actor);
+    const previousValues = {
+      name: permission.name,
+      display_name: permission.display_name,
+      description: permission.description,
+      scope: permission.scope,
+    };
 
     assertCanMutateSystemGeneratedRbacRecord(actor, permission, 'permission');
 
@@ -109,15 +142,58 @@ export class PermissionsService {
         : permission.description;
     permission.scope = updatePermissionDto.scope ?? permission.scope;
 
-    return this.permissionsRepository.save(permission);
+    const savedPermission = await this.permissionsRepository.save(permission);
+
+    if (actor) {
+      await this.securityEventsService.log({
+        eventType: SecurityEventType.PERMISSION_UPDATED,
+        outcome: SecurityEventOutcome.SUCCESS,
+        actor,
+        permissionId: savedPermission.id,
+        resourceType: 'permission',
+        resourceId: savedPermission.id,
+        oldValues: previousValues,
+        newValues: {
+          name: savedPermission.name,
+          display_name: savedPermission.display_name,
+          description: savedPermission.description,
+          scope: savedPermission.scope,
+        },
+        context,
+      });
+    }
+
+    return savedPermission;
   }
 
-  async remove(id: number, actor?: AuthenticatedUser): Promise<void> {
+  async remove(
+    id: number,
+    actor?: AuthenticatedUser,
+    context?: AuditRequestContext,
+  ): Promise<void> {
     this.assertCanManagePermissions(actor);
 
     const permission = await this.findAccessiblePermissionOrFail(id, actor);
 
     assertCanMutateSystemGeneratedRbacRecord(actor, permission, 'permission');
+
+    if (actor) {
+      await this.securityEventsService.log({
+        eventType: SecurityEventType.PERMISSION_DELETED,
+        outcome: SecurityEventOutcome.SUCCESS,
+        actor,
+        permissionId: permission.id,
+        resourceType: 'permission',
+        resourceId: permission.id,
+        oldValues: {
+          name: permission.name,
+          display_name: permission.display_name,
+          description: permission.description,
+          scope: permission.scope,
+        },
+        context,
+      });
+    }
 
     await this.permissionsRepository.remove(permission);
   }

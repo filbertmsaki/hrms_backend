@@ -10,6 +10,7 @@ jest.mock('qrcode', () => ({
 }));
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { CompaniesService } from '../../companies/companies.service';
+import { SecurityEventsService } from '../../security/security-events.service';
 import { UsersService } from '../../users/users.service';
 import { UserTwoFactorAuditService } from '../../users/services/user-two-factor-audit.service';
 import { TwoFaService } from './2fa.service';
@@ -27,6 +28,9 @@ describe('TwoFaService', () => {
   };
   let auditService: {
     log: jest.Mock;
+  };
+  let securityEventsService: {
+    logBestEffort: jest.Mock;
   };
 
   const actor: AuthenticatedUser = {
@@ -53,12 +57,16 @@ describe('TwoFaService', () => {
     auditService = {
       log: jest.fn(),
     };
+    securityEventsService = {
+      logBestEffort: jest.fn(),
+    };
 
     service = new TwoFaService(
       usersService as unknown as UsersService,
       {} as ConfigService,
       companiesService as unknown as CompaniesService,
       auditService as unknown as UserTwoFactorAuditService,
+      securityEventsService as unknown as SecurityEventsService,
     );
   });
 
@@ -89,6 +97,13 @@ describe('TwoFaService', () => {
         previous_status: false,
         new_status: true,
         action: 'user_2fa.enabled',
+      }),
+    );
+    expect(securityEventsService.logBestEffort).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'TWO_FACTOR_ENABLED',
+        companyId: 12,
+        targetUserId: 15,
       }),
     );
     expect(result).toEqual({
@@ -141,6 +156,14 @@ describe('TwoFaService', () => {
         new_status: false,
         action: 'user_2fa.disabled',
         disable_reason: 'Lost device',
+      }),
+    );
+    expect(securityEventsService.logBestEffort).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'TWO_FACTOR_DISABLED',
+        companyId: 12,
+        targetUserId: 15,
+        reason: 'Lost device',
       }),
     );
     expect(result.data).toEqual({

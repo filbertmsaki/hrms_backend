@@ -32,6 +32,7 @@ const SHARED_PERMISSION_NAMES = new Set<string>([
   'roles:assign-permission',
   'roles:revoke-permission',
   'permissions:read',
+  'security_events:read',
 ]);
 
 function resolvePermissionScope(name: string): PermissionScope {
@@ -239,6 +240,12 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Compatibility permission for permission listing endpoints',
   },
   {
+    name: 'security_events:read',
+    displayName: 'Read security events',
+    description:
+      'Allow viewing authentication, authorization and security audit events',
+  },
+  {
     name: 'permissions:create',
     displayName: 'Create permissions',
     description: 'Compatibility permission for permission creation endpoints',
@@ -300,6 +307,41 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     name: 'departments:delete',
     displayName: 'Delete departments',
     description: 'Allow deleting company departments',
+  },
+  {
+    name: 'departments:manage-access',
+    displayName: 'Manage department access',
+    description:
+      'Allow granting and revoking department-level user access',
+  },
+  {
+    name: 'data_scope:company',
+    displayName: 'Company-wide data scope',
+    description:
+      'Allow access to authorized records across the active company',
+  },
+  {
+    name: 'data_scope:branch',
+    displayName: 'Branch data scope',
+    description: 'Restrict access to specifically assigned branches',
+  },
+  {
+    name: 'data_scope:department',
+    displayName: 'Department data scope',
+    description:
+      'Restrict access to assigned or managed departments',
+  },
+  {
+    name: 'data_scope:team',
+    displayName: 'Reporting team data scope',
+    description:
+      'Restrict access to the user and direct reporting employees',
+  },
+  {
+    name: 'data_scope:self',
+    displayName: 'Self data scope',
+    description:
+      'Restrict access to the authenticated employee record',
   },
   // Positions
   {

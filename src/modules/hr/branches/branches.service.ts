@@ -7,7 +7,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import type { AuditRequestContext } from '../../../common/interfaces/audit-request-context.interface';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
+import { SecurityEventOutcome } from '../../security/enums/security-event-outcome.enum';
+import { SecurityEventType } from '../../security/enums/security-event-type.enum';
+import { SecurityEventsService } from '../../security/security-events.service';
 import { BranchQueryDto } from './dtos/branch-query.dto';
 import { CreateBranchDto } from './dtos/create-branch.dto';
 import { UpdateBranchDto } from './dtos/update-branch.dto';
@@ -30,6 +34,7 @@ export class BranchesService {
     private readonly hrAccessService: HrAccessService,
     private readonly codeGeneratorService: CodeGeneratorService,
     private readonly defaultAvatarsService: DefaultAvatarsService,
+    private readonly securityEventsService: SecurityEventsService,
   ) {}
 
   private mapBranch(branch: Branch) {
@@ -267,8 +272,13 @@ export class BranchesService {
     companyId: number,
     branchId: number,
     userId: number,
-    manager?: EntityManager,
+    actorOrManager?: AuthenticatedUser | EntityManager,
+    context?: AuditRequestContext | null,
   ): Promise<ReturnType<BranchesService['mapBranchAccess']>> {
+    const manager =
+      actorOrManager instanceof EntityManager ? actorOrManager : undefined;
+    const actor =
+      actorOrManager instanceof EntityManager ? null : actorOrManager ?? null;
     const companyUserRepository =
       manager?.getRepository(CompanyUser) ?? this.companyUserRepository;
     const branchAccessRepository =
@@ -323,6 +333,27 @@ export class BranchesService {
           },
         },
       });
+
+      if (actor) {
+        await this.securityEventsService.log(
+          {
+            eventType: SecurityEventType.BRANCH_ACCESS_GRANTED,
+            outcome: SecurityEventOutcome.SUCCESS,
+            actor,
+            companyId,
+            targetUserId: userId,
+            targetCompanyUserId: membership.id,
+            resourceType: 'company_user_branch_access',
+            resourceId: assignment.id,
+            newValues: {
+              branch_id: branchId,
+              company_user_id: membership.id,
+            },
+            context,
+          },
+          manager,
+        );
+      }
     }
 
     return this.mapBranchAccess(assignment);
@@ -332,6 +363,8 @@ export class BranchesService {
     companyId: number,
     branchId: number,
     userId: number,
+    actor?: AuthenticatedUser | null,
+    context?: AuditRequestContext | null,
   ): Promise<{ message: string }> {
     await this.findBranchOrFail(companyId, branchId);
 
@@ -347,10 +380,36 @@ export class BranchesService {
       throw new NotFoundException('Company user not found');
     }
 
+    const assignment = await this.branchAccessRepository.findOne({
+      where: {
+        company_user_id: membership.id,
+        branch_id: branchId,
+      },
+      select: ['id'],
+    });
+
     await this.branchAccessRepository.delete({
       company_user_id: membership.id,
       branch_id: branchId,
     });
+
+    if (assignment && actor) {
+      await this.securityEventsService.log({
+        eventType: SecurityEventType.BRANCH_ACCESS_REVOKED,
+        outcome: SecurityEventOutcome.SUCCESS,
+        actor,
+        companyId,
+        targetUserId: userId,
+        targetCompanyUserId: membership.id,
+        resourceType: 'company_user_branch_access',
+        resourceId: assignment.id,
+        oldValues: {
+          branch_id: branchId,
+          company_user_id: membership.id,
+        },
+        context,
+      });
+    }
 
     return { message: 'Branch access revoked successfully' };
   }

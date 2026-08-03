@@ -8,9 +8,15 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import type { AuditRequestContext } from '../../../common/interfaces/audit-request-context.interface';
+import { CompanyUser } from '../../companies/entities/company-user.entity';
+import { SecurityEventOutcome } from '../../security/enums/security-event-outcome.enum';
+import { SecurityEventType } from '../../security/enums/security-event-type.enum';
+import { SecurityEventsService } from '../../security/security-events.service';
 import { Branch } from '../branches/entities/branch.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { Position } from '../positions/entities/position.entity';
+import { CompanyUserDepartmentAccess } from './entities/company-user-department-access.entity';
 import { Department } from './entities/department.entity';
 import { DepartmentPosition } from './entities/department-position.entity';
 import { CreateDepartmentDto } from './dtos/create-department.dto';
@@ -33,8 +39,13 @@ export class DepartmentsService {
     private readonly positionRepository: Repository<Position>,
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
+    @InjectRepository(CompanyUser)
+    private readonly companyUserRepository: Repository<CompanyUser>,
+    @InjectRepository(CompanyUserDepartmentAccess)
+    private readonly departmentAccessRepository: Repository<CompanyUserDepartmentAccess>,
     private readonly hrAccessService: HrAccessService,
     private readonly codeGeneratorService: CodeGeneratorService,
+    private readonly securityEventsService: SecurityEventsService,
   ) {}
 
   private mapDepartment(department: Department) {
@@ -205,13 +216,7 @@ export class DepartmentsService {
         companyId,
         createDepartmentDto.parent_id,
       );
-
-      if (parent.branch_id) {
-        await this.hrAccessService.assertCanAccessBranch(
-          actor,
-          parent.branch_id,
-        );
-      }
+      await this.hrAccessService.assertCanAccessDepartment(actor, parent.id);
     }
 
     const positions = await this.resolvePositions(
@@ -294,11 +299,27 @@ export class DepartmentsService {
       );
     }
 
+    const accessibleDepartmentIds =
+      await this.hrAccessService.getAccessibleDepartmentIds(actor);
     const accessibleBranchIds =
       await this.hrAccessService.getAccessibleBranchIds(actor);
 
-    if (accessibleBranchIds?.length === 0) {
-      qb.andWhere('department.branch_id IS NULL');
+    if (this.hrAccessService.hasDepartmentScope(actor) && !this.hrAccessService.hasCompanyScope(actor)) {
+      if (!accessibleDepartmentIds?.length) {
+        return {
+          data: [],
+          meta: buildPaginationMeta(0, 0, limit, page),
+        };
+      }
+
+      qb.andWhere('department.id IN (:...departmentIds)', {
+        departmentIds: accessibleDepartmentIds,
+      });
+    } else if (accessibleBranchIds?.length === 0 && !this.hrAccessService.hasCompanyScope(actor)) {
+      return {
+        data: [],
+        meta: buildPaginationMeta(0, 0, limit, page),
+      };
     } else if (accessibleBranchIds) {
       qb.andWhere(
         '(department.branch_id IS NULL OR department.branch_id IN (:...branchIds))',
@@ -338,13 +359,7 @@ export class DepartmentsService {
     actor: AuthenticatedUser,
   ) {
     const department = await this.findDepartmentOrFail(companyId, departmentId);
-
-    if (department.branch_id) {
-      await this.hrAccessService.assertCanAccessBranch(
-        actor,
-        department.branch_id,
-      );
-    }
+    await this.hrAccessService.assertCanAccessDepartment(actor, department.id);
 
     return this.mapDepartment(department);
   }
@@ -356,13 +371,7 @@ export class DepartmentsService {
     actor: AuthenticatedUser,
   ) {
     const department = await this.findDepartmentOrFail(companyId, departmentId);
-
-    if (department.branch_id) {
-      await this.hrAccessService.assertCanAccessBranch(
-        actor,
-        department.branch_id,
-      );
-    }
+    await this.hrAccessService.assertCanAccessDepartment(actor, department.id);
 
     if (
       typeof updateDepartmentDto.parent_id === 'number' &&
@@ -392,8 +401,8 @@ export class DepartmentsService {
             )
           : null;
 
-    if (parent?.branch_id) {
-      await this.hrAccessService.assertCanAccessBranch(actor, parent.branch_id);
+    if (parent?.id) {
+      await this.hrAccessService.assertCanAccessDepartment(actor, parent.id);
     }
 
     const positions = await this.resolvePositions(
@@ -447,13 +456,7 @@ export class DepartmentsService {
     actor: AuthenticatedUser,
   ): Promise<{ message: string }> {
     const department = await this.findDepartmentOrFail(companyId, departmentId);
-
-    if (department.branch_id) {
-      await this.hrAccessService.assertCanAccessBranch(
-        actor,
-        department.branch_id,
-      );
-    }
+    await this.hrAccessService.assertCanAccessDepartment(actor, department.id);
 
     const employeeCount = await this.employeeRepository.count({
       where: { primary_department_id: departmentId },
@@ -483,12 +486,7 @@ export class DepartmentsService {
     actor: AuthenticatedUser,
   ) {
     const department = await this.findDepartmentOrFail(companyId, departmentId);
-    if (department.branch_id) {
-      await this.hrAccessService.assertCanAccessBranch(
-        actor,
-        department.branch_id,
-      );
-    }
+    await this.hrAccessService.assertCanAccessDepartment(actor, department.id);
 
     const mappings = await this.departmentPositionRepository.find({
       where: { company_id: companyId, department_id: departmentId },
@@ -515,12 +513,7 @@ export class DepartmentsService {
     actor: AuthenticatedUser,
   ) {
     const department = await this.findDepartmentOrFail(companyId, departmentId);
-    if (department.branch_id) {
-      await this.hrAccessService.assertCanAccessBranch(
-        actor,
-        department.branch_id,
-      );
-    }
+    await this.hrAccessService.assertCanAccessDepartment(actor, department.id);
 
     const position = await this.positionRepository.findOne({
       where: { id: positionId, company_id: companyId },
@@ -557,12 +550,7 @@ export class DepartmentsService {
     actor: AuthenticatedUser,
   ) {
     const department = await this.findDepartmentOrFail(companyId, departmentId);
-    if (department.branch_id) {
-      await this.hrAccessService.assertCanAccessBranch(
-        actor,
-        department.branch_id,
-      );
-    }
+    await this.hrAccessService.assertCanAccessDepartment(actor, department.id);
 
     const mapping = await this.departmentPositionRepository.findOne({
       where: {
@@ -594,5 +582,155 @@ export class DepartmentsService {
     await this.departmentPositionRepository.remove(mapping);
 
     return this.listPositions(companyId, departmentId, actor);
+  }
+
+  async listAccessAssignments(companyId: number, departmentId: number) {
+    await this.findDepartmentOrFail(companyId, departmentId);
+
+    return this.departmentAccessRepository.find({
+      where: {
+        department_id: departmentId,
+        company_user: {
+          company_id: companyId,
+        },
+      },
+      relations: {
+        company_user: {
+          user: true,
+        },
+      },
+      order: {
+        created_at: 'DESC',
+      },
+    });
+  }
+
+  async grantAccess(
+    companyId: number,
+    departmentId: number,
+    userId: number,
+    actor: AuthenticatedUser,
+    context?: AuditRequestContext | null,
+  ) {
+    await this.findDepartmentOrFail(companyId, departmentId);
+
+    const membership = await this.companyUserRepository.findOne({
+      where: {
+        company_id: companyId,
+        user_id: userId,
+        status: 'active',
+      },
+      relations: {
+        user: true,
+      },
+    });
+
+    if (!membership) {
+      throw new NotFoundException('Company user not found');
+    }
+
+    let assignment = await this.departmentAccessRepository.findOne({
+      where: {
+        company_user_id: membership.id,
+        department_id: departmentId,
+      },
+      relations: {
+        company_user: {
+          user: true,
+        },
+      },
+    });
+
+    if (!assignment) {
+      assignment = await this.departmentAccessRepository.save(
+        this.departmentAccessRepository.create({
+          company_user_id: membership.id,
+          department_id: departmentId,
+          granted_by_company_user_id: actor.companyMembershipId ?? null,
+        }),
+      );
+
+      assignment = await this.departmentAccessRepository.findOneOrFail({
+        where: { id: assignment.id },
+        relations: {
+          company_user: {
+            user: true,
+          },
+        },
+      });
+
+      await this.securityEventsService.log({
+        eventType: SecurityEventType.DEPARTMENT_ACCESS_GRANTED,
+        outcome: SecurityEventOutcome.SUCCESS,
+        actor,
+        companyId,
+        targetUserId: userId,
+        targetCompanyUserId: membership.id,
+        resourceType: 'company_user_department_access',
+        resourceId: assignment.id,
+        newValues: {
+          department_id: departmentId,
+          company_user_id: membership.id,
+        },
+        context,
+      });
+    }
+
+    return assignment;
+  }
+
+  async revokeAccess(
+    companyId: number,
+    departmentId: number,
+    userId: number,
+    actor?: AuthenticatedUser | null,
+    context?: AuditRequestContext | null,
+  ): Promise<{ message: string }> {
+    await this.findDepartmentOrFail(companyId, departmentId);
+
+    const membership = await this.companyUserRepository.findOne({
+      where: {
+        company_id: companyId,
+        user_id: userId,
+      },
+      select: ['id'],
+    });
+
+    if (!membership) {
+      throw new NotFoundException('Company user not found');
+    }
+
+    const assignment = await this.departmentAccessRepository.findOne({
+      where: {
+        company_user_id: membership.id,
+        department_id: departmentId,
+      },
+      select: ['id'],
+    });
+
+    await this.departmentAccessRepository.delete({
+      company_user_id: membership.id,
+      department_id: departmentId,
+    });
+
+    if (assignment && actor) {
+      await this.securityEventsService.log({
+        eventType: SecurityEventType.DEPARTMENT_ACCESS_REVOKED,
+        outcome: SecurityEventOutcome.SUCCESS,
+        actor,
+        companyId,
+        targetUserId: userId,
+        targetCompanyUserId: membership.id,
+        resourceType: 'company_user_department_access',
+        resourceId: assignment.id,
+        oldValues: {
+          department_id: departmentId,
+          company_user_id: membership.id,
+        },
+        context,
+      });
+    }
+
+    return { message: 'Department access revoked successfully' };
   }
 }

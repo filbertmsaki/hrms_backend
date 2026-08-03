@@ -15,6 +15,7 @@ import { Branch } from '../../branches/entities/branch.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { EmployeeDepartment } from '../../employees/entities/employee-department.entity';
 import { Position } from '../../positions/entities/position.entity';
+import { CompanyUserDepartmentAccess } from './company-user-department-access.entity';
 import { DepartmentPosition } from './department-position.entity';
 
 // NAMING CONVENTION: snake_case TS properties → snake_case DB columns (legacy pattern).
@@ -98,4 +99,10 @@ export class Department {
     (departmentPosition) => departmentPosition.department,
   )
   position_mappings: DepartmentPosition[];
+
+  @OneToMany(
+    () => CompanyUserDepartmentAccess,
+    (assignment) => assignment.department,
+  )
+  access_assignments: CompanyUserDepartmentAccess[];
 }

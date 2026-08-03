@@ -14,10 +14,12 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
+import { CurrentAuditContext } from '../../../common/decorators/audit-request-context.decorator';
 import { Permissions } from '../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import type { AuditRequestContext } from '../../../common/interfaces/audit-request-context.interface';
 import { AssignDepartmentPositionDto } from './dtos/assign-department-position.dto';
 import { CreateDepartmentDto } from './dtos/create-department.dto';
 import { DepartmentQueryDto } from './dtos/department-query.dto';
@@ -153,6 +155,52 @@ export class DepartmentsController {
       id,
       positionId,
       req.user,
+    );
+  }
+
+  @Get(':id/access')
+  @UseGuards(PermissionsGuard)
+  @Permissions('departments:manage-access')
+  listAccessAssignments(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.departmentsService.listAccessAssignments(req.user.companyId!, id);
+  }
+
+  @Post(':departmentId/access/:userId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('departments:manage-access')
+  grantAccess(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
+    @Param('departmentId', ParseIntPipe) departmentId: number,
+    @Param('userId', ParseIntPipe) userId: number,
+  ) {
+    return this.departmentsService.grantAccess(
+      req.user.companyId!,
+      departmentId,
+      userId,
+      req.user,
+      context,
+    );
+  }
+
+  @Delete(':departmentId/access/:userId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('departments:manage-access')
+  revokeAccess(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
+    @Param('departmentId', ParseIntPipe) departmentId: number,
+    @Param('userId', ParseIntPipe) userId: number,
+  ) {
+    return this.departmentsService.revokeAccess(
+      req.user.companyId!,
+      departmentId,
+      userId,
+      req.user,
+      context,
     );
   }
 }

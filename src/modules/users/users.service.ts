@@ -571,6 +571,7 @@ export class UsersService {
         'is_two_factor_enabled',
         'two_factor_setup_required',
         'auth_token_invalid_before',
+        'auth_token_version',
       ],
       relations: ['roles', 'roles.permissions', 'permissions'],
     });
@@ -610,6 +611,7 @@ export class UsersService {
         'user.two_factor_disabled_by',
         'user.two_factor_disabled_reason',
         'user.auth_token_invalid_before',
+        'user.auth_token_version',
       ])
       .where('user.id = :id', { id })
       .getOne();
@@ -927,9 +929,49 @@ export class UsersService {
     });
   }
 
+  async revokeAllSessions(
+    userId: number,
+    invalidBefore = new Date(),
+  ): Promise<void> {
+    await this.userRepository
+      .createQueryBuilder()
+      .update(User)
+      .set({
+        auth_token_invalid_before: invalidBefore,
+        auth_token_version: () => '"auth_token_version" + 1',
+      })
+      .where('id = :userId', {
+        userId,
+      })
+      .execute();
+  }
+
   async updatePassword(id: number, hashedPassword: string): Promise<void> {
     await this.userRepository.update(id, { password: hashedPassword });
     await this.clearPendingImportedPasswordChange(id);
+  }
+
+  async updatePasswordAndRevokeSessions(
+    userId: number,
+    hashedPassword: string,
+  ): Promise<void> {
+    await this.userRepository.manager.transaction(async (manager) => {
+      await manager
+        .getRepository(User)
+        .createQueryBuilder()
+        .update(User)
+        .set({
+          password: hashedPassword,
+          auth_token_invalid_before: new Date(),
+          auth_token_version: () => '"auth_token_version" + 1',
+        })
+        .where('id = :userId', {
+          userId,
+        })
+        .execute();
+    });
+
+    await this.clearPendingImportedPasswordChange(userId);
   }
 
   async update(id: number, updateUserDto: UpdateUserDto): Promise<User> {
@@ -979,9 +1021,11 @@ export class UsersService {
     }
 
     const hashed = await hashPassword(newPassword);
-    await this.updatePassword(userId, hashed);
+    await this.updatePasswordAndRevokeSessions(userId, hashed);
 
-    return { message: 'Password changed successfully' };
+    return {
+      message: 'Password changed successfully. Please log in again.',
+    };
   }
 
   async updateVerificationToken(
@@ -1055,6 +1099,15 @@ export class UsersService {
     }
 
     await this.userRepository.update(userId, update);
+  }
+
+  async requireTwoFactorSetup(userId: number): Promise<void> {
+    await this.userRepository.update(userId, {
+      is_two_factor_enabled: true,
+      two_factor_setup_required: true,
+      two_factor_secret: null,
+      two_factor_backup_codes: null,
+    });
   }
 
   async updateBackupCodes(

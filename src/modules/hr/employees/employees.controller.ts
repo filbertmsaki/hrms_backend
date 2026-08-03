@@ -10,6 +10,7 @@ import {
   Query,
   Req,
   Res,
+  StreamableFile,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -49,6 +50,7 @@ import { EmployeeImportHistoryQueryDto } from './import/dto/employee-import-hist
 import { EmployeeImportPreviewRequestDto } from './import/dto/employee-import-preview-request.dto';
 import { EmployeeImportService } from './import/employee-import.service';
 import { EmployeesService } from './employees.service';
+import { createDownloadStream } from '../../files/file-download.util';
 import {
   ApiCreateOperation,
   ApiDeleteOperation,
@@ -363,6 +365,24 @@ export class EmployeesController {
       addEmployeeDocumentDto,
       req.user,
     );
+  }
+
+  @Get(':employeeId/documents/:documentId/download')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:read')
+  async downloadEmployeeDocument(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('documentId', ParseIntPipe) documentId: number,
+  ): Promise<StreamableFile> {
+    const file = await this.employeesService.downloadDocument(
+      req.user.companyId!,
+      employeeId,
+      documentId,
+      req.user,
+    );
+
+    return createDownloadStream(file);
   }
 
   @Delete(':employeeId/documents/:documentId')

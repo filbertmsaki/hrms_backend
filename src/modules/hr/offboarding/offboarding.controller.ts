@@ -9,6 +9,7 @@ import {
   Post,
   Query,
   Req,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -52,6 +53,7 @@ import { UpdateOffboardingDocumentDto } from './dtos/update-offboarding-document
 import { UpsertOffboardingExitInterviewDto } from './dtos/upsert-offboarding-exit-interview.dto';
 import { UploadOffboardingDocumentDto } from './dtos/upload-offboarding-document.dto';
 import { OffboardingService } from './offboarding.service';
+import { createDownloadStream } from '../../files/file-download.util';
 
 @ApiTags('Offboarding')
 @ApiBearerAuth('access-token')
@@ -392,6 +394,25 @@ export class OffboardingController {
       id,
       req.user,
     );
+  }
+
+  @Get('requests/:id/documents/:documentId/download')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_documents:read')
+  async downloadDocument(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('documentId', ParseIntPipe) documentId: number,
+  ): Promise<StreamableFile> {
+    const file = await this.offboardingService.downloadDocument(
+      req.user.companyId!,
+      id,
+      documentId,
+      req.user,
+      this.getRequestContext(req),
+    );
+
+    return createDownloadStream(file);
   }
 
   @Patch('requests/:id/documents/:documentId')

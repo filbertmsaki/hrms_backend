@@ -58,6 +58,15 @@ export class EmployeePosition {
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 
+  @Column({ type: 'text', nullable: true })
+  assignment_reason: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  assigned_by_company_user_id: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  ended_by_company_user_id: number | null;
+
   @CreateDateColumn()
   created_at: Date;
 

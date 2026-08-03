@@ -7,6 +7,7 @@ export interface AuthenticatedUser {
   email: string;
   scope: AuthScope;
   userType: UserType;
+  sessionId?: string;
   dashboardType?: DashboardType;
   companyId?: number;
   companyName?: string;

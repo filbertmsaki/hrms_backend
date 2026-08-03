@@ -9,6 +9,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AppService } from './app.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { SecurityModule } from './modules/security/security.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { RolesModule } from './modules/roles/roles.module';
@@ -26,7 +27,13 @@ import { TenantGuard } from './common/guards/tenant.guard';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      cache: true,
+      expandVariables: true,
+      envFilePath: [
+        `.env.${process.env.APP_ENV ?? process.env.NODE_ENV ?? 'development'}.local`,
+        '.env.local',
+        '.env',
+      ],
       validate: validateEnv,
     }),
     ScheduleModule.forRoot(),
@@ -68,6 +75,7 @@ import { TenantGuard } from './common/guards/tenant.guard';
         logging: configService.get<string>('NODE_ENV') === 'development',
       }),
     }),
+    SecurityModule,
     AuthModule,
     UsersModule,
     CompaniesModule,

@@ -47,6 +47,48 @@ function optionalBool(env: Env, key: string, fallback: boolean): boolean {
   );
 }
 
+function optionalCsv(env: Env, key: string): string[] {
+  const raw = env[key];
+
+  if (!raw || raw.trim() === '') {
+    return [];
+  }
+
+  return raw
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function validateUrl(value: string, key: string): string {
+  try {
+    const parsed = new URL(value);
+
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      throw new Error('Unsupported protocol');
+    }
+
+    return value.replace(/\/+$/, '');
+  } catch {
+    throw new Error(
+      `Environment variable ${key} must be a valid HTTP or HTTPS URL.`,
+    );
+  }
+}
+
+function validateOrigin(value: string): string {
+  const parsed = validateUrl(value, 'APP_ALLOWED_ORIGINS');
+  const url = new URL(parsed);
+
+  if (url.pathname !== '/' || url.search || url.hash) {
+    throw new Error(
+      `APP_ALLOWED_ORIGINS must contain origins only, without paths: ${value}`,
+    );
+  }
+
+  return url.origin;
+}
+
 export function validateEnv(env: Env) {
   const DB_HOST = optionalString(env, 'DB_HOST', 'localhost');
   const DB_PORT = optionalInt(env, 'DB_PORT', 5432);
@@ -68,24 +110,82 @@ export function validateEnv(env: Env) {
     'JWT_REFRESH_EXPIRATION',
     '7d',
   );
-  const JWT_ISSUER = optionalString(env, 'JWT_ISSUER', 'hrms');
-  const JWT_AUDIENCE = optionalString(env, 'JWT_AUDIENCE', 'hrms-client');
+  const JWT_ISSUER = optionalString(env, 'JWT_ISSUER', 'alliance-hrms');
+  const JWT_AUDIENCE = optionalString(env, 'JWT_AUDIENCE', 'alliance-hrms-web');
 
-  const PORT = optionalInt(env, 'PORT', 3000);
   const NODE_ENV = normalizeConfiguredEnvironment(
     env.NODE_ENV,
     'NODE_ENV',
-    'production',
+    'development',
   );
   const APP_ENV = normalizeConfiguredEnvironment(
     env.APP_ENV,
     'APP_ENV',
     NODE_ENV,
   );
-  const APP_URL = optionalString(env, 'APP_URL', `http://localhost:${PORT}`);
-  const APP_FRONTEND_URL = optionalString(env, 'APP_FRONTEND_URL', APP_URL);
-  const APP_NAME = optionalString(env, 'APP_NAME', 'HRMS');
+  const APP_NAME = optionalString(env, 'APP_NAME', 'Alliance HRMS');
+  const APP_HOST = optionalString(env, 'APP_HOST', '0.0.0.0');
+  const APP_PORT = optionalInt(env, 'APP_PORT', optionalInt(env, 'PORT', 8888));
+  const APP_GLOBAL_PREFIX = optionalString(env, 'APP_GLOBAL_PREFIX', 'api')
+    .replace(/^\/+|\/+$/g, '');
+  const APP_TIMEZONE = optionalString(
+    env,
+    'APP_TIMEZONE',
+    optionalString(
+      env,
+      'DEFAULT_TIMEZONE',
+      optionalString(env, 'TZ', 'Africa/Dar_es_Salaam'),
+    ),
+  );
+  const APP_URL = validateUrl(
+    optionalString(env, 'APP_URL', `http://localhost:${APP_PORT}`),
+    'APP_URL',
+  );
+  const APP_FRONTEND_URL = validateUrl(
+    optionalString(env, 'APP_FRONTEND_URL', APP_URL),
+    'APP_FRONTEND_URL',
+  );
+  const APP_ALLOWED_ORIGINS = optionalCsv(env, 'APP_ALLOWED_ORIGINS').map(
+    validateOrigin,
+  );
+  const APP_ENABLE_API_DOCS = optionalBool(
+    env,
+    'APP_ENABLE_API_DOCS',
+    APP_ENV !== 'production',
+  );
+  const APP_TRUST_PROXY = optionalBool(
+    env,
+    'APP_TRUST_PROXY',
+    APP_ENV === 'production',
+  );
+  const APP_PUBLIC_STORAGE_PATH = optionalString(
+    env,
+    'APP_PUBLIC_STORAGE_PATH',
+    'uploads',
+  );
+  const APP_PRIVATE_STORAGE_PATH = optionalString(
+    env,
+    'APP_PRIVATE_STORAGE_PATH',
+    'private-uploads',
+  );
+  const MAX_UPLOAD_FILE_SIZE_BYTES = optionalInt(
+    env,
+    'MAX_UPLOAD_FILE_SIZE_BYTES',
+    10 * 1024 * 1024,
+  );
   const SUPPORT_EMAIL = optionalString(env, 'SUPPORT_EMAIL', '');
+
+  if (APP_ENV === 'production' && APP_ALLOWED_ORIGINS.length === 0) {
+    throw new Error(
+      'APP_ALLOWED_ORIGINS must contain at least one trusted origin in production.',
+    );
+  }
+
+  if (MAX_UPLOAD_FILE_SIZE_BYTES < 1024) {
+    throw new Error(
+      'MAX_UPLOAD_FILE_SIZE_BYTES must be at least 1024 bytes.',
+    );
+  }
 
   const MAIL_HOST = required(env, 'MAIL_HOST');
   const MAIL_PORT = optionalInt(env, 'MAIL_PORT', 587);
@@ -163,6 +263,11 @@ export function validateEnv(env: Env) {
     'EMPLOYEE_IMPORT_DEFAULT_PASSWORD',
     '',
   );
+  const AUTH_REQUIRED_2FA_ROLES = optionalString(
+    env,
+    'AUTH_REQUIRED_2FA_ROLES',
+    'SUPER_ADMIN,PLATFORM_ADMINISTRATOR,COMPANY_ADMIN,HR_MANAGER,IT_ADMIN,AUDITOR',
+  );
 
   return {
     DB_HOST,
@@ -177,12 +282,22 @@ export function validateEnv(env: Env) {
     JWT_REFRESH_EXPIRATION,
     JWT_ISSUER,
     JWT_AUDIENCE,
-    PORT,
     NODE_ENV,
     APP_ENV,
+    APP_NAME,
+    APP_HOST,
+    APP_PORT,
+    PORT: APP_PORT,
+    APP_GLOBAL_PREFIX,
+    APP_TIMEZONE,
     APP_URL,
     APP_FRONTEND_URL,
-    APP_NAME,
+    APP_ALLOWED_ORIGINS,
+    APP_ENABLE_API_DOCS,
+    APP_TRUST_PROXY,
+    APP_PUBLIC_STORAGE_PATH,
+    APP_PRIVATE_STORAGE_PATH,
+    MAX_UPLOAD_FILE_SIZE_BYTES,
     SUPPORT_EMAIL,
     MAIL_HOST,
     MAIL_PORT,
@@ -203,5 +318,6 @@ export function validateEnv(env: Env) {
     ENABLE_EMAIL_VERIFICATION,
     EMAIL_VERIFICATION_EXPIRY_HOURS,
     EMPLOYEE_IMPORT_DEFAULT_PASSWORD,
+    AUTH_REQUIRED_2FA_ROLES,
   };
 }

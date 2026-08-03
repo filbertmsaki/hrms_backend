@@ -13,6 +13,8 @@ import { AuthGuard } from '@nestjs/passport';
 import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import type { Request as ExpressRequest } from 'express';
+import { CurrentAuditContext } from '../../common/decorators/audit-request-context.decorator';
+import type { AuditRequestContext } from '../../common/interfaces/audit-request-context.interface';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { LoginDto } from './dtos/login.dto';
 import { RefreshTokenDto } from './dtos/refresh-token.dto';
@@ -62,7 +64,17 @@ export class AuthController {
   @ApiAuthErrorResponses()
   @ApiTooManyRequestsResponse()
   async login(@Body() loginDto: LoginDto, @Req() req: ExpressRequest) {
-    return this.authService.login(loginDto, req.ip);
+    return this.authService.login(loginDto, {
+      ipAddress: req.ip ?? null,
+      userAgent:
+        typeof req.headers['user-agent'] === 'string'
+          ? req.headers['user-agent']
+          : null,
+      requestId:
+        typeof req.headers['x-request-id'] === 'string'
+          ? req.headers['x-request-id']
+          : null,
+    });
   }
 
   // ────────────────────────────────
@@ -90,9 +102,9 @@ export class AuthController {
   @ApiTooManyRequestsResponse()
   async complete2FALogin(
     @Body() dto: Complete2FALoginDto,
-    @Req() req: ExpressRequest,
+    @CurrentAuditContext() context: AuditRequestContext,
   ) {
-    return this.authService.complete2FALogin(dto.tempToken, dto.code, req.ip);
+    return this.authService.complete2FALogin(dto.tempToken, dto.code, context);
   }
 
   // ────────────────────────────────
@@ -116,8 +128,11 @@ export class AuthController {
     },
   })
   @ApiValidationErrorResponse()
-  async refresh(@Body() dto: RefreshTokenDto) {
-    return this.authService.refreshTokens(dto);
+  async refresh(
+    @Body() dto: RefreshTokenDto,
+    @CurrentAuditContext() context: AuditRequestContext,
+  ) {
+    return this.authService.refreshTokens(dto, context);
   }
 
   // ────────────────────────────────
@@ -146,8 +161,9 @@ export class AuthController {
   async switchCompany(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: SwitchCompanyDto,
+    @CurrentAuditContext() context: AuditRequestContext,
   ) {
-    return this.authService.switchCompany(req.user.id, dto.company_id, req.ip);
+    return this.authService.switchCompany(req.user.id, dto.company_id, context);
   }
 
   // ────────────────────────────────
@@ -170,8 +186,11 @@ export class AuthController {
   })
   @ApiSuccessResponse(200, 'Email verified successfully')
   @ApiGoneResponse('Verification token')
-  async verifyEmail(@Query('token') token: string) {
-    return this.authService.verifyEmail(token);
+  async verifyEmail(
+    @Query('token') token: string,
+    @CurrentAuditContext() context: AuditRequestContext,
+  ) {
+    return this.authService.verifyEmail(token, context);
   }
 
   // ────────────────────────────────
@@ -208,8 +227,11 @@ export class AuthController {
   @ApiSuccessResponse(200, 'Password reset instructions sent to your email')
   @ApiValidationErrorResponse()
   @ApiTooManyRequestsResponse()
-  async forgotPassword(@Body() dto: ForgotPasswordDto) {
-    return this.authService.forgotPassword(dto);
+  async forgotPassword(
+    @Body() dto: ForgotPasswordDto,
+    @CurrentAuditContext() context: AuditRequestContext,
+  ) {
+    return this.authService.forgotPassword(dto, context);
   }
 
   // ────────────────────────────────
@@ -226,8 +248,11 @@ export class AuthController {
   @ApiSuccessResponse(200, 'Password reset successful')
   @ApiValidationErrorResponse()
   @ApiGoneResponse('Reset token')
-  async resetPassword(@Body() dto: ResetPasswordDto) {
-    return this.authService.resetPassword(dto);
+  async resetPassword(
+    @Body() dto: ResetPasswordDto,
+    @CurrentAuditContext() context: AuditRequestContext,
+  ) {
+    return this.authService.resetPassword(dto, context);
   }
 
   // ────────────────────────────────
@@ -247,10 +272,12 @@ export class AuthController {
   @ApiSuccessResponse(200, 'Logged out successfully')
   @ApiValidationErrorResponse()
   async logout(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: LogoutDto,
     @Headers('authorization') authHeader: string,
+    @CurrentAuditContext() context: AuditRequestContext,
   ) {
     const token = authHeader?.replace(/^Bearer\s+/i, '');
-    return this.authService.logout(dto, token);
+    return this.authService.logout(req.user.id, dto, token, req.user, context);
   }
 }

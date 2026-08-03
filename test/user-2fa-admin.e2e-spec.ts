@@ -39,6 +39,8 @@ import type { App } from 'supertest/types';
 import { PermissionsGuard } from '../src/common/guards/permissions.guard';
 import { TenantGuard } from '../src/common/guards/tenant.guard';
 import { TwoFaService } from '../src/modules/auth/2fa/2fa.service';
+import { SecurityEventsService } from '../src/modules/security/security-events.service';
+import { TwoFactorPolicyService } from '../src/modules/security/two-factor-policy.service';
 import { UsersController } from '../src/modules/users/users.controller';
 import { UsersService } from '../src/modules/users/users.service';
 
@@ -88,6 +90,14 @@ describe('User Admin 2FA Endpoints (e2e)', () => {
       providers: [
         { provide: UsersService, useValue: {} },
         { provide: TwoFaService, useValue: twoFaService },
+        {
+          provide: SecurityEventsService,
+          useValue: { logBestEffort: jest.fn() },
+        },
+        {
+          provide: TwoFactorPolicyService,
+          useValue: { assertCanDisable: jest.fn() },
+        },
         PermissionsGuard,
         TenantGuard,
         Reflector,

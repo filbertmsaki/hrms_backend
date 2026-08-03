@@ -11,9 +11,13 @@ import {
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
+import { Company } from '../../../companies/entities/company.entity';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { Branch } from '../../branches/entities/branch.entity';
+import { CostCenter } from '../../cost-centers/entities/cost-center.entity';
 import { Department } from '../../departments/entities/department.entity';
+import { EmployeeGrade } from '../../grades/entities/employee-grade.entity';
+import { EmployeeConfirmationStatusEnum } from '../enums/employee-confirmation-status.enum';
 import { Position } from '../../positions/entities/position.entity';
 import { EmploymentStatusEnum } from '../enums/employment-status.enum';
 import { EmploymentTypeEnum } from '../enums/employment-type.enum';
@@ -37,16 +41,21 @@ import { DefaultAvatar } from '../../default-avatars/entities/default-avatar.ent
 // properties with explicit @Column({ name: 'snake_case' }) mappings. Both patterns
 // work correctly with TypeORM. New entities should follow the camelCase pattern.
 @Entity('employees')
+@Index('IDX_employee_company', ['company_id'])
 @Index('IDX_employee_employee_no', ['employee_no'])
 @Index('IDX_employee_employment_status', ['employment_status'])
 @Index('IDX_employee_primary_branch', ['primary_branch_id'])
 @Index('IDX_employee_primary_department', ['primary_department_id'])
 @Index('IDX_employee_primary_position', ['primary_position_id'])
 @Index('IDX_employee_reports_to', ['reports_to'])
+@Unique('UQ_employee_company_employee_no', ['company_id', 'employee_no'])
 @Unique('UQ_employee_company_user', ['company_user_id'])
 export class Employee {
   @PrimaryGeneratedColumn()
   id: number;
+
+  @Column()
+  company_id: number;
 
   @Column()
   company_user_id: number;
@@ -100,6 +109,12 @@ export class Employee {
   @Column({ type: 'int', nullable: true })
   primary_position_id: number | null;
 
+  @Column({ type: 'int', nullable: true })
+  grade_id: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  cost_center_id: number | null;
+
   @Column({
     type: 'enum',
     enum: EmploymentStatusEnum,
@@ -118,10 +133,29 @@ export class Employee {
   hire_date: string | null;
 
   @Column({ type: 'date', nullable: true })
+  probation_start_date: string | null;
+
+  @Column({ type: 'date', nullable: true })
   probation_end_date: string | null;
 
   @Column({ type: 'date', nullable: true })
+  confirmation_due_date: string | null;
+
+  @Column({ type: 'date', nullable: true })
   confirmation_date: string | null;
+
+  @Column({
+    type: 'varchar',
+    length: 40,
+    default: EmployeeConfirmationStatusEnum.NOT_APPLICABLE,
+  })
+  confirmation_status: EmployeeConfirmationStatusEnum;
+
+  @Column({ type: 'int', nullable: true })
+  confirmed_by_company_user_id: number | null;
+
+  @Column({ type: 'text', nullable: true })
+  confirmation_notes: string | null;
 
   @Column({ type: 'date', nullable: true })
   exit_date: string | null;
@@ -138,6 +172,12 @@ export class Employee {
   @Column({ type: 'json', nullable: true })
   metadata: Record<string, unknown> | null;
 
+  @Column({ type: 'timestamptz', nullable: true })
+  status_changed_at: Date | null;
+
+  @Column({ type: 'int', nullable: true })
+  status_changed_by_company_user_id: number | null;
+
   @CreateDateColumn()
   created_at: Date;
 
@@ -149,6 +189,10 @@ export class Employee {
   })
   @JoinColumn({ name: 'company_user_id' })
   company_user: CompanyUser;
+
+  @ManyToOne(() => Company, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'company_id' })
+  company: Company;
 
   @ManyToOne(() => Branch, (branch) => branch.primary_employees, {
     onDelete: 'SET NULL',
@@ -168,6 +212,20 @@ export class Employee {
   @JoinColumn({ name: 'primary_position_id' })
   primary_position: Position | null;
 
+  @ManyToOne(() => EmployeeGrade, (grade) => grade.employees, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'grade_id' })
+  grade: EmployeeGrade | null;
+
+  @ManyToOne(() => CostCenter, (costCenter) => costCenter.employees, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'cost_center_id' })
+  cost_center: CostCenter | null;
+
   @ManyToOne(() => DefaultAvatar, (defaultAvatar) => defaultAvatar.employees, {
     onDelete: 'SET NULL',
   })
@@ -179,6 +237,20 @@ export class Employee {
   })
   @JoinColumn({ name: 'reports_to' })
   manager: Employee | null;
+
+  @ManyToOne(() => CompanyUser, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'confirmed_by_company_user_id' })
+  confirmed_by: CompanyUser | null;
+
+  @ManyToOne(() => CompanyUser, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'status_changed_by_company_user_id' })
+  status_changed_by: CompanyUser | null;
 
   @OneToMany(() => Employee, (employee) => employee.manager)
   direct_reports: Employee[];

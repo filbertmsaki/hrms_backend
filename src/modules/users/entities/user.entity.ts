@@ -84,6 +84,9 @@ export class User {
   @Column({ type: 'timestamp', nullable: true })
   auth_token_invalid_before: Date | null;
 
+  @Column({ type: 'int', default: 0 })
+  auth_token_version: number;
+
   @CreateDateColumn()
   created_at: Date;
 

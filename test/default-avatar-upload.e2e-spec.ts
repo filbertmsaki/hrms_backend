@@ -34,6 +34,7 @@ import {
   INestApplication,
   ValidationPipe,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -158,6 +159,23 @@ describe('Default Avatar Upload (e2e)', () => {
         TenantGuard,
         Reflector,
         {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string) => {
+              switch (key) {
+                case 'APP_PUBLIC_STORAGE_PATH':
+                  return 'uploads';
+                case 'APP_PRIVATE_STORAGE_PATH':
+                  return 'private-uploads';
+                case 'MAX_UPLOAD_FILE_SIZE_BYTES':
+                  return 10 * 1024 * 1024;
+                default:
+                  return undefined;
+              }
+            }),
+          },
+        },
+        {
           provide: getRepositoryToken(DefaultAvatar),
           useValue: defaultAvatarRepository,
         },
@@ -248,6 +266,10 @@ describe('Default Avatar Upload (e2e)', () => {
     expect(fs.writeFile).toHaveBeenCalledWith(
       expect.stringMatching(/default-avatar-.*\.jpg$/),
       expect.any(Buffer),
+      expect.objectContaining({
+        flag: 'wx',
+        mode: 0o640,
+      }),
     );
   });
 

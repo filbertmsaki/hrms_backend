@@ -14,10 +14,12 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
+import { CurrentAuditContext } from '../../../common/decorators/audit-request-context.decorator';
 import { Permissions } from '../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import type { AuditRequestContext } from '../../../common/interfaces/audit-request-context.interface';
 import { BranchQueryDto } from './dtos/branch-query.dto';
 import { CreateBranchDto } from './dtos/create-branch.dto';
 import { UpdateBranchDto } from './dtos/update-branch.dto';
@@ -156,6 +158,7 @@ export class BranchesController {
   @ApiSuccessResponse(200, 'Branch access granted')
   grantAccess(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
     @Param('branchId', ParseIntPipe) branchId: number,
     @Param('userId', ParseIntPipe) userId: number,
   ) {
@@ -163,6 +166,8 @@ export class BranchesController {
       req.user.companyId!,
       branchId,
       userId,
+      req.user,
+      context,
     );
   }
 
@@ -181,6 +186,7 @@ export class BranchesController {
   @ApiSuccessResponse(200, 'Branch access revoked')
   revokeAccess(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
     @Param('branchId', ParseIntPipe) branchId: number,
     @Param('userId', ParseIntPipe) userId: number,
   ) {
@@ -188,6 +194,8 @@ export class BranchesController {
       req.user.companyId!,
       branchId,
       userId,
+      req.user,
+      context,
     );
   }
 }

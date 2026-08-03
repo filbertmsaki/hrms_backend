@@ -72,6 +72,10 @@ import {
 } from '../notifications/events';
 import { buildNotificationRecipient } from '../notifications/notification-recipient.util';
 import { FilesService } from '../../files/files.service';
+import {
+  HR_PRIVATE_DOCUMENT_MAX_BYTES,
+  HR_PRIVATE_DOCUMENT_MIME_TYPES,
+} from '../../files/file-policy';
 
 type ProgressSummary = {
   total_tasks: number;
@@ -1149,7 +1153,9 @@ export class OnboardingService {
       mime_type: entity.mime_type,
       file_extension: entity.file_extension,
       file_size: entity.file_size,
-      file_path: entity.file_path,
+      file_path:
+        `/api/onboarding/requests/${entity.entity_id}` +
+        `/documents/${entity.id}/download`,
       is_verified: entity.is_verified,
       verified_at: entity.verified_at,
       verified_by_company_user_id: entity.verified_by_company_user_id,
@@ -2761,9 +2767,12 @@ export class OnboardingService {
       onboardingRequestId,
     );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
-    const storedFile = await this.filesService.saveBase64File(dto.file, {
+    const storedFile = await this.filesService.savePrivateBase64File(dto.file, {
       directorySegments: ['documents', 'onboarding', `company-${companyId}`],
       fileNamePrefix: `onboarding-${onboardingRequestId}`,
+      allowedMimeTypes: [...HR_PRIVATE_DOCUMENT_MIME_TYPES],
+      maxFileSizeBytes: HR_PRIVATE_DOCUMENT_MAX_BYTES,
+      validateFileSignature: true,
     });
 
     const document = await this.getDocumentRepository().save(
@@ -2800,6 +2809,59 @@ export class OnboardingService {
     });
 
     return this.mapDocument(document);
+  }
+
+  async downloadDocument(
+    companyId: number,
+    onboardingRequestId: number,
+    documentId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
+
+    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+
+    const document = await this.documentRepository.findOne({
+      where: {
+        id: documentId,
+        company_id: companyId,
+        entity_type: DocumentEntityTypeEnum.ONBOARDING,
+        entity_id: onboardingRequestId,
+      },
+    });
+
+    if (!document) {
+      throw new NotFoundException('Onboarding document not found');
+    }
+
+    const buffer = await this.filesService.readManagedFile(document.file_path);
+
+    if (!buffer) {
+      throw new NotFoundException(
+        'Onboarding document file was not found in storage',
+      );
+    }
+
+    await this.onboardingAuditService.log({
+      company_id: companyId,
+      onboarding_request_id: onboardingRequestId,
+      action: 'onboarding_document.downloaded',
+      entity_name: 'document',
+      entity_id: document.id,
+      actor,
+      payload: {
+        title: document.title,
+      },
+    });
+
+    return {
+      buffer,
+      fileName: document.original_file_name ?? document.file_name,
+      mimeType: document.mime_type ?? 'application/octet-stream',
+    };
   }
 
   async verifyDocument(
@@ -2946,7 +3008,9 @@ export class OnboardingService {
       throw new NotFoundException('Document not found');
     }
 
+    const filePath = document.file_path;
     await this.documentRepository.remove(document);
+    await this.filesService.removeManagedFile(filePath);
 
     await this.onboardingAuditService.log({
       company_id: companyId,

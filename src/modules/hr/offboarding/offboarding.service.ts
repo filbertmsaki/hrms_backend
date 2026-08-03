@@ -102,6 +102,10 @@ import {
   HR_NOTIFICATION_ROLE_NAMES,
 } from '../notifications/notification-recipient.util';
 import { FilesService } from '../../files/files.service';
+import {
+  HR_PRIVATE_DOCUMENT_MAX_BYTES,
+  HR_PRIVATE_DOCUMENT_MIME_TYPES,
+} from '../../files/file-policy';
 
 type ProgressSummary = {
   total_tasks: number;
@@ -1467,7 +1471,9 @@ export class OffboardingService {
       mime_type: entity.mime_type,
       file_extension: entity.file_extension,
       file_size: entity.file_size,
-      file_path: entity.file_path,
+      file_path:
+        `/api/offboarding/requests/${entity.entity_id}` +
+        `/documents/${entity.id}/download`,
       is_verified: entity.is_verified,
       uploaded_by_company_user_id: entity.uploaded_by_company_user_id,
       created_at: entity.created_at,
@@ -4049,9 +4055,12 @@ export class OffboardingService {
       offboardingRequestId,
     );
     await this.assertCanAccessOffboardingEmployee(actor, request.employee);
-    const storedFile = await this.filesService.saveBase64File(dto.file, {
+    const storedFile = await this.filesService.savePrivateBase64File(dto.file, {
       directorySegments: ['documents', 'offboarding', `company-${companyId}`],
       fileNamePrefix: `offboarding-${offboardingRequestId}`,
+      allowedMimeTypes: [...HR_PRIVATE_DOCUMENT_MIME_TYPES],
+      maxFileSizeBytes: HR_PRIVATE_DOCUMENT_MAX_BYTES,
+      validateFileSignature: true,
     });
 
     const document = await this.getDocumentRepository().save(
@@ -4088,6 +4097,61 @@ export class OffboardingService {
     });
 
     return this.mapDocument(document);
+  }
+
+  async downloadDocument(
+    companyId: number,
+    offboardingRequestId: number,
+    documentId: number,
+    actor: AuthenticatedUser,
+    context?: RequestContext,
+  ) {
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
+
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
+
+    const document = await this.documentRepository.findOne({
+      where: {
+        id: documentId,
+        company_id: companyId,
+        entity_type: DocumentEntityTypeEnum.OFFBOARDING_REQUEST,
+        entity_id: offboardingRequestId,
+      },
+    });
+
+    if (!document) {
+      throw new NotFoundException('Offboarding document not found');
+    }
+
+    const buffer = await this.filesService.readManagedFile(document.file_path);
+
+    if (!buffer) {
+      throw new NotFoundException(
+        'Offboarding document file was not found in storage',
+      );
+    }
+
+    await this.offboardingAuditService.log({
+      action: OffboardingAuditActionEnum.UPDATED,
+      offboarding_request_id: offboardingRequestId,
+      actor,
+      description: 'Offboarding document downloaded',
+      metadata: {
+        document_id: document.id,
+        title: document.title,
+      },
+      ip_address: context?.ip_address ?? null,
+      user_agent: context?.user_agent ?? null,
+    });
+
+    return {
+      buffer,
+      fileName: document.original_file_name ?? document.file_name,
+      mimeType: document.mime_type ?? 'application/octet-stream',
+    };
   }
 
   async listDocuments(
@@ -4190,7 +4254,9 @@ export class OffboardingService {
     }
 
     const title = document.title;
+    const filePath = document.file_path;
     await this.documentRepository.remove(document);
+    await this.filesService.removeManagedFile(filePath);
 
     await this.offboardingAuditService.log({
       action: OffboardingAuditActionEnum.UPDATED,

@@ -69,6 +69,7 @@ import { LeaveRecordStatusEnum } from '../src/modules/hr/leave/enums/leave-recor
 import { LeaveGenderRestrictionEnum } from '../src/modules/hr/leave/enums/leave-gender-restriction.enum';
 import { LeaveBalanceLedgerService } from '../src/modules/hr/leave/services/leave-balance-ledger.service';
 import { FilesService } from '../src/modules/files/files.service';
+import { PositionAvailabilityService } from '../src/modules/hr/shared/position-availability.service';
 
 type MockRepo = Record<string, jest.Mock>;
 
@@ -120,6 +121,10 @@ describe('Leave Flow (e2e)', () => {
     hasCompanyWideBranchAccess: jest.Mock;
   };
   let leaveAuditService: { log: jest.Mock };
+  let positionAvailabilityService: {
+    isPositionAvailableForBranch: jest.Mock;
+    isPositionAvailableForDepartment: jest.Mock;
+  };
   let leaveBalanceService: {
     toDecimal: jest.Mock;
     toNumber: jest.Mock;
@@ -182,6 +187,10 @@ describe('Leave Flow (e2e)', () => {
     };
     leaveAuditService = {
       log: jest.fn(),
+    };
+    positionAvailabilityService = {
+      isPositionAvailableForBranch: jest.fn().mockResolvedValue(true),
+      isPositionAvailableForDepartment: jest.fn().mockResolvedValue(true),
     };
     leaveBalanceService = {
       toDecimal: jest.fn((value: number) => value.toFixed(2)),
@@ -280,6 +289,10 @@ describe('Leave Flow (e2e)', () => {
           useValue: attendanceRecalculationJobRepository,
         },
         { provide: HrAccessService, useValue: hrAccessService },
+        {
+          provide: PositionAvailabilityService,
+          useValue: positionAvailabilityService,
+        },
         { provide: LeaveAuditService, useValue: leaveAuditService },
         { provide: LeaveBalanceService, useValue: leaveBalanceService },
         {

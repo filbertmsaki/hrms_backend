@@ -9,6 +9,7 @@ import {
   Post,
   Query,
   Req,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -36,6 +37,7 @@ import { UpdateDocumentDto } from './dtos/update-document.dto';
 import { UploadDocumentDto } from './dtos/upload-document.dto';
 import { VerifyDocumentDto } from './dtos/verify-document.dto';
 import { OnboardingService } from './onboarding.service';
+import { createDownloadStream } from '../../files/file-download.util';
 
 @ApiTags('Onboarding')
 @ApiBearerAuth('access-token')
@@ -299,6 +301,24 @@ export class OnboardingController {
       id,
       req.user,
     );
+  }
+
+  @Get('requests/:id/documents/:documentId/download')
+  @UseGuards(PermissionsGuard)
+  @Permissions('onboarding_documents:read')
+  async downloadDocument(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('documentId', ParseIntPipe) documentId: number,
+  ): Promise<StreamableFile> {
+    const file = await this.onboardingService.downloadDocument(
+      req.user.companyId!,
+      id,
+      documentId,
+      req.user,
+    );
+
+    return createDownloadStream(file);
   }
 
   @Patch('requests/:id/documents/:documentId')

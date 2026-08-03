@@ -16,11 +16,13 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
 
+import { CurrentAuditContext } from '../../common/decorators/audit-request-context.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
+import type { AuditRequestContext } from '../../common/interfaces/audit-request-context.interface';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import {
   ApiAuthRequired,
@@ -39,6 +41,7 @@ import { UpdateUserDto } from './dtos/update-user.dto';
 import { UsersService } from './users.service';
 import { AdminDisableUser2FADto } from './dtos/admin-disable-user-2fa.dto';
 import { SelectUserAvatarDto } from './dtos/select-user-avatar.dto';
+import { TwoFactorPolicyService } from '../security/two-factor-policy.service';
 
 @ApiTags('Users')
 @ApiBearerAuth('access-token')
@@ -48,6 +51,7 @@ export class UsersController {
   constructor(
     private readonly usersService: UsersService,
     private readonly twoFaService: TwoFaService,
+    private readonly twoFactorPolicyService: TwoFactorPolicyService,
   ) {}
 
   @Get('me')
@@ -429,19 +433,14 @@ export class UsersController {
   })
   async enableUser2FA(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
     @Param('userId', ParseIntPipe) userId: number,
   ) {
     return this.twoFaService.adminEnable2FA(
       req.user.companyId!,
       userId,
       req.user,
-      {
-        ipAddress: req.ip,
-        userAgent:
-          typeof req.headers['user-agent'] === 'string'
-            ? req.headers['user-agent']
-            : null,
-      },
+      context,
     );
   }
 
@@ -471,6 +470,7 @@ export class UsersController {
   })
   async disableUser2FA(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
     @Param('userId', ParseIntPipe) userId: number,
     @Body() dto: AdminDisableUser2FADto,
   ) {
@@ -479,13 +479,7 @@ export class UsersController {
       userId,
       req.user,
       dto.reason,
-      {
-        ipAddress: req.ip,
-        userAgent:
-          typeof req.headers['user-agent'] === 'string'
-            ? req.headers['user-agent']
-            : null,
-      },
+      context,
     );
   }
 
@@ -519,9 +513,14 @@ export class UsersController {
   @ApiSuccessResponse(200, '2FA enabled successfully')
   async verify2FA(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
     @Body() dto: Verify2FaDto,
   ) {
-    return this.twoFaService.verifyAndActivate2FA(req.user.id, dto.token);
+    return this.twoFaService.verifyAndActivate2FA(
+      req.user.id,
+      dto.token,
+      context,
+    );
   }
 
   @Post('2fa/disable')
@@ -535,9 +534,11 @@ export class UsersController {
   @ApiSuccessResponse(200, '2FA disabled successfully')
   async disable2FA(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
     @Body() dto: Verify2FaDto,
   ) {
-    return this.twoFaService.disable2FA(req.user.id, dto.token);
+    this.twoFactorPolicyService.assertCanDisable(req.user.roles);
+    return this.twoFaService.disable2FA(req.user.id, dto.token, context);
   }
 
   @Post('2fa/backup-codes/regenerate')

@@ -13,8 +13,10 @@ import type { StringValue } from 'ms';
 
 import {
   AuthScope,
+  AuthenticatedUser,
   UserType,
 } from '../../common/interfaces/authenticated-user.interface';
+import { AuditRequestContext } from '../../common/interfaces/audit-request-context.interface';
 import { comparePasswords, hashPassword } from '../../common/utils/hash.util';
 import { hasPermission } from '../../common/utils/permission.util';
 import { CompaniesService } from '../companies/companies.service';
@@ -25,6 +27,10 @@ import {
 import { MailService } from '../mail/mail.service';
 import { User } from '../users/entities/user.entity';
 import { UsersService } from '../users/users.service';
+import { SecurityEventOutcome } from '../security/enums/security-event-outcome.enum';
+import { SecurityEventType } from '../security/enums/security-event-type.enum';
+import { SecurityEventsService } from '../security/security-events.service';
+import { TwoFactorPolicyService } from '../security/two-factor-policy.service';
 import { TwoFaService } from './2fa/2fa.service';
 import { ForgotPasswordDto } from './dtos/forgot-password.dto';
 import { LoginDto } from './dtos/login.dto';
@@ -52,6 +58,7 @@ type AccessTokenPayload = {
   aud: string;
   sessionId: string;
   device: string;
+  tokenVersion: number;
 };
 
 type RefreshTokenPayload = {
@@ -61,6 +68,7 @@ type RefreshTokenPayload = {
   companyId?: number;
   membershipId?: number;
   type: 'refresh';
+  tokenVersion: number;
   iat?: number;
 };
 
@@ -94,7 +102,43 @@ export class AuthService {
     private readonly mailService: MailService,
     private readonly twoFaService: TwoFaService,
     private readonly companiesService: CompaniesService,
+    private readonly securityEventsService: SecurityEventsService,
+    private readonly twoFactorPolicyService: TwoFactorPolicyService,
   ) {}
+
+  private buildFailureMetadata(context?: CompanySummary | null) {
+    return context
+      ? {
+          companyId: context.companyId,
+          companySlug: context.companySlug,
+        }
+      : undefined;
+  }
+
+  private async logSecurityEvent(
+    eventType: SecurityEventType,
+    outcome: SecurityEventOutcome,
+    options: {
+      actor?: AccessTokenPayload | null;
+      authenticatedUser?: User | null;
+      companyId?: number | null;
+      targetUserId?: number | null;
+      metadata?: Record<string, unknown> | null;
+      reason?: string | null;
+      context?: AuditRequestContext | null;
+    } = {},
+  ) {
+    await this.securityEventsService.logBestEffort({
+      eventType,
+      outcome,
+      companyId: options.companyId ?? null,
+      targetUserId:
+        options.targetUserId ?? options.authenticatedUser?.id ?? null,
+      reason: options.reason ?? null,
+      metadata: options.metadata ?? null,
+      context: options.context ?? null,
+    });
+  }
 
   async validateUser(email: string, pass: string) {
     const user = await this.usersService.findByEmailForAuth(email);
@@ -113,13 +157,36 @@ export class AuthService {
     return result;
   }
 
-  async login(loginDto: LoginDto, ip?: string) {
+  async login(
+    loginDto: LoginDto,
+    context?: AuditRequestContext | null,
+  ) {
     const user = await this.validateUser(loginDto.email, loginDto.password);
     if (!user) {
+      await this.logSecurityEvent(
+        SecurityEventType.LOGIN_FAILED,
+        SecurityEventOutcome.FAILURE,
+        {
+          reason: 'Invalid credentials',
+          metadata: {
+            email: loginDto.email.trim().toLowerCase(),
+          },
+          context,
+        },
+      );
       throw new UnauthorizedException('Invalid credentials');
     }
 
     if (user.status !== 'active') {
+      await this.logSecurityEvent(
+        SecurityEventType.LOGIN_BLOCKED,
+        SecurityEventOutcome.DENIED,
+        {
+          authenticatedUser: user as User,
+          reason: 'User account is inactive',
+          context,
+        },
+      );
       throw new ForbiddenException(
         'Your account is inactive. Please contact an administrator.',
       );
@@ -130,6 +197,15 @@ export class AuthService {
       true,
     );
     if (isVerificationEnabled && !user.is_email_verified) {
+      await this.logSecurityEvent(
+        SecurityEventType.LOGIN_BLOCKED,
+        SecurityEventOutcome.DENIED,
+        {
+          authenticatedUser: user as User,
+          reason: 'Email verification is required',
+          context,
+        },
+      );
       return {
         requiresEmailVerification: true,
         message: 'Please verify your email address before continuing.',
@@ -160,6 +236,18 @@ export class AuthService {
           },
         );
 
+        await this.logSecurityEvent(
+          SecurityEventType.TWO_FACTOR_CHALLENGE_CREATED,
+          SecurityEventOutcome.SUCCESS,
+          {
+            authenticatedUser: user as User,
+            context,
+            metadata: {
+              scope: 'platform',
+            },
+          },
+        );
+
         return {
           requires2FA: true,
           tempToken,
@@ -167,10 +255,27 @@ export class AuthService {
         };
       }
 
-      await this.usersService.updateLastLogin(user.id, new Date(), ip ?? null);
+      await this.usersService.updateLastLogin(
+        user.id,
+        new Date(),
+        context?.ipAddress ?? null,
+      );
       const response = this.generatePlatformAuthResponse(
         user as User,
         platformContext,
+      );
+
+      await this.logSecurityEvent(
+        SecurityEventType.LOGIN_SUCCEEDED,
+        SecurityEventOutcome.SUCCESS,
+        {
+          authenticatedUser: user as User,
+          context,
+          metadata: {
+            scope: 'platform',
+            roles: platformContext.roles,
+          },
+        },
       );
 
       if (twoFactorStatus.enabled && twoFactorStatus.setupRequired) {
@@ -187,6 +292,15 @@ export class AuthService {
 
     const companies = await this.companiesService.listUserCompanies(user.id);
     if (!companies.length) {
+      await this.logSecurityEvent(
+        SecurityEventType.LOGIN_BLOCKED,
+        SecurityEventOutcome.DENIED,
+        {
+          authenticatedUser: user as User,
+          reason: 'No active company memberships found',
+          context,
+        },
+      );
       throw new ForbiddenException(
         'You do not belong to any active company in this system.',
       );
@@ -212,6 +326,19 @@ export class AuthService {
         },
       );
 
+      await this.logSecurityEvent(
+        SecurityEventType.TWO_FACTOR_CHALLENGE_CREATED,
+        SecurityEventOutcome.SUCCESS,
+        {
+          authenticatedUser: user as User,
+          companyId: activeCompany.companyId,
+          context,
+          metadata: {
+            scope: 'company',
+          },
+        },
+      );
+
       return {
         requires2FA: true,
         tempToken,
@@ -221,7 +348,11 @@ export class AuthService {
       };
     }
 
-    await this.usersService.updateLastLogin(user.id, new Date(), ip ?? null);
+    await this.usersService.updateLastLogin(
+      user.id,
+      new Date(),
+      context?.ipAddress ?? null,
+    );
     const activeCompanyContext =
       await this.companiesService.setActiveMembership(
         user.id,
@@ -243,6 +374,50 @@ export class AuthService {
         response,
       );
 
+    const roleRequiresTwoFactor = this.twoFactorPolicyService.isRequired(
+      activeCompanyContext.roles,
+    );
+    const currentTwoFactorStatus = await this.twoFaService.getTwoFactorStatus(
+      user.id,
+    );
+
+    if (roleRequiresTwoFactor && !currentTwoFactorStatus.fullyConfigured) {
+      await this.usersService.requireTwoFactorSetup(user.id);
+      await this.logSecurityEvent(
+        SecurityEventType.TWO_FACTOR_SETUP_REQUIRED,
+        SecurityEventOutcome.SUCCESS,
+        {
+          authenticatedUser: user as User,
+          companyId: activeCompanyContext.companyId,
+          context,
+          metadata: {
+            protected_roles: activeCompanyContext.roles,
+          },
+        },
+      );
+
+      return {
+        ...responseWithPasswordRequirement,
+        requires2FASetup: true,
+        message:
+          'Two-factor authentication is mandatory for your role. Complete setup before continuing.',
+      };
+    }
+
+    await this.logSecurityEvent(
+      SecurityEventType.LOGIN_SUCCEEDED,
+      SecurityEventOutcome.SUCCESS,
+      {
+        authenticatedUser: user as User,
+        companyId: activeCompanyContext.companyId,
+        context,
+        metadata: {
+          scope: 'company',
+          roles: activeCompanyContext.roles,
+        },
+      },
+    );
+
     if (twoFactorStatus.enabled && twoFactorStatus.setupRequired) {
       return {
         ...responseWithPasswordRequirement,
@@ -256,7 +431,11 @@ export class AuthService {
     return responseWithPasswordRequirement;
   }
 
-  async complete2FALogin(tempToken: string, code: string, ip?: string) {
+  async complete2FALogin(
+    tempToken: string,
+    code: string,
+    context?: AuditRequestContext | null,
+  ) {
     try {
       const payload = this.jwtService.verify<TwoFactorTempTokenPayload>(
         tempToken,
@@ -287,12 +466,28 @@ export class AuthService {
         throw new UnauthorizedException('Invalid 2FA code');
       }
 
-      await this.usersService.updateLastLogin(user.id, new Date(), ip ?? null);
+      await this.usersService.updateLastLogin(
+        user.id,
+        new Date(),
+        context?.ipAddress ?? null,
+      );
 
       if (payload.scope === 'platform') {
         if (!this.isOwnerUser(user) || payload.userType !== 'OWNER') {
           throw new UnauthorizedException('Invalid platform login context');
         }
+
+        await this.logSecurityEvent(
+          SecurityEventType.TWO_FACTOR_VERIFICATION_SUCCEEDED,
+          SecurityEventOutcome.SUCCESS,
+          {
+            authenticatedUser: user,
+            context,
+            metadata: {
+              scope: 'platform',
+            },
+          },
+        );
 
         return this.generatePlatformAuthResponse(
           user,
@@ -316,6 +511,20 @@ export class AuthService {
         payload.sub,
       );
 
+      await this.logSecurityEvent(
+        SecurityEventType.TWO_FACTOR_VERIFICATION_SUCCEEDED,
+        SecurityEventOutcome.SUCCESS,
+        {
+          authenticatedUser: user,
+          companyId: companyContext.companyId,
+          context,
+          metadata: {
+            scope: 'company',
+            roles: companyContext.roles,
+          },
+        },
+      );
+
       return this.applyCompanyPasswordChangeRequirement(
         user,
         companyContext.companyId,
@@ -326,6 +535,14 @@ export class AuthService {
         error instanceof UnauthorizedException ||
         error instanceof ForbiddenException
       ) {
+        await this.logSecurityEvent(
+          SecurityEventType.TWO_FACTOR_VERIFICATION_FAILED,
+          SecurityEventOutcome.FAILURE,
+          {
+            reason: error.message,
+            context,
+          },
+        );
         throw error;
       }
 
@@ -345,7 +562,11 @@ export class AuthService {
     }
   }
 
-  async switchCompany(userId: number, companyId: number, ip?: string) {
+  async switchCompany(
+    userId: number,
+    companyId: number,
+    context?: AuditRequestContext | null,
+  ) {
     const user = await this.usersService.findById(userId);
     if (user.status !== 'active') {
       throw new ForbiddenException(
@@ -369,16 +590,44 @@ export class AuthService {
       );
     }
 
-    await this.usersService.updateLastLogin(userId, new Date(), ip ?? null);
+    await this.usersService.updateLastLogin(
+      userId,
+      new Date(),
+      context?.ipAddress ?? null,
+    );
     const companies = await this.companiesService.listUserCompanies(userId);
+
+    await this.logSecurityEvent(
+      SecurityEventType.COMPANY_SWITCHED,
+      SecurityEventOutcome.SUCCESS,
+      {
+        authenticatedUser: user,
+        companyId: companyContext.companyId,
+        context,
+        metadata: {
+          company_slug: companyContext.companySlug,
+        },
+      },
+    );
 
     return this.generateCompanyAuthResponse(user, companyContext, companies);
   }
 
-  async refreshTokens(refreshTokenDto: RefreshTokenDto) {
+  async refreshTokens(
+    refreshTokenDto: RefreshTokenDto,
+    context?: AuditRequestContext | null,
+  ) {
     const refreshToken = refreshTokenDto.refresh_token;
 
     if (await this.tokenBlacklistService.isBlacklisted(refreshToken)) {
+      await this.logSecurityEvent(
+        SecurityEventType.TOKEN_REFRESH_FAILED,
+        SecurityEventOutcome.FAILURE,
+        {
+          reason: 'Refresh token has been revoked',
+          context,
+        },
+      );
       throw new UnauthorizedException('Refresh token has been revoked');
     }
 
@@ -406,6 +655,15 @@ export class AuthService {
         );
       }
 
+      if (
+        typeof payload.tokenVersion !== 'number' ||
+        payload.tokenVersion !== (user.auth_token_version ?? 0)
+      ) {
+        throw new UnauthorizedException(
+          'Refresh token has been revoked. Please log in again.',
+        );
+      }
+
       this.assertTokenStillValid(
         payload.iat,
         user.auth_token_invalid_before,
@@ -420,6 +678,18 @@ export class AuthService {
         await this.tokenBlacklistService.addToBlacklist(
           refreshToken,
           this.getTokenBlacklistTtlSeconds(refreshToken, 60),
+        );
+
+        await this.logSecurityEvent(
+          SecurityEventType.TOKEN_REFRESHED,
+          SecurityEventOutcome.SUCCESS,
+          {
+            authenticatedUser: user,
+            context,
+            metadata: {
+              scope: 'platform',
+            },
+          },
         );
 
         return this.generatePlatformAuthResponse(
@@ -448,25 +718,28 @@ export class AuthService {
         );
       }
 
-      let companyContext: CompanySummary;
-
-      try {
-        companyContext = await this.companiesService.getMembershipContext(
-          payload.sub,
-          payload.companyId,
-        );
-      } catch (error) {
-        if (!(error instanceof NotFoundException)) {
-          throw error;
-        }
-
-        companyContext =
-          companies.find((company) => company.isDefault) ?? companies[0];
-      }
+      const companyContext = await this.companiesService.getMembershipContext(
+        payload.sub,
+        payload.companyId,
+      );
 
       await this.tokenBlacklistService.addToBlacklist(
         refreshToken,
         this.getTokenBlacklistTtlSeconds(refreshToken, 60),
+      );
+
+      await this.logSecurityEvent(
+        SecurityEventType.TOKEN_REFRESHED,
+        SecurityEventOutcome.SUCCESS,
+        {
+          authenticatedUser: user,
+          companyId: companyContext.companyId,
+          context,
+          metadata: {
+            scope: 'company',
+            roles: companyContext.roles,
+          },
+        },
       );
 
       return this.generateCompanyAuthResponse(user, companyContext, companies);
@@ -475,6 +748,14 @@ export class AuthService {
         error instanceof UnauthorizedException ||
         error instanceof ForbiddenException
       ) {
+        await this.logSecurityEvent(
+          SecurityEventType.TOKEN_REFRESH_FAILED,
+          SecurityEventOutcome.FAILURE,
+          {
+            reason: error.message,
+            context,
+          },
+        );
         throw error;
       }
 
@@ -492,7 +773,15 @@ export class AuthService {
     }
   }
 
-  async logout(logoutDto: LogoutDto, accessToken?: string) {
+  async logout(
+    userId: number,
+    logoutDto: LogoutDto,
+    accessToken?: string,
+    actor?: AuthenticatedUser,
+    context?: AuditRequestContext | null,
+  ) {
+    await this.usersService.revokeAllSessions(userId);
+
     await this.tokenBlacklistService.addToBlacklist(
       logoutDto.refresh_token,
       this.getTokenBlacklistTtlSeconds(logoutDto.refresh_token, 60),
@@ -505,10 +794,22 @@ export class AuthService {
       );
     }
 
+    await this.securityEventsService.logBestEffort({
+      eventType: SecurityEventType.LOGOUT,
+      outcome: SecurityEventOutcome.SUCCESS,
+      actor: actor ?? null,
+      targetUserId: userId,
+      companyId: actor?.companyId ?? null,
+      context,
+    });
+
     return { message: 'Successfully logged out' };
   }
 
-  async forgotPassword(dto: ForgotPasswordDto) {
+  async forgotPassword(
+    dto: ForgotPasswordDto,
+    context?: AuditRequestContext | null,
+  ) {
     const user = await this.usersService.findByEmail(dto.email);
     if (!user) {
       return { message: 'If the email exists, you will receive a reset link' };
@@ -536,10 +837,22 @@ export class AuthService {
       console.error('Failed to send password reset email:', err);
     }
 
+    await this.logSecurityEvent(
+      SecurityEventType.PASSWORD_RESET_REQUESTED,
+      SecurityEventOutcome.SUCCESS,
+      {
+        authenticatedUser: user,
+        context,
+      },
+    );
+
     return { message: 'If the email exists, you will receive a reset link' };
   }
 
-  async resetPassword(dto: ResetPasswordDto) {
+  async resetPassword(
+    dto: ResetPasswordDto,
+    context?: AuditRequestContext | null,
+  ) {
     try {
       const payload = this.jwtService.verify<{ type: string; sub: number }>(
         dto.token,
@@ -553,7 +866,10 @@ export class AuthService {
       }
 
       const hashed = await hashPassword(dto.new_password);
-      await this.usersService.updatePassword(payload.sub, hashed);
+      await this.usersService.updatePasswordAndRevokeSessions(
+        payload.sub,
+        hashed,
+      );
 
       const user = await this.usersService.findById(payload.sub);
       try {
@@ -565,7 +881,18 @@ export class AuthService {
         console.error('Failed to send password changed success email:', err);
       }
 
-      return { message: 'Password has been reset successfully' };
+      await this.logSecurityEvent(
+        SecurityEventType.PASSWORD_RESET_COMPLETED,
+        SecurityEventOutcome.SUCCESS,
+        {
+          authenticatedUser: user,
+          context,
+        },
+      );
+
+      return {
+        message: 'Password has been reset successfully. Please log in again.',
+      };
     } catch (error) {
       if (error instanceof BadRequestException) {
         throw error;
@@ -579,7 +906,10 @@ export class AuthService {
     }
   }
 
-  async verifyEmail(token: string) {
+  async verifyEmail(
+    token: string,
+    context?: AuditRequestContext | null,
+  ) {
     const isVerificationEnabled = this.isFeatureEnabled(
       'ENABLE_EMAIL_VERIFICATION',
       true,
@@ -608,6 +938,15 @@ export class AuthService {
     } catch (err) {
       console.error('Failed to send welcome email:', err);
     }
+
+    await this.logSecurityEvent(
+      SecurityEventType.EMAIL_VERIFIED,
+      SecurityEventOutcome.SUCCESS,
+      {
+        authenticatedUser: user,
+        context,
+      },
+    );
 
     return { message: 'Email successfully verified! You can now log in.' };
   }
@@ -833,11 +1172,12 @@ export class AuthService {
       roles: companyContext.roles,
       permissions: companyContext.permissions,
       type: 'access',
-      iss: this.configService.get<string>('JWT_ISSUER') ?? 'your-app',
+      iss: this.configService.get<string>('JWT_ISSUER') ?? 'alliance-hrms',
       aud:
-        this.configService.get<string>('JWT_AUDIENCE') ?? 'your-frontend-app',
+        this.configService.get<string>('JWT_AUDIENCE') ?? 'alliance-hrms-web',
       sessionId: randomUUID(),
       device: 'web',
+      tokenVersion: user.auth_token_version ?? 0,
     };
   }
 
@@ -854,11 +1194,12 @@ export class AuthService {
       roles: platformContext.roles,
       permissions: platformContext.permissions,
       type: 'access',
-      iss: this.configService.get<string>('JWT_ISSUER') ?? 'your-app',
+      iss: this.configService.get<string>('JWT_ISSUER') ?? 'alliance-hrms',
       aud:
-        this.configService.get<string>('JWT_AUDIENCE') ?? 'your-frontend-app',
+        this.configService.get<string>('JWT_AUDIENCE') ?? 'alliance-hrms-web',
       sessionId: randomUUID(),
       device: 'web',
+      tokenVersion: user.auth_token_version ?? 0,
     };
   }
 
@@ -880,6 +1221,7 @@ export class AuthService {
         companyId: companyContext.companyId,
         membershipId: companyContext.membershipId,
         type: 'refresh',
+        tokenVersion: user.auth_token_version ?? 0,
       },
       {
         secret: this.getRefreshTokenSecret(),
@@ -914,6 +1256,7 @@ export class AuthService {
         scope: 'platform',
         userType: 'OWNER',
         type: 'refresh',
+        tokenVersion: user.auth_token_version ?? 0,
       },
       {
         secret: this.getRefreshTokenSecret(),

@@ -77,6 +77,10 @@ import { EmployeeRelative } from './entities/employee-relative.entity';
 import { Employee } from './entities/employee.entity';
 import { FilesService } from '../../files/files.service';
 import { Base64FileDto } from '../../files/dtos/base64-file.dto';
+import {
+  HR_PRIVATE_DOCUMENT_MAX_BYTES,
+  HR_PRIVATE_DOCUMENT_MIME_TYPES,
+} from '../../files/file-policy';
 import { DefaultAvatarsService } from '../default-avatars/default-avatars.service';
 import { ProfileImageSourceEnum } from './enums/profile-image-source.enum';
 
@@ -449,7 +453,10 @@ export class EmployeesService {
       employee_id: document.employee_id,
       type: document.type,
       title: document.title,
-      file_url: document.file_url,
+      file_url: `/api/employees/${document.employee_id}/documents/${document.id}/download`,
+      original_file_name: document.original_file_name,
+      mime_type: document.mime_type,
+      file_size: document.file_size,
       notes: document.notes,
       uploaded_at: document.uploaded_at,
       uploaded_by_company_user_id: document.uploaded_by_company_user_id,
@@ -2718,8 +2725,11 @@ export class EmployeesService {
       position_id,
     } = query;
 
-    if (branch_id) {
+    if (branch_id && this.hrAccessService.hasBranchScope(actor)) {
       await this.hrAccessService.assertCanAccessBranch(actor, branch_id);
+    }
+    if (department_id && this.hrAccessService.hasDepartmentScope(actor)) {
+      await this.hrAccessService.assertCanAccessDepartment(actor, department_id);
     }
 
     const qb = this.employeeRepository
@@ -2826,31 +2836,20 @@ export class EmployeesService {
       );
     }
 
-    const accessibleBranchIds =
-      await this.hrAccessService.getAccessibleBranchIds(actor);
+    const accessibleEmployeeIds =
+      await this.hrAccessService.getAccessibleEmployeeIds(actor);
 
-    if (accessibleBranchIds?.length === 0) {
+    if (accessibleEmployeeIds?.length === 0) {
       return {
         data: [],
         meta: buildPaginationMeta(0, 0, limit, page),
       };
     }
 
-    if (accessibleBranchIds) {
-      qb.andWhere(
-        `(
-          employee.primary_branch_id IN (:...branchIds)
-          OR EXISTS (
-            SELECT 1
-            FROM employee_departments department_assignments
-            INNER JOIN departments department
-              ON department.id = department_assignments.department_id
-            WHERE department_assignments.employee_id = employee.id
-              AND department.branch_id IN (:...branchIds)
-          )
-        )`,
-        { branchIds: accessibleBranchIds },
-      );
+    if (accessibleEmployeeIds) {
+      qb.andWhere('employee.id IN (:...employeeIds)', {
+        employeeIds: accessibleEmployeeIds,
+      });
     }
 
     const allowedSortFields = [
@@ -3046,11 +3045,14 @@ export class EmployeesService {
   ) {
     const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
-    const storedFile = await this.filesService.saveBase64File(
+    const storedFile = await this.filesService.savePrivateBase64File(
       addEmployeeDocumentDto.file,
       {
         directorySegments: ['documents', 'employees', `company-${companyId}`],
         fileNamePrefix: `employee-${employeeId}`,
+        allowedMimeTypes: [...HR_PRIVATE_DOCUMENT_MIME_TYPES],
+        maxFileSizeBytes: HR_PRIVATE_DOCUMENT_MAX_BYTES,
+        validateFileSignature: true,
       },
     );
 
@@ -3061,6 +3063,9 @@ export class EmployeesService {
         type: this.normalizeOptionalString(addEmployeeDocumentDto.type),
         title: this.normalizeOptionalString(addEmployeeDocumentDto.title),
         file_url: storedFile.publicPath,
+        original_file_name: storedFile.originalFileName,
+        mime_type: storedFile.mimeType,
+        file_size: String(storedFile.fileSize),
         notes: this.normalizeOptionalString(addEmployeeDocumentDto.notes),
         uploaded_by_company_user_id: actor.companyMembershipId ?? null,
       }),
@@ -3076,6 +3081,44 @@ export class EmployeesService {
     });
 
     return this.mapDocument(savedDocument);
+  }
+
+  async downloadDocument(
+    companyId: number,
+    employeeId: number,
+    documentId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const document = await this.employeeDocumentRepository.findOne({
+      where: {
+        id: documentId,
+        employee_id: employee.id,
+      },
+    });
+
+    if (!document) {
+      throw new NotFoundException('Employee document not found');
+    }
+
+    const buffer = await this.filesService.readManagedFile(document.file_url);
+
+    if (!buffer) {
+      throw new NotFoundException(
+        'Employee document file was not found in storage',
+      );
+    }
+
+    return {
+      buffer,
+      fileName:
+        document.original_file_name ??
+        document.title ??
+        `employee-document-${document.id}`,
+      mimeType: document.mime_type ?? 'application/octet-stream',
+    };
   }
 
   async removeDocument(
@@ -3098,7 +3141,10 @@ export class EmployeesService {
       throw new NotFoundException('Employee document not found');
     }
 
+    const filePath = document.file_url;
     await this.employeeDocumentRepository.remove(document);
+    await this.filesService.removeManagedFile(filePath);
+
     return { message: 'Employee document deleted successfully' };
   }
 

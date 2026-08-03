@@ -1,12 +1,23 @@
 {
-  "moduleFileExtensions": ["js", "json", "ts"],
+  "moduleFileExtensions": [
+    "js",
+    "json",
+    "ts"
+  ],
   "rootDir": "..",
   "testEnvironment": "node",
   "testRegex": ".e2e-spec.ts$",
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "transformIgnorePatterns": [
+    "node_modules/(?!(otplib|@otplib|@scure)/)"
+  ],
   "moduleNameMapper": {
     "^src/(.*)$": "<rootDir>/src/$1"
   },
-  "transform": {
-    "^.+\\.(t|j)s$": "ts-jest"
-  }
+  "maxWorkers": 1,
+  "detectOpenHandles": true,
+  "forceExit": true,
+  "verbose": true
 }

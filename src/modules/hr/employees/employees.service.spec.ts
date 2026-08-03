@@ -47,7 +47,10 @@ describe('EmployeesService', () => {
   let employeeRepository: MockRepo;
   let employeeDocumentRepository: MockRepo;
   let hrAccessService: { assertCanAccessEmployee: jest.Mock };
-  let filesService: { saveBase64File: jest.Mock };
+  let filesService: {
+    savePrivateBase64File: jest.Mock;
+    readManagedFile: jest.Mock;
+  };
 
   const actor: AuthenticatedUser = {
     id: 9,
@@ -70,7 +73,8 @@ describe('EmployeesService', () => {
       assertCanAccessEmployee: jest.fn(),
     };
     filesService = {
-      saveBase64File: jest.fn(),
+      savePrivateBase64File: jest.fn(),
+      readManagedFile: jest.fn(),
     };
 
     service = new EmployeesService(
@@ -206,8 +210,12 @@ describe('EmployeesService', () => {
       id: 15,
       company_user: { company_id: 10 },
     });
-    filesService.saveBase64File.mockResolvedValue({
-      publicPath: '/uploads/documents/employees/company-10/employee-15.pdf',
+    filesService.savePrivateBase64File.mockResolvedValue({
+      publicPath:
+        '/private-uploads/documents/employees/company-10/employee-15.pdf',
+      originalFileName: 'signed-contract.pdf',
+      mimeType: 'application/pdf',
+      fileSize: 12,
     });
     employeeDocumentRepository.save.mockResolvedValue({ id: 44 });
     employeeDocumentRepository.findOneOrFail.mockResolvedValue({
@@ -215,7 +223,11 @@ describe('EmployeesService', () => {
       employee_id: 15,
       type: 'contract',
       title: 'Signed Contract',
-      file_url: '/uploads/documents/employees/company-10/employee-15.pdf',
+      file_url:
+        '/private-uploads/documents/employees/company-10/employee-15.pdf',
+      original_file_name: 'signed-contract.pdf',
+      mime_type: 'application/pdf',
+      file_size: '12',
       notes: 'Signed copy',
       uploaded_at: new Date('2026-07-23T08:00:00.000Z'),
       uploaded_by_company_user_id: 33,
@@ -247,7 +259,7 @@ describe('EmployeesService', () => {
       actor,
     );
 
-    expect(filesService.saveBase64File).toHaveBeenCalledWith(
+    expect(filesService.savePrivateBase64File).toHaveBeenCalledWith(
       expect.objectContaining({ fileName: 'signed-contract.pdf' }),
       expect.objectContaining({
         directorySegments: ['documents', 'employees', 'company-10'],
@@ -256,15 +268,49 @@ describe('EmployeesService', () => {
     expect(employeeDocumentRepository.save).toHaveBeenCalledWith(
       expect.objectContaining({
         employee_id: 15,
-        file_url: '/uploads/documents/employees/company-10/employee-15.pdf',
+        file_url:
+          '/private-uploads/documents/employees/company-10/employee-15.pdf',
+        original_file_name: 'signed-contract.pdf',
+        mime_type: 'application/pdf',
+        file_size: '12',
       }),
     );
     expect(result).toEqual(
       expect.objectContaining({
         id: 44,
         employee_id: 15,
-        file_url: '/uploads/documents/employees/company-10/employee-15.pdf',
+        file_url: '/api/employees/15/documents/44/download',
+        original_file_name: 'signed-contract.pdf',
+        mime_type: 'application/pdf',
+        file_size: '12',
       }),
     );
+  });
+
+  it('returns stored employee document metadata for secure downloads', async () => {
+    employeeRepository.findOne.mockResolvedValue({
+      id: 15,
+      company_user: { company_id: 10 },
+    });
+    employeeDocumentRepository.findOne.mockResolvedValue({
+      id: 44,
+      employee_id: 15,
+      file_url:
+        '/private-uploads/documents/employees/company-10/employee-15.pdf',
+      original_file_name: 'signed-contract.pdf',
+      mime_type: 'application/pdf',
+    });
+    filesService.readManagedFile.mockResolvedValue(Buffer.from('pdf'));
+
+    const result = await service.downloadDocument(10, 15, 44, actor);
+
+    expect(filesService.readManagedFile).toHaveBeenCalledWith(
+      '/private-uploads/documents/employees/company-10/employee-15.pdf',
+    );
+    expect(result).toEqual({
+      buffer: Buffer.from('pdf'),
+      fileName: 'signed-contract.pdf',
+      mimeType: 'application/pdf',
+    });
   });
 });

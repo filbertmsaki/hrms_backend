@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs/promises';
-import { extname, join, resolve } from 'path';
+import { extname, isAbsolute, join, relative, resolve } from 'path';
 import {
   Base64FileDto,
   FILE_NAME_PATTERN,
@@ -17,6 +18,8 @@ type SaveBufferFileOptions = {
   directorySegments: string[];
   fileNamePrefix?: string;
   allowedMimeTypes?: string[];
+  maxFileSizeBytes?: number;
+  validateFileSignature?: boolean;
 };
 
 type SaveBase64FileOptions = Omit<
@@ -26,11 +29,24 @@ type SaveBase64FileOptions = Omit<
 
 @Injectable()
 export class FilesService {
-  private readonly uploadsRoot = resolve(process.cwd(), 'uploads');
-  private readonly privateUploadsRoot = resolve(
-    process.cwd(),
-    'private-uploads',
-  );
+  private readonly uploadsRoot: string;
+  private readonly privateUploadsRoot: string;
+  private readonly globalMaximumFileSize: number;
+
+  constructor(private readonly configService: ConfigService) {
+    this.uploadsRoot = resolve(
+      process.cwd(),
+      this.configService.get<string>('APP_PUBLIC_STORAGE_PATH') ?? 'uploads',
+    );
+    this.privateUploadsRoot = resolve(
+      process.cwd(),
+      this.configService.get<string>('APP_PRIVATE_STORAGE_PATH') ??
+        'private-uploads',
+    );
+    this.globalMaximumFileSize =
+      this.configService.get<number>('MAX_UPLOAD_FILE_SIZE_BYTES') ??
+      10 * 1024 * 1024;
+  }
 
   async saveBase64File(
     file: Base64FileDto,
@@ -39,6 +55,21 @@ export class FilesService {
     const buffer = this.decodeBase64FileString(file.fileString);
 
     return this.saveBufferFile({
+      ...options,
+      buffer,
+      fileName: file.fileName,
+      fileSize: file.fileSize,
+      mimeType: file.mimeType,
+    });
+  }
+
+  async savePrivateBase64File(
+    file: Base64FileDto,
+    options: SaveBase64FileOptions,
+  ): Promise<StoredFile> {
+    const buffer = this.decodeBase64FileString(file.fileString);
+
+    return this.savePrivateBufferFile({
       ...options,
       buffer,
       fileName: file.fileName,
@@ -105,7 +136,16 @@ export class FilesService {
     const normalizedMimeType = this.normalizeMimeType(options.mimeType);
     this.assertFileName(options.fileName);
     this.assertAllowedMimeType(normalizedMimeType, options.allowedMimeTypes);
-    this.assertBufferSize(options.buffer, options.fileSize);
+    this.assertBufferSize(
+      options.buffer,
+      options.fileSize,
+      options.maxFileSizeBytes,
+    );
+    this.assertMimeTypeMatchesExtension(options.fileName, normalizedMimeType);
+
+    if (options.validateFileSignature) {
+      this.assertFileSignature(options.buffer, normalizedMimeType);
+    }
 
     const extension = this.resolveFileExtension(options.fileName);
     const targetDirectory = await this.ensureTargetDirectory(
@@ -119,7 +159,10 @@ export class FilesService {
     );
     const absolutePath = join(targetDirectory, storedFileName);
 
-    await fs.writeFile(absolutePath, options.buffer);
+    await fs.writeFile(absolutePath, options.buffer, {
+      flag: 'wx',
+      mode: 0o640,
+    });
 
     return {
       originalFileName: options.fileName.trim(),
@@ -187,7 +230,26 @@ export class FilesService {
     }
   }
 
-  private assertBufferSize(buffer: Buffer, declaredFileSize?: number) {
+  private assertBufferSize(
+    buffer: Buffer,
+    declaredFileSize?: number,
+    requestedMaximum?: number,
+  ): void {
+    const maximumFileSize = Math.min(
+      requestedMaximum ?? this.globalMaximumFileSize,
+      this.globalMaximumFileSize,
+    );
+
+    if (buffer.length < 1) {
+      throw new BadRequestException('Uploaded file is empty.');
+    }
+
+    if (buffer.length > maximumFileSize) {
+      throw new BadRequestException(
+        `Uploaded file exceeds the maximum size of ${maximumFileSize} bytes.`,
+      );
+    }
+
     if (declaredFileSize === undefined) {
       return;
     }
@@ -199,6 +261,89 @@ export class FilesService {
     if (buffer.length !== declaredFileSize) {
       throw new BadRequestException(
         'fileSize does not match the decoded file content.',
+      );
+    }
+  }
+
+  private assertMimeTypeMatchesExtension(
+    fileName: string,
+    mimeType: string,
+  ): void {
+    const extension = extname(fileName.trim()).toLowerCase();
+
+    const allowedExtensions: Record<string, string[]> = {
+      'application/pdf': ['.pdf'],
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'image/png': ['.png'],
+      'image/webp': ['.webp'],
+      'image/svg+xml': ['.svg'],
+      'application/msword': ['.doc'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+        ['.docx'],
+      'application/vnd.ms-excel': ['.xls'],
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': [
+        '.xlsx',
+      ],
+      'text/plain': ['.txt'],
+    };
+
+    const expectedExtensions = allowedExtensions[mimeType];
+
+    if (!expectedExtensions) {
+      return;
+    }
+
+    if (!expectedExtensions.includes(extension)) {
+      throw new BadRequestException(
+        `The file extension '${extension}' does not match MIME type '${mimeType}'.`,
+      );
+    }
+  }
+
+  private assertFileSignature(buffer: Buffer, mimeType: string): void {
+    const startsWith = (signature: number[]): boolean =>
+      signature.every((value, index) => buffer[index] === value);
+    const isZipContainer = startsWith([0x50, 0x4b, 0x03, 0x04]);
+    const isOleCompoundFile = startsWith([
+      0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1,
+    ]);
+
+    let isValid = true;
+
+    switch (mimeType) {
+      case 'application/pdf':
+        isValid = buffer.subarray(0, 5).toString('ascii') === '%PDF-';
+        break;
+      case 'image/jpeg':
+        isValid = startsWith([0xff, 0xd8, 0xff]);
+        break;
+      case 'image/png':
+        isValid = startsWith([0x89, 0x50, 0x4e, 0x47]);
+        break;
+      case 'image/webp':
+        isValid =
+          buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+          buffer.subarray(8, 12).toString('ascii') === 'WEBP';
+        break;
+      case 'application/msword':
+      case 'application/vnd.ms-excel':
+        isValid = isOleCompoundFile;
+        break;
+      case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+      case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+        isValid = isZipContainer;
+        break;
+      case 'text/plain':
+        isValid = true;
+        break;
+      default:
+        isValid = true;
+        break;
+    }
+
+    if (!isValid) {
+      throw new BadRequestException(
+        `Uploaded file content does not match MIME type '${mimeType}'.`,
       );
     }
   }
@@ -299,8 +444,13 @@ export class FilesService {
       .split('/')
       .filter((segment) => segment.length);
     const absolutePath = resolve(rootConfig.absoluteRoot, ...relativeSegments);
+    const relativePath = relative(rootConfig.absoluteRoot, absolutePath);
 
-    if (!absolutePath.startsWith(rootConfig.absoluteRoot)) {
+    if (
+      relativePath.startsWith('..') ||
+      isAbsolute(relativePath) ||
+      absolutePath === rootConfig.absoluteRoot
+    ) {
       return null;
     }
 

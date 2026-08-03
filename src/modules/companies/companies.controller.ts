@@ -14,10 +14,12 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
+import { CurrentAuditContext } from '../../common/decorators/audit-request-context.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { PlatformGuard } from '../../common/guards/platform.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
+import type { AuditRequestContext } from '../../common/interfaces/audit-request-context.interface';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { AddCompanyUserDto } from './dtos/add-company-user.dto';
@@ -107,11 +109,14 @@ export class CompaniesController {
   )
   async addUserToCurrentCompany(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
     @Body() dto: AddCompanyUserDto,
   ) {
     return this.companiesService.addExistingUserToCurrentCompany(
       req.user.companyId!,
       dto,
+      req.user,
+      context,
     );
   }
 
@@ -121,11 +126,14 @@ export class CompaniesController {
   @ApiDeleteOperation('Company User', 'Remove a user from the current company')
   async removeUserFromCurrentCompany(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
     @Param('userId', ParseIntPipe) userId: number,
   ) {
     return this.companiesService.removeUserFromCompany(
       req.user.companyId!,
       userId,
+      req.user,
+      context,
     );
   }
 
@@ -138,6 +146,7 @@ export class CompaniesController {
   )
   async assignRoleToCurrentCompanyUser(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
     @Param('userId', ParseIntPipe) userId: number,
     @Body() dto: AssignCompanyUserRoleDto,
   ) {
@@ -145,6 +154,8 @@ export class CompaniesController {
       req.user.companyId!,
       userId,
       dto.role_id,
+      req.user,
+      context,
     );
   }
 
@@ -154,6 +165,7 @@ export class CompaniesController {
   @ApiDeleteOperation('Company User Role', 'Revoke a role from a company user')
   async revokeRoleFromCurrentCompanyUser(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
     @Param('userId', ParseIntPipe) userId: number,
     @Param('roleId', ParseIntPipe) roleId: number,
   ) {
@@ -161,6 +173,8 @@ export class CompaniesController {
       req.user.companyId!,
       userId,
       roleId,
+      req.user,
+      context,
     );
   }
 
@@ -173,6 +187,7 @@ export class CompaniesController {
   )
   async assignPermissionToCurrentCompanyUser(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
     @Param('userId', ParseIntPipe) userId: number,
     @Body() dto: AssignCompanyUserPermissionDto,
   ) {
@@ -180,6 +195,8 @@ export class CompaniesController {
       req.user.companyId!,
       userId,
       dto.permission_id,
+      req.user,
+      context,
     );
   }
 
@@ -192,6 +209,7 @@ export class CompaniesController {
   )
   async revokePermissionFromCurrentCompanyUser(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
     @Param('userId', ParseIntPipe) userId: number,
     @Param('permissionId', ParseIntPipe) permissionId: number,
   ) {
@@ -199,6 +217,8 @@ export class CompaniesController {
       req.user.companyId!,
       userId,
       permissionId,
+      req.user,
+      context,
     );
   }
 

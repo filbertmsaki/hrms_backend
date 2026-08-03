@@ -11,6 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { hasPermission } from '../../../common/utils/permission.util';
 import { CompaniesService } from '../../companies/companies.service';
+import { TwoFactorPolicyService } from '../../security/two-factor-policy.service';
 import { UsersService } from '../../users/users.service';
 import { TokenBlacklistService } from '../token-blacklist.service';
 import { Request } from 'express';
@@ -22,6 +23,7 @@ type JwtAccessPayload = {
   scope?: 'platform' | 'company';
   userType?: 'OWNER' | 'COMPANY_USER';
   dashboardType?: 'admin' | 'employee';
+  sessionId?: string;
   companyId?: number;
   companyName?: string;
   companySlug?: string;
@@ -32,6 +34,7 @@ type JwtAccessPayload = {
   permissions?: string[];
   type?: string;
   iat?: number;
+  tokenVersion?: number;
 };
 
 @Injectable()
@@ -76,11 +79,46 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     return false;
   }
 
+  private isTwoFactorSetupAllowedRoute(req: Request): boolean {
+    const method = req.method.toUpperCase();
+    const path = (
+      req.originalUrl.split('?')[0] ??
+      req.path ??
+      ''
+    ).toLowerCase();
+
+    const matches = (expected: string) =>
+      path === expected || path.endsWith(expected);
+
+    if (method === 'GET' && matches('/users/me')) {
+      return true;
+    }
+
+    if (method === 'POST' && matches('/users/2fa/setup')) {
+      return true;
+    }
+
+    if (method === 'POST' && matches('/users/2fa/verify')) {
+      return true;
+    }
+
+    if (method === 'POST' && matches('/auth/logout')) {
+      return true;
+    }
+
+    if (method === 'POST' && matches('/auth/refresh')) {
+      return true;
+    }
+
+    return false;
+  }
+
   constructor(
     private configService: ConfigService,
     private blacklistService: TokenBlacklistService,
     private readonly companiesService: CompaniesService,
     private readonly usersService: UsersService,
+    private readonly twoFactorPolicyService: TwoFactorPolicyService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -130,6 +168,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     if (
+      typeof payload.tokenVersion !== 'number' ||
+      payload.tokenVersion !== (user.auth_token_version ?? 0)
+    ) {
+      throw new UnauthorizedException('Session has been revoked');
+    }
+
+    if (
       payload.iat &&
       user.auth_token_invalid_before &&
       payload.iat <= Math.floor(user.auth_token_invalid_before.getTime() / 1000)
@@ -163,6 +208,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         email: user.email,
         scope: 'platform',
         userType: 'OWNER',
+        sessionId: payload.sessionId,
         dashboardType: 'admin',
         roles: user.roles?.map((role) => role.name) ?? [],
         permissions: Array.from(permissions),
@@ -195,11 +241,25 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         payload.companyId,
       );
 
+      const twoFactorRequired = this.twoFactorPolicyService.isRequired(
+        companyContext.roles,
+      );
+      const twoFactorIncomplete =
+        twoFactorRequired &&
+        (!user.is_two_factor_enabled || user.two_factor_setup_required);
+
+      if (twoFactorIncomplete && !this.isTwoFactorSetupAllowedRoute(req)) {
+        throw new UnauthorizedException(
+          'Two-factor authentication setup is required before continuing.',
+        );
+      }
+
       return {
         id: user.id,
         email: user.email,
         scope: 'company',
         userType: 'COMPANY_USER',
+        sessionId: payload.sessionId,
         dashboardType: this.resolveDashboardType(companyContext.permissions),
         companyId: companyContext.companyId,
         companyName: companyContext.companyName,
@@ -213,36 +273,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       };
     } catch (error) {
       if (error instanceof NotFoundException) {
-        // Keep current access token usable until expiry when non-security DB
-        // changes temporarily break membership context resolution.
-        if (!payload.membershipId) {
-          throw new UnauthorizedException(
-            'Company access is no longer available',
-          );
-        }
-
-        this.logger.warn(
-          `Falling back to token company context for user ${payload.sub} in company ${payload.companyId}`,
+        throw new UnauthorizedException(
+          'Company access is no longer available',
         );
-
-        return {
-          id: user.id,
-          email: user.email,
-          scope: 'company',
-          userType: 'COMPANY_USER',
-          dashboardType:
-            payload.dashboardType ??
-            this.resolveDashboardType(payload.permissions ?? []),
-          companyId: payload.companyId,
-          companyName: payload.companyName,
-          companySlug: payload.companySlug,
-          companyMembershipId: payload.membershipId,
-          employeeId: payload.employeeId ?? undefined,
-          employeeNo: payload.employeeNo ?? undefined,
-          requiresPasswordChange,
-          roles: payload.roles ?? [],
-          permissions: payload.permissions ?? [],
-        };
       }
 
       this.logger.error(
