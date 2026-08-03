@@ -14,6 +14,8 @@ import { Branch } from '../../../branches/entities/branch.entity';
 import { Employee } from '../../../employees/entities/employee.entity';
 import { AttendanceDevice } from '../../../../access-control/attendance-devices/entities/attendance-device.entity';
 import { HikvisionAttendanceLog } from '../../../../hikvision/entities/hikvision-attendance-log.entity';
+import { AttendanceMobilePunch } from '../../mobile-punches/entities/attendance-mobile-punch.entity';
+import { AttendanceEventSourceEnum } from '../enums/attendance-event-source.enum';
 import { AttendanceProcessedEventDirectionEnum } from '../enums/attendance-processed-event-direction.enum';
 
 @Entity('attendance_processed_events')
@@ -33,7 +35,10 @@ import { AttendanceProcessedEventDirectionEnum } from '../enums/attendance-proce
   'deviceId',
   'employeeNo',
 ])
-@Unique('UQ_attendance_processed_events_raw_log_id', ['rawLogId'])
+@Index('UQ_attendance_processed_event_source_key', ['sourceKey'], {
+  unique: true,
+})
+@Index('IDX_attendance_processed_event_source', ['source', 'sourceId'])
 export class AttendanceProcessedEvent {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -53,8 +58,25 @@ export class AttendanceProcessedEvent {
   @Column({ name: 'device_id', type: 'int', nullable: true })
   deviceId: number | null;
 
-  @Column({ name: 'raw_log_id', type: 'int' })
-  rawLogId: number;
+  @Column({
+    name: 'source',
+    type: 'enum',
+    enum: AttendanceEventSourceEnum,
+    default: AttendanceEventSourceEnum.HIKVISION,
+  })
+  source: AttendanceEventSourceEnum;
+
+  @Column({ name: 'source_id', type: 'int' })
+  sourceId: number;
+
+  @Column({ name: 'source_key', type: 'varchar', length: 200, unique: true })
+  sourceKey: string;
+
+  @Column({ name: 'raw_log_id', type: 'int', nullable: true })
+  rawLogId: number | null;
+
+  @Column({ name: 'mobile_punch_id', type: 'int', nullable: true })
+  mobilePunchId: number | null;
 
   @Column({ name: 'event_time', type: 'timestamp' })
   eventTime: Date;
@@ -98,6 +120,19 @@ export class AttendanceProcessedEvent {
   @Column({ name: 'raw_payload_snapshot', type: 'json', nullable: true })
   rawPayloadSnapshot: Record<string, unknown> | null;
 
+  @Column({ name: 'payload_hash', type: 'varchar', length: 128, nullable: true })
+  payloadHash: string | null;
+
+  @Column({
+    name: 'received_at',
+    type: 'timestamptz',
+    default: () => 'CURRENT_TIMESTAMP',
+  })
+  receivedAt: Date;
+
+  @Column({ name: 'processing_version', type: 'int', default: 1 })
+  processingVersion: number;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
@@ -120,7 +155,17 @@ export class AttendanceProcessedEvent {
   @JoinColumn({ name: 'device_id' })
   device: AttendanceDevice | null;
 
-  @ManyToOne(() => HikvisionAttendanceLog, { onDelete: 'CASCADE' })
+  @ManyToOne(() => HikvisionAttendanceLog, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
   @JoinColumn({ name: 'raw_log_id' })
-  rawLog: HikvisionAttendanceLog;
+  rawLog: HikvisionAttendanceLog | null;
+
+  @ManyToOne(() => AttendanceMobilePunch, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'mobile_punch_id' })
+  mobilePunch: AttendanceMobilePunch | null;
 }

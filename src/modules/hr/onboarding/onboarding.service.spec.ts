@@ -13,6 +13,7 @@ import { OnboardingRequest } from './entities/onboarding-request.entity';
 import { OnboardingTask } from './entities/onboarding-task.entity';
 import { OnboardingApproval } from './entities/onboarding-approval.entity';
 import { OnboardingAuditLog } from './entities/onboarding-audit-log.entity';
+import { OnboardingNumberSequence } from './entities/onboarding-number-sequence.entity';
 import { Document } from '../documents/entities/document.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { Department } from '../departments/entities/department.entity';
@@ -43,14 +44,20 @@ import { FilesService } from '../../files/files.service';
 type MockRepo = Record<string, jest.Mock>;
 
 const createRepositoryMock = <T>(): MockRepo => ({
+  find: jest.fn(),
   findOne: jest.fn(),
   findOneOrFail: jest.fn(),
+  count: jest.fn(),
+  update: jest.fn(),
+  delete: jest.fn(),
+  remove: jest.fn(),
   create: jest.fn((value: T) => value),
   save: jest.fn((value: T) => Promise.resolve(value)),
 });
 
 describe('OnboardingService', () => {
   let service: OnboardingService;
+  let onboardingWorkflowRepository: MockRepo;
   let onboardingRequestRepository: MockRepo;
   let employeeRepository: MockRepo;
   let documentRepository: MockRepo;
@@ -61,15 +68,18 @@ describe('OnboardingService', () => {
   };
   let hrAccessService: { assertCanAccessEmployee: jest.Mock };
   let onboardingAuditService: { log: jest.Mock };
-  let filesService: { saveBase64File: jest.Mock };
+  let onboardingWorkflowService: {
+    resolveWorkflow: jest.Mock;
+    initializeApprovalsForRequest: jest.Mock;
+  };
+  let filesService: { savePrivateBase64File: jest.Mock };
   let shiftSchedulesService: { create: jest.Mock };
   let employeeTimetablesService: { create: jest.Mock };
   let employeeDeviceAssignmentsService: { assignDevices: jest.Mock };
   let actor: AuthenticatedUser;
 
   beforeEach(() => {
-    const onboardingWorkflowRepository =
-      createRepositoryMock<OnboardingWorkflow>();
+    onboardingWorkflowRepository = createRepositoryMock<OnboardingWorkflow>();
     const onboardingWorkflowStepRepository =
       createRepositoryMock<OnboardingWorkflowStep>();
     onboardingRequestRepository = createRepositoryMock<OnboardingRequest>();
@@ -106,8 +116,14 @@ describe('OnboardingService', () => {
     onboardingAuditService = {
       log: jest.fn(),
     };
+    onboardingWorkflowService = {
+      resolveWorkflow: jest.fn(async (_companyId: number, workflowId?: number) => ({
+        id: workflowId ?? 91,
+      })),
+      initializeApprovalsForRequest: jest.fn(),
+    };
     filesService = {
-      saveBase64File: jest.fn(),
+      savePrivateBase64File: jest.fn(),
     };
     shiftSchedulesService = {
       create: jest.fn(),
@@ -151,7 +167,7 @@ describe('OnboardingService', () => {
       employeeDeviceAssignmentRepository as unknown as Repository<EmployeeDeviceAssignment>,
       hrAccessService as unknown as HrAccessService,
       onboardingAuditService as unknown as OnboardingAuditService,
-      {} as OnboardingWorkflowService,
+      onboardingWorkflowService as unknown as OnboardingWorkflowService,
       leaveBalanceService as unknown as LeaveBalanceService,
       shiftSchedulesService as unknown as ShiftSchedulesService,
       employeeTimetablesService as unknown as EmployeeTimetablesService,
@@ -314,11 +330,37 @@ describe('OnboardingService', () => {
             }),
           };
         }
-        if (entity === OnboardingRequest) return requestRepo;
-        if (entity === OnboardingTask) return taskRepo;
-        if (entity === OnboardingApproval) return approvalRepo;
-        throw new Error(`Unexpected repository request: ${entity?.name}`);
-      }),
+      if (entity === OnboardingRequest) return requestRepo;
+      if (entity === OnboardingTask) return taskRepo;
+      if (entity === OnboardingApproval) return approvalRepo;
+      if (entity === OnboardingWorkflow) {
+        return {
+          findOne: jest.fn().mockResolvedValue({
+            id: 91,
+            company_id: 10,
+            version: 1,
+            name: 'Default Onboarding',
+            description: null,
+            steps: [],
+            is_locked: false,
+          }),
+          save: jest.fn((value: unknown) => Promise.resolve(value)),
+        };
+      }
+      if (entity === OnboardingNumberSequence) {
+        return {
+          createQueryBuilder: jest.fn(() => ({
+            setLock: jest.fn().mockReturnThis(),
+            where: jest.fn().mockReturnThis(),
+            andWhere: jest.fn().mockReturnThis(),
+            getOne: jest.fn().mockResolvedValue(null),
+          })),
+          create: jest.fn((value: unknown) => value),
+          save: jest.fn((value: unknown) => Promise.resolve(value)),
+        };
+      }
+      throw new Error(`Unexpected repository request: ${entity?.name}`);
+    }),
     } as unknown as EntityManager;
 
     dataSource.transaction.mockImplementation(
@@ -416,6 +458,32 @@ describe('OnboardingService', () => {
         if (entity === OnboardingRequest) {
           return requestRepo;
         }
+        if (entity === OnboardingWorkflow) {
+          return {
+            findOne: jest.fn().mockResolvedValue({
+              id: 91,
+              company_id: 10,
+              version: 1,
+              name: 'Default Onboarding',
+              description: null,
+              steps: [],
+              is_locked: false,
+            }),
+            save: jest.fn((value: unknown) => Promise.resolve(value)),
+          };
+        }
+        if (entity === OnboardingNumberSequence) {
+          return {
+            createQueryBuilder: jest.fn(() => ({
+              setLock: jest.fn().mockReturnThis(),
+              where: jest.fn().mockReturnThis(),
+              andWhere: jest.fn().mockReturnThis(),
+              getOne: jest.fn().mockResolvedValue(null),
+            })),
+            create: jest.fn((value: unknown) => value),
+            save: jest.fn((value: unknown) => Promise.resolve(value)),
+          };
+        }
         throw new Error(`Unexpected repository request: ${entity?.name}`);
       }),
     } as unknown as EntityManager;
@@ -448,7 +516,7 @@ describe('OnboardingService', () => {
     jest
       .spyOn(service as any, 'findOnboardingRequestOrFail')
       .mockResolvedValue({ employee: { id: 501 } });
-    filesService.saveBase64File.mockResolvedValue({
+    filesService.savePrivateBase64File.mockResolvedValue({
       storedFileName: 'onboarding-55-stored.pdf',
       originalFileName: 'offer-letter.pdf',
       mimeType: 'application/pdf',
@@ -460,6 +528,35 @@ describe('OnboardingService', () => {
       id: 14,
       ...value,
     }));
+    documentRepository.find.mockResolvedValue([]);
+
+    const taskRepo = {
+      find: jest.fn().mockResolvedValue([]),
+    };
+    const approvalRepo = {
+      find: jest.fn().mockResolvedValue([]),
+    };
+    const requestRepo = {
+      findOneOrFail: jest.fn().mockResolvedValue({
+        id: 55,
+        company_id: 10,
+        progress_percentage: '0.00',
+      }),
+      save: jest.fn((value: unknown) => Promise.resolve(value)),
+    };
+    const manager = {
+      getRepository: jest.fn((entity: { name?: string }) => {
+        if (entity === Document) return documentRepository;
+        if (entity === OnboardingTask) return taskRepo;
+        if (entity === OnboardingApproval) return approvalRepo;
+        if (entity === OnboardingRequest) return requestRepo;
+        throw new Error(`Unexpected repository request: ${entity?.name}`);
+      }),
+    } as unknown as EntityManager;
+
+    dataSource.transaction.mockImplementation(
+      (callback: (manager: EntityManager) => unknown) => callback(manager),
+    );
 
     await service.addDocument(
       10,
@@ -476,7 +573,7 @@ describe('OnboardingService', () => {
       actor,
     );
 
-    expect(filesService.saveBase64File).toHaveBeenCalledWith(
+    expect(filesService.savePrivateBase64File).toHaveBeenCalledWith(
       expect.objectContaining({ fileName: 'offer-letter.pdf' }),
       expect.objectContaining({
         directorySegments: ['documents', 'onboarding', 'company-10'],

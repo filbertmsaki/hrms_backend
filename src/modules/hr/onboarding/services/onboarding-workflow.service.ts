@@ -214,6 +214,9 @@ export class OnboardingWorkflowService {
 
     let initialLevel = 0;
     for (const step of steps) {
+      const dueAt = step.due_days
+        ? new Date(Date.now() + step.due_days * 86400000)
+        : null;
       const membershipIds = await this.resolveApproverMembershipIds(
         companyId,
         step,
@@ -233,10 +236,12 @@ export class OnboardingWorkflowService {
             workflow_step_id: step.id,
             approval_level: step.step_order,
             approver_company_user_id: null,
+            original_approver_company_user_id: null,
             status: OnboardingApprovalStatusEnum.SKIPPED,
             comments:
               'Step skipped automatically due to missing eligible approver',
             acted_at: new Date(),
+            due_at: dueAt,
           }),
         );
         continue;
@@ -253,7 +258,9 @@ export class OnboardingWorkflowService {
             workflow_step_id: step.id,
             approval_level: step.step_order,
             approver_company_user_id: membershipId,
+            original_approver_company_user_id: membershipId,
             status: OnboardingApprovalStatusEnum.PENDING,
+            due_at: dueAt,
           }),
         ),
       );

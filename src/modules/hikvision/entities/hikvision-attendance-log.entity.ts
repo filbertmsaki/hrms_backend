@@ -147,8 +147,31 @@ export class HikvisionAttendanceLog {
   @Column({ name: 'event_key', type: 'varchar', length: 255, unique: true })
   eventKey: string;
 
-  @Column({ name: 'raw_payload', type: 'json' })
+  @Column({ name: 'raw_payload', type: 'jsonb' })
   rawPayload: Record<string, unknown>;
+
+  @Column({
+    name: 'payload_hash',
+    type: 'varchar',
+    length: 128,
+    nullable: true,
+  })
+  payloadHash: string | null;
+
+  @Column({
+    name: 'received_at',
+    type: 'timestamptz',
+    default: () => 'CURRENT_TIMESTAMP',
+  })
+  receivedAt: Date;
+
+  @Column({
+    name: 'source_timezone',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
+  sourceTimezone: string | null;
 
   @Column({
     name: 'processing_status',

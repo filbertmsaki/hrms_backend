@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
 import { AttendanceMobilePunchesService } from './attendance-mobile-punches.service';
 import { AttendanceMobilePunchRepository } from './repositories/attendance-mobile-punch.repository';
@@ -16,6 +17,7 @@ import { AttendanceScheduleResolverService } from '../processing/attendance-sche
 import { ResolvedAttendanceSchedule } from '../processing/entities/resolved-attendance-schedule.type';
 import { AttendanceProcessedEvent } from '../processing/entities/attendance-processed-event.entity';
 import { AttendanceDailySummary } from '../processing/entities/attendance-daily-summary.entity';
+import { AttendanceEventIngestionService } from '../processing/attendance-event-ingestion.service';
 import { AttendanceProcessedEventDirectionEnum } from '../processing/enums/attendance-processed-event-direction.enum';
 import { HikvisionAttendanceLog } from '../../../hikvision/entities/hikvision-attendance-log.entity';
 import { AttendanceCompanyConfigService } from '../shared/attendance-company-config.service';
@@ -79,6 +81,8 @@ describe('AttendanceMobilePunchesService', () => {
     createEntity: jest.Mock;
     save: jest.Mock;
     findApprovedForEmployeeWindow: jest.Mock;
+    findByClientRequest: jest.Mock;
+    findOneById: jest.Mock;
   };
   let geofenceRepo: {
     findActiveByIds: jest.Mock;
@@ -97,6 +101,10 @@ describe('AttendanceMobilePunchesService', () => {
   let attendanceCompanyConfigService: {
     resolvePolicyForCompany: jest.Mock;
   };
+  let eventIngestionService: {
+    ingestMobilePunch: jest.Mock;
+  };
+  let configService: { get: jest.Mock };
   let checkpointRepository: {
     find: jest.Mock;
   };
@@ -116,15 +124,37 @@ describe('AttendanceMobilePunchesService', () => {
     find: jest.Mock;
   };
   let employeeQueryBuilder: EmployeeQueryBuilderMock;
+  let savedPunch: Record<string, unknown> | null;
+  let nextPunchId: number;
 
   beforeEach(() => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-06-18T09:30:00.000Z'));
+    savedPunch = null;
+    nextPunchId = 1000;
 
     punchRepo = {
       createEntity: jest.fn((value: unknown) => value),
-      save: jest.fn((value: unknown) => Promise.resolve(value)),
+      save: jest.fn((value: Record<string, unknown>) => {
+        savedPunch = {
+          id: value.id ?? nextPunchId++,
+          ...value,
+        };
+
+        return Promise.resolve(savedPunch);
+      }),
       findApprovedForEmployeeWindow: jest.fn().mockResolvedValue([]),
+      findByClientRequest: jest.fn().mockResolvedValue(null),
+      findOneById: jest
+        .fn()
+        .mockImplementation(
+          async (companyId: number, id: number) =>
+            savedPunch &&
+            savedPunch.companyId === companyId &&
+            savedPunch.id === id
+              ? savedPunch
+              : null,
+        ),
     };
     geofenceRepo = {
       findActiveByIds: jest.fn(),
@@ -142,6 +172,21 @@ describe('AttendanceMobilePunchesService', () => {
     };
     attendanceCompanyConfigService = {
       resolvePolicyForCompany: jest.fn(),
+    };
+    eventIngestionService = {
+      ingestMobilePunch: jest.fn().mockResolvedValue(undefined),
+    };
+    configService = {
+      get: jest.fn((key: string) => {
+        switch (key) {
+          case 'ATTENDANCE_MOBILE_REQUIRE_DEVICE_IDENTIFIER':
+            return true;
+          case 'ATTENDANCE_MOBILE_MAX_CLOCK_SKEW_SECONDS':
+            return 300;
+          default:
+            return undefined;
+        }
+      }),
     };
     checkpointRepository = {
       find: jest.fn(),
@@ -178,6 +223,8 @@ describe('AttendanceMobilePunchesService', () => {
       wifiValidator as unknown as WifiNetworkValidatorService,
       scheduleResolver as unknown as AttendanceScheduleResolverService,
       attendanceCompanyConfigService as unknown as AttendanceCompanyConfigService,
+      eventIngestionService as unknown as AttendanceEventIngestionService,
+      configService as unknown as ConfigService,
       checkpointRepository as unknown as Repository<AttendanceCheckpoint>,
       employeeRepository as unknown as Repository<Employee>,
       processedEventRepository as unknown as Repository<AttendanceProcessedEvent>,
@@ -260,6 +307,7 @@ describe('AttendanceMobilePunchesService', () => {
       authenticatedEmployeeId: 39,
       employeeId: 39,
       dto: {
+        clientRequestId: '00000000-0000-4000-8000-000000000001',
         latitude: -6.792354,
         longitude: 39.208328,
         accuracyMeters: 8.5,
@@ -272,7 +320,14 @@ describe('AttendanceMobilePunchesService', () => {
       userAgent: 'jest',
     });
 
-    expect(result.message).toBe('Attendance punch saved successfully.');
+    expect(result.message).toBe(
+      'Attendance punch saved and processed successfully.',
+    );
+    expect(result.idempotent_replay).toBe(false);
+    expect(eventIngestionService.ingestMobilePunch).toHaveBeenCalledWith(
+      1,
+      1000,
+    );
     expect(punchRepo.createEntity).toHaveBeenCalledWith(
       expect.objectContaining({
         employeeId: 39,
@@ -334,9 +389,11 @@ describe('AttendanceMobilePunchesService', () => {
       authenticatedEmployeeId: 39,
       employeeId: 39,
       dto: {
+        clientRequestId: '00000000-0000-4000-8000-000000000002',
         latitude: -6.792401,
         longitude: 39.208295,
         accuracyMeters: 7.2,
+        deviceIdentifier: 'android-SM-A546E-8f3b21c9',
       },
       requestIp: '10.40.1.24',
       userAgent: 'jest',
@@ -392,9 +449,11 @@ describe('AttendanceMobilePunchesService', () => {
         authenticatedEmployeeId: 39,
         employeeId: 39,
         dto: {
+          clientRequestId: '00000000-0000-4000-8000-000000000003',
           latitude: -6.792354,
           longitude: 39.208328,
           accuracyMeters: 8.5,
+          deviceIdentifier: 'android-SM-A546E-8f3b21c9',
         },
         requestIp: '10.40.1.24',
         userAgent: 'jest',
@@ -447,9 +506,11 @@ describe('AttendanceMobilePunchesService', () => {
         authenticatedEmployeeId: 39,
         employeeId: 39,
         dto: {
+          clientRequestId: '00000000-0000-4000-8000-000000000004',
           latitude: -6.792354,
           longitude: 39.208328,
           accuracyMeters: 8.5,
+          deviceIdentifier: 'android-SM-A546E-8f3b21c9',
         },
         requestIp: '10.40.1.24',
         userAgent: 'jest',
@@ -500,9 +561,11 @@ describe('AttendanceMobilePunchesService', () => {
         authenticatedEmployeeId: 39,
         employeeId: 39,
         dto: {
+          clientRequestId: '00000000-0000-4000-8000-000000000005',
           latitude: -6.792354,
           longitude: 39.208328,
           accuracyMeters: 8.5,
+          deviceIdentifier: 'android-SM-A546E-8f3b21c9',
         },
         requestIp: '10.40.1.24',
         userAgent: 'jest',
@@ -545,9 +608,11 @@ describe('AttendanceMobilePunchesService', () => {
         authenticatedEmployeeId: 39,
         employeeId: 39,
         dto: {
+          clientRequestId: '00000000-0000-4000-8000-000000000006',
           latitude: -6.792354,
           longitude: 39.208328,
           accuracyMeters: 8.5,
+          deviceIdentifier: 'android-SM-A546E-8f3b21c9',
         },
         requestIp: '10.40.1.24',
         userAgent: 'jest',
@@ -613,9 +678,11 @@ describe('AttendanceMobilePunchesService', () => {
       authenticatedEmployeeId: 39,
       employeeId: 39,
       dto: {
+        clientRequestId: '00000000-0000-4000-8000-000000000007',
         latitude: -6.792354,
         longitude: 39.208328,
         accuracyMeters: 8.5,
+        deviceIdentifier: 'android-SM-A546E-8f3b21c9',
       },
       requestIp: '10.40.1.24',
       userAgent: 'jest',
@@ -670,9 +737,11 @@ describe('AttendanceMobilePunchesService', () => {
         authenticatedEmployeeId: 39,
         employeeId: 39,
         dto: {
+          clientRequestId: '00000000-0000-4000-8000-000000000008',
           latitude: -6.792354,
           longitude: 39.208328,
           accuracyMeters: 8.5,
+          deviceIdentifier: 'android-SM-A546E-8f3b21c9',
         },
         requestIp: '10.40.1.24',
         userAgent: 'jest',
@@ -696,9 +765,11 @@ describe('AttendanceMobilePunchesService', () => {
       authenticatedEmployeeId: 39,
       employeeId: 39,
       dto: {
+        clientRequestId: '00000000-0000-4000-8000-000000000009',
         latitude: -6.792354,
         longitude: 39.208328,
         accuracyMeters: 8.5,
+        deviceIdentifier: 'android-SM-A546E-8f3b21c9',
       },
       requestIp: '10.40.1.24',
       userAgent: 'jest',
@@ -752,9 +823,11 @@ describe('AttendanceMobilePunchesService', () => {
       authenticatedEmployeeId: 39,
       employeeId: 39,
       dto: {
+        clientRequestId: '00000000-0000-4000-8000-000000000010',
         latitude: -6.792354,
         longitude: 39.208328,
         accuracyMeters: 8.5,
+        deviceIdentifier: 'android-SM-A546E-8f3b21c9',
       },
       requestIp: '10.40.1.24',
       userAgent: 'jest',
@@ -810,10 +883,12 @@ describe('AttendanceMobilePunchesService', () => {
         authenticatedEmployeeId: 39,
         employeeId: 39,
         dto: {
+          clientRequestId: '00000000-0000-4000-8000-000000000011',
           latitude: -6.791,
           longitude: 39.21,
           accuracyMeters: 5,
           overrideReason: 'New check in',
+          deviceIdentifier: 'android-SM-A546E-8f3b21c9',
         },
         requestIp: '10.40.1.24',
         userAgent: 'jest',
@@ -874,12 +949,14 @@ describe('AttendanceMobilePunchesService', () => {
         authenticatedEmployeeId: 39,
         employeeId: 39,
         dto: {
+          clientRequestId: '00000000-0000-4000-8000-000000000012',
           latitude: -6.792354,
           longitude: 39.208328,
           wifiSsid: 'Guest-WiFi',
           wifiBssid: 'AA:BB:CC:DD:EE:FF',
           ipAddress: '10.40.1.24',
           overrideReason: 'New check in',
+          deviceIdentifier: 'android-SM-A546E-8f3b21c9',
         },
         requestIp: '10.40.1.24',
         userAgent: 'jest',
@@ -933,9 +1010,11 @@ describe('AttendanceMobilePunchesService', () => {
       authenticatedEmployeeId: 39,
       employeeId: 39,
       dto: {
+        clientRequestId: '00000000-0000-4000-8000-000000000013',
         latitude: -6.792354,
         longitude: 39.208328,
         overrideReason: 'Need manager review',
+        deviceIdentifier: 'android-SM-A546E-8f3b21c9',
       },
       requestIp: '10.40.1.24',
       userAgent: 'jest',
@@ -977,6 +1056,7 @@ describe('AttendanceMobilePunchesService', () => {
         authenticatedEmployeeId: 39,
         employeeId: 39,
         dto: {
+          clientRequestId: '00000000-0000-4000-8000-000000000014',
           latitude: -6.792354,
           longitude: 39.208328,
           deviceIdentifier: 'other-device-999',
@@ -1009,8 +1089,10 @@ describe('AttendanceMobilePunchesService', () => {
         authenticatedEmployeeId: 39,
         employeeId: 39,
         dto: {
+          clientRequestId: '00000000-0000-4000-8000-000000000015',
           latitude: -6.792354,
           longitude: 39.208328,
+          deviceIdentifier: 'android-SM-A546E-8f3b21c9',
         },
       }),
     ).rejects.toThrow(BadRequestException);

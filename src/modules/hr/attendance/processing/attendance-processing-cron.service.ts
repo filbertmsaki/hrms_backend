@@ -2,9 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { PostgresAdvisoryLockService } from '../../../../common/database/postgres-advisory-lock.service';
 import { HikvisionAttendanceLog } from '../../../hikvision/entities/hikvision-attendance-log.entity';
 import { AttendanceMobilePunch } from '../mobile-punches/entities/attendance-mobile-punch.entity';
-import { AttendancePunchValidationStatusEnum } from '../mobile-punches/enums/attendance-punch-validation-status.enum';
 import { ShiftAssignment } from '../shift/shift-assignments/entities/shift-assignment.entity';
 import { ShiftAssignmentStatusEnum } from '../shift/shift-assignments/enums/shift-assignment-status.enum';
 import { ShiftSchedule } from '../shift/shift-schedules/entities/shift-schedule.entity';
@@ -17,13 +17,12 @@ import { AttendanceRecalculationService } from './attendance-recalculation.servi
 import { formatDateOnly } from '../../shared/hr.utils';
 import { AttendancePolicy } from '../policies/entities/attendance-policy.entity';
 import { AttendanceDailySummaryService } from './attendance-daily-summary.service';
+import { AttendanceEventIngestionService } from './attendance-event-ingestion.service';
 import { AttendanceRawLogProcessingStatusEnum } from './enums/attendance-raw-log-processing-status.enum';
 
 @Injectable()
 export class AttendanceProcessingCronService {
   private readonly logger = new Logger(AttendanceProcessingCronService.name);
-  private incrementalRunInProgress = false;
-  private recalculationRunInProgress = false;
 
   constructor(
     @InjectRepository(HikvisionAttendanceLog)
@@ -42,70 +41,48 @@ export class AttendanceProcessingCronService {
     private readonly attendancePolicyRepository: Repository<AttendancePolicy>,
     private readonly processingService: AttendanceProcessingService,
     private readonly dailySummaryService: AttendanceDailySummaryService,
+    private readonly eventIngestionService: AttendanceEventIngestionService,
     private readonly recalculationService: AttendanceRecalculationService,
+    private readonly advisoryLockService: PostgresAdvisoryLockService,
   ) {}
 
-  @Cron(process.env.ATTENDANCE_INCREMENTAL_CRON || '*/5 * * * *')
+  @Cron(process.env.ATTENDANCE_INCREMENTAL_CRON || '*/2 * * * *')
   async runIncrementalProcessing() {
-    if (!this.isEnabled()) return;
-    if (this.incrementalRunInProgress) {
-      this.logger.warn(
-        'Skipping attendance incremental processing because a previous run is still active.',
-      );
+    if (!this.isEnabled()) {
       return;
     }
 
-    this.incrementalRunInProgress = true;
-    const today = this.formatDate(new Date());
-    try {
-      const companyIdsWithPendingRawLogs =
-        await this.findCompaniesWithPendingRawLogs(today);
-      for (const companyId of companyIdsWithPendingRawLogs) {
-        await this.processingService.processIncrementalDate(companyId, today);
-      }
+    const execution = await this.advisoryLockService.runWithLock(
+      'attendance:incremental-processing',
+      async () => {
+        await this.executeIncrementalProcessing();
+      },
+    );
 
-      await this.processApprovedMobilePunches();
-
-      const companyIds =
-        await this.findCompaniesForScheduledReconciliation(today);
-      const dueCompanyIds =
-        await this.filterCompaniesDueForCalculation(companyIds);
-
-      for (const companyId of dueCompanyIds) {
-        await this.processingService.processRange(companyId, {
-          start_date: today,
-          end_date: today,
-          rebuild_summaries: true,
-        });
-      }
-    } catch (error) {
-      this.logger.warn(
-        `Incremental attendance processing skipped: ${(error as Error).message}`,
+    if (!execution.acquired) {
+      this.logger.debug(
+        'Attendance incremental processing is already running on another application instance.',
       );
-    } finally {
-      this.incrementalRunInProgress = false;
     }
   }
 
-  @Cron(process.env.ATTENDANCE_RECALCULATION_CRON || '*/10 * * * *')
+  @Cron(process.env.ATTENDANCE_RECALCULATION_CRON || '*/5 * * * *')
   async processPendingRecalculationJobs() {
-    if (!this.isEnabled()) return;
-    if (this.recalculationRunInProgress) {
-      this.logger.warn(
-        'Skipping attendance recalculation jobs because a previous job sweep is still active.',
-      );
+    if (!this.isEnabled()) {
       return;
     }
 
-    this.recalculationRunInProgress = true;
-    try {
-      await this.recalculationService.processPendingJobs(20);
-    } catch (error) {
-      this.logger.warn(
-        `Pending recalculation processing failed: ${(error as Error).message}`,
+    const execution = await this.advisoryLockService.runWithLock(
+      'attendance:recalculation-jobs',
+      async () => {
+        await this.recalculationService.processPendingJobs(20);
+      },
+    );
+
+    if (!execution.acquired) {
+      this.logger.debug(
+        'Attendance recalculation jobs are already running on another application instance.',
       );
-    } finally {
-      this.recalculationRunInProgress = false;
     }
   }
 
@@ -143,67 +120,37 @@ export class AttendanceProcessingCronService {
     return this.normalizeCompanyIdRows(rows);
   }
 
-  private async processApprovedMobilePunches(batchSize = 200) {
-    while (true) {
-      const punches = await this.mobilePunchRepository.find({
-        where: [
-          {
-            isProcessed: false,
-            validationStatus: AttendancePunchValidationStatusEnum.APPROVED,
-          },
-          {
-            isProcessed: false,
-            validationStatus:
-              AttendancePunchValidationStatusEnum.OVERRIDE_APPROVED,
-          },
-        ],
-        select: {
-          id: true,
-          companyId: true,
-          employeeId: true,
-          attendanceDate: true,
-        },
-        order: {
-          punchTime: 'ASC',
-          id: 'ASC',
-        },
-        take: batchSize,
-      });
+  private async executeIncrementalProcessing() {
+    const today = this.formatDate(new Date());
 
-      if (punches.length === 0) {
-        return;
+    try {
+      const companyIdsWithPendingRawLogs =
+        await this.findCompaniesWithPendingRawLogs(today);
+
+      for (const companyId of companyIdsWithPendingRawLogs) {
+        await this.processingService.processIncrementalDate(companyId, today);
       }
 
-      const groupedPairs = new Map<
-        number,
-        Array<{ employeeId: number; attendanceDate: string }>
-      >();
-      for (const punch of punches) {
-        const employeeDates = groupedPairs.get(punch.companyId) ?? [];
-        employeeDates.push({
-          employeeId: punch.employeeId,
-          attendanceDate: punch.attendanceDate,
-        });
-        groupedPairs.set(punch.companyId, employeeDates);
-      }
-
-      for (const [companyId, employeeDates] of groupedPairs.entries()) {
-        await this.dailySummaryService.rebuildSummariesForEmployeeDates({
-          companyId,
-          employeeDates,
-        });
-      }
-
-      await this.mobilePunchRepository.update(
-        punches.map((punch) => punch.id),
-        {
-          isProcessed: true,
-        },
+      await this.eventIngestionService.processPendingMobilePunches(
+        Number(process.env.ATTENDANCE_MOBILE_EVENT_BATCH_SIZE ?? 200),
       );
 
-      if (punches.length < batchSize) {
-        return;
+      const companyIds =
+        await this.findCompaniesForScheduledReconciliation(today);
+      const dueCompanyIds =
+        await this.filterCompaniesDueForCalculation(companyIds);
+
+      for (const companyId of dueCompanyIds) {
+        await this.processingService.processRange(companyId, {
+          start_date: today,
+          end_date: today,
+          rebuild_summaries: true,
+        });
       }
+    } catch (error) {
+      this.logger.warn(
+        `Incremental attendance processing skipped: ${(error as Error).message}`,
+      );
     }
   }
 

@@ -28,6 +28,7 @@ import { HikvisionSyncLogDirectionEnum } from '../access-control/hikvision-sync-
 import { HikvisionSyncLogStatusEnum } from '../access-control/hikvision-sync-logs/enum/hikvision-sync-log-status.enum';
 import { HikvisionSyncLogTypeEnum } from '../access-control/hikvision-sync-logs/enum/hikvision-sync-log-type.enum';
 import { buildPaginationMeta } from '../hr/shared/hr.utils';
+import { createAttendanceHash } from '../hr/attendance/shared/attendance-hash.util';
 import { AttendanceEmployeeResolverService } from '../hr/attendance/processing/attendance-employee-resolver.service';
 import { AttendanceRecalculationService } from '../hr/attendance/processing/attendance-recalculation.service';
 import { AttendanceProcessingJobStatusEnum } from '../hr/attendance/processing/enums/attendance-processing-job-status.enum';
@@ -111,6 +112,9 @@ type MappedAttendanceRow = {
   statusValue: number | null;
   eventKey: string;
   processingStatus: AttendanceRawLogProcessingStatusEnum;
+  payloadHash: string;
+  receivedAt: Date;
+  sourceTimezone: string | null;
   rawPayload: Record<string, unknown>;
 };
 
@@ -1380,6 +1384,9 @@ export class HikvisionAttendanceSyncService {
             statusValue: mapped.statusValue,
             eventKey: mapped.eventKey,
             processingStatus: mapped.processingStatus,
+            payloadHash: mapped.payloadHash,
+            receivedAt: mapped.receivedAt,
+            sourceTimezone: mapped.sourceTimezone,
             rawPayload: mapped.rawPayload,
           }),
         );
@@ -1526,23 +1533,7 @@ export class HikvisionAttendanceSyncService {
 
     applyNumber('employeeId', mapped.employeeId);
     applyBoolean('isEmployeeMapped', mapped.isEmployeeMapped);
-    applyString('employeeName', mapped.employeeName);
-    applyString('cardNo', mapped.cardNo);
-    applyString('attendanceStatus', mapped.attendanceStatus);
-    applyString('verifyMode', mapped.verifyMode);
-    applyString('cardReaderKind', mapped.cardReaderKind);
-    applyString('serialNo', mapped.serialNo, { onlyWhenMissing: true });
-    applyString('deviceNo', mapped.deviceNo);
-    applyString('remoteHostAddr', mapped.remoteHostAddr);
-    applyString('netUser', mapped.netUser);
-    applyString('userType', mapped.userType);
-    applyString('eventType', mapped.eventType);
-    applyString('eventKey', mapped.eventKey);
     applyString('employeeNo', mapped.employeeNo, { onlyWhenMissing: true });
-    applyNumber('doorNo', mapped.doorNo);
-    applyNumber('cardReaderNo', mapped.cardReaderNo);
-    applyNumber('statusValue', mapped.statusValue);
-    applyDate('deviceTime', mapped.deviceTime);
 
     if (!wasMapped && mapped.isEmployeeMapped) {
       existing.processingStatus = AttendanceRawLogProcessingStatusEnum.PENDING;
@@ -1558,13 +1549,6 @@ export class HikvisionAttendanceSyncService {
         AttendanceRawLogProcessingStatusEnum.UNMATCHED_EMPLOYEE;
       existing.processedAt = null;
       existing.lastProcessingError = null;
-      changed = true;
-    }
-
-    const existingPayload = JSON.stringify(existing.rawPayload ?? {});
-    const nextPayload = JSON.stringify(mapped.rawPayload ?? {});
-    if (existingPayload !== nextPayload) {
-      existing.rawPayload = mapped.rawPayload;
       changed = true;
     }
 
@@ -1586,6 +1570,7 @@ export class HikvisionAttendanceSyncService {
     const eventTime = this.parseDateOrFail(item.time, 'time');
     const employeeNo = this.resolveAttendanceEmployeeNo(item);
     const isEmployeeMapped = employeeId !== null;
+    const payloadHash = createAttendanceHash(item);
 
     return {
       companyId: device.companyId,
@@ -1624,6 +1609,9 @@ export class HikvisionAttendanceSyncService {
       processingStatus: isEmployeeMapped
         ? AttendanceRawLogProcessingStatusEnum.PENDING
         : AttendanceRawLogProcessingStatusEnum.UNMATCHED_EMPLOYEE,
+      payloadHash,
+      receivedAt: new Date(),
+      sourceTimezone: device.timezone ?? null,
       rawPayload: item,
     };
   }

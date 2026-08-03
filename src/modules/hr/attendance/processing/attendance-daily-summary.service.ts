@@ -1364,6 +1364,7 @@ export class AttendanceDailySummaryService {
       .createQueryBuilder('punch')
       .where('punch.company_id = :companyId', { companyId })
       .andWhere('punch.employee_id = :employeeId', { employeeId })
+      .andWhere('punch.is_processed = false')
       .andWhere('punch.validation_status IN (:...statuses)', {
         statuses: [
           AttendancePunchValidationStatusEnum.APPROVED,
@@ -1478,12 +1479,13 @@ export class AttendanceDailySummaryService {
       };
     }
 
-    const hasExplicitDirection = effectivePunches.some(
+    const hasAttendanceDirection = effectivePunches.some(
       (event) =>
-        event.direction !== AttendanceProcessedEventDirectionEnum.UNKNOWN,
+        event.direction === AttendanceProcessedEventDirectionEnum.IN ||
+        event.direction === AttendanceProcessedEventDirectionEnum.OUT,
     );
 
-    if (!hasExplicitDirection) {
+    if (!hasAttendanceDirection) {
       return this.preparePunchesByFallbackOrder(
         effectivePunches,
         duplicatePunches,
@@ -1644,14 +1646,21 @@ export class AttendanceDailySummaryService {
     let breakStart: AttendanceEventPoint | null = null;
 
     for (const punch of internalPunches) {
-      if (punch.direction === AttendanceProcessedEventDirectionEnum.OUT) {
+      const startsBreak =
+        punch.direction === AttendanceProcessedEventDirectionEnum.BREAK_OUT ||
+        punch.direction === AttendanceProcessedEventDirectionEnum.OUT;
+      const endsBreak =
+        punch.direction === AttendanceProcessedEventDirectionEnum.BREAK_IN ||
+        punch.direction === AttendanceProcessedEventDirectionEnum.IN;
+
+      if (startsBreak) {
         breakStart = punch;
         continue;
       }
 
       if (
         breakStart &&
-        punch.direction === AttendanceProcessedEventDirectionEnum.IN &&
+        endsBreak &&
         punch.eventTime.getTime() > breakStart.eventTime.getTime()
       ) {
         breakMinutes += Math.floor(

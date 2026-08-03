@@ -27,6 +27,10 @@ export class AttendanceMobilePunchRepository {
     return this.repo.save(entity);
   }
 
+  getNativeRepository(): Repository<AttendanceMobilePunch> {
+    return this.repo;
+  }
+
   findOneById(
     companyId: number,
     id: number,
@@ -35,6 +39,26 @@ export class AttendanceMobilePunchRepository {
       where: {
         id,
         companyId,
+      },
+      relations: {
+        employee: true,
+        branch: true,
+        geofence: true,
+        wifiNetwork: true,
+      },
+    });
+  }
+
+  findByClientRequest(
+    companyId: number,
+    employeeId: number,
+    clientRequestId: string,
+  ): Promise<AttendanceMobilePunch | null> {
+    return this.repo.findOne({
+      where: {
+        companyId,
+        employeeId,
+        clientRequestId,
       },
       relations: {
         employee: true,

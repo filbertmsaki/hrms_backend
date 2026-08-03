@@ -33,6 +33,8 @@ import { EmployeeDeviceIdentity } from './entities/employee-device-identity.enti
 import { AttendanceMobilePunch } from '../mobile-punches/entities/attendance-mobile-punch.entity';
 import { AttendanceBusinessTripsController } from './attendance-business-trips.controller';
 import { AttendanceBusinessTripsService } from './attendance-business-trips.service';
+import { AttendanceEventDirectionResolverService } from './attendance-event-direction-resolver.service';
+import { AttendanceEventIngestionService } from './attendance-event-ingestion.service';
 import { AttendanceProcessingController } from './attendance-processing.controller';
 import { AttendanceEmployeeResolverService } from './attendance-employee-resolver.service';
 import { AttendanceProcessingExceptionsService } from './attendance-processing-exceptions.service';
@@ -48,6 +50,7 @@ import { AttendanceReportPdfService } from './reports/attendance-report-pdf.serv
 import { AttendanceReportService } from './reports/attendance-report.service';
 import { AttendanceReportXlsxService } from './reports/attendance-report-xlsx.service';
 import { HikvisionModule } from '../../../hikvision/hikvision.module';
+import { PostgresAdvisoryLockService } from '../../../../common/database/postgres-advisory-lock.service';
 
 @Module({
   imports: [
@@ -92,6 +95,8 @@ import { HikvisionModule } from '../../../hikvision/hikvision.module';
   ],
   providers: [
     AttendanceBusinessTripsService,
+    AttendanceEventDirectionResolverService,
+    AttendanceEventIngestionService,
     AttendanceEmployeeResolverService,
     AttendanceProcessingExceptionsService,
     AttendanceScheduleResolverService,
@@ -105,9 +110,12 @@ import { HikvisionModule } from '../../../hikvision/hikvision.module';
     AttendanceReportPdfService,
     AttendanceReportService,
     AttendanceReportXlsxService,
+    PostgresAdvisoryLockService,
   ],
   exports: [
     AttendanceBusinessTripsService,
+    AttendanceEventDirectionResolverService,
+    AttendanceEventIngestionService,
     AttendanceProcessingExceptionsService,
     AttendanceScheduleResolverService,
     AttendanceProcessingService,

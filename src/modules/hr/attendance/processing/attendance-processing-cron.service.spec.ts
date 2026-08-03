@@ -13,7 +13,9 @@ import { Timetable } from '../timetable/timetables/entities/timetable.entity';
 import { AttendancePolicy } from '../policies/entities/attendance-policy.entity';
 import { AttendanceProcessingService } from './attendance-processing.service';
 import { AttendanceDailySummaryService } from './attendance-daily-summary.service';
+import { AttendanceEventIngestionService } from './attendance-event-ingestion.service';
 import { AttendanceRecalculationService } from './attendance-recalculation.service';
+import { PostgresAdvisoryLockService } from '../../../../common/database/postgres-advisory-lock.service';
 
 const createQueryBuilderMock = () => ({
   select: jest.fn().mockReturnThis(),
@@ -42,7 +44,9 @@ describe('AttendanceProcessingCronService', () => {
     processRange: jest.Mock;
   };
   let dailySummaryService: { rebuildSummariesForEmployeeDates: jest.Mock };
+  let eventIngestionService: { processPendingMobilePunches: jest.Mock };
   let recalculationService: { processPendingJobs: jest.Mock };
+  let advisoryLockService: { runWithLock: jest.Mock };
   const originalEnv = {
     ATTENDANCE_PROCESSING_ENABLED: process.env.ATTENDANCE_PROCESSING_ENABLED,
     ATTENDANCE_CALCULATION_WINDOW_MINUTES:
@@ -95,8 +99,21 @@ describe('AttendanceProcessingCronService', () => {
     dailySummaryService = {
       rebuildSummariesForEmployeeDates: jest.fn().mockResolvedValue(undefined),
     };
+    eventIngestionService = {
+      processPendingMobilePunches: jest.fn().mockResolvedValue({
+        selected: 0,
+        processed: 0,
+        failed: 0,
+      }),
+    };
     recalculationService = {
       processPendingJobs: jest.fn().mockResolvedValue(undefined),
+    };
+    advisoryLockService = {
+      runWithLock: jest.fn(async (_key: string, callback: () => Promise<unknown>) => ({
+        acquired: true,
+        result: await callback(),
+      })),
     };
 
     service = new AttendanceProcessingCronService(
@@ -109,7 +126,9 @@ describe('AttendanceProcessingCronService', () => {
       attendancePolicyRepository as unknown as Repository<AttendancePolicy>,
       processingService as unknown as AttendanceProcessingService,
       dailySummaryService as unknown as AttendanceDailySummaryService,
+      eventIngestionService as unknown as AttendanceEventIngestionService,
       recalculationService as unknown as AttendanceRecalculationService,
+      advisoryLockService as unknown as PostgresAdvisoryLockService,
     );
   });
 
@@ -142,20 +161,6 @@ describe('AttendanceProcessingCronService', () => {
     shiftAssignmentBuilder.getRawMany.mockResolvedValue([]);
     shiftScheduleBuilder.getRawMany.mockResolvedValue([]);
     defaultTimetableBuilder.getRawMany.mockResolvedValue([]);
-    mobilePunchRepository.find.mockResolvedValue([
-      {
-        id: 11,
-        companyId: 1,
-        employeeId: 7,
-        attendanceDate: '2026-06-22',
-      },
-      {
-        id: 12,
-        companyId: 1,
-        employeeId: 7,
-        attendanceDate: '2026-06-22',
-      },
-    ]);
     attendancePolicyRepository.find.mockResolvedValue([
       {
         id: 11,
@@ -180,24 +185,9 @@ describe('AttendanceProcessingCronService', () => {
       1,
       '2026-06-22',
     );
-    expect(
-      dailySummaryService.rebuildSummariesForEmployeeDates,
-    ).toHaveBeenCalledWith({
-      companyId: 1,
-      employeeDates: [
-        {
-          employeeId: 7,
-          attendanceDate: '2026-06-22',
-        },
-        {
-          employeeId: 7,
-          attendanceDate: '2026-06-22',
-        },
-      ],
-    });
-    expect(mobilePunchRepository.update).toHaveBeenCalledWith([11, 12], {
-      isProcessed: true,
-    });
+    expect(eventIngestionService.processPendingMobilePunches).toHaveBeenCalledWith(
+      200,
+    );
     expect(processingService.processRange).toHaveBeenCalledTimes(1);
     expect(processingService.processRange).toHaveBeenCalledWith(1, {
       start_date: '2026-06-22',
@@ -226,5 +216,16 @@ describe('AttendanceProcessingCronService', () => {
       end_date: '2026-06-22',
       rebuild_summaries: true,
     });
+  });
+
+  it('skips incremental execution when the distributed lock is held elsewhere', async () => {
+    advisoryLockService.runWithLock.mockResolvedValue({
+      acquired: false,
+    });
+
+    await service.runIncrementalProcessing();
+
+    expect(processingService.processIncrementalDate).not.toHaveBeenCalled();
+    expect(eventIngestionService.processPendingMobilePunches).not.toHaveBeenCalled();
   });
 });
