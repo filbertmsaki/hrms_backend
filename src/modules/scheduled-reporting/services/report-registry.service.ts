@@ -1,5 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ReportOutputFormatEnum } from '../enums/report-output-format.enum';
+import { ReportRunner } from '../interfaces/report-runner.interface';
+import { AttendanceSummaryReportRunner } from './runners/attendance-summary-report-runner.service';
+import { EmployeeMasterReportRunner } from './runners/employee-master-report-runner.service';
 
 export type RegisteredReportDefinition = {
   reportCode: string;
@@ -45,7 +48,62 @@ export class ReportRegistryService {
         backgroundGenerationSupported: false,
       },
     ],
+    [
+      'EMPLOYEE_DIRECTORY',
+      {
+        reportCode: 'EMPLOYEE_DIRECTORY',
+        name: 'Employee Report',
+        supportedFormats: [ReportOutputFormatEnum.CSV],
+        supportedFilterFields: [
+          'company_id',
+          'branch_id',
+          'department_id',
+          'employee_id',
+          'employee_no',
+          'employment_status',
+          'employment_type',
+        ],
+        requiredPermissions: ['employees:read'],
+        emailDeliverySupported: true,
+        backgroundGenerationSupported: false,
+      },
+    ],
   ]);
+
+  constructor(
+    private readonly attendanceSummaryReportRunner: AttendanceSummaryReportRunner,
+    private readonly employeeMasterReportRunner: EmployeeMasterReportRunner,
+  ) {}
+
+  private readonly runners = new Map<string, ReportRunner>();
+
+  private ensureRunnersRegistered() {
+    if (this.runners.size > 0) {
+      return;
+    }
+
+    this.runners.set(
+      this.attendanceSummaryReportRunner.reportCode,
+      this.attendanceSummaryReportRunner,
+    );
+    this.runners.set(
+      this.employeeMasterReportRunner.reportCode,
+      this.employeeMasterReportRunner,
+    );
+  }
+
+  requireRunner(reportCode: string): ReportRunner {
+    this.ensureRunnersRegistered();
+    const runner = this.runners.get(reportCode.trim().toUpperCase());
+
+    if (!runner) {
+      throw new BadRequestException(
+        `The selected report "${reportCode}" has no registered execution runner.`,
+      );
+    }
+
+    return runner;
+  }
 
   find(reportCode: string | null | undefined) {
     if (!reportCode?.trim()) {

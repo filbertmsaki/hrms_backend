@@ -1892,6 +1892,12 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow viewing scheduled report execution history',
   },
   {
+    name: 'scheduled_reports:download',
+    displayName: 'Download generated scheduled reports',
+    description:
+      'Allow downloading the generated file for a scheduled report execution',
+  },
+  {
     name: 'hrms_launch_readiness:read',
     displayName: 'Read HRMS launch readiness',
     description: 'Allow viewing the HRMS launch readiness report',

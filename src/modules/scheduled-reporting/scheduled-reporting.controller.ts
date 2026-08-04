@@ -9,12 +9,13 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import type { Request as ExpressRequest } from 'express';
+import type { Request as ExpressRequest, Response } from 'express';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
@@ -33,7 +34,9 @@ import {
   UpdateReportSmtpConfigurationDto,
   UpdateReportTemplateDto,
 } from './dto/scheduled-reporting.dto';
+import { RunReportTemplateDto } from './dto/run-report-template.dto';
 import { ScheduledReportingService } from './scheduled-reporting.service';
+import { ReportExecutionService } from './services/report-execution.service';
 
 @ApiTags('Scheduled Reporting')
 @ApiBearerAuth('access-token')
@@ -42,6 +45,7 @@ import { ScheduledReportingService } from './scheduled-reporting.service';
 export class ScheduledReportingController {
   constructor(
     private readonly scheduledReportingService: ScheduledReportingService,
+    private readonly reportExecutionService: ReportExecutionService,
   ) {}
 
   @Get('report-definitions')
@@ -248,6 +252,29 @@ export class ScheduledReportingController {
     return this.scheduledReportingService.removeTemplate(companyId, id);
   }
 
+  @Post('templates/:id/run')
+  @UseGuards(PermissionsGuard)
+  @Permissions('scheduled_reports:run')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  runTemplate(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: RunReportTemplateDto,
+  ) {
+    const { companyId, companyMembershipId } =
+      this.scheduledReportingService.assertCompanyActor(req.user);
+    return this.reportExecutionService.queueManualExecution(
+      companyId,
+      id,
+      companyMembershipId,
+      {
+        dateFrom: dto.date_from ?? null,
+        dateTo: dto.date_to ?? null,
+        outputFormat: dto.output_format ?? null,
+      },
+    );
+  }
+
   @Get('schedules')
   @UseGuards(PermissionsGuard)
   @Permissions('scheduled_reports:read')
@@ -347,5 +374,46 @@ export class ScheduledReportingController {
       req.user,
     );
     return this.scheduledReportingService.findOneExecution(companyId, id);
+  }
+
+  @Post('executions/:id/retry')
+  @UseGuards(PermissionsGuard)
+  @Permissions('scheduled_reports:run')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  retryExecution(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    const { companyId, companyMembershipId } =
+      this.scheduledReportingService.assertCompanyActor(req.user);
+    return this.reportExecutionService.retryExecution(
+      companyId,
+      id,
+      companyMembershipId,
+    );
+  }
+
+  @Get('executions/:id/download')
+  @UseGuards(PermissionsGuard)
+  @Permissions('scheduled_reports:download')
+  async downloadExecution(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Res() res: Response,
+  ) {
+    const { companyId } = this.scheduledReportingService.assertCompanyActor(
+      req.user,
+    );
+    const file = await this.reportExecutionService.downloadExecutionFile(
+      companyId,
+      id,
+    );
+
+    res.setHeader('Content-Type', file.mimeType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${file.filename}"`,
+    );
+    res.send(file.buffer);
   }
 }

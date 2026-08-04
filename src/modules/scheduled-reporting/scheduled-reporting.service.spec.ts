@@ -102,7 +102,7 @@ describe('ScheduledReportingService', () => {
       departmentRepository as never,
       roleRepository as never,
       { get: jest.fn() } as unknown as ConfigService,
-      new ReportRegistryService(),
+      new ReportRegistryService({} as never, {} as never),
       reportSmtpService as unknown as ReportSmtpService,
     );
   });
