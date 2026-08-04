@@ -44,6 +44,13 @@ import { Timetable } from '../attendance/timetable/timetables/entities/timetable
 import { AttendanceCorrectionRequest } from './entities/attendance-correction-request.entity';
 import { EmployeeProfileUpdateRequest } from './entities/employee-profile-update-request.entity';
 import { ProfileChangeRequestsService } from './profile-change-requests.service';
+import { ProfileChangeRequest } from './entities/profile-change-request.entity';
+import { OnboardingRequest } from '../onboarding/entities/onboarding-request.entity';
+import { OffboardingRequest } from '../offboarding/entities/offboarding-request.entity';
+import { ActionItemsService } from '../action-inbox/action-items.service';
+import { HrDocumentsService } from '../documents/hr-documents.service';
+import { OffboardingService } from '../offboarding/offboarding.service';
+import { HrAccessService } from '../shared/hr-access.service';
 
 describe('EmployeeSelfServiceService', () => {
   let service: EmployeeSelfServiceService;
@@ -93,6 +100,12 @@ describe('EmployeeSelfServiceService', () => {
   let profileChangeRequestsService: {
     getPendingSummary: jest.Mock;
   };
+  let leaveRequestRepository: { find: jest.Mock };
+  let correctionRequestRepository: { find: jest.Mock };
+  let profileChangeRequestRepository: { find: jest.Mock };
+  let onboardingRequestRepository: { find: jest.Mock };
+  let offboardingRequestRepository: { find: jest.Mock };
+  let offboardingService: { createOffboardingRequest: jest.Mock };
 
   const actor: AuthenticatedUser = {
     id: 9,
@@ -157,6 +170,14 @@ describe('EmployeeSelfServiceService', () => {
         pending_request_count: 0,
       }),
     };
+    leaveRequestRepository = { find: jest.fn().mockResolvedValue([]) };
+    correctionRequestRepository = { find: jest.fn().mockResolvedValue([]) };
+    profileChangeRequestRepository = { find: jest.fn().mockResolvedValue([]) };
+    onboardingRequestRepository = { find: jest.fn().mockResolvedValue([]) };
+    offboardingRequestRepository = { find: jest.fn().mockResolvedValue([]) };
+    offboardingService = {
+      createOffboardingRequest: jest.fn().mockResolvedValue({ id: 501 }),
+    };
 
     service = new EmployeeSelfServiceService(
       usersService as unknown as UsersService,
@@ -167,16 +188,23 @@ describe('EmployeeSelfServiceService', () => {
       attendanceScheduleResolverService as unknown as AttendanceScheduleResolverService,
       {} as Repository<AttendanceDailySummary>,
       {} as Repository<AttendanceMobilePunch>,
-      {} as Repository<LeaveRequest>,
+      leaveRequestRepository as unknown as Repository<LeaveRequest>,
       shiftScheduleRepository as unknown as Repository<ShiftSchedule>,
       shiftAssignmentRepository as unknown as Repository<ShiftAssignment>,
       employeeTimetableRepository as unknown as Repository<EmployeeTimetable>,
       shiftRepository as unknown as Repository<Shift>,
       timetableRepository as unknown as Repository<Timetable>,
-      {} as Repository<AttendanceCorrectionRequest>,
+      correctionRequestRepository as unknown as Repository<AttendanceCorrectionRequest>,
       profileUpdateRequestRepository as unknown as Repository<EmployeeProfileUpdateRequest>,
       filesService as unknown as FilesService,
       profileChangeRequestsService as unknown as ProfileChangeRequestsService,
+      profileChangeRequestRepository as unknown as Repository<ProfileChangeRequest>,
+      onboardingRequestRepository as unknown as Repository<OnboardingRequest>,
+      offboardingRequestRepository as unknown as Repository<OffboardingRequest>,
+      {} as unknown as ActionItemsService,
+      {} as unknown as HrDocumentsService,
+      offboardingService as unknown as OffboardingService,
+      { getAccessibleEmployeeIds: jest.fn().mockResolvedValue(null) } as unknown as HrAccessService,
     );
   });
 
@@ -499,5 +527,103 @@ describe('EmployeeSelfServiceService', () => {
           '/uploads/profile-photos/company-7/employee-15-new-photo.png',
       }),
     );
+  });
+
+  describe('getMyRequestTimeline', () => {
+    it('combines and sorts leave, onboarding, and offboarding items by most recently updated', async () => {
+      leaveRequestRepository.find.mockResolvedValue([
+        {
+          id: 1,
+          leave_no: 'LV-1',
+          status: 'approved',
+          applied_at: new Date('2026-06-01'),
+          created_at: new Date('2026-06-01'),
+          updated_at: new Date('2026-06-01'),
+          start_date: '2026-06-10',
+          end_date: '2026-06-12',
+          total_days: '2.00',
+        },
+      ]);
+      offboardingRequestRepository.find.mockResolvedValue([
+        {
+          id: 5,
+          offboarding_code: 'OFF-1',
+          title: 'Resignation',
+          status: 'pending_manager',
+          submitted_at: new Date('2026-06-05'),
+          created_at: new Date('2026-06-05'),
+          updated_at: new Date('2026-06-05'),
+          last_working_date: '2026-07-01',
+          offboarding_type: 'resignation',
+        },
+      ]);
+
+      const result = await service.getMyRequestTimeline(actor, {});
+
+      expect(result.data).toHaveLength(2);
+      expect(result.data[0].source).toBe('offboarding');
+      expect(result.data[1].source).toBe('leave');
+    });
+
+    it('filters by module', async () => {
+      leaveRequestRepository.find.mockResolvedValue([
+        {
+          id: 1,
+          leave_no: 'LV-1',
+          status: 'approved',
+          applied_at: new Date('2026-06-01'),
+          created_at: new Date('2026-06-01'),
+          updated_at: new Date('2026-06-01'),
+          start_date: '2026-06-10',
+          end_date: '2026-06-12',
+          total_days: '2.00',
+        },
+      ]);
+      offboardingRequestRepository.find.mockResolvedValue([
+        {
+          id: 5,
+          offboarding_code: 'OFF-1',
+          title: 'Resignation',
+          status: 'pending_manager',
+          created_at: new Date('2026-06-05'),
+          updated_at: new Date('2026-06-05'),
+          last_working_date: '2026-07-01',
+          offboarding_type: 'resignation',
+        },
+      ]);
+
+      const result = await service.getMyRequestTimeline(actor, {
+        module: 'leave',
+      });
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].source).toBe('leave');
+    });
+  });
+
+  describe('createMyResignation', () => {
+    it('delegates to OffboardingService with the resigning employee id and submit=true', async () => {
+      await service.createMyResignation(
+        actor,
+        {
+          last_working_date: '2026-08-31',
+          reason: 'Pursuing another opportunity',
+        },
+        { ip_address: null, user_agent: null },
+      );
+
+      expect(offboardingService.createOffboardingRequest).toHaveBeenCalledWith(
+        7,
+        expect.objectContaining({
+          employee_id: 15,
+          offboarding_type: 'resignation',
+          reason: 'Pursuing another opportunity',
+          last_working_date: '2026-08-31',
+          submit: true,
+        }),
+        actor,
+        { ip_address: null, user_agent: null },
+      );
+    });
   });
 });

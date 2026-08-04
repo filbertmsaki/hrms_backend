@@ -16,6 +16,10 @@ import { ShiftEngineModule } from './attendance/shift/shift-engine.module';
 import { HrLaunchReadinessModule } from './launch-readiness/hr-launch-readiness.module';
 import { HrNotificationModule } from './notifications/hr-notification.module';
 import { DefaultAvatarsModule } from './default-avatars/default-avatars.module';
+import { ActionInboxModule } from './action-inbox/action-inbox.module';
+import { HrDocumentsModule } from './documents/hr-documents.module';
+import { ManagerSelfServiceModule } from './manager-self-service/manager-self-service.module';
+import { DashboardsModule } from './dashboards/dashboards.module';
 
 @Module({
   imports: [
@@ -31,7 +35,11 @@ import { DefaultAvatarsModule } from './default-avatars/default-avatars.module';
     EmployeesModule,
     EmployeePositionsModule,
     LeaveModule,
+    ActionInboxModule,
+    HrDocumentsModule,
     EmployeeSelfServiceModule,
+    ManagerSelfServiceModule,
+    DashboardsModule,
     OnboardingModule,
     OffboardingModule,
     HrLaunchReadinessModule,

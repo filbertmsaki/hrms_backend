@@ -1,6 +1,7 @@
 import { NotificationsService } from '../../notifications/notifications.service';
 import { HrInAppNotificationListener } from './hr-in-app-notification.listener';
 import { LeaveSubmittedEvent, OnboardingApprovalReminderEvent } from './events';
+import type { ActionItemsService } from '../action-inbox/action-items.service';
 
 describe('HrInAppNotificationListener', () => {
   let listener: HrInAppNotificationListener;
@@ -8,15 +9,24 @@ describe('HrInAppNotificationListener', () => {
     createAndPush: jest.Mock;
     createAndPushMany: jest.Mock;
   };
+  let actionItemsService: {
+    upsertOpen: jest.Mock;
+    completeAllOpenForEntity: jest.Mock;
+  };
 
   beforeEach(() => {
     notificationsService = {
       createAndPush: jest.fn().mockResolvedValue(undefined),
       createAndPushMany: jest.fn().mockResolvedValue(undefined),
     };
+    actionItemsService = {
+      upsertOpen: jest.fn().mockResolvedValue(undefined),
+      completeAllOpenForEntity: jest.fn().mockResolvedValue(undefined),
+    };
 
     listener = new HrInAppNotificationListener(
       notificationsService as unknown as NotificationsService,
+      actionItemsService as unknown as ActionItemsService,
     );
   });
 

@@ -487,6 +487,36 @@ export class MailService {
     );
   }
 
+  /**
+   * Generic email channel for the notification-delivery pipeline. Unlike the
+   * templated senders above, this has no fixed HR event shape — callers
+   * supply their own subject/message/action link.
+   */
+  async sendGenericNotificationEmail(
+    to: string,
+    subject: string,
+    message: string,
+    actionUrl?: string | null,
+  ): Promise<{ messageId: string | null }> {
+    const safeOptions: SafeSendMailOptions = {
+      to,
+      subject,
+      html: `<p>${message}</p>${
+        actionUrl ? `<p><a href="${actionUrl}">View details</a></p>` : ''
+      }`,
+      text: actionUrl ? `${message}\n\n${actionUrl}` : message,
+      mailSafetyContext: {
+        sourceModule: 'Notifications.sendGenericNotificationEmail',
+      },
+    };
+
+    const result = (await this.mailerService.sendMail(
+      safeOptions as ISendMailOptions,
+    )) as { messageId?: string } | undefined;
+
+    return { messageId: result?.messageId ?? null };
+  }
+
   private async sendMail(
     options: ISendMailOptions,
     sourceModule: string,

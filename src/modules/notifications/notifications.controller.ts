@@ -12,8 +12,11 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request as ExpressRequest } from 'express';
+import { Permissions } from '../../common/decorators/permissions.decorator';
+import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { CreateTestNotificationDto } from './dto/create-test-notification.dto';
@@ -54,6 +57,9 @@ export class NotificationsController {
   }
 
   @Post('test')
+  @UseGuards(PermissionsGuard)
+  @Permissions('notifications:test')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   sendTest(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: CreateTestNotificationDto,

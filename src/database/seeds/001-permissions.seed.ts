@@ -1040,6 +1040,52 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow viewing attendance summaries for direct reports and scoped teams',
   },
   {
+    name: 'manager_self_service:read',
+    displayName: 'Access manager self-service',
+    description: 'Allow access to the manager self-service dashboard and action inbox',
+  },
+  {
+    name: 'manager_team:read',
+    displayName: 'Read authorized team members',
+    description: 'Allow listing employees within the manager data scope',
+  },
+  {
+    name: 'action_items:read-own',
+    displayName: 'Read own action items',
+    description: 'Allow reading the current user\'s action inbox',
+  },
+  {
+    name: 'dashboard:employee',
+    displayName: 'Read employee dashboard',
+    description: 'Allow viewing the employee self-service dashboard',
+  },
+  {
+    name: 'dashboard:manager',
+    displayName: 'Read manager dashboard',
+    description: 'Allow viewing the manager dashboard',
+  },
+  {
+    name: 'dashboard:hr',
+    displayName: 'Read HR dashboard',
+    description: 'Allow viewing the HR operational dashboard',
+  },
+  {
+    name: 'dashboard:management',
+    displayName: 'Read management dashboard',
+    description: 'Allow viewing the executive management dashboard',
+  },
+  {
+    name: 'notifications:test',
+    displayName: 'Send test notifications',
+    description: 'Allow sending test notifications to any company user',
+  },
+  {
+    name: 'notification_preferences:manage-own',
+    displayName: 'Manage own notification preferences',
+    description:
+      "Allow managing the current user's own notification channel preferences",
+  },
+  {
     name: 'attendance_business_trips:read',
     displayName: 'Read attendance business trips',
     description: 'Allow viewing attendance business trips',

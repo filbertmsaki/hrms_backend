@@ -16,6 +16,7 @@ import { AppNotification } from './entities/app-notification.entity';
 import { NotificationStatusEnum } from './enums/notification-status.enum';
 import { NotificationTypeEnum } from './enums/notification-type.enum';
 import { NotificationsGateway } from './notifications.gateway';
+import { NotificationOrchestratorService } from './notification-orchestrator.service';
 
 export type CreateNotificationInput = {
   company_id: number;
@@ -47,77 +48,14 @@ export class NotificationsService {
     @InjectRepository(CompanyUser)
     private readonly companyUserRepository: Repository<CompanyUser>,
     private readonly gateway: NotificationsGateway,
+    private readonly orchestrator: NotificationOrchestratorService,
   ) {}
 
   async createAndPush(input: CreateNotificationInput) {
-    await this.ensureReceiverBelongsToCompany(
-      input.company_id,
-      input.receiver_company_user_id,
-    );
-
-    if (input.dedupe_key?.trim()) {
-      const existing = await this.notificationRepository.findOne({
-        where: {
-          company_id: input.company_id,
-          receiver_company_user_id: input.receiver_company_user_id,
-          dedupe_key: input.dedupe_key.trim(),
-          archived_at: IsNull(),
-        },
-        relations: {
-          sender_company_user: { user: true },
-          receiver_company_user: { user: true },
-        },
-      });
-
-      if (existing) {
-        return this.mapNotification(existing);
-      }
-    }
-
-    const created = await this.notificationRepository.save(
-      this.notificationRepository.create({
-        company_id: input.company_id,
-        sender_company_user_id: input.sender_company_user_id ?? null,
-        receiver_company_user_id: input.receiver_company_user_id,
-        type: (input.type ??
-          NotificationTypeEnum.GENERAL) as NotificationTypeEnum,
-        category: input.category ?? NotificationCategoryEnum.GENERAL,
-        priority: input.priority ?? NotificationPriorityEnum.MEDIUM,
-        title: input.title,
-        message: input.message,
-        related_module: input.related_module ?? null,
-        entity_type: input.entity_type ?? null,
-        entity_id:
-          input.entity_id === undefined || input.entity_id === null
-            ? null
-            : String(input.entity_id),
-        branch_id: input.branch_id ?? null,
-        department_id: input.department_id ?? null,
-        action_url: input.action_url ?? null,
-        metadata: input.metadata ?? null,
-        status: NotificationStatusEnum.UNREAD,
-        seen_at: null,
-        read_at: null,
-        delivery_channel:
-          input.delivery_channel ?? NotificationChannelEnum.IN_APP,
-        delivery_status:
-          input.delivery_status ?? NotificationDeliveryStatusEnum.DELIVERED,
-        dedupe_key: input.dedupe_key?.trim() || null,
-        expires_at: input.expires_at ?? null,
-        archived_at: null,
-      }),
-    );
-
-    const notification = await this.findOneForResponse(created.id);
-    const response = this.mapNotification(notification);
-
-    this.gateway.emitToCompanyUser(input.receiver_company_user_id, response);
-    await this.emitUnreadCount(
-      input.company_id,
-      input.receiver_company_user_id,
-    );
-
-    return response;
+    return this.orchestrator.create({
+      ...input,
+      channels: [input.delivery_channel ?? NotificationChannelEnum.IN_APP],
+    });
   }
 
   async createAndPushMany(inputs: CreateNotificationInput[]) {
@@ -159,6 +97,11 @@ export class NotificationsService {
     if (!query.include_archived) {
       qb.andWhere('notification.archived_at IS NULL');
     }
+
+    qb.andWhere(
+      '(notification.expires_at IS NULL OR notification.expires_at > :now)',
+      { now: new Date() },
+    );
 
     if (query.status) {
       qb.andWhere('notification.status = :status', { status: query.status });
@@ -229,14 +172,22 @@ export class NotificationsService {
   }
 
   async getUnreadCount(companyId: number, receiverCompanyUserId: number) {
-    const count = await this.notificationRepository.count({
-      where: {
-        company_id: companyId,
-        receiver_company_user_id: receiverCompanyUserId,
+    const count = await this.notificationRepository
+      .createQueryBuilder('notification')
+      .where('notification.company_id = :companyId', { companyId })
+      .andWhere(
+        'notification.receiver_company_user_id = :receiverCompanyUserId',
+        { receiverCompanyUserId },
+      )
+      .andWhere('notification.status = :status', {
         status: NotificationStatusEnum.UNREAD,
-        archived_at: IsNull(),
-      },
-    });
+      })
+      .andWhere('notification.archived_at IS NULL')
+      .andWhere(
+        '(notification.expires_at IS NULL OR notification.expires_at > :now)',
+        { now: new Date() },
+      )
+      .getCount();
 
     return { unread_count: count };
   }
@@ -363,22 +314,6 @@ export class NotificationsService {
     this.gateway.emitUnreadCount(receiverCompanyUserId, unread_count);
   }
 
-  private async ensureReceiverBelongsToCompany(
-    companyId: number,
-    receiverCompanyUserId: number,
-  ) {
-    const receiver = await this.companyUserRepository.findOne({
-      where: {
-        id: receiverCompanyUserId,
-        company_id: companyId,
-      },
-    });
-
-    if (!receiver) {
-      throw new NotFoundException('Notification receiver not found');
-    }
-  }
-
   private async findOwnedNotificationOrFail(
     companyId: number,
     receiverCompanyUserId: number,
@@ -402,16 +337,6 @@ export class NotificationsService {
     }
 
     return notification;
-  }
-
-  private async findOneForResponse(id: number): Promise<AppNotification> {
-    return this.notificationRepository.findOneOrFail({
-      where: { id },
-      relations: {
-        sender_company_user: { user: true },
-        receiver_company_user: { user: true },
-      },
-    });
   }
 
   private mapNotification(notification: AppNotification) {

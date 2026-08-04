@@ -7,6 +7,7 @@ jest.mock('digest-fetch', () => ({
 import { EmployeeSelfServiceController } from './employee-self-service.controller';
 import { ProfileChangeRequestsService } from './profile-change-requests.service';
 import { EmployeeSelfServiceService } from './employee-self-service.service';
+import { NotificationPreferencesService } from '../../notifications/notification-preferences.service';
 
 describe('EmployeeSelfServiceController', () => {
   let controller: EmployeeSelfServiceController;
@@ -19,6 +20,10 @@ describe('EmployeeSelfServiceController', () => {
   };
   let profileChangeRequestsService: {
     createProfilePhotoRequest: jest.Mock;
+  };
+  let notificationPreferencesService: {
+    findMine: jest.Mock;
+    setPreference: jest.Mock;
   };
 
   const user: AuthenticatedUser = {
@@ -45,10 +50,15 @@ describe('EmployeeSelfServiceController', () => {
     profileChangeRequestsService = {
       createProfilePhotoRequest: jest.fn(),
     };
+    notificationPreferencesService = {
+      findMine: jest.fn(),
+      setPreference: jest.fn(),
+    };
 
     controller = new EmployeeSelfServiceController(
       employeeSelfServiceService as unknown as EmployeeSelfServiceService,
       profileChangeRequestsService as unknown as ProfileChangeRequestsService,
+      notificationPreferencesService as unknown as NotificationPreferencesService,
     );
   });
 

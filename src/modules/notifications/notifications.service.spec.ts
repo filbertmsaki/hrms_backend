@@ -3,6 +3,7 @@ import { Repository } from 'typeorm';
 import { CompanyUser } from '../companies/entities/company-user.entity';
 import { AppNotification } from './entities/app-notification.entity';
 import { NotificationStatusEnum } from './enums/notification-status.enum';
+import { NotificationOrchestratorService } from './notification-orchestrator.service';
 import { NotificationsGateway } from './notifications.gateway';
 import { NotificationsService } from './notifications.service';
 
@@ -11,6 +12,7 @@ describe('NotificationsService', () => {
   let notificationRepository: Partial<jest.Mocked<Repository<AppNotification>>>;
   let companyUserRepository: Partial<jest.Mocked<Repository<CompanyUser>>>;
   let gateway: jest.Mocked<Partial<NotificationsGateway>>;
+  let orchestrator: { create: jest.Mock };
 
   beforeEach(() => {
     notificationRepository = {
@@ -33,49 +35,20 @@ describe('NotificationsService', () => {
       emitNotificationBulkUpdate: jest.fn(),
     };
 
+    orchestrator = {
+      create: jest.fn(),
+    };
+
     service = new NotificationsService(
       notificationRepository as Repository<AppNotification>,
       companyUserRepository as Repository<CompanyUser>,
       gateway as NotificationsGateway,
+      orchestrator as unknown as NotificationOrchestratorService,
     );
   });
 
-  it('returns an existing notification instead of creating a duplicate when dedupe_key matches', async () => {
-    companyUserRepository.findOne!.mockResolvedValue({
-      id: 8,
-      company_id: 4,
-    } as CompanyUser);
-
-    notificationRepository.findOne!.mockResolvedValue({
-      id: 12,
-      company_id: 4,
-      sender_company_user_id: 3,
-      receiver_company_user_id: 8,
-      type: 'GENERAL',
-      category: 'GENERAL',
-      priority: 'MEDIUM',
-      title: 'Existing',
-      message: 'Existing notification',
-      related_module: 'leave',
-      entity_type: 'LEAVE_REQUEST',
-      entity_id: '99',
-      branch_id: null,
-      department_id: null,
-      action_url: '/leave/99',
-      metadata: null,
-      status: NotificationStatusEnum.UNREAD,
-      seen_at: null,
-      read_at: null,
-      delivery_channel: 'IN_APP',
-      delivery_status: 'DELIVERED',
-      dedupe_key: 'dup-key',
-      expires_at: null,
-      archived_at: null,
-      created_at: new Date(),
-      updated_at: new Date(),
-      sender_company_user: null,
-      receiver_company_user: null,
-    } as unknown as AppNotification);
+  it('delegates createAndPush to the notification orchestrator with a default IN_APP channel', async () => {
+    orchestrator.create.mockResolvedValue({ id: 12 });
 
     const result = await service.createAndPush({
       company_id: 4,
@@ -85,10 +58,15 @@ describe('NotificationsService', () => {
       dedupe_key: 'dup-key',
     });
 
-    expect(notificationRepository.save).not.toHaveBeenCalled();
-    expect(gateway.emitToCompanyUser).not.toHaveBeenCalled();
-    expect(result.id).toBe(12);
-    expect(result.dedupe_key).toBe('dup-key');
+    expect(orchestrator.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        company_id: 4,
+        receiver_company_user_id: 8,
+        dedupe_key: 'dup-key',
+        channels: ['IN_APP'],
+      }),
+    );
+    expect(result).toEqual({ id: 12 });
   });
 
   it('rejects markAsRead when the notification does not belong to the active tenant membership', async () => {
