@@ -124,6 +124,6 @@ import { BranchesModule } from '../branches/branches.module';
     EmployeeImportOutboxDispatcher,
     EmployeeImportCleanupService,
   ],
-  exports: [EmployeesService, TypeOrmModule],
+  exports: [EmployeesService, EmployeeAssignmentService, TypeOrmModule],
 })
 export class EmployeesModule {}

@@ -559,4 +559,99 @@ export class EmployeeAssignmentService {
       message: 'Employee assignment updated successfully',
     };
   }
+
+  /**
+   * Ends all active branch/department/position/reporting-line assignments for an
+   * employee who is exiting, preserving the historical rows (status=ENDED with an
+   * effective_to/end_date), and clears the employee's primary assignment pointers.
+   * Idempotent: re-running against an employee with no active assignments is a no-op.
+   */
+  async endAssignmentsForExit(
+    companyId: number,
+    employeeId: number,
+    effectiveDate: string,
+    actor: AuthenticatedUser,
+    manager: EntityManager,
+  ): Promise<void> {
+    const endDate = effectiveDate;
+
+    await manager
+      .getRepository(EmployeeBranchAssignment)
+      .createQueryBuilder()
+      .update(EmployeeBranchAssignment)
+      .set({
+        effective_to: endDate,
+        status: EmployeeAssignmentHistoryStatusEnum.ENDED,
+        ended_by_company_user_id: actor.companyMembershipId ?? null,
+      })
+      .where('company_id = :companyId', { companyId })
+      .andWhere('employee_id = :employeeId', { employeeId })
+      .andWhere('status = :status', {
+        status: EmployeeAssignmentHistoryStatusEnum.ACTIVE,
+      })
+      .execute();
+
+    await manager
+      .getRepository(EmployeeDepartmentAssignmentHistory)
+      .createQueryBuilder()
+      .update(EmployeeDepartmentAssignmentHistory)
+      .set({
+        effective_to: endDate,
+        status: EmployeeAssignmentHistoryStatusEnum.ENDED,
+        ended_by_company_user_id: actor.companyMembershipId ?? null,
+      })
+      .where('company_id = :companyId', { companyId })
+      .andWhere('employee_id = :employeeId', { employeeId })
+      .andWhere('status = :status', {
+        status: EmployeeAssignmentHistoryStatusEnum.ACTIVE,
+      })
+      .execute();
+
+    await manager
+      .getRepository(EmployeeReportingLine)
+      .createQueryBuilder()
+      .update(EmployeeReportingLine)
+      .set({
+        effective_to: endDate,
+        status: EmployeeAssignmentHistoryStatusEnum.ENDED,
+        ended_by_company_user_id: actor.companyMembershipId ?? null,
+      })
+      .where('company_id = :companyId', { companyId })
+      .andWhere('employee_id = :employeeId', { employeeId })
+      .andWhere('status = :status', {
+        status: EmployeeAssignmentHistoryStatusEnum.ACTIVE,
+      })
+      .execute();
+
+    await manager
+      .getRepository(EmployeePosition)
+      .createQueryBuilder()
+      .update(EmployeePosition)
+      .set({
+        end_date: endDate,
+        is_primary: false,
+        status: EmployeePositionStatusEnum.COMPLETED,
+        ended_by_company_user_id: actor.companyMembershipId ?? null,
+      })
+      .where('company_id = :companyId', { companyId })
+      .andWhere('employee_id = :employeeId', { employeeId })
+      .andWhere('status = :status', {
+        status: EmployeePositionStatusEnum.ACTIVE,
+      })
+      .execute();
+
+    await manager.getRepository(EmployeeDepartment).delete({
+      employee_id: employeeId,
+    });
+
+    await manager.getRepository(Employee).update(
+      { id: employeeId, company_id: companyId },
+      {
+        primary_branch_id: null,
+        primary_department_id: null,
+        primary_position_id: null,
+        reports_to: null,
+      },
+    );
+  }
 }

@@ -1683,6 +1683,63 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow deleting offboarding documents',
   },
   {
+    name: 'offboarding_access:read',
+    displayName: 'Read offboarding access-termination operations',
+    description: 'Allow viewing offboarding access-termination operations',
+  },
+  {
+    name: 'offboarding_access:retry',
+    displayName: 'Retry failed access termination',
+    description: 'Allow retrying a failed offboarding access termination',
+  },
+  {
+    name: 'offboarding_access:emergency-terminate',
+    displayName: 'Immediately terminate employee access',
+    description:
+      'Allow immediately scheduling emergency offboarding access termination',
+  },
+  {
+    name: 'offboarding_requests:finalize',
+    displayName: 'Finalize completed employee offboarding',
+    description:
+      'Allow finalizing an offboarding request after access termination completes',
+  },
+  {
+    name: 'offboarding_assets:verify',
+    displayName: 'Verify returned employee assets',
+    description: 'Allow verifying condition and receipt of returned assets',
+  },
+  {
+    name: 'offboarding_assets:waive',
+    displayName: 'Waive unresolved employee assets',
+    description: 'Allow waiving a missing or unresolved asset return',
+  },
+  {
+    name: 'offboarding_settlements:verify',
+    displayName: 'Verify final-settlement readiness',
+    description: 'Allow verifying offboarding settlement items',
+  },
+  {
+    name: 'offboarding_settlements:waive',
+    displayName: 'Waive an offboarding settlement item',
+    description: 'Allow waiving an offboarding settlement item',
+  },
+  {
+    name: 'offboarding_approvals:delegate',
+    displayName: 'Delegate assigned offboarding approval',
+    description: 'Allow delegating an approval assigned to the current actor',
+  },
+  {
+    name: 'offboarding_approvals:delegate-any',
+    displayName: 'Delegate any offboarding approval',
+    description: 'Allow HR to delegate any pending offboarding approval',
+  },
+  {
+    name: 'offboarding_letters:read',
+    displayName: 'Read generated exit letters',
+    description: 'Allow reading generated relieving and service letters',
+  },
+  {
     name: 'self_service_requests:approve',
     displayName: 'Approve self-service requests',
     description: 'Allow reviewing employee self-service approval requests',

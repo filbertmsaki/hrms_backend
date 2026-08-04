@@ -51,6 +51,18 @@ export class OffboardingClearance {
   @Column({ type: 'timestamp', nullable: true })
   cleared_at: Date | null;
 
+  @Column({ type: 'timestamptz', nullable: true })
+  last_reminder_at: Date | null;
+
+  @Column({ type: 'int', default: 0 })
+  reminder_count: number;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  last_escalated_at: Date | null;
+
+  @Column({ type: 'int', default: 0 })
+  escalation_count: number;
+
   @CreateDateColumn()
   created_at: Date;
 

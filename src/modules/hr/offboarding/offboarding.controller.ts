@@ -15,7 +15,10 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
-import { Permissions } from '../../../common/decorators/permissions.decorator';
+import {
+  Permissions,
+  PermissionsAny,
+} from '../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
@@ -52,6 +55,8 @@ import { UpdateOffboardingWorkflowDto } from './dtos/update-offboarding-workflow
 import { UpdateOffboardingDocumentDto } from './dtos/update-offboarding-document.dto';
 import { UpsertOffboardingExitInterviewDto } from './dtos/upsert-offboarding-exit-interview.dto';
 import { UploadOffboardingDocumentDto } from './dtos/upload-offboarding-document.dto';
+import { EmergencyAccessTerminationDto } from './dtos/emergency-access-termination.dto';
+import { DelegateOffboardingApprovalDto } from './dtos/delegate-offboarding-approval.dto';
 import { OffboardingService } from './offboarding.service';
 import { createDownloadStream } from '../../files/file-download.util';
 
@@ -287,6 +292,70 @@ export class OffboardingController {
     );
   }
 
+  @Get('requests/:id/access-operations')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_access:read')
+  @ApiOperation({ summary: 'List access-termination operations' })
+  listAccessOperations(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.offboardingService.listAccessOperations(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
+  }
+
+  @Post('requests/:id/access-termination/retry')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_access:retry')
+  @ApiOperation({ summary: 'Retry a failed access termination' })
+  retryAccessTermination(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.offboardingService.retryAccessTermination(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
+  }
+
+  @Post('requests/:id/access-termination/emergency')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_access:emergency-terminate')
+  @ApiOperation({ summary: 'Immediately terminate employee access' })
+  emergencyTerminateAccess(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: EmergencyAccessTerminationDto,
+  ) {
+    return this.offboardingService.emergencyTerminateAccess(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+      this.getRequestContext(req),
+    );
+  }
+
+  @Post('requests/:id/finalize')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_requests:finalize')
+  @ApiOperation({ summary: 'Finalize employee offboarding' })
+  finalizeOffboarding(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.offboardingService.finalizeOffboarding(
+      req.user.companyId!,
+      id,
+      req.user,
+      this.getRequestContext(req),
+    );
+  }
+
   @Get('requests/:id')
   @UseGuards(PermissionsGuard)
   @Permissions('offboarding_requests:read')
@@ -390,6 +459,21 @@ export class OffboardingController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.offboardingService.listDocuments(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
+  }
+
+  @Get('requests/:id/letters')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_letters:read')
+  @ApiOperation({ summary: 'List generated relieving and service letters' })
+  listLetters(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.offboardingService.listLetters(
       req.user.companyId!,
       id,
       req.user,
@@ -770,6 +854,26 @@ export class OffboardingController {
       req.user.companyId!,
       id,
       { approve: false, comments: dto.comments },
+      req.user,
+      this.getRequestContext(req),
+    );
+  }
+
+  @Post('requests/:id/approvals/:approvalId/delegate')
+  @UseGuards(PermissionsGuard)
+  @PermissionsAny('offboarding_approvals:delegate', 'offboarding_approvals:delegate-any')
+  @ApiOperation({ summary: 'Delegate an offboarding approval' })
+  delegateApproval(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('approvalId', ParseIntPipe) approvalId: number,
+    @Body() dto: DelegateOffboardingApprovalDto,
+  ) {
+    return this.offboardingService.delegateApproval(
+      req.user.companyId!,
+      id,
+      approvalId,
+      dto,
       req.user,
       this.getRequestContext(req),
     );

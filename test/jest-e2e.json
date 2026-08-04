@@ -11,7 +11,7 @@
     "^.+\\.(t|j)s$": "ts-jest"
   },
   "transformIgnorePatterns": [
-    "node_modules/(?!(otplib|@otplib|@scure)/)"
+    "node_modules/(?!(otplib|@otplib|@scure|digest-fetch|md5)/)"
   ],
   "moduleNameMapper": {
     "^src/(.*)$": "<rootDir>/src/$1"

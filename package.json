@@ -117,6 +117,9 @@
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },
+    "transformIgnorePatterns": [
+      "node_modules/(?!(digest-fetch|md5)/)"
+    ],
     "collectCoverageFrom": [
       "**/*.(t|j)s"
     ],
