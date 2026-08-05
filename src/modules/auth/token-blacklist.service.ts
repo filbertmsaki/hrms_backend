@@ -48,7 +48,7 @@ export class TokenBlacklistService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    this.logger.log(`Attempting Redis connection: ${redisUrl}`);
+    this.logger.log('Connecting to Redis for token revocation cache.');
 
     this.client = createClient({ url: redisUrl });
 

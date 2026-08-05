@@ -165,9 +165,8 @@ export class AttendanceMobilePunchesService {
       ) ?? 300;
     const punchTime = new Date();
     if (clientCapturedAt) {
-      const clockSkewSeconds = Math.abs(
-        punchTime.getTime() - clientCapturedAt.getTime(),
-      ) / 1000;
+      const clockSkewSeconds =
+        Math.abs(punchTime.getTime() - clientCapturedAt.getTime()) / 1000;
 
       if (clockSkewSeconds > maximumClockSkewSeconds) {
         throw new BadRequestException({

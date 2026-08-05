@@ -80,12 +80,16 @@ export class OffboardingCronService {
    * window, so retried or overlapping cron runs never double-notify.
    */
   private async claimReminder<
-    T extends { id: number; last_reminder_at: Date | null; reminder_count: number },
+    T extends {
+      id: number;
+      last_reminder_at: Date | null;
+      reminder_count: number;
+    },
   >(repository: Repository<T>, id: number, cutoff: Date): Promise<boolean> {
     const result = await repository
       .createQueryBuilder()
       .update()
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       .set({
         last_reminder_at: new Date(),
         reminder_count: () => '"reminder_count" + 1',
@@ -140,7 +144,13 @@ export class OffboardingCronService {
         continue;
       }
 
-      if (!(await this.claimReminder(this.taskRepository, task.id, reminderCutoff))) {
+      if (
+        !(await this.claimReminder(
+          this.taskRepository,
+          task.id,
+          reminderCutoff,
+        ))
+      ) {
         continue;
       }
       notified += 1;

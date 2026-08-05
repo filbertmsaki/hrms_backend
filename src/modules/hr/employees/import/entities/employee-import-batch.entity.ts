@@ -80,7 +80,12 @@ export class EmployeeImportBatch {
   @Column({ name: 'source_file_path', type: 'text', nullable: true })
   sourceFilePath: string | null;
 
-  @Column({ name: 'source_mime_type', type: 'varchar', length: 150, nullable: true })
+  @Column({
+    name: 'source_mime_type',
+    type: 'varchar',
+    length: 150,
+    nullable: true,
+  })
   sourceMimeType: string | null;
 
   @Column({ name: 'result_file_path', type: 'text', nullable: true })

@@ -78,9 +78,24 @@ export class ManagementDashboardService {
             },
           })
         : 0,
-      this.countByDateRange(employeeIds, 'hire_date', period.dateFrom, period.dateTo),
-      this.countByDateRange(employeeIds, 'exit_date', period.dateFrom, period.dateTo),
-      this.getAttendanceDiscipline(companyId, employeeIds, period.dateFrom, period.dateTo),
+      this.countByDateRange(
+        employeeIds,
+        'hire_date',
+        period.dateFrom,
+        period.dateTo,
+      ),
+      this.countByDateRange(
+        employeeIds,
+        'exit_date',
+        period.dateFrom,
+        period.dateTo,
+      ),
+      this.getAttendanceDiscipline(
+        companyId,
+        employeeIds,
+        period.dateFrom,
+        period.dateTo,
+      ),
       this.countEmployeesOnLeave(companyId, employeeIds, period.today),
       this.countOnboardingActive(companyId, employeeIds),
       this.countOnboardingOverdue(companyId, employeeIds, period.today),
@@ -138,8 +153,7 @@ export class ManagementDashboardService {
         {
           code: 'FIELD_PRODUCTIVITY',
           available: false,
-          reason:
-            'Daily activity and field-visit modules are not implemented.',
+          reason: 'Daily activity and field-visit modules are not implemented.',
         },
       ],
     };

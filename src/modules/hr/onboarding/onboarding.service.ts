@@ -332,7 +332,9 @@ export class OnboardingService {
     }
   }
 
-  private validateWorkflowStepRules(step: OnboardingWorkflowStepInputDto): void {
+  private validateWorkflowStepRules(
+    step: OnboardingWorkflowStepInputDto,
+  ): void {
     if (!step.assigned_role_id && !step.assigned_user_id) {
       throw new BadRequestException(
         `Step "${step.name}" must have either assigned_role_id or assigned_user_id`,
@@ -1313,7 +1315,8 @@ export class OnboardingService {
       workflow_step_id: entity.workflow_step_id,
       approval_level: entity.approval_level,
       approver_company_user_id: entity.approver_company_user_id,
-      original_approver_company_user_id: entity.original_approver_company_user_id,
+      original_approver_company_user_id:
+        entity.original_approver_company_user_id,
       delegated_from_company_user_id: entity.delegated_from_company_user_id,
       status: entity.status,
       comments: entity.comments,
@@ -1401,8 +1404,7 @@ export class OnboardingService {
       readiness_checked_at: entity.readiness_checked_at,
       employee_acknowledged_at: entity.employee_acknowledged_at,
       employee_acknowledged_by_user_id: entity.employee_acknowledged_by_user_id,
-      employee_acknowledgement_version:
-        entity.employee_acknowledgement_version,
+      employee_acknowledgement_version: entity.employee_acknowledgement_version,
       employee_acknowledgement_ip: entity.employee_acknowledgement_ip,
       activation_requested_at: entity.activation_requested_at,
       activation_started_at: entity.activation_started_at,
@@ -1613,18 +1615,25 @@ export class OnboardingService {
       const matchedDocument = matchingDocuments[0] ?? null;
       const shouldBeCompleted = Boolean(matchedDocument);
 
-      if (shouldBeCompleted && task.status !== OnboardingTaskStatusEnum.COMPLETED) {
+      if (
+        shouldBeCompleted &&
+        task.status !== OnboardingTaskStatusEnum.COMPLETED
+      ) {
         task.status = OnboardingTaskStatusEnum.COMPLETED;
         task.started_at = task.started_at ?? new Date();
         task.completed_at = new Date();
         task.completion_notes =
-          task.completion_notes ?? 'Completed automatically from onboarding documents';
+          task.completion_notes ??
+          'Completed automatically from onboarding documents';
         task.evidence_document_id = matchedDocument?.id ?? null;
         await taskRepository.save(task);
         continue;
       }
 
-      if (!shouldBeCompleted && task.status === OnboardingTaskStatusEnum.COMPLETED) {
+      if (
+        !shouldBeCompleted &&
+        task.status === OnboardingTaskStatusEnum.COMPLETED
+      ) {
         task.status = OnboardingTaskStatusEnum.PENDING;
         task.completed_at = null;
         task.completed_by_company_user_id = null;
@@ -1665,7 +1674,10 @@ export class OnboardingService {
           task_no: taskNo,
           title: step.name,
           description: step.description,
-          task_type: this.resolveWorkflowTaskType(step.step_type, step.task_type),
+          task_type: this.resolveWorkflowTaskType(
+            step.step_type,
+            step.task_type,
+          ),
           status: OnboardingTaskStatusEnum.PENDING,
           is_required: step.is_required,
           assigned_department_id: step.assigned_department_id ?? null,
@@ -2164,7 +2176,8 @@ export class OnboardingService {
         );
       }
       if (dto.requires_verified_document !== undefined) {
-        existingStep.requires_verified_document = dto.requires_verified_document;
+        existingStep.requires_verified_document =
+          dto.requires_verified_document;
       }
       if (dto.completion_evidence_required !== undefined) {
         existingStep.completion_evidence_required =
@@ -2316,8 +2329,10 @@ export class OnboardingService {
         select: ['version'],
       });
       const nextVersion =
-        Math.max(source.version, ...familyVersions.map((item) => item.version)) +
-        1;
+        Math.max(
+          source.version,
+          ...familyVersions.map((item) => item.version),
+        ) + 1;
 
       if (dto.is_default) {
         await workflowRepository.update(
@@ -3119,7 +3134,10 @@ export class OnboardingService {
         where: { id: taskId, onboarding_request_id: onboardingRequestId },
       });
 
-      if (currentTask.completion_evidence_required && !dto.evidence_document_id) {
+      if (
+        currentTask.completion_evidence_required &&
+        !dto.evidence_document_id
+      ) {
         throw new BadRequestException(
           'evidence_document_id is required to complete this task',
         );
@@ -3141,14 +3159,18 @@ export class OnboardingService {
 
         if (
           currentTask.required_document_type_code &&
-          evidenceDocument.document_type !== currentTask.required_document_type_code
+          evidenceDocument.document_type !==
+            currentTask.required_document_type_code
         ) {
           throw new BadRequestException(
             'Evidence document type does not satisfy this task requirement',
           );
         }
 
-        if (currentTask.requires_verified_document && !evidenceDocument.is_verified) {
+        if (
+          currentTask.requires_verified_document &&
+          !evidenceDocument.is_verified
+        ) {
           throw new BadRequestException(
             'A verified onboarding document is required to complete this task',
           );
@@ -3385,7 +3407,9 @@ export class OnboardingService {
       });
 
       if (approval.status !== OnboardingApprovalStatusEnum.PENDING) {
-        throw new BadRequestException('Only pending approvals can be delegated');
+        throw new BadRequestException(
+          'Only pending approvals can be delegated',
+        );
       }
 
       if (
@@ -3703,7 +3727,11 @@ export class OnboardingService {
     const saved = await this.dataSource.transaction(async (manager) => {
       const repository = this.getDocumentRepository(manager);
       const persisted = await repository.save(document);
-      await this.synchronizeDocumentTasks(companyId, onboardingRequestId, manager);
+      await this.synchronizeDocumentTasks(
+        companyId,
+        onboardingRequestId,
+        manager,
+      );
 
       const currentRequest = await this.getOnboardingRequestRepository(
         manager,
@@ -3789,7 +3817,11 @@ export class OnboardingService {
     const saved = await this.dataSource.transaction(async (manager) => {
       const repository = this.getDocumentRepository(manager);
       const persisted = await repository.save(document);
-      await this.synchronizeDocumentTasks(companyId, onboardingRequestId, manager);
+      await this.synchronizeDocumentTasks(
+        companyId,
+        onboardingRequestId,
+        manager,
+      );
 
       const currentRequest = await this.getOnboardingRequestRepository(
         manager,
@@ -3840,7 +3872,11 @@ export class OnboardingService {
     const filePath = document.file_path;
     await this.dataSource.transaction(async (manager) => {
       await this.getDocumentRepository(manager).remove(document);
-      await this.synchronizeDocumentTasks(companyId, onboardingRequestId, manager);
+      await this.synchronizeDocumentTasks(
+        companyId,
+        onboardingRequestId,
+        manager,
+      );
 
       const currentRequest = await this.getOnboardingRequestRepository(
         manager,

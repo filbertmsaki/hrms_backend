@@ -437,7 +437,10 @@ export class AttendanceProcessingService {
     assign('isValid', resolution.isValid);
     assign('processingStatus', resolution.processingStatus);
     assign('processingReason', resolution.reason);
-    assign('payloadHash', rawLog.payloadHash ?? createAttendanceHash(rawLog.rawPayload));
+    assign(
+      'payloadHash',
+      rawLog.payloadHash ?? createAttendanceHash(rawLog.rawPayload),
+    );
     assign('receivedAt', rawLog.receivedAt ?? rawLog.createdAt);
 
     if (!changed) {

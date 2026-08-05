@@ -36,7 +36,10 @@ export class OffboardingNoticeService {
     });
 
     const matched = policies.find((policy) => {
-      if (policy.employment_type && policy.employment_type !== employee.employment_type) {
+      if (
+        policy.employment_type &&
+        policy.employment_type !== employee.employment_type
+      ) {
         return false;
       }
 
@@ -96,7 +99,10 @@ export class OffboardingNoticeService {
       };
     }
 
-    const servedDays = this.daysBetween(input.noticeDate, input.lastWorkingDate);
+    const servedDays = this.daysBetween(
+      input.noticeDate,
+      input.lastWorkingDate,
+    );
     if (servedDays < 0) {
       throw new BadRequestException(
         'notice_date cannot be after last_working_date',
@@ -106,9 +112,7 @@ export class OffboardingNoticeService {
     return {
       notice_period_days: noticeDays,
       served_days: servedDays,
-      shortfall_days: input.waived
-        ? 0
-        : Math.max(0, noticeDays - servedDays),
+      shortfall_days: input.waived ? 0 : Math.max(0, noticeDays - servedDays),
       excess_days: Math.max(0, servedDays - noticeDays),
     };
   }

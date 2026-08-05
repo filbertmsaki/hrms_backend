@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddOffboardingReminderDedup1791900000000
-  implements MigrationInterface
-{
+export class AddOffboardingReminderDedup1791900000000 implements MigrationInterface {
   name = 'AddOffboardingReminderDedup1791900000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

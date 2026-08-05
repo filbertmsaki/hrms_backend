@@ -87,9 +87,9 @@ describe('ReportExecutionService', () => {
     it('rejects when the execution does not exist', async () => {
       executionRepository.findOne.mockResolvedValue(null);
 
-      await expect(
-        service.retryExecution(4, 1, 9),
-      ).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.retryExecution(4, 1, 9)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
     });
 
     it('rejects retrying an execution that is not FAILED', async () => {
@@ -100,9 +100,9 @@ describe('ReportExecutionService', () => {
         maxRetryAttempts: 3,
       });
 
-      await expect(
-        service.retryExecution(4, 1, 9),
-      ).rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.retryExecution(4, 1, 9)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
     });
 
     it('rejects retrying once retry attempts are exhausted', async () => {
@@ -113,9 +113,9 @@ describe('ReportExecutionService', () => {
         maxRetryAttempts: 3,
       });
 
-      await expect(
-        service.retryExecution(4, 1, 9),
-      ).rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.retryExecution(4, 1, 9)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
     });
 
     it('resets a failed execution back to PENDING and increments retryCount', async () => {
@@ -145,9 +145,9 @@ describe('ReportExecutionService', () => {
         status: ReportExecutionStatusEnum.GENERATED,
       });
 
-      await expect(
-        service.downloadExecutionFile(4, 1),
-      ).rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.downloadExecutionFile(4, 1)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
     });
 
     it('returns the file buffer for a GENERATED execution', async () => {

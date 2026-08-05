@@ -39,9 +39,7 @@ type RealtimeEnvelope = {
       origin: string | undefined,
       callback: (err: Error | null, allow?: boolean) => void,
     ) => {
-      const allowed = (
-        process.env.NOTIFICATION_WEBSOCKET_ALLOWED_ORIGINS ?? ''
-      )
+      const allowed = (process.env.NOTIFICATION_WEBSOCKET_ALLOWED_ORIGINS ?? '')
         .split(',')
         .map((value) => value.trim())
         .filter(Boolean);

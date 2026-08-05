@@ -129,7 +129,9 @@ export class ReportExecutionWorkerService {
       }
 
       const reportDefinition = await this.reportDefinitionRepository.findOne({
-        where: { id: execution.reportDefinitionId ?? template.reportDefinitionId },
+        where: {
+          id: execution.reportDefinitionId ?? template.reportDefinitionId,
+        },
       });
 
       if (!reportDefinition) {
@@ -151,7 +153,8 @@ export class ReportExecutionWorkerService {
         companyId: execution.companyId,
         outputFormat,
         filenamePattern:
-          template.filenamePattern ?? `${reportDefinition.reportCode}-{{reportDate}}`,
+          template.filenamePattern ??
+          `${reportDefinition.reportCode}-{{reportDate}}`,
         reportFilters: execution.appliedFilters ?? null,
         dateFrom: execution.reportDateFrom,
         dateTo: execution.reportDateTo,
@@ -162,10 +165,7 @@ export class ReportExecutionWorkerService {
         fileName: result.filename,
         fileSize: result.buffer.byteLength,
         mimeType: result.mimeType,
-        directorySegments: [
-          'scheduled-reports',
-          String(execution.companyId),
-        ],
+        directorySegments: ['scheduled-reports', String(execution.companyId)],
       });
 
       await this.executionAttemptRepository.save(
@@ -194,7 +194,12 @@ export class ReportExecutionWorkerService {
       execution.technicalDetails = null;
       await this.executionRepository.save(execution);
 
-      await this.deliverByEmail(execution, template, result.buffer, result.mimeType);
+      await this.deliverByEmail(
+        execution,
+        template,
+        result.buffer,
+        result.mimeType,
+      );
     } catch (error) {
       this.logger.error(
         `Report execution ${executionId} failed: ${(error as Error).message}`,

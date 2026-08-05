@@ -110,10 +110,12 @@ describe('AttendanceProcessingCronService', () => {
       processPendingJobs: jest.fn().mockResolvedValue(undefined),
     };
     advisoryLockService = {
-      runWithLock: jest.fn(async (_key: string, callback: () => Promise<unknown>) => ({
-        acquired: true,
-        result: await callback(),
-      })),
+      runWithLock: jest.fn(
+        async (_key: string, callback: () => Promise<unknown>) => ({
+          acquired: true,
+          result: await callback(),
+        }),
+      ),
     };
 
     service = new AttendanceProcessingCronService(
@@ -185,9 +187,9 @@ describe('AttendanceProcessingCronService', () => {
       1,
       '2026-06-22',
     );
-    expect(eventIngestionService.processPendingMobilePunches).toHaveBeenCalledWith(
-      200,
-    );
+    expect(
+      eventIngestionService.processPendingMobilePunches,
+    ).toHaveBeenCalledWith(200);
     expect(processingService.processRange).toHaveBeenCalledTimes(1);
     expect(processingService.processRange).toHaveBeenCalledWith(1, {
       start_date: '2026-06-22',
@@ -226,6 +228,8 @@ describe('AttendanceProcessingCronService', () => {
     await service.runIncrementalProcessing();
 
     expect(processingService.processIncrementalDate).not.toHaveBeenCalled();
-    expect(eventIngestionService.processPendingMobilePunches).not.toHaveBeenCalled();
+    expect(
+      eventIngestionService.processPendingMobilePunches,
+    ).not.toHaveBeenCalled();
   });
 });

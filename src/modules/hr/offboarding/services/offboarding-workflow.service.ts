@@ -603,7 +603,10 @@ export class OffboardingWorkflowService {
       throw new BadRequestException('Only a pending approval can be delegated');
     }
 
-    if (!canDelegateAny && approval.approver_company_user_id !== actorCompanyUserId) {
+    if (
+      !canDelegateAny &&
+      approval.approver_company_user_id !== actorCompanyUserId
+    ) {
       throw new ForbiddenException(
         'Only the assigned approver may delegate this approval',
       );

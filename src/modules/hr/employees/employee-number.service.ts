@@ -35,9 +35,10 @@ export class EmployeeNumberService {
     sequence: Pick<EmployeeNumberSequence, 'prefix' | 'padding'>,
     number: number,
   ): string {
-    return [sequence.prefix, String(number).padStart(sequence.padding, '0')].join(
-      '/',
-    );
+    return [
+      sequence.prefix,
+      String(number).padStart(sequence.padding, '0'),
+    ].join('/');
   }
 
   async getConfiguration(companyId: number): Promise<EmployeeNumberSequence> {
@@ -100,7 +101,8 @@ export class EmployeeNumberService {
       configuration.prefix = normalizedPrefix;
       configuration.padding = dto.padding ?? configuration.padding;
       configuration.next_number = dto.next_number ?? configuration.next_number;
-      configuration.updated_by_company_user_id = actor.companyMembershipId ?? null;
+      configuration.updated_by_company_user_id =
+        actor.companyMembershipId ?? null;
 
       const saved = await repository.save(configuration);
 
@@ -143,7 +145,10 @@ export class EmployeeNumberService {
       }
 
       const allocatedNumber = sequence.next_number;
-      const employeeNumber = this.formatEmployeeNumber(sequence, allocatedNumber);
+      const employeeNumber = this.formatEmployeeNumber(
+        sequence,
+        allocatedNumber,
+      );
       sequence.next_number = allocatedNumber + 1;
 
       await repository.save(sequence);
@@ -166,7 +171,9 @@ export class EmployeeNumberService {
         .getOne();
 
       if (!sequence) {
-        throw new BadRequestException('Employee number configuration is missing');
+        throw new BadRequestException(
+          'Employee number configuration is missing',
+        );
       }
 
       const pattern = new RegExp(`^${sequence.prefix}/(\\d+)$`);
@@ -188,7 +195,9 @@ export class EmployeeNumberService {
       });
 
       if (existing) {
-        throw new ConflictException(`Employee number "${normalized}" already exists`);
+        throw new ConflictException(
+          `Employee number "${normalized}" already exists`,
+        );
       }
 
       if (numericValue >= sequence.next_number) {

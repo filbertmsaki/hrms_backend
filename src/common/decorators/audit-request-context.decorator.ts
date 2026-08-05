@@ -1,7 +1,4 @@
-import {
-  ExecutionContext,
-  createParamDecorator,
-} from '@nestjs/common';
+import { ExecutionContext, createParamDecorator } from '@nestjs/common';
 import type { Request } from 'express';
 import { AuditRequestContext } from '../interfaces/audit-request-context.interface';
 

@@ -30,7 +30,12 @@ import { EmployeeAttendanceReadinessService } from '../launch-readiness/employee
 import { FilesService } from '../../files/files.service';
 import { PositionAvailabilityService } from '../shared/position-availability.service';
 import { DefaultAvatarsService } from '../default-avatars/default-avatars.service';
+import { SecurityEventsService } from '../../security/security-events.service';
+import { EmployeeNumberService } from './employee-number.service';
+import { EmployeeAssignmentService } from './employee-assignment.service';
+import { EmployeeLifecycleService } from './employee-lifecycle.service';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import { AuditRequestContext } from '../../../common/interfaces/audit-request-context.interface';
 
 type MockRepo = Record<string, jest.Mock>;
 
@@ -51,6 +56,12 @@ describe('EmployeesService', () => {
     savePrivateBase64File: jest.Mock;
     readManagedFile: jest.Mock;
   };
+  let securityEventsService: { log: jest.Mock };
+  let employeeNumberService: {
+    allocateNext: jest.Mock;
+    reserveImportedNumber: jest.Mock;
+  };
+  let employeeAssignmentService: { recordInitialAssignments: jest.Mock };
 
   const actor: AuthenticatedUser = {
     id: 9,
@@ -75,6 +86,16 @@ describe('EmployeesService', () => {
     filesService = {
       savePrivateBase64File: jest.fn(),
       readManagedFile: jest.fn(),
+    };
+    securityEventsService = {
+      log: jest.fn(),
+    };
+    employeeNumberService = {
+      allocateNext: jest.fn(),
+      reserveImportedNumber: jest.fn(),
+    };
+    employeeAssignmentService = {
+      recordInitialAssignments: jest.fn(),
     };
 
     service = new EmployeesService(
@@ -105,6 +126,10 @@ describe('EmployeesService', () => {
       {} as EmployeeAttendanceReadinessService,
       filesService as unknown as FilesService,
       {} as DefaultAvatarsService,
+      securityEventsService as unknown as SecurityEventsService,
+      employeeNumberService as unknown as EmployeeNumberService,
+      employeeAssignmentService as unknown as EmployeeAssignmentService,
+      {} as EmployeeLifecycleService,
     );
   });
 
@@ -133,33 +158,26 @@ describe('EmployeesService', () => {
           };
         },
         actor: AuthenticatedUser,
+        context: AuditRequestContext,
         manager: { getRepository: jest.Mock },
       ) => Promise<{ employeeId: number; onboardingRequestId: number | null }>;
-      generateNextEmployeeNo: jest.Mock<
-        Promise<string>,
-        [number, { getRepository: jest.Mock }]
-      >;
-      assertUniqueEmployeeNumber: jest.Mock<
-        Promise<void>,
-        [number, string, number | undefined, { getRepository: jest.Mock }]
-      >;
       persistEmployee: jest.Mock;
       initializeCurrentYearLeaveBalances: jest.Mock<
         Promise<void>,
         [number, object, { getRepository: jest.Mock }]
       >;
     };
+    const context: AuditRequestContext = {
+      ipAddress: null,
+      userAgent: null,
+      requestId: null,
+    };
 
     employeeRepository.findOne.mockResolvedValue(null);
-    serviceInternals.generateNextEmployeeNo = jest
-      .fn<Promise<string>, [number, { getRepository: jest.Mock }]>()
-      .mockResolvedValue('000123');
-    serviceInternals.assertUniqueEmployeeNumber = jest
-      .fn<
-        Promise<void>,
-        [number, string, number | undefined, { getRepository: jest.Mock }]
-      >()
-      .mockResolvedValue(undefined);
+    employeeNumberService.allocateNext.mockResolvedValue('000123');
+    employeeAssignmentService.recordInitialAssignments.mockResolvedValue(
+      undefined,
+    );
     serviceInternals.persistEmployee = jest
       .fn()
       .mockResolvedValue(persistedEmployee);
@@ -180,19 +198,11 @@ describe('EmployeesService', () => {
         },
       },
       actor,
+      context,
       manager,
     );
 
-    expect(serviceInternals.generateNextEmployeeNo).toHaveBeenCalledWith(
-      10,
-      manager,
-    );
-    expect(serviceInternals.assertUniqueEmployeeNumber).toHaveBeenCalledWith(
-      10,
-      '000123',
-      undefined,
-      manager,
-    );
+    expect(employeeNumberService.allocateNext).toHaveBeenCalledWith(10);
     expect(employeeRepository.create).toHaveBeenCalledWith(
       expect.objectContaining({
         company_user_id: 71,

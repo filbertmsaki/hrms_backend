@@ -304,7 +304,10 @@ export class DepartmentsService {
     const accessibleBranchIds =
       await this.hrAccessService.getAccessibleBranchIds(actor);
 
-    if (this.hrAccessService.hasDepartmentScope(actor) && !this.hrAccessService.hasCompanyScope(actor)) {
+    if (
+      this.hrAccessService.hasDepartmentScope(actor) &&
+      !this.hrAccessService.hasCompanyScope(actor)
+    ) {
       if (!accessibleDepartmentIds?.length) {
         return {
           data: [],
@@ -315,7 +318,10 @@ export class DepartmentsService {
       qb.andWhere('department.id IN (:...departmentIds)', {
         departmentIds: accessibleDepartmentIds,
       });
-    } else if (accessibleBranchIds?.length === 0 && !this.hrAccessService.hasCompanyScope(actor)) {
+    } else if (
+      accessibleBranchIds?.length === 0 &&
+      !this.hrAccessService.hasCompanyScope(actor)
+    ) {
       return {
         data: [],
         meta: buildPaginationMeta(0, 0, limit, page),

@@ -7,7 +7,10 @@ import {
 } from 'typeorm';
 
 @Entity('leave_number_sequences')
-@Unique('UQ_leave_number_sequence_company_year', ['company_id', 'sequence_year'])
+@Unique('UQ_leave_number_sequence_company_year', [
+  'company_id',
+  'sequence_year',
+])
 export class LeaveNumberSequence {
   @PrimaryGeneratedColumn()
   id: number;

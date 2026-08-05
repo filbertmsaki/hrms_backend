@@ -1,3 +1,5 @@
+process.env.DB_NAME = 'hrms_test_db';
+
 let currentUser = {
   id: 7,
   email: 'admin@example.com',

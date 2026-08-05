@@ -24,7 +24,8 @@ export class DashboardDateService {
       this.configService.get<number>('DASHBOARD_DEFAULT_PERIOD_DAYS') ?? 30;
 
     const dateTo = query.date_to ?? today;
-    const dateFrom = query.date_from ?? this.addDays(dateTo, -(defaultDays - 1));
+    const dateFrom =
+      query.date_from ?? this.addDays(dateTo, -(defaultDays - 1));
 
     const maximumDays =
       this.configService.get<number>('DASHBOARD_MAX_DATE_RANGE_DAYS') ?? 366;

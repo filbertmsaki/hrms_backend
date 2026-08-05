@@ -8,7 +8,9 @@ import { CostCentersService } from './cost-centers.service';
 import { CostCenter } from './entities/cost-center.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([CostCenter, Branch, Department, Employee])],
+  imports: [
+    TypeOrmModule.forFeature([CostCenter, Branch, Department, Employee]),
+  ],
   controllers: [CostCentersController],
   providers: [CostCentersService],
   exports: [CostCentersService, TypeOrmModule],

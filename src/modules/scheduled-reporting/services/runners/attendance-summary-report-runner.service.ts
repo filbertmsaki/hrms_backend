@@ -27,9 +27,7 @@ export class AttendanceSummaryReportRunner implements ReportRunner {
     private readonly attendanceDailySummaryRepository: Repository<AttendanceDailySummary>,
   ) {}
 
-  async generate(
-    context: ReportRunnerContext,
-  ): Promise<ReportRunnerResult> {
+  async generate(context: ReportRunnerContext): Promise<ReportRunnerResult> {
     const dateFrom = context.dateFrom ?? context.dateTo;
     const dateTo = context.dateTo ?? context.dateFrom;
 
@@ -62,11 +60,7 @@ export class AttendanceSummaryReportRunner implements ReportRunner {
     };
   }
 
-  private async fetchRows(
-    companyId: number,
-    dateFrom: string,
-    dateTo: string,
-  ) {
+  private async fetchRows(companyId: number, dateFrom: string, dateTo: string) {
     const rows = await this.attendanceDailySummaryRepository
       .createQueryBuilder('summary')
       .innerJoin('summary.employee', 'employee')

@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddOffboardingSettlementAndAssetReadiness1791800000000
-  implements MigrationInterface
-{
+export class AddOffboardingSettlementAndAssetReadiness1791800000000 implements MigrationInterface {
   name = 'AddOffboardingSettlementAndAssetReadiness1791800000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

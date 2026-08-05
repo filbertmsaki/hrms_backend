@@ -46,7 +46,11 @@ export class PermissionsController {
     @CurrentAuditContext() context: AuditRequestContext,
     @Body() createPermissionDto: CreatePermissionDto,
   ) {
-    return this.permissionsService.create(createPermissionDto, req.user, context);
+    return this.permissionsService.create(
+      createPermissionDto,
+      req.user,
+      context,
+    );
   }
 
   @Get()

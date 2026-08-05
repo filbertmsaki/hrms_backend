@@ -68,9 +68,7 @@ import { IdentificationTypeEnum } from '../enums/identification-type.enum';
 import { ContactTypeEnum } from '../enums/contact-type.enum';
 import { HikvisionImportSyncService } from '../../../hikvision/hikvision-import-sync.service';
 import { BranchesService } from '../../branches/branches.service';
-import {
-  EmployeeImportJobData,
-} from './employee-import-job.constants';
+import { EmployeeImportJobData } from './employee-import-job.constants';
 
 type UploadedExcelFile = {
   originalname: string;
@@ -717,9 +715,7 @@ export class EmployeeImportService {
         ? persistedPreview.batch
         : (persistedPreview as unknown as EmployeeImportBatch);
     const previewToken =
-      'previewToken' in persistedPreview
-        ? persistedPreview.previewToken
-        : null;
+      'previewToken' in persistedPreview ? persistedPreview.previewToken : null;
     const summary = this.buildPreviewSummary(rows);
 
     return {
@@ -731,8 +727,7 @@ export class EmployeeImportService {
       process_valid_rows_only:
         (persistedBatch.metadata?.process_valid_rows_only as
           | boolean
-          | undefined) ??
-        true,
+          | undefined) ?? true,
       totalRows: persistedBatch.totalRows,
       validRows: summary.readyForImport,
       invalidRows: summary.invalidRecords,
@@ -811,13 +806,13 @@ export class EmployeeImportService {
       );
     }
 
-    const idempotencyKeyHash =
-      this.hashIdempotencyKey(normalizedIdempotencyKey);
+    const idempotencyKeyHash = this.hashIdempotencyKey(
+      normalizedIdempotencyKey,
+    );
     const result = await this.dataSource.transaction(async (manager) => {
       const batchRepository = manager.getRepository(EmployeeImportBatch);
       const rowRepository = manager.getRepository(EmployeeImportRow);
-      const outboxRepository =
-        manager.getRepository(EmployeeImportOutboxEvent);
+      const outboxRepository = manager.getRepository(EmployeeImportOutboxEvent);
 
       const batch = await this.findBatchForProcessing(
         batchRepository,
@@ -894,7 +889,10 @@ export class EmployeeImportService {
           previewRows.find((row) => row.rowNumber === storedRow.rowNumber) ??
           null;
         if (previewRow) {
-          previewRowsByStoredId.set(this.getStoredRowKey(storedRow), previewRow);
+          previewRowsByStoredId.set(
+            this.getStoredRowKey(storedRow),
+            previewRow,
+          );
         }
       });
 
@@ -909,7 +907,8 @@ export class EmployeeImportService {
       );
       const requestedInvalidSelections = Array.from(selectedRowIds).filter(
         (rowId) =>
-          previewRowsByStoredId.get(rowId)?.previewStatus !== 'READY_FOR_IMPORT',
+          previewRowsByStoredId.get(rowId)?.previewStatus !==
+          'READY_FOR_IMPORT',
       );
       if (requestedInvalidSelections.length > 0) {
         throw new BadRequestException(
@@ -1168,7 +1167,10 @@ export class EmployeeImportService {
       (left, right) => left.rowNumber - right.rowNumber,
     )) {
       const previewRow = previewRowMap.get(storedRow.rowNumber) ?? null;
-      if (!previewRow || storedRow.status !== EmployeeImportRowStatusEnum.QUEUED) {
+      if (
+        !previewRow ||
+        storedRow.status !== EmployeeImportRowStatusEnum.QUEUED
+      ) {
         continue;
       }
 
@@ -1202,9 +1204,8 @@ export class EmployeeImportService {
               );
             }
 
-            const assignmentChange = this.buildAssignmentChangeDto(
-              normalizedData,
-            );
+            const assignmentChange =
+              this.buildAssignmentChangeDto(normalizedData);
             if (assignmentChange) {
               await this.employeeAssignmentService.changeAssignment(
                 jobData.companyId,
@@ -1490,15 +1491,16 @@ export class EmployeeImportService {
           eventId: crypto.randomUUID(),
           companyId: jobData.companyId,
           batchId: batch.id,
-          eventType:
-            EmployeeImportOutboxEventType.SCHEDULE_HIKVISION_SYNC,
+          eventType: EmployeeImportOutboxEventType.SCHEDULE_HIKVISION_SYNC,
           payload: {
             companyId: jobData.companyId,
             importBatchId: batch.batchId,
             importFileName: batch.originalFileName,
             requestedByUserId: actor.id ?? null,
             requestedByCompanyUserId:
-              actor.companyMembershipId ?? batch.uploadedByCompanyUserId ?? null,
+              actor.companyMembershipId ??
+              batch.uploadedByCompanyUserId ??
+              null,
             employees: successfulImportCandidates,
           },
         });
@@ -2226,13 +2228,15 @@ export class EmployeeImportService {
     }
 
     const numberMode =
-      (this.optionalString(batch.metadata?.employee_number_mode) as
-        | EmployeeImportNumberModeEnum
-        | null) ?? EmployeeImportNumberModeEnum.GENERATE;
+      (this.optionalString(
+        batch.metadata?.employee_number_mode,
+      ) as EmployeeImportNumberModeEnum | null) ??
+      EmployeeImportNumberModeEnum.GENERATE;
     const activationMode =
-      (this.optionalString(batch.metadata?.activation_mode) as
-        | EmployeeImportActivationModeEnum
-        | null) ?? EmployeeImportActivationModeEnum.CREATE_ONBOARDING;
+      (this.optionalString(
+        batch.metadata?.activation_mode,
+      ) as EmployeeImportActivationModeEnum | null) ??
+      EmployeeImportActivationModeEnum.CREATE_ONBOARDING;
 
     return {
       employee_no:
@@ -2266,8 +2270,7 @@ export class EmployeeImportService {
       hire_date:
         this.optionalString(normalizedData.employment_date) ?? undefined,
       grade_id: this.toNumber(normalizedData.grade_id) ?? undefined,
-      cost_center_id:
-        this.toNumber(normalizedData.cost_center_id) ?? undefined,
+      cost_center_id: this.toNumber(normalizedData.cost_center_id) ?? undefined,
       notes: this.optionalString(normalizedData.notes) ?? undefined,
       metadata: {
         employee_import_account: {
@@ -3348,9 +3351,10 @@ export class EmployeeImportService {
     const rows = [...(batch.rows ?? [])]
       .sort((left, right) => left.rowNumber - right.rowNumber)
       .map((row) => this.buildRowResult(row));
-    const skippedRows = batch.rows?.filter(
-      (row) => row.status === EmployeeImportRowStatusEnum.SKIPPED,
-    ).length ?? 0;
+    const skippedRows =
+      batch.rows?.filter(
+        (row) => row.status === EmployeeImportRowStatusEnum.SKIPPED,
+      ).length ?? 0;
 
     return {
       batchId: batch.batchId,
@@ -3407,22 +3411,27 @@ export class EmployeeImportService {
     return {
       import_mode: batch.importMode,
       employee_number_mode:
-        (this.optionalString(batch.metadata?.employee_number_mode) as
-          | EmployeeImportNumberModeEnum
-          | null) ?? EmployeeImportNumberModeEnum.GENERATE,
+        (this.optionalString(
+          batch.metadata?.employee_number_mode,
+        ) as EmployeeImportNumberModeEnum | null) ??
+        EmployeeImportNumberModeEnum.GENERATE,
       activation_mode:
-        (this.optionalString(batch.metadata?.activation_mode) as
-          | EmployeeImportActivationModeEnum
-          | null) ?? EmployeeImportActivationModeEnum.CREATE_ONBOARDING,
+        (this.optionalString(
+          batch.metadata?.activation_mode,
+        ) as EmployeeImportActivationModeEnum | null) ??
+        EmployeeImportActivationModeEnum.CREATE_ONBOARDING,
       process_valid_rows_only:
         override?.process_valid_rows_only ??
-        ((batch.metadata?.process_valid_rows_only as boolean | undefined) ??
-          true),
-      import_reason: this.optionalString(batch.metadata?.import_reason) ?? undefined,
+        (batch.metadata?.process_valid_rows_only as boolean | undefined) ??
+        true,
+      import_reason:
+        this.optionalString(batch.metadata?.import_reason) ?? undefined,
     };
   }
 
-  private buildActorSnapshot(actor: AuthenticatedUser): Record<string, unknown> {
+  private buildActorSnapshot(
+    actor: AuthenticatedUser,
+  ): Record<string, unknown> {
     return {
       id: actor.id ?? null,
       email: actor.email ?? null,
@@ -3447,19 +3456,17 @@ export class EmployeeImportService {
         : {};
 
     return {
-      id:
-        this.toNumber(snapshot.id) ??
-        jobData.requestedByUserId ??
-        0,
-      email: this.optionalString(snapshot.email) ?? 'employee-import@system.local',
+      id: this.toNumber(snapshot.id) ?? jobData.requestedByUserId ?? 0,
+      email:
+        this.optionalString(snapshot.email) ?? 'employee-import@system.local',
       scope:
         (this.optionalString(snapshot.scope) as AuthenticatedUser['scope']) ??
         'company',
       userType:
-        (this.optionalString(snapshot.userType) as AuthenticatedUser['userType']) ??
-        'COMPANY_USER',
-      companyId:
-        this.toNumber(snapshot.companyId) ?? jobData.companyId,
+        (this.optionalString(
+          snapshot.userType,
+        ) as AuthenticatedUser['userType']) ?? 'COMPANY_USER',
+      companyId: this.toNumber(snapshot.companyId) ?? jobData.companyId,
       companyMembershipId:
         this.toNumber(snapshot.companyMembershipId) ??
         jobData.requestedByCompanyUserId ??
@@ -3563,7 +3570,8 @@ export class EmployeeImportService {
     dto: EmployeeImportPreviewRequestDto,
   ): void {
     if (
-      dto.employee_number_mode === EmployeeImportNumberModeEnum.PRESERVE_SOURCE &&
+      dto.employee_number_mode ===
+        EmployeeImportNumberModeEnum.PRESERVE_SOURCE &&
       !hasPermission(actor.permissions, 'employees:override-number')
     ) {
       throw new ForbiddenException(

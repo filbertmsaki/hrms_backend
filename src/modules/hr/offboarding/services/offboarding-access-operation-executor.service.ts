@@ -305,11 +305,12 @@ export class OffboardingAccessOperationExecutorService {
     letterType: OffboardingLetterTypeEnum,
     manager: EntityManager,
   ): Promise<AccessOperationExecutionResult> {
-    const alreadyGenerated = await this.offboardingLetterService.isLetterGenerated(
-      request.id,
-      letterType,
-      manager,
-    );
+    const alreadyGenerated =
+      await this.offboardingLetterService.isLetterGenerated(
+        request.id,
+        letterType,
+        manager,
+      );
 
     if (alreadyGenerated) {
       return { skipped: true, detail: { letter_type: letterType } };
@@ -339,7 +340,8 @@ export class OffboardingAccessOperationExecutorService {
     const activeAssignments = assignments.filter(
       (assignment) =>
         assignment.deviceId !== null &&
-        assignment.syncStatus !== EmployeeDeviceAssignmentSyncStatusEnum.REMOVED,
+        assignment.syncStatus !==
+          EmployeeDeviceAssignmentSyncStatusEnum.REMOVED,
     );
 
     if (!activeAssignments.length) {

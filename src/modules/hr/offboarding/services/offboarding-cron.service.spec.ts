@@ -149,10 +149,12 @@ describe('OffboardingCronService', () => {
     } as unknown as ConfigService;
 
     const advisoryLockService = {
-      runWithLock: jest.fn(async (_key: string, callback: () => Promise<unknown>) => ({
-        acquired: true,
-        result: await callback(),
-      })),
+      runWithLock: jest.fn(
+        async (_key: string, callback: () => Promise<unknown>) => ({
+          acquired: true,
+          result: await callback(),
+        }),
+      ),
     } as unknown as PostgresAdvisoryLockService;
 
     const emptyRepository = {

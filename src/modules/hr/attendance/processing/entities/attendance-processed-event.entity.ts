@@ -120,7 +120,12 @@ export class AttendanceProcessedEvent {
   @Column({ name: 'raw_payload_snapshot', type: 'json', nullable: true })
   rawPayloadSnapshot: Record<string, unknown> | null;
 
-  @Column({ name: 'payload_hash', type: 'varchar', length: 128, nullable: true })
+  @Column({
+    name: 'payload_hash',
+    type: 'varchar',
+    length: 128,
+    nullable: true,
+  })
   payloadHash: string | null;
 
   @Column({

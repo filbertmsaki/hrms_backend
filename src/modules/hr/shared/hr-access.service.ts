@@ -45,7 +45,9 @@ export class HrAccessService {
     return hasPermission(actor.permissions, 'data_scope:self');
   }
 
-  private async getManagedDepartmentIds(actor: AuthenticatedUser): Promise<number[]> {
+  private async getManagedDepartmentIds(
+    actor: AuthenticatedUser,
+  ): Promise<number[]> {
     if (!actor.employeeId) {
       return [];
     }
@@ -60,7 +62,9 @@ export class HrAccessService {
     return managedDepartments.map((department) => department.id);
   }
 
-  private async getReportingEmployeeIds(actor: AuthenticatedUser): Promise<number[]> {
+  private async getReportingEmployeeIds(
+    actor: AuthenticatedUser,
+  ): Promise<number[]> {
     if (!actor.employeeId) {
       return [];
     }
@@ -134,7 +138,9 @@ export class HrAccessService {
         select: ['branch_id'],
       });
 
-      return Array.from(new Set(assignments.map((assignment) => assignment.branch_id)));
+      return Array.from(
+        new Set(assignments.map((assignment) => assignment.branch_id)),
+      );
     }
 
     if (this.hasDepartmentScope(actor)) {
@@ -154,7 +160,9 @@ export class HrAccessService {
         new Set(
           departments
             .map((department) => department.branch_id)
-            .filter((branchId): branchId is number => typeof branchId === 'number'),
+            .filter(
+              (branchId): branchId is number => typeof branchId === 'number',
+            ),
         ),
       );
     }
@@ -202,9 +210,12 @@ export class HrAccessService {
           .where('employee.primary_department_id IN (:...departmentIds)', {
             departmentIds,
           })
-          .orWhere('departmentAssignment.department_id IN (:...departmentIds)', {
-            departmentIds,
-          })
+          .orWhere(
+            'departmentAssignment.department_id IN (:...departmentIds)',
+            {
+              departmentIds,
+            },
+          )
           .select('employee.id', 'id')
           .getRawMany<{ id: number }>();
 

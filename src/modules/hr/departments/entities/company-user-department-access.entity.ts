@@ -11,7 +11,10 @@ import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { Department } from './department.entity';
 
 @Entity('company_user_department_accesses')
-@Unique('UQ_company_user_department_access', ['company_user_id', 'department_id'])
+@Unique('UQ_company_user_department_access', [
+  'company_user_id',
+  'department_id',
+])
 export class CompanyUserDepartmentAccess {
   @PrimaryGeneratedColumn()
   id: number;
@@ -28,9 +31,13 @@ export class CompanyUserDepartmentAccess {
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 
-  @ManyToOne(() => CompanyUser, (companyUser) => companyUser.department_accesses, {
-    onDelete: 'CASCADE',
-  })
+  @ManyToOne(
+    () => CompanyUser,
+    (companyUser) => companyUser.department_accesses,
+    {
+      onDelete: 'CASCADE',
+    },
+  )
   @JoinColumn({ name: 'company_user_id' })
   company_user: CompanyUser;
 

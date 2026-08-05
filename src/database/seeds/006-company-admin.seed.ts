@@ -57,9 +57,7 @@ export default class CompanyAdminSeeder implements Seeder {
       const userNo = process.env.COMPANY_ADMIN_USER_NO ?? 'ADM-00001';
 
       if (!rawPassword?.trim()) {
-        throw new Error(
-          'COMPANY_ADMIN_PASSWORD must be set before seeding.',
-        );
+        throw new Error('COMPANY_ADMIN_PASSWORD must be set before seeding.');
       }
 
       let user =

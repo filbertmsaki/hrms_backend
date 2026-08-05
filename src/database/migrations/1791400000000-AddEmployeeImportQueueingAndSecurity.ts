@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddEmployeeImportQueueingAndSecurity1791400000000
-  implements MigrationInterface
-{
+export class AddEmployeeImportQueueingAndSecurity1791400000000 implements MigrationInterface {
   name = 'AddEmployeeImportQueueingAndSecurity1791400000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

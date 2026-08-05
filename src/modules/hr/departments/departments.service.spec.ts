@@ -1,12 +1,15 @@
 import { BadRequestException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { Branch } from '../branches/entities/branch.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { Position } from '../positions/entities/position.entity';
 import { CodeGeneratorService } from '../shared/code-generator.service';
 import { HrAccessService } from '../shared/hr-access.service';
+import { SecurityEventsService } from '../../security/security-events.service';
 import { DepartmentsService } from './departments.service';
+import { CompanyUserDepartmentAccess } from './entities/company-user-department-access.entity';
 import { Department } from './entities/department.entity';
 import { DepartmentPosition } from './entities/department-position.entity';
 
@@ -54,8 +57,19 @@ describe('DepartmentsService', () => {
         { provide: getRepositoryToken(Position), useValue: positionRepository },
         { provide: getRepositoryToken(Employee), useValue: employeeRepository },
         {
+          provide: getRepositoryToken(CompanyUser),
+          useValue: createRepositoryMock(),
+        },
+        {
+          provide: getRepositoryToken(CompanyUserDepartmentAccess),
+          useValue: createRepositoryMock(),
+        },
+        {
           provide: HrAccessService,
-          useValue: { assertCanAccessBranch: jest.fn() },
+          useValue: {
+            assertCanAccessBranch: jest.fn(),
+            assertCanAccessDepartment: jest.fn(),
+          },
         },
         {
           provide: CodeGeneratorService,
@@ -63,6 +77,10 @@ describe('DepartmentsService', () => {
             resolveCode: jest.fn().mockResolvedValue('DEP-0001'),
             validateCodeUnique: jest.fn().mockResolvedValue(true),
           },
+        },
+        {
+          provide: SecurityEventsService,
+          useValue: { log: jest.fn() },
         },
       ],
     }).compile();

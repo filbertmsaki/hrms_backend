@@ -1,3 +1,5 @@
+process.env.DB_NAME = 'hrms_test_db';
+
 let currentUser = {
   id: 9,
   email: 'hr@example.com',
@@ -41,6 +43,8 @@ import { TenantGuard } from '../src/common/guards/tenant.guard';
 import { EmployeesController } from '../src/modules/hr/employees/employees.controller';
 import { EmployeeImportService } from '../src/modules/hr/employees/import/employee-import.service';
 import { EmployeesService } from '../src/modules/hr/employees/employees.service';
+import { EmployeeAssignmentService } from '../src/modules/hr/employees/employee-assignment.service';
+import { SecurityEventsService } from '../src/modules/security/security-events.service';
 
 describe('Employee Import Endpoints (e2e)', () => {
   let app: INestApplication;
@@ -135,10 +139,15 @@ describe('Employee Import Endpoints (e2e)', () => {
       controllers: [EmployeesController],
       providers: [
         { provide: EmployeesService, useValue: {} },
+        { provide: EmployeeAssignmentService, useValue: {} },
         { provide: EmployeeImportService, useValue: employeeImportService },
         PermissionsGuard,
         TenantGuard,
         Reflector,
+        {
+          provide: SecurityEventsService,
+          useValue: { logBestEffort: jest.fn() },
+        },
       ],
     }).compile();
 

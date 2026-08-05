@@ -126,8 +126,11 @@ export function validateEnv(env: Env) {
   const APP_NAME = optionalString(env, 'APP_NAME', 'Alliance HRMS');
   const APP_HOST = optionalString(env, 'APP_HOST', '0.0.0.0');
   const APP_PORT = optionalInt(env, 'APP_PORT', optionalInt(env, 'PORT', 8888));
-  const APP_GLOBAL_PREFIX = optionalString(env, 'APP_GLOBAL_PREFIX', 'api')
-    .replace(/^\/+|\/+$/g, '');
+  const APP_GLOBAL_PREFIX = optionalString(
+    env,
+    'APP_GLOBAL_PREFIX',
+    'api',
+  ).replace(/^\/+|\/+$/g, '');
   const APP_TIMEZONE = optionalString(
     env,
     'APP_TIMEZONE',
@@ -182,9 +185,47 @@ export function validateEnv(env: Env) {
   }
 
   if (MAX_UPLOAD_FILE_SIZE_BYTES < 1024) {
-    throw new Error(
-      'MAX_UPLOAD_FILE_SIZE_BYTES must be at least 1024 bytes.',
-    );
+    throw new Error('MAX_UPLOAD_FILE_SIZE_BYTES must be at least 1024 bytes.');
+  }
+
+  if (APP_ENV === 'production') {
+    if (APP_URL.includes('localhost')) {
+      throw new Error('APP_URL cannot use localhost in production.');
+    }
+
+    if (APP_FRONTEND_URL.includes('localhost')) {
+      throw new Error('APP_FRONTEND_URL cannot use localhost in production.');
+    }
+
+    if (JWT_ACCESS_SECRET.length < 48) {
+      throw new Error(
+        'JWT_ACCESS_SECRET must be at least 48 characters in production.',
+      );
+    }
+
+    if (JWT_REFRESH_SECRET.length < 48) {
+      throw new Error(
+        'JWT_REFRESH_SECRET must be at least 48 characters in production.',
+      );
+    }
+
+    if (JWT_ACCESS_SECRET === JWT_REFRESH_SECRET) {
+      throw new Error(
+        'Access and refresh token secrets must be different in production.',
+      );
+    }
+
+    if (optionalBool(env, 'USE_REDIS', false) && !env.REDIS_URL?.trim()) {
+      throw new Error(
+        'REDIS_URL is required in production when USE_REDIS=true.',
+      );
+    }
+
+    if (APP_ENABLE_API_DOCS) {
+      throw new Error(
+        'APP_ENABLE_API_DOCS must be false in production. API documentation must not be publicly exposed.',
+      );
+    }
   }
 
   const MAIL_HOST = required(env, 'MAIL_HOST');
@@ -245,6 +286,39 @@ export function validateEnv(env: Env) {
   const USE_REDIS = optionalBool(env, 'USE_REDIS', false);
   const REDIS_URL = optionalString(env, 'REDIS_URL', 'redis://127.0.0.1:6379');
 
+  const HEALTH_DISK_PATH = optionalString(env, 'HEALTH_DISK_PATH', '.');
+  const HEALTH_DISK_MIN_FREE_BYTES = optionalInt(
+    env,
+    'HEALTH_DISK_MIN_FREE_BYTES',
+    1024 * 1024 * 1024,
+  );
+  const HEALTH_EXPOSE_DETAILS = optionalBool(
+    env,
+    'HEALTH_EXPOSE_DETAILS',
+    false,
+  );
+
+  const DB_SSL_ENABLED = optionalBool(env, 'DB_SSL_ENABLED', false);
+  const DB_SSL_REJECT_UNAUTHORIZED = optionalBool(
+    env,
+    'DB_SSL_REJECT_UNAUTHORIZED',
+    true,
+  );
+  const DB_POOL_MAX = optionalInt(env, 'DB_POOL_MAX', 15);
+  const DB_POOL_MIN = optionalInt(env, 'DB_POOL_MIN', 2);
+  const DB_CONNECTION_TIMEOUT_MS = optionalInt(
+    env,
+    'DB_CONNECTION_TIMEOUT_MS',
+    10000,
+  );
+  const DB_IDLE_TIMEOUT_MS = optionalInt(env, 'DB_IDLE_TIMEOUT_MS', 30000);
+  const DB_STATEMENT_TIMEOUT_MS = optionalInt(
+    env,
+    'DB_STATEMENT_TIMEOUT_MS',
+    30000,
+  );
+  const DB_SLOW_QUERY_MS = optionalInt(env, 'DB_SLOW_QUERY_MS', 2000);
+
   const THROTTLER_TTL = optionalInt(env, 'THROTTLER_TTL', 60000);
   const THROTTLER_LIMIT = optionalInt(env, 'THROTTLER_LIMIT', 100);
 
@@ -263,6 +337,14 @@ export function validateEnv(env: Env) {
     'EMPLOYEE_IMPORT_DEFAULT_PASSWORD',
     '',
   );
+
+  if (APP_ENV === 'production' && EMPLOYEE_IMPORT_DEFAULT_PASSWORD) {
+    throw new Error(
+      'EMPLOYEE_IMPORT_DEFAULT_PASSWORD must be empty in production. ' +
+        'Imported employees must be assigned strong, unique temporary passwords.',
+    );
+  }
+
   const AUTH_REQUIRED_2FA_ROLES = optionalString(
     env,
     'AUTH_REQUIRED_2FA_ROLES',
@@ -667,6 +749,17 @@ export function validateEnv(env: Env) {
     MAIL_OVERRIDE_SUBJECT_PREFIX,
     USE_REDIS,
     REDIS_URL,
+    HEALTH_DISK_PATH,
+    HEALTH_DISK_MIN_FREE_BYTES,
+    HEALTH_EXPOSE_DETAILS,
+    DB_SSL_ENABLED,
+    DB_SSL_REJECT_UNAUTHORIZED,
+    DB_POOL_MAX,
+    DB_POOL_MIN,
+    DB_CONNECTION_TIMEOUT_MS,
+    DB_IDLE_TIMEOUT_MS,
+    DB_STATEMENT_TIMEOUT_MS,
+    DB_SLOW_QUERY_MS,
     THROTTLER_TTL,
     THROTTLER_LIMIT,
     ENABLE_EMAIL_VERIFICATION,

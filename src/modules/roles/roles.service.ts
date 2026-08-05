@@ -259,7 +259,8 @@ export class RolesService {
           name: savedRole.name,
           display_name: savedRole.display_name,
           company_id: savedRole.company_id,
-          permission_ids: savedRole.permissions?.map((permission) => permission.id) ?? [],
+          permission_ids:
+            savedRole.permissions?.map((permission) => permission.id) ?? [],
         },
         context,
       });
@@ -722,7 +723,8 @@ export class RolesService {
       display_name: role.display_name,
       description: role.description,
       company_id: role.company_id,
-      permission_ids: role.permissions?.map((permission) => permission.id) ?? [],
+      permission_ids:
+        role.permissions?.map((permission) => permission.id) ?? [],
     };
 
     assertCanMutateSystemGeneratedRbacRecord(actor, role, 'role');
@@ -779,7 +781,8 @@ export class RolesService {
           display_name: savedRole.display_name,
           description: savedRole.description,
           company_id: savedRole.company_id,
-          permission_ids: savedRole.permissions?.map((permission) => permission.id) ?? [],
+          permission_ids:
+            savedRole.permissions?.map((permission) => permission.id) ?? [],
         },
         context,
       });
@@ -811,7 +814,8 @@ export class RolesService {
           name: role.name,
           display_name: role.display_name,
           description: role.description,
-          permission_ids: role.permissions?.map((permission) => permission.id) ?? [],
+          permission_ids:
+            role.permissions?.map((permission) => permission.id) ?? [],
         },
         context,
       });

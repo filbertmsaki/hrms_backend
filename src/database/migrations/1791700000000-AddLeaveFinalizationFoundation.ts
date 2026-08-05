@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddLeaveFinalizationFoundation1791700000000
-  implements MigrationInterface
-{
+export class AddLeaveFinalizationFoundation1791700000000 implements MigrationInterface {
   name = 'AddLeaveFinalizationFoundation1791700000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

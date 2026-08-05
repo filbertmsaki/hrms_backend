@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { HrSharedModule } from '../shared/hr-shared.module';
 import { Branch } from '../branches/entities/branch.entity';
 import { Employee } from '../employees/entities/employee.entity';
@@ -19,6 +20,7 @@ import { DepartmentPosition } from './entities/department-position.entity';
       DepartmentPosition,
       Position,
       Employee,
+      CompanyUser,
     ]),
     HrSharedModule,
   ],

@@ -17,9 +17,7 @@ export class EmployeeMasterReportRunner implements ReportRunner {
     private readonly employeeRepository: Repository<Employee>,
   ) {}
 
-  async generate(
-    context: ReportRunnerContext,
-  ): Promise<ReportRunnerResult> {
+  async generate(context: ReportRunnerContext): Promise<ReportRunnerResult> {
     const qb = this.employeeRepository
       .createQueryBuilder('employee')
       .leftJoin('employee.primary_branch', 'branch')

@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddNotificationDeliveryOutboxPreferences1792100000000
-  implements MigrationInterface
-{
+export class AddNotificationDeliveryOutboxPreferences1792100000000 implements MigrationInterface {
   name = 'AddNotificationDeliveryOutboxPreferences1792100000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

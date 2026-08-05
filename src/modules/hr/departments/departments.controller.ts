@@ -165,7 +165,10 @@ export class DepartmentsController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.departmentsService.listAccessAssignments(req.user.companyId!, id);
+    return this.departmentsService.listAccessAssignments(
+      req.user.companyId!,
+      id,
+    );
   }
 
   @Post(':departmentId/access/:userId')

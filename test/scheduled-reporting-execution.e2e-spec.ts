@@ -68,27 +68,45 @@ describe('Scheduled reporting dispatcher + worker (e2e, real Postgres)', () => {
       await filesService.removeManagedFile(storedFilePath);
     }
     for (const executionId of createdExecutionIds) {
-      await dataSource.query('DELETE FROM report_execution_attempts WHERE execution_id = $1', [executionId]);
-      await dataSource.query('DELETE FROM report_execution_recipients WHERE execution_id = $1', [executionId]);
-      await dataSource.query('DELETE FROM report_executions WHERE id = $1', [executionId]);
+      await dataSource.query(
+        'DELETE FROM report_execution_attempts WHERE execution_id = $1',
+        [executionId],
+      );
+      await dataSource.query(
+        'DELETE FROM report_execution_recipients WHERE execution_id = $1',
+        [executionId],
+      );
+      await dataSource.query('DELETE FROM report_executions WHERE id = $1', [
+        executionId,
+      ]);
     }
     if (scheduleId) {
-      await dataSource.query('DELETE FROM report_schedules WHERE id = $1', [scheduleId]);
+      await dataSource.query('DELETE FROM report_schedules WHERE id = $1', [
+        scheduleId,
+      ]);
     }
     if (templateId) {
-      await dataSource.query('DELETE FROM report_templates WHERE id = $1', [templateId]);
+      await dataSource.query('DELETE FROM report_templates WHERE id = $1', [
+        templateId,
+      ]);
     }
     if (employeeId) {
-      await dataSource.query('DELETE FROM employees WHERE id = $1', [employeeId]);
+      await dataSource.query('DELETE FROM employees WHERE id = $1', [
+        employeeId,
+      ]);
     }
     if (companyUserId) {
-      await dataSource.query('DELETE FROM company_users WHERE id = $1', [companyUserId]);
+      await dataSource.query('DELETE FROM company_users WHERE id = $1', [
+        companyUserId,
+      ]);
     }
     if (userId) {
       await dataSource.query('DELETE FROM users WHERE id = $1', [userId]);
     }
     if (companyId) {
-      await dataSource.query('DELETE FROM companies WHERE id = $1', [companyId]);
+      await dataSource.query('DELETE FROM companies WHERE id = $1', [
+        companyId,
+      ]);
     }
     if (dataSource?.isInitialized) {
       await dataSource.destroy();
@@ -181,9 +199,9 @@ describe('Scheduled reporting dispatcher + worker (e2e, real Postgres)', () => {
 
   it('creates a PENDING execution for a due schedule and only ever creates one per day', async () => {
     const dispatcher = new ReportScheduleDispatcherService(
-      dataSource.getRepository(ReportSchedule) as Repository<ReportSchedule>,
-      dataSource.getRepository(ReportTemplate) as Repository<ReportTemplate>,
-      dataSource.getRepository(ReportExecution) as Repository<ReportExecution>,
+      dataSource.getRepository(ReportSchedule),
+      dataSource.getRepository(ReportTemplate),
+      dataSource.getRepository(ReportExecution),
       new PostgresAdvisoryLockService(dataSource),
     );
 
@@ -221,7 +239,9 @@ describe('Scheduled reporting dispatcher + worker (e2e, real Postgres)', () => {
         reportDateFrom: new Date().toISOString().slice(0, 10),
         reportDateTo: new Date().toISOString().slice(0, 10),
         appliedFilters: {},
-        executionMetadata: { requestedOutputFormat: ReportOutputFormatEnum.CSV },
+        executionMetadata: {
+          requestedOutputFormat: ReportOutputFormatEnum.CSV,
+        },
         maxRetryAttempts: 3,
       }),
     );
@@ -229,31 +249,19 @@ describe('Scheduled reporting dispatcher + worker (e2e, real Postgres)', () => {
 
     const registry = new ReportRegistryService(
       new AttendanceSummaryReportRunner(
-        dataSource.getRepository(
-          AttendanceDailySummary,
-        ) as Repository<AttendanceDailySummary>,
+        dataSource.getRepository(AttendanceDailySummary),
       ),
-      new EmployeeMasterReportRunner(
-        dataSource.getRepository(Employee) as Repository<Employee>,
-      ),
+      new EmployeeMasterReportRunner(dataSource.getRepository(Employee)),
     );
 
     const worker = new ReportExecutionWorkerService(
-      dataSource.getRepository(ReportExecution) as Repository<ReportExecution>,
-      dataSource.getRepository(ReportTemplate) as Repository<ReportTemplate>,
-      dataSource.getRepository(ReportDefinition) as Repository<ReportDefinition>,
-      dataSource.getRepository(
-        ReportSmtpConfiguration,
-      ) as Repository<ReportSmtpConfiguration>,
-      dataSource.getRepository(
-        ReportTemplateRecipient,
-      ) as Repository<ReportTemplateRecipient>,
-      dataSource.getRepository(
-        ReportExecutionRecipient,
-      ) as Repository<ReportExecutionRecipient>,
-      dataSource.getRepository(
-        ReportExecutionAttempt,
-      ) as Repository<ReportExecutionAttempt>,
+      dataSource.getRepository(ReportExecution),
+      dataSource.getRepository(ReportTemplate),
+      dataSource.getRepository(ReportDefinition),
+      dataSource.getRepository(ReportSmtpConfiguration),
+      dataSource.getRepository(ReportTemplateRecipient),
+      dataSource.getRepository(ReportExecutionRecipient),
+      dataSource.getRepository(ReportExecutionAttempt),
       new PostgresAdvisoryLockService(dataSource),
       registry,
       filesService,
@@ -277,8 +285,11 @@ describe('Scheduled reporting dispatcher + worker (e2e, real Postgres)', () => {
     const fileBuffer = await filesService.readManagedFile(storedFilePath);
     expect(fileBuffer).not.toBeNull();
     expect(fileBuffer!.toString('utf8')).toContain(
-      (await dataSource.getRepository(Employee).findOneByOrFail({ id: employeeId }))
-        .employee_no,
+      (
+        await dataSource
+          .getRepository(Employee)
+          .findOneByOrFail({ id: employeeId })
+      ).employee_no,
     );
   });
 });

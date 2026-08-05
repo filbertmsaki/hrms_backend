@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import type { CorrelatedRequest } from '../middleware/correlation-id.middleware';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
@@ -16,13 +17,22 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
+    const correlationId = (request as CorrelatedRequest).correlationId ?? null;
 
     const { status, message, errors } = this.extractError(exception);
 
     if (status >= 500) {
       this.logger.error(
-        `${request.method} ${request.url} → ${status}`,
-        exception instanceof Error ? exception.stack : String(exception),
+        JSON.stringify({
+          event: 'http.request.failed',
+          request_id: correlationId,
+          method: request.method,
+          path: request.url,
+          status_code: status,
+          error:
+            exception instanceof Error ? exception.message : String(exception),
+        }),
+        exception instanceof Error ? exception.stack : undefined,
       );
     }
 
@@ -31,6 +41,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       message,
       ...(errors ? { errors } : {}),
       path: request.url,
+      requestId: correlationId,
       timestamp: new Date().toISOString(),
     });
   }

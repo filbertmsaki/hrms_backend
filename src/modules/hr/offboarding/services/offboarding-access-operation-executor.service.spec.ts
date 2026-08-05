@@ -191,7 +191,9 @@ describe('OffboardingAccessOperationExecutorService', () => {
     );
 
     expect(result.skipped).toBe(true);
-    expect(accessControlSyncService.deleteEmployeeFromDevice).not.toHaveBeenCalled();
+    expect(
+      accessControlSyncService.deleteEmployeeFromDevice,
+    ).not.toHaveBeenCalled();
   });
 
   it('delegates org-assignment termination to EmployeeAssignmentService', async () => {
@@ -203,7 +205,9 @@ describe('OffboardingAccessOperationExecutorService', () => {
       manager,
     );
 
-    expect(employeeAssignmentService.endAssignmentsForExit).toHaveBeenCalledWith(
+    expect(
+      employeeAssignmentService.endAssignmentsForExit,
+    ).toHaveBeenCalledWith(
       request.company_id,
       request.employee_id,
       request.last_working_date,

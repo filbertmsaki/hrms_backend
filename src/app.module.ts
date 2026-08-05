@@ -21,6 +21,7 @@ import { HikvisionModule } from './modules/hikvision/hikvision.module';
 import { AccessControlModule } from './modules/access-control/access-control.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { ScheduledReportingModule } from './modules/scheduled-reporting/scheduled-reporting.module';
+import { SystemHealthModule } from './modules/system-health/system-health.module';
 import { TenantGuard } from './common/guards/tenant.guard';
 
 @Module({
@@ -72,7 +73,37 @@ import { TenantGuard } from './common/guards/tenant.guard';
 
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
         synchronize: false,
+        migrationsRun: false,
         logging: configService.get<string>('NODE_ENV') === 'development',
+        maxQueryExecutionTime: configService.get<number>(
+          'DB_SLOW_QUERY_MS',
+          2000,
+        ),
+        ssl: configService.get<boolean>('DB_SSL_ENABLED', false)
+          ? {
+              rejectUnauthorized: configService.get<boolean>(
+                'DB_SSL_REJECT_UNAUTHORIZED',
+                true,
+              ),
+            }
+          : false,
+        extra: {
+          max: configService.get<number>('DB_POOL_MAX', 15),
+          min: configService.get<number>('DB_POOL_MIN', 2),
+          connectionTimeoutMillis: configService.get<number>(
+            'DB_CONNECTION_TIMEOUT_MS',
+            10000,
+          ),
+          idleTimeoutMillis: configService.get<number>(
+            'DB_IDLE_TIMEOUT_MS',
+            30000,
+          ),
+          statement_timeout: configService.get<number>(
+            'DB_STATEMENT_TIMEOUT_MS',
+            30000,
+          ),
+          application_name: 'hrms-backend',
+        },
       }),
     }),
     SecurityModule,
@@ -87,6 +118,7 @@ import { TenantGuard } from './common/guards/tenant.guard';
     AccessControlModule,
     NotificationsModule,
     ScheduledReportingModule,
+    SystemHealthModule,
   ],
   controllers: [AppController],
   providers: [

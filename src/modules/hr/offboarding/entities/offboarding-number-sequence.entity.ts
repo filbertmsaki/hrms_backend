@@ -7,10 +7,7 @@ import {
 } from 'typeorm';
 
 @Entity('offboarding_number_sequences')
-@Unique('UQ_offboarding_number_company_year', [
-  'company_id',
-  'sequence_year',
-])
+@Unique('UQ_offboarding_number_company_year', ['company_id', 'sequence_year'])
 export class OffboardingNumberSequence {
   @PrimaryGeneratedColumn()
   id: number;

@@ -278,7 +278,7 @@ export class BranchesService {
     const manager =
       actorOrManager instanceof EntityManager ? actorOrManager : undefined;
     const actor =
-      actorOrManager instanceof EntityManager ? null : actorOrManager ?? null;
+      actorOrManager instanceof EntityManager ? null : (actorOrManager ?? null);
     const companyUserRepository =
       manager?.getRepository(CompanyUser) ?? this.companyUserRepository;
     const branchAccessRepository =

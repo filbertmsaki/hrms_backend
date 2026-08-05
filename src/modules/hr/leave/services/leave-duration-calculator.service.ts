@@ -49,11 +49,7 @@ export class LeaveDurationCalculatorService {
     }
 
     const dates: string[] = [];
-    for (
-      let time = start.getTime();
-      time <= end.getTime();
-      time += 86400000
-    ) {
+    for (let time = start.getTime(); time <= end.getTime(); time += 86400000) {
       dates.push(new Date(time).toISOString().slice(0, 10));
     }
 

@@ -1,7 +1,4 @@
-import {
-  Global,
-  Module,
-} from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SecurityEvent } from './entities/security-event.entity';
 import { SecurityEventsController } from './security-events.controller';

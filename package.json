@@ -18,7 +18,7 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:e2e": "cross-env NODE_ENV=test jest --config ./test/jest-e2e.json",
     "typeorm": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js --dataSource src/database/data-source.ts",
     "migration:generate": "npm run typeorm migration:generate src/database/migrations/Migration && npx ts-node -r tsconfig-paths/register src/database/fix-generated-migration.ts",
     "migration:create": "npm run typeorm migration:create src/database/migrations/EmptyMigration",
@@ -29,7 +29,7 @@
     "seed:run:built": "node dist/database/seeds/run-seed.js",
     "seed:reset": "npm run migration:revert && npm run migration:run && npm run seed:run",
     "db:fresh": "npm run migration:run && npm run seed:run",
-    "db:reset": "npm run migration:revert -- -- -f && npm run migration:run && npm run seed:run",
+    "db:reset": "npm run migration:revert && npm run migration:run && npm run seed:run",
     "report:daily:setup-send": "ts-node -r tsconfig-paths/register src/scripts/setup-and-send-daily-attendance-report.ts"
   },
   "dependencies": {
@@ -91,6 +91,7 @@
     "@types/pg": "^8.20.0",
     "@types/qrcode": "^1.5.6",
     "@types/supertest": "^6.0.2",
+    "cross-env": "^10.1.0",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.2",

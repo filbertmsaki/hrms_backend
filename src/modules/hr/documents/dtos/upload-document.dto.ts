@@ -1,4 +1,10 @@
-import { IsDateString, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
+import {
+  IsDateString,
+  IsOptional,
+  IsString,
+  MaxLength,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { Base64FileDto } from '../../../files/dtos/base64-file.dto';
 

@@ -330,7 +330,9 @@ export class OnboardingController {
   @Post('workflows/:id/clone')
   @UseGuards(PermissionsGuard)
   @Permissions('onboarding_workflows:create')
-  @ApiOperation({ summary: 'Clone onboarding workflow into a new editable version' })
+  @ApiOperation({
+    summary: 'Clone onboarding workflow into a new editable version',
+  })
   cloneWorkflow(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,

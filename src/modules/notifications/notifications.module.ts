@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import type { StringValue } from 'ms';
+import { PostgresAdvisoryLockService } from '../../common/database/postgres-advisory-lock.service';
 import { AuthModule } from '../auth/auth.module';
 import { CompanyUser } from '../companies/entities/company-user.entity';
 import { MailModule } from '../mail/mail.module';
@@ -49,6 +50,7 @@ import { NotificationsService } from './notifications.service';
     NotificationOrchestratorService,
     NotificationPreferencesService,
     NotificationDeliveryDispatcherService,
+    PostgresAdvisoryLockService,
   ],
   exports: [
     NotificationsService,

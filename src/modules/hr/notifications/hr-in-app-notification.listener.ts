@@ -414,7 +414,10 @@ export class HrInAppNotificationListener {
         title: 'Onboarding approval required',
         description: `${event.employeeName}'s onboarding request needs your review.`,
         actionUrl: event.reviewUrl,
-        metadata: { onboarding_no: event.onboardingNo, employee_name: event.employeeName },
+        metadata: {
+          onboarding_no: event.onboardingNo,
+          employee_name: event.employeeName,
+        },
       });
     }
 
@@ -484,7 +487,10 @@ export class HrInAppNotificationListener {
         title: 'Onboarding approval required',
         description: `${event.employeeName}'s onboarding request is waiting for your action.`,
         actionUrl: event.reviewUrl,
-        metadata: { onboarding_no: event.onboardingNo, employee_name: event.employeeName },
+        metadata: {
+          onboarding_no: event.onboardingNo,
+          employee_name: event.employeeName,
+        },
       });
     }
   }
@@ -603,7 +609,10 @@ export class HrInAppNotificationListener {
         priority: 'HIGH',
         actionUrl: event.taskUrl,
         dueAt: event.dueDate,
-        metadata: { onboarding_request_id: event.onboardingRequestId, employee_name: event.employeeName },
+        metadata: {
+          onboarding_request_id: event.onboardingRequestId,
+          employee_name: event.employeeName,
+        },
       });
     } catch (error) {
       this.logger.error(
@@ -792,7 +801,10 @@ export class HrInAppNotificationListener {
         title: 'Offboarding approval required',
         description: `${event.employeeName}'s offboarding request needs your review.`,
         actionUrl: event.reviewUrl,
-        metadata: { employee_name: event.employeeName, exit_date: event.exitDate },
+        metadata: {
+          employee_name: event.employeeName,
+          exit_date: event.exitDate,
+        },
       });
     }
 
@@ -861,7 +873,10 @@ export class HrInAppNotificationListener {
         title: 'Offboarding approval required',
         description: `${event.employeeName}'s offboarding request is waiting for your action.`,
         actionUrl: event.reviewUrl,
-        metadata: { employee_name: event.employeeName, exit_date: event.exitDate },
+        metadata: {
+          employee_name: event.employeeName,
+          exit_date: event.exitDate,
+        },
       });
     }
   }
@@ -1062,7 +1077,10 @@ export class HrInAppNotificationListener {
         title: `${event.clearanceType} clearance required`,
         priority: 'HIGH',
         actionUrl: event.clearanceUrl,
-        metadata: { employee_name: event.employeeName, clearance_type: event.clearanceType },
+        metadata: {
+          employee_name: event.employeeName,
+          clearance_type: event.clearanceType,
+        },
       });
     } catch (error) {
       this.logger.error(

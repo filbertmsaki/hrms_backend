@@ -285,13 +285,19 @@ export class EmployeesService {
   private getEmployeeGradeRepository(
     manager?: EntityManager,
   ): Repository<EmployeeGrade> {
-    return manager?.getRepository(EmployeeGrade) ?? this.dataSource.getRepository(EmployeeGrade);
+    return (
+      manager?.getRepository(EmployeeGrade) ??
+      this.dataSource.getRepository(EmployeeGrade)
+    );
   }
 
   private getCostCenterRepository(
     manager?: EntityManager,
   ): Repository<CostCenter> {
-    return manager?.getRepository(CostCenter) ?? this.dataSource.getRepository(CostCenter);
+    return (
+      manager?.getRepository(CostCenter) ??
+      this.dataSource.getRepository(CostCenter)
+    );
   }
 
   private normalizeOptionalString(value: unknown): string | null {
@@ -765,7 +771,8 @@ export class EmployeesService {
       notes: employee.notes,
       metadata: employee.metadata,
       status_changed_at: employee.status_changed_at,
-      status_changed_by_company_user_id: employee.status_changed_by_company_user_id,
+      status_changed_by_company_user_id:
+        employee.status_changed_by_company_user_id,
       created_at: employee.created_at,
       updated_at: employee.updated_at,
       primary_branch: this.mapBranch(employee.primary_branch),
@@ -1728,7 +1735,10 @@ export class EmployeesService {
     }
 
     if (costCenter.branch_id) {
-      await this.hrAccessService.assertCanAccessBranch(actor, costCenter.branch_id);
+      await this.hrAccessService.assertCanAccessBranch(
+        actor,
+        costCenter.branch_id,
+      );
     }
 
     if (costCenter.department_id) {
@@ -2464,7 +2474,9 @@ export class EmployeesService {
       {
         ...dto,
         employee_no:
-          'employee_no' in dto ? normalizedEmployeeNo : numberedFields.employee_no,
+          'employee_no' in dto
+            ? normalizedEmployeeNo
+            : numberedFields.employee_no,
         ...normalizedStatus,
       },
       branch,
@@ -2488,7 +2500,8 @@ export class EmployeesService {
       employee.confirmation_status === EmployeeConfirmationStatusEnum.CONFIRMED
     ) {
       employee.confirmed_by_company_user_id = actor.companyMembershipId ?? null;
-      employee.confirmation_date = employee.confirmation_date ?? this.getTodayDate();
+      employee.confirmation_date =
+        employee.confirmation_date ?? this.getTodayDate();
     } else if ('confirmation_status' in dto) {
       employee.confirmed_by_company_user_id = null;
       if (!('confirmation_date' in dto)) {
@@ -2997,7 +3010,10 @@ export class EmployeesService {
       await this.hrAccessService.assertCanAccessBranch(actor, branch_id);
     }
     if (department_id && this.hrAccessService.hasDepartmentScope(actor)) {
-      await this.hrAccessService.assertCanAccessDepartment(actor, department_id);
+      await this.hrAccessService.assertCanAccessDepartment(
+        actor,
+        department_id,
+      );
     }
 
     const qb = this.employeeRepository
@@ -3348,16 +3364,16 @@ export class EmployeesService {
           employee.exit_date =
             changeEmployeeStatusDto.exit_date ??
             changeEmployeeStatusDto.effective_date;
-          employee.exit_reason =
-            this.normalizeOptionalString(changeEmployeeStatusDto.exit_reason);
+          employee.exit_reason = this.normalizeOptionalString(
+            changeEmployeeStatusDto.exit_reason,
+          );
         } else {
           employee.exit_date = null;
           employee.exit_reason = null;
         }
 
-        const savedEmployee = await this.getEmployeeRepository(manager).save(
-          employee,
-        );
+        const savedEmployee =
+          await this.getEmployeeRepository(manager).save(employee);
 
         if (
           !wasActive &&
@@ -3869,7 +3885,8 @@ export class EmployeesService {
       identification.issued_country = this.normalizeOptionalString(
         dto.issued_country,
       );
-    if (dto.issue_date !== undefined) identification.issue_date = dto.issue_date;
+    if (dto.issue_date !== undefined)
+      identification.issue_date = dto.issue_date;
     if (dto.issuing_authority !== undefined)
       identification.issuing_authority = this.normalizeOptionalString(
         dto.issuing_authority,

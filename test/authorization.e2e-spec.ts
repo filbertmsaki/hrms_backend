@@ -1,3 +1,5 @@
+process.env.DB_NAME = 'hrms_test_db';
+
 let currentUser = {
   id: 18,
   email: 'employee@example.com',
@@ -102,11 +104,15 @@ describe('Authorization (e2e)', () => {
   });
 
   it('allows an authorized request and revokes access on the next request after permission removal', async () => {
-    await request(app.getHttpServer() as App).delete('/users/42').expect(200);
+    await request(app.getHttpServer() as App)
+      .delete('/users/42')
+      .expect(200);
 
     currentUser.permissions = [];
 
-    await request(app.getHttpServer() as App).delete('/users/42').expect(403);
+    await request(app.getHttpServer() as App)
+      .delete('/users/42')
+      .expect(403);
 
     expect(securityEventsService.logBestEffort).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -120,7 +126,9 @@ describe('Authorization (e2e)', () => {
   });
 
   it('allows access when the required permission is present', async () => {
-    await request(app.getHttpServer() as App).get('/employees/me').expect(200);
+    await request(app.getHttpServer() as App)
+      .get('/employees/me')
+      .expect(200);
 
     expect(securityEventsService.logBestEffort).not.toHaveBeenCalled();
   });

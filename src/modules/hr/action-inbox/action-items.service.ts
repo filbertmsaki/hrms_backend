@@ -133,9 +133,7 @@ export class ActionItemsService {
 
   async findMine(actor: AuthenticatedUser, query: ActionItemQueryDto) {
     if (!actor.companyId || !actor.companyMembershipId) {
-      throw new NotFoundException(
-        'Active company membership is required.',
-      );
+      throw new NotFoundException('Active company membership is required.');
     }
 
     const page = query.page ?? 1;

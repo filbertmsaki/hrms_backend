@@ -157,10 +157,7 @@ export class AuthService {
     return result;
   }
 
-  async login(
-    loginDto: LoginDto,
-    context?: AuditRequestContext | null,
-  ) {
+  async login(loginDto: LoginDto, context?: AuditRequestContext | null) {
     const user = await this.validateUser(loginDto.email, loginDto.password);
     if (!user) {
       await this.logSecurityEvent(
@@ -906,10 +903,7 @@ export class AuthService {
     }
   }
 
-  async verifyEmail(
-    token: string,
-    context?: AuditRequestContext | null,
-  ) {
+  async verifyEmail(token: string, context?: AuditRequestContext | null) {
     const isVerificationEnabled = this.isFeatureEnabled(
       'ENABLE_EMAIL_VERIFICATION',
       true,

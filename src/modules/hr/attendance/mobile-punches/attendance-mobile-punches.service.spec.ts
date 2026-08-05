@@ -147,13 +147,12 @@ describe('AttendanceMobilePunchesService', () => {
       findByClientRequest: jest.fn().mockResolvedValue(null),
       findOneById: jest
         .fn()
-        .mockImplementation(
-          async (companyId: number, id: number) =>
-            savedPunch &&
-            savedPunch.companyId === companyId &&
-            savedPunch.id === id
-              ? savedPunch
-              : null,
+        .mockImplementation(async (companyId: number, id: number) =>
+          savedPunch &&
+          savedPunch.companyId === companyId &&
+          savedPunch.id === id
+            ? savedPunch
+            : null,
         ),
     };
     geofenceRepo = {

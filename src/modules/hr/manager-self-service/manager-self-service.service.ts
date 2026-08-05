@@ -1,4 +1,8 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
@@ -107,7 +111,11 @@ export class ManagerSelfServiceService {
       data: items.map((employee) => ({
         id: employee.id,
         employee_no: employee.employee_no,
-        full_name: [employee.first_name, employee.middle_name, employee.last_name]
+        full_name: [
+          employee.first_name,
+          employee.middle_name,
+          employee.last_name,
+        ]
           .filter(Boolean)
           .join(' '),
         employment_status: employee.employment_status,
@@ -163,7 +171,12 @@ export class ManagerSelfServiceService {
 
   async getTeamAttendance(
     actor: AuthenticatedUser,
-    query: { page?: number; limit?: number; date_from?: string; date_to?: string },
+    query: {
+      page?: number;
+      limit?: number;
+      date_from?: string;
+      date_to?: string;
+    },
   ) {
     const companyId = this.ensureCompanyId(actor);
     const page = query.page ?? 1;
@@ -190,7 +203,9 @@ export class ManagerSelfServiceService {
     }
 
     if (query.date_from) {
-      qb.andWhere('s.attendanceDate >= :dateFrom', { dateFrom: query.date_from });
+      qb.andWhere('s.attendanceDate >= :dateFrom', {
+        dateFrom: query.date_from,
+      });
     }
     if (query.date_to) {
       qb.andWhere('s.attendanceDate <= :dateTo', { dateTo: query.date_to });
@@ -213,36 +228,46 @@ export class ManagerSelfServiceService {
     };
   }
 
-  async getDashboard(actor: AuthenticatedUser, query: ManagerDashboardQueryDto) {
+  async getDashboard(
+    actor: AuthenticatedUser,
+    query: ManagerDashboardQueryDto,
+  ) {
     const companyId = this.ensureCompanyId(actor);
     const today = new Date().toISOString().slice(0, 10);
     const dateTo = query.date_to ?? today;
     const dateFrom = query.date_from ?? today;
 
     const scopedEmployeeIds = await this.resolveScopedEmployeeIds(actor);
-    const hasNoAccess = scopedEmployeeIds !== null && scopedEmployeeIds.length === 0;
+    const hasNoAccess =
+      scopedEmployeeIds !== null && scopedEmployeeIds.length === 0;
 
     const teamEmployeeIds = hasNoAccess
       ? []
-      : scopedEmployeeIds ??
+      : (scopedEmployeeIds ??
         (
           await this.employeeRepository
             .createQueryBuilder('employee')
             .where('employee.company_id = :companyId', { companyId })
             .select('employee.id', 'id')
             .getRawMany<{ id: number }>()
-        ).map((row) => Number(row.id));
+        ).map((row) => Number(row.id)));
 
-    const [openActions, attendanceSummary, employeesOnLeave, pendingCorrections] =
-      await Promise.all([
-        this.actionItemsService.countOpen(
-          companyId,
-          actor.companyMembershipId!,
-        ),
-        this.getTeamAttendanceSummary(companyId, teamEmployeeIds, dateFrom, dateTo),
-        this.countEmployeesOnLeave(companyId, teamEmployeeIds, today),
-        this.countPendingCorrections(companyId, teamEmployeeIds),
-      ]);
+    const [
+      openActions,
+      attendanceSummary,
+      employeesOnLeave,
+      pendingCorrections,
+    ] = await Promise.all([
+      this.actionItemsService.countOpen(companyId, actor.companyMembershipId!),
+      this.getTeamAttendanceSummary(
+        companyId,
+        teamEmployeeIds,
+        dateFrom,
+        dateTo,
+      ),
+      this.countEmployeesOnLeave(companyId, teamEmployeeIds, today),
+      this.countPendingCorrections(companyId, teamEmployeeIds),
+    ]);
 
     return {
       generated_at: new Date().toISOString(),
@@ -280,7 +305,13 @@ export class ManagerSelfServiceService {
     dateTo: string,
   ) {
     if (!employeeIds.length) {
-      return { total_records: 0, present: 0, absent: 0, late: 0, early_departure: 0 };
+      return {
+        total_records: 0,
+        present: 0,
+        absent: 0,
+        late: 0,
+        early_departure: 0,
+      };
     }
 
     const result = await this.attendanceDailySummaryRepository

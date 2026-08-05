@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddUserAuthTokenVersion1791002000000
-  implements MigrationInterface
-{
+export class AddUserAuthTokenVersion1791002000000 implements MigrationInterface {
   name = 'AddUserAuthTokenVersion1791002000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

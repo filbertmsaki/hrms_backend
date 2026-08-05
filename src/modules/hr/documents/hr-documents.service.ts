@@ -60,7 +60,11 @@ export class HrDocumentsService {
     entityId: number,
   ) {
     const documents = await this.documentRepository.find({
-      where: { company_id: companyId, entity_type: entityType, entity_id: entityId },
+      where: {
+        company_id: companyId,
+        entity_type: entityType,
+        entity_id: entityId,
+      },
       order: { created_at: 'DESC' },
     });
 

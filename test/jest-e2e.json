@@ -11,11 +11,14 @@
     "^.+\\.(t|j)s$": "ts-jest"
   },
   "transformIgnorePatterns": [
-    "node_modules/(?!(otplib|@otplib|@scure|digest-fetch|md5)/)"
+    "node_modules/(?!(otplib|@otplib|@scure|@noble|digest-fetch|md5)/)"
   ],
   "moduleNameMapper": {
     "^src/(.*)$": "<rootDir>/src/$1"
   },
+  "setupFilesAfterEnv": [
+    "<rootDir>/test/setup-e2e.ts"
+  ],
   "maxWorkers": 1,
   "detectOpenHandles": true,
   "forceExit": true,

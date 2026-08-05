@@ -6,6 +6,7 @@ import { join, resolve } from 'path';
 
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import {
   createSwaggerDocument,
   OPENAPI_JSON_PATH,
@@ -45,6 +46,9 @@ async function bootstrap(): Promise<void> {
   app.setGlobalPrefix(globalPrefix, {
     exclude: [{ path: '', method: RequestMethod.GET }],
   });
+  app.use(
+    new CorrelationIdMiddleware().use.bind(new CorrelationIdMiddleware()),
+  );
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalPipes(
     new ValidationPipe({

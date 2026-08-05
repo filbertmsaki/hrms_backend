@@ -1509,10 +1509,9 @@ export class LeaveService {
                   entry.maximum_encashment_days,
                 )
               : null,
-          minimum_balance_after_encashment:
-            this.leaveBalanceService.toDecimal(
-              entry.minimum_balance_after_encashment ?? 0,
-            ),
+          minimum_balance_after_encashment: this.leaveBalanceService.toDecimal(
+            entry.minimum_balance_after_encashment ?? 0,
+          ),
           encashment_requires_approval:
             entry.encashment_requires_approval ?? true,
           maximum_accumulation_days:
@@ -1544,10 +1543,12 @@ export class LeaveService {
           applicable_department_id: dto.applicable_department_id ?? null,
           applicable_position_id: dto.applicable_position_id ?? null,
           applicable_grade_id: dto.applicable_grade_id ?? null,
-          applicable_employment_type:
-            this.normalizeOptionalString(dto.applicable_employment_type),
-          applicable_confirmation_status:
-            this.normalizeOptionalString(dto.applicable_confirmation_status),
+          applicable_employment_type: this.normalizeOptionalString(
+            dto.applicable_employment_type,
+          ),
+          applicable_confirmation_status: this.normalizeOptionalString(
+            dto.applicable_confirmation_status,
+          ),
           accrual_method: dto.accrual_method ?? LeaveAccrualMethodEnum.YEARLY,
           accrual_rate:
             dto.accrual_rate !== undefined
@@ -1558,16 +1559,13 @@ export class LeaveService {
           allow_during_probation: dto.allow_during_probation ?? true,
           allow_negative_balance: dto.allow_negative_balance ?? false,
           weekly_off_treatment:
-            dto.weekly_off_treatment ??
-            LeaveDayTreatmentEnum.EMPLOYEE_SCHEDULE,
+            dto.weekly_off_treatment ?? LeaveDayTreatmentEnum.EMPLOYEE_SCHEDULE,
           holiday_treatment:
             dto.holiday_treatment ?? LeaveDayTreatmentEnum.EXCLUDE,
           allow_half_day: dto.allow_half_day ?? false,
           allow_short_leave: dto.allow_short_leave ?? false,
-          minimum_short_leave_minutes:
-            dto.minimum_short_leave_minutes ?? null,
-          maximum_short_leave_minutes:
-            dto.maximum_short_leave_minutes ?? null,
+          minimum_short_leave_minutes: dto.minimum_short_leave_minutes ?? null,
+          maximum_short_leave_minutes: dto.maximum_short_leave_minutes ?? null,
           minimum_notice_days: dto.minimum_notice_days ?? null,
           maximum_backdate_days: dto.maximum_backdate_days ?? 0,
           cancellation_requires_approval:
@@ -3018,7 +3016,9 @@ export class LeaveService {
     }
 
     const durationType = dto.duration_type ?? LeaveDurationTypeEnum.FULL_DAY;
-    const normalizedStartTime = this.normalizeOptionalTimeString(dto.start_time);
+    const normalizedStartTime = this.normalizeOptionalTimeString(
+      dto.start_time,
+    );
     const normalizedEndTime = this.normalizeOptionalTimeString(dto.end_time);
     const calculation = await this.calculateLeaveDuration({
       companyId,

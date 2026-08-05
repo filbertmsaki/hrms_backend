@@ -861,7 +861,10 @@ export class OffboardingController {
 
   @Post('requests/:id/approvals/:approvalId/delegate')
   @UseGuards(PermissionsGuard)
-  @PermissionsAny('offboarding_approvals:delegate', 'offboarding_approvals:delegate-any')
+  @PermissionsAny(
+    'offboarding_approvals:delegate',
+    'offboarding_approvals:delegate-any',
+  )
   @ApiOperation({ summary: 'Delegate an offboarding approval' })
   delegateApproval(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },

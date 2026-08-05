@@ -1,10 +1,4 @@
-import {
-  Controller,
-  Get,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
 import { Permissions } from '../../common/decorators/permissions.decorator';
@@ -16,9 +10,7 @@ import { SecurityEventsService } from './security-events.service';
 @Controller('security-events')
 @UseGuards(AuthGuard('jwt'), PermissionsGuard)
 export class SecurityEventsController {
-  constructor(
-    private readonly securityEventsService: SecurityEventsService,
-  ) {}
+  constructor(private readonly securityEventsService: SecurityEventsService) {}
 
   @Get()
   @Permissions('security_events:read')

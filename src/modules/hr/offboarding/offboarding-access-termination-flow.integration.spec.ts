@@ -74,8 +74,18 @@ describe('Offboarding access-termination flow (integration)', () => {
     })) as unknown as OffboardingAccessOperation[];
     const operationsById = new Map(operations.map((op) => [op.id, op]));
 
-    const membership = { id: 90, user_id: 7, status: 'active', is_default: true };
-    const user = { id: 7, status: 'active', auth_token_version: 1, auth_token_invalid_before: null as Date | null };
+    const membership = {
+      id: 90,
+      user_id: 7,
+      status: 'active',
+      is_default: true,
+    };
+    const user = {
+      id: 7,
+      status: 'active',
+      auth_token_version: 1,
+      auth_token_invalid_before: null as Date | null,
+    };
 
     const companyUserRepo = {
       createQueryBuilder: jest.fn(() =>
@@ -93,12 +103,16 @@ describe('Offboarding access-termination flow (integration)', () => {
     };
     const accessGroupEmployeeRepo = {
       createQueryBuilder: jest.fn(() =>
-        buildQueryBuilder({ execute: jest.fn().mockResolvedValue({ affected: 2 }) }),
+        buildQueryBuilder({
+          execute: jest.fn().mockResolvedValue({ affected: 2 }),
+        }),
       ),
     };
     const employeeAccessCredentialRepo = {
       createQueryBuilder: jest.fn(() =>
-        buildQueryBuilder({ execute: jest.fn().mockResolvedValue({ affected: 3 }) }),
+        buildQueryBuilder({
+          execute: jest.fn().mockResolvedValue({ affected: 3 }),
+        }),
       ),
     };
     const employeeDeviceAssignmentRepo = {
@@ -136,13 +150,18 @@ describe('Offboarding access-termination flow (integration)', () => {
     const manager = {
       getRepository: jest.fn((entity: unknown) => {
         if (entity === OffboardingRequest) return requestRepoInManager;
-        if (entity === OffboardingAccessOperation) return operationRepoInManager;
+        if (entity === OffboardingAccessOperation)
+          return operationRepoInManager;
         if (entity === CompanyUser) return companyUserRepo;
         if (entity === User) return userRepo;
         if (entity === AccessGroupEmployee) return accessGroupEmployeeRepo;
-        if (entity === EmployeeAccessCredential) return employeeAccessCredentialRepo;
-        if (entity === EmployeeDeviceAssignment) return employeeDeviceAssignmentRepo;
-        throw new Error(`Unexpected repository request: ${(entity as { name?: string })?.name}`);
+        if (entity === EmployeeAccessCredential)
+          return employeeAccessCredentialRepo;
+        if (entity === EmployeeDeviceAssignment)
+          return employeeDeviceAssignmentRepo;
+        throw new Error(
+          `Unexpected repository request: ${(entity as { name?: string })?.name}`,
+        );
       }),
     } as unknown as EntityManager;
 
@@ -173,8 +192,12 @@ describe('Offboarding access-termination flow (integration)', () => {
 
     const service = new OffboardingAccessTerminationService(
       dataSource,
-      { findOneOrFail: jest.fn().mockResolvedValue(request) } as unknown as Repository<OffboardingRequest>,
-      { find: jest.fn().mockResolvedValue(operations) } as unknown as Repository<OffboardingAccessOperation>,
+      {
+        findOneOrFail: jest.fn().mockResolvedValue(request),
+      } as unknown as Repository<OffboardingRequest>,
+      {
+        find: jest.fn().mockResolvedValue(operations),
+      } as unknown as Repository<OffboardingAccessOperation>,
       executor,
     );
 
@@ -182,7 +205,9 @@ describe('Offboarding access-termination flow (integration)', () => {
     // scheduled, not already terminated.
     (request as { status: OffboardingRequestStatusEnum }).status =
       OffboardingRequestStatusEnum.TERMINATION_SCHEDULED;
-    (request as { access_termination_attempt_count: number }).access_termination_attempt_count = 0;
+    (
+      request as { access_termination_attempt_count: number }
+    ).access_termination_attempt_count = 0;
 
     const outcome = await service.processTermination(
       { companyId, offboardingRequestId: requestId },
@@ -197,7 +222,9 @@ describe('Offboarding access-termination flow (integration)', () => {
     expect(user.auth_token_invalid_before).not.toBeNull();
     expect(user.auth_token_version).toBe(2);
     expect(companyUserRepo.count).toHaveBeenCalled(); // deactivate-global-user check
-    expect(employeeAssignmentService.endAssignmentsForExit).toHaveBeenCalledTimes(4); // branch/department/position/reporting
+    expect(
+      employeeAssignmentService.endAssignmentsForExit,
+    ).toHaveBeenCalledTimes(4); // branch/department/position/reporting
     expect(accessGroupEmployeeRepo.createQueryBuilder).toHaveBeenCalled();
     expect(employeeAccessCredentialRepo.createQueryBuilder).toHaveBeenCalled();
 
@@ -277,14 +304,17 @@ describe('Offboarding access-termination flow (integration)', () => {
     const manager = {
       getRepository: jest.fn((entity: unknown) => {
         if (entity === OffboardingRequest) return requestRepoInManager;
-        if (entity === OffboardingAccessOperation) return operationRepoInManager;
+        if (entity === OffboardingAccessOperation)
+          return operationRepoInManager;
         if (entity === EmployeeDeviceAssignment)
           return {
-            find: jest.fn().mockResolvedValue([
-              { deviceId: 55, syncStatus: 'SYNCED' },
-            ]),
+            find: jest
+              .fn()
+              .mockResolvedValue([{ deviceId: 55, syncStatus: 'SYNCED' }]),
           };
-        throw new Error(`Unexpected repository request: ${(entity as { name?: string })?.name}`);
+        throw new Error(
+          `Unexpected repository request: ${(entity as { name?: string })?.name}`,
+        );
       }),
     } as unknown as EntityManager;
 
@@ -303,7 +333,9 @@ describe('Offboarding access-termination flow (integration)', () => {
 
     const executor = new OffboardingAccessOperationExecutorService(
       { get: jest.fn() } as unknown as ConfigService,
-      { endAssignmentsForExit: jest.fn() } as unknown as EmployeeAssignmentService,
+      {
+        endAssignmentsForExit: jest.fn(),
+      } as unknown as EmployeeAssignmentService,
       accessControlSyncService,
       {
         isLetterGenerated: jest.fn(),
@@ -319,7 +351,9 @@ describe('Offboarding access-termination flow (integration)', () => {
     const service = new OffboardingAccessTerminationService(
       dataSource,
       requestRepository,
-      { find: jest.fn().mockResolvedValue(operations) } as unknown as Repository<OffboardingAccessOperation>,
+      {
+        find: jest.fn().mockResolvedValue(operations),
+      } as unknown as Repository<OffboardingAccessOperation>,
       executor,
     );
 
@@ -329,7 +363,9 @@ describe('Offboarding access-termination flow (integration)', () => {
     );
 
     expect(outcome.status).toBe('failed');
-    expect(operations[0].status).toBe(OffboardingAccessOperationStatusEnum.FAILED);
+    expect(operations[0].status).toBe(
+      OffboardingAccessOperationStatusEnum.FAILED,
+    );
     expect(requestRepository.update).toHaveBeenCalledWith(
       { id: requestId, company_id: companyId },
       expect.objectContaining({

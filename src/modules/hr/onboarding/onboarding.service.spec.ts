@@ -117,9 +117,11 @@ describe('OnboardingService', () => {
       log: jest.fn(),
     };
     onboardingWorkflowService = {
-      resolveWorkflow: jest.fn(async (_companyId: number, workflowId?: number) => ({
-        id: workflowId ?? 91,
-      })),
+      resolveWorkflow: jest.fn(
+        async (_companyId: number, workflowId?: number) => ({
+          id: workflowId ?? 91,
+        }),
+      ),
       initializeApprovalsForRequest: jest.fn(),
     };
     filesService = {
@@ -330,37 +332,37 @@ describe('OnboardingService', () => {
             }),
           };
         }
-      if (entity === OnboardingRequest) return requestRepo;
-      if (entity === OnboardingTask) return taskRepo;
-      if (entity === OnboardingApproval) return approvalRepo;
-      if (entity === OnboardingWorkflow) {
-        return {
-          findOne: jest.fn().mockResolvedValue({
-            id: 91,
-            company_id: 10,
-            version: 1,
-            name: 'Default Onboarding',
-            description: null,
-            steps: [],
-            is_locked: false,
-          }),
-          save: jest.fn((value: unknown) => Promise.resolve(value)),
-        };
-      }
-      if (entity === OnboardingNumberSequence) {
-        return {
-          createQueryBuilder: jest.fn(() => ({
-            setLock: jest.fn().mockReturnThis(),
-            where: jest.fn().mockReturnThis(),
-            andWhere: jest.fn().mockReturnThis(),
-            getOne: jest.fn().mockResolvedValue(null),
-          })),
-          create: jest.fn((value: unknown) => value),
-          save: jest.fn((value: unknown) => Promise.resolve(value)),
-        };
-      }
-      throw new Error(`Unexpected repository request: ${entity?.name}`);
-    }),
+        if (entity === OnboardingRequest) return requestRepo;
+        if (entity === OnboardingTask) return taskRepo;
+        if (entity === OnboardingApproval) return approvalRepo;
+        if (entity === OnboardingWorkflow) {
+          return {
+            findOne: jest.fn().mockResolvedValue({
+              id: 91,
+              company_id: 10,
+              version: 1,
+              name: 'Default Onboarding',
+              description: null,
+              steps: [],
+              is_locked: false,
+            }),
+            save: jest.fn((value: unknown) => Promise.resolve(value)),
+          };
+        }
+        if (entity === OnboardingNumberSequence) {
+          return {
+            createQueryBuilder: jest.fn(() => ({
+              setLock: jest.fn().mockReturnThis(),
+              where: jest.fn().mockReturnThis(),
+              andWhere: jest.fn().mockReturnThis(),
+              getOne: jest.fn().mockResolvedValue(null),
+            })),
+            create: jest.fn((value: unknown) => value),
+            save: jest.fn((value: unknown) => Promise.resolve(value)),
+          };
+        }
+        throw new Error(`Unexpected repository request: ${entity?.name}`);
+      }),
     } as unknown as EntityManager;
 
     dataSource.transaction.mockImplementation(

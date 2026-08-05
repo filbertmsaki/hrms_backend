@@ -6,6 +6,7 @@ jest.mock('digest-fetch', () => ({
   default: jest.fn(),
 }));
 import { EmployeeImportService } from './employee-import.service';
+import { EmployeeImportJobData } from './employee-import-job.constants';
 import { EmployeeImportBatch } from './entities/employee-import-batch.entity';
 import { EmployeeImportOutboxEvent } from './entities/employee-import-outbox-event.entity';
 import { EmployeeImportRow } from './entities/employee-import-row.entity';
@@ -152,9 +153,11 @@ describe('EmployeeImportService', () => {
   beforeEach(() => {
     jest.useRealTimers();
     configService = {
-      get: jest.fn().mockImplementation((key: string, defaultValue?: unknown) =>
-        defaultValue,
-      ),
+      get: jest
+        .fn()
+        .mockImplementation(
+          (key: string, defaultValue?: unknown) => defaultValue,
+        ),
     };
     branchesService = {
       grantAccess: jest.fn().mockResolvedValue(undefined),
@@ -334,8 +337,8 @@ describe('EmployeeImportService', () => {
     expect(employeeSheet?.getCell('G2').dataValidation.formulae).toEqual([
       'GenderValues',
     ]);
-    expect(employeeSheet?.getCell('AB2').dataValidation.type).toBe('list');
-    expect(employeeSheet?.getCell('AB2').dataValidation.formulae).toEqual([
+    expect(employeeSheet?.getCell('AC2').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('AC2').dataValidation.formulae).toEqual([
       'AccessDeviceCodes',
     ]);
     expect(workbook.definedNames.model).toEqual(
@@ -647,6 +650,7 @@ describe('EmployeeImportService', () => {
       'last_name',
       'email',
       'gender',
+      'employment_date',
       'branch_code',
       'department_code',
       'position_code',
@@ -658,6 +662,7 @@ describe('EmployeeImportService', () => {
       'Doe',
       'jane.optional@example.com',
       'female',
+      '2026-01-01',
       '',
       '',
       '',
@@ -745,6 +750,7 @@ describe('EmployeeImportService', () => {
       'last_name',
       'email',
       'gender',
+      'employment_date',
       'branch_code',
       'department_code',
       'position_code',
@@ -754,6 +760,7 @@ describe('EmployeeImportService', () => {
       'Importer',
       'john.importer@example.com',
       'male',
+      '2026-01-01',
       '',
       '',
       '',
@@ -1348,10 +1355,28 @@ describe('EmployeeImportService', () => {
         employee_no: '000037',
       }),
     };
+    let storedBatch: EmployeeImportBatch;
+    const batchQueryBuilder: Record<string, jest.Mock> = {
+      leftJoinAndSelect: jest.fn(() => batchQueryBuilder),
+      where: jest.fn(() => batchQueryBuilder),
+      andWhere: jest.fn(() => batchQueryBuilder),
+      orderBy: jest.fn(() => batchQueryBuilder),
+      setLock: jest.fn(() => batchQueryBuilder),
+      getOne: jest.fn(() => Promise.resolve(storedBatch)),
+    };
     const txManager = {
       getRepository: jest.fn((entity: unknown) => {
         if (entity === Employee) {
           return txEmployeeRepository;
+        }
+        if (entity === EmployeeImportBatch) {
+          return {
+            ...batchRepository,
+            createQueryBuilder: jest.fn(() => batchQueryBuilder),
+          };
+        }
+        if (entity === EmployeeImportRow) {
+          return rowRepository;
         }
         return createRepositoryMock();
       }),
@@ -1392,21 +1417,27 @@ describe('EmployeeImportService', () => {
       employeeNumber: null,
       deviceEmployeeNumber: null,
       matchedEmployeeId: null,
-      status: EmployeeImportRowStatusEnum.READY,
+      status: EmployeeImportRowStatusEnum.QUEUED,
     } as EmployeeImportRow;
 
-    batchRepository.findOne.mockResolvedValue({
+    storedBatch = {
+      id: 501,
+      companyId: 10,
       batchId: 'IMPORT-20260727-BLANK-EMP-NO',
       previewToken: 'preview-token',
-      status: EmployeeImportBatchStatusEnum.PREVIEW_READY,
+      status: EmployeeImportBatchStatusEnum.QUEUED,
       importMode: EmployeeImportModeEnum.CREATE_ONLY,
       metadata: {
         process_valid_rows_only: true,
+        requested_by: { ...actor },
       },
       rows: [storedRow],
-    });
+    } as EmployeeImportBatch;
+    batchRepository.findOne.mockResolvedValue(storedBatch);
     batchRepository.save.mockImplementation((value: unknown) => value);
+    batchRepository.update = jest.fn().mockResolvedValue(undefined);
     rowRepository.save.mockImplementation((value: unknown) => value);
+    rowRepository.find.mockResolvedValue([storedRow]);
 
     jest.spyOn(service as any, 'loadReferenceData').mockResolvedValue({
       branches: [],
@@ -1482,64 +1513,34 @@ describe('EmployeeImportService', () => {
         }),
       );
 
-    const result = (await service.confirmImport(
-      10,
-      {
-        preview_token: 'preview-token',
-        process_valid_rows_only: true,
-      },
-      actor,
-    )) as {
-      successfulRows: number;
-      failedRows: number;
-      createdEmployees: number;
-      summary: Record<string, unknown> & {
-        hikvisionSync?: {
-          scheduled: boolean;
-        };
-      };
-      rows: [Record<string, unknown>];
+    const jobData: EmployeeImportJobData = {
+      companyId: 10,
+      databaseBatchId: 501,
+      batchId: 'IMPORT-20260727-BLANK-EMP-NO',
+      requestedByUserId: actor.id,
+      requestedByCompanyUserId: actor.companyMembershipId ?? null,
     };
+
+    await service.processQueuedBatch(jobData, 'worker-1');
 
     expect(employeesService.createForCompanyUser).toHaveBeenCalledWith(
       10,
       18,
       expect.objectContaining({
-        employment_status: EmploymentStatusEnum.ACTIVE,
+        employment_status: EmploymentStatusEnum.ONBOARDING,
         onboarding: {
           auto_start: false,
         },
       }),
-      actor,
+      expect.objectContaining({ id: actor.id, email: actor.email }),
       txManager,
     );
-    expect(
-      hikvisionImportSyncService.scheduleImportedEmployeesSync,
-    ).toHaveBeenCalledWith(
-      expect.objectContaining({
-        companyId: 10,
-        importBatchId: 'IMPORT-20260727-BLANK-EMP-NO',
-        employees: [
-          expect.objectContaining({
-            employeeId: 37,
-            employeeNumber: '000037',
-            providedDeviceEmployeeNumber: null,
-          }),
-        ],
-      }),
-    );
-    expect(result.successfulRows).toBe(1);
-    expect(result.failedRows).toBe(0);
-    expect(result.createdEmployees).toBe(1);
-    expect(result.summary.hikvisionSync?.scheduled).toBe(false);
-    expect(result.rows[0]).toEqual(
-      expect.objectContaining({
-        status: 'IMPORTED',
-        employeeId: 37,
-        userId: 41,
-        employeeNumber: '000037',
-      }),
-    );
+    expect(storedRow.status).toBe(EmployeeImportRowStatusEnum.IMPORTED);
+    expect(storedRow.createdEmployeeId).toBe(37);
+    expect(storedRow.createdUserId).toBe(41);
+    expect(storedRow.employeeNumber).toBe('000037');
+    expect(storedBatch.createdEmployees).toBe(1);
+    expect(storedBatch.failedRows).toBe(0);
   });
 
   it('returns batch result details as JSON summary data', async () => {

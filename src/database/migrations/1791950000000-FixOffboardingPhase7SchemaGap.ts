@@ -8,9 +8,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * corresponding migration ever being written. Every one of those columns and
  * tables was missing from the real database. This migration closes that gap.
  */
-export class FixOffboardingPhase7SchemaGap1791950000000
-  implements MigrationInterface
-{
+export class FixOffboardingPhase7SchemaGap1791950000000 implements MigrationInterface {
   name = 'FixOffboardingPhase7SchemaGap1791950000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -225,9 +223,15 @@ export class FixOffboardingPhase7SchemaGap1791950000000
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP TABLE IF EXISTS "offboarding_number_sequences"`);
-    await queryRunner.query(`DROP TABLE IF EXISTS "offboarding_notice_policies"`);
-    await queryRunner.query(`DROP TABLE IF EXISTS "offboarding_access_operations"`);
+    await queryRunner.query(
+      `DROP TABLE IF EXISTS "offboarding_number_sequences"`,
+    );
+    await queryRunner.query(
+      `DROP TABLE IF EXISTS "offboarding_notice_policies"`,
+    );
+    await queryRunner.query(
+      `DROP TABLE IF EXISTS "offboarding_access_operations"`,
+    );
     await queryRunner.query(
       `DROP TYPE IF EXISTS "public"."offboarding_access_operations_status_enum"`,
     );

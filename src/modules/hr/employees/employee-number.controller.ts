@@ -13,9 +13,7 @@ import { EmployeeNumberService } from './employee-number.service';
 @Controller('employee-numbering')
 @UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
 export class EmployeeNumberController {
-  constructor(
-    private readonly employeeNumberService: EmployeeNumberService,
-  ) {}
+  constructor(private readonly employeeNumberService: EmployeeNumberService) {}
 
   @Get()
   @Permissions('employee_numbering:read')

@@ -15,6 +15,8 @@ import { TwoFaService } from './2fa/2fa.service';
 import { UsersService } from '../users/users.service';
 import { MailService } from '../mail/mail.service';
 import { CompaniesService } from '../companies/companies.service';
+import { SecurityEventsService } from '../security/security-events.service';
+import { TwoFactorPolicyService } from '../security/two-factor-policy.service';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -36,6 +38,8 @@ describe('AuthService', () => {
     getTwoFactorStatus: jest.Mock;
     verify2FALogin: jest.Mock;
   };
+  let securityEventsService: { logBestEffort: jest.Mock };
+  let twoFactorPolicyService: { isRequired: jest.Mock };
 
   beforeEach(() => {
     usersService = {
@@ -61,6 +65,12 @@ describe('AuthService', () => {
     twoFaService = {
       getTwoFactorStatus: jest.fn(),
       verify2FALogin: jest.fn(),
+    };
+    securityEventsService = {
+      logBestEffort: jest.fn(),
+    };
+    twoFactorPolicyService = {
+      isRequired: jest.fn().mockReturnValue(false),
     };
 
     service = new AuthService(
@@ -92,6 +102,8 @@ describe('AuthService', () => {
       {} as MailService,
       twoFaService as unknown as TwoFaService,
       companiesService as unknown as CompaniesService,
+      securityEventsService as unknown as SecurityEventsService,
+      twoFactorPolicyService as unknown as TwoFactorPolicyService,
     );
   });
 
@@ -141,7 +153,7 @@ describe('AuthService', () => {
 
     const rawResult: unknown = await service.login(
       { email: 'staff@example.com', password: 'P@ssw0rd#2026' },
-      '197.250.10.22',
+      { ipAddress: '197.250.10.22', userAgent: null, requestId: null },
     );
     const result = rawResult as {
       requires2FASetup: boolean;
@@ -234,7 +246,7 @@ describe('AuthService', () => {
 
     const rawResult: unknown = await service.login(
       { email: 'staff@example.com', password: 'ChangeMe@123' },
-      '197.250.10.22',
+      { ipAddress: '197.250.10.22', userAgent: null, requestId: null },
     );
     const result = rawResult as {
       requiresPasswordChange: boolean;
@@ -290,7 +302,7 @@ describe('AuthService', () => {
 
     const rawResult: unknown = await service.login(
       { email: 'staff@example.com', password: 'P@ssw0rd#2026' },
-      '197.250.10.22',
+      { ipAddress: '197.250.10.22', userAgent: null, requestId: null },
     );
     const result = rawResult as {
       requires2FA: boolean;

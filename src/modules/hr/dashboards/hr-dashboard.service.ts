@@ -127,7 +127,12 @@ export class HrDashboardService {
         EmployeeConfirmationStatusEnum.PROBATION,
       ),
       this.countConfirmationDue(scopedIds, period.today),
-      this.getAttendanceSummary(companyId, scopedIds, period.dateFrom, period.dateTo),
+      this.getAttendanceSummary(
+        companyId,
+        scopedIds,
+        period.dateFrom,
+        period.dateTo,
+      ),
       this.countEmployeesOnLeave(companyId, scopedIds, period.today),
       this.countPendingLeaveApprovals(companyId, scopedIds),
       this.countOnboardingActive(companyId, scopedIds),
@@ -241,7 +246,13 @@ export class HrDashboardService {
     dateTo: string,
   ) {
     if (!employeeIds.length) {
-      return { total_records: 0, present: 0, absent: 0, late: 0, early_departure: 0 };
+      return {
+        total_records: 0,
+        present: 0,
+        absent: 0,
+        late: 0,
+        early_departure: 0,
+      };
     }
 
     const result = await this.attendanceDailySummaryRepository
@@ -348,9 +359,16 @@ export class HrDashboardService {
     });
   }
 
-  private async getDocumentCompliance(companyId: number, employeeIds: number[]) {
+  private async getDocumentCompliance(
+    companyId: number,
+    employeeIds: number[],
+  ) {
     if (!employeeIds.length) {
-      return { total_documents: 0, verified_documents: 0, pending_verification: 0 };
+      return {
+        total_documents: 0,
+        verified_documents: 0,
+        pending_verification: 0,
+      };
     }
 
     const documents = await this.documentRepository.find({

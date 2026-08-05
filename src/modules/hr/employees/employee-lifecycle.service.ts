@@ -67,7 +67,8 @@ export class EmployeeLifecycleService {
       return;
     }
 
-    const allowed = this.allowedTransitions.get(currentStatus)?.has(targetStatus) ?? false;
+    const allowed =
+      this.allowedTransitions.get(currentStatus)?.has(targetStatus) ?? false;
     if (!allowed) {
       throw new BadRequestException(
         `Employee status cannot change from ${currentStatus} to ${targetStatus}`,

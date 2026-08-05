@@ -60,7 +60,10 @@ export class NotificationOrchestratorService {
 
   async create(input: CreateNotificationInput) {
     const receiver = await this.companyUserRepository.findOne({
-      where: { id: input.receiver_company_user_id, company_id: input.company_id },
+      where: {
+        id: input.receiver_company_user_id,
+        company_id: input.company_id,
+      },
     });
 
     if (!receiver) {
@@ -88,7 +91,8 @@ export class NotificationOrchestratorService {
       }
     }
 
-    const type = (input.type ?? NotificationTypeEnum.GENERAL) as NotificationTypeEnum;
+    const type = (input.type ??
+      NotificationTypeEnum.GENERAL) as NotificationTypeEnum;
     const requestedChannels = input.channels?.length
       ? input.channels
       : [input.delivery_channel ?? NotificationChannelEnum.IN_APP];
@@ -127,7 +131,8 @@ export class NotificationOrchestratorService {
           status: NotificationStatusEnum.UNREAD,
           seen_at: null,
           read_at: null,
-          delivery_channel: requestedChannels[0] ?? NotificationChannelEnum.IN_APP,
+          delivery_channel:
+            requestedChannels[0] ?? NotificationChannelEnum.IN_APP,
           delivery_status:
             input.delivery_status ?? NotificationDeliveryStatusEnum.PENDING,
           dedupe_key: dedupeKey,
@@ -181,7 +186,10 @@ export class NotificationOrchestratorService {
 
     if (allowedChannels.includes(NotificationChannelEnum.IN_APP)) {
       this.gateway.emitToCompanyUser(input.receiver_company_user_id, response);
-      await this.emitUnreadCount(input.company_id, input.receiver_company_user_id);
+      await this.emitUnreadCount(
+        input.company_id,
+        input.receiver_company_user_id,
+      );
     }
 
     return response;

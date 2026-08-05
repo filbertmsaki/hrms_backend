@@ -72,10 +72,7 @@ describe('HrAccessService', () => {
       { department_id: 7 },
       { department_id: 9 },
     ]);
-    departmentRepository.find!.mockResolvedValue([
-      { id: 9 },
-      { id: 12 },
-    ]);
+    departmentRepository.find!.mockResolvedValue([{ id: 9 }, { id: 12 }]);
 
     await expect(service.getAccessibleDepartmentIds(actor)).resolves.toEqual([
       7, 9, 12,

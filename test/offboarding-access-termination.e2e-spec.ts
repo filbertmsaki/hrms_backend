@@ -48,10 +48,9 @@ describe('Offboarding access termination (e2e, real Postgres)', () => {
 
   afterAll(async () => {
     if (requestId) {
-      await dataSource.query(
-        'DELETE FROM offboarding_requests WHERE id = $1',
-        [requestId],
-      );
+      await dataSource.query('DELETE FROM offboarding_requests WHERE id = $1', [
+        requestId,
+      ]);
     }
     if (employeeId) {
       await dataSource.query('DELETE FROM employees WHERE id = $1', [
@@ -156,8 +155,12 @@ describe('Offboarding access termination (e2e, real Postgres)', () => {
   it('deactivates the company membership, revokes sessions, and reaches READY_FOR_FINALIZATION in real Postgres', async () => {
     const executor = new OffboardingAccessOperationExecutorService(
       { get: jest.fn() } as unknown as ConfigService,
-      { endAssignmentsForExit: jest.fn() } as unknown as EmployeeAssignmentService,
-      { deleteEmployeeFromDevice: jest.fn() } as unknown as AccessControlSyncService,
+      {
+        endAssignmentsForExit: jest.fn(),
+      } as unknown as EmployeeAssignmentService,
+      {
+        deleteEmployeeFromDevice: jest.fn(),
+      } as unknown as AccessControlSyncService,
       {
         isLetterGenerated: jest.fn().mockResolvedValue(true),
         generateAndStore: jest.fn(),
@@ -166,10 +169,8 @@ describe('Offboarding access termination (e2e, real Postgres)', () => {
 
     const service = new OffboardingAccessTerminationService(
       dataSource,
-      dataSource.getRepository(OffboardingRequest) as Repository<OffboardingRequest>,
-      dataSource.getRepository(
-        OffboardingAccessOperation,
-      ) as Repository<OffboardingAccessOperation>,
+      dataSource.getRepository(OffboardingRequest),
+      dataSource.getRepository(OffboardingAccessOperation),
       executor,
     );
 
@@ -199,7 +200,9 @@ describe('Offboarding access termination (e2e, real Postgres)', () => {
       'SELECT status, access_terminated_at FROM offboarding_requests WHERE id = $1',
       [requestId],
     );
-    expect(requestRow.status).toBe(OffboardingRequestStatusEnum.READY_FOR_FINALIZATION);
+    expect(requestRow.status).toBe(
+      OffboardingRequestStatusEnum.READY_FOR_FINALIZATION,
+    );
     expect(requestRow.access_terminated_at).not.toBeNull();
 
     const [{ count: incompleteCount }] = await dataSource.query(
@@ -218,7 +221,9 @@ describe('Offboarding access termination (e2e, real Postgres)', () => {
           .fn()
           .mockRejectedValue(new Error('org-assignment service unavailable')),
       } as unknown as EmployeeAssignmentService,
-      { deleteEmployeeFromDevice: jest.fn() } as unknown as AccessControlSyncService,
+      {
+        deleteEmployeeFromDevice: jest.fn(),
+      } as unknown as AccessControlSyncService,
       {
         isLetterGenerated: jest.fn().mockResolvedValue(true),
         generateAndStore: jest.fn(),
@@ -227,10 +232,8 @@ describe('Offboarding access termination (e2e, real Postgres)', () => {
 
     const service = new OffboardingAccessTerminationService(
       dataSource,
-      dataSource.getRepository(OffboardingRequest) as Repository<OffboardingRequest>,
-      dataSource.getRepository(
-        OffboardingAccessOperation,
-      ) as Repository<OffboardingAccessOperation>,
+      dataSource.getRepository(OffboardingRequest),
+      dataSource.getRepository(OffboardingAccessOperation),
       executor,
     );
 

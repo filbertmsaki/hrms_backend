@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddSecurityAuditAndDataScopes1791200000000
-  implements MigrationInterface
-{
+export class AddSecurityAuditAndDataScopes1791200000000 implements MigrationInterface {
   name = 'AddSecurityAuditAndDataScopes1791200000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

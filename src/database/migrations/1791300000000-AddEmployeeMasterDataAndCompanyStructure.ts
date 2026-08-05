@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddEmployeeMasterDataAndCompanyStructure1791300000000
-  implements MigrationInterface
-{
+export class AddEmployeeMasterDataAndCompanyStructure1791300000000 implements MigrationInterface {
   name = 'AddEmployeeMasterDataAndCompanyStructure1791300000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -24,19 +22,27 @@ export class AddEmployeeMasterDataAndCompanyStructure1791300000000
       ALTER COLUMN "company_id" SET NOT NULL
     `);
 
-    await queryRunner.query(`
+    await queryRunner
+      .query(
+        `
       ALTER TABLE "employees"
       ADD CONSTRAINT "FK_employee_company"
       FOREIGN KEY ("company_id")
       REFERENCES "companies"("id")
       ON DELETE CASCADE
-    `).catch(() => undefined);
+    `,
+      )
+      .catch(() => undefined);
 
-    await queryRunner.query(`
+    await queryRunner
+      .query(
+        `
       ALTER TABLE "employees"
       ADD CONSTRAINT "UQ_employee_company_employee_no"
       UNIQUE ("company_id", "employee_no")
-    `).catch(() => undefined);
+    `,
+      )
+      .catch(() => undefined);
 
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "employee_number_sequences" (
@@ -142,37 +148,53 @@ export class AddEmployeeMasterDataAndCompanyStructure1791300000000
         END
     `);
 
-    await queryRunner.query(`
+    await queryRunner
+      .query(
+        `
       ALTER TABLE "employees"
       ADD CONSTRAINT "FK_employee_grade"
       FOREIGN KEY ("grade_id")
       REFERENCES "employee_grades"("id")
       ON DELETE SET NULL
-    `).catch(() => undefined);
+    `,
+      )
+      .catch(() => undefined);
 
-    await queryRunner.query(`
+    await queryRunner
+      .query(
+        `
       ALTER TABLE "employees"
       ADD CONSTRAINT "FK_employee_cost_center"
       FOREIGN KEY ("cost_center_id")
       REFERENCES "cost_centers"("id")
       ON DELETE SET NULL
-    `).catch(() => undefined);
+    `,
+      )
+      .catch(() => undefined);
 
-    await queryRunner.query(`
+    await queryRunner
+      .query(
+        `
       ALTER TABLE "employees"
       ADD CONSTRAINT "FK_employee_confirmed_by"
       FOREIGN KEY ("confirmed_by_company_user_id")
       REFERENCES "company_users"("id")
       ON DELETE SET NULL
-    `).catch(() => undefined);
+    `,
+      )
+      .catch(() => undefined);
 
-    await queryRunner.query(`
+    await queryRunner
+      .query(
+        `
       ALTER TABLE "employees"
       ADD CONSTRAINT "FK_employee_status_changed_by"
       FOREIGN KEY ("status_changed_by_company_user_id")
       REFERENCES "company_users"("id")
       ON DELETE SET NULL
-    `).catch(() => undefined);
+    `,
+      )
+      .catch(() => undefined);
 
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "employee_branch_assignments" (
@@ -295,13 +317,17 @@ export class AddEmployeeMasterDataAndCompanyStructure1791300000000
       ADD COLUMN IF NOT EXISTS "verified_by_company_user_id" integer
     `);
 
-    await queryRunner.query(`
+    await queryRunner
+      .query(
+        `
       ALTER TABLE "employee_identifications"
       ADD CONSTRAINT "FK_employee_identification_verified_by"
       FOREIGN KEY ("verified_by_company_user_id")
       REFERENCES "company_users"("id")
       ON DELETE SET NULL
-    `).catch(() => undefined);
+    `,
+      )
+      .catch(() => undefined);
 
     await queryRunner.query(`
       INSERT INTO "employee_branch_assignments" (

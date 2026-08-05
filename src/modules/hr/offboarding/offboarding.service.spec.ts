@@ -178,7 +178,9 @@ describe('OffboardingService', () => {
       { emit: jest.fn() } as unknown as EventEmitter2,
       { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService,
       filesService as unknown as FilesService,
-      { endAssignmentsForExit: jest.fn() } as unknown as EmployeeAssignmentService,
+      {
+        endAssignmentsForExit: jest.fn(),
+      } as unknown as EmployeeAssignmentService,
       { log: jest.fn() } as unknown as SecurityEventsService,
       createRepositoryMock<LeaveBalance>() as unknown as Repository<LeaveBalance>,
       {
@@ -462,18 +464,20 @@ describe('OffboardingService', () => {
         remarks: string | null;
       }> = {},
     ) =>
-      (service as unknown as {
-        assertAssetReturnRules: (
-          status: OffboardingAssetStatusEnum,
-          input: {
-            received_by_company_user_id: number | null;
-            condition_at_return: string | null;
-            liability_amount: string | null;
-            liability_acknowledged: boolean;
-            remarks: string | null;
-          },
-        ) => void;
-      }).assertAssetReturnRules(status, {
+      (
+        service as unknown as {
+          assertAssetReturnRules: (
+            status: OffboardingAssetStatusEnum,
+            input: {
+              received_by_company_user_id: number | null;
+              condition_at_return: string | null;
+              liability_amount: string | null;
+              liability_acknowledged: boolean;
+              remarks: string | null;
+            },
+          ) => void;
+        }
+      ).assertAssetReturnRules(status, {
         received_by_company_user_id: null,
         condition_at_return: null,
         liability_amount: null,
@@ -483,9 +487,9 @@ describe('OffboardingService', () => {
       });
 
     it('requires a receiver and return condition for RETURNED', () => {
-      expect(() =>
-        callRule(OffboardingAssetStatusEnum.RETURNED),
-      ).toThrow('receiver and a return condition');
+      expect(() => callRule(OffboardingAssetStatusEnum.RETURNED)).toThrow(
+        'receiver and a return condition',
+      );
 
       expect(() =>
         callRule(OffboardingAssetStatusEnum.RETURNED, {
@@ -496,9 +500,9 @@ describe('OffboardingService', () => {
     });
 
     it('requires a liability amount or explicit acknowledgement for MISSING', () => {
-      expect(() =>
-        callRule(OffboardingAssetStatusEnum.MISSING),
-      ).toThrow('liability amount or an explicit no-liability acknowledgement');
+      expect(() => callRule(OffboardingAssetStatusEnum.MISSING)).toThrow(
+        'liability amount or an explicit no-liability acknowledgement',
+      );
 
       expect(() =>
         callRule(OffboardingAssetStatusEnum.MISSING, {
@@ -514,9 +518,9 @@ describe('OffboardingService', () => {
     });
 
     it('requires a reason in remarks for WAIVED', () => {
-      expect(() =>
-        callRule(OffboardingAssetStatusEnum.WAIVED),
-      ).toThrow('waiver reason');
+      expect(() => callRule(OffboardingAssetStatusEnum.WAIVED)).toThrow(
+        'waiver reason',
+      );
 
       expect(() =>
         callRule(OffboardingAssetStatusEnum.WAIVED, {
@@ -526,9 +530,7 @@ describe('OffboardingService', () => {
     });
 
     it('does not restrict PENDING items', () => {
-      expect(() =>
-        callRule(OffboardingAssetStatusEnum.PENDING),
-      ).not.toThrow();
+      expect(() => callRule(OffboardingAssetStatusEnum.PENDING)).not.toThrow();
     });
   });
 

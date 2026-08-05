@@ -1,7 +1,4 @@
-import {
-  SetMetadata,
-  applyDecorators,
-} from '@nestjs/common';
+import { SetMetadata, applyDecorators } from '@nestjs/common';
 
 export const PERMISSIONS_KEY = 'required_permissions';
 export const PERMISSION_MATCH_MODE_KEY = 'permission_match_mode';

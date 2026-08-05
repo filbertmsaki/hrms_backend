@@ -311,14 +311,12 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
   {
     name: 'departments:manage-access',
     displayName: 'Manage department access',
-    description:
-      'Allow granting and revoking department-level user access',
+    description: 'Allow granting and revoking department-level user access',
   },
   {
     name: 'data_scope:company',
     displayName: 'Company-wide data scope',
-    description:
-      'Allow access to authorized records across the active company',
+    description: 'Allow access to authorized records across the active company',
   },
   {
     name: 'data_scope:branch',
@@ -328,20 +326,17 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
   {
     name: 'data_scope:department',
     displayName: 'Department data scope',
-    description:
-      'Restrict access to assigned or managed departments',
+    description: 'Restrict access to assigned or managed departments',
   },
   {
     name: 'data_scope:team',
     displayName: 'Reporting team data scope',
-    description:
-      'Restrict access to the user and direct reporting employees',
+    description: 'Restrict access to the user and direct reporting employees',
   },
   {
     name: 'data_scope:self',
     displayName: 'Self data scope',
-    description:
-      'Restrict access to the authenticated employee record',
+    description: 'Restrict access to the authenticated employee record',
   },
   // Positions
   {
@@ -1042,7 +1037,8 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
   {
     name: 'manager_self_service:read',
     displayName: 'Access manager self-service',
-    description: 'Allow access to the manager self-service dashboard and action inbox',
+    description:
+      'Allow access to the manager self-service dashboard and action inbox',
   },
   {
     name: 'manager_team:read',
@@ -1052,7 +1048,7 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
   {
     name: 'action_items:read-own',
     displayName: 'Read own action items',
-    description: 'Allow reading the current user\'s action inbox',
+    description: "Allow reading the current user's action inbox",
   },
   {
     name: 'dashboard:employee',

@@ -1,12 +1,12 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import nodemailer from 'nodemailer';
-import { MAILER_OPTIONS } from '@nestjs-modules/mailer/dist/constants/mailer.constant';
-import type { MailerTransportFactory } from '@nestjs-modules/mailer/dist/interfaces/mailer-transport-factory.interface';
-import type {
-  MailerOptions,
-  TransportType,
-} from '@nestjs-modules/mailer/dist/interfaces/mailer-options.interface';
+import {
+  MAILER_OPTIONS,
+  type MailerOptions,
+  type MailerTransportFactory,
+  type TransportType,
+} from '@nestjs-modules/mailer';
 import {
   applyMailRecipientSafety,
   appendMailRecipientSafetyDebugFooter,

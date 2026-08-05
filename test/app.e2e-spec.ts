@@ -1,3 +1,5 @@
+process.env.DB_NAME = 'hrms_test_db';
+
 import {
   INestApplication,
   RequestMethod,

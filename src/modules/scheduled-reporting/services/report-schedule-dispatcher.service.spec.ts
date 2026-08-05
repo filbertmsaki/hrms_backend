@@ -32,10 +32,12 @@ describe('ReportScheduleDispatcherService', () => {
       create: jest.fn((entity) => entity),
     };
     advisoryLockService = {
-      runWithLock: jest.fn(async (_key: string, callback: () => Promise<unknown>) => ({
-        acquired: true,
-        result: await callback(),
-      })),
+      runWithLock: jest.fn(
+        async (_key: string, callback: () => Promise<unknown>) => ({
+          acquired: true,
+          result: await callback(),
+        }),
+      ),
     };
 
     service = new ReportScheduleDispatcherService(

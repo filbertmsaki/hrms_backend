@@ -204,7 +204,9 @@ describe('EmployeeSelfServiceService', () => {
       {} as unknown as ActionItemsService,
       {} as unknown as HrDocumentsService,
       offboardingService as unknown as OffboardingService,
-      { getAccessibleEmployeeIds: jest.fn().mockResolvedValue(null) } as unknown as HrAccessService,
+      {
+        getAccessibleEmployeeIds: jest.fn().mockResolvedValue(null),
+      } as unknown as HrAccessService,
     );
   });
 

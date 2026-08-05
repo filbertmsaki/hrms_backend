@@ -1267,14 +1267,33 @@ export class OffboardingService {
       OffboardingAccessOperationTypeEnum.REVOKE_ACCESS_CREDENTIALS,
     ];
 
-    if (this.configService.get<boolean>('OFFBOARDING_DEVICE_REMOVAL_REQUIRED', true)) {
+    if (
+      this.configService.get<boolean>(
+        'OFFBOARDING_DEVICE_REMOVAL_REQUIRED',
+        true,
+      )
+    ) {
       operations.push(OffboardingAccessOperationTypeEnum.REMOVE_DEVICE_USER);
     }
-    if (this.configService.get<boolean>('OFFBOARDING_REQUIRE_RELIEVING_LETTER', true)) {
-      operations.push(OffboardingAccessOperationTypeEnum.GENERATE_RELIEVING_LETTER);
+    if (
+      this.configService.get<boolean>(
+        'OFFBOARDING_REQUIRE_RELIEVING_LETTER',
+        true,
+      )
+    ) {
+      operations.push(
+        OffboardingAccessOperationTypeEnum.GENERATE_RELIEVING_LETTER,
+      );
     }
-    if (this.configService.get<boolean>('OFFBOARDING_REQUIRE_SERVICE_LETTER', true)) {
-      operations.push(OffboardingAccessOperationTypeEnum.GENERATE_SERVICE_LETTER);
+    if (
+      this.configService.get<boolean>(
+        'OFFBOARDING_REQUIRE_SERVICE_LETTER',
+        true,
+      )
+    ) {
+      operations.push(
+        OffboardingAccessOperationTypeEnum.GENERATE_SERVICE_LETTER,
+      );
     }
 
     return operations;
@@ -2111,15 +2130,13 @@ export class OffboardingService {
       notice_period_waived: entity.notice_period_waived,
       notice_period_waiver_reason: entity.notice_period_waiver_reason,
       access_termination_mode: entity.access_termination_mode,
-      access_termination_scheduled_at:
-        entity.access_termination_scheduled_at,
+      access_termination_scheduled_at: entity.access_termination_scheduled_at,
       access_termination_started_at: entity.access_termination_started_at,
       access_terminated_at: entity.access_terminated_at,
       access_termination_failed_at: entity.access_termination_failed_at,
       access_termination_failure_reason:
         entity.access_termination_failure_reason,
-      access_termination_attempt_count:
-        entity.access_termination_attempt_count,
+      access_termination_attempt_count: entity.access_termination_attempt_count,
       access_termination_worker_id: entity.access_termination_worker_id,
       readiness_snapshot: entity.readiness_snapshot,
       readiness_checked_at: entity.readiness_checked_at,
@@ -4287,7 +4304,10 @@ export class OffboardingService {
       }
     }
 
-    if (status === OffboardingAssetStatusEnum.WAIVED && !input.remarks?.trim()) {
+    if (
+      status === OffboardingAssetStatusEnum.WAIVED &&
+      !input.remarks?.trim()
+    ) {
       throw new BadRequestException(
         'Waiving an asset requires a waiver reason in remarks',
       );

@@ -26,7 +26,9 @@ type EmployeeScope = Pick<
   Employee,
   'id' | 'primary_department_id' | 'primary_position_id' | 'primary_branch_id'
 > &
-  Partial<Pick<Employee, 'grade_id' | 'employment_type' | 'confirmation_status'>>;
+  Partial<
+    Pick<Employee, 'grade_id' | 'employment_type' | 'confirmation_status'>
+  >;
 
 type PolicyAssignment = {
   policy: LeavePolicy;
@@ -186,8 +188,7 @@ export class LeaveBalanceService {
       },
       {
         configured: policy.applicable_employment_type != null,
-        matches:
-          policy.applicable_employment_type === employee.employment_type,
+        matches: policy.applicable_employment_type === employee.employment_type,
         weight: 2,
       },
       {

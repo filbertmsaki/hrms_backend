@@ -76,7 +76,7 @@ describe('OffboardingWorkflowService.delegateApproval', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('allows an HR actor with delegate-any to delegate someone else\'s approval', async () => {
+  it("allows an HR actor with delegate-any to delegate someone else's approval", async () => {
     approvalRepository.findOne.mockResolvedValue(baseApproval());
     requestRepository.findOne.mockResolvedValue({
       id: 55,

@@ -1,3 +1,5 @@
+process.env.DB_NAME = 'hrms_test_db';
+
 let currentUser = {
   id: 7,
   email: 'admin@example.com',
@@ -45,6 +47,7 @@ import { PermissionsGuard } from '../src/common/guards/permissions.guard';
 import { TenantGuard } from '../src/common/guards/tenant.guard';
 import { FilesService } from '../src/modules/files/files.service';
 import { ImageProcessingService } from '../src/modules/files/image-processing.service';
+import { SecurityEventsService } from '../src/modules/security/security-events.service';
 import { DefaultAvatarsController } from '../src/modules/hr/default-avatars/default-avatars.controller';
 import { DefaultAvatarsService } from '../src/modules/hr/default-avatars/default-avatars.service';
 import { DefaultAvatar } from '../src/modules/hr/default-avatars/entities/default-avatar.entity';
@@ -158,6 +161,10 @@ describe('Default Avatar Upload (e2e)', () => {
         PermissionsGuard,
         TenantGuard,
         Reflector,
+        {
+          provide: SecurityEventsService,
+          useValue: { logBestEffort: jest.fn() },
+        },
         {
           provide: ConfigService,
           useValue: {

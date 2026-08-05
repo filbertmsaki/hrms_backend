@@ -22,6 +22,9 @@ export class EmployeeImportProcessor extends WorkerHost {
       return;
     }
 
-    await this.employeeImportService.processQueuedBatch(job.data, String(job.id));
+    await this.employeeImportService.processQueuedBatch(
+      job.data,
+      String(job.id),
+    );
   }
 }

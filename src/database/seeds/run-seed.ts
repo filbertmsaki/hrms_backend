@@ -6,7 +6,9 @@ function assertSecureSeederPasswords(): void {
   const requiredPasswords = [
     {
       key: 'PLATFORM_ADMIN_PASSWORD',
-      value: process.env.PLATFORM_ADMIN_PASSWORD ?? process.env.INITIAL_OWNER_PASSWORD,
+      value:
+        process.env.PLATFORM_ADMIN_PASSWORD ??
+        process.env.INITIAL_OWNER_PASSWORD,
     },
     {
       key: 'COMPANY_ADMIN_PASSWORD',

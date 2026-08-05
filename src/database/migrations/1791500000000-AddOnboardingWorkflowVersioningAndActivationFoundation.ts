@@ -1,10 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddOnboardingWorkflowVersioningAndActivationFoundation1791500000000
-  implements MigrationInterface
-{
-  name =
-    'AddOnboardingWorkflowVersioningAndActivationFoundation1791500000000';
+export class AddOnboardingWorkflowVersioningAndActivationFoundation1791500000000 implements MigrationInterface {
+  name = 'AddOnboardingWorkflowVersioningAndActivationFoundation1791500000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
