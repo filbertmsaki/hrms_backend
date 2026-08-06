@@ -53,6 +53,7 @@ import { SetMyNotificationPreferenceDto } from './dtos/set-my-notification-prefe
 import { NotificationPreferencesService } from '../../notifications/notification-preferences.service';
 import { ProbationService } from '../probation/probation.service';
 import { SubmitProbationSelfAssessmentDto } from '../probation/dtos/submit-probation-self-assessment.dto';
+import { EmployeeMovementsService } from '../employee-movements/employee-movements.service';
 
 @ApiTags('Employee Self Service')
 @ApiBearerAuth('access-token')
@@ -64,7 +65,32 @@ export class EmployeeSelfServiceController {
     private readonly profileChangeRequestsService: ProfileChangeRequestsService,
     private readonly notificationPreferencesService: NotificationPreferencesService,
     private readonly probationService: ProbationService,
+    private readonly employeeMovementsService: EmployeeMovementsService,
   ) {}
+
+  @Get('movements')
+  @ApiOperation({ summary: 'Get my employee movement requests' })
+  getMyMovements(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.employeeMovementsService.findMyMovements(req.user);
+  }
+
+  @Get('movements/:id')
+  @ApiOperation({ summary: 'Get one of my employee movement requests' })
+  getMyMovement(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.employeeMovementsService.findMyMovement(req.user, id);
+  }
+
+  @Post('movements/:id/acknowledge')
+  @ApiOperation({ summary: 'Acknowledge one of my employee movements' })
+  acknowledgeMyMovement(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.employeeMovementsService.acknowledgeMyMovement(req.user, id);
+  }
 
   @Get('probation')
   @ApiOperation({ summary: 'Get my probation and confirmation status' })

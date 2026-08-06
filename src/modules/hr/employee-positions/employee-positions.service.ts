@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -70,6 +71,17 @@ export class EmployeePositionsService {
           }
         : null,
     };
+  }
+
+  private assertPrimaryChangeAuthorized(actor: AuthenticatedUser): void {
+    if (
+      !actor.permissions.includes('employee_positions:correct-history')
+    ) {
+      throw new ForbiddenException(
+        'Primary position changes must be made through the employee movement workflow. ' +
+          'Use employee_positions:correct-history for authorized administrative corrections.',
+      );
+    }
   }
 
   private async findEmployeeOrFail(
@@ -179,6 +191,10 @@ export class EmployeePositionsService {
   ) {
     if (dto.end_date && new Date(dto.end_date) < new Date(dto.start_date)) {
       throw new BadRequestException('end_date cannot be before start_date');
+    }
+
+    if (dto.is_primary) {
+      this.assertPrimaryChangeAuthorized(actor);
     }
 
     const employee = await this.findEmployeeOrFail(companyId, dto.employee_id);
@@ -343,6 +359,11 @@ export class EmployeePositionsService {
     );
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
+    const willBePrimary = dto.is_primary ?? existing.is_primary;
+    if (existing.is_primary || willBePrimary) {
+      this.assertPrimaryChangeAuthorized(actor);
+    }
+
     const nextEmployee = dto.employee_id
       ? await this.findEmployeeOrFail(companyId, dto.employee_id)
       : employee;
@@ -420,6 +441,12 @@ export class EmployeePositionsService {
       assignment.employee_id,
     );
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    if (assignment.is_primary) {
+      throw new BadRequestException(
+        'Primary position assignments must be ended through an employee movement.',
+      );
+    }
 
     await this.dataSource.transaction(async (manager) => {
       assignment.status = EmployeePositionStatusEnum.COMPLETED;

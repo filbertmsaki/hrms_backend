@@ -15,6 +15,7 @@ import { OnboardingRequest } from '../onboarding/entities/onboarding-request.ent
 import { OnboardingRequestStatusEnum } from '../onboarding/enums/onboarding-request-status.enum';
 import { OffboardingRequest } from '../offboarding/entities/offboarding-request.entity';
 import { OffboardingRequestStatusEnum } from '../offboarding/enums/offboarding-request-status.enum';
+import { WorkActivityInsightsService } from '../work-activities/services/work-activity-insights.service';
 import { DashboardDateService } from './dashboard-date.service';
 import { DashboardQueryDto } from './dtos/dashboard-query.dto';
 
@@ -47,6 +48,7 @@ export class HrDashboardService {
     private readonly onboardingRequestRepository: Repository<OnboardingRequest>,
     @InjectRepository(OffboardingRequest)
     private readonly offboardingRequestRepository: Repository<OffboardingRequest>,
+    private readonly workActivityInsightsService: WorkActivityInsightsService,
   ) {}
 
   private async resolveScopedEmployeeIds(
@@ -118,6 +120,7 @@ export class HrDashboardService {
       offboardingActive,
       documentCompliance,
       manpower,
+      workActivitySummary,
     ] = await Promise.all([
       this.countByStatus(scopedIds, EmploymentStatusEnum.ACTIVE),
       this.countJoiners(scopedIds, period.dateFrom, period.dateTo),
@@ -139,6 +142,11 @@ export class HrDashboardService {
       this.countOffboardingActive(companyId, scopedIds),
       this.getDocumentCompliance(companyId, scopedIds),
       this.getManpowerDistribution(scopedIds),
+      this.workActivityInsightsService.getCompanySummary(
+        actor,
+        period.dateFrom,
+        period.dateTo,
+      ),
     ]);
 
     return {
@@ -166,6 +174,7 @@ export class HrDashboardService {
       },
       employee_document_compliance: documentCompliance,
       manpower,
+      work_activities: workActivitySummary,
       unavailable_widgets: [
         {
           code: 'PAYROLL_STATUS',

@@ -24,6 +24,10 @@ import {
   OnboardingRejectedEvent,
   OnboardingSubmittedEvent,
   OnboardingTaskAssignedEvent,
+  EmployeeMovementApprovalRequiredEvent,
+  EmployeeMovementApprovedEvent,
+  EmployeeMovementRejectedEvent,
+  EmployeeMovementAppliedEvent,
 } from '../hr/notifications/events';
 import type { SafeSendMailOptions } from './mail-recipient-safety.util';
 
@@ -221,6 +225,67 @@ export class MailService {
         context: { ...this.baseCtx(), approverName, ...event },
       },
       'HrNotificationListener.sendLeaveCancelledNotification',
+    );
+  }
+
+  async sendEmployeeMovementApprovalRequiredNotification(
+    to: string,
+    approverName: string,
+    event: EmployeeMovementApprovalRequiredEvent,
+  ): Promise<void> {
+    await this.sendMail(
+      {
+        to,
+        subject: `Action Required: Movement Approval for ${event.employeeName}`,
+        template: 'hr-employee-movement-approval-required',
+        context: { ...this.baseCtx(), approverName, ...event },
+      },
+      'HrNotificationListener.sendEmployeeMovementApprovalRequiredNotification',
+    );
+  }
+
+  async sendEmployeeMovementApprovedNotification(
+    to: string,
+    event: EmployeeMovementApprovedEvent,
+  ): Promise<void> {
+    await this.sendMail(
+      {
+        to,
+        subject: `Your Movement Request Has Been Approved - ${event.movementNo}`,
+        template: 'hr-employee-movement-approved',
+        context: { ...this.baseCtx(), ...event },
+      },
+      'HrNotificationListener.sendEmployeeMovementApprovedNotification',
+    );
+  }
+
+  async sendEmployeeMovementRejectedNotification(
+    to: string,
+    event: EmployeeMovementRejectedEvent,
+  ): Promise<void> {
+    await this.sendMail(
+      {
+        to,
+        subject: `Your Movement Request Was Not Approved - ${event.movementNo}`,
+        template: 'hr-employee-movement-rejected',
+        context: { ...this.baseCtx(), ...event },
+      },
+      'HrNotificationListener.sendEmployeeMovementRejectedNotification',
+    );
+  }
+
+  async sendEmployeeMovementAppliedNotification(
+    to: string,
+    event: EmployeeMovementAppliedEvent,
+  ): Promise<void> {
+    await this.sendMail(
+      {
+        to,
+        subject: `Your Movement Has Taken Effect - ${event.movementNo}`,
+        template: 'hr-employee-movement-applied',
+        context: { ...this.baseCtx(), ...event },
+      },
+      'HrNotificationListener.sendEmployeeMovementAppliedNotification',
     );
   }
 

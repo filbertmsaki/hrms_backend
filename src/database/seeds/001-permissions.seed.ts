@@ -1991,6 +1991,12 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow applying approved or scheduled employee movements',
   },
   {
+    name: 'employee_movements:retry',
+    displayName: 'Retry failed movement operations',
+    description:
+      'Allow retrying failed or skipped downstream movement operations',
+  },
+  {
     name: 'employee_movements:cancel',
     displayName: 'Cancel employee movements',
     description: 'Allow cancelling an employee movement before it is applied',
@@ -2005,6 +2011,281 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     name: 'employee_compensation:read',
     displayName: 'Read employee compensation history',
     description: 'Allow viewing employee compensation version history',
+  },
+  {
+    name: 'employee_positions:correct-history',
+    displayName: 'Correct employee position history',
+    description:
+      'Allow direct creation, modification, or ending of primary position assignments outside the movement workflow, for authorized administrative corrections only',
+  },
+  {
+    name: 'employee_movements:read-own',
+    displayName: 'Read own employee movements',
+    description: 'Allow an employee to view their own movement requests',
+  },
+  {
+    name: 'employee_movements:acknowledge-own',
+    displayName: 'Acknowledge own employee movement',
+    description:
+      'Allow an employee to acknowledge a completed movement affecting them',
+  },
+  {
+    name: 'performance_financial_years:read',
+    displayName: 'Read performance financial years',
+    description: 'Allow viewing performance financial years',
+  },
+  {
+    name: 'performance_financial_years:create',
+    displayName: 'Create performance financial years',
+    description: 'Allow creating performance financial years',
+  },
+  {
+    name: 'performance_periods:read',
+    displayName: 'Read performance periods',
+    description: 'Allow viewing performance periods',
+  },
+  {
+    name: 'performance_periods:create',
+    displayName: 'Generate performance periods',
+    description: 'Allow generating monthly and quarterly performance periods',
+  },
+  {
+    name: 'performance_rating_scales:read',
+    displayName: 'Read performance rating scales',
+    description: 'Allow viewing performance rating scales',
+  },
+  {
+    name: 'performance_rating_scales:create',
+    displayName: 'Create performance rating scales',
+    description: 'Allow creating performance rating scales',
+  },
+  {
+    name: 'performance_competencies:read',
+    displayName: 'Read competency templates',
+    description: 'Allow viewing competency templates and competency appraisal setup',
+  },
+  {
+    name: 'performance_competencies:create',
+    displayName: 'Create competency templates',
+    description: 'Allow creating competency templates for appraisals',
+  },
+  {
+    name: 'kpi_definitions:read',
+    displayName: 'Read KPI definitions',
+    description: 'Allow viewing KPI definitions and versions',
+  },
+  {
+    name: 'kpi_definitions:create',
+    displayName: 'Create KPI definitions',
+    description: 'Allow creating KPI definitions',
+  },
+  {
+    name: 'kpi_definitions:update',
+    displayName: 'Update KPI definitions',
+    description: 'Allow creating new KPI definition versions',
+  },
+  {
+    name: 'kpi_applicability_rules:read',
+    displayName: 'Read KPI applicability rules',
+    description: 'Allow viewing KPI applicability rules and matching logic',
+  },
+  {
+    name: 'kpi_applicability_rules:create',
+    displayName: 'Create KPI applicability rules',
+    description: 'Allow creating KPI applicability rules',
+  },
+  {
+    name: 'kpi_templates:read',
+    displayName: 'Read KPI templates',
+    description: 'Allow viewing KPI templates',
+  },
+  {
+    name: 'kpi_templates:create',
+    displayName: 'Create KPI templates',
+    description: 'Allow creating KPI templates',
+  },
+  {
+    name: 'performance_plans:read',
+    displayName: 'Read performance plans',
+    description: 'Allow viewing employee performance plans',
+  },
+  {
+    name: 'performance_plans:create',
+    displayName: 'Create performance plans',
+    description: 'Allow assigning employee performance plans',
+  },
+  {
+    name: 'performance_assignments:create',
+    displayName: 'Create performance assignments',
+    description:
+      'Allow freezing monthly or quarterly KPI assignments for employees',
+  },
+  {
+    name: 'performance_reviews:self-review',
+    displayName: 'Submit performance self review',
+    description: 'Allow employees to submit their own performance review',
+  },
+  {
+    name: 'performance_reviews:approve',
+    displayName: 'Approve performance reviews',
+    description: 'Allow HR to approve and publish performance reviews',
+  },
+  {
+    name: 'performance_reviews:moderate',
+    displayName: 'Moderate performance reviews',
+    description: 'Allow moderated score adjustments for performance reviews',
+  },
+  {
+    name: 'performance_reviews:reopen',
+    displayName: 'Reopen performance reviews',
+    description: 'Allow reopening published performance reviews into a new revision',
+  },
+  {
+    name: 'performance_reviews:appeal',
+    displayName: 'Submit performance appeals',
+    description: 'Allow employees to appeal their own published performance reviews',
+  },
+  {
+    name: 'performance_reviews:appeal-review',
+    displayName: 'Review performance appeals',
+    description: 'Allow HR or management to view and handle performance appeals',
+  },
+  {
+    name: 'performance_kpis:sync',
+    displayName: 'Sync system KPI achievements',
+    description:
+      'Allow recalculating attendance and leave derived KPI achievements',
+  },
+  {
+    name: 'performance_aggregates:read',
+    displayName: 'Read performance aggregates',
+    description: 'Allow viewing quarterly and annual performance aggregates',
+  },
+  {
+    name: 'performance_aggregates:calculate',
+    displayName: 'Calculate performance aggregates',
+    description:
+      'Allow calculating quarterly and annual employee performance aggregates',
+  },
+  {
+    name: 'performance_dashboards:read',
+    displayName: 'Read performance dashboards',
+    description: 'Allow viewing company performance summaries and dashboards',
+  },
+  {
+    name: 'performance_self_service:read',
+    displayName: 'Read own performance',
+    description: 'Allow employees to view their own performance records',
+  },
+  {
+    name: 'performance_self_service:update',
+    displayName: 'Update own KPI achievements',
+    description: 'Allow employees to update their own KPI achievements',
+  },
+  {
+    name: 'performance_manager:read',
+    displayName: 'Read team performance',
+    description: 'Allow managers to view performance data for assigned teams',
+  },
+  {
+    name: 'performance_manager:review',
+    displayName: 'Submit manager performance review',
+    description: 'Allow managers to submit review comments and competency ratings',
+  },
+  {
+    name: 'performance_manager:validate',
+    displayName: 'Validate team KPI achievements',
+    description: 'Allow managers to validate assigned KPI achievements',
+  },
+  {
+    name: 'performance_pip:read',
+    displayName: 'Read performance improvement plans',
+    description: 'Allow viewing performance improvement plans and milestones',
+  },
+  {
+    name: 'performance_pip:create',
+    displayName: 'Create performance improvement plans',
+    description: 'Allow creating performance improvement plans for reviews',
+  },
+  {
+    name: 'performance_pip:review',
+    displayName: 'Review performance improvement milestones',
+    description: 'Allow reviewing performance improvement plan milestones',
+  },
+  {
+    name: 'performance_pip:close',
+    displayName: 'Close performance improvement plans',
+    description: 'Allow closing completed performance improvement plans',
+  },
+  {
+    name: 'work_activities:self-service:read',
+    displayName: 'Read own work activities',
+    description: 'Allow employees to view their own daily activities and activity reports',
+  },
+  {
+    name: 'work_activities:self-service:update',
+    displayName: 'Update own work activities',
+    description: 'Allow employees to create and submit their own daily activity reports',
+  },
+  {
+    name: 'field_visits:self-service:read',
+    displayName: 'Read own field visits',
+    description: 'Allow employees to view their own field visit plans, visits, and follow-ups',
+  },
+  {
+    name: 'field_visits:self-service:update',
+    displayName: 'Update own field visits',
+    description: 'Allow employees to manage their own field visit plans, check-ins, evidence, and expenses',
+  },
+  {
+    name: 'work_activities:manager:read',
+    displayName: 'Read team work activities',
+    description: 'Allow managers to view team daily activity reports and dashboards',
+  },
+  {
+    name: 'work_activities:manager:review',
+    displayName: 'Review team work activities',
+    description: 'Allow managers to approve, return, or reject daily activity reports',
+  },
+  {
+    name: 'field_visits:manager:read',
+    displayName: 'Read team field visits',
+    description: 'Allow managers to view team field visit plans, visits, and dashboards',
+  },
+  {
+    name: 'field_visits:manager:review',
+    displayName: 'Review team field visits',
+    description: 'Allow managers to review field visits, opportunities, and visit expenses',
+  },
+  {
+    name: 'work_activities:config',
+    displayName: 'Configure work activities',
+    description: 'Allow HR to manage activity categories and activity policies',
+  },
+  {
+    name: 'field_visits:config',
+    displayName: 'Configure field visits',
+    description: 'Allow HR to manage field party references and visit policies',
+  },
+  {
+    name: 'work_activities:hr:read',
+    displayName: 'Read work activity summaries',
+    description: 'Allow HR to view company work-activity reports, dashboards, and exceptions',
+  },
+  {
+    name: 'field_visits:hr:read',
+    displayName: 'Read field visit summaries',
+    description: 'Allow HR to view company field-visit reports, dashboards, and exceptions',
+  },
+  {
+    name: 'field_locations:read',
+    displayName: 'Read field locations',
+    description: 'Allow authorized users to view approved field-visit map locations',
+  },
+  {
+    name: 'field_locations:export',
+    displayName: 'Export field locations',
+    description: 'Allow authorized users to export approved field-visit map locations',
   },
 ];
 

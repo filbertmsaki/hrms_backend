@@ -9,12 +9,14 @@ import { OnboardingRequest } from '../onboarding/entities/onboarding-request.ent
 import { OffboardingRequest } from '../offboarding/entities/offboarding-request.entity';
 import { EmployeeSelfServiceModule } from '../self-service/employee-self-service.module';
 import { ManagerSelfServiceModule } from '../manager-self-service/manager-self-service.module';
+import { PerformanceModule } from '../performance/performance.module';
 import { DashboardsController } from './dashboards.controller';
 import { DashboardDateService } from './dashboard-date.service';
 import { EmployeeDashboardService } from './employee-dashboard.service';
 import { ManagerDashboardService } from './manager-dashboard.service';
 import { HrDashboardService } from './hr-dashboard.service';
 import { ManagementDashboardService } from './management-dashboard.service';
+import { WorkActivitiesModule } from '../work-activities/work-activities.module';
 
 @Module({
   imports: [
@@ -29,6 +31,8 @@ import { ManagementDashboardService } from './management-dashboard.service';
     HrSharedModule,
     EmployeeSelfServiceModule,
     ManagerSelfServiceModule,
+    PerformanceModule,
+    WorkActivitiesModule,
   ],
   controllers: [DashboardsController],
   providers: [

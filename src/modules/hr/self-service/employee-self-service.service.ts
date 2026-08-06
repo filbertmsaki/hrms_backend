@@ -64,6 +64,7 @@ import { OffboardingRequest } from '../offboarding/entities/offboarding-request.
 import { OffboardingService } from '../offboarding/offboarding.service';
 import { OffboardingTypeEnum } from '../offboarding/enums/offboarding-type.enum';
 import { HrAccessService } from '../shared/hr-access.service';
+import { WorkActivityInsightsService } from '../work-activities/services/work-activity-insights.service';
 
 type EmployeeProfileShape = {
   id?: number;
@@ -138,6 +139,7 @@ export class EmployeeSelfServiceService {
     private readonly hrDocumentsService: HrDocumentsService,
     private readonly offboardingService: OffboardingService,
     private readonly hrAccessService: HrAccessService,
+    private readonly workActivityInsightsService: WorkActivityInsightsService,
   ) {}
 
   async getMyActionItems(actor: AuthenticatedUser, query: ActionItemQueryDto) {
@@ -547,6 +549,7 @@ export class EmployeeSelfServiceService {
       pendingLeaveCounts,
       upcomingApprovedLeave,
       schedulePreview,
+      workActivitySummary,
     ] = await Promise.all([
       this.usersService.findMyProfileById(actor.id, companyId),
       this.getTodayAttendance(actor),
@@ -576,6 +579,7 @@ export class EmployeeSelfServiceService {
       this.buildLeaveCounts(companyId, employeeId),
       this.findUpcomingApprovedLeave(companyId, employeeId, today),
       this.getAttendanceSchedule(actor, { from_date: today, days: 7 }),
+      this.workActivityInsightsService.getEmployeeSummary(actor),
     ]);
     const pending = await this.getPendingProfileChangeSummary(
       companyId,
@@ -605,6 +609,7 @@ export class EmployeeSelfServiceService {
         upcoming_approved_leave: upcomingApprovedLeave,
       },
       schedule_preview: schedulePreview,
+      work_activities: workActivitySummary,
       action_flags: {
         can_check_in: todayAttendance.action_flags.can_check_in,
         can_check_out: todayAttendance.action_flags.can_check_out,
@@ -624,6 +629,8 @@ export class EmployeeSelfServiceService {
         attendance_punches: '/me/attendance/punches',
         attendance_check_in: '/me/attendance/check-in',
         attendance_check_out: '/me/attendance/check-out',
+        daily_activities: '/me/activities',
+        field_visits: '/me/field-visits',
         leave_balances: '/me/leave/balances',
         leave_requests: '/me/leave/requests',
       },

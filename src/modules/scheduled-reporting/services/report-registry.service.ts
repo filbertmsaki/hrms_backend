@@ -3,6 +3,7 @@ import { ReportOutputFormatEnum } from '../enums/report-output-format.enum';
 import { ReportRunner } from '../interfaces/report-runner.interface';
 import { AttendanceSummaryReportRunner } from './runners/attendance-summary-report-runner.service';
 import { EmployeeMasterReportRunner } from './runners/employee-master-report-runner.service';
+import { PerformanceSummaryReportRunner } from './runners/performance-summary-report-runner.service';
 
 export type RegisteredReportDefinition = {
   reportCode: string;
@@ -68,11 +69,31 @@ export class ReportRegistryService {
         backgroundGenerationSupported: false,
       },
     ],
+    [
+      'PERFORMANCE_SUMMARY',
+      {
+        reportCode: 'PERFORMANCE_SUMMARY',
+        name: 'Performance Summary',
+        supportedFormats: [ReportOutputFormatEnum.CSV],
+        supportedFilterFields: [
+          'company_id',
+          'employee_id',
+          'department_id',
+          'branch_id',
+          'financial_year_id',
+          'period_type',
+        ],
+        requiredPermissions: ['performance_dashboards:read'],
+        emailDeliverySupported: true,
+        backgroundGenerationSupported: false,
+      },
+    ],
   ]);
 
   constructor(
     private readonly attendanceSummaryReportRunner: AttendanceSummaryReportRunner,
     private readonly employeeMasterReportRunner: EmployeeMasterReportRunner,
+    private readonly performanceSummaryReportRunner: PerformanceSummaryReportRunner,
   ) {}
 
   private readonly runners = new Map<string, ReportRunner>();
@@ -89,6 +110,10 @@ export class ReportRegistryService {
     this.runners.set(
       this.employeeMasterReportRunner.reportCode,
       this.employeeMasterReportRunner,
+    );
+    this.runners.set(
+      this.performanceSummaryReportRunner.reportCode,
+      this.performanceSummaryReportRunner,
     );
   }
 

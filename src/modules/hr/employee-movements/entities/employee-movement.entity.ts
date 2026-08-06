@@ -103,6 +103,20 @@ export class EmployeeMovement {
   @Column({ type: 'jsonb', nullable: true })
   metadata: Record<string, unknown> | null;
 
+  @Column({
+    name: 'employee_acknowledgement_required',
+    type: 'boolean',
+    default: false,
+  })
+  employeeAcknowledgementRequired: boolean;
+
+  @Column({
+    name: 'employee_acknowledged_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  employeeAcknowledgedAt: Date | null;
+
   @VersionColumn()
   version: number;
 

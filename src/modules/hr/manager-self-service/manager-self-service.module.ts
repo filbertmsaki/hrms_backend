@@ -8,6 +8,8 @@ import { AttendanceCorrectionRequest } from '../self-service/entities/attendance
 import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { ManagerSelfServiceController } from './manager-self-service.controller';
 import { ManagerSelfServiceService } from './manager-self-service.service';
+import { PerformanceModule } from '../performance/performance.module';
+import { WorkActivitiesModule } from '../work-activities/work-activities.module';
 
 @Module({
   imports: [
@@ -19,6 +21,8 @@ import { ManagerSelfServiceService } from './manager-self-service.service';
     ]),
     HrSharedModule,
     ActionInboxModule,
+    PerformanceModule,
+    WorkActivitiesModule,
   ],
   controllers: [ManagerSelfServiceController],
   providers: [ManagerSelfServiceService],

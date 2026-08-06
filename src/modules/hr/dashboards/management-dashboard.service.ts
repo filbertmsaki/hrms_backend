@@ -12,6 +12,8 @@ import { OnboardingRequest } from '../onboarding/entities/onboarding-request.ent
 import { OnboardingRequestStatusEnum } from '../onboarding/enums/onboarding-request-status.enum';
 import { OffboardingRequest } from '../offboarding/entities/offboarding-request.entity';
 import { OffboardingRequestStatusEnum } from '../offboarding/enums/offboarding-request-status.enum';
+import { PerformanceInsightsService } from '../performance/services/performance-insights.service';
+import { WorkActivityInsightsService } from '../work-activities/services/work-activity-insights.service';
 import { DashboardDateService } from './dashboard-date.service';
 import { DashboardQueryDto } from './dtos/dashboard-query.dto';
 
@@ -42,6 +44,8 @@ export class ManagementDashboardService {
     private readonly onboardingRequestRepository: Repository<OnboardingRequest>,
     @InjectRepository(OffboardingRequest)
     private readonly offboardingRequestRepository: Repository<OffboardingRequest>,
+    private readonly performanceInsightsService: PerformanceInsightsService,
+    private readonly workActivityInsightsService: WorkActivityInsightsService,
   ) {}
 
   async getDashboard(actor: AuthenticatedUser, query: DashboardQueryDto) {
@@ -69,6 +73,8 @@ export class ManagementDashboardService {
       onboardingOverdue,
       offboardingActive,
       offboardingPendingAccessTermination,
+      performanceSummary,
+      workActivitySummary,
     ] = await Promise.all([
       employeeIds.length
         ? this.employeeRepository.count({
@@ -101,6 +107,12 @@ export class ManagementDashboardService {
       this.countOnboardingOverdue(companyId, employeeIds, period.today),
       this.countOffboardingActive(companyId, employeeIds),
       this.countOffboardingPendingAccessTermination(companyId, employeeIds),
+      this.performanceInsightsService.getCompanySummary(actor),
+      this.workActivityInsightsService.getCompanySummary(
+        actor,
+        period.dateFrom,
+        period.dateTo,
+      ),
     ]);
 
     const attritionRate =
@@ -129,6 +141,8 @@ export class ManagementDashboardService {
         active_cases: offboardingActive,
         pending_access_terminations: offboardingPendingAccessTermination,
       },
+      performance: performanceSummary,
+      work_activities: workActivitySummary,
       unavailable_widgets: [
         {
           code: 'PAYROLL_COST',
@@ -141,19 +155,13 @@ export class ManagementDashboardService {
           reason: 'Staff loan management is not implemented.',
         },
         {
-          code: 'KPI_ACHIEVEMENT',
-          available: false,
-          reason: 'KPI and performance management are not implemented.',
-        },
-        {
           code: 'TOP_PERFORMERS',
           available: false,
           reason: 'Performance scoring is not implemented.',
         },
         {
           code: 'FIELD_PRODUCTIVITY',
-          available: false,
-          reason: 'Daily activity and field-visit modules are not implemented.',
+          available: true,
         },
       ],
     };

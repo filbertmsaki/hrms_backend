@@ -108,4 +108,25 @@ export class EmployeeMovementsController {
   apply(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.service.apply(req.user, id);
   }
+
+  @Get(':id/operations')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_movements:read')
+  findOperations(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.service.findOperations(req.user, id);
+  }
+
+  @Post(':id/operations/:operationId/retry')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_movements:retry')
+  retryOperation(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('operationId', ParseIntPipe) operationId: number,
+  ) {
+    return this.service.retryOperation(req.user, id, operationId);
+  }
 }

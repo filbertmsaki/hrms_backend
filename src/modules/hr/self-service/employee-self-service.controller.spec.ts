@@ -9,6 +9,7 @@ import { ProfileChangeRequestsService } from './profile-change-requests.service'
 import { EmployeeSelfServiceService } from './employee-self-service.service';
 import { NotificationPreferencesService } from '../../notifications/notification-preferences.service';
 import { ProbationService } from '../probation/probation.service';
+import { EmployeeMovementsService } from '../employee-movements/employee-movements.service';
 
 describe('EmployeeSelfServiceController', () => {
   let controller: EmployeeSelfServiceController;
@@ -29,6 +30,11 @@ describe('EmployeeSelfServiceController', () => {
   let probationService: {
     getMyProbation: jest.Mock;
     submitSelfAssessment: jest.Mock;
+  };
+  let employeeMovementsService: {
+    findMyMovements: jest.Mock;
+    findMyMovement: jest.Mock;
+    acknowledgeMyMovement: jest.Mock;
   };
 
   const user: AuthenticatedUser = {
@@ -63,12 +69,18 @@ describe('EmployeeSelfServiceController', () => {
       getMyProbation: jest.fn(),
       submitSelfAssessment: jest.fn(),
     };
+    employeeMovementsService = {
+      findMyMovements: jest.fn(),
+      findMyMovement: jest.fn(),
+      acknowledgeMyMovement: jest.fn(),
+    };
 
     controller = new EmployeeSelfServiceController(
       employeeSelfServiceService as unknown as EmployeeSelfServiceService,
       profileChangeRequestsService as unknown as ProfileChangeRequestsService,
       notificationPreferencesService as unknown as NotificationPreferencesService,
       probationService as unknown as ProbationService,
+      employeeMovementsService as unknown as EmployeeMovementsService,
     );
   });
 

@@ -23,6 +23,10 @@ import {
   OffboardingSubmittedEvent,
   OffboardingTaskAssignedEvent,
   OffboardingTaskOverdueEvent,
+  EmployeeMovementApprovalRequiredEvent,
+  EmployeeMovementApprovedEvent,
+  EmployeeMovementRejectedEvent,
+  EmployeeMovementAppliedEvent,
 } from './events';
 
 @Injectable()
@@ -104,6 +108,59 @@ export class HrNotificationListener {
         ),
       );
     }
+  }
+
+  // ── EMPLOYEE MOVEMENTS ──────────────────────────────────────────────────────
+
+  @OnEvent(EmployeeMovementApprovalRequiredEvent.EVENT)
+  async onEmployeeMovementApprovalRequired(
+    event: EmployeeMovementApprovalRequiredEvent,
+  ): Promise<void> {
+    for (const approver of event.approvers) {
+      await this.send(() =>
+        this.mailService.sendEmployeeMovementApprovalRequiredNotification(
+          approver.email,
+          approver.name,
+          event,
+        ),
+      );
+    }
+  }
+
+  @OnEvent(EmployeeMovementApprovedEvent.EVENT)
+  async onEmployeeMovementApproved(
+    event: EmployeeMovementApprovedEvent,
+  ): Promise<void> {
+    await this.send(() =>
+      this.mailService.sendEmployeeMovementApprovedNotification(
+        event.employeeEmail,
+        event,
+      ),
+    );
+  }
+
+  @OnEvent(EmployeeMovementRejectedEvent.EVENT)
+  async onEmployeeMovementRejected(
+    event: EmployeeMovementRejectedEvent,
+  ): Promise<void> {
+    await this.send(() =>
+      this.mailService.sendEmployeeMovementRejectedNotification(
+        event.employeeEmail,
+        event,
+      ),
+    );
+  }
+
+  @OnEvent(EmployeeMovementAppliedEvent.EVENT)
+  async onEmployeeMovementApplied(
+    event: EmployeeMovementAppliedEvent,
+  ): Promise<void> {
+    await this.send(() =>
+      this.mailService.sendEmployeeMovementAppliedNotification(
+        event.employeeEmail,
+        event,
+      ),
+    );
   }
 
   // ── ONBOARDING ─────────────────────────────────────────────────────────────

@@ -22,6 +22,8 @@ import { ManagerSelfServiceModule } from './manager-self-service/manager-self-se
 import { DashboardsModule } from './dashboards/dashboards.module';
 import { ProbationModule } from './probation/probation.module';
 import { EmployeeMovementsModule } from './employee-movements/employee-movements.module';
+import { PerformanceModule } from './performance/performance.module';
+import { WorkActivitiesModule } from './work-activities/work-activities.module';
 
 @Module({
   imports: [
@@ -43,6 +45,8 @@ import { EmployeeMovementsModule } from './employee-movements/employee-movements
     ManagerSelfServiceModule,
     DashboardsModule,
     ProbationModule,
+    PerformanceModule,
+    WorkActivitiesModule,
     EmployeeMovementsModule,
     OnboardingModule,
     OffboardingModule,

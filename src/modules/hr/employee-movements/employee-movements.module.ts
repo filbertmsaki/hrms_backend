@@ -18,6 +18,8 @@ import { EmployeeMovement } from './entities/employee-movement.entity';
 import { EmployeeMovementChange } from './entities/employee-movement-change.entity';
 import { EmployeeMovementNumberSequence } from './entities/employee-movement-number-sequence.entity';
 import { EmployeeCompensationVersion } from './entities/employee-compensation-version.entity';
+import { EmployeeMovementOperation } from './entities/employee-movement-operation.entity';
+import { ProbationCase } from '../probation/entities/probation-case.entity';
 import { EmployeeMovementsController } from './employee-movements.controller';
 import { EmployeeMovementsService } from './employee-movements.service';
 
@@ -28,6 +30,8 @@ import { EmployeeMovementsService } from './employee-movements.service';
       EmployeeMovementChange,
       EmployeeMovementNumberSequence,
       EmployeeCompensationVersion,
+      EmployeeMovementOperation,
+      ProbationCase,
       Employee,
       EmployeeBranchAssignment,
       EmployeeDepartmentAssignmentHistory,

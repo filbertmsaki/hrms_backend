@@ -6,6 +6,8 @@ import { FilesModule } from '../files/files.module';
 import { AttendanceDailySummary } from '../hr/attendance/processing/entities/attendance-daily-summary.entity';
 import { Department } from '../hr/departments/entities/department.entity';
 import { Employee } from '../hr/employees/entities/employee.entity';
+import { PerformanceAggregate } from '../hr/performance/entities/performance-aggregate.entity';
+import { PerformanceReview } from '../hr/performance/entities/performance-review.entity';
 import { Role } from '../roles/entities/role.entity';
 import { ReportDefinition } from './entities/report-definition.entity';
 import { ReportExecution } from './entities/report-execution.entity';
@@ -25,6 +27,7 @@ import { ReportScheduleDispatcherService } from './services/report-schedule-disp
 import { ReportSmtpService } from './services/report-smtp.service';
 import { AttendanceSummaryReportRunner } from './services/runners/attendance-summary-report-runner.service';
 import { EmployeeMasterReportRunner } from './services/runners/employee-master-report-runner.service';
+import { PerformanceSummaryReportRunner } from './services/runners/performance-summary-report-runner.service';
 
 @Module({
   imports: [
@@ -43,6 +46,8 @@ import { EmployeeMasterReportRunner } from './services/runners/employee-master-r
       Department,
       Role,
       AttendanceDailySummary,
+      PerformanceReview,
+      PerformanceAggregate,
     ]),
     FilesModule,
   ],
@@ -56,6 +61,7 @@ import { EmployeeMasterReportRunner } from './services/runners/employee-master-r
     ReportScheduleDispatcherService,
     AttendanceSummaryReportRunner,
     EmployeeMasterReportRunner,
+    PerformanceSummaryReportRunner,
     PostgresAdvisoryLockService,
   ],
   exports: [TypeOrmModule, ScheduledReportingService],

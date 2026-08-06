@@ -52,6 +52,7 @@ describe('EmployeeMovementsService', () => {
     isPositionAvailableForBranch: jest.Mock;
   };
   let movementRepository: MockRepo;
+  let eventEmitter: { emit: jest.Mock };
 
   const actor: AuthenticatedUser = {
     id: 1,
@@ -108,12 +109,14 @@ describe('EmployeeMovementsService', () => {
       isPositionAvailableForBranch: jest.fn().mockResolvedValue(true),
     };
     movementRepository = createRepositoryMock();
+    eventEmitter = { emit: jest.fn() };
 
     service = new EmployeeMovementsService(
       dataSource as never,
       configService as never,
       hrAccessService as never,
       positionAvailabilityService as never,
+      eventEmitter as never,
       movementRepository as never,
     );
   });
@@ -244,6 +247,10 @@ describe('EmployeeMovementsService', () => {
         changes: [
           { field: EmployeeMovementFieldEnum.BASE_SALARY } as never,
         ],
+        metadata: {
+          approval_steps: ['PRIMARY', 'FINANCE'],
+          completed_approval_steps: ['PRIMARY'],
+        },
       });
       const movementRepo = createRepositoryMock();
       movementRepo.createQueryBuilder.mockReturnValue(
@@ -263,6 +270,10 @@ describe('EmployeeMovementsService', () => {
       const movement = buildMovement({
         requestedByCompanyUserId: 999,
         movementType: EmployeeMovementTypeEnum.PROMOTION,
+        metadata: {
+          approval_steps: ['PRIMARY', 'MANAGEMENT'],
+          completed_approval_steps: ['PRIMARY'],
+        },
       });
       const movementRepo = createRepositoryMock();
       movementRepo.createQueryBuilder.mockReturnValue(
