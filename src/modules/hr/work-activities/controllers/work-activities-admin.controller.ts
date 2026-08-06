@@ -27,10 +27,10 @@ import {
 } from '../dto/activity.dto';
 import { FieldLocationMapQueryDto, WorkActivityQueryDto } from '../dto/queries.dto';
 import { ActivityPolicyService } from '../services/activity-policy.service';
+import { DailyActivityService } from '../services/daily-activity.service';
 import { FieldPartyService } from '../services/field-party.service';
 import { FieldVisitService } from '../services/field-visit.service';
 import { WorkActivityExceptionService } from '../services/work-activity-exception.service';
-import { WorkActivityInsightsService } from '../services/work-activity-insights.service';
 
 type AuthedRequest = ExpressRequest & { user: AuthenticatedUser };
 
@@ -41,9 +41,9 @@ type AuthedRequest = ExpressRequest & { user: AuthenticatedUser };
 export class WorkActivitiesAdminController {
   constructor(
     private readonly policyService: ActivityPolicyService,
+    private readonly dailyActivityService: DailyActivityService,
     private readonly fieldPartyService: FieldPartyService,
     private readonly visitService: FieldVisitService,
-    private readonly insightsService: WorkActivityInsightsService,
     private readonly exceptionService: WorkActivityExceptionService,
   ) {}
 
@@ -131,21 +131,13 @@ export class WorkActivitiesAdminController {
   @Get('hr/activities')
   @Permissions('work_activities:hr:read')
   getActivitySummary(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
-    return this.insightsService.getCompanySummary(
-      req.user,
-      query.date_from,
-      query.date_to,
-    );
+    return this.dailyActivityService.listForHr(req.user, query);
   }
 
   @Get('hr/field-visits')
   @Permissions('field_visits:hr:read')
   getVisitSummary(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
-    return this.insightsService.getCompanySummary(
-      req.user,
-      query.date_from,
-      query.date_to,
-    );
+    return this.visitService.listForHr(req.user, query);
   }
 
   @Get('hr/field-visits/map')

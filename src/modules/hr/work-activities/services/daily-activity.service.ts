@@ -123,6 +123,14 @@ export class DailyActivityService {
     };
   }
 
+  async listForManager(actor: AuthenticatedUser, query: WorkActivityQueryDto) {
+    return this.listScoped(actor, query, false);
+  }
+
+  async listForHr(actor: AuthenticatedUser, query: WorkActivityQueryDto) {
+    return this.listScoped(actor, query, true);
+  }
+
   async getOrCreateMyDailyReport(
     actor: AuthenticatedUser,
     activityDate: string,
@@ -607,6 +615,57 @@ export class DailyActivityService {
 
     if (employeeIds !== null) {
       qb.andWhere('report.employeeId IN (:...employeeIds)', { employeeIds });
+    }
+
+    const [items, total] = await qb.getManyAndCount();
+    return {
+      data: await Promise.all(items.map((item) => this.getReportResponse(item))),
+      meta: { page, limit, total, total_pages: Math.ceil(total / limit) },
+    };
+  }
+
+  private async listScoped(
+    actor: AuthenticatedUser,
+    query: WorkActivityQueryDto,
+    allowCompanyScope: boolean,
+  ) {
+    const companyId = this.getCompanyId(actor);
+    const page = query.page ?? 1;
+    const limit = Math.min(query.limit ?? 20, 100);
+    const employeeIds = await this.hrAccessService.getAccessibleEmployeeIds(actor);
+
+    if (!allowCompanyScope && employeeIds !== null && employeeIds.length === 0) {
+      return { data: [], meta: { page, limit, total: 0, total_pages: 0 } };
+    }
+
+    const qb = this.reportRepository
+      .createQueryBuilder('report')
+      .where('report.companyId = :companyId', { companyId })
+      .orderBy('report.activityDate', 'DESC')
+      .addOrderBy('report.id', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    if (employeeIds !== null) {
+      if (employeeIds.length === 0) {
+        return { data: [], meta: { page, limit, total: 0, total_pages: 0 } };
+      }
+      qb.andWhere('report.employeeId IN (:...employeeIds)', { employeeIds });
+    }
+
+    if (query.employee_id) {
+      qb.andWhere('report.employeeId = :employeeId', {
+        employeeId: query.employee_id,
+      });
+    }
+    if (query.date_from) {
+      qb.andWhere('report.activityDate >= :dateFrom', { dateFrom: query.date_from });
+    }
+    if (query.date_to) {
+      qb.andWhere('report.activityDate <= :dateTo', { dateTo: query.date_to });
+    }
+    if (query.status) {
+      qb.andWhere('report.status = :status', { status: query.status });
     }
 
     const [items, total] = await qb.getManyAndCount();

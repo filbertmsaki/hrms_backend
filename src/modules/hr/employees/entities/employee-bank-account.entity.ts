@@ -31,11 +31,38 @@ export class EmployeeBankAccount {
   @Column({ type: 'varchar', length: 120, nullable: true })
   branch_name: string | null;
 
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  bank_code: string | null;
+
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  bank_branch_code: string | null;
+
+  @Column({ type: 'varchar', length: 3, default: 'TZS' })
+  account_currency: string;
+
+  @Column({ type: 'varchar', length: 40, nullable: true })
+  account_type: string | null;
+
   @Column({ type: 'varchar', length: 50, nullable: true })
   swift_code: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   mobile_money_provider: string | null;
+
+  @Column({ type: 'varchar', length: 30, default: 'PENDING' })
+  verification_status: string;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  verified_at: Date | null;
+
+  @Column({ nullable: true })
+  verified_by_company_user_id: number | null;
+
+  @Column({ type: 'date', nullable: true })
+  effective_from: string | null;
+
+  @Column({ type: 'date', nullable: true })
+  effective_to: string | null;
 
   @Column({ default: false })
   is_primary: boolean;

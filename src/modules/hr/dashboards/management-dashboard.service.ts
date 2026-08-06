@@ -14,6 +14,7 @@ import { OffboardingRequest } from '../offboarding/entities/offboarding-request.
 import { OffboardingRequestStatusEnum } from '../offboarding/enums/offboarding-request-status.enum';
 import { PerformanceInsightsService } from '../performance/services/performance-insights.service';
 import { WorkActivityInsightsService } from '../work-activities/services/work-activity-insights.service';
+import { PayrollReportsService } from '../payroll/services/payroll-core.services';
 import { DashboardDateService } from './dashboard-date.service';
 import { DashboardQueryDto } from './dtos/dashboard-query.dto';
 
@@ -46,6 +47,7 @@ export class ManagementDashboardService {
     private readonly offboardingRequestRepository: Repository<OffboardingRequest>,
     private readonly performanceInsightsService: PerformanceInsightsService,
     private readonly workActivityInsightsService: WorkActivityInsightsService,
+    private readonly payrollReportsService: PayrollReportsService,
   ) {}
 
   async getDashboard(actor: AuthenticatedUser, query: DashboardQueryDto) {
@@ -75,6 +77,7 @@ export class ManagementDashboardService {
       offboardingPendingAccessTermination,
       performanceSummary,
       workActivitySummary,
+      payrollSummary,
     ] = await Promise.all([
       employeeIds.length
         ? this.employeeRepository.count({
@@ -113,6 +116,7 @@ export class ManagementDashboardService {
         period.dateFrom,
         period.dateTo,
       ),
+      this.payrollReportsService.dashboard(actor),
     ]);
 
     const attritionRate =
@@ -143,12 +147,8 @@ export class ManagementDashboardService {
       },
       performance: performanceSummary,
       work_activities: workActivitySummary,
+      payroll: payrollSummary,
       unavailable_widgets: [
-        {
-          code: 'PAYROLL_COST',
-          available: false,
-          reason: 'Payroll and compensation are not implemented.',
-        },
         {
           code: 'STAFF_LOAN_OUTSTANDING',
           available: false,

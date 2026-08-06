@@ -621,8 +621,17 @@ export class EmployeesService {
       account_name: bankAccount.account_name,
       account_number: bankAccount.account_number,
       branch_name: bankAccount.branch_name,
+      bank_code: bankAccount.bank_code,
+      bank_branch_code: bankAccount.bank_branch_code,
+      account_currency: bankAccount.account_currency,
+      account_type: bankAccount.account_type,
       swift_code: bankAccount.swift_code,
       mobile_money_provider: bankAccount.mobile_money_provider,
+      verification_status: bankAccount.verification_status,
+      verified_at: bankAccount.verified_at,
+      verified_by_company_user_id: bankAccount.verified_by_company_user_id,
+      effective_from: bankAccount.effective_from,
+      effective_to: bankAccount.effective_to,
       is_primary: bankAccount.is_primary,
       created_at: bankAccount.created_at,
       updated_at: bankAccount.updated_at,
@@ -1411,11 +1420,28 @@ export class EmployeesService {
       account_number: bankAccount.account_number.trim(),
       branch_name:
         this.normalizeOptionalString(bankAccount.branch_name) ?? undefined,
+      bank_code:
+        this.normalizeOptionalString(bankAccount.bank_code)?.toUpperCase() ??
+        undefined,
+      bank_branch_code:
+        this.normalizeOptionalString(bankAccount.bank_branch_code) ?? undefined,
+      account_currency:
+        this.normalizeOptionalString(bankAccount.account_currency)?.toUpperCase() ??
+        'TZS',
+      account_type:
+        this.normalizeOptionalString(bankAccount.account_type) ?? undefined,
       swift_code:
         this.normalizeOptionalString(bankAccount.swift_code) ?? undefined,
       mobile_money_provider:
         this.normalizeOptionalString(bankAccount.mobile_money_provider) ??
         undefined,
+      verification_status:
+        this.normalizeOptionalString(bankAccount.verification_status)?.toUpperCase() ??
+        'PENDING',
+      effective_from:
+        this.normalizeOptionalString(bankAccount.effective_from) ?? undefined,
+      effective_to:
+        this.normalizeOptionalString(bankAccount.effective_to) ?? undefined,
       is_primary: bankAccount.is_primary ?? false,
     }));
 
@@ -2204,8 +2230,15 @@ export class EmployeesService {
           account_name: bankAccount.account_name ?? null,
           account_number: bankAccount.account_number,
           branch_name: bankAccount.branch_name ?? null,
+          bank_code: bankAccount.bank_code ?? null,
+          bank_branch_code: bankAccount.bank_branch_code ?? null,
+          account_currency: bankAccount.account_currency ?? 'TZS',
+          account_type: bankAccount.account_type ?? null,
           swift_code: bankAccount.swift_code ?? null,
           mobile_money_provider: bankAccount.mobile_money_provider ?? null,
+          verification_status: bankAccount.verification_status ?? 'PENDING',
+          effective_from: bankAccount.effective_from ?? null,
+          effective_to: bankAccount.effective_to ?? null,
           is_primary: bankAccount.is_primary ?? false,
         }),
       ),
@@ -3949,10 +3982,20 @@ export class EmployeesService {
           this.normalizeOptionalString(dto.account_name) ?? employeeName,
         account_number: dto.account_number.trim(),
         branch_name: this.normalizeOptionalString(dto.branch_name),
+        bank_code: this.normalizeOptionalString(dto.bank_code)?.toUpperCase() ?? null,
+        bank_branch_code: this.normalizeOptionalString(dto.bank_branch_code),
+        account_currency:
+          this.normalizeOptionalString(dto.account_currency)?.toUpperCase() ?? 'TZS',
+        account_type: this.normalizeOptionalString(dto.account_type),
         swift_code: this.normalizeOptionalString(dto.swift_code),
         mobile_money_provider: this.normalizeOptionalString(
           dto.mobile_money_provider,
         ),
+        verification_status:
+          this.normalizeOptionalString(dto.verification_status)?.toUpperCase() ??
+          'PENDING',
+        effective_from: this.normalizeOptionalString(dto.effective_from),
+        effective_to: this.normalizeOptionalString(dto.effective_to),
         is_primary: dto.is_primary ?? false,
       }),
     );
@@ -3987,12 +4030,39 @@ export class EmployeesService {
       bankAccount.account_number = dto.account_number.trim();
     if (dto.branch_name !== undefined)
       bankAccount.branch_name = this.normalizeOptionalString(dto.branch_name);
+    if (dto.bank_code !== undefined)
+      bankAccount.bank_code =
+        this.normalizeOptionalString(dto.bank_code)?.toUpperCase() ?? null;
+    if (dto.bank_branch_code !== undefined)
+      bankAccount.bank_branch_code = this.normalizeOptionalString(
+        dto.bank_branch_code,
+      );
+    if (dto.account_currency !== undefined)
+      bankAccount.account_currency =
+        this.normalizeOptionalString(dto.account_currency)?.toUpperCase() ??
+        'TZS';
+    if (dto.account_type !== undefined)
+      bankAccount.account_type = this.normalizeOptionalString(dto.account_type);
     if (dto.swift_code !== undefined)
       bankAccount.swift_code = this.normalizeOptionalString(dto.swift_code);
     if (dto.mobile_money_provider !== undefined)
       bankAccount.mobile_money_provider = this.normalizeOptionalString(
         dto.mobile_money_provider,
       );
+    if (dto.verification_status !== undefined) {
+      bankAccount.verification_status =
+        this.normalizeOptionalString(dto.verification_status)?.toUpperCase() ??
+        'PENDING';
+      if (bankAccount.verification_status === 'VERIFIED') {
+        bankAccount.verified_at = new Date();
+        bankAccount.verified_by_company_user_id =
+          actor.companyMembershipId ?? null;
+      }
+    }
+    if (dto.effective_from !== undefined)
+      bankAccount.effective_from = this.normalizeOptionalString(dto.effective_from);
+    if (dto.effective_to !== undefined)
+      bankAccount.effective_to = this.normalizeOptionalString(dto.effective_to);
     if (dto.is_primary !== undefined) bankAccount.is_primary = dto.is_primary;
 
     const saved = await repository.save(bankAccount);

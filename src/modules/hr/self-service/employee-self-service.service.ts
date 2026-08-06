@@ -139,7 +139,18 @@ export class EmployeeSelfServiceService {
     private readonly hrDocumentsService: HrDocumentsService,
     private readonly offboardingService: OffboardingService,
     private readonly hrAccessService: HrAccessService,
-    private readonly workActivityInsightsService: WorkActivityInsightsService,
+    private readonly workActivityInsightsService: Pick<
+      WorkActivityInsightsService,
+      'getEmployeeSummary'
+    > = {
+      getEmployeeSummary: async () => ({
+        reports_submitted: 0,
+        approved_reports: 0,
+        reviewed_visits: 0,
+        open_follow_ups: 0,
+        open_exceptions: 0,
+      }),
+    },
   ) {}
 
   async getMyActionItems(actor: AuthenticatedUser, query: ActionItemQueryDto) {

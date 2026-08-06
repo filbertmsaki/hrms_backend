@@ -132,6 +132,10 @@ export class FieldVisitService {
     return Promise.all(plans.map((plan) => this.getPlanResponse(plan)));
   }
 
+  async listForHr(actor: AuthenticatedUser, query: WorkActivityQueryDto) {
+    return this.listScopedVisits(actor, query, true);
+  }
+
   async createMyPlan(actor: AuthenticatedUser, dto: CreateFieldVisitPlanDto) {
     const companyId = this.getCompanyId(actor);
     const employeeId = this.getEmployeeId(actor);
@@ -692,6 +696,46 @@ export class FieldVisitService {
     return qb.getMany();
   }
 
+  async listManagerFollowUps(
+    actor: AuthenticatedUser,
+    query: WorkActivityQueryDto,
+  ) {
+    const companyId = this.getCompanyId(actor);
+    const employeeIds = await this.hrAccessService.getAccessibleEmployeeIds(actor);
+
+    if (employeeIds !== null && employeeIds.length === 0) {
+      return [];
+    }
+
+    const qb = this.followUpRepository
+      .createQueryBuilder('followUp')
+      .where('followUp.companyId = :companyId', { companyId })
+      .orderBy('followUp.dueDate', 'ASC')
+      .addOrderBy('followUp.id', 'DESC');
+
+    if (employeeIds !== null) {
+      qb.andWhere('followUp.assignedToEmployeeId IN (:...employeeIds)', {
+        employeeIds,
+      });
+    }
+    if (query.employee_id) {
+      qb.andWhere('followUp.assignedToEmployeeId = :employeeId', {
+        employeeId: query.employee_id,
+      });
+    }
+    if (query.status) {
+      qb.andWhere('followUp.status = :status', { status: query.status });
+    }
+    if (query.date_from) {
+      qb.andWhere('followUp.dueDate >= :dateFrom', { dateFrom: query.date_from });
+    }
+    if (query.date_to) {
+      qb.andWhere('followUp.dueDate <= :dateTo', { dateTo: query.date_to });
+    }
+
+    return qb.getMany();
+  }
+
   async completeMyFollowUp(
     actor: AuthenticatedUser,
     id: number,
@@ -766,25 +810,7 @@ export class FieldVisitService {
   }
 
   async listManagerVisits(actor: AuthenticatedUser, query: WorkActivityQueryDto) {
-    const qb = this.visitRepository
-      .createQueryBuilder('visit')
-      .where('visit.companyId = :companyId', { companyId: this.getCompanyId(actor) })
-      .orderBy('visit.visitDate', 'DESC')
-      .addOrderBy('visit.id', 'DESC');
-    const employeeIds = await this.hrAccessService.getAccessibleEmployeeIds(actor);
-    if (employeeIds !== null) {
-      if (employeeIds.length === 0) return [];
-      qb.andWhere('visit.employeeId IN (:...employeeIds)', { employeeIds });
-    }
-    if (query.status) qb.andWhere('visit.status = :status', { status: query.status });
-    if (query.date_from) {
-      qb.andWhere('visit.visitDate >= :dateFrom', { dateFrom: query.date_from });
-    }
-    if (query.date_to) {
-      qb.andWhere('visit.visitDate <= :dateTo', { dateTo: query.date_to });
-    }
-    const visits = await qb.getMany();
-    return Promise.all(visits.map((visit) => this.getVisitResponse(visit.id)));
+    return this.listScopedVisits(actor, query, false);
   }
 
   async getForManager(actor: AuthenticatedUser, id: number) {
@@ -949,6 +975,43 @@ export class FieldVisitService {
     return {
       returned_visits: visits,
     };
+  }
+
+  private async listScopedVisits(
+    actor: AuthenticatedUser,
+    query: WorkActivityQueryDto,
+    allowCompanyScope: boolean,
+  ) {
+    const companyId = this.getCompanyId(actor);
+    const employeeIds = await this.hrAccessService.getAccessibleEmployeeIds(actor);
+    if (!allowCompanyScope && employeeIds !== null && employeeIds.length === 0) {
+      return [];
+    }
+
+    const qb = this.visitRepository
+      .createQueryBuilder('visit')
+      .where('visit.companyId = :companyId', { companyId })
+      .orderBy('visit.visitDate', 'DESC')
+      .addOrderBy('visit.id', 'DESC');
+
+    if (employeeIds !== null) {
+      if (employeeIds.length === 0) return [];
+      qb.andWhere('visit.employeeId IN (:...employeeIds)', { employeeIds });
+    }
+    if (query.employee_id) {
+      qb.andWhere('visit.employeeId = :employeeId', {
+        employeeId: query.employee_id,
+      });
+    }
+    if (query.status) qb.andWhere('visit.status = :status', { status: query.status });
+    if (query.date_from) {
+      qb.andWhere('visit.visitDate >= :dateFrom', { dateFrom: query.date_from });
+    }
+    if (query.date_to) {
+      qb.andWhere('visit.visitDate <= :dateTo', { dateTo: query.date_to });
+    }
+    const visits = await qb.getMany();
+    return Promise.all(visits.map((visit) => this.getVisitResponse(visit.id)));
   }
 
   private async replacePlanItemsAndVisits(

@@ -46,7 +46,7 @@ export class ManagerActivitiesController {
   @Get('team')
   @Permissions('work_activities:manager:read')
   listTeamReports(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
-    return this.dailyActivityService.listPendingReviews(req.user, query);
+    return this.dailyActivityService.listForManager(req.user, query);
   }
 
   @Get('pending-reviews')

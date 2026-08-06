@@ -1181,6 +1181,167 @@ export function validateEnv(env: Env) {
     'FIELD_MOBILE_SYNC_REQUEST_EXPIRY_DAYS',
     14,
   );
+  const PAYROLL_DEFAULT_CURRENCY = optionalString(
+    env,
+    'PAYROLL_DEFAULT_CURRENCY',
+    'TZS',
+  );
+  const PAYROLL_DEFAULT_TIMEZONE = optionalString(
+    env,
+    'PAYROLL_DEFAULT_TIMEZONE',
+    'Africa/Dar_es_Salaam',
+  );
+  const PAYROLL_DEFAULT_CUTOFF_DAY = optionalInt(
+    env,
+    'PAYROLL_DEFAULT_CUTOFF_DAY',
+    20,
+  );
+  const PAYROLL_DEFAULT_PAYMENT_DAY = optionalInt(
+    env,
+    'PAYROLL_DEFAULT_PAYMENT_DAY',
+    28,
+  );
+  const PAYROLL_CALCULATION_QUEUE_ENABLED = optionalBool(
+    env,
+    'PAYROLL_CALCULATION_QUEUE_ENABLED',
+    true,
+  );
+  const PAYROLL_QUEUE_CONCURRENCY = optionalInt(
+    env,
+    'PAYROLL_QUEUE_CONCURRENCY',
+    1,
+  );
+  const PAYROLL_MAX_JOB_ATTEMPTS = optionalInt(
+    env,
+    'PAYROLL_MAX_JOB_ATTEMPTS',
+    3,
+  );
+  const PAYROLL_RETRY_DELAY_MS = optionalInt(
+    env,
+    'PAYROLL_RETRY_DELAY_MS',
+    60000,
+  );
+  const PAYROLL_REQUIRE_HR_APPROVAL = optionalBool(
+    env,
+    'PAYROLL_REQUIRE_HR_APPROVAL',
+    true,
+  );
+  const PAYROLL_REQUIRE_FINANCE_APPROVAL = optionalBool(
+    env,
+    'PAYROLL_REQUIRE_FINANCE_APPROVAL',
+    true,
+  );
+  const PAYROLL_REQUIRE_MANAGEMENT_APPROVAL = optionalBool(
+    env,
+    'PAYROLL_REQUIRE_MANAGEMENT_APPROVAL',
+    true,
+  );
+  const PAYROLL_REQUIRE_MAKER_CHECKER = optionalBool(
+    env,
+    'PAYROLL_REQUIRE_MAKER_CHECKER',
+    true,
+  );
+  const PAYROLL_REQUIRE_2FA_FOR_APPROVAL = optionalBool(
+    env,
+    'PAYROLL_REQUIRE_2FA_FOR_APPROVAL',
+    true,
+  );
+  const PAYROLL_ALLOW_NEGATIVE_NET_PAY = optionalBool(
+    env,
+    'PAYROLL_ALLOW_NEGATIVE_NET_PAY',
+    false,
+  );
+  const PAYROLL_MINIMUM_NET_PAY = optionalInt(env, 'PAYROLL_MINIMUM_NET_PAY', 0);
+  const PAYROLL_MAX_MANUAL_ADJUSTMENT_PERCENT = optionalInt(
+    env,
+    'PAYROLL_MAX_MANUAL_ADJUSTMENT_PERCENT',
+    20,
+  );
+  const PAYROLL_DEFAULT_PRORATION_METHOD = optionalString(
+    env,
+    'PAYROLL_DEFAULT_PRORATION_METHOD',
+    'CALENDAR_DAYS',
+  );
+  const PAYROLL_DEFAULT_LWP_METHOD = optionalString(
+    env,
+    'PAYROLL_DEFAULT_LWP_METHOD',
+    'CALENDAR_DAYS',
+  );
+  const PAYROLL_DEFAULT_OVERTIME_METHOD = optionalString(
+    env,
+    'PAYROLL_DEFAULT_OVERTIME_METHOD',
+    'HOURLY_RATE',
+  );
+  const PAYROLL_ALLOW_BACKDATED_INPUT = optionalBool(
+    env,
+    'PAYROLL_ALLOW_BACKDATED_INPUT',
+    false,
+  );
+  const PAYROLL_MAX_BACKDATE_DAYS = optionalInt(
+    env,
+    'PAYROLL_MAX_BACKDATE_DAYS',
+    31,
+  );
+  const PAYROLL_PAYSLIP_PUBLICATION_ENABLED = optionalBool(
+    env,
+    'PAYROLL_PAYSLIP_PUBLICATION_ENABLED',
+    true,
+  );
+  const PAYROLL_PAYSLIP_PASSWORD_PROTECTED = optionalBool(
+    env,
+    'PAYROLL_PAYSLIP_PASSWORD_PROTECTED',
+    false,
+  );
+  const PAYROLL_PAYSLIP_RETENTION_YEARS = optionalInt(
+    env,
+    'PAYROLL_PAYSLIP_RETENTION_YEARS',
+    10,
+  );
+  const PAYROLL_BANK_FILE_ENCRYPTION_ENABLED = optionalBool(
+    env,
+    'PAYROLL_BANK_FILE_ENCRYPTION_ENABLED',
+    true,
+  );
+  const PAYROLL_BANK_FILE_RETENTION_DAYS = optionalInt(
+    env,
+    'PAYROLL_BANK_FILE_RETENTION_DAYS',
+    90,
+  );
+  const PAYROLL_JOURNAL_RETENTION_YEARS = optionalInt(
+    env,
+    'PAYROLL_JOURNAL_RETENTION_YEARS',
+    10,
+  );
+  const PAYROLL_RECONCILIATION_CRON = optionalString(
+    env,
+    'PAYROLL_RECONCILIATION_CRON',
+    '0 30 2 * * *',
+  );
+  const PAYROLL_PERIOD_REMINDER_CRON = optionalString(
+    env,
+    'PAYROLL_PERIOD_REMINDER_CRON',
+    '0 0 8 * * *',
+  );
+  const PAYROLL_DOCUMENT_CLEANUP_CRON = optionalString(
+    env,
+    'PAYROLL_DOCUMENT_CLEANUP_CRON',
+    '0 30 3 * * *',
+  );
+  const PAYROLL_PARALLEL_RUN_REQUIRED = optionalBool(
+    env,
+    'PAYROLL_PARALLEL_RUN_REQUIRED',
+    true,
+  );
+  const PAYROLL_PARALLEL_RUN_MONTHS = optionalInt(
+    env,
+    'PAYROLL_PARALLEL_RUN_MONTHS',
+    3,
+  );
+  const PAYROLL_PARALLEL_VARIANCE_TOLERANCE = optionalString(
+    env,
+    'PAYROLL_PARALLEL_VARIANCE_TOLERANCE',
+    '0.01',
+  );
 
   if (
     PERFORMANCE_DEFAULT_SCORE_CAP < 100 ||
@@ -1214,6 +1375,26 @@ export function validateEnv(env: Env) {
 
   if (FIELD_LOCATION_RETENTION_DAYS < 30) {
     throw new Error('FIELD_LOCATION_RETENTION_DAYS cannot be less than 30.');
+  }
+
+  if (
+    PAYROLL_DEFAULT_CUTOFF_DAY < 1 ||
+    PAYROLL_DEFAULT_CUTOFF_DAY > 31
+  ) {
+    throw new Error('PAYROLL_DEFAULT_CUTOFF_DAY must be between 1 and 31.');
+  }
+
+  if (
+    PAYROLL_DEFAULT_PAYMENT_DAY < 1 ||
+    PAYROLL_DEFAULT_PAYMENT_DAY > 31
+  ) {
+    throw new Error('PAYROLL_DEFAULT_PAYMENT_DAY must be between 1 and 31.');
+  }
+
+  if (PAYROLL_REQUIRE_MAKER_CHECKER && !PAYROLL_REQUIRE_FINANCE_APPROVAL) {
+    throw new Error(
+      'Finance approval must be enabled when payroll maker-checker is enabled.',
+    );
   }
 
   return {
@@ -1435,5 +1616,38 @@ export function validateEnv(env: Env) {
     FIELD_MOBILE_SYNC_BATCH_SIZE,
     FIELD_MOBILE_SYNC_MAX_PAYLOAD_MB,
     FIELD_MOBILE_SYNC_REQUEST_EXPIRY_DAYS,
+    PAYROLL_DEFAULT_CURRENCY,
+    PAYROLL_DEFAULT_TIMEZONE,
+    PAYROLL_DEFAULT_CUTOFF_DAY,
+    PAYROLL_DEFAULT_PAYMENT_DAY,
+    PAYROLL_CALCULATION_QUEUE_ENABLED,
+    PAYROLL_QUEUE_CONCURRENCY,
+    PAYROLL_MAX_JOB_ATTEMPTS,
+    PAYROLL_RETRY_DELAY_MS,
+    PAYROLL_REQUIRE_HR_APPROVAL,
+    PAYROLL_REQUIRE_FINANCE_APPROVAL,
+    PAYROLL_REQUIRE_MANAGEMENT_APPROVAL,
+    PAYROLL_REQUIRE_MAKER_CHECKER,
+    PAYROLL_REQUIRE_2FA_FOR_APPROVAL,
+    PAYROLL_ALLOW_NEGATIVE_NET_PAY,
+    PAYROLL_MINIMUM_NET_PAY,
+    PAYROLL_MAX_MANUAL_ADJUSTMENT_PERCENT,
+    PAYROLL_DEFAULT_PRORATION_METHOD,
+    PAYROLL_DEFAULT_LWP_METHOD,
+    PAYROLL_DEFAULT_OVERTIME_METHOD,
+    PAYROLL_ALLOW_BACKDATED_INPUT,
+    PAYROLL_MAX_BACKDATE_DAYS,
+    PAYROLL_PAYSLIP_PUBLICATION_ENABLED,
+    PAYROLL_PAYSLIP_PASSWORD_PROTECTED,
+    PAYROLL_PAYSLIP_RETENTION_YEARS,
+    PAYROLL_BANK_FILE_ENCRYPTION_ENABLED,
+    PAYROLL_BANK_FILE_RETENTION_DAYS,
+    PAYROLL_JOURNAL_RETENTION_YEARS,
+    PAYROLL_RECONCILIATION_CRON,
+    PAYROLL_PERIOD_REMINDER_CRON,
+    PAYROLL_DOCUMENT_CLEANUP_CRON,
+    PAYROLL_PARALLEL_RUN_REQUIRED,
+    PAYROLL_PARALLEL_RUN_MONTHS,
+    PAYROLL_PARALLEL_VARIANCE_TOLERANCE,
   };
 }

@@ -82,6 +82,7 @@ export class ManagerFieldVisitsController {
   }
 
   @Get('map/view')
+  @Get('map')
   @Permissions('field_locations:read')
   getMap(@Req() req: AuthedRequest, @Query() query: FieldLocationMapQueryDto) {
     return this.visitService.getMapPoints(req.user, query);
@@ -96,10 +97,11 @@ export class ManagerFieldVisitsController {
   @Get('follow-ups')
   @Permissions('field_visits:manager:read')
   followUps(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
-    return this.visitService.listMyFollowUps(req.user, query);
+    return this.visitService.listManagerFollowUps(req.user, query);
   }
 
   @Get('exceptions/summary')
+  @Get('exceptions')
   @Permissions('field_visits:manager:read')
   exceptions(@Req() req: AuthedRequest) {
     return this.visitService.listExceptions(req.user);

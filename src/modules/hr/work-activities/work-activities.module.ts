@@ -37,10 +37,13 @@ import {
 import { ManagerActivitiesController } from './controllers/manager-activities.controller';
 import { ManagerFieldVisitsController } from './controllers/manager-field-visits.controller';
 import { MyDailyActivitiesController } from './controllers/my-daily-activities.controller';
+import { MyFieldVisitsCompatController } from './controllers/my-field-visits-compat.controller';
 import { MyFieldVisitsController } from './controllers/my-field-visits.controller';
 import { WorkActivitiesAdminController } from './controllers/work-activities-admin.controller';
 import { ActivityPolicyService } from './services/activity-policy.service';
 import { DailyActivityService } from './services/daily-activity.service';
+import { FieldLocationEnrichmentService } from './services/field-location-enrichment.service';
+import { FieldLocationRetentionService } from './services/field-location-retention.service';
 import { FieldMobileSyncService } from './services/field-mobile-sync.service';
 import { FieldPartyService } from './services/field-party.service';
 import { FieldVisitService } from './services/field-visit.service';
@@ -48,6 +51,7 @@ import { WorkActivityAuditService } from './services/work-activity-audit.service
 import { WorkActivityExceptionService } from './services/work-activity-exception.service';
 import { WorkActivityInsightsService } from './services/work-activity-insights.service';
 import { WorkActivityKpiProviderService } from './services/work-activity-kpi-provider.service';
+import { WorkActivityReminderService } from './services/work-activity-reminder.service';
 
 @Module({
   imports: [
@@ -83,6 +87,7 @@ import { WorkActivityKpiProviderService } from './services/work-activity-kpi-pro
   controllers: [
     MyDailyActivitiesController,
     MyFieldVisitsController,
+    MyFieldVisitsCompatController,
     ManagerActivitiesController,
     ManagerFieldVisitsController,
     WorkActivitiesAdminController,
@@ -93,10 +98,13 @@ import { WorkActivityKpiProviderService } from './services/work-activity-kpi-pro
     FieldPartyService,
     FieldVisitService,
     FieldMobileSyncService,
+    FieldLocationRetentionService,
+    FieldLocationEnrichmentService,
     WorkActivityAuditService,
     WorkActivityExceptionService,
     WorkActivityInsightsService,
     WorkActivityKpiProviderService,
+    WorkActivityReminderService,
   ],
   exports: [WorkActivityInsightsService, WorkActivityKpiProviderService],
 })

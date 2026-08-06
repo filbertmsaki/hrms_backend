@@ -66,13 +66,16 @@ export class WorkActivityKpiProviderService {
   ): Promise<number> {
     switch (metricCode) {
       case 'ACTIVITY_SUBMISSION_DISCIPLINE': {
-        return this.reportRepository.count({
-          where: {
-            companyId,
-            employeeId,
+        return this.reportRepository
+          .createQueryBuilder('report')
+          .where('report.companyId = :companyId', { companyId })
+          .andWhere('report.employeeId = :employeeId', { employeeId })
+          .andWhere('report.activityDate >= :dateFrom', { dateFrom })
+          .andWhere('report.activityDate <= :dateTo', { dateTo })
+          .andWhere('report.status = :status', {
             status: DailyActivityReportStatusEnum.APPROVED,
-          },
-        });
+          })
+          .getCount();
       }
       case 'ACTIVITY_COMPLETION_RATE':
       case 'ACTIVITY_PLAN_VS_COMPLETION': {
@@ -110,23 +113,29 @@ export class WorkActivityKpiProviderService {
           .andWhere('report.submittedAt IS NOT NULL')
           .getCount();
         if (submitted === 0) return 0;
-        const approved = await this.reportRepository.count({
-          where: {
-            companyId,
-            employeeId,
+        const approvedWithinRange = await this.reportRepository
+          .createQueryBuilder('report')
+          .where('report.companyId = :companyId', { companyId })
+          .andWhere('report.employeeId = :employeeId', { employeeId })
+          .andWhere('report.activityDate >= :dateFrom', { dateFrom })
+          .andWhere('report.activityDate <= :dateTo', { dateTo })
+          .andWhere('report.status = :status', {
             status: DailyActivityReportStatusEnum.APPROVED,
-          },
-        });
-        return Number(((approved / submitted) * 100).toFixed(4));
+          })
+          .getCount();
+        return Number(((approvedWithinRange / submitted) * 100).toFixed(4));
       }
       case 'ACTIVITY_ON_TIME_SUBMISSION_RATE': {
-        const approvedReports = await this.reportRepository.find({
-          where: {
-            companyId,
-            employeeId,
+        const approvedReports = await this.reportRepository
+          .createQueryBuilder('report')
+          .where('report.companyId = :companyId', { companyId })
+          .andWhere('report.employeeId = :employeeId', { employeeId })
+          .andWhere('report.activityDate >= :dateFrom', { dateFrom })
+          .andWhere('report.activityDate <= :dateTo', { dateTo })
+          .andWhere('report.status = :status', {
             status: DailyActivityReportStatusEnum.APPROVED,
-          },
-        });
+          })
+          .getMany();
         if (!approvedReports.length) return 0;
         const onTime = approvedReports.filter((report) => !report.submissionIsLate).length;
         return Number(((onTime / approvedReports.length) * 100).toFixed(4));
@@ -292,17 +301,24 @@ export class WorkActivityKpiProviderService {
           .getCount();
       }
       case 'FOLLOWUP_COMPLETION_RATE': {
-        const total = await this.followUpRepository.count({
-          where: { companyId, assignedToEmployeeId: employeeId },
-        });
+        const total = await this.followUpRepository
+          .createQueryBuilder('followUp')
+          .where('followUp.companyId = :companyId', { companyId })
+          .andWhere('followUp.assignedToEmployeeId = :employeeId', { employeeId })
+          .andWhere('followUp.dueDate >= :dateFrom', { dateFrom })
+          .andWhere('followUp.dueDate <= :dateTo', { dateTo })
+          .getCount();
         if (total === 0) return 0;
-        const completed = await this.followUpRepository.count({
-          where: {
-            companyId,
-            assignedToEmployeeId: employeeId,
-            status: 'COMPLETED' as never,
-          },
-        });
+        const completed = await this.followUpRepository
+          .createQueryBuilder('followUp')
+          .where('followUp.companyId = :companyId', { companyId })
+          .andWhere('followUp.assignedToEmployeeId = :employeeId', { employeeId })
+          .andWhere('followUp.dueDate >= :dateFrom', { dateFrom })
+          .andWhere('followUp.dueDate <= :dateTo', { dateTo })
+          .andWhere('followUp.status = :status', {
+            status: FieldFollowUpStatusEnum.COMPLETED,
+          })
+          .getCount();
         return Number(((completed / total) * 100).toFixed(4));
       }
       default:

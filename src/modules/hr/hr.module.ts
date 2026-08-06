@@ -24,6 +24,7 @@ import { ProbationModule } from './probation/probation.module';
 import { EmployeeMovementsModule } from './employee-movements/employee-movements.module';
 import { PerformanceModule } from './performance/performance.module';
 import { WorkActivitiesModule } from './work-activities/work-activities.module';
+import { PayrollModule } from './payroll/payroll.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { WorkActivitiesModule } from './work-activities/work-activities.module';
     ProbationModule,
     PerformanceModule,
     WorkActivitiesModule,
+    PayrollModule,
     EmployeeMovementsModule,
     OnboardingModule,
     OffboardingModule,

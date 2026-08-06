@@ -14,13 +14,13 @@ export class WorkActivityQueryDto extends PaginationDto {
   @IsOptional()
   @IsString()
   status?: string;
-}
 
-export class FieldLocationMapQueryDto extends WorkActivityQueryDto {
   @IsOptional()
   @Type(() => Number)
   employee_id?: number;
+}
 
+export class FieldLocationMapQueryDto extends WorkActivityQueryDto {
   @IsString()
   purpose: string;
 }

@@ -16,6 +16,7 @@ import { OnboardingRequestStatusEnum } from '../onboarding/enums/onboarding-requ
 import { OffboardingRequest } from '../offboarding/entities/offboarding-request.entity';
 import { OffboardingRequestStatusEnum } from '../offboarding/enums/offboarding-request-status.enum';
 import { WorkActivityInsightsService } from '../work-activities/services/work-activity-insights.service';
+import { PayrollReportsService } from '../payroll/services/payroll-core.services';
 import { DashboardDateService } from './dashboard-date.service';
 import { DashboardQueryDto } from './dtos/dashboard-query.dto';
 
@@ -49,6 +50,7 @@ export class HrDashboardService {
     @InjectRepository(OffboardingRequest)
     private readonly offboardingRequestRepository: Repository<OffboardingRequest>,
     private readonly workActivityInsightsService: WorkActivityInsightsService,
+    private readonly payrollReportsService: PayrollReportsService,
   ) {}
 
   private async resolveScopedEmployeeIds(
@@ -121,6 +123,7 @@ export class HrDashboardService {
       documentCompliance,
       manpower,
       workActivitySummary,
+      payrollSummary,
     ] = await Promise.all([
       this.countByStatus(scopedIds, EmploymentStatusEnum.ACTIVE),
       this.countJoiners(scopedIds, period.dateFrom, period.dateTo),
@@ -147,6 +150,7 @@ export class HrDashboardService {
         period.dateFrom,
         period.dateTo,
       ),
+      this.payrollReportsService.dashboard(actor),
     ]);
 
     return {
@@ -175,13 +179,8 @@ export class HrDashboardService {
       employee_document_compliance: documentCompliance,
       manpower,
       work_activities: workActivitySummary,
-      unavailable_widgets: [
-        {
-          code: 'PAYROLL_STATUS',
-          available: false,
-          reason: 'Payroll module is not implemented.',
-        },
-      ],
+      payroll: payrollSummary,
+      unavailable_widgets: [],
     };
   }
 

@@ -47,14 +47,21 @@ export class WorkActivityExceptionService {
       },
     });
 
-    const isLeaveDay =
-      (await this.leaveRequestRepository.count({
-        where: {
-          company_id: employee.company_id,
-          employee_id: employee.id,
+    const approvedLeaveOnDate =
+      await this.leaveRequestRepository
+        .createQueryBuilder('leaveRequest')
+        .where('leaveRequest.company_id = :companyId', {
+          companyId: employee.company_id,
+        })
+        .andWhere('leaveRequest.employee_id = :employeeId', {
+          employeeId: employee.id,
+        })
+        .andWhere('leaveRequest.status = :status', {
           status: LeaveStatusEnum.APPROVED,
-        },
-      })) > 0;
+        })
+        .andWhere('leaveRequest.start_date <= :activityDate', { activityDate })
+        .andWhere('leaveRequest.end_date >= :activityDate', { activityDate })
+        .getCount();
 
     const isAttendanceEligible =
       Boolean(attendance) &&
@@ -66,7 +73,7 @@ export class WorkActivityExceptionService {
         AttendanceDailyStatusEnum.HOLIDAY,
         AttendanceDailyStatusEnum.OFF_DAY,
       ].includes(attendance!.attendanceStatus as AttendanceDailyStatusEnum) &&
-      !isLeaveDay;
+      approvedLeaveOnDate === 0;
 
     const approvedReport = await this.reportRepository.findOne({
       where: {

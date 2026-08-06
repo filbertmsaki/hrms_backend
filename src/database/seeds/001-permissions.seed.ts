@@ -2287,6 +2287,111 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     displayName: 'Export field locations',
     description: 'Allow authorized users to export approved field-visit map locations',
   },
+  {
+    name: 'payroll:config',
+    displayName: 'Configure payroll',
+    description: 'Allow managing payroll components, structures, calendars, and statutory rules',
+  },
+  {
+    name: 'payroll:config:read',
+    displayName: 'Read payroll configuration',
+    description: 'Allow viewing payroll components, structures, calendars, and statutory rules',
+  },
+  {
+    name: 'payroll:profiles',
+    displayName: 'Manage payroll profiles',
+    description: 'Allow managing employee payroll, statutory, and payment profiles',
+  },
+  {
+    name: 'payroll:profiles:read',
+    displayName: 'Read payroll profiles',
+    description: 'Allow viewing masked employee payroll profiles',
+  },
+  {
+    name: 'payroll:periods',
+    displayName: 'Manage payroll periods',
+    description: 'Allow generating and managing payroll calendar periods',
+  },
+  {
+    name: 'payroll:periods:read',
+    displayName: 'Read payroll periods',
+    description: 'Allow viewing payroll periods',
+  },
+  {
+    name: 'payroll:inputs',
+    displayName: 'Manage payroll inputs',
+    description: 'Allow creating payroll adjustments, reimbursements, deductions, and other inputs',
+  },
+  {
+    name: 'payroll:inputs:read',
+    displayName: 'Read payroll inputs',
+    description: 'Allow viewing payroll inputs',
+  },
+  {
+    name: 'payroll:inputs:approve',
+    displayName: 'Approve payroll inputs',
+    description: 'Allow approving payroll inputs before calculation',
+  },
+  {
+    name: 'payroll:runs',
+    displayName: 'Create payroll runs',
+    description: 'Allow creating regular, supplementary, off-cycle, reversal, and final-settlement runs',
+  },
+  {
+    name: 'payroll:runs:read',
+    displayName: 'Read payroll runs',
+    description: 'Allow viewing payroll runs and employee payroll results',
+  },
+  {
+    name: 'payroll:runs:process',
+    displayName: 'Process payroll runs',
+    description: 'Allow calculating payroll runs',
+  },
+  {
+    name: 'payroll:runs:approve',
+    displayName: 'Approve payroll runs',
+    description: 'Allow HR, Finance, or management approval of calculated payroll',
+  },
+  {
+    name: 'payroll:runs:lock',
+    displayName: 'Lock payroll runs',
+    description: 'Allow locking approved payroll runs',
+  },
+  {
+    name: 'payroll:payslips',
+    displayName: 'Generate payslips',
+    description: 'Allow generating payslips from locked payroll',
+  },
+  {
+    name: 'payroll:payslips:read',
+    displayName: 'Read payslips',
+    description: 'Allow viewing generated company payslips',
+  },
+  {
+    name: 'payroll:payslips:self',
+    displayName: 'Read own payslips',
+    description: 'Allow employees to view their own payslips',
+  },
+  {
+    name: 'payroll:banking',
+    displayName: 'Generate payroll bank files',
+    description: 'Allow generating and downloading payroll bank transfer batches',
+  },
+  {
+    name: 'payroll:accounting',
+    displayName: 'Generate payroll journals',
+    description: 'Allow generating payroll accounting journal batches',
+  },
+  {
+    name: 'payroll:reports',
+    displayName: 'View payroll reports',
+    description: 'Allow viewing payroll dashboards, variance, and statutory reports',
+  },
+  {
+    name: 'payroll:final-settlements',
+    displayName: 'Manage payroll final settlements',
+    description: 'Allow calculating payroll-linked final settlements for offboarding',
+  },
 ];
 
 export default class PermissionsSeeder implements Seeder {
