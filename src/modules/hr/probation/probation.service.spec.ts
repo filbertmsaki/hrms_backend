@@ -370,7 +370,7 @@ describe('ProbationService', () => {
         extensionCount: 2,
         status: ProbationCaseStatusEnum.HR_REVIEW_PENDING,
         policySnapshot: { maximum_extensions: 2 },
-      } as ProbationCase;
+      } as unknown as ProbationCase;
 
       const probationCaseRepo = createRepositoryMock();
       probationCaseRepo.createQueryBuilder.mockReturnValue(

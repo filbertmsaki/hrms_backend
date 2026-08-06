@@ -1952,6 +1952,60 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     description:
       'Allow generating confirmation, extension, and outcome letters for a probation case',
   },
+  {
+    name: 'employee_movements:create',
+    displayName: 'Create employee movement requests',
+    description:
+      'Allow creating department, branch, position, grade, manager, and salary movement requests',
+  },
+  {
+    name: 'employee_movements:read',
+    displayName: 'Read employee movement requests',
+    description: 'Allow viewing employee movement requests',
+  },
+  {
+    name: 'employee_movements:submit',
+    displayName: 'Submit employee movement requests',
+    description: 'Allow submitting draft employee movements for approval',
+  },
+  {
+    name: 'employee_movements:approve',
+    displayName: 'Approve employee movements',
+    description: 'Allow approving, rejecting, or returning employee movements',
+  },
+  {
+    name: 'employee_movements:finance-approve',
+    displayName: 'Approve salary-related movements',
+    description:
+      'Additional approval permission required for movements that include a salary revision',
+  },
+  {
+    name: 'employee_movements:management-approve',
+    displayName: 'Approve senior organizational movements',
+    description:
+      'Additional approval permission required for promotions and demotions',
+  },
+  {
+    name: 'employee_movements:apply',
+    displayName: 'Apply approved employee movements',
+    description: 'Allow applying approved or scheduled employee movements',
+  },
+  {
+    name: 'employee_movements:cancel',
+    displayName: 'Cancel employee movements',
+    description: 'Allow cancelling an employee movement before it is applied',
+  },
+  {
+    name: 'employee_movements:backdate',
+    displayName: 'Create backdated employee movements',
+    description:
+      'Allow creating an employee movement with an effective date in the past',
+  },
+  {
+    name: 'employee_compensation:read',
+    displayName: 'Read employee compensation history',
+    description: 'Allow viewing employee compensation version history',
+  },
 ];
 
 export default class PermissionsSeeder implements Seeder {

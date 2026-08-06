@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { EmployeePositionAssignmentTypeEnum } from '../employees/enums/employee-position-assignment-type.enum';
@@ -120,8 +120,9 @@ export class EmployeePositionsService {
   private async syncEmployeePrimarySnapshot(
     employeeId: number,
     companyId: number,
+    manager: EntityManager,
   ): Promise<void> {
-    const currentPrimary = await this.employeePositionRepository.findOne({
+    const currentPrimary = await manager.getRepository(EmployeePosition).findOne({
       where: {
         company_id: companyId,
         employee_id: employeeId,
@@ -131,7 +132,7 @@ export class EmployeePositionsService {
       order: { id: 'DESC' },
     });
 
-    await this.employeeRepository.update(
+    await manager.getRepository(Employee).update(
       { id: employeeId },
       {
         primary_position_id: currentPrimary?.position_id ?? null,
@@ -223,7 +224,7 @@ export class EmployeePositionsService {
         }),
       );
 
-      await this.syncEmployeePrimarySnapshot(employee.id, companyId);
+      await this.syncEmployeePrimarySnapshot(employee.id, companyId, manager);
       return saved.id;
     });
 
@@ -395,9 +396,13 @@ export class EmployeePositionsService {
       });
 
       await manager.getRepository(EmployeePosition).save(existing);
-      await this.syncEmployeePrimarySnapshot(nextEmployee.id, companyId);
+      await this.syncEmployeePrimarySnapshot(
+        nextEmployee.id,
+        companyId,
+        manager,
+      );
       if (nextEmployee.id !== employee.id) {
-        await this.syncEmployeePrimarySnapshot(employee.id, companyId);
+        await this.syncEmployeePrimarySnapshot(employee.id, companyId, manager);
       }
     });
 
@@ -421,7 +426,7 @@ export class EmployeePositionsService {
       assignment.end_date = assignment.end_date ?? formatDateOnly(new Date());
       assignment.ended_by_company_user_id = actor.companyMembershipId ?? null;
       await manager.getRepository(EmployeePosition).save(assignment);
-      await this.syncEmployeePrimarySnapshot(employee.id, companyId);
+      await this.syncEmployeePrimarySnapshot(employee.id, companyId, manager);
     });
 
     return { message: 'Employee position assignment ended successfully' };

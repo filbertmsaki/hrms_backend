@@ -21,6 +21,7 @@ import { HrDocumentsModule } from './documents/hr-documents.module';
 import { ManagerSelfServiceModule } from './manager-self-service/manager-self-service.module';
 import { DashboardsModule } from './dashboards/dashboards.module';
 import { ProbationModule } from './probation/probation.module';
+import { EmployeeMovementsModule } from './employee-movements/employee-movements.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { ProbationModule } from './probation/probation.module';
     ManagerSelfServiceModule,
     DashboardsModule,
     ProbationModule,
+    EmployeeMovementsModule,
     OnboardingModule,
     OffboardingModule,
     HrLaunchReadinessModule,

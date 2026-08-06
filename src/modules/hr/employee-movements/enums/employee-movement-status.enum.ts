@@ -1,0 +1,21 @@
+export enum EmployeeMovementStatusEnum {
+  DRAFT = 'DRAFT',
+  SUBMITTED = 'SUBMITTED',
+  PENDING_APPROVAL = 'PENDING_APPROVAL',
+  RETURNED_FOR_CORRECTION = 'RETURNED_FOR_CORRECTION',
+  APPROVED = 'APPROVED',
+  SCHEDULED = 'SCHEDULED',
+  APPLYING = 'APPLYING',
+  APPLIED = 'APPLIED',
+  APPLICATION_FAILED = 'APPLICATION_FAILED',
+  REJECTED = 'REJECTED',
+  CANCELLED = 'CANCELLED',
+}
+
+export const OPEN_EMPLOYEE_MOVEMENT_STATUSES: EmployeeMovementStatusEnum[] = [
+  EmployeeMovementStatusEnum.SUBMITTED,
+  EmployeeMovementStatusEnum.PENDING_APPROVAL,
+  EmployeeMovementStatusEnum.APPROVED,
+  EmployeeMovementStatusEnum.SCHEDULED,
+  EmployeeMovementStatusEnum.APPLYING,
+];

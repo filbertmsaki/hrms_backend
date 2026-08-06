@@ -14,6 +14,7 @@ class MutableEmployeeProfileDto extends OmitType(CreateEmployeeDto, [
   'departments',
   'grade_id',
   'cost_center_id',
+  'employment_type',
   'probation_start_date',
   'probation_end_date',
   'confirmation_due_date',
