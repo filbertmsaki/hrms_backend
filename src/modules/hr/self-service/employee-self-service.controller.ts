@@ -51,6 +51,8 @@ import { ActionItemQueryDto } from '../action-inbox/dtos/action-item-query.dto';
 import { UploadDocumentDto } from '../documents/dtos/upload-document.dto';
 import { SetMyNotificationPreferenceDto } from './dtos/set-my-notification-preference.dto';
 import { NotificationPreferencesService } from '../../notifications/notification-preferences.service';
+import { ProbationService } from '../probation/probation.service';
+import { SubmitProbationSelfAssessmentDto } from '../probation/dtos/submit-probation-self-assessment.dto';
 
 @ApiTags('Employee Self Service')
 @ApiBearerAuth('access-token')
@@ -61,7 +63,29 @@ export class EmployeeSelfServiceController {
     private readonly employeeSelfServiceService: EmployeeSelfServiceService,
     private readonly profileChangeRequestsService: ProfileChangeRequestsService,
     private readonly notificationPreferencesService: NotificationPreferencesService,
+    private readonly probationService: ProbationService,
   ) {}
+
+  @Get('probation')
+  @ApiOperation({ summary: 'Get my probation and confirmation status' })
+  getMyProbation(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.probationService.getMyProbation(req.user);
+  }
+
+  @Post('probation/:caseId/self-assessment')
+  @ApiOperation({ summary: 'Submit my probation self-assessment' })
+  submitMyProbationAssessment(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('caseId', ParseIntPipe) caseId: number,
+    @Body() dto: SubmitProbationSelfAssessmentDto,
+  ) {
+    return this.probationService.submitSelfAssessment(
+      req.user.companyId!,
+      caseId,
+      req.user,
+      dto,
+    );
+  }
 
   private readonly allowedProfilePhotoMimeTypes = new Set([
     'image/svg+xml',

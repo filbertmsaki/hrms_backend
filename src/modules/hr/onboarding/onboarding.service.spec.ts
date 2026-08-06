@@ -40,6 +40,7 @@ import { EmployeeTimetablesService } from '../attendance/timetable/employee-time
 import { EmployeeDeviceAssignmentsService } from '../../access-control/employee-device-assignments/service/employee-device-assignments.service';
 import { OnboardingAttendanceModeEnum } from './enums/onboarding-attendance-mode.enum';
 import { FilesService } from '../../files/files.service';
+import { ProbationService } from '../probation/probation.service';
 
 type MockRepo = Record<string, jest.Mock>;
 
@@ -76,6 +77,7 @@ describe('OnboardingService', () => {
   let shiftSchedulesService: { create: jest.Mock };
   let employeeTimetablesService: { create: jest.Mock };
   let employeeDeviceAssignmentsService: { assignDevices: jest.Mock };
+  let probationService: { ensureCaseForEmployee: jest.Mock };
   let actor: AuthenticatedUser;
 
   beforeEach(() => {
@@ -136,6 +138,9 @@ describe('OnboardingService', () => {
     employeeDeviceAssignmentsService = {
       assignDevices: jest.fn(),
     };
+    probationService = {
+      ensureCaseForEmployee: jest.fn(),
+    };
 
     actor = {
       id: 1,
@@ -177,6 +182,7 @@ describe('OnboardingService', () => {
       { emit: jest.fn() } as unknown as EventEmitter2,
       { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService,
       filesService as unknown as FilesService,
+      probationService as unknown as ProbationService,
     );
   });
 

@@ -705,6 +705,105 @@ export function validateEnv(env: Env) {
     50,
   );
 
+  const PROBATION_DEFAULT_PERIOD_DAYS = optionalInt(
+    env,
+    'PROBATION_DEFAULT_PERIOD_DAYS',
+    180,
+  );
+  const PROBATION_DEFAULT_EXTENSION_DAYS = optionalInt(
+    env,
+    'PROBATION_DEFAULT_EXTENSION_DAYS',
+    90,
+  );
+  const PROBATION_MAX_EXTENSION_DAYS = optionalInt(
+    env,
+    'PROBATION_MAX_EXTENSION_DAYS',
+    180,
+  );
+  const PROBATION_MAX_EXTENSIONS = optionalInt(
+    env,
+    'PROBATION_MAX_EXTENSIONS',
+    2,
+  );
+  const PROBATION_SELF_ASSESSMENT_REQUIRED = optionalBool(
+    env,
+    'PROBATION_SELF_ASSESSMENT_REQUIRED',
+    false,
+  );
+  const PROBATION_OBJECTIVES_REQUIRED = optionalBool(
+    env,
+    'PROBATION_OBJECTIVES_REQUIRED',
+    true,
+  );
+  const PROBATION_MINIMUM_CONFIRMATION_SCORE = optionalInt(
+    env,
+    'PROBATION_MINIMUM_CONFIRMATION_SCORE',
+    60,
+  );
+  const PROBATION_REMINDER_CRON = optionalString(
+    env,
+    'PROBATION_REMINDER_CRON',
+    '0 0 7 * * *',
+  );
+  const PROBATION_RECONCILIATION_CRON = optionalString(
+    env,
+    'PROBATION_RECONCILIATION_CRON',
+    '0 30 1 * * *',
+  );
+  const PROBATION_REMINDER_DAYS = optionalCsv(
+    env,
+    'PROBATION_REMINDER_DAYS',
+  ).map(Number);
+  const PROBATION_OVERDUE_REMINDER_INTERVAL_DAYS = optionalInt(
+    env,
+    'PROBATION_OVERDUE_REMINDER_INTERVAL_DAYS',
+    3,
+  );
+  const PROBATION_REQUIRE_MANAGER_RECOMMENDATION = optionalBool(
+    env,
+    'PROBATION_REQUIRE_MANAGER_RECOMMENDATION',
+    true,
+  );
+  const PROBATION_REQUIRE_HR_APPROVAL = optionalBool(
+    env,
+    'PROBATION_REQUIRE_HR_APPROVAL',
+    true,
+  );
+  const PROBATION_REQUIRE_CONFIRMATION_LETTER = optionalBool(
+    env,
+    'PROBATION_REQUIRE_CONFIRMATION_LETTER',
+    true,
+  );
+  const PROBATION_MAX_REVIEW_BACKDATE_DAYS = optionalInt(
+    env,
+    'PROBATION_MAX_REVIEW_BACKDATE_DAYS',
+    30,
+  );
+
+  if (PROBATION_DEFAULT_PERIOD_DAYS <= 0) {
+    throw new Error(
+      'PROBATION_DEFAULT_PERIOD_DAYS must be greater than zero.',
+    );
+  }
+
+  if (
+    PROBATION_MINIMUM_CONFIRMATION_SCORE < 0 ||
+    PROBATION_MINIMUM_CONFIRMATION_SCORE > 100
+  ) {
+    throw new Error(
+      'PROBATION_MINIMUM_CONFIRMATION_SCORE must be between 0 and 100.',
+    );
+  }
+
+  const resolvedProbationReminderDays =
+    PROBATION_REMINDER_DAYS.length > 0
+      ? PROBATION_REMINDER_DAYS
+      : [30, 14, 7, 3, 1];
+
+  if (resolvedProbationReminderDays.some((day) => Number.isNaN(day))) {
+    throw new Error('PROBATION_REMINDER_DAYS must contain only integers.');
+  }
+
   return {
     DB_HOST,
     DB_PORT,
@@ -832,5 +931,20 @@ export function validateEnv(env: Env) {
     LEAVE_CALENDAR_MAX_RANGE_DAYS,
     LEAVE_TEAM_CAPACITY_WARNING_PERCENT,
     LEAVE_TEAM_CAPACITY_BLOCK_PERCENT,
+    PROBATION_DEFAULT_PERIOD_DAYS,
+    PROBATION_DEFAULT_EXTENSION_DAYS,
+    PROBATION_MAX_EXTENSION_DAYS,
+    PROBATION_MAX_EXTENSIONS,
+    PROBATION_SELF_ASSESSMENT_REQUIRED,
+    PROBATION_OBJECTIVES_REQUIRED,
+    PROBATION_MINIMUM_CONFIRMATION_SCORE,
+    PROBATION_REMINDER_CRON,
+    PROBATION_RECONCILIATION_CRON,
+    PROBATION_REMINDER_DAYS: resolvedProbationReminderDays,
+    PROBATION_OVERDUE_REMINDER_INTERVAL_DAYS,
+    PROBATION_REQUIRE_MANAGER_RECOMMENDATION,
+    PROBATION_REQUIRE_HR_APPROVAL,
+    PROBATION_REQUIRE_CONFIRMATION_LETTER,
+    PROBATION_MAX_REVIEW_BACKDATE_DAYS,
   };
 }

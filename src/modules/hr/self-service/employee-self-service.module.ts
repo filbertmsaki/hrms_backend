@@ -43,6 +43,7 @@ import { OffboardingRequest } from '../offboarding/entities/offboarding-request.
 import { ActionInboxModule } from '../action-inbox/action-inbox.module';
 import { HrDocumentsModule } from '../documents/hr-documents.module';
 import { OffboardingModule } from '../offboarding/offboarding.module';
+import { ProbationModule } from '../probation/probation.module';
 
 @Module({
   imports: [
@@ -83,6 +84,7 @@ import { OffboardingModule } from '../offboarding/offboarding.module';
     ActionInboxModule,
     HrDocumentsModule,
     OffboardingModule,
+    ProbationModule,
   ],
   controllers: [
     EmployeeSelfServiceController,

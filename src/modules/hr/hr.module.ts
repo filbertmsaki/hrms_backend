@@ -20,6 +20,7 @@ import { ActionInboxModule } from './action-inbox/action-inbox.module';
 import { HrDocumentsModule } from './documents/hr-documents.module';
 import { ManagerSelfServiceModule } from './manager-self-service/manager-self-service.module';
 import { DashboardsModule } from './dashboards/dashboards.module';
+import { ProbationModule } from './probation/probation.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { DashboardsModule } from './dashboards/dashboards.module';
     EmployeeSelfServiceModule,
     ManagerSelfServiceModule,
     DashboardsModule,
+    ProbationModule,
     OnboardingModule,
     OffboardingModule,
     HrLaunchReadinessModule,

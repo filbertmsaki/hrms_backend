@@ -79,6 +79,7 @@ import {
 } from '../notifications/events';
 import { buildNotificationRecipient } from '../notifications/notification-recipient.util';
 import { FilesService } from '../../files/files.service';
+import { ProbationService } from '../probation/probation.service';
 import {
   HR_PRIVATE_DOCUMENT_MAX_BYTES,
   HR_PRIVATE_DOCUMENT_MIME_TYPES,
@@ -182,6 +183,7 @@ export class OnboardingService {
     private readonly eventEmitter: EventEmitter2,
     private readonly configService: ConfigService,
     private readonly filesService: FilesService,
+    private readonly probationService: ProbationService,
   ) {}
 
   private getOnboardingWorkflowRepository(
@@ -2883,6 +2885,12 @@ export class OnboardingService {
       await this.initializeLeaveBalancesForEmployee(
         companyId,
         employee,
+        manager,
+      );
+      await this.probationService.ensureCaseForEmployee(
+        companyId,
+        employee,
+        actor,
         manager,
       );
 

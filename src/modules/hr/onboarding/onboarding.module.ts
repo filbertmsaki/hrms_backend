@@ -31,6 +31,7 @@ import { OnboardingWorkflow } from './entities/onboarding-workflow.entity';
 import { OnboardingAuditService } from './services/onboarding-audit.service';
 import { OnboardingCronService } from './services/onboarding-cron.service';
 import { OnboardingWorkflowService } from './services/onboarding-workflow.service';
+import { ProbationModule } from '../probation/probation.module';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { OnboardingWorkflowService } from './services/onboarding-workflow.servic
     ShiftEngineModule,
     TimetableEngineModule,
     EmployeeDeviceAssignmentsModule,
+    ProbationModule,
   ],
   controllers: [OnboardingController],
   providers: [

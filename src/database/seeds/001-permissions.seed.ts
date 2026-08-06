@@ -1898,6 +1898,60 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     displayName: 'Read HRMS launch readiness',
     description: 'Allow viewing the HRMS launch readiness report',
   },
+  {
+    name: 'probation_policies:read',
+    displayName: 'Read probation policies',
+    description: 'Allow viewing probation policies',
+  },
+  {
+    name: 'probation_policies:create',
+    displayName: 'Create probation policies',
+    description: 'Allow creating probation policies',
+  },
+  {
+    name: 'probation_policies:update',
+    displayName: 'Update probation policies',
+    description: 'Allow updating probation policies',
+  },
+  {
+    name: 'probation_cases:read',
+    displayName: 'Read probation cases',
+    description: 'Allow viewing probation and confirmation cases',
+  },
+  {
+    name: 'probation_cases:read-team',
+    displayName: 'Read authorized team probation cases',
+    description:
+      'Allow managers to view probation cases for employees they are assigned to review',
+  },
+  {
+    name: 'probation_reviews:self-assess',
+    displayName: 'Submit own probation self-assessment',
+    description: 'Allow employees to submit their own probation self-assessment',
+  },
+  {
+    name: 'probation_reviews:manager-review',
+    displayName: 'Review assigned employee probation',
+    description: 'Allow managers to submit probation manager reviews',
+  },
+  {
+    name: 'probation_reviews:manager-review-any',
+    displayName: 'Review any authorized employee probation',
+    description:
+      'Allow reviewing probation cases beyond the direct reporting line, subject to HR access scope',
+  },
+  {
+    name: 'probation_reviews:hr-decision',
+    displayName: 'Make final probation decision',
+    description:
+      'Allow HR to confirm, extend, not-confirm, or recommend termination for a probation case',
+  },
+  {
+    name: 'probation_letters:generate',
+    displayName: 'Generate probation and confirmation letters',
+    description:
+      'Allow generating confirmation, extension, and outcome letters for a probation case',
+  },
 ];
 
 export default class PermissionsSeeder implements Seeder {
