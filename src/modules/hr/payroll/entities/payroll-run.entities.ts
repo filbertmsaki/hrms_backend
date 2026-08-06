@@ -44,10 +44,10 @@ export class PayrollRun {
   })
   status: PayrollRunStatusEnum;
 
-  @Column({ name: 'parent_run_id', nullable: true })
+  @Column({ name: 'parent_run_id', type: 'int', nullable: true })
   parentRunId: number | null;
 
-  @Column({ name: 'offboarding_request_id', nullable: true })
+  @Column({ name: 'offboarding_request_id', type: 'int', nullable: true })
   offboardingRequestId: number | null;
 
   @Column({ name: 'calculation_version', type: 'int', default: 1 })
@@ -155,7 +155,7 @@ export class PayrollInput {
   @Column({ name: 'payroll_period_id' })
   payrollPeriodId: number;
 
-  @Column({ name: 'employee_id', nullable: true })
+  @Column({ name: 'employee_id', type: 'int', nullable: true })
   employeeId: number | null;
 
   @Column({ name: 'component_code', type: 'varchar', length: 80 })
@@ -185,7 +185,7 @@ export class PayrollInput {
   @Column({ type: 'jsonb', nullable: true })
   payload: Record<string, unknown> | null;
 
-  @Column({ name: 'approved_by_company_user_id', nullable: true })
+  @Column({ name: 'approved_by_company_user_id', type: 'int', nullable: true })
   approvedByCompanyUserId: number | null;
 
   @Column({ name: 'approved_at', type: 'timestamptz', nullable: true })
@@ -341,7 +341,7 @@ export class PayrollResultAdjustment {
   @Column({ name: 'created_by_company_user_id' })
   createdByCompanyUserId: number;
 
-  @Column({ name: 'approved_by_company_user_id', nullable: true })
+  @Column({ name: 'approved_by_company_user_id', type: 'int', nullable: true })
   approvedByCompanyUserId: number | null;
 
   @Column({ name: 'approved_at', type: 'timestamptz', nullable: true })
@@ -405,7 +405,7 @@ export class Payslip {
   @Column({ name: 'result_hash', type: 'varchar', length: 128 })
   resultHash: string;
 
-  @Column({ name: 'document_id', nullable: true })
+  @Column({ name: 'document_id', type: 'int', nullable: true })
   documentId: number | null;
 
   @Column({ type: 'enum', enum: PayrollOutputStatusEnum, default: PayrollOutputStatusEnum.GENERATED })
@@ -503,7 +503,7 @@ export class PayrollVarianceResult {
   @Column({ name: 'payroll_run_id' })
   payrollRunId: number;
 
-  @Column({ name: 'comparison_run_id', nullable: true })
+  @Column({ name: 'comparison_run_id', type: 'int', nullable: true })
   comparisonRunId: number | null;
 
   @Column({ type: 'jsonb' })
@@ -534,7 +534,7 @@ export class PayrollFinalSettlement {
   @Column({ name: 'employee_id' })
   employeeId: number;
 
-  @Column({ name: 'payroll_run_id', nullable: true })
+  @Column({ name: 'payroll_run_id', type: 'int', nullable: true })
   payrollRunId: number | null;
 
   @Column({ name: 'gross_settlement', type: 'decimal', precision: 20, scale: 2, default: '0' })
@@ -565,7 +565,7 @@ export class PayrollAuditLog {
   @Column({ name: 'company_id' })
   companyId: number;
 
-  @Column({ name: 'actor_company_user_id', nullable: true })
+  @Column({ name: 'actor_company_user_id', type: 'int', nullable: true })
   actorCompanyUserId: number | null;
 
   @Column({ type: 'varchar', length: 100 })

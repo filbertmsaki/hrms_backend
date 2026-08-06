@@ -12,7 +12,7 @@ export const AppDataSource = new DataSource({
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'hrms_db',
 
-  entities: ['src/**/*.entity{.ts,.js}'],
+  entities: ['src/**/*.entity{.ts,.js}', 'src/**/*.entities{.ts,.js}'],
 
   migrations: ['src/database/migrations/*{.ts,.js}'],
   migrationsTableName: 'migrations',

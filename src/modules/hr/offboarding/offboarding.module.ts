@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { FilesModule } from '../../files/files.module';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
@@ -77,7 +77,7 @@ import { OffboardingAccessTerminationDispatcherService } from './services/offboa
     ]),
     FilesModule,
     HrSharedModule,
-    EmployeesModule,
+    forwardRef(() => EmployeesModule),
     LeaveModule,
     AccessGroupsModule,
   ],

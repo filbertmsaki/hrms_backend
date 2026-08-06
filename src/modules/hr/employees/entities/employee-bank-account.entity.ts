@@ -55,7 +55,7 @@ export class EmployeeBankAccount {
   @Column({ type: 'timestamptz', nullable: true })
   verified_at: Date | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int', nullable: true })
   verified_by_company_user_id: number | null;
 
   @Column({ type: 'date', nullable: true })

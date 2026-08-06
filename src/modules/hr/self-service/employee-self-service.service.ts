@@ -1,8 +1,10 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -93,6 +95,11 @@ type UploadedProfilePhoto = {
   buffer: Buffer;
 };
 
+type WorkActivityInsightsPort = Pick<
+  WorkActivityInsightsService,
+  'getEmployeeSummary'
+>;
+
 const ACTIVE_PROFILE_UPDATE_REQUEST_STATUSES = [
   SelfServiceRequestStatusEnum.DRAFT,
   SelfServiceRequestStatusEnum.SUBMITTED,
@@ -139,10 +146,9 @@ export class EmployeeSelfServiceService {
     private readonly hrDocumentsService: HrDocumentsService,
     private readonly offboardingService: OffboardingService,
     private readonly hrAccessService: HrAccessService,
-    private readonly workActivityInsightsService: Pick<
-      WorkActivityInsightsService,
-      'getEmployeeSummary'
-    > = {
+    @Optional()
+    @Inject(WorkActivityInsightsService)
+    private readonly workActivityInsightsService: WorkActivityInsightsPort = {
       getEmployeeSummary: async () => ({
         reports_submitted: 0,
         approved_reports: 0,

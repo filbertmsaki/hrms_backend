@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Employee } from '../employees/entities/employee.entity';
 import { HrSharedModule } from '../shared/hr-shared.module';
@@ -41,7 +41,7 @@ import { ProbationReminderService } from './services/probation-reminder.service'
     HrSharedModule,
     ActionInboxModule,
     FilesModule,
-    OffboardingModule,
+    forwardRef(() => OffboardingModule),
   ],
   controllers: [ProbationController],
   providers: [

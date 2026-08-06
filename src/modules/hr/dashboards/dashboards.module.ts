@@ -18,6 +18,7 @@ import { HrDashboardService } from './hr-dashboard.service';
 import { ManagementDashboardService } from './management-dashboard.service';
 import { WorkActivitiesModule } from '../work-activities/work-activities.module';
 import { PayrollModule } from '../payroll/payroll.module';
+import { EmployeeFinanceModule } from '../employee-finance/employee-finance.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { PayrollModule } from '../payroll/payroll.module';
     PerformanceModule,
     WorkActivitiesModule,
     PayrollModule,
+    EmployeeFinanceModule,
   ],
   controllers: [DashboardsController],
   providers: [

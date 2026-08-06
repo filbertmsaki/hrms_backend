@@ -23,6 +23,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { ScheduledReportingModule } from './modules/scheduled-reporting/scheduled-reporting.module';
 import { SystemHealthModule } from './modules/system-health/system-health.module';
 import { TenantGuard } from './common/guards/tenant.guard';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
 
 @Module({
   imports: [
@@ -71,7 +72,10 @@ import { TenantGuard } from './common/guards/tenant.guard';
         password: configService.get<string>('DB_PASSWORD', ''),
         database: configService.get<string>('DB_NAME', 'hrms_db'),
 
-        entities: [__dirname + '/**/*.entity{.ts,.js}'],
+        entities: [
+          __dirname + '/**/*.entity{.ts,.js}',
+          __dirname + '/**/*.entities{.ts,.js}',
+        ],
         synchronize: false,
         migrationsRun: false,
         logging: configService.get<string>('NODE_ENV') === 'development',
@@ -119,6 +123,7 @@ import { TenantGuard } from './common/guards/tenant.guard';
     NotificationsModule,
     ScheduledReportingModule,
     SystemHealthModule,
+    AnalyticsModule,
   ],
   controllers: [AppController],
   providers: [

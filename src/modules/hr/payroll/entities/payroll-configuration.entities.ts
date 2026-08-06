@@ -178,7 +178,7 @@ export class SalaryStructure {
   @Column({ type: 'jsonb', nullable: true })
   metadata: Record<string, unknown> | null;
 
-  @Column({ name: 'created_by_company_user_id', nullable: true })
+  @Column({ name: 'created_by_company_user_id', type: 'int', nullable: true })
   createdByCompanyUserId: number | null;
 
   @CreateDateColumn({ name: 'created_at' })
@@ -394,7 +394,7 @@ export class StatutoryRuleVersion {
   @Column({ type: 'varchar', length: 30, default: 'DRAFT' })
   status: string;
 
-  @Column({ name: 'approved_by_company_user_id', nullable: true })
+  @Column({ name: 'approved_by_company_user_id', type: 'int', nullable: true })
   approvedByCompanyUserId: number | null;
 
   @Column({ name: 'approved_at', type: 'timestamptz', nullable: true })

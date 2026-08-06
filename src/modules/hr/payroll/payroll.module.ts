@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
+import { EmployeeFinanceModule } from '../employee-finance/employee-finance.module';
 import { EmployeeCompensationVersion } from '../employee-movements/entities/employee-compensation-version.entity';
 import { EmployeeBankAccount } from '../employees/entities/employee-bank-account.entity';
 import { Employee } from '../employees/entities/employee.entity';
@@ -62,8 +63,6 @@ import {
   PayrollRunService,
   PayslipService,
   ProgressiveTaxService,
-  LoanDeductionPayrollProvider,
-  SalaryAdvancePayrollProvider,
   StatutoryCalculationService,
 } from './services/payroll-core.services';
 
@@ -103,6 +102,7 @@ import {
       OffboardingSettlementItem,
     ]),
     HrSharedModule,
+    EmployeeFinanceModule,
   ],
   controllers: [
     PayrollConfigurationController,
@@ -131,8 +131,6 @@ import {
     PayrollReportsService,
     PayrollReconciliationService,
     PayrollFinalSettlementService,
-    LoanDeductionPayrollProvider,
-    SalaryAdvancePayrollProvider,
   ],
   exports: [
     EmployeePayrollProfileService,

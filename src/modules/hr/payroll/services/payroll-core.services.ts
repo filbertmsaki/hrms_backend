@@ -21,7 +21,9 @@ import { LeaveStatusEnum } from '../../leave/enums/leave-status.enum';
 import { OffboardingRequest } from '../../offboarding/entities/offboarding-request.entity';
 import { OffboardingSettlementItem } from '../../offboarding/entities/offboarding-settlement-item.entity';
 import { OffboardingRequestStatusEnum } from '../../offboarding/enums/offboarding-request-status.enum';
+import { OffboardingSettlementItemTypeEnum } from '../../offboarding/enums/offboarding-settlement-item-type.enum';
 import { HrAccessService } from '../../shared/hr-access.service';
+import { EmployeeFinancePayrollInstructionService } from '../../employee-finance/services/employee-finance-core.services';
 import {
   ApprovePayrollRunDto,
   CreatePayrollCalendarDto,
@@ -687,6 +689,7 @@ export class EmployeePayrollCalculationService {
     private readonly configService: ConfigService,
     private readonly prorationService: PayrollProrationService,
     private readonly statutoryService: StatutoryCalculationService,
+    private readonly employeeFinancePayrollInstructionService: EmployeeFinancePayrollInstructionService,
     @InjectRepository(EmployeePayrollProfile)
     private readonly profileRepository: Repository<EmployeePayrollProfile>,
     @InjectRepository(Employee)
@@ -784,6 +787,13 @@ export class EmployeePayrollCalculationService {
         employeeId: employee.id,
       })
       .getMany();
+    const financeInstructions =
+      await this.employeeFinancePayrollInstructionService.reserveForPayrollRun(
+        companyId,
+        period.id,
+        args.run.id,
+        employee.id,
+      );
 
     const leaveWithoutPayDays = await this.calculateLwpDays(companyId, employee.id, period);
     const dailyRate = Number(compensation.baseSalary) / daysInclusive(period.startDate, period.endDate);
@@ -940,6 +950,24 @@ export class EmployeePayrollCalculationService {
       }
     }
 
+    for (const instruction of financeInstructions) {
+      lineItems.push({
+        componentCode: instruction.componentCode,
+        componentName:
+          instruction.componentCode === 'SALARY_ADVANCE'
+            ? 'Salary advance repayment'
+            : 'Staff loan repayment',
+        componentType: PayrollComponentTypeEnum.DEDUCTION,
+        amount: instruction.reservedAmount,
+        taxableAmount: '0.00',
+        employerAmount: '0.00',
+        calculationOrder: 950,
+        sourceType: 'EMPLOYEE_FINANCE',
+        sourceReference: String(instruction.id),
+        calculationSnapshot: instruction.snapshot,
+      });
+    }
+
     const gross = this.sumLines(lineItems, (item) =>
       [
         PayrollComponentTypeEnum.EARNING,
@@ -974,16 +1002,7 @@ export class EmployeePayrollCalculationService {
     };
     const inputSnapshot = {
       input_ids: inputs.map((item) => item.id),
-      pending_integrations: [
-        {
-          provider: 'STAFF_LOAN',
-          status: PayrollInputStatusEnum.PENDING_LOAN_INTEGRATION,
-        },
-        {
-          provider: 'SALARY_ADVANCE',
-          status: PayrollInputStatusEnum.PENDING_LOAN_INTEGRATION,
-        },
-      ],
+      employee_finance_instruction_ids: financeInstructions.map((item) => item.id),
     };
     const resultPayload = {
       employee_id: employee.id,
@@ -1150,6 +1169,7 @@ export class PayrollRunService {
     private readonly configService: ConfigService,
     private readonly hrAccessService: HrAccessService,
     private readonly calculationService: EmployeePayrollCalculationService,
+    private readonly employeeFinancePayrollInstructionService: EmployeeFinancePayrollInstructionService,
     private readonly auditService: PayrollAuditService,
     @InjectRepository(PayrollPeriod)
     private readonly periodRepository: Repository<PayrollPeriod>,
@@ -1366,6 +1386,10 @@ export class PayrollRunService {
     await this.periodRepository.update(
       { id: run.payrollPeriodId, companyId },
       { status: PayrollPeriodStatusEnum.LOCKED, lockedAt: new Date() },
+    );
+    await this.employeeFinancePayrollInstructionService.lockForPayrollRun(
+      companyId,
+      run.id,
     );
     await this.auditService.log({
       actor,
@@ -1961,28 +1985,6 @@ export class PayrollReconciliationService {
 }
 
 @Injectable()
-export class LoanDeductionPayrollProvider {
-  collect() {
-    return {
-      provider: 'STAFF_LOAN',
-      status: PayrollInputStatusEnum.PENDING_LOAN_INTEGRATION,
-      inputs: [],
-    };
-  }
-}
-
-@Injectable()
-export class SalaryAdvancePayrollProvider {
-  collect() {
-    return {
-      provider: 'SALARY_ADVANCE',
-      status: PayrollInputStatusEnum.PENDING_LOAN_INTEGRATION,
-      inputs: [],
-    };
-  }
-}
-
-@Injectable()
 export class PayrollFinalSettlementService {
   constructor(
     private readonly hrAccessService: HrAccessService,
@@ -2021,6 +2023,14 @@ export class PayrollFinalSettlementService {
     const deductions = items
       .filter((item) => PayrollMoney.toCents(item.amount ?? '0') < 0n)
       .reduce((sum, item) => PayrollMoney.add(sum, item.amount), '0.00');
+    const employeeFinanceRecoveryItemIds = items
+      .filter((item) =>
+        [
+          OffboardingSettlementItemTypeEnum.LOAN_RECOVERY,
+          OffboardingSettlementItemTypeEnum.SALARY_ADVANCE_RECOVERY,
+        ].includes(item.item_type),
+      )
+      .map((item) => item.id);
     return this.repository.save(
       this.repository.create({
         companyId,
@@ -2033,7 +2043,7 @@ export class PayrollFinalSettlementService {
           offboarding_request_id: offboarding.id,
           last_working_date: offboarding.last_working_date,
           settlement_item_ids: items.map((item) => item.id),
-          loan_recovery_status: 'PENDING_LOAN_INTEGRATION',
+          employee_finance_recovery_item_ids: employeeFinanceRecoveryItemIds,
         },
       }),
     );

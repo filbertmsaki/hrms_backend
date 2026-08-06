@@ -2392,6 +2392,161 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     displayName: 'Manage payroll final settlements',
     description: 'Allow calculating payroll-linked final settlements for offboarding',
   },
+  {
+    name: 'employee_finance:products',
+    displayName: 'Manage employee finance products',
+    description: 'Allow configuring staff loan and salary advance products',
+  },
+  {
+    name: 'employee_finance:products:read',
+    displayName: 'Read employee finance products',
+    description: 'Allow viewing staff loan and salary advance products',
+  },
+  {
+    name: 'employee_finance:applications:self',
+    displayName: 'Manage own employee finance applications',
+    description: 'Allow employees to apply for and track staff loans and salary advances',
+  },
+  {
+    name: 'employee_finance:applications:read',
+    displayName: 'Read employee finance applications',
+    description: 'Allow viewing employee finance applications and eligibility results',
+  },
+  {
+    name: 'employee_finance:applications:manager-review',
+    displayName: 'Review employee finance applications',
+    description: 'Allow managers to recommend staff loan and salary advance applications',
+  },
+  {
+    name: 'employee_finance:applications:hr-approve',
+    displayName: 'HR approve employee finance applications',
+    description: 'Allow HR to approve staff loan and salary advance applications',
+  },
+  {
+    name: 'employee_finance:applications:finance-approve',
+    displayName: 'Finance approve employee finance applications',
+    description: 'Allow Finance to approve staff loan and salary advance applications',
+  },
+  {
+    name: 'employee_finance:accounts:read',
+    displayName: 'Read employee finance accounts',
+    description: 'Allow viewing staff loan and salary advance accounts',
+  },
+  {
+    name: 'employee_finance:disbursements',
+    displayName: 'Manage employee finance disbursements',
+    description: 'Allow creating and confirming staff loan and salary advance disbursements',
+  },
+  {
+    name: 'employee_finance:disbursements:approve',
+    displayName: 'Approve employee finance disbursements',
+    description: 'Allow approving staff loan and salary advance disbursements',
+  },
+  {
+    name: 'employee_finance:repayments',
+    displayName: 'Manage employee finance repayments',
+    description: 'Allow recording direct and additional staff loan or salary advance repayments',
+  },
+  {
+    name: 'employee_finance:repayments:approve',
+    displayName: 'Approve employee finance repayments',
+    description: 'Allow approving and posting employee finance repayments',
+  },
+  {
+    name: 'employee_finance:payroll',
+    displayName: 'Manage employee finance payroll instructions',
+    description: 'Allow generating payroll deductions for staff loans and salary advances',
+  },
+  {
+    name: 'employee_finance:settlements',
+    displayName: 'Manage employee finance settlements',
+    description: 'Allow deferments, reschedules, settlement quotes, and exit recoveries',
+  },
+  {
+    name: 'employee_finance:reports',
+    displayName: 'View employee finance reports',
+    description: 'Allow viewing staff loan and salary advance dashboards',
+  },
+  {
+    name: 'employee_finance:reconciliation',
+    displayName: 'Run employee finance reconciliation',
+    description: 'Allow reconciling staff loan and salary advance ledgers and payroll instructions',
+  },
+  {
+    name: 'analytics:sources:read',
+    displayName: 'View analytics sources',
+    description: 'Allow viewing registered transactional sources available to analytics',
+  },
+  {
+    name: 'analytics:datasets:read',
+    displayName: 'View analytics datasets',
+    description: 'Allow viewing analytics dataset catalog and freshness status',
+  },
+  {
+    name: 'analytics:metrics:read',
+    displayName: 'View analytics metrics',
+    description: 'Allow viewing governed metric definitions and versions',
+  },
+  {
+    name: 'analytics:refresh',
+    displayName: 'Refresh analytics snapshots',
+    description: 'Allow manually refreshing analytics dimensions, facts, and aggregates',
+  },
+  {
+    name: 'analytics:dashboards:hr',
+    displayName: 'View HR analytics dashboard',
+    description: 'Allow viewing HR workforce, attendance, leave, payroll, and finance intelligence',
+  },
+  {
+    name: 'analytics:dashboards:management',
+    displayName: 'View management analytics dashboard',
+    description: 'Allow viewing executive management intelligence and risk indicators',
+  },
+  {
+    name: 'analytics:dashboards:manager',
+    displayName: 'View manager analytics dashboard',
+    description: 'Allow managers to view scoped team analytics',
+  },
+  {
+    name: 'analytics:dashboards:sales-field',
+    displayName: 'View sales and field analytics dashboard',
+    description: 'Allow viewing field activity and visit analytics',
+  },
+  {
+    name: 'analytics:reports',
+    displayName: 'Run analytics reports',
+    description: 'Allow running governed custom analytics reports',
+  },
+  {
+    name: 'analytics:exports',
+    displayName: 'Export analytics reports',
+    description: 'Allow exporting governed analytics reports with retention controls',
+  },
+  {
+    name: 'analytics:statutory-reports',
+    displayName: 'Generate statutory reports',
+    description: 'Allow generating statutory and compliance reports from locked payroll data',
+  },
+  {
+    name: 'analytics:reconciliation',
+    displayName: 'Run analytics reconciliation',
+    description: 'Allow reconciling analytics facts against payroll and employee finance sources',
+  },
+  {
+    name: 'analytics:audit:read',
+    displayName: 'View analytics audit logs',
+    description: 'Allow viewing sensitive analytics access and export audit trails',
+  },
+  {
+    name: 'analytics:sensitive',
+    displayName: 'View sensitive analytics',
+    description: 'Allow viewing highly restricted analytics values where policy permits',
+  },
+  {
+    name: 'analytics:location',
+    displayName: 'View analytics location data',
+    description: 'Allow viewing analytics derived from field location and visit data',
+  },
 ];
 
 export default class PermissionsSeeder implements Seeder {

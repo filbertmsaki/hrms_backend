@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { FilesModule } from '../../files/files.module';
@@ -102,7 +102,7 @@ import { BranchesModule } from '../branches/branches.module';
     UsersModule,
     DefaultAvatarsModule,
     HrSharedModule,
-    OnboardingModule,
+    forwardRef(() => OnboardingModule),
     HrLaunchReadinessModule,
     LeaveModule,
     ShiftEngineModule,

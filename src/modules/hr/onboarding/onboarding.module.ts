@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CompaniesModule } from '../../companies/companies.module';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
@@ -63,7 +63,7 @@ import { ProbationModule } from '../probation/probation.module';
     ShiftEngineModule,
     TimetableEngineModule,
     EmployeeDeviceAssignmentsModule,
-    ProbationModule,
+    forwardRef(() => ProbationModule),
   ],
   controllers: [OnboardingController],
   providers: [

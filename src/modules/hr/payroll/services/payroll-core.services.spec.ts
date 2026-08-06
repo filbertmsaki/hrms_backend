@@ -1,11 +1,9 @@
 import { StatutoryTaxBand } from '../entities/payroll-configuration.entities';
 import { PayrollApprovalStageEnum, PayrollRunStatusEnum } from '../payroll.enums';
 import {
-  LoanDeductionPayrollProvider,
   PayrollProrationService,
   PayrollRunService,
   ProgressiveTaxService,
-  SalaryAdvancePayrollProvider,
 } from './payroll-core.services';
 
 describe('ProgressiveTaxService', () => {
@@ -88,24 +86,6 @@ describe('PayrollRunService approval flow', () => {
         PayrollApprovalStageEnum.HR,
       ),
     ).toThrow('Payroll run is not waiting for this approval stage.');
-  });
-});
-
-describe('Phase 15 payroll provider placeholders', () => {
-  it('keeps staff loans pending until the loan module supplies schedules', () => {
-    expect(new LoanDeductionPayrollProvider().collect()).toEqual({
-      provider: 'STAFF_LOAN',
-      status: 'PENDING_LOAN_INTEGRATION',
-      inputs: [],
-    });
-  });
-
-  it('keeps salary advances pending until the advance module supplies schedules', () => {
-    expect(new SalaryAdvancePayrollProvider().collect()).toEqual({
-      provider: 'SALARY_ADVANCE',
-      status: 'PENDING_LOAN_INTEGRATION',
-      inputs: [],
-    });
   });
 });
 

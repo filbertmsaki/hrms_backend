@@ -15,6 +15,7 @@ import { OffboardingRequestStatusEnum } from '../offboarding/enums/offboarding-r
 import { PerformanceInsightsService } from '../performance/services/performance-insights.service';
 import { WorkActivityInsightsService } from '../work-activities/services/work-activity-insights.service';
 import { PayrollReportsService } from '../payroll/services/payroll-core.services';
+import { EmployeeFinanceReportsService } from '../employee-finance/services/employee-finance-core.services';
 import { DashboardDateService } from './dashboard-date.service';
 import { DashboardQueryDto } from './dtos/dashboard-query.dto';
 
@@ -48,6 +49,7 @@ export class ManagementDashboardService {
     private readonly performanceInsightsService: PerformanceInsightsService,
     private readonly workActivityInsightsService: WorkActivityInsightsService,
     private readonly payrollReportsService: PayrollReportsService,
+    private readonly employeeFinanceReportsService: EmployeeFinanceReportsService,
   ) {}
 
   async getDashboard(actor: AuthenticatedUser, query: DashboardQueryDto) {
@@ -78,6 +80,7 @@ export class ManagementDashboardService {
       performanceSummary,
       workActivitySummary,
       payrollSummary,
+      employeeFinanceSummary,
     ] = await Promise.all([
       employeeIds.length
         ? this.employeeRepository.count({
@@ -117,6 +120,7 @@ export class ManagementDashboardService {
         period.dateTo,
       ),
       this.payrollReportsService.dashboard(actor),
+      this.employeeFinanceReportsService.dashboard(actor),
     ]);
 
     const attritionRate =
@@ -148,12 +152,8 @@ export class ManagementDashboardService {
       performance: performanceSummary,
       work_activities: workActivitySummary,
       payroll: payrollSummary,
+      employee_finance: employeeFinanceSummary,
       unavailable_widgets: [
-        {
-          code: 'STAFF_LOAN_OUTSTANDING',
-          available: false,
-          reason: 'Staff loan management is not implemented.',
-        },
         {
           code: 'TOP_PERFORMERS',
           available: false,

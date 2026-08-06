@@ -97,7 +97,7 @@ export class EmployeePayrollProfile {
   })
   paymentMethod: string;
 
-  @Column({ name: 'primary_bank_account_id', nullable: true })
+  @Column({ name: 'primary_bank_account_id', type: 'int', nullable: true })
   primaryBankAccountId: number | null;
 
   @Column({ type: 'varchar', length: 3, default: 'TZS' })
@@ -126,10 +126,10 @@ export class EmployeePayrollProfile {
   @Column({ name: 'effective_to', type: 'date', nullable: true })
   effectiveTo: string | null;
 
-  @Column({ name: 'created_by_company_user_id', nullable: true })
+  @Column({ name: 'created_by_company_user_id', type: 'int', nullable: true })
   createdByCompanyUserId: number | null;
 
-  @Column({ name: 'updated_by_company_user_id', nullable: true })
+  @Column({ name: 'updated_by_company_user_id', type: 'int', nullable: true })
   updatedByCompanyUserId: number | null;
 
   @VersionColumn()
