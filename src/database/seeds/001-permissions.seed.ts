@@ -2622,27 +2622,18 @@ export default class PermissionsSeeder implements Seeder {
 
     try {
       const repo: Repository<Permission> = qr.manager.getRepository(Permission);
+      const permissions = PERMISSION_SEEDS.map((seed) => ({
+        name: seed.name,
+        display_name: seed.displayName,
+        description: seed.description,
+        scope: resolvePermissionScope(seed.name),
+        is_system_generated: true,
+      }));
 
-      for (const seed of PERMISSION_SEEDS) {
-        let permission = await repo.findOne({ where: { name: seed.name } });
-
-        if (!permission) {
-          permission = repo.create({
-            name: seed.name,
-            display_name: seed.displayName,
-            description: seed.description,
-            scope: resolvePermissionScope(seed.name),
-            is_system_generated: true,
-          });
-        } else {
-          permission.display_name = seed.displayName;
-          permission.description = seed.description;
-          permission.scope = resolvePermissionScope(seed.name);
-          permission.is_system_generated = true;
-        }
-
-        await repo.save(permission);
-      }
+      await repo.upsert(
+        permissions,
+        ['name'],
+      );
 
       await qr.commitTransaction();
       const totals = PERMISSION_SEEDS.reduce(
