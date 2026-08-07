@@ -127,6 +127,11 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     lockForPayrollRun: jest.fn().mockResolvedValue(undefined),
   } as unknown as EmployeeFinancePayrollInstructionService;
 
+  const smsNotificationManagementService = {} as never;
+  const notificationQueueService = {
+    enqueueSmsConfiguredNotification: jest.fn().mockResolvedValue(undefined),
+  } as never;
+
   const configService = new TestConfigService() as unknown as ConfigService;
 
   const adminActor = (): AuthenticatedUser => ({
@@ -287,6 +292,8 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     payslipService = new PayslipService(
       hrAccessService,
       auditService,
+      smsNotificationManagementService,
+      notificationQueueService,
       payrollRunRepository,
       payrollResultRepository,
       payrollLineItemRepository,

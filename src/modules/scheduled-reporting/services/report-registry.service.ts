@@ -8,87 +8,96 @@ import { PerformanceSummaryReportRunner } from './runners/performance-summary-re
 export type RegisteredReportDefinition = {
   reportCode: string;
   name: string;
+  description: string | null;
   supportedFormats: ReportOutputFormatEnum[];
   supportedFilterFields: string[];
   requiredPermissions: string[];
   emailDeliverySupported: boolean;
   backgroundGenerationSupported: boolean;
+  generatorService: string;
 };
+
+export const REGISTERED_REPORT_DEFINITIONS: RegisteredReportDefinition[] = [
+  {
+    reportCode: 'ATTENDANCE_SUMMARY',
+    name: 'Attendance Summary',
+    description:
+      'Attendance summary export covering employee attendance outcomes within the selected date range.',
+    supportedFormats: [
+      ReportOutputFormatEnum.PDF,
+      ReportOutputFormatEnum.XLSX,
+      ReportOutputFormatEnum.CSV,
+    ],
+    supportedFilterFields: [
+      'company_id',
+      'branch_id',
+      'department_id',
+      'employee_id',
+      'employee_no',
+      'attendance_status',
+      'date_from',
+      'date_to',
+      'late_only',
+      'early_checkout_only',
+      'missing_check_in',
+      'missing_check_out',
+      'present_only',
+      'absent_only',
+    ],
+    requiredPermissions: ['attendance_summaries:read'],
+    emailDeliverySupported: true,
+    backgroundGenerationSupported: false,
+    generatorService: 'AttendanceSummaryReportRunner',
+  },
+  {
+    reportCode: 'EMPLOYEE_DIRECTORY',
+    name: 'Employee Directory',
+    description:
+      'Employee directory export containing employee master data, status, and organization assignment details.',
+    supportedFormats: [ReportOutputFormatEnum.CSV],
+    supportedFilterFields: [
+      'company_id',
+      'branch_id',
+      'department_id',
+      'employee_id',
+      'employee_no',
+      'employment_status',
+      'employment_type',
+    ],
+    requiredPermissions: ['employees:read'],
+    emailDeliverySupported: true,
+    backgroundGenerationSupported: false,
+    generatorService: 'EmployeeMasterReportRunner',
+  },
+  {
+    reportCode: 'PERFORMANCE_SUMMARY',
+    name: 'Performance Summary',
+    description:
+      'Performance summary export aggregating financial-year and period-based performance review results.',
+    supportedFormats: [ReportOutputFormatEnum.CSV],
+    supportedFilterFields: [
+      'company_id',
+      'employee_id',
+      'department_id',
+      'branch_id',
+      'financial_year_id',
+      'period_type',
+    ],
+    requiredPermissions: ['performance_dashboards:read'],
+    emailDeliverySupported: true,
+    backgroundGenerationSupported: false,
+    generatorService: 'PerformanceSummaryReportRunner',
+  },
+];
 
 @Injectable()
 export class ReportRegistryService {
-  private readonly definitions = new Map<string, RegisteredReportDefinition>([
-    [
-      'ATTENDANCE_SUMMARY',
-      {
-        reportCode: 'ATTENDANCE_SUMMARY',
-        name: 'Attendance Summary',
-        supportedFormats: [
-          ReportOutputFormatEnum.PDF,
-          ReportOutputFormatEnum.XLSX,
-          ReportOutputFormatEnum.CSV,
-        ],
-        supportedFilterFields: [
-          'company_id',
-          'branch_id',
-          'department_id',
-          'employee_id',
-          'employee_no',
-          'attendance_status',
-          'date_from',
-          'date_to',
-          'late_only',
-          'early_checkout_only',
-          'missing_check_in',
-          'missing_check_out',
-          'present_only',
-          'absent_only',
-        ],
-        requiredPermissions: ['attendance_summaries:read'],
-        emailDeliverySupported: true,
-        backgroundGenerationSupported: false,
-      },
-    ],
-    [
-      'EMPLOYEE_DIRECTORY',
-      {
-        reportCode: 'EMPLOYEE_DIRECTORY',
-        name: 'Employee Report',
-        supportedFormats: [ReportOutputFormatEnum.CSV],
-        supportedFilterFields: [
-          'company_id',
-          'branch_id',
-          'department_id',
-          'employee_id',
-          'employee_no',
-          'employment_status',
-          'employment_type',
-        ],
-        requiredPermissions: ['employees:read'],
-        emailDeliverySupported: true,
-        backgroundGenerationSupported: false,
-      },
-    ],
-    [
-      'PERFORMANCE_SUMMARY',
-      {
-        reportCode: 'PERFORMANCE_SUMMARY',
-        name: 'Performance Summary',
-        supportedFormats: [ReportOutputFormatEnum.CSV],
-        supportedFilterFields: [
-          'company_id',
-          'employee_id',
-          'department_id',
-          'branch_id',
-          'financial_year_id',
-          'period_type',
-        ],
-        requiredPermissions: ['performance_dashboards:read'],
-        emailDeliverySupported: true,
-        backgroundGenerationSupported: false,
-      },
-    ],
-  ]);
+  private readonly definitions = new Map<string, RegisteredReportDefinition>(
+    REGISTERED_REPORT_DEFINITIONS.map((definition) => [
+      definition.reportCode,
+      definition,
+    ]),
+  );
 
   constructor(
     private readonly attendanceSummaryReportRunner: AttendanceSummaryReportRunner,
@@ -136,6 +145,10 @@ export class ReportRegistryService {
     }
 
     return this.definitions.get(reportCode.trim().toUpperCase()) ?? null;
+  }
+
+  listDefinitions() {
+    return [...this.definitions.values()];
   }
 
   require(reportCode: string) {

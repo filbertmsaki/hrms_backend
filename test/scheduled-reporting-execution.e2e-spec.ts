@@ -16,6 +16,8 @@ import { User } from '../src/modules/users/entities/user.entity';
 import { Employee } from '../src/modules/hr/employees/entities/employee.entity';
 import { EmploymentStatusEnum } from '../src/modules/hr/employees/enums/employment-status.enum';
 import { AttendanceDailySummary } from '../src/modules/hr/attendance/processing/entities/attendance-daily-summary.entity';
+import { PerformanceAggregate } from '../src/modules/hr/performance/entities/performance-aggregate.entity';
+import { PerformanceReview } from '../src/modules/hr/performance/entities/performance-review.entity';
 import { ReportDefinition } from '../src/modules/scheduled-reporting/entities/report-definition.entity';
 import { ReportExecution } from '../src/modules/scheduled-reporting/entities/report-execution.entity';
 import { ReportSchedule } from '../src/modules/scheduled-reporting/entities/report-schedule.entity';
@@ -29,6 +31,7 @@ import { ReportExecutionWorkerService } from '../src/modules/scheduled-reporting
 import { ReportRegistryService } from '../src/modules/scheduled-reporting/services/report-registry.service';
 import { AttendanceSummaryReportRunner } from '../src/modules/scheduled-reporting/services/runners/attendance-summary-report-runner.service';
 import { EmployeeMasterReportRunner } from '../src/modules/scheduled-reporting/services/runners/employee-master-report-runner.service';
+import { PerformanceSummaryReportRunner } from '../src/modules/scheduled-reporting/services/runners/performance-summary-report-runner.service';
 import { ReportSmtpConfiguration } from '../src/modules/scheduled-reporting/entities/report-smtp-configuration.entity';
 import { ReportTemplateRecipient } from '../src/modules/scheduled-reporting/entities/report-template-recipient.entity';
 import { ReportExecutionRecipient } from '../src/modules/scheduled-reporting/entities/report-execution-recipient.entity';
@@ -252,6 +255,11 @@ describe('Scheduled reporting dispatcher + worker (e2e, real Postgres)', () => {
         dataSource.getRepository(AttendanceDailySummary),
       ),
       new EmployeeMasterReportRunner(dataSource.getRepository(Employee)),
+      new PerformanceSummaryReportRunner(
+        dataSource.getRepository(Employee),
+        dataSource.getRepository(PerformanceReview),
+        dataSource.getRepository(PerformanceAggregate),
+      ),
     );
 
     const worker = new ReportExecutionWorkerService(

@@ -173,6 +173,11 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     assertCompanyScopedActor: jest.fn(),
   } as unknown as HrAccessService;
 
+  const smsNotificationManagementService = {} as never;
+  const notificationQueueService = {
+    enqueueSmsConfiguredNotification: jest.fn().mockResolvedValue(undefined),
+  } as never;
+
   const configService = new TestConfigService() as unknown as ConfigService;
 
   const adminActor = (): AuthenticatedUser => ({
@@ -362,6 +367,8 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       configService,
       hrAccessService,
       financeAuditService,
+      smsNotificationManagementService,
+      notificationQueueService,
       dataSource.getRepository(Employee),
       financeApplicationRepository,
       financeApprovalRepository,
@@ -369,6 +376,8 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     disbursementService = new EmployeeFinanceDisbursementService(
       financeLedgerService,
       financeAuditService,
+      smsNotificationManagementService,
+      notificationQueueService,
       financeAccountRepository,
       financeApplicationRepository,
       financeDisbursementRepository,
