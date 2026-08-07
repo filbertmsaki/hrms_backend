@@ -54,6 +54,7 @@ lerna-debug.log*
 # Runtime uploads
 /uploads/
 /private-uploads/
+/backups/
 
 # Test environment
 .env.test.local
