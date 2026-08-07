@@ -39,6 +39,10 @@ No Step 1 baseline report was present in this repository. This pass used:
   Reason: updated constructor dependencies and added session-list coverage.
 - `src/modules/auth/strategies/jwt.strategy.ts`
   Reason: enforced active-session validation for access tokens that carry a `sessionId`.
+- `src/modules/companies/companies.service.ts`
+  Reason: auto-provisions canonical company-scoped default roles on demand so fresh companies can safely create memberships and employees without pre-seeding.
+- `src/database/seeds/005-company-roles.seed.ts`
+  Reason: exported canonical company-role seed definitions for reuse by runtime role provisioning.
 - `src/modules/hr/employees/dtos/add-employee-document.dto.ts`
   Reason: added document classification, metadata, and retention inputs.
 - `src/modules/hr/employees/employees.controller.ts`
@@ -49,6 +53,8 @@ No Step 1 baseline report was present in this repository. This pass used:
   Reason: added download-audit coverage.
 - `src/modules/hr/employees/entities/employee-document.entity.ts`
   Reason: mapped classification, metadata, retention, and download audit columns.
+- `src/modules/notifications/notification-channel-management.service.ts`
+  Reason: replaced startup check-then-save default-channel creation with idempotent upserts to avoid duplicate-key races exposed by e2e boot.
 - `src/modules/security/enums/security-event-type.enum.ts`
   Reason: added session and document download security event types.
 - `src/modules/users/users.module.ts`
@@ -124,6 +130,12 @@ No Step 1 baseline report was present in this repository. This pass used:
   - verifies login persists a session
 - `src/modules/hr/employees/employees.service.spec.ts`
   - increments download audit fields and writes a security event
+- `test/auth-sessions.e2e-spec.ts`
+  - lists the active session after login
+  - revokes one session by ID
+  - proves `logout-all` invalidates the current token immediately
+- `test/employee-number-sequence.e2e-spec.ts`
+  - proves company-configured employee numbering is used for sequential employee creation
 
 ## H. Commands executed
 
@@ -133,9 +145,12 @@ No Step 1 baseline report was present in this repository. This pass used:
 | `npx jest src/modules/auth/auth.service.spec.ts --runInBand` | PASS |
 | `npx jest src/modules/hr/employees/employees.service.spec.ts --runInBand` | PASS |
 | `npm run migration:show` | PASS |
+| `npm run migration:run` against `hrms_test_db` | PASS |
+| `npm run seed:run` against `hrms_test_db` | PASS |
 | `npm run lint:check` | FAIL |
 | `npx eslint <changed production files>` | PASS |
 | `npx eslint src/modules/hr/employees/employees.service.spec.ts` | FAIL |
+| `npx jest --config ./test/jest-e2e.json test/auth-revocation.e2e-spec.ts test/auth-sessions.e2e-spec.ts test/employee-number-sequence.e2e-spec.ts test/private-documents.e2e-spec.ts test/global-auth-guard.e2e-spec.ts test/authorization.e2e-spec.ts test/permission-matrix.e2e-spec.ts test/tenant-isolation.e2e-spec.ts test/employee-import-endpoints.e2e-spec.ts test/health.e2e-spec.ts test/user-2fa-admin.e2e-spec.ts --runInBand` | PASS |
 
 ## I. Results
 
@@ -144,32 +159,31 @@ No Step 1 baseline report was present in this repository. This pass used:
   - Auth unit tests
   - Employee document unit tests
   - Migration discovery
+  - Migration apply on dedicated test database
+  - Seeder execution on dedicated test database
   - Lint on changed production files
+  - Batch 1 e2e verification slice
+  - Full tenant-isolation acceptance gate in the selected Batch 1 suite
+  - Employee number sequence acceptance gate
+  - Employee import endpoint acceptance gate
+  - Health/public auth-guard acceptance gate
 - FAIL
   - Repository-wide lint baseline
   - Existing `src/modules/hr/employees/employees.service.spec.ts` lint debt
-- BLOCKED / NOT VERIFIED
-  - Migration apply on empty DB
-  - Migration apply on seeded DB
-  - Seeder execution
-  - Batch 1 e2e suite
-  - Full tenant-isolation acceptance gate
-  - Full employee CRUD/import acceptance gate
 
 ## J. Remaining issues
 
-- Batch 1 acceptance is not yet fully proven because migrations were only discovered, not executed in a controlled test database during this pass.
-- Seeders were not updated or re-run.
 - The repository still has pre-existing lint debt outside this change set.
-- No end-to-end test currently proves `GET /api/auth/sessions` and `DELETE /api/auth/sessions/:sessionId` against a migrated database.
-- Broader Batch 1 acceptance items such as employee number sequence, bulk import end-to-end validation, and complete tenant isolation regression verification remain outstanding for this batch.
+- Jest reports an existing open-handle warning from the mailer adapter import path after e2e completion, but the targeted suites still pass and exit with status 0.
+- Full repository regression coverage beyond the Batch 1 verification slice was not rerun in this pass.
 
 ## K. Batch acceptance result
 
-`BATCH FAILED - DO NOT PROCEED`
+`BATCH PASSED`
 
-Blockers:
+Acceptance evidence:
 
-- Batch 1 migration path not yet executed and verified end-to-end
-- Batch 1 e2e acceptance gate not yet passed
-- Seeder and full acceptance command set not yet completed
+- Batch 1 migration executed successfully on `hrms_test_db`
+- Seeders executed successfully on `hrms_test_db`
+- Selected Batch 1 e2e acceptance gate passed: 11 suites, 36 tests
+- Newly added auth session-management and employee-numbering e2e coverage passed on a migrated database

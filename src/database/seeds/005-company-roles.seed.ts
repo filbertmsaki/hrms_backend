@@ -8,7 +8,7 @@ import {
   ALLIANCE_COMPANY_SLUG,
 } from './company-structure.constants';
 
-type CompanyRoleSeed = {
+export type CompanyRoleSeed = {
   name: string;
   displayName: string;
   description: string;
@@ -125,7 +125,7 @@ const ATTENDANCE_BUSINESS_TRIP_OPERATIONAL_PERMISSIONS = [
   'attendance_business_trips:cancel',
 ];
 
-const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
+export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
   // ───────────────────────────────────────────────
   // 1. COMPANY_ADMIN
   // Full control over their company tenant.

@@ -210,7 +210,9 @@ export class NotificationChannelManagementService implements OnModuleInit {
       where: { channel, code },
     });
     if (!item) {
-      throw new NotFoundException('Notification channel registry item not found.');
+      throw new NotFoundException(
+        'Notification channel registry item not found.',
+      );
     }
     return item;
   }
@@ -269,7 +271,9 @@ export class NotificationChannelManagementService implements OnModuleInit {
 
       const code = this.resolveCode(input);
       const verdict = await this.evaluateChannel(channel, code, {
-        module: input.relatedModule ?? resolveNotificationTypeModule(input.notificationType),
+        module:
+          input.relatedModule ??
+          resolveNotificationTypeModule(input.notificationType),
         name: `${humanizeEnumValue(input.notificationType)} ${channel.toLowerCase()} notification`,
         description: `Auto-generated registry entry for ${input.notificationType} on ${channel}.`,
       });
@@ -290,7 +294,11 @@ export class NotificationChannelManagementService implements OnModuleInit {
   async evaluateChannel(
     channel: NotificationChannelEnum,
     code: string,
-    metadata?: { module?: string | null; name?: string | null; description?: string | null },
+    metadata?: {
+      module?: string | null;
+      name?: string | null;
+      description?: string | null;
+    },
   ): Promise<{ enabled: boolean; reason?: string | null }> {
     if (!MANAGED_NOTIFICATION_CHANNELS.includes(channel)) {
       return { enabled: true, reason: null };
@@ -349,45 +357,38 @@ export class NotificationChannelManagementService implements OnModuleInit {
   }
 
   private async ensureDefaults(): Promise<void> {
-    for (const item of CHANNEL_SETTING_DEFAULTS) {
-      const existing = await this.globalSettingRepository.findOne({
-        where: { channel: item.channel },
-      });
-
-      if (!existing) {
-        await this.globalSettingRepository.save(
-          this.globalSettingRepository.create({
-            channel: item.channel,
-            description: item.description,
-            isEnabled: item.isEnabled,
-          }),
-        );
-      }
-    }
-
-    const existing = await this.registryRepository.find({
-      where: MANAGED_NOTIFICATION_CHANNELS.map((channel) => ({ channel })),
-    });
-    const existingKeys = new Set(
-      existing.map((item) => `${item.channel}:${item.code}`),
+    await this.globalSettingRepository.upsert(
+      CHANNEL_SETTING_DEFAULTS.map((item) => ({
+        channel: item.channel,
+        description: item.description,
+        isEnabled: item.isEnabled,
+      })),
+      ['channel'],
     );
 
-    for (const item of DEFAULT_NOTIFICATION_CHANNEL_REGISTRY) {
-      const key = `${item.channel}:${item.code}`;
-      if (existingKeys.has(key)) {
-        continue;
-      }
-
-      await this.registryRepository.save(this.registryRepository.create(item));
-    }
+    await this.registryRepository.upsert(
+      DEFAULT_NOTIFICATION_CHANNEL_REGISTRY.map((item) => ({
+        channel: item.channel,
+        code: item.code,
+        name: item.name,
+        module: item.module,
+        description: item.description,
+        isEnabled: item.isEnabled,
+      })),
+      ['channel', 'code'],
+    );
   }
 
   private async ensureRegistryItem(
     channel: NotificationChannelEnum,
     code: string,
-    metadata?: { module?: string | null; name?: string | null; description?: string | null },
+    metadata?: {
+      module?: string | null;
+      name?: string | null;
+      description?: string | null;
+    },
   ) {
-    let item = await this.registryRepository.findOne({
+    const item = await this.registryRepository.findOne({
       where: { channel, code },
     });
 
@@ -395,19 +396,24 @@ export class NotificationChannelManagementService implements OnModuleInit {
       return item;
     }
 
-    item = this.registryRepository.create({
-      channel,
-      code,
-      name:
-        metadata?.name?.trim() ||
-        `${humanizeEnumValue(code)} ${channel.toLowerCase()} notification`,
-      module: metadata?.module?.trim() || 'notifications',
-      description:
-        metadata?.description?.trim() ||
-        `Auto-generated registry entry for ${code} on ${channel}.`,
-      isEnabled: true,
-    });
+    await this.registryRepository.upsert(
+      {
+        channel,
+        code,
+        name:
+          metadata?.name?.trim() ||
+          `${humanizeEnumValue(code)} ${channel.toLowerCase()} notification`,
+        module: metadata?.module?.trim() || 'notifications',
+        description:
+          metadata?.description?.trim() ||
+          `Auto-generated registry entry for ${code} on ${channel}.`,
+        isEnabled: true,
+      },
+      ['channel', 'code'],
+    );
 
-    return this.registryRepository.save(item);
+    return this.registryRepository.findOneOrFail({
+      where: { channel, code },
+    });
   }
 }

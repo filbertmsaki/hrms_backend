@@ -11,9 +11,7 @@ import { Role } from '../roles/entities/role.entity';
 import { PaginationDto, SortDirection } from '../../common/dto/pagination.dto';
 import { User } from '../users/entities/user.entity';
 import { Permission } from '../permissions/entities/permission.entity';
-import { Repository } from 'typeorm';
-import { EntityManager } from 'typeorm';
-import { QueryFailedError } from 'typeorm';
+import { EntityManager, In, QueryFailedError, Repository } from 'typeorm';
 import { AttendanceDevice } from '../access-control/attendance-devices/entities/attendance-device.entity';
 import { AttendanceDeviceStatusEnum } from '../access-control/attendance-devices/enums/attendance-device-status.enum';
 import { AttendancePolicy } from '../hr/attendance/policies/entities/attendance-policy.entity';
@@ -43,6 +41,7 @@ import { DefaultAvatarsService } from '../hr/default-avatars/default-avatars.ser
 import { SecurityEventsService } from '../security/security-events.service';
 import { SecurityEventType } from '../security/enums/security-event-type.enum';
 import { SecurityEventOutcome } from '../security/enums/security-event-outcome.enum';
+import { COMPANY_ROLE_SEEDS } from '../../database/seeds/005-company-roles.seed';
 
 @Injectable()
 export class CompaniesService {
@@ -111,6 +110,83 @@ export class CompaniesService {
     return manager?.getRepository(Role) ?? this.roleRepository;
   }
 
+  private getPermissionRepository(
+    manager?: EntityManager,
+  ): Repository<Permission> {
+    return manager?.getRepository(Permission) ?? this.permissionRepository;
+  }
+
+  private async ensureDefaultCompanyRoles(
+    companyId: number,
+    roleNames: string[],
+    manager?: EntityManager,
+  ): Promise<void> {
+    const normalizedRoleNames = Array.from(
+      new Set(
+        roleNames
+          .map((roleName) => roleName.trim())
+          .filter((roleName) => roleName.length > 0),
+      ),
+    );
+
+    if (!normalizedRoleNames.length) {
+      return;
+    }
+
+    const requestedSeeds = COMPANY_ROLE_SEEDS.filter((seed) =>
+      normalizedRoleNames.includes(seed.name),
+    );
+
+    if (!requestedSeeds.length) {
+      return;
+    }
+
+    const roleRepository = this.getRoleRepository(manager);
+    const permissionRepository = this.getPermissionRepository(manager);
+    const existingRoles = await roleRepository.find({
+      where: requestedSeeds.map((seed) => ({
+        company_id: companyId,
+        name: seed.name,
+      })),
+      relations: ['permissions'],
+    });
+    const existingRoleNames = new Set(existingRoles.map((role) => role.name));
+    const missingSeeds = requestedSeeds.filter(
+      (seed) => !existingRoleNames.has(seed.name),
+    );
+
+    if (!missingSeeds.length) {
+      return;
+    }
+
+    const permissionNames = Array.from(
+      new Set(missingSeeds.flatMap((seed) => seed.permissionNames)),
+    );
+    const permissions = permissionNames.length
+      ? await permissionRepository.find({
+          where: { name: In(permissionNames) },
+        })
+      : [];
+    const permissionMap = new Map(
+      permissions.map((permission) => [permission.name, permission]),
+    );
+
+    for (const seed of missingSeeds) {
+      const role = roleRepository.create({
+        name: seed.name,
+        display_name: seed.displayName,
+        description: seed.description,
+        company_id: companyId,
+        is_system_generated: true,
+        permissions: Array.from(new Set(seed.permissionNames))
+          .map((permissionName) => permissionMap.get(permissionName))
+          .filter((permission): permission is Permission => permission != null),
+      });
+
+      await roleRepository.save(role);
+    }
+  }
+
   private async findRoleByNameForCompany(
     name: string,
     companyId: number,
@@ -160,6 +236,7 @@ export class CompaniesService {
     manager?: EntityManager,
   ): Promise<Role[]> {
     const uniqueRoleNames = Array.from(new Set(roleNames));
+    await this.ensureDefaultCompanyRoles(companyId, uniqueRoleNames, manager);
     const roles: Role[] = [];
 
     for (const roleName of uniqueRoleNames) {
@@ -681,6 +758,7 @@ export class CompaniesService {
     }
 
     if (!roleIds.size) {
+      await this.ensureDefaultCompanyRoles(companyId, ['EMPLOYEE'], manager);
       const viewerRole = await this.findRoleByNameForCompany(
         'EMPLOYEE',
         companyId,
