@@ -9,6 +9,8 @@ import { NotificationChannelEnum } from './enums/notification-channel.enum';
 import { NotificationDeliveryStatusEnum } from './enums/notification-delivery-status.enum';
 import { NotificationTypeEnum } from './enums/notification-type.enum';
 import { NotificationDeliveryDispatcherService } from './notification-delivery-dispatcher.service';
+import { NotificationChannelManagementService } from './notification-channel-management.service';
+import { NotificationQueueService } from './notification-queue.service';
 import { NotificationOrchestratorService } from './notification-orchestrator.service';
 import { NotificationPreferencesService } from './notification-preferences.service';
 import { NotificationsGateway } from './notifications.gateway';
@@ -21,14 +23,32 @@ import { unsupportedNotificationChannelMessage } from './notification-channel-po
  * dispatcher picks it up, sends it, and marks it DELIVERED end to end.
  */
 describe('Notification orchestrator -> delivery flow (integration)', () => {
+  const notificationChannelManagementService = {
+    resolveEnabledChannels: jest.fn(
+      async ({ channels }: { channels: NotificationChannelEnum[] }) => ({
+        enabledChannels: channels,
+        disabledChannels: [],
+      }),
+    ),
+    evaluateChannel: jest.fn(async () => ({ enabled: true, reason: null })),
+    resolveDeliveryCode: jest.fn(
+      ({ type }: { type?: string | null }) => type ?? NotificationTypeEnum.GENERAL,
+    ),
+  } as unknown as NotificationChannelManagementService;
+
   const buildQueryBuilder = (overrides: Record<string, unknown> = {}) => {
     const builder: Record<string, jest.Mock> = {
       setLock: jest.fn(),
+      update: jest.fn(),
+      set: jest.fn(),
       where: jest.fn(),
       andWhere: jest.fn(),
+      execute: jest.fn().mockResolvedValue(undefined),
       getOne: jest.fn().mockResolvedValue(null),
     };
     builder.setLock.mockReturnValue(builder);
+    builder.update.mockReturnValue(builder);
+    builder.set.mockReturnValue(builder);
     builder.where.mockReturnValue(builder);
     builder.andWhere.mockReturnValue(builder);
     Object.assign(builder, overrides);
@@ -74,6 +94,10 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
           receiver_company_user: receiver,
         };
       }),
+      update: jest.fn(async (id: number, patch: Partial<AppNotification>) => {
+        const found = notificationStore.get(id);
+        if (found) Object.assign(found, patch);
+      }),
       count: jest.fn().mockResolvedValue(0),
     };
 
@@ -179,6 +203,9 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
         ) => channels,
       ),
     } as unknown as NotificationPreferencesService;
+    const notificationQueueService = {
+      enqueueOutboxEvent: jest.fn().mockResolvedValue(undefined),
+    } as unknown as NotificationQueueService;
 
     const orchestrator = new NotificationOrchestratorService(
       notificationRepository as unknown as Repository<AppNotification>,
@@ -187,6 +214,8 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
       outboxRepository as unknown as Repository<NotificationOutboxEvent>,
       gateway,
       preferencesService,
+      notificationChannelManagementService,
+      notificationQueueService,
     );
 
     const created = await orchestrator.create({
@@ -205,6 +234,7 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
     );
     expect(emailDelivery).toBeDefined();
     expect(emailDelivery!.status).toBe(NotificationDeliveryStatusEnum.PENDING);
+    expect(emailDelivery!.recipientAddress).toBe('receiver@example.com');
 
     const outboxEvent = Array.from(outboxStore.values())[0];
     expect(outboxEvent.status).toBe('PENDING');
@@ -234,7 +264,7 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
     const mailService = {
       sendGenericNotificationEmail: jest
         .fn()
-        .mockResolvedValue({ messageId: 'msg-1' }),
+        .mockResolvedValue({ messageId: 'msg-1', response: '250 queued' }),
     } as unknown as MailService;
     const smsService = {
       isConfigured: jest.fn().mockReturnValue(true),
@@ -257,6 +287,8 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
       } as never,
       mailService,
       smsService,
+      gateway,
+      notificationChannelManagementService,
     );
 
     await dispatcher.dispatch();
@@ -272,6 +304,7 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
     expect(deliveredEmail!.status).toBe(
       NotificationDeliveryStatusEnum.DELIVERED,
     );
+    expect(deliveredEmail!.recipientAddress).toBe('receiver@example.com');
     expect(outboxStore.get(outboxEvent.id)!.status).toBe('PROCESSED');
   });
 
@@ -314,6 +347,10 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
           receiver_company_user: receiver,
         };
       }),
+      update: jest.fn(async (id: number, patch: Partial<AppNotification>) => {
+        const found = notificationStore.get(id);
+        if (found) Object.assign(found, patch);
+      }),
       count: jest.fn().mockResolvedValue(0),
     };
 
@@ -419,6 +456,9 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
         ) => channels,
       ),
     } as unknown as NotificationPreferencesService;
+    const notificationQueueService = {
+      enqueueOutboxEvent: jest.fn().mockResolvedValue(undefined),
+    } as unknown as NotificationQueueService;
 
     const orchestrator = new NotificationOrchestratorService(
       notificationRepository as unknown as Repository<AppNotification>,
@@ -427,6 +467,8 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
       outboxRepository as unknown as Repository<NotificationOutboxEvent>,
       gateway,
       preferencesService,
+      notificationChannelManagementService,
+      notificationQueueService,
     );
 
     await orchestrator.create({
@@ -444,6 +486,7 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
 
     expect(smsDelivery).toBeDefined();
     expect(smsDelivery!.status).toBe(NotificationDeliveryStatusEnum.PENDING);
+    expect(smsDelivery!.recipientAddress).toBe('+255754000111');
     expect(gateway.emitToCompanyUser).not.toHaveBeenCalled();
     expect(preferencesService.filterEnabledChannels).toHaveBeenCalledWith(
       receiverCompanyUserId,
@@ -498,6 +541,8 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
       } as never,
       mailService,
       smsService,
+      gateway,
+      notificationChannelManagementService,
     );
 
     await dispatcher.dispatch();
@@ -511,6 +556,7 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
 
     const deliveredSms = deliveryStore.get(smsDelivery!.id);
     expect(deliveredSms!.status).toBe(NotificationDeliveryStatusEnum.DELIVERED);
+    expect(deliveredSms!.recipientAddress).toBe('+255754000111');
     expect(outboxStore.get(outboxEvent.id)!.status).toBe('PROCESSED');
   });
 
@@ -552,6 +598,10 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
           sender_company_user: null,
           receiver_company_user: receiver,
         };
+      }),
+      update: jest.fn(async (id: number, patch: Partial<AppNotification>) => {
+        const found = notificationStore.get(id);
+        if (found) Object.assign(found, patch);
       }),
       count: jest.fn().mockResolvedValue(0),
     };
@@ -603,6 +653,9 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
         ) => channels,
       ),
     } as unknown as NotificationPreferencesService;
+    const notificationQueueService = {
+      enqueueOutboxEvent: jest.fn().mockResolvedValue(undefined),
+    } as unknown as NotificationQueueService;
 
     const orchestrator = new NotificationOrchestratorService(
       notificationRepository as unknown as Repository<AppNotification>,
@@ -611,6 +664,8 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
       outboxRepository as unknown as Repository<NotificationOutboxEvent>,
       gateway,
       preferencesService,
+      notificationChannelManagementService,
+      notificationQueueService,
     );
 
     await orchestrator.create({

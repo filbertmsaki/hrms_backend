@@ -5,12 +5,15 @@ import { DataSource, LessThanOrEqual, Repository } from 'typeorm';
 import { PostgresAdvisoryLockService } from '../../common/database/postgres-advisory-lock.service';
 import { MailService } from '../mail/mail.service';
 import { SmsService } from '../sms/sms.service';
+import { normalizeTanzaniaPhone } from '../../common/utils/tanzania-phone.util';
+import { NotificationsGateway } from './notifications.gateway';
 import { AppNotification } from './entities/app-notification.entity';
 import { NotificationDelivery } from './entities/notification-delivery.entity';
 import { NotificationOutboxEvent } from './entities/notification-outbox-event.entity';
 import { NotificationChannelEnum } from './enums/notification-channel.enum';
 import { NotificationDeliveryStatusEnum } from './enums/notification-delivery-status.enum';
 import { unsupportedNotificationChannelMessage } from './notification-channel-policy';
+import { NotificationChannelManagementService } from './notification-channel-management.service';
 
 export const NOTIFICATION_OUTBOX_DISPATCH_LOCK_KEY =
   'notifications:outbox-dispatch';
@@ -33,6 +36,8 @@ export class NotificationDeliveryDispatcherService {
     private readonly advisoryLockService: PostgresAdvisoryLockService,
     private readonly mailService: MailService,
     private readonly smsService: SmsService,
+    private readonly gateway: NotificationsGateway,
+    private readonly notificationChannelManagementService: NotificationChannelManagementService,
   ) {}
 
   @Interval(10000)
@@ -68,7 +73,7 @@ export class NotificationDeliveryDispatcherService {
     }
   }
 
-  private async processOutboxEvent(id: number): Promise<void> {
+  async processOutboxEvent(id: number): Promise<void> {
     try {
       await this.dataSource.transaction(async (manager) => {
         const repository = manager.getRepository(NotificationOutboxEvent);
@@ -123,7 +128,7 @@ export class NotificationDeliveryDispatcherService {
     }
   }
 
-  private async deliverOne(deliveryId: number): Promise<void> {
+  async deliverOne(deliveryId: number): Promise<void> {
     const delivery = await this.deliveryRepository.findOne({
       where: { id: deliveryId },
       relations: {
@@ -139,6 +144,40 @@ export class NotificationDeliveryDispatcherService {
 
     delivery.attemptCount += 1;
     delivery.lastAttemptAt = new Date();
+    delivery.recipientAddress = this.resolveRecipientAddress(delivery);
+
+    if (
+      delivery.channel === NotificationChannelEnum.EMAIL ||
+      delivery.channel === NotificationChannelEnum.IN_APP
+    ) {
+      const verdict = await this.notificationChannelManagementService.evaluateChannel(
+        delivery.channel,
+        this.notificationChannelManagementService.resolveDeliveryCode({
+          type: delivery.notification?.type ?? null,
+          eventKey: delivery.notification?.event_key ?? null,
+          templateCode: delivery.notification?.template_code ?? null,
+        }),
+        {
+          module: delivery.notification?.related_module ?? null,
+        },
+      );
+
+      if (!verdict.enabled) {
+        delivery.status = NotificationDeliveryStatusEnum.SKIPPED;
+        delivery.lastError = verdict.reason ?? 'Notification channel is disabled';
+        delivery.nextRetryAt = null;
+        await this.deliveryRepository.save(delivery);
+        if (
+          delivery.notification &&
+          delivery.channel === delivery.notification.delivery_channel
+        ) {
+          await this.notificationRepository.update(delivery.notificationId, {
+            delivery_status: delivery.status,
+          });
+        }
+        return;
+      }
+    }
 
     try {
       if (delivery.channel === NotificationChannelEnum.EMAIL) {
@@ -149,7 +188,7 @@ export class NotificationDeliveryDispatcherService {
           delivery.status = NotificationDeliveryStatusEnum.FAILED;
           delivery.lastError = 'Recipient has no email address';
         } else {
-          await this.mailService.sendGenericNotificationEmail(
+          const mailResult = await this.mailService.sendGenericNotificationEmail(
             recipientEmail,
             delivery.notification.title,
             delivery.notification.message,
@@ -157,6 +196,11 @@ export class NotificationDeliveryDispatcherService {
           );
           delivery.status = NotificationDeliveryStatusEnum.DELIVERED;
           delivery.deliveredAt = new Date();
+          delivery.providerMessageId = mailResult.messageId;
+          delivery.metadata = {
+            ...(delivery.metadata ?? {}),
+            provider_response: mailResult.response,
+          };
           delivery.lastError = null;
         }
       } else if (delivery.channel === NotificationChannelEnum.SMS) {
@@ -172,7 +216,7 @@ export class NotificationDeliveryDispatcherService {
             this.smsService.getConfigurationError() ??
             'SMS gateway is not configured';
         } else {
-          await this.smsService.sendGenericNotificationSms(
+          const smsResult = await this.smsService.sendGenericNotificationSms(
             recipientPhone,
             delivery.notification.title,
             delivery.notification.message,
@@ -180,6 +224,12 @@ export class NotificationDeliveryDispatcherService {
           );
           delivery.status = NotificationDeliveryStatusEnum.DELIVERED;
           delivery.deliveredAt = new Date();
+          delivery.providerMessageId = smsResult.reference;
+          delivery.metadata = {
+            ...(delivery.metadata ?? {}),
+            provider_code: smsResult.providerCode,
+            provider_message: smsResult.providerMessage,
+          };
           delivery.lastError = null;
         }
       } else if (delivery.channel !== NotificationChannelEnum.IN_APP) {
@@ -188,6 +238,58 @@ export class NotificationDeliveryDispatcherService {
           delivery.channel,
         );
       } else {
+        this.gateway.emitToCompanyUser(
+          delivery.notification.receiver_company_user_id,
+          {
+            id: delivery.notification.id,
+            company_id: delivery.notification.company_id,
+            sender_company_user_id: delivery.notification.sender_company_user_id,
+            sender_name: null,
+            sender_email: null,
+            receiver_company_user_id:
+              delivery.notification.receiver_company_user_id,
+            receiver_name: null,
+            receiver_email:
+              delivery.notification.receiver_company_user?.user?.email ?? null,
+            type: delivery.notification.type,
+            category: delivery.notification.category,
+            priority: delivery.notification.priority,
+            title: delivery.notification.title,
+            message: delivery.notification.message,
+            related_module: delivery.notification.related_module,
+            entity_type: delivery.notification.entity_type,
+            entity_id: delivery.notification.entity_id,
+            branch_id: delivery.notification.branch_id,
+            department_id: delivery.notification.department_id,
+            action_url: delivery.notification.action_url,
+            metadata: delivery.notification.metadata,
+            status: delivery.notification.status,
+            seen_at: delivery.notification.seen_at,
+            read_at: delivery.notification.read_at,
+            delivery_channel: delivery.notification.delivery_channel,
+            delivery_status: NotificationDeliveryStatusEnum.DELIVERED,
+            dedupe_key: delivery.notification.dedupe_key,
+            expires_at: delivery.notification.expires_at,
+            archived_at: delivery.notification.archived_at,
+            is_read: false,
+            is_seen: false,
+            is_archived: false,
+            created_at: delivery.notification.created_at,
+            updated_at: delivery.notification.updated_at,
+          },
+        );
+        const unreadCount = await this.notificationRepository.count({
+          where: {
+            company_id: delivery.notification.company_id,
+            receiver_company_user_id:
+              delivery.notification.receiver_company_user_id,
+            status: 'UNREAD' as never,
+          },
+        });
+        this.gateway.emitUnreadCount(
+          delivery.notification.receiver_company_user_id,
+          unreadCount,
+        );
         delivery.status = NotificationDeliveryStatusEnum.DELIVERED;
         delivery.deliveredAt = new Date();
       }
@@ -199,5 +301,47 @@ export class NotificationDeliveryDispatcherService {
     }
 
     await this.deliveryRepository.save(delivery);
+
+    if (
+      delivery.notification &&
+      delivery.channel === delivery.notification.delivery_channel
+    ) {
+      await this.notificationRepository.update(delivery.notificationId, {
+        delivery_status: delivery.status,
+      });
+    }
+  }
+
+  private resolveRecipientAddress(delivery: NotificationDelivery): string | null {
+    if (delivery.channel === NotificationChannelEnum.EMAIL) {
+      return (
+        delivery.notification?.receiver_company_user?.user?.email
+          ?.trim()
+          .toLowerCase() ?? delivery.recipientAddress ?? null
+      );
+    }
+
+    if (delivery.channel === NotificationChannelEnum.SMS) {
+      return (
+        normalizeTanzaniaPhone(
+          delivery.notification?.receiver_company_user?.user?.phone ?? null,
+        ) ??
+        delivery.recipientAddress ??
+        null
+      );
+    }
+
+    if (delivery.channel === NotificationChannelEnum.IN_APP) {
+      if (
+        typeof delivery.recipientAddress === 'string' &&
+        delivery.recipientAddress.startsWith('company-user:')
+      ) {
+        return delivery.recipientAddress;
+      }
+
+      return `company-user:${delivery.notification?.receiver_company_user_id ?? 'unknown'}`;
+    }
+
+    return delivery.recipientAddress ?? null;
   }
 }

@@ -59,6 +59,7 @@ import {
   EmployeeFinanceProduct,
   EmployeeFinanceProductApplicability,
 } from '../entities/employee-finance-product.entities';
+import { NotificationQueueService } from '../../../notifications/notification-queue.service';
 import { SmsNotificationManagementService } from '../../../sms/sms-notification-management.service';
 import {
   EmployeeFinanceAccountStatusEnum,
@@ -1053,6 +1054,7 @@ export class EmployeeFinanceApprovalService {
     private readonly hrAccessService: HrAccessService,
     private readonly auditService: EmployeeFinanceAuditService,
     private readonly smsNotificationManagementService: SmsNotificationManagementService,
+    private readonly notificationQueueService: NotificationQueueService,
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
     @InjectRepository(EmployeeFinanceApplication)
@@ -1137,26 +1139,18 @@ export class EmployeeFinanceApprovalService {
       saved.status ===
       EmployeeFinanceApplicationStatusEnum.PENDING_EMPLOYEE_ACCEPTANCE
     ) {
-      try {
-        await this.smsNotificationManagementService.sendConfiguredNotification({
-          code: 'employee_finance.application.approved',
-          module: 'employee-finance',
-          recipientEmployeeId: saved.employeeId,
-          relatedEntityType: 'EMPLOYEE_FINANCE_APPLICATION',
-          relatedEntityId: saved.id,
-          actor,
-          variables: {
-            application_no: saved.applicationNo,
-            product_type: saved.productType,
-          },
-        });
-      } catch (error) {
-        this.logger.warn(
-          `SMS notification employee_finance.application.approved failed for application ${saved.id}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      }
+      void this.notificationQueueService.enqueueSmsConfiguredNotification({
+        code: 'employee_finance.application.approved',
+        module: 'employee-finance',
+        recipientEmployeeId: saved.employeeId,
+        relatedEntityType: 'EMPLOYEE_FINANCE_APPLICATION',
+        relatedEntityId: saved.id,
+        actor,
+        variables: {
+          application_no: saved.applicationNo,
+          product_type: saved.productType,
+        },
+      });
     }
 
     return saved;
@@ -1198,6 +1192,7 @@ export class EmployeeFinanceDisbursementService {
     private readonly ledgerService: EmployeeFinanceLedgerService,
     private readonly auditService: EmployeeFinanceAuditService,
     private readonly smsNotificationManagementService: SmsNotificationManagementService,
+    private readonly notificationQueueService: NotificationQueueService,
     @InjectRepository(EmployeeFinanceAccount)
     private readonly accountRepository: Repository<EmployeeFinanceAccount>,
     @InjectRepository(EmployeeFinanceApplication)
@@ -1288,26 +1283,18 @@ export class EmployeeFinanceDisbursementService {
       where: { id: account.applicationId, companyId: account.companyId },
     });
 
-    try {
-      await this.smsNotificationManagementService.sendConfiguredNotification({
-        code: 'employee_finance.disbursement.confirmed',
-        module: 'employee-finance',
-        recipientEmployeeId: account.employeeId,
-        relatedEntityType: 'EMPLOYEE_FINANCE_DISBURSEMENT',
-        relatedEntityId: saved.id,
-        actor,
-        variables: {
-          application_no: application?.applicationNo ?? account.accountNo,
-          product_type: account.productType,
-        },
-      });
-    } catch (error) {
-      this.logger.warn(
-        `SMS notification employee_finance.disbursement.confirmed failed for disbursement ${saved.id}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
+    void this.notificationQueueService.enqueueSmsConfiguredNotification({
+      code: 'employee_finance.disbursement.confirmed',
+      module: 'employee-finance',
+      recipientEmployeeId: account.employeeId,
+      relatedEntityType: 'EMPLOYEE_FINANCE_DISBURSEMENT',
+      relatedEntityId: saved.id,
+      actor,
+      variables: {
+        application_no: application?.applicationNo ?? account.accountNo,
+        product_type: account.productType,
+      },
+    });
 
     return saved;
   }

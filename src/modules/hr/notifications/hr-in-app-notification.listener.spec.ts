@@ -1,4 +1,6 @@
 import { NotificationsService } from '../../notifications/notifications.service';
+import { NotificationQueueService } from '../../notifications/notification-queue.service';
+import { SmsNotificationManagementService } from '../../sms/sms-notification-management.service';
 import { HrInAppNotificationListener } from './hr-in-app-notification.listener';
 import {
   LeaveSubmittedEvent,
@@ -18,6 +20,12 @@ describe('HrInAppNotificationListener', () => {
     upsertOpen: jest.Mock;
     completeAllOpenForEntity: jest.Mock;
   };
+  let smsNotificationManagementService: {
+    sendConfiguredNotification: jest.Mock;
+  };
+  let notificationQueueService: {
+    enqueueSmsConfiguredNotification: jest.Mock;
+  };
 
   beforeEach(() => {
     notificationsService = {
@@ -28,10 +36,18 @@ describe('HrInAppNotificationListener', () => {
       upsertOpen: jest.fn().mockResolvedValue(undefined),
       completeAllOpenForEntity: jest.fn().mockResolvedValue(undefined),
     };
+    smsNotificationManagementService = {
+      sendConfiguredNotification: jest.fn(),
+    };
+    notificationQueueService = {
+      enqueueSmsConfiguredNotification: jest.fn().mockResolvedValue(undefined),
+    };
 
     listener = new HrInAppNotificationListener(
       notificationsService as unknown as NotificationsService,
       actionItemsService as unknown as ActionItemsService,
+      smsNotificationManagementService as unknown as SmsNotificationManagementService,
+      notificationQueueService as unknown as NotificationQueueService,
     );
   });
 

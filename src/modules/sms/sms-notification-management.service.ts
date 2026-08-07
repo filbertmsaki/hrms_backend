@@ -350,42 +350,6 @@ export class SmsNotificationManagementService implements OnModuleInit {
     return saved;
   }
 
-  async listLogs(query: SmsLogQueryDto) {
-    const page = Number(query.page ?? 1);
-    const limit = Number(query.limit ?? 20);
-    const qb = this.logRepository.createQueryBuilder('log');
-
-    if (query.status) {
-      qb.andWhere('log.status = :status', { status: query.status });
-    }
-    if (query.module?.trim()) {
-      qb.andWhere('log.module = :module', { module: query.module.trim() });
-    }
-    if (query.notification_code?.trim()) {
-      qb.andWhere('log.notificationCode = :code', {
-        code: query.notification_code.trim(),
-      });
-    }
-
-    const [data, total] = await qb
-      .orderBy('log.createdAt', 'DESC')
-      .addOrderBy('log.id', 'DESC')
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getManyAndCount();
-
-    return {
-      data,
-      meta: {
-        totalItems: total,
-        itemCount: data.length,
-        itemsPerPage: limit,
-        currentPage: page,
-        totalPages: Math.ceil(total / limit),
-      },
-    };
-  }
-
   async sendTestSms(
     dto: SendTestSmsDto,
     actor: AuthenticatedUser,
@@ -462,8 +426,9 @@ export class SmsNotificationManagementService implements OnModuleInit {
     id: number,
     actor: AuthenticatedUser,
     context: AuditRequestContext,
+    scope?: { companyId?: number | null; platformScope?: boolean },
   ) {
-    const existing = await this.logRepository.findOne({ where: { id } });
+    const existing = await this.findLogWithScope(id, scope);
     if (!existing) {
       throw new NotFoundException('SMS log not found.');
     }
@@ -715,5 +680,96 @@ export class SmsNotificationManagementService implements OnModuleInit {
       employeeId: null,
       phone: normalizeTanzaniaPhone(input.recipientPhone ?? null),
     };
+  }
+
+  async listLogs(
+    query: SmsLogQueryDto,
+    scope?: { companyId?: number | null; platformScope?: boolean },
+  ) {
+    const page = Number(query.page ?? 1);
+    const limit = Number(query.limit ?? 20);
+    const qb = this.logRepository
+      .createQueryBuilder('log')
+      .leftJoin(
+        CompanyUser,
+        'recipientMembership',
+        'recipientMembership.id = log.recipientCompanyUserId',
+      )
+      .leftJoin(
+        CompanyUser,
+        'creatorMembership',
+        'creatorMembership.id = log.createdByCompanyUserId',
+      );
+
+    if (!scope?.platformScope && scope?.companyId) {
+      qb.andWhere(
+        `(
+          recipientMembership.company_id = :companyId OR
+          creatorMembership.company_id = :companyId
+        )`,
+        { companyId: scope.companyId },
+      );
+    }
+
+    if (query.status) {
+      qb.andWhere('log.status = :status', { status: query.status });
+    }
+    if (query.module?.trim()) {
+      qb.andWhere('log.module = :module', { module: query.module.trim() });
+    }
+    if (query.notification_code?.trim()) {
+      qb.andWhere('log.notificationCode = :code', {
+        code: query.notification_code.trim(),
+      });
+    }
+
+    const [data, total] = await qb
+      .orderBy('log.createdAt', 'DESC')
+      .addOrderBy('log.id', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    return {
+      data,
+      meta: {
+        totalItems: total,
+        itemCount: data.length,
+        itemsPerPage: limit,
+        currentPage: page,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  private async findLogWithScope(
+    id: number,
+    scope?: { companyId?: number | null; platformScope?: boolean },
+  ) {
+    const qb = this.logRepository
+      .createQueryBuilder('log')
+      .leftJoin(
+        CompanyUser,
+        'recipientMembership',
+        'recipientMembership.id = log.recipientCompanyUserId',
+      )
+      .leftJoin(
+        CompanyUser,
+        'creatorMembership',
+        'creatorMembership.id = log.createdByCompanyUserId',
+      )
+      .where('log.id = :id', { id });
+
+    if (!scope?.platformScope && scope?.companyId) {
+      qb.andWhere(
+        `(
+          recipientMembership.company_id = :companyId OR
+          creatorMembership.company_id = :companyId
+        )`,
+        { companyId: scope.companyId },
+      );
+    }
+
+    return qb.getOne();
   }
 }

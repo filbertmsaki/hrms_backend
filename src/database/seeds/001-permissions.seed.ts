@@ -33,6 +33,16 @@ const SHARED_PERMISSION_NAMES = new Set<string>([
   'roles:revoke-permission',
   'permissions:read',
   'security_events:read',
+  'notifications:delivery-logs:read',
+  'notifications:mail-logs:read',
+  'notifications:mail-logs:retry',
+  'notifications:settings:read',
+  'notifications:settings:update',
+  'sms:settings:read',
+  'sms:settings:update',
+  'sms:logs:read',
+  'sms:logs:retry',
+  'sms:test',
 ]);
 
 function resolvePermissionScope(name: string): PermissionScope {
@@ -1074,6 +1084,56 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     name: 'notifications:test',
     displayName: 'Send test notifications',
     description: 'Allow sending test notifications to any company user',
+  },
+  {
+    name: 'notifications:delivery-logs:read',
+    displayName: 'Read notification delivery logs',
+    description: 'Allow viewing queued notification delivery history',
+  },
+  {
+    name: 'notifications:mail-logs:read',
+    displayName: 'Read notification mail logs',
+    description: 'Allow viewing queued notification email history',
+  },
+  {
+    name: 'notifications:mail-logs:retry',
+    displayName: 'Retry notification mail logs',
+    description: 'Allow retrying failed queued notification emails',
+  },
+  {
+    name: 'notifications:settings:read',
+    displayName: 'Read notification channel settings',
+    description: 'Allow viewing email and in-app notification channel settings',
+  },
+  {
+    name: 'notifications:settings:update',
+    displayName: 'Update notification channel settings',
+    description: 'Allow updating email and in-app notification channel settings',
+  },
+  {
+    name: 'sms:settings:read',
+    displayName: 'Read SMS settings',
+    description: 'Allow viewing SMS global settings and registry configuration',
+  },
+  {
+    name: 'sms:settings:update',
+    displayName: 'Update SMS settings',
+    description: 'Allow updating SMS global settings and registry configuration',
+  },
+  {
+    name: 'sms:logs:read',
+    displayName: 'Read SMS logs',
+    description: 'Allow viewing SMS notification delivery history',
+  },
+  {
+    name: 'sms:logs:retry',
+    displayName: 'Retry SMS logs',
+    description: 'Allow retrying failed SMS notifications',
+  },
+  {
+    name: 'sms:test',
+    displayName: 'Send test SMS',
+    description: 'Allow sending administrator SMS tests',
   },
   {
     name: 'notification_preferences:manage-own',

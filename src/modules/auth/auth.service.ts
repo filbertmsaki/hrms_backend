@@ -32,6 +32,7 @@ import { SecurityEventOutcome } from '../security/enums/security-event-outcome.e
 import { SecurityEventType } from '../security/enums/security-event-type.enum';
 import { SecurityEventsService } from '../security/security-events.service';
 import { SmsNotificationManagementService } from '../sms/sms-notification-management.service';
+import { NotificationQueueService } from '../notifications/notification-queue.service';
 import { TwoFactorPolicyService } from '../security/two-factor-policy.service';
 import { TwoFaService } from './2fa/2fa.service';
 import { ForgotPasswordDto } from './dtos/forgot-password.dto';
@@ -109,6 +110,7 @@ export class AuthService {
     private readonly securityEventsService: SecurityEventsService,
     private readonly twoFactorPolicyService: TwoFactorPolicyService,
     private readonly smsNotificationManagementService: SmsNotificationManagementService,
+    private readonly notificationQueueService: NotificationQueueService,
   ) {}
 
   private buildFailureMetadata(context?: CompanySummary | null) {
@@ -118,6 +120,21 @@ export class AuthService {
           companySlug: context.companySlug,
         }
       : undefined;
+  }
+
+  private async resolveNotificationCompanyId(
+    user: Pick<User, 'id' | 'user_type'>,
+  ): Promise<number | null> {
+    if (this.isOwnerUser(user)) {
+      return null;
+    }
+
+    const companies = await this.companiesService.listUserCompanies(user.id);
+    if (!companies.length) {
+      return null;
+    }
+
+    return this.resolveActiveCompany(companies).companyId;
   }
 
   private async logSecurityEvent(
@@ -828,16 +845,14 @@ export class AuthService {
     const resetLink = this.buildFrontendAuthUrl(
       `auth/reset-password?token=${encodeURIComponent(resetToken)}`,
     );
+    const notificationCompanyId =
+      await this.resolveNotificationCompanyId(user);
 
-    try {
-      await this.mailService.sendPasswordResetEmail(
-        user.email,
-        user.first_name,
-        resetLink,
-      );
-    } catch (err) {
-      console.error('Failed to send password reset email:', err);
-    }
+    void this.notificationQueueService.enqueueMailMethod(
+      'sendPasswordResetEmail',
+      [user.email, user.first_name, resetLink],
+      { companyId: notificationCompanyId },
+    );
 
     await this.logSecurityEvent(
       SecurityEventType.PASSWORD_RESET_REQUESTED,
@@ -848,7 +863,7 @@ export class AuthService {
       },
     );
 
-    await this.sendSmsNotificationBestEffort({
+    this.sendSmsNotificationBestEffort({
       code: 'auth.password.reset.requested',
       module: 'auth',
       recipientPhone: user.phone ?? null,
@@ -888,14 +903,13 @@ export class AuthService {
       );
 
       const user = await this.usersService.findById(payload.sub);
-      try {
-        await this.mailService.sendPasswordChangedSuccessEmail(
-          user.email,
-          user.first_name,
-        );
-      } catch (err) {
-        console.error('Failed to send password changed success email:', err);
-      }
+      const notificationCompanyId =
+        await this.resolveNotificationCompanyId(user);
+      void this.notificationQueueService.enqueueMailMethod(
+        'sendPasswordChangedSuccessEmail',
+        [user.email, user.first_name],
+        { companyId: notificationCompanyId },
+      );
 
       await this.logSecurityEvent(
         SecurityEventType.PASSWORD_RESET_COMPLETED,
@@ -942,15 +956,14 @@ export class AuthService {
     }
 
     await this.usersService.markEmailVerified(user.id);
+    const notificationCompanyId =
+      await this.resolveNotificationCompanyId(user);
 
-    try {
-      await this.mailService.sendWelcomeEmailAfterVerification(
-        user.email,
-        user.first_name || 'User',
-      );
-    } catch (err) {
-      console.error('Failed to send welcome email:', err);
-    }
+    void this.notificationQueueService.enqueueMailMethod(
+      'sendWelcomeEmailAfterVerification',
+      [user.email, user.first_name || 'User'],
+      { companyId: notificationCompanyId },
+    );
 
     await this.logSecurityEvent(
       SecurityEventType.EMAIL_VERIFIED,
@@ -1001,16 +1014,14 @@ export class AuthService {
     const verifyLink = this.buildFrontendAuthUrl(
       `auth/verify-email?token=${encodeURIComponent(verificationToken)}`,
     );
+    const notificationCompanyId =
+      await this.resolveNotificationCompanyId(user);
 
-    try {
-      await this.mailService.sendEmailVerification(
-        user.email,
-        user.first_name || 'User',
-        verifyLink,
-      );
-    } catch (err) {
-      console.error('Failed to send verification email:', err);
-    }
+    void this.notificationQueueService.enqueueMailMethod(
+      'sendEmailVerification',
+      [user.email, user.first_name || 'User', verifyLink],
+      { companyId: notificationCompanyId },
+    );
 
     return { message: 'A new verification email has been sent.' };
   }
@@ -1394,7 +1405,7 @@ export class AuthService {
     ].includes(error.name);
   }
 
-  private async sendSmsNotificationBestEffort(input: {
+  private sendSmsNotificationBestEffort(input: {
     code: string;
     module: string;
     recipientPhone?: string | null;
@@ -1402,23 +1413,15 @@ export class AuthService {
     relatedEntityId?: string | number | null;
     variables?: Record<string, unknown>;
     context?: AuditRequestContext | null;
-  }): Promise<void> {
-    try {
-      await this.smsNotificationManagementService.sendConfiguredNotification({
-        code: input.code,
-        module: input.module,
-        recipientPhone: input.recipientPhone ?? null,
-        relatedEntityType: input.relatedEntityType ?? null,
-        relatedEntityId: input.relatedEntityId ?? null,
-        variables: input.variables,
-        context: input.context ?? null,
-      });
-    } catch (error) {
-      this.logger.warn(
-        `SMS notification ${input.code} failed during auth flow: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
+  }): void {
+    void this.notificationQueueService.enqueueSmsConfiguredNotification({
+      code: input.code,
+      module: input.module,
+      recipientPhone: input.recipientPhone ?? null,
+      relatedEntityType: input.relatedEntityType ?? null,
+      relatedEntityId: input.relatedEntityId ?? null,
+      variables: input.variables,
+      context: input.context ?? null,
+    });
   }
 }

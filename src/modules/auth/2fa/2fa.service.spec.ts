@@ -10,6 +10,7 @@ jest.mock('qrcode', () => ({
 }));
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { CompaniesService } from '../../companies/companies.service';
+import { NotificationQueueService } from '../../notifications/notification-queue.service';
 import { SecurityEventsService } from '../../security/security-events.service';
 import { SmsNotificationManagementService } from '../../sms/sms-notification-management.service';
 import { UsersService } from '../../users/users.service';
@@ -35,6 +36,9 @@ describe('TwoFaService', () => {
   };
   let smsNotificationManagementService: {
     sendConfiguredNotification: jest.Mock;
+  };
+  let notificationQueueService: {
+    enqueueSmsConfiguredNotification: jest.Mock;
   };
 
   const actor: AuthenticatedUser = {
@@ -67,6 +71,9 @@ describe('TwoFaService', () => {
     smsNotificationManagementService = {
       sendConfiguredNotification: jest.fn(),
     };
+    notificationQueueService = {
+      enqueueSmsConfiguredNotification: jest.fn().mockResolvedValue(undefined),
+    };
 
     service = new TwoFaService(
       usersService as unknown as UsersService,
@@ -75,6 +82,7 @@ describe('TwoFaService', () => {
       auditService as unknown as UserTwoFactorAuditService,
       securityEventsService as unknown as SecurityEventsService,
       smsNotificationManagementService as unknown as SmsNotificationManagementService,
+      notificationQueueService as unknown as NotificationQueueService,
     );
   });
 

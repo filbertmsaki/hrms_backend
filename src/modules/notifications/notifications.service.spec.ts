@@ -2,8 +2,11 @@ import { NotFoundException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { CompanyUser } from '../companies/entities/company-user.entity';
 import { AppNotification } from './entities/app-notification.entity';
+import { NotificationDelivery } from './entities/notification-delivery.entity';
+import { NotificationMailLog } from './entities/notification-mail-log.entity';
 import { NotificationStatusEnum } from './enums/notification-status.enum';
 import { NotificationOrchestratorService } from './notification-orchestrator.service';
+import { NotificationQueueService } from './notification-queue.service';
 import { NotificationsGateway } from './notifications.gateway';
 import { NotificationsService } from './notifications.service';
 
@@ -11,8 +14,11 @@ describe('NotificationsService', () => {
   let service: NotificationsService;
   let notificationRepository: Partial<jest.Mocked<Repository<AppNotification>>>;
   let companyUserRepository: Partial<jest.Mocked<Repository<CompanyUser>>>;
+  let deliveryRepository: Partial<jest.Mocked<Repository<NotificationDelivery>>>;
+  let mailLogRepository: Partial<jest.Mocked<Repository<NotificationMailLog>>>;
   let gateway: jest.Mocked<Partial<NotificationsGateway>>;
   let orchestrator: { create: jest.Mock };
+  let notificationQueueService: { enqueueMailMethod: jest.Mock };
 
   beforeEach(() => {
     notificationRepository = {
@@ -27,6 +33,14 @@ describe('NotificationsService', () => {
     companyUserRepository = {
       findOne: jest.fn(),
     };
+    deliveryRepository = {
+      findOne: jest.fn(),
+      createQueryBuilder: jest.fn(),
+    };
+    mailLogRepository = {
+      findOne: jest.fn(),
+      createQueryBuilder: jest.fn(),
+    };
 
     gateway = {
       emitToCompanyUser: jest.fn(),
@@ -38,12 +52,18 @@ describe('NotificationsService', () => {
     orchestrator = {
       create: jest.fn(),
     };
+    notificationQueueService = {
+      enqueueMailMethod: jest.fn().mockResolvedValue(undefined),
+    };
 
     service = new NotificationsService(
       notificationRepository as Repository<AppNotification>,
       companyUserRepository as Repository<CompanyUser>,
+      deliveryRepository as Repository<NotificationDelivery>,
+      mailLogRepository as Repository<NotificationMailLog>,
       gateway as NotificationsGateway,
       orchestrator as unknown as NotificationOrchestratorService,
+      notificationQueueService as unknown as NotificationQueueService,
     );
   });
 

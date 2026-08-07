@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import { CompanyUser } from '../companies/entities/company-user.entity';
+import { normalizeTanzaniaPhone } from '../../common/utils/tanzania-phone.util';
 import { NotificationCategoryEnum } from './enums/notification-category.enum';
 import { NotificationChannelEnum } from './enums/notification-channel.enum';
 import { NotificationDeliveryStatusEnum } from './enums/notification-delivery-status.enum';
@@ -17,6 +18,8 @@ import {
   partitionNotificationChannels,
   unsupportedNotificationChannelMessage,
 } from './notification-channel-policy';
+import { NotificationQueueService } from './notification-queue.service';
+import { NotificationChannelManagementService } from './notification-channel-management.service';
 
 export type CreateNotificationInput = {
   company_id: number;
@@ -60,6 +63,8 @@ export class NotificationOrchestratorService {
     private readonly outboxRepository: Repository<NotificationOutboxEvent>,
     private readonly gateway: NotificationsGateway,
     private readonly preferencesService: NotificationPreferencesService,
+    private readonly notificationChannelManagementService: NotificationChannelManagementService,
+    private readonly notificationQueueService: NotificationQueueService,
   ) {}
 
   async create(input: CreateNotificationInput) {
@@ -67,6 +72,9 @@ export class NotificationOrchestratorService {
       where: {
         id: input.receiver_company_user_id,
         company_id: input.company_id,
+      },
+      relations: {
+        user: true,
       },
     });
 
@@ -103,12 +111,23 @@ export class NotificationOrchestratorService {
     const { supported: supportedRequestedChannels, unsupported } =
       partitionNotificationChannels(requestedChannels);
 
+    const {
+      enabledChannels: systemEnabledChannels,
+      disabledChannels: systemDisabledChannels,
+    } = await this.notificationChannelManagementService.resolveEnabledChannels({
+      channels: supportedRequestedChannels,
+      notificationType: type,
+      eventKey: input.event_key ?? null,
+      templateCode: input.template_code ?? null,
+      relatedModule: input.related_module ?? null,
+    });
+
     const allowedChannels = input.is_mandatory
-      ? supportedRequestedChannels
+      ? systemEnabledChannels
       : await this.preferencesService.filterEnabledChannels(
           receiver.id,
           type,
-          supportedRequestedChannels,
+          systemEnabledChannels,
         );
 
     let created: AppNotification;
@@ -168,16 +187,29 @@ export class NotificationOrchestratorService {
       throw error;
     }
 
-    await this.createDeliveryRows(created.id, allowedChannels);
+    await this.createDeliveryRows(created.id, allowedChannels, receiver);
 
-    for (const channel of requestedChannels.filter(
+    for (const { channel, reason } of systemDisabledChannels) {
+      await this.deliveryRepository.save(
+        this.deliveryRepository.create({
+          notificationId: created.id,
+          channel,
+          recipientAddress: this.resolveRecipientAddress(channel, receiver),
+          status: NotificationDeliveryStatusEnum.SKIPPED,
+          lastError: `Skipped: ${reason}`,
+        }),
+      );
+    }
+
+    for (const channel of systemEnabledChannels.filter(
       (c) =>
-        supportedRequestedChannels.includes(c) && !allowedChannels.includes(c),
+        !allowedChannels.includes(c),
     )) {
       await this.deliveryRepository.save(
         this.deliveryRepository.create({
           notificationId: created.id,
           channel,
+          recipientAddress: this.resolveRecipientAddress(channel, receiver),
           status: NotificationDeliveryStatusEnum.SKIPPED,
           lastError: 'Skipped: disabled by recipient notification preferences',
         }),
@@ -189,61 +221,57 @@ export class NotificationOrchestratorService {
         this.deliveryRepository.create({
           notificationId: created.id,
           channel,
+          recipientAddress: this.resolveRecipientAddress(channel, receiver),
           status: NotificationDeliveryStatusEnum.SKIPPED,
           lastError: unsupportedNotificationChannelMessage(channel),
         }),
       );
     }
 
-    await this.outboxRepository.save(
+    const outboxEvent = await this.outboxRepository.save(
       this.outboxRepository.create({ notificationId: created.id }),
     );
+    void this.notificationQueueService.enqueueOutboxEvent(outboxEvent.id);
 
     const notification = await this.findOneForResponse(created.id);
-    const response = this.mapNotification(notification);
-
-    if (allowedChannels.includes(NotificationChannelEnum.IN_APP)) {
-      this.gateway.emitToCompanyUser(input.receiver_company_user_id, response);
-      await this.emitUnreadCount(
-        input.company_id,
-        input.receiver_company_user_id,
-      );
-    }
-
-    return response;
-  }
-
-  async emitUnreadCount(companyId: number, receiverCompanyUserId: number) {
-    const count = await this.notificationRepository.count({
-      where: {
-        company_id: companyId,
-        receiver_company_user_id: receiverCompanyUserId,
-        status: NotificationStatusEnum.UNREAD,
-        archived_at: IsNull(),
-      },
-    });
-
-    this.gateway.emitUnreadCount(receiverCompanyUserId, count);
+    return this.mapNotification(notification);
   }
 
   private async createDeliveryRows(
     notificationId: number,
     channels: NotificationChannelEnum[],
+    receiver: CompanyUser,
   ) {
     for (const channel of channels) {
       await this.deliveryRepository.save(
         this.deliveryRepository.create({
           notificationId,
           channel,
-          status:
-            channel === NotificationChannelEnum.IN_APP
-              ? NotificationDeliveryStatusEnum.DELIVERED
-              : NotificationDeliveryStatusEnum.PENDING,
-          deliveredAt:
-            channel === NotificationChannelEnum.IN_APP ? new Date() : null,
+          recipientAddress: this.resolveRecipientAddress(channel, receiver),
+          status: NotificationDeliveryStatusEnum.PENDING,
+          deliveredAt: null,
         }),
       );
     }
+  }
+
+  private resolveRecipientAddress(
+    channel: NotificationChannelEnum,
+    receiver: CompanyUser,
+  ): string | null {
+    if (channel === NotificationChannelEnum.EMAIL) {
+      return receiver.user?.email?.trim().toLowerCase() ?? null;
+    }
+
+    if (channel === NotificationChannelEnum.SMS) {
+      return normalizeTanzaniaPhone(receiver.user?.phone ?? null);
+    }
+
+    if (channel === NotificationChannelEnum.IN_APP) {
+      return `company-user:${receiver.id}`;
+    }
+
+    return null;
   }
 
   private isUniqueViolation(error: unknown): boolean {

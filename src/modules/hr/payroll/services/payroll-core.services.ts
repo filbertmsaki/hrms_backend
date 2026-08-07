@@ -25,6 +25,7 @@ import { OffboardingRequestStatusEnum } from '../../offboarding/enums/offboardin
 import { OffboardingSettlementItemTypeEnum } from '../../offboarding/enums/offboarding-settlement-item-type.enum';
 import { HrAccessService } from '../../shared/hr-access.service';
 import { EmployeeFinancePayrollInstructionService } from '../../employee-finance/services/employee-finance-core.services';
+import { NotificationQueueService } from '../../../notifications/notification-queue.service';
 import { SmsNotificationManagementService } from '../../../sms/sms-notification-management.service';
 import {
   ApprovePayrollRunDto,
@@ -1464,6 +1465,7 @@ export class PayslipService {
     private readonly hrAccessService: HrAccessService,
     private readonly auditService: PayrollAuditService,
     private readonly smsNotificationManagementService: SmsNotificationManagementService,
+    private readonly notificationQueueService: NotificationQueueService,
     @InjectRepository(PayrollRun)
     private readonly runRepository: Repository<PayrollRun>,
     @InjectRepository(EmployeePayrollResult)
@@ -1509,26 +1511,18 @@ export class PayslipService {
       );
       payslips.push(payslip);
 
-      try {
-        await this.smsNotificationManagementService.sendConfiguredNotification({
-          code: 'payroll.payslip.ready',
-          module: 'payroll',
-          recipientEmployeeId: result.employeeId,
-          relatedEntityType: 'PAYSLIP',
-          relatedEntityId: payslip.id,
-          actor,
-          variables: {
-            run_no: run.runNo,
-            payslip_no: payslip.payslipNo,
-          },
-        });
-      } catch (error) {
-        this.logger.warn(
-          `SMS notification payroll.payslip.ready failed for payslip ${payslip.id}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      }
+      void this.notificationQueueService.enqueueSmsConfiguredNotification({
+        code: 'payroll.payslip.ready',
+        module: 'payroll',
+        recipientEmployeeId: result.employeeId,
+        relatedEntityType: 'PAYSLIP',
+        relatedEntityId: payslip.id,
+        actor,
+        variables: {
+          run_no: run.runNo,
+          payslip_no: payslip.payslipNo,
+        },
+      });
     }
     await this.auditService.log({
       actor,

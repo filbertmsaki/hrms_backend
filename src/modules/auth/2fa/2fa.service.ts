@@ -16,6 +16,7 @@ import { CompaniesService } from '../../companies/companies.service';
 import { SecurityEventOutcome } from '../../security/enums/security-event-outcome.enum';
 import { SecurityEventType } from '../../security/enums/security-event-type.enum';
 import { SecurityEventsService } from '../../security/security-events.service';
+import { NotificationQueueService } from '../../notifications/notification-queue.service';
 import { SmsNotificationManagementService } from '../../sms/sms-notification-management.service';
 import { UsersService } from '../../users/users.service';
 import { UserTwoFactorAuditService } from '../../users/services/user-two-factor-audit.service';
@@ -37,6 +38,7 @@ export class TwoFaService {
     private userTwoFactorAuditService: UserTwoFactorAuditService,
     private readonly securityEventsService: SecurityEventsService,
     private readonly smsNotificationManagementService: SmsNotificationManagementService,
+    private readonly notificationQueueService: NotificationQueueService,
   ) {}
 
   private normalizeCode(code: string): string {
@@ -175,7 +177,7 @@ export class TwoFaService {
       context,
     });
 
-    await this.sendSmsNotificationBestEffort({
+    this.sendSmsNotificationBestEffort({
       code: 'auth.two_factor.enabled',
       module: 'auth',
       recipientPhone: user.phone ?? null,
@@ -282,7 +284,7 @@ export class TwoFaService {
       context,
     });
 
-    await this.sendSmsNotificationBestEffort({
+    this.sendSmsNotificationBestEffort({
       code: 'auth.two_factor.disabled',
       module: 'auth',
       recipientPhone: user.phone ?? null,
@@ -397,7 +399,7 @@ export class TwoFaService {
       },
     });
 
-    await this.sendSmsNotificationBestEffort({
+    this.sendSmsNotificationBestEffort({
       code: 'auth.two_factor.enabled',
       module: 'auth',
       recipientPhone: user.phone ?? null,
@@ -530,7 +532,7 @@ export class TwoFaService {
       },
     });
 
-    await this.sendSmsNotificationBestEffort({
+    this.sendSmsNotificationBestEffort({
       code: 'auth.two_factor.disabled',
       module: 'auth',
       recipientPhone: user.phone ?? null,
@@ -560,7 +562,7 @@ export class TwoFaService {
     };
   }
 
-  private async sendSmsNotificationBestEffort(input: {
+  private sendSmsNotificationBestEffort(input: {
     code: string;
     module: string;
     recipientPhone?: string | null;
@@ -569,24 +571,16 @@ export class TwoFaService {
     actor?: AuthenticatedUser | null;
     variables?: Record<string, unknown>;
     context?: AuditRequestContext | null;
-  }): Promise<void> {
-    try {
-      await this.smsNotificationManagementService.sendConfiguredNotification({
-        code: input.code,
-        module: input.module,
-        recipientPhone: input.recipientPhone ?? null,
-        relatedEntityType: input.relatedEntityType ?? null,
-        relatedEntityId: input.relatedEntityId ?? null,
-        actor: input.actor ?? null,
-        variables: input.variables,
-        context: input.context ?? null,
-      });
-    } catch (error) {
-      this.logger.warn(
-        `SMS notification ${input.code} failed during 2FA flow: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
+  }): void {
+    void this.notificationQueueService.enqueueSmsConfiguredNotification({
+      code: input.code,
+      module: input.module,
+      recipientPhone: input.recipientPhone ?? null,
+      relatedEntityType: input.relatedEntityType ?? null,
+      relatedEntityId: input.relatedEntityId ?? null,
+      actor: input.actor ?? null,
+      variables: input.variables,
+      context: input.context ?? null,
+    });
   }
 }

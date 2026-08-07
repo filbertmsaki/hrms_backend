@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { NotificationsService } from '../../notifications/notifications.service';
+import { NotificationQueueService } from '../../notifications/notification-queue.service';
 import { SmsNotificationManagementService } from '../../sms/sms-notification-management.service';
 import { ActionItemsService } from '../action-inbox/action-items.service';
 import { ActionItemTypeEnum } from '../action-inbox/enums/action-item-type.enum';
@@ -43,6 +44,7 @@ export class HrInAppNotificationListener {
     private readonly notificationsService: NotificationsService,
     private readonly actionItemsService: ActionItemsService,
     private readonly smsNotificationManagementService: SmsNotificationManagementService,
+    private readonly notificationQueueService: NotificationQueueService,
   ) {}
 
   private async openApprovalActionItem(input: {
@@ -1457,21 +1459,13 @@ export class HrInAppNotificationListener {
     relatedEntityId?: string | number | null;
     variables?: Record<string, unknown>;
   }): Promise<void> {
-    try {
-      await this.smsNotificationManagementService.sendConfiguredNotification({
-        code: input.code,
-        module: input.module,
-        recipientCompanyUserId: input.recipientCompanyUserId ?? null,
-        relatedEntityType: input.relatedEntityType ?? null,
-        relatedEntityId: input.relatedEntityId ?? null,
-        variables: input.variables,
-      });
-    } catch (error) {
-      this.logger.warn(
-        `SMS notification ${input.code} failed in HR listener: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
+    void this.notificationQueueService.enqueueSmsConfiguredNotification({
+      code: input.code,
+      module: input.module,
+      recipientCompanyUserId: input.recipientCompanyUserId ?? null,
+      relatedEntityType: input.relatedEntityType ?? null,
+      relatedEntityId: input.relatedEntityId ?? null,
+      variables: input.variables,
+    });
   }
 }

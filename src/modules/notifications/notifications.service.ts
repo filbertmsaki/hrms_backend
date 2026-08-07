@@ -2,21 +2,29 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { CompanyUser } from '../companies/entities/company-user.entity';
+import { buildPaginationMeta } from '../hr/shared/hr.utils';
 import { NotificationCategoryEnum } from './enums/notification-category.enum';
 import { NotificationChannelEnum } from './enums/notification-channel.enum';
 import { NotificationDeliveryStatusEnum } from './enums/notification-delivery-status.enum';
+import { NotificationMailLogStatusEnum } from './enums/notification-mail-log-status.enum';
 import { NotificationPriorityEnum } from './enums/notification-priority.enum';
+import { NotificationDeliveryLogQueryDto } from './dto/notification-delivery-log-query.dto';
+import { NotificationMailLogQueryDto } from './dto/notification-mail-log-query.dto';
 import { NotificationQueryDto } from './dto/notification-query.dto';
 import { AppNotification } from './entities/app-notification.entity';
+import { NotificationDelivery } from './entities/notification-delivery.entity';
+import { NotificationMailLog } from './entities/notification-mail-log.entity';
 import { NotificationStatusEnum } from './enums/notification-status.enum';
 import { NotificationTypeEnum } from './enums/notification-type.enum';
 import { NotificationsGateway } from './notifications.gateway';
 import { NotificationOrchestratorService } from './notification-orchestrator.service';
+import { NotificationQueueService } from './notification-queue.service';
 
 export type CreateNotificationInput = {
   company_id: number;
@@ -47,8 +55,13 @@ export class NotificationsService {
     private readonly notificationRepository: Repository<AppNotification>,
     @InjectRepository(CompanyUser)
     private readonly companyUserRepository: Repository<CompanyUser>,
+    @InjectRepository(NotificationDelivery)
+    private readonly deliveryRepository: Repository<NotificationDelivery>,
+    @InjectRepository(NotificationMailLog)
+    private readonly mailLogRepository: Repository<NotificationMailLog>,
     private readonly gateway: NotificationsGateway,
     private readonly orchestrator: NotificationOrchestratorService,
+    private readonly notificationQueueService: NotificationQueueService,
   ) {}
 
   async createAndPush(input: CreateNotificationInput) {
@@ -169,6 +182,251 @@ export class NotificationsService {
         total_pages: Math.ceil(total / limit),
       },
     };
+  }
+
+  async listDeliveryLogs(
+    companyId: number,
+    query: NotificationDeliveryLogQueryDto,
+  ) {
+    const page = Number(query.page ?? 1);
+    const limit = Number(query.limit ?? 20);
+
+    const qb = this.deliveryRepository
+      .createQueryBuilder('delivery')
+      .leftJoinAndSelect('delivery.notification', 'notification')
+      .leftJoinAndSelect(
+        'notification.receiver_company_user',
+        'receiverMembership',
+      )
+      .leftJoinAndSelect('receiverMembership.user', 'receiverUser')
+      .where('notification.company_id = :companyId', { companyId });
+
+    if (query.channel) {
+      qb.andWhere('delivery.channel = :channel', { channel: query.channel });
+    }
+
+    if (query.status) {
+      qb.andWhere('delivery.status = :status', { status: query.status });
+    }
+
+    if (query.notification_id) {
+      qb.andWhere('delivery.notificationId = :notificationId', {
+        notificationId: query.notification_id,
+      });
+    }
+
+    if (query.receiver_company_user_id) {
+      qb.andWhere(
+        'notification.receiver_company_user_id = :receiverCompanyUserId',
+        { receiverCompanyUserId: query.receiver_company_user_id },
+      );
+    }
+
+    if (query.related_module?.trim()) {
+      qb.andWhere('notification.related_module = :relatedModule', {
+        relatedModule: query.related_module.trim(),
+      });
+    }
+
+    if (query.entity_type?.trim()) {
+      qb.andWhere('notification.entity_type = :entityType', {
+        entityType: query.entity_type.trim(),
+      });
+    }
+
+    if (query.entity_id?.trim()) {
+      qb.andWhere('notification.entity_id = :entityId', {
+        entityId: query.entity_id.trim(),
+      });
+    }
+
+    if (query.search?.trim()) {
+      qb.andWhere(
+        `(
+          LOWER(notification.title) LIKE :search OR
+          LOWER(notification.message) LIKE :search OR
+          LOWER(COALESCE(delivery.recipientAddress, '')) LIKE :search OR
+          LOWER(COALESCE(receiverUser.email, '')) LIKE :search
+        )`,
+        { search: `%${query.search.trim().toLowerCase()}%` },
+      );
+    }
+
+    const [items, total] = await qb
+      .orderBy('delivery.createdAt', 'DESC')
+      .addOrderBy('delivery.id', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    return {
+      data: items.map((item) => this.mapDeliveryLog(item)),
+      meta: buildPaginationMeta(total, items.length, limit, page),
+    };
+  }
+
+  async getDeliveryLog(companyId: number, deliveryId: number) {
+    const delivery = await this.deliveryRepository
+      .createQueryBuilder('delivery')
+      .leftJoinAndSelect('delivery.notification', 'notification')
+      .leftJoinAndSelect(
+        'notification.receiver_company_user',
+        'receiverMembership',
+      )
+      .leftJoinAndSelect('receiverMembership.user', 'receiverUser')
+      .where('delivery.id = :deliveryId', { deliveryId })
+      .andWhere('notification.company_id = :companyId', { companyId })
+      .getOne();
+
+    if (!delivery) {
+      throw new NotFoundException('Notification delivery log not found');
+    }
+
+    return this.mapDeliveryLog(delivery);
+  }
+
+  async listMailLogs(companyId: number, query: NotificationMailLogQueryDto) {
+    return this.listMailLogsWithScope(query, { companyId });
+  }
+
+  async listPlatformMailLogs(query: NotificationMailLogQueryDto) {
+    return this.listMailLogsWithScope(query, { platformScope: true });
+  }
+
+  async getPlatformMailLog(mailLogId: number) {
+    const mailLog = await this.mailLogRepository.findOne({
+      where: { id: mailLogId },
+    });
+
+    if (!mailLog) {
+      throw new NotFoundException('Notification mail log not found');
+    }
+
+    return this.mapMailLog(mailLog);
+  }
+
+  async retryPlatformMailLog(mailLogId: number) {
+    const mailLog = await this.mailLogRepository.findOne({
+      where: { id: mailLogId },
+    });
+
+    if (!mailLog) {
+      throw new NotFoundException('Notification mail log not found');
+    }
+
+    return this.retryMailLogInternal(mailLog);
+  }
+
+  private async listMailLogsWithScope(
+    query: NotificationMailLogQueryDto,
+    scope: { companyId?: number; platformScope?: boolean },
+  ) {
+    const page = Number(query.page ?? 1);
+    const limit = Number(query.limit ?? 20);
+
+    const qb = this.mailLogRepository.createQueryBuilder('mailLog');
+
+    if (scope.platformScope) {
+      if (query.only_unscoped) {
+        qb.where('mailLog.companyId IS NULL');
+      } else if (query.company_id) {
+        qb.where('mailLog.companyId = :companyId', {
+          companyId: query.company_id,
+        });
+      } else {
+        qb.where('1 = 1');
+      }
+    } else {
+      qb.where('mailLog.companyId = :companyId', {
+        companyId: scope.companyId,
+      });
+    }
+
+    if (query.status) {
+      qb.andWhere('mailLog.status = :status', { status: query.status });
+    }
+
+    if (query.method?.trim()) {
+      qb.andWhere('mailLog.method = :method', { method: query.method.trim() });
+    }
+
+    if (query.recipient_email?.trim()) {
+      qb.andWhere('LOWER(mailLog.recipientEmail) = :recipientEmail', {
+        recipientEmail: query.recipient_email.trim().toLowerCase(),
+      });
+    }
+
+    if (query.search?.trim()) {
+      qb.andWhere(
+        `(
+          LOWER(mailLog.method) LIKE :search OR
+          LOWER(COALESCE(mailLog.recipientEmail, '')) LIKE :search OR
+          LOWER(COALESCE(mailLog.errorMessage, '')) LIKE :search
+        )`,
+        { search: `%${query.search.trim().toLowerCase()}%` },
+      );
+    }
+
+    const [items, total] = await qb
+      .orderBy('mailLog.createdAt', 'DESC')
+      .addOrderBy('mailLog.id', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    return {
+      data: items.map((item) => this.mapMailLog(item)),
+      meta: buildPaginationMeta(total, items.length, limit, page),
+    };
+  }
+
+  async getMailLog(companyId: number, mailLogId: number) {
+    const mailLog = await this.mailLogRepository.findOne({
+      where: { id: mailLogId, companyId },
+    });
+
+    if (!mailLog) {
+      throw new NotFoundException('Notification mail log not found');
+    }
+
+    return this.mapMailLog(mailLog);
+  }
+
+  async retryMailLog(companyId: number, mailLogId: number) {
+    const mailLog = await this.mailLogRepository.findOne({
+      where: { id: mailLogId, companyId },
+    });
+
+    if (!mailLog) {
+      throw new NotFoundException('Notification mail log not found');
+    }
+
+    return this.retryMailLogInternal(mailLog);
+  }
+
+  private async retryMailLogInternal(mailLog: NotificationMailLog) {
+    if (mailLog.status !== NotificationMailLogStatusEnum.FAILED) {
+      throw new BadRequestException(
+        'Only failed queued mail logs can be retried.',
+      );
+    }
+
+    if (!Array.isArray(mailLog.args)) {
+      throw new BadRequestException(
+        'This queued mail log does not contain retryable arguments.',
+      );
+    }
+
+    await this.notificationQueueService.enqueueMailMethod(
+      mailLog.method,
+      mailLog.args,
+      {
+        retryOfMailLogId: mailLog.id,
+        companyId: mailLog.companyId,
+      },
+    );
+
+    return { message: 'Queued email retry scheduled successfully.' };
   }
 
   async getUnreadCount(companyId: number, receiverCompanyUserId: number) {
@@ -387,6 +645,66 @@ export class NotificationsService {
       is_archived: Boolean(notification.archived_at),
       created_at: notification.created_at,
       updated_at: notification.updated_at,
+    };
+  }
+
+  private mapDeliveryLog(delivery: NotificationDelivery) {
+    return {
+      id: delivery.id,
+      notification_id: delivery.notificationId,
+      channel: delivery.channel,
+      status: delivery.status,
+      recipient_address: delivery.recipientAddress,
+      attempt_count: delivery.attemptCount,
+      last_attempt_at: delivery.lastAttemptAt,
+      next_retry_at: delivery.nextRetryAt,
+      delivered_at: delivery.deliveredAt,
+      provider_message_id: delivery.providerMessageId,
+      last_error: delivery.lastError,
+      metadata: delivery.metadata,
+      created_at: delivery.createdAt,
+      updated_at: delivery.updatedAt,
+      notification: delivery.notification
+        ? {
+            id: delivery.notification.id,
+            company_id: delivery.notification.company_id,
+            receiver_company_user_id:
+              delivery.notification.receiver_company_user_id,
+            receiver_email:
+              delivery.notification.receiver_company_user?.user?.email ?? null,
+            title: delivery.notification.title,
+            message: delivery.notification.message,
+            type: delivery.notification.type,
+            category: delivery.notification.category,
+            priority: delivery.notification.priority,
+            related_module: delivery.notification.related_module,
+            entity_type: delivery.notification.entity_type,
+            entity_id: delivery.notification.entity_id,
+            action_url: delivery.notification.action_url,
+            delivery_channel: delivery.notification.delivery_channel,
+            delivery_status: delivery.notification.delivery_status,
+            created_at: delivery.notification.created_at,
+            updated_at: delivery.notification.updated_at,
+          }
+        : null,
+    };
+  }
+
+  private mapMailLog(mailLog: NotificationMailLog) {
+    return {
+      id: mailLog.id,
+      company_id: mailLog.companyId,
+      method: mailLog.method,
+      recipient_email: mailLog.recipientEmail,
+      args: mailLog.args,
+      status: mailLog.status,
+      provider_message_id: mailLog.providerMessageId,
+      provider_response: mailLog.providerResponse,
+      error_message: mailLog.errorMessage,
+      processed_at: mailLog.processedAt,
+      retry_of_log_id: mailLog.retryOfLogId,
+      created_at: mailLog.createdAt,
+      updated_at: mailLog.updatedAt,
     };
   }
 }
