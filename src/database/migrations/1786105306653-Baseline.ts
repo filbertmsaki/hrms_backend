@@ -1021,6 +1021,7 @@ export class Baseline1786105306653 implements MigrationInterface {
         await queryRunner.query(`CREATE TABLE "employee_finance_exit_recoveries" ("id" SERIAL NOT NULL, "company_id" integer NOT NULL, "offboarding_request_id" integer NOT NULL, "employee_id" integer NOT NULL, "account_id" integer NOT NULL, "recovery_amount" numeric(18,2) NOT NULL, "recovered_amount" numeric(18,2) NOT NULL DEFAULT '0', "snapshot" jsonb NOT NULL, "snapshot_hash" character varying(128) NOT NULL, "status" character varying(30) NOT NULL DEFAULT 'OPEN', CONSTRAINT "UQ_employee_finance_exit_recovery_account" UNIQUE ("offboarding_request_id", "account_id"), CONSTRAINT "PK_d93eda657efa21ccf43363ad431" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE TABLE "employee_finance_audit_logs" ("id" SERIAL NOT NULL, "company_id" integer NOT NULL, "actor_company_user_id" integer, "action" character varying(100) NOT NULL, "entity_type" character varying(80) NOT NULL, "entity_id" character varying(80) NOT NULL, "summary" jsonb, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_fa07d448e75e42e4547c99a0a21" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "IDX_employee_finance_audit_company_entity" ON "employee_finance_audit_logs" ("company_id", "entity_type", "entity_id") `);
+        await queryRunner.query(`CREATE SCHEMA IF NOT EXISTS "analytics"`);
         await queryRunner.query(`CREATE TYPE "analytics"."analytics_datasets_dataset_type_enum" AS ENUM('DIMENSION', 'FACT', 'AGGREGATE', 'MATERIALIZED_VIEW', 'EXTERNAL')`);
         await queryRunner.query(`CREATE TYPE "analytics"."analytics_datasets_refresh_mode_enum" AS ENUM('EVENT_DRIVEN', 'INCREMENTAL', 'FULL_REFRESH', 'PERIOD_CLOSE', 'MANUAL')`);
         await queryRunner.query(`CREATE TYPE "analytics"."analytics_datasets_sensitivity_enum" AS ENUM('PUBLIC_INTERNAL', 'INTERNAL', 'CONFIDENTIAL', 'HIGHLY_RESTRICTED')`);
@@ -2008,6 +2009,7 @@ export class Baseline1786105306653 implements MigrationInterface {
         await queryRunner.query(`DROP TABLE "employee_finance_products"`);
         await queryRunner.query(`DROP TYPE "public"."employee_finance_products_interest_method_enum"`);
         await queryRunner.query(`DROP TYPE "public"."employee_finance_products_product_type_enum"`);
+        await queryRunner.query(`DROP SCHEMA IF EXISTS "analytics"`);
         await queryRunner.query(`DROP TABLE "payroll_accounting_mappings"`);
         await queryRunner.query(`DROP TABLE "statutory_tax_bands"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_statutory_rule_effective"`);
