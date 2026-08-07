@@ -146,7 +146,7 @@ export class ConditionalBullModule {
                 createQueueInstance(name, configService),
             },
           ],
-      exports: [getQueueToken(name)],
+      exports: redisEnabled ? [BullModule] : [getQueueToken(name)],
     };
   }
 }
