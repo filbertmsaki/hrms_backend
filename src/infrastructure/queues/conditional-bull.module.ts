@@ -13,19 +13,21 @@ import { ModuleRef } from '@nestjs/core';
 import { Queue } from 'bullmq';
 
 @Injectable()
-class DisabledQueue<T = unknown> implements OnApplicationShutdown {
+class DisabledQueue implements OnApplicationShutdown {
   readonly opts: Record<string, never> = {};
 
   constructor(private readonly name: string) {}
 
-  async add(): Promise<never> {
-    throw new ServiceUnavailableException(
-      `Queue "${this.name}" is disabled because USE_REDIS=false.`,
+  add(): Promise<never> {
+    return Promise.reject(
+      new ServiceUnavailableException(
+        `Queue "${this.name}" is disabled because USE_REDIS=false.`,
+      ),
     );
   }
 
-  async getJob(): Promise<null> {
-    return null;
+  getJob(): Promise<null> {
+    return Promise.resolve(null);
   }
 
   async close(): Promise<void> {
@@ -41,12 +43,22 @@ function isRedisEnabled(configService: ConfigService): boolean {
   return configService.get<boolean>('USE_REDIS', false);
 }
 
+function isRedisEnabledFromEnv(env: NodeJS.ProcessEnv = process.env): boolean {
+  const value = env.USE_REDIS;
+
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  return ['true', '1', 'yes', 'on'].includes(value.trim().toLowerCase());
+}
+
 function createQueueInstance<T = unknown>(
   name: string,
   configService: ConfigService,
-): Queue<T> | DisabledQueue<T> {
+): Queue<T> | DisabledQueue {
   if (!isRedisEnabled(configService)) {
-    return new DisabledQueue<T>(name);
+    return new DisabledQueue(name);
   }
 
   const redisUrl =
@@ -55,13 +67,13 @@ function createQueueInstance<T = unknown>(
     connection: { url: redisUrl },
   });
 
-  (
-    queue as Queue<T> & Pick<OnApplicationShutdown, 'onApplicationShutdown'>
-  ).onApplicationShutdown = async function () {
-    await this.close();
+  const closableQueue = queue as Queue<T> &
+    Pick<OnApplicationShutdown, 'onApplicationShutdown'>;
+  closableQueue.onApplicationShutdown = async () => {
+    await closableQueue.close();
   };
 
-  return queue;
+  return closableQueue;
 }
 
 @Injectable()
@@ -116,17 +128,24 @@ export class ConditionalBullModule {
   }
 
   static registerQueue(name: string): DynamicModule {
+    const redisEnabled = isRedisEnabledFromEnv();
+
     return {
       module: ConditionalBullModule,
-      imports: [ConfigModule],
-      providers: [
-        {
-          provide: getQueueToken(name),
-          inject: [ConfigService],
-          useFactory: (configService: ConfigService) =>
-            createQueueInstance(name, configService),
-        },
+      imports: [
+        ConfigModule,
+        ...(redisEnabled ? [BullModule.registerQueue({ name })] : []),
       ],
+      providers: redisEnabled
+        ? []
+        : [
+            {
+              provide: getQueueToken(name),
+              inject: [ConfigService],
+              useFactory: (configService: ConfigService) =>
+                createQueueInstance(name, configService),
+            },
+          ],
       exports: [getQueueToken(name)],
     };
   }
