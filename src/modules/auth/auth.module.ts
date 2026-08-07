@@ -6,6 +6,7 @@ import type { StringValue } from 'ms';
 
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
+import { AuthSessionsModule } from './auth-sessions.module';
 
 import { CompaniesModule } from '../companies/companies.module';
 import { UsersModule } from '../users/users.module';
@@ -22,6 +23,7 @@ import { TwoFaModule } from './2fa/2fa.module';
       defaultStrategy: 'jwt',
       session: false,
     }),
+    AuthSessionsModule,
     CompaniesModule,
     UsersModule,
     MailModule,

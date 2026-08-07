@@ -16,6 +16,7 @@ import { UsersService } from '../../users/users.service';
 import { TokenBlacklistService } from '../token-blacklist.service';
 import { Request } from 'express';
 import { User } from '../../users/entities/user.entity';
+import { AuthSessionsService } from '../auth-sessions.service';
 
 type JwtAccessPayload = {
   sub: number;
@@ -119,6 +120,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private readonly companiesService: CompaniesService,
     private readonly usersService: UsersService,
     private readonly twoFactorPolicyService: TwoFactorPolicyService,
+    private readonly authSessionsService: AuthSessionsService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -180,6 +182,17 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       payload.iat <= Math.floor(user.auth_token_invalid_before.getTime() / 1000)
     ) {
       throw new UnauthorizedException('Session has been revoked');
+    }
+
+    if (payload.sessionId) {
+      const activeSession = await this.authSessionsService.findActiveSession(
+        user.id,
+        payload.sessionId,
+      );
+
+      if (!activeSession) {
+        throw new UnauthorizedException('Session has been revoked');
+      }
     }
 
     if (payload.scope === 'platform') {

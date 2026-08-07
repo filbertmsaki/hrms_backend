@@ -55,10 +55,9 @@ describe('EmployeesService.remove', () => {
       deleteActor.companyId,
       employee.id,
     );
-    expect(service.hrAccessService.assertCanAccessEmployee).toHaveBeenCalledWith(
-      deleteActor,
-      employee,
-    );
+    expect(
+      service.hrAccessService.assertCanAccessEmployee,
+    ).toHaveBeenCalledWith(deleteActor, employee);
     expect(service.changeStatus).toHaveBeenCalledWith(
       deleteActor.companyId,
       employee.id,
@@ -152,6 +151,69 @@ describe('EmployeesService.removeDocument', () => {
     expect(service.filesService.removeManagedFile).not.toHaveBeenCalled();
     expect(result).toEqual({
       message: 'Employee document archived successfully',
+    });
+  });
+});
+
+describe('EmployeesService.downloadDocument', () => {
+  it('increments download audit fields and writes a security event', async () => {
+    const employee = { id: 15 };
+    const document = {
+      id: 9,
+      employee_id: employee.id,
+      file_url: '/private/doc.pdf',
+      original_file_name: 'doc.pdf',
+      mime_type: 'application/pdf',
+      classification: 'PRIVATE',
+      download_count: 2,
+      retention_until: null,
+    };
+
+    const service = {
+      findEmployeeByIdOrFail: jest.fn().mockResolvedValue(employee),
+      hrAccessService: {
+        assertCanAccessEmployee: jest.fn().mockResolvedValue(undefined),
+      },
+      employeeDocumentRepository: {
+        findOne: jest.fn().mockResolvedValue(document),
+        save: jest.fn().mockImplementation(async (value) => value),
+      },
+      filesService: {
+        readManagedFile: jest.fn().mockResolvedValue(Buffer.from('file')),
+      },
+      securityEventsService: {
+        logBestEffort: jest.fn().mockResolvedValue(undefined),
+      },
+      isArchivedDocument: EmployeesService.prototype['isArchivedDocument'],
+    };
+
+    const result = await EmployeesService.prototype.downloadDocument.call(
+      service,
+      actor.companyId,
+      employee.id,
+      document.id,
+      actor,
+      context,
+    );
+
+    expect(service.employeeDocumentRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: document.id,
+        download_count: 3,
+        last_downloaded_by_company_user_id: actor.companyMembershipId,
+      }),
+    );
+    expect(service.securityEventsService.logBestEffort).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'EMPLOYEE_DOCUMENT_DOWNLOADED',
+        companyId: actor.companyId,
+        context,
+      }),
+    );
+    expect(result).toEqual({
+      buffer: Buffer.from('file'),
+      fileName: 'doc.pdf',
+      mimeType: 'application/pdf',
     });
   });
 });
@@ -385,9 +447,9 @@ describe('EmployeesService.removeIdentification', () => {
       hrAccessService: {
         assertCanAccessEmployee: jest.fn().mockResolvedValue(undefined),
       },
-      getEmployeeIdentificationRepository: jest.fn().mockReturnValue(
-        repository,
-      ),
+      getEmployeeIdentificationRepository: jest
+        .fn()
+        .mockReturnValue(repository),
       isArchivedIdentification:
         EmployeesService.prototype['isArchivedIdentification'],
       buildArchivedUniqueFieldValue:

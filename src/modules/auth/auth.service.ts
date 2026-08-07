@@ -41,6 +41,7 @@ import { LogoutDto } from './dtos/logout.dto';
 import { RefreshTokenDto } from './dtos/refresh-token.dto';
 import { ResetPasswordDto } from './dtos/reset-password.dto';
 import { TokenBlacklistService } from './token-blacklist.service';
+import { AuthSessionsService } from './auth-sessions.service';
 
 type AccessTokenPayload = {
   sub: number;
@@ -70,6 +71,7 @@ type RefreshTokenPayload = {
   userType: UserType;
   companyId?: number;
   membershipId?: number;
+  sessionId?: string;
   type: 'refresh';
   tokenVersion: number;
   iat?: number;
@@ -94,6 +96,10 @@ type PlatformAccessContext = {
 };
 
 type DashboardType = 'admin' | 'employee';
+type SessionTokenContext = {
+  sessionId: string;
+  device: string;
+};
 
 @Injectable()
 export class AuthService {
@@ -111,6 +117,7 @@ export class AuthService {
     private readonly twoFactorPolicyService: TwoFactorPolicyService,
     private readonly smsNotificationManagementService: SmsNotificationManagementService,
     private readonly notificationQueueService: NotificationQueueService,
+    private readonly authSessionsService: AuthSessionsService,
   ) {}
 
   private buildFailureMetadata(context?: CompanySummary | null) {
@@ -279,9 +286,19 @@ export class AuthService {
         new Date(),
         context?.ipAddress ?? null,
       );
+      const sessionContext = this.buildSessionTokenContext(context);
       const response = this.generatePlatformAuthResponse(
         user as User,
         platformContext,
+        sessionContext,
+      );
+      await this.persistNewSession(
+        user as User,
+        sessionContext,
+        'platform',
+        'OWNER',
+        response.refresh_expires_at,
+        context,
       );
 
       await this.logSecurityEvent(
@@ -380,11 +397,22 @@ export class AuthService {
     const availableCompanies = await this.companiesService.listUserCompanies(
       user.id,
     );
+    const sessionContext = this.buildSessionTokenContext(context);
 
     const response = this.generateCompanyAuthResponse(
       user as User,
       activeCompanyContext,
       availableCompanies,
+      sessionContext,
+    );
+    await this.persistNewSession(
+      user as User,
+      sessionContext,
+      'company',
+      'COMPANY_USER',
+      response.refresh_expires_at,
+      context,
+      activeCompanyContext.companyId,
     );
     const responseWithPasswordRequirement =
       await this.applyCompanyPasswordChangeRequirement(
@@ -508,10 +536,22 @@ export class AuthService {
           },
         );
 
-        return this.generatePlatformAuthResponse(
+        const sessionContext = this.buildSessionTokenContext(context);
+        const response = this.generatePlatformAuthResponse(
           user,
           this.buildPlatformAccessContext(user),
+          sessionContext,
         );
+        await this.persistNewSession(
+          user,
+          sessionContext,
+          'platform',
+          'OWNER',
+          response.refresh_expires_at,
+          context,
+        );
+
+        return response;
       }
 
       if (this.isOwnerUser(user) || payload.userType !== 'COMPANY_USER') {
@@ -544,10 +584,27 @@ export class AuthService {
         },
       );
 
+      const sessionContext = this.buildSessionTokenContext(context);
+      const response = this.generateCompanyAuthResponse(
+        user,
+        companyContext,
+        companies,
+        sessionContext,
+      );
+      await this.persistNewSession(
+        user,
+        sessionContext,
+        'company',
+        'COMPANY_USER',
+        response.refresh_expires_at,
+        context,
+        companyContext.companyId,
+      );
+
       return this.applyCompanyPasswordChangeRequirement(
         user,
         companyContext.companyId,
-        this.generateCompanyAuthResponse(user, companyContext, companies),
+        response,
       );
     } catch (error) {
       if (
@@ -584,6 +641,7 @@ export class AuthService {
   async switchCompany(
     userId: number,
     companyId: number,
+    actor?: AuthenticatedUser | null,
     context?: AuditRequestContext | null,
   ) {
     const user = await this.usersService.findById(userId);
@@ -629,7 +687,38 @@ export class AuthService {
       },
     );
 
-    return this.generateCompanyAuthResponse(user, companyContext, companies);
+    const sessionContext = this.buildSessionTokenContext(
+      context,
+      actor?.sessionId,
+    );
+    const response = this.generateCompanyAuthResponse(
+      user,
+      companyContext,
+      companies,
+      sessionContext,
+    );
+
+    if (actor?.sessionId) {
+      await this.refreshExistingSession(
+        user.id,
+        sessionContext,
+        response.refresh_expires_at,
+        context,
+        companyContext.companyId,
+      );
+    } else {
+      await this.persistNewSession(
+        user,
+        sessionContext,
+        'company',
+        'COMPANY_USER',
+        response.refresh_expires_at,
+        context,
+        companyContext.companyId,
+      );
+    }
+
+    return response;
   }
 
   async refreshTokens(
@@ -694,6 +783,20 @@ export class AuthService {
           throw new UnauthorizedException('Invalid platform refresh token');
         }
 
+        if (payload.sessionId) {
+          const activeSession =
+            await this.authSessionsService.findActiveSession(
+              user.id,
+              payload.sessionId,
+            );
+
+          if (!activeSession) {
+            throw new UnauthorizedException(
+              'Refresh token session has been revoked',
+            );
+          }
+        }
+
         await this.tokenBlacklistService.addToBlacklist(
           refreshToken,
           this.getTokenBlacklistTtlSeconds(refreshToken, 60),
@@ -711,10 +814,35 @@ export class AuthService {
           },
         );
 
-        return this.generatePlatformAuthResponse(
+        const sessionContext = this.buildSessionTokenContext(
+          context,
+          payload.sessionId,
+        );
+        const response = this.generatePlatformAuthResponse(
           user,
           this.buildPlatformAccessContext(user),
+          sessionContext,
         );
+
+        if (payload.sessionId) {
+          await this.refreshExistingSession(
+            user.id,
+            sessionContext,
+            response.refresh_expires_at,
+            context,
+          );
+        } else {
+          await this.persistNewSession(
+            user,
+            sessionContext,
+            'platform',
+            'OWNER',
+            response.refresh_expires_at,
+            context,
+          );
+        }
+
+        return response;
       }
 
       if (
@@ -742,6 +870,19 @@ export class AuthService {
         payload.companyId,
       );
 
+      if (payload.sessionId) {
+        const activeSession = await this.authSessionsService.findActiveSession(
+          user.id,
+          payload.sessionId,
+        );
+
+        if (!activeSession) {
+          throw new UnauthorizedException(
+            'Refresh token session has been revoked',
+          );
+        }
+      }
+
       await this.tokenBlacklistService.addToBlacklist(
         refreshToken,
         this.getTokenBlacklistTtlSeconds(refreshToken, 60),
@@ -761,7 +902,38 @@ export class AuthService {
         },
       );
 
-      return this.generateCompanyAuthResponse(user, companyContext, companies);
+      const sessionContext = this.buildSessionTokenContext(
+        context,
+        payload.sessionId,
+      );
+      const response = this.generateCompanyAuthResponse(
+        user,
+        companyContext,
+        companies,
+        sessionContext,
+      );
+
+      if (payload.sessionId) {
+        await this.refreshExistingSession(
+          user.id,
+          sessionContext,
+          response.refresh_expires_at,
+          context,
+          companyContext.companyId,
+        );
+      } else {
+        await this.persistNewSession(
+          user,
+          sessionContext,
+          'company',
+          'COMPANY_USER',
+          response.refresh_expires_at,
+          context,
+          companyContext.companyId,
+        );
+      }
+
+      return response;
     } catch (error) {
       if (
         error instanceof UnauthorizedException ||
@@ -799,7 +971,15 @@ export class AuthService {
     actor?: AuthenticatedUser,
     context?: AuditRequestContext | null,
   ) {
-    await this.usersService.revokeAllSessions(userId);
+    if (actor?.sessionId) {
+      await this.authSessionsService.revokeSession(
+        userId,
+        actor.sessionId,
+        'logout',
+      );
+    } else {
+      await this.usersService.revokeAllSessions(userId);
+    }
 
     await this.tokenBlacklistService.addToBlacklist(
       logoutDto.refresh_token,
@@ -825,6 +1005,61 @@ export class AuthService {
     return { message: 'Successfully logged out' };
   }
 
+  async listSessions(actor: AuthenticatedUser) {
+    return {
+      data: await this.authSessionsService.listSessionsForUser(
+        actor.id,
+        actor.sessionId,
+      ),
+    };
+  }
+
+  async revokeSession(
+    actor: AuthenticatedUser,
+    sessionId: string,
+    context?: AuditRequestContext | null,
+  ) {
+    const revoked = await this.authSessionsService.revokeSession(
+      actor.id,
+      sessionId,
+      actor.sessionId === sessionId ? 'self_revoked' : 'user_revoked',
+    );
+
+    if (!revoked) {
+      throw new NotFoundException('Session not found');
+    }
+
+    await this.securityEventsService.logBestEffort({
+      eventType: SecurityEventType.SESSION_REVOKED,
+      outcome: SecurityEventOutcome.SUCCESS,
+      actor,
+      targetUserId: actor.id,
+      companyId: actor.companyId ?? null,
+      sessionId,
+      context,
+    });
+
+    return { message: 'Session revoked successfully' };
+  }
+
+  async logoutAll(
+    actor: AuthenticatedUser,
+    context?: AuditRequestContext | null,
+  ) {
+    await this.usersService.revokeAllSessions(actor.id);
+
+    await this.securityEventsService.logBestEffort({
+      eventType: SecurityEventType.SESSIONS_REVOKED,
+      outcome: SecurityEventOutcome.SUCCESS,
+      actor,
+      targetUserId: actor.id,
+      companyId: actor.companyId ?? null,
+      context,
+    });
+
+    return { message: 'All sessions revoked successfully' };
+  }
+
   async forgotPassword(
     dto: ForgotPasswordDto,
     context?: AuditRequestContext | null,
@@ -845,8 +1080,7 @@ export class AuthService {
     const resetLink = this.buildFrontendAuthUrl(
       `auth/reset-password?token=${encodeURIComponent(resetToken)}`,
     );
-    const notificationCompanyId =
-      await this.resolveNotificationCompanyId(user);
+    const notificationCompanyId = await this.resolveNotificationCompanyId(user);
 
     void this.notificationQueueService.enqueueMailMethod(
       'sendPasswordResetEmail',
@@ -956,8 +1190,7 @@ export class AuthService {
     }
 
     await this.usersService.markEmailVerified(user.id);
-    const notificationCompanyId =
-      await this.resolveNotificationCompanyId(user);
+    const notificationCompanyId = await this.resolveNotificationCompanyId(user);
 
     void this.notificationQueueService.enqueueMailMethod(
       'sendWelcomeEmailAfterVerification',
@@ -1014,8 +1247,7 @@ export class AuthService {
     const verifyLink = this.buildFrontendAuthUrl(
       `auth/verify-email?token=${encodeURIComponent(verificationToken)}`,
     );
-    const notificationCompanyId =
-      await this.resolveNotificationCompanyId(user);
+    const notificationCompanyId = await this.resolveNotificationCompanyId(user);
 
     void this.notificationQueueService.enqueueMailMethod(
       'sendEmailVerification',
@@ -1069,11 +1301,30 @@ export class AuthService {
     return companies.find((company) => company.isDefault) ?? companies[0];
   }
 
+  private buildSessionTokenContext(
+    context?: AuditRequestContext | null,
+    sessionId?: string,
+  ): SessionTokenContext {
+    const descriptor = this.authSessionsService.buildSessionDescriptor({
+      userAgent: context?.userAgent ?? null,
+    });
+
+    return {
+      sessionId: sessionId?.trim().length ? sessionId : randomUUID(),
+      device: descriptor.deviceName,
+    };
+  }
+
   private generatePlatformAuthResponse(
     user: User,
     platformContext: PlatformAccessContext,
+    sessionContext: SessionTokenContext,
   ) {
-    const tokens = this.generatePlatformTokenPair(user, platformContext);
+    const tokens = this.generatePlatformTokenPair(
+      user,
+      platformContext,
+      sessionContext,
+    );
     const dashboardType: DashboardType = 'admin';
 
     return {
@@ -1102,8 +1353,13 @@ export class AuthService {
     user: User,
     companyContext: CompanySummary,
     companies: CompanySummary[],
+    sessionContext: SessionTokenContext,
   ) {
-    const tokens = this.generateCompanyTokenPair(user, companyContext);
+    const tokens = this.generateCompanyTokenPair(
+      user,
+      companyContext,
+      sessionContext,
+    );
     const dashboardType = this.resolveDashboardType(companyContext.permissions);
 
     return {
@@ -1178,6 +1434,7 @@ export class AuthService {
   private buildCompanyAccessTokenPayload(
     user: User,
     companyContext: CompanySummary,
+    sessionContext: SessionTokenContext,
   ): AccessTokenPayload {
     const dashboardType = this.resolveDashboardType(companyContext.permissions);
 
@@ -1199,8 +1456,8 @@ export class AuthService {
       iss: this.configService.get<string>('JWT_ISSUER') ?? 'alliance-hrms',
       aud:
         this.configService.get<string>('JWT_AUDIENCE') ?? 'alliance-hrms-web',
-      sessionId: randomUUID(),
-      device: 'web',
+      sessionId: sessionContext.sessionId,
+      device: sessionContext.device,
       tokenVersion: user.auth_token_version ?? 0,
     };
   }
@@ -1208,6 +1465,7 @@ export class AuthService {
   private buildPlatformAccessTokenPayload(
     user: User,
     platformContext: PlatformAccessContext,
+    sessionContext: SessionTokenContext,
   ): AccessTokenPayload {
     return {
       sub: user.id,
@@ -1221,16 +1479,21 @@ export class AuthService {
       iss: this.configService.get<string>('JWT_ISSUER') ?? 'alliance-hrms',
       aud:
         this.configService.get<string>('JWT_AUDIENCE') ?? 'alliance-hrms-web',
-      sessionId: randomUUID(),
-      device: 'web',
+      sessionId: sessionContext.sessionId,
+      device: sessionContext.device,
       tokenVersion: user.auth_token_version ?? 0,
     };
   }
 
-  private generateCompanyTokenPair(user: User, companyContext: CompanySummary) {
+  private generateCompanyTokenPair(
+    user: User,
+    companyContext: CompanySummary,
+    sessionContext: SessionTokenContext,
+  ) {
     const accessPayload = this.buildCompanyAccessTokenPayload(
       user,
       companyContext,
+      sessionContext,
     );
     const accessToken = this.jwtService.sign(accessPayload, {
       secret: this.getAccessTokenSecret(),
@@ -1244,6 +1507,7 @@ export class AuthService {
         userType: 'COMPANY_USER',
         companyId: companyContext.companyId,
         membershipId: companyContext.membershipId,
+        sessionId: sessionContext.sessionId,
         type: 'refresh',
         tokenVersion: user.auth_token_version ?? 0,
       },
@@ -1264,10 +1528,12 @@ export class AuthService {
   private generatePlatformTokenPair(
     user: User,
     platformContext: PlatformAccessContext,
+    sessionContext: SessionTokenContext,
   ) {
     const accessPayload = this.buildPlatformAccessTokenPayload(
       user,
       platformContext,
+      sessionContext,
     );
     const accessToken = this.jwtService.sign(accessPayload, {
       secret: this.getAccessTokenSecret(),
@@ -1279,6 +1545,7 @@ export class AuthService {
         sub: user.id,
         scope: 'platform',
         userType: 'OWNER',
+        sessionId: sessionContext.sessionId,
         type: 'refresh',
         tokenVersion: user.auth_token_version ?? 0,
       },
@@ -1294,6 +1561,48 @@ export class AuthService {
       refreshToken,
       refreshExpiresAt: this.getTokenExpiryTimestamp(refreshToken),
     };
+  }
+
+  private async persistNewSession(
+    user: User,
+    sessionContext: SessionTokenContext,
+    scope: AuthScope,
+    userType: UserType,
+    refreshExpiresAt: number,
+    context?: AuditRequestContext | null,
+    companyId?: number | null,
+  ): Promise<void> {
+    await this.authSessionsService.createSession({
+      sessionId: sessionContext.sessionId,
+      userId: user.id,
+      companyId: companyId ?? null,
+      scope,
+      userType,
+      refreshExpiresAt: new Date(refreshExpiresAt),
+      context,
+    });
+  }
+
+  private async refreshExistingSession(
+    userId: number,
+    sessionContext: SessionTokenContext,
+    refreshExpiresAt: number,
+    context?: AuditRequestContext | null,
+    companyId?: number | null,
+  ): Promise<void> {
+    const touchedSession = await this.authSessionsService.touchSession(
+      userId,
+      sessionContext.sessionId,
+      {
+        companyId,
+        refreshExpiresAt: new Date(refreshExpiresAt),
+        context,
+      },
+    );
+
+    if (!touchedSession) {
+      throw new UnauthorizedException('Session has been revoked');
+    }
   }
 
   private getTokenExpiryTimestamp(token: string): number {

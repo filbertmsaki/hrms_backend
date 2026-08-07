@@ -409,12 +409,14 @@ export class EmployeesController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
     @Body() addEmployeeDocumentDto: AddEmployeeDocumentDto,
+    @CurrentAuditContext() context: AuditRequestContext,
   ) {
     return this.employeesService.addDocument(
       req.user.companyId!,
       id,
       addEmployeeDocumentDto,
       req.user,
+      context,
     );
   }
 
@@ -425,12 +427,14 @@ export class EmployeesController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
     @Param('documentId', ParseIntPipe) documentId: number,
+    @CurrentAuditContext() context: AuditRequestContext,
   ): Promise<StreamableFile> {
     const file = await this.employeesService.downloadDocument(
       req.user.companyId!,
       employeeId,
       documentId,
       req.user,
+      context,
     );
 
     return createDownloadStream(file);

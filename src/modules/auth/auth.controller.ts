@@ -1,11 +1,14 @@
 import {
   Body,
   Controller,
+  Delete,
   Post,
   UseGuards,
   Req,
   Headers,
   Get,
+  Param,
+  ParseUUIDPipe,
   Query,
 } from '@nestjs/common';
 import { ApiQuery, ApiTags } from '@nestjs/swagger';
@@ -167,7 +170,12 @@ export class AuthController {
     @Body() dto: SwitchCompanyDto,
     @CurrentAuditContext() context: AuditRequestContext,
   ) {
-    return this.authService.switchCompany(req.user.id, dto.company_id, context);
+    return this.authService.switchCompany(
+      req.user.id,
+      dto.company_id,
+      req.user,
+      context,
+    );
   }
 
   // ────────────────────────────────
@@ -287,5 +295,54 @@ export class AuthController {
   ) {
     const token = authHeader?.replace(/^Bearer\s+/i, '');
     return this.authService.logout(req.user.id, dto, token, req.user, context);
+  }
+
+  @Get('sessions')
+  @UseGuards(AuthGuard('jwt'))
+  @SkipThrottle()
+  @ApiOperationSummary(
+    'List active sessions',
+    'Returns the authenticated user active sessions and devices.',
+    'Auth_listSessions',
+  )
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'Sessions retrieved successfully')
+  async listSessions(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.authService.listSessions(req.user);
+  }
+
+  @Delete('sessions/:sessionId')
+  @UseGuards(AuthGuard('jwt'))
+  @SkipThrottle()
+  @ApiOperationSummary(
+    'Revoke a specific session',
+    'Revokes a selected session for the authenticated user.',
+    'Auth_revokeSession',
+  )
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'Session revoked successfully')
+  async revokeSession(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('sessionId', new ParseUUIDPipe()) sessionId: string,
+    @CurrentAuditContext() context: AuditRequestContext,
+  ) {
+    return this.authService.revokeSession(req.user, sessionId, context);
+  }
+
+  @Post('logout-all')
+  @UseGuards(AuthGuard('jwt'))
+  @SkipThrottle()
+  @ApiOperationSummary(
+    'Logout all sessions',
+    'Revokes all active sessions for the authenticated user.',
+    'Auth_logoutAll',
+  )
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'All sessions revoked successfully')
+  async logoutAll(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
+  ) {
+    return this.authService.logoutAll(req.user, context);
   }
 }

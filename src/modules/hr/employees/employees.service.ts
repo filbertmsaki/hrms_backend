@@ -110,8 +110,7 @@ const ARCHIVED_IDENTIFICATION_PREFIX = '[ARCHIVED_IDENTIFICATION]';
 const ARCHIVED_DOCUMENT_NOTE_PREFIX = '[ARCHIVED_DOCUMENT]';
 const ARCHIVED_BANK_ACCOUNT_STATUS = 'ARCHIVED';
 const ARCHIVED_ACADEMIC_QUALIFICATION_PREFIX = '[ARCHIVED_ACADEMIC]';
-const ARCHIVED_PROFESSIONAL_QUALIFICATION_PREFIX =
-  '[ARCHIVED_PROFESSIONAL]';
+const ARCHIVED_PROFESSIONAL_QUALIFICATION_PREFIX = '[ARCHIVED_PROFESSIONAL]';
 const ARCHIVED_EXPERIENCE_PREFIX = '[ARCHIVED_EXPERIENCE]';
 
 @Injectable()
@@ -318,6 +317,16 @@ export class EmployeesService {
 
     const trimmed = value.trim();
     return trimmed.length ? trimmed : null;
+  }
+
+  private normalizeDocumentMetadata(
+    value: unknown,
+  ): Record<string, unknown> | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+
+    return value as Record<string, unknown>;
   }
 
   private assertDateOrder(
@@ -534,11 +543,18 @@ export class EmployeesService {
       employee_id: document.employee_id,
       type: document.type,
       title: document.title,
+      classification: document.classification,
       file_url: `/api/employees/${document.employee_id}/documents/${document.id}/download`,
       original_file_name: document.original_file_name,
       mime_type: document.mime_type,
       file_size: document.file_size,
       notes: document.notes,
+      metadata: document.metadata,
+      retention_until: document.retention_until,
+      download_count: document.download_count,
+      last_downloaded_at: document.last_downloaded_at,
+      last_downloaded_by_company_user_id:
+        document.last_downloaded_by_company_user_id,
       uploaded_at: document.uploaded_at,
       uploaded_by_company_user_id: document.uploaded_by_company_user_id,
       uploaded_by: document.uploaded_by?.user
@@ -650,9 +666,7 @@ export class EmployeesService {
   }
 
   private isArchivedDocument(document: EmployeeDocument): boolean {
-    return (
-      document.notes?.startsWith(ARCHIVED_DOCUMENT_NOTE_PREFIX) ?? false
-    );
+    return document.notes?.startsWith(ARCHIVED_DOCUMENT_NOTE_PREFIX) ?? false;
   }
 
   private isArchivedContact(contact: EmployeeContact): boolean {
@@ -660,15 +674,11 @@ export class EmployeesService {
   }
 
   private isArchivedAddress(address: EmployeeAddress): boolean {
-    return (
-      address.address_line_1?.startsWith(ARCHIVED_ADDRESS_PREFIX) ?? false
-    );
+    return address.address_line_1?.startsWith(ARCHIVED_ADDRESS_PREFIX) ?? false;
   }
 
   private isArchivedRelative(relative: EmployeeRelative): boolean {
-    return (
-      relative.relationship?.startsWith(ARCHIVED_RELATIVE_PREFIX) ?? false
-    );
+    return relative.relationship?.startsWith(ARCHIVED_RELATIVE_PREFIX) ?? false;
   }
 
   private isArchivedIdentification(
@@ -942,10 +952,14 @@ export class EmployeesService {
           position: this.mapPosition(assignment.position),
         })) ?? [],
       contacts: this.sortPrimaryFirst(
-        employee.contacts?.filter((contact) => !this.isArchivedContact(contact)),
+        employee.contacts?.filter(
+          (contact) => !this.isArchivedContact(contact),
+        ),
       ).map((contact) => this.mapContact(contact)),
       addresses: this.sortPrimaryFirst(
-        employee.addresses?.filter((address) => !this.isArchivedAddress(address)),
+        employee.addresses?.filter(
+          (address) => !this.isArchivedAddress(address),
+        ),
       ).map((address) => this.mapAddress(address)),
       relatives: this.sortPrimaryFirst(
         employee.relatives?.filter(
@@ -1566,8 +1580,9 @@ export class EmployeesService {
       bank_branch_code:
         this.normalizeOptionalString(bankAccount.bank_branch_code) ?? undefined,
       account_currency:
-        this.normalizeOptionalString(bankAccount.account_currency)?.toUpperCase() ??
-        'TZS',
+        this.normalizeOptionalString(
+          bankAccount.account_currency,
+        )?.toUpperCase() ?? 'TZS',
       account_type:
         this.normalizeOptionalString(bankAccount.account_type) ?? undefined,
       swift_code:
@@ -1576,8 +1591,9 @@ export class EmployeesService {
         this.normalizeOptionalString(bankAccount.mobile_money_provider) ??
         undefined,
       verification_status:
-        this.normalizeOptionalString(bankAccount.verification_status)?.toUpperCase() ??
-        'PENDING',
+        this.normalizeOptionalString(
+          bankAccount.verification_status,
+        )?.toUpperCase() ?? 'PENDING',
       effective_from:
         this.normalizeOptionalString(bankAccount.effective_from) ?? undefined,
       effective_to:
@@ -3623,9 +3639,23 @@ export class EmployeesService {
     employeeId: number,
     addEmployeeDocumentDto: AddEmployeeDocumentDto,
     actor: AuthenticatedUser,
+    context: AuditRequestContext = EMPTY_AUDIT_CONTEXT,
   ) {
     const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const retentionUntil = addEmployeeDocumentDto.retention_until
+      ? new Date(addEmployeeDocumentDto.retention_until)
+      : null;
+    if (retentionUntil && Number.isNaN(retentionUntil.getTime())) {
+      throw new BadRequestException('retention_until must be a valid ISO date');
+    }
+    if (retentionUntil && retentionUntil <= new Date()) {
+      throw new BadRequestException(
+        'retention_until must be a future timestamp',
+      );
+    }
+
     const storedFile = await this.filesService.savePrivateBase64File(
       addEmployeeDocumentDto.file,
       {
@@ -3647,7 +3677,14 @@ export class EmployeesService {
         original_file_name: storedFile.originalFileName,
         mime_type: storedFile.mimeType,
         file_size: String(storedFile.fileSize),
+        classification:
+          addEmployeeDocumentDto.classification?.trim().toUpperCase() ??
+          'PRIVATE',
         notes: this.normalizeOptionalString(addEmployeeDocumentDto.notes),
+        metadata: this.normalizeDocumentMetadata(
+          addEmployeeDocumentDto.metadata,
+        ),
+        retention_until: retentionUntil,
         uploaded_by_company_user_id: actor.companyMembershipId ?? null,
       }),
     );
@@ -3661,6 +3698,22 @@ export class EmployeesService {
       },
     });
 
+    await this.securityEventsService.logBestEffort({
+      eventType: SecurityEventType.EMPLOYEE_UPDATED,
+      outcome: SecurityEventOutcome.SUCCESS,
+      actor,
+      companyId,
+      targetUserId: actor.id,
+      resourceType: 'employee_document',
+      resourceId: savedDocument.id,
+      context,
+      metadata: {
+        action: 'employee_document_uploaded',
+        employee_id: employee.id,
+        classification: savedDocument.classification,
+      },
+    });
+
     return this.mapDocument(savedDocument);
   }
 
@@ -3669,6 +3722,7 @@ export class EmployeesService {
     employeeId: number,
     documentId: number,
     actor: AuthenticatedUser,
+    context: AuditRequestContext = EMPTY_AUDIT_CONTEXT,
   ) {
     const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
@@ -3688,6 +3742,12 @@ export class EmployeesService {
       throw new NotFoundException('Employee document has been archived');
     }
 
+    if (document.retention_until && document.retention_until <= new Date()) {
+      throw new NotFoundException(
+        'Employee document is no longer available for download',
+      );
+    }
+
     const buffer = await this.filesService.readManagedFile(document.file_url);
 
     if (!buffer) {
@@ -3695,6 +3755,28 @@ export class EmployeesService {
         'Employee document file was not found in storage',
       );
     }
+
+    document.download_count = (document.download_count ?? 0) + 1;
+    document.last_downloaded_at = new Date();
+    document.last_downloaded_by_company_user_id =
+      actor.companyMembershipId ?? null;
+    await this.employeeDocumentRepository.save(document);
+
+    await this.securityEventsService.logBestEffort({
+      eventType: SecurityEventType.EMPLOYEE_DOCUMENT_DOWNLOADED,
+      outcome: SecurityEventOutcome.SUCCESS,
+      actor,
+      companyId,
+      targetUserId: actor.id,
+      resourceType: 'employee_document',
+      resourceId: document.id,
+      context,
+      metadata: {
+        employee_id: employee.id,
+        classification: document.classification,
+        download_count: document.download_count,
+      },
+    });
 
     return {
       buffer,
@@ -4214,18 +4296,21 @@ export class EmployeesService {
           this.normalizeOptionalString(dto.account_name) ?? employeeName,
         account_number: dto.account_number.trim(),
         branch_name: this.normalizeOptionalString(dto.branch_name),
-        bank_code: this.normalizeOptionalString(dto.bank_code)?.toUpperCase() ?? null,
+        bank_code:
+          this.normalizeOptionalString(dto.bank_code)?.toUpperCase() ?? null,
         bank_branch_code: this.normalizeOptionalString(dto.bank_branch_code),
         account_currency:
-          this.normalizeOptionalString(dto.account_currency)?.toUpperCase() ?? 'TZS',
+          this.normalizeOptionalString(dto.account_currency)?.toUpperCase() ??
+          'TZS',
         account_type: this.normalizeOptionalString(dto.account_type),
         swift_code: this.normalizeOptionalString(dto.swift_code),
         mobile_money_provider: this.normalizeOptionalString(
           dto.mobile_money_provider,
         ),
         verification_status:
-          this.normalizeOptionalString(dto.verification_status)?.toUpperCase() ??
-          'PENDING',
+          this.normalizeOptionalString(
+            dto.verification_status,
+          )?.toUpperCase() ?? 'PENDING',
         effective_from: this.normalizeOptionalString(dto.effective_from),
         effective_to: this.normalizeOptionalString(dto.effective_to),
         is_primary: dto.is_primary ?? false,
@@ -4296,7 +4381,9 @@ export class EmployeesService {
       }
     }
     if (dto.effective_from !== undefined)
-      bankAccount.effective_from = this.normalizeOptionalString(dto.effective_from);
+      bankAccount.effective_from = this.normalizeOptionalString(
+        dto.effective_from,
+      );
     if (dto.effective_to !== undefined)
       bankAccount.effective_to = this.normalizeOptionalString(dto.effective_to);
     if (dto.is_primary !== undefined) bankAccount.is_primary = dto.is_primary;
@@ -4359,7 +4446,9 @@ export class EmployeesService {
     });
 
     return qualifications
-      .filter((qualification) => !this.isArchivedAcademicQualification(qualification))
+      .filter(
+        (qualification) => !this.isArchivedAcademicQualification(qualification),
+      )
       .map((qualification) => this.mapAcademicQualification(qualification));
   }
 
@@ -4774,7 +4863,9 @@ export class EmployeesService {
     }
 
     if (this.isArchivedExperienceDetail(experienceDetail)) {
-      throw new NotFoundException('Employee experience detail has been archived');
+      throw new NotFoundException(
+        'Employee experience detail has been archived',
+      );
     }
 
     if (dto.company_name !== undefined) {

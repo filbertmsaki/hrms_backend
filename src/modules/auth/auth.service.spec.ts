@@ -18,6 +18,7 @@ import { CompaniesService } from '../companies/companies.service';
 import { SecurityEventsService } from '../security/security-events.service';
 import { TwoFactorPolicyService } from '../security/two-factor-policy.service';
 import { SmsNotificationManagementService } from '../sms/sms-notification-management.service';
+import { AuthSessionsService } from './auth-sessions.service';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -43,6 +44,14 @@ describe('AuthService', () => {
   let twoFactorPolicyService: { isRequired: jest.Mock };
   let smsNotificationManagementService: {
     sendConfiguredNotification: jest.Mock;
+  };
+  let authSessionsService: {
+    buildSessionDescriptor: jest.Mock;
+    createSession: jest.Mock;
+    touchSession: jest.Mock;
+    listSessionsForUser: jest.Mock;
+    revokeSession: jest.Mock;
+    findActiveSession: jest.Mock;
   };
 
   beforeEach(() => {
@@ -79,6 +88,18 @@ describe('AuthService', () => {
     smsNotificationManagementService = {
       sendConfiguredNotification: jest.fn(),
     };
+    authSessionsService = {
+      buildSessionDescriptor: jest
+        .fn()
+        .mockReturnValue({ deviceName: 'Chrome on Windows', userAgent: null }),
+      createSession: jest.fn(),
+      touchSession: jest.fn(),
+      listSessionsForUser: jest.fn().mockResolvedValue([]),
+      revokeSession: jest.fn().mockResolvedValue(true),
+      findActiveSession: jest.fn().mockResolvedValue({
+        id: 'session-1',
+      }),
+    };
 
     service = new AuthService(
       usersService as unknown as UsersService,
@@ -112,6 +133,8 @@ describe('AuthService', () => {
       securityEventsService as unknown as SecurityEventsService,
       twoFactorPolicyService as unknown as TwoFactorPolicyService,
       smsNotificationManagementService as unknown as SmsNotificationManagementService,
+      {} as never,
+      authSessionsService as unknown as AuthSessionsService,
     );
   });
 
@@ -189,6 +212,7 @@ describe('AuthService', () => {
     );
     expect(result.access_token).toBe('access-token');
     expect(result.refresh_token).toBe('refresh-token');
+    expect(authSessionsService.createSession).toHaveBeenCalled();
     expect(result.user).toEqual({
       id: 9,
       email: 'staff@example.com',
@@ -405,5 +429,36 @@ describe('AuthService', () => {
     );
 
     expect(twoFaService.verify2FALogin).not.toHaveBeenCalled();
+  });
+
+  it('lists sessions for the authenticated user', async () => {
+    authSessionsService.listSessionsForUser.mockResolvedValue([
+      {
+        session_id: 'session-1',
+        device_name: 'Chrome on Windows',
+        is_current: true,
+      },
+    ]);
+
+    await expect(
+      service.listSessions({
+        id: 9,
+        email: 'staff@example.com',
+        scope: 'company',
+        userType: 'COMPANY_USER',
+        sessionId: 'session-1',
+        companyId: 12,
+        roles: ['EMPLOYEE'],
+        permissions: [],
+      }),
+    ).resolves.toEqual({
+      data: [
+        {
+          session_id: 'session-1',
+          device_name: 'Chrome on Windows',
+          is_current: true,
+        },
+      ],
+    });
   });
 });

@@ -15,6 +15,7 @@ import { hasPermission } from 'src/common/utils/permission.util';
 import { normalizeTanzaniaPhone } from 'src/common/utils/tanzania-phone.util';
 import { CompaniesService } from '../companies/companies.service';
 import { CompanyUser } from '../companies/entities/company-user.entity';
+import { AuthSessionsService } from '../auth/auth-sessions.service';
 import { Permission } from '../permissions/entities/permission.entity';
 import { Role } from '../roles/entities/role.entity';
 import { encryptTwoFactorSecret } from '../auth/2fa/utils/two-factor-secret.util';
@@ -51,6 +52,7 @@ export class UsersService {
     private readonly permissionRepository: Repository<Permission>,
     private readonly companiesService: CompaniesService,
     private readonly defaultAvatarsService: DefaultAvatarsService,
+    private readonly authSessionsService: AuthSessionsService,
   ) {}
 
   private extractRoleIds(
@@ -965,6 +967,11 @@ export class UsersService {
         userId,
       })
       .execute();
+
+    await this.authSessionsService.revokeAllSessionsForUser(
+      userId,
+      'all_sessions_revoked',
+    );
   }
 
   async updatePassword(id: number, hashedPassword: string): Promise<void> {
@@ -992,6 +999,10 @@ export class UsersService {
         .execute();
     });
 
+    await this.authSessionsService.revokeAllSessionsForUser(
+      userId,
+      'password_changed',
+    );
     await this.clearPendingImportedPasswordChange(userId);
   }
 
@@ -1192,6 +1203,11 @@ export class UsersService {
       two_factor_disabled_reason: reason,
       auth_token_invalid_before: revokedAt,
     });
+
+    await this.authSessionsService.revokeAllSessionsForUser(
+      userId,
+      'two_factor_disabled',
+    );
   }
 
   async markAuthTokensInvalidBefore(
@@ -1201,6 +1217,11 @@ export class UsersService {
     await this.userRepository.update(userId, {
       auth_token_invalid_before: invalidBefore,
     });
+
+    await this.authSessionsService.revokeAllSessionsForUser(
+      userId,
+      'tokens_invalidated',
+    );
   }
 
   async hasAnotherProtectedTwoFactorAdmin(
