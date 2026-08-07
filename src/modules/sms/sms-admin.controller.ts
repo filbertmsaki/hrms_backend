@@ -17,8 +17,8 @@ import { CurrentAuditContext } from '../../common/decorators/audit-request-conte
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
-import { AuditRequestContext } from '../../common/interfaces/audit-request-context.interface';
-import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
+import type { AuditRequestContext } from '../../common/interfaces/audit-request-context.interface';
+import type { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { SmsLogQueryDto } from './dto/sms-log-query.dto';
 import { UpdateSmsGlobalSettingDto } from './dto/sms-global-setting.dto';
 import { UpdateSmsNotificationRegistryDto } from './dto/sms-notification-registry.dto';

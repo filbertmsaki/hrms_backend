@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { NotificationsService } from '../../notifications/notifications.service';
+import { SmsNotificationManagementService } from '../../sms/sms-notification-management.service';
 import { ActionItemsService } from '../action-inbox/action-items.service';
 import { ActionItemTypeEnum } from '../action-inbox/enums/action-item-type.enum';
 import { NotificationCategoryEnum } from '../../notifications/enums/notification-category.enum';
@@ -41,6 +42,7 @@ export class HrInAppNotificationListener {
   constructor(
     private readonly notificationsService: NotificationsService,
     private readonly actionItemsService: ActionItemsService,
+    private readonly smsNotificationManagementService: SmsNotificationManagementService,
   ) {}
 
   private async openApprovalActionItem(input: {
@@ -136,6 +138,24 @@ export class HrInAppNotificationListener {
 
     for (const recipient of event.approvers) {
       if (!recipient.companyUserId) continue;
+      await this.sendSms({
+        code: 'leave.approval.required',
+        module: 'leave',
+        recipientCompanyUserId: recipient.companyUserId,
+        relatedEntityType: 'LEAVE_REQUEST',
+        relatedEntityId: event.leaveRequestId,
+        variables: {
+          employee_name: event.employeeName,
+          leave_type_name: event.leaveTypeName,
+          start_date: event.startDate,
+          end_date: event.endDate,
+          total_days: event.totalDays,
+        },
+      });
+    }
+
+    for (const recipient of event.approvers) {
+      if (!recipient.companyUserId) continue;
       await this.openApprovalActionItem({
         companyId: event.companyId,
         approverCompanyUserId: recipient.companyUserId,
@@ -168,6 +188,21 @@ export class HrInAppNotificationListener {
         action_url: event.reviewUrl.replace('/review', ''),
         dedupe_key: `leave:submitted:employee:${event.leaveRequestId}:${event.employeeCompanyUserId}`,
         metadata: {
+          employee_name: event.employeeName,
+          leave_type_name: event.leaveTypeName,
+          start_date: event.startDate,
+          end_date: event.endDate,
+          total_days: event.totalDays,
+        },
+      });
+
+      await this.sendSms({
+        code: 'leave.application.submitted',
+        module: 'leave',
+        recipientCompanyUserId: event.employeeCompanyUserId,
+        relatedEntityType: 'LEAVE_REQUEST',
+        relatedEntityId: event.leaveRequestId,
+        variables: {
           employee_name: event.employeeName,
           leave_type_name: event.leaveTypeName,
           start_date: event.startDate,
@@ -208,6 +243,24 @@ export class HrInAppNotificationListener {
           },
         })),
     );
+
+    for (const recipient of event.approvers) {
+      if (!recipient.companyUserId) continue;
+      await this.sendSms({
+        code: 'leave.approval.required',
+        module: 'leave',
+        recipientCompanyUserId: recipient.companyUserId,
+        relatedEntityType: 'LEAVE_REQUEST',
+        relatedEntityId: event.leaveRequestId,
+        variables: {
+          employee_name: event.employeeName,
+          leave_type_name: event.leaveTypeName,
+          start_date: event.startDate,
+          end_date: event.endDate,
+          total_days: event.totalDays,
+        },
+      });
+    }
 
     for (const recipient of event.approvers) {
       if (!recipient.companyUserId) continue;
@@ -257,6 +310,21 @@ export class HrInAppNotificationListener {
       },
     });
 
+    await this.sendSms({
+      code: 'leave.approved',
+      module: 'leave',
+      recipientCompanyUserId: event.employeeCompanyUserId,
+      relatedEntityType: 'LEAVE_REQUEST',
+      relatedEntityId: event.leaveRequestId,
+      variables: {
+        employee_name: event.employeeName,
+        leave_type_name: event.leaveTypeName,
+        start_date: event.startDate,
+        end_date: event.endDate,
+        total_days: event.totalDays,
+      },
+    });
+
     await this.closeActionItems(
       event.companyId,
       'leave',
@@ -286,6 +354,21 @@ export class HrInAppNotificationListener {
       action_url: event.dashboardUrl,
       dedupe_key: `leave:rejected:${event.leaveRequestId}:${event.employeeCompanyUserId}`,
       metadata: {
+        employee_name: event.employeeName,
+        leave_type_name: event.leaveTypeName,
+        start_date: event.startDate,
+        end_date: event.endDate,
+        rejection_comments: event.rejectionComments,
+      },
+    });
+
+    await this.sendSms({
+      code: 'leave.rejected',
+      module: 'leave',
+      recipientCompanyUserId: event.employeeCompanyUserId,
+      relatedEntityType: 'LEAVE_REQUEST',
+      relatedEntityId: event.leaveRequestId,
+      variables: {
         employee_name: event.employeeName,
         leave_type_name: event.leaveTypeName,
         start_date: event.startDate,
@@ -863,6 +946,21 @@ export class HrInAppNotificationListener {
 
     for (const recipient of event.approvers) {
       if (!recipient.companyUserId) continue;
+      await this.sendSms({
+        code: 'offboarding.approval.required',
+        module: 'offboarding',
+        recipientCompanyUserId: recipient.companyUserId,
+        relatedEntityType: 'OFFBOARDING_REQUEST',
+        relatedEntityId: event.offboardingRequestId,
+        variables: {
+          employee_name: event.employeeName,
+          exit_date: event.exitDate,
+        },
+      });
+    }
+
+    for (const recipient of event.approvers) {
+      if (!recipient.companyUserId) continue;
       await this.openApprovalActionItem({
         companyId: event.companyId,
         approverCompanyUserId: recipient.companyUserId,
@@ -1057,6 +1155,19 @@ export class HrInAppNotificationListener {
         exit_date: event.exitDate,
       },
     });
+
+    await this.sendSms({
+      code: 'offboarding.approval.reminder',
+      module: 'offboarding',
+      recipientCompanyUserId: event.approverCompanyUserId,
+      relatedEntityType: 'OFFBOARDING_APPROVAL',
+      relatedEntityId: event.approvalId,
+      variables: {
+        employee_name: event.employeeName,
+        approval_level: event.approvalLevel,
+        exit_date: event.exitDate,
+      },
+    });
   }
 
   @OnEvent(OffboardingClearanceRequiredEvent.EVENT)
@@ -1177,6 +1288,20 @@ export class HrInAppNotificationListener {
         due_date: event.dueDate,
       },
     });
+
+    await this.sendSms({
+      code: 'offboarding.asset.overdue',
+      module: 'offboarding',
+      recipientCompanyUserId: event.ownerCompanyUserId,
+      relatedEntityType: 'OFFBOARDING_ASSET_RETURN',
+      relatedEntityId: event.assetReturnId,
+      variables: {
+        employee_name: event.employeeName,
+        asset_label: event.assetLabel,
+        exit_date: event.exitDate,
+        due_date: event.dueDate,
+      },
+    });
   }
 
   @OnEvent(OffboardingSettlementOverdueEvent.EVENT)
@@ -1204,6 +1329,20 @@ export class HrInAppNotificationListener {
       dedupe_key: `offboarding:settlement-overdue:${event.settlementItemId}:${event.ownerCompanyUserId}:${dayKey}`,
       metadata: {
         offboarding_request_id: event.offboardingRequestId,
+        employee_name: event.employeeName,
+        settlement_title: event.settlementTitle,
+        exit_date: event.exitDate,
+        due_date: event.dueDate,
+      },
+    });
+
+    await this.sendSms({
+      code: 'offboarding.settlement.overdue',
+      module: 'offboarding',
+      recipientCompanyUserId: event.ownerCompanyUserId,
+      relatedEntityType: 'OFFBOARDING_SETTLEMENT_ITEM',
+      relatedEntityId: event.settlementItemId,
+      variables: {
         employee_name: event.employeeName,
         settlement_title: event.settlementTitle,
         exit_date: event.exitDate,
@@ -1307,6 +1446,32 @@ export class HrInAppNotificationListener {
   ): Promise<void> {
     for (const input of inputs) {
       await this.sendOne(input);
+    }
+  }
+
+  private async sendSms(input: {
+    code: string;
+    module: string;
+    recipientCompanyUserId?: number | null;
+    relatedEntityType?: string | null;
+    relatedEntityId?: string | number | null;
+    variables?: Record<string, unknown>;
+  }): Promise<void> {
+    try {
+      await this.smsNotificationManagementService.sendConfiguredNotification({
+        code: input.code,
+        module: input.module,
+        recipientCompanyUserId: input.recipientCompanyUserId ?? null,
+        relatedEntityType: input.relatedEntityType ?? null,
+        relatedEntityId: input.relatedEntityId ?? null,
+        variables: input.variables,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `SMS notification ${input.code} failed in HR listener: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
 }
