@@ -1,4 +1,18 @@
+import Decimal from 'decimal.js';
+
 export class PayrollMoney {
+  private static decimalOf(value: string | number | null | undefined): Decimal {
+    if (value === null || value === undefined || value === '') {
+      return new Decimal(0);
+    }
+
+    return new Decimal(String(value).trim() || '0');
+  }
+
+  private static fromDecimal(value: Decimal): string {
+    return value.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toFixed(2);
+  }
+
   static toCents(value: string | number | null | undefined): bigint {
     if (value === null || value === undefined || value === '') {
       return 0n;
@@ -26,15 +40,29 @@ export class PayrollMoney {
   }
 
   static multiplyPercent(value: string | number, percent: string | number): string {
-    const cents = this.toCents(value);
-    const basisPoints = BigInt(Math.round(Number(percent) * 10000));
-    return this.fromCents((cents * basisPoints + 500000n) / 1000000n);
+    return this.fromDecimal(
+      this.decimalOf(value).times(this.decimalOf(percent)).div(100),
+    );
   }
 
-  static multiplyFactor(value: string | number, factor: number): string {
-    const cents = this.toCents(value);
-    const scaled = BigInt(Math.round(factor * 1000000));
-    return this.fromCents((cents * scaled + 500000n) / 1000000n);
+  static multiplyFactor(value: string | number, factor: string | number): string {
+    return this.fromDecimal(this.decimalOf(value).times(this.decimalOf(factor)));
+  }
+
+  static multiplyRatio(
+    value: string | number,
+    numerator: number | bigint,
+    denominator: number | bigint,
+  ): string {
+    const resolvedDenominator = BigInt(denominator);
+
+    if (resolvedDenominator <= 0n) {
+      return '0.00';
+    }
+
+    return this.fromDecimal(
+      this.decimalOf(value).times(String(numerator)).div(String(resolvedDenominator)),
+    );
   }
 
   static min(left: string | number, right: string | number): string {

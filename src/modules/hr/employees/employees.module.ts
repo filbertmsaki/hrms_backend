@@ -1,5 +1,4 @@
 import { forwardRef, Module } from '@nestjs/common';
-import { BullModule } from '@nestjs/bullmq';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { FilesModule } from '../../files/files.module';
 import { CompaniesModule } from '../../companies/companies.module';
@@ -58,6 +57,7 @@ import { EmployeeAccessCredential } from '../../access-control/employee-access-c
 import { DefaultAvatarsModule } from '../default-avatars/default-avatars.module';
 import { HikvisionModule } from '../../hikvision/hikvision.module';
 import { BranchesModule } from '../branches/branches.module';
+import { ConditionalBullModule } from '../../../infrastructure/queues/conditional-bull.module';
 
 @Module({
   imports: [
@@ -94,9 +94,7 @@ import { BranchesModule } from '../branches/branches.module';
       EmployeeDeviceAssignment,
       EmployeeAccessCredential,
     ]),
-    BullModule.registerQueue({
-      name: EMPLOYEE_IMPORT_QUEUE,
-    }),
+    ConditionalBullModule.registerQueue(EMPLOYEE_IMPORT_QUEUE),
     FilesModule,
     CompaniesModule,
     UsersModule,

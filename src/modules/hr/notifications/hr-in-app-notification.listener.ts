@@ -24,9 +24,11 @@ import {
   OffboardingApprovalReminderEvent,
   OffboardingApprovalRequiredEvent,
   OffboardingApprovedEvent,
+  OffboardingAssetOverdueEvent,
   OffboardingClearanceOverdueEvent,
   OffboardingClearanceRequiredEvent,
   OffboardingCompletedEvent,
+  OffboardingSettlementOverdueEvent,
   OffboardingSubmittedEvent,
   OffboardingTaskAssignedEvent,
   OffboardingTaskOverdueEvent,
@@ -1138,6 +1140,72 @@ export class HrInAppNotificationListener {
         offboarding_request_id: event.offboardingRequestId,
         employee_name: event.employeeName,
         clearance_type: event.clearanceType,
+        exit_date: event.exitDate,
+        due_date: event.dueDate,
+      },
+    });
+  }
+
+  @OnEvent(OffboardingAssetOverdueEvent.EVENT)
+  async onOffboardingAssetOverdue(
+    event: OffboardingAssetOverdueEvent,
+  ): Promise<void> {
+    if (!event.ownerCompanyUserId) {
+      return;
+    }
+
+    const dayKey = new Date().toISOString().slice(0, 10);
+
+    await this.sendOne({
+      company_id: event.companyId,
+      receiver_company_user_id: event.ownerCompanyUserId,
+      type: NotificationTypeEnum.OFFBOARDING_ASSET_OVERDUE,
+      category: NotificationCategoryEnum.HR,
+      priority: NotificationPriorityEnum.HIGH,
+      title: 'Offboarding Asset Return Overdue',
+      message: `The asset return "${event.assetLabel}" for ${event.employeeName} is overdue.`,
+      related_module: 'offboarding',
+      entity_type: 'OFFBOARDING_ASSET_RETURN',
+      entity_id: event.assetReturnId,
+      action_url: event.assetUrl,
+      dedupe_key: `offboarding:asset-overdue:${event.assetReturnId}:${event.ownerCompanyUserId}:${dayKey}`,
+      metadata: {
+        offboarding_request_id: event.offboardingRequestId,
+        employee_name: event.employeeName,
+        asset_label: event.assetLabel,
+        exit_date: event.exitDate,
+        due_date: event.dueDate,
+      },
+    });
+  }
+
+  @OnEvent(OffboardingSettlementOverdueEvent.EVENT)
+  async onOffboardingSettlementOverdue(
+    event: OffboardingSettlementOverdueEvent,
+  ): Promise<void> {
+    if (!event.ownerCompanyUserId) {
+      return;
+    }
+
+    const dayKey = new Date().toISOString().slice(0, 10);
+
+    await this.sendOne({
+      company_id: event.companyId,
+      receiver_company_user_id: event.ownerCompanyUserId,
+      type: NotificationTypeEnum.OFFBOARDING_SETTLEMENT_OVERDUE,
+      category: NotificationCategoryEnum.HR,
+      priority: NotificationPriorityEnum.HIGH,
+      title: 'Offboarding Settlement Overdue',
+      message: `The settlement item "${event.settlementTitle}" for ${event.employeeName} is overdue.`,
+      related_module: 'offboarding',
+      entity_type: 'OFFBOARDING_SETTLEMENT_ITEM',
+      entity_id: event.settlementItemId,
+      action_url: event.settlementUrl,
+      dedupe_key: `offboarding:settlement-overdue:${event.settlementItemId}:${event.ownerCompanyUserId}:${dayKey}`,
+      metadata: {
+        offboarding_request_id: event.offboardingRequestId,
+        employee_name: event.employeeName,
+        settlement_title: event.settlementTitle,
         exit_date: event.exitDate,
         due_date: event.dueDate,
       },

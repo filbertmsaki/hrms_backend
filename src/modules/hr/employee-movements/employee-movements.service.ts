@@ -11,6 +11,9 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { createHash } from 'crypto';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import { AttendanceRecalculationJob } from '../attendance/processing/entities/attendance-recalculation-job.entity';
+import { AttendanceProcessingJobStatusEnum } from '../attendance/processing/enums/attendance-processing-job-status.enum';
+import { CompanyUserBranchAccess } from '../branches/entities/company-user-branch-access.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
 import { EmploymentTypeEnum } from '../employees/enums/employment-type.enum';
@@ -1808,17 +1811,27 @@ export class EmployeeMovementsService {
         movement,
         EmployeeMovementOperationTypeEnum.RECALCULATE_ATTENDANCE_ASSIGNMENT,
         `employee:${movement.employeeId}`,
-        { employee_id: movement.employeeId },
+        {
+          employee_id: movement.employeeId,
+          movement_no: movement.movementNo,
+          effective_date: movement.effectiveDate,
+        },
       );
     }
 
     if (changedFields.has(EmployeeMovementFieldEnum.BRANCH)) {
+      const branchChange = (movement.changes ?? []).find(
+        (change) => change.field === EmployeeMovementFieldEnum.BRANCH,
+      );
       await this.createOperationIfMissing(
         repository,
         movement,
         EmployeeMovementOperationTypeEnum.UPDATE_BRANCH_ACCESS,
         `employee:${movement.employeeId}`,
-        { employee_id: movement.employeeId },
+        {
+          employee_id: movement.employeeId,
+          branch_id: branchChange?.newReferenceId ?? null,
+        },
       );
     }
 
@@ -1909,21 +1922,154 @@ export class EmployeeMovementsService {
     return { updated_cases: result.affected ?? 0 };
   }
 
+  private async queueAttendanceRefreshForMovement(
+    movement: EmployeeMovement,
+    manager: EntityManager,
+  ): Promise<Record<string, unknown>> {
+    const repository = manager.getRepository(AttendanceRecalculationJob);
+    const today = formatDateOnly(new Date());
+    const dateTo = movement.effectiveDate > today ? movement.effectiveDate : today;
+    const reason = `Employee movement ${movement.movementNo} attendance refresh`;
+
+    let job = await repository.findOne({
+      where: {
+        companyId: movement.companyId,
+        employeeId: movement.employeeId,
+        dateFrom: movement.effectiveDate,
+        dateTo,
+        reason,
+      },
+    });
+
+    if (!job) {
+      job = await repository.save(
+        repository.create({
+          companyId: movement.companyId,
+          employeeId: movement.employeeId,
+          dateFrom: movement.effectiveDate,
+          dateTo,
+          reason,
+          status: AttendanceProcessingJobStatusEnum.PENDING,
+          attempts: 0,
+          requestedByCompanyUserId:
+            movement.approvedByCompanyUserId ??
+            movement.requestedByCompanyUserId ??
+            null,
+          metadata: {
+            source: SOURCE_TYPE,
+            movement_id: movement.id,
+            movement_no: movement.movementNo,
+            operation_type:
+              EmployeeMovementOperationTypeEnum.RECALCULATE_ATTENDANCE_ASSIGNMENT,
+          },
+        }),
+      );
+
+      return {
+        queued: true,
+        job_id: job.id,
+        status: job.status,
+        date_from: job.dateFrom,
+        date_to: job.dateTo,
+      };
+    }
+
+    if (job.status === AttendanceProcessingJobStatusEnum.FAILED) {
+      job.status = AttendanceProcessingJobStatusEnum.PENDING;
+      job.lastError = null;
+      job.processedAt = null;
+      job.requestedByCompanyUserId =
+        movement.approvedByCompanyUserId ??
+        movement.requestedByCompanyUserId ??
+        job.requestedByCompanyUserId;
+      job.metadata = {
+        ...(job.metadata ?? {}),
+        source: SOURCE_TYPE,
+        movement_id: movement.id,
+        movement_no: movement.movementNo,
+        operation_type:
+          EmployeeMovementOperationTypeEnum.RECALCULATE_ATTENDANCE_ASSIGNMENT,
+      };
+      job = await repository.save(job);
+    }
+
+    return {
+      queued: false,
+      job_id: job.id,
+      status: job.status,
+      date_from: job.dateFrom,
+      date_to: job.dateTo,
+    };
+  }
+
+  private async ensureMovementBranchAccess(
+    movement: EmployeeMovement,
+    branchId: number | null,
+    manager: EntityManager,
+  ): Promise<Record<string, unknown>> {
+    if (!branchId) {
+      return { granted: false, reason: 'Movement did not specify a target branch.' };
+    }
+
+    const employee = await manager.getRepository(Employee).findOne({
+      where: { id: movement.employeeId, company_id: movement.companyId },
+      select: ['id', 'company_user_id'],
+    });
+
+    if (!employee?.company_user_id) {
+      return {
+        granted: false,
+        reason: 'Employee has no linked company user for branch access assignment.',
+      };
+    }
+
+    const repository = manager.getRepository(CompanyUserBranchAccess);
+    let assignment = await repository.findOne({
+      where: {
+        company_user_id: employee.company_user_id,
+        branch_id: branchId,
+      },
+    });
+
+    if (!assignment) {
+      assignment = await repository.save(
+        repository.create({
+          company_user_id: employee.company_user_id,
+          branch_id: branchId,
+        }),
+      );
+
+      return {
+        granted: true,
+        assignment_id: assignment.id,
+        branch_id: branchId,
+        company_user_id: employee.company_user_id,
+      };
+    }
+
+    return {
+      granted: false,
+      assignment_id: assignment.id,
+      branch_id: branchId,
+      company_user_id: employee.company_user_id,
+      reason: 'Branch access assignment already exists.',
+    };
+  }
+
   private async processImmediateOperations(
     movement: EmployeeMovement,
     manager: EntityManager,
   ): Promise<void> {
     const repository = manager.getRepository(EmployeeMovementOperation);
-    const pendingProbationOperations = await repository.find({
+    const pendingOperations = await repository.find({
       where: {
         movementId: movement.id,
-        operationType:
-          EmployeeMovementOperationTypeEnum.REEVALUATE_PROBATION_REVIEWER,
         status: EmployeeMovementOperationStatusEnum.PENDING,
       },
+      order: { createdAt: 'ASC' },
     });
 
-    for (const operation of pendingProbationOperations) {
+    for (const operation of pendingOperations) {
       try {
         await this.processOperation(operation, manager);
       } catch (error) {
@@ -1942,6 +2088,8 @@ export class EmployeeMovementsService {
     operation: EmployeeMovementOperation,
     manager: EntityManager,
   ): Promise<void> {
+    operation.lastError = null;
+
     switch (operation.operationType) {
       case EmployeeMovementOperationTypeEnum.REEVALUATE_PROBATION_REVIEWER: {
         const payload = operation.payload as {
@@ -1958,12 +2106,55 @@ export class EmployeeMovementsService {
         operation.completedAt = new Date();
         break;
       }
-      case EmployeeMovementOperationTypeEnum.RECALCULATE_ATTENDANCE_ASSIGNMENT:
-      case EmployeeMovementOperationTypeEnum.UPDATE_BRANCH_ACCESS:
+      case EmployeeMovementOperationTypeEnum.RECALCULATE_ATTENDANCE_ASSIGNMENT: {
+        const movement = await manager.getRepository(EmployeeMovement).findOneOrFail({
+          where: { id: operation.movementId, companyId: operation.companyId },
+        });
+        operation.result = await this.queueAttendanceRefreshForMovement(
+          movement,
+          manager,
+        );
+        operation.status = EmployeeMovementOperationStatusEnum.COMPLETED;
+        operation.completedAt = new Date();
+        break;
+      }
+      case EmployeeMovementOperationTypeEnum.UPDATE_BRANCH_ACCESS: {
+        const movement = await manager.getRepository(EmployeeMovement).findOne({
+          where: { id: operation.movementId, companyId: operation.companyId },
+          relations: { changes: true },
+        });
+        const payload = operation.payload as {
+          branch_id?: number | null;
+        } | null;
+        const branchId =
+          payload?.branch_id ??
+          movement?.changes?.find(
+            (change) => change.field === EmployeeMovementFieldEnum.BRANCH,
+          )?.newReferenceId ??
+          null;
+
+        if (!movement) {
+          throw new NotFoundException('Employee movement not found.');
+        }
+
+        operation.result = await this.ensureMovementBranchAccess(
+          movement,
+          branchId as number | null,
+          manager,
+        );
+        operation.status = EmployeeMovementOperationStatusEnum.COMPLETED;
+        operation.completedAt = new Date();
+        break;
+      }
       case EmployeeMovementOperationTypeEnum.REEVALUATE_LEAVE_POLICY:
         operation.status = EmployeeMovementOperationStatusEnum.SKIPPED;
+        operation.result = {
+          skipped: true,
+          reason:
+            'Leave eligibility is resolved dynamically in the leave domain; no standalone reassignment hook is implemented yet.',
+        };
         operation.lastError =
-          'No downstream integration is wired for this operation type yet; requires manual follow-up.';
+          'Leave-policy reevaluation still requires manual follow-up.';
         operation.completedAt = new Date();
         break;
     }

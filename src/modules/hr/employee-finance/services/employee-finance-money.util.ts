@@ -1,4 +1,15 @@
+import Decimal from 'decimal.js';
+
 export class EmployeeFinanceMoney {
+  private static decimalOf(value: string | number | null | undefined): Decimal {
+    if (value === null || value === undefined || value === '') return new Decimal(0);
+    return new Decimal(String(value).trim() || '0');
+  }
+
+  private static fromDecimal(value: Decimal): string {
+    return value.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toFixed(2);
+  }
+
   static toCents(value: string | number | null | undefined): bigint {
     if (value === null || value === undefined || value === '') return 0n;
     const raw = String(value).trim();
@@ -22,13 +33,33 @@ export class EmployeeFinanceMoney {
     return this.fromCents(this.toCents(left) - this.toCents(right));
   }
 
-  static multiply(value: string | number, factor: number) {
-    return this.fromCents((this.toCents(value) * BigInt(Math.round(factor * 1000000))) / 1000000n);
+  static multiply(value: string | number, factor: string | number) {
+    return this.fromDecimal(this.decimalOf(value).times(this.decimalOf(factor)));
+  }
+
+  static multiplyPercent(value: string | number, percent: string | number) {
+    return this.fromDecimal(
+      this.decimalOf(value).times(this.decimalOf(percent)).div(100),
+    );
+  }
+
+  static multiplyRatio(
+    value: string | number,
+    numerator: number | bigint,
+    denominator: number | bigint,
+  ) {
+    const resolvedDenominator = BigInt(denominator);
+
+    if (resolvedDenominator <= 0n) return '0.00';
+
+    return this.fromDecimal(
+      this.decimalOf(value).times(String(numerator)).div(String(resolvedDenominator)),
+    );
   }
 
   static divide(value: string | number, divisor: number) {
     if (divisor <= 0) return '0.00';
-    return this.fromCents(this.toCents(value) / BigInt(divisor));
+    return this.fromDecimal(this.decimalOf(value).div(divisor));
   }
 
   static min(left: string | number, right: string | number) {

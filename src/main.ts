@@ -2,6 +2,7 @@ import { Logger, RequestMethod, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { static as expressStatic } from 'express';
+import helmet from 'helmet';
 import { join, resolve } from 'path';
 
 import { AppModule } from './app.module';
@@ -59,6 +60,16 @@ async function bootstrap(): Promise<void> {
       transformOptions: {
         enableImplicitConversion: false,
       },
+    }),
+  );
+  app.use(
+    helmet({
+      // Swagger/Scalar rely on inline assets that do not work with Helmet's
+      // default CSP without a dedicated nonce/hash policy.
+      contentSecurityPolicy: enableApiDocs ? false : undefined,
+      // Public avatars and profile photos are consumed by the frontend on a
+      // separate origin, so keep those assets loadable.
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
     }),
   );
 

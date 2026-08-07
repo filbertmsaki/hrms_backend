@@ -10,6 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { hasPermission } from '../../../common/utils/permission.util';
+import { normalizeTanzaniaPhone } from '../../../common/utils/tanzania-phone.util';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { FilesService } from '../../files/files.service';
 import { ImageProcessingService } from '../../files/image-processing.service';
@@ -1479,10 +1480,10 @@ export class ProfileChangeRequestsService {
 
       if (rule === 'phone' && value) {
         const phoneValue = this.serializeValue(value)?.trim() ?? '';
-        if (!/^\+?[0-9][0-9\s-]{7,19}$/.test(phoneValue)) {
+        if (!normalizeTanzaniaPhone(phoneValue)) {
           issues.push({
             code: 'INVALID_PHONE_NUMBER',
-            message: `${policy.display_label} has an invalid phone number format.`,
+            message: `${policy.display_label} must be a valid Tanzanian phone number in +255 format.`,
           });
         }
       }

@@ -13,6 +13,10 @@ import { NotificationDelivery } from './entities/notification-delivery.entity';
 import { NotificationOutboxEvent } from './entities/notification-outbox-event.entity';
 import { NotificationsGateway } from './notifications.gateway';
 import { NotificationPreferencesService } from './notification-preferences.service';
+import {
+  partitionNotificationChannels,
+  unsupportedNotificationChannelMessage,
+} from './notification-channel-policy';
 
 export type CreateNotificationInput = {
   company_id: number;
@@ -96,13 +100,15 @@ export class NotificationOrchestratorService {
     const requestedChannels = input.channels?.length
       ? input.channels
       : [input.delivery_channel ?? NotificationChannelEnum.IN_APP];
+    const { supported: supportedRequestedChannels, unsupported } =
+      partitionNotificationChannels(requestedChannels);
 
     const allowedChannels = input.is_mandatory
-      ? requestedChannels
+      ? supportedRequestedChannels
       : await this.preferencesService.filterEnabledChannels(
           receiver.id,
           type,
-          requestedChannels,
+          supportedRequestedChannels,
         );
 
     let created: AppNotification;
@@ -165,7 +171,8 @@ export class NotificationOrchestratorService {
     await this.createDeliveryRows(created.id, allowedChannels);
 
     for (const channel of requestedChannels.filter(
-      (c) => !allowedChannels.includes(c),
+      (c) =>
+        supportedRequestedChannels.includes(c) && !allowedChannels.includes(c),
     )) {
       await this.deliveryRepository.save(
         this.deliveryRepository.create({
@@ -173,6 +180,17 @@ export class NotificationOrchestratorService {
           channel,
           status: NotificationDeliveryStatusEnum.SKIPPED,
           lastError: 'Skipped: disabled by recipient notification preferences',
+        }),
+      );
+    }
+
+    for (const channel of unsupported) {
+      await this.deliveryRepository.save(
+        this.deliveryRepository.create({
+          notificationId: created.id,
+          channel,
+          status: NotificationDeliveryStatusEnum.SKIPPED,
+          lastError: unsupportedNotificationChannelMessage(channel),
         }),
       );
     }

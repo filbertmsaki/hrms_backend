@@ -8,6 +8,7 @@ import {
   MaxLength,
 } from 'class-validator';
 import { NotificationCategoryEnum } from '../enums/notification-category.enum';
+import { NotificationChannelEnum } from '../enums/notification-channel.enum';
 import { NotificationPriorityEnum } from '../enums/notification-priority.enum';
 
 export class CreateTestNotificationDto {
@@ -58,4 +59,8 @@ export class CreateTestNotificationDto {
   @IsObject()
   @IsOptional()
   metadata?: Record<string, unknown>;
+
+  @IsEnum(NotificationChannelEnum)
+  @IsOptional()
+  delivery_channel?: NotificationChannelEnum;
 }

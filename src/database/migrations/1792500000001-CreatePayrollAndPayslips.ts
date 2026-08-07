@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class CreatePayrollAndPayslips1792500000000 implements MigrationInterface {
-  name = 'CreatePayrollAndPayslips1792500000000';
+export class CreatePayrollAndPayslips1792500000001 implements MigrationInterface {
+  name = 'CreatePayrollAndPayslips1792500000001';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     const statements = [

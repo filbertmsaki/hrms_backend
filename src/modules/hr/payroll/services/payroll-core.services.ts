@@ -24,6 +24,7 @@ import { OffboardingRequestStatusEnum } from '../../offboarding/enums/offboardin
 import { OffboardingSettlementItemTypeEnum } from '../../offboarding/enums/offboarding-settlement-item-type.enum';
 import { HrAccessService } from '../../shared/hr-access.service';
 import { EmployeeFinancePayrollInstructionService } from '../../employee-finance/services/employee-finance-core.services';
+import { SmsNotificationManagementService } from '../../../sms/sms-notification-management.service';
 import {
   ApprovePayrollRunDto,
   CreatePayrollCalendarDto,
@@ -581,7 +582,7 @@ export class PayrollInputService {
 
 @Injectable()
 export class PayrollProrationService {
-  calculateFactor(args: {
+  calculateRatio(args: {
     periodStart: string;
     periodEnd: string;
     hireDate?: string | null;
@@ -598,12 +599,28 @@ export class PayrollProrationService {
       .sort()
       .pop()!;
     const effectiveEnd = [args.periodEnd, args.exitDate].filter(Boolean).sort()[0]!;
-    if (effectiveEnd < effectiveStart) return 0;
+
+    if (effectiveEnd < effectiveStart) {
+      return { numerator: 0, denominator: 1 };
+    }
 
     const denominator =
       args.method === 'FIXED_30' ? 30 : daysInclusive(args.periodStart, args.periodEnd);
     const numerator = Math.min(denominator, daysInclusive(effectiveStart, effectiveEnd));
-    return Number((numerator / denominator).toFixed(8));
+
+    return { numerator, denominator };
+  }
+
+  calculateFactor(args: {
+    periodStart: string;
+    periodEnd: string;
+    hireDate?: string | null;
+    exitDate?: string | null;
+    compensationEffectiveFrom?: string | null;
+    method?: string;
+  }) {
+    const ratio = this.calculateRatio(args);
+    return Number((ratio.numerator / ratio.denominator).toFixed(8));
   }
 }
 
@@ -757,7 +774,7 @@ export class EmployeePayrollCalculationService {
     rules: Array<{ scheme: StatutoryScheme; rule: StatutoryRuleVersion; bands: StatutoryTaxBand[] }>;
   }) {
     const { companyId, period, employee, profile, compensation, components } = args;
-    const factor = this.prorationService.calculateFactor({
+    const prorationArgs = {
       periodStart: period.startDate,
       periodEnd: period.endDate,
       hireDate: employee.hire_date,
@@ -767,8 +784,14 @@ export class EmployeePayrollCalculationService {
         'PAYROLL_DEFAULT_PRORATION_METHOD',
         'CALENDAR_DAYS',
       ),
-    });
-    const basicPay = PayrollMoney.multiplyFactor(compensation.baseSalary, factor);
+    };
+    const factor = this.prorationService.calculateFactor(prorationArgs);
+    const prorationRatio = this.prorationService.calculateRatio(prorationArgs);
+    const basicPay = PayrollMoney.multiplyRatio(
+      compensation.baseSalary,
+      prorationRatio.numerator,
+      prorationRatio.denominator,
+    );
     const bank = profile.primaryBankAccountId
       ? await this.bankRepository.findOne({ where: { id: profile.primaryBankAccountId } })
       : await this.bankRepository.findOne({
@@ -796,10 +819,13 @@ export class EmployeePayrollCalculationService {
       );
 
     const leaveWithoutPayDays = await this.calculateLwpDays(companyId, employee.id, period);
-    const dailyRate = Number(compensation.baseSalary) / daysInclusive(period.startDate, period.endDate);
     const lwpDeduction =
       leaveWithoutPayDays > 0
-        ? PayrollMoney.multiplyFactor(String(dailyRate), leaveWithoutPayDays)
+        ? PayrollMoney.multiplyRatio(
+            compensation.baseSalary,
+            leaveWithoutPayDays,
+            daysInclusive(period.startDate, period.endDate),
+          )
         : '0.00';
 
     const lineItems: Array<Partial<EmployeePayrollLineItem>> = [
@@ -1431,9 +1457,12 @@ export class PayrollRunService {
 
 @Injectable()
 export class PayslipService {
+  private readonly logger = new Logger(PayslipService.name);
+
   constructor(
     private readonly hrAccessService: HrAccessService,
     private readonly auditService: PayrollAuditService,
+    private readonly smsNotificationManagementService: SmsNotificationManagementService,
     @InjectRepository(PayrollRun)
     private readonly runRepository: Repository<PayrollRun>,
     @InjectRepository(EmployeePayrollResult)
@@ -1466,19 +1495,39 @@ export class PayslipService {
         order: { calculationOrder: 'ASC', id: 'ASC' },
       });
       const snapshot = { run_no: run.runNo, result, lines };
-      payslips.push(
-        await this.payslipRepository.save(
-          this.payslipRepository.create({
-            companyId,
-            employeeId: result.employeeId,
-            payrollRunId,
-            employeePayrollResultId: result.id,
-            payslipNo: `PS-${run.runNo}-${result.employeeId}`,
-            snapshot,
-            resultHash: result.calculationHash,
-          }),
-        ),
+      const payslip = await this.payslipRepository.save(
+        this.payslipRepository.create({
+          companyId,
+          employeeId: result.employeeId,
+          payrollRunId,
+          employeePayrollResultId: result.id,
+          payslipNo: `PS-${run.runNo}-${result.employeeId}`,
+          snapshot,
+          resultHash: result.calculationHash,
+        }),
       );
+      payslips.push(payslip);
+
+      try {
+        await this.smsNotificationManagementService.sendConfiguredNotification({
+          code: 'payroll.payslip.ready',
+          module: 'payroll',
+          recipientEmployeeId: result.employeeId,
+          relatedEntityType: 'PAYSLIP',
+          relatedEntityId: payslip.id,
+          actor,
+          variables: {
+            run_no: run.runNo,
+            payslip_no: payslip.payslipNo,
+          },
+        });
+      } catch (error) {
+        this.logger.warn(
+          `SMS notification payroll.payslip.ready failed for payslip ${payslip.id}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
     }
     await this.auditService.log({
       actor,

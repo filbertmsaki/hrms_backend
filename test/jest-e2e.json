@@ -5,6 +5,10 @@
     "ts"
   ],
   "rootDir": "..",
+  "roots": [
+    "<rootDir>/src",
+    "<rootDir>/test"
+  ],
   "testEnvironment": "node",
   "testRegex": ".e2e-spec.ts$",
   "transform": {
@@ -18,6 +22,14 @@
   },
   "setupFilesAfterEnv": [
     "<rootDir>/test/setup-e2e.ts"
+  ],
+  "modulePathIgnorePatterns": [
+    "<rootDir>/dist",
+    "<rootDir>/coverage"
+  ],
+  "watchPathIgnorePatterns": [
+    "<rootDir>/dist",
+    "<rootDir>/coverage"
   ],
   "maxWorkers": 1,
   "detectOpenHandles": true,

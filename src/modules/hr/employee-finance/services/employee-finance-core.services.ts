@@ -3,12 +3,14 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'crypto';
+import Decimal from 'decimal.js';
 import { In, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { EmployeeCompensationVersion } from '../../employee-movements/entities/employee-compensation-version.entity';
@@ -57,6 +59,7 @@ import {
   EmployeeFinanceProduct,
   EmployeeFinanceProductApplicability,
 } from '../entities/employee-finance-product.entities';
+import { SmsNotificationManagementService } from '../../../sms/sms-notification-management.service';
 import {
   EmployeeFinanceAccountStatusEnum,
   EmployeeFinanceApplicationStatusEnum,
@@ -186,7 +189,7 @@ export class EmployeeFinanceProductService {
     if ((dto.minimum_term_months ?? 1) > dto.maximum_term_months) {
       throw new BadRequestException('Minimum term cannot exceed maximum term.');
     }
-    if (Number(dto.annual_interest_rate ?? 0) < 0) {
+    if (new Decimal(dto.annual_interest_rate ?? '0').lt(0)) {
       throw new BadRequestException('Interest rate cannot be negative.');
     }
 
@@ -333,9 +336,9 @@ export class EmployeeFinanceEligibilityService {
     });
     const baseSalary = compensation?.baseSalary ?? '0.00';
     const netPay = latestPayroll?.netPay ?? baseSalary;
-    const maximumAffordableInstallment = EmployeeFinanceMoney.multiply(
+    const maximumAffordableInstallment = EmployeeFinanceMoney.multiplyPercent(
       netPay,
-      Number(product.maximumInstallmentPercentage) / 100,
+      product.maximumInstallmentPercentage,
     );
     const existingInstallments = activeAccounts.reduce(
       (sum, account) => EmployeeFinanceMoney.add(sum, account.scheduledMonthlyInstallment),
@@ -346,7 +349,7 @@ export class EmployeeFinanceEligibilityService {
       existingInstallments,
     );
     const salaryMultipleLimit = product.maximumSalaryMultiple
-      ? EmployeeFinanceMoney.multiply(baseSalary, Number(product.maximumSalaryMultiple))
+      ? EmployeeFinanceMoney.multiply(baseSalary, product.maximumSalaryMultiple)
       : null;
     const configuredMaximum = product.maximumAmount;
     const maximumEligibleAmount = [salaryMultipleLimit, configuredMaximum]
@@ -492,17 +495,21 @@ export class EmployeeFinanceInterestService {
   }) {
     const principalCents = EmployeeFinanceMoney.toCents(args.principal);
     const term = Math.max(args.termMonths, 1);
+    const annualRate = new Decimal(args.annualInterestRate || '0');
     if (
       args.method === EmployeeFinanceInterestMethodEnum.ZERO_INTEREST ||
-      Number(args.annualInterestRate) === 0
+      annualRate.isZero()
     ) {
       return this.equalPrincipalSchedule(principalCents, 0n, term, args);
     }
+
+    const monthlyRate = annualRate.div(100).div(12);
+
     if (args.method === EmployeeFinanceInterestMethodEnum.FLAT_RATE) {
       const interest = EmployeeFinanceMoney.toCents(
         EmployeeFinanceMoney.multiply(
           args.principal,
-          (Number(args.annualInterestRate) / 100 / 12) * term,
+          monthlyRate.times(term).toString(),
         ),
       );
       return this.equalPrincipalSchedule(principalCents, interest, term, args);
@@ -516,7 +523,7 @@ export class EmployeeFinanceInterestService {
       const interestDue = EmployeeFinanceMoney.toCents(
         EmployeeFinanceMoney.multiply(
           EmployeeFinanceMoney.fromCents(remaining),
-          Number(args.annualInterestRate) / 100 / 12,
+          monthlyRate.toString(),
         ),
       );
       remaining -= principalDue;
@@ -1039,10 +1046,13 @@ export class EmployeeFinanceApplicationService {
 
 @Injectable()
 export class EmployeeFinanceApprovalService {
+  private readonly logger = new Logger(EmployeeFinanceApprovalService.name);
+
   constructor(
     private readonly configService: ConfigService,
     private readonly hrAccessService: HrAccessService,
     private readonly auditService: EmployeeFinanceAuditService,
+    private readonly smsNotificationManagementService: SmsNotificationManagementService,
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
     @InjectRepository(EmployeeFinanceApplication)
@@ -1121,7 +1131,35 @@ export class EmployeeFinanceApprovalService {
       entityId: application.id,
       summary: { stage: dto.stage },
     });
-    return this.applicationRepository.save(application);
+    const saved = await this.applicationRepository.save(application);
+
+    if (
+      saved.status ===
+      EmployeeFinanceApplicationStatusEnum.PENDING_EMPLOYEE_ACCEPTANCE
+    ) {
+      try {
+        await this.smsNotificationManagementService.sendConfiguredNotification({
+          code: 'employee_finance.application.approved',
+          module: 'employee-finance',
+          recipientEmployeeId: saved.employeeId,
+          relatedEntityType: 'EMPLOYEE_FINANCE_APPLICATION',
+          relatedEntityId: saved.id,
+          actor,
+          variables: {
+            application_no: saved.applicationNo,
+            product_type: saved.productType,
+          },
+        });
+      } catch (error) {
+        this.logger.warn(
+          `SMS notification employee_finance.application.approved failed for application ${saved.id}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
+    return saved;
   }
 
   private expectedStage(status: EmployeeFinanceApplicationStatusEnum) {
@@ -1154,9 +1192,12 @@ export class EmployeeFinanceApprovalService {
 
 @Injectable()
 export class EmployeeFinanceDisbursementService {
+  private readonly logger = new Logger(EmployeeFinanceDisbursementService.name);
+
   constructor(
     private readonly ledgerService: EmployeeFinanceLedgerService,
     private readonly auditService: EmployeeFinanceAuditService,
+    private readonly smsNotificationManagementService: SmsNotificationManagementService,
     @InjectRepository(EmployeeFinanceAccount)
     private readonly accountRepository: Repository<EmployeeFinanceAccount>,
     @InjectRepository(EmployeeFinanceApplication)
@@ -1225,9 +1266,13 @@ export class EmployeeFinanceDisbursementService {
     });
     item.status = EmployeeFinanceDisbursementStatusEnum.CONFIRMED;
     item.confirmedAt = new Date();
-    account.status = EmployeeFinanceAccountStatusEnum.ACTIVE;
-    account.disbursedAt = new Date();
-    await this.accountRepository.save(account);
+    await this.accountRepository.update(
+      { id: account.id, companyId: account.companyId },
+      {
+        status: EmployeeFinanceAccountStatusEnum.ACTIVE,
+        disbursedAt: new Date(),
+      },
+    );
     await this.applicationRepository.update(
       { id: account.applicationId, companyId: account.companyId },
       { status: EmployeeFinanceApplicationStatusEnum.DISBURSED },
@@ -1238,7 +1283,33 @@ export class EmployeeFinanceDisbursementService {
       entityType: 'EMPLOYEE_FINANCE_DISBURSEMENT',
       entityId: item.id,
     });
-    return this.repository.save(item);
+    const saved = await this.repository.save(item);
+    const application = await this.applicationRepository.findOne({
+      where: { id: account.applicationId, companyId: account.companyId },
+    });
+
+    try {
+      await this.smsNotificationManagementService.sendConfiguredNotification({
+        code: 'employee_finance.disbursement.confirmed',
+        module: 'employee-finance',
+        recipientEmployeeId: account.employeeId,
+        relatedEntityType: 'EMPLOYEE_FINANCE_DISBURSEMENT',
+        relatedEntityId: saved.id,
+        actor,
+        variables: {
+          application_no: application?.applicationNo ?? account.accountNo,
+          product_type: account.productType,
+        },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `SMS notification employee_finance.disbursement.confirmed failed for disbursement ${saved.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+
+    return saved;
   }
 }
 

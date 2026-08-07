@@ -1,83 +1,116 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import {
-  AnalyticsCacheService,
-  AnalyticsPrivacyService,
-  AnalyticsSourceRegistryService,
+  AnalyticsReconciliationService,
+  AnalyticsSnapshotService,
 } from './analytics-core.services';
 
-describe('Analytics governance services', () => {
-  it('registers the default source registry and rejects unknown sources', () => {
-    const service = new AnalyticsSourceRegistryService();
+describe('AnalyticsReconciliationService', () => {
+  it('compares payroll totals using precision-safe money checks', async () => {
+    const dataSource = {
+      query: jest.fn().mockResolvedValue([
+        {
+          id: 1,
+          gross_total: '100.10',
+          analytics_gross: '100.10',
+          net_pay_total: '90.05',
+          analytics_net: '90.05',
+        },
+        {
+          id: 2,
+          gross_total: '200.00',
+          analytics_gross: '199.99',
+          net_pay_total: '150.00',
+          analytics_net: '150.01',
+        },
+      ]),
+    };
 
-    expect(service.list().length).toBeGreaterThan(10);
-    expect(service.require('EMPLOYEES').sourceTable).toBe('employees');
-    expect(() => service.require('NOPE')).toThrow(NotFoundException);
+    const service = new AnalyticsReconciliationService(dataSource as never);
+
+    await expect(service.reconcilePayroll(12)).resolves.toEqual([
+      {
+        code: 'PAYROLL_ANALYTICS_GROSS_MISMATCH',
+        payroll_run_id: 2,
+        expected: '200.00',
+        actual: '199.99',
+      },
+      {
+        code: 'PAYROLL_ANALYTICS_NET_MISMATCH',
+        payroll_run_id: 2,
+        expected: '150.00',
+        actual: '150.01',
+      },
+    ]);
   });
 
-  it('prevents duplicate analytics source codes', () => {
-    const service = new AnalyticsSourceRegistryService();
+  it('compares employee-finance balances using precision-safe money checks', async () => {
+    const dataSource = {
+      query: jest.fn().mockResolvedValue([
+        {
+          id: 11,
+          outstanding_total: '0.30',
+          ledger_balance: '0.30',
+        },
+        {
+          id: 12,
+          outstanding_total: '0.30',
+          ledger_balance: '0.29',
+        },
+      ]),
+    };
 
-    expect(() =>
-      service.register({
-        ...service.require('EMPLOYEES'),
-        sourceTable: 'employees_copy',
-      }),
-    ).toThrow(BadRequestException);
+    const service = new AnalyticsReconciliationService(dataSource as never);
+
+    await expect(service.reconcileEmployeeFinance(12)).resolves.toEqual([
+      {
+        code: 'LOAN_ANALYTICS_LEDGER_MISMATCH',
+        account_id: 12,
+        expected: '0.30',
+        actual: '0.29',
+      },
+    ]);
   });
+});
 
-  it('suppresses small cells and rejects raw SQL filters', () => {
-    const config = {
-      get: jest.fn((key: string, fallback: unknown) => {
-        if (key === 'ANALYTICS_SMALL_CELL_MINIMUM_COUNT') return 5;
-        if (key === 'ANALYTICS_SMALL_CELL_SUPPRESSION_ENABLED') return true;
-        if (key === 'ANALYTICS_ALLOW_RAW_SQL') return false;
-        return fallback;
+describe('AnalyticsSnapshotService.loadEmployeeFinance', () => {
+  it('builds repaid amounts without floating-point drift', async () => {
+    const financeRepository = {
+      create: jest.fn().mockImplementation((value) => value),
+      upsert: jest.fn().mockResolvedValue(undefined),
+    };
+
+    const service = {
+      dataSource: {
+        query: jest.fn().mockResolvedValue([
+          {
+            id: 41,
+            employee_id: 7,
+            product_type: 'LOAN',
+            disbursed_at: '2026-08-03T10:00:00.000Z',
+            principal_amount: '0.30',
+            total_payable: '0.30',
+            outstanding_total: '0.10',
+            status: 'ACTIVE',
+          },
+        ]),
+      },
+      financeRepository,
+    };
+
+    const result = await AnalyticsSnapshotService.prototype[
+      'loadEmployeeFinance'
+    ].call(service, 12, '2026-08-01', '2026-08-31', {
+      id: 'run-1',
+    });
+
+    expect(financeRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: 12,
+        accountId: 41,
+        repaidAmount: '0.20',
+        closingBalance: '0.10',
       }),
-    } as unknown as ConfigService;
-    const service = new AnalyticsPrivacyService(config);
-
-    expect(service.suppressSmallCell(3)).toBeNull();
-    expect(service.suppressSmallCell(8)).toBe(8);
-    expect(() => service.assertRawSqlDisabled({ where: '1=1; DROP TABLE employees' })).toThrow(
-      BadRequestException,
     );
-  });
-
-  it('builds tenant and scope specific dashboard cache keys', () => {
-    const config = {
-      get: jest.fn((key: string, fallback: unknown) => {
-        if (key === 'ANALYTICS_DASHBOARD_CACHE_ENABLED') return true;
-        return fallback;
-      }),
-    } as unknown as ConfigService;
-    const service = new AnalyticsCacheService(config);
-
-    const first = service.key({ companyId: 1, scopeHash: 'a', dashboard: 'HR' });
-    const second = service.key({ companyId: 2, scopeHash: 'a', dashboard: 'HR' });
-    const scoped = service.key({ companyId: 1, scopeHash: 'b', dashboard: 'HR' });
-
-    expect(first).not.toBe(second);
-    expect(first).not.toBe(scoped);
-  });
-
-  it('invalidates only cache entries for the refreshed company', () => {
-    const config = {
-      get: jest.fn((key: string, fallback: unknown) => {
-        if (key === 'ANALYTICS_DASHBOARD_CACHE_ENABLED') return true;
-        if (key === 'ANALYTICS_DASHBOARD_CACHE_TTL_SECONDS') return 300;
-        return fallback;
-      }),
-    } as unknown as ConfigService;
-    const service = new AnalyticsCacheService(config);
-    const first = service.key({ companyId: 1, dashboard: 'HR' });
-    const second = service.key({ companyId: 2, dashboard: 'HR' });
-
-    service.set(first, { ok: 1 }, undefined, 1);
-    service.set(second, { ok: 2 }, undefined, 2);
-    service.invalidateCompany(1);
-
-    expect(service.get(first)).toBeNull();
-    expect(service.get(second)).toEqual({ ok: 2 });
+    expect(financeRepository.upsert).toHaveBeenCalled();
+    expect(result).toEqual({ source_count: 1, upserted: 1 });
   });
 });

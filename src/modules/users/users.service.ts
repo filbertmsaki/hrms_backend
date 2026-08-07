@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -11,6 +12,7 @@ import { EntityManager, MoreThan, Repository } from 'typeorm';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { comparePasswords, hashPassword } from 'src/common/utils/hash.util';
 import { hasPermission } from 'src/common/utils/permission.util';
+import { normalizeTanzaniaPhone } from 'src/common/utils/tanzania-phone.util';
 import { CompaniesService } from '../companies/companies.service';
 import { CompanyUser } from '../companies/entities/company-user.entity';
 import { Permission } from '../permissions/entities/permission.entity';
@@ -480,6 +482,15 @@ export class UsersService {
     createUserDto: CreateUserDto,
   ): Promise<UserProfileDto | { message: string; user: UserProfileDto }> {
     const { roles, password, ...userData } = createUserDto;
+    const normalizedPhone = normalizeTanzaniaPhone(userData.phone);
+
+    if (!normalizedPhone) {
+      throw new BadRequestException(
+        'Phone number must be a valid Tanzanian number in +255 format',
+      );
+    }
+
+    userData.phone = normalizedPhone;
     const existingByEmail = await this.userRepository.findOne({
       where: { email: userData.email },
     });
@@ -912,7 +923,12 @@ export class UsersService {
   }
 
   async findByPhone(phone: string): Promise<User | null> {
-    return this.userRepository.findOne({ where: { phone } });
+    const normalizedPhone = normalizeTanzaniaPhone(phone);
+    if (!normalizedPhone) {
+      return null;
+    }
+
+    return this.userRepository.findOne({ where: { phone: normalizedPhone } });
   }
 
   async findByUserNo(userNo: string): Promise<User | null> {
@@ -985,6 +1001,16 @@ export class UsersService {
       roles?: unknown;
     };
     void roles;
+    if (typeof safeUpdate.phone === 'string') {
+      const normalizedPhone = normalizeTanzaniaPhone(safeUpdate.phone);
+      if (!normalizedPhone) {
+        throw new BadRequestException(
+          'Phone number must be a valid Tanzanian number in +255 format',
+        );
+      }
+
+      safeUpdate.phone = normalizedPhone;
+    }
     Object.assign(user, safeUpdate);
     return this.userRepository.save(user);
   }

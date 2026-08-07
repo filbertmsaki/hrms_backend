@@ -17,6 +17,7 @@ import { MailService } from '../mail/mail.service';
 import { CompaniesService } from '../companies/companies.service';
 import { SecurityEventsService } from '../security/security-events.service';
 import { TwoFactorPolicyService } from '../security/two-factor-policy.service';
+import { SmsNotificationManagementService } from '../sms/sms-notification-management.service';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -40,6 +41,9 @@ describe('AuthService', () => {
   };
   let securityEventsService: { logBestEffort: jest.Mock };
   let twoFactorPolicyService: { isRequired: jest.Mock };
+  let smsNotificationManagementService: {
+    sendConfiguredNotification: jest.Mock;
+  };
 
   beforeEach(() => {
     usersService = {
@@ -71,6 +75,9 @@ describe('AuthService', () => {
     };
     twoFactorPolicyService = {
       isRequired: jest.fn().mockReturnValue(false),
+    };
+    smsNotificationManagementService = {
+      sendConfiguredNotification: jest.fn(),
     };
 
     service = new AuthService(
@@ -104,6 +111,7 @@ describe('AuthService', () => {
       companiesService as unknown as CompaniesService,
       securityEventsService as unknown as SecurityEventsService,
       twoFactorPolicyService as unknown as TwoFactorPolicyService,
+      smsNotificationManagementService as unknown as SmsNotificationManagementService,
     );
   });
 

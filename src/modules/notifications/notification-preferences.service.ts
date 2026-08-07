@@ -4,6 +4,10 @@ import { Repository } from 'typeorm';
 import { NotificationChannelEnum } from './enums/notification-channel.enum';
 import { NotificationTypeEnum } from './enums/notification-type.enum';
 import { NotificationPreference } from './entities/notification-preference.entity';
+import {
+  isNotificationChannelSupported,
+  unsupportedNotificationChannelMessage,
+} from './notification-channel-policy';
 
 export const MANDATORY_NOTIFICATION_TYPES: ReadonlySet<NotificationTypeEnum> =
   new Set<NotificationTypeEnum>([
@@ -20,10 +24,14 @@ export class NotificationPreferencesService {
   ) {}
 
   async findMine(companyMembershipId: number) {
-    return this.preferenceRepository.find({
+    const preferences = await this.preferenceRepository.find({
       where: { companyMembershipId },
       order: { notificationType: 'ASC', channel: 'ASC' },
     });
+
+    return preferences.filter((preference) =>
+      isNotificationChannelSupported(preference.channel),
+    );
   }
 
   async setPreference(
@@ -32,6 +40,12 @@ export class NotificationPreferencesService {
     channel: NotificationChannelEnum,
     isEnabled: boolean,
   ) {
+    if (!isNotificationChannelSupported(channel)) {
+      throw new BadRequestException(
+        unsupportedNotificationChannelMessage(channel),
+      );
+    }
+
     if (
       !isEnabled &&
       MANDATORY_NOTIFICATION_TYPES.has(notificationType) &&
@@ -69,6 +83,12 @@ export class NotificationPreferencesService {
       return channels;
     }
 
+    const supportedChannels = channels.filter(isNotificationChannelSupported);
+
+    if (!supportedChannels.length) {
+      return supportedChannels;
+    }
+
     const preferences = await this.preferenceRepository.find({
       where: { companyMembershipId, notificationType },
     });
@@ -79,7 +99,7 @@ export class NotificationPreferencesService {
         .map((preference) => preference.channel),
     );
 
-    return channels.filter(
+    return supportedChannels.filter(
       (channel) =>
         MANDATORY_NOTIFICATION_TYPES.has(notificationType) ||
         !disabled.has(channel),

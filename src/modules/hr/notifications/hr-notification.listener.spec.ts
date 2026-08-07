@@ -4,7 +4,9 @@ import { MailService } from '../../mail/mail.service';
 import {
   LeaveApprovedEvent,
   OffboardingApprovedEvent,
+  OffboardingAssetOverdueEvent,
   OnboardingTaskAssignedEvent,
+  OffboardingSettlementOverdueEvent,
 } from './events';
 
 describe('HrNotificationListener', () => {
@@ -16,6 +18,12 @@ describe('HrNotificationListener', () => {
     mailService = {
       sendLeaveApprovedNotification: jest.fn().mockResolvedValue(undefined),
       sendOffboardingApprovedNotification: jest
+        .fn()
+        .mockResolvedValue(undefined),
+      sendOffboardingAssetOverdueNotification: jest
+        .fn()
+        .mockResolvedValue(undefined),
+      sendOffboardingSettlementOverdueNotification: jest
         .fn()
         .mockResolvedValue(undefined),
       sendOnboardingTaskAssignedNotification: jest
@@ -85,6 +93,50 @@ describe('HrNotificationListener', () => {
     expect(
       mailService.sendOnboardingTaskAssignedNotification,
     ).toHaveBeenCalledWith('neema@example.com', event);
+  });
+
+  it('sends overdue offboarding asset-return emails to the owner', async () => {
+    const event = new OffboardingAssetOverdueEvent(
+      1,
+      8,
+      22,
+      'Dell Latitude 5440',
+      'Amina John',
+      14,
+      'John HR',
+      'john@example.com',
+      new Date('2026-08-01T09:00:00.000Z'),
+      '2026-08-05',
+      'http://localhost:5173/offboarding/8/assets',
+    );
+
+    await listener.onOffboardingAssetOverdue(event);
+
+    expect(
+      mailService.sendOffboardingAssetOverdueNotification,
+    ).toHaveBeenCalledWith('john@example.com', event);
+  });
+
+  it('sends overdue offboarding settlement emails to the owner', async () => {
+    const event = new OffboardingSettlementOverdueEvent(
+      1,
+      8,
+      31,
+      'Laptop replacement deduction',
+      'Amina John',
+      15,
+      'Jane Finance',
+      'finance@example.com',
+      new Date('2026-08-02T09:00:00.000Z'),
+      '2026-08-05',
+      'http://localhost:5173/offboarding/8/settlements',
+    );
+
+    await listener.onOffboardingSettlementOverdue(event);
+
+    expect(
+      mailService.sendOffboardingSettlementOverdueNotification,
+    ).toHaveBeenCalledWith('finance@example.com', event);
   });
 
   it('swallows mail errors and does not throw from event handlers', async () => {

@@ -3,6 +3,7 @@ import {
   Injectable,
   BadRequestException,
   ForbiddenException,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -15,6 +16,7 @@ import { CompaniesService } from '../../companies/companies.service';
 import { SecurityEventOutcome } from '../../security/enums/security-event-outcome.enum';
 import { SecurityEventType } from '../../security/enums/security-event-type.enum';
 import { SecurityEventsService } from '../../security/security-events.service';
+import { SmsNotificationManagementService } from '../../sms/sms-notification-management.service';
 import { UsersService } from '../../users/users.service';
 import { UserTwoFactorAuditService } from '../../users/services/user-two-factor-audit.service';
 import { decryptTwoFactorSecret } from './utils/two-factor-secret.util';
@@ -26,12 +28,15 @@ type AuditContext = {
 
 @Injectable()
 export class TwoFaService {
+  private readonly logger = new Logger(TwoFaService.name);
+
   constructor(
     private usersService: UsersService,
     private configService: ConfigService,
     private companiesService: CompaniesService,
     private userTwoFactorAuditService: UserTwoFactorAuditService,
     private readonly securityEventsService: SecurityEventsService,
+    private readonly smsNotificationManagementService: SmsNotificationManagementService,
   ) {}
 
   private normalizeCode(code: string): string {
@@ -170,6 +175,20 @@ export class TwoFaService {
       context,
     });
 
+    await this.sendSmsNotificationBestEffort({
+      code: 'auth.two_factor.enabled',
+      module: 'auth',
+      recipientPhone: user.phone ?? null,
+      relatedEntityType: 'USER',
+      relatedEntityId: user.id,
+      variables: {
+        first_name: user.first_name,
+        last_name: user.last_name,
+        email: user.email,
+      },
+      context: context ?? null,
+    });
+
     const formattedBackupCodes = this.formatBackupCodes(backupCodes);
 
     return {
@@ -261,6 +280,20 @@ export class TwoFaService {
         two_factor_setup_required: false,
       },
       context,
+    });
+
+    await this.sendSmsNotificationBestEffort({
+      code: 'auth.two_factor.disabled',
+      module: 'auth',
+      recipientPhone: user.phone ?? null,
+      relatedEntityType: 'USER',
+      relatedEntityId: user.id,
+      variables: {
+        first_name: user.first_name,
+        last_name: user.last_name,
+        email: user.email,
+      },
+      context: context ?? null,
     });
 
     return { message: '2FA successfully disabled' };
@@ -356,6 +389,25 @@ export class TwoFaService {
       newValues: {
         is_two_factor_enabled: true,
         two_factor_setup_required: true,
+      },
+      context: {
+        ipAddress: auditContext.ipAddress ?? null,
+        userAgent: auditContext.userAgent ?? null,
+        requestId: null,
+      },
+    });
+
+    await this.sendSmsNotificationBestEffort({
+      code: 'auth.two_factor.enabled',
+      module: 'auth',
+      recipientPhone: user.phone ?? null,
+      relatedEntityType: 'USER',
+      relatedEntityId: user.id,
+      actor,
+      variables: {
+        first_name: user.first_name,
+        last_name: user.last_name,
+        email: user.email,
       },
       context: {
         ipAddress: auditContext.ipAddress ?? null,
@@ -478,6 +530,25 @@ export class TwoFaService {
       },
     });
 
+    await this.sendSmsNotificationBestEffort({
+      code: 'auth.two_factor.disabled',
+      module: 'auth',
+      recipientPhone: user.phone ?? null,
+      relatedEntityType: 'USER',
+      relatedEntityId: user.id,
+      actor,
+      variables: {
+        first_name: user.first_name,
+        last_name: user.last_name,
+        email: user.email,
+      },
+      context: {
+        ipAddress: auditContext.ipAddress ?? null,
+        userAgent: auditContext.userAgent ?? null,
+        requestId: null,
+      },
+    });
+
     return {
       success: true,
       message: 'Two-factor authentication has been disabled for the user.',
@@ -487,5 +558,35 @@ export class TwoFaService {
         twoFactorSetupRequired: false,
       },
     };
+  }
+
+  private async sendSmsNotificationBestEffort(input: {
+    code: string;
+    module: string;
+    recipientPhone?: string | null;
+    relatedEntityType?: string | null;
+    relatedEntityId?: string | number | null;
+    actor?: AuthenticatedUser | null;
+    variables?: Record<string, unknown>;
+    context?: AuditRequestContext | null;
+  }): Promise<void> {
+    try {
+      await this.smsNotificationManagementService.sendConfiguredNotification({
+        code: input.code,
+        module: input.module,
+        recipientPhone: input.recipientPhone ?? null,
+        relatedEntityType: input.relatedEntityType ?? null,
+        relatedEntityId: input.relatedEntityId ?? null,
+        actor: input.actor ?? null,
+        variables: input.variables,
+        context: input.context ?? null,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `SMS notification ${input.code} failed during 2FA flow: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 }

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { hashPassword } from '../../common/utils/hash.util';
+import { normalizeTanzaniaPhone } from '../../common/utils/tanzania-phone.util';
 import { Role } from '../roles/entities/role.entity';
 import { PaginationDto, SortDirection } from '../../common/dto/pagination.dto';
 import { User } from '../users/entities/user.entity';
@@ -362,9 +363,16 @@ export class CompaniesService {
 
     return this.companyRepository.manager.transaction(async (manager) => {
       const userRepository = this.getUserRepository(manager);
+      const normalizedAdminPhone = normalizeTanzaniaPhone(admin_phone);
+
+      if (!normalizedAdminPhone) {
+        throw new BadRequestException(
+          'Administrator phone number must be a valid Tanzanian number in +255 format',
+        );
+      }
 
       const existingUser = await userRepository.findOne({
-        where: [{ email: admin_email }, { phone: admin_phone }],
+        where: [{ email: admin_email }, { phone: normalizedAdminPhone }],
       });
 
       if (existingUser) {
@@ -384,7 +392,7 @@ export class CompaniesService {
           user_no: userNo,
           first_name: admin_first_name,
           last_name: admin_last_name,
-          phone: admin_phone,
+          phone: normalizedAdminPhone,
           email: admin_email,
           password: hashedPassword,
           status: 'active',

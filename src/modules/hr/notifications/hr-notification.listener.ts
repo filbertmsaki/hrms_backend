@@ -17,9 +17,11 @@ import {
   OffboardingApprovalRequiredEvent,
   OffboardingApprovalReminderEvent,
   OffboardingApprovedEvent,
+  OffboardingAssetOverdueEvent,
   OffboardingClearanceOverdueEvent,
   OffboardingClearanceRequiredEvent,
   OffboardingCompletedEvent,
+  OffboardingSettlementOverdueEvent,
   OffboardingSubmittedEvent,
   OffboardingTaskAssignedEvent,
   OffboardingTaskOverdueEvent,
@@ -385,6 +387,38 @@ export class HrNotificationListener {
 
     await this.send(() =>
       this.mailService.sendOffboardingClearanceOverdueNotification(
+        event.ownerEmail!,
+        event,
+      ),
+    );
+  }
+
+  @OnEvent(OffboardingAssetOverdueEvent.EVENT)
+  async onOffboardingAssetOverdue(
+    event: OffboardingAssetOverdueEvent,
+  ): Promise<void> {
+    if (!event.ownerEmail) {
+      return;
+    }
+
+    await this.send(() =>
+      this.mailService.sendOffboardingAssetOverdueNotification(
+        event.ownerEmail!,
+        event,
+      ),
+    );
+  }
+
+  @OnEvent(OffboardingSettlementOverdueEvent.EVENT)
+  async onOffboardingSettlementOverdue(
+    event: OffboardingSettlementOverdueEvent,
+  ): Promise<void> {
+    if (!event.ownerEmail) {
+      return;
+    }
+
+    await this.send(() =>
+      this.mailService.sendOffboardingSettlementOverdueNotification(
         event.ownerEmail!,
         event,
       ),

@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -30,6 +31,7 @@ import { UsersService } from '../users/users.service';
 import { SecurityEventOutcome } from '../security/enums/security-event-outcome.enum';
 import { SecurityEventType } from '../security/enums/security-event-type.enum';
 import { SecurityEventsService } from '../security/security-events.service';
+import { SmsNotificationManagementService } from '../sms/sms-notification-management.service';
 import { TwoFactorPolicyService } from '../security/two-factor-policy.service';
 import { TwoFaService } from './2fa/2fa.service';
 import { ForgotPasswordDto } from './dtos/forgot-password.dto';
@@ -94,6 +96,8 @@ type DashboardType = 'admin' | 'employee';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
@@ -104,6 +108,7 @@ export class AuthService {
     private readonly companiesService: CompaniesService,
     private readonly securityEventsService: SecurityEventsService,
     private readonly twoFactorPolicyService: TwoFactorPolicyService,
+    private readonly smsNotificationManagementService: SmsNotificationManagementService,
   ) {}
 
   private buildFailureMetadata(context?: CompanySummary | null) {
@@ -843,6 +848,20 @@ export class AuthService {
       },
     );
 
+    await this.sendSmsNotificationBestEffort({
+      code: 'auth.password.reset.requested',
+      module: 'auth',
+      recipientPhone: user.phone ?? null,
+      relatedEntityType: 'USER',
+      relatedEntityId: user.id,
+      variables: {
+        first_name: user.first_name,
+        last_name: user.last_name,
+        email: user.email,
+      },
+      context: context ?? null,
+    });
+
     return { message: 'If the email exists, you will receive a reset link' };
   }
 
@@ -1373,5 +1392,33 @@ export class AuthService {
       'JsonWebTokenError',
       'NotBeforeError',
     ].includes(error.name);
+  }
+
+  private async sendSmsNotificationBestEffort(input: {
+    code: string;
+    module: string;
+    recipientPhone?: string | null;
+    relatedEntityType?: string | null;
+    relatedEntityId?: string | number | null;
+    variables?: Record<string, unknown>;
+    context?: AuditRequestContext | null;
+  }): Promise<void> {
+    try {
+      await this.smsNotificationManagementService.sendConfiguredNotification({
+        code: input.code,
+        module: input.module,
+        recipientPhone: input.recipientPhone ?? null,
+        relatedEntityType: input.relatedEntityType ?? null,
+        relatedEntityId: input.relatedEntityId ?? null,
+        variables: input.variables,
+        context: input.context ?? null,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `SMS notification ${input.code} failed during auth flow: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 }

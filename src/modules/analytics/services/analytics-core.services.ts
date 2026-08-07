@@ -8,10 +8,13 @@ import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'crypto';
+import Decimal from 'decimal.js';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { DataSource, IsNull, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import { EmployeeFinanceMoney } from '../../hr/employee-finance/services/employee-finance-money.util';
+import { PayrollMoney } from '../../hr/payroll/services/payroll-money.util';
 import { HrAccessService } from '../../hr/shared/hr-access.service';
 import {
   AnalyticsAggregationEnum,
@@ -898,7 +901,10 @@ export class AnalyticsSnapshotService {
             monthStart: currentMonth,
             openingBalance: '0.00',
             disbursedAmount: row.disbursed_at && String(row.disbursed_at).slice(0, 7) === currentMonth.slice(0, 7) ? row.principal_amount : '0.00',
-            repaidAmount: String(Number(row.total_payable ?? 0) - Number(row.outstanding_total ?? 0)),
+            repaidAmount: EmployeeFinanceMoney.subtract(
+              row.total_payable ?? '0.00',
+              row.outstanding_total ?? '0.00',
+            ),
             closingBalance: row.outstanding_total,
             arrearsAmount: row.status === 'IN_ARREARS' ? row.outstanding_total : '0.00',
             snapshotRunId: run.id,
@@ -1171,12 +1177,26 @@ export class AnalyticsDashboardService {
        GROUP BY product_type`,
       params,
     );
+    const totalOutstandingCents = result.reduce(
+      (sum, row) => sum + EmployeeFinanceMoney.toCents(row.closing_balance),
+      0n,
+    );
+    const arrearsCents = result.reduce(
+      (sum, row) => sum + EmployeeFinanceMoney.toCents(row.arrears),
+      0n,
+    );
+
     return {
       by_product_type: result,
-      total_outstanding: result.reduce((sum, row) => sum + numberFrom(row.closing_balance), 0).toFixed(2),
-      arrears_ratio: result.reduce((sum, row) => sum + numberFrom(row.closing_balance), 0) > 0
-        ? Number(((result.reduce((sum, row) => sum + numberFrom(row.arrears), 0) /
-          result.reduce((sum, row) => sum + numberFrom(row.closing_balance), 0)) * 100).toFixed(2))
+      total_outstanding: EmployeeFinanceMoney.fromCents(totalOutstandingCents),
+      arrears_ratio: totalOutstandingCents > 0n
+        ? Number(
+            new Decimal(arrearsCents.toString())
+              .times(100)
+              .div(totalOutstandingCents.toString())
+              .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+              .toString(),
+          )
         : 0,
     };
   }
@@ -1444,10 +1464,16 @@ export class AnalyticsReconciliationService {
     );
     return rows.flatMap((row) => {
       const issues: AnalyticsIssue[] = [];
-      if (Number(row.gross_total) !== Number(row.analytics_gross)) {
+      if (
+        PayrollMoney.toCents(row.gross_total) !==
+        PayrollMoney.toCents(row.analytics_gross)
+      ) {
         issues.push({ code: 'PAYROLL_ANALYTICS_GROSS_MISMATCH', payroll_run_id: row.id, expected: row.gross_total, actual: row.analytics_gross });
       }
-      if (Number(row.net_pay_total) !== Number(row.analytics_net)) {
+      if (
+        PayrollMoney.toCents(row.net_pay_total) !==
+        PayrollMoney.toCents(row.analytics_net)
+      ) {
         issues.push({ code: 'PAYROLL_ANALYTICS_NET_MISMATCH', payroll_run_id: row.id, expected: row.net_pay_total, actual: row.analytics_net });
       }
       return issues;
@@ -1464,7 +1490,11 @@ export class AnalyticsReconciliationService {
       [companyId],
     );
     return rows
-      .filter((row) => Number(row.outstanding_total) !== Number(row.ledger_balance))
+      .filter(
+        (row) =>
+          EmployeeFinanceMoney.toCents(row.outstanding_total) !==
+          EmployeeFinanceMoney.toCents(row.ledger_balance),
+      )
       .map((row) => ({
         code: 'LOAN_ANALYTICS_LEDGER_MISMATCH',
         account_id: row.id,

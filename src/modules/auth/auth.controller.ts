@@ -33,6 +33,7 @@ import {
   ApiTooManyRequestsResponse,
   ApiGoneResponse,
 } from '../../docs/swagger-decorators';
+import { Public } from '../../common/decorators/public.decorator';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -44,6 +45,7 @@ export class AuthController {
   // ────────────────────────────────
 
   @Post('login')
+  @Public()
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperationSummary(
     'Login with email and password',
@@ -82,6 +84,7 @@ export class AuthController {
   // ────────────────────────────────
 
   @Post('2fa/complete-login')
+  @Public()
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperationSummary(
     'Complete two-factor authentication login',
@@ -112,6 +115,7 @@ export class AuthController {
   // ────────────────────────────────
 
   @Post('refresh')
+  @Public()
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   @ApiOperationSummary(
     'Refresh access token',
@@ -171,6 +175,7 @@ export class AuthController {
   // ────────────────────────────────
 
   @Get('verify-email')
+  @Public()
   @Throttle({ default: { limit: 10, ttl: 3600000 } })
   @ApiOperationSummary(
     'Verify email address',
@@ -198,6 +203,7 @@ export class AuthController {
   // ────────────────────────────────
 
   @Post('resend-verification')
+  @Public()
   @Throttle({ default: { limit: 3, ttl: 3600000 } })
   @ApiOperationSummary(
     'Resend verification email',
@@ -217,6 +223,7 @@ export class AuthController {
   // ────────────────────────────────
 
   @Post('forgot-password')
+  @Public()
   @Throttle({ default: { limit: 3, ttl: 3600000 } })
   @ApiOperationSummary(
     'Request password reset',
@@ -239,6 +246,7 @@ export class AuthController {
   // ────────────────────────────────
 
   @Post('reset-password')
+  @Public()
   @Throttle({ default: { limit: 5, ttl: 600000 } })
   @ApiOperationSummary(
     'Reset password',

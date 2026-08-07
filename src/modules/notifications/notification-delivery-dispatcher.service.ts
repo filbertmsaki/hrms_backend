@@ -4,11 +4,13 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, LessThanOrEqual, Repository } from 'typeorm';
 import { PostgresAdvisoryLockService } from '../../common/database/postgres-advisory-lock.service';
 import { MailService } from '../mail/mail.service';
+import { SmsService } from '../sms/sms.service';
 import { AppNotification } from './entities/app-notification.entity';
 import { NotificationDelivery } from './entities/notification-delivery.entity';
 import { NotificationOutboxEvent } from './entities/notification-outbox-event.entity';
 import { NotificationChannelEnum } from './enums/notification-channel.enum';
 import { NotificationDeliveryStatusEnum } from './enums/notification-delivery-status.enum';
+import { unsupportedNotificationChannelMessage } from './notification-channel-policy';
 
 export const NOTIFICATION_OUTBOX_DISPATCH_LOCK_KEY =
   'notifications:outbox-dispatch';
@@ -30,6 +32,7 @@ export class NotificationDeliveryDispatcherService {
     private readonly notificationRepository: Repository<AppNotification>,
     private readonly advisoryLockService: PostgresAdvisoryLockService,
     private readonly mailService: MailService,
+    private readonly smsService: SmsService,
   ) {}
 
   @Interval(10000)
@@ -156,12 +159,34 @@ export class NotificationDeliveryDispatcherService {
           delivery.deliveredAt = new Date();
           delivery.lastError = null;
         }
-      } else if (
-        delivery.channel === NotificationChannelEnum.SMS ||
-        delivery.channel === NotificationChannelEnum.PUSH
-      ) {
+      } else if (delivery.channel === NotificationChannelEnum.SMS) {
+        const recipientPhone =
+          delivery.notification?.receiver_company_user?.user?.phone;
+
+        if (!recipientPhone) {
+          delivery.status = NotificationDeliveryStatusEnum.FAILED;
+          delivery.lastError = 'Recipient has no phone number';
+        } else if (!this.smsService.isConfigured()) {
+          delivery.status = NotificationDeliveryStatusEnum.SKIPPED;
+          delivery.lastError =
+            this.smsService.getConfigurationError() ??
+            'SMS gateway is not configured';
+        } else {
+          await this.smsService.sendGenericNotificationSms(
+            recipientPhone,
+            delivery.notification.title,
+            delivery.notification.message,
+            delivery.notification.action_url,
+          );
+          delivery.status = NotificationDeliveryStatusEnum.DELIVERED;
+          delivery.deliveredAt = new Date();
+          delivery.lastError = null;
+        }
+      } else if (delivery.channel !== NotificationChannelEnum.IN_APP) {
         delivery.status = NotificationDeliveryStatusEnum.SKIPPED;
-        delivery.lastError = `No ${delivery.channel} provider is configured`;
+        delivery.lastError = unsupportedNotificationChannelMessage(
+          delivery.channel,
+        );
       } else {
         delivery.status = NotificationDeliveryStatusEnum.DELIVERED;
         delivery.deliveredAt = new Date();

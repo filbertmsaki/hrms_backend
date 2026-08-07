@@ -1,5 +1,4 @@
 import { forwardRef, Module } from '@nestjs/common';
-import { BullModule } from '@nestjs/bullmq';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CompanyUser } from '../companies/entities/company-user.entity';
 import { AccessGroupDevice } from '../access-control/access-group-devices/entity/access-group-device.entity';
@@ -46,6 +45,7 @@ import { HIKVISION_SYNC_QUEUE } from './hikvision-sync-job.constants';
 import { HikvisionImportSyncService } from './hikvision-import-sync.service';
 import { HikvisionSyncJobsService } from './hikvision-sync-jobs.service';
 import { HikvisionSyncProcessor } from './hikvision-sync.processor';
+import { ConditionalBullModule } from '../../infrastructure/queues/conditional-bull.module';
 
 @Module({
   imports: [
@@ -75,9 +75,7 @@ import { HikvisionSyncProcessor } from './hikvision-sync.processor';
       HikvisionAttendanceSyncJob,
       HikvisionSyncLog,
     ]),
-    BullModule.registerQueue({
-      name: HIKVISION_SYNC_QUEUE,
-    }),
+    ConditionalBullModule.registerQueue(HIKVISION_SYNC_QUEUE),
     forwardRef(() => AttendanceProcessingModule),
   ],
   controllers: [

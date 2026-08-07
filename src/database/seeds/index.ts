@@ -39,6 +39,11 @@ import AccessGroupsSeeder from './023-access-groups.seed';
 // Phase 8 - Calendar and Assets
 import HolidaysSeeder from './035-holidays.seed';
 import DefaultAvatarsSeeder from './037-default-avatars.seed';
+import PayrollBaselineSeeder from './038-payroll-baseline.seed';
+import EmployeeFinanceProductsSeeder from './039-employee-finance-products.seed';
+import ProbationBaselineSeeder from './040-probation-baseline.seed';
+import PerformanceBaselineSeeder from './041-performance-baseline.seed';
+import PerformanceKpiBaselineSeeder from './042-performance-kpi-baseline.seed';
 
 const seeders = [
   PermissionsSeeder,
@@ -64,6 +69,11 @@ const seeders = [
   AccessGroupsSeeder,
   HolidaysSeeder,
   DefaultAvatarsSeeder,
+  PayrollBaselineSeeder,
+  EmployeeFinanceProductsSeeder,
+  ProbationBaselineSeeder,
+  PerformanceBaselineSeeder,
+  PerformanceKpiBaselineSeeder,
 ];
 
 export async function runAllSeeders(dataSource: DataSource): Promise<void> {

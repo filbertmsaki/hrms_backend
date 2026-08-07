@@ -1,7 +1,12 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { EmployeeMovementsService } from './employee-movements.service';
+import { AttendanceRecalculationJob } from '../attendance/processing/entities/attendance-recalculation-job.entity';
+import { CompanyUserBranchAccess } from '../branches/entities/company-user-branch-access.entity';
 import { EmployeeMovement } from './entities/employee-movement.entity';
+import { EmployeeMovementOperation } from './entities/employee-movement-operation.entity';
 import { EmployeeMovementTypeEnum } from './enums/employee-movement-type.enum';
+import { EmployeeMovementOperationStatusEnum } from './enums/employee-movement-operation-status.enum';
+import { EmployeeMovementOperationTypeEnum } from './enums/employee-movement-operation-type.enum';
 import { EmployeeMovementStatusEnum } from './enums/employee-movement-status.enum';
 import { EmployeeMovementFieldEnum } from './enums/employee-movement-field.enum';
 import { Employee } from '../employees/entities/employee.entity';
@@ -315,6 +320,176 @@ describe('EmployeeMovementsService', () => {
         { id: 1, companyId: 10 },
         expect.objectContaining({
           status: EmployeeMovementStatusEnum.APPLICATION_FAILED,
+        }),
+      );
+    });
+  });
+
+  describe('retryOperation - downstream integrations', () => {
+    const buildMovement = (
+      overrides: Partial<EmployeeMovement> = {},
+    ): EmployeeMovement =>
+      ({
+        id: 1,
+        companyId: 10,
+        employeeId: 2,
+        movementNo: 'MOV-2026-000001',
+        status: EmployeeMovementStatusEnum.APPLIED,
+        requestedByCompanyUserId: 90,
+        approvedByCompanyUserId: 91,
+        movementType: EmployeeMovementTypeEnum.BRANCH_TRANSFER,
+        effectiveDate: '2026-08-01',
+        changes: [],
+        employee: buildEmployee({ company_user_id: 20 }),
+        metadata: null,
+        ...overrides,
+      }) as EmployeeMovement;
+
+    it('queues an attendance recalculation job when retrying that operation type', async () => {
+      const movement = buildMovement();
+      const operation = {
+        id: 55,
+        companyId: 10,
+        movementId: movement.id,
+        operationType:
+          EmployeeMovementOperationTypeEnum.RECALCULATE_ATTENDANCE_ASSIGNMENT,
+        status: EmployeeMovementOperationStatusEnum.PENDING,
+        attemptCount: 0,
+        payload: { employee_id: movement.employeeId },
+      } as EmployeeMovementOperation;
+
+      const operationRepo = createRepositoryMock();
+      operationRepo.createQueryBuilder.mockReturnValue(
+        createQueryBuilderMock({
+          getOne: jest.fn().mockResolvedValue(operation),
+        }),
+      );
+
+      const movementTxRepo = createRepositoryMock();
+      movementTxRepo.findOneOrFail.mockResolvedValue(movement);
+
+      const jobRepo = createRepositoryMock();
+      jobRepo.findOne.mockResolvedValue(null);
+      jobRepo.save.mockImplementation(async (value: Record<string, unknown>) => ({
+        id: 77,
+        ...value,
+      }));
+
+      movementRepository.findOne.mockResolvedValue(movement);
+      dataSource.transaction.mockImplementation(async (cb) =>
+        cb({
+          getRepository: jest.fn((entity: unknown) => {
+            if (entity === EmployeeMovementOperation) {
+              return operationRepo;
+            }
+            if (entity === EmployeeMovement) {
+              return movementTxRepo;
+            }
+            if (entity === AttendanceRecalculationJob) {
+              return jobRepo;
+            }
+            throw new Error('Unexpected repository requested');
+          }),
+        }),
+      );
+
+      const result = await service.retryOperation(actor, movement.id, operation.id);
+
+      expect(result.status).toBe(EmployeeMovementOperationStatusEnum.COMPLETED);
+      expect(result.result).toEqual(
+        expect.objectContaining({
+          queued: true,
+          job_id: 77,
+        }),
+      );
+      expect(jobRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          companyId: 10,
+          employeeId: movement.employeeId,
+          reason: `Employee movement ${movement.movementNo} attendance refresh`,
+        }),
+      );
+    });
+
+    it('grants missing branch access when retrying the branch access operation', async () => {
+      const movement = buildMovement({
+        changes: [
+          {
+            field: EmployeeMovementFieldEnum.BRANCH,
+            newReferenceId: 5,
+          } as never,
+        ],
+      });
+      const operation = {
+        id: 56,
+        companyId: 10,
+        movementId: movement.id,
+        operationType: EmployeeMovementOperationTypeEnum.UPDATE_BRANCH_ACCESS,
+        status: EmployeeMovementOperationStatusEnum.PENDING,
+        attemptCount: 0,
+        payload: { branch_id: 5 },
+      } as EmployeeMovementOperation;
+
+      const operationRepo = createRepositoryMock();
+      operationRepo.createQueryBuilder.mockReturnValue(
+        createQueryBuilderMock({
+          getOne: jest.fn().mockResolvedValue(operation),
+        }),
+      );
+
+      const movementTxRepo = createRepositoryMock();
+      movementTxRepo.findOne.mockResolvedValue(movement);
+
+      const employeeRepo = createRepositoryMock();
+      employeeRepo.findOne.mockResolvedValue({
+        id: movement.employeeId,
+        company_user_id: 20,
+      });
+
+      const branchAccessRepo = createRepositoryMock();
+      branchAccessRepo.findOne.mockResolvedValue(null);
+      branchAccessRepo.save.mockImplementation(
+        async (value: Record<string, unknown>) => ({
+          id: 88,
+          ...value,
+        }),
+      );
+
+      movementRepository.findOne.mockResolvedValue(movement);
+      dataSource.transaction.mockImplementation(async (cb) =>
+        cb({
+          getRepository: jest.fn((entity: unknown) => {
+            if (entity === EmployeeMovementOperation) {
+              return operationRepo;
+            }
+            if (entity === EmployeeMovement) {
+              return movementTxRepo;
+            }
+            if (entity === Employee) {
+              return employeeRepo;
+            }
+            if (entity === CompanyUserBranchAccess) {
+              return branchAccessRepo;
+            }
+            throw new Error('Unexpected repository requested');
+          }),
+        }),
+      );
+
+      const result = await service.retryOperation(actor, movement.id, operation.id);
+
+      expect(result.status).toBe(EmployeeMovementOperationStatusEnum.COMPLETED);
+      expect(result.result).toEqual(
+        expect.objectContaining({
+          granted: true,
+          assignment_id: 88,
+          branch_id: 5,
+        }),
+      );
+      expect(branchAccessRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          company_user_id: 20,
+          branch_id: 5,
         }),
       );
     });

@@ -13,6 +13,7 @@ import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user
 import type { AuditRequestContext } from '../../../common/interfaces/audit-request-context.interface';
 import { hashPassword } from '../../../common/utils/hash.util';
 import { hasPermission } from '../../../common/utils/permission.util';
+import { normalizeTanzaniaPhone } from '../../../common/utils/tanzania-phone.util';
 import { CompaniesService } from '../../companies/companies.service';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { FilesService } from '../../files/files.service';
@@ -102,6 +103,16 @@ const EMPTY_AUDIT_CONTEXT: AuditRequestContext = {
   userAgent: null,
   requestId: null,
 };
+const ARCHIVED_CONTACT_NOTE_PREFIX = '[ARCHIVED_CONTACT]';
+const ARCHIVED_ADDRESS_PREFIX = '[ARCHIVED_ADDRESS]';
+const ARCHIVED_RELATIVE_PREFIX = '[ARCHIVED_RELATIVE]';
+const ARCHIVED_IDENTIFICATION_PREFIX = '[ARCHIVED_IDENTIFICATION]';
+const ARCHIVED_DOCUMENT_NOTE_PREFIX = '[ARCHIVED_DOCUMENT]';
+const ARCHIVED_BANK_ACCOUNT_STATUS = 'ARCHIVED';
+const ARCHIVED_ACADEMIC_QUALIFICATION_PREFIX = '[ARCHIVED_ACADEMIC]';
+const ARCHIVED_PROFESSIONAL_QUALIFICATION_PREFIX =
+  '[ARCHIVED_PROFESSIONAL]';
+const ARCHIVED_EXPERIENCE_PREFIX = '[ARCHIVED_EXPERIENCE]';
 
 @Injectable()
 export class EmployeesService {
@@ -638,6 +649,112 @@ export class EmployeesService {
     };
   }
 
+  private isArchivedDocument(document: EmployeeDocument): boolean {
+    return (
+      document.notes?.startsWith(ARCHIVED_DOCUMENT_NOTE_PREFIX) ?? false
+    );
+  }
+
+  private isArchivedContact(contact: EmployeeContact): boolean {
+    return contact.notes?.startsWith(ARCHIVED_CONTACT_NOTE_PREFIX) ?? false;
+  }
+
+  private isArchivedAddress(address: EmployeeAddress): boolean {
+    return (
+      address.address_line_1?.startsWith(ARCHIVED_ADDRESS_PREFIX) ?? false
+    );
+  }
+
+  private isArchivedRelative(relative: EmployeeRelative): boolean {
+    return (
+      relative.relationship?.startsWith(ARCHIVED_RELATIVE_PREFIX) ?? false
+    );
+  }
+
+  private isArchivedIdentification(
+    identification: EmployeeIdentification,
+  ): boolean {
+    return (
+      identification.identification_number?.startsWith(
+        ARCHIVED_IDENTIFICATION_PREFIX,
+      ) ?? false
+    );
+  }
+
+  private isArchivedBankAccount(bankAccount: EmployeeBankAccount): boolean {
+    return bankAccount.verification_status === ARCHIVED_BANK_ACCOUNT_STATUS;
+  }
+
+  private isArchivedAcademicQualification(
+    qualification: EmployeeAcademicQualification,
+  ): boolean {
+    return (
+      qualification.field_of_study?.startsWith(
+        ARCHIVED_ACADEMIC_QUALIFICATION_PREFIX,
+      ) ?? false
+    );
+  }
+
+  private isArchivedProfessionalQualification(
+    qualification: EmployeeProfessionalQualification,
+  ): boolean {
+    return (
+      qualification.programme_name?.startsWith(
+        ARCHIVED_PROFESSIONAL_QUALIFICATION_PREFIX,
+      ) ?? false
+    );
+  }
+
+  private isArchivedExperienceDetail(
+    experienceDetail: EmployeeExperience,
+  ): boolean {
+    return (
+      experienceDetail.job_title?.startsWith(ARCHIVED_EXPERIENCE_PREFIX) ??
+      false
+    );
+  }
+
+  private buildArchiveAuditNote(
+    prefix: string,
+    actor: AuthenticatedUser,
+    existingNotes?: string | null,
+  ): string {
+    const archiveNote = `${prefix} archived_at=${new Date().toISOString()} archived_by_company_user_id=${actor.companyMembershipId ?? 'unknown'}`;
+
+    if (!existingNotes) {
+      return archiveNote;
+    }
+
+    return `${archiveNote}\n${existingNotes}`;
+  }
+
+  private buildArchivedFieldValue(
+    prefix: string,
+    value: string | null | undefined,
+    maxLength: number,
+  ): string {
+    const normalizedValue = this.normalizeOptionalString(value);
+    const archivedValue = normalizedValue
+      ? `${prefix} ${normalizedValue}`
+      : prefix;
+
+    return archivedValue.slice(0, maxLength);
+  }
+
+  private buildArchivedUniqueFieldValue(
+    prefix: string,
+    uniqueToken: string,
+    value: string | null | undefined,
+    maxLength: number,
+  ): string {
+    const normalizedValue = this.normalizeOptionalString(value);
+    const archivedValue = normalizedValue
+      ? `${prefix} ${uniqueToken} ${normalizedValue}`
+      : `${prefix} ${uniqueToken}`;
+
+    return archivedValue.slice(0, maxLength);
+  }
+
   private mapAcademicQualification(
     academicQualification: EmployeeAcademicQualification,
   ) {
@@ -824,37 +941,61 @@ export class EmployeesService {
           notes: assignment.notes,
           position: this.mapPosition(assignment.position),
         })) ?? [],
-      contacts: this.sortPrimaryFirst(employee.contacts).map((contact) =>
-        this.mapContact(contact),
-      ),
-      addresses: this.sortPrimaryFirst(employee.addresses).map((address) =>
-        this.mapAddress(address),
-      ),
-      relatives: this.sortPrimaryFirst(employee.relatives).map((relative) =>
-        this.mapRelative(relative),
-      ),
-      identifications: this.sortPrimaryFirst(employee.identifications).map(
-        (identification) => this.mapIdentification(identification),
-      ),
-      bank_accounts: this.sortPrimaryFirst(employee.bank_accounts).map(
-        (bankAccount) => this.mapBankAccount(bankAccount),
-      ),
+      contacts: this.sortPrimaryFirst(
+        employee.contacts?.filter((contact) => !this.isArchivedContact(contact)),
+      ).map((contact) => this.mapContact(contact)),
+      addresses: this.sortPrimaryFirst(
+        employee.addresses?.filter((address) => !this.isArchivedAddress(address)),
+      ).map((address) => this.mapAddress(address)),
+      relatives: this.sortPrimaryFirst(
+        employee.relatives?.filter(
+          (relative) => !this.isArchivedRelative(relative),
+        ),
+      ).map((relative) => this.mapRelative(relative)),
+      identifications: this.sortPrimaryFirst(
+        employee.identifications?.filter(
+          (identification) => !this.isArchivedIdentification(identification),
+        ),
+      ).map((identification) => this.mapIdentification(identification)),
+      bank_accounts: this.sortPrimaryFirst(
+        employee.bank_accounts.filter(
+          (bankAccount) => !this.isArchivedBankAccount(bankAccount),
+        ),
+      ).map((bankAccount) => this.mapBankAccount(bankAccount)),
       academic_qualifications:
-        employee.academic_qualifications?.map((academicQualification) =>
-          this.mapAcademicQualification(academicQualification),
-        ) ?? [],
+        employee.academic_qualifications
+          ?.filter(
+            (academicQualification) =>
+              !this.isArchivedAcademicQualification(academicQualification),
+          )
+          .map((academicQualification) =>
+            this.mapAcademicQualification(academicQualification),
+          ) ?? [],
       professional_qualifications:
-        employee.professional_qualifications?.map((professionalQualification) =>
-          this.mapProfessionalQualification(professionalQualification),
-        ) ?? [],
+        employee.professional_qualifications
+          ?.filter(
+            (professionalQualification) =>
+              !this.isArchivedProfessionalQualification(
+                professionalQualification,
+              ),
+          )
+          .map((professionalQualification) =>
+            this.mapProfessionalQualification(professionalQualification),
+          ) ?? [],
       experience_details:
-        employee.experience_details?.map((experienceDetail) =>
-          this.mapExperienceDetail(experienceDetail),
-        ) ?? [],
+        employee.experience_details
+          ?.filter(
+            (experienceDetail) =>
+              !this.isArchivedExperienceDetail(experienceDetail),
+          )
+          .map((experienceDetail) =>
+            this.mapExperienceDetail(experienceDetail),
+          ) ?? [],
       company_user: this.mapMembership(employee.company_user),
       documents: includeDocuments
-        ? (employee.documents?.map((document) => this.mapDocument(document)) ??
-          [])
+        ? (employee.documents
+            ?.filter((document) => !this.isArchivedDocument(document))
+            .map((document) => this.mapDocument(document)) ?? [])
         : undefined,
     };
   }
@@ -1016,14 +1157,13 @@ export class EmployeesService {
       createEmployeeDto.contacts,
       'email',
     );
-    const phone = this.getPrimaryContactValue(
-      createEmployeeDto.contacts,
-      'phone_number',
+    const phone = normalizeTanzaniaPhone(
+      this.getPrimaryContactValue(createEmployeeDto.contacts, 'phone_number'),
     );
 
     if (!email || !phone) {
       throw new BadRequestException(
-        'Employee contact details must include an email and phone number',
+        'Employee contact details must include an email and a valid Tanzanian phone number in +255 format',
       );
     }
 
@@ -3544,6 +3684,10 @@ export class EmployeesService {
       throw new NotFoundException('Employee document not found');
     }
 
+    if (this.isArchivedDocument(document)) {
+      throw new NotFoundException('Employee document has been archived');
+    }
+
     const buffer = await this.filesService.readManagedFile(document.file_url);
 
     if (!buffer) {
@@ -3582,11 +3726,21 @@ export class EmployeesService {
       throw new NotFoundException('Employee document not found');
     }
 
-    const filePath = document.file_url;
-    await this.employeeDocumentRepository.remove(document);
-    await this.filesService.removeManagedFile(filePath);
+    if (this.isArchivedDocument(document)) {
+      return {
+        message:
+          'Employee document retained in historical records. Hard delete is disabled.',
+      };
+    }
 
-    return { message: 'Employee document deleted successfully' };
+    document.notes = this.buildArchiveAuditNote(
+      ARCHIVED_DOCUMENT_NOTE_PREFIX,
+      actor,
+      document.notes,
+    );
+    await this.employeeDocumentRepository.save(document);
+
+    return { message: 'Employee document archived successfully' };
   }
 
   // ──────────────────────────────────────────────
@@ -3637,6 +3791,10 @@ export class EmployeesService {
       throw new NotFoundException('Employee contact not found');
     }
 
+    if (this.isArchivedContact(contact)) {
+      throw new NotFoundException('Employee contact has been archived');
+    }
+
     if (dto.contact_type !== undefined) contact.contact_type = dto.contact_type;
     if (dto.phone_number !== undefined)
       contact.phone_number = this.normalizeOptionalString(dto.phone_number);
@@ -3670,8 +3828,23 @@ export class EmployeesService {
       throw new NotFoundException('Employee contact not found');
     }
 
-    await repository.remove(contact);
-    return { message: 'Employee contact deleted successfully' };
+    if (this.isArchivedContact(contact)) {
+      return {
+        message:
+          'Employee contact retained in historical records. Hard delete is disabled.',
+      };
+    }
+
+    contact.is_primary = false;
+    contact.is_verified = false;
+    contact.notes = this.buildArchiveAuditNote(
+      ARCHIVED_CONTACT_NOTE_PREFIX,
+      actor,
+      contact.notes,
+    );
+
+    await repository.save(contact);
+    return { message: 'Employee contact archived successfully' };
   }
 
   // ──────────────────────────────────────────────
@@ -3724,6 +3897,10 @@ export class EmployeesService {
       throw new NotFoundException('Employee address not found');
     }
 
+    if (this.isArchivedAddress(address)) {
+      throw new NotFoundException('Employee address has been archived');
+    }
+
     if (dto.address_line_1 !== undefined)
       address.address_line_1 = this.normalizeOptionalString(dto.address_line_1);
     if (dto.address_line_2 !== undefined)
@@ -3761,8 +3938,22 @@ export class EmployeesService {
       throw new NotFoundException('Employee address not found');
     }
 
-    await repository.remove(address);
-    return { message: 'Employee address deleted successfully' };
+    if (this.isArchivedAddress(address)) {
+      return {
+        message:
+          'Employee address retained in historical records. Hard delete is disabled.',
+      };
+    }
+
+    address.address_line_1 = this.buildArchivedFieldValue(
+      ARCHIVED_ADDRESS_PREFIX,
+      address.address_line_1,
+      255,
+    );
+    address.is_primary = false;
+
+    await repository.save(address);
+    return { message: 'Employee address archived successfully' };
   }
 
   // ──────────────────────────────────────────────
@@ -3815,6 +4006,10 @@ export class EmployeesService {
       throw new NotFoundException('Employee relative not found');
     }
 
+    if (this.isArchivedRelative(relative)) {
+      throw new NotFoundException('Employee relative has been archived');
+    }
+
     if (dto.full_name !== undefined) relative.full_name = dto.full_name.trim();
     if (dto.relationship !== undefined)
       relative.relationship = dto.relationship.trim();
@@ -3853,8 +4048,23 @@ export class EmployeesService {
       throw new NotFoundException('Employee relative not found');
     }
 
-    await repository.remove(relative);
-    return { message: 'Employee relative deleted successfully' };
+    if (this.isArchivedRelative(relative)) {
+      return {
+        message:
+          'Employee relative retained in historical records. Hard delete is disabled.',
+      };
+    }
+
+    relative.relationship = this.buildArchivedFieldValue(
+      ARCHIVED_RELATIVE_PREFIX,
+      relative.relationship,
+      100,
+    );
+    relative.is_primary = false;
+    relative.is_emergency_contact = false;
+
+    await repository.save(relative);
+    return { message: 'Employee relative archived successfully' };
   }
 
   // ──────────────────────────────────────────────
@@ -3910,6 +4120,10 @@ export class EmployeesService {
       throw new NotFoundException('Employee identification not found');
     }
 
+    if (this.isArchivedIdentification(identification)) {
+      throw new NotFoundException('Employee identification has been archived');
+    }
+
     if (dto.identification_type !== undefined)
       identification.identification_type = dto.identification_type;
     if (dto.identification_number !== undefined)
@@ -3955,8 +4169,26 @@ export class EmployeesService {
       throw new NotFoundException('Employee identification not found');
     }
 
-    await repository.remove(identification);
-    return { message: 'Employee identification deleted successfully' };
+    if (this.isArchivedIdentification(identification)) {
+      return {
+        message:
+          'Employee identification retained in historical records. Hard delete is disabled.',
+      };
+    }
+
+    identification.identification_number = this.buildArchivedUniqueFieldValue(
+      ARCHIVED_IDENTIFICATION_PREFIX,
+      String(identification.id),
+      identification.identification_number,
+      120,
+    );
+    identification.is_primary = false;
+    identification.is_verified = false;
+    identification.verified_at = null;
+    identification.verified_by_company_user_id = null;
+
+    await repository.save(identification);
+    return { message: 'Employee identification archived successfully' };
   }
 
   // ──────────────────────────────────────────────
@@ -4020,6 +4252,10 @@ export class EmployeesService {
 
     if (!bankAccount) {
       throw new NotFoundException('Employee bank account not found');
+    }
+
+    if (this.isArchivedBankAccount(bankAccount)) {
+      throw new NotFoundException('Employee bank account has been archived');
     }
 
     if (dto.bank_name !== undefined)
@@ -4087,8 +4323,20 @@ export class EmployeesService {
       throw new NotFoundException('Employee bank account not found');
     }
 
-    await repository.remove(bankAccount);
-    return { message: 'Employee bank account deleted successfully' };
+    if (this.isArchivedBankAccount(bankAccount)) {
+      return {
+        message:
+          'Employee bank account retained in historical records. Hard delete is disabled.',
+      };
+    }
+
+    bankAccount.verification_status = ARCHIVED_BANK_ACCOUNT_STATUS;
+    bankAccount.is_primary = false;
+    bankAccount.effective_to =
+      bankAccount.effective_to ?? formatDateOnly(new Date());
+
+    await repository.save(bankAccount);
+    return { message: 'Employee bank account archived successfully' };
   }
 
   async listAcademicQualifications(
@@ -4110,9 +4358,9 @@ export class EmployeesService {
       order: { id: 'ASC' },
     });
 
-    return qualifications.map((qualification) =>
-      this.mapAcademicQualification(qualification),
-    );
+    return qualifications
+      .filter((qualification) => !this.isArchivedAcademicQualification(qualification))
+      .map((qualification) => this.mapAcademicQualification(qualification));
   }
 
   async addAcademicQualification(
@@ -4183,6 +4431,12 @@ export class EmployeesService {
       throw new NotFoundException('Employee academic qualification not found');
     }
 
+    if (this.isArchivedAcademicQualification(qualification)) {
+      throw new NotFoundException(
+        'Employee academic qualification has been archived',
+      );
+    }
+
     if (dto.country_of_residence !== undefined) {
       qualification.country_of_residence = dto.country_of_residence.trim();
     }
@@ -4239,8 +4493,21 @@ export class EmployeesService {
       throw new NotFoundException('Employee academic qualification not found');
     }
 
-    await repository.remove(qualification);
-    return { message: 'Employee academic qualification deleted successfully' };
+    if (this.isArchivedAcademicQualification(qualification)) {
+      return {
+        message:
+          'Employee academic qualification retained in historical records. Hard delete is disabled.',
+      };
+    }
+
+    qualification.field_of_study = this.buildArchivedFieldValue(
+      ARCHIVED_ACADEMIC_QUALIFICATION_PREFIX,
+      qualification.field_of_study,
+      150,
+    );
+
+    await repository.save(qualification);
+    return { message: 'Employee academic qualification archived successfully' };
   }
 
   async listProfessionalQualifications(
@@ -4262,9 +4529,12 @@ export class EmployeesService {
       order: { id: 'ASC' },
     });
 
-    return qualifications.map((qualification) =>
-      this.mapProfessionalQualification(qualification),
-    );
+    return qualifications
+      .filter(
+        (qualification) =>
+          !this.isArchivedProfessionalQualification(qualification),
+      )
+      .map((qualification) => this.mapProfessionalQualification(qualification));
   }
 
   async addProfessionalQualification(
@@ -4338,6 +4608,12 @@ export class EmployeesService {
       );
     }
 
+    if (this.isArchivedProfessionalQualification(qualification)) {
+      throw new NotFoundException(
+        'Employee professional qualification has been archived',
+      );
+    }
+
     if (dto.country_of_residence !== undefined) {
       qualification.country_of_residence = dto.country_of_residence.trim();
     }
@@ -4395,9 +4671,22 @@ export class EmployeesService {
       );
     }
 
-    await repository.remove(qualification);
+    if (this.isArchivedProfessionalQualification(qualification)) {
+      return {
+        message:
+          'Employee professional qualification retained in historical records. Hard delete is disabled.',
+      };
+    }
+
+    qualification.programme_name = this.buildArchivedFieldValue(
+      ARCHIVED_PROFESSIONAL_QUALIFICATION_PREFIX,
+      qualification.programme_name,
+      150,
+    );
+
+    await repository.save(qualification);
     return {
-      message: 'Employee professional qualification deleted successfully',
+      message: 'Employee professional qualification archived successfully',
     };
   }
 
@@ -4415,9 +4704,12 @@ export class EmployeesService {
       order: { start_date: 'DESC', id: 'DESC' },
     });
 
-    return experienceDetails.map((experienceDetail) =>
-      this.mapExperienceDetail(experienceDetail),
-    );
+    return experienceDetails
+      .filter(
+        (experienceDetail) =>
+          !this.isArchivedExperienceDetail(experienceDetail),
+      )
+      .map((experienceDetail) => this.mapExperienceDetail(experienceDetail));
   }
 
   async addExperienceDetail(
@@ -4481,6 +4773,10 @@ export class EmployeesService {
       throw new NotFoundException('Employee experience detail not found');
     }
 
+    if (this.isArchivedExperienceDetail(experienceDetail)) {
+      throw new NotFoundException('Employee experience detail has been archived');
+    }
+
     if (dto.company_name !== undefined) {
       experienceDetail.company_name = dto.company_name.trim();
     }
@@ -4541,18 +4837,61 @@ export class EmployeesService {
       throw new NotFoundException('Employee experience detail not found');
     }
 
-    await repository.remove(experienceDetail);
-    return { message: 'Employee experience detail deleted successfully' };
+    if (this.isArchivedExperienceDetail(experienceDetail)) {
+      return {
+        message:
+          'Employee experience detail retained in historical records. Hard delete is disabled.',
+      };
+    }
+
+    experienceDetail.job_title = this.buildArchivedFieldValue(
+      ARCHIVED_EXPERIENCE_PREFIX,
+      experienceDetail.job_title,
+      150,
+    );
+    experienceDetail.currently_working = false;
+    experienceDetail.end_date =
+      experienceDetail.end_date ?? formatDateOnly(new Date());
+
+    await repository.save(experienceDetail);
+    return { message: 'Employee experience detail archived successfully' };
   }
 
   async remove(
     companyId: number,
     employeeId: number,
     actor: AuthenticatedUser,
+    context: AuditRequestContext = EMPTY_AUDIT_CONTEXT,
   ): Promise<{ message: string }> {
     const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
-    await this.employeeRepository.remove(employee);
-    return { message: 'Employee deleted successfully' };
+
+    if (
+      [
+        EmploymentStatusEnum.INACTIVE,
+        EmploymentStatusEnum.RESIGNED,
+        EmploymentStatusEnum.TERMINATED,
+        EmploymentStatusEnum.RETIRED,
+        EmploymentStatusEnum.EXITED,
+      ].includes(employee.employment_status)
+    ) {
+      return {
+        message:
+          'Employee retained in historical records. Hard delete is disabled.',
+      };
+    }
+
+    await this.changeStatus(
+      companyId,
+      employeeId,
+      {
+        employment_status: EmploymentStatusEnum.INACTIVE,
+        effective_date: formatDateOnly(new Date()),
+      },
+      actor,
+      context,
+    );
+
+    return { message: 'Employee archived successfully' };
   }
 }

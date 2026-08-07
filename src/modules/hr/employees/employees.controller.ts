@@ -373,12 +373,21 @@ export class EmployeesController {
   @Delete(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:delete')
-  @ApiDeleteOperation('Employee', 'Delete an employee profile')
+  @ApiDeleteOperation(
+    'Employee',
+    'Archive an employee profile without permanently deleting historical data',
+  )
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
+    @CurrentAuditContext() context: AuditRequestContext,
   ) {
-    return this.employeesService.remove(req.user.companyId!, id, req.user);
+    return this.employeesService.remove(
+      req.user.companyId!,
+      id,
+      req.user,
+      context,
+    );
   }
 
   // ════════════════════════════════════════════

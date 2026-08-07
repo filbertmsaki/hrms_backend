@@ -1,25 +1,7 @@
-import { DataSource, DataSourceOptions } from 'typeorm';
-import { SeederOptions } from 'typeorm-extension';
+import { DataSource } from 'typeorm';
 import * as dotenv from 'dotenv';
+import { createAppDataSourceOptions } from './typeorm-options';
 
 dotenv.config();
 
-export const AppDataSource = new DataSource({
-  type: 'postgres',
-  host: process.env.DB_HOST || 'localhost',
-  port: Number(process.env.DB_PORT) || 5432,
-  username: process.env.DB_USERNAME || 'postgres',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'hrms_db',
-
-  entities: ['src/**/*.entity{.ts,.js}', 'src/**/*.entities{.ts,.js}'],
-
-  migrations: ['src/database/migrations/*{.ts,.js}'],
-  migrationsTableName: 'migrations',
-
-  seeds: ['src/database/seeds/*.seed.ts'],
-  factories: ['src/database/factories/*.factory{.ts,.js}'],
-
-  synchronize: false, // NEVER true in production!
-  logging: process.env.NODE_ENV === 'development' ? ['query', 'error'] : false,
-} as DataSourceOptions & SeederOptions);
+export const AppDataSource = new DataSource(createAppDataSourceOptions());

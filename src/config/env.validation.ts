@@ -252,6 +252,21 @@ export function validateEnv(env: Env) {
     'MAIL_OVERRIDE_SUBJECT_PREFIX',
     '',
   );
+  const SMS_GATEWAY_ENABLED = optionalBool(env, 'SMS_GATEWAY_ENABLED', false);
+  const SMS_GATEWAY_URL = optionalString(env, 'SMS_GATEWAY_URL', '');
+  const SMS_GATEWAY_USERNAME = optionalString(env, 'SMS_GATEWAY_USERNAME', '');
+  const SMS_GATEWAY_PASSWORD = optionalString(env, 'SMS_GATEWAY_PASSWORD', '');
+  const SMS_GATEWAY_SHORTCODE = optionalString(
+    env,
+    'SMS_GATEWAY_SHORTCODE',
+    '',
+  );
+  const SMS_GATEWAY_CHANNEL = optionalString(env, 'SMS_GATEWAY_CHANNEL', '');
+  const SMS_GATEWAY_TIMEOUT_MS = optionalInt(
+    env,
+    'SMS_GATEWAY_TIMEOUT_MS',
+    10000,
+  );
 
   const mailSafetyConfig = resolveMailRecipientSafetyConfig({
     appEnv: APP_ENV,
@@ -1201,26 +1216,6 @@ export function validateEnv(env: Env) {
     'PAYROLL_DEFAULT_PAYMENT_DAY',
     28,
   );
-  const PAYROLL_CALCULATION_QUEUE_ENABLED = optionalBool(
-    env,
-    'PAYROLL_CALCULATION_QUEUE_ENABLED',
-    true,
-  );
-  const PAYROLL_QUEUE_CONCURRENCY = optionalInt(
-    env,
-    'PAYROLL_QUEUE_CONCURRENCY',
-    1,
-  );
-  const PAYROLL_MAX_JOB_ATTEMPTS = optionalInt(
-    env,
-    'PAYROLL_MAX_JOB_ATTEMPTS',
-    3,
-  );
-  const PAYROLL_RETRY_DELAY_MS = optionalInt(
-    env,
-    'PAYROLL_RETRY_DELAY_MS',
-    60000,
-  );
   const PAYROLL_REQUIRE_HR_APPROVAL = optionalBool(
     env,
     'PAYROLL_REQUIRE_HR_APPROVAL',
@@ -1443,9 +1438,6 @@ export function validateEnv(env: Env) {
     'ANALYTICS_RETENTION_CRON',
     '0 0 4 * * 0',
   );
-  const ANALYTICS_QUEUE_CONCURRENCY = optionalInt(env, 'ANALYTICS_QUEUE_CONCURRENCY', 1);
-  const ANALYTICS_MAX_JOB_ATTEMPTS = optionalInt(env, 'ANALYTICS_MAX_JOB_ATTEMPTS', 5);
-  const ANALYTICS_RETRY_DELAY_MS = optionalInt(env, 'ANALYTICS_RETRY_DELAY_MS', 60000);
   const ANALYTICS_DASHBOARD_CACHE_ENABLED = optionalBool(
     env,
     'ANALYTICS_DASHBOARD_CACHE_ENABLED',
@@ -1704,6 +1696,13 @@ export function validateEnv(env: Env) {
     MAIL_TEST_BCC,
     MAIL_OVERRIDE_ADD_ORIGINAL_RECIPIENTS_TO_BODY,
     MAIL_OVERRIDE_SUBJECT_PREFIX,
+    SMS_GATEWAY_ENABLED,
+    SMS_GATEWAY_URL,
+    SMS_GATEWAY_USERNAME,
+    SMS_GATEWAY_PASSWORD,
+    SMS_GATEWAY_SHORTCODE,
+    SMS_GATEWAY_CHANNEL,
+    SMS_GATEWAY_TIMEOUT_MS,
     USE_REDIS,
     REDIS_URL,
     HEALTH_DISK_PATH,
@@ -1885,10 +1884,6 @@ export function validateEnv(env: Env) {
     PAYROLL_DEFAULT_TIMEZONE,
     PAYROLL_DEFAULT_CUTOFF_DAY,
     PAYROLL_DEFAULT_PAYMENT_DAY,
-    PAYROLL_CALCULATION_QUEUE_ENABLED,
-    PAYROLL_QUEUE_CONCURRENCY,
-    PAYROLL_MAX_JOB_ATTEMPTS,
-    PAYROLL_RETRY_DELAY_MS,
     PAYROLL_REQUIRE_HR_APPROVAL,
     PAYROLL_REQUIRE_FINANCE_APPROVAL,
     PAYROLL_REQUIRE_MANAGEMENT_APPROVAL,
@@ -1939,9 +1934,6 @@ export function validateEnv(env: Env) {
     ANALYTICS_MONTHLY_CLOSE_CRON,
     ANALYTICS_RECONCILIATION_CRON,
     ANALYTICS_RETENTION_CRON,
-    ANALYTICS_QUEUE_CONCURRENCY,
-    ANALYTICS_MAX_JOB_ATTEMPTS,
-    ANALYTICS_RETRY_DELAY_MS,
     ANALYTICS_DASHBOARD_CACHE_ENABLED,
     ANALYTICS_DASHBOARD_CACHE_TTL_SECONDS,
     ANALYTICS_EXECUTIVE_CACHE_TTL_SECONDS,

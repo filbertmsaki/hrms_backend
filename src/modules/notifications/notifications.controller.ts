@@ -82,6 +82,7 @@ export class NotificationsController {
       action_url: dto.action_url ?? null,
       dedupe_key: dto.dedupe_key ?? null,
       metadata: dto.metadata ?? null,
+      delivery_channel: dto.delivery_channel,
     });
   }
 

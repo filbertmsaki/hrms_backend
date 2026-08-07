@@ -12,9 +12,11 @@ import {
   OffboardingApprovalReminderEvent,
   OffboardingApprovalRequiredEvent,
   OffboardingApprovedEvent,
+  OffboardingAssetOverdueEvent,
   OffboardingClearanceOverdueEvent,
   OffboardingClearanceRequiredEvent,
   OffboardingCompletedEvent,
+  OffboardingSettlementOverdueEvent,
   OffboardingSubmittedEvent,
   OffboardingTaskAssignedEvent,
   OffboardingTaskOverdueEvent,
@@ -533,6 +535,36 @@ export class MailService {
         context: { ...this.baseCtx(), ...event },
       },
       'HrNotificationListener.sendOffboardingClearanceOverdueNotification',
+    );
+  }
+
+  async sendOffboardingAssetOverdueNotification(
+    to: string,
+    event: OffboardingAssetOverdueEvent,
+  ): Promise<void> {
+    await this.sendMail(
+      {
+        to,
+        subject: `Overdue Offboarding Asset Return - ${event.assetLabel}`,
+        template: 'hr-offboarding-asset-overdue',
+        context: { ...this.baseCtx(), ...event },
+      },
+      'HrNotificationListener.sendOffboardingAssetOverdueNotification',
+    );
+  }
+
+  async sendOffboardingSettlementOverdueNotification(
+    to: string,
+    event: OffboardingSettlementOverdueEvent,
+  ): Promise<void> {
+    await this.sendMail(
+      {
+        to,
+        subject: `Overdue Offboarding Settlement - ${event.settlementTitle}`,
+        template: 'hr-offboarding-settlement-overdue',
+        context: { ...this.baseCtx(), ...event },
+      },
+      'HrNotificationListener.sendOffboardingSettlementOverdueNotification',
     );
   }
 

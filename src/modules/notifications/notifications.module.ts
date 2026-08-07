@@ -7,6 +7,7 @@ import { PostgresAdvisoryLockService } from '../../common/database/postgres-advi
 import { AuthModule } from '../auth/auth.module';
 import { CompanyUser } from '../companies/entities/company-user.entity';
 import { MailModule } from '../mail/mail.module';
+import { SmsModule } from '../sms/sms.module';
 import { UsersModule } from '../users/users.module';
 import { AppNotification } from './entities/app-notification.entity';
 import { NotificationDelivery } from './entities/notification-delivery.entity';
@@ -42,6 +43,7 @@ import { NotificationsService } from './notifications.service';
     AuthModule,
     UsersModule,
     MailModule,
+    SmsModule,
   ],
   controllers: [NotificationsController],
   providers: [

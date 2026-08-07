@@ -54,6 +54,21 @@ describe('EmployeeFinanceInterestService', () => {
     expect(schedule[0].interest_due).toBe('12.00');
     expect(schedule[3].outstanding_after).toBe('0.00');
   });
+
+  it('preserves exact totals for fractional annual rates without floating-point drift', () => {
+    const schedule = service.calculateSchedule({
+      principal: '1000.00',
+      annualInterestRate: '12.345678',
+      termMonths: 3,
+      method: EmployeeFinanceInterestMethodEnum.FLAT_RATE,
+      firstRepaymentDate: '2026-09-28',
+      repaymentDay: 28,
+    });
+
+    expect(sum(schedule, 'principal_due')).toBe('1000.00');
+    expect(sum(schedule, 'interest_due')).toBe('30.86');
+    expect(sum(schedule, 'total_due')).toBe('1030.86');
+  });
 });
 
 function sum(
