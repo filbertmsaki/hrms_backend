@@ -1,4 +1,4 @@
-process.env.DB_NAME = 'hrms_test_db';
+process.env.DB_NAME = process.env.DB_NAME ?? 'hrms_test_db';
 
 const e2eUser = {
   id: 9,
