@@ -221,11 +221,6 @@ export function validateEnv(env: Env) {
       );
     }
 
-    if (APP_ENABLE_API_DOCS) {
-      throw new Error(
-        'APP_ENABLE_API_DOCS must be false in production. API documentation must not be publicly exposed.',
-      );
-    }
   }
 
   const MAIL_HOST = required(env, 'MAIL_HOST');
