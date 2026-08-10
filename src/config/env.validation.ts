@@ -89,6 +89,10 @@ function validateOrigin(value: string): string {
   return url.origin;
 }
 
+function isAllowedProductionLocalFrontendUrl(value: string): boolean {
+  return value === 'http://localhost:9991';
+}
+
 export function validateEnv(env: Env) {
   const DB_HOST = optionalString(env, 'DB_HOST', 'localhost');
   const DB_PORT = optionalInt(env, 'DB_PORT', 5432);
@@ -193,7 +197,10 @@ export function validateEnv(env: Env) {
       throw new Error('APP_URL cannot use localhost in production.');
     }
 
-    if (APP_FRONTEND_URL.includes('localhost')) {
+    if (
+      APP_FRONTEND_URL.includes('localhost') &&
+      !isAllowedProductionLocalFrontendUrl(APP_FRONTEND_URL)
+    ) {
       throw new Error('APP_FRONTEND_URL cannot use localhost in production.');
     }
 
