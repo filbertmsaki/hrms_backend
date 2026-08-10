@@ -18,16 +18,35 @@ import {
 import { SCALAR_DOCS_PATH, setupScalarDocumentation } from './docs/scalar-docs';
 
 async function bootstrap(): Promise<void> {
+  console.log('[BOOT-1] main.ts loaded');
+
   const logger = new Logger('Bootstrap');
 
+  console.log('[BOOT-2] Creating Nest application');
+
   const app = await NestFactory.create(AppModule, {
-    bufferLogs: true,
+    logger: ['log', 'error', 'warn', 'debug', 'verbose'],
   });
 
+  console.log('[BOOT-3] Nest application created');
+
   const configService = app.get(ConfigService);
+  console.log('[BOOT-4] ConfigService loaded');
+
   const appEnv = configService.get<string>('APP_ENV') ?? 'development';
   const host = configService.get<string>('APP_HOST') ?? '0.0.0.0';
-  const port = configService.get<number>('APP_PORT') ?? 8888;
+  const rawPort = configService.get<string | number>('APP_PORT');
+
+  if (!rawPort) {
+    throw new Error('APP_PORT is required');
+  }
+
+  const port = Number(rawPort);
+
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid APP_PORT value: ${String(rawPort)}`);
+  }
+
   const globalPrefix = configService.get<string>('APP_GLOBAL_PREFIX') ?? 'api';
   const allowedOrigins =
     configService.get<string[]>('APP_ALLOWED_ORIGINS') ?? [];
@@ -39,6 +58,14 @@ async function bootstrap(): Promise<void> {
     configService.get<string>('APP_PUBLIC_STORAGE_PATH') ?? 'uploads',
   );
 
+  console.log('[BOOT-5] Configuration loaded', {
+    appEnv,
+    host,
+    port,
+    globalPrefix,
+    enableApiDocs,
+  });
+
   if (trustProxy) {
     const expressApplication = app.getHttpAdapter().getInstance() as {
       set(setting: string, value: number): void;
@@ -49,9 +76,10 @@ async function bootstrap(): Promise<void> {
   app.setGlobalPrefix(globalPrefix, {
     exclude: [{ path: '', method: RequestMethod.GET }],
   });
-  app.use(
-    new CorrelationIdMiddleware().use.bind(new CorrelationIdMiddleware()),
-  );
+
+  const correlationIdMiddleware = new CorrelationIdMiddleware();
+
+  app.use(correlationIdMiddleware.use.bind(correlationIdMiddleware));
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalPipes(
     new ValidationPipe({
@@ -125,8 +153,14 @@ async function bootstrap(): Promise<void> {
     expressStatic(join(publicStorageRoot, 'default-avatars'), staticOptions),
   );
 
+  console.log('[BOOT-6] Middleware configured');
+
   if (enableApiDocs) {
+    console.log('[BOOT-7] Creating Swagger document');
+
     const document = createSwaggerDocument(app);
+
+    console.log('[BOOT-8] Swagger document created');
 
     setupSwaggerDocumentation(app, document);
     setupOpenApiJson(app, document);
@@ -136,23 +170,35 @@ async function bootstrap(): Promise<void> {
     logger.log(`Scalar documentation enabled at ${SCALAR_DOCS_PATH}`);
     logger.log(`OpenAPI JSON enabled at ${OPENAPI_JSON_PATH}`);
   } else {
+    console.log('[BOOT-7] API documentation disabled');
     logger.log('API documentation is disabled.');
   }
 
   app.enableShutdownHooks();
 
+  console.log(`[BOOT-8] Starting HTTP listener ${host}:${port}`);
+
   await app.listen(port, host);
+
+  console.log(
+    `[BOOT-9] HRMS API STARTED: http://${host}:${port}/${globalPrefix}`,
+  );
 
   logger.log(`HRMS API running in ${appEnv} mode on ${host}:${port}`);
 }
 
 bootstrap().catch((error: unknown) => {
-  const logger = new Logger('Bootstrap');
+  console.error('\n========================================');
+  console.error('HRMS BOOTSTRAP FAILED');
+  console.error('========================================');
 
-  logger.error(
-    'Failed to bootstrap HRMS application.',
-    error instanceof Error ? error.stack : String(error),
-  );
+  if (error instanceof Error) {
+    console.error(error.stack ?? error.message);
+  } else {
+    console.error(error);
+  }
+
+  console.error('========================================\n');
 
   process.exit(1);
 });

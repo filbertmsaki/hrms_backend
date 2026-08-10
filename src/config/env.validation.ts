@@ -166,7 +166,7 @@ export function validateEnv(env: Env) {
   );
   const APP_NAME = optionalString(env, 'APP_NAME', 'Alliance HRMS');
   const APP_HOST = optionalString(env, 'APP_HOST', '0.0.0.0');
-  const APP_PORT = optionalInt(env, 'APP_PORT', optionalInt(env, 'PORT', 8888));
+  const APP_PORT = optionalInt(env, 'APP_PORT', 8888);
   const APP_GLOBAL_PREFIX = optionalString(
     env,
     'APP_GLOBAL_PREFIX',
@@ -1739,7 +1739,6 @@ export function validateEnv(env: Env) {
     APP_NAME,
     APP_HOST,
     APP_PORT,
-    PORT: APP_PORT,
     APP_GLOBAL_PREFIX,
     APP_TIMEZONE,
     APP_URL,
