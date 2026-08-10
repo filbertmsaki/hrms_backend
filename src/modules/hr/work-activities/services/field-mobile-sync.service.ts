@@ -48,16 +48,13 @@ export class FieldMobileSyncService {
     return actor.employeeId;
   }
 
-  private asPayload<T extends Record<string, unknown>>(
-    payload: Record<string, unknown>,
-  ): T {
+  private asPayload<T extends object>(payload: Record<string, unknown>): T {
     return payload as T;
   }
 
-  private withClientRequestId<T extends { client_request_id?: string }>(
-    payload: Record<string, unknown>,
-    clientRequestId: string,
-  ): T {
+  private withClientRequestId<
+    T extends object & { client_request_id?: string },
+  >(payload: Record<string, unknown>, clientRequestId: string): T {
     return {
       ...payload,
       client_request_id: clientRequestId,

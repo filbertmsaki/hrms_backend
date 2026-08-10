@@ -87,10 +87,10 @@ export class OffboardingCronService {
       reminder_count: number;
     },
   >(repository: Repository<T>, id: number, cutoff: Date): Promise<boolean> {
-    const updateValues: QueryDeepPartialEntity<T> = {
+    const updateValues = {
       last_reminder_at: new Date(),
       reminder_count: () => '"reminder_count" + 1',
-    };
+    } as QueryDeepPartialEntity<T>;
     const result = await repository
       .createQueryBuilder()
       .update()

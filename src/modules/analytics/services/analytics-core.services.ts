@@ -10,7 +10,8 @@ import { createHash } from 'crypto';
 import Decimal from 'decimal.js';
 import { promises as fs } from 'fs';
 import { join } from 'path';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, IsNull, Repository, type DeepPartial } from 'typeorm';
+import type { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { EmployeeFinanceMoney } from '../../hr/employee-finance/services/employee-finance-money.util';
 import { PayrollMoney } from '../../hr/payroll/services/payroll-money.util';
@@ -238,6 +239,12 @@ type StatutoryPayrollTotalsRow = {
 
 type AnalyticsRiskSummary = {
   attendance?: { late_rate?: unknown };
+  payroll?: {
+    locked_runs?: unknown;
+    gross_pay?: unknown;
+    net_pay?: unknown;
+    employer_cost?: unknown;
+  };
   finance?: { arrears_ratio?: unknown };
   approvals?: { pending_actions?: unknown };
 };
@@ -292,6 +299,17 @@ function monthsBetween(from: string | null, to: string) {
 function numberFrom(value: unknown) {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function sqlDateOrNull(value: SqlDateValue | null | undefined) {
+  if (!value) return null;
+  return value instanceof Date ? value : new Date(value);
+}
+
+function sqlMoneyString(value: SqlMoneyValue) {
+  return value === null || value === undefined || value === ''
+    ? '0.00'
+    : String(value);
 }
 
 function defaultRange(query: AnalyticsQueryDto) {
@@ -1058,32 +1076,28 @@ export class AnalyticsDimensionService {
         current.effectiveTo = addDays(todayString(), -1);
         await this.employeeHistoryRepository.save(current);
       }
-      await this.employeeHistoryRepository.save(
-        this.employeeHistoryRepository.create({
-          companyId,
-          employeeId: employee.id,
-          employeeNo: employee.employee_no,
-          fullName: [
-            employee.first_name,
-            employee.middle_name,
-            employee.last_name,
-          ]
+      const nextHistory: DeepPartial<AnalyticsEmployeeHistoryDimension> = {
+        companyId,
+        employeeId: employee.id,
+        employeeNo: employee.employee_no ?? String(employee.id),
+        fullName:
+          [employee.first_name, employee.middle_name, employee.last_name]
             .filter(Boolean)
-            .join(' '),
-          branchId: employee.primary_branch_id,
-          departmentId: employee.primary_department_id,
-          positionId: employee.primary_position_id,
-          gradeId: employee.grade_id,
-          costCenterId: employee.cost_center_id,
-          managerEmployeeId: employee.reports_to,
-          employmentStatus: employee.employment_status,
-          employmentType: employee.employment_type,
-          effectiveFrom: String(employee.effective_from).slice(0, 10),
-          effectiveTo: null,
-          isCurrent: true,
-          sourceHash,
-        }),
-      );
+            .join(' ') || `Employee ${employee.id}`,
+        branchId: employee.primary_branch_id,
+        departmentId: employee.primary_department_id,
+        positionId: employee.primary_position_id,
+        gradeId: employee.grade_id,
+        costCenterId: employee.cost_center_id,
+        managerEmployeeId: employee.reports_to,
+        employmentStatus: employee.employment_status ?? 'UNKNOWN',
+        employmentType: employee.employment_type,
+        effectiveFrom: String(employee.effective_from).slice(0, 10),
+        effectiveTo: null,
+        isCurrent: true,
+        sourceHash,
+      };
+      await this.employeeHistoryRepository.save(nextHistory);
       changed += 1;
     }
     return { source_count: employees.length, changed };
@@ -1330,19 +1344,19 @@ export class AnalyticsSnapshotService {
        WHERE company_id = $1 AND attendance_date BETWEEN $2 AND $3 AND finalized_at IS NOT NULL`,
       [companyId, dateFrom, dateTo],
     );
-    const facts = rows.map((row) =>
-      this.attendanceRepository.create({
+    const facts: DeepPartial<AnalyticsAttendanceDailyFact>[] = rows.map(
+      (row) => ({
         companyId,
         employeeId: row.employee_id,
         attendanceDate: String(row.attendance_date).slice(0, 10),
         dateKey: dateKey(String(row.attendance_date).slice(0, 10)),
         branchId: row.branch_id,
-        status: row.attendance_status,
-        workMinutes: row.work_minutes,
-        lateMinutes: row.late_minutes,
+        status: row.attendance_status ?? 'UNKNOWN',
+        workMinutes: row.work_minutes ?? 0,
+        lateMinutes: row.late_minutes ?? 0,
         missingPunchCount:
           (row.check_in_at ? 0 : 1) + (row.check_out_at ? 0 : 1),
-        finalizedAt: row.finalized_at,
+        finalizedAt: sqlDateOrNull(row.finalized_at),
         sourceSnapshotHash: hash(row),
         snapshotRunId: run.id,
       }),
@@ -1365,17 +1379,17 @@ export class AnalyticsSnapshotService {
        WHERE result.company_id = $1 AND payroll_run.status = 'LOCKED' AND result.status = 'LOCKED'`,
       [companyId],
     );
-    const facts = rows.map((row) =>
-      this.payrollRepository.create({
+    const facts: DeepPartial<AnalyticsPayrollEmployeePeriodFact>[] = rows.map(
+      (row) => ({
         companyId,
         employeeId: row.employee_id,
         payrollRunId: row.payroll_run_id,
         payrollPeriodId: row.payroll_period_id,
         payrollResultId: row.id,
-        grossPay: row.gross_pay,
-        netPay: row.net_pay,
-        employeeDeductions: row.employee_deductions,
-        totalEmployerCost: row.employer_cost,
+        grossPay: sqlMoneyString(row.gross_pay),
+        netPay: sqlMoneyString(row.net_pay),
+        employeeDeductions: sqlMoneyString(row.employee_deductions),
+        totalEmployerCost: sqlMoneyString(row.employer_cost),
         currency: row.currency ?? 'TZS',
         sourceSnapshotHash: row.calculation_hash,
         snapshotRunId: run.id,
@@ -1401,7 +1415,7 @@ export class AnalyticsSnapshotService {
        WHERE account.company_id = $1`,
       [companyId],
     );
-    const facts: AnalyticsEmployeeFinanceMonthlyFact[] = [];
+    const facts: DeepPartial<AnalyticsEmployeeFinanceMonthlyFact>[] = [];
     const seenMonths = new Set<string>();
     for (
       let date = monthStart(dateFrom);
@@ -1412,29 +1426,29 @@ export class AnalyticsSnapshotService {
     }
     for (const row of rows) {
       for (const currentMonth of seenMonths) {
-        facts.push(
-          this.financeRepository.create({
-            companyId,
-            employeeId: row.employee_id,
-            accountId: row.id,
-            productType: row.product_type,
-            monthStart: currentMonth,
-            openingBalance: '0.00',
-            disbursedAmount:
-              row.disbursed_at &&
-              String(row.disbursed_at).slice(0, 7) === currentMonth.slice(0, 7)
-                ? row.principal_amount
-                : '0.00',
-            repaidAmount: EmployeeFinanceMoney.subtract(
-              row.total_payable ?? '0.00',
-              row.outstanding_total ?? '0.00',
-            ),
-            closingBalance: row.outstanding_total,
-            arrearsAmount:
-              row.status === 'IN_ARREARS' ? row.outstanding_total : '0.00',
-            snapshotRunId: run.id,
-          }),
-        );
+        facts.push({
+          companyId,
+          employeeId: row.employee_id,
+          accountId: row.id,
+          productType: row.product_type,
+          monthStart: currentMonth,
+          openingBalance: '0.00',
+          disbursedAmount:
+            row.disbursed_at &&
+            String(row.disbursed_at).slice(0, 7) === currentMonth.slice(0, 7)
+              ? sqlMoneyString(row.principal_amount)
+              : '0.00',
+          repaidAmount: EmployeeFinanceMoney.subtract(
+            sqlMoneyString(row.total_payable),
+            sqlMoneyString(row.outstanding_total),
+          ),
+          closingBalance: sqlMoneyString(row.outstanding_total),
+          arrearsAmount:
+            row.status === 'IN_ARREARS'
+              ? sqlMoneyString(row.outstanding_total)
+              : '0.00',
+          snapshotRunId: run.id,
+        });
       }
     }
     await this.financeRepository.upsert(facts, [
@@ -1456,16 +1470,22 @@ export class AnalyticsSnapshotService {
       `SELECT * FROM action_items WHERE company_id = $1 AND created_at::date BETWEEN $2 AND $3`,
       [companyId, dateFrom, dateTo],
     );
-    const facts = rows.map((row) =>
-      this.genericRepository.create({
+    const facts: QueryDeepPartialEntity<AnalyticsGenericFact>[] = rows.map(
+      (row) => ({
         companyId,
         datasetCode: 'APPROVAL_SLA',
         sourceId: String(row.id),
         employeeId: row.assignee_employee_id ?? null,
         factDate: String(row.created_at).slice(0, 10),
         dateKey: dateKey(String(row.created_at).slice(0, 10)),
-        dimensions: { action_type: row.action_type, status: row.status },
-        measures: { action_count: 1, age_hours: 0 },
+        dimensions: {
+          action_type: row.action_type,
+          status: row.status,
+        } as QueryDeepPartialEntity<Record<string, unknown>>,
+        measures: {
+          action_count: 1,
+          age_hours: 0,
+        } as QueryDeepPartialEntity<Record<string, unknown>>,
         sourceSnapshotHash: hash(row),
         snapshotRunId: run.id,
       }),
