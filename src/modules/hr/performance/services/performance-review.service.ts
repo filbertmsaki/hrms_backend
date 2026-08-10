@@ -63,7 +63,10 @@ export class PerformanceReviewService {
       throw new ForbiddenException('Employee company context is required.');
     }
 
-    const assignment = await this.getAssignment(actor.companyId, periodAssignmentId);
+    const assignment = await this.getAssignment(
+      actor.companyId,
+      periodAssignmentId,
+    );
 
     if (assignment.employeeId !== actor.employeeId) {
       throw new ForbiddenException('You can review only your own performance.');
@@ -98,14 +101,11 @@ export class PerformanceReviewService {
 
     const review = await this.getOrCreateReview(assignment);
 
-    if (
-      dto.review &&
-      typeof dto.review.competency_template_id === 'number'
-    ) {
+    if (dto.review && typeof dto.review.competency_template_id === 'number') {
       await this.competencyService.initializeRatingsForReview(
         companyId,
         review.id,
-        dto.review.competency_template_id as number,
+        dto.review.competency_template_id,
       );
     }
 
@@ -174,8 +174,8 @@ export class PerformanceReviewService {
       (sum, achievement) => sum + Number(achievement.weightedScore ?? 0),
       0,
     );
-    const adjustmentScore = dto.adjustment_score ?? Number(review.adjustmentScore ?? 0);
-    const finalScore = Number((kpiScore + adjustmentScore).toFixed(4));
+    const adjustmentScore =
+      dto.adjustment_score ?? Number(review.adjustmentScore ?? 0);
 
     review.kpiScore = kpiScore.toFixed(4);
     review.adjustmentScore = adjustmentScore.toFixed(4);
@@ -310,7 +310,10 @@ export class PerformanceReviewService {
       employeeId: saved.employeeId,
       performanceReviewId: saved.id,
       beforeValues: { final_score: beforeScore },
-      afterValues: { final_score: saved.finalScore, rating_code: saved.ratingCode },
+      afterValues: {
+        final_score: saved.finalScore,
+        rating_code: saved.ratingCode,
+      },
       reason: dto.reason.trim(),
     });
 
@@ -329,7 +332,10 @@ export class PerformanceReviewService {
       throw new ConflictException('Performance review reopen is disabled.');
     }
 
-    const assignment = await this.getAssignment(companyId, review.periodAssignmentId);
+    const assignment = await this.getAssignment(
+      companyId,
+      review.periodAssignmentId,
+    );
 
     review.calculationSnapshot = {
       ...(review.calculationSnapshot ?? {}),
@@ -379,15 +385,24 @@ export class PerformanceReviewService {
 
     const review = await this.requireReview(companyId, reviewId);
     if (review.employeeId !== actor.employeeId) {
-      throw new ForbiddenException('You can appeal only your own performance review.');
+      throw new ForbiddenException(
+        'You can appeal only your own performance review.',
+      );
     }
 
     if (review.status !== PerformanceReviewStatusEnum.PUBLISHED) {
-      throw new BadRequestException('Only published performance reviews can be appealed.');
+      throw new BadRequestException(
+        'Only published performance reviews can be appealed.',
+      );
     }
 
-    if (review.appealDeadlineAt && review.appealDeadlineAt.getTime() < Date.now()) {
-      throw new BadRequestException('The appeal window for this performance review has expired.');
+    if (
+      review.appealDeadlineAt &&
+      review.appealDeadlineAt.getTime() < Date.now()
+    ) {
+      throw new BadRequestException(
+        'The appeal window for this performance review has expired.',
+      );
     }
 
     const appeal = await this.appealRepository.save(
@@ -520,7 +535,10 @@ export class PerformanceReviewService {
   }
 
   private resolveAppealDeadline(): Date {
-    const days = this.configService.get<number>('PERFORMANCE_DEFAULT_APPEAL_DAYS', 5);
+    const days = this.configService.get<number>(
+      'PERFORMANCE_DEFAULT_APPEAL_DAYS',
+      5,
+    );
     const deadline = new Date();
     deadline.setUTCDate(deadline.getUTCDate() + days);
     return deadline;

@@ -47,21 +47,20 @@ export class WorkActivityExceptionService {
       },
     });
 
-    const approvedLeaveOnDate =
-      await this.leaveRequestRepository
-        .createQueryBuilder('leaveRequest')
-        .where('leaveRequest.company_id = :companyId', {
-          companyId: employee.company_id,
-        })
-        .andWhere('leaveRequest.employee_id = :employeeId', {
-          employeeId: employee.id,
-        })
-        .andWhere('leaveRequest.status = :status', {
-          status: LeaveStatusEnum.APPROVED,
-        })
-        .andWhere('leaveRequest.start_date <= :activityDate', { activityDate })
-        .andWhere('leaveRequest.end_date >= :activityDate', { activityDate })
-        .getCount();
+    const approvedLeaveOnDate = await this.leaveRequestRepository
+      .createQueryBuilder('leaveRequest')
+      .where('leaveRequest.company_id = :companyId', {
+        companyId: employee.company_id,
+      })
+      .andWhere('leaveRequest.employee_id = :employeeId', {
+        employeeId: employee.id,
+      })
+      .andWhere('leaveRequest.status = :status', {
+        status: LeaveStatusEnum.APPROVED,
+      })
+      .andWhere('leaveRequest.start_date <= :activityDate', { activityDate })
+      .andWhere('leaveRequest.end_date >= :activityDate', { activityDate })
+      .getCount();
 
     const isAttendanceEligible =
       Boolean(attendance) &&
@@ -116,7 +115,10 @@ export class WorkActivityExceptionService {
     );
   }
 
-  async list(companyId: number, filters: { employeeId?: number; status?: string }) {
+  async list(
+    companyId: number,
+    filters: { employeeId?: number; status?: string },
+  ) {
     const qb = this.exceptionRepository
       .createQueryBuilder('exception')
       .where('exception.companyId = :companyId', { companyId })
@@ -181,7 +183,8 @@ export class WorkActivityExceptionService {
     if (existing && existing.status === WorkActivityExceptionStatusEnum.OPEN) {
       existing.status = WorkActivityExceptionStatusEnum.RESOLVED;
       existing.resolvedAt = new Date();
-      existing.resolutionNote = 'Resolved automatically by work-activity reconciliation.';
+      existing.resolutionNote =
+        'Resolved automatically by work-activity reconciliation.';
       await this.exceptionRepository.save(existing);
     }
   }

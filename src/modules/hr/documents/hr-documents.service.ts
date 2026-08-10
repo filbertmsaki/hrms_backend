@@ -162,10 +162,10 @@ export class HrDocumentsService {
     return this.filesService.readManagedFile(document.file_path);
   }
 
-  async assertCanAccessDocumentOrFail(
+  assertCanAccessDocumentOrFail(
     actor: AuthenticatedUser,
     document: Document,
-  ): Promise<void> {
+  ): void {
     if (!actor.companyId || document.company_id !== actor.companyId) {
       throw new NotFoundException('Document not found');
     }

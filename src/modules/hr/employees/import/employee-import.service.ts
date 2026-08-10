@@ -53,7 +53,6 @@ import { EmployeeImportBatchStatusEnum } from './enums/employee-import-batch-sta
 import { EmployeeImportModeEnum } from './enums/employee-import-mode.enum';
 import { EmployeeImportNumberModeEnum } from './enums/employee-import-number-mode.enum';
 import { EmployeeImportOutboxEventType } from './enums/employee-import-outbox-event-type.enum';
-import { EmployeeImportOutboxStatus } from './enums/employee-import-outbox-status.enum';
 import { EmployeeImportRowStatusEnum } from './enums/employee-import-row-status.enum';
 import { Employee } from '../entities/employee.entity';
 import { EmployeeIdentification } from '../entities/employee-identification.entity';

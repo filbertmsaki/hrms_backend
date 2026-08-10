@@ -178,10 +178,7 @@ export class PerformanceController {
   @Post('kpi-templates')
   @UseGuards(PermissionsGuard)
   @Permissions('kpi_templates:create')
-  createTemplate(
-    @Req() req: AuthedRequest,
-    @Body() dto: CreateKpiTemplateDto,
-  ) {
+  createTemplate(@Req() req: AuthedRequest, @Body() dto: CreateKpiTemplateDto) {
     return this.applicabilityService.createTemplate(req.user, dto);
   }
 

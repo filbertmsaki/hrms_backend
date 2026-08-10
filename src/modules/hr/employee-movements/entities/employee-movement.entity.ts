@@ -91,7 +91,11 @@ export class EmployeeMovement {
   @Column({ name: 'application_attempt_count', type: 'int', default: 0 })
   applicationAttemptCount: number;
 
-  @Column({ name: 'application_failed_at', type: 'timestamptz', nullable: true })
+  @Column({
+    name: 'application_failed_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
   applicationFailedAt: Date | null;
 
   @Column({ name: 'application_error', type: 'text', nullable: true })

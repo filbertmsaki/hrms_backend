@@ -15,7 +15,11 @@ import {
 } from '../enums/work-activity.enums';
 
 @Entity('daily_activity_reports')
-@Unique('UQ_daily_activity_employee_date', ['companyId', 'employeeId', 'activityDate'])
+@Unique('UQ_daily_activity_employee_date', [
+  'companyId',
+  'employeeId',
+  'activityDate',
+])
 @Index('IDX_daily_activity_company_status', ['companyId', 'status'])
 @Index('IDX_daily_activity_date', ['activityDate'])
 export class DailyActivityReport {
@@ -31,7 +35,11 @@ export class DailyActivityReport {
   @Column({ name: 'activity_date', type: 'date' })
   activityDate: string;
 
-  @Column({ type: 'varchar', length: 40, default: DailyActivityReportStatusEnum.DRAFT })
+  @Column({
+    type: 'varchar',
+    length: 40,
+    default: DailyActivityReportStatusEnum.DRAFT,
+  })
   status: DailyActivityReportStatusEnum;
 
   @Column({ name: 'manager_employee_id', type: 'int', nullable: true })
@@ -58,7 +66,13 @@ export class DailyActivityReport {
   @Column({ name: 'manager_comments', type: 'text', nullable: true })
   managerComments: string | null;
 
-  @Column({ name: 'manager_rating', type: 'decimal', precision: 5, scale: 2, nullable: true })
+  @Column({
+    name: 'manager_rating',
+    type: 'decimal',
+    precision: 5,
+    scale: 2,
+    nullable: true,
+  })
   managerRating: string | null;
 
   @Column({ name: 'submitted_at', type: 'timestamptz', nullable: true })
@@ -79,7 +93,12 @@ export class DailyActivityReport {
   @Column({ name: 'client_request_id', type: 'uuid', nullable: true })
   clientRequestId: string | null;
 
-  @Column({ name: 'source', type: 'varchar', length: 30, default: DailyActivitySourceEnum.WEB })
+  @Column({
+    name: 'source',
+    type: 'varchar',
+    length: 30,
+    default: DailyActivitySourceEnum.WEB,
+  })
   source: DailyActivitySourceEnum;
 
   @Column({ type: 'jsonb', nullable: true })
@@ -114,19 +133,39 @@ export class DailyActivityEntry {
   @Column({ name: 'kpi_definition_id', type: 'int', nullable: true })
   kpiDefinitionId: number | null;
 
-  @Column({ name: 'project_reference', type: 'varchar', length: 150, nullable: true })
+  @Column({
+    name: 'project_reference',
+    type: 'varchar',
+    length: 150,
+    nullable: true,
+  })
   projectReference: string | null;
 
-  @Column({ name: 'task_reference', type: 'varchar', length: 150, nullable: true })
+  @Column({
+    name: 'task_reference',
+    type: 'varchar',
+    length: 150,
+    nullable: true,
+  })
   taskReference: string | null;
 
   @Column({ name: 'field_party_id', type: 'int', nullable: true })
   fieldPartyId: number | null;
 
-  @Column({ name: 'external_reference_type', type: 'varchar', length: 80, nullable: true })
+  @Column({
+    name: 'external_reference_type',
+    type: 'varchar',
+    length: 80,
+    nullable: true,
+  })
   externalReferenceType: string | null;
 
-  @Column({ name: 'external_reference_id', type: 'varchar', length: 150, nullable: true })
+  @Column({
+    name: 'external_reference_id',
+    type: 'varchar',
+    length: 150,
+    nullable: true,
+  })
   externalReferenceId: string | null;
 
   @Column({ type: 'varchar', length: 250 })
@@ -147,7 +186,11 @@ export class DailyActivityEntry {
   @Column({ name: 'actual_end_time', type: 'timestamptz', nullable: true })
   actualEndTime: Date | null;
 
-  @Column({ type: 'varchar', length: 30, default: DailyActivityStatusEnum.PLANNED })
+  @Column({
+    type: 'varchar',
+    length: 30,
+    default: DailyActivityStatusEnum.PLANNED,
+  })
   status: DailyActivityStatusEnum;
 
   @Column({ type: 'text', nullable: true })
@@ -162,7 +205,13 @@ export class DailyActivityEntry {
   @Column({ name: 'follow_up_date', type: 'date', nullable: true })
   followUpDate: string | null;
 
-  @Column({ name: 'completion_percentage', type: 'decimal', precision: 5, scale: 2, default: 0 })
+  @Column({
+    name: 'completion_percentage',
+    type: 'decimal',
+    precision: 5,
+    scale: 2,
+    default: 0,
+  })
   completionPercentage: string;
 
   @Column({ name: 'manager_comment', type: 'text', nullable: true })

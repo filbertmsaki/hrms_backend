@@ -213,7 +213,9 @@ describe('EmployeeMovementsService', () => {
       const movement = buildMovement({ requestedByCompanyUserId: 90 });
       const movementRepo = createRepositoryMock();
       movementRepo.createQueryBuilder.mockReturnValue(
-        createQueryBuilderMock({ getOne: jest.fn().mockResolvedValue(movement) }),
+        createQueryBuilderMock({
+          getOne: jest.fn().mockResolvedValue(movement),
+        }),
       );
 
       dataSource.transaction.mockImplementation(async (cb) =>
@@ -234,7 +236,9 @@ describe('EmployeeMovementsService', () => {
       });
       const movementRepo = createRepositoryMock();
       movementRepo.createQueryBuilder.mockReturnValue(
-        createQueryBuilderMock({ getOne: jest.fn().mockResolvedValue(movement) }),
+        createQueryBuilderMock({
+          getOne: jest.fn().mockResolvedValue(movement),
+        }),
       );
 
       dataSource.transaction.mockImplementation(async (cb) =>
@@ -249,9 +253,7 @@ describe('EmployeeMovementsService', () => {
     it('requires finance-approve permission when the movement includes a salary change', async () => {
       const movement = buildMovement({
         requestedByCompanyUserId: 999,
-        changes: [
-          { field: EmployeeMovementFieldEnum.BASE_SALARY } as never,
-        ],
+        changes: [{ field: EmployeeMovementFieldEnum.BASE_SALARY } as never],
         metadata: {
           approval_steps: ['PRIMARY', 'FINANCE'],
           completed_approval_steps: ['PRIMARY'],
@@ -259,7 +261,9 @@ describe('EmployeeMovementsService', () => {
       });
       const movementRepo = createRepositoryMock();
       movementRepo.createQueryBuilder.mockReturnValue(
-        createQueryBuilderMock({ getOne: jest.fn().mockResolvedValue(movement) }),
+        createQueryBuilderMock({
+          getOne: jest.fn().mockResolvedValue(movement),
+        }),
       );
 
       dataSource.transaction.mockImplementation(async (cb) =>
@@ -282,7 +286,9 @@ describe('EmployeeMovementsService', () => {
       });
       const movementRepo = createRepositoryMock();
       movementRepo.createQueryBuilder.mockReturnValue(
-        createQueryBuilderMock({ getOne: jest.fn().mockResolvedValue(movement) }),
+        createQueryBuilderMock({
+          getOne: jest.fn().mockResolvedValue(movement),
+        }),
       );
 
       dataSource.transaction.mockImplementation(async (cb) =>
@@ -308,7 +314,9 @@ describe('EmployeeMovementsService', () => {
 
       const movementRepo = createRepositoryMock();
       movementRepo.createQueryBuilder.mockReturnValue(
-        createQueryBuilderMock({ getOne: jest.fn().mockResolvedValue(movement) }),
+        createQueryBuilderMock({
+          getOne: jest.fn().mockResolvedValue(movement),
+        }),
       );
 
       dataSource.transaction.mockImplementation(async (cb) =>
@@ -370,10 +378,12 @@ describe('EmployeeMovementsService', () => {
 
       const jobRepo = createRepositoryMock();
       jobRepo.findOne.mockResolvedValue(null);
-      jobRepo.save.mockImplementation(async (value: Record<string, unknown>) => ({
-        id: 77,
-        ...value,
-      }));
+      jobRepo.save.mockImplementation(
+        async (value: Record<string, unknown>) => ({
+          id: 77,
+          ...value,
+        }),
+      );
 
       movementRepository.findOne.mockResolvedValue(movement);
       dataSource.transaction.mockImplementation(async (cb) =>
@@ -393,7 +403,11 @@ describe('EmployeeMovementsService', () => {
         }),
       );
 
-      const result = await service.retryOperation(actor, movement.id, operation.id);
+      const result = await service.retryOperation(
+        actor,
+        movement.id,
+        operation.id,
+      );
 
       expect(result.status).toBe(EmployeeMovementOperationStatusEnum.COMPLETED);
       expect(result.result).toEqual(
@@ -476,7 +490,11 @@ describe('EmployeeMovementsService', () => {
         }),
       );
 
-      const result = await service.retryOperation(actor, movement.id, operation.id);
+      const result = await service.retryOperation(
+        actor,
+        movement.id,
+        operation.id,
+      );
 
       expect(result.status).toBe(EmployeeMovementOperationStatusEnum.COMPLETED);
       expect(result.result).toEqual(

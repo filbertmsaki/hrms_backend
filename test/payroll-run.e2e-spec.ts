@@ -117,7 +117,9 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
   let payslipService: PayslipService;
 
   const hrAccessService = {
-    ensureActorCompanyId: jest.fn((actor: AuthenticatedUser) => actor.companyId),
+    ensureActorCompanyId: jest.fn(
+      (actor: AuthenticatedUser) => actor.companyId,
+    ),
     assertCanAccessEmployee: jest.fn(),
     assertCompanyScopedActor: jest.fn(),
   } as unknown as HrAccessService;
@@ -188,7 +190,9 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     payrollRunRepository = dataSource.getRepository(PayrollRun);
     payrollInputRepository = dataSource.getRepository(PayrollInput);
     payrollResultRepository = dataSource.getRepository(EmployeePayrollResult);
-    payrollLineItemRepository = dataSource.getRepository(EmployeePayrollLineItem);
+    payrollLineItemRepository = dataSource.getRepository(
+      EmployeePayrollLineItem,
+    );
     payslipRepository = dataSource.getRepository(Payslip);
 
     const auditService = new PayrollAuditService(
@@ -368,20 +372,22 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     );
     employeeId = employee.id;
 
-    const bankAccount = await dataSource.getRepository(EmployeeBankAccount).save(
-      dataSource.getRepository(EmployeeBankAccount).create({
-        employee_id: employeeId,
-        bank_name: 'National Bank',
-        account_name: 'Payroll Employee',
-        account_number: `0000${suffix}`.slice(-12),
-        bank_code: 'NMB',
-        bank_branch_code: '001',
-        account_currency: 'TZS',
-        verification_status: 'VERIFIED',
-        verified_at: new Date('2026-08-01T00:00:00.000Z'),
-        is_primary: true,
-      }),
-    );
+    const bankAccount = await dataSource
+      .getRepository(EmployeeBankAccount)
+      .save(
+        dataSource.getRepository(EmployeeBankAccount).create({
+          employee_id: employeeId,
+          bank_name: 'National Bank',
+          account_name: 'Payroll Employee',
+          account_number: `0000${suffix}`.slice(-12),
+          bank_code: 'NMB',
+          bank_branch_code: '001',
+          account_currency: 'TZS',
+          verification_status: 'VERIFIED',
+          verified_at: new Date('2026-08-01T00:00:00.000Z'),
+          is_primary: true,
+        }),
+      );
     bankAccountId = bankAccount.id;
 
     const profile = (await profileService.upsert(adminActor(), {
@@ -429,7 +435,9 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
       payslipId = 0;
     }
     if (runId) {
-      await dataSource.getRepository(PayrollRunApproval).delete({ payrollRunId: runId });
+      await dataSource
+        .getRepository(PayrollRunApproval)
+        .delete({ payrollRunId: runId });
       await payrollLineItemRepository.delete({ payrollRunId: runId });
       await payrollResultRepository.delete({ payrollRunId: runId });
       await payrollRunRepository.delete({ id: runId });
@@ -444,7 +452,9 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
       periodId = 0;
     }
     if (profileId) {
-      await dataSource.getRepository(EmployeePayrollProfile).delete({ id: profileId });
+      await dataSource
+        .getRepository(EmployeePayrollProfile)
+        .delete({ id: profileId });
       profileId = 0;
     }
     if (compensationId) {
@@ -454,7 +464,9 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
       compensationId = 0;
     }
     if (bankAccountId) {
-      await dataSource.getRepository(EmployeeBankAccount).delete({ id: bankAccountId });
+      await dataSource
+        .getRepository(EmployeeBankAccount)
+        .delete({ id: bankAccountId });
       bankAccountId = 0;
     }
     if (employeeId) {
@@ -462,7 +474,9 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
       employeeId = 0;
     }
     if (employeeCompanyUserId) {
-      await dataSource.getRepository(CompanyUser).delete({ id: employeeCompanyUserId });
+      await dataSource
+        .getRepository(CompanyUser)
+        .delete({ id: employeeCompanyUserId });
       employeeCompanyUserId = 0;
     }
     if (employeeUserId) {
@@ -470,7 +484,9 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
       employeeUserId = 0;
     }
     if (adminCompanyUserId) {
-      await dataSource.getRepository(CompanyUser).delete({ id: adminCompanyUserId });
+      await dataSource
+        .getRepository(CompanyUser)
+        .delete({ id: adminCompanyUserId });
       adminCompanyUserId = 0;
     }
     if (adminUserId) {
@@ -557,7 +573,9 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
       where: { payrollRunId: run.id, employeeId, companyId: company.id },
       order: { calculationOrder: 'ASC', id: 'ASC' },
     });
-    const amountByCode = new Map(lines.map((line) => [line.componentCode, line.amount]));
+    const amountByCode = new Map(
+      lines.map((line) => [line.componentCode, line.amount]),
+    );
     const employerAmountByCode = new Map(
       lines.map((line) => [line.componentCode, line.employerAmount]),
     );
@@ -600,7 +618,10 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     expect(mine).toHaveLength(1);
     expect(mine[0].id).toBe(payslipId);
 
-    const download = await payslipService.downloadMine(employeeActor(), payslipId);
+    const download = await payslipService.downloadMine(
+      employeeActor(),
+      payslipId,
+    );
     expect(download.file_name).toBe(`${payslips[0].payslipNo}.json`);
     expect(download.content).toContain(lockedRun.runNo);
     expect(download.content).toContain('"componentCode": "PAYE"');
@@ -613,17 +634,17 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     ).toHaveBeenCalledWith(company.id, run.id);
 
     const recomputedNet = PayrollMoney.add(
-      amountByCode.get('BASIC')!,
-      amountByCode.get('HOUSING')!,
+      amountByCode.get('BASIC'),
+      amountByCode.get('HOUSING'),
     );
     expect(
       PayrollMoney.add(
         recomputedNet,
         PayrollMoney.fromCents(
           -(
-            PayrollMoney.toCents(amountByCode.get('NSSF_EE')!) +
-            PayrollMoney.toCents(amountByCode.get('NHIF_EE')!) +
-            PayrollMoney.toCents(amountByCode.get('PAYE')!)
+            PayrollMoney.toCents(amountByCode.get('NSSF_EE')) +
+            PayrollMoney.toCents(amountByCode.get('NHIF_EE')) +
+            PayrollMoney.toCents(amountByCode.get('PAYE'))
           ),
         ),
       ),

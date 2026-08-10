@@ -65,11 +65,12 @@ import { buildNotificationRecipient } from '../notifications/notification-recipi
 
 type MovementApprovalStep = 'PRIMARY' | 'FINANCE' | 'MANAGEMENT';
 
-const MOVEMENT_APPROVAL_STEP_PERMISSIONS: Record<MovementApprovalStep, string> = {
-  PRIMARY: 'employee_movements:approve',
-  FINANCE: 'employee_movements:finance-approve',
-  MANAGEMENT: 'employee_movements:management-approve',
-};
+const MOVEMENT_APPROVAL_STEP_PERMISSIONS: Record<MovementApprovalStep, string> =
+  {
+    PRIMARY: 'employee_movements:approve',
+    FINANCE: 'employee_movements:finance-approve',
+    MANAGEMENT: 'employee_movements:management-approve',
+  };
 
 const SOURCE_TYPE = 'EMPLOYEE_MOVEMENT';
 
@@ -111,12 +112,12 @@ export class EmployeeMovementsService {
   private validateFieldsForType(dto: CreateEmployeeMovementDto): void {
     const hasStructuralChange = Boolean(
       dto.new_branch_id ||
-        dto.new_department_id ||
-        dto.new_position_id ||
-        dto.new_grade_id ||
-        dto.new_cost_center_id ||
-        dto.new_manager_employee_id ||
-        dto.new_employment_type,
+      dto.new_department_id ||
+      dto.new_position_id ||
+      dto.new_grade_id ||
+      dto.new_cost_center_id ||
+      dto.new_manager_employee_id ||
+      dto.new_employment_type,
     );
 
     switch (dto.movement_type) {
@@ -237,9 +238,7 @@ export class EmployeeMovementsService {
     manager: EntityManager,
   ): Promise<void> {
     if (employeeId === managerEmployeeId) {
-      throw new BadRequestException(
-        'An employee cannot report to themselves.',
-      );
+      throw new BadRequestException('An employee cannot report to themselves.');
     }
 
     const result = await manager.query<Array<{ id: number }>>(
@@ -455,8 +454,7 @@ export class EmployeeMovementsService {
         dto.new_manager_employee_id ?? current.reporting_manager_employee_id,
       employment_type: dto.new_employment_type ?? current.employment_type,
       base_salary: dto.salary_revision?.base_salary ?? current.base_salary,
-      salary_currency:
-        dto.salary_revision?.currency ?? current.salary_currency,
+      salary_currency: dto.salary_revision?.currency ?? current.salary_currency,
       salary_structure_code:
         dto.salary_revision?.salary_structure_code ??
         current.salary_structure_code,
@@ -527,8 +525,7 @@ export class EmployeeMovementsService {
     ) {
       changes.push({
         field: EmployeeMovementFieldEnum.REPORTING_MANAGER,
-        oldReferenceId:
-          current.reporting_manager_employee_id as number | null,
+        oldReferenceId: current.reporting_manager_employee_id as number | null,
         newReferenceId: dto.new_manager_employee_id,
       });
     }
@@ -585,7 +582,9 @@ export class EmployeeMovementsService {
     );
   }
 
-  private movementHasSeniorChange(movementType: EmployeeMovementTypeEnum): boolean {
+  private movementHasSeniorChange(
+    movementType: EmployeeMovementTypeEnum,
+  ): boolean {
     return (
       movementType === EmployeeMovementTypeEnum.PROMOTION ||
       movementType === EmployeeMovementTypeEnum.DEMOTION
@@ -708,10 +707,7 @@ export class EmployeeMovementsService {
         employee,
         currentCompensation,
       );
-      const proposedSnapshot = this.buildProposedSnapshot(
-        currentSnapshot,
-        dto,
-      );
+      const proposedSnapshot = this.buildProposedSnapshot(currentSnapshot, dto);
 
       const movementNo = await this.allocateMovementNo(companyId, manager);
 
@@ -765,7 +761,10 @@ export class EmployeeMovementsService {
     });
   }
 
-  async findOne(actor: AuthenticatedUser, id: number): Promise<EmployeeMovement> {
+  async findOne(
+    actor: AuthenticatedUser,
+    id: number,
+  ): Promise<EmployeeMovement> {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
 
     const movement = await this.movementRepository.findOne({
@@ -875,7 +874,11 @@ export class EmployeeMovementsService {
 
     return buildNotificationRecipient(
       (employee?.company_user as unknown as { user?: unknown })?.user as
-        | { first_name?: string | null; last_name?: string | null; email?: string | null }
+        | {
+            first_name?: string | null;
+            last_name?: string | null;
+            email?: string | null;
+          }
         | null
         | undefined,
       { employeeId: employee?.id ?? null },
@@ -901,7 +904,11 @@ export class EmployeeMovementsService {
 
     return buildNotificationRecipient(
       (managerEmployee?.company_user as unknown as { user?: unknown })?.user as
-        | { first_name?: string | null; last_name?: string | null; email?: string | null }
+        | {
+            first_name?: string | null;
+            last_name?: string | null;
+            email?: string | null;
+          }
         | null
         | undefined,
       { employeeId: managerEmployee?.id ?? null },
@@ -915,7 +922,10 @@ export class EmployeeMovementsService {
     return `${appUrl}/employee-movements/${movement.id}`;
   }
 
-  async submit(actor: AuthenticatedUser, movementId: number): Promise<EmployeeMovement> {
+  async submit(
+    actor: AuthenticatedUser,
+    movementId: number,
+  ): Promise<EmployeeMovement> {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
 
     const movement = await this.dataSource.transaction(async (manager) => {
@@ -971,7 +981,10 @@ export class EmployeeMovementsService {
     return movement;
   }
 
-  async cancel(actor: AuthenticatedUser, movementId: number): Promise<EmployeeMovement> {
+  async cancel(
+    actor: AuthenticatedUser,
+    movementId: number,
+  ): Promise<EmployeeMovement> {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
 
     return this.dataSource.transaction(async (manager) => {
@@ -1105,9 +1118,7 @@ export class EmployeeMovementsService {
       this.assertMakerChecker(movement, actor);
 
       if (movement.status !== EmployeeMovementStatusEnum.PENDING_APPROVAL) {
-        throw new ConflictException(
-          'This movement is not pending approval.',
-        );
+        throw new ConflictException('This movement is not pending approval.');
       }
 
       const { steps, completed } = this.getApprovalProgress(movement);
@@ -1229,15 +1240,13 @@ export class EmployeeMovementsService {
       const conflicts = structuralKeys
         .filter(([field]) => affectedFields.has(field))
         .filter(
-          ([, key]) =>
-            movement.currentSnapshot[key] !== currentSnapshot[key],
+          ([, key]) => movement.currentSnapshot[key] !== currentSnapshot[key],
         )
         .map(([field]) => field);
 
       if (conflicts.length) {
         throw new ConflictException({
-          message:
-            'Employee data changed after this movement was submitted.',
+          message: 'Employee data changed after this movement was submitted.',
           conflicting_fields: conflicts,
           current_snapshot: currentSnapshot,
           submitted_snapshot: movement.currentSnapshot,
@@ -1675,96 +1684,108 @@ export class EmployeeMovementsService {
     await manager.getRepository(Employee).save(employee);
   }
 
-  async apply(actor: AuthenticatedUser, movementId: number): Promise<EmployeeMovement> {
+  async apply(
+    actor: AuthenticatedUser,
+    movementId: number,
+  ): Promise<EmployeeMovement> {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
 
     try {
-      return await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
-        const movement = await this.lockMovement(companyId, movementId, manager);
+      return await this.dataSource.transaction(
+        'SERIALIZABLE',
+        async (manager) => {
+          const movement = await this.lockMovement(
+            companyId,
+            movementId,
+            manager,
+          );
 
-        if (
-          movement.status === EmployeeMovementStatusEnum.APPLIED ||
-          movement.appliedAt
-        ) {
+          if (
+            movement.status === EmployeeMovementStatusEnum.APPLIED ||
+            movement.appliedAt
+          ) {
+            return movement;
+          }
+
+          const allowedStatuses = [
+            EmployeeMovementStatusEnum.APPROVED,
+            EmployeeMovementStatusEnum.SCHEDULED,
+            EmployeeMovementStatusEnum.APPLICATION_FAILED,
+          ];
+
+          if (!allowedStatuses.includes(movement.status)) {
+            throw new ConflictException(
+              'Movement is not ready for application.',
+            );
+          }
+
+          if (movement.effectiveDate > formatDateOnly(new Date())) {
+            throw new BadRequestException(
+              'Movement effective date has not been reached yet.',
+            );
+          }
+
+          const employee = await manager
+            .getRepository(Employee)
+            .createQueryBuilder('employee')
+            .setLock('pessimistic_write')
+            .where('employee.id = :employeeId', {
+              employeeId: movement.employeeId,
+            })
+            .andWhere('employee.company_id = :companyId', { companyId })
+            .getOneOrFail();
+
+          await this.assertMovementStillApplicable(movement, employee, manager);
+
+          movement.status = EmployeeMovementStatusEnum.APPLYING;
+          movement.applicationAttemptCount += 1;
+          movement.applicationError = null;
+
+          await manager.getRepository(EmployeeMovement).save(movement);
+
+          await this.applyStructuralChanges(movement, employee, manager);
+          await this.createMovementOperations(movement, manager);
+          await this.processImmediateOperations(movement, manager);
+
+          const finalCompensation = await this.getCurrentCompensation(
+            companyId,
+            employee.id,
+            manager,
+          );
+
+          movement.status = EmployeeMovementStatusEnum.APPLIED;
+          movement.appliedAt = new Date();
+          movement.applicationSnapshot = this.buildCurrentSnapshot(
+            employee,
+            finalCompensation,
+          );
+
+          await manager.getRepository(EmployeeMovement).save(movement);
+
+          const employeeRecipient = await this.resolveEmployeeRecipient(
+            movement,
+            manager,
+          );
+
+          if (employeeRecipient) {
+            this.eventEmitter.emit(
+              EmployeeMovementAppliedEvent.EVENT,
+              new EmployeeMovementAppliedEvent(
+                movement.companyId,
+                movement.id,
+                movement.movementNo,
+                movement.movementType,
+                `${movement.employee.first_name} ${movement.employee.last_name}`,
+                employeeRecipient.email,
+                movement.effectiveDate,
+                this.buildMovementDashboardUrl(movement),
+              ),
+            );
+          }
+
           return movement;
-        }
-
-        const allowedStatuses = [
-          EmployeeMovementStatusEnum.APPROVED,
-          EmployeeMovementStatusEnum.SCHEDULED,
-          EmployeeMovementStatusEnum.APPLICATION_FAILED,
-        ];
-
-        if (!allowedStatuses.includes(movement.status)) {
-          throw new ConflictException('Movement is not ready for application.');
-        }
-
-        if (movement.effectiveDate > formatDateOnly(new Date())) {
-          throw new BadRequestException(
-            'Movement effective date has not been reached yet.',
-          );
-        }
-
-        const employee = await manager
-          .getRepository(Employee)
-          .createQueryBuilder('employee')
-          .setLock('pessimistic_write')
-          .where('employee.id = :employeeId', {
-            employeeId: movement.employeeId,
-          })
-          .andWhere('employee.company_id = :companyId', { companyId })
-          .getOneOrFail();
-
-        await this.assertMovementStillApplicable(movement, employee, manager);
-
-        movement.status = EmployeeMovementStatusEnum.APPLYING;
-        movement.applicationAttemptCount += 1;
-        movement.applicationError = null;
-
-        await manager.getRepository(EmployeeMovement).save(movement);
-
-        await this.applyStructuralChanges(movement, employee, manager);
-        await this.createMovementOperations(movement, manager);
-        await this.processImmediateOperations(movement, manager);
-
-        const finalCompensation = await this.getCurrentCompensation(
-          companyId,
-          employee.id,
-          manager,
-        );
-
-        movement.status = EmployeeMovementStatusEnum.APPLIED;
-        movement.appliedAt = new Date();
-        movement.applicationSnapshot = this.buildCurrentSnapshot(
-          employee,
-          finalCompensation,
-        );
-
-        await manager.getRepository(EmployeeMovement).save(movement);
-
-        const employeeRecipient = await this.resolveEmployeeRecipient(
-          movement,
-          manager,
-        );
-
-        if (employeeRecipient) {
-          this.eventEmitter.emit(
-            EmployeeMovementAppliedEvent.EVENT,
-            new EmployeeMovementAppliedEvent(
-              movement.companyId,
-              movement.id,
-              movement.movementNo,
-              movement.movementType,
-              `${movement.employee.first_name} ${movement.employee.last_name}`,
-              employeeRecipient.email,
-              movement.effectiveDate,
-              this.buildMovementDashboardUrl(movement),
-            ),
-          );
-        }
-
-        return movement;
-      });
+        },
+      );
     } catch (error) {
       await this.movementRepository.update(
         { id: movementId, companyId },
@@ -1928,7 +1949,8 @@ export class EmployeeMovementsService {
   ): Promise<Record<string, unknown>> {
     const repository = manager.getRepository(AttendanceRecalculationJob);
     const today = formatDateOnly(new Date());
-    const dateTo = movement.effectiveDate > today ? movement.effectiveDate : today;
+    const dateTo =
+      movement.effectiveDate > today ? movement.effectiveDate : today;
     const reason = `Employee movement ${movement.movementNo} attendance refresh`;
 
     let job = await repository.findOne({
@@ -2008,7 +2030,10 @@ export class EmployeeMovementsService {
     manager: EntityManager,
   ): Promise<Record<string, unknown>> {
     if (!branchId) {
-      return { granted: false, reason: 'Movement did not specify a target branch.' };
+      return {
+        granted: false,
+        reason: 'Movement did not specify a target branch.',
+      };
     }
 
     const employee = await manager.getRepository(Employee).findOne({
@@ -2019,7 +2044,8 @@ export class EmployeeMovementsService {
     if (!employee?.company_user_id) {
       return {
         granted: false,
-        reason: 'Employee has no linked company user for branch access assignment.',
+        reason:
+          'Employee has no linked company user for branch access assignment.',
       };
     }
 
@@ -2107,9 +2133,11 @@ export class EmployeeMovementsService {
         break;
       }
       case EmployeeMovementOperationTypeEnum.RECALCULATE_ATTENDANCE_ASSIGNMENT: {
-        const movement = await manager.getRepository(EmployeeMovement).findOneOrFail({
-          where: { id: operation.movementId, companyId: operation.companyId },
-        });
+        const movement = await manager
+          .getRepository(EmployeeMovement)
+          .findOneOrFail({
+            where: { id: operation.movementId, companyId: operation.companyId },
+          });
         operation.result = await this.queueAttendanceRefreshForMovement(
           movement,
           manager,
@@ -2139,7 +2167,7 @@ export class EmployeeMovementsService {
 
         operation.result = await this.ensureMovementBranchAccess(
           movement,
-          branchId as number | null,
+          branchId,
           manager,
         );
         operation.status = EmployeeMovementOperationStatusEnum.COMPLETED;

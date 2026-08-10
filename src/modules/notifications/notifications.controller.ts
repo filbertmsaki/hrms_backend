@@ -108,7 +108,9 @@ export class NotificationsController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: NotificationDeliveryLogQueryDto,
   ) {
-    const { companyId } = this.notificationsService.assertCompanyActor(req.user);
+    const { companyId } = this.notificationsService.assertCompanyActor(
+      req.user,
+    );
     return this.notificationsService.listDeliveryLogs(companyId, query);
   }
 
@@ -119,7 +121,9 @@ export class NotificationsController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    const { companyId } = this.notificationsService.assertCompanyActor(req.user);
+    const { companyId } = this.notificationsService.assertCompanyActor(
+      req.user,
+    );
     return this.notificationsService.getDeliveryLog(companyId, id);
   }
 
@@ -130,7 +134,9 @@ export class NotificationsController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: NotificationMailLogQueryDto,
   ) {
-    const { companyId } = this.notificationsService.assertCompanyActor(req.user);
+    const { companyId } = this.notificationsService.assertCompanyActor(
+      req.user,
+    );
     return this.notificationsService.listMailLogs(companyId, query);
   }
 
@@ -141,7 +147,9 @@ export class NotificationsController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    const { companyId } = this.notificationsService.assertCompanyActor(req.user);
+    const { companyId } = this.notificationsService.assertCompanyActor(
+      req.user,
+    );
     return this.notificationsService.getMailLog(companyId, id);
   }
 
@@ -152,7 +160,9 @@ export class NotificationsController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    const { companyId } = this.notificationsService.assertCompanyActor(req.user);
+    const { companyId } = this.notificationsService.assertCompanyActor(
+      req.user,
+    );
     return this.notificationsService.retryMailLog(companyId, id);
   }
 
@@ -187,9 +197,7 @@ export class NotificationsController {
   @Get('channel-settings/:channel')
   @UseGuards(TenantGuard, PermissionsGuard)
   @Permissions('notifications:settings:read')
-  getChannelSetting(
-    @Param('channel') channel: NotificationChannelEnum,
-  ) {
+  getChannelSetting(@Param('channel') channel: NotificationChannelEnum) {
     return this.notificationChannelManagementService.getGlobalSetting(channel);
   }
 

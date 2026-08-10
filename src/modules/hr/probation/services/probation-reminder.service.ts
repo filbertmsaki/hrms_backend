@@ -6,9 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { PostgresAdvisoryLockService } from '../../../../common/database/postgres-advisory-lock.service';
 import { Employee } from '../../employees/entities/employee.entity';
 import { EmployeeConfirmationStatusEnum } from '../../employees/enums/employee-confirmation-status.enum';
-import {
-  ActionItemsService,
-} from '../../action-inbox/action-items.service';
+import { ActionItemsService } from '../../action-inbox/action-items.service';
 import { ActionItemTypeEnum } from '../../action-inbox/enums/action-item-type.enum';
 import { formatDateOnly } from '../../shared/hr.utils';
 import { ProbationCase } from '../entities/probation-case.entity';
@@ -58,7 +56,10 @@ export class ProbationReminderService {
     return cutoff;
   }
 
-  private async claimReminder(id: number, cutoffHours: number): Promise<boolean> {
+  private async claimReminder(
+    id: number,
+    cutoffHours: number,
+  ): Promise<boolean> {
     const cutoff = this.reminderCutoff(cutoffHours);
     const result = await this.caseRepository
       .createQueryBuilder()
@@ -68,10 +69,9 @@ export class ProbationReminderService {
         reminderCount: () => '"reminder_count" + 1',
       } as never)
       .where('id = :id', { id })
-      .andWhere(
-        '(last_reminder_at IS NULL OR last_reminder_at < :cutoff)',
-        { cutoff },
-      )
+      .andWhere('(last_reminder_at IS NULL OR last_reminder_at < :cutoff)', {
+        cutoff,
+      })
       .execute();
 
     return (result.affected ?? 0) > 0;
@@ -103,7 +103,10 @@ export class ProbationReminderService {
       .getMany();
 
     for (const probationCase of cases) {
-      const daysRemaining = this.daysBetween(today, probationCase.currentDueDate);
+      const daysRemaining = this.daysBetween(
+        today,
+        probationCase.currentDueDate,
+      );
 
       if (!reminderDays.includes(daysRemaining) || daysRemaining > maxWindow) {
         continue;

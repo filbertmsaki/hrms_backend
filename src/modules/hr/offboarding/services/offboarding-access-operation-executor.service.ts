@@ -12,7 +12,6 @@ import { EmployeeAccessCredentialStatusEnum } from '../../../access-control/empl
 import { EmployeeDeviceAssignment } from '../../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
 import { EmployeeDeviceAssignmentSyncStatusEnum } from '../../../access-control/employee-device-assignments/enum/employee-device-assignment-sync-status.enum';
 import { EmployeeAssignmentService } from '../../employees/employee-assignment.service';
-import { OffboardingAccessOperation } from '../entities/offboarding-access-operation.entity';
 import { OffboardingRequest } from '../entities/offboarding-request.entity';
 import { OffboardingAccessOperationTypeEnum } from '../enums/offboarding-access-operation-type.enum';
 import { OffboardingLetterTypeEnum } from '../enums/offboarding-letter-type.enum';
@@ -95,7 +94,9 @@ export class OffboardingAccessOperationExecutorService {
       default:
         return {
           skipped: true,
-          detail: { note: `Unhandled operation type ${operationType}` },
+          detail: {
+            note: `Unhandled operation type ${String(operationType)}`,
+          },
         };
     }
   }

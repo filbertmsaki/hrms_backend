@@ -33,7 +33,10 @@ export class FieldLocationEnrichmentService {
 
     for (const event of events) {
       event.addressStatus = defaultStatus;
-      if (!event.locationValidationResult || Array.isArray(event.locationValidationResult)) {
+      if (
+        !event.locationValidationResult ||
+        Array.isArray(event.locationValidationResult)
+      ) {
         event.locationValidationResult = {};
       }
       event.locationValidationResult = {

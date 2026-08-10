@@ -56,12 +56,12 @@ describe('OffboardingAccessOperationExecutorService', () => {
         setLock: () => ({
           where: () => ({
             andWhere: () => ({
-              getOne: async () => membership,
+              getOne: () => Promise.resolve(membership),
             }),
           }),
         }),
       }),
-      save: jest.fn(async (entity) => entity),
+      save: jest.fn((entity: typeof membership) => Promise.resolve(entity)),
     };
 
     const manager = buildManager(new Map([[CompanyUser, companyUserRepo]]));
@@ -82,18 +82,18 @@ describe('OffboardingAccessOperationExecutorService', () => {
     const membership = { id: 90, user_id: 7, status: 'active' };
     const user = { id: 7, status: 'active' };
     const companyUserRepo = {
-      findOne: async () => membership,
-      count: async () => 1,
+      findOne: () => Promise.resolve(membership),
+      count: () => Promise.resolve(1),
     };
     const userRepo = {
       createQueryBuilder: () => ({
         setLock: () => ({
           where: () => ({
-            getOne: async () => user,
+            getOne: () => Promise.resolve(user),
           }),
         }),
       }),
-      save: jest.fn(async (entity) => entity),
+      save: jest.fn((entity: typeof user) => Promise.resolve(entity)),
     };
 
     const manager = buildManager(
@@ -118,18 +118,18 @@ describe('OffboardingAccessOperationExecutorService', () => {
     const membership = { id: 90, user_id: 7, status: 'inactive' };
     const user = { id: 7, status: 'active' };
     const companyUserRepo = {
-      findOne: async () => membership,
-      count: async () => 0,
+      findOne: () => Promise.resolve(membership),
+      count: () => Promise.resolve(0),
     };
     const userRepo = {
       createQueryBuilder: () => ({
         setLock: () => ({
           where: () => ({
-            getOne: async () => user,
+            getOne: () => Promise.resolve(user),
           }),
         }),
       }),
-      save: jest.fn(async (entity) => entity),
+      save: jest.fn((entity: typeof user) => Promise.resolve(entity)),
     };
 
     const manager = buildManager(
@@ -162,7 +162,7 @@ describe('OffboardingAccessOperationExecutorService', () => {
       },
     ];
     const deviceAssignmentRepo = {
-      find: async () => assignments,
+      find: () => Promise.resolve(assignments),
     };
 
     const manager = buildManager(
@@ -179,7 +179,7 @@ describe('OffboardingAccessOperationExecutorService', () => {
   });
 
   it('treats a device with no remaining assignment as idempotently complete', async () => {
-    const deviceAssignmentRepo = { find: async () => [] };
+    const deviceAssignmentRepo = { find: () => Promise.resolve([]) };
     const manager = buildManager(
       new Map([[EmployeeDeviceAssignment, deviceAssignmentRepo]]),
     );

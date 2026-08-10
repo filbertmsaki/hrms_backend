@@ -2,7 +2,8 @@ import Decimal from 'decimal.js';
 
 export class EmployeeFinanceMoney {
   private static decimalOf(value: string | number | null | undefined): Decimal {
-    if (value === null || value === undefined || value === '') return new Decimal(0);
+    if (value === null || value === undefined || value === '')
+      return new Decimal(0);
     return new Decimal(String(value).trim() || '0');
   }
 
@@ -16,7 +17,11 @@ export class EmployeeFinanceMoney {
     const sign = raw.startsWith('-') ? -1n : 1n;
     const normalized = raw.replace(/^-/, '');
     const [wholeRaw, fractionRaw = ''] = normalized.split('.');
-    return sign * (BigInt(wholeRaw || '0') * 100n + BigInt((fractionRaw + '00').slice(0, 2)));
+    return (
+      sign *
+      (BigInt(wholeRaw || '0') * 100n +
+        BigInt((fractionRaw + '00').slice(0, 2)))
+    );
   }
 
   static fromCents(cents: bigint): string {
@@ -26,7 +31,9 @@ export class EmployeeFinanceMoney {
   }
 
   static add(...values: Array<string | number | null | undefined>) {
-    return this.fromCents(values.reduce((sum, value) => sum + this.toCents(value), 0n));
+    return this.fromCents(
+      values.reduce((sum, value) => sum + this.toCents(value), 0n),
+    );
   }
 
   static subtract(left: string | number, right: string | number) {
@@ -34,7 +41,9 @@ export class EmployeeFinanceMoney {
   }
 
   static multiply(value: string | number, factor: string | number) {
-    return this.fromDecimal(this.decimalOf(value).times(this.decimalOf(factor)));
+    return this.fromDecimal(
+      this.decimalOf(value).times(this.decimalOf(factor)),
+    );
   }
 
   static multiplyPercent(value: string | number, percent: string | number) {
@@ -53,7 +62,9 @@ export class EmployeeFinanceMoney {
     if (resolvedDenominator <= 0n) return '0.00';
 
     return this.fromDecimal(
-      this.decimalOf(value).times(String(numerator)).div(String(resolvedDenominator)),
+      this.decimalOf(value)
+        .times(String(numerator))
+        .div(String(resolvedDenominator)),
     );
   }
 

@@ -1451,7 +1451,7 @@ export class HrInAppNotificationListener {
     }
   }
 
-  private async sendSms(input: {
+  private sendSms(input: {
     code: string;
     module: string;
     recipientCompanyUserId?: number | null;
@@ -1467,5 +1467,6 @@ export class HrInAppNotificationListener {
       relatedEntityId: input.relatedEntityId ?? null,
       variables: input.variables,
     });
+    return Promise.resolve();
   }
 }

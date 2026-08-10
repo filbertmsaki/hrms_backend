@@ -60,9 +60,8 @@ export class PerformancePeriodService {
       financialYear.startDate,
       financialYear.endDate,
     );
-    const quarterlyPeriods = this.periodFactory.buildQuarterlyPeriods(
-      monthlyPeriods,
-    );
+    const quarterlyPeriods =
+      this.periodFactory.buildQuarterlyPeriods(monthlyPeriods);
     const periodTemplates = [...monthlyPeriods, ...quarterlyPeriods];
 
     const existing = await this.periodRepository.find({

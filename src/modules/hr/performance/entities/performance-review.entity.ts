@@ -46,20 +46,45 @@ export class PerformanceReview {
   @Column({
     type: 'enum',
     enum: PerformanceReviewStatusEnum,
+    enumName: 'performance_review_status_enum',
     default: PerformanceReviewStatusEnum.DRAFT,
   })
   status: PerformanceReviewStatusEnum;
 
-  @Column({ name: 'kpi_score', type: 'decimal', precision: 9, scale: 4, nullable: true })
+  @Column({
+    name: 'kpi_score',
+    type: 'decimal',
+    precision: 9,
+    scale: 4,
+    nullable: true,
+  })
   kpiScore: string | null;
 
-  @Column({ name: 'competency_score', type: 'decimal', precision: 9, scale: 4, nullable: true })
+  @Column({
+    name: 'competency_score',
+    type: 'decimal',
+    precision: 9,
+    scale: 4,
+    nullable: true,
+  })
   competencyScore: string | null;
 
-  @Column({ name: 'adjustment_score', type: 'decimal', precision: 9, scale: 4, default: 0 })
+  @Column({
+    name: 'adjustment_score',
+    type: 'decimal',
+    precision: 9,
+    scale: 4,
+    default: 0,
+  })
   adjustmentScore: string;
 
-  @Column({ name: 'final_score', type: 'decimal', precision: 9, scale: 4, nullable: true })
+  @Column({
+    name: 'final_score',
+    type: 'decimal',
+    precision: 9,
+    scale: 4,
+    nullable: true,
+  })
   finalScore: string | null;
 
   @Column({ name: 'rating_scale_id', type: 'int', nullable: true })
@@ -105,7 +130,12 @@ export class PerformanceReview {
   @Column({ name: 'calculation_snapshot', type: 'jsonb', nullable: true })
   calculationSnapshot: Record<string, unknown> | null;
 
-  @Column({ name: 'calculation_hash', type: 'varchar', length: 128, nullable: true })
+  @Column({
+    name: 'calculation_hash',
+    type: 'varchar',
+    length: 128,
+    nullable: true,
+  })
   calculationHash: string | null;
 
   @Column({ name: 'published_at', type: 'timestamptz', nullable: true })

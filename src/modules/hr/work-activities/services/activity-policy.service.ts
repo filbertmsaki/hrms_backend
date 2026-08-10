@@ -9,7 +9,10 @@ import { Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { Employee } from '../../employees/entities/employee.entity';
 import { HrAccessService } from '../../shared/hr-access.service';
-import { ActivityCategory, ActivityPolicy } from '../entities/activity-config.entities';
+import {
+  ActivityCategory,
+  ActivityPolicy,
+} from '../entities/activity-config.entities';
 
 @Injectable()
 export class ActivityPolicyService {
@@ -24,6 +27,22 @@ export class ActivityPolicyService {
 
   private ensureCompanyId(actor: AuthenticatedUser): number {
     return this.hrAccessService.ensureActorCompanyId(actor);
+  }
+
+  private toText(value: unknown, fallback = ''): string {
+    if (typeof value === 'string') {
+      return value;
+    }
+
+    if (
+      typeof value === 'number' ||
+      typeof value === 'boolean' ||
+      typeof value === 'bigint'
+    ) {
+      return String(value);
+    }
+
+    return fallback;
   }
 
   async createCategory(actor: AuthenticatedUser, dto: Record<string, unknown>) {
@@ -136,7 +155,11 @@ export class ActivityPolicyService {
 
   async createPolicy(actor: AuthenticatedUser, dto: Record<string, unknown>) {
     const companyId = this.ensureCompanyId(actor);
-    this.assertCutoff(String(dto.submission_cutoff_time ?? '20:00'));
+    const submissionCutoffTime = this.toText(
+      dto.submission_cutoff_time,
+      '20:00',
+    );
+    this.assertCutoff(submissionCutoffTime);
 
     const policy = this.policyRepository.create({
       companyId,
@@ -149,7 +172,7 @@ export class ActivityPolicyService {
           ? dto.employment_type.trim()
           : null,
       dailySubmissionRequired: dto.daily_submission_required !== false,
-      submissionCutoffTime: String(dto.submission_cutoff_time ?? '20:00'),
+      submissionCutoffTime,
       managerReviewRequired: dto.manager_review_required !== false,
       minimumActivityCount: Number(dto.minimum_activity_count ?? 1),
       minimumCompletedActivityCount: Number(
@@ -164,7 +187,7 @@ export class ActivityPolicyService {
           this.configService.get<number>('ACTIVITY_MAX_BACKDATE_DAYS', 3),
       ),
       priority: Number(dto.priority ?? 0),
-      effectiveFrom: String(dto.effective_from),
+      effectiveFrom: this.toText(dto.effective_from),
       effectiveTo:
         typeof dto.effective_to === 'string' ? dto.effective_to : null,
       status: 'ACTIVE',
@@ -196,16 +219,19 @@ export class ActivityPolicyService {
     }
 
     if (dto.submission_cutoff_time !== undefined) {
-      this.assertCutoff(String(dto.submission_cutoff_time));
-      policy.submissionCutoffTime = String(dto.submission_cutoff_time);
+      const submissionCutoffTime = this.toText(dto.submission_cutoff_time);
+      this.assertCutoff(submissionCutoffTime);
+      policy.submissionCutoffTime = submissionCutoffTime;
     }
 
-    if (dto.branch_id !== undefined) policy.branchId = dto.branch_id as number | null;
+    if (dto.branch_id !== undefined)
+      policy.branchId = dto.branch_id as number | null;
     if (dto.department_id !== undefined)
       policy.departmentId = dto.department_id as number | null;
     if (dto.position_id !== undefined)
       policy.positionId = dto.position_id as number | null;
-    if (dto.grade_id !== undefined) policy.gradeId = dto.grade_id as number | null;
+    if (dto.grade_id !== undefined)
+      policy.gradeId = dto.grade_id as number | null;
     if (dto.employment_type !== undefined) {
       policy.employmentType =
         typeof dto.employment_type === 'string'
@@ -245,7 +271,7 @@ export class ActivityPolicyService {
       policy.priority = Number(dto.priority);
     }
     if (dto.effective_from !== undefined) {
-      policy.effectiveFrom = String(dto.effective_from);
+      policy.effectiveFrom = this.toText(dto.effective_from);
     }
     if (dto.effective_to !== undefined) {
       policy.effectiveTo =
@@ -289,14 +315,15 @@ export class ActivityPolicyService {
       (policy) =>
         policy.effectiveFrom <= targetDate &&
         (!policy.effectiveTo || policy.effectiveTo >= targetDate) &&
-        (policy.branchId === null || policy.branchId === employee.primary_branch_id) &&
+        (policy.branchId === null ||
+          policy.branchId === employee.primary_branch_id) &&
         (policy.departmentId === null ||
           policy.departmentId === employee.primary_department_id) &&
         (policy.positionId === null ||
           policy.positionId === employee.primary_position_id) &&
         (policy.gradeId === null || policy.gradeId === employee.grade_id) &&
         (policy.employmentType === null ||
-          policy.employmentType === employee.employment_type),
+          String(policy.employmentType) === String(employee.employment_type)),
     );
 
     if (activePolicies.length > 0) {
@@ -311,8 +338,9 @@ export class ActivityPolicyService {
             policy.employmentType,
           ].filter((value) => value !== null).length,
         }))
-        .sort((a, b) => b.score - a.score || b.policy.priority - a.policy.priority)[0]
-        .policy;
+        .sort(
+          (a, b) => b.score - a.score || b.policy.priority - a.policy.priority,
+        )[0].policy;
     }
 
     return {

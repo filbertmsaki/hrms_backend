@@ -46,7 +46,10 @@ import {
   ProgressiveTaxService,
   StatutoryCalculationService,
 } from '../src/modules/hr/payroll/services/payroll-core.services';
-import { PayrollApprovalStageEnum, PayrollRunStatusEnum } from '../src/modules/hr/payroll/payroll.enums';
+import {
+  PayrollApprovalStageEnum,
+  PayrollRunStatusEnum,
+} from '../src/modules/hr/payroll/payroll.enums';
 import { EmployeeCompensationVersion } from '../src/modules/hr/employee-movements/entities/employee-compensation-version.entity';
 import { EmployeeCompensationVersionStatusEnum } from '../src/modules/hr/employee-movements/entities/employee-compensation-version.entity';
 import { AttendanceDailySummary } from '../src/modules/hr/attendance/processing/entities/attendance-daily-summary.entity';
@@ -158,7 +161,6 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
   let financeInstructionRepository: Repository<EmployeeFinancePayrollInstruction>;
 
   let configurationService: PayrollConfigurationService;
-  let inputService: PayrollInputService;
   let runService: PayrollRunService;
 
   let applicationService: EmployeeFinanceApplicationService;
@@ -168,7 +170,9 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
   let payrollInstructionService: EmployeeFinancePayrollInstructionService;
 
   const hrAccessService = {
-    ensureActorCompanyId: jest.fn((actor: AuthenticatedUser) => actor.companyId),
+    ensureActorCompanyId: jest.fn(
+      (actor: AuthenticatedUser) => actor.companyId,
+    ),
     assertCanAccessEmployee: jest.fn(),
     assertCompanyScopedActor: jest.fn(),
   } as unknown as HrAccessService;
@@ -234,23 +238,43 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       ));
     createdCompany = !existingCompany;
 
-    await new PayrollBaselineSeeder().run(dataSource, {} as SeederFactoryManager);
-    await new EmployeeFinanceProductsSeeder().run(dataSource, {} as SeederFactoryManager);
+    await new PayrollBaselineSeeder().run(
+      dataSource,
+      {} as SeederFactoryManager,
+    );
+    await new EmployeeFinanceProductsSeeder().run(
+      dataSource,
+      {} as SeederFactoryManager,
+    );
 
     payrollPeriodRepository = dataSource.getRepository(PayrollPeriod);
     payrollRunRepository = dataSource.getRepository(PayrollRun);
     payrollInputRepository = dataSource.getRepository(PayrollInput);
     payrollResultRepository = dataSource.getRepository(EmployeePayrollResult);
-    payrollLineItemRepository = dataSource.getRepository(EmployeePayrollLineItem);
+    payrollLineItemRepository = dataSource.getRepository(
+      EmployeePayrollLineItem,
+    );
 
     financeProductRepository = dataSource.getRepository(EmployeeFinanceProduct);
-    financeApplicationRepository = dataSource.getRepository(EmployeeFinanceApplication);
-    financeApprovalRepository = dataSource.getRepository(EmployeeFinanceApplicationApproval);
+    financeApplicationRepository = dataSource.getRepository(
+      EmployeeFinanceApplication,
+    );
+    financeApprovalRepository = dataSource.getRepository(
+      EmployeeFinanceApplicationApproval,
+    );
     financeAccountRepository = dataSource.getRepository(EmployeeFinanceAccount);
-    financeInstallmentRepository = dataSource.getRepository(EmployeeFinanceInstallment);
-    financeDisbursementRepository = dataSource.getRepository(EmployeeFinanceDisbursement);
-    financeLedgerRepository = dataSource.getRepository(EmployeeFinanceLedgerEntry);
-    financeInstructionRepository = dataSource.getRepository(EmployeeFinancePayrollInstruction);
+    financeInstallmentRepository = dataSource.getRepository(
+      EmployeeFinanceInstallment,
+    );
+    financeDisbursementRepository = dataSource.getRepository(
+      EmployeeFinanceDisbursement,
+    );
+    financeLedgerRepository = dataSource.getRepository(
+      EmployeeFinanceLedgerEntry,
+    );
+    financeInstructionRepository = dataSource.getRepository(
+      EmployeeFinancePayrollInstruction,
+    );
 
     const auditService = new PayrollAuditService(
       dataSource.getRepository(PayrollAuditLog),
@@ -263,17 +287,21 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       dataSource.getRepository(Employee),
       dataSource.getRepository(EmployeeBankAccount),
     );
-    (globalThis as { __profileService?: EmployeePayrollProfileService }).__profileService = profileService;
+    (
+      globalThis as { __profileService?: EmployeePayrollProfileService }
+    ).__profileService = profileService;
 
     configurationService = new PayrollConfigurationService(
       configService,
       hrAccessService,
       auditService,
       dataSource.getRepository(
-        require('../src/modules/hr/payroll/entities/payroll-configuration.entities').PayrollComponent,
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollComponent,
       ),
       dataSource.getRepository(
-        require('../src/modules/hr/payroll/entities/payroll-configuration.entities').SalaryStructure,
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .SalaryStructure,
       ),
       dataSource.getRepository(
         require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
@@ -282,7 +310,8 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       dataSource.getRepository(PayrollCalendar),
       payrollPeriodRepository,
       dataSource.getRepository(
-        require('../src/modules/hr/payroll/entities/payroll-configuration.entities').StatutoryScheme,
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .StatutoryScheme,
       ),
       dataSource.getRepository(
         require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
@@ -297,14 +326,19 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
           .PayrollAccountingMapping,
       ),
     );
-    inputService = new PayrollInputService(hrAccessService, payrollInputRepository, payrollPeriodRepository);
+    new PayrollInputService(
+      hrAccessService,
+      payrollInputRepository,
+      payrollPeriodRepository,
+    );
 
     const prorationService = new PayrollProrationService();
     const progressiveTaxService = new ProgressiveTaxService();
     const statutoryCalculationService = new StatutoryCalculationService(
       progressiveTaxService,
       dataSource.getRepository(
-        require('../src/modules/hr/payroll/entities/payroll-configuration.entities').StatutoryScheme,
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .StatutoryScheme,
       ),
       dataSource.getRepository(
         require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
@@ -400,7 +434,8 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       dataSource.getRepository(EmployeeBankAccount),
       dataSource.getRepository(EmployeeCompensationVersion),
       dataSource.getRepository(
-        require('../src/modules/hr/payroll/entities/payroll-configuration.entities').PayrollComponent,
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollComponent,
       ),
       payrollInputRepository,
       dataSource.getRepository(AttendanceDailySummary),
@@ -509,24 +544,27 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     );
     employeeId = employee.id;
 
-    const bankAccount = await dataSource.getRepository(EmployeeBankAccount).save(
-      dataSource.getRepository(EmployeeBankAccount).create({
-        employee_id: employeeId,
-        bank_name: 'National Bank',
-        account_name: 'Finance Employee',
-        account_number: `0001${suffix}`.slice(-12),
-        bank_code: 'NMB',
-        bank_branch_code: '001',
-        account_currency: 'TZS',
-        verification_status: 'VERIFIED',
-        verified_at: new Date('2026-08-01T00:00:00.000Z'),
-        is_primary: true,
-      }),
-    );
+    const bankAccount = await dataSource
+      .getRepository(EmployeeBankAccount)
+      .save(
+        dataSource.getRepository(EmployeeBankAccount).create({
+          employee_id: employeeId,
+          bank_name: 'National Bank',
+          account_name: 'Finance Employee',
+          account_number: `0001${suffix}`.slice(-12),
+          bank_code: 'NMB',
+          bank_branch_code: '001',
+          account_currency: 'TZS',
+          verification_status: 'VERIFIED',
+          verified_at: new Date('2026-08-01T00:00:00.000Z'),
+          is_primary: true,
+        }),
+      );
     bankAccountId = bankAccount.id;
 
-    const profileService = (globalThis as { __profileService?: EmployeePayrollProfileService })
-      .__profileService!;
+    const profileService = (
+      globalThis as { __profileService?: EmployeePayrollProfileService }
+    ).__profileService!;
     const profile = (await profileService.upsert(adminActor(), {
       employee_id: employeeId,
       payroll_number: `PAY-EF-${suffix}`.slice(0, 60),
@@ -538,25 +576,27 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     })) as EmployeePayrollProfile;
     profileId = profile.id;
 
-    const compensation = await dataSource.getRepository(EmployeeCompensationVersion).save(
-      dataSource.getRepository(EmployeeCompensationVersion).create({
-        companyId: company.id,
-        employeeId,
-        movementId: null,
-        baseSalary: '1000000.00',
-        currency: 'TZS',
-        salaryStructureCode: 'STD-MONTHLY',
-        payFrequency: 'MONTHLY',
-        effectiveFrom: '2026-01-01',
-        effectiveTo: null,
-        status: EmployeeCompensationVersionStatusEnum.ACTIVE,
-        revisionReference: 'EMPLOYEE-FINANCE-E2E',
-        justification: 'Initial compensation for employee finance e2e',
-        approvedByCompanyUserId: adminCompanyUserId,
-        createdByCompanyUserId: adminCompanyUserId,
-        payrollSyncStatus: 'READY',
-      }),
-    );
+    const compensation = await dataSource
+      .getRepository(EmployeeCompensationVersion)
+      .save(
+        dataSource.getRepository(EmployeeCompensationVersion).create({
+          companyId: company.id,
+          employeeId,
+          movementId: null,
+          baseSalary: '1000000.00',
+          currency: 'TZS',
+          salaryStructureCode: 'STD-MONTHLY',
+          payFrequency: 'MONTHLY',
+          effectiveFrom: '2026-01-01',
+          effectiveTo: null,
+          status: EmployeeCompensationVersionStatusEnum.ACTIVE,
+          revisionReference: 'EMPLOYEE-FINANCE-E2E',
+          justification: 'Initial compensation for employee finance e2e',
+          approvedByCompanyUserId: adminCompanyUserId,
+          createdByCompanyUserId: adminCompanyUserId,
+          payrollSyncStatus: 'READY',
+        }),
+      );
     compensationId = compensation.id;
 
     const calendar = await dataSource.getRepository(PayrollCalendar).save(
@@ -574,12 +614,16 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
   });
 
   afterEach(async () => {
-    const auditActorIds = [adminCompanyUserId, financeCompanyUserId, employeeCompanyUserId].filter(
-      (value): value is number => Boolean(value),
-    );
+    const auditActorIds = [
+      adminCompanyUserId,
+      financeCompanyUserId,
+      employeeCompanyUserId,
+    ].filter((value): value is number => Boolean(value));
 
     if (runId) {
-      await dataSource.getRepository(PayrollRunApproval).delete({ payrollRunId: runId });
+      await dataSource
+        .getRepository(PayrollRunApproval)
+        .delete({ payrollRunId: runId });
       await payrollLineItemRepository.delete({ payrollRunId: runId });
       await payrollResultRepository.delete({ payrollRunId: runId });
       await payrollRunRepository.delete({ id: runId });
@@ -608,19 +652,27 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       periodId = 0;
     }
     if (calendarId) {
-      await dataSource.getRepository(PayrollCalendar).delete({ id: calendarId });
+      await dataSource
+        .getRepository(PayrollCalendar)
+        .delete({ id: calendarId });
       calendarId = 0;
     }
     if (profileId) {
-      await dataSource.getRepository(EmployeePayrollProfile).delete({ id: profileId });
+      await dataSource
+        .getRepository(EmployeePayrollProfile)
+        .delete({ id: profileId });
       profileId = 0;
     }
     if (compensationId) {
-      await dataSource.getRepository(EmployeeCompensationVersion).delete({ id: compensationId });
+      await dataSource
+        .getRepository(EmployeeCompensationVersion)
+        .delete({ id: compensationId });
       compensationId = 0;
     }
     if (bankAccountId) {
-      await dataSource.getRepository(EmployeeBankAccount).delete({ id: bankAccountId });
+      await dataSource
+        .getRepository(EmployeeBankAccount)
+        .delete({ id: bankAccountId });
       bankAccountId = 0;
     }
     if (employeeId) {
@@ -628,7 +680,9 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       employeeId = 0;
     }
     if (employeeCompanyUserId) {
-      await dataSource.getRepository(CompanyUser).delete({ id: employeeCompanyUserId });
+      await dataSource
+        .getRepository(CompanyUser)
+        .delete({ id: employeeCompanyUserId });
       employeeCompanyUserId = 0;
     }
     if (employeeUserId) {
@@ -636,7 +690,9 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       employeeUserId = 0;
     }
     if (financeCompanyUserId) {
-      await dataSource.getRepository(CompanyUser).delete({ id: financeCompanyUserId });
+      await dataSource
+        .getRepository(CompanyUser)
+        .delete({ id: financeCompanyUserId });
       financeCompanyUserId = 0;
     }
     if (financeUserId) {
@@ -644,7 +700,9 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       financeUserId = 0;
     }
     if (adminCompanyUserId) {
-      await dataSource.getRepository(CompanyUser).delete({ id: adminCompanyUserId });
+      await dataSource
+        .getRepository(CompanyUser)
+        .delete({ id: adminCompanyUserId });
       adminCompanyUserId = 0;
     }
     if (adminUserId) {
@@ -684,16 +742,23 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       where: { companyId: company.id, code: 'SALARY_ADVANCE_STD' },
     });
 
-    let application = await applicationService.createForEmployee(adminActor(), employeeId, {
-      product_id: product.id,
-      requested_amount: '100000.00',
-      requested_term_months: 1,
-      purpose: 'Emergency medical expense',
-    });
+    let application = await applicationService.createForEmployee(
+      adminActor(),
+      employeeId,
+      {
+        product_id: product.id,
+        requested_amount: '100000.00',
+        requested_term_months: 1,
+        purpose: 'Emergency medical expense',
+      },
+    );
     applicationId = application.id;
     expect(application.status).toBe(EmployeeFinanceApplicationStatusEnum.DRAFT);
 
-    application = await applicationService.submitMine(employeeActor(), application.id);
+    application = await applicationService.submitMine(
+      employeeActor(),
+      application.id,
+    );
     expect(application.status).toBe(
       EmployeeFinanceApplicationStatusEnum.PENDING_MANAGER_RECOMMENDATION,
     );
@@ -705,14 +770,18 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       snapshot_hash: snapshotHash,
       comments: 'Manager recommends approval',
     });
-    expect(application.status).toBe(EmployeeFinanceApplicationStatusEnum.PENDING_HR_APPROVAL);
+    expect(application.status).toBe(
+      EmployeeFinanceApplicationStatusEnum.PENDING_HR_APPROVAL,
+    );
 
     application = await approvalService.approve(adminActor(), application.id, {
       stage: EmployeeFinanceApprovalStageEnum.HR,
       snapshot_hash: snapshotHash,
       comments: 'HR approves',
     });
-    expect(application.status).toBe(EmployeeFinanceApplicationStatusEnum.PENDING_FINANCE_APPROVAL);
+    expect(application.status).toBe(
+      EmployeeFinanceApplicationStatusEnum.PENDING_FINANCE_APPROVAL,
+    );
 
     application = await approvalService.approve(adminActor(), application.id, {
       stage: EmployeeFinanceApprovalStageEnum.FINANCE,
@@ -723,16 +792,23 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       EmployeeFinanceApplicationStatusEnum.PENDING_EMPLOYEE_ACCEPTANCE,
     );
 
-    const account = await applicationService.acceptMine(employeeActor(), application.id);
+    const account = await applicationService.acceptMine(
+      employeeActor(),
+      application.id,
+    );
     accountId = account.id;
-    expect(account.status).toBe(EmployeeFinanceAccountStatusEnum.PENDING_DISBURSEMENT);
+    expect(account.status).toBe(
+      EmployeeFinanceAccountStatusEnum.PENDING_DISBURSEMENT,
+    );
     expect(account.principalAmount).toBe('100000.00');
 
     const installment = await financeInstallmentRepository.findOneOrFail({
       where: { accountId: account.id },
     });
     expect(installment.totalDue).toBe('100000.00');
-    expect(installment.status).toBe(EmployeeFinanceInstallmentStatusEnum.SCHEDULED);
+    expect(installment.status).toBe(
+      EmployeeFinanceInstallmentStatusEnum.SCHEDULED,
+    );
 
     const dueDate = new Date(`${installment.dueDate}T00:00:00.000Z`);
     const period = await configurationService.generatePeriod(adminActor(), {
@@ -749,19 +825,25 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       payment_date: new Date().toISOString().slice(0, 10),
     });
     disbursementId = disbursement.id;
-    expect(disbursement.status).toBe(EmployeeFinanceDisbursementStatusEnum.PENDING_APPROVAL);
+    expect(disbursement.status).toBe(
+      EmployeeFinanceDisbursementStatusEnum.PENDING_APPROVAL,
+    );
 
     const approvedDisbursement = await disbursementService.approve(
       financeActor(),
       disbursement.id,
     );
-    expect(approvedDisbursement.status).toBe(EmployeeFinanceDisbursementStatusEnum.APPROVED);
+    expect(approvedDisbursement.status).toBe(
+      EmployeeFinanceDisbursementStatusEnum.APPROVED,
+    );
 
     const confirmedDisbursement = await disbursementService.confirm(
       adminActor(),
       disbursement.id,
     );
-    expect(confirmedDisbursement.status).toBe(EmployeeFinanceDisbursementStatusEnum.CONFIRMED);
+    expect(confirmedDisbursement.status).toBe(
+      EmployeeFinanceDisbursementStatusEnum.CONFIRMED,
+    );
 
     const activeAccount = await financeAccountRepository.findOneOrFail({
       where: { id: account.id },
@@ -769,22 +851,32 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     expect(activeAccount.status).toBe(EmployeeFinanceAccountStatusEnum.ACTIVE);
     expect(activeAccount.outstandingTotal).toBe('100000.00');
 
-    const run = await runService.create(adminActor(), { payroll_period_id: period.id });
+    const run = await runService.create(adminActor(), {
+      payroll_period_id: period.id,
+    });
     runId = run.id;
 
     const processedRun = await runService.process(adminActor(), run.id);
     expect(processedRun.status).toBe(PayrollRunStatusEnum.PENDING_HR_APPROVAL);
 
     const advanceLine = await payrollLineItemRepository.findOneOrFail({
-      where: { payrollRunId: run.id, employeeId, companyId: company.id, componentCode: 'SALARY_ADVANCE' },
+      where: {
+        payrollRunId: run.id,
+        employeeId,
+        companyId: company.id,
+        componentCode: 'SALARY_ADVANCE',
+      },
     });
     expect(advanceLine.amount).toBe('100000.00');
     expect(advanceLine.componentType).toBe('DEDUCTION');
 
-    const reservedInstruction = await financeInstructionRepository.findOneOrFail({
-      where: { installmentId: installment.id, payrollPeriodId: period.id },
-    });
-    expect(reservedInstruction.status).toBe(EmployeeFinancePayrollInstructionStatusEnum.RESERVED);
+    const reservedInstruction =
+      await financeInstructionRepository.findOneOrFail({
+        where: { installmentId: installment.id, payrollPeriodId: period.id },
+      });
+    expect(reservedInstruction.status).toBe(
+      EmployeeFinancePayrollInstructionStatusEnum.RESERVED,
+    );
     expect(reservedInstruction.payrollRunId).toBe(run.id);
     expect(reservedInstruction.reservedAmount).toBe('100000.00');
 
@@ -801,13 +893,17 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     const postedInstruction = await financeInstructionRepository.findOneOrFail({
       where: { id: reservedInstruction.id },
     });
-    expect(postedInstruction.status).toBe(EmployeeFinancePayrollInstructionStatusEnum.POSTED);
+    expect(postedInstruction.status).toBe(
+      EmployeeFinancePayrollInstructionStatusEnum.POSTED,
+    );
     expect(postedInstruction.postedAmount).toBe('100000.00');
 
     const paidInstallment = await financeInstallmentRepository.findOneOrFail({
       where: { id: installment.id },
     });
-    expect(paidInstallment.status).toBe(EmployeeFinanceInstallmentStatusEnum.PAID);
+    expect(paidInstallment.status).toBe(
+      EmployeeFinanceInstallmentStatusEnum.PAID,
+    );
     expect(paidInstallment.paidAmount).toBe('100000.00');
 
     const repaymentLedgerEntry = await financeLedgerRepository.findOneOrFail({

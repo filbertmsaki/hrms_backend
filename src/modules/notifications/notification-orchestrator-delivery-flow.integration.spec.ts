@@ -32,7 +32,8 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
     ),
     evaluateChannel: jest.fn(async () => ({ enabled: true, reason: null })),
     resolveDeliveryCode: jest.fn(
-      ({ type }: { type?: string | null }) => type ?? NotificationTypeEnum.GENERAL,
+      ({ type }: { type?: string | null }) =>
+        type ?? NotificationTypeEnum.GENERAL,
     ),
   } as unknown as NotificationChannelManagementService;
 

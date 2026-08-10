@@ -44,6 +44,7 @@ export class EmployeePerformancePlan {
   @Column({
     type: 'enum',
     enum: PerformancePlanStatusEnum,
+    enumName: 'performance_plan_status_enum',
     default: PerformancePlanStatusEnum.DRAFT,
   })
   status: PerformancePlanStatusEnum;

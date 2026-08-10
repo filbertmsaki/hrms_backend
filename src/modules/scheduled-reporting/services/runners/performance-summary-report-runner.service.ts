@@ -32,7 +32,9 @@ export class PerformanceSummaryReportRunner implements ReportRunner {
       .addSelect('employee.employee_no', 'employeeNumber')
       .addSelect('employee.first_name', 'firstName')
       .addSelect('employee.last_name', 'lastName')
-      .where('employee.company_id = :companyId', { companyId: context.companyId })
+      .where('employee.company_id = :companyId', {
+        companyId: context.companyId,
+      })
       .orderBy('employee.employee_no', 'ASC')
       .getRawMany<{
         id: number;
@@ -64,7 +66,10 @@ export class PerformanceSummaryReportRunner implements ReportRunner {
       }
     }
 
-    const latestAnnualAggregateByEmployee = new Map<number, PerformanceAggregate>();
+    const latestAnnualAggregateByEmployee = new Map<
+      number,
+      PerformanceAggregate
+    >();
     for (const aggregate of annualAggregates) {
       if (!latestAnnualAggregateByEmployee.has(aggregate.employeeId)) {
         latestAnnualAggregateByEmployee.set(aggregate.employeeId, aggregate);
@@ -84,7 +89,9 @@ export class PerformanceSummaryReportRunner implements ReportRunner {
 
     for (const employee of employeeRows) {
       const review = latestReviewByEmployee.get(Number(employee.id));
-      const aggregate = latestAnnualAggregateByEmployee.get(Number(employee.id));
+      const aggregate = latestAnnualAggregateByEmployee.get(
+        Number(employee.id),
+      );
       lines.push(
         [
           employee.employeeNumber,

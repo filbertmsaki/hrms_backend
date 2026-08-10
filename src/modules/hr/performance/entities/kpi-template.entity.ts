@@ -34,6 +34,7 @@ export class KpiTemplate {
   @Column({
     type: 'enum',
     enum: KpiTemplateStatusEnum,
+    enumName: 'kpi_template_status_enum',
     default: KpiTemplateStatusEnum.DRAFT,
   })
   status: KpiTemplateStatusEnum;

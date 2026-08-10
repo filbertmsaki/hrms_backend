@@ -18,7 +18,9 @@ import { ALLOWED_NOTIFICATION_MAIL_METHODS } from './notification-mail-method.co
 
 @Injectable()
 export class NotificationQueuedTaskRunnerService {
-  private readonly logger = new Logger(NotificationQueuedTaskRunnerService.name);
+  private readonly logger = new Logger(
+    NotificationQueuedTaskRunnerService.name,
+  );
 
   constructor(
     private readonly dispatcher: NotificationDeliveryDispatcherService,
@@ -30,7 +32,9 @@ export class NotificationQueuedTaskRunnerService {
   ) {}
 
   async handle(jobName: string, data: unknown): Promise<void> {
-    switch (jobName) {
+    const resolvedJobName = this.resolveJobName(jobName);
+
+    switch (resolvedJobName) {
       case NotificationJobName.PROCESS_OUTBOX_EVENT:
         await this.dispatcher.processOutboxEvent(
           (data as NotificationOutboxJobData).outboxEventId,
@@ -62,24 +66,26 @@ export class NotificationQueuedTaskRunnerService {
       throw error;
     }
 
-    const method = (this.mailService as unknown as Record<string, unknown>)[
-      data.method
-    ];
+    const method: unknown = (
+      this.mailService as unknown as Record<string, unknown>
+    )[data.method];
     if (typeof method !== 'function') {
       const error = new Error(`Mail method ${data.method} does not exist`);
       await this.markMailLogFailed(mailLog, error);
       throw error;
     }
 
-    const verdict = await this.notificationChannelManagementService.evaluateChannel(
-      NotificationChannelEnum.EMAIL,
-      data.method,
-    );
+    const verdict =
+      await this.notificationChannelManagementService.evaluateChannel(
+        NotificationChannelEnum.EMAIL,
+        data.method,
+      );
     if (!verdict.enabled) {
       if (mailLog) {
         mailLog.status = NotificationMailLogStatusEnum.SKIPPED;
         mailLog.processedAt = new Date();
-        mailLog.errorMessage = verdict.reason ?? 'Email notifications are disabled';
+        mailLog.errorMessage =
+          verdict.reason ?? 'Email notifications are disabled';
         mailLog.providerMessageId = null;
         mailLog.providerResponse = null;
         await this.mailLogRepository.save(mailLog);
@@ -88,10 +94,9 @@ export class NotificationQueuedTaskRunnerService {
     }
 
     try {
-      const result = await (method as (...args: unknown[]) => Promise<unknown>).apply(
-        this.mailService,
-        data.args,
-      );
+      const result: unknown = await (
+        method as (...args: unknown[]) => Promise<unknown>
+      ).apply(this.mailService, data.args);
 
       if (mailLog) {
         mailLog.status = NotificationMailLogStatusEnum.SENT;
@@ -128,5 +133,13 @@ export class NotificationQueuedTaskRunnerService {
     value: unknown,
   ): value is { messageId?: string | null; response?: string | null } {
     return typeof value === 'object' && value !== null;
+  }
+
+  private resolveJobName(jobName: string): NotificationJobName | null {
+    return (
+      Object.values(NotificationJobName).find(
+        (value) => String(value) === jobName,
+      ) ?? null
+    );
   }
 }

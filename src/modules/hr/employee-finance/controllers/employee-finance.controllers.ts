@@ -58,7 +58,10 @@ export class EmployeeFinanceProductsController {
 
   @Post()
   @Permissions('employee_finance:products')
-  create(@Req() req: AuthedRequest, @Body() dto: CreateEmployeeFinanceProductDto) {
+  create(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreateEmployeeFinanceProductDto,
+  ) {
     return this.productService.create(req.user, dto);
   }
 
@@ -221,7 +224,10 @@ export class FinanceEmployeeFinanceController {
 
   @Get('accounts')
   @Permissions('employee_finance:accounts:read')
-  listAccounts(@Req() req: AuthedRequest, @Query() query: EmployeeFinanceQueryDto) {
+  listAccounts(
+    @Req() req: AuthedRequest,
+    @Query() query: EmployeeFinanceQueryDto,
+  ) {
     return this.accountService.list(req.user, query);
   }
 
@@ -236,13 +242,19 @@ export class FinanceEmployeeFinanceController {
 
   @Post('disbursements/:id/approve')
   @Permissions('employee_finance:disbursements:approve')
-  approveDisbursement(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+  approveDisbursement(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
     return this.disbursementService.approve(req.user, id);
   }
 
   @Post('disbursements/:id/confirm')
   @Permissions('employee_finance:disbursements')
-  confirmDisbursement(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+  confirmDisbursement(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
     return this.disbursementService.confirm(req.user, id);
   }
 
@@ -257,7 +269,10 @@ export class FinanceEmployeeFinanceController {
 
   @Post('repayments/:id/approve')
   @Permissions('employee_finance:repayments:approve')
-  approveRepayment(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+  approveRepayment(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
     return this.repaymentService.approve(req.user, id);
   }
 

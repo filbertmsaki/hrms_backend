@@ -157,6 +157,7 @@ export class OffboardingRequest {
   @Column({
     type: 'enum',
     enum: OffboardingRequestStatusEnum,
+    enumName: 'offboarding_requests_status_enum',
     default: OffboardingRequestStatusEnum.DRAFT,
   })
   status: OffboardingRequestStatusEnum;

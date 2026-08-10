@@ -75,19 +75,49 @@ export class WorkActivityPeriodSummary {
   @Column({ name: 'business_closed_count', type: 'int', default: 0 })
   businessClosedCount: number;
 
-  @Column({ name: 'reported_potential_value', type: 'decimal', precision: 18, scale: 2, default: 0 })
+  @Column({
+    name: 'reported_potential_value',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    default: 0,
+  })
   reportedPotentialValue: string;
 
-  @Column({ name: 'validated_actual_value', type: 'decimal', precision: 18, scale: 2, default: 0 })
+  @Column({
+    name: 'validated_actual_value',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    default: 0,
+  })
   validatedActualValue: string;
 
-  @Column({ name: 'activity_completion_rate', type: 'decimal', precision: 7, scale: 4, nullable: true })
+  @Column({
+    name: 'activity_completion_rate',
+    type: 'decimal',
+    precision: 7,
+    scale: 4,
+    nullable: true,
+  })
   activityCompletionRate: string | null;
 
-  @Column({ name: 'visit_completion_rate', type: 'decimal', precision: 7, scale: 4, nullable: true })
+  @Column({
+    name: 'visit_completion_rate',
+    type: 'decimal',
+    precision: 7,
+    scale: 4,
+    nullable: true,
+  })
   visitCompletionRate: string | null;
 
-  @Column({ name: 'submission_discipline_rate', type: 'decimal', precision: 7, scale: 4, nullable: true })
+  @Column({
+    name: 'submission_discipline_rate',
+    type: 'decimal',
+    precision: 7,
+    scale: 4,
+    nullable: true,
+  })
   submissionDisciplineRate: string | null;
 
   @Column({ name: 'manager_comments', type: 'text', nullable: true })
@@ -142,7 +172,11 @@ export class FieldLocationAccessLog {
   @Column({ name: 'ip_address', type: 'varchar', length: 100, nullable: true })
   ipAddress: string | null;
 
-  @Column({ name: 'accessed_at', type: 'timestamptz', default: () => 'CURRENT_TIMESTAMP' })
+  @Column({
+    name: 'accessed_at',
+    type: 'timestamptz',
+    default: () => 'CURRENT_TIMESTAMP',
+  })
   accessedAt: Date;
 }
 
@@ -217,7 +251,11 @@ export class WorkActivityException {
   @Column({ name: 'exception_type', type: 'varchar', length: 60 })
   exceptionType: string;
 
-  @Column({ type: 'varchar', length: 20, default: WorkActivityExceptionStatusEnum.OPEN })
+  @Column({
+    type: 'varchar',
+    length: 20,
+    default: WorkActivityExceptionStatusEnum.OPEN,
+  })
   status: WorkActivityExceptionStatusEnum;
 
   @Column({ type: 'text' })

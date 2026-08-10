@@ -31,7 +31,9 @@ export class WorkActivityReminderService {
 
   @Cron(process.env.ACTIVITY_REMINDER_CRON || '0 0 18 * * *')
   async sendSubmissionReminders() {
-    const targetDate = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const targetDate = new Date(Date.now() - 86400000)
+      .toISOString()
+      .slice(0, 10);
     const activeEmployees = await this.employeeRepository.find({
       where: { employment_status: 'ACTIVE' as never },
       select: [
@@ -86,7 +88,9 @@ export class WorkActivityReminderService {
       'ACTIVITY_MANAGER_REVIEW_DUE_HOURS',
       24,
     );
-    const overdueCutoff = new Date(Date.now() - managerReviewDueHours * 3600000);
+    const overdueCutoff = new Date(
+      Date.now() - managerReviewDueHours * 3600000,
+    );
 
     const pendingReports = await this.reportRepository.find({
       where: { status: DailyActivityReportStatusEnum.MANAGER_REVIEW_PENDING },
@@ -107,7 +111,11 @@ export class WorkActivityReminderService {
     let created = 0;
 
     for (const report of pendingReports) {
-      if (!report.submittedAt || report.submittedAt > overdueCutoff || !report.managerCompanyUserId) {
+      if (
+        !report.submittedAt ||
+        report.submittedAt > overdueCutoff ||
+        !report.managerCompanyUserId
+      ) {
         continue;
       }
       await this.actionItemsService.upsertOpen({
@@ -127,7 +135,11 @@ export class WorkActivityReminderService {
     }
 
     for (const visit of pendingVisits) {
-      if (!visit.checkOutAt || visit.checkOutAt > overdueCutoff || !visit.managerCompanyUserId) {
+      if (
+        !visit.checkOutAt ||
+        visit.checkOutAt > overdueCutoff ||
+        !visit.managerCompanyUserId
+      ) {
         continue;
       }
       await this.actionItemsService.upsertOpen({
@@ -153,7 +165,10 @@ export class WorkActivityReminderService {
       }
 
       const employee = await this.employeeRepository.findOne({
-        where: { id: followUp.assignedToEmployeeId, company_id: followUp.companyId },
+        where: {
+          id: followUp.assignedToEmployeeId,
+          company_id: followUp.companyId,
+        },
         select: ['id', 'company_id', 'company_user_id'],
       });
       if (!employee) {

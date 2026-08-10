@@ -34,12 +34,18 @@ export class PayrollRun {
   @Column({ name: 'run_no', type: 'varchar', length: 60 })
   runNo: string;
 
-  @Column({ name: 'run_type', type: 'enum', enum: PayrollRunTypeEnum })
+  @Column({
+    name: 'run_type',
+    type: 'enum',
+    enum: PayrollRunTypeEnum,
+    enumName: 'payroll_run_type_enum',
+  })
   runType: PayrollRunTypeEnum;
 
   @Column({
     type: 'enum',
     enum: PayrollRunStatusEnum,
+    enumName: 'payroll_run_status_enum',
     default: PayrollRunStatusEnum.DRAFT,
   })
   status: PayrollRunStatusEnum;
@@ -56,22 +62,58 @@ export class PayrollRun {
   @Column({ name: 'employee_count', type: 'int', default: 0 })
   employeeCount: number;
 
-  @Column({ name: 'gross_total', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'gross_total',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   grossTotal: string;
 
-  @Column({ name: 'taxable_total', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'taxable_total',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   taxableTotal: string;
 
-  @Column({ name: 'deduction_total', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'deduction_total',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   deductionTotal: string;
 
-  @Column({ name: 'employer_contribution_total', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'employer_contribution_total',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   employerContributionTotal: string;
 
-  @Column({ name: 'net_pay_total', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'net_pay_total',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   netPayTotal: string;
 
-  @Column({ name: 'total_employer_cost', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'total_employer_cost',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   totalEmployerCost: string;
 
   @Column({ name: 'input_snapshot', type: 'jsonb', nullable: true })
@@ -80,7 +122,12 @@ export class PayrollRun {
   @Column({ name: 'configuration_snapshot', type: 'jsonb', nullable: true })
   configurationSnapshot: Record<string, unknown> | null;
 
-  @Column({ name: 'calculation_hash', type: 'varchar', length: 128, nullable: true })
+  @Column({
+    name: 'calculation_hash',
+    type: 'varchar',
+    length: 128,
+    nullable: true,
+  })
   calculationHash: string | null;
 
   @Column({ name: 'started_at', type: 'timestamptz', nullable: true })
@@ -120,10 +167,18 @@ export class PayrollRunApproval {
   @Column({ name: 'payroll_run_id' })
   payrollRunId: number;
 
-  @Column({ type: 'enum', enum: PayrollApprovalStageEnum })
+  @Column({
+    type: 'enum',
+    enum: PayrollApprovalStageEnum,
+    enumName: 'payroll_approval_stage_enum',
+  })
   stage: PayrollApprovalStageEnum;
 
-  @Column({ type: 'enum', enum: PayrollApprovalDecisionEnum })
+  @Column({
+    type: 'enum',
+    enum: PayrollApprovalDecisionEnum,
+    enumName: 'payroll_approval_decision_enum',
+  })
   decision: PayrollApprovalDecisionEnum;
 
   @Column({ name: 'calculation_hash', type: 'varchar', length: 128 })
@@ -164,7 +219,12 @@ export class PayrollInput {
   @Column({ name: 'source_module', type: 'varchar', length: 80 })
   sourceModule: string;
 
-  @Column({ name: 'source_reference', type: 'varchar', length: 150, nullable: true })
+  @Column({
+    name: 'source_reference',
+    type: 'varchar',
+    length: 150,
+    nullable: true,
+  })
   sourceReference: string | null;
 
   @Column({ type: 'decimal', precision: 18, scale: 2, default: '0' })
@@ -179,7 +239,12 @@ export class PayrollInput {
   @Column({ type: 'varchar', length: 3, default: 'TZS' })
   currency: string;
 
-  @Column({ type: 'enum', enum: PayrollInputStatusEnum, default: PayrollInputStatusEnum.DRAFT })
+  @Column({
+    type: 'enum',
+    enum: PayrollInputStatusEnum,
+    enumName: 'payroll_input_status_enum',
+    default: PayrollInputStatusEnum.DRAFT,
+  })
   status: PayrollInputStatusEnum;
 
   @Column({ type: 'jsonb', nullable: true })
@@ -216,6 +281,7 @@ export class EmployeePayrollResult {
   @Column({
     type: 'enum',
     enum: EmployeePayrollResultStatusEnum,
+    enumName: 'employee_payroll_result_status_enum',
     default: EmployeePayrollResultStatusEnum.PENDING,
   })
   status: EmployeePayrollResultStatusEnum;
@@ -238,22 +304,58 @@ export class EmployeePayrollResult {
   @Column({ name: 'calculation_snapshot', type: 'jsonb' })
   calculationSnapshot: Record<string, unknown>;
 
-  @Column({ name: 'gross_pay', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'gross_pay',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   grossPay: string;
 
-  @Column({ name: 'taxable_pay', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'taxable_pay',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   taxablePay: string;
 
-  @Column({ name: 'employee_deductions', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'employee_deductions',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   employeeDeductions: string;
 
-  @Column({ name: 'employer_contributions', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'employer_contributions',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   employerContributions: string;
 
-  @Column({ name: 'net_pay', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'net_pay',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   netPay: string;
 
-  @Column({ name: 'employer_cost', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'employer_cost',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   employerCost: string;
 
   @Column({ name: 'calculation_hash', type: 'varchar', length: 128 })
@@ -299,10 +401,22 @@ export class EmployeePayrollLineItem {
   @Column({ type: 'decimal', precision: 20, scale: 2 })
   amount: string;
 
-  @Column({ name: 'taxable_amount', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'taxable_amount',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   taxableAmount: string;
 
-  @Column({ name: 'employer_amount', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'employer_amount',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   employerAmount: string;
 
   @Column({ name: 'calculation_order', type: 'int', default: 100 })
@@ -311,7 +425,12 @@ export class EmployeePayrollLineItem {
   @Column({ name: 'source_type', type: 'varchar', length: 80 })
   sourceType: string;
 
-  @Column({ name: 'source_reference', type: 'varchar', length: 150, nullable: true })
+  @Column({
+    name: 'source_reference',
+    type: 'varchar',
+    length: 150,
+    nullable: true,
+  })
   sourceReference: string | null;
 
   @Column({ name: 'calculation_snapshot', type: 'jsonb', nullable: true })
@@ -365,7 +484,12 @@ export class PayrollDeductionShortfall {
   @Column({ name: 'component_code', type: 'varchar', length: 80 })
   componentCode: string;
 
-  @Column({ name: 'requested_amount', type: 'decimal', precision: 20, scale: 2 })
+  @Column({
+    name: 'requested_amount',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+  })
   requestedAmount: string;
 
   @Column({ name: 'applied_amount', type: 'decimal', precision: 20, scale: 2 })
@@ -408,7 +532,12 @@ export class Payslip {
   @Column({ name: 'document_id', type: 'int', nullable: true })
   documentId: number | null;
 
-  @Column({ type: 'enum', enum: PayrollOutputStatusEnum, default: PayrollOutputStatusEnum.GENERATED })
+  @Column({
+    type: 'enum',
+    enum: PayrollOutputStatusEnum,
+    enumName: 'payroll_output_status_enum',
+    default: PayrollOutputStatusEnum.GENERATED,
+  })
   status: PayrollOutputStatusEnum;
 
   @Column({ name: 'published_at', type: 'timestamptz', nullable: true })
@@ -433,13 +562,24 @@ export class PayrollBankBatch {
   @Column({ name: 'batch_no', type: 'varchar', length: 80 })
   batchNo: string;
 
-  @Column({ name: 'bank_format_code', type: 'varchar', length: 80, default: 'GENERIC_CSV' })
+  @Column({
+    name: 'bank_format_code',
+    type: 'varchar',
+    length: 80,
+    default: 'GENERIC_CSV',
+  })
   bankFormatCode: string;
 
   @Column({ name: 'record_count', type: 'int', default: 0 })
   recordCount: number;
 
-  @Column({ name: 'total_amount', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'total_amount',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   totalAmount: string;
 
   @Column({ type: 'jsonb' })
@@ -451,7 +591,12 @@ export class PayrollBankBatch {
   @Column({ name: 'file_hash', type: 'varchar', length: 128 })
   fileHash: string;
 
-  @Column({ type: 'enum', enum: PayrollOutputStatusEnum, default: PayrollOutputStatusEnum.GENERATED })
+  @Column({
+    type: 'enum',
+    enum: PayrollOutputStatusEnum,
+    enumName: 'payroll_output_status_enum',
+    default: PayrollOutputStatusEnum.GENERATED,
+  })
   status: PayrollOutputStatusEnum;
 
   @CreateDateColumn({ name: 'created_at' })
@@ -473,19 +618,41 @@ export class PayrollJournalBatch {
   @Column({ name: 'batch_no', type: 'varchar', length: 80 })
   batchNo: string;
 
-  @Column({ name: 'debit_total', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'debit_total',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   debitTotal: string;
 
-  @Column({ name: 'credit_total', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'credit_total',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   creditTotal: string;
 
   @Column({ type: 'jsonb' })
   entries: Record<string, unknown>[];
 
-  @Column({ name: 'external_reference', type: 'varchar', length: 150, nullable: true })
+  @Column({
+    name: 'external_reference',
+    type: 'varchar',
+    length: 150,
+    nullable: true,
+  })
   externalReference: string | null;
 
-  @Column({ type: 'enum', enum: PayrollOutputStatusEnum, default: PayrollOutputStatusEnum.GENERATED })
+  @Column({
+    type: 'enum',
+    enum: PayrollOutputStatusEnum,
+    enumName: 'payroll_output_status_enum',
+    default: PayrollOutputStatusEnum.GENERATED,
+  })
   status: PayrollOutputStatusEnum;
 
   @CreateDateColumn({ name: 'created_at' })
@@ -509,7 +676,13 @@ export class PayrollVarianceResult {
   @Column({ type: 'jsonb' })
   snapshot: Record<string, unknown>;
 
-  @Column({ name: 'variance_total', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'variance_total',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   varianceTotal: string;
 
   @Column({ name: 'unexplained_count', type: 'int', default: 0 })
@@ -537,13 +710,31 @@ export class PayrollFinalSettlement {
   @Column({ name: 'payroll_run_id', type: 'int', nullable: true })
   payrollRunId: number | null;
 
-  @Column({ name: 'gross_settlement', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'gross_settlement',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   grossSettlement: string;
 
-  @Column({ name: 'deduction_total', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'deduction_total',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   deductionTotal: string;
 
-  @Column({ name: 'net_settlement', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'net_settlement',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   netSettlement: string;
 
   @Column({ type: 'jsonb' })
@@ -557,7 +748,11 @@ export class PayrollFinalSettlement {
 }
 
 @Entity('payroll_audit_logs')
-@Index('IDX_payroll_audit_company_entity', ['companyId', 'entityType', 'entityId'])
+@Index('IDX_payroll_audit_company_entity', [
+  'companyId',
+  'entityType',
+  'entityId',
+])
 export class PayrollAuditLog {
   @PrimaryGeneratedColumn()
   id: number;

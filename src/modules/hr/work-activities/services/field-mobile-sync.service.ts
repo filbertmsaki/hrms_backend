@@ -2,12 +2,29 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
+import {
+  CreateDailyActivityEntryDto,
+  SubmitDailyActivityReportDto,
+} from '../dto/activity.dto';
+import {
+  AddFieldVisitEvidenceDto,
+  CompleteFieldFollowUpDto,
+  CreateFieldOpportunityDto,
+  CreateFieldVisitPlanDto,
+  CreateUnplannedFieldVisitDto,
+  FieldVisitCheckInDto,
+  FieldVisitCheckOutDto,
+  UpdateFieldVisitPlanDto,
+} from '../dto/field-visit.dto';
 import { HrAccessService } from '../../shared/hr-access.service';
 import { FieldMobileSyncDto, FieldMobileSyncItemDto } from '../dto/sync.dto';
 import { DailyActivityService } from './daily-activity.service';
 import { FieldVisitService } from './field-visit.service';
 import { FieldMobileSyncRequest } from '../entities/field-visit.entities';
-import { FieldMobileSyncOperationEnum, FieldMobileSyncStatusEnum } from '../enums/work-activity.enums';
+import {
+  FieldMobileSyncOperationEnum,
+  FieldMobileSyncStatusEnum,
+} from '../enums/work-activity.enums';
 import { DailyActivitySourceEnum } from '../enums/work-activity.enums';
 
 @Injectable()
@@ -29,6 +46,22 @@ export class FieldMobileSyncService {
       throw new Error('Employee profile is required.');
     }
     return actor.employeeId;
+  }
+
+  private asPayload<T extends Record<string, unknown>>(
+    payload: Record<string, unknown>,
+  ): T {
+    return payload as T;
+  }
+
+  private withClientRequestId<T extends { client_request_id?: string }>(
+    payload: Record<string, unknown>,
+    clientRequestId: string,
+  ): T {
+    return {
+      ...payload,
+      client_request_id: clientRequestId,
+    } as T;
   }
 
   async sync(actor: AuthenticatedUser, dto: FieldMobileSyncDto) {
@@ -117,7 +150,10 @@ export class FieldMobileSyncService {
     });
   }
 
-  private async processItem(actor: AuthenticatedUser, item: FieldMobileSyncItemDto) {
+  private async processItem(
+    actor: AuthenticatedUser,
+    item: FieldMobileSyncItemDto,
+  ) {
     switch (item.operation) {
       case FieldMobileSyncOperationEnum.UPSERT_DAILY_REPORT: {
         const payload = item.payload as { activity_date: string };
@@ -134,10 +170,10 @@ export class FieldMobileSyncService {
         const report = await this.dailyActivityService.addMyEntry(
           actor,
           payload.report_id,
-          {
-            ...(item.payload as Record<string, unknown>),
-            client_request_id: item.client_request_id,
-          } as any,
+          this.withClientRequestId<CreateDailyActivityEntryDto>(
+            item.payload,
+            item.client_request_id,
+          ),
         );
         return { server_entity_id: report.id };
       }
@@ -146,10 +182,10 @@ export class FieldMobileSyncService {
         const report = await this.dailyActivityService.submitMyDailyReport(
           actor,
           payload.report_id,
-          {
-            ...(item.payload as Record<string, unknown>),
-            client_request_id: item.client_request_id,
-          } as any,
+          this.withClientRequestId<SubmitDailyActivityReportDto>(
+            item.payload,
+            item.client_request_id,
+          ),
         );
         return { server_entity_id: report.id };
       }
@@ -159,27 +195,37 @@ export class FieldMobileSyncService {
           ? await this.fieldVisitService.updateMyPlan(
               actor,
               payload.plan_id,
-              item.payload as any,
+              this.asPayload<UpdateFieldVisitPlanDto>(item.payload),
             )
-          : await this.fieldVisitService.createMyPlan(actor, {
-              ...(item.payload as Record<string, unknown>),
-              client_request_id: item.client_request_id,
-            } as any);
+          : await this.fieldVisitService.createMyPlan(
+              actor,
+              this.withClientRequestId<CreateFieldVisitPlanDto>(
+                item.payload,
+                item.client_request_id,
+              ),
+            );
         return { server_entity_id: plan.id };
       }
       case FieldMobileSyncOperationEnum.UPSERT_VISIT: {
-        const visit = await this.fieldVisitService.createUnplannedVisit(actor, {
-          ...(item.payload as Record<string, unknown>),
-          client_request_id: item.client_request_id,
-        } as any);
+        const visit = await this.fieldVisitService.createUnplannedVisit(
+          actor,
+          this.withClientRequestId<CreateUnplannedFieldVisitDto>(
+            item.payload,
+            item.client_request_id,
+          ),
+        );
         return { server_entity_id: visit.id };
       }
       case FieldMobileSyncOperationEnum.VISIT_CHECK_IN: {
         const payload = item.payload as { visit_id: number };
-        const visit = await this.fieldVisitService.checkIn(actor, payload.visit_id, {
-          ...(item.payload as Record<string, unknown>),
-          client_request_id: item.client_request_id,
-        } as any);
+        const visit = await this.fieldVisitService.checkIn(
+          actor,
+          payload.visit_id,
+          this.withClientRequestId<FieldVisitCheckInDto>(
+            item.payload,
+            item.client_request_id,
+          ),
+        );
         return { server_entity_id: visit.id };
       }
       case FieldMobileSyncOperationEnum.VISIT_CHECK_OUT: {
@@ -187,19 +233,23 @@ export class FieldMobileSyncService {
         const visit = await this.fieldVisitService.checkOut(
           actor,
           payload.visit_id,
-          {
-            ...(item.payload as Record<string, unknown>),
-            client_request_id: item.client_request_id,
-          } as any,
+          this.withClientRequestId<FieldVisitCheckOutDto>(
+            item.payload,
+            item.client_request_id,
+          ),
         );
         return { server_entity_id: visit.id };
       }
       case FieldMobileSyncOperationEnum.ADD_VISIT_EVIDENCE: {
         const payload = item.payload as { visit_id: number };
-        const visit = await this.fieldVisitService.addEvidence(actor, payload.visit_id, {
-          ...(item.payload as Record<string, unknown>),
-          client_request_id: item.client_request_id,
-        } as any);
+        const visit = await this.fieldVisitService.addEvidence(
+          actor,
+          payload.visit_id,
+          this.withClientRequestId<AddFieldVisitEvidenceDto>(
+            item.payload,
+            item.client_request_id,
+          ),
+        );
         return { server_entity_id: visit.id };
       }
       case FieldMobileSyncOperationEnum.ADD_OPPORTUNITY: {
@@ -207,7 +257,7 @@ export class FieldMobileSyncService {
         const visit = await this.fieldVisitService.addOpportunity(
           actor,
           payload.visit_id,
-          item.payload as any,
+          this.asPayload<CreateFieldOpportunityDto>(item.payload),
         );
         return { server_entity_id: visit.id };
       }
@@ -216,12 +266,14 @@ export class FieldMobileSyncService {
         const followUp = await this.fieldVisitService.completeMyFollowUp(
           actor,
           payload.follow_up_id,
-          item.payload as any,
+          this.asPayload<CompleteFieldFollowUpDto>(item.payload),
         );
         return { server_entity_id: followUp.id };
       }
       default:
-        throw new Error(`Unsupported sync operation: ${item.operation}`);
+        throw new Error(
+          `Unsupported sync operation: ${String(item.operation)}`,
+        );
     }
   }
 }

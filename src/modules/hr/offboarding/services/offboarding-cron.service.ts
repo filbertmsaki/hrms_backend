@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import type { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ConfigService } from '@nestjs/config';
 import { PostgresAdvisoryLockService } from '../../../../common/database/postgres-advisory-lock.service';
@@ -86,14 +87,14 @@ export class OffboardingCronService {
       reminder_count: number;
     },
   >(repository: Repository<T>, id: number, cutoff: Date): Promise<boolean> {
+    const updateValues: QueryDeepPartialEntity<T> = {
+      last_reminder_at: new Date(),
+      reminder_count: () => '"reminder_count" + 1',
+    };
     const result = await repository
       .createQueryBuilder()
       .update()
-
-      .set({
-        last_reminder_at: new Date(),
-        reminder_count: () => '"reminder_count" + 1',
-      } as any)
+      .set(updateValues)
       .where('id = :id', { id })
       .andWhere('(last_reminder_at IS NULL OR last_reminder_at < :cutoff)', {
         cutoff,

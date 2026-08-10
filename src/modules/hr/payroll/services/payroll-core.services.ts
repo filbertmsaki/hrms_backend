@@ -58,11 +58,9 @@ import {
   EmployeePayrollResult,
   PayrollAuditLog,
   PayrollBankBatch,
-  PayrollDeductionShortfall,
   PayrollFinalSettlement,
   PayrollInput,
   PayrollJournalBatch,
-  PayrollResultAdjustment,
   PayrollRun,
   PayrollRunApproval,
   PayrollVarianceResult,
@@ -75,7 +73,6 @@ import {
   PayrollCalculationMethodEnum,
   PayrollComponentTypeEnum,
   PayrollInputStatusEnum,
-  PayrollOutputStatusEnum,
   PayrollPeriodStatusEnum,
   PayrollRunStatusEnum,
   PayrollRunTypeEnum,
@@ -100,12 +97,6 @@ function clean(value: string | undefined | null) {
 
 function hashSnapshot(value: unknown) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
-}
-
-function addDays(date: Date, days: number) {
-  const next = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  next.setUTCDate(next.getUTCDate() + days);
-  return next;
 }
 
 function dateString(date: Date) {
@@ -171,9 +162,13 @@ export class EmployeePayrollProfileService {
 
     if (dto.primary_bank_account_id) {
       const bank = await this.bankRepository.findOne({
-        where: { id: dto.primary_bank_account_id, employee_id: dto.employee_id },
+        where: {
+          id: dto.primary_bank_account_id,
+          employee_id: dto.employee_id,
+        },
       });
-      if (!bank) throw new BadRequestException('Primary bank account not found.');
+      if (!bank)
+        throw new BadRequestException('Primary bank account not found.');
     }
 
     const existing = await this.repository.findOne({
@@ -188,7 +183,9 @@ export class EmployeePayrollProfileService {
       });
 
     profile.payrollNumber = dto.payroll_number.trim();
-    profile.taxpayerIdentificationNumber = clean(dto.taxpayer_identification_number);
+    profile.taxpayerIdentificationNumber = clean(
+      dto.taxpayer_identification_number,
+    );
     profile.socialSecuritySchemeCode = clean(dto.social_security_scheme_code);
     profile.socialSecurityNumber = clean(dto.social_security_number);
     profile.healthInsuranceSchemeCode = clean(dto.health_insurance_scheme_code);
@@ -234,10 +231,14 @@ export class EmployeePayrollProfileService {
 
   private mask(profile: EmployeePayrollProfile) {
     const maskValue = (value: string | null) =>
-      value ? `${'*'.repeat(Math.max(value.length - 4, 0))}${value.slice(-4)}` : null;
+      value
+        ? `${'*'.repeat(Math.max(value.length - 4, 0))}${value.slice(-4)}`
+        : null;
     return {
       ...profile,
-      taxpayerIdentificationNumber: maskValue(profile.taxpayerIdentificationNumber),
+      taxpayerIdentificationNumber: maskValue(
+        profile.taxpayerIdentificationNumber,
+      ),
       socialSecurityNumber: maskValue(profile.socialSecurityNumber),
       healthInsuranceNumber: maskValue(profile.healthInsuranceNumber),
     };
@@ -270,7 +271,10 @@ export class PayrollConfigurationService {
     private readonly accountingMappingRepository: Repository<PayrollAccountingMapping>,
   ) {}
 
-  async createComponent(actor: AuthenticatedUser, dto: CreatePayrollComponentDto) {
+  async createComponent(
+    actor: AuthenticatedUser,
+    dto: CreatePayrollComponentDto,
+  ) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const component = await this.componentRepository.save(
       this.componentRepository.create({
@@ -310,7 +314,10 @@ export class PayrollConfigurationService {
     });
   }
 
-  async createStructure(actor: AuthenticatedUser, dto: CreateSalaryStructureDto) {
+  async createStructure(
+    actor: AuthenticatedUser,
+    dto: CreateSalaryStructureDto,
+  ) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const latest = await this.structureRepository.findOne({
       where: { companyId, code: dto.code.trim().toUpperCase() },
@@ -364,7 +371,10 @@ export class PayrollConfigurationService {
     });
   }
 
-  async createCalendar(actor: AuthenticatedUser, dto: CreatePayrollCalendarDto) {
+  async createCalendar(
+    actor: AuthenticatedUser,
+    dto: CreatePayrollCalendarDto,
+  ) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const calendar = await this.calendarRepository.save(
       this.calendarRepository.create({
@@ -399,7 +409,10 @@ export class PayrollConfigurationService {
     });
   }
 
-  async generatePeriod(actor: AuthenticatedUser, dto: GeneratePayrollPeriodDto) {
+  async generatePeriod(
+    actor: AuthenticatedUser,
+    dto: GeneratePayrollPeriodDto,
+  ) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const calendar = await this.calendarRepository.findOne({
       where: { id: dto.payroll_calendar_id, companyId },
@@ -408,8 +421,12 @@ export class PayrollConfigurationService {
 
     const start = new Date(Date.UTC(dto.year, dto.month - 1, 1));
     const end = new Date(Date.UTC(dto.year, dto.month, 0));
-    const cutoff = new Date(Date.UTC(dto.year, dto.month - 1, calendar.cutoffDay));
-    const payment = new Date(Date.UTC(dto.year, dto.month - 1, calendar.paymentDay));
+    const cutoff = new Date(
+      Date.UTC(dto.year, dto.month - 1, calendar.cutoffDay),
+    );
+    const payment = new Date(
+      Date.UTC(dto.year, dto.month - 1, calendar.paymentDay),
+    );
     const periodCode = `${calendar.code}-${dto.year}${String(dto.month).padStart(2, '0')}`;
 
     return this.periodRepository.save(
@@ -540,8 +557,14 @@ export class PayrollInputService {
       where: { id: dto.payroll_period_id, companyId },
     });
     if (!period) throw new NotFoundException('Payroll period not found.');
-    if ([PayrollPeriodStatusEnum.LOCKED, PayrollPeriodStatusEnum.CLOSED].includes(period.status)) {
-      throw new ConflictException('Locked payroll periods cannot accept inputs.');
+    if (
+      [PayrollPeriodStatusEnum.LOCKED, PayrollPeriodStatusEnum.CLOSED].includes(
+        period.status,
+      )
+    ) {
+      throw new ConflictException(
+        'Locked payroll periods cannot accept inputs.',
+      );
     }
     return this.repository.save(
       this.repository.create({
@@ -565,7 +588,8 @@ export class PayrollInputService {
     const where: Record<string, unknown> = {
       companyId: this.hrAccessService.ensureActorCompanyId(actor),
     };
-    if (query.payroll_period_id) where.payrollPeriodId = query.payroll_period_id;
+    if (query.payroll_period_id)
+      where.payrollPeriodId = query.payroll_period_id;
     if (query.employee_id) where.employeeId = query.employee_id;
     if (query.status) where.status = query.status;
     return this.repository.find({ where, order: { id: 'DESC' } });
@@ -600,15 +624,22 @@ export class PayrollProrationService {
       .filter(Boolean)
       .sort()
       .pop()!;
-    const effectiveEnd = [args.periodEnd, args.exitDate].filter(Boolean).sort()[0]!;
+    const effectiveEnd = [args.periodEnd, args.exitDate]
+      .filter(Boolean)
+      .sort()[0]!;
 
     if (effectiveEnd < effectiveStart) {
       return { numerator: 0, denominator: 1 };
     }
 
     const denominator =
-      args.method === 'FIXED_30' ? 30 : daysInclusive(args.periodStart, args.periodEnd);
-    const numerator = Math.min(denominator, daysInclusive(effectiveStart, effectiveEnd));
+      args.method === 'FIXED_30'
+        ? 30
+        : daysInclusive(args.periodStart, args.periodEnd);
+    const numerator = Math.min(
+      denominator,
+      daysInclusive(effectiveStart, effectiveEnd),
+    );
 
     return { numerator, denominator };
   }
@@ -635,7 +666,9 @@ export class ProgressiveTaxService {
       .find((item) => {
         const lower = PayrollMoney.toCents(item.lowerLimit);
         const upper =
-          item.upperLimit === null ? null : PayrollMoney.toCents(item.upperLimit);
+          item.upperLimit === null
+            ? null
+            : PayrollMoney.toCents(item.upperLimit);
         return taxable >= lower && (upper === null || taxable <= upper);
       });
 
@@ -666,7 +699,11 @@ export class StatutoryCalculationService {
     const schemes = await this.schemeRepository.find({
       where: { companyId, status: 'ACTIVE' },
     });
-    const rules: Array<{ scheme: StatutoryScheme; rule: StatutoryRuleVersion; bands: StatutoryTaxBand[] }> = [];
+    const rules: Array<{
+      scheme: StatutoryScheme;
+      rule: StatutoryRuleVersion;
+      bands: StatutoryTaxBand[];
+    }> = [];
     for (const scheme of schemes) {
       const rule = await this.ruleRepository
         .createQueryBuilder('rule')
@@ -691,8 +728,14 @@ export class StatutoryCalculationService {
     return rules;
   }
 
-  calculateTax(taxableIncome: string, rule: StatutoryRuleVersion, bands: StatutoryTaxBand[]) {
-    if (rule.calculationMethod === PayrollCalculationMethodEnum.PROGRESSIVE_BANDS) {
+  calculateTax(
+    taxableIncome: string,
+    rule: StatutoryRuleVersion,
+    bands: StatutoryTaxBand[],
+  ) {
+    if (
+      rule.calculationMethod === PayrollCalculationMethodEnum.PROGRESSIVE_BANDS
+    ) {
       return this.progressiveTaxService.calculate(taxableIncome, bands);
     }
     if (rule.employeeRate) {
@@ -727,7 +770,11 @@ export class EmployeePayrollCalculationService {
     private readonly leaveRepository: Repository<LeaveRequest>,
   ) {}
 
-  async calculateRun(companyId: number, period: PayrollPeriod, run: PayrollRun) {
+  async calculateRun(
+    companyId: number,
+    period: PayrollPeriod,
+    run: PayrollRun,
+  ) {
     const profiles = await this.profileRepository.find({
       where: { companyId, payrollEnabled: true, payrollHold: false },
       order: { employeeId: 'ASC' },
@@ -737,7 +784,10 @@ export class EmployeePayrollCalculationService {
       order: { calculationOrder: 'ASC', code: 'ASC' },
     });
     const componentMap = new Map(components.map((item) => [item.code, item]));
-    const rules = await this.statutoryService.getApprovedRules(companyId, period.endDate);
+    const rules = await this.statutoryService.getApprovedRules(
+      companyId,
+      period.endDate,
+    );
 
     const outputs: CalculatedPayrollEmployee[] = [];
     for (const profile of profiles) {
@@ -745,7 +795,11 @@ export class EmployeePayrollCalculationService {
         where: { id: profile.employeeId, company_id: companyId },
       });
       if (!employee) continue;
-      const compensation = await this.findCompensation(companyId, employee.id, period);
+      const compensation = await this.findCompensation(
+        companyId,
+        employee.id,
+        period,
+      );
       if (!compensation) continue;
 
       const result = await this.calculateEmployee({
@@ -773,9 +827,13 @@ export class EmployeePayrollCalculationService {
     compensation: EmployeeCompensationVersion;
     components: PayrollComponent[];
     componentMap: Map<string, PayrollComponent>;
-    rules: Array<{ scheme: StatutoryScheme; rule: StatutoryRuleVersion; bands: StatutoryTaxBand[] }>;
+    rules: Array<{
+      scheme: StatutoryScheme;
+      rule: StatutoryRuleVersion;
+      bands: StatutoryTaxBand[];
+    }>;
   }) {
-    const { companyId, period, employee, profile, compensation, components } = args;
+    const { companyId, period, employee, profile, compensation } = args;
     const prorationArgs = {
       periodStart: period.startDate,
       periodEnd: period.endDate,
@@ -795,7 +853,9 @@ export class EmployeePayrollCalculationService {
       prorationRatio.denominator,
     );
     const bank = profile.primaryBankAccountId
-      ? await this.bankRepository.findOne({ where: { id: profile.primaryBankAccountId } })
+      ? await this.bankRepository.findOne({
+          where: { id: profile.primaryBankAccountId },
+        })
       : await this.bankRepository.findOne({
           where: { employee_id: employee.id, is_primary: true },
         });
@@ -808,9 +868,12 @@ export class EmployeePayrollCalculationService {
       .andWhere('input.status = :status', {
         status: PayrollInputStatusEnum.APPROVED,
       })
-      .andWhere('(input.employeeId = :employeeId OR input.employeeId IS NULL)', {
-        employeeId: employee.id,
-      })
+      .andWhere(
+        '(input.employeeId = :employeeId OR input.employeeId IS NULL)',
+        {
+          employeeId: employee.id,
+        },
+      )
       .getMany();
     const financeInstructions =
       await this.employeeFinancePayrollInstructionService.reserveForPayrollRun(
@@ -820,7 +883,11 @@ export class EmployeePayrollCalculationService {
         employee.id,
       );
 
-    const leaveWithoutPayDays = await this.calculateLwpDays(companyId, employee.id, period);
+    const leaveWithoutPayDays = await this.calculateLwpDays(
+      companyId,
+      employee.id,
+      period,
+    );
     const lwpDeduction =
       leaveWithoutPayDays > 0
         ? PayrollMoney.multiplyRatio(
@@ -862,7 +929,8 @@ export class EmployeePayrollCalculationService {
 
     for (const input of inputs) {
       const component = args.componentMap.get(input.componentCode);
-      const componentType = component?.componentType ?? PayrollComponentTypeEnum.EARNING;
+      const componentType =
+        component?.componentType ?? PayrollComponentTypeEnum.EARNING;
       const taxableAmount = this.taxableAmount(input.amount, component);
       lineItems.push({
         componentCode: input.componentCode,
@@ -884,18 +952,25 @@ export class EmployeePayrollCalculationService {
 
     const pensionableGross = this.sumLines(lineItems, (item) => {
       const component = args.componentMap.get(item.componentCode!);
-      return item.componentType === PayrollComponentTypeEnum.EARNING && (component?.pensionable ?? true);
+      return (
+        item.componentType === PayrollComponentTypeEnum.EARNING &&
+        (component?.pensionable ?? true)
+      );
     });
     const healthGross = this.sumLines(lineItems, (item) => {
       const component = args.componentMap.get(item.componentCode!);
-      return item.componentType === PayrollComponentTypeEnum.EARNING && (component?.healthInsuranceApplicable ?? false);
+      return (
+        item.componentType === PayrollComponentTypeEnum.EARNING &&
+        (component?.healthInsuranceApplicable ?? false)
+      );
     });
 
     let pretaxDeductions = '0.00';
     for (const statutory of args.rules) {
       if (
         statutory.scheme.schemeType !== StatutorySchemeTypeEnum.PENSION &&
-        statutory.scheme.schemeType !== StatutorySchemeTypeEnum.HEALTH_INSURANCE &&
+        statutory.scheme.schemeType !==
+          StatutorySchemeTypeEnum.HEALTH_INSURANCE &&
         statutory.scheme.schemeType !== StatutorySchemeTypeEnum.EMPLOYER_LEVY
       ) {
         continue;
@@ -935,7 +1010,8 @@ export class EmployeePayrollCalculationService {
           componentCode: `${statutory.scheme.code}_ER`,
           componentName: `${statutory.scheme.name} employer`,
           componentType:
-            statutory.scheme.schemeType === StatutorySchemeTypeEnum.EMPLOYER_LEVY
+            statutory.scheme.schemeType ===
+            StatutorySchemeTypeEnum.EMPLOYER_LEVY
               ? PayrollComponentTypeEnum.EMPLOYER_LEVY
               : PayrollComponentTypeEnum.EMPLOYER_CONTRIBUTION,
           amount: '0.00',
@@ -950,7 +1026,10 @@ export class EmployeePayrollCalculationService {
     }
 
     const taxableBeforeTax = PayrollMoney.add(
-      this.sumLines(lineItems, (item) => PayrollMoney.toCents(item.taxableAmount ?? '0') > 0n),
+      this.sumLines(
+        lineItems,
+        (item) => PayrollMoney.toCents(item.taxableAmount ?? '0') > 0n,
+      ),
       PayrollMoney.fromCents(-PayrollMoney.toCents(pretaxDeductions)),
     );
     const payeRule = args.rules.find(
@@ -1003,16 +1082,21 @@ export class EmployeePayrollCalculationService {
         PayrollComponentTypeEnum.TAXABLE_BENEFIT,
       ].includes(item.componentType as PayrollComponentTypeEnum),
     );
-    const taxable = this.sumLines(lineItems, (item) => PayrollMoney.toCents(item.taxableAmount ?? '0') > 0n);
+    const taxable = this.sumLines(
+      lineItems,
+      (item) => PayrollMoney.toCents(item.taxableAmount ?? '0') > 0n,
+    );
     const deductions = this.sumLines(
       lineItems,
       (item) => item.componentType === PayrollComponentTypeEnum.DEDUCTION,
     );
-    const employerContributions = this.sumLines(lineItems, (item) =>
-      [
-        PayrollComponentTypeEnum.EMPLOYER_CONTRIBUTION,
-        PayrollComponentTypeEnum.EMPLOYER_LEVY,
-      ].includes(item.componentType as PayrollComponentTypeEnum),
+    const employerContributions = this.sumLines(
+      lineItems,
+      (item) =>
+        [
+          PayrollComponentTypeEnum.EMPLOYER_CONTRIBUTION,
+          PayrollComponentTypeEnum.EMPLOYER_LEVY,
+        ].includes(item.componentType as PayrollComponentTypeEnum),
       'employerAmount',
     );
     const netPay = PayrollMoney.add(
@@ -1020,7 +1104,12 @@ export class EmployeePayrollCalculationService {
       PayrollMoney.fromCents(-PayrollMoney.toCents(deductions)),
     );
     const employerCost = PayrollMoney.add(gross, employerContributions);
-    const warnings = await this.buildWarnings(companyId, employee.id, period, bank);
+    const warnings = await this.buildWarnings(
+      companyId,
+      employee.id,
+      period,
+      bank,
+    );
     const calculationSnapshot = {
       period: period.periodCode,
       proration_factor: factor,
@@ -1030,7 +1119,9 @@ export class EmployeePayrollCalculationService {
     };
     const inputSnapshot = {
       input_ids: inputs.map((item) => item.id),
-      employee_finance_instruction_ids: financeInstructions.map((item) => item.id),
+      employee_finance_instruction_ids: financeInstructions.map(
+        (item) => item.id,
+      ),
     };
     const resultPayload = {
       employee_id: employee.id,
@@ -1074,7 +1165,11 @@ export class EmployeePayrollCalculationService {
     };
   }
 
-  private async findCompensation(companyId: number, employeeId: number, period: PayrollPeriod) {
+  private async findCompensation(
+    companyId: number,
+    employeeId: number,
+    period: PayrollPeriod,
+  ) {
     return this.compensationRepository
       .createQueryBuilder('compensation')
       .where('compensation.companyId = :companyId', { companyId })
@@ -1093,21 +1188,38 @@ export class EmployeePayrollCalculationService {
       .getOne();
   }
 
-  private async calculateLwpDays(companyId: number, employeeId: number, period: PayrollPeriod) {
+  private async calculateLwpDays(
+    companyId: number,
+    employeeId: number,
+    period: PayrollPeriod,
+  ) {
     const leaves = await this.leaveRepository
       .createQueryBuilder('leaveRequest')
       .leftJoinAndSelect('leaveRequest.leave_type', 'leaveType')
       .where('leaveRequest.company_id = :companyId', { companyId })
       .andWhere('leaveRequest.employee_id = :employeeId', { employeeId })
-      .andWhere('leaveRequest.status = :status', { status: LeaveStatusEnum.APPROVED })
-      .andWhere('leaveRequest.start_date <= :periodEnd', { periodEnd: period.endDate })
-      .andWhere('leaveRequest.end_date >= :periodStart', { periodStart: period.startDate })
+      .andWhere('leaveRequest.status = :status', {
+        status: LeaveStatusEnum.APPROVED,
+      })
+      .andWhere('leaveRequest.start_date <= :periodEnd', {
+        periodEnd: period.endDate,
+      })
+      .andWhere('leaveRequest.end_date >= :periodStart', {
+        periodStart: period.startDate,
+      })
       .getMany();
     return leaves.reduce((sum, leave) => {
-      const type = leave.leave_type as unknown as { is_paid?: boolean; paid_percentage?: string };
+      const type = leave.leave_type as unknown as {
+        is_paid?: boolean;
+        paid_percentage?: string;
+      };
       if (type?.is_paid !== false) return sum;
-      const start = leave.start_date > period.startDate ? leave.start_date : period.startDate;
-      const end = leave.end_date < period.endDate ? leave.end_date : period.endDate;
+      const start =
+        leave.start_date > period.startDate
+          ? leave.start_date
+          : period.startDate;
+      const end =
+        leave.end_date < period.endDate ? leave.end_date : period.endDate;
       return sum + daysInclusive(start, end);
     }, 0);
   }
@@ -1119,7 +1231,10 @@ export class EmployeePayrollCalculationService {
       case PayrollTaxTreatmentEnum.TAX_EXEMPT:
         return '0.00';
       case PayrollTaxTreatmentEnum.PARTIALLY_TAXABLE:
-        return PayrollMoney.multiplyPercent(amount, component.taxablePercentage);
+        return PayrollMoney.multiplyPercent(
+          amount,
+          component.taxablePercentage,
+        );
       default:
         return amount;
     }
@@ -1133,7 +1248,10 @@ export class EmployeePayrollCalculationService {
     return PayrollMoney.fromCents(
       lineItems
         .filter(predicate)
-        .reduce((sum, item) => sum + PayrollMoney.toCents(item[field] ?? '0'), 0n),
+        .reduce(
+          (sum, item) => sum + PayrollMoney.toCents(item[field] ?? '0'),
+          0n,
+        ),
     );
   }
 
@@ -1152,7 +1270,10 @@ export class EmployeePayrollCalculationService {
       where: { companyId, employeeId, finalizedAt: IsNull() },
     });
     if (unfinalizedAttendance > 0) {
-      warnings.push({ code: 'UNFINALIZED_ATTENDANCE', count: unfinalizedAttendance });
+      warnings.push({
+        code: 'UNFINALIZED_ATTENDANCE',
+        count: unfinalizedAttendance,
+      });
     }
     return warnings;
   }
@@ -1242,7 +1363,8 @@ export class PayrollRunService {
     const where: Record<string, unknown> = {
       companyId: this.hrAccessService.ensureActorCompanyId(actor),
     };
-    if (query.payroll_period_id) where.payrollPeriodId = query.payroll_period_id;
+    if (query.payroll_period_id)
+      where.payrollPeriodId = query.payroll_period_id;
     if (query.status) where.status = query.status;
     return this.runRepository.find({ where, order: { id: 'DESC' } });
   }
@@ -1262,8 +1384,15 @@ export class PayrollRunService {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const run = await this.runRepository.findOne({ where: { id, companyId } });
     if (!run) throw new NotFoundException('Payroll run not found.');
-    if (![PayrollRunStatusEnum.DRAFT, PayrollRunStatusEnum.VALIDATION_FAILED].includes(run.status)) {
-      throw new ConflictException('Payroll run cannot be processed in its current status.');
+    if (
+      ![
+        PayrollRunStatusEnum.DRAFT,
+        PayrollRunStatusEnum.VALIDATION_FAILED,
+      ].includes(run.status)
+    ) {
+      throw new ConflictException(
+        'Payroll run cannot be processed in its current status.',
+      );
     }
     const period = await this.periodRepository.findOne({
       where: { id: run.payrollPeriodId, companyId },
@@ -1277,7 +1406,11 @@ export class PayrollRunService {
     await this.lineItemRepository.delete({ payrollRunId: run.id, companyId });
     await this.resultRepository.delete({ payrollRunId: run.id, companyId });
 
-    const calculated = await this.calculationService.calculateRun(companyId, period, run);
+    const calculated = await this.calculationService.calculateRun(
+      companyId,
+      period,
+      run,
+    );
     let gross = '0.00';
     let taxable = '0.00';
     let deductions = '0.00';
@@ -1329,7 +1462,10 @@ export class PayrollRunService {
     }
 
     if (
-      !this.configService.get<boolean>('PAYROLL_ALLOW_NEGATIVE_NET_PAY', false) &&
+      !this.configService.get<boolean>(
+        'PAYROLL_ALLOW_NEGATIVE_NET_PAY',
+        false,
+      ) &&
       PayrollMoney.toCents(net) < 0n
     ) {
       run.status = PayrollRunStatusEnum.VALIDATION_FAILED;
@@ -1346,7 +1482,10 @@ export class PayrollRunService {
     run.totalEmployerCost = employerCost;
     run.calculationHash = hashSnapshot(resultHashes);
     run.calculatedAt = new Date();
-    run.status = this.configService.get<boolean>('PAYROLL_REQUIRE_HR_APPROVAL', true)
+    run.status = this.configService.get<boolean>(
+      'PAYROLL_REQUIRE_HR_APPROVAL',
+      true,
+    )
       ? PayrollRunStatusEnum.PENDING_HR_APPROVAL
       : PayrollRunStatusEnum.APPROVED;
     await this.auditService.log({
@@ -1354,23 +1493,34 @@ export class PayrollRunService {
       action: 'payroll.run.calculated',
       entityType: 'PAYROLL_RUN',
       entityId: run.id,
-      summary: { employee_count: run.employeeCount, net_pay_total: run.netPayTotal },
+      summary: {
+        employee_count: run.employeeCount,
+        net_pay_total: run.netPayTotal,
+      },
     });
     return this.runRepository.save(run);
   }
 
-  async approve(actor: AuthenticatedUser, id: number, dto: ApprovePayrollRunDto) {
+  async approve(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: ApprovePayrollRunDto,
+  ) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const run = await this.runRepository.findOne({ where: { id, companyId } });
     if (!run) throw new NotFoundException('Payroll run not found.');
     if (!run.calculationHash || run.calculationHash !== dto.calculation_hash) {
-      throw new ConflictException('Approval hash must match current payroll hash.');
+      throw new ConflictException(
+        'Approval hash must match current payroll hash.',
+      );
     }
     if (
       this.configService.get<boolean>('PAYROLL_REQUIRE_MAKER_CHECKER', true) &&
       run.createdByCompanyUserId === (actor.companyMembershipId ?? actor.id)
     ) {
-      throw new ForbiddenException('Payroll creator cannot approve the same run.');
+      throw new ForbiddenException(
+        'Payroll creator cannot approve the same run.',
+      );
     }
     this.assertApprovalStage(run, dto.stage);
 
@@ -1387,7 +1537,8 @@ export class PayrollRunService {
     );
 
     run.status = this.nextApprovalStatus(dto.stage);
-    if (run.status === PayrollRunStatusEnum.APPROVED) run.approvedAt = new Date();
+    if (run.status === PayrollRunStatusEnum.APPROVED)
+      run.approvedAt = new Date();
     await this.auditService.log({
       actor,
       action: 'payroll.run.approved',
@@ -1428,7 +1579,10 @@ export class PayrollRunService {
     return this.runRepository.save(run);
   }
 
-  private assertApprovalStage(run: PayrollRun, stage: PayrollApprovalStageEnum) {
+  private assertApprovalStage(
+    run: PayrollRun,
+    stage: PayrollApprovalStageEnum,
+  ) {
     const expected =
       run.status === PayrollRunStatusEnum.PENDING_HR_APPROVAL
         ? PayrollApprovalStageEnum.HR
@@ -1438,18 +1592,26 @@ export class PayrollRunService {
             ? PayrollApprovalStageEnum.MANAGEMENT
             : null;
     if (expected !== stage) {
-      throw new ConflictException('Payroll run is not waiting for this approval stage.');
+      throw new ConflictException(
+        'Payroll run is not waiting for this approval stage.',
+      );
     }
   }
 
   private nextApprovalStatus(stage: PayrollApprovalStageEnum) {
     if (stage === PayrollApprovalStageEnum.HR) {
-      return this.configService.get<boolean>('PAYROLL_REQUIRE_FINANCE_APPROVAL', true)
+      return this.configService.get<boolean>(
+        'PAYROLL_REQUIRE_FINANCE_APPROVAL',
+        true,
+      )
         ? PayrollRunStatusEnum.PENDING_FINANCE_APPROVAL
         : PayrollRunStatusEnum.APPROVED;
     }
     if (stage === PayrollApprovalStageEnum.FINANCE) {
-      return this.configService.get<boolean>('PAYROLL_REQUIRE_MANAGEMENT_APPROVAL', true)
+      return this.configService.get<boolean>(
+        'PAYROLL_REQUIRE_MANAGEMENT_APPROVAL',
+        true,
+      )
         ? PayrollRunStatusEnum.PENDING_MANAGEMENT_APPROVAL
         : PayrollRunStatusEnum.APPROVED;
     }
@@ -1478,12 +1640,18 @@ export class PayslipService {
 
   async generateForRun(actor: AuthenticatedUser, payrollRunId: number) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
-    const run = await this.runRepository.findOne({ where: { id: payrollRunId, companyId } });
+    const run = await this.runRepository.findOne({
+      where: { id: payrollRunId, companyId },
+    });
     if (!run) throw new NotFoundException('Payroll run not found.');
     if (run.status !== PayrollRunStatusEnum.LOCKED) {
-      throw new ConflictException('Payslips can be generated only from locked payroll.');
+      throw new ConflictException(
+        'Payslips can be generated only from locked payroll.',
+      );
     }
-    const results = await this.resultRepository.find({ where: { payrollRunId, companyId } });
+    const results = await this.resultRepository.find({
+      where: { payrollRunId, companyId },
+    });
     const payslips: Payslip[] = [];
     for (const result of results) {
       const existing = await this.payslipRepository.findOne({
@@ -1536,7 +1704,8 @@ export class PayslipService {
 
   async listMine(actor: AuthenticatedUser) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
-    if (!actor.employeeId) throw new ForbiddenException('Employee profile is required.');
+    if (!actor.employeeId)
+      throw new ForbiddenException('Employee profile is required.');
     return this.payslipRepository.find({
       where: { companyId, employeeId: actor.employeeId },
       order: { createdAt: 'DESC' },
@@ -1545,7 +1714,8 @@ export class PayslipService {
 
   async getMine(actor: AuthenticatedUser, id: number) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
-    if (!actor.employeeId) throw new ForbiddenException('Employee profile is required.');
+    if (!actor.employeeId)
+      throw new ForbiddenException('Employee profile is required.');
     const payslip = await this.payslipRepository.findOne({
       where: { id, companyId, employeeId: actor.employeeId },
     });
@@ -1604,13 +1774,21 @@ export class PayrollBankService {
       where: { companyId, payrollRunId },
     });
     if (existing) return existing;
-    const run = await this.runRepository.findOne({ where: { id: payrollRunId, companyId } });
+    const run = await this.runRepository.findOne({
+      where: { id: payrollRunId, companyId },
+    });
     if (!run) throw new NotFoundException('Payroll run not found.');
     if (run.status !== PayrollRunStatusEnum.LOCKED) {
-      throw new ConflictException('Bank files can be generated only from locked payroll.');
+      throw new ConflictException(
+        'Bank files can be generated only from locked payroll.',
+      );
     }
     const results = await this.resultRepository.find({
-      where: { companyId, payrollRunId, status: EmployeePayrollResultStatusEnum.LOCKED },
+      where: {
+        companyId,
+        payrollRunId,
+        status: EmployeePayrollResultStatusEnum.LOCKED,
+      },
       order: { employeeId: 'ASC' },
     });
     const invalid = results.filter(
@@ -1619,7 +1797,9 @@ export class PayrollBankService {
         result.bankAccountSnapshot.verification_status !== 'VERIFIED',
     );
     if (invalid.length > 0) {
-      throw new BadRequestException('All bank-transfer employees need verified bank accounts.');
+      throw new BadRequestException(
+        'All bank-transfer employees need verified bank accounts.',
+      );
     }
     const rows = [
       'employee_id,account_name,bank_code,branch_code,account_number_masked,amount',
@@ -1627,12 +1807,20 @@ export class PayrollBankService {
         const bank = result.bankAccountSnapshot!;
         return [
           result.employeeId,
-          bank.account_name ?? '',
-          bank.bank_code ?? '',
-          bank.bank_branch_code ?? '',
-          bank.account_number_masked ?? '',
+          bank.account_name,
+          bank.bank_code,
+          bank.bank_branch_code,
+          bank.account_number_masked,
           result.netPay,
-        ].join(',');
+        ]
+          .map((value) =>
+            typeof value === 'string'
+              ? value
+              : typeof value === 'number' || typeof value === 'bigint'
+                ? String(value)
+                : '',
+          )
+          .join(',');
       }),
     ];
     const total = results.reduce(
@@ -1657,7 +1845,10 @@ export class PayrollBankService {
       action: 'payroll.bank_file.generated',
       entityType: 'PAYROLL_BANK_BATCH',
       entityId: batch.id,
-      summary: { record_count: batch.recordCount, total_amount: batch.totalAmount },
+      summary: {
+        record_count: batch.recordCount,
+        total_amount: batch.totalAmount,
+      },
     });
     return batch;
   }
@@ -1673,7 +1864,10 @@ export class PayrollBankService {
       action: 'payroll.bank_file.downloaded',
       entityType: 'PAYROLL_BANK_BATCH',
       entityId: batch.id,
-      summary: { record_count: batch.recordCount, total_amount: batch.totalAmount },
+      summary: {
+        record_count: batch.recordCount,
+        total_amount: batch.totalAmount,
+      },
     });
     return {
       file_name: `${batch.batchNo}.csv`,
@@ -1704,14 +1898,24 @@ export class PayrollAccountingService {
       where: { companyId, payrollRunId },
     });
     if (existing) return existing;
-    const run = await this.runRepository.findOne({ where: { id: payrollRunId, companyId } });
+    const run = await this.runRepository.findOne({
+      where: { id: payrollRunId, companyId },
+    });
     if (!run) throw new NotFoundException('Payroll run not found.');
     if (run.status !== PayrollRunStatusEnum.LOCKED) {
-      throw new ConflictException('Journals can be generated only from locked payroll.');
+      throw new ConflictException(
+        'Journals can be generated only from locked payroll.',
+      );
     }
-    const lines = await this.lineRepository.find({ where: { companyId, payrollRunId } });
-    const mappings = await this.mappingRepository.find({ where: { companyId } });
-    const mappingMap = new Map(mappings.map((item) => [item.componentCode, item]));
+    const lines = await this.lineRepository.find({
+      where: { companyId, payrollRunId },
+    });
+    const mappings = await this.mappingRepository.find({
+      where: { companyId },
+    });
+    const mappingMap = new Map(
+      mappings.map((item) => [item.componentCode, item]),
+    );
     const entries: Record<string, unknown>[] = [];
     let debit = '0.00';
     let credit = '0.00';
@@ -1740,7 +1944,9 @@ export class PayrollAccountingService {
       credit = PayrollMoney.add(credit, amount);
     }
     if (PayrollMoney.toCents(debit) !== PayrollMoney.toCents(credit)) {
-      throw new ConflictException('Payroll journal debit and credit totals do not balance.');
+      throw new ConflictException(
+        'Payroll journal debit and credit totals do not balance.',
+      );
     }
     return this.journalRepository.save(
       this.journalRepository.create({
@@ -1779,17 +1985,23 @@ export class PayrollReportsService {
     return {
       latest_run: latestRun,
       locked_runs: lockedRuns,
-      latest_locked_cost: latestRun?.status === PayrollRunStatusEnum.LOCKED
-        ? latestRun.totalEmployerCost
-        : null,
-      latest_locked_net_pay: latestRun?.status === PayrollRunStatusEnum.LOCKED
-        ? latestRun.netPayTotal
-        : null,
+      latest_locked_cost:
+        latestRun?.status === PayrollRunStatusEnum.LOCKED
+          ? latestRun.totalEmployerCost
+          : null,
+      latest_locked_net_pay:
+        latestRun?.status === PayrollRunStatusEnum.LOCKED
+          ? latestRun.netPayTotal
+          : null,
       payroll_ready: Boolean(latestRun),
     };
   }
 
-  async variance(actor: AuthenticatedUser, payrollRunId: number, comparisonRunId?: number) {
+  async variance(
+    actor: AuthenticatedUser,
+    payrollRunId: number,
+    comparisonRunId?: number,
+  ) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const current = await this.resultRepository.find({
       where: { companyId, payrollRunId },
@@ -1799,7 +2011,9 @@ export class PayrollReportsService {
           where: { companyId, payrollRunId: comparisonRunId },
         })
       : [];
-    const comparisonMap = new Map(comparison.map((item) => [item.employeeId, item]));
+    const comparisonMap = new Map(
+      comparison.map((item) => [item.employeeId, item]),
+    );
     let varianceTotal = '0.00';
     const rows = current.map((item) => {
       const previous = comparisonMap.get(item.employeeId);
@@ -1871,13 +2085,19 @@ export class PayrollReconciliationService {
   }
 
   async reconcile(actor: AuthenticatedUser) {
-    return this.reconcileCompany(this.hrAccessService.ensureActorCompanyId(actor), actor);
+    return this.reconcileCompany(
+      this.hrAccessService.ensureActorCompanyId(actor),
+      actor,
+    );
   }
 
   private async reconcileCompany(companyId: number, actor?: AuthenticatedUser) {
     const issues: Record<string, unknown>[] = [];
     const activeEmployees = await this.employeeRepository.find({
-      where: { company_id: companyId, employment_status: EmploymentStatusEnum.ACTIVE },
+      where: {
+        company_id: companyId,
+        employment_status: EmploymentStatusEnum.ACTIVE,
+      },
       select: [
         'id',
         'company_id',
@@ -1893,7 +2113,9 @@ export class PayrollReconciliationService {
       const profiles = await this.profileRepository.find({
         where: { companyId, employeeId: In(employeeIds) },
       });
-      const profileEmployeeIds = new Set(profiles.map((profile) => profile.employeeId));
+      const profileEmployeeIds = new Set(
+        profiles.map((profile) => profile.employeeId),
+      );
       for (const employee of activeEmployees) {
         if (!profileEmployeeIds.has(employee.id)) {
           issues.push({
@@ -1904,7 +2126,11 @@ export class PayrollReconciliationService {
       }
 
       const compensations = await this.compensationRepository.find({
-        where: { companyId, employeeId: In(employeeIds), status: 'ACTIVE' as never },
+        where: {
+          companyId,
+          employeeId: In(employeeIds),
+          status: 'ACTIVE' as never,
+        },
       });
       const compensationCount = compensations.reduce<Record<number, number>>(
         (acc, item) => {
@@ -1971,7 +2197,14 @@ export class PayrollReconciliationService {
     }
 
     const recentRuns = await this.runRepository.find({
-      where: { companyId, status: In([PayrollRunStatusEnum.CALCULATED, PayrollRunStatusEnum.APPROVED, PayrollRunStatusEnum.LOCKED]) },
+      where: {
+        companyId,
+        status: In([
+          PayrollRunStatusEnum.CALCULATED,
+          PayrollRunStatusEnum.APPROVED,
+          PayrollRunStatusEnum.LOCKED,
+        ]),
+      },
       order: { id: 'DESC' },
       take: 5,
     });
@@ -1983,7 +2216,10 @@ export class PayrollReconciliationService {
         (sum, result) => PayrollMoney.add(sum, result.netPay),
         '0.00',
       );
-      if (PayrollMoney.toCents(resultNet) !== PayrollMoney.toCents(run.netPayTotal)) {
+      if (
+        PayrollMoney.toCents(resultNet) !==
+        PayrollMoney.toCents(run.netPayTotal)
+      ) {
         issues.push({
           code: 'RUN_TOTAL_DIFFERS_FROM_EMPLOYEE_RESULTS',
           payroll_run_id: run.id,
@@ -2002,7 +2238,9 @@ export class PayrollReconciliationService {
             ].includes(line.componentType as PayrollComponentTypeEnum),
           )
           .reduce((sum, line) => PayrollMoney.add(sum, line.amount), '0.00');
-        if (PayrollMoney.toCents(gross) !== PayrollMoney.toCents(result.grossPay)) {
+        if (
+          PayrollMoney.toCents(gross) !== PayrollMoney.toCents(result.grossPay)
+        ) {
           issues.push({
             code: 'EMPLOYEE_GROSS_DIFFERS_FROM_LINE_ITEMS',
             payroll_result_id: result.id,
@@ -2049,14 +2287,17 @@ export class PayrollFinalSettlementService {
     const offboarding = await this.offboardingRepository.findOne({
       where: { id: offboardingRequestId, company_id: companyId },
     });
-    if (!offboarding) throw new NotFoundException('Offboarding request not found.');
+    if (!offboarding)
+      throw new NotFoundException('Offboarding request not found.');
     if (
       ![
         OffboardingRequestStatusEnum.READY_FOR_FINALIZATION,
         OffboardingRequestStatusEnum.COMPLETED,
       ].includes(offboarding.status)
     ) {
-      throw new ConflictException('Approved offboarding is required for final settlement.');
+      throw new ConflictException(
+        'Approved offboarding is required for final settlement.',
+      );
     }
     const items = await this.settlementItemRepository.find({
       where: { company_id: companyId, offboarding_request_id: offboarding.id },

@@ -110,7 +110,10 @@ function resolveRestoreCommand(format: 'custom' | 'plain'): string {
   if (format === 'custom') {
     return (
       process.env.DB_RESTORE_COMMAND?.trim() ||
-      resolveSiblingExecutable(process.env.DB_BACKUP_COMMAND, 'pg_restore.exe') ||
+      resolveSiblingExecutable(
+        process.env.DB_BACKUP_COMMAND,
+        'pg_restore.exe',
+      ) ||
       'pg_restore'
     );
   }
@@ -207,7 +210,11 @@ async function runProcess(
         return;
       }
 
-      reject(new Error(`Command "${command}" exited with code ${code ?? 'unknown'}.`));
+      reject(
+        new Error(
+          `Command "${command}" exited with code ${code ?? 'unknown'}.`,
+        ),
+      );
     });
   });
 }
@@ -327,7 +334,9 @@ async function main() {
   );
 
   if (options.recreateDb) {
-    console.log(`[db:restore] Recreating database "${database}" before restore.`);
+    console.log(
+      `[db:restore] Recreating database "${database}" before restore.`,
+    );
     await recreateDatabase(database);
   }
 

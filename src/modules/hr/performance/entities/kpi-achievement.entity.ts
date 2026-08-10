@@ -34,13 +34,31 @@ export class KpiAchievement {
   @Column({ name: 'employee_id', type: 'int' })
   employeeId: number;
 
-  @Column({ name: 'target_value', type: 'decimal', precision: 14, scale: 4, nullable: true })
+  @Column({
+    name: 'target_value',
+    type: 'decimal',
+    precision: 14,
+    scale: 4,
+    nullable: true,
+  })
   targetValue: string | null;
 
-  @Column({ name: 'achievement_value', type: 'decimal', precision: 14, scale: 4, nullable: true })
+  @Column({
+    name: 'achievement_value',
+    type: 'decimal',
+    precision: 14,
+    scale: 4,
+    nullable: true,
+  })
   achievementValue: string | null;
 
-  @Column({ name: 'raw_score', type: 'decimal', precision: 9, scale: 4, nullable: true })
+  @Column({
+    name: 'raw_score',
+    type: 'decimal',
+    precision: 9,
+    scale: 4,
+    nullable: true,
+  })
   rawScore: string | null;
 
   @Column({
@@ -65,6 +83,7 @@ export class KpiAchievement {
     name: 'status',
     type: 'enum',
     enum: KpiAchievementStatusEnum,
+    enumName: 'kpi_achievement_status_enum',
     default: KpiAchievementStatusEnum.NOT_STARTED,
   })
   status: KpiAchievementStatusEnum;
@@ -73,6 +92,7 @@ export class KpiAchievement {
     name: 'source_type',
     type: 'enum',
     enum: KpiDataSourceTypeEnum,
+    enumName: 'kpi_data_source_type_enum',
   })
   sourceType: KpiDataSourceTypeEnum;
 

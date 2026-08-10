@@ -61,9 +61,15 @@ export class KpiAchievementService {
     return this.achievementRepository
       .createQueryBuilder('achievement')
       .leftJoinAndSelect('achievement.planItem', 'planItem')
-      .leftJoinAndSelect('planItem.kpiDefinitionVersion', 'kpiDefinitionVersion')
+      .leftJoinAndSelect(
+        'planItem.kpiDefinitionVersion',
+        'kpiDefinitionVersion',
+      )
       .leftJoinAndSelect('achievement.periodAssignment', 'periodAssignment')
-      .leftJoinAndSelect('periodAssignment.performancePeriod', 'performancePeriod')
+      .leftJoinAndSelect(
+        'periodAssignment.performancePeriod',
+        'performancePeriod',
+      )
       .where('achievement.company_id = :companyId', { companyId })
       .andWhere('periodAssignment.manager_employee_id = :managerEmployeeId', {
         managerEmployeeId: actor.employeeId,
@@ -84,7 +90,9 @@ export class KpiAchievementService {
     const achievement = await this.getAchievement(actor.companyId!, id);
 
     if (achievement.employeeId !== actor.employeeId) {
-      throw new ForbiddenException('You can update only your own KPI achievements.');
+      throw new ForbiddenException(
+        'You can update only your own KPI achievements.',
+      );
     }
 
     const sourceType = achievement.planItem.kpiDefinitionVersion.dataSourceType;
@@ -135,7 +143,10 @@ export class KpiAchievementService {
 
     if (
       dto.achievement_value !== undefined &&
-      this.configService.get<boolean>('PERFORMANCE_REQUIRE_OVERRIDE_REASON', true) &&
+      this.configService.get<boolean>(
+        'PERFORMANCE_REQUIRE_OVERRIDE_REASON',
+        true,
+      ) &&
       !dto.override_reason?.trim()
     ) {
       throw new BadRequestException(

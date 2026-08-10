@@ -74,6 +74,22 @@ export class DailyActivityService {
     return actor.employeeId;
   }
 
+  private toText(value: unknown, fallback = ''): string {
+    if (typeof value === 'string') {
+      return value;
+    }
+
+    if (
+      typeof value === 'number' ||
+      typeof value === 'boolean' ||
+      typeof value === 'bigint'
+    ) {
+      return String(value);
+    }
+
+    return fallback;
+  }
+
   private async getEmployee(companyId: number, employeeId: number) {
     const employee = await this.employeeRepository.findOne({
       where: { id: employeeId, company_id: companyId },
@@ -102,7 +118,9 @@ export class DailyActivityService {
       .take(limit);
 
     if (query.date_from) {
-      qb.andWhere('report.activityDate >= :dateFrom', { dateFrom: query.date_from });
+      qb.andWhere('report.activityDate >= :dateFrom', {
+        dateFrom: query.date_from,
+      });
     }
     if (query.date_to) {
       qb.andWhere('report.activityDate <= :dateTo', { dateTo: query.date_to });
@@ -113,7 +131,9 @@ export class DailyActivityService {
 
     const [items, total] = await qb.getManyAndCount();
     return {
-      data: await Promise.all(items.map((item) => this.getReportResponse(item))),
+      data: await Promise.all(
+        items.map((item) => this.getReportResponse(item)),
+      ),
       meta: {
         page,
         limit,
@@ -142,17 +162,21 @@ export class DailyActivityService {
 
     return this.dataSource.transaction(async (manager) => {
       if (clientRequestId) {
-        const existingByRequest = await manager.getRepository(DailyActivityReport).findOne({
-          where: { companyId, employeeId, clientRequestId },
-        });
+        const existingByRequest = await manager
+          .getRepository(DailyActivityReport)
+          .findOne({
+            where: { companyId, employeeId, clientRequestId },
+          });
         if (existingByRequest) {
           return this.getReportResponse(existingByRequest, manager);
         }
       }
 
-      const existing = await manager.getRepository(DailyActivityReport).findOne({
-        where: { companyId, employeeId, activityDate },
-      });
+      const existing = await manager
+        .getRepository(DailyActivityReport)
+        .findOne({
+          where: { companyId, employeeId, activityDate },
+        });
 
       if (existing) {
         return this.getReportResponse(existing, manager);
@@ -268,7 +292,9 @@ export class DailyActivityService {
         actualStartTime: dto.actual_start_time
           ? new Date(dto.actual_start_time)
           : null,
-        actualEndTime: dto.actual_end_time ? new Date(dto.actual_end_time) : null,
+        actualEndTime: dto.actual_end_time
+          ? new Date(dto.actual_end_time)
+          : null,
         status: dto.status ?? DailyActivityStatusEnum.PLANNED,
         outcome: dto.outcome?.trim() ?? null,
         remarks: dto.remarks?.trim() ?? null,
@@ -312,7 +338,8 @@ export class DailyActivityService {
     const merged = {
       ...entry,
       ...{
-        activity_category_id: dto.activity_category_id ?? entry.activityCategoryId,
+        activity_category_id:
+          dto.activity_category_id ?? entry.activityCategoryId,
         planned_start_time:
           dto.planned_start_time ?? entry.plannedStartTime?.toISOString(),
         planned_end_time:
@@ -368,7 +395,9 @@ export class DailyActivityService {
         : null;
     }
     if (dto.actual_end_time !== undefined) {
-      entry.actualEndTime = dto.actual_end_time ? new Date(dto.actual_end_time) : null;
+      entry.actualEndTime = dto.actual_end_time
+        ? new Date(dto.actual_end_time)
+        : null;
     }
     if (dto.status !== undefined) {
       entry.status = dto.status;
@@ -493,7 +522,7 @@ export class DailyActivityService {
         where: { companyId, dailyActivityReportId: report.id },
       });
 
-      const policy = report.policySnapshot as Record<string, unknown>;
+      const policy = report.policySnapshot;
       const minimumCount = Number(policy.minimum_activity_count ?? 1);
       const minimumCompleted = Number(
         policy.minimum_completed_activity_count ?? 1,
@@ -528,13 +557,18 @@ export class DailyActivityService {
       const now = new Date();
       const cutoff = this.resolveCutoff(
         report.activityDate,
-        String(
-          policy.submission_cutoff_time ??
-            this.configService.get<string>('ACTIVITY_DEFAULT_CUTOFF_TIME', '20:00'),
+        this.toText(
+          policy.submission_cutoff_time,
+          this.configService.get<string>(
+            'ACTIVITY_DEFAULT_CUTOFF_TIME',
+            '20:00',
+          ),
         ),
       );
       const delayMinutes =
-        now > cutoff ? Math.ceil((now.getTime() - cutoff.getTime()) / 60000) : 0;
+        now > cutoff
+          ? Math.ceil((now.getTime() - cutoff.getTime()) / 60000)
+          : 0;
 
       report.employeeSummary = dto.employee_summary.trim();
       report.overallRemarks = dto.overall_remarks?.trim() ?? null;
@@ -556,9 +590,13 @@ export class DailyActivityService {
           : DailyActivityReportStatusEnum.MANAGER_REVIEW_PENDING;
       report.clientRequestId = dto.client_request_id;
 
-      const saved = await manager.getRepository(DailyActivityReport).save(report);
+      const saved = await manager
+        .getRepository(DailyActivityReport)
+        .save(report);
 
-      if (saved.status === DailyActivityReportStatusEnum.MANAGER_REVIEW_PENDING) {
+      if (
+        saved.status === DailyActivityReportStatusEnum.MANAGER_REVIEW_PENDING
+      ) {
         await this.createManagerActionItem(saved);
       }
 
@@ -569,8 +607,7 @@ export class DailyActivityService {
         {
           dailySubmissionRequired: true,
           fieldVisitPlanRequired: Boolean(
-            (saved.policySnapshot as Record<string, unknown>)
-              .field_visit_plan_required,
+            saved.policySnapshot.field_visit_plan_required,
           ),
         },
       );
@@ -592,9 +629,13 @@ export class DailyActivityService {
     });
   }
 
-  async listPendingReviews(actor: AuthenticatedUser, query: WorkActivityQueryDto) {
+  async listPendingReviews(
+    actor: AuthenticatedUser,
+    query: WorkActivityQueryDto,
+  ) {
     const companyId = this.getCompanyId(actor);
-    const employeeIds = await this.hrAccessService.getAccessibleEmployeeIds(actor);
+    const employeeIds =
+      await this.hrAccessService.getAccessibleEmployeeIds(actor);
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 20, 100);
 
@@ -619,7 +660,9 @@ export class DailyActivityService {
 
     const [items, total] = await qb.getManyAndCount();
     return {
-      data: await Promise.all(items.map((item) => this.getReportResponse(item))),
+      data: await Promise.all(
+        items.map((item) => this.getReportResponse(item)),
+      ),
       meta: { page, limit, total, total_pages: Math.ceil(total / limit) },
     };
   }
@@ -632,9 +675,14 @@ export class DailyActivityService {
     const companyId = this.getCompanyId(actor);
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 20, 100);
-    const employeeIds = await this.hrAccessService.getAccessibleEmployeeIds(actor);
+    const employeeIds =
+      await this.hrAccessService.getAccessibleEmployeeIds(actor);
 
-    if (!allowCompanyScope && employeeIds !== null && employeeIds.length === 0) {
+    if (
+      !allowCompanyScope &&
+      employeeIds !== null &&
+      employeeIds.length === 0
+    ) {
       return { data: [], meta: { page, limit, total: 0, total_pages: 0 } };
     }
 
@@ -659,7 +707,9 @@ export class DailyActivityService {
       });
     }
     if (query.date_from) {
-      qb.andWhere('report.activityDate >= :dateFrom', { dateFrom: query.date_from });
+      qb.andWhere('report.activityDate >= :dateFrom', {
+        dateFrom: query.date_from,
+      });
     }
     if (query.date_to) {
       qb.andWhere('report.activityDate <= :dateTo', { dateTo: query.date_to });
@@ -670,7 +720,9 @@ export class DailyActivityService {
 
     const [items, total] = await qb.getManyAndCount();
     return {
-      data: await Promise.all(items.map((item) => this.getReportResponse(item))),
+      data: await Promise.all(
+        items.map((item) => this.getReportResponse(item)),
+      ),
       meta: { page, limit, total, total_pages: Math.ceil(total / limit) },
     };
   }
@@ -694,12 +746,18 @@ export class DailyActivityService {
         throw new NotFoundException('Daily activity report not found.');
       }
 
-      await this.assertManagerCanReview(actor, report.employeeId, report.managerEmployeeId);
+      await this.assertManagerCanReview(
+        actor,
+        report.employeeId,
+        report.managerEmployeeId,
+      );
 
       if (
         report.status !== DailyActivityReportStatusEnum.MANAGER_REVIEW_PENDING
       ) {
-        throw new ConflictException('The report is not awaiting manager review.');
+        throw new ConflictException(
+          'The report is not awaiting manager review.',
+        );
       }
 
       for (const entryReview of dto.entry_reviews ?? []) {
@@ -735,7 +793,9 @@ export class DailyActivityService {
           break;
       }
 
-      const saved = await manager.getRepository(DailyActivityReport).save(report);
+      const saved = await manager
+        .getRepository(DailyActivityReport)
+        .save(report);
       await this.actionItemsService.completeAllOpenForEntity(
         saved.companyId,
         'WORK_ACTIVITIES',
@@ -743,15 +803,17 @@ export class DailyActivityService {
         saved.id,
       );
 
-      const employee = await this.getEmployee(saved.companyId, saved.employeeId);
+      const employee = await this.getEmployee(
+        saved.companyId,
+        saved.employeeId,
+      );
       await this.exceptionService.reconcileForEmployeeDate(
         employee,
         saved.activityDate,
         {
           dailySubmissionRequired: true,
           fieldVisitPlanRequired: Boolean(
-            (saved.policySnapshot as Record<string, unknown>)
-              .field_visit_plan_required,
+            saved.policySnapshot.field_visit_plan_required,
           ),
         },
       );
@@ -762,14 +824,20 @@ export class DailyActivityService {
         employeeId: saved.employeeId,
         entityType: 'DAILY_ACTIVITY_REPORT',
         entityId: saved.id,
-        afterValues: { status: saved.status, manager_comments: saved.managerComments },
+        afterValues: {
+          status: saved.status,
+          manager_comments: saved.managerComments,
+        },
       });
 
       return this.getReportResponse(saved, manager);
     });
   }
 
-  private async getManagerAccessibleReport(actor: AuthenticatedUser, id: number) {
+  private async getManagerAccessibleReport(
+    actor: AuthenticatedUser,
+    id: number,
+  ) {
     const report = await this.reportRepository.findOne({
       where: { id, companyId: this.getCompanyId(actor) },
     });
@@ -778,7 +846,11 @@ export class DailyActivityService {
       throw new NotFoundException('Daily activity report not found.');
     }
 
-    await this.assertManagerCanReview(actor, report.employeeId, report.managerEmployeeId);
+    await this.assertManagerCanReview(
+      actor,
+      report.employeeId,
+      report.managerEmployeeId,
+    );
     return report;
   }
 
@@ -787,19 +859,30 @@ export class DailyActivityService {
     employeeId: number,
     managerEmployeeId: number | null,
   ) {
-    if (actor.employeeId && managerEmployeeId && actor.employeeId === managerEmployeeId) {
+    if (
+      actor.employeeId &&
+      managerEmployeeId &&
+      actor.employeeId === managerEmployeeId
+    ) {
       return;
     }
 
-    const accessibleEmployeeIds = await this.hrAccessService.getAccessibleEmployeeIds(actor);
-    if (accessibleEmployeeIds === null || accessibleEmployeeIds.includes(employeeId)) {
+    const accessibleEmployeeIds =
+      await this.hrAccessService.getAccessibleEmployeeIds(actor);
+    if (
+      accessibleEmployeeIds === null ||
+      accessibleEmployeeIds.includes(employeeId)
+    ) {
       return;
     }
 
     throw new ForbiddenException('You are not allowed to review this report.');
   }
 
-  private async lockMyEditableReport(actor: AuthenticatedUser, reportId: number) {
+  private async lockMyEditableReport(
+    actor: AuthenticatedUser,
+    reportId: number,
+  ) {
     const companyId = this.getCompanyId(actor);
     const employeeId = this.getEmployeeId(actor);
     const report = await this.reportRepository.findOne({
@@ -814,7 +897,7 @@ export class DailyActivityService {
     return report;
   }
 
-  private async ensureEditableReport(report: DailyActivityReport) {
+  private ensureEditableReport(report: DailyActivityReport): Promise<void> {
     if (
       ![
         DailyActivityReportStatusEnum.DRAFT,
@@ -825,6 +908,8 @@ export class DailyActivityService {
         'Only draft or returned reports can be edited.',
       );
     }
+
+    return Promise.resolve();
   }
 
   private validateEntry(
@@ -874,11 +959,15 @@ export class DailyActivityService {
     companyId: number,
     entries: DailyActivityEntry[],
   ) {
-    const categoryIds = [...new Set(entries.map((entry) => entry.activityCategoryId))];
+    const categoryIds = [
+      ...new Set(entries.map((entry) => entry.activityCategoryId)),
+    ];
     const categories = await this.categoryRepository.find({
       where: categoryIds.map((id) => ({ companyId, id })),
     });
-    const categoryMap = new Map(categories.map((category) => [category.id, category]));
+    const categoryMap = new Map(
+      categories.map((category) => [category.id, category]),
+    );
 
     for (const entry of entries) {
       const category = categoryMap.get(entry.activityCategoryId);
@@ -937,9 +1026,14 @@ export class DailyActivityService {
         policyRecord.minimumCompletedActivityCount ?? 1,
       ),
       manager_review_required: policyRecord.managerReviewRequired !== false,
-      submission_cutoff_time: String(policyRecord.submissionCutoffTime ?? '20:00'),
+      submission_cutoff_time: this.toText(
+        policyRecord.submissionCutoffTime,
+        '20:00',
+      ),
       daily_submission_required: policyRecord.dailySubmissionRequired !== false,
-      field_visit_plan_required: Boolean(policyRecord.fieldVisitPlanRequired ?? false),
+      field_visit_plan_required: Boolean(
+        policyRecord.fieldVisitPlanRequired ?? false,
+      ),
       allow_unplanned_visits: policyRecord.allowUnplannedVisits !== false,
       require_visit_selfie: Boolean(policyRecord.requireVisitSelfie ?? false),
       require_device_binding: policyRecord.requireDeviceBinding !== false,

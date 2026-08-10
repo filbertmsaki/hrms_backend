@@ -17,7 +17,7 @@ export class EmployeeImportProcessor extends WorkerHost {
   }
 
   async process(job: Job<EmployeeImportJobData>): Promise<void> {
-    if (job.name !== EmployeeImportJobName.PROCESS_BATCH) {
+    if (job.name !== String(EmployeeImportJobName.PROCESS_BATCH)) {
       this.logger.warn(`Ignoring unsupported employee import job ${job.name}`);
       return;
     }

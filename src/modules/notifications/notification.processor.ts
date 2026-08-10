@@ -11,9 +11,7 @@ import { NotificationQueuedTaskRunnerService } from './notification-queued-task-
 export class NotificationProcessor extends WorkerHost {
   private readonly logger = new Logger(NotificationProcessor.name);
 
-  constructor(
-    private readonly runner: NotificationQueuedTaskRunnerService,
-  ) {
+  constructor(private readonly runner: NotificationQueuedTaskRunnerService) {
     super();
   }
 

@@ -31,6 +31,7 @@ import { AttendanceGeofence } from '../geofences/entities/attendance-geofence.en
 import { AttendanceWifiNetwork } from '../wifi-networks/entities/attendance-wifi-network.entity';
 import { AttendanceProcessedEvent } from '../processing/entities/attendance-processed-event.entity';
 import { AttendanceDailySummary } from '../processing/entities/attendance-daily-summary.entity';
+import { AttendanceMobilePunch } from './entities/attendance-mobile-punch.entity';
 import { AttendanceEventIngestionService } from '../processing/attendance-event-ingestion.service';
 import { AttendanceScheduleResolverService } from '../processing/attendance-schedule-resolver.service';
 import { ResolvedAttendanceSchedule } from '../processing/entities/resolved-attendance-schedule.type';
@@ -314,7 +315,7 @@ export class AttendanceMobilePunchesService {
       lastProcessingError: null,
     });
 
-    let saved;
+    let saved: AttendanceMobilePunch;
     try {
       saved = await this.punchRepo.save(punch);
     } catch (error) {

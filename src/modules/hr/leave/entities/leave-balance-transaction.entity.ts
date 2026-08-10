@@ -58,6 +58,7 @@ export class LeaveBalanceTransaction {
   @Column({
     type: 'enum',
     enum: LeaveBalanceTransactionTypeEnum,
+    enumName: 'leave_balance_transaction_type_enum',
   })
   transaction_type: LeaveBalanceTransactionTypeEnum;
 

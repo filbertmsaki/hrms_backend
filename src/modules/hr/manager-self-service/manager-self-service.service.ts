@@ -298,14 +298,13 @@ export class ManagerSelfServiceService {
       capabilities: {
         activity_review: {
           available: true,
-          pending_activity_reviews: workActivitySummary.pending_activity_reviews,
+          pending_activity_reviews:
+            workActivitySummary.pending_activity_reviews,
         },
         kpi_review: {
           available: true,
-          pending_team_validations:
-            performanceSummary.pending_team_validations,
-          published_team_reviews:
-            performanceSummary.published_team_reviews,
+          pending_team_validations: performanceSummary.pending_team_validations,
+          published_team_reviews: performanceSummary.published_team_reviews,
         },
         probation_recommendation: {
           available: false,

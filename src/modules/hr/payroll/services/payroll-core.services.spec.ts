@@ -1,5 +1,8 @@
 import { StatutoryTaxBand } from '../entities/payroll-configuration.entities';
-import { PayrollApprovalStageEnum, PayrollRunStatusEnum } from '../payroll.enums';
+import {
+  PayrollApprovalStageEnum,
+  PayrollRunStatusEnum,
+} from '../payroll.enums';
 import {
   PayrollProrationService,
   PayrollRunService,
@@ -79,7 +82,9 @@ describe('PayrollProrationService', () => {
 
 describe('PayrollRunService approval flow', () => {
   it('requires the expected approval stage', () => {
-    const service = Object.create(PayrollRunService.prototype) as PayrollRunService;
+    const service = Object.create(
+      PayrollRunService.prototype,
+    ) as PayrollRunService;
     expect(() =>
       (service as any).assertApprovalStage(
         { status: PayrollRunStatusEnum.PENDING_FINANCE_APPROVAL },

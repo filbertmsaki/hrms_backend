@@ -1,7 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-} from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
@@ -44,8 +41,7 @@ export class PerformanceRatingScaleService {
           minimumScore: String(band.minimum_score),
           maximumScore: String(band.maximum_score),
           displayOrder: band.display_order ?? index,
-          requiresImprovementPlan:
-            band.requires_improvement_plan ?? false,
+          requiresImprovementPlan: band.requires_improvement_plan ?? false,
         })),
       }),
     );

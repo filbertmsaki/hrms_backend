@@ -35,7 +35,10 @@ export class ManagerActivitiesController {
 
   @Get('dashboard')
   @Permissions('work_activities:manager:read')
-  getDashboard(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
+  getDashboard(
+    @Req() req: AuthedRequest,
+    @Query() query: WorkActivityQueryDto,
+  ) {
     return this.insightsService.getManagerSummary(
       req.user,
       query.date_from,
@@ -45,13 +48,19 @@ export class ManagerActivitiesController {
 
   @Get('team')
   @Permissions('work_activities:manager:read')
-  listTeamReports(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
+  listTeamReports(
+    @Req() req: AuthedRequest,
+    @Query() query: WorkActivityQueryDto,
+  ) {
     return this.dailyActivityService.listForManager(req.user, query);
   }
 
   @Get('pending-reviews')
   @Permissions('work_activities:manager:read')
-  pendingReviews(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
+  pendingReviews(
+    @Req() req: AuthedRequest,
+    @Query() query: WorkActivityQueryDto,
+  ) {
     return this.dailyActivityService.listPendingReviews(req.user, query);
   }
 

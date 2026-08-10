@@ -74,9 +74,7 @@ export class EmployeePositionsService {
   }
 
   private assertPrimaryChangeAuthorized(actor: AuthenticatedUser): void {
-    if (
-      !actor.permissions.includes('employee_positions:correct-history')
-    ) {
+    if (!actor.permissions.includes('employee_positions:correct-history')) {
       throw new ForbiddenException(
         'Primary position changes must be made through the employee movement workflow. ' +
           'Use employee_positions:correct-history for authorized administrative corrections.',
@@ -134,15 +132,17 @@ export class EmployeePositionsService {
     companyId: number,
     manager: EntityManager,
   ): Promise<void> {
-    const currentPrimary = await manager.getRepository(EmployeePosition).findOne({
-      where: {
-        company_id: companyId,
-        employee_id: employeeId,
-        is_primary: true,
-        status: EmployeePositionStatusEnum.ACTIVE,
-      },
-      order: { id: 'DESC' },
-    });
+    const currentPrimary = await manager
+      .getRepository(EmployeePosition)
+      .findOne({
+        where: {
+          company_id: companyId,
+          employee_id: employeeId,
+          is_primary: true,
+          status: EmployeePositionStatusEnum.ACTIVE,
+        },
+        order: { id: 'DESC' },
+      });
 
     await manager.getRepository(Employee).update(
       { id: employeeId },

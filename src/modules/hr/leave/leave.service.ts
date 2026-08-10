@@ -413,7 +413,7 @@ export class LeaveService {
       companyId,
       actor,
     );
-    const employee = await this.findEmployeeOrFail(companyId, actorEmployeeId);
+    await this.findEmployeeOrFail(companyId, actorEmployeeId);
     const scopedEmployeeIds = new Set<number>([actorEmployeeId]);
 
     if (

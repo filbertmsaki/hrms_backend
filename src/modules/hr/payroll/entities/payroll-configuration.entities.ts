@@ -39,6 +39,7 @@ export class PayrollComponent {
     name: 'component_type',
     type: 'enum',
     enum: PayrollComponentTypeEnum,
+    enumName: 'payroll_component_type_enum',
   })
   componentType: PayrollComponentTypeEnum;
 
@@ -46,6 +47,7 @@ export class PayrollComponent {
     name: 'frequency',
     type: 'enum',
     enum: PayrollComponentFrequencyEnum,
+    enumName: 'payroll_component_frequency_enum',
     default: PayrollComponentFrequencyEnum.RECURRING,
   })
   frequency: PayrollComponentFrequencyEnum;
@@ -54,6 +56,7 @@ export class PayrollComponent {
     name: 'calculation_method',
     type: 'enum',
     enum: PayrollCalculationMethodEnum,
+    enumName: 'payroll_calculation_method_enum',
   })
   calculationMethod: PayrollCalculationMethodEnum;
 
@@ -61,6 +64,7 @@ export class PayrollComponent {
     name: 'tax_treatment',
     type: 'enum',
     enum: PayrollTaxTreatmentEnum,
+    enumName: 'payroll_tax_treatment_enum',
     default: PayrollTaxTreatmentEnum.TAXABLE,
   })
   taxTreatment: PayrollTaxTreatmentEnum;
@@ -203,10 +207,22 @@ export class SalaryStructureComponent {
   @Column({ name: 'component_id' })
   componentId: number;
 
-  @Column({ name: 'default_amount', type: 'decimal', precision: 18, scale: 2, default: '0' })
+  @Column({
+    name: 'default_amount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    default: '0',
+  })
   defaultAmount: string;
 
-  @Column({ name: 'default_rate', type: 'decimal', precision: 12, scale: 6, nullable: true })
+  @Column({
+    name: 'default_rate',
+    type: 'decimal',
+    precision: 12,
+    scale: 6,
+    nullable: true,
+  })
   defaultRate: string | null;
 
   @Column({ name: 'calculation_order', type: 'int', default: 100 })
@@ -302,6 +318,7 @@ export class PayrollPeriod {
   @Column({
     type: 'enum',
     enum: PayrollPeriodStatusEnum,
+    enumName: 'payroll_period_status_enum',
     default: PayrollPeriodStatusEnum.OPEN,
   })
   status: PayrollPeriodStatusEnum;
@@ -333,6 +350,7 @@ export class StatutoryScheme {
     name: 'scheme_type',
     type: 'enum',
     enum: StatutorySchemeTypeEnum,
+    enumName: 'statutory_scheme_type_enum',
   })
   schemeType: StatutorySchemeTypeEnum;
 
@@ -367,19 +385,44 @@ export class StatutoryRuleVersion {
     name: 'calculation_method',
     type: 'enum',
     enum: PayrollCalculationMethodEnum,
+    enumName: 'payroll_calculation_method_enum',
   })
   calculationMethod: PayrollCalculationMethodEnum;
 
-  @Column({ name: 'employee_rate', type: 'decimal', precision: 12, scale: 6, nullable: true })
+  @Column({
+    name: 'employee_rate',
+    type: 'decimal',
+    precision: 12,
+    scale: 6,
+    nullable: true,
+  })
   employeeRate: string | null;
 
-  @Column({ name: 'employer_rate', type: 'decimal', precision: 12, scale: 6, nullable: true })
+  @Column({
+    name: 'employer_rate',
+    type: 'decimal',
+    precision: 12,
+    scale: 6,
+    nullable: true,
+  })
   employerRate: string | null;
 
-  @Column({ name: 'maximum_basis', type: 'decimal', precision: 18, scale: 2, nullable: true })
+  @Column({
+    name: 'maximum_basis',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
   maximumBasis: string | null;
 
-  @Column({ name: 'minimum_basis', type: 'decimal', precision: 18, scale: 2, nullable: true })
+  @Column({
+    name: 'minimum_basis',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
   minimumBasis: string | null;
 
   @Column({ name: 'deduct_employee_before_tax', default: false })
@@ -419,10 +462,22 @@ export class StatutoryTaxBand {
   @Column({ name: 'lower_limit', type: 'decimal', precision: 18, scale: 2 })
   lowerLimit: string;
 
-  @Column({ name: 'upper_limit', type: 'decimal', precision: 18, scale: 2, nullable: true })
+  @Column({
+    name: 'upper_limit',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
   upperLimit: string | null;
 
-  @Column({ name: 'base_tax', type: 'decimal', precision: 18, scale: 2, default: '0' })
+  @Column({
+    name: 'base_tax',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    default: '0',
+  })
   baseTax: string;
 
   @Column({ name: 'rate_percent', type: 'decimal', precision: 12, scale: 6 })
@@ -437,7 +492,10 @@ export class StatutoryTaxBand {
 }
 
 @Entity('payroll_accounting_mappings')
-@Unique('UQ_payroll_accounting_mapping_component', ['companyId', 'componentCode'])
+@Unique('UQ_payroll_accounting_mapping_component', [
+  'companyId',
+  'componentCode',
+])
 export class PayrollAccountingMapping {
   @PrimaryGeneratedColumn()
   id: number;

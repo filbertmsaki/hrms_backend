@@ -796,9 +796,7 @@ export function validateEnv(env: Env) {
   );
 
   if (PROBATION_DEFAULT_PERIOD_DAYS <= 0) {
-    throw new Error(
-      'PROBATION_DEFAULT_PERIOD_DAYS must be greater than zero.',
-    );
+    throw new Error('PROBATION_DEFAULT_PERIOD_DAYS must be greater than zero.');
   }
 
   if (
@@ -1160,7 +1158,11 @@ export function validateEnv(env: Env) {
     'FIELD_LOCATION_EXPORT_MAX_DAYS',
     31,
   );
-  const FIELD_EXPENSE_ENABLED = optionalBool(env, 'FIELD_EXPENSE_ENABLED', true);
+  const FIELD_EXPENSE_ENABLED = optionalBool(
+    env,
+    'FIELD_EXPENSE_ENABLED',
+    true,
+  );
   const FIELD_EXPENSE_REQUIRE_RECEIPT_ABOVE = optionalInt(
     env,
     'FIELD_EXPENSE_REQUIRE_RECEIPT_ABOVE',
@@ -1246,7 +1248,11 @@ export function validateEnv(env: Env) {
     'PAYROLL_ALLOW_NEGATIVE_NET_PAY',
     false,
   );
-  const PAYROLL_MINIMUM_NET_PAY = optionalInt(env, 'PAYROLL_MINIMUM_NET_PAY', 0);
+  const PAYROLL_MINIMUM_NET_PAY = optionalInt(
+    env,
+    'PAYROLL_MINIMUM_NET_PAY',
+    0,
+  );
   const PAYROLL_MAX_MANUAL_ADJUSTMENT_PERCENT = optionalInt(
     env,
     'PAYROLL_MAX_MANUAL_ADJUSTMENT_PERCENT',
@@ -1399,8 +1405,16 @@ export function validateEnv(env: Env) {
   );
   const ANALYTICS_ENABLED = optionalBool(env, 'ANALYTICS_ENABLED', true);
   const ANALYTICS_SCHEMA = optionalString(env, 'ANALYTICS_SCHEMA', 'analytics');
-  const ANALYTICS_DATABASE_URL = optionalString(env, 'ANALYTICS_DATABASE_URL', '');
-  const ANALYTICS_DATABASE_SSL = optionalBool(env, 'ANALYTICS_DATABASE_SSL', false);
+  const ANALYTICS_DATABASE_URL = optionalString(
+    env,
+    'ANALYTICS_DATABASE_URL',
+    '',
+  );
+  const ANALYTICS_DATABASE_SSL = optionalBool(
+    env,
+    'ANALYTICS_DATABASE_SSL',
+    false,
+  );
   const ANALYTICS_DB_POOL_MIN = optionalInt(env, 'ANALYTICS_DB_POOL_MIN', 1);
   const ANALYTICS_DB_POOL_MAX = optionalInt(env, 'ANALYTICS_DB_POOL_MAX', 3);
   const ANALYTICS_DB_STATEMENT_TIMEOUT_MS = optionalInt(
@@ -1458,7 +1472,11 @@ export function validateEnv(env: Env) {
     'ANALYTICS_DEFAULT_TIMEZONE',
     'Africa/Dar_es_Salaam',
   );
-  const ANALYTICS_DEFAULT_CURRENCY = optionalString(env, 'ANALYTICS_DEFAULT_CURRENCY', 'TZS');
+  const ANALYTICS_DEFAULT_CURRENCY = optionalString(
+    env,
+    'ANALYTICS_DEFAULT_CURRENCY',
+    'TZS',
+  );
   const ANALYTICS_MAX_QUERY_DATE_RANGE_DAYS = optionalInt(
     env,
     'ANALYTICS_MAX_QUERY_DATE_RANGE_DAYS',
@@ -1469,8 +1487,16 @@ export function validateEnv(env: Env) {
     'ANALYTICS_MAX_EXPORT_DATE_RANGE_DAYS',
     3660,
   );
-  const ANALYTICS_MAX_EXPORT_ROWS = optionalInt(env, 'ANALYTICS_MAX_EXPORT_ROWS', 250000);
-  const ANALYTICS_EXPORT_EXPIRY_HOURS = optionalInt(env, 'ANALYTICS_EXPORT_EXPIRY_HOURS', 24);
+  const ANALYTICS_MAX_EXPORT_ROWS = optionalInt(
+    env,
+    'ANALYTICS_MAX_EXPORT_ROWS',
+    250000,
+  );
+  const ANALYTICS_EXPORT_EXPIRY_HOURS = optionalInt(
+    env,
+    'ANALYTICS_EXPORT_EXPIRY_HOURS',
+    24,
+  );
   const ANALYTICS_SMALL_CELL_SUPPRESSION_ENABLED = optionalBool(
     env,
     'ANALYTICS_SMALL_CELL_SUPPRESSION_ENABLED',
@@ -1486,7 +1512,11 @@ export function validateEnv(env: Env) {
     'ANALYTICS_ALLOW_CUSTOM_REPORTS',
     true,
   );
-  const ANALYTICS_ALLOW_RAW_SQL = optionalBool(env, 'ANALYTICS_ALLOW_RAW_SQL', false);
+  const ANALYTICS_ALLOW_RAW_SQL = optionalBool(
+    env,
+    'ANALYTICS_ALLOW_RAW_SQL',
+    false,
+  );
   const ANALYTICS_ALLOW_PREDICTIVE_INDICATORS = optionalBool(
     env,
     'ANALYTICS_ALLOW_PREDICTIVE_INDICATORS',
@@ -1557,17 +1587,11 @@ export function validateEnv(env: Env) {
     throw new Error('FIELD_LOCATION_RETENTION_DAYS cannot be less than 30.');
   }
 
-  if (
-    PAYROLL_DEFAULT_CUTOFF_DAY < 1 ||
-    PAYROLL_DEFAULT_CUTOFF_DAY > 31
-  ) {
+  if (PAYROLL_DEFAULT_CUTOFF_DAY < 1 || PAYROLL_DEFAULT_CUTOFF_DAY > 31) {
     throw new Error('PAYROLL_DEFAULT_CUTOFF_DAY must be between 1 and 31.');
   }
 
-  if (
-    PAYROLL_DEFAULT_PAYMENT_DAY < 1 ||
-    PAYROLL_DEFAULT_PAYMENT_DAY > 31
-  ) {
+  if (PAYROLL_DEFAULT_PAYMENT_DAY < 1 || PAYROLL_DEFAULT_PAYMENT_DAY > 31) {
     throw new Error('PAYROLL_DEFAULT_PAYMENT_DAY must be between 1 and 31.');
   }
 
@@ -1623,15 +1647,22 @@ export function validateEnv(env: Env) {
   }
 
   if (ANALYTICS_SCHEMA !== 'analytics') {
-    throw new Error('ANALYTICS_SCHEMA must remain "analytics" for the current deployment.');
+    throw new Error(
+      'ANALYTICS_SCHEMA must remain "analytics" for the current deployment.',
+    );
   }
 
   if (ANALYTICS_DB_POOL_MAX < 1 || ANALYTICS_DB_POOL_MAX > 20) {
     throw new Error('ANALYTICS_DB_POOL_MAX must be between 1 and 20.');
   }
 
-  if (ANALYTICS_DB_POOL_MIN < 0 || ANALYTICS_DB_POOL_MIN > ANALYTICS_DB_POOL_MAX) {
-    throw new Error('ANALYTICS_DB_POOL_MIN cannot exceed ANALYTICS_DB_POOL_MAX.');
+  if (
+    ANALYTICS_DB_POOL_MIN < 0 ||
+    ANALYTICS_DB_POOL_MIN > ANALYTICS_DB_POOL_MAX
+  ) {
+    throw new Error(
+      'ANALYTICS_DB_POOL_MIN cannot exceed ANALYTICS_DB_POOL_MAX.',
+    );
   }
 
   if (ANALYTICS_SMALL_CELL_MINIMUM_COUNT < 2) {
@@ -1643,10 +1674,15 @@ export function validateEnv(env: Env) {
   }
 
   if (ANALYTICS_ALLOW_AUTOMATED_EMPLOYMENT_DECISIONS) {
-    throw new Error('ANALYTICS_ALLOW_AUTOMATED_EMPLOYMENT_DECISIONS must remain false.');
+    throw new Error(
+      'ANALYTICS_ALLOW_AUTOMATED_EMPLOYMENT_DECISIONS must remain false.',
+    );
   }
 
-  if (ANALYTICS_MAX_QUERY_DATE_RANGE_DAYS < 1 || ANALYTICS_MAX_EXPORT_DATE_RANGE_DAYS < 1) {
+  if (
+    ANALYTICS_MAX_QUERY_DATE_RANGE_DAYS < 1 ||
+    ANALYTICS_MAX_EXPORT_DATE_RANGE_DAYS < 1
+  ) {
     throw new Error('Analytics date range limits must be positive.');
   }
 

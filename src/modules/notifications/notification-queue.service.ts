@@ -46,8 +46,7 @@ export class NotificationQueueService {
   ): Promise<void> {
     const mailLog = await this.mailLogRepository.save(
       this.mailLogRepository.create({
-        companyId:
-          options?.companyId ?? this.extractCompanyId(args),
+        companyId: options?.companyId ?? this.extractCompanyId(args),
         method,
         recipientEmail: this.extractRecipientEmail(args),
         args,
@@ -112,7 +111,10 @@ export class NotificationQueueService {
 
   private extractCompanyId(args: unknown[]): number | null {
     for (const arg of args) {
-      const fromArg = this.readNumericProperty(arg, ['companyId', 'company_id']);
+      const fromArg = this.readNumericProperty(arg, [
+        'companyId',
+        'company_id',
+      ]);
       if (fromArg !== null) {
         return fromArg;
       }
@@ -138,10 +140,7 @@ export class NotificationQueueService {
     return null;
   }
 
-  private readNumericProperty(
-    value: unknown,
-    keys: string[],
-  ): number | null {
+  private readNumericProperty(value: unknown, keys: string[]): number | null {
     if (typeof value !== 'object' || value === null) {
       return null;
     }

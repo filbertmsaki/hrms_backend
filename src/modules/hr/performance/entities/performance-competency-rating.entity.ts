@@ -9,7 +9,10 @@ import {
 import { PerformanceCompetencyCategoryEnum } from '../enums/performance-competency-category.enum';
 
 @Entity('performance_competency_ratings')
-@Unique('UQ_performance_competency_review_item', ['performanceReviewId', 'templateItemCode'])
+@Unique('UQ_performance_competency_review_item', [
+  'performanceReviewId',
+  'templateItemCode',
+])
 @Index('IDX_performance_competency_review', ['performanceReviewId'])
 export class PerformanceCompetencyRating {
   @PrimaryGeneratedColumn()
@@ -30,6 +33,7 @@ export class PerformanceCompetencyRating {
   @Column({
     type: 'enum',
     enum: PerformanceCompetencyCategoryEnum,
+    enumName: 'performance_competency_category_enum',
     default: PerformanceCompetencyCategoryEnum.BEHAVIORAL,
   })
   category: PerformanceCompetencyCategoryEnum;
@@ -40,13 +44,31 @@ export class PerformanceCompetencyRating {
   @Column({ name: 'maximum_rating', type: 'decimal', precision: 7, scale: 2 })
   maximumRating: string;
 
-  @Column({ name: 'employee_rating', type: 'decimal', precision: 7, scale: 2, nullable: true })
+  @Column({
+    name: 'employee_rating',
+    type: 'decimal',
+    precision: 7,
+    scale: 2,
+    nullable: true,
+  })
   employeeRating: string | null;
 
-  @Column({ name: 'manager_rating', type: 'decimal', precision: 7, scale: 2, nullable: true })
+  @Column({
+    name: 'manager_rating',
+    type: 'decimal',
+    precision: 7,
+    scale: 2,
+    nullable: true,
+  })
   managerRating: string | null;
 
-  @Column({ name: 'hr_rating', type: 'decimal', precision: 7, scale: 2, nullable: true })
+  @Column({
+    name: 'hr_rating',
+    type: 'decimal',
+    precision: 7,
+    scale: 2,
+    nullable: true,
+  })
   hrRating: string | null;
 
   @Column({ name: 'manager_comment', type: 'text', nullable: true })

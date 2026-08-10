@@ -1,4 +1,3 @@
-import { ConfigService } from '@nestjs/config';
 import { KpiApplicabilityRule } from '../entities/kpi-applicability-rule.entity';
 import { KpiApplicabilityService } from './kpi-applicability.service';
 
@@ -50,8 +49,8 @@ describe('KpiApplicabilityService', () => {
         reviewCycle: 'MONTHLY',
       }),
     ).toBe(true);
-    expect(
-      (service as any).specificity(employeeRule),
-    ).toBeGreaterThan((service as any).specificity(branchRule));
+    expect((service as any).specificity(employeeRule)).toBeGreaterThan(
+      (service as any).specificity(branchRule),
+    );
   });
 });

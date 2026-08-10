@@ -39,6 +39,7 @@ export class PerformanceFinancialYear {
     name: 'annual_aggregation_method',
     type: 'enum',
     enum: PerformanceAggregationMethodEnum,
+    enumName: 'performance_aggregation_method_enum',
     default: PerformanceAggregationMethodEnum.SIMPLE_MONTHLY_AVERAGE,
   })
   annualAggregationMethod: PerformanceAggregationMethodEnum;

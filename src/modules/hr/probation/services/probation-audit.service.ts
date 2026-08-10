@@ -25,7 +25,10 @@ export class ProbationAuditService {
     private readonly repository: Repository<ProbationAuditLog>,
   ) {}
 
-  async log(entry: ProbationAuditPayload, manager?: EntityManager): Promise<void> {
+  async log(
+    entry: ProbationAuditPayload,
+    manager?: EntityManager,
+  ): Promise<void> {
     const repository = manager
       ? manager.getRepository(ProbationAuditLog)
       : this.repository;

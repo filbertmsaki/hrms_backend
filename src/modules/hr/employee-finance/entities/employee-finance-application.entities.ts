@@ -16,7 +16,10 @@ import {
 } from '../employee-finance.enums';
 
 @Entity('employee_finance_applications')
-@Unique('UQ_employee_finance_application_company_no', ['companyId', 'applicationNo'])
+@Unique('UQ_employee_finance_application_company_no', [
+  'companyId',
+  'applicationNo',
+])
 @Index('IDX_employee_finance_application_employee_status', [
   'companyId',
   'employeeId',
@@ -42,17 +45,24 @@ export class EmployeeFinanceApplication {
     name: 'product_type',
     type: 'enum',
     enum: EmployeeFinanceProductTypeEnum,
+    enumName: 'employee_finance_product_type_enum',
   })
   productType: EmployeeFinanceProductTypeEnum;
 
   @Column({
     type: 'enum',
     enum: EmployeeFinanceApplicationStatusEnum,
+    enumName: 'employee_finance_application_status_enum',
     default: EmployeeFinanceApplicationStatusEnum.DRAFT,
   })
   status: EmployeeFinanceApplicationStatusEnum;
 
-  @Column({ name: 'requested_amount', type: 'decimal', precision: 18, scale: 2 })
+  @Column({
+    name: 'requested_amount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+  })
   requestedAmount: string;
 
   @Column({ name: 'requested_term_months', type: 'int' })
@@ -61,16 +71,34 @@ export class EmployeeFinanceApplication {
   @Column({ type: 'text' })
   purpose: string;
 
-  @Column({ name: 'approved_amount', type: 'decimal', precision: 18, scale: 2, nullable: true })
+  @Column({
+    name: 'approved_amount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
   approvedAmount: string | null;
 
   @Column({ name: 'approved_term_months', type: 'int', nullable: true })
   approvedTermMonths: number | null;
 
-  @Column({ name: 'approved_interest_rate', type: 'decimal', precision: 9, scale: 6, nullable: true })
+  @Column({
+    name: 'approved_interest_rate',
+    type: 'decimal',
+    precision: 9,
+    scale: 6,
+    nullable: true,
+  })
   approvedInterestRate: string | null;
 
-  @Column({ name: 'estimated_installment', type: 'decimal', precision: 18, scale: 2, nullable: true })
+  @Column({
+    name: 'estimated_installment',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
   estimatedInstallment: string | null;
 
   @Column({ name: 'eligibility_snapshot', type: 'jsonb' })
@@ -158,16 +186,30 @@ export class EmployeeFinanceApplicationApproval {
   @Column({ name: 'application_id' })
   applicationId: number;
 
-  @Column({ type: 'enum', enum: EmployeeFinanceApprovalStageEnum })
+  @Column({
+    type: 'enum',
+    enum: EmployeeFinanceApprovalStageEnum,
+    enumName: 'employee_finance_approval_stage_enum',
+  })
   stage: EmployeeFinanceApprovalStageEnum;
 
-  @Column({ type: 'enum', enum: EmployeeFinanceDecisionEnum })
+  @Column({
+    type: 'enum',
+    enum: EmployeeFinanceDecisionEnum,
+    enumName: 'employee_finance_decision_enum',
+  })
   decision: EmployeeFinanceDecisionEnum;
 
   @Column({ name: 'snapshot_hash', type: 'varchar', length: 128 })
   snapshotHash: string;
 
-  @Column({ name: 'approved_amount', type: 'decimal', precision: 18, scale: 2, nullable: true })
+  @Column({
+    name: 'approved_amount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
   approvedAmount: string | null;
 
   @Column({ name: 'approved_term_months', type: 'int', nullable: true })

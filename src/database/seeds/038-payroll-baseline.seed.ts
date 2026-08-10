@@ -504,7 +504,8 @@ export default class PayrollBaselineSeeder implements Seeder {
         component.allowManualInput = seed.allowManualInput;
         component.allowNegativeAmount = seed.allowNegativeAmount;
         component.calculationOrder = seed.calculationOrder;
-        component.calculationConfiguration = seed.calculationConfiguration ?? null;
+        component.calculationConfiguration =
+          seed.calculationConfiguration ?? null;
         component.generalLedgerAccountCode =
           seed.generalLedgerAccountCode ?? null;
         component.liabilityAccountCode = seed.liabilityAccountCode ?? null;

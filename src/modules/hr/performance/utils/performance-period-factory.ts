@@ -46,7 +46,8 @@ export class PerformancePeriodFactory {
     while (cursor <= yearEnd) {
       const monthStart = cursor < yearStart ? yearStart : cursor;
       const monthEndCandidate = lastDayOfMonth(cursor);
-      const monthEnd = monthEndCandidate > yearEnd ? yearEnd : monthEndCandidate;
+      const monthEnd =
+        monthEndCandidate > yearEnd ? yearEnd : monthEndCandidate;
 
       periods.push({
         periodType: PerformancePeriodTypeEnum.MONTHLY,
@@ -89,7 +90,9 @@ export class PerformancePeriodFactory {
         generationSnapshot: {
           generator: 'PerformancePeriodFactory',
           source: 'quarterly',
-          monthly_sequences: quarterMonths.map((period) => period.sequenceNumber),
+          monthly_sequences: quarterMonths.map(
+            (period) => period.sequenceNumber,
+          ),
         },
       });
     }

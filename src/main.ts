@@ -40,7 +40,9 @@ async function bootstrap(): Promise<void> {
   );
 
   if (trustProxy) {
-    const expressApplication = app.getHttpAdapter().getInstance();
+    const expressApplication = app.getHttpAdapter().getInstance() as {
+      set(setting: string, value: number): void;
+    };
     expressApplication.set('trust proxy', 1);
   }
 

@@ -48,47 +48,99 @@ export class EmployeeFinanceAccount {
     name: 'product_type',
     type: 'enum',
     enum: EmployeeFinanceProductTypeEnum,
+    enumName: 'employee_finance_product_type_enum',
   })
   productType: EmployeeFinanceProductTypeEnum;
 
   @Column({
     type: 'enum',
     enum: EmployeeFinanceAccountStatusEnum,
+    enumName: 'employee_finance_account_status_enum',
     default: EmployeeFinanceAccountStatusEnum.PENDING_DISBURSEMENT,
   })
   status: EmployeeFinanceAccountStatusEnum;
 
-  @Column({ name: 'principal_amount', type: 'decimal', precision: 18, scale: 2 })
+  @Column({
+    name: 'principal_amount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+  })
   principalAmount: string;
 
-  @Column({ name: 'interest_amount', type: 'decimal', precision: 18, scale: 2, default: '0' })
+  @Column({
+    name: 'interest_amount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    default: '0',
+  })
   interestAmount: string;
 
-  @Column({ name: 'fee_amount', type: 'decimal', precision: 18, scale: 2, default: '0' })
+  @Column({
+    name: 'fee_amount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    default: '0',
+  })
   feeAmount: string;
 
   @Column({ name: 'total_payable', type: 'decimal', precision: 18, scale: 2 })
   totalPayable: string;
 
-  @Column({ name: 'outstanding_principal', type: 'decimal', precision: 18, scale: 2 })
+  @Column({
+    name: 'outstanding_principal',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+  })
   outstandingPrincipal: string;
 
-  @Column({ name: 'outstanding_interest', type: 'decimal', precision: 18, scale: 2, default: '0' })
+  @Column({
+    name: 'outstanding_interest',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    default: '0',
+  })
   outstandingInterest: string;
 
-  @Column({ name: 'outstanding_fees', type: 'decimal', precision: 18, scale: 2, default: '0' })
+  @Column({
+    name: 'outstanding_fees',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    default: '0',
+  })
   outstandingFees: string;
 
-  @Column({ name: 'outstanding_total', type: 'decimal', precision: 18, scale: 2 })
+  @Column({
+    name: 'outstanding_total',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+  })
   outstandingTotal: string;
 
-  @Column({ name: 'scheduled_monthly_installment', type: 'decimal', precision: 18, scale: 2 })
+  @Column({
+    name: 'scheduled_monthly_installment',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+  })
   scheduledMonthlyInstallment: string;
 
   @Column({ name: 'term_months', type: 'int' })
   termMonths: number;
 
-  @Column({ name: 'interest_rate', type: 'decimal', precision: 9, scale: 6, default: '0' })
+  @Column({
+    name: 'interest_rate',
+    type: 'decimal',
+    precision: 9,
+    scale: 6,
+    default: '0',
+  })
   interestRate: string;
 
   @Column({ name: 'schedule_version', type: 'int', default: 1 })
@@ -120,7 +172,10 @@ export class EmployeeFinanceAccount {
 }
 
 @Entity('employee_finance_disbursements')
-@Unique('UQ_employee_finance_disbursement_reference', ['companyId', 'paymentReference'])
+@Unique('UQ_employee_finance_disbursement_reference', [
+  'companyId',
+  'paymentReference',
+])
 export class EmployeeFinanceDisbursement {
   @PrimaryGeneratedColumn()
   id: number;
@@ -140,7 +195,12 @@ export class EmployeeFinanceDisbursement {
   @Column({ name: 'payment_date', type: 'date' })
   paymentDate: string;
 
-  @Column({ type: 'enum', enum: EmployeeFinanceDisbursementStatusEnum, default: EmployeeFinanceDisbursementStatusEnum.PENDING_APPROVAL })
+  @Column({
+    type: 'enum',
+    enum: EmployeeFinanceDisbursementStatusEnum,
+    enumName: 'employee_finance_disbursement_status_enum',
+    default: EmployeeFinanceDisbursementStatusEnum.PENDING_APPROVAL,
+  })
   status: EmployeeFinanceDisbursementStatusEnum;
 
   @Column({ name: 'created_by_company_user_id' })
@@ -162,7 +222,11 @@ export class EmployeeFinanceDisbursement {
   'scheduleVersion',
   'installmentNumber',
 ])
-@Index('IDX_employee_finance_installment_due_status', ['companyId', 'dueDate', 'status'])
+@Index('IDX_employee_finance_installment_due_status', [
+  'companyId',
+  'dueDate',
+  'status',
+])
 export class EmployeeFinanceInstallment {
   @PrimaryGeneratedColumn()
   id: number;
@@ -191,24 +255,50 @@ export class EmployeeFinanceInstallment {
   @Column({ name: 'principal_due', type: 'decimal', precision: 18, scale: 2 })
   principalDue: string;
 
-  @Column({ name: 'interest_due', type: 'decimal', precision: 18, scale: 2, default: '0' })
+  @Column({
+    name: 'interest_due',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    default: '0',
+  })
   interestDue: string;
 
-  @Column({ name: 'fee_due', type: 'decimal', precision: 18, scale: 2, default: '0' })
+  @Column({
+    name: 'fee_due',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    default: '0',
+  })
   feeDue: string;
 
   @Column({ name: 'total_due', type: 'decimal', precision: 18, scale: 2 })
   totalDue: string;
 
-  @Column({ name: 'paid_amount', type: 'decimal', precision: 18, scale: 2, default: '0' })
+  @Column({
+    name: 'paid_amount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    default: '0',
+  })
   paidAmount: string;
 
-  @Column({ type: 'enum', enum: EmployeeFinanceInstallmentStatusEnum, default: EmployeeFinanceInstallmentStatusEnum.SCHEDULED })
+  @Column({
+    type: 'enum',
+    enum: EmployeeFinanceInstallmentStatusEnum,
+    enumName: 'employee_finance_installment_status_enum',
+    default: EmployeeFinanceInstallmentStatusEnum.SCHEDULED,
+  })
   status: EmployeeFinanceInstallmentStatusEnum;
 }
 
 @Entity('employee_finance_ledger_entries')
-@Unique('UQ_employee_finance_ledger_idempotency', ['companyId', 'idempotencyKey'])
+@Unique('UQ_employee_finance_ledger_idempotency', [
+  'companyId',
+  'idempotencyKey',
+])
 @Index('IDX_employee_finance_ledger_account', ['companyId', 'accountId'])
 export class EmployeeFinanceLedgerEntry {
   @PrimaryGeneratedColumn()
@@ -223,19 +313,42 @@ export class EmployeeFinanceLedgerEntry {
   @Column({ name: 'installment_id', type: 'int', nullable: true })
   installmentId: number | null;
 
-  @Column({ name: 'entry_type', type: 'enum', enum: EmployeeFinanceLedgerEntryTypeEnum })
+  @Column({
+    name: 'entry_type',
+    type: 'enum',
+    enum: EmployeeFinanceLedgerEntryTypeEnum,
+    enumName: 'employee_finance_ledger_entry_type_enum',
+  })
   entryType: EmployeeFinanceLedgerEntryTypeEnum;
 
   @Column({ type: 'varchar', length: 20 })
   direction: 'DEBIT' | 'CREDIT';
 
-  @Column({ name: 'principal_amount', type: 'decimal', precision: 18, scale: 2, default: '0' })
+  @Column({
+    name: 'principal_amount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    default: '0',
+  })
   principalAmount: string;
 
-  @Column({ name: 'interest_amount', type: 'decimal', precision: 18, scale: 2, default: '0' })
+  @Column({
+    name: 'interest_amount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    default: '0',
+  })
   interestAmount: string;
 
-  @Column({ name: 'fee_amount', type: 'decimal', precision: 18, scale: 2, default: '0' })
+  @Column({
+    name: 'fee_amount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    default: '0',
+  })
   feeAmount: string;
 
   @Column({ name: 'total_amount', type: 'decimal', precision: 18, scale: 2 })
@@ -289,13 +402,23 @@ export class EmployeeFinanceRepayment {
   @Column({ type: 'decimal', precision: 18, scale: 2 })
   amount: string;
 
-  @Column({ name: 'payment_reference', type: 'varchar', length: 150, nullable: true })
+  @Column({
+    name: 'payment_reference',
+    type: 'varchar',
+    length: 150,
+    nullable: true,
+  })
   paymentReference: string | null;
 
   @Column({ name: 'payment_date', type: 'date' })
   paymentDate: string;
 
-  @Column({ type: 'enum', enum: EmployeeFinanceRepaymentStatusEnum, default: EmployeeFinanceRepaymentStatusEnum.DRAFT })
+  @Column({
+    type: 'enum',
+    enum: EmployeeFinanceRepaymentStatusEnum,
+    enumName: 'employee_finance_repayment_status_enum',
+    default: EmployeeFinanceRepaymentStatusEnum.DRAFT,
+  })
   status: EmployeeFinanceRepaymentStatusEnum;
 
   @Column({ name: 'created_by_company_user_id' })
@@ -319,13 +442,31 @@ export class EmployeeFinanceRepaymentAllocation {
   @Column({ name: 'installment_id', type: 'int', nullable: true })
   installmentId: number | null;
 
-  @Column({ name: 'principal_amount', type: 'decimal', precision: 18, scale: 2, default: '0' })
+  @Column({
+    name: 'principal_amount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    default: '0',
+  })
   principalAmount: string;
 
-  @Column({ name: 'interest_amount', type: 'decimal', precision: 18, scale: 2, default: '0' })
+  @Column({
+    name: 'interest_amount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    default: '0',
+  })
   interestAmount: string;
 
-  @Column({ name: 'fee_amount', type: 'decimal', precision: 18, scale: 2, default: '0' })
+  @Column({
+    name: 'fee_amount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    default: '0',
+  })
   feeAmount: string;
 }
 
@@ -362,13 +503,30 @@ export class EmployeeFinancePayrollInstruction {
   @Column({ name: 'amount', type: 'decimal', precision: 18, scale: 2 })
   amount: string;
 
-  @Column({ name: 'reserved_amount', type: 'decimal', precision: 18, scale: 2, default: '0' })
+  @Column({
+    name: 'reserved_amount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    default: '0',
+  })
   reservedAmount: string;
 
-  @Column({ name: 'posted_amount', type: 'decimal', precision: 18, scale: 2, default: '0' })
+  @Column({
+    name: 'posted_amount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    default: '0',
+  })
   postedAmount: string;
 
-  @Column({ type: 'enum', enum: EmployeeFinancePayrollInstructionStatusEnum, default: EmployeeFinancePayrollInstructionStatusEnum.OPEN })
+  @Column({
+    type: 'enum',
+    enum: EmployeeFinancePayrollInstructionStatusEnum,
+    enumName: 'employee_finance_payroll_instruction_status_enum',
+    default: EmployeeFinancePayrollInstructionStatusEnum.OPEN,
+  })
   status: EmployeeFinancePayrollInstructionStatusEnum;
 
   @Column({ type: 'jsonb', nullable: true })
@@ -440,7 +598,12 @@ export class EmployeeFinanceSettlementQuote {
   @Column({ name: 'quote_no', type: 'varchar', length: 80 })
   quoteNo: string;
 
-  @Column({ name: 'settlement_amount', type: 'decimal', precision: 18, scale: 2 })
+  @Column({
+    name: 'settlement_amount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+  })
   settlementAmount: string;
 
   @Column({ name: 'valid_until', type: 'date' })
@@ -457,7 +620,10 @@ export class EmployeeFinanceSettlementQuote {
 }
 
 @Entity('employee_finance_exit_recoveries')
-@Unique('UQ_employee_finance_exit_recovery_account', ['offboardingRequestId', 'accountId'])
+@Unique('UQ_employee_finance_exit_recovery_account', [
+  'offboardingRequestId',
+  'accountId',
+])
 export class EmployeeFinanceExitRecovery {
   @PrimaryGeneratedColumn()
   id: number;
@@ -477,7 +643,13 @@ export class EmployeeFinanceExitRecovery {
   @Column({ name: 'recovery_amount', type: 'decimal', precision: 18, scale: 2 })
   recoveryAmount: string;
 
-  @Column({ name: 'recovered_amount', type: 'decimal', precision: 18, scale: 2, default: '0' })
+  @Column({
+    name: 'recovered_amount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    default: '0',
+  })
   recoveredAmount: string;
 
   @Column({ type: 'jsonb' })
@@ -491,7 +663,11 @@ export class EmployeeFinanceExitRecovery {
 }
 
 @Entity('employee_finance_audit_logs')
-@Index('IDX_employee_finance_audit_company_entity', ['companyId', 'entityType', 'entityId'])
+@Index('IDX_employee_finance_audit_company_entity', [
+  'companyId',
+  'entityType',
+  'entityId',
+])
 export class EmployeeFinanceAuditLog {
   @PrimaryGeneratedColumn()
   id: number;

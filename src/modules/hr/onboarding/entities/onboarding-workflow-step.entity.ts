@@ -52,6 +52,7 @@ export class OnboardingWorkflowStep {
   @Column({
     type: 'enum',
     enum: OnboardingTaskTypeEnum,
+    enumName: 'onboarding_tasks_task_type_enum',
     default: OnboardingTaskTypeEnum.GENERAL,
   })
   task_type: OnboardingTaskTypeEnum;

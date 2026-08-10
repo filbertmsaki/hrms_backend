@@ -28,6 +28,7 @@ export class CompetencyTemplateItem {
   @Column({
     type: 'enum',
     enum: PerformanceCompetencyCategoryEnum,
+    enumName: 'performance_competency_category_enum',
     default: PerformanceCompetencyCategoryEnum.BEHAVIORAL,
   })
   category: PerformanceCompetencyCategoryEnum;
@@ -35,7 +36,13 @@ export class CompetencyTemplateItem {
   @Column({ name: 'weight', type: 'decimal', precision: 7, scale: 2 })
   weight: string;
 
-  @Column({ name: 'maximum_rating', type: 'decimal', precision: 7, scale: 2, default: 5 })
+  @Column({
+    name: 'maximum_rating',
+    type: 'decimal',
+    precision: 7,
+    scale: 2,
+    default: 5,
+  })
   maximumRating: string;
 
   @Column({ name: 'sort_order', type: 'int', default: 0 })

@@ -74,7 +74,10 @@ export class PerformanceCompetencyService {
       rating: number;
       comment?: string;
     }>,
-  ): Promise<{ competencyScore: number; scoredItems: PerformanceCompetencyRating[] }> {
+  ): Promise<{
+    competencyScore: number;
+    scoredItems: PerformanceCompetencyRating[];
+  }> {
     const existingRatings = await this.competencyRatingRepository.find({
       where: { companyId, performanceReviewId },
       order: { id: 'ASC' },
@@ -91,7 +94,9 @@ export class PerformanceCompetencyService {
     );
 
     for (const input of ratings) {
-      const record = ratingMap.get(input.template_item_code.trim().toUpperCase());
+      const record = ratingMap.get(
+        input.template_item_code.trim().toUpperCase(),
+      );
       if (!record) {
         throw new BadRequestException(
           `Competency item ${input.template_item_code} is not assigned to this review.`,

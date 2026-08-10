@@ -202,8 +202,7 @@ export class NotificationOrchestratorService {
     }
 
     for (const channel of systemEnabledChannels.filter(
-      (c) =>
-        !allowedChannels.includes(c),
+      (c) => !allowedChannels.includes(c),
     )) {
       await this.deliveryRepository.save(
         this.deliveryRepository.create({

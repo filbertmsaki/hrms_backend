@@ -125,9 +125,7 @@ export class ProbationService {
       probationPeriodDays: dto.probation_period_days,
       selfAssessmentRequired: dto.self_assessment_required ?? false,
       objectivesRequired: dto.objectives_required ?? true,
-      minimumConfirmationScore: String(
-        dto.minimum_confirmation_score ?? 60,
-      ),
+      minimumConfirmationScore: String(dto.minimum_confirmation_score ?? 60),
       maximumExtensions: dto.maximum_extensions ?? 2,
       defaultExtensionDays: dto.default_extension_days ?? 90,
       maximumExtensionDays: dto.maximum_extension_days ?? 180,
@@ -211,9 +209,7 @@ export class ProbationService {
     if (dto.objectives_required !== undefined)
       policy.objectivesRequired = dto.objectives_required;
     if (dto.minimum_confirmation_score !== undefined)
-      policy.minimumConfirmationScore = String(
-        dto.minimum_confirmation_score,
-      );
+      policy.minimumConfirmationScore = String(dto.minimum_confirmation_score);
     if (dto.maximum_extensions !== undefined)
       policy.maximumExtensions = dto.maximum_extensions;
     if (dto.default_extension_days !== undefined)
@@ -233,9 +229,7 @@ export class ProbationService {
     return this.policyRepository.save(policy);
   }
 
-  private validateCriterionWeight(
-    criteria: Array<{ weight: number }>,
-  ): void {
+  private validateCriterionWeight(criteria: Array<{ weight: number }>): void {
     const total = criteria.reduce((sum, c) => sum + c.weight, 0);
 
     if (Math.abs(total - 100) > 0.001) {
@@ -333,11 +327,7 @@ export class ProbationService {
       }),
     );
 
-    const cycle = await this.createReviewCycle(
-      probationCase,
-      policy,
-      manager,
-    );
+    const cycle = await this.createReviewCycle(probationCase, policy, manager);
 
     if (policy?.criteria?.length) {
       await this.createReviewRatings(cycle, policy.criteria, manager);
@@ -556,7 +546,9 @@ export class ProbationService {
     });
   }
 
-  async getMyProbation(actor: AuthenticatedUser): Promise<ProbationCase | null> {
+  async getMyProbation(
+    actor: AuthenticatedUser,
+  ): Promise<ProbationCase | null> {
     if (!actor.employeeId) {
       throw new ForbiddenException('No employee record linked to this user.');
     }
@@ -684,13 +676,22 @@ export class ProbationService {
 
   private async applySelfRatings(
     cycleId: number,
-    ratings: Array<{ criterion_code: string; rating: number; comment?: string }>,
+    ratings: Array<{
+      criterion_code: string;
+      rating: number;
+      comment?: string;
+    }>,
     manager: EntityManager,
   ): Promise<void> {
     for (const rating of ratings) {
-      const record = await manager.getRepository(ProbationReviewRating).findOne({
-        where: { reviewCycleId: cycleId, criterionCode: rating.criterion_code },
-      });
+      const record = await manager
+        .getRepository(ProbationReviewRating)
+        .findOne({
+          where: {
+            reviewCycleId: cycleId,
+            criterionCode: rating.criterion_code,
+          },
+        });
 
       if (!record) {
         continue;
@@ -719,11 +720,11 @@ export class ProbationService {
     manager: EntityManager,
   ): Promise<void> {
     for (const item of progress) {
-      const objective = await manager.getRepository(ProbationObjective).findOne(
-        {
+      const objective = await manager
+        .getRepository(ProbationObjective)
+        .findOne({
           where: { id: item.objective_id, probationCaseId, reviewCycleId },
-        },
-      );
+        });
 
       if (!objective) {
         continue;
@@ -795,11 +796,7 @@ export class ProbationService {
 
       const cycle = await this.getCurrentCycle(probationCase, manager);
 
-      const score = await this.applyManagerRatings(
-        cycle,
-        dto.ratings,
-        manager,
-      );
+      const score = await this.applyManagerRatings(cycle, dto.ratings, manager);
 
       if (dto.objectives?.length) {
         await this.applyManagerObjectiveReview(
@@ -811,8 +808,11 @@ export class ProbationService {
       }
 
       const minimumScore = Number(
-        (probationCase.policySnapshot as { minimum_confirmation_score?: number })
-          ?.minimum_confirmation_score ??
+        (
+          probationCase.policySnapshot as {
+            minimum_confirmation_score?: number;
+          }
+        )?.minimum_confirmation_score ??
           this.configService.get<number>(
             'PROBATION_MINIMUM_CONFIRMATION_SCORE',
           ) ??
@@ -886,7 +886,11 @@ export class ProbationService {
 
   private async applyManagerRatings(
     cycle: ProbationReviewCycle,
-    ratings: Array<{ criterion_code: string; rating: number; comment?: string }>,
+    ratings: Array<{
+      criterion_code: string;
+      rating: number;
+      comment?: string;
+    }>,
     manager: EntityManager,
   ): Promise<number> {
     const records = await manager.getRepository(ProbationReviewRating).find({
@@ -931,11 +935,11 @@ export class ProbationService {
       await manager.getRepository(ProbationReviewRating).save(record);
     }
 
-    const finalRecords = await manager.getRepository(ProbationReviewRating).find(
-      {
+    const finalRecords = await manager
+      .getRepository(ProbationReviewRating)
+      .find({
         where: { reviewCycleId: cycle.id },
-      },
-    );
+      });
 
     return Number(
       finalRecords
@@ -951,15 +955,15 @@ export class ProbationService {
     manager: EntityManager,
   ): Promise<void> {
     for (const review of reviews) {
-      const objective = await manager.getRepository(ProbationObjective).findOne(
-        {
+      const objective = await manager
+        .getRepository(ProbationObjective)
+        .findOne({
           where: {
             id: review.objective_id,
             probationCaseId,
             reviewCycleId,
           },
-        },
-      );
+        });
 
       if (!objective) {
         continue;
@@ -1062,8 +1066,11 @@ export class ProbationService {
     actor: AuthenticatedUser,
   ): Promise<void> {
     const requireLetter =
-      (probationCase.policySnapshot as { confirmation_letter_required?: boolean })
-        ?.confirmation_letter_required !== false;
+      (
+        probationCase.policySnapshot as {
+          confirmation_letter_required?: boolean;
+        }
+      )?.confirmation_letter_required !== false;
 
     if (
       probationCase.status === ProbationCaseStatusEnum.CONFIRMED &&
@@ -1135,7 +1142,9 @@ export class ProbationService {
       });
     }
 
-    if (probationCase.status === ProbationCaseStatusEnum.TERMINATION_RECOMMENDED) {
+    if (
+      probationCase.status === ProbationCaseStatusEnum.TERMINATION_RECOMMENDED
+    ) {
       await this.auditService.log({
         action: ProbationAuditActionEnum.TERMINATION_RECOMMENDED,
         probationCaseId: probationCase.id,
@@ -1239,7 +1248,8 @@ export class ProbationService {
       return;
     }
 
-    const confirmationDate = dto.confirmation_date ?? formatDateOnly(new Date());
+    const confirmationDate =
+      dto.confirmation_date ?? formatDateOnly(new Date());
 
     if (employee.hire_date && confirmationDate < employee.hire_date) {
       throw new BadRequestException(
@@ -1352,9 +1362,10 @@ export class ProbationService {
     await manager.getRepository(ProbationCase).save(probationCase);
 
     const policy = probationCase.policyId
-      ? await manager
-          .getRepository(ProbationPolicy)
-          .findOne({ where: { id: probationCase.policyId }, relations: { criteria: true } })
+      ? await manager.getRepository(ProbationPolicy).findOne({
+          where: { id: probationCase.policyId },
+          relations: { criteria: true },
+        })
       : null;
 
     const nextCycle = await this.createReviewCycle(

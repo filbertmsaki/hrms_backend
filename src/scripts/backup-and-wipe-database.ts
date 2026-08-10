@@ -122,10 +122,13 @@ function buildBackupPlan(): BackupPlan {
 }
 
 function buildSummary(tables: UserTable[]) {
-  const schemas = tables.reduce<Record<string, number>>((accumulator, table) => {
-    accumulator[table.schemaName] = (accumulator[table.schemaName] ?? 0) + 1;
-    return accumulator;
-  }, {});
+  const schemas = tables.reduce<Record<string, number>>(
+    (accumulator, table) => {
+      accumulator[table.schemaName] = (accumulator[table.schemaName] ?? 0) + 1;
+      return accumulator;
+    },
+    {},
+  );
 
   return {
     tableCount: tables.length,
@@ -157,7 +160,11 @@ async function runProcess(
         return;
       }
 
-      reject(new Error(`Command "${command}" exited with code ${code ?? 'unknown'}.`));
+      reject(
+        new Error(
+          `Command "${command}" exited with code ${code ?? 'unknown'}.`,
+        ),
+      );
     });
   });
 }
@@ -221,7 +228,7 @@ async function createBackup(plan: BackupPlan): Promise<void> {
 }
 
 async function loadUserTables(): Promise<UserTable[]> {
-  const rows = (await AppDataSource.query(
+  return await AppDataSource.query(
     `
       SELECT
         schemaname AS "schemaName",
@@ -232,9 +239,7 @@ async function loadUserTables(): Promise<UserTable[]> {
         AND NOT (schemaname = 'public' AND tablename IN ('migrations', 'typeorm_metadata'))
       ORDER BY schemaname, tablename
     `,
-  )) as UserTable[];
-
-  return rows;
+  );
 }
 
 async function writeMetadataFile(
@@ -298,7 +303,10 @@ async function main() {
             backupRequiredForRealRun: true,
             configuredBackupCommand: plan.command,
             configuredBackupFormat: plan.format,
-            metadataProtectedTables: ['public.migrations', 'public.typeorm_metadata'],
+            metadataProtectedTables: [
+              'public.migrations',
+              'public.typeorm_metadata',
+            ],
             ...buildSummary(tables),
           },
           null,
@@ -317,7 +325,9 @@ async function main() {
   await createBackup(plan);
   await writeMetadataFile(plan, {
     operation: options.backupOnly ? 'backup-only' : 'backup-and-wipe',
-    status: options.backupOnly ? 'backup-complete' : 'backup-complete-pending-wipe',
+    status: options.backupOnly
+      ? 'backup-complete'
+      : 'backup-complete-pending-wipe',
   });
 
   if (options.backupOnly) {

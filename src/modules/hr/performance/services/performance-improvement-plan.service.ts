@@ -121,7 +121,9 @@ export class PerformanceImprovementPlanService {
     });
 
     if (!milestone || milestone.plan.companyId !== actor.companyId) {
-      throw new NotFoundException('Performance improvement milestone not found.');
+      throw new NotFoundException(
+        'Performance improvement milestone not found.',
+      );
     }
 
     milestone.status = dto.status;

@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -96,6 +95,161 @@ type AnalyticsScopeSqlOptions = {
   departmentColumn?: string;
 };
 
+type AnalyticsQueryRow = Record<string, unknown>;
+
+type SqlDateValue = string | Date;
+
+type SqlMoneyValue = string | number | null;
+
+type CompanyRow = {
+  id: number;
+};
+
+type EmployeeHistorySourceRow = {
+  id: number;
+  employee_no: string | null;
+  first_name: string | null;
+  middle_name: string | null;
+  last_name: string | null;
+  primary_branch_id: number | null;
+  primary_department_id: number | null;
+  primary_position_id: number | null;
+  grade_id: number | null;
+  cost_center_id: number | null;
+  reports_to: number | null;
+  employment_status: string | null;
+  employment_type: string | null;
+  effective_from: SqlDateValue;
+};
+
+type WorkforceEmployeeRow = EmployeeHistorySourceRow & {
+  hire_date: SqlDateValue | null;
+  created_at: SqlDateValue;
+  exit_date: SqlDateValue | null;
+  probation_end_date: string | null;
+  confirmation_date: string | null;
+};
+
+type AttendanceSummaryRow = {
+  employee_id: number;
+  attendance_date: SqlDateValue;
+  branch_id: number | null;
+  attendance_status: string | null;
+  work_minutes: number | null;
+  late_minutes: number | null;
+  check_in_at: SqlDateValue | null;
+  check_out_at: SqlDateValue | null;
+  finalized_at: SqlDateValue;
+};
+
+type PayrollResultRow = {
+  id: number;
+  employee_id: number;
+  payroll_run_id: number;
+  payroll_period_id: number;
+  gross_pay: SqlMoneyValue;
+  net_pay: SqlMoneyValue;
+  employee_deductions: SqlMoneyValue;
+  employer_cost: SqlMoneyValue;
+  currency: string | null;
+  calculation_hash: string;
+};
+
+type EmployeeFinanceAccountRow = {
+  id: number;
+  employee_id: number;
+  product_type: string;
+  disbursed_at: SqlDateValue | null;
+  principal_amount: SqlMoneyValue;
+  total_payable: SqlMoneyValue;
+  outstanding_total: SqlMoneyValue;
+  status: string | null;
+};
+
+type GenericApprovalFactRow = {
+  id: number;
+  assignee_employee_id: number | null;
+  created_at: SqlDateValue;
+  action_type: string | null;
+  status: string | null;
+};
+
+type WorkforceSummaryRow = {
+  period_end_headcount: unknown;
+  joiners: unknown;
+  exits: unknown;
+};
+
+type AttendanceSummaryAggregateRow = {
+  days: unknown;
+  work_minutes: unknown;
+  late_days: unknown;
+  missing_punch_days: unknown;
+};
+
+type LeaveSummaryRow = {
+  approved_requests: unknown;
+  approved_days: unknown;
+};
+
+type PayrollAggregateRow = {
+  locked_runs: unknown;
+  gross_pay: SqlMoneyValue;
+  net_pay: SqlMoneyValue;
+  employer_cost: SqlMoneyValue;
+};
+
+type FinanceAggregateRow = {
+  product_type: string | null;
+  closing_balance: SqlMoneyValue;
+  arrears: SqlMoneyValue;
+};
+
+type PerformanceSummaryRow = {
+  published_reviews: unknown;
+  average_score: unknown;
+};
+
+type CountRow = {
+  approved_reports?: unknown;
+  reviewed_visits?: unknown;
+  pending_actions?: unknown;
+};
+
+type PayrollReconciliationRow = {
+  id: number;
+  gross_total: SqlMoneyValue;
+  net_pay_total: SqlMoneyValue;
+  analytics_gross: SqlMoneyValue;
+  analytics_net: SqlMoneyValue;
+};
+
+type EmployeeFinanceReconciliationRow = {
+  id: number;
+  outstanding_total: SqlMoneyValue;
+  ledger_balance: SqlMoneyValue;
+};
+
+type StatutoryPayrollTotalsRow = {
+  gross_pay: SqlMoneyValue;
+  deductions: SqlMoneyValue;
+  net_pay: SqlMoneyValue;
+};
+
+type AnalyticsRiskSummary = {
+  attendance?: { late_rate?: unknown };
+  finance?: { arrears_ratio?: unknown };
+  approvals?: { pending_actions?: unknown };
+};
+
+async function queryRows<T extends AnalyticsQueryRow>(
+  dataSource: Pick<DataSource, 'query'>,
+  sql: string,
+  params?: unknown[],
+): Promise<T[]> {
+  return await dataSource.query(sql, params);
+}
+
 function hash(value: unknown) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
@@ -166,7 +320,9 @@ function scopeSql(
 
   if (scope.employeeIds !== null) {
     params.push(scope.employeeIds);
-    conditions.push(`${options.employeeColumn} = ANY($${params.length}::int[])`);
+    conditions.push(
+      `${options.employeeColumn} = ANY($${params.length}::int[])`,
+    );
   }
 
   if (scope.employeeId) {
@@ -203,7 +359,14 @@ function scopeSql(
 
 function csvEscape(value: unknown) {
   if (value === null || value === undefined) return '';
-  const text = typeof value === 'object' ? JSON.stringify(value) : String(value);
+  const text =
+    typeof value === 'string'
+      ? value
+      : typeof value === 'number' ||
+          typeof value === 'boolean' ||
+          typeof value === 'bigint'
+        ? String(value)
+        : (JSON.stringify(value) ?? '');
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
@@ -217,7 +380,9 @@ function serializeCsv(rows: Record<string, unknown>[]) {
   );
   return [
     columns.map(csvEscape).join(','),
-    ...rows.map((row) => columns.map((column) => csvEscape(row[column])).join(',')),
+    ...rows.map((row) =>
+      columns.map((column) => csvEscape(row[column])).join(','),
+    ),
   ].join('\n');
 }
 
@@ -231,7 +396,9 @@ export class AnalyticsSourceRegistryService {
 
   register(source: AnalyticsSourceDefinition): void {
     if (this.sources.has(source.code)) {
-      throw new BadRequestException(`Analytics source "${source.code}" is already registered.`);
+      throw new BadRequestException(
+        `Analytics source "${source.code}" is already registered.`,
+      );
     }
     this.sources.set(source.code, source);
   }
@@ -239,7 +406,9 @@ export class AnalyticsSourceRegistryService {
   require(code: string): AnalyticsSourceDefinition {
     const source = this.sources.get(code.trim().toUpperCase());
     if (!source) {
-      throw new NotFoundException(`Analytics source "${code}" is not registered.`);
+      throw new NotFoundException(
+        `Analytics source "${code}" is not registered.`,
+      );
     }
     return source;
   }
@@ -250,28 +419,160 @@ export class AnalyticsSourceRegistryService {
 
   private registerDefaults() {
     const definitions: AnalyticsSourceDefinition[] = [
-      source('EMPLOYEES', 'Employee lifecycle', 'employees', ['branch_id', 'department_id', 'position_id'], ['headcount']),
-      source('EMPLOYEE_ASSIGNMENT_HISTORY', 'Employee lifecycle', 'dim_employee_history', ['branch_id', 'department_id', 'position_id'], ['employee_count']),
-      source('EMPLOYEE_MOVEMENTS', 'Employee movements', 'employee_movements', ['movement_type', 'status'], ['movement_count']),
-      source('PROBATION_CASES', 'Probation', 'probation_cases', ['status'], ['case_count']),
-      source('ONBOARDING_REQUESTS', 'Onboarding', 'onboarding_requests', ['status'], ['request_count']),
-      source('OFFBOARDING_REQUESTS', 'Offboarding', 'offboarding_requests', ['status'], ['request_count']),
-      source('ATTENDANCE_DAILY_SUMMARIES', 'Attendance', 'attendance_daily_summaries', ['branch_id', 'attendance_status'], ['work_minutes', 'late_minutes']),
-      source('LEAVE_REQUESTS', 'Leave', 'leave_requests', ['leave_type_id', 'status'], ['total_days']),
-      source('LEAVE_LEDGER', 'Leave', 'leave_balance_transactions', ['leave_type_id'], ['days_delta']),
-      source('PERFORMANCE_REVIEWS', 'Performance', 'performance_reviews', ['status'], ['final_score']),
-      source('PERFORMANCE_AGGREGATES', 'Performance', 'performance_aggregates', ['period_id'], ['overall_score']),
-      source('DAILY_ACTIVITY_REPORTS', 'Daily activities', 'daily_activity_reports', ['status'], ['activity_count']),
-      source('FIELD_VISITS', 'Field visits', 'field_visits', ['status'], ['visit_count', 'duration_minutes']),
-      source('FIELD_OPPORTUNITIES', 'Field visits', 'field_visit_plan_items', ['status'], ['expected_value']),
-      source('FIELD_FOLLOW_UPS', 'Field visits', 'field_visit_plan_items', ['status'], ['follow_up_count']),
-      source('EMPLOYEE_PAYROLL_RESULTS', 'Payroll', 'employee_payroll_results', ['payroll_period_id', 'status'], ['gross_pay', 'net_pay']),
-      source('EMPLOYEE_PAYROLL_LINE_ITEMS', 'Payroll', 'employee_payroll_line_items', ['component_code'], ['amount']),
-      source('EMPLOYEE_FINANCE_ACCOUNTS', 'Employee finance', 'employee_finance_accounts', ['product_type', 'status'], ['outstanding_total']),
-      source('EMPLOYEE_FINANCE_LEDGER_ENTRIES', 'Employee finance', 'employee_finance_ledger_entries', ['entry_type'], ['total_amount']),
-      source('EMPLOYEE_FINANCE_INSTALLMENTS', 'Employee finance', 'employee_finance_installments', ['status'], ['total_due', 'paid_amount']),
-      source('WORKFLOW_ACTIONS', 'Approvals', 'action_items', ['action_type', 'status'], ['action_count']),
-      source('ACTION_ITEMS', 'Approvals', 'action_items', ['action_type', 'status'], ['action_count']),
+      source(
+        'EMPLOYEES',
+        'Employee lifecycle',
+        'employees',
+        ['branch_id', 'department_id', 'position_id'],
+        ['headcount'],
+      ),
+      source(
+        'EMPLOYEE_ASSIGNMENT_HISTORY',
+        'Employee lifecycle',
+        'dim_employee_history',
+        ['branch_id', 'department_id', 'position_id'],
+        ['employee_count'],
+      ),
+      source(
+        'EMPLOYEE_MOVEMENTS',
+        'Employee movements',
+        'employee_movements',
+        ['movement_type', 'status'],
+        ['movement_count'],
+      ),
+      source(
+        'PROBATION_CASES',
+        'Probation',
+        'probation_cases',
+        ['status'],
+        ['case_count'],
+      ),
+      source(
+        'ONBOARDING_REQUESTS',
+        'Onboarding',
+        'onboarding_requests',
+        ['status'],
+        ['request_count'],
+      ),
+      source(
+        'OFFBOARDING_REQUESTS',
+        'Offboarding',
+        'offboarding_requests',
+        ['status'],
+        ['request_count'],
+      ),
+      source(
+        'ATTENDANCE_DAILY_SUMMARIES',
+        'Attendance',
+        'attendance_daily_summaries',
+        ['branch_id', 'attendance_status'],
+        ['work_minutes', 'late_minutes'],
+      ),
+      source(
+        'LEAVE_REQUESTS',
+        'Leave',
+        'leave_requests',
+        ['leave_type_id', 'status'],
+        ['total_days'],
+      ),
+      source(
+        'LEAVE_LEDGER',
+        'Leave',
+        'leave_balance_transactions',
+        ['leave_type_id'],
+        ['days_delta'],
+      ),
+      source(
+        'PERFORMANCE_REVIEWS',
+        'Performance',
+        'performance_reviews',
+        ['status'],
+        ['final_score'],
+      ),
+      source(
+        'PERFORMANCE_AGGREGATES',
+        'Performance',
+        'performance_aggregates',
+        ['period_id'],
+        ['overall_score'],
+      ),
+      source(
+        'DAILY_ACTIVITY_REPORTS',
+        'Daily activities',
+        'daily_activity_reports',
+        ['status'],
+        ['activity_count'],
+      ),
+      source(
+        'FIELD_VISITS',
+        'Field visits',
+        'field_visits',
+        ['status'],
+        ['visit_count', 'duration_minutes'],
+      ),
+      source(
+        'FIELD_OPPORTUNITIES',
+        'Field visits',
+        'field_visit_plan_items',
+        ['status'],
+        ['expected_value'],
+      ),
+      source(
+        'FIELD_FOLLOW_UPS',
+        'Field visits',
+        'field_visit_plan_items',
+        ['status'],
+        ['follow_up_count'],
+      ),
+      source(
+        'EMPLOYEE_PAYROLL_RESULTS',
+        'Payroll',
+        'employee_payroll_results',
+        ['payroll_period_id', 'status'],
+        ['gross_pay', 'net_pay'],
+      ),
+      source(
+        'EMPLOYEE_PAYROLL_LINE_ITEMS',
+        'Payroll',
+        'employee_payroll_line_items',
+        ['component_code'],
+        ['amount'],
+      ),
+      source(
+        'EMPLOYEE_FINANCE_ACCOUNTS',
+        'Employee finance',
+        'employee_finance_accounts',
+        ['product_type', 'status'],
+        ['outstanding_total'],
+      ),
+      source(
+        'EMPLOYEE_FINANCE_LEDGER_ENTRIES',
+        'Employee finance',
+        'employee_finance_ledger_entries',
+        ['entry_type'],
+        ['total_amount'],
+      ),
+      source(
+        'EMPLOYEE_FINANCE_INSTALLMENTS',
+        'Employee finance',
+        'employee_finance_installments',
+        ['status'],
+        ['total_due', 'paid_amount'],
+      ),
+      source(
+        'WORKFLOW_ACTIONS',
+        'Approvals',
+        'action_items',
+        ['action_type', 'status'],
+        ['action_count'],
+      ),
+      source(
+        'ACTION_ITEMS',
+        'Approvals',
+        'action_items',
+        ['action_type', 'status'],
+        ['action_count'],
+      ),
     ];
     definitions.forEach((definition) => this.register(definition));
   }
@@ -292,9 +593,10 @@ function source(
     companyColumn: 'company_id',
     updatedAtColumn: 'updated_at',
     refreshMode: AnalyticsRefreshModeEnum.INCREMENTAL,
-    sensitivity: code.includes('PAYROLL') || code.includes('FINANCE')
-      ? AnalyticsSensitivityEnum.CONFIDENTIAL
-      : AnalyticsSensitivityEnum.INTERNAL,
+    sensitivity:
+      code.includes('PAYROLL') || code.includes('FINANCE')
+        ? AnalyticsSensitivityEnum.CONFIDENTIAL
+        : AnalyticsSensitivityEnum.INTERNAL,
     dimensions,
     measures,
   };
@@ -304,9 +606,13 @@ function source(
 export class AnalyticsScopeService {
   constructor(private readonly hrAccessService: HrAccessService) {}
 
-  async resolve(actor: AuthenticatedUser, query: AnalyticsQueryDto = {}): Promise<AnalyticsResolvedScope> {
+  async resolve(
+    actor: AuthenticatedUser,
+    query: AnalyticsQueryDto = {},
+  ): Promise<AnalyticsResolvedScope> {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
-    const employeeIds = await this.hrAccessService.getAccessibleEmployeeIds(actor);
+    const employeeIds =
+      await this.hrAccessService.getAccessibleEmployeeIds(actor);
     const scope = {
       companyId,
       employeeIds,
@@ -326,20 +632,32 @@ export class AnalyticsPrivacyService {
   constructor(private readonly configService: ConfigService) {}
 
   suppressSmallCell(value: number) {
-    if (!this.configService.get<boolean>('ANALYTICS_SMALL_CELL_SUPPRESSION_ENABLED', true)) {
+    if (
+      !this.configService.get<boolean>(
+        'ANALYTICS_SMALL_CELL_SUPPRESSION_ENABLED',
+        true,
+      )
+    ) {
       return value;
     }
-    const minimum = this.configService.get<number>('ANALYTICS_SMALL_CELL_MINIMUM_COUNT', 5);
+    const minimum = this.configService.get<number>(
+      'ANALYTICS_SMALL_CELL_MINIMUM_COUNT',
+      5,
+    );
     return value > 0 && value < minimum ? null : value;
   }
 
   assertRawSqlDisabled(filters: Record<string, unknown> | undefined | null) {
     if (this.configService.get<boolean>('ANALYTICS_ALLOW_RAW_SQL', false)) {
-      throw new BadRequestException('Raw SQL analytics is disabled in this implementation.');
+      throw new BadRequestException(
+        'Raw SQL analytics is disabled in this implementation.',
+      );
     }
     const serialized = JSON.stringify(filters ?? {}).toLowerCase();
     if (/\b(select|insert|update|delete|drop|alter)\b|;|--/.test(serialized)) {
-      throw new BadRequestException('Raw SQL or SQL-like filters are not allowed.');
+      throw new BadRequestException(
+        'Raw SQL or SQL-like filters are not allowed.',
+      );
     }
   }
 
@@ -367,7 +685,12 @@ export class AnalyticsCacheService {
   }
 
   get<T>(key: string): T | null {
-    if (!this.configService.get<boolean>('ANALYTICS_DASHBOARD_CACHE_ENABLED', true)) {
+    if (
+      !this.configService.get<boolean>(
+        'ANALYTICS_DASHBOARD_CACHE_ENABLED',
+        true,
+      )
+    ) {
       return null;
     }
     const cached = this.cache.get(key);
@@ -378,11 +701,26 @@ export class AnalyticsCacheService {
     return cached.value as T;
   }
 
-  set(key: string, value: unknown, ttlSeconds?: number, companyId?: number | null) {
-    if (!this.configService.get<boolean>('ANALYTICS_DASHBOARD_CACHE_ENABLED', true)) {
+  set(
+    key: string,
+    value: unknown,
+    ttlSeconds?: number,
+    companyId?: number | null,
+  ) {
+    if (
+      !this.configService.get<boolean>(
+        'ANALYTICS_DASHBOARD_CACHE_ENABLED',
+        true,
+      )
+    ) {
       return;
     }
-    const ttl = ttlSeconds ?? this.configService.get<number>('ANALYTICS_DASHBOARD_CACHE_TTL_SECONDS', 300);
+    const ttl =
+      ttlSeconds ??
+      this.configService.get<number>(
+        'ANALYTICS_DASHBOARD_CACHE_TTL_SECONDS',
+        300,
+      );
     this.cache.set(key, {
       companyId: companyId ?? null,
       value,
@@ -424,7 +762,9 @@ export class AnalyticsAuditService {
         resourceType: args.resourceType,
         resourceCode: args.resourceCode,
         purpose: args.purpose ?? null,
-        scopeHash: args.scopeHash ?? hash({ companyId: args.companyId ?? args.actor?.companyId ?? null }),
+        scopeHash:
+          args.scopeHash ??
+          hash({ companyId: args.companyId ?? args.actor?.companyId ?? null }),
         sensitivity: args.sensitivity ?? AnalyticsSensitivityEnum.INTERNAL,
         metadata: args.metadata ?? null,
       }),
@@ -446,7 +786,12 @@ export class AnalyticsDatasetService {
       const existing = await this.repository.findOne({
         where: { companyId: IsNull(), code: sourceDefinition.code },
       });
-      const dataset = existing ?? this.repository.create({ companyId: null, code: sourceDefinition.code });
+      const dataset =
+        existing ??
+        this.repository.create({
+          companyId: null,
+          code: sourceDefinition.code,
+        });
       dataset.name = sourceDefinition.sourceModule;
       dataset.datasetType = sourceDefinition.sourceTable.startsWith('dim_')
         ? AnalyticsDatasetTypeEnum.DIMENSION
@@ -457,7 +802,9 @@ export class AnalyticsDatasetService {
       dataset.sensitivity = sourceDefinition.sensitivity;
       dataset.allowedDimensions = sourceDefinition.dimensions;
       dataset.allowedMeasures = sourceDefinition.measures;
-      dataset.refreshConfiguration = { source_table: sourceDefinition.sourceTable };
+      dataset.refreshConfiguration = {
+        source_table: sourceDefinition.sourceTable,
+      };
       dataset.status = 'ACTIVE';
       saved.push(await this.repository.save(dataset));
     }
@@ -489,13 +836,69 @@ export class AnalyticsMetricService {
 
   async bootstrapMetricCatalog() {
     const definitions: MetricDefinitionSeed[] = [
-      metric('PERIOD_END_HEADCOUNT', 'Period-end headcount', 'EMPLOYEES', AnalyticsAggregationEnum.DISTINCT_COUNT, 'PERIOD_END_HEADCOUNT', ['branch_id', 'department_id'], ['employment_status=active']),
-      metric('JOINERS', 'Joiners', 'EMPLOYEES', AnalyticsAggregationEnum.COUNT, 'COUNT_RECORDS', ['branch_id', 'department_id'], ['hire_date in period']),
-      metric('EXITS', 'Exits', 'EMPLOYEES', AnalyticsAggregationEnum.COUNT, 'COUNT_RECORDS', ['branch_id', 'department_id'], ['exit_date in period']),
-      metric('ATTENDANCE_LATE_RATE', 'Late attendance rate', 'ATTENDANCE_DAILY_SUMMARIES', AnalyticsAggregationEnum.PERCENTAGE, 'NUMERATOR_DIVIDED_BY_DENOMINATOR', ['branch_id'], ['finalized summaries only']),
-      metric('PAYROLL_NET_PAY', 'Locked payroll net pay', 'EMPLOYEE_PAYROLL_RESULTS', AnalyticsAggregationEnum.SUM, 'SUM_MEASURE', ['payroll_period_id'], ['locked payroll only']),
-      metric('LOAN_OUTSTANDING', 'Employee finance outstanding', 'EMPLOYEE_FINANCE_ACCOUNTS', AnalyticsAggregationEnum.SUM, 'SUM_MEASURE', ['product_type'], ['active loan and advance accounts']),
-      metric('APPROVAL_PENDING', 'Pending approval actions', 'ACTION_ITEMS', AnalyticsAggregationEnum.COUNT, 'COUNT_RECORDS', ['action_type', 'status'], ['open action items']),
+      metric(
+        'PERIOD_END_HEADCOUNT',
+        'Period-end headcount',
+        'EMPLOYEES',
+        AnalyticsAggregationEnum.DISTINCT_COUNT,
+        'PERIOD_END_HEADCOUNT',
+        ['branch_id', 'department_id'],
+        ['employment_status=active'],
+      ),
+      metric(
+        'JOINERS',
+        'Joiners',
+        'EMPLOYEES',
+        AnalyticsAggregationEnum.COUNT,
+        'COUNT_RECORDS',
+        ['branch_id', 'department_id'],
+        ['hire_date in period'],
+      ),
+      metric(
+        'EXITS',
+        'Exits',
+        'EMPLOYEES',
+        AnalyticsAggregationEnum.COUNT,
+        'COUNT_RECORDS',
+        ['branch_id', 'department_id'],
+        ['exit_date in period'],
+      ),
+      metric(
+        'ATTENDANCE_LATE_RATE',
+        'Late attendance rate',
+        'ATTENDANCE_DAILY_SUMMARIES',
+        AnalyticsAggregationEnum.PERCENTAGE,
+        'NUMERATOR_DIVIDED_BY_DENOMINATOR',
+        ['branch_id'],
+        ['finalized summaries only'],
+      ),
+      metric(
+        'PAYROLL_NET_PAY',
+        'Locked payroll net pay',
+        'EMPLOYEE_PAYROLL_RESULTS',
+        AnalyticsAggregationEnum.SUM,
+        'SUM_MEASURE',
+        ['payroll_period_id'],
+        ['locked payroll only'],
+      ),
+      metric(
+        'LOAN_OUTSTANDING',
+        'Employee finance outstanding',
+        'EMPLOYEE_FINANCE_ACCOUNTS',
+        AnalyticsAggregationEnum.SUM,
+        'SUM_MEASURE',
+        ['product_type'],
+        ['active loan and advance accounts'],
+      ),
+      metric(
+        'APPROVAL_PENDING',
+        'Pending approval actions',
+        'ACTION_ITEMS',
+        AnalyticsAggregationEnum.COUNT,
+        'COUNT_RECORDS',
+        ['action_type', 'status'],
+        ['open action items'],
+      ),
     ];
     const saved: AnalyticsMetricDefinition[] = [];
     for (const definition of definitions) {
@@ -503,7 +906,13 @@ export class AnalyticsMetricService {
       const existing = await this.repository.findOne({
         where: { companyId: IsNull(), code: definition.code, versionNumber: 1 },
       });
-      const item = existing ?? this.repository.create({ companyId: null, code: definition.code, versionNumber: 1 });
+      const item =
+        existing ??
+        this.repository.create({
+          companyId: null,
+          code: definition.code,
+          versionNumber: 1,
+        });
       Object.assign(item, definition, {
         definitionHash: hash(definition),
         effectiveFrom: '2020-01-01',
@@ -520,16 +929,23 @@ export class AnalyticsMetricService {
 
   async list() {
     await this.bootstrapMetricCatalog();
-    return this.repository.find({ order: { code: 'ASC', versionNumber: 'DESC' } });
+    return this.repository.find({
+      order: { code: 'ASC', versionNumber: 'DESC' },
+    });
   }
 
   async requireMetric(code: string) {
     await this.bootstrapMetricCatalog();
     const metricDefinition = await this.repository.findOne({
-      where: { companyId: IsNull(), code: code.trim().toUpperCase(), status: 'APPROVED' },
+      where: {
+        companyId: IsNull(),
+        code: code.trim().toUpperCase(),
+        status: 'APPROVED',
+      },
       order: { versionNumber: 'DESC' },
     });
-    if (!metricDefinition) throw new NotFoundException('Analytics metric not found.');
+    if (!metricDefinition)
+      throw new NotFoundException('Analytics metric not found.');
     return metricDefinition;
   }
 }
@@ -556,9 +972,10 @@ function metric(
     defaultFilters: null,
     exclusionRules: { exclusions },
     roundingScale: 2,
-    sensitivity: datasetCode.includes('PAYROLL') || datasetCode.includes('FINANCE')
-      ? AnalyticsSensitivityEnum.CONFIDENTIAL
-      : AnalyticsSensitivityEnum.INTERNAL,
+    sensitivity:
+      datasetCode.includes('PAYROLL') || datasetCode.includes('FINANCE')
+        ? AnalyticsSensitivityEnum.CONFIDENTIAL
+        : AnalyticsSensitivityEnum.INTERNAL,
   };
 }
 
@@ -584,8 +1001,16 @@ export class AnalyticsDimensionService {
           calendarYear: parsed.getUTCFullYear(),
           calendarQuarter: Math.floor(parsed.getUTCMonth() / 3) + 1,
           calendarMonth: parsed.getUTCMonth() + 1,
-          monthName: parsed.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' }),
-          weekOfYear: Math.ceil((((parsed.getTime() - Date.UTC(parsed.getUTCFullYear(), 0, 1)) / 86400000) + 1) / 7),
+          monthName: parsed.toLocaleString('en-US', {
+            month: 'long',
+            timeZone: 'UTC',
+          }),
+          weekOfYear: Math.ceil(
+            ((parsed.getTime() - Date.UTC(parsed.getUTCFullYear(), 0, 1)) /
+              86400000 +
+              1) /
+              7,
+          ),
           dayOfMonth: parsed.getUTCDate(),
           dayOfWeek: parsed.getUTCDay(),
           isWeekend: [0, 6].includes(parsed.getUTCDay()),
@@ -594,13 +1019,16 @@ export class AnalyticsDimensionService {
       );
     }
     for (let index = 0; index < rows.length; index += 500) {
-      await this.dateRepository.upsert(rows.slice(index, index + 500), ['dateKey']);
+      await this.dateRepository.upsert(rows.slice(index, index + 500), [
+        'dateKey',
+      ]);
     }
     return { inserted_or_updated: rows.length };
   }
 
   async rebuildEmployeeHistory(companyId: number) {
-    const employees = await this.dataSource.query(
+    const employees = await queryRows<EmployeeHistorySourceRow>(
+      this.dataSource,
       `SELECT id, employee_no, first_name, middle_name, last_name, primary_branch_id,
         primary_department_id, primary_position_id, grade_id, cost_center_id, reports_to,
         employment_status, employment_type, COALESCE(hire_date, created_at::date) AS effective_from
@@ -635,7 +1063,13 @@ export class AnalyticsDimensionService {
           companyId,
           employeeId: employee.id,
           employeeNo: employee.employee_no,
-          fullName: [employee.first_name, employee.middle_name, employee.last_name].filter(Boolean).join(' '),
+          fullName: [
+            employee.first_name,
+            employee.middle_name,
+            employee.last_name,
+          ]
+            .filter(Boolean)
+            .join(' '),
           branchId: employee.primary_branch_id,
           departmentId: employee.primary_department_id,
           positionId: employee.primary_position_id,
@@ -697,7 +1131,10 @@ export class AnalyticsSnapshotService {
     await this.dimensionService.ensureDateDimension();
     const companies = companyId
       ? [{ id: companyId }]
-      : await this.dataSource.query(`SELECT id FROM companies WHERE status = 'active'`);
+      : await queryRows<CompanyRow>(
+          this.dataSource,
+          `SELECT id FROM companies WHERE status = 'active'`,
+        );
     const results: Array<{
       run_id: string;
       dataset_code: string;
@@ -709,9 +1146,23 @@ export class AnalyticsSnapshotService {
       const range = defaultRange(dto);
       const codes = dto.dataset_code
         ? [dto.dataset_code.toUpperCase()]
-        : ['WORKFORCE_DAILY', 'ATTENDANCE_DAILY', 'PAYROLL_EMPLOYEE_PERIOD', 'EMPLOYEE_FINANCE_MONTHLY', 'APPROVAL_SLA'];
+        : [
+            'WORKFORCE_DAILY',
+            'ATTENDANCE_DAILY',
+            'PAYROLL_EMPLOYEE_PERIOD',
+            'EMPLOYEE_FINANCE_MONTHLY',
+            'APPROVAL_SLA',
+          ];
       for (const code of codes) {
-        results.push(await this.refreshDataset(company.id, code, range.dateFrom, range.dateTo, dto.refresh_mode));
+        results.push(
+          await this.refreshDataset(
+            company.id,
+            code,
+            range.dateFrom,
+            range.dateTo,
+            dto.refresh_mode,
+          ),
+        );
       }
       this.cacheService.invalidateCompany(company.id);
     }
@@ -725,7 +1176,13 @@ export class AnalyticsSnapshotService {
     dateTo: string,
     mode = 'INCREMENTAL',
   ) {
-    const run = await this.startRun(companyId, datasetCode, dateFrom, dateTo, mode);
+    const run = await this.startRun(
+      companyId,
+      datasetCode,
+      dateFrom,
+      dateTo,
+      mode,
+    );
     try {
       const result =
         datasetCode === 'WORKFORCE_DAILY'
@@ -735,8 +1192,18 @@ export class AnalyticsSnapshotService {
             : datasetCode === 'PAYROLL_EMPLOYEE_PERIOD'
               ? await this.loadPayroll(companyId, run)
               : datasetCode === 'EMPLOYEE_FINANCE_MONTHLY'
-                ? await this.loadEmployeeFinance(companyId, dateFrom, dateTo, run)
-                : await this.loadGenericApprovalFacts(companyId, dateFrom, dateTo, run);
+                ? await this.loadEmployeeFinance(
+                    companyId,
+                    dateFrom,
+                    dateTo,
+                    run,
+                  )
+                : await this.loadGenericApprovalFacts(
+                    companyId,
+                    dateFrom,
+                    dateTo,
+                    run,
+                  );
       run.status = AnalyticsSnapshotStatusEnum.COMPLETED;
       run.completedAt = new Date();
       run.sourceRecordCount = String(result.source_count);
@@ -748,13 +1215,21 @@ export class AnalyticsSnapshotService {
     } catch (error) {
       run.status = AnalyticsSnapshotStatusEnum.FAILED;
       run.completedAt = new Date();
-      run.errors = [{ message: error instanceof Error ? error.message : 'Unknown error' }];
+      run.errors = [
+        { message: error instanceof Error ? error.message : 'Unknown error' },
+      ];
       await this.runRepository.save(run);
       throw error;
     }
   }
 
-  private async startRun(companyId: number, datasetCode: string, dateFrom: string, dateTo: string, mode: string) {
+  private async startRun(
+    companyId: number,
+    datasetCode: string,
+    dateFrom: string,
+    dateTo: string,
+    mode: string,
+  ) {
     return this.runRepository.save(
       this.runRepository.create({
         companyId,
@@ -772,16 +1247,26 @@ export class AnalyticsSnapshotService {
     );
   }
 
-  private async loadWorkforce(companyId: number, dateFrom: string, dateTo: string, run: AnalyticsSnapshotRun) {
-    const employees = await this.dataSource.query(
+  private async loadWorkforce(
+    companyId: number,
+    dateFrom: string,
+    dateTo: string,
+    run: AnalyticsSnapshotRun,
+  ) {
+    const employees = await queryRows<WorkforceEmployeeRow>(
+      this.dataSource,
       `SELECT * FROM employees WHERE company_id = $1 AND COALESCE(hire_date, created_at::date) <= $2`,
       [companyId, dateTo],
     );
     const facts: AnalyticsWorkforceDailyFact[] = [];
     for (let date = dateFrom; date <= dateTo; date = addDays(date, 1)) {
       for (const employee of employees) {
-        const hireDate = String(employee.hire_date ?? employee.created_at).slice(0, 10);
-        const exitDate = employee.exit_date ? String(employee.exit_date).slice(0, 10) : null;
+        const hireDate = String(
+          employee.hire_date ?? employee.created_at,
+        ).slice(0, 10);
+        const exitDate = employee.exit_date
+          ? String(employee.exit_date).slice(0, 10)
+          : null;
         if (hireDate > date || (exitDate && exitDate < date)) continue;
         const dimension = await this.employeeHistoryRepository.findOne({
           where: { companyId, employeeId: employee.id, isCurrent: true },
@@ -808,9 +1293,15 @@ export class AnalyticsSnapshotService {
             costCenterId: employee.cost_center_id,
             managerEmployeeId: employee.reports_to,
             isActiveHeadcount: employee.employment_status === 'active',
-            isProbation: Boolean(employee.probation_end_date && employee.probation_end_date >= date),
-            isConfirmed: Boolean(employee.confirmation_date && employee.confirmation_date <= date),
-            isNewJoiner: hireDate >= dateFrom && hireDate <= dateTo && hireDate === date,
+            isProbation: Boolean(
+              employee.probation_end_date &&
+              employee.probation_end_date >= date,
+            ),
+            isConfirmed: Boolean(
+              employee.confirmation_date && employee.confirmation_date <= date,
+            ),
+            isNewJoiner:
+              hireDate >= dateFrom && hireDate <= dateTo && hireDate === date,
             isExit: exitDate === date,
             serviceMonths: monthsBetween(hireDate, date),
             sourceSnapshotHash: hash(snapshot),
@@ -819,12 +1310,22 @@ export class AnalyticsSnapshotService {
         );
       }
     }
-    await this.workforceRepository.upsert(facts, ['companyId', 'employeeId', 'snapshotDate']);
+    await this.workforceRepository.upsert(facts, [
+      'companyId',
+      'employeeId',
+      'snapshotDate',
+    ]);
     return { source_count: employees.length, upserted: facts.length };
   }
 
-  private async loadAttendance(companyId: number, dateFrom: string, dateTo: string, run: AnalyticsSnapshotRun) {
-    const rows = await this.dataSource.query(
+  private async loadAttendance(
+    companyId: number,
+    dateFrom: string,
+    dateTo: string,
+    run: AnalyticsSnapshotRun,
+  ) {
+    const rows = await queryRows<AttendanceSummaryRow>(
+      this.dataSource,
       `SELECT * FROM attendance_daily_summaries
        WHERE company_id = $1 AND attendance_date BETWEEN $2 AND $3 AND finalized_at IS NOT NULL`,
       [companyId, dateFrom, dateTo],
@@ -839,18 +1340,24 @@ export class AnalyticsSnapshotService {
         status: row.attendance_status,
         workMinutes: row.work_minutes,
         lateMinutes: row.late_minutes,
-        missingPunchCount: (row.check_in_at ? 0 : 1) + (row.check_out_at ? 0 : 1),
+        missingPunchCount:
+          (row.check_in_at ? 0 : 1) + (row.check_out_at ? 0 : 1),
         finalizedAt: row.finalized_at,
         sourceSnapshotHash: hash(row),
         snapshotRunId: run.id,
       }),
     );
-    await this.attendanceRepository.upsert(facts, ['companyId', 'employeeId', 'attendanceDate']);
+    await this.attendanceRepository.upsert(facts, [
+      'companyId',
+      'employeeId',
+      'attendanceDate',
+    ]);
     return { source_count: rows.length, upserted: facts.length };
   }
 
   private async loadPayroll(companyId: number, run: AnalyticsSnapshotRun) {
-    const rows = await this.dataSource.query(
+    const rows = await queryRows<PayrollResultRow>(
+      this.dataSource,
       `SELECT result.*, profile.currency
        FROM employee_payroll_results result
        JOIN payroll_runs payroll_run ON payroll_run.id = result.payroll_run_id
@@ -874,12 +1381,21 @@ export class AnalyticsSnapshotService {
         snapshotRunId: run.id,
       }),
     );
-    await this.payrollRepository.upsert(facts, ['companyId', 'payrollResultId']);
+    await this.payrollRepository.upsert(facts, [
+      'companyId',
+      'payrollResultId',
+    ]);
     return { source_count: rows.length, upserted: facts.length };
   }
 
-  private async loadEmployeeFinance(companyId: number, dateFrom: string, dateTo: string, run: AnalyticsSnapshotRun) {
-    const rows = await this.dataSource.query(
+  private async loadEmployeeFinance(
+    companyId: number,
+    dateFrom: string,
+    dateTo: string,
+    run: AnalyticsSnapshotRun,
+  ) {
+    const rows = await queryRows<EmployeeFinanceAccountRow>(
+      this.dataSource,
       `SELECT account.*
        FROM employee_finance_accounts account
        WHERE account.company_id = $1`,
@@ -887,7 +1403,11 @@ export class AnalyticsSnapshotService {
     );
     const facts: AnalyticsEmployeeFinanceMonthlyFact[] = [];
     const seenMonths = new Set<string>();
-    for (let date = monthStart(dateFrom); date <= dateTo; date = monthStart(addDays(`${date.slice(0, 7)}-28`, 5))) {
+    for (
+      let date = monthStart(dateFrom);
+      date <= dateTo;
+      date = monthStart(addDays(`${date.slice(0, 7)}-28`, 5))
+    ) {
       seenMonths.add(date);
     }
     for (const row of rows) {
@@ -900,24 +1420,39 @@ export class AnalyticsSnapshotService {
             productType: row.product_type,
             monthStart: currentMonth,
             openingBalance: '0.00',
-            disbursedAmount: row.disbursed_at && String(row.disbursed_at).slice(0, 7) === currentMonth.slice(0, 7) ? row.principal_amount : '0.00',
+            disbursedAmount:
+              row.disbursed_at &&
+              String(row.disbursed_at).slice(0, 7) === currentMonth.slice(0, 7)
+                ? row.principal_amount
+                : '0.00',
             repaidAmount: EmployeeFinanceMoney.subtract(
               row.total_payable ?? '0.00',
               row.outstanding_total ?? '0.00',
             ),
             closingBalance: row.outstanding_total,
-            arrearsAmount: row.status === 'IN_ARREARS' ? row.outstanding_total : '0.00',
+            arrearsAmount:
+              row.status === 'IN_ARREARS' ? row.outstanding_total : '0.00',
             snapshotRunId: run.id,
           }),
         );
       }
     }
-    await this.financeRepository.upsert(facts, ['companyId', 'accountId', 'monthStart']);
+    await this.financeRepository.upsert(facts, [
+      'companyId',
+      'accountId',
+      'monthStart',
+    ]);
     return { source_count: rows.length, upserted: facts.length };
   }
 
-  private async loadGenericApprovalFacts(companyId: number, dateFrom: string, dateTo: string, run: AnalyticsSnapshotRun) {
-    const rows = await this.dataSource.query(
+  private async loadGenericApprovalFacts(
+    companyId: number,
+    dateFrom: string,
+    dateTo: string,
+    run: AnalyticsSnapshotRun,
+  ) {
+    const rows = await queryRows<GenericApprovalFactRow>(
+      this.dataSource,
       `SELECT * FROM action_items WHERE company_id = $1 AND created_at::date BETWEEN $2 AND $3`,
       [companyId, dateFrom, dateTo],
     );
@@ -935,14 +1470,23 @@ export class AnalyticsSnapshotService {
         snapshotRunId: run.id,
       }),
     );
-    await this.genericRepository.upsert(facts, ['companyId', 'datasetCode', 'sourceId']);
+    await this.genericRepository.upsert(facts, [
+      'companyId',
+      'datasetCode',
+      'sourceId',
+    ]);
     return { source_count: rows.length, upserted: facts.length };
   }
 
-  private async upsertCheckpoint(companyId: number, datasetCode: string, runId: string) {
+  private async upsertCheckpoint(
+    companyId: number,
+    datasetCode: string,
+    runId: string,
+  ) {
     const checkpoint =
-      (await this.checkpointRepository.findOne({ where: { companyId, datasetCode } })) ??
-      this.checkpointRepository.create({ companyId, datasetCode });
+      (await this.checkpointRepository.findOne({
+        where: { companyId, datasetCode },
+      })) ?? this.checkpointRepository.create({ companyId, datasetCode });
     checkpoint.lastSuccessfulRefreshAt = new Date();
     checkpoint.lastRunId = runId;
     checkpoint.lastSourceCursor = new Date().toISOString();
@@ -963,11 +1507,19 @@ export class AnalyticsFreshnessService {
     const where: Record<string, unknown> = { companyId };
     if (datasetCode) where.datasetCode = datasetCode;
     const checkpoints = await this.checkpointRepository.find({ where });
-    const warning = this.configService.get<number>('ANALYTICS_DATA_FRESHNESS_WARNING_MINUTES', 30);
-    const critical = this.configService.get<number>('ANALYTICS_DATA_FRESHNESS_CRITICAL_MINUTES', 120);
+    const warning = this.configService.get<number>(
+      'ANALYTICS_DATA_FRESHNESS_WARNING_MINUTES',
+      30,
+    );
+    const critical = this.configService.get<number>(
+      'ANALYTICS_DATA_FRESHNESS_CRITICAL_MINUTES',
+      120,
+    );
     return checkpoints.map((checkpoint) => {
       const ageMinutes = checkpoint.lastSuccessfulRefreshAt
-        ? Math.floor((Date.now() - checkpoint.lastSuccessfulRefreshAt.getTime()) / 60000)
+        ? Math.floor(
+            (Date.now() - checkpoint.lastSuccessfulRefreshAt.getTime()) / 60000,
+          )
         : null;
       return {
         dataset_code: checkpoint.datasetCode,
@@ -1002,7 +1554,10 @@ export class AnalyticsDashboardService {
     return this.dashboard(actor, query, 'HR');
   }
 
-  async managementDashboard(actor: AuthenticatedUser, query: AnalyticsQueryDto) {
+  async managementDashboard(
+    actor: AuthenticatedUser,
+    query: AnalyticsQueryDto,
+  ) {
     return this.dashboard(actor, query, 'MANAGEMENT');
   }
 
@@ -1010,11 +1565,18 @@ export class AnalyticsDashboardService {
     return this.dashboard(actor, query, 'MANAGER');
   }
 
-  async salesFieldDashboard(actor: AuthenticatedUser, query: AnalyticsQueryDto) {
+  async salesFieldDashboard(
+    actor: AuthenticatedUser,
+    query: AnalyticsQueryDto,
+  ) {
     return this.dashboard(actor, query, 'SALES_FIELD');
   }
 
-  async dashboard(actor: AuthenticatedUser, query: AnalyticsQueryDto, audience: string) {
+  async dashboard(
+    actor: AuthenticatedUser,
+    query: AnalyticsQueryDto,
+    audience: string,
+  ) {
     const scope = await this.scopeService.resolve(actor, query);
     const range = defaultRange(query);
     this.assertDateRange(range.dateFrom, range.dateTo);
@@ -1029,18 +1591,27 @@ export class AnalyticsDashboardService {
     });
     const cached = this.cacheService.get(cacheKey);
     if (cached) return cached;
-    const [workforce, attendance, leave, payroll, finance, performance, activities, approvals, freshness] =
-      await Promise.all([
-        this.workforce(scope, range),
-        this.attendance(scope, range),
-        this.leave(scope, range),
-        this.payroll(scope),
-        this.finance(scope, range),
-        this.performance(scope, range),
-        this.activities(scope, range),
-        this.approvals(scope),
-        this.freshnessService.freshness(scope.companyId),
-      ]);
+    const [
+      workforce,
+      attendance,
+      leave,
+      payroll,
+      finance,
+      performance,
+      activities,
+      approvals,
+      freshness,
+    ] = await Promise.all([
+      this.workforce(scope, range),
+      this.attendance(scope, range),
+      this.leave(scope, range),
+      this.payroll(scope),
+      this.finance(scope, range),
+      this.performance(scope, range),
+      this.activities(scope, range),
+      this.approvals(scope),
+      this.freshnessService.freshness(scope.companyId),
+    ]);
     const response = {
       generated_at: new Date().toISOString(),
       audience,
@@ -1054,7 +1625,12 @@ export class AnalyticsDashboardService {
       performance,
       activities,
       approvals,
-      risk_indicators: this.riskIndicators({ attendance, payroll, finance, approvals }),
+      risk_indicators: this.riskIndicators({
+        attendance,
+        payroll,
+        finance,
+        approvals,
+      }),
       cache: { key: cacheKey, ttl_seconds: 300 },
     };
     await this.auditService.log({
@@ -1072,18 +1648,24 @@ export class AnalyticsDashboardService {
 
   private assertDateRange(dateFrom: string, dateTo: string) {
     if (daysBetween(dateFrom, dateTo) > 1095) {
-      throw new BadRequestException('Analytics query date range exceeds 1095 days.');
+      throw new BadRequestException(
+        'Analytics query date range exceeds 1095 days.',
+      );
     }
   }
 
-  private async workforce(scope: AnalyticsResolvedScope, range: { dateFrom: string; dateTo: string }) {
+  private async workforce(
+    scope: AnalyticsResolvedScope,
+    range: { dateFrom: string; dateTo: string },
+  ) {
     const params: unknown[] = [scope.companyId, range.dateFrom, range.dateTo];
     const scopedWhere = scopeSql(scope, params, {
       employeeColumn: 'employee_id',
       branchColumn: 'branch_id',
       departmentColumn: 'department_id',
     });
-    const result = await this.dataSource.query(
+    const result = await queryRows<WorkforceSummaryRow>(
+      this.dataSource,
       `SELECT
         COUNT(DISTINCT employee_id) FILTER (WHERE is_active_headcount = true AND snapshot_date = $3) AS period_end_headcount,
         COUNT(DISTINCT employee_id) FILTER (WHERE is_new_joiner = true) AS joiners,
@@ -1100,7 +1682,8 @@ export class AnalyticsDashboardService {
       period_end_headcount: this.privacyService.suppressSmallCell(headcount),
       joiners: numberFrom(row.joiners),
       exits,
-      attrition_rate: headcount > 0 ? Number(((exits / headcount) * 100).toFixed(2)) : 0,
+      attrition_rate:
+        headcount > 0 ? Number(((exits / headcount) * 100).toFixed(2)) : 0,
       metric_definitions: [
         'PERIOD_END_HEADCOUNT: distinct active employees on date_to using workforce snapshot',
         'ATTRITION_RATE: exits / period-end headcount * 100',
@@ -1108,13 +1691,17 @@ export class AnalyticsDashboardService {
     };
   }
 
-  private async attendance(scope: AnalyticsResolvedScope, range: { dateFrom: string; dateTo: string }) {
+  private async attendance(
+    scope: AnalyticsResolvedScope,
+    range: { dateFrom: string; dateTo: string },
+  ) {
     const params: unknown[] = [scope.companyId, range.dateFrom, range.dateTo];
     const scopedWhere = scopeSql(scope, params, {
       employeeColumn: 'employee_id',
       branchColumn: 'branch_id',
     });
-    const result = await this.dataSource.query(
+    const result = await queryRows<AttendanceSummaryAggregateRow>(
+      this.dataSource,
       `SELECT COUNT(*) AS days, SUM(work_minutes) AS work_minutes, SUM(late_minutes) AS late_minutes,
         COUNT(*) FILTER (WHERE late_minutes > 0) AS late_days,
         COUNT(*) FILTER (WHERE missing_punch_count > 0) AS missing_punch_days
@@ -1127,15 +1714,24 @@ export class AnalyticsDashboardService {
     return {
       finalized_days: days,
       work_minutes: numberFrom(row.work_minutes),
-      late_rate: days > 0 ? Number(((numberFrom(row.late_days) / days) * 100).toFixed(2)) : 0,
+      late_rate:
+        days > 0
+          ? Number(((numberFrom(row.late_days) / days) * 100).toFixed(2))
+          : 0,
       missing_punch_days: numberFrom(row.missing_punch_days),
     };
   }
 
-  private async leave(scope: AnalyticsResolvedScope, range: { dateFrom: string; dateTo: string }) {
+  private async leave(
+    scope: AnalyticsResolvedScope,
+    range: { dateFrom: string; dateTo: string },
+  ) {
     const params: unknown[] = [scope.companyId, range.dateFrom, range.dateTo];
-    const scopedWhere = scopeSql(scope, params, { employeeColumn: 'request.employee_id' });
-    const result = await this.dataSource.query(
+    const scopedWhere = scopeSql(scope, params, {
+      employeeColumn: 'request.employee_id',
+    });
+    const result = await queryRows<LeaveSummaryRow>(
+      this.dataSource,
       `SELECT COUNT(*) AS approved_requests, COALESCE(SUM(total_days), 0) AS approved_days
        FROM leave_requests request
        WHERE request.company_id = $1 AND request.status = 'approved' AND request.start_date <= $3 AND request.end_date >= $2${scopedWhere}`,
@@ -1149,8 +1745,11 @@ export class AnalyticsDashboardService {
 
   private async payroll(scope: AnalyticsResolvedScope) {
     const params: unknown[] = [scope.companyId];
-    const scopedWhere = scopeSql(scope, params, { employeeColumn: 'employee_id' });
-    const result = await this.dataSource.query(
+    const scopedWhere = scopeSql(scope, params, {
+      employeeColumn: 'employee_id',
+    });
+    const result = await queryRows<PayrollAggregateRow>(
+      this.dataSource,
       `SELECT COUNT(DISTINCT payroll_run_id) AS locked_runs,
         COALESCE(SUM(gross_pay), 0) AS gross_pay,
         COALESCE(SUM(net_pay), 0) AS net_pay,
@@ -1166,10 +1765,16 @@ export class AnalyticsDashboardService {
     };
   }
 
-  private async finance(scope: AnalyticsResolvedScope, range: { dateFrom: string; dateTo: string }) {
+  private async finance(
+    scope: AnalyticsResolvedScope,
+    range: { dateFrom: string; dateTo: string },
+  ) {
     const params: unknown[] = [scope.companyId, range.dateFrom, range.dateTo];
-    const scopedWhere = scopeSql(scope, params, { employeeColumn: 'employee_id' });
-    const result = await this.dataSource.query(
+    const scopedWhere = scopeSql(scope, params, {
+      employeeColumn: 'employee_id',
+    });
+    const result = await queryRows<FinanceAggregateRow>(
+      this.dataSource,
       `SELECT product_type, COALESCE(SUM(closing_balance), 0) AS closing_balance,
         COALESCE(SUM(arrears_amount), 0) AS arrears
        FROM analytics.fact_employee_finance_monthly
@@ -1189,22 +1794,29 @@ export class AnalyticsDashboardService {
     return {
       by_product_type: result,
       total_outstanding: EmployeeFinanceMoney.fromCents(totalOutstandingCents),
-      arrears_ratio: totalOutstandingCents > 0n
-        ? Number(
-            new Decimal(arrearsCents.toString())
-              .times(100)
-              .div(totalOutstandingCents.toString())
-              .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
-              .toString(),
-          )
-        : 0,
+      arrears_ratio:
+        totalOutstandingCents > 0n
+          ? Number(
+              new Decimal(arrearsCents.toString())
+                .times(100)
+                .div(totalOutstandingCents.toString())
+                .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+                .toString(),
+            )
+          : 0,
     };
   }
 
-  private async performance(scope: AnalyticsResolvedScope, range: { dateFrom: string; dateTo: string }) {
+  private async performance(
+    scope: AnalyticsResolvedScope,
+    range: { dateFrom: string; dateTo: string },
+  ) {
     const params: unknown[] = [scope.companyId, range.dateFrom, range.dateTo];
-    const scopedWhere = scopeSql(scope, params, { employeeColumn: 'review.employee_id' });
-    const result = await this.dataSource.query(
+    const scopedWhere = scopeSql(scope, params, {
+      employeeColumn: 'review.employee_id',
+    });
+    const result = await queryRows<PerformanceSummaryRow>(
+      this.dataSource,
       `SELECT COUNT(*) AS published_reviews, COALESCE(AVG(final_score), 0) AS average_score
        FROM performance_reviews review
        WHERE review.company_id = $1 AND review.status = 'PUBLISHED' AND review.updated_at::date BETWEEN $2 AND $3${scopedWhere}`,
@@ -1216,18 +1828,35 @@ export class AnalyticsDashboardService {
     };
   }
 
-  private async activities(scope: AnalyticsResolvedScope, range: { dateFrom: string; dateTo: string }) {
-    const reportParams: unknown[] = [scope.companyId, range.dateFrom, range.dateTo];
-    const reportScopedWhere = scopeSql(scope, reportParams, { employeeColumn: 'report.employee_id' });
-    const reports = await this.dataSource.query(
+  private async activities(
+    scope: AnalyticsResolvedScope,
+    range: { dateFrom: string; dateTo: string },
+  ) {
+    const reportParams: unknown[] = [
+      scope.companyId,
+      range.dateFrom,
+      range.dateTo,
+    ];
+    const reportScopedWhere = scopeSql(scope, reportParams, {
+      employeeColumn: 'report.employee_id',
+    });
+    const reports = await queryRows<CountRow>(
+      this.dataSource,
       `SELECT COUNT(*) AS approved_reports
        FROM daily_activity_reports report
        WHERE report.company_id = $1 AND report.status IN ('APPROVED','LOCKED') AND report.activity_date BETWEEN $2 AND $3${reportScopedWhere}`,
       reportParams,
     );
-    const visitParams: unknown[] = [scope.companyId, range.dateFrom, range.dateTo];
-    const visitScopedWhere = scopeSql(scope, visitParams, { employeeColumn: 'visit.employee_id' });
-    const visits = await this.dataSource.query(
+    const visitParams: unknown[] = [
+      scope.companyId,
+      range.dateFrom,
+      range.dateTo,
+    ];
+    const visitScopedWhere = scopeSql(scope, visitParams, {
+      employeeColumn: 'visit.employee_id',
+    });
+    const visits = await queryRows<CountRow>(
+      this.dataSource,
       `SELECT COUNT(*) AS reviewed_visits
        FROM field_visits visit
        WHERE visit.company_id = $1 AND visit.status IN ('COMPLETED','REVIEWED') AND COALESCE(visit.visit_date, visit.created_at::date) BETWEEN $2 AND $3${visitScopedWhere}`,
@@ -1246,7 +1875,8 @@ export class AnalyticsDashboardService {
       branchColumn: 'branch_id',
       departmentColumn: 'department_id',
     });
-    const result = await this.dataSource.query(
+    const result = await queryRows<CountRow>(
+      this.dataSource,
       `SELECT COUNT(*) AS pending_actions
        FROM action_items WHERE company_id = $1 AND status IN ('OPEN','IN_PROGRESS')${scopedWhere}`,
       params,
@@ -1254,16 +1884,29 @@ export class AnalyticsDashboardService {
     return { pending_actions: numberFrom(result[0]?.pending_actions) };
   }
 
-  private riskIndicators(values: Record<string, any>) {
+  private riskIndicators(values: AnalyticsRiskSummary) {
     const indicators: RiskIndicator[] = [];
-    if (values.attendance.late_rate > 10) {
-      indicators.push({ code: 'ATTENDANCE_LATENESS_RISK', severity: 'MEDIUM', explanation: 'Late rate is above 10% of finalized attendance days.' });
+    if (numberFrom(values.attendance?.late_rate) > 10) {
+      indicators.push({
+        code: 'ATTENDANCE_LATENESS_RISK',
+        severity: 'MEDIUM',
+        explanation: 'Late rate is above 10% of finalized attendance days.',
+      });
     }
-    if (values.finance.arrears_ratio > 0) {
-      indicators.push({ code: 'EMPLOYEE_FINANCE_ARREARS', severity: 'HIGH', explanation: 'Some employee finance balances are marked in arrears.' });
+    if (numberFrom(values.finance?.arrears_ratio) > 0) {
+      indicators.push({
+        code: 'EMPLOYEE_FINANCE_ARREARS',
+        severity: 'HIGH',
+        explanation: 'Some employee finance balances are marked in arrears.',
+      });
     }
-    if (values.approvals.pending_actions > 20) {
-      indicators.push({ code: 'APPROVAL_BACKLOG', severity: 'MEDIUM', explanation: 'Open approval/action items exceed the management threshold.' });
+    if (numberFrom(values.approvals?.pending_actions) > 20) {
+      indicators.push({
+        code: 'APPROVAL_BACKLOG',
+        severity: 'MEDIUM',
+        explanation:
+          'Open approval/action items exceed the management threshold.',
+      });
     }
     return indicators;
   }
@@ -1280,25 +1923,43 @@ export class AnalyticsReportService {
     private readonly dataSource: DataSource,
   ) {}
 
-  async runCustomReport(actor: AuthenticatedUser, dto: AnalyticsCustomReportDto) {
+  async runCustomReport(
+    actor: AuthenticatedUser,
+    dto: AnalyticsCustomReportDto,
+  ) {
     this.privacyService.assertRawSqlDisabled(dto.filters);
     const scope = await this.scopeService.resolve(actor, dto);
     const dataset = await this.datasetService.requireDataset(dto.dataset_code);
     const dimensions = dto.dimensions.map((item) => item.trim());
     const measures = dto.measures.map((item) => item.trim());
-    const unknownDimensions = dimensions.filter((item) => !dataset.allowedDimensions.includes(item));
-    const unknownMeasures = measures.filter((item) => !dataset.allowedMeasures.includes(item));
+    const unknownDimensions = dimensions.filter(
+      (item) => !dataset.allowedDimensions.includes(item),
+    );
+    const unknownMeasures = measures.filter(
+      (item) => !dataset.allowedMeasures.includes(item),
+    );
     if (unknownDimensions.length) {
-      throw new BadRequestException(`Unknown dimensions: ${unknownDimensions.join(', ')}`);
+      throw new BadRequestException(
+        `Unknown dimensions: ${unknownDimensions.join(', ')}`,
+      );
     }
     if (unknownMeasures.length) {
-      throw new BadRequestException(`Unknown measures: ${unknownMeasures.join(', ')}`);
+      throw new BadRequestException(
+        `Unknown measures: ${unknownMeasures.join(', ')}`,
+      );
     }
     const range = defaultRange(dto);
     if (daysBetween(range.dateFrom, range.dateTo) > 1095) {
-      throw new BadRequestException('Custom report date range exceeds 1095 days.');
+      throw new BadRequestException(
+        'Custom report date range exceeds 1095 days.',
+      );
     }
-    const rows = await this.queryDataset(dataset.code, scope, range, dto.limit ?? 1000);
+    const rows = await this.queryDataset(
+      dataset.code,
+      scope,
+      range,
+      dto.limit ?? 1000,
+    );
     await this.auditService.log({
       actor,
       action: 'analytics.report.run',
@@ -1315,7 +1976,8 @@ export class AnalyticsReportService {
       measures,
       rows,
       row_count: rows.length,
-      freshness_note: 'Only approved, finalized, locked, posted, or completed source states are included where applicable.',
+      freshness_note:
+        'Only approved, finalized, locked, posted, or completed source states are included where applicable.',
     };
   }
 
@@ -1324,14 +1986,20 @@ export class AnalyticsReportService {
     scope: AnalyticsResolvedScope,
     range: { dateFrom: string; dateTo: string },
     limit: number,
-  ) {
+  ): Promise<AnalyticsQueryRow[]> {
     if (datasetCode === 'ATTENDANCE_DAILY_SUMMARIES') {
-      const params: unknown[] = [scope.companyId, range.dateFrom, range.dateTo, limit];
+      const params: unknown[] = [
+        scope.companyId,
+        range.dateFrom,
+        range.dateTo,
+        limit,
+      ];
       const scopedWhere = scopeSql(scope, params, {
         employeeColumn: 'employee_id',
         branchColumn: 'branch_id',
       });
-      return this.dataSource.query(
+      return queryRows<AnalyticsQueryRow>(
+        this.dataSource,
         `SELECT attendance_date, branch_id, status, COUNT(*)::int AS employee_days,
           SUM(work_minutes)::int AS work_minutes, SUM(late_minutes)::int AS late_minutes
          FROM analytics.fact_attendance_daily
@@ -1343,8 +2011,11 @@ export class AnalyticsReportService {
     }
     if (datasetCode === 'EMPLOYEE_PAYROLL_RESULTS') {
       const params: unknown[] = [scope.companyId, limit];
-      const scopedWhere = scopeSql(scope, params, { employeeColumn: 'employee_id' });
-      return this.dataSource.query(
+      const scopedWhere = scopeSql(scope, params, {
+        employeeColumn: 'employee_id',
+      });
+      return queryRows<AnalyticsQueryRow>(
+        this.dataSource,
         `SELECT payroll_period_id, COUNT(*)::int AS employee_count,
           SUM(gross_pay) AS gross_pay, SUM(net_pay) AS net_pay
          FROM analytics.fact_payroll_employee_period
@@ -1354,9 +2025,17 @@ export class AnalyticsReportService {
       );
     }
     if (datasetCode === 'EMPLOYEE_FINANCE_ACCOUNTS') {
-      const params: unknown[] = [scope.companyId, range.dateFrom, range.dateTo, limit];
-      const scopedWhere = scopeSql(scope, params, { employeeColumn: 'employee_id' });
-      return this.dataSource.query(
+      const params: unknown[] = [
+        scope.companyId,
+        range.dateFrom,
+        range.dateTo,
+        limit,
+      ];
+      const scopedWhere = scopeSql(scope, params, {
+        employeeColumn: 'employee_id',
+      });
+      return queryRows<AnalyticsQueryRow>(
+        this.dataSource,
         `SELECT month_start, product_type, SUM(closing_balance) AS closing_balance, SUM(arrears_amount) AS arrears_amount
          FROM analytics.fact_employee_finance_monthly
          WHERE company_id = $1 AND month_start BETWEEN date_trunc('month', $2::date)::date AND date_trunc('month', $3::date)::date${scopedWhere}
@@ -1364,13 +2043,19 @@ export class AnalyticsReportService {
         params,
       );
     }
-    const params: unknown[] = [scope.companyId, range.dateFrom, range.dateTo, limit];
+    const params: unknown[] = [
+      scope.companyId,
+      range.dateFrom,
+      range.dateTo,
+      limit,
+    ];
     const scopedWhere = scopeSql(scope, params, {
       employeeColumn: 'employee_id',
       branchColumn: 'branch_id',
       departmentColumn: 'department_id',
     });
-    return this.dataSource.query(
+    return queryRows<AnalyticsQueryRow>(
+      this.dataSource,
       `SELECT snapshot_date, branch_id, department_id,
         COUNT(*) FILTER (WHERE is_active_headcount = true)::int AS active_headcount,
         COUNT(*) FILTER (WHERE is_new_joiner = true)::int AS joiners,
@@ -1396,19 +2081,32 @@ export class AnalyticsExportService {
   async create(actor: AuthenticatedUser, dto: AnalyticsExportDto) {
     const companyId = actor.companyId!;
     const idempotencyKey = dto.idempotency_key ?? hash({ companyId, dto });
-    const existing = await this.repository.findOne({ where: { companyId, idempotencyKey } });
+    const existing = await this.repository.findOne({
+      where: { companyId, idempotencyKey },
+    });
     if (existing) return existing;
     const result = await this.reportService.runCustomReport(actor, dto);
-    const maxRows = this.configService.get<number>('ANALYTICS_MAX_EXPORT_ROWS', 250000);
-    if (result.row_count > maxRows) throw new BadRequestException('Analytics export row limit exceeded.');
-    const expiresAt = new Date(Date.now() + this.configService.get<number>('ANALYTICS_EXPORT_EXPIRY_HOURS', 24) * 3600000);
+    const maxRows = this.configService.get<number>(
+      'ANALYTICS_MAX_EXPORT_ROWS',
+      250000,
+    );
+    if (result.row_count > maxRows)
+      throw new BadRequestException('Analytics export row limit exceeded.');
+    const expiresAt = new Date(
+      Date.now() +
+        this.configService.get<number>('ANALYTICS_EXPORT_EXPIRY_HOURS', 24) *
+          3600000,
+    );
     const outputFormat = (dto.output_format ?? 'CSV').toUpperCase();
     const extension = outputFormat === 'JSON' ? 'json' : 'csv';
     const filePath = `private-uploads/analytics/${companyId}/${idempotencyKey}.${extension}`;
     const absolutePath = join(process.cwd(), filePath);
-    await fs.mkdir(join(process.cwd(), 'private-uploads', 'analytics', String(companyId)), {
-      recursive: true,
-    });
+    await fs.mkdir(
+      join(process.cwd(), 'private-uploads', 'analytics', String(companyId)),
+      {
+        recursive: true,
+      },
+    );
     await fs.writeFile(
       absolutePath,
       outputFormat === 'JSON'
@@ -1438,7 +2136,7 @@ export class AnalyticsReconciliationService {
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
   @Cron(process.env.ANALYTICS_RECONCILIATION_CRON || '0 30 3 * * *')
-  async scheduledReconciliation() {
+  scheduledReconciliation() {
     return null;
   }
 
@@ -1452,7 +2150,8 @@ export class AnalyticsReconciliationService {
   }
 
   async reconcilePayroll(companyId: number) {
-    const rows = await this.dataSource.query(
+    const rows = await queryRows<PayrollReconciliationRow>(
+      this.dataSource,
       `SELECT run.id, run.gross_total, run.net_pay_total,
         COALESCE(SUM(fact.gross_pay), 0) AS analytics_gross,
         COALESCE(SUM(fact.net_pay), 0) AS analytics_net
@@ -1468,20 +2167,31 @@ export class AnalyticsReconciliationService {
         PayrollMoney.toCents(row.gross_total) !==
         PayrollMoney.toCents(row.analytics_gross)
       ) {
-        issues.push({ code: 'PAYROLL_ANALYTICS_GROSS_MISMATCH', payroll_run_id: row.id, expected: row.gross_total, actual: row.analytics_gross });
+        issues.push({
+          code: 'PAYROLL_ANALYTICS_GROSS_MISMATCH',
+          payroll_run_id: row.id,
+          expected: row.gross_total,
+          actual: row.analytics_gross,
+        });
       }
       if (
         PayrollMoney.toCents(row.net_pay_total) !==
         PayrollMoney.toCents(row.analytics_net)
       ) {
-        issues.push({ code: 'PAYROLL_ANALYTICS_NET_MISMATCH', payroll_run_id: row.id, expected: row.net_pay_total, actual: row.analytics_net });
+        issues.push({
+          code: 'PAYROLL_ANALYTICS_NET_MISMATCH',
+          payroll_run_id: row.id,
+          expected: row.net_pay_total,
+          actual: row.analytics_net,
+        });
       }
       return issues;
     });
   }
 
   async reconcileEmployeeFinance(companyId: number) {
-    const rows = await this.dataSource.query(
+    const rows = await queryRows<EmployeeFinanceReconciliationRow>(
+      this.dataSource,
       `SELECT account.id, account.outstanding_total,
         COALESCE((SELECT SUM(CASE WHEN direction = 'DEBIT' THEN total_amount ELSE -total_amount END)
           FROM employee_finance_ledger_entries ledger
@@ -1506,12 +2216,13 @@ export class AnalyticsReconciliationService {
 
 @Injectable()
 export class AnalyticsAlertService {
-  async explainableRiskIndicators(summary: Record<string, any>) {
+  explainableRiskIndicators(summary: AnalyticsRiskSummary) {
     const indicators: RiskIndicator[] = [];
     if (numberFrom(summary?.attendance?.late_rate) > 10) {
       indicators.push({
         code: 'ATTENDANCE_DISCIPLINE',
-        explanation: 'Late attendance rate is above configured management threshold.',
+        explanation:
+          'Late attendance rate is above configured management threshold.',
       });
     }
     return indicators;
@@ -1533,7 +2244,9 @@ export class AnalyticsChangeEventService {
     payload?: Record<string, unknown> | null;
   }) {
     const idempotencyKey = hash(args);
-    const existing = await this.repository.findOne({ where: { idempotencyKey } });
+    const existing = await this.repository.findOne({
+      where: { idempotencyKey },
+    });
     if (existing) return existing;
     return this.repository.save(
       this.repository.create({
@@ -1560,7 +2273,8 @@ export class AnalyticsStatutoryReportService {
 
   async run(actor: AuthenticatedUser, dto: StatutoryReportRunDto) {
     const range = defaultRange(dto);
-    const payroll = await this.dataSource.query(
+    const payroll = await queryRows<StatutoryPayrollTotalsRow>(
+      this.dataSource,
       `SELECT COALESCE(SUM(result.gross_pay), 0) AS gross_pay,
         COALESCE(SUM(result.employee_deductions), 0) AS deductions,
         COALESCE(SUM(result.net_pay), 0) AS net_pay

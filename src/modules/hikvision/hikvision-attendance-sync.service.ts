@@ -1504,31 +1504,6 @@ export class HikvisionAttendanceSyncService {
       }
     };
 
-    const applyDate = <K extends keyof HikvisionAttendanceLog>(
-      key: K,
-      value: Date | null,
-      options: { onlyWhenMissing?: boolean } = {},
-    ) => {
-      if (!value) {
-        return;
-      }
-
-      const current = existing[key];
-      const currentTime = current instanceof Date ? current.getTime() : null;
-      if (options.onlyWhenMissing) {
-        if (currentTime === null) {
-          existing[key] = value as HikvisionAttendanceLog[K];
-          changed = true;
-        }
-        return;
-      }
-
-      if (currentTime !== value.getTime()) {
-        existing[key] = value as HikvisionAttendanceLog[K];
-        changed = true;
-      }
-    };
-
     const wasMapped = existing.isEmployeeMapped;
 
     applyNumber('employeeId', mapped.employeeId);

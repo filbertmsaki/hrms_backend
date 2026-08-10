@@ -150,21 +150,23 @@ export class NotificationDeliveryDispatcherService {
       delivery.channel === NotificationChannelEnum.EMAIL ||
       delivery.channel === NotificationChannelEnum.IN_APP
     ) {
-      const verdict = await this.notificationChannelManagementService.evaluateChannel(
-        delivery.channel,
-        this.notificationChannelManagementService.resolveDeliveryCode({
-          type: delivery.notification?.type ?? null,
-          eventKey: delivery.notification?.event_key ?? null,
-          templateCode: delivery.notification?.template_code ?? null,
-        }),
-        {
-          module: delivery.notification?.related_module ?? null,
-        },
-      );
+      const verdict =
+        await this.notificationChannelManagementService.evaluateChannel(
+          delivery.channel,
+          this.notificationChannelManagementService.resolveDeliveryCode({
+            type: delivery.notification?.type ?? null,
+            eventKey: delivery.notification?.event_key ?? null,
+            templateCode: delivery.notification?.template_code ?? null,
+          }),
+          {
+            module: delivery.notification?.related_module ?? null,
+          },
+        );
 
       if (!verdict.enabled) {
         delivery.status = NotificationDeliveryStatusEnum.SKIPPED;
-        delivery.lastError = verdict.reason ?? 'Notification channel is disabled';
+        delivery.lastError =
+          verdict.reason ?? 'Notification channel is disabled';
         delivery.nextRetryAt = null;
         await this.deliveryRepository.save(delivery);
         if (
@@ -188,12 +190,13 @@ export class NotificationDeliveryDispatcherService {
           delivery.status = NotificationDeliveryStatusEnum.FAILED;
           delivery.lastError = 'Recipient has no email address';
         } else {
-          const mailResult = await this.mailService.sendGenericNotificationEmail(
-            recipientEmail,
-            delivery.notification.title,
-            delivery.notification.message,
-            delivery.notification.action_url,
-          );
+          const mailResult =
+            await this.mailService.sendGenericNotificationEmail(
+              recipientEmail,
+              delivery.notification.title,
+              delivery.notification.message,
+              delivery.notification.action_url,
+            );
           delivery.status = NotificationDeliveryStatusEnum.DELIVERED;
           delivery.deliveredAt = new Date();
           delivery.providerMessageId = mailResult.messageId;
@@ -243,7 +246,8 @@ export class NotificationDeliveryDispatcherService {
           {
             id: delivery.notification.id,
             company_id: delivery.notification.company_id,
-            sender_company_user_id: delivery.notification.sender_company_user_id,
+            sender_company_user_id:
+              delivery.notification.sender_company_user_id,
             sender_name: null,
             sender_email: null,
             receiver_company_user_id:
@@ -312,12 +316,16 @@ export class NotificationDeliveryDispatcherService {
     }
   }
 
-  private resolveRecipientAddress(delivery: NotificationDelivery): string | null {
+  private resolveRecipientAddress(
+    delivery: NotificationDelivery,
+  ): string | null {
     if (delivery.channel === NotificationChannelEnum.EMAIL) {
       return (
         delivery.notification?.receiver_company_user?.user?.email
           ?.trim()
-          .toLowerCase() ?? delivery.recipientAddress ?? null
+          .toLowerCase() ??
+        delivery.recipientAddress ??
+        null
       );
     }
 

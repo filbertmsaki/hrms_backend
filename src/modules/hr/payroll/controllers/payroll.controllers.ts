@@ -54,7 +54,10 @@ export class PayrollConfigurationController {
 
   @Post('components')
   @Permissions('payroll:config')
-  createComponent(@Req() req: AuthedRequest, @Body() dto: CreatePayrollComponentDto) {
+  createComponent(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreatePayrollComponentDto,
+  ) {
     return this.service.createComponent(req.user, dto);
   }
 
@@ -66,7 +69,10 @@ export class PayrollConfigurationController {
 
   @Post('salary-structures')
   @Permissions('payroll:config')
-  createStructure(@Req() req: AuthedRequest, @Body() dto: CreateSalaryStructureDto) {
+  createStructure(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreateSalaryStructureDto,
+  ) {
     return this.service.createStructure(req.user, dto);
   }
 
@@ -78,13 +84,19 @@ export class PayrollConfigurationController {
 
   @Get('salary-structures/:id')
   @Permissions('payroll:config:read')
-  getStructure(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+  getStructure(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
     return this.service.getStructure(req.user, id);
   }
 
   @Post('calendars')
   @Permissions('payroll:config')
-  createCalendar(@Req() req: AuthedRequest, @Body() dto: CreatePayrollCalendarDto) {
+  createCalendar(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreatePayrollCalendarDto,
+  ) {
     return this.service.createCalendar(req.user, dto);
   }
 
@@ -96,7 +108,10 @@ export class PayrollConfigurationController {
 
   @Post('periods/generate')
   @Permissions('payroll:periods')
-  generatePeriod(@Req() req: AuthedRequest, @Body() dto: GeneratePayrollPeriodDto) {
+  generatePeriod(
+    @Req() req: AuthedRequest,
+    @Body() dto: GeneratePayrollPeriodDto,
+  ) {
     return this.service.generatePeriod(req.user, dto);
   }
 
@@ -108,7 +123,10 @@ export class PayrollConfigurationController {
 
   @Post('statutory-schemes')
   @Permissions('payroll:config')
-  createScheme(@Req() req: AuthedRequest, @Body() dto: CreateStatutorySchemeDto) {
+  createScheme(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreateStatutorySchemeDto,
+  ) {
     return this.service.createScheme(req.user, dto);
   }
 
@@ -284,7 +302,10 @@ export class MyPayslipsController {
 
   @Get(':id/download')
   @Permissions('payroll:payslips:self')
-  downloadMine(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+  downloadMine(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
     return this.service.downloadMine(req.user, id);
   }
 }
@@ -298,7 +319,10 @@ export class PayrollBankingController {
 
   @Post('runs/:runId/batches')
   @Permissions('payroll:banking')
-  generate(@Req() req: AuthedRequest, @Param('runId', ParseIntPipe) runId: number) {
+  generate(
+    @Req() req: AuthedRequest,
+    @Param('runId', ParseIntPipe) runId: number,
+  ) {
     return this.service.generate(req.user, runId);
   }
 
@@ -321,7 +345,10 @@ export class PayrollAccountingController {
 
   @Post('runs/:runId/journals')
   @Permissions('payroll:accounting')
-  generate(@Req() req: AuthedRequest, @Param('runId', ParseIntPipe) runId: number) {
+  generate(
+    @Req() req: AuthedRequest,
+    @Param('runId', ParseIntPipe) runId: number,
+  ) {
     return this.service.generate(req.user, runId);
   }
 }
@@ -369,6 +396,9 @@ export class PayrollReportsController {
     @Req() req: AuthedRequest,
     @Param('offboardingRequestId', ParseIntPipe) offboardingRequestId: number,
   ) {
-    return this.finalSettlementService.calculate(req.user, offboardingRequestId);
+    return this.finalSettlementService.calculate(
+      req.user,
+      offboardingRequestId,
+    );
   }
 }

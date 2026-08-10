@@ -118,9 +118,13 @@ export class ProbationReviewCycle {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-  @ManyToOne(() => ProbationCase, (probationCase) => probationCase.reviewCycles, {
-    onDelete: 'CASCADE',
-  })
+  @ManyToOne(
+    () => ProbationCase,
+    (probationCase) => probationCase.reviewCycles,
+    {
+      onDelete: 'CASCADE',
+    },
+  )
   @JoinColumn({ name: 'probation_case_id' })
   probationCase: ProbationCase;
 }

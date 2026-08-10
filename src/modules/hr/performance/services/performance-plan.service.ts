@@ -93,10 +93,7 @@ export class PerformancePlanService {
       100,
     );
 
-    if (
-      totalWeight < minimumWeightTotal ||
-      totalWeight > maximumWeightTotal
-    ) {
+    if (totalWeight < minimumWeightTotal || totalWeight > maximumWeightTotal) {
       throw new BadRequestException(
         `Performance plan KPI weights must total between ${minimumWeightTotal} and ${maximumWeightTotal}. Current total: ${totalWeight}.`,
       );
@@ -170,10 +167,11 @@ export class PerformancePlanService {
             kpiDefinitionVersionId: definitionVersion.id,
             weight: String(item.weight),
             targetValue:
-              item.target_value === undefined ? null : String(item.target_value),
+              item.target_value === undefined
+                ? null
+                : String(item.target_value),
             manualEntryAllowed:
-              item.manual_entry_allowed ??
-              definitionVersion.manualEntryAllowed,
+              item.manual_entry_allowed ?? definitionVersion.manualEntryAllowed,
             evidenceRequired:
               item.evidence_required ?? definitionVersion.evidenceRequired,
             notes: item.notes ?? null,
@@ -301,7 +299,9 @@ export class PerformancePlanService {
       actor,
       afterValues: {
         performance_period_id: period.id,
-        created_assignments: createdAssignments.map((assignment) => assignment.id),
+        created_assignments: createdAssignments.map(
+          (assignment) => assignment.id,
+        ),
       },
     });
 

@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request as ExpressRequest } from 'express';
@@ -72,7 +80,10 @@ export class AnalyticsController {
 
   @Get('freshness')
   @Permissions('analytics:datasets:read')
-  freshness(@Req() req: AuthedRequest, @Query('dataset_code') datasetCode?: string) {
+  freshness(
+    @Req() req: AuthedRequest,
+    @Query('dataset_code') datasetCode?: string,
+  ) {
     return this.freshnessService.freshness(req.user.companyId!, datasetCode);
   }
 
@@ -84,25 +95,37 @@ export class AnalyticsController {
 
   @Get('dashboards/management')
   @Permissions('analytics:dashboards:management')
-  managementDashboard(@Req() req: AuthedRequest, @Query() query: AnalyticsQueryDto) {
+  managementDashboard(
+    @Req() req: AuthedRequest,
+    @Query() query: AnalyticsQueryDto,
+  ) {
     return this.dashboardService.managementDashboard(req.user, query);
   }
 
   @Get('dashboards/manager')
   @Permissions('analytics:dashboards:manager')
-  managerDashboard(@Req() req: AuthedRequest, @Query() query: AnalyticsQueryDto) {
+  managerDashboard(
+    @Req() req: AuthedRequest,
+    @Query() query: AnalyticsQueryDto,
+  ) {
     return this.dashboardService.managerDashboard(req.user, query);
   }
 
   @Get('dashboards/sales-field')
   @Permissions('analytics:dashboards:sales-field')
-  salesFieldDashboard(@Req() req: AuthedRequest, @Query() query: AnalyticsQueryDto) {
+  salesFieldDashboard(
+    @Req() req: AuthedRequest,
+    @Query() query: AnalyticsQueryDto,
+  ) {
     return this.dashboardService.salesFieldDashboard(req.user, query);
   }
 
   @Post('reports/custom')
   @Permissions('analytics:reports')
-  customReport(@Req() req: AuthedRequest, @Body() dto: AnalyticsCustomReportDto) {
+  customReport(
+    @Req() req: AuthedRequest,
+    @Body() dto: AnalyticsCustomReportDto,
+  ) {
     return this.reportService.runCustomReport(req.user, dto);
   }
 
@@ -114,7 +137,10 @@ export class AnalyticsController {
 
   @Post('statutory-reports/run')
   @Permissions('analytics:statutory-reports')
-  statutoryReport(@Req() req: AuthedRequest, @Body() dto: StatutoryReportRunDto) {
+  statutoryReport(
+    @Req() req: AuthedRequest,
+    @Body() dto: StatutoryReportRunDto,
+  ) {
     return this.statutoryReportService.run(req.user, dto);
   }
 

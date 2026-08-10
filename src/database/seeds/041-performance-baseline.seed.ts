@@ -10,7 +10,6 @@ import { PerformanceRatingScale } from '../../modules/hr/performance/entities/pe
 import { PerformanceAggregationMethodEnum } from '../../modules/hr/performance/enums/performance-aggregation-method.enum';
 import { PerformanceCompetencyCategoryEnum } from '../../modules/hr/performance/enums/performance-competency-category.enum';
 import { PerformancePeriodStatusEnum } from '../../modules/hr/performance/enums/performance-period-status.enum';
-import { PerformancePeriodTypeEnum } from '../../modules/hr/performance/enums/performance-period-type.enum';
 import { PerformancePeriodFactory } from '../../modules/hr/performance/utils/performance-period-factory';
 import {
   ALLIANCE_COMPANY_NAME,
@@ -149,7 +148,9 @@ export default class PerformanceBaselineSeeder implements Seeder {
       const ratingBandRepo = qr.manager.getRepository(PerformanceRatingBand);
       const competencyTemplateRepo =
         qr.manager.getRepository(CompetencyTemplate);
-      const competencyItemRepo = qr.manager.getRepository(CompetencyTemplateItem);
+      const competencyItemRepo = qr.manager.getRepository(
+        CompetencyTemplateItem,
+      );
       const financialYearRepo = qr.manager.getRepository(
         PerformanceFinancialYear,
       );
@@ -220,7 +221,8 @@ export default class PerformanceBaselineSeeder implements Seeder {
       competencyTemplate.description =
         'Baseline competency framework for company-wide performance reviews.';
       competencyTemplate.status = 'ACTIVE';
-      competencyTemplate = await competencyTemplateRepo.save(competencyTemplate);
+      competencyTemplate =
+        await competencyTemplateRepo.save(competencyTemplate);
 
       for (const seed of COMPETENCY_ITEM_SEEDS) {
         let item = await competencyItemRepo.findOne({
@@ -274,7 +276,8 @@ export default class PerformanceBaselineSeeder implements Seeder {
         financialYear.startDate,
         financialYear.endDate,
       );
-      const quarterlyPeriods = periodFactory.buildQuarterlyPeriods(monthlyPeriods);
+      const quarterlyPeriods =
+        periodFactory.buildQuarterlyPeriods(monthlyPeriods);
 
       for (const template of [...monthlyPeriods, ...quarterlyPeriods]) {
         let period = await periodRepo.findOne({

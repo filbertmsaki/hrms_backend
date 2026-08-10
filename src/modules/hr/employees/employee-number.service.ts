@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import type { AuditRequestContext } from '../../../common/interfaces/audit-request-context.interface';
 import { SecurityEventOutcome } from '../../security/enums/security-event-outcome.enum';

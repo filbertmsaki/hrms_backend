@@ -22,7 +22,10 @@ export class PerformanceScoringService {
   constructor(private readonly configService: ConfigService) {}
 
   score(input: ScoreInput): ScoreOutput {
-    if (input.achievementValue === null || input.achievementValue === undefined) {
+    if (
+      input.achievementValue === null ||
+      input.achievementValue === undefined
+    ) {
       return {
         rawScore: null,
         cappedScore: null,
@@ -79,7 +82,8 @@ export class PerformanceScoringService {
   }
 
   private calculateRawScore(input: ScoreInput): Decimal {
-    const target = input.targetValue === null ? null : new Decimal(input.targetValue);
+    const target =
+      input.targetValue === null ? null : new Decimal(input.targetValue);
     const achievement = new Decimal(input.achievementValue as string | number);
 
     switch (input.formula) {
@@ -95,7 +99,10 @@ export class PerformanceScoringService {
         }
         if (achievement.eq(0)) {
           return new Decimal(
-            this.configService.get<number>('PERFORMANCE_DEFAULT_SCORE_CAP', 120),
+            this.configService.get<number>(
+              'PERFORMANCE_DEFAULT_SCORE_CAP',
+              120,
+            ),
           );
         }
         return target.div(achievement).mul(100);
@@ -112,10 +119,16 @@ export class PerformanceScoringService {
         );
 
       case KpiScoringFormulaEnum.THRESHOLD_BANDS:
-        return this.scoreThresholdBands(achievement, input.formulaConfiguration);
+        return this.scoreThresholdBands(
+          achievement,
+          input.formulaConfiguration,
+        );
 
       case KpiScoringFormulaEnum.RANGE_COMPLIANCE:
-        return this.scoreRangeCompliance(achievement, input.formulaConfiguration);
+        return this.scoreRangeCompliance(
+          achievement,
+          input.formulaConfiguration,
+        );
 
       case KpiScoringFormulaEnum.BINARY_RESULT:
         return achievement.gt(0) ? new Decimal(100) : new Decimal(0);
@@ -144,7 +157,10 @@ export class PerformanceScoringService {
       const min = band.min === undefined ? null : new Decimal(band.min);
       const max = band.max === undefined ? null : new Decimal(band.max);
 
-      if ((min === null || achievement.gte(min)) && (max === null || achievement.lte(max))) {
+      if (
+        (min === null || achievement.gte(min)) &&
+        (max === null || achievement.lte(max))
+      ) {
         return new Decimal(band.score);
       }
     }
@@ -156,14 +172,19 @@ export class PerformanceScoringService {
     achievement: Decimal,
     configuration: Record<string, unknown> | null | undefined,
   ): Decimal {
-    const min = configuration?.minimum === undefined
-      ? null
-      : new Decimal(configuration.minimum as string | number);
-    const max = configuration?.maximum === undefined
-      ? null
-      : new Decimal(configuration.maximum as string | number);
+    const min =
+      configuration?.minimum === undefined
+        ? null
+        : new Decimal(configuration.minimum as string | number);
+    const max =
+      configuration?.maximum === undefined
+        ? null
+        : new Decimal(configuration.maximum as string | number);
 
-    if ((min === null || achievement.gte(min)) && (max === null || achievement.lte(max))) {
+    if (
+      (min === null || achievement.gte(min)) &&
+      (max === null || achievement.lte(max))
+    ) {
       return new Decimal(100);
     }
 

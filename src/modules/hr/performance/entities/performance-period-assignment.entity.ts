@@ -53,6 +53,7 @@ export class PerformancePeriodAssignment {
   @Column({
     type: 'enum',
     enum: PerformancePeriodAssignmentStatusEnum,
+    enumName: 'performance_period_assignment_status_enum',
     default: PerformancePeriodAssignmentStatusEnum.OPEN,
   })
   status: PerformancePeriodAssignmentStatusEnum;

@@ -145,7 +145,10 @@ export class EmployeePayrollProfile {
   @JoinColumn({ name: 'employee_id' })
   employee: Employee;
 
-  @ManyToOne(() => EmployeeBankAccount, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => EmployeeBankAccount, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
   @JoinColumn({ name: 'primary_bank_account_id' })
   primaryBankAccount: EmployeeBankAccount | null;
 }

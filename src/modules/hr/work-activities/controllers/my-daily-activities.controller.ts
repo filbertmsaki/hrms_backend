@@ -22,7 +22,6 @@ import {
   AddDailyActivityEvidenceDto,
   CreateDailyActivityEntryDto,
   CreateDailyActivityReportDto,
-  ReviewDailyActivityReportDto,
   SubmitDailyActivityReportDto,
   UpdateDailyActivityEntryDto,
 } from '../dto/activity.dto';
@@ -55,7 +54,10 @@ export class MyDailyActivitiesController {
 
   @Post('reports')
   @Permissions('work_activities:self-service:update')
-  createReport(@Req() req: AuthedRequest, @Body() dto: CreateDailyActivityReportDto) {
+  createReport(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreateDailyActivityReportDto,
+  ) {
     return this.service.getOrCreateMyDailyReport(
       req.user,
       dto.activity_date,

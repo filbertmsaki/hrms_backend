@@ -34,6 +34,7 @@ export class PerformancePeriod {
     name: 'period_type',
     type: 'enum',
     enum: PerformancePeriodTypeEnum,
+    enumName: 'performance_period_type_enum',
   })
   periodType: PerformancePeriodTypeEnum;
 
@@ -52,6 +53,7 @@ export class PerformancePeriod {
   @Column({
     type: 'enum',
     enum: PerformancePeriodStatusEnum,
+    enumName: 'performance_period_status_enum',
     default: PerformancePeriodStatusEnum.DRAFT,
   })
   status: PerformancePeriodStatusEnum;

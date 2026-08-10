@@ -6,7 +6,6 @@ import {
   PrimaryColumn,
   PrimaryGeneratedColumn,
   Unique,
-  UpdateDateColumn,
   VersionColumn,
 } from 'typeorm';
 import {
@@ -36,7 +35,11 @@ export class AnalyticsDataset {
   @Column({ type: 'varchar', length: 180 })
   name: string;
 
-  @Column({ name: 'dataset_type', type: 'enum', enum: AnalyticsDatasetTypeEnum })
+  @Column({
+    name: 'dataset_type',
+    type: 'enum',
+    enum: AnalyticsDatasetTypeEnum,
+  })
   datasetType: AnalyticsDatasetTypeEnum;
 
   @Column({ name: 'source_code', type: 'varchar', length: 100 })
@@ -45,7 +48,11 @@ export class AnalyticsDataset {
   @Column({ name: 'physical_name', type: 'varchar', length: 180 })
   physicalName: string;
 
-  @Column({ name: 'refresh_mode', type: 'enum', enum: AnalyticsRefreshModeEnum })
+  @Column({
+    name: 'refresh_mode',
+    type: 'enum',
+    enum: AnalyticsRefreshModeEnum,
+  })
   refreshMode: AnalyticsRefreshModeEnum;
 
   @Column({ name: 'refresh_configuration', type: 'jsonb', nullable: true })
@@ -107,7 +114,11 @@ export class AnalyticsMetricDefinition {
   @Column({ name: 'formula_configuration', type: 'jsonb' })
   formulaConfiguration: Record<string, unknown>;
 
-  @Column({ name: 'default_time_grain', type: 'enum', enum: AnalyticsTimeGrainEnum })
+  @Column({
+    name: 'default_time_grain',
+    type: 'enum',
+    enum: AnalyticsTimeGrainEnum,
+  })
   defaultTimeGrain: AnalyticsTimeGrainEnum;
 
   @Column({ name: 'allowed_dimensions', type: 'jsonb' })
@@ -179,7 +190,12 @@ export class AnalyticsDateDimension {
   @Column({ name: 'is_weekend' })
   isWeekend: boolean;
 
-  @Column({ name: 'financial_year_code', type: 'varchar', length: 30, nullable: true })
+  @Column({
+    name: 'financial_year_code',
+    type: 'varchar',
+    length: 30,
+    nullable: true,
+  })
   financialYearCode: string | null;
 }
 
@@ -227,7 +243,12 @@ export class AnalyticsEmployeeHistoryDimension {
   @Column({ name: 'employment_status', type: 'varchar', length: 50 })
   employmentStatus: string;
 
-  @Column({ name: 'employment_type', type: 'varchar', length: 50, nullable: true })
+  @Column({
+    name: 'employment_type',
+    type: 'varchar',
+    length: 50,
+    nullable: true,
+  })
   employmentType: string | null;
 
   @Column({ name: 'effective_from', type: 'date' })
@@ -247,9 +268,17 @@ export class AnalyticsEmployeeHistoryDimension {
 }
 
 @Entity({ schema: ANALYTICS_SCHEMA, name: 'fact_workforce_daily' })
-@Unique('UQ_fact_workforce_employee_date', ['companyId', 'employeeId', 'snapshotDate'])
+@Unique('UQ_fact_workforce_employee_date', [
+  'companyId',
+  'employeeId',
+  'snapshotDate',
+])
 @Index('IDX_fact_workforce_company_date', ['companyId', 'snapshotDate'])
-@Index('IDX_fact_workforce_department_date', ['companyId', 'departmentId', 'snapshotDate'])
+@Index('IDX_fact_workforce_department_date', [
+  'companyId',
+  'departmentId',
+  'snapshotDate',
+])
 export class AnalyticsWorkforceDailyFact {
   @PrimaryGeneratedColumn({ type: 'bigint' })
   id: string;
@@ -313,7 +342,11 @@ export class AnalyticsWorkforceDailyFact {
 }
 
 @Entity({ schema: ANALYTICS_SCHEMA, name: 'fact_attendance_daily' })
-@Unique('UQ_fact_attendance_employee_date', ['companyId', 'employeeId', 'attendanceDate'])
+@Unique('UQ_fact_attendance_employee_date', [
+  'companyId',
+  'employeeId',
+  'attendanceDate',
+])
 @Index('IDX_fact_attendance_company_date', ['companyId', 'attendanceDate'])
 export class AnalyticsAttendanceDailyFact {
   @PrimaryGeneratedColumn({ type: 'bigint' })
@@ -378,16 +411,40 @@ export class AnalyticsPayrollEmployeePeriodFact {
   @Column({ name: 'payroll_result_id', type: 'int' })
   payrollResultId: number;
 
-  @Column({ name: 'gross_pay', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'gross_pay',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   grossPay: string;
 
-  @Column({ name: 'net_pay', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'net_pay',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   netPay: string;
 
-  @Column({ name: 'employee_deductions', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'employee_deductions',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   employeeDeductions: string;
 
-  @Column({ name: 'total_employer_cost', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'total_employer_cost',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   totalEmployerCost: string;
 
   @Column({ name: 'currency', type: 'varchar', length: 3, default: 'TZS' })
@@ -401,7 +458,11 @@ export class AnalyticsPayrollEmployeePeriodFact {
 }
 
 @Entity({ schema: ANALYTICS_SCHEMA, name: 'fact_employee_finance_monthly' })
-@Unique('UQ_fact_employee_finance_account_month', ['companyId', 'accountId', 'monthStart'])
+@Unique('UQ_fact_employee_finance_account_month', [
+  'companyId',
+  'accountId',
+  'monthStart',
+])
 @Index('IDX_fact_employee_finance_company_month', ['companyId', 'monthStart'])
 export class AnalyticsEmployeeFinanceMonthlyFact {
   @PrimaryGeneratedColumn({ type: 'bigint' })
@@ -422,19 +483,49 @@ export class AnalyticsEmployeeFinanceMonthlyFact {
   @Column({ name: 'month_start', type: 'date' })
   monthStart: string;
 
-  @Column({ name: 'opening_balance', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'opening_balance',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   openingBalance: string;
 
-  @Column({ name: 'disbursed_amount', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'disbursed_amount',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   disbursedAmount: string;
 
-  @Column({ name: 'repaid_amount', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'repaid_amount',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   repaidAmount: string;
 
-  @Column({ name: 'closing_balance', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'closing_balance',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   closingBalance: string;
 
-  @Column({ name: 'arrears_amount', type: 'decimal', precision: 20, scale: 2, default: '0' })
+  @Column({
+    name: 'arrears_amount',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
   arrearsAmount: string;
 
   @Column({ name: 'snapshot_run_id', type: 'bigint' })
@@ -442,8 +533,16 @@ export class AnalyticsEmployeeFinanceMonthlyFact {
 }
 
 @Entity({ schema: ANALYTICS_SCHEMA, name: 'analytics_generic_facts' })
-@Unique('UQ_analytics_generic_fact_source', ['companyId', 'datasetCode', 'sourceId'])
-@Index('IDX_analytics_generic_fact_company_date', ['companyId', 'datasetCode', 'factDate'])
+@Unique('UQ_analytics_generic_fact_source', [
+  'companyId',
+  'datasetCode',
+  'sourceId',
+])
+@Index('IDX_analytics_generic_fact_company_date', [
+  'companyId',
+  'datasetCode',
+  'factDate',
+])
 export class AnalyticsGenericFact {
   @PrimaryGeneratedColumn({ type: 'bigint' })
   id: string;
@@ -494,7 +593,11 @@ export class AnalyticsSnapshotRun {
   @Column({ name: 'dataset_code', type: 'varchar', length: 100 })
   datasetCode: string;
 
-  @Column({ name: 'refresh_mode', type: 'enum', enum: AnalyticsRefreshModeEnum })
+  @Column({
+    name: 'refresh_mode',
+    type: 'enum',
+    enum: AnalyticsRefreshModeEnum,
+  })
   refreshMode: AnalyticsRefreshModeEnum;
 
   @Column({ name: 'date_from', type: 'date', nullable: true })
@@ -555,7 +658,12 @@ export class AnalyticsDashboardDefinition {
   @Column({ type: 'varchar', length: 60 })
   audience: string;
 
-  @Column({ name: 'scope_type', type: 'varchar', length: 60, default: 'COMPANY' })
+  @Column({
+    name: 'scope_type',
+    type: 'varchar',
+    length: 60,
+    default: 'COMPANY',
+  })
   scopeType: string;
 
   @Column({ name: 'required_permissions', type: 'jsonb' })
@@ -596,7 +704,11 @@ export class AnalyticsDashboardWidgetDefinition {
 }
 
 @Entity({ schema: ANALYTICS_SCHEMA, name: 'analytics_report_definitions' })
-@Unique('UQ_analytics_report_company_code_version', ['companyId', 'code', 'versionNumber'])
+@Unique('UQ_analytics_report_company_code_version', [
+  'companyId',
+  'code',
+  'versionNumber',
+])
 export class AnalyticsReportDefinition {
   @PrimaryGeneratedColumn()
   id: number;
@@ -650,10 +762,19 @@ export class AnalyticsRefreshCheckpoint {
   @Column({ name: 'dataset_code', type: 'varchar', length: 100 })
   datasetCode: string;
 
-  @Column({ name: 'last_successful_refresh_at', type: 'timestamptz', nullable: true })
+  @Column({
+    name: 'last_successful_refresh_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
   lastSuccessfulRefreshAt: Date | null;
 
-  @Column({ name: 'last_source_cursor', type: 'varchar', length: 180, nullable: true })
+  @Column({
+    name: 'last_source_cursor',
+    type: 'varchar',
+    length: 180,
+    nullable: true,
+  })
   lastSourceCursor: string | null;
 
   @Column({ name: 'last_run_id', type: 'bigint', nullable: true })
@@ -715,7 +836,11 @@ export class AnalyticsExportJob {
   @Column({ name: 'output_format', type: 'varchar', length: 20 })
   outputFormat: string;
 
-  @Column({ type: 'enum', enum: AnalyticsExportStatusEnum, default: AnalyticsExportStatusEnum.PENDING })
+  @Column({
+    type: 'enum',
+    enum: AnalyticsExportStatusEnum,
+    default: AnalyticsExportStatusEnum.PENDING,
+  })
   status: AnalyticsExportStatusEnum;
 
   @Column({ type: 'jsonb' })
@@ -802,7 +927,11 @@ export class AnalyticsAccessLog {
 }
 
 @Entity({ schema: ANALYTICS_SCHEMA, name: 'statutory_report_definitions' })
-@Unique('UQ_statutory_report_company_code_version', ['companyId', 'code', 'versionNumber'])
+@Unique('UQ_statutory_report_company_code_version', [
+  'companyId',
+  'code',
+  'versionNumber',
+])
 export class StatutoryReportDefinition {
   @PrimaryGeneratedColumn()
   id: number;

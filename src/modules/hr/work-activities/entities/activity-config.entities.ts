@@ -129,7 +129,11 @@ export class ActivityPolicy {
   })
   minimumCompletedActivityCount: number;
 
-  @Column({ name: 'field_visit_plan_required', type: 'boolean', default: false })
+  @Column({
+    name: 'field_visit_plan_required',
+    type: 'boolean',
+    default: false,
+  })
   fieldVisitPlanRequired: boolean;
 
   @Column({ name: 'allow_unplanned_visits', type: 'boolean', default: true })
@@ -186,7 +190,12 @@ export class FieldParty {
   @Column({ type: 'varchar', length: 200 })
   name: string;
 
-  @Column({ name: 'contact_person', type: 'varchar', length: 180, nullable: true })
+  @Column({
+    name: 'contact_person',
+    type: 'varchar',
+    length: 180,
+    nullable: true,
+  })
   contactPerson: string | null;
 
   @Column({ type: 'varchar', length: 50, nullable: true })
@@ -198,16 +207,33 @@ export class FieldParty {
   @Column({ type: 'text', nullable: true })
   address: string | null;
 
-  @Column({ name: 'latitude', type: 'decimal', precision: 10, scale: 7, nullable: true })
+  @Column({
+    name: 'latitude',
+    type: 'decimal',
+    precision: 10,
+    scale: 7,
+    nullable: true,
+  })
   latitude: string | null;
 
-  @Column({ name: 'longitude', type: 'decimal', precision: 10, scale: 7, nullable: true })
+  @Column({
+    name: 'longitude',
+    type: 'decimal',
+    precision: 10,
+    scale: 7,
+    nullable: true,
+  })
   longitude: string | null;
 
   @Column({ name: 'location_radius_meters', type: 'int', nullable: true })
   locationRadiusMeters: number | null;
 
-  @Column({ name: 'source_system', type: 'varchar', length: 80, nullable: true })
+  @Column({
+    name: 'source_system',
+    type: 'varchar',
+    length: 80,
+    nullable: true,
+  })
   sourceSystem: string | null;
 
   @Column({

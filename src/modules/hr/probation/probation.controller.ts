@@ -76,10 +76,7 @@ export class ProbationController {
   @Get('cases')
   @UseGuards(PermissionsGuard)
   @Permissions('probation_cases:read')
-  listCases(
-    @Req() req: AuthedRequest,
-    @Query() query: ProbationCaseQueryDto,
-  ) {
+  listCases(@Req() req: AuthedRequest, @Query() query: ProbationCaseQueryDto) {
     return this.service.listCases(req.user, query);
   }
 

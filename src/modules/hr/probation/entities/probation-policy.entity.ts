@@ -140,10 +140,8 @@ export class ProbationPolicy {
   @JoinColumn({ name: 'grade_id' })
   grade: EmployeeGrade | null;
 
-  @OneToMany(
-    () => ProbationPolicyCriterion,
-    (criterion) => criterion.policy,
-    { cascade: true },
-  )
+  @OneToMany(() => ProbationPolicyCriterion, (criterion) => criterion.policy, {
+    cascade: true,
+  })
   criteria: ProbationPolicyCriterion[];
 }

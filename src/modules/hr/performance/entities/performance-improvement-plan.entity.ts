@@ -14,7 +14,10 @@ import { PerformanceImprovementMilestone } from './performance-improvement-miles
 
 @Entity('performance_improvement_plans')
 @Unique('UQ_performance_improvement_plan_review', ['performanceReviewId'])
-@Index('IDX_performance_improvement_plan_company_status', ['companyId', 'status'])
+@Index('IDX_performance_improvement_plan_company_status', [
+  'companyId',
+  'status',
+])
 export class PerformanceImprovementPlan {
   @PrimaryGeneratedColumn()
   id: number;
@@ -34,6 +37,7 @@ export class PerformanceImprovementPlan {
   @Column({
     type: 'enum',
     enum: PerformanceImprovementPlanStatusEnum,
+    enumName: 'performance_improvement_plan_status_enum',
     default: PerformanceImprovementPlanStatusEnum.DRAFT,
   })
   status: PerformanceImprovementPlanStatusEnum;
@@ -44,7 +48,11 @@ export class PerformanceImprovementPlan {
   @Column({ name: 'objectives', type: 'jsonb' })
   objectives: string[];
 
-  @Column({ name: 'employee_acknowledged_at', type: 'timestamptz', nullable: true })
+  @Column({
+    name: 'employee_acknowledged_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
   employeeAcknowledgedAt: Date | null;
 
   @Column({ name: 'created_by_company_user_id', type: 'int', nullable: true })
@@ -62,8 +70,12 @@ export class PerformanceImprovementPlan {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-  @OneToMany(() => PerformanceImprovementMilestone, (milestone) => milestone.plan, {
-    cascade: true,
-  })
+  @OneToMany(
+    () => PerformanceImprovementMilestone,
+    (milestone) => milestone.plan,
+    {
+      cascade: true,
+    },
+  )
   milestones: PerformanceImprovementMilestone[];
 }

@@ -58,9 +58,15 @@ describe('ProbationService', () => {
     assertCanAccessEmployee: jest.Mock;
     assertCompanyScopedActor: jest.Mock;
   };
-  let actionItemsService: { upsertOpen: jest.Mock; completeBySource: jest.Mock };
+  let actionItemsService: {
+    upsertOpen: jest.Mock;
+    completeBySource: jest.Mock;
+  };
   let auditService: { log: jest.Mock };
-  let letterService: { isLetterGenerated: jest.Mock; generateAndStore: jest.Mock };
+  let letterService: {
+    isLetterGenerated: jest.Mock;
+    generateAndStore: jest.Mock;
+  };
   let offboardingService: { createOffboardingRequest: jest.Mock };
   let caseRepository: MockRepo;
   let policyRepository: MockRepo;
@@ -143,7 +149,8 @@ describe('ProbationService', () => {
 
   const buildManagerFor = (repos: Partial<Record<string, MockRepo>>) => ({
     getRepository: jest.fn((entity: unknown) => {
-      if (entity === ProbationCase) return repos.probationCase ?? caseRepository;
+      if (entity === ProbationCase)
+        return repos.probationCase ?? caseRepository;
       if (entity === Employee) return repos.employee ?? createRepositoryMock();
       if (entity === ProbationReviewCycle)
         return repos.reviewCycle ?? createRepositoryMock();
@@ -155,8 +162,7 @@ describe('ProbationService', () => {
         return repos.extension ?? createRepositoryMock();
       if (entity === ProbationNumberSequence)
         return repos.numberSequence ?? createRepositoryMock();
-      if (entity === ProbationPolicy)
-        return repos.policy ?? policyRepository;
+      if (entity === ProbationPolicy) return repos.policy ?? policyRepository;
       throw new Error('Unexpected repository requested in test');
     }),
   });
@@ -213,7 +219,9 @@ describe('ProbationService', () => {
       const existingCase = { id: 99 } as ProbationCase;
       const probationCaseRepo = createRepositoryMock();
       probationCaseRepo.createQueryBuilder.mockReturnValue(
-        createQueryBuilderMock({ getOne: jest.fn().mockResolvedValue(existingCase) }),
+        createQueryBuilderMock({
+          getOne: jest.fn().mockResolvedValue(existingCase),
+        }),
       );
 
       const manager = buildManagerFor({ probationCase: probationCaseRepo });
@@ -247,7 +255,9 @@ describe('ProbationService', () => {
       const probationCase = buildCase({ employeeId: actor.employeeId });
       const probationCaseRepo = createRepositoryMock();
       probationCaseRepo.createQueryBuilder.mockReturnValue(
-        createQueryBuilderMock({ getOne: jest.fn().mockResolvedValue(probationCase) }),
+        createQueryBuilderMock({
+          getOne: jest.fn().mockResolvedValue(probationCase),
+        }),
       );
       dataSource.transaction.mockImplementation(async (cb) =>
         cb(buildManagerFor({ probationCase: probationCaseRepo })),
@@ -266,7 +276,9 @@ describe('ProbationService', () => {
       const probationCase = buildCase();
       const probationCaseRepo = createRepositoryMock();
       probationCaseRepo.createQueryBuilder.mockReturnValue(
-        createQueryBuilderMock({ getOne: jest.fn().mockResolvedValue(probationCase) }),
+        createQueryBuilderMock({
+          getOne: jest.fn().mockResolvedValue(probationCase),
+        }),
       );
 
       const reviewCycleRepo = createRepositoryMock();
@@ -332,9 +344,9 @@ describe('ProbationService', () => {
 
       const employeeRepo = createRepositoryMock();
       const employeeQueryBuilder = createQueryBuilderMock({
-        getOneOrFail: jest.fn().mockResolvedValue(
-          buildEmployee({ id: 2, hire_date: '2026-03-01' }),
-        ),
+        getOneOrFail: jest
+          .fn()
+          .mockResolvedValue(buildEmployee({ id: 2, hire_date: '2026-03-01' })),
       });
       employeeRepo.createQueryBuilder.mockReturnValue(employeeQueryBuilder);
 

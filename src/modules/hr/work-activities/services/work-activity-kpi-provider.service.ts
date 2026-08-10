@@ -14,7 +14,6 @@ import {
   DailyActivityReportStatusEnum,
   DailyActivityStatusEnum,
   FieldFollowUpStatusEnum,
-  FieldOpportunityStatusEnum,
   FieldOpportunityTypeEnum,
   FieldVisitStatusEnum,
   FieldVisitTypeEnum,
@@ -137,7 +136,9 @@ export class WorkActivityKpiProviderService {
           })
           .getMany();
         if (!approvedReports.length) return 0;
-        const onTime = approvedReports.filter((report) => !report.submissionIsLate).length;
+        const onTime = approvedReports.filter(
+          (report) => !report.submissionIsLate,
+        ).length;
         return Number(((onTime / approvedReports.length) * 100).toFixed(4));
       }
       case 'FIELD_VISITS_PLANNED': {
@@ -156,7 +157,9 @@ export class WorkActivityKpiProviderService {
           .andWhere('visit.employeeId = :employeeId', { employeeId })
           .andWhere('visit.visitDate >= :dateFrom', { dateFrom })
           .andWhere('visit.visitDate <= :dateTo', { dateTo })
-          .andWhere('visit.status = :status', { status: FieldVisitStatusEnum.REVIEWED })
+          .andWhere('visit.status = :status', {
+            status: FieldVisitStatusEnum.REVIEWED,
+          })
           .andWhere('visit.managerReviewStatus = :reviewStatus', {
             reviewStatus: 'APPROVED',
           })
@@ -194,7 +197,9 @@ export class WorkActivityKpiProviderService {
           .andWhere('visit.visitDate >= :dateFrom', { dateFrom })
           .andWhere('visit.visitDate <= :dateTo', { dateTo })
           .andWhere('visit.visitType = :visitType', { visitType })
-          .andWhere('visit.status = :status', { status: FieldVisitStatusEnum.REVIEWED })
+          .andWhere('visit.status = :status', {
+            status: FieldVisitStatusEnum.REVIEWED,
+          })
           .andWhere('visit.managerReviewStatus = :reviewStatus', {
             reviewStatus: 'APPROVED',
           })
@@ -216,7 +221,9 @@ export class WorkActivityKpiProviderService {
           .andWhere('visit.visitDate >= :dateFrom', { dateFrom })
           .andWhere('visit.visitDate <= :dateTo', { dateTo })
           .andWhere('visit.isUnplanned = true')
-          .andWhere('visit.status = :status', { status: FieldVisitStatusEnum.REVIEWED })
+          .andWhere('visit.status = :status', {
+            status: FieldVisitStatusEnum.REVIEWED,
+          })
           .andWhere('visit.managerReviewStatus = :reviewStatus', {
             reviewStatus: 'APPROVED',
           })
@@ -239,7 +246,9 @@ export class WorkActivityKpiProviderService {
           .andWhere('opportunity.employeeId = :employeeId', { employeeId })
           .andWhere('visit.visitDate >= :dateFrom', { dateFrom })
           .andWhere('visit.visitDate <= :dateTo', { dateTo })
-          .andWhere('visit.status = :status', { status: FieldVisitStatusEnum.REVIEWED })
+          .andWhere('visit.status = :status', {
+            status: FieldVisitStatusEnum.REVIEWED,
+          })
           .andWhere('visit.managerReviewStatus = :reviewStatus', {
             reviewStatus: 'APPROVED',
           })
@@ -257,7 +266,9 @@ export class WorkActivityKpiProviderService {
           .andWhere('opportunity.employeeId = :employeeId', { employeeId })
           .andWhere('visit.visitDate >= :dateFrom', { dateFrom })
           .andWhere('visit.visitDate <= :dateTo', { dateTo })
-          .andWhere('visit.status = :status', { status: FieldVisitStatusEnum.REVIEWED })
+          .andWhere('visit.status = :status', {
+            status: FieldVisitStatusEnum.REVIEWED,
+          })
           .andWhere('visit.managerReviewStatus = :reviewStatus', {
             reviewStatus: 'APPROVED',
           })
@@ -273,7 +284,9 @@ export class WorkActivityKpiProviderService {
           .andWhere('opportunity.employeeId = :employeeId', { employeeId })
           .andWhere('visit.visitDate >= :dateFrom', { dateFrom })
           .andWhere('visit.visitDate <= :dateTo', { dateTo })
-          .andWhere('visit.status = :status', { status: FieldVisitStatusEnum.REVIEWED })
+          .andWhere('visit.status = :status', {
+            status: FieldVisitStatusEnum.REVIEWED,
+          })
           .andWhere('visit.managerReviewStatus = :reviewStatus', {
             reviewStatus: 'APPROVED',
           })
@@ -291,7 +304,9 @@ export class WorkActivityKpiProviderService {
           .createQueryBuilder('followUp')
           .innerJoin(FieldVisit, 'visit', 'visit.id = followUp.fieldVisitId')
           .where('followUp.companyId = :companyId', { companyId })
-          .andWhere('followUp.assignedToEmployeeId = :employeeId', { employeeId })
+          .andWhere('followUp.assignedToEmployeeId = :employeeId', {
+            employeeId,
+          })
           .andWhere('visit.visitDate >= :dateFrom', { dateFrom })
           .andWhere('visit.visitDate <= :dateTo', { dateTo })
           .andWhere('visit.visitType = :visitType', { visitType })
@@ -304,7 +319,9 @@ export class WorkActivityKpiProviderService {
         const total = await this.followUpRepository
           .createQueryBuilder('followUp')
           .where('followUp.companyId = :companyId', { companyId })
-          .andWhere('followUp.assignedToEmployeeId = :employeeId', { employeeId })
+          .andWhere('followUp.assignedToEmployeeId = :employeeId', {
+            employeeId,
+          })
           .andWhere('followUp.dueDate >= :dateFrom', { dateFrom })
           .andWhere('followUp.dueDate <= :dateTo', { dateTo })
           .getCount();
@@ -312,7 +329,9 @@ export class WorkActivityKpiProviderService {
         const completed = await this.followUpRepository
           .createQueryBuilder('followUp')
           .where('followUp.companyId = :companyId', { companyId })
-          .andWhere('followUp.assignedToEmployeeId = :employeeId', { employeeId })
+          .andWhere('followUp.assignedToEmployeeId = :employeeId', {
+            employeeId,
+          })
           .andWhere('followUp.dueDate >= :dateFrom', { dateFrom })
           .andWhere('followUp.dueDate <= :dateTo', { dateTo })
           .andWhere('followUp.status = :status', {

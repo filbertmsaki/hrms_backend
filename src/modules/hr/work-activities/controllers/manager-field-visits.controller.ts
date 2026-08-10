@@ -17,7 +17,10 @@ import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { ReviewFieldVisitDto } from '../dto/field-visit.dto';
-import { FieldLocationMapQueryDto, WorkActivityQueryDto } from '../dto/queries.dto';
+import {
+  FieldLocationMapQueryDto,
+  WorkActivityQueryDto,
+} from '../dto/queries.dto';
 import { FieldVisitService } from '../services/field-visit.service';
 import { WorkActivityInsightsService } from '../services/work-activity-insights.service';
 
@@ -35,7 +38,10 @@ export class ManagerFieldVisitsController {
 
   @Get('dashboard')
   @Permissions('field_visits:manager:read')
-  getDashboard(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
+  getDashboard(
+    @Req() req: AuthedRequest,
+    @Query() query: WorkActivityQueryDto,
+  ) {
     return this.insightsService.getManagerSummary(
       req.user,
       query.date_from,
@@ -90,7 +96,10 @@ export class ManagerFieldVisitsController {
 
   @Get('planned-vs-actual')
   @Permissions('field_visits:manager:read')
-  plannedVsActual(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
+  plannedVsActual(
+    @Req() req: AuthedRequest,
+    @Query() query: WorkActivityQueryDto,
+  ) {
     return this.visitService.getPlannedVsActual(req.user, query);
   }
 

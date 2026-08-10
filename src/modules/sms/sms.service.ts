@@ -25,7 +25,10 @@ export class SmsService {
   constructor(private readonly configService: ConfigService) {}
 
   getConfigurationError(): string | null {
-    const enabled = this.configService.get<boolean>('SMS_GATEWAY_ENABLED', false);
+    const enabled = this.configService.get<boolean>(
+      'SMS_GATEWAY_ENABLED',
+      false,
+    );
     if (!enabled) {
       return 'SMS gateway is disabled';
     }
@@ -62,10 +65,7 @@ export class SmsService {
     return this.sendTextSms(phone, smsMessage);
   }
 
-  async sendTextSms(
-    phone: string,
-    smsMessage: string,
-  ): Promise<SmsSendResult> {
+  async sendTextSms(phone: string, smsMessage: string): Promise<SmsSendResult> {
     const configurationError = this.getConfigurationError();
     if (configurationError) {
       throw new Error(configurationError);
@@ -107,7 +107,7 @@ export class SmsService {
       },
       timeout: timeoutMs,
       responseType: 'text',
-      transformResponse: [(data) => data],
+      transformResponse: [(data: string) => data],
     });
 
     const rawResponse =
@@ -170,14 +170,17 @@ export class SmsService {
     }
 
     if (Array.isArray(value)) {
-      return this.flattenFirstObject(value[0]);
+      const [first] = value as unknown[];
+      return this.flattenFirstObject(first);
     }
 
     const record = value as Record<string, unknown>;
     const keys = Object.keys(record);
     const isFlat = keys.every((key) => {
       const item = record[key];
-      return item === null || ['string', 'number', 'boolean'].includes(typeof item);
+      return (
+        item === null || ['string', 'number', 'boolean'].includes(typeof item)
+      );
     });
 
     if (isFlat) {

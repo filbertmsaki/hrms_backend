@@ -149,13 +149,14 @@ export class EmployeeSelfServiceService {
     @Optional()
     @Inject(WorkActivityInsightsService)
     private readonly workActivityInsightsService: WorkActivityInsightsPort = {
-      getEmployeeSummary: async () => ({
-        reports_submitted: 0,
-        approved_reports: 0,
-        reviewed_visits: 0,
-        open_follow_ups: 0,
-        open_exceptions: 0,
-      }),
+      getEmployeeSummary: () =>
+        Promise.resolve({
+          reports_submitted: 0,
+          approved_reports: 0,
+          reviewed_visits: 0,
+          open_follow_ups: 0,
+          open_exceptions: 0,
+        }),
     },
   ) {}
 
@@ -282,7 +283,7 @@ export class EmployeeSelfServiceService {
       })),
     ]
       .filter((item) => !query.module || item.source === query.module)
-      .filter((item) => !query.status || item.status === query.status)
+      .filter((item) => !query.status || String(item.status) === query.status)
       .sort(
         (left, right) =>
           new Date(right.updated_at).getTime() -

@@ -2,6 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
+type AdvisoryLockRow = {
+  acquired: boolean;
+};
+
 @Injectable()
 export class PostgresAdvisoryLockService {
   constructor(
@@ -17,12 +21,12 @@ export class PostgresAdvisoryLockService {
     await queryRunner.connect();
 
     try {
-      const result = await queryRunner.query(
+      const result = (await queryRunner.query(
         `
         SELECT pg_try_advisory_lock(hashtext($1)) AS acquired
         `,
         [key],
-      );
+      )) as AdvisoryLockRow[];
 
       const acquired = result[0]?.acquired === true;
       if (!acquired) {

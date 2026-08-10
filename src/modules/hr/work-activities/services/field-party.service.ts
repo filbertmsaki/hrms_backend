@@ -17,12 +17,28 @@ export class FieldPartyService {
     return this.hrAccessService.ensureActorCompanyId(actor);
   }
 
+  private toText(value: unknown, fallback = ''): string {
+    if (typeof value === 'string') {
+      return value;
+    }
+
+    if (
+      typeof value === 'number' ||
+      typeof value === 'boolean' ||
+      typeof value === 'bigint'
+    ) {
+      return String(value);
+    }
+
+    return fallback;
+  }
+
   async create(actor: AuthenticatedUser, dto: Record<string, unknown>) {
     const companyId = this.getCompanyId(actor);
     const party = this.repository.create({
       companyId,
-      partyType: String(dto.party_type),
-      name: String(dto.name).trim(),
+      partyType: this.toText(dto.party_type),
+      name: this.toText(dto.name).trim(),
       contactPerson: (dto.contact_person as string | undefined)?.trim() ?? null,
       phone: (dto.phone as string | undefined)?.trim() ?? null,
       email: (dto.email as string | undefined)?.trim() ?? null,
@@ -63,23 +79,36 @@ export class FieldPartyService {
     return party;
   }
 
-  async update(actor: AuthenticatedUser, id: number, dto: Record<string, unknown>) {
+  async update(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: Record<string, unknown>,
+  ) {
     const party = await this.get(actor, id);
-    if (dto.party_type !== undefined) party.partyType = String(dto.party_type);
-    if (dto.name !== undefined) party.name = String(dto.name).trim();
-    if (dto.contact_person !== undefined) {
-      party.contactPerson = (dto.contact_person as string | null)?.trim() ?? null;
+    if (dto.party_type !== undefined) {
+      party.partyType = this.toText(dto.party_type);
     }
-    if (dto.phone !== undefined) party.phone = (dto.phone as string | null)?.trim() ?? null;
-    if (dto.email !== undefined) party.email = (dto.email as string | null)?.trim() ?? null;
+    if (dto.name !== undefined) {
+      party.name = this.toText(dto.name).trim();
+    }
+    if (dto.contact_person !== undefined) {
+      party.contactPerson =
+        (dto.contact_person as string | null)?.trim() ?? null;
+    }
+    if (dto.phone !== undefined)
+      party.phone = (dto.phone as string | null)?.trim() ?? null;
+    if (dto.email !== undefined)
+      party.email = (dto.email as string | null)?.trim() ?? null;
     if (dto.address !== undefined) {
       party.address = (dto.address as string | null)?.trim() ?? null;
     }
     if (dto.latitude !== undefined) {
-      party.latitude = dto.latitude === null ? null : String(Number(dto.latitude));
+      party.latitude =
+        dto.latitude === null ? null : String(Number(dto.latitude));
     }
     if (dto.longitude !== undefined) {
-      party.longitude = dto.longitude === null ? null : String(Number(dto.longitude));
+      party.longitude =
+        dto.longitude === null ? null : String(Number(dto.longitude));
     }
     if (dto.location_radius_meters !== undefined) {
       party.locationRadiusMeters =

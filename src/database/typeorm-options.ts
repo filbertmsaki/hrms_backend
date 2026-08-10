@@ -60,10 +60,7 @@ export function createBaseTypeOrmOptionsFromEnv(
 ): DataSourceOptions {
   const logging = (env.NODE_ENV ?? 'development') === 'development';
   const sslEnabled = parseBoolean(env.DB_SSL_ENABLED, false);
-  const rejectUnauthorized = parseBoolean(
-    env.DB_SSL_REJECT_UNAUTHORIZED,
-    true,
-  );
+  const rejectUnauthorized = parseBoolean(env.DB_SSL_REJECT_UNAUTHORIZED, true);
 
   return {
     type: 'postgres',
@@ -90,7 +87,8 @@ export function createBaseTypeOrmOptionsFromEnv(
 export function createBaseTypeOrmOptionsFromConfig(
   configService: ConfigService,
 ): TypeOrmModuleOptions {
-  const logging = configService.get<string>('NODE_ENV', 'development') === 'development';
+  const logging =
+    configService.get<string>('NODE_ENV', 'development') === 'development';
   const sslEnabled = configService.get<boolean>('DB_SSL_ENABLED', false);
   const rejectUnauthorized = configService.get<boolean>(
     'DB_SSL_REJECT_UNAUTHORIZED',
@@ -115,10 +113,7 @@ export function createBaseTypeOrmOptionsFromConfig(
         'DB_CONNECTION_TIMEOUT_MS',
         10000,
       ),
-      idleTimeoutMillis: configService.get<number>(
-        'DB_IDLE_TIMEOUT_MS',
-        30000,
-      ),
+      idleTimeoutMillis: configService.get<number>('DB_IDLE_TIMEOUT_MS', 30000),
       statement_timeout: configService.get<number>(
         'DB_STATEMENT_TIMEOUT_MS',
         30000,

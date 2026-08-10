@@ -36,17 +36,27 @@ export class PayrollMoney {
   }
 
   static add(...values: Array<string | number | null | undefined>): string {
-    return this.fromCents(values.reduce((sum, value) => sum + this.toCents(value), 0n));
+    return this.fromCents(
+      values.reduce((sum, value) => sum + this.toCents(value), 0n),
+    );
   }
 
-  static multiplyPercent(value: string | number, percent: string | number): string {
+  static multiplyPercent(
+    value: string | number,
+    percent: string | number,
+  ): string {
     return this.fromDecimal(
       this.decimalOf(value).times(this.decimalOf(percent)).div(100),
     );
   }
 
-  static multiplyFactor(value: string | number, factor: string | number): string {
-    return this.fromDecimal(this.decimalOf(value).times(this.decimalOf(factor)));
+  static multiplyFactor(
+    value: string | number,
+    factor: string | number,
+  ): string {
+    return this.fromDecimal(
+      this.decimalOf(value).times(this.decimalOf(factor)),
+    );
   }
 
   static multiplyRatio(
@@ -61,7 +71,9 @@ export class PayrollMoney {
     }
 
     return this.fromDecimal(
-      this.decimalOf(value).times(String(numerator)).div(String(resolvedDenominator)),
+      this.decimalOf(value)
+        .times(String(numerator))
+        .div(String(resolvedDenominator)),
     );
   }
 

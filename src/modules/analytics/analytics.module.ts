@@ -69,7 +69,11 @@ const analyticsEntities = [
 ];
 
 @Module({
-  imports: [ConfigModule, HrSharedModule, TypeOrmModule.forFeature(analyticsEntities)],
+  imports: [
+    ConfigModule,
+    HrSharedModule,
+    TypeOrmModule.forFeature(analyticsEntities),
+  ],
   controllers: [AnalyticsController],
   providers: [
     AnalyticsAlertService,

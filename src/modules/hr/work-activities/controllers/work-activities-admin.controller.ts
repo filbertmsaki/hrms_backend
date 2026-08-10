@@ -25,7 +25,10 @@ import {
   UpdateActivityPolicyDto,
   UpdateFieldPartyDto,
 } from '../dto/activity.dto';
-import { FieldLocationMapQueryDto, WorkActivityQueryDto } from '../dto/queries.dto';
+import {
+  FieldLocationMapQueryDto,
+  WorkActivityQueryDto,
+} from '../dto/queries.dto';
 import { ActivityPolicyService } from '../services/activity-policy.service';
 import { DailyActivityService } from '../services/daily-activity.service';
 import { FieldPartyService } from '../services/field-party.service';
@@ -49,7 +52,10 @@ export class WorkActivitiesAdminController {
 
   @Post('activity-categories')
   @Permissions('work_activities:config')
-  createCategory(@Req() req: AuthedRequest, @Body() dto: CreateActivityCategoryDto) {
+  createCategory(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreateActivityCategoryDto,
+  ) {
     return this.policyService.createCategory(req.user, dto as never);
   }
 
@@ -80,7 +86,10 @@ export class WorkActivitiesAdminController {
 
   @Post('activity-policies')
   @Permissions('work_activities:config')
-  createPolicy(@Req() req: AuthedRequest, @Body() dto: CreateActivityPolicyDto) {
+  createPolicy(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreateActivityPolicyDto,
+  ) {
     return this.policyService.createPolicy(req.user, dto as never);
   }
 
@@ -102,7 +111,10 @@ export class WorkActivitiesAdminController {
 
   @Post('field-parties')
   @Permissions('field_visits:config')
-  createFieldParty(@Req() req: AuthedRequest, @Body() dto: CreateFieldPartyDto) {
+  createFieldParty(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreateFieldPartyDto,
+  ) {
     return this.fieldPartyService.create(req.user, dto as never);
   }
 
@@ -114,7 +126,10 @@ export class WorkActivitiesAdminController {
 
   @Get('field-parties/:id')
   @Permissions('field_visits:config')
-  getFieldParty(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+  getFieldParty(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
     return this.fieldPartyService.get(req.user, id);
   }
 
@@ -130,19 +145,28 @@ export class WorkActivitiesAdminController {
 
   @Get('hr/activities')
   @Permissions('work_activities:hr:read')
-  getActivitySummary(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
+  getActivitySummary(
+    @Req() req: AuthedRequest,
+    @Query() query: WorkActivityQueryDto,
+  ) {
     return this.dailyActivityService.listForHr(req.user, query);
   }
 
   @Get('hr/field-visits')
   @Permissions('field_visits:hr:read')
-  getVisitSummary(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
+  getVisitSummary(
+    @Req() req: AuthedRequest,
+    @Query() query: WorkActivityQueryDto,
+  ) {
     return this.visitService.listForHr(req.user, query);
   }
 
   @Get('hr/field-visits/map')
   @Permissions('field_locations:export')
-  getVisitMap(@Req() req: AuthedRequest, @Query() query: FieldLocationMapQueryDto) {
+  getVisitMap(
+    @Req() req: AuthedRequest,
+    @Query() query: FieldLocationMapQueryDto,
+  ) {
     return this.visitService.getMapPoints(req.user, query);
   }
 
@@ -154,9 +178,13 @@ export class WorkActivitiesAdminController {
 
   @Get('hr/activity-exceptions')
   @Permissions('work_activities:hr:read')
-  getActivityExceptions(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
+  getActivityExceptions(
+    @Req() req: AuthedRequest,
+    @Query() query: WorkActivityQueryDto,
+  ) {
     return this.exceptionService.list(req.user.companyId!, {
-      employeeId: (query as WorkActivityQueryDto & { employee_id?: number }).employee_id,
+      employeeId: (query as WorkActivityQueryDto & { employee_id?: number })
+        .employee_id,
       status: query.status,
     });
   }

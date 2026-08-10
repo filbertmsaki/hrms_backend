@@ -24,33 +24,37 @@ export class PerformanceInsightsService {
 
   async getCompanySummary(actor: AuthenticatedUser) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
-    const [openPeriods, pendingManagerValidation, pendingHrApproval, publishedReviews] =
-      await Promise.all([
-        this.periodRepository.count({
-          where: {
-            companyId,
-            status: PerformancePeriodStatusEnum.OPEN,
-          },
-        }),
-        this.achievementRepository.count({
-          where: {
-            companyId,
-            status: KpiAchievementStatusEnum.EMPLOYEE_SUBMITTED,
-          },
-        }),
-        this.achievementRepository.count({
-          where: {
-            companyId,
-            status: KpiAchievementStatusEnum.MANAGER_VALIDATED,
-          },
-        }),
-        this.reviewRepository.count({
-          where: {
-            companyId,
-            status: PerformanceReviewStatusEnum.PUBLISHED,
-          },
-        }),
-      ]);
+    const [
+      openPeriods,
+      pendingManagerValidation,
+      pendingHrApproval,
+      publishedReviews,
+    ] = await Promise.all([
+      this.periodRepository.count({
+        where: {
+          companyId,
+          status: PerformancePeriodStatusEnum.OPEN,
+        },
+      }),
+      this.achievementRepository.count({
+        where: {
+          companyId,
+          status: KpiAchievementStatusEnum.EMPLOYEE_SUBMITTED,
+        },
+      }),
+      this.achievementRepository.count({
+        where: {
+          companyId,
+          status: KpiAchievementStatusEnum.MANAGER_VALIDATED,
+        },
+      }),
+      this.reviewRepository.count({
+        where: {
+          companyId,
+          status: PerformanceReviewStatusEnum.PUBLISHED,
+        },
+      }),
+    ]);
 
     const finalScoreRow = await this.reviewRepository
       .createQueryBuilder('review')

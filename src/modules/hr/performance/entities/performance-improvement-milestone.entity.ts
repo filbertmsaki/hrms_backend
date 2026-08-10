@@ -29,6 +29,7 @@ export class PerformanceImprovementMilestone {
   @Column({
     type: 'enum',
     enum: PerformanceImprovementMilestoneStatusEnum,
+    enumName: 'performance_improvement_milestone_status_enum',
     default: PerformanceImprovementMilestoneStatusEnum.OPEN,
   })
   status: PerformanceImprovementMilestoneStatusEnum;

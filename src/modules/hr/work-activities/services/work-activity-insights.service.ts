@@ -5,9 +5,7 @@ import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-u
 import { Employee } from '../../employees/entities/employee.entity';
 import { HrAccessService } from '../../shared/hr-access.service';
 import { WorkActivityException } from '../entities/analytics.entities';
-import {
-  DailyActivityReport,
-} from '../entities/daily-activity.entities';
+import { DailyActivityReport } from '../entities/daily-activity.entities';
 import {
   FieldFollowUp,
   FieldOpportunity,
@@ -64,43 +62,48 @@ export class WorkActivityInsightsService {
 
     const today = this.today();
     const dateFrom = this.monthStart(today);
-    const [reportsSubmitted, approvedReports, reviewedVisits, openFollowUps, openExceptions] =
-      await Promise.all([
-        this.reportRepository.count({
-          where: {
-            companyId: actor.companyId,
-            employeeId: actor.employeeId,
-          },
-        }),
-        this.reportRepository.count({
-          where: {
-            companyId: actor.companyId,
-            employeeId: actor.employeeId,
-            status: DailyActivityReportStatusEnum.APPROVED,
-          },
-        }),
-        this.visitRepository.count({
-          where: {
-            companyId: actor.companyId,
-            employeeId: actor.employeeId,
-            status: FieldVisitStatusEnum.REVIEWED,
-          },
-        }),
-        this.followUpRepository.count({
-          where: {
-            companyId: actor.companyId,
-            assignedToEmployeeId: actor.employeeId,
-            status: FieldFollowUpStatusEnum.OPEN,
-          },
-        }),
-        this.exceptionRepository.count({
-          where: {
-            companyId: actor.companyId,
-            employeeId: actor.employeeId,
-            status: 'OPEN' as never,
-          },
-        }),
-      ]);
+    const [
+      reportsSubmitted,
+      approvedReports,
+      reviewedVisits,
+      openFollowUps,
+      openExceptions,
+    ] = await Promise.all([
+      this.reportRepository.count({
+        where: {
+          companyId: actor.companyId,
+          employeeId: actor.employeeId,
+        },
+      }),
+      this.reportRepository.count({
+        where: {
+          companyId: actor.companyId,
+          employeeId: actor.employeeId,
+          status: DailyActivityReportStatusEnum.APPROVED,
+        },
+      }),
+      this.visitRepository.count({
+        where: {
+          companyId: actor.companyId,
+          employeeId: actor.employeeId,
+          status: FieldVisitStatusEnum.REVIEWED,
+        },
+      }),
+      this.followUpRepository.count({
+        where: {
+          companyId: actor.companyId,
+          assignedToEmployeeId: actor.employeeId,
+          status: FieldFollowUpStatusEnum.OPEN,
+        },
+      }),
+      this.exceptionRepository.count({
+        where: {
+          companyId: actor.companyId,
+          employeeId: actor.employeeId,
+          status: 'OPEN' as never,
+        },
+      }),
+    ]);
 
     return {
       reports_submitted: reportsSubmitted,
@@ -129,7 +132,11 @@ export class WorkActivityInsightsService {
     };
   }
 
-  async getManagerSummary(actor: AuthenticatedUser, dateFrom?: string, dateTo?: string) {
+  async getManagerSummary(
+    actor: AuthenticatedUser,
+    dateFrom?: string,
+    dateTo?: string,
+  ) {
     if (!actor.companyId) {
       return {
         pending_activity_reviews: 0,
@@ -154,7 +161,9 @@ export class WorkActivityInsightsService {
       (
         await this.employeeRepository
           .createQueryBuilder('employee')
-          .where('employee.company_id = :companyId', { companyId: actor.companyId })
+          .where('employee.company_id = :companyId', {
+            companyId: actor.companyId,
+          })
           .select('employee.id', 'id')
           .getRawMany<{ id: number }>()
       ).map((row) => Number(row.id));
@@ -177,27 +186,34 @@ export class WorkActivityInsightsService {
       employeeId: In(employeeIds),
     };
 
-    const [pendingActivityReviews, pendingVisitReviews, approvedReports, reviewedVisits] =
-      await Promise.all([
-        this.reportRepository.count({
-          where: {
-            ...reportWhere,
-            status: DailyActivityReportStatusEnum.MANAGER_REVIEW_PENDING,
-          },
-        }),
-        this.visitRepository.count({
-          where: {
-            ...visitWhere,
-            status: FieldVisitStatusEnum.MANAGER_REVIEW_PENDING,
-          },
-        }),
-        this.reportRepository.count({
-          where: { ...reportWhere, status: DailyActivityReportStatusEnum.APPROVED },
-        }),
-        this.visitRepository.count({
-          where: { ...visitWhere, status: FieldVisitStatusEnum.REVIEWED },
-        }),
-      ]);
+    const [
+      pendingActivityReviews,
+      pendingVisitReviews,
+      approvedReports,
+      reviewedVisits,
+    ] = await Promise.all([
+      this.reportRepository.count({
+        where: {
+          ...reportWhere,
+          status: DailyActivityReportStatusEnum.MANAGER_REVIEW_PENDING,
+        },
+      }),
+      this.visitRepository.count({
+        where: {
+          ...visitWhere,
+          status: FieldVisitStatusEnum.MANAGER_REVIEW_PENDING,
+        },
+      }),
+      this.reportRepository.count({
+        where: {
+          ...reportWhere,
+          status: DailyActivityReportStatusEnum.APPROVED,
+        },
+      }),
+      this.visitRepository.count({
+        where: { ...visitWhere, status: FieldVisitStatusEnum.REVIEWED },
+      }),
+    ]);
 
     return {
       pending_activity_reviews: pendingActivityReviews,
@@ -211,7 +227,11 @@ export class WorkActivityInsightsService {
     };
   }
 
-  async getCompanySummary(actor: AuthenticatedUser, dateFrom?: string, dateTo?: string) {
+  async getCompanySummary(
+    actor: AuthenticatedUser,
+    dateFrom?: string,
+    dateTo?: string,
+  ) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const [reportsApproved, visitsReviewed, openFollowUps, openExceptions] =
       await Promise.all([

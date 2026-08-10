@@ -22,7 +22,13 @@ export class KpiTemplateItem {
   @Column({ name: 'weight', type: 'decimal', precision: 7, scale: 2 })
   weight: string;
 
-  @Column({ name: 'target_value', type: 'decimal', precision: 14, scale: 4, nullable: true })
+  @Column({
+    name: 'target_value',
+    type: 'decimal',
+    precision: 14,
+    scale: 4,
+    nullable: true,
+  })
   targetValue: string | null;
 
   @Column({ name: 'manual_entry_allowed', type: 'boolean', default: true })

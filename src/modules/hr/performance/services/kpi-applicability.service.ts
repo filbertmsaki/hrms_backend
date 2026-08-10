@@ -86,9 +86,13 @@ export class KpiApplicabilityService {
         reviewCycle: dto.review_cycle?.trim() ?? null,
         templateCode: dto.template_code?.trim().toUpperCase() ?? null,
         weightOverride:
-          dto.weight_override === undefined ? null : String(dto.weight_override),
+          dto.weight_override === undefined
+            ? null
+            : String(dto.weight_override),
         targetOverride:
-          dto.target_override === undefined ? null : String(dto.target_override),
+          dto.target_override === undefined
+            ? null
+            : String(dto.target_override),
         metadata: dto.metadata ?? null,
       }),
     );
@@ -270,7 +274,9 @@ export class KpiApplicabilityService {
         })
       : [];
 
-    const templateMap = new Map(templates.map((template) => [template.code, template]));
+    const templateMap = new Map(
+      templates.map((template) => [template.code, template]),
+    );
     const resolved = new Map<number, ResolvedPlanItem>();
 
     for (const rule of matchingRules) {
@@ -282,7 +288,9 @@ export class KpiApplicabilityService {
               kpi_definition_version_id: item.kpiDefinitionVersionId,
               weight: Number(item.weight),
               target_value:
-                item.targetValue === null ? undefined : Number(item.targetValue),
+                item.targetValue === null
+                  ? undefined
+                  : Number(item.targetValue),
               manual_entry_allowed: item.manualEntryAllowed,
               evidence_required: item.evidenceRequired,
               notes: item.notes ?? undefined,
@@ -354,17 +362,17 @@ export class KpiApplicabilityService {
     return (
       (rule.financialYearId === null ||
         rule.financialYearId === context.financialYearId) &&
-      (rule.branchId === null || rule.branchId === employee.primary_branch_id) &&
+      (rule.branchId === null ||
+        rule.branchId === employee.primary_branch_id) &&
       (rule.departmentId === null ||
         rule.departmentId === employee.primary_department_id) &&
       (rule.positionId === null ||
         rule.positionId === employee.primary_position_id) &&
       (rule.gradeId === null || rule.gradeId === employee.grade_id) &&
       (rule.employmentType === null ||
-        rule.employmentType === employee.employment_type) &&
+        String(rule.employmentType) === String(employee.employment_type)) &&
       (rule.employeeId === null || rule.employeeId === employee.id) &&
-      (rule.reviewCycle === null ||
-        rule.reviewCycle === context.reviewCycle)
+      (rule.reviewCycle === null || rule.reviewCycle === context.reviewCycle)
     );
   }
 

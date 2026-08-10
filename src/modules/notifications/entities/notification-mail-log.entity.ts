@@ -29,7 +29,12 @@ export class NotificationMailLog {
   @Column({ type: 'varchar', length: 160 })
   method: string;
 
-  @Column({ name: 'recipient_email', type: 'varchar', length: 320, nullable: true })
+  @Column({
+    name: 'recipient_email',
+    type: 'varchar',
+    length: 320,
+    nullable: true,
+  })
   recipientEmail: string | null;
 
   @Column({ type: 'jsonb', nullable: true })

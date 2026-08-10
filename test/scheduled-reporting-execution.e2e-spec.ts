@@ -6,7 +6,7 @@ process.env.DB_NAME = process.env.DB_NAME ?? 'hrms_test_db';
 
 import 'reflect-metadata';
 import { ConfigService } from '@nestjs/config';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { AppDataSource } from '../src/database/data-source';
 import { PostgresAdvisoryLockService } from '../src/common/database/postgres-advisory-lock.service';
 import { FilesService } from '../src/modules/files/files.service';

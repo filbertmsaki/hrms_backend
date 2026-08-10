@@ -37,6 +37,7 @@ export class PerformanceAggregate {
     name: 'period_type',
     type: 'enum',
     enum: PerformancePeriodTypeEnum,
+    enumName: 'performance_period_type_enum',
   })
   periodType: PerformancePeriodTypeEnum;
 
@@ -50,6 +51,7 @@ export class PerformanceAggregate {
     name: 'aggregation_method',
     type: 'enum',
     enum: PerformanceAggregationMethodEnum,
+    enumName: 'performance_aggregation_method_enum',
   })
   aggregationMethod: PerformanceAggregationMethodEnum;
 

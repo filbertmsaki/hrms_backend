@@ -1,8 +1,4 @@
-import {
-  IsEnum,
-  IsOptional,
-  IsString,
-} from 'class-validator';
+import { IsEnum, IsOptional, IsString } from 'class-validator';
 import { PerformanceImprovementMilestoneStatusEnum } from '../enums/performance-improvement-milestone-status.enum';
 
 export class ReviewPerformanceImprovementMilestoneDto {

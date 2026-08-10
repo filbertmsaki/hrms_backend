@@ -79,7 +79,8 @@ export class PerformanceAggregationService {
       const quarterMonthlyIds = monthly
         .filter(
           (period) =>
-            period.startDate >= quarter.startDate && period.endDate <= quarter.endDate,
+            period.startDate >= quarter.startDate &&
+            period.endDate <= quarter.endDate,
         )
         .map((period) => period.id);
       const reviewsForQuarter = monthlyReviews.filter(
@@ -96,8 +97,10 @@ export class PerformanceAggregationService {
 
       for (const [employeeId, reviews] of byEmployee.entries()) {
         const score =
-          reviews.reduce((sum, review) => sum + Number(review.finalScore ?? 0), 0) /
-          reviews.length;
+          reviews.reduce(
+            (sum, review) => sum + Number(review.finalScore ?? 0),
+            0,
+          ) / reviews.length;
         aggregateResults.push(
           await this.saveAggregate({
             companyId: financialYear.companyId,
@@ -144,7 +147,9 @@ export class PerformanceAggregationService {
     });
     const monthlyPeriodIds = new Set(
       periods
-        .filter((period) => period.periodType === PerformancePeriodTypeEnum.MONTHLY)
+        .filter(
+          (period) => period.periodType === PerformancePeriodTypeEnum.MONTHLY,
+        )
         .map((period) => period.id),
     );
     const publishedMonthlyReviews = await this.reviewRepository.find({

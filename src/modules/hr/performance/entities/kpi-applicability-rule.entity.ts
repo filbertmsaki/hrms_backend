@@ -33,6 +33,7 @@ export class KpiApplicabilityRule {
   @Column({
     type: 'enum',
     enum: KpiApplicabilityRuleStatusEnum,
+    enumName: 'kpi_applicability_rule_status_enum',
     default: KpiApplicabilityRuleStatusEnum.ACTIVE,
   })
   status: KpiApplicabilityRuleStatusEnum;
@@ -55,7 +56,12 @@ export class KpiApplicabilityRule {
   @Column({ name: 'grade_id', type: 'int', nullable: true })
   gradeId: number | null;
 
-  @Column({ name: 'employment_type', type: 'varchar', length: 40, nullable: true })
+  @Column({
+    name: 'employment_type',
+    type: 'varchar',
+    length: 40,
+    nullable: true,
+  })
   employmentType: string | null;
 
   @Column({ name: 'employee_id', type: 'int', nullable: true })
@@ -64,13 +70,30 @@ export class KpiApplicabilityRule {
   @Column({ name: 'review_cycle', type: 'varchar', length: 40, nullable: true })
   reviewCycle: string | null;
 
-  @Column({ name: 'template_code', type: 'varchar', length: 80, nullable: true })
+  @Column({
+    name: 'template_code',
+    type: 'varchar',
+    length: 80,
+    nullable: true,
+  })
   templateCode: string | null;
 
-  @Column({ name: 'weight_override', type: 'decimal', precision: 7, scale: 2, nullable: true })
+  @Column({
+    name: 'weight_override',
+    type: 'decimal',
+    precision: 7,
+    scale: 2,
+    nullable: true,
+  })
   weightOverride: string | null;
 
-  @Column({ name: 'target_override', type: 'decimal', precision: 14, scale: 4, nullable: true })
+  @Column({
+    name: 'target_override',
+    type: 'decimal',
+    precision: 14,
+    scale: 4,
+    nullable: true,
+  })
   targetOverride: string | null;
 
   @Column({ name: 'metadata', type: 'jsonb', nullable: true })

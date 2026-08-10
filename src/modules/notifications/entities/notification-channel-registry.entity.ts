@@ -11,7 +11,10 @@ import { NotificationChannelEnum } from '../enums/notification-channel.enum';
 
 @Entity('notification_channel_registry')
 @Unique('UQ_notification_channel_registry_channel_code', ['channel', 'code'])
-@Index('IDX_notification_channel_registry_channel_module', ['channel', 'module'])
+@Index('IDX_notification_channel_registry_channel_module', [
+  'channel',
+  'module',
+])
 export class NotificationChannelRegistry {
   @PrimaryGeneratedColumn()
   id: number;

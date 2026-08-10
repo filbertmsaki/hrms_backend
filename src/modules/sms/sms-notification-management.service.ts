@@ -61,8 +61,7 @@ const DEFAULT_SMS_NOTIFICATION_REGISTRY: readonly SmsRegistrySeed[] = [
     code: 'auth.two_factor.disabled',
     name: 'Two-factor disabled',
     module: 'auth',
-    description:
-      'Alert the user that two-factor authentication was disabled.',
+    description: 'Alert the user that two-factor authentication was disabled.',
     smsTemplate:
       '{{app_name}}: Two-factor authentication was disabled for your account. Contact support if this was not you.',
     isEnabled: true,
@@ -119,8 +118,7 @@ const DEFAULT_SMS_NOTIFICATION_REGISTRY: readonly SmsRegistrySeed[] = [
     code: 'offboarding.approval.reminder',
     name: 'Offboarding approval reminder',
     module: 'offboarding',
-    description:
-      'Send an overdue reminder for offboarding approvals.',
+    description: 'Send an overdue reminder for offboarding approvals.',
     smsTemplate:
       'Reminder: offboarding approval for {{employee_name}} is still pending in {{app_name}}.',
     isEnabled: true,
@@ -129,8 +127,7 @@ const DEFAULT_SMS_NOTIFICATION_REGISTRY: readonly SmsRegistrySeed[] = [
     code: 'offboarding.asset.overdue',
     name: 'Offboarding asset overdue',
     module: 'offboarding',
-    description:
-      'Notify asset owners that a return is overdue.',
+    description: 'Notify asset owners that a return is overdue.',
     smsTemplate:
       'Asset return overdue: {{asset_label}} for {{employee_name}} requires your action in {{app_name}}.',
     isEnabled: true,
@@ -139,8 +136,7 @@ const DEFAULT_SMS_NOTIFICATION_REGISTRY: readonly SmsRegistrySeed[] = [
     code: 'offboarding.settlement.overdue',
     name: 'Offboarding settlement overdue',
     module: 'offboarding',
-    description:
-      'Notify settlement owners that a settlement item is overdue.',
+    description: 'Notify settlement owners that a settlement item is overdue.',
     smsTemplate:
       'Settlement overdue: {{settlement_title}} for {{employee_name}} requires your action in {{app_name}}.',
     isEnabled: true,
@@ -149,8 +145,7 @@ const DEFAULT_SMS_NOTIFICATION_REGISTRY: readonly SmsRegistrySeed[] = [
     code: 'payroll.payslip.ready',
     name: 'Payslip ready',
     module: 'payroll',
-    description:
-      'Notify employees that a payslip is ready to view.',
+    description: 'Notify employees that a payslip is ready to view.',
     smsTemplate:
       'Your payslip for payroll run {{run_no}} is ready in {{app_name}}.',
     isEnabled: true,
@@ -169,8 +164,7 @@ const DEFAULT_SMS_NOTIFICATION_REGISTRY: readonly SmsRegistrySeed[] = [
     code: 'employee_finance.disbursement.confirmed',
     name: 'Employee finance disbursed',
     module: 'employee-finance',
-    description:
-      'Notify the employee that a disbursement was confirmed.',
+    description: 'Notify the employee that a disbursement was confirmed.',
     smsTemplate:
       'Your {{product_type}} disbursement for application {{application_no}} has been confirmed in {{app_name}}.',
     isEnabled: true,
@@ -179,18 +173,15 @@ const DEFAULT_SMS_NOTIFICATION_REGISTRY: readonly SmsRegistrySeed[] = [
     code: 'onboarding.employee.started',
     name: 'Onboarding employee started',
     module: 'onboarding',
-    description:
-      'Future SMS hook for employee onboarding starts.',
-    smsTemplate:
-      'Your onboarding has started in {{app_name}}.',
+    description: 'Future SMS hook for employee onboarding starts.',
+    smsTemplate: 'Your onboarding has started in {{app_name}}.',
     isEnabled: false,
   },
   {
     code: 'attendance.alert.missed-punch',
     name: 'Attendance missed punch alert',
     module: 'attendance',
-    description:
-      'Future SMS hook for missed punch alerts.',
+    description: 'Future SMS hook for missed punch alerts.',
     smsTemplate:
       'Attendance alert: your punch requires attention in {{app_name}}.',
     isEnabled: false,
@@ -258,9 +249,7 @@ export class SmsNotificationManagementService implements OnModuleInit {
         continue;
       }
 
-      await this.registryRepository.save(
-        this.registryRepository.create(item),
-      );
+      await this.registryRepository.save(this.registryRepository.create(item));
     }
   }
 
@@ -304,13 +293,21 @@ export class SmsNotificationManagementService implements OnModuleInit {
   async getRegistryItem(idOrCode: number | string) {
     await this.ensureDefaults();
     if (typeof idOrCode === 'number') {
-      const byId = await this.registryRepository.findOne({ where: { id: idOrCode } });
-      if (!byId) throw new NotFoundException('SMS notification configuration not found.');
+      const byId = await this.registryRepository.findOne({
+        where: { id: idOrCode },
+      });
+      if (!byId)
+        throw new NotFoundException(
+          'SMS notification configuration not found.',
+        );
       return byId;
     }
 
-    const byCode = await this.registryRepository.findOne({ where: { code: idOrCode } });
-    if (!byCode) throw new NotFoundException('SMS notification configuration not found.');
+    const byCode = await this.registryRepository.findOne({
+      where: { code: idOrCode },
+    });
+    if (!byCode)
+      throw new NotFoundException('SMS notification configuration not found.');
     return byCode;
   }
 
@@ -433,8 +430,14 @@ export class SmsNotificationManagementService implements OnModuleInit {
       throw new NotFoundException('SMS log not found.');
     }
 
-    if (![SmsLogStatusEnum.FAILED, SmsLogStatusEnum.SKIPPED].includes(existing.status)) {
-      throw new BadRequestException('Only failed or skipped SMS logs can be retried.');
+    if (
+      ![SmsLogStatusEnum.FAILED, SmsLogStatusEnum.SKIPPED].includes(
+        existing.status,
+      )
+    ) {
+      throw new BadRequestException(
+        'Only failed or skipped SMS logs can be retried.',
+      );
     }
 
     if (existing.notificationCode && existing.notificationCode !== 'sms.test') {
@@ -504,25 +507,51 @@ export class SmsNotificationManagementService implements OnModuleInit {
       where: { code: input.code },
     });
     if (!registry) {
-      throw new NotFoundException(`SMS notification code ${input.code} is not registered.`);
+      throw new NotFoundException(
+        `SMS notification code ${input.code} is not registered.`,
+      );
     }
 
     const recipient = await this.resolveRecipient(input);
     if (!recipient.phone) {
-      await this.writeSkippedLog(registry, input, recipient, 'Recipient has no valid Tanzania phone number');
-      return { status: SmsLogStatusEnum.SKIPPED, reason: 'Recipient has no valid Tanzania phone number' };
+      await this.writeSkippedLog(
+        registry,
+        input,
+        recipient,
+        'Recipient has no valid Tanzania phone number',
+      );
+      return {
+        status: SmsLogStatusEnum.SKIPPED,
+        reason: 'Recipient has no valid Tanzania phone number',
+      };
     }
 
     if (!input.bypassGlobal) {
       await this.assertEnabledForCode(registry.code);
       const global = await this.getGlobalSetting();
       if (!global.isEnabled) {
-        await this.writeSkippedLog(registry, input, recipient, 'SMS notifications are disabled globally');
-        return { status: SmsLogStatusEnum.SKIPPED, reason: 'SMS notifications are disabled globally' };
+        await this.writeSkippedLog(
+          registry,
+          input,
+          recipient,
+          'SMS notifications are disabled globally',
+        );
+        return {
+          status: SmsLogStatusEnum.SKIPPED,
+          reason: 'SMS notifications are disabled globally',
+        };
       }
       if (!registry.isEnabled) {
-        await this.writeSkippedLog(registry, input, recipient, 'This SMS notification is disabled');
-        return { status: SmsLogStatusEnum.SKIPPED, reason: 'This SMS notification is disabled' };
+        await this.writeSkippedLog(
+          registry,
+          input,
+          recipient,
+          'This SMS notification is disabled',
+        );
+        return {
+          status: SmsLogStatusEnum.SKIPPED,
+          reason: 'This SMS notification is disabled',
+        };
       }
     }
 
@@ -581,7 +610,9 @@ export class SmsNotificationManagementService implements OnModuleInit {
   private async assertEnabledForCode(code: string) {
     const registry = await this.registryRepository.findOne({ where: { code } });
     if (!registry) {
-      throw new NotFoundException(`SMS notification code ${code} is not registered.`);
+      throw new NotFoundException(
+        `SMS notification code ${code} is not registered.`,
+      );
     }
 
     const global = await this.getGlobalSetting();
@@ -599,7 +630,11 @@ export class SmsNotificationManagementService implements OnModuleInit {
   private async writeSkippedLog(
     registry: SmsNotificationRegistry,
     input: SendConfiguredSmsInput,
-    recipient: { phone: string | null; companyUserId: number | null; employeeId: number | null },
+    recipient: {
+      phone: string | null;
+      companyUserId: number | null;
+      employeeId: number | null;
+    },
     reason: string,
   ) {
     await this.logRepository.save(
@@ -611,7 +646,10 @@ export class SmsNotificationManagementService implements OnModuleInit {
         recipientPhone: recipient.phone ?? 'UNKNOWN',
         recipientCompanyUserId: recipient.companyUserId,
         recipientEmployeeId: recipient.employeeId,
-        message: this.renderTemplate(registry.smsTemplate, input.variables ?? {}),
+        message: this.renderTemplate(
+          registry.smsTemplate,
+          input.variables ?? {},
+        ),
         templateSnapshot: registry.smsTemplate,
         relatedEntityType: input.relatedEntityType ?? null,
         relatedEntityId:
@@ -635,10 +673,21 @@ export class SmsNotificationManagementService implements OnModuleInit {
       ...variables,
     };
 
-    return template.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_, token: string) => {
-      const value = runtimeVariables[token];
-      return value === undefined || value === null ? '' : String(value);
-    });
+    return template.replace(
+      /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g,
+      (_, token: string) => {
+        const value = runtimeVariables[token];
+        return value === undefined || value === null
+          ? ''
+          : typeof value === 'string'
+            ? value
+            : typeof value === 'number' ||
+                typeof value === 'boolean' ||
+                typeof value === 'bigint'
+              ? String(value)
+              : (JSON.stringify(value) ?? '');
+      },
+    );
   }
 
   private async resolveRecipient(input: SendConfiguredSmsInput) {
@@ -660,7 +709,11 @@ export class SmsNotificationManagementService implements OnModuleInit {
         where: { id: input.recipientEmployeeId },
       });
       if (!employee) {
-        return { companyUserId: null, employeeId: input.recipientEmployeeId, phone: null };
+        return {
+          companyUserId: null,
+          employeeId: input.recipientEmployeeId,
+          phone: null,
+        };
       }
 
       const membership = await this.companyUserRepository.findOne({

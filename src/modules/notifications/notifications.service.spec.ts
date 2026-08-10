@@ -4,7 +4,6 @@ import { CompanyUser } from '../companies/entities/company-user.entity';
 import { AppNotification } from './entities/app-notification.entity';
 import { NotificationDelivery } from './entities/notification-delivery.entity';
 import { NotificationMailLog } from './entities/notification-mail-log.entity';
-import { NotificationStatusEnum } from './enums/notification-status.enum';
 import { NotificationOrchestratorService } from './notification-orchestrator.service';
 import { NotificationQueueService } from './notification-queue.service';
 import { NotificationsGateway } from './notifications.gateway';
@@ -14,7 +13,9 @@ describe('NotificationsService', () => {
   let service: NotificationsService;
   let notificationRepository: Partial<jest.Mocked<Repository<AppNotification>>>;
   let companyUserRepository: Partial<jest.Mocked<Repository<CompanyUser>>>;
-  let deliveryRepository: Partial<jest.Mocked<Repository<NotificationDelivery>>>;
+  let deliveryRepository: Partial<
+    jest.Mocked<Repository<NotificationDelivery>>
+  >;
   let mailLogRepository: Partial<jest.Mocked<Repository<NotificationMailLog>>>;
   let gateway: jest.Mocked<Partial<NotificationsGateway>>;
   let orchestrator: { create: jest.Mock };

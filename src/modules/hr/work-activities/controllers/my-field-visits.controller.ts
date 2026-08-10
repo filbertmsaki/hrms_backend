@@ -86,7 +86,10 @@ export class MyFieldVisitsController {
 
   @Post('unplanned')
   @Permissions('field_visits:self-service:update')
-  createUnplanned(@Req() req: AuthedRequest, @Body() dto: CreateUnplannedFieldVisitDto) {
+  createUnplanned(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreateUnplannedFieldVisitDto,
+  ) {
     return this.visitService.createUnplannedVisit(req.user, dto);
   }
 
@@ -154,7 +157,10 @@ export class MyFieldVisitsController {
 
   @Get('/follow-ups/list')
   @Permissions('field_visits:self-service:read')
-  listFollowUps(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
+  listFollowUps(
+    @Req() req: AuthedRequest,
+    @Query() query: WorkActivityQueryDto,
+  ) {
     return this.visitService.listMyFollowUps(req.user, query);
   }
 

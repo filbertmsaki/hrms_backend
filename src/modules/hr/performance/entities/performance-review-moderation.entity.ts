@@ -21,10 +21,22 @@ export class PerformanceReviewModeration {
   @Column({ name: 'moderated_by_company_user_id', type: 'int', nullable: true })
   moderatedByCompanyUserId: number | null;
 
-  @Column({ name: 'previous_final_score', type: 'decimal', precision: 9, scale: 4, nullable: true })
+  @Column({
+    name: 'previous_final_score',
+    type: 'decimal',
+    precision: 9,
+    scale: 4,
+    nullable: true,
+  })
   previousFinalScore: string | null;
 
-  @Column({ name: 'new_final_score', type: 'decimal', precision: 9, scale: 4, nullable: true })
+  @Column({
+    name: 'new_final_score',
+    type: 'decimal',
+    precision: 9,
+    scale: 4,
+    nullable: true,
+  })
   newFinalScore: string | null;
 
   @Column({ name: 'reason', type: 'text' })

@@ -18,7 +18,11 @@ import {
 } from '../enums/work-activity.enums';
 
 @Entity('field_visit_plans')
-@Unique('UQ_field_visit_plan_employee_date', ['companyId', 'employeeId', 'visitDate'])
+@Unique('UQ_field_visit_plan_employee_date', [
+  'companyId',
+  'employeeId',
+  'visitDate',
+])
 @Index('IDX_field_visit_plan_status', ['companyId', 'status'])
 export class FieldVisitPlan {
   @PrimaryGeneratedColumn()
@@ -33,7 +37,11 @@ export class FieldVisitPlan {
   @Column({ name: 'visit_date', type: 'date' })
   visitDate: string;
 
-  @Column({ type: 'varchar', length: 40, default: FieldVisitPlanStatusEnum.DRAFT })
+  @Column({
+    type: 'varchar',
+    length: 40,
+    default: FieldVisitPlanStatusEnum.DRAFT,
+  })
   status: FieldVisitPlanStatusEnum;
 
   @Column({ name: 'manager_employee_id', type: 'int', nullable: true })
@@ -112,10 +120,22 @@ export class FieldVisitPlanItem {
   @Column({ name: 'expected_outcome', type: 'text', nullable: true })
   expectedOutcome: string | null;
 
-  @Column({ name: 'planned_latitude', type: 'decimal', precision: 10, scale: 7, nullable: true })
+  @Column({
+    name: 'planned_latitude',
+    type: 'decimal',
+    precision: 10,
+    scale: 7,
+    nullable: true,
+  })
   plannedLatitude: string | null;
 
-  @Column({ name: 'planned_longitude', type: 'decimal', precision: 10, scale: 7, nullable: true })
+  @Column({
+    name: 'planned_longitude',
+    type: 'decimal',
+    precision: 10,
+    scale: 7,
+    nullable: true,
+  })
   plannedLongitude: string | null;
 
   @Column({ name: 'planned_address', type: 'text', nullable: true })
@@ -163,7 +183,11 @@ export class FieldVisit {
   @Column({ name: 'visit_type', type: 'varchar', length: 40 })
   visitType: string;
 
-  @Column({ type: 'varchar', length: 40, default: FieldVisitStatusEnum.PLANNED })
+  @Column({
+    type: 'varchar',
+    length: 40,
+    default: FieldVisitStatusEnum.PLANNED,
+  })
   status: FieldVisitStatusEnum;
 
   @Column({ name: 'is_unplanned', type: 'boolean', default: false })
@@ -202,7 +226,12 @@ export class FieldVisit {
   @Column({ name: 'manager_company_user_id', type: 'int', nullable: true })
   managerCompanyUserId: number | null;
 
-  @Column({ name: 'manager_review_status', type: 'varchar', length: 30, default: 'PENDING' })
+  @Column({
+    name: 'manager_review_status',
+    type: 'varchar',
+    length: 30,
+    default: 'PENDING',
+  })
   managerReviewStatus: string;
 
   @Column({ name: 'manager_comments', type: 'text', nullable: true })
@@ -211,7 +240,11 @@ export class FieldVisit {
   @Column({ name: 'manager_reviewed_at', type: 'timestamptz', nullable: true })
   managerReviewedAt: Date | null;
 
-  @Column({ name: 'linked_daily_activity_entry_id', type: 'int', nullable: true })
+  @Column({
+    name: 'linked_daily_activity_entry_id',
+    type: 'int',
+    nullable: true,
+  })
   linkedDailyActivityEntryId: number | null;
 
   @Column({ name: 'employee_snapshot', type: 'jsonb' })
@@ -237,7 +270,11 @@ export class FieldVisit {
 }
 
 @Entity('field_visit_location_events')
-@Unique('UQ_field_visit_location_event_request', ['companyId', 'employeeId', 'clientRequestId'])
+@Unique('UQ_field_visit_location_event_request', [
+  'companyId',
+  'employeeId',
+  'clientRequestId',
+])
 @Unique('UQ_field_visit_event_type', ['fieldVisitId', 'eventType'])
 @Index('IDX_field_visit_location_event_time', ['capturedAt'])
 export class FieldVisitLocationEvent {
@@ -256,13 +293,31 @@ export class FieldVisitLocationEvent {
   @Column({ name: 'event_type', type: 'varchar', length: 20 })
   eventType: string;
 
-  @Column({ name: 'latitude', type: 'decimal', precision: 10, scale: 7, nullable: true })
+  @Column({
+    name: 'latitude',
+    type: 'decimal',
+    precision: 10,
+    scale: 7,
+    nullable: true,
+  })
   latitude: string | null;
 
-  @Column({ name: 'longitude', type: 'decimal', precision: 10, scale: 7, nullable: true })
+  @Column({
+    name: 'longitude',
+    type: 'decimal',
+    precision: 10,
+    scale: 7,
+    nullable: true,
+  })
   longitude: string | null;
 
-  @Column({ name: 'accuracy_meters', type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({
+    name: 'accuracy_meters',
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
   accuracyMeters: string | null;
 
   @Column({ name: 'captured_at', type: 'timestamptz' })
@@ -274,7 +329,12 @@ export class FieldVisitLocationEvent {
   @Column({ name: 'timezone_offset_minutes', type: 'int', nullable: true })
   timezoneOffsetMinutes: number | null;
 
-  @Column({ name: 'device_identifier', type: 'varchar', length: 255, nullable: true })
+  @Column({
+    name: 'device_identifier',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
   deviceIdentifier: string | null;
 
   @Column({ name: 'device_info', type: 'jsonb', nullable: true })
@@ -283,7 +343,12 @@ export class FieldVisitLocationEvent {
   @Column({ name: 'address', type: 'text', nullable: true })
   address: string | null;
 
-  @Column({ name: 'address_status', type: 'varchar', length: 30, default: 'PENDING' })
+  @Column({
+    name: 'address_status',
+    type: 'varchar',
+    length: 30,
+    default: 'PENDING',
+  })
   addressStatus: string;
 
   @Column({
@@ -380,7 +445,13 @@ export class FieldOpportunity {
   @Column({ type: 'text', nullable: true })
   description: string | null;
 
-  @Column({ name: 'potential_value', type: 'decimal', precision: 18, scale: 2, nullable: true })
+  @Column({
+    name: 'potential_value',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
   potentialValue: string | null;
 
   @Column({ type: 'varchar', length: 3, nullable: true })
@@ -389,16 +460,36 @@ export class FieldOpportunity {
   @Column({ name: 'expected_close_date', type: 'date', nullable: true })
   expectedCloseDate: string | null;
 
-  @Column({ name: 'actual_value', type: 'decimal', precision: 18, scale: 2, nullable: true })
+  @Column({
+    name: 'actual_value',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
   actualValue: string | null;
 
-  @Column({ type: 'varchar', length: 40, default: FieldOpportunityStatusEnum.IDENTIFIED })
+  @Column({
+    type: 'varchar',
+    length: 40,
+    default: FieldOpportunityStatusEnum.IDENTIFIED,
+  })
   status: FieldOpportunityStatusEnum;
 
-  @Column({ name: 'source_system', type: 'varchar', length: 80, nullable: true })
+  @Column({
+    name: 'source_system',
+    type: 'varchar',
+    length: 80,
+    nullable: true,
+  })
   sourceSystem: string | null;
 
-  @Column({ name: 'external_reference', type: 'varchar', length: 150, nullable: true })
+  @Column({
+    name: 'external_reference',
+    type: 'varchar',
+    length: 150,
+    nullable: true,
+  })
   externalReference: string | null;
 
   @Column({ name: 'validated_by_manager', type: 'boolean', default: false })
@@ -444,7 +535,11 @@ export class FieldFollowUp {
   @Column({ type: 'text' })
   action: string;
 
-  @Column({ type: 'varchar', length: 30, default: FieldFollowUpStatusEnum.OPEN })
+  @Column({
+    type: 'varchar',
+    length: 30,
+    default: FieldFollowUpStatusEnum.OPEN,
+  })
   status: FieldFollowUpStatusEnum;
 
   @Column({ name: 'completed_at', type: 'timestamptz', nullable: true })
@@ -489,7 +584,11 @@ export class FieldVisitExpense {
   @Column({ name: 'receipt_document_id', type: 'int', nullable: true })
   receiptDocumentId: number | null;
 
-  @Column({ type: 'varchar', length: 60, default: FieldVisitExpenseStatusEnum.DRAFT })
+  @Column({
+    type: 'varchar',
+    length: 60,
+    default: FieldVisitExpenseStatusEnum.DRAFT,
+  })
   status: FieldVisitExpenseStatusEnum;
 
   @Column({ name: 'approved_by_company_user_id', type: 'int', nullable: true })
@@ -498,7 +597,12 @@ export class FieldVisitExpense {
   @Column({ name: 'approved_at', type: 'timestamptz', nullable: true })
   approvedAt: Date | null;
 
-  @Column({ name: 'finance_reference', type: 'varchar', length: 150, nullable: true })
+  @Column({
+    name: 'finance_reference',
+    type: 'varchar',
+    length: 150,
+    nullable: true,
+  })
   financeReference: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
@@ -509,7 +613,11 @@ export class FieldVisitExpense {
 }
 
 @Entity('field_mobile_sync_requests')
-@Unique('UQ_field_mobile_sync_request', ['companyId', 'employeeId', 'syncRequestId'])
+@Unique('UQ_field_mobile_sync_request', [
+  'companyId',
+  'employeeId',
+  'syncRequestId',
+])
 export class FieldMobileSyncRequest {
   @PrimaryGeneratedColumn()
   id: number;

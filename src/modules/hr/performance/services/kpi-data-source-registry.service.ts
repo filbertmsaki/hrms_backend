@@ -67,7 +67,8 @@ export class KpiDataSourceRegistryService {
 
     const candidates = achievements.filter(
       (achievement) =>
-        achievement.periodAssignment.performancePeriodId === performancePeriodId &&
+        achievement.periodAssignment.performancePeriodId ===
+          performancePeriodId &&
         [
           KpiDataSourceTypeEnum.ATTENDANCE,
           KpiDataSourceTypeEnum.LEAVE,
@@ -80,7 +81,7 @@ export class KpiDataSourceRegistryService {
 
     for (const achievement of candidates) {
       const resolvedProviderKey = this.resolveProviderKey(achievement);
-      if (providerKey && providerKey !== resolvedProviderKey) {
+      if (providerKey && providerKey !== String(resolvedProviderKey)) {
         continue;
       }
 
@@ -248,9 +249,7 @@ export class KpiDataSourceRegistryService {
         break;
     }
 
-    throw new BadRequestException(
-      `Unsupported KPI data-source provider: ${providerKey}.`,
-    );
+    throw new BadRequestException('Unsupported KPI data-source provider.');
   }
 
   private assertPhase13ProviderEnabled(key: string, message: string) {
@@ -296,7 +295,10 @@ export class KpiDataSourceRegistryService {
   ): Promise<number> {
     const totals = await this.attendanceRepository
       .createQueryBuilder('summary')
-      .select(`SUM(CASE WHEN summary.lateMinutes > 0 THEN 1 ELSE 0 END)`, 'late_days')
+      .select(
+        `SUM(CASE WHEN summary.lateMinutes > 0 THEN 1 ELSE 0 END)`,
+        'late_days',
+      )
       .where('summary.companyId = :companyId', { companyId })
       .andWhere('summary.employeeId = :employeeId', { employeeId })
       .andWhere('summary.attendanceDate >= :startDate', { startDate })

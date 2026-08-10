@@ -36,7 +36,10 @@ export class MyFieldVisitsCompatController {
 
   @Get('field-follow-ups')
   @Permissions('field_visits:self-service:read')
-  listFollowUps(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
+  listFollowUps(
+    @Req() req: AuthedRequest,
+    @Query() query: WorkActivityQueryDto,
+  ) {
     return this.visitService.listMyFollowUps(req.user, query);
   }
 

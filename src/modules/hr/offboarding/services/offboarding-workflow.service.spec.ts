@@ -1,4 +1,4 @@
-import { EntityManager, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';

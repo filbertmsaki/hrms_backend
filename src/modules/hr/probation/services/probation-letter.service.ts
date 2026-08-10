@@ -32,7 +32,9 @@ export class ProbationLetterService {
     private readonly filesService: FilesService,
   ) {}
 
-  private getCaseRepository(manager?: EntityManager): Repository<ProbationCase> {
+  private getCaseRepository(
+    manager?: EntityManager,
+  ): Repository<ProbationCase> {
     return manager?.getRepository(ProbationCase) ?? this.caseRepository;
   }
 
@@ -61,7 +63,10 @@ export class ProbationLetterService {
     });
 
     document.fontSize(16).font('Helvetica-Bold').text(input.companyName);
-    document.fontSize(12).font('Helvetica').text(LETTER_TITLES[input.letterType]);
+    document
+      .fontSize(12)
+      .font('Helvetica')
+      .text(LETTER_TITLES[input.letterType]);
     document.moveDown(1);
     document.fontSize(10).text(`Date: ${input.issueDate}`);
     document.moveDown(1);
@@ -136,8 +141,7 @@ export class ProbationLetterService {
       probationStartDate: probationCase.originalStartDate,
       probationEndDate: probationCase.currentDueDate,
       confirmationDate:
-        probationCase.confirmationDate ??
-        new Date().toISOString().slice(0, 10),
+        probationCase.confirmationDate ?? new Date().toISOString().slice(0, 10),
       issueDate: new Date().toISOString().slice(0, 10),
     });
 

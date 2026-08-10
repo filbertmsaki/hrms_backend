@@ -38,7 +38,7 @@ export class OffboardingNoticeService {
     const matched = policies.find((policy) => {
       if (
         policy.employment_type &&
-        policy.employment_type !== employee.employment_type
+        String(policy.employment_type) !== String(employee.employment_type)
       ) {
         return false;
       }
@@ -56,7 +56,8 @@ export class OffboardingNoticeService {
 
       if (
         policy.confirmation_status &&
-        policy.confirmation_status !== employee.confirmation_status
+        String(policy.confirmation_status) !==
+          String(employee.confirmation_status)
       ) {
         return false;
       }

@@ -1,9 +1,4 @@
-import {
-  IsBoolean,
-  IsNumber,
-  IsObject,
-  IsOptional,
-} from 'class-validator';
+import { IsBoolean, IsNumber, IsObject, IsOptional } from 'class-validator';
 
 export class ApprovePerformanceReviewDto {
   @IsOptional()

@@ -35,6 +35,7 @@ export class KpiDefinitionVersion {
     name: 'measurement_direction',
     type: 'enum',
     enum: KpiMeasurementDirectionEnum,
+    enumName: 'kpi_measurement_direction_enum',
   })
   measurementDirection: KpiMeasurementDirectionEnum;
 
@@ -42,6 +43,7 @@ export class KpiDefinitionVersion {
     name: 'scoring_formula',
     type: 'enum',
     enum: KpiScoringFormulaEnum,
+    enumName: 'kpi_scoring_formula_enum',
   })
   scoringFormula: KpiScoringFormulaEnum;
 
@@ -52,19 +54,27 @@ export class KpiDefinitionVersion {
     name: 'data_source_type',
     type: 'enum',
     enum: KpiDataSourceTypeEnum,
+    enumName: 'kpi_data_source_type_enum',
   })
   dataSourceType: KpiDataSourceTypeEnum;
 
   @Column({ name: 'data_source_configuration', type: 'jsonb', nullable: true })
   dataSourceConfiguration: Record<string, unknown> | null;
 
-  @Column({ name: 'default_target_value', type: 'decimal', precision: 14, scale: 4, nullable: true })
+  @Column({
+    name: 'default_target_value',
+    type: 'decimal',
+    precision: 14,
+    scale: 4,
+    nullable: true,
+  })
   defaultTargetValue: string | null;
 
   @Column({
     name: 'frequency',
     type: 'enum',
     enum: PerformancePeriodTypeEnum,
+    enumName: 'performance_period_type_enum',
     default: PerformancePeriodTypeEnum.MONTHLY,
   })
   frequency: PerformancePeriodTypeEnum;

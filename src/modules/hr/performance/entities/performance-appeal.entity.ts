@@ -10,7 +10,10 @@ import {
 import { PerformanceAppealStatusEnum } from '../enums/performance-appeal-status.enum';
 
 @Entity('performance_appeals')
-@Index('IDX_performance_appeal_review_status', ['performanceReviewId', 'status'])
+@Index('IDX_performance_appeal_review_status', [
+  'performanceReviewId',
+  'status',
+])
 export class PerformanceAppeal {
   @PrimaryGeneratedColumn()
   id: number;
@@ -27,6 +30,7 @@ export class PerformanceAppeal {
   @Column({
     type: 'enum',
     enum: PerformanceAppealStatusEnum,
+    enumName: 'performance_appeal_status_enum',
     default: PerformanceAppealStatusEnum.SUBMITTED,
   })
   status: PerformanceAppealStatusEnum;

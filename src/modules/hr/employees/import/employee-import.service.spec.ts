@@ -1355,7 +1355,6 @@ describe('EmployeeImportService', () => {
         employee_no: '000037',
       }),
     };
-    let storedBatch: EmployeeImportBatch;
     const batchQueryBuilder: Record<string, jest.Mock> = {
       leftJoinAndSelect: jest.fn(() => batchQueryBuilder),
       where: jest.fn(() => batchQueryBuilder),
@@ -1420,7 +1419,7 @@ describe('EmployeeImportService', () => {
       status: EmployeeImportRowStatusEnum.QUEUED,
     } as EmployeeImportRow;
 
-    storedBatch = {
+    const storedBatch = {
       id: 501,
       companyId: 10,
       batchId: 'IMPORT-20260727-BLANK-EMP-NO',

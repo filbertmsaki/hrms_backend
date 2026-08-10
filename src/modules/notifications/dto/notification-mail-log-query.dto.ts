@@ -1,5 +1,12 @@
 import { Transform, Type } from 'class-transformer';
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 import { NotificationMailLogStatusEnum } from '../enums/notification-mail-log-status.enum';
 

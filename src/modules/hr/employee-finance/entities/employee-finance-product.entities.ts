@@ -25,6 +25,7 @@ export class EmployeeFinanceProduct {
     name: 'product_type',
     type: 'enum',
     enum: EmployeeFinanceProductTypeEnum,
+    enumName: 'employee_finance_product_type_enum',
   })
   productType: EmployeeFinanceProductTypeEnum;
 
@@ -41,6 +42,7 @@ export class EmployeeFinanceProduct {
     name: 'interest_method',
     type: 'enum',
     enum: EmployeeFinanceInterestMethodEnum,
+    enumName: 'employee_finance_interest_method_enum',
     default: EmployeeFinanceInterestMethodEnum.ZERO_INTEREST,
   })
   interestMethod: EmployeeFinanceInterestMethodEnum;
@@ -178,7 +180,12 @@ export class EmployeeFinanceProductApplicability {
   @Column({ name: 'grade_id', type: 'int', nullable: true })
   gradeId: number | null;
 
-  @Column({ name: 'employment_type', type: 'varchar', length: 40, nullable: true })
+  @Column({
+    name: 'employment_type',
+    type: 'varchar',
+    length: 40,
+    nullable: true,
+  })
   employmentType: string | null;
 
   @Column({ name: 'specific_employee_id', type: 'int', nullable: true })
