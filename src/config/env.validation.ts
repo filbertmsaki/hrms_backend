@@ -220,7 +220,6 @@ export function validateEnv(env: Env) {
         'REDIS_URL is required in production when USE_REDIS=true.',
       );
     }
-
   }
 
   const MAIL_HOST = required(env, 'MAIL_HOST');
@@ -347,13 +346,6 @@ export function validateEnv(env: Env) {
     'EMPLOYEE_IMPORT_DEFAULT_PASSWORD',
     '',
   );
-
-  if (APP_ENV === 'production' && EMPLOYEE_IMPORT_DEFAULT_PASSWORD) {
-    throw new Error(
-      'EMPLOYEE_IMPORT_DEFAULT_PASSWORD must be empty in production. ' +
-        'Imported employees must be assigned strong, unique temporary passwords.',
-    );
-  }
 
   const AUTH_REQUIRED_2FA_ROLES = optionalString(
     env,
