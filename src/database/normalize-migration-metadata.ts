@@ -1,7 +1,4 @@
-import * as dotenv from 'dotenv';
 import { AppDataSource } from './data-source';
-
-dotenv.config();
 
 const oldTimestamp = 1792500000000;
 const newTimestamp = 1792500000001;

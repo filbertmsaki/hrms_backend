@@ -1,7 +1,9 @@
 import { DataSource } from 'typeorm';
-import * as dotenv from 'dotenv';
+import { applyCommandEnv } from './load-command-env';
 import { createAppDataSourceOptions } from './typeorm-options';
 
-dotenv.config();
+const commandEnv = applyCommandEnv();
 
-export const AppDataSource = new DataSource(createAppDataSourceOptions());
+export const AppDataSource = new DataSource(
+  createAppDataSourceOptions(commandEnv),
+);

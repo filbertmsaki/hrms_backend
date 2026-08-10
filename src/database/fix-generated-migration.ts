@@ -8,6 +8,9 @@ type MigrationFile = {
   name: string;
 };
 
+const MIGRATION_LINT_DISABLE_DIRECTIVE =
+  '/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access */';
+
 async function getLatestMigrationFile(): Promise<MigrationFile | null> {
   let files: string[] = [];
   try {
@@ -163,6 +166,25 @@ function ensureRequiredSchemas(content: string): string {
   return content.replace(upMethodRegex, `$1${schemaLines}\n`);
 }
 
+function ensureMigrationLintDirective(content: string): string {
+  if (content.includes(MIGRATION_LINT_DISABLE_DIRECTIVE)) {
+    return content;
+  }
+
+  if (
+    content.startsWith(
+      "import { MigrationInterface, QueryRunner } from 'typeorm';",
+    )
+  ) {
+    return content.replace(
+      "import { MigrationInterface, QueryRunner } from 'typeorm';",
+      `import { MigrationInterface, QueryRunner } from 'typeorm';\n\n${MIGRATION_LINT_DISABLE_DIRECTIVE}`,
+    );
+  }
+
+  return `${MIGRATION_LINT_DISABLE_DIRECTIVE}\n\n${content}`;
+}
+
 function patchMigrationContent(content: string): string {
   // Matches PostgreSQL-style: await queryRunner.query(`ALTER TABLE "table" DROP CONSTRAINT "FK_name"`);
   const dropRegex =
@@ -173,9 +195,15 @@ function patchMigrationContent(content: string): string {
     /(^\s*await queryRunner\.query\(`ALTER TABLE "([^"]+)" ADD CONSTRAINT "([^"]+)" FOREIGN KEY .+`\);)/gm;
 
   let didPatch = false;
-  let next = ensureRequiredSchemas(content);
+  let next = ensureMigrationLintDirective(content);
   if (next !== content) {
     didPatch = true;
+  }
+
+  const schemaGuarded = ensureRequiredSchemas(next);
+  if (schemaGuarded !== next) {
+    didPatch = true;
+    next = schemaGuarded;
   }
 
   const deduped = dedupeSharedEnumStatements(next);
