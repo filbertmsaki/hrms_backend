@@ -10,6 +10,9 @@ import {
 } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ModuleRef } from '@nestjs/core';
+import * as dotenv from 'dotenv';
+import { existsSync, readFileSync } from 'fs';
+import { resolve } from 'path';
 import { Queue } from 'bullmq';
 
 @Injectable()
@@ -43,8 +46,37 @@ function isRedisEnabled(configService: ConfigService): boolean {
   return configService.get<boolean>('USE_REDIS', false);
 }
 
+function loadEffectiveEnvSnapshot(
+  env: NodeJS.ProcessEnv = process.env,
+): Record<string, string | undefined> {
+  const configuredEnvironment =
+    env.APP_ENV?.trim() || env.NODE_ENV?.trim() || 'development';
+  const envFilePaths = [
+    `.env.${configuredEnvironment}.local`,
+    '.env.local',
+    '.env',
+  ];
+
+  const merged: Record<string, string | undefined> = {};
+
+  for (const envFilePath of envFilePaths.reverse()) {
+    const absolutePath = resolve(process.cwd(), envFilePath);
+
+    if (!existsSync(absolutePath)) {
+      continue;
+    }
+
+    Object.assign(merged, dotenv.parse(readFileSync(absolutePath)));
+  }
+
+  return {
+    ...merged,
+    ...env,
+  };
+}
+
 function isRedisEnabledFromEnv(env: NodeJS.ProcessEnv = process.env): boolean {
-  const value = env.USE_REDIS;
+  const value = loadEffectiveEnvSnapshot(env).USE_REDIS;
 
   if (typeof value !== 'string') {
     return false;
@@ -88,9 +120,16 @@ class ConditionalBullRegistrar implements OnModuleInit {
       return;
     }
 
-    const bullRegistrar = this.moduleRef.get(BullRegistrar, {
-      strict: false,
-    });
+    let bullRegistrar: BullRegistrar | null = null;
+
+    try {
+      bullRegistrar = this.moduleRef.get(BullRegistrar, {
+        strict: false,
+      });
+    } catch {
+      bullRegistrar = null;
+    }
+
     if (!bullRegistrar) {
       return;
     }
