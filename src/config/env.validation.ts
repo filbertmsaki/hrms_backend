@@ -89,8 +89,45 @@ function validateOrigin(value: string): string {
   return url.origin;
 }
 
-function isAllowedProductionLocalFrontendUrl(value: string): boolean {
-  return value === 'http://localhost:9991';
+function isLocalTestingUrl(value: string): boolean {
+  try {
+    const hostname = new URL(value).hostname
+      .toLowerCase()
+      .replace(/^\[|\]$/g, '');
+
+    if (
+      hostname === 'localhost' ||
+      hostname === '0.0.0.0' ||
+      hostname === '::1' ||
+      hostname.endsWith('.localhost') ||
+      hostname.endsWith('.local')
+    ) {
+      return true;
+    }
+
+    const ipv4Match = hostname.match(
+      /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/,
+    );
+
+    if (!ipv4Match) {
+      return false;
+    }
+
+    const octets = ipv4Match.slice(1).map(Number);
+
+    if (octets.some((octet) => octet < 0 || octet > 255)) {
+      return false;
+    }
+
+    return (
+      octets[0] === 10 ||
+      octets[0] === 127 ||
+      (octets[0] === 192 && octets[1] === 168) ||
+      (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31)
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function validateEnv(env: Env) {
@@ -193,13 +230,13 @@ export function validateEnv(env: Env) {
   }
 
   if (APP_ENV === 'production') {
-    if (APP_URL.includes('localhost')) {
+    if (APP_URL.includes('localhost') && !isLocalTestingUrl(APP_URL)) {
       throw new Error('APP_URL cannot use localhost in production.');
     }
 
     if (
       APP_FRONTEND_URL.includes('localhost') &&
-      !isAllowedProductionLocalFrontendUrl(APP_FRONTEND_URL)
+      !isLocalTestingUrl(APP_FRONTEND_URL)
     ) {
       throw new Error('APP_FRONTEND_URL cannot use localhost in production.');
     }
