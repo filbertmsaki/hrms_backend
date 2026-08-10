@@ -1426,7 +1426,7 @@ export class AnalyticsSnapshotService {
     }
     for (const row of rows) {
       for (const currentMonth of seenMonths) {
-        facts.push({
+        const fact: DeepPartial<AnalyticsEmployeeFinanceMonthlyFact> = {
           companyId,
           employeeId: row.employee_id,
           accountId: row.id,
@@ -1448,7 +1448,8 @@ export class AnalyticsSnapshotService {
               ? sqlMoneyString(row.outstanding_total)
               : '0.00',
           snapshotRunId: run.id,
-        });
+        };
+        facts.push(this.financeRepository.create(fact));
       }
     }
     await this.financeRepository.upsert(facts, [
