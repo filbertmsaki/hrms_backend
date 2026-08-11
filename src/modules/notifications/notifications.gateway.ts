@@ -65,6 +65,7 @@ export class NotificationsGateway
   private readonly redisChannel = 'hrms:notifications:realtime';
   private publisher: RedisClientType | null = null;
   private subscriber: RedisClientType | null = null;
+  private readonly redisEnabled: boolean;
 
   @WebSocketServer()
   server: Server;
@@ -76,9 +77,29 @@ export class NotificationsGateway
     private readonly companyUserRepository: Repository<CompanyUser>,
     private readonly blacklistService: TokenBlacklistService,
     private readonly usersService: UsersService,
-  ) {}
+  ) {
+    this.redisEnabled = this.getBooleanConfig('USE_REDIS', false);
+  }
+
+  private getBooleanConfig(key: string, defaultValue: boolean): boolean {
+    const value = this.configService.get<string | boolean>(key);
+
+    if (typeof value === 'boolean') {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      return value.trim().toLowerCase() === 'true';
+    }
+
+    return defaultValue;
+  }
 
   async onModuleInit(): Promise<void> {
+    if (!this.redisEnabled) {
+      return;
+    }
+
     const redisUrl = this.configService.get<string>('REDIS_URL');
     if (!redisUrl?.trim()) {
       return;

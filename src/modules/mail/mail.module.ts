@@ -5,9 +5,8 @@ import { join } from 'path';
 
 import { MailService } from './mail.service';
 import { MailOverrideWarningService } from './mail-override-warning.service';
+import { PugAdapter } from './pug-adapter.loader';
 import { SafeMailerTransportFactory } from './safe-mailer-transport.factory';
-
-const { PugAdapter } = require('@nestjs-modules/mailer/dist/adapters/pug.adapter');
 
 @Module({
   imports: [
