@@ -334,7 +334,9 @@ export class ProfileChangeFieldPolicyService {
   getPolicy(fieldName: string): ProfileFieldPolicy {
     const policy = this.policyMap.get(fieldName);
     if (!policy) {
-      throw new BadRequestException(`Unsupported profile field '${fieldName}'.`);
+      throw new BadRequestException(
+        `Unsupported profile field '${fieldName}'.`,
+      );
     }
 
     return policy;

@@ -1,6 +1,12 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsDateString, IsEnum, IsInt, IsOptional, IsPositive } from 'class-validator';
+import {
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsPositive,
+} from 'class-validator';
 import { ProfileChangeRequestStatusEnum } from '../enums/profile-change-request-status.enum';
 import { ProfileChangeRequestTypeEnum } from '../enums/profile-change-request-type.enum';
 

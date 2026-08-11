@@ -216,11 +216,12 @@ export class MeProfileChangeRequestsController {
     @Param('id', ParseIntPipe) id: number,
     @Param('fileId', ParseIntPipe) fileId: number,
   ) {
-    const file = await this.profileChangeRequestsService.getPendingFileForEmployee(
-      req.user,
-      id,
-      fileId,
-    );
+    const file =
+      await this.profileChangeRequestsService.getPendingFileForEmployee(
+        req.user,
+        id,
+        fileId,
+      );
 
     res.setHeader('Content-Type', file.mimeType);
     res.setHeader(

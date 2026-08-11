@@ -174,7 +174,9 @@ export class ProfileChangeRequestsService {
       .createQueryBuilder('request')
       .leftJoinAndSelect('request.items', 'items')
       .leftJoinAndSelect('request.files', 'files')
-      .where('request.company_id = :companyId', { companyId: snapshot.membership.company_id })
+      .where('request.company_id = :companyId', {
+        companyId: snapshot.membership.company_id,
+      })
       .andWhere('request.employee_id = :employeeId', {
         employeeId: snapshot.employee.id,
       })
@@ -204,7 +206,10 @@ export class ProfileChangeRequestsService {
 
   async getMine(actor: AuthenticatedUser, id: number) {
     const snapshot = await this.requireOwnSnapshot(actor);
-    const request = await this.findRequestOrFail(id, snapshot.membership.company_id);
+    const request = await this.findRequestOrFail(
+      id,
+      snapshot.membership.company_id,
+    );
 
     if (request.employee_id !== snapshot.employee.id || request.deleted_at) {
       throw new NotFoundException('Profile change request not found.');
@@ -220,7 +225,8 @@ export class ProfileChangeRequestsService {
   ) {
     const snapshot = await this.requireOwnSnapshot(actor);
     const requestType =
-      dto.request_type ?? ProfileChangeRequestTypeEnum.OTHER_PROFILE_INFORMATION;
+      dto.request_type ??
+      ProfileChangeRequestTypeEnum.OTHER_PROFILE_INFORMATION;
     const validation = await this.validateChangeSet(
       snapshot,
       requestType,
@@ -296,10 +302,16 @@ export class ProfileChangeRequestsService {
     });
 
     const saved = await this.requestRepository.save(request);
-    await this.createAudit(saved, ProfileChangeRequestAuditActionEnum.REQUEST_CREATED, actor, context, {
-      request_type: requestType,
-      field_names: validation.items.map((item) => item.fieldName),
-    });
+    await this.createAudit(
+      saved,
+      ProfileChangeRequestAuditActionEnum.REQUEST_CREATED,
+      actor,
+      context,
+      {
+        request_type: requestType,
+        field_names: validation.items.map((item) => item.fieldName),
+      },
+    );
 
     return this.getMine(actor, saved.id);
   }
@@ -311,7 +323,10 @@ export class ProfileChangeRequestsService {
     context?: RequestActorContext,
   ) {
     const snapshot = await this.requireOwnSnapshot(actor);
-    const request = await this.findRequestOrFail(id, snapshot.membership.company_id);
+    const request = await this.findRequestOrFail(
+      id,
+      snapshot.membership.company_id,
+    );
 
     if (request.employee_id !== snapshot.employee.id || request.deleted_at) {
       throw new NotFoundException('Profile change request not found.');
@@ -329,7 +344,8 @@ export class ProfileChangeRequestsService {
     }
 
     const requestType = dto.request_type ?? request.request_type;
-    const changes = dto.changes ?? this.rehydrateChangesFromItems(request.items ?? []);
+    const changes =
+      dto.changes ?? this.rehydrateChangesFromItems(request.items ?? []);
     const validation = await this.validateChangeSet(
       snapshot,
       requestType,
@@ -346,17 +362,19 @@ export class ProfileChangeRequestsService {
     }
 
     request.request_type = requestType;
-    request.reason = dto.reason !== undefined ? dto.reason?.trim() || null : request.reason;
+    request.reason =
+      dto.reason !== undefined ? dto.reason?.trim() || null : request.reason;
     request.metadata = {
-      ...(this.toObject(request.metadata)),
+      ...this.toObject(request.metadata),
       warnings: validation.warnings,
     };
     request.version += 1;
     request.items = validation.items.map((item) =>
       this.itemRepository.create({
         id:
-          request.items?.find((existing) => existing.field_name === item.fieldName)
-            ?.id ?? undefined,
+          request.items?.find(
+            (existing) => existing.field_name === item.fieldName,
+          )?.id ?? undefined,
         request_id: request.id,
         field_name: item.fieldName,
         field_label: item.policy.display_label,
@@ -374,18 +392,28 @@ export class ProfileChangeRequestsService {
       }),
     );
 
-    const existingFieldNames = new Set(validation.items.map((item) => item.fieldName));
+    const existingFieldNames = new Set(
+      validation.items.map((item) => item.fieldName),
+    );
     const staleItems =
-      request.items?.filter((item) => !existingFieldNames.has(item.field_name)) ?? [];
+      request.items?.filter(
+        (item) => !existingFieldNames.has(item.field_name),
+      ) ?? [];
     if (staleItems.length > 0) {
       await this.itemRepository.remove(staleItems);
     }
 
     await this.requestRepository.save(request);
-    await this.createAudit(request, ProfileChangeRequestAuditActionEnum.DRAFT_UPDATED, actor, context, {
-      request_type: requestType,
-      field_names: validation.items.map((item) => item.fieldName),
-    });
+    await this.createAudit(
+      request,
+      ProfileChangeRequestAuditActionEnum.DRAFT_UPDATED,
+      actor,
+      context,
+      {
+        request_type: requestType,
+        field_names: validation.items.map((item) => item.fieldName),
+      },
+    );
 
     return this.getMine(actor, request.id);
   }
@@ -396,7 +424,10 @@ export class ProfileChangeRequestsService {
     context?: RequestActorContext,
   ) {
     const snapshot = await this.requireOwnSnapshot(actor);
-    const request = await this.findRequestOrFail(id, snapshot.membership.company_id);
+    const request = await this.findRequestOrFail(
+      id,
+      snapshot.membership.company_id,
+    );
 
     if (request.employee_id !== snapshot.employee.id || request.deleted_at) {
       throw new NotFoundException('Profile change request not found.');
@@ -415,7 +446,10 @@ export class ProfileChangeRequestsService {
 
     if (
       request.request_type === ProfileChangeRequestTypeEnum.PROFILE_PHOTO &&
-      (!request.files || request.files.every((file) => file.status !== ProfileChangeRequestFileStatusEnum.PENDING)) &&
+      (!request.files ||
+        request.files.every(
+          (file) => file.status !== ProfileChangeRequestFileStatusEnum.PENDING,
+        )) &&
       (!request.items || request.items.length === 0)
     ) {
       throw new BadRequestException(
@@ -423,10 +457,9 @@ export class ProfileChangeRequestsService {
       );
     }
 
-    const changes =
-      request.items?.length
-        ? this.rehydrateChangesFromItems(request.items)
-        : {};
+    const changes = request.items?.length
+      ? this.rehydrateChangesFromItems(request.items)
+      : {};
     const validation = await this.validateChangeSet(
       snapshot,
       request.request_type,
@@ -454,7 +487,7 @@ export class ProfileChangeRequestsService {
     request.correction_instructions = null;
     request.correction_requested_at = null;
     request.metadata = {
-      ...(this.toObject(request.metadata)),
+      ...this.toObject(request.metadata),
       warnings: validation.warnings,
     };
 
@@ -485,7 +518,10 @@ export class ProfileChangeRequestsService {
     context?: RequestActorContext,
   ) {
     const snapshot = await this.requireOwnSnapshot(actor);
-    const request = await this.findRequestOrFail(id, snapshot.membership.company_id);
+    const request = await this.findRequestOrFail(
+      id,
+      snapshot.membership.company_id,
+    );
 
     if (request.employee_id !== snapshot.employee.id || request.deleted_at) {
       throw new NotFoundException('Profile change request not found.');
@@ -537,7 +573,10 @@ export class ProfileChangeRequestsService {
     context?: RequestActorContext,
   ) {
     const snapshot = await this.requireOwnSnapshot(actor);
-    const request = await this.findRequestOrFail(id, snapshot.membership.company_id);
+    const request = await this.findRequestOrFail(
+      id,
+      snapshot.membership.company_id,
+    );
 
     if (request.employee_id !== snapshot.employee.id || request.deleted_at) {
       throw new NotFoundException('Profile change request not found.');
@@ -569,26 +608,30 @@ export class ProfileChangeRequestsService {
     context?: RequestActorContext,
   ) {
     const snapshot = await this.requireOwnSnapshot(actor);
-    const processedPhoto = this.imageProcessingService.processProfilePhotoBuffer(
-      {
-        buffer: file.buffer,
-        fileName: file.originalname,
-        fileSize: file.size,
-        mimeType: file.mimetype,
-      },
-      {
-        allowedMimeTypes: this.profilePhotoAllowedMimeTypes,
-        allowedExtensions: this.profilePhotoAllowedExtensions,
-        maxFileSizeBytes: this.profilePhotoMaxFileSizeBytes,
-      },
-    );
+    const processedPhoto =
+      this.imageProcessingService.processProfilePhotoBuffer(
+        {
+          buffer: file.buffer,
+          fileName: file.originalname,
+          fileSize: file.size,
+          mimeType: file.mimetype,
+        },
+        {
+          allowedMimeTypes: this.profilePhotoAllowedMimeTypes,
+          allowedExtensions: this.profilePhotoAllowedExtensions,
+          maxFileSizeBytes: this.profilePhotoMaxFileSizeBytes,
+        },
+      );
 
     const storedFile = await this.filesService.savePrivateBufferFile({
       buffer: processedPhoto.buffer,
       fileName: processedPhoto.originalFileName,
       fileSize: processedPhoto.fileSize,
       mimeType: processedPhoto.mimeType,
-      directorySegments: ['profile-change-requests', `company-${snapshot.membership.company_id}`],
+      directorySegments: [
+        'profile-change-requests',
+        `company-${snapshot.membership.company_id}`,
+      ],
       fileNamePrefix: `employee-${snapshot.employee.id}-pending-profile-photo`,
       allowedMimeTypes: this.profilePhotoAllowedMimeTypes,
     });
@@ -617,7 +660,8 @@ export class ProfileChangeRequestsService {
       ],
       files: [
         this.fileRepository.create({
-          file_purpose: ProfileChangeRequestFilePurposeEnum.PROPOSED_PROFILE_PHOTO,
+          file_purpose:
+            ProfileChangeRequestFilePurposeEnum.PROPOSED_PROFILE_PHOTO,
           status: ProfileChangeRequestFileStatusEnum.PENDING,
           storage_visibility: 'private',
           file_path: storedFile.publicPath,
@@ -634,15 +678,27 @@ export class ProfileChangeRequestsService {
     });
 
     const saved = await this.requestRepository.save(request);
-    await this.createAudit(saved, ProfileChangeRequestAuditActionEnum.REQUEST_CREATED, actor, context, {
-      request_type: ProfileChangeRequestTypeEnum.PROFILE_PHOTO,
-      upload_file_name: storedFile.originalFileName,
-    });
-    await this.createAudit(saved, ProfileChangeRequestAuditActionEnum.FILE_UPLOADED, actor, context, {
-      file_name: storedFile.originalFileName,
-      mime_type: storedFile.mimeType,
-      file_size: storedFile.fileSize,
-    });
+    await this.createAudit(
+      saved,
+      ProfileChangeRequestAuditActionEnum.REQUEST_CREATED,
+      actor,
+      context,
+      {
+        request_type: ProfileChangeRequestTypeEnum.PROFILE_PHOTO,
+        upload_file_name: storedFile.originalFileName,
+      },
+    );
+    await this.createAudit(
+      saved,
+      ProfileChangeRequestAuditActionEnum.FILE_UPLOADED,
+      actor,
+      context,
+      {
+        file_name: storedFile.originalFileName,
+        mime_type: storedFile.mimeType,
+        file_size: storedFile.fileSize,
+      },
+    );
 
     return this.submit(actor, saved.id, context);
   }
@@ -674,7 +730,8 @@ export class ProfileChangeRequestsService {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
-    const accessibleBranchIds = await this.hrAccessService.getAccessibleBranchIds(actor);
+    const accessibleBranchIds =
+      await this.hrAccessService.getAccessibleBranchIds(actor);
 
     const qb = this.requestRepository
       .createQueryBuilder('request')
@@ -757,7 +814,10 @@ export class ProfileChangeRequestsService {
 
   async getHistoryForEmployee(actor: AuthenticatedUser, id: number) {
     const snapshot = await this.requireOwnSnapshot(actor);
-    const request = await this.findRequestOrFail(id, snapshot.membership.company_id);
+    const request = await this.findRequestOrFail(
+      id,
+      snapshot.membership.company_id,
+    );
     if (request.employee_id !== snapshot.employee.id || request.deleted_at) {
       throw new NotFoundException('Profile change request not found.');
     }
@@ -783,7 +843,9 @@ export class ProfileChangeRequestsService {
     await this.assertReviewerCanAccessRequest(actor, request);
 
     if (request.requested_by_user_id === actor.id) {
-      throw new ForbiddenException('You cannot review your own profile change request.');
+      throw new ForbiddenException(
+        'You cannot review your own profile change request.',
+      );
     }
 
     if (request.status === ProfileChangeRequestStatusEnum.UNDER_REVIEW) {
@@ -836,29 +898,31 @@ export class ProfileChangeRequestsService {
     const notificationPayloads: Array<() => Promise<void>> = [];
 
     const result = await this.dataSource.transaction(async (manager) => {
-      const request = await manager.getRepository(ProfileChangeRequest).findOne({
-        where: {
-          id,
-          company_id: companyId,
-        },
-        relations: {
-          items: true,
-          files: true,
-          employee: {
-            company_user: { user: true },
-            default_avatar: true,
-            contacts: true,
-            addresses: true,
-            relatives: true,
-            primary_branch: true,
-            primary_department: true,
+      const request = await manager
+        .getRepository(ProfileChangeRequest)
+        .findOne({
+          where: {
+            id,
+            company_id: companyId,
           },
-          audits: true,
-        },
-        lock: {
-          mode: 'pessimistic_write',
-        },
-      });
+          relations: {
+            items: true,
+            files: true,
+            employee: {
+              company_user: { user: true },
+              default_avatar: true,
+              contacts: true,
+              addresses: true,
+              relatives: true,
+              primary_branch: true,
+              primary_department: true,
+            },
+            audits: true,
+          },
+          lock: {
+            mode: 'pessimistic_write',
+          },
+        });
 
       if (!request || request.deleted_at) {
         throw new NotFoundException('Profile change request not found.');
@@ -895,10 +959,15 @@ export class ProfileChangeRequestsService {
         user,
       );
 
-      const staleConflicts = this.detectStaleConflicts(snapshot, request.items ?? []);
+      const staleConflicts = this.detectStaleConflicts(
+        snapshot,
+        request.items ?? [],
+      );
       if (staleConflicts.length > 0) {
         for (const conflict of staleConflicts) {
-          const item = request.items.find((entry) => entry.field_name === conflict.field);
+          const item = request.items.find(
+            (entry) => entry.field_name === conflict.field,
+          );
           if (item) {
             item.status = ProfileChangeRequestItemStatusEnum.CONFLICTED;
             item.validation_status =
@@ -931,7 +1000,8 @@ export class ProfileChangeRequestsService {
         );
 
         throw new ConflictException({
-          message: 'The request contains stale profile data and cannot be approved yet.',
+          message:
+            'The request contains stale profile data and cannot be approved yet.',
           conflicts: staleConflicts,
         });
       }
@@ -955,11 +1025,18 @@ export class ProfileChangeRequestsService {
       }
 
       await this.applyValidatedChanges(manager, snapshot, validation.items);
-      await this.promoteApprovedPendingFiles(manager, snapshot, request, actor, context);
+      await this.promoteApprovedPendingFiles(
+        manager,
+        snapshot,
+        request,
+        actor,
+        context,
+      );
 
       for (const item of request.items ?? []) {
         item.status = ProfileChangeRequestItemStatusEnum.APPLIED;
-        item.validation_status = ProfileChangeRequestItemValidationStatusEnum.VALID;
+        item.validation_status =
+          ProfileChangeRequestItemValidationStatusEnum.VALID;
         item.reviewed_by_user_id = actor.id;
         item.reviewed_at = new Date();
         item.review_comment = dto.comment?.trim() || null;
@@ -1158,7 +1235,10 @@ export class ProfileChangeRequestsService {
     fileId: number,
   ) {
     const snapshot = await this.requireOwnSnapshot(actor);
-    const request = await this.findRequestOrFail(requestId, snapshot.membership.company_id);
+    const request = await this.findRequestOrFail(
+      requestId,
+      snapshot.membership.company_id,
+    );
     if (request.employee_id !== snapshot.employee.id || request.deleted_at) {
       throw new NotFoundException('Profile change request not found.');
     }
@@ -1242,7 +1322,9 @@ export class ProfileChangeRequestsService {
         continue;
       }
 
-      if (!this.policyService.isFieldAllowedForRequestType(fieldName, requestType)) {
+      if (
+        !this.policyService.isFieldAllowedForRequestType(fieldName, requestType)
+      ) {
         errors.push({
           field: fieldName,
           code: 'FIELD_NOT_ALLOWED_FOR_REQUEST_TYPE',
@@ -1251,14 +1333,23 @@ export class ProfileChangeRequestsService {
         continue;
       }
 
-      const normalizedValue = this.normalizeIncomingFieldValue(policy, changes[fieldName]);
-      const fieldErrors = await this.validateFieldValue(snapshot, policy, normalizedValue);
+      const normalizedValue = this.normalizeIncomingFieldValue(
+        policy,
+        changes[fieldName],
+      );
+      const fieldErrors = await this.validateFieldValue(
+        snapshot,
+        policy,
+        normalizedValue,
+      );
       if (fieldErrors.length) {
-        errors.push(...fieldErrors.map((message) => ({
-          field: fieldName,
-          code: message.code,
-          message: message.message,
-        })));
+        errors.push(
+          ...fieldErrors.map((message) => ({
+            field: fieldName,
+            code: message.code,
+            message: message.message,
+          })),
+        );
         continue;
       }
 
@@ -1287,8 +1378,9 @@ export class ProfileChangeRequestsService {
     if (requestType === ProfileChangeRequestTypeEnum.PROFILE_PHOTO) {
       if (
         items.length === 0 &&
-        requestFiles.filter((file) => file.status === ProfileChangeRequestFileStatusEnum.PENDING)
-          .length === 0
+        requestFiles.filter(
+          (file) => file.status === ProfileChangeRequestFileStatusEnum.PENDING,
+        ).length === 0
       ) {
         errors.push({
           field: 'profile_photo',
@@ -1312,8 +1404,7 @@ export class ProfileChangeRequestsService {
           errors.push({
             field: conflict.fieldName,
             code: 'ACTIVE_REQUEST_CONFLICT',
-            message:
-              `${conflict.fieldName} is already part of active request ${conflict.referenceNumber}.`,
+            message: `${conflict.fieldName} is already part of active request ${conflict.referenceNumber}.`,
           });
         });
       }
@@ -1330,18 +1421,29 @@ export class ProfileChangeRequestsService {
     const issues: Array<{ code: string; message: string }> = [];
 
     for (const rule of policy.validation_rules) {
-      if (rule === 'nullable' && (value === null || value === undefined || value === '')) {
+      if (
+        rule === 'nullable' &&
+        (value === null || value === undefined || value === '')
+      ) {
         return issues;
       }
 
-      if (rule === 'required' && (value === null || value === undefined || value === '')) {
+      if (
+        rule === 'required' &&
+        (value === null || value === undefined || value === '')
+      ) {
         issues.push({
           code: 'REQUIRED',
           message: `${policy.display_label} is required.`,
         });
       }
 
-      if (rule === 'string' && value !== null && value !== undefined && typeof value !== 'string') {
+      if (
+        rule === 'string' &&
+        value !== null &&
+        value !== undefined &&
+        typeof value !== 'string'
+      ) {
         issues.push({
           code: 'INVALID_STRING',
           message: `${policy.display_label} must be a string.`,
@@ -1349,7 +1451,7 @@ export class ProfileChangeRequestsService {
       }
 
       if (rule === 'phone' && value) {
-        const phoneValue = String(value).trim();
+        const phoneValue = this.readScalarString(value);
         if (!/^\+?[0-9][0-9\s-]{7,19}$/.test(phoneValue)) {
           issues.push({
             code: 'INVALID_PHONE_NUMBER',
@@ -1359,7 +1461,7 @@ export class ProfileChangeRequestsService {
       }
 
       if (rule === 'email' && value) {
-        const emailValue = String(value).trim();
+        const emailValue = this.readScalarString(value);
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailValue)) {
           issues.push({
             code: 'INVALID_EMAIL',
@@ -1369,8 +1471,11 @@ export class ProfileChangeRequestsService {
       }
 
       if (rule === 'date' && value) {
-        const dateValue = String(value).trim();
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateValue) || Number.isNaN(Date.parse(dateValue))) {
+        const dateValue = this.readScalarString(value);
+        if (
+          !/^\d{4}-\d{2}-\d{2}$/.test(dateValue) ||
+          Number.isNaN(Date.parse(dateValue))
+        ) {
           issues.push({
             code: 'INVALID_DATE',
             message: `${policy.display_label} must be a valid date.`,
@@ -1379,7 +1484,7 @@ export class ProfileChangeRequestsService {
       }
 
       if (rule === 'past_or_today' && value) {
-        const dateValue = new Date(String(value));
+        const dateValue = new Date(this.readScalarString(value));
         if (dateValue.getTime() > Date.now()) {
           issues.push({
             code: 'DATE_IN_FUTURE',
@@ -1390,7 +1495,7 @@ export class ProfileChangeRequestsService {
 
       if (rule.startsWith('max:') && value !== null && value !== undefined) {
         const maxLength = Number(rule.split(':')[1]);
-        if (String(value).length > maxLength) {
+        if (this.readScalarString(value).length > maxLength) {
           issues.push({
             code: 'MAX_LENGTH_EXCEEDED',
             message: `${policy.display_label} exceeds the maximum allowed length of ${maxLength}.`,
@@ -1398,7 +1503,12 @@ export class ProfileChangeRequestsService {
         }
       }
 
-      if (rule === 'number' && value !== null && value !== undefined && value !== '') {
+      if (
+        rule === 'number' &&
+        value !== null &&
+        value !== undefined &&
+        value !== ''
+      ) {
         if (!Number.isInteger(Number(value))) {
           issues.push({
             code: 'INVALID_NUMBER',
@@ -1412,7 +1522,7 @@ export class ProfileChangeRequestsService {
           .split(':')[1]
           .split(',')
           .map((entry) => entry.trim().toLowerCase());
-        if (!allowed.includes(String(value).trim().toLowerCase())) {
+        if (!allowed.includes(this.readScalarString(value).toLowerCase())) {
           issues.push({
             code: 'INVALID_ENUM_VALUE',
             message: `${policy.display_label} contains an unsupported value.`,
@@ -1421,7 +1531,11 @@ export class ProfileChangeRequestsService {
       }
     }
 
-    if (policy.field_name === 'default_avatar_id' && value !== null && value !== undefined) {
+    if (
+      policy.field_name === 'default_avatar_id' &&
+      value !== null &&
+      value !== undefined
+    ) {
       try {
         await this.defaultAvatarsService.assertAvatarAvailableForEmployee(
           snapshot.membership.company_id,
@@ -1472,7 +1586,10 @@ export class ProfileChangeRequestsService {
     return value;
   }
 
-  private getCurrentFieldValue(snapshot: ProfileSnapshot, fieldName: string): unknown {
+  private getCurrentFieldValue(
+    snapshot: ProfileSnapshot,
+    fieldName: string,
+  ): unknown {
     switch (fieldName) {
       case 'first_name':
         return snapshot.user.first_name;
@@ -1545,8 +1662,7 @@ export class ProfileChangeRequestsService {
             currentValue,
             originalValue: item.old_value,
             proposedValue: item.new_value,
-            message:
-              `Current published value for ${item.field_label} has changed since this request was created.`,
+            message: `Current published value for ${item.field_label} has changed since this request was created.`,
           };
         }
 
@@ -1612,51 +1728,65 @@ export class ProfileChangeRequestsService {
     for (const item of items) {
       switch (item.fieldName) {
         case 'first_name':
-          user.first_name = this.readNullableString(item.parsedNewValue) ?? user.first_name;
+          user.first_name =
+            this.readNullableString(item.parsedNewValue) ?? user.first_name;
           employee.first_name = user.first_name;
           break;
         case 'middle_name':
           employee.middle_name = this.readNullableString(item.parsedNewValue);
           break;
         case 'last_name':
-          user.last_name = this.readNullableString(item.parsedNewValue) ?? user.last_name;
+          user.last_name =
+            this.readNullableString(item.parsedNewValue) ?? user.last_name;
           employee.last_name = user.last_name;
           break;
         case 'preferred_name':
-          employee.preferred_name = this.readNullableString(item.parsedNewValue);
+          employee.preferred_name = this.readNullableString(
+            item.parsedNewValue,
+          );
           break;
         case 'gender':
-          employee.gender = this.readNullableString(item.parsedNewValue) ?? employee.gender;
+          employee.gender =
+            this.readNullableString(item.parsedNewValue) ?? employee.gender;
           break;
         case 'date_of_birth':
           employee.date_of_birth = this.readNullableString(item.parsedNewValue);
           break;
         case 'marital_status':
-          employee.marital_status = this.readNullableString(item.parsedNewValue);
+          employee.marital_status = this.readNullableString(
+            item.parsedNewValue,
+          );
           break;
         case 'nationality':
           employee.nationality = this.readNullableString(item.parsedNewValue);
           break;
         case 'phone':
-          user.phone = this.readNullableString(item.parsedNewValue) ?? user.phone;
+          user.phone =
+            this.readNullableString(item.parsedNewValue) ?? user.phone;
           break;
         case 'email':
-          user.email = this.readNullableString(item.parsedNewValue) ?? user.email;
+          user.email =
+            this.readNullableString(item.parsedNewValue) ?? user.email;
           break;
         case 'personal_phone_number':
         case 'personal_email':
           if (!personalContact) {
             personalContact = manager.getRepository(EmployeeContact).create({
               employee_id: employee.id,
-              contact_type: snapshot.primaryPersonalContact?.contact_type ?? 'PERSONAL',
+              contact_type:
+                snapshot.primaryPersonalContact?.contact_type ?? 'PERSONAL',
               is_primary: true,
               is_verified: false,
             } as Partial<EmployeeContact>);
           }
           if (item.fieldName === 'personal_phone_number') {
-            personalContact.phone_number = this.readNullableString(item.parsedNewValue);
+            personalContact.phone_number = this.readNullableString(
+              item.parsedNewValue,
+            );
           } else {
-            personalContact.email = this.readNullableString(item.parsedNewValue);
+            personalContact.email = this.readNullableString(
+              item.parsedNewValue,
+            );
           }
           break;
         case 'address_line_1':
@@ -1672,8 +1802,9 @@ export class ProfileChangeRequestsService {
               is_primary: true,
             } as Partial<EmployeeAddress>);
           }
-          (primaryAddress as unknown as Record<string, unknown>)[item.fieldName] =
-            this.readNullableString(item.parsedNewValue);
+          (primaryAddress as unknown as Record<string, unknown>)[
+            item.fieldName
+          ] = this.readNullableString(item.parsedNewValue);
           break;
         case 'emergency_contact_name':
         case 'emergency_contact_relationship':
@@ -1682,13 +1813,15 @@ export class ProfileChangeRequestsService {
         case 'emergency_contact_address':
         case 'emergency_contact_occupation':
           if (!primaryEmergencyContact) {
-            primaryEmergencyContact = manager.getRepository(EmployeeRelative).create({
-              employee_id: employee.id,
-              full_name: 'Emergency Contact',
-              relationship: 'Emergency Contact',
-              is_emergency_contact: true,
-              is_primary: true,
-            } as Partial<EmployeeRelative>);
+            primaryEmergencyContact = manager
+              .getRepository(EmployeeRelative)
+              .create({
+                employee_id: employee.id,
+                full_name: 'Emergency Contact',
+                relationship: 'Emergency Contact',
+                is_emergency_contact: true,
+                is_primary: true,
+              } as Partial<EmployeeRelative>);
           }
           switch (item.fieldName) {
             case 'emergency_contact_name':
@@ -1702,20 +1835,24 @@ export class ProfileChangeRequestsService {
                 primaryEmergencyContact.relationship;
               break;
             case 'emergency_contact_phone':
-              primaryEmergencyContact.phone =
-                this.readNullableString(item.parsedNewValue);
+              primaryEmergencyContact.phone = this.readNullableString(
+                item.parsedNewValue,
+              );
               break;
             case 'emergency_contact_email':
-              primaryEmergencyContact.email =
-                this.readNullableString(item.parsedNewValue);
+              primaryEmergencyContact.email = this.readNullableString(
+                item.parsedNewValue,
+              );
               break;
             case 'emergency_contact_address':
-              primaryEmergencyContact.address =
-                this.readNullableString(item.parsedNewValue);
+              primaryEmergencyContact.address = this.readNullableString(
+                item.parsedNewValue,
+              );
               break;
             case 'emergency_contact_occupation':
-              primaryEmergencyContact.occupation =
-                this.readNullableString(item.parsedNewValue);
+              primaryEmergencyContact.occupation = this.readNullableString(
+                item.parsedNewValue,
+              );
               break;
           }
           break;
@@ -1739,7 +1876,8 @@ export class ProfileChangeRequestsService {
               );
             employee.default_avatar_id = selectedAvatar.id;
             employee.default_avatar = selectedAvatar;
-            employee.profile_image_source = ProfileImageSourceEnum.DEFAULT_AVATAR;
+            employee.profile_image_source =
+              ProfileImageSourceEnum.DEFAULT_AVATAR;
           }
           break;
         }
@@ -1761,7 +1899,9 @@ export class ProfileChangeRequestsService {
 
     if (primaryEmergencyContact) {
       primaryEmergencyContact.employee_id = employee.id;
-      await manager.getRepository(EmployeeRelative).save(primaryEmergencyContact);
+      await manager
+        .getRepository(EmployeeRelative)
+        .save(primaryEmergencyContact);
     }
   }
 
@@ -1793,13 +1933,17 @@ export class ProfileChangeRequestsService {
         fileName: file.original_file_name,
         fileSize: file.file_size,
         mimeType: file.mime_type,
-        directorySegments: ['profile-photos', `company-${snapshot.membership.company_id}`],
+        directorySegments: [
+          'profile-photos',
+          `company-${snapshot.membership.company_id}`,
+        ],
         fileNamePrefix: `employee-${snapshot.employee.id}`,
         allowedMimeTypes: this.profilePhotoAllowedMimeTypes,
       });
 
       snapshot.employee.profile_photo_url = storedPublicFile.publicPath;
-      snapshot.employee.profile_image_source = snapshot.employee.default_avatar_id
+      snapshot.employee.profile_image_source = snapshot.employee
+        .default_avatar_id
         ? ProfileImageSourceEnum.DEFAULT_AVATAR
         : ProfileImageSourceEnum.UPLOADED;
       await manager.getRepository(Employee).save(snapshot.employee);
@@ -1881,7 +2025,10 @@ export class ProfileChangeRequestsService {
           {
             receiver_company_user_id: reviewer.id,
             notification_type: 'submission_review_required',
-            error: error instanceof Error ? error.message : 'Unknown notification error',
+            error:
+              error instanceof Error
+                ? error.message
+                : 'Unknown notification error',
           },
         );
       }
@@ -1962,7 +2109,10 @@ export class ProfileChangeRequestsService {
         {
           receiver_company_user_id: requesterMembership.id,
           notification_type: notification.title,
-          error: error instanceof Error ? error.message : 'Unknown notification error',
+          error:
+            error instanceof Error
+              ? error.message
+              : 'Unknown notification error',
         },
       );
     }
@@ -2028,7 +2178,10 @@ export class ProfileChangeRequestsService {
         return false;
       }
 
-      if (!employee?.primary_branch_id || membership.branch_accesses.length === 0) {
+      if (
+        !employee?.primary_branch_id ||
+        membership.branch_accesses.length === 0
+      ) {
         return true;
       }
 
@@ -2083,7 +2236,9 @@ export class ProfileChangeRequestsService {
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
   }
 
-  private async requireOwnSnapshot(actor: AuthenticatedUser): Promise<ProfileSnapshot> {
+  private async requireOwnSnapshot(
+    actor: AuthenticatedUser,
+  ): Promise<ProfileSnapshot> {
     if (!actor.companyId || !actor.companyMembershipId) {
       throw new ForbiddenException('Active company context is required.');
     }
@@ -2126,18 +2281,23 @@ export class ProfileChangeRequestsService {
   ): ProfileSnapshot {
     const primaryPersonalContact =
       [...(employee.contacts ?? [])]
-        .filter((contact) => String(contact.contact_type).toUpperCase() === 'PERSONAL')
-        .sort((left, right) => Number(right.is_primary) - Number(left.is_primary))[0] ??
-      null;
+        .filter(
+          (contact) =>
+            String(contact.contact_type).toUpperCase() === 'PERSONAL',
+        )
+        .sort(
+          (left, right) => Number(right.is_primary) - Number(left.is_primary),
+        )[0] ?? null;
     const primaryAddress =
-      [...(employee.addresses ?? [])]
-        .sort((left, right) => Number(right.is_primary) - Number(left.is_primary))[0] ??
-      null;
+      [...(employee.addresses ?? [])].sort(
+        (left, right) => Number(right.is_primary) - Number(left.is_primary),
+      )[0] ?? null;
     const primaryEmergencyContact =
       [...(employee.relatives ?? [])]
         .filter((relative) => relative.is_emergency_contact)
-        .sort((left, right) => Number(right.is_primary) - Number(left.is_primary))[0] ??
-      null;
+        .sort(
+          (left, right) => Number(right.is_primary) - Number(left.is_primary),
+        )[0] ?? null;
 
     return {
       employee,
@@ -2183,7 +2343,10 @@ export class ProfileChangeRequestsService {
 
   private rehydrateChangesFromItems(items: ProfileChangeRequestItem[]) {
     return items.reduce<Record<string, unknown>>((acc, item) => {
-      acc[item.field_name] = this.deserializeValue(item.new_value, item.value_type);
+      acc[item.field_name] = this.deserializeValue(
+        item.new_value,
+        item.value_type,
+      );
       return acc;
     }, {});
   }
@@ -2222,8 +2385,25 @@ export class ProfileChangeRequestsService {
       return null;
     }
 
-    const normalized = String(value).trim();
+    const normalized = this.readScalarString(value);
     return normalized.length ? normalized : null;
+  }
+
+  private readScalarString(value: unknown): string {
+    if (value instanceof Date) {
+      return value.toISOString().trim();
+    }
+
+    if (
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean' ||
+      typeof value === 'bigint'
+    ) {
+      return String(value).trim();
+    }
+
+    return '';
   }
 
   private toObject(value: unknown): Record<string, unknown> {
@@ -2374,9 +2554,7 @@ export class ProfileChangeRequestsService {
         width: file.width,
         height: file.height,
         preview_url:
-          file.storage_visibility === 'private'
-            ? null
-            : file.file_path,
+          file.storage_visibility === 'private' ? null : file.file_path,
       })),
       history_count: request.audits?.length ?? 0,
     };
@@ -2385,7 +2563,9 @@ export class ProfileChangeRequestsService {
   private mapAuditHistory(audits: ProfileChangeRequestAudit[]) {
     return audits
       .slice()
-      .sort((left, right) => left.created_at.getTime() - right.created_at.getTime())
+      .sort(
+        (left, right) => left.created_at.getTime() - right.created_at.getTime(),
+      )
       .map((audit) => ({
         id: audit.id,
         action: audit.action,

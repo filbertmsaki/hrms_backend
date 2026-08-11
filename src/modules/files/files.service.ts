@@ -271,11 +271,9 @@ export class FilesService {
     return `${prefix}/${pathSegments.join('/')}`;
   }
 
-  private resolveManagedFile(publicPath: string | null | undefined):
-    | {
-        absolutePath: string;
-      }
-    | null {
+  private resolveManagedFile(publicPath: string | null | undefined): {
+    absolutePath: string;
+  } | null {
     if (!publicPath) {
       return null;
     }

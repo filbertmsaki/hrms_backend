@@ -329,10 +329,8 @@ export class ImageProcessingService {
         throw new BadRequestException('WEBP image dimensions are invalid.');
       }
 
-      const width =
-        1 + buffer.readUIntLE(24, 3);
-      const height =
-        1 + buffer.readUIntLE(27, 3);
+      const width = 1 + buffer.readUIntLE(24, 3);
+      const height = 1 + buffer.readUIntLE(27, 3);
 
       if (width < 1 || height < 1) {
         throw new BadRequestException('WEBP image dimensions are invalid.');
