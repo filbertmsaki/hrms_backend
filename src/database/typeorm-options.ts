@@ -141,10 +141,18 @@ export function createAppDataSourceOptions(
 ): DataSourceOptions & SeederOptions {
   return {
     ...createBaseTypeOrmOptionsFromEnv(env),
-    entities: ['src/**/*.entity{.ts,.js}', 'src/**/*.entities{.ts,.js}'],
-    migrations: ['src/database/migrations/*{.ts,.js}'],
+
+    entities: [
+      __dirname + '/../**/*.entity{.ts,.js}',
+      __dirname + '/../**/*.entities{.ts,.js}',
+    ],
+
+    migrations: [__dirname + '/migrations/*{.ts,.js}'],
+
     migrationsTableName: 'migrations',
-    seeds: ['src/database/seeds/*.seed.ts'],
-    factories: ['src/database/factories/*.factory{.ts,.js}'],
+
+    seeds: [__dirname + '/seeds/*.seed{.ts,.js}'],
+
+    factories: [__dirname + '/factories/*.factory{.ts,.js}'],
   };
 }
