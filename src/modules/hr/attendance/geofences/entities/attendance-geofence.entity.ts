@@ -12,7 +12,7 @@ import {
 import { Company } from '../../../../companies/entities/company.entity';
 import { AttendanceGeofenceStatusEnum } from '../enums/attendance-geofence-status.enum';
 import { AttendanceGeofenceTypeEnum } from '../enums/attendance-geofence-type.enum';
-import { Branch } from 'src/modules/hr/branches/entities/branch.entity';
+import { Branch } from '../../../branches/entities/branch.entity';
 
 @Entity('attendance_geofences')
 @Index('IDX_attendance_geofences_company_id', ['companyId'])

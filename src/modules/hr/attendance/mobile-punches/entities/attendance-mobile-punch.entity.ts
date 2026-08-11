@@ -17,8 +17,8 @@ import { AttendanceWifiNetwork } from '../../wifi-networks/entities/attendance-w
 import { AttendancePunchTypeEnum } from '../enums/attendance-punch-type.enum';
 import { AttendancePunchSourceEnum } from '../enums/attendance-punch-source.enum';
 import { AttendancePunchValidationStatusEnum } from '../enums/attendance-punch-validation-status.enum';
-import { CompanyUser } from 'src/modules/companies/entities/company-user.entity';
-import { Branch } from 'src/modules/hr/branches/entities/branch.entity';
+import { CompanyUser } from '../../../../companies/entities/company-user.entity';
+import { Branch } from '../../../branches/entities/branch.entity';
 
 @Entity('attendance_mobile_punches')
 @Index('IDX_attendance_mobile_punches_company_id', ['companyId'])

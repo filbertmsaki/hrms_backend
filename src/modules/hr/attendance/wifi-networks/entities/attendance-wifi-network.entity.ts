@@ -12,7 +12,7 @@ import {
 import { Company } from '../../../../companies/entities/company.entity';
 import { AttendanceWifiNetworkStatusEnum } from '../enums/attendance-wifi-network-status.enum';
 import { AttendanceWifiSecurityTypeEnum } from '../enums/attendance-wifi-security-type.enum';
-import { Branch } from 'src/modules/hr/branches/entities/branch.entity';
+import { Branch } from '../../../branches/entities/branch.entity';
 
 @Entity('attendance_wifi_networks')
 @Index('IDX_attendance_wifi_networks_company_id', ['companyId'])
