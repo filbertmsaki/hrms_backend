@@ -1,0 +1,553 @@
+name: HRMS Backend CI
+
+on:
+  push:
+    branches:
+      - uat
+      - main
+    paths:
+      - 'src/**'
+      - 'test/**'
+      - 'deploy/hrms-backend/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'nest-cli.json'
+      - 'tsconfig.json'
+      - 'tsconfig.build.json'
+      - 'eslint.config.mjs'
+      - '.gitattributes'
+      - '.github/workflows/hrms-backend-ci.yml'
+      - '.github/workflows/hrms-backend-deploy-uat.yml'
+      - '.github/workflows/hrms-backend-deploy-production.yml'
+
+  pull_request:
+    branches:
+      - uat
+      - main
+    paths:
+      - 'src/**'
+      - 'test/**'
+      - 'deploy/hrms-backend/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'nest-cli.json'
+      - 'tsconfig.json'
+      - 'tsconfig.build.json'
+      - 'eslint.config.mjs'
+      - '.gitattributes'
+      - '.github/workflows/hrms-backend-ci.yml'
+      - '.github/workflows/hrms-backend-deploy-uat.yml'
+      - '.github/workflows/hrms-backend-deploy-production.yml'
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hrms-backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-and-package:
+    name: Validate and package HRMS backend
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 30
+
+    env:
+      CI: true
+      NODE_ENV: test
+
+    steps:
+
+      # ============================================================
+      # CHECKOUT
+      # ============================================================
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+
+      # ============================================================
+      # NODE
+      # ============================================================
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+
+      # ============================================================
+      # VALIDATE REQUIRED REPOSITORY FILES
+      # ============================================================
+
+      - name: Validate required files
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          required_files=(
+            package.json
+            package-lock.json
+            nest-cli.json
+            tsconfig.json
+            tsconfig.build.json
+            deploy/hrms-backend/deploy.sh
+            deploy/hrms-backend/ecosystem.config.js
+          )
+
+          for file in "${required_files[@]}"; do
+            if [[ ! -f "$file" ]]; then
+              echo "Required file is missing: $file"
+              exit 1
+            fi
+          done
+
+          echo "Required repository files found."
+
+
+      # ============================================================
+      # WINDOWS → LINUX SAFETY
+      # ============================================================
+
+      - name: Validate deployment file line endings
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          if grep -q $'\r' deploy/hrms-backend/deploy.sh; then
+            echo "deploy.sh contains CRLF line endings."
+            echo "It must use LF line endings for Ubuntu."
+            exit 1
+          fi
+
+          echo "deploy.sh uses Linux-compatible LF line endings."
+
+
+      # ============================================================
+      # BASH VALIDATION
+      # ============================================================
+
+      - name: Validate deployment script syntax
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          bash -n deploy/hrms-backend/deploy.sh
+
+          echo "deploy.sh syntax is valid."
+
+
+      # ============================================================
+      # EXECUTABLE MODE
+      # ============================================================
+
+      - name: Validate deploy script executable mode
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          MODE="$(
+            git ls-files \
+              --stage \
+              deploy/hrms-backend/deploy.sh \
+              | awk '{print $1}'
+          )"
+
+          echo "deploy.sh Git mode: $MODE"
+
+          if [[ "$MODE" != "100755" ]]; then
+            echo "deploy.sh is not executable in Git."
+            echo
+            echo "Run on Windows:"
+            echo "git update-index --chmod=+x deploy/hrms-backend/deploy.sh"
+            exit 1
+          fi
+
+
+      # ============================================================
+      # PM2 CONFIG VALIDATION
+      # ============================================================
+
+      - name: Validate PM2 ecosystem syntax
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          node --check \
+            deploy/hrms-backend/ecosystem.config.js
+
+          echo "PM2 ecosystem configuration syntax is valid."
+
+
+      # ============================================================
+      # INSTALL
+      # ============================================================
+
+      - name: Install dependencies
+        run: |
+          npm ci \
+            --no-audit \
+            --no-fund
+
+
+      # ============================================================
+      # PACKAGE VALIDATION
+      # ============================================================
+
+      - name: Validate deployment package scripts
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          node <<'NODE'
+          const pkg = require('./package.json');
+
+          const requiredScripts = [
+            'build',
+            'lint:check',
+            'test',
+            'migration:run:built',
+            'migration:show:built',
+            'migration:revert:built',
+          ];
+
+          for (const script of requiredScripts) {
+            if (!pkg.scripts?.[script]) {
+              console.error(
+                `Missing required package.json script: ${script}`,
+              );
+
+              process.exit(1);
+            }
+
+            console.log(`[OK] ${script}`);
+          }
+
+          if (!pkg.dependencies?.typeorm) {
+            console.error(
+              'typeorm must be a production dependency.',
+            );
+
+            process.exit(1);
+          }
+
+          console.log('[OK] typeorm is a production dependency.');
+          NODE
+
+
+      # ============================================================
+      # LINT
+      # ============================================================
+
+      - name: Lint
+        run: npm run lint:check
+
+
+      # ============================================================
+      # UNIT TESTS
+      # ============================================================
+
+      - name: Run unit tests
+        run: npm test -- --runInBand --passWithNoTests
+
+
+      # ============================================================
+      # BUILD
+      # ============================================================
+
+      - name: Build HRMS backend
+        run: npm run build
+
+
+      # ============================================================
+      # VALIDATE BUILD
+      # ============================================================
+
+      - name: Validate compiled backend
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          required_build_files=(
+            dist/main.js
+            dist/database/data-source.js
+            dist/database/typeorm-options.js
+          )
+
+          for file in "${required_build_files[@]}"; do
+            if [[ ! -f "$file" ]]; then
+              echo "Compiled file is missing: $file"
+              exit 1
+            fi
+          done
+
+          if [[ ! -d dist/database/migrations ]]; then
+            echo "Compiled migrations directory is missing."
+            exit 1
+          fi
+
+          MIGRATION_COUNT="$(
+            find dist/database/migrations \
+              -maxdepth 1 \
+              -type f \
+              -name '*.js' \
+              | wc -l
+          )"
+
+          echo "Compiled migrations: $MIGRATION_COUNT"
+
+          if [[ "$MIGRATION_COUNT" -lt 1 ]]; then
+            echo "No compiled database migrations found."
+            exit 1
+          fi
+
+          echo "Compiled backend validation passed."
+
+
+      # ============================================================
+      # VALIDATE COMPILED TYPEORM PATHS
+      # ============================================================
+
+      - name: Validate compiled TypeORM paths
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          if grep -q \
+            "src/database/migrations" \
+            dist/database/typeorm-options.js; then
+
+            echo "ERROR:"
+            echo "Compiled datasource still references:"
+            echo "src/database/migrations"
+
+            exit 1
+          fi
+
+          echo "Compiled TypeORM migration paths are release-safe."
+
+
+      # ============================================================
+      # BUILD RELEASE ARTIFACT
+      # ============================================================
+
+      - name: Build backend release artifact
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          RELEASE_DIR="$RUNNER_TEMP/hrms-backend-release"
+
+          ARCHIVE="$RUNNER_TEMP/hrms-backend-release.tar.gz"
+
+          CHECKSUM="$RUNNER_TEMP/hrms-backend-release.tar.gz.sha256"
+
+          echo "Preparing release directory."
+
+          rm -rf "$RELEASE_DIR"
+
+          rm -f \
+            "$ARCHIVE" \
+            "$CHECKSUM"
+
+          mkdir -p \
+            "$RELEASE_DIR/deploy/hrms-backend"
+
+
+          # --------------------------------------------------------
+          # Compiled application
+          # --------------------------------------------------------
+
+          echo "Copying compiled application."
+
+          cp -a \
+            dist \
+            "$RELEASE_DIR/dist"
+
+
+          # --------------------------------------------------------
+          # Production dependency manifest
+          # --------------------------------------------------------
+
+          echo "Copying package manifests."
+
+          cp \
+            package.json \
+            package-lock.json \
+            "$RELEASE_DIR/"
+
+
+          # --------------------------------------------------------
+          # Deployment files
+          # --------------------------------------------------------
+
+          echo "Copying deployment configuration."
+
+          cp \
+            deploy/hrms-backend/deploy.sh \
+            "$RELEASE_DIR/deploy/hrms-backend/deploy.sh"
+
+          cp \
+            deploy/hrms-backend/ecosystem.config.js \
+            "$RELEASE_DIR/deploy/hrms-backend/ecosystem.config.js"
+
+          chmod 750 \
+            "$RELEASE_DIR/deploy/hrms-backend/deploy.sh"
+
+
+          # --------------------------------------------------------
+          # Git revision
+          # --------------------------------------------------------
+
+          printf '%s\n' \
+            "$GITHUB_SHA" \
+            > "$RELEASE_DIR/REVISION"
+
+
+          # --------------------------------------------------------
+          # Build timestamp
+          # --------------------------------------------------------
+
+          printf '%s\n' \
+            "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            > "$RELEASE_DIR/BUILT_AT"
+
+
+          # --------------------------------------------------------
+          # Validate release contents
+          # --------------------------------------------------------
+
+          test -f "$RELEASE_DIR/dist/main.js"
+
+          test -f \
+            "$RELEASE_DIR/dist/database/data-source.js"
+
+          test -f \
+            "$RELEASE_DIR/package.json"
+
+          test -f \
+            "$RELEASE_DIR/package-lock.json"
+
+          test -f \
+            "$RELEASE_DIR/deploy/hrms-backend/deploy.sh"
+
+          test -f \
+            "$RELEASE_DIR/deploy/hrms-backend/ecosystem.config.js"
+
+          test -f \
+            "$RELEASE_DIR/REVISION"
+
+          test -f \
+            "$RELEASE_DIR/BUILT_AT"
+
+
+          # --------------------------------------------------------
+          # Archive
+          # --------------------------------------------------------
+
+          echo "Creating release archive."
+
+          tar \
+            -C "$RELEASE_DIR" \
+            -czf "$ARCHIVE" \
+            .
+
+
+          # --------------------------------------------------------
+          # Checksum
+          # --------------------------------------------------------
+
+          echo "Creating SHA256 checksum."
+
+          (
+            cd "$RUNNER_TEMP"
+
+            sha256sum \
+              hrms-backend-release.tar.gz \
+              > hrms-backend-release.tar.gz.sha256
+          )
+
+
+          # --------------------------------------------------------
+          # Verify checksum immediately
+          # --------------------------------------------------------
+
+          echo "Verifying generated checksum."
+
+          (
+            cd "$RUNNER_TEMP"
+
+            sha256sum \
+              --check \
+              hrms-backend-release.tar.gz.sha256
+          )
+
+
+          # --------------------------------------------------------
+          # Summary
+          # --------------------------------------------------------
+
+          echo
+          echo "Release artifact created successfully."
+
+          ls -lh \
+            "$ARCHIVE" \
+            "$CHECKSUM"
+
+          echo
+          echo "Release revision:"
+
+          cat "$RELEASE_DIR/REVISION"
+
+          echo
+          echo "Build timestamp:"
+
+          cat "$RELEASE_DIR/BUILT_AT"
+
+
+      # ============================================================
+      # UPLOAD ARTIFACT
+      # ============================================================
+
+      - name: Upload HRMS backend release artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: hrms-backend-release-${{ github.sha }}
+
+          path: |
+            ${{ runner.temp }}/hrms-backend-release.tar.gz
+            ${{ runner.temp }}/hrms-backend-release.tar.gz.sha256
+
+          if-no-files-found: error
+
+          retention-days: 14
+
+          compression-level: 0
+
+
+      # ============================================================
+      # CI SUMMARY
+      # ============================================================
+
+      - name: CI summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## HRMS Backend CI"
+            echo
+            echo "- Branch: \`${{ github.ref_name }}\`"
+            echo "- Commit: \`${{ github.sha }}\`"
+            echo "- Event: \`${{ github.event_name }}\`"
+            echo "- Runner: \`${{ runner.os }}\`"
+            echo "- Node: \`22\`"
+          } >> "$GITHUB_STEP_SUMMARY"
