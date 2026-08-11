@@ -15,15 +15,43 @@ type PugAdapterConstructor = new (
 ) => PugAdapterInstance;
 
 const mailerRequire = createRequire(__filename);
-const mailerEntryPoint = mailerRequire.resolve('@nestjs-modules/mailer');
-const pugAdapterPath = join(
-  dirname(mailerEntryPoint),
-  'adapters',
-  'pug.adapter.js',
-);
+let loadedPugAdapterConstructor: PugAdapterConstructor | null = null;
 
-const { PugAdapter: LoadedPugAdapter } = mailerRequire(pugAdapterPath) as {
-  PugAdapter: PugAdapterConstructor;
-};
+function resolvePugAdapterConstructor(): PugAdapterConstructor {
+  if (loadedPugAdapterConstructor) {
+    return loadedPugAdapterConstructor;
+  }
 
-export const PugAdapter = LoadedPugAdapter;
+  const mailerEntryPoint = mailerRequire.resolve('@nestjs-modules/mailer');
+  const pugAdapterPath = join(
+    dirname(mailerEntryPoint),
+    'adapters',
+    'pug.adapter.js',
+  );
+
+  const { PugAdapter: LoadedPugAdapter } = mailerRequire(pugAdapterPath) as {
+    PugAdapter: PugAdapterConstructor;
+  };
+
+  loadedPugAdapterConstructor = LoadedPugAdapter;
+  return loadedPugAdapterConstructor;
+}
+
+export class PugAdapter implements PugAdapterInstance {
+  private delegate: PugAdapterInstance | null = null;
+
+  constructor(private readonly config?: Record<string, unknown>) {}
+
+  compile(
+    mail: unknown,
+    callback: (err?: unknown, body?: string) => unknown,
+    options: MailerOptions,
+  ): void {
+    if (!this.delegate) {
+      const LoadedPugAdapter = resolvePugAdapterConstructor();
+      this.delegate = new LoadedPugAdapter(this.config);
+    }
+
+    this.delegate.compile(mail, callback, options);
+  }
+}

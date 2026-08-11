@@ -1,0 +1,694 @@
+name: HRMS Backend Deploy UAT
+
+on:
+  workflow_run:
+    workflows:
+      - HRMS Backend CI
+    types:
+      - completed
+    branches:
+      - uat
+
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful HRMS Backend CI run ID from uat
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hrms-backend-uat-deploy
+  cancel-in-progress: false
+
+jobs:
+
+  deploy-uat:
+
+    name: Deploy HRMS backend to UAT
+
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'workflow_run' &&
+          github.event.workflow_run.conclusion == 'success'
+        )
+      }}
+
+    runs-on:
+      - self-hosted
+      - Linux
+      - X64
+      - hrms-backend
+
+    timeout-minutes: 25
+
+    steps:
+
+      # ============================================================
+      # RESOLVE EXACT CI RUN
+      # ============================================================
+
+      - name: Resolve and validate CI run
+        id: ci
+        uses: actions/github-script@v8
+        env:
+          MANUAL_RUN_ID: ${{ inputs.run_id }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+          script: |
+            let runId;
+
+            if (context.eventName === 'workflow_run') {
+              runId = Number(
+                context.payload.workflow_run.id
+              );
+            } else {
+              runId = Number(
+                process.env.MANUAL_RUN_ID
+              );
+            }
+
+            if (
+              !Number.isSafeInteger(runId) ||
+              runId <= 0
+            ) {
+              core.setFailed(
+                `Invalid CI run ID: ${runId}`
+              );
+
+              return;
+            }
+
+            const { data: run } =
+              await github.rest.actions.getWorkflowRun({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: runId,
+              });
+
+            core.info(
+              `CI run: ${run.id}`
+            );
+
+            core.info(
+              `Workflow: ${run.name}`
+            );
+
+            core.info(
+              `Branch: ${run.head_branch}`
+            );
+
+            core.info(
+              `SHA: ${run.head_sha}`
+            );
+
+            core.info(
+              `Conclusion: ${run.conclusion}`
+            );
+
+            core.info(
+              `Event: ${run.event}`
+            );
+
+
+            if (run.name !== 'HRMS Backend CI') {
+              core.setFailed(
+                `Run ${run.id} is not HRMS Backend CI.`
+              );
+
+              return;
+            }
+
+
+            if (run.conclusion !== 'success') {
+              core.setFailed(
+                `CI run ${run.id} did not succeed.`
+              );
+
+              return;
+            }
+
+
+            if (run.head_branch !== 'uat') {
+              core.setFailed(
+                `Refusing to deploy branch: ${run.head_branch}`
+              );
+
+              return;
+            }
+
+
+            if (
+              ![
+                'push',
+                'workflow_dispatch'
+              ].includes(run.event)
+            ) {
+              core.setFailed(
+                `Unsupported CI event: ${run.event}`
+              );
+
+              return;
+            }
+
+
+            const expectedRepository =
+              `${context.repo.owner}/${context.repo.repo}`;
+
+            const headRepository =
+              run.head_repository?.full_name;
+
+
+            if (
+              headRepository &&
+              headRepository !== expectedRepository
+            ) {
+              core.setFailed(
+                `Refusing artifact from ${headRepository}`
+              );
+
+              return;
+            }
+
+
+            const sha = run.head_sha;
+
+
+            if (
+              !/^[0-9a-f]{40}$/i.test(sha)
+            ) {
+              core.setFailed(
+                `Invalid Git SHA: ${sha}`
+              );
+
+              return;
+            }
+
+
+            core.setOutput(
+              'run_id',
+              String(run.id)
+            );
+
+            core.setOutput(
+              'sha',
+              sha
+            );
+
+            core.setOutput(
+              'artifact_name',
+              `hrms-backend-release-${sha}`
+            );
+
+
+      # ============================================================
+      # SERVER PREFLIGHT
+      # ============================================================
+
+      - name: Validate UAT server
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          BASE_DIR="/opt/apps/hrms-v1/uat/backend"
+          SHARED_DIR="$BASE_DIR/shared"
+
+
+          echo "User:"
+          whoami
+
+          [[ "$(whoami)" == "alliance" ]] || {
+            echo "Runner must execute as alliance."
+            exit 1
+          }
+
+
+          required_commands=(
+            node
+            npm
+            pm2
+            curl
+            tar
+            sha256sum
+            flock
+          )
+
+
+          for command in "${required_commands[@]}"; do
+
+            command -v "$command" >/dev/null || {
+              echo "Missing command: $command"
+              exit 1
+            }
+
+          done
+
+
+          test -d "$BASE_DIR/releases"
+
+          test -d "$SHARED_DIR"
+
+          test -f "$SHARED_DIR/.env"
+
+
+          [[ -w "$BASE_DIR/releases" ]] || {
+            echo "Runner cannot write to releases."
+            exit 1
+          }
+
+
+          [[ -w "$SHARED_DIR" ]] || {
+            echo "Runner cannot write to shared."
+            exit 1
+          }
+
+
+          grep -qx \
+            'APP_ENV=uat' \
+            "$SHARED_DIR/.env" || {
+              echo "APP_ENV must be uat."
+              exit 1
+            }
+
+
+          grep -qx \
+            'APP_PORT=9999' \
+            "$SHARED_DIR/.env" || {
+              echo "APP_PORT must be 9999."
+              exit 1
+            }
+
+
+          grep -qx \
+            'DB_NAME=hrms_uat_db' \
+            "$SHARED_DIR/.env" || {
+              echo "DB_NAME must be hrms_uat_db."
+              exit 1
+            }
+
+
+          grep -qx \
+            'DB_USERNAME=hrms_uat_user' \
+            "$SHARED_DIR/.env" || {
+              echo "DB_USERNAME must be hrms_uat_user."
+              exit 1
+            }
+
+
+          chmod 600 "$SHARED_DIR/.env"
+
+
+          echo
+          echo "Node:"
+          node --version
+
+          echo
+          echo "npm:"
+          npm --version
+
+          echo
+          echo "PM2:"
+          pm2 --version
+
+
+      # ============================================================
+      # DOWNLOAD EXACT CI ARTIFACT
+      # ============================================================
+
+      - name: Download exact CI artifact
+        uses: actions/download-artifact@v5
+        with:
+
+          name: ${{ steps.ci.outputs.artifact_name }}
+
+          path: ${{ runner.temp }}/hrms-backend-artifact
+
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+          repository: ${{ github.repository }}
+
+          run-id: ${{ steps.ci.outputs.run_id }}
+
+
+      # ============================================================
+      # VERIFY ARTIFACT
+      # ============================================================
+
+      - name: Verify artifact
+        shell: bash
+        env:
+
+          EXPECTED_SHA: ${{ steps.ci.outputs.sha }}
+
+          ARTIFACT_DIR: ${{ runner.temp }}/hrms-backend-artifact
+
+        run: |
+          set -Eeuo pipefail
+
+
+          cd "$ARTIFACT_DIR"
+
+
+          test -f \
+            hrms-backend-release.tar.gz
+
+
+          test -f \
+            hrms-backend-release.tar.gz.sha256
+
+
+          echo "Verifying SHA256 checksum."
+
+
+          sha256sum \
+            --check \
+            hrms-backend-release.tar.gz.sha256
+
+
+          echo "Checking archive paths."
+
+
+          if tar -tzf \
+            hrms-backend-release.tar.gz \
+            | grep -E '(^/|(^|/)\.\.(/|$))'; then
+
+            echo "Unsafe path detected in archive."
+
+            exit 1
+          fi
+
+
+          INSPECT_DIR="$RUNNER_TEMP/hrms-backend-inspect"
+
+
+          rm -rf "$INSPECT_DIR"
+
+          mkdir -p "$INSPECT_DIR"
+
+
+          tar \
+            -xzf \
+            hrms-backend-release.tar.gz \
+            -C "$INSPECT_DIR"
+
+
+          required_files=(
+            REVISION
+            BUILT_AT
+            package.json
+            package-lock.json
+            dist/main.js
+            dist/database/data-source.js
+            deploy/hrms-backend/deploy.sh
+            deploy/hrms-backend/ecosystem.config.js
+          )
+
+
+          for file in "${required_files[@]}"; do
+
+            test -f "$INSPECT_DIR/$file" || {
+
+              echo "Artifact file missing:"
+              echo "$file"
+
+              exit 1
+            }
+
+          done
+
+
+          ACTUAL_SHA="$(
+            tr -d '[:space:]' \
+              < "$INSPECT_DIR/REVISION"
+          )"
+
+
+          if [[ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]]; then
+
+            echo "REVISION mismatch."
+
+            echo "Expected: $EXPECTED_SHA"
+
+            echo "Found:    $ACTUAL_SHA"
+
+            exit 1
+          fi
+
+
+          echo "Artifact verified successfully."
+
+          echo "Revision: $ACTUAL_SHA"
+
+
+      # ============================================================
+      # CREATE IMMUTABLE RELEASE
+      # ============================================================
+
+      - name: Stage release
+        shell: bash
+        env:
+
+          RELEASE_SHA: ${{ steps.ci.outputs.sha }}
+
+          ARTIFACT_DIR: ${{ runner.temp }}/hrms-backend-artifact
+
+        run: |
+          set -Eeuo pipefail
+
+
+          BASE_DIR="/opt/apps/hrms-v1/uat/backend"
+
+          RELEASES_DIR="$BASE_DIR/releases"
+
+          SHARED_DIR="$BASE_DIR/shared"
+
+          RELEASE_DIR="$RELEASES_DIR/$RELEASE_SHA"
+
+          CURRENT_LINK="$BASE_DIR/current"
+
+
+          CURRENT_RELEASE="$(
+            readlink -f "$CURRENT_LINK" 2>/dev/null || true
+          )"
+
+
+          mkdir -p \
+            "$RELEASES_DIR" \
+            "$SHARED_DIR/logs"
+
+
+          if [[ -d "$RELEASE_DIR" ]]; then
+
+            if [[ "$CURRENT_RELEASE" == "$RELEASE_DIR" ]]; then
+
+              echo "Release already exists and is active."
+
+              echo "It will not be overwritten."
+
+            else
+
+              echo "Removing incomplete/old copy of release."
+
+              rm -rf -- "$RELEASE_DIR"
+
+            fi
+
+          fi
+
+
+          if [[ ! -d "$RELEASE_DIR" ]]; then
+
+            STAGING_DIR="$RELEASES_DIR/.staging-${RELEASE_SHA}-${GITHUB_RUN_ID}"
+
+
+            rm -rf -- "$STAGING_DIR"
+
+            mkdir -p "$STAGING_DIR"
+
+
+            tar \
+              -xzf \
+              "$ARTIFACT_DIR/hrms-backend-release.tar.gz" \
+              -C "$STAGING_DIR"
+
+
+            ACTUAL_SHA="$(
+              tr -d '[:space:]' \
+                < "$STAGING_DIR/REVISION"
+            )"
+
+
+            [[ "$ACTUAL_SHA" == "$RELEASE_SHA" ]] || {
+
+              echo "Staged REVISION mismatch."
+
+              rm -rf -- "$STAGING_DIR"
+
+              exit 1
+            }
+
+
+            mv \
+              "$STAGING_DIR" \
+              "$RELEASE_DIR"
+
+          fi
+
+
+          echo "Installing shared deployment configuration."
+
+
+          install \
+            -m 0750 \
+            "$RELEASE_DIR/deploy/hrms-backend/deploy.sh" \
+            "$SHARED_DIR/deploy.sh"
+
+
+          install \
+            -m 0640 \
+            "$RELEASE_DIR/deploy/hrms-backend/ecosystem.config.js" \
+            "$SHARED_DIR/ecosystem.config.js"
+
+
+          chmod 600 "$SHARED_DIR/.env"
+
+
+          echo "Release staged at:"
+
+          echo "$RELEASE_DIR"
+
+
+      # ============================================================
+      # DEPLOY
+      # ============================================================
+
+      - name: Deploy HRMS backend UAT
+        shell: bash
+        env:
+
+          RELEASE_SHA: ${{ steps.ci.outputs.sha }}
+
+          BASE_DIR: /opt/apps/hrms-v1/uat/backend
+
+          PM2_APP_NAME: hrms-uat-api
+
+          APP_ENV: uat
+
+          APP_PORT: '9999'
+
+          HEALTH_URL: http://127.0.0.1:9999/api/health/ready
+
+          KEEP_RELEASES: '3'
+
+          PM2_MAX_MEMORY: 450M
+
+        run: |
+          set -Eeuo pipefail
+
+
+          "$BASE_DIR/shared/deploy.sh" \
+            "$RELEASE_SHA"
+
+
+      # ============================================================
+      # POST DEPLOY VALIDATION
+      # ============================================================
+
+      - name: Validate deployed UAT backend
+        shell: bash
+        env:
+
+          EXPECTED_SHA: ${{ steps.ci.outputs.sha }}
+
+        run: |
+          set -Eeuo pipefail
+
+
+          BASE_DIR="/opt/apps/hrms-v1/uat/backend"
+
+
+          ACTIVE_RELEASE="$(
+            readlink -f "$BASE_DIR/current"
+          )"
+
+
+          EXPECTED_RELEASE="$BASE_DIR/releases/$EXPECTED_SHA"
+
+
+          echo "Expected:"
+          echo "$EXPECTED_RELEASE"
+
+          echo
+
+          echo "Active:"
+          echo "$ACTIVE_RELEASE"
+
+
+          [[ "$ACTIVE_RELEASE" == "$EXPECTED_RELEASE" ]] || {
+
+            echo "Current release does not match CI SHA."
+
+            exit 1
+          }
+
+
+          curl \
+            -fsS \
+            --connect-timeout 3 \
+            --max-time 10 \
+            http://127.0.0.1:9999/api/health/ready
+
+
+          echo
+
+
+          pm2 describe hrms-uat-api >/dev/null
+
+
+          echo "HRMS UAT backend deployment verified."
+
+
+      # ============================================================
+      # SUMMARY
+      # ============================================================
+
+      - name: Deployment summary
+        if: success()
+        shell: bash
+        env:
+
+          RELEASE_SHA: ${{ steps.ci.outputs.sha }}
+
+          CI_RUN_ID: ${{ steps.ci.outputs.run_id }}
+
+        run: |
+          {
+            echo "## HRMS Backend UAT Deployment"
+            echo
+            echo "- Status: ✅ Successful"
+            echo "- CI run: \`$CI_RUN_ID\`"
+            echo "- Release: \`$RELEASE_SHA\`"
+            echo "- PM2 app: \`hrms-uat-api\`"
+            echo "- Port: \`9999\`"
+            echo "- Environment: \`uat\`"
+            echo "- Base: \`/opt/apps/hrms-v1/uat/backend\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+
+      # ============================================================
+      # CLEAN SELF-HOSTED RUNNER TEMP FILES
+      # ============================================================
+
+      - name: Clean deployment temporary files
+        if: always()
+        shell: bash
+        run: |
+          rm -rf \
+            "$RUNNER_TEMP/hrms-backend-artifact" \
+            "$RUNNER_TEMP/hrms-backend-inspect"
