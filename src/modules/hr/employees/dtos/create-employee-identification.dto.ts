@@ -30,6 +30,18 @@ export class CreateEmployeeIdentificationDto {
   @IsOptional()
   expiry_date?: string;
 
+  @IsDateString()
+  @IsOptional()
+  issue_date?: string;
+
+  @IsString()
+  @IsOptional()
+  issuing_authority?: string;
+
+  @IsString()
+  @IsOptional()
+  document_url?: string;
+
   @ApiPropertyOptional({ default: false })
   @Type(() => Boolean)
   @IsBoolean()

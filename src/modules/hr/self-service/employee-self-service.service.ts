@@ -1,11 +1,14 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
+  Optional,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { AttendanceCorrectionRequest } from './entities/attendance-correction-request.entity';
 import { EmployeeProfileUpdateRequest } from './entities/employee-profile-update-request.entity';
 import { SelfServiceRequestStatusEnum } from './enums/self-service-request-status.enum';
@@ -49,6 +52,21 @@ import { MyAttendanceOverviewQueryDto } from './dtos/my-attendance-overview-quer
 import { MyAttendanceAssignmentQueryDto } from './dtos/my-attendance-assignment-query.dto';
 import { FilesService } from '../../files/files.service';
 import { ProfileChangeRequestsService } from './profile-change-requests.service';
+import { ProfileChangeRequest } from './entities/profile-change-request.entity';
+import { MyRequestTimelineQueryDto } from './dtos/my-request-timeline-query.dto';
+import { CreateMyResignationDto } from './dtos/create-my-resignation.dto';
+import { ActionItemsService } from '../action-inbox/action-items.service';
+import { ActionItemQueryDto } from '../action-inbox/dtos/action-item-query.dto';
+import { HrDocumentsService } from '../documents/hr-documents.service';
+import { UploadDocumentDto } from '../documents/dtos/upload-document.dto';
+import { DocumentEntityTypeEnum } from '../documents/enums/document-entity-type.enum';
+import { DocumentModuleEnum } from '../documents/enums/document-module.enum';
+import { OnboardingRequest } from '../onboarding/entities/onboarding-request.entity';
+import { OffboardingRequest } from '../offboarding/entities/offboarding-request.entity';
+import { OffboardingService } from '../offboarding/offboarding.service';
+import { OffboardingTypeEnum } from '../offboarding/enums/offboarding-type.enum';
+import { HrAccessService } from '../shared/hr-access.service';
+import { WorkActivityInsightsService } from '../work-activities/services/work-activity-insights.service';
 
 type EmployeeProfileShape = {
   id?: number;
@@ -76,6 +94,16 @@ type UploadedProfilePhoto = {
   size: number;
   buffer: Buffer;
 };
+
+type WorkActivityInsightsPort = Pick<
+  WorkActivityInsightsService,
+  'getEmployeeSummary'
+>;
+
+const ACTIVE_PROFILE_UPDATE_REQUEST_STATUSES = [
+  SelfServiceRequestStatusEnum.DRAFT,
+  SelfServiceRequestStatusEnum.SUBMITTED,
+];
 
 @Injectable()
 export class EmployeeSelfServiceService {
@@ -108,13 +136,277 @@ export class EmployeeSelfServiceService {
     private readonly profileUpdateRequestRepository: Repository<EmployeeProfileUpdateRequest>,
     private readonly filesService: FilesService,
     private readonly profileChangeRequestsService: ProfileChangeRequestsService,
+    @InjectRepository(ProfileChangeRequest)
+    private readonly profileChangeRequestRepository: Repository<ProfileChangeRequest>,
+    @InjectRepository(OnboardingRequest)
+    private readonly onboardingRequestRepository: Repository<OnboardingRequest>,
+    @InjectRepository(OffboardingRequest)
+    private readonly offboardingRequestRepository: Repository<OffboardingRequest>,
+    private readonly actionItemsService: ActionItemsService,
+    private readonly hrDocumentsService: HrDocumentsService,
+    private readonly offboardingService: OffboardingService,
+    private readonly hrAccessService: HrAccessService,
+    @Optional()
+    @Inject(WorkActivityInsightsService)
+    private readonly workActivityInsightsService: WorkActivityInsightsPort = {
+      getEmployeeSummary: () =>
+        Promise.resolve({
+          reports_submitted: 0,
+          approved_reports: 0,
+          reviewed_visits: 0,
+          open_follow_ups: 0,
+          open_exceptions: 0,
+        }),
+    },
   ) {}
+
+  async getMyActionItems(actor: AuthenticatedUser, query: ActionItemQueryDto) {
+    return this.actionItemsService.findMine(actor, query);
+  }
+
+  async getMyRequestTimeline(
+    actor: AuthenticatedUser,
+    query: MyRequestTimelineQueryDto,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+
+    const [
+      leaveRequests,
+      attendanceCorrections,
+      profileChanges,
+      onboardingRequests,
+      offboardingRequests,
+    ] = await Promise.all([
+      this.leaveRequestRepository.find({
+        where: { company_id: companyId, employee_id: employeeId },
+        order: { created_at: 'DESC' },
+        take: 100,
+      }),
+      this.correctionRequestRepository.find({
+        where: { companyId, employeeId },
+        order: { createdAt: 'DESC' },
+        take: 100,
+      }),
+      this.profileChangeRequestRepository.find({
+        where: { company_id: companyId, employee_id: employeeId },
+        order: { created_at: 'DESC' },
+        take: 100,
+      }),
+      this.onboardingRequestRepository.find({
+        where: { company_id: companyId, employee_id: employeeId },
+        order: { created_at: 'DESC' },
+        take: 20,
+      }),
+      this.offboardingRequestRepository.find({
+        where: { company_id: companyId, employee_id: employeeId },
+        order: { created_at: 'DESC' },
+        take: 20,
+      }),
+    ]);
+
+    const items = [
+      ...leaveRequests.map((request) => ({
+        source: 'leave',
+        type: 'LEAVE_REQUEST',
+        id: request.id,
+        reference: request.leave_no,
+        title: 'Leave request',
+        status: request.status,
+        submitted_at: request.applied_at,
+        created_at: request.created_at,
+        updated_at: request.updated_at,
+        action_url: `/me/leave/requests/${request.id}`,
+        summary: {
+          start_date: request.start_date,
+          end_date: request.end_date,
+          total_days: request.total_days,
+        },
+      })),
+      ...attendanceCorrections.map((request) => ({
+        source: 'attendance',
+        type: 'ATTENDANCE_CORRECTION',
+        id: request.id,
+        reference: null,
+        title: 'Attendance correction',
+        status: request.status,
+        submitted_at: request.submittedAt,
+        created_at: request.createdAt,
+        updated_at: request.updatedAt,
+        action_url: `/me/attendance/correction-requests/${request.id}`,
+        summary: {
+          attendance_date: request.attendanceDate,
+          request_type: request.requestType,
+        },
+      })),
+      ...profileChanges.map((request) => ({
+        source: 'profile',
+        type: 'PROFILE_CHANGE_REQUEST',
+        id: request.id,
+        reference: request.reference_number,
+        title: 'Profile change request',
+        status: request.status,
+        submitted_at: request.submitted_at,
+        created_at: request.created_at,
+        updated_at: request.updated_at,
+        action_url: `/me/profile-change-requests/${request.id}`,
+        summary: { request_type: request.request_type },
+      })),
+      ...onboardingRequests.map((request) => ({
+        source: 'onboarding',
+        type: 'ONBOARDING_REQUEST',
+        id: request.id,
+        reference: request.onboarding_no,
+        title: request.title,
+        status: request.status,
+        submitted_at: request.submitted_at,
+        created_at: request.created_at,
+        updated_at: request.updated_at,
+        action_url: `/me/onboarding/${request.id}`,
+        summary: { progress_percentage: request.progress_percentage },
+      })),
+      ...offboardingRequests.map((request) => ({
+        source: 'offboarding',
+        type: 'OFFBOARDING_REQUEST',
+        id: request.id,
+        reference: request.offboarding_code,
+        title: request.title,
+        status: request.status,
+        submitted_at: request.submitted_at,
+        created_at: request.created_at,
+        updated_at: request.updated_at,
+        action_url: `/me/offboarding/${request.id}`,
+        summary: {
+          last_working_date: request.last_working_date,
+          offboarding_type: request.offboarding_type,
+        },
+      })),
+    ]
+      .filter((item) => !query.module || item.source === query.module)
+      .filter((item) => !query.status || String(item.status) === query.status)
+      .sort(
+        (left, right) =>
+          new Date(right.updated_at).getTime() -
+          new Date(left.updated_at).getTime(),
+      );
+
+    const page = Number(query.page ?? 1);
+    const limit = Math.min(Number(query.limit ?? 20), 100);
+    const start = (page - 1) * limit;
+
+    return {
+      data: items.slice(start, start + limit),
+      meta: {
+        page,
+        limit,
+        total: items.length,
+        total_pages: Math.ceil(items.length / limit),
+      },
+    };
+  }
+
+  async getMyDocuments(actor: AuthenticatedUser) {
+    const companyId = this.ensureCompanyId(actor);
+    const employee = await this.requireMyEmployeeProfile(actor);
+
+    return this.hrDocumentsService.findForEntity(
+      companyId,
+      DocumentEntityTypeEnum.EMPLOYEE,
+      employee.id!,
+    );
+  }
+
+  async uploadMyDocument(actor: AuthenticatedUser, dto: UploadDocumentDto) {
+    const companyId = this.ensureCompanyId(actor);
+    const employee = await this.requireMyEmployeeProfile(actor);
+
+    return this.hrDocumentsService.upload({
+      companyId,
+      entityType: DocumentEntityTypeEnum.EMPLOYEE,
+      entityId: employee.id!,
+      module: DocumentModuleEnum.EMPLOYEE,
+      documentTypeCode: dto.document_type_code ?? null,
+      title: dto.title,
+      description: dto.description ?? null,
+      expiryDate: dto.expiry_date ? new Date(dto.expiry_date) : null,
+      file: dto.file,
+      uploadedByCompanyUserId: actor.companyMembershipId ?? null,
+      directorySegments: ['documents', 'employees', `company-${companyId}`],
+      fileNamePrefix: `employee-${employee.id}`,
+    });
+  }
+
+  async downloadMyDocument(actor: AuthenticatedUser, documentId: number) {
+    const companyId = this.ensureCompanyId(actor);
+    const employee = await this.requireMyEmployeeProfile(actor);
+
+    const document = await this.hrDocumentsService.findOneForEntityOrFail(
+      companyId,
+      DocumentEntityTypeEnum.EMPLOYEE,
+      employee.id!,
+      documentId,
+    );
+
+    const buffer = await this.hrDocumentsService.readFile(document);
+    if (!buffer) {
+      throw new NotFoundException('Document file could not be read');
+    }
+
+    return {
+      buffer,
+      mimeType: document.mime_type ?? 'application/octet-stream',
+      fileName: document.original_file_name,
+    };
+  }
+
+  async getMyOnboarding(actor: AuthenticatedUser) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+
+    return this.onboardingRequestRepository.find({
+      where: { company_id: companyId, employee_id: employeeId },
+      order: { created_at: 'DESC' },
+    });
+  }
+
+  async getMyOffboarding(actor: AuthenticatedUser) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+
+    return this.offboardingRequestRepository.find({
+      where: { company_id: companyId, employee_id: employeeId },
+      order: { created_at: 'DESC' },
+    });
+  }
+
+  async createMyResignation(
+    actor: AuthenticatedUser,
+    dto: CreateMyResignationDto,
+    context: { ip_address: string | null; user_agent: string | null },
+  ) {
+    const employeeId = await this.resolveEmployeeId(actor);
+
+    return this.offboardingService.createOffboardingRequest(
+      this.ensureCompanyId(actor),
+      {
+        employee_id: employeeId,
+        title: 'Employee resignation',
+        offboarding_type: OffboardingTypeEnum.RESIGNATION,
+        reason: dto.reason,
+        last_working_date: dto.last_working_date,
+        notice_date: dto.notice_date,
+        submit: true,
+      },
+      actor,
+      context,
+    );
+  }
 
   async getProfile(actor: AuthenticatedUser) {
     const companyId = this.ensureCompanyId(actor);
     const employee = await this.requireMyEmployeeProfile(actor);
     const user = await this.usersService.findMyProfileById(actor.id, companyId);
-    const pending = await this.profileChangeRequestsService.getPendingSummary(
+    const pending = await this.getPendingProfileChangeSummary(
       companyId,
       employee.id!,
     );
@@ -218,7 +510,7 @@ export class EmployeeSelfServiceService {
       this.usersService.findMyProfileById(actor.id, companyId),
       this.getTodayAttendance(actor),
     ]);
-    const pending = await this.profileChangeRequestsService.getPendingSummary(
+    const pending = await this.getPendingProfileChangeSummary(
       companyId,
       employee.id!,
     );
@@ -275,6 +567,7 @@ export class EmployeeSelfServiceService {
       pendingLeaveCounts,
       upcomingApprovedLeave,
       schedulePreview,
+      workActivitySummary,
     ] = await Promise.all([
       this.usersService.findMyProfileById(actor.id, companyId),
       this.getTodayAttendance(actor),
@@ -304,8 +597,9 @@ export class EmployeeSelfServiceService {
       this.buildLeaveCounts(companyId, employeeId),
       this.findUpcomingApprovedLeave(companyId, employeeId, today),
       this.getAttendanceSchedule(actor, { from_date: today, days: 7 }),
+      this.workActivityInsightsService.getEmployeeSummary(actor),
     ]);
-    const pending = await this.profileChangeRequestsService.getPendingSummary(
+    const pending = await this.getPendingProfileChangeSummary(
       companyId,
       employee.id!,
     );
@@ -333,6 +627,7 @@ export class EmployeeSelfServiceService {
         upcoming_approved_leave: upcomingApprovedLeave,
       },
       schedule_preview: schedulePreview,
+      work_activities: workActivitySummary,
       action_flags: {
         can_check_in: todayAttendance.action_flags.can_check_in,
         can_check_out: todayAttendance.action_flags.can_check_out,
@@ -352,6 +647,8 @@ export class EmployeeSelfServiceService {
         attendance_punches: '/me/attendance/punches',
         attendance_check_in: '/me/attendance/check-in',
         attendance_check_out: '/me/attendance/check-out',
+        daily_activities: '/me/activities',
+        field_visits: '/me/field-visits',
         leave_balances: '/me/leave/balances',
         leave_requests: '/me/leave/requests',
       },
@@ -1021,36 +1318,33 @@ export class EmployeeSelfServiceService {
     actor: AuthenticatedUser,
     query: TeamAttendanceQueryDto,
   ) {
-    if (!actor.permissions.includes('team_attendance:read')) {
-      throw new ForbiddenException(
-        'You do not have permission to view team attendance.',
-      );
-    }
-
     const companyId = this.ensureCompanyId(actor);
-    const employeeId = await this.resolveEmployeeId(actor);
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
+
+    const accessibleEmployeeIds =
+      await this.hrAccessService.getAccessibleEmployeeIds(actor);
+
+    if (accessibleEmployeeIds !== null && accessibleEmployeeIds.length === 0) {
+      return {
+        data: [],
+        meta: this.buildSelfServicePaginationMeta(0, page, limit),
+      };
+    }
 
     const qb = this.attendanceDailySummaryRepository
       .createQueryBuilder('s')
       .where('s.companyId = :companyId', { companyId })
-      .andWhere(
-        (sub) => {
-          const subQuery = sub
-            .subQuery()
-            .select('e.id')
-            .from('employees', 'e')
-            .where('e.reports_to = :managerId')
-            .getQuery();
-          return `s.employeeId IN ${subQuery}`;
-        },
-        { managerId: employeeId },
-      )
       .orderBy('s.attendanceDate', 'DESC')
       .addOrderBy('s.employeeId', 'ASC')
       .skip((page - 1) * limit)
       .take(limit);
+
+    if (accessibleEmployeeIds !== null) {
+      qb.andWhere('s.employeeId IN (:...employeeIds)', {
+        employeeIds: accessibleEmployeeIds,
+      });
+    }
 
     if (query.date_from) {
       qb.andWhere('s.attendanceDate >= :dateFrom', {
@@ -1103,6 +1397,51 @@ export class EmployeeSelfServiceService {
     }
 
     return actor.companyId;
+  }
+
+  private async getPendingProfileChangeSummary(
+    companyId: number,
+    employeeId: number,
+  ) {
+    try {
+      return await this.profileChangeRequestsService.getPendingSummary(
+        companyId,
+        employeeId,
+      );
+    } catch (error) {
+      if (!this.isMissingLegacyProfileChangeTableError(error)) {
+        throw error;
+      }
+
+      try {
+        const count = await this.profileUpdateRequestRepository.count({
+          where: {
+            companyId,
+            employeeId,
+            status: In(ACTIVE_PROFILE_UPDATE_REQUEST_STATUSES),
+          },
+        });
+
+        return {
+          has_pending_profile_change: count > 0,
+          pending_request_count: count,
+        };
+      } catch {
+        throw new ServiceUnavailableException(
+          'Profile change request data is not available. Please complete the self-service profile request setup.',
+        );
+      }
+    }
+  }
+
+  private isMissingLegacyProfileChangeTableError(error: unknown) {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+
+    return /relation "profile_change_requests" does not exist/i.test(
+      error.message,
+    );
   }
 
   private async findMyEmployeeProfile(

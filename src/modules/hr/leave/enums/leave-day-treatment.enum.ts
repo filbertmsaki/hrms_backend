@@ -1,0 +1,5 @@
+export enum LeaveDayTreatmentEnum {
+  EXCLUDE = 'EXCLUDE',
+  INCLUDE = 'INCLUDE',
+  EMPLOYEE_SCHEDULE = 'EMPLOYEE_SCHEDULE',
+}

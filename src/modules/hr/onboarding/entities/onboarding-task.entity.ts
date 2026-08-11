@@ -7,6 +7,7 @@
   ManyToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
+  VersionColumn,
 } from 'typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { Department } from '../../departments/entities/department.entity';
@@ -42,6 +43,7 @@ export class OnboardingTask {
   @Column({
     type: 'enum',
     enum: OnboardingTaskTypeEnum,
+    enumName: 'onboarding_tasks_task_type_enum',
     default: OnboardingTaskTypeEnum.GENERAL,
   })
   task_type: OnboardingTaskTypeEnum;
@@ -53,11 +55,29 @@ export class OnboardingTask {
   })
   status: OnboardingTaskStatusEnum;
 
+  @Column({ default: true })
+  is_required: boolean;
+
   @Column({ type: 'int', nullable: true })
   assigned_department_id: number | null;
 
   @Column({ type: 'int', nullable: true })
   assigned_company_user_id: number | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  required_document_type_code: string | null;
+
+  @Column({ default: false })
+  requires_verified_document: boolean;
+
+  @Column({ default: false })
+  completion_evidence_required: boolean;
+
+  @Column({ type: 'int', nullable: true })
+  evidence_document_id: number | null;
+
+  @Column({ type: 'json', nullable: true })
+  completion_data: Record<string, unknown> | null;
 
   @Column({ type: 'timestamp', nullable: true })
   due_date: Date | null;
@@ -74,6 +94,18 @@ export class OnboardingTask {
   @Column({ type: 'text', nullable: true })
   completion_notes: string | null;
 
+  @Column({ type: 'timestamp', nullable: true })
+  last_reminder_at: Date | null;
+
+  @Column({ type: 'int', default: 0 })
+  reminder_count: number;
+
+  @Column({ type: 'timestamp', nullable: true })
+  last_escalated_at: Date | null;
+
+  @Column({ type: 'int', default: 0 })
+  escalation_count: number;
+
   @Column({ type: 'int', nullable: true })
   created_by_company_user_id: number | null;
 
@@ -85,6 +117,9 @@ export class OnboardingTask {
 
   @UpdateDateColumn()
   updated_at: Date;
+
+  @VersionColumn()
+  version: number;
 
   @ManyToOne(() => OnboardingRequest, (request) => request.tasks, {
     onDelete: 'CASCADE',

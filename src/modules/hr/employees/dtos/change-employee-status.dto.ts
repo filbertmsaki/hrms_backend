@@ -10,6 +10,9 @@ export class ChangeEmployeeStatusDto {
   employment_status: EmploymentStatusEnum;
 
   @IsDateString()
+  effective_date: string;
+
+  @IsDateString()
   @IsOptional()
   exit_date?: string;
 

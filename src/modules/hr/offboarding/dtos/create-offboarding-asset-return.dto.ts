@@ -53,6 +53,29 @@ export class CreateOffboardingAssetReturnDto {
   remarks?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  condition_at_return?: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  return_evidence_document_id?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  liability_amount?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  liability_currency?: string;
+
+  @IsOptional()
+  liability_acknowledged?: boolean;
+
+  @IsOptional()
   @IsObject()
   metadata?: Record<string, unknown>;
 }

@@ -48,6 +48,15 @@ export class User {
   @Column({ default: false })
   is_email_verified: boolean;
 
+  @Column({ default: false })
+  must_set_password: boolean;
+
+  @Column({ type: 'timestamp', nullable: true })
+  activated_at: Date | null;
+
+  @Column({ type: 'varchar', length: 30, default: 'active' })
+  account_provisioning_status: string;
+
   @Column({ type: 'varchar', length: 255, nullable: true })
   email_verification_token: string | null;
 
@@ -83,6 +92,9 @@ export class User {
 
   @Column({ type: 'timestamp', nullable: true })
   auth_token_invalid_before: Date | null;
+
+  @Column({ type: 'int', default: 0 })
+  auth_token_version: number;
 
   @CreateDateColumn()
   created_at: Date;

@@ -30,8 +30,23 @@ export class OnboardingWorkflow {
   @Column({ type: 'text', nullable: true })
   description: string | null;
 
+  @Column({ type: 'int', default: 1 })
+  version: number;
+
+  @Column({ type: 'int', nullable: true })
+  root_workflow_id: number | null;
+
   @Column({ default: false })
   is_default: boolean;
+
+  @Column({ default: false })
+  is_locked: boolean;
+
+  @Column({ type: 'timestamp', nullable: true })
+  locked_at: Date | null;
+
+  @Column({ type: 'int', nullable: true })
+  created_by_company_user_id: number | null;
 
   @Column({
     type: 'enum',

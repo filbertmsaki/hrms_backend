@@ -32,6 +32,17 @@ const SHARED_PERMISSION_NAMES = new Set<string>([
   'roles:assign-permission',
   'roles:revoke-permission',
   'permissions:read',
+  'security_events:read',
+  'notifications:delivery-logs:read',
+  'notifications:mail-logs:read',
+  'notifications:mail-logs:retry',
+  'notifications:settings:read',
+  'notifications:settings:update',
+  'sms:settings:read',
+  'sms:settings:update',
+  'sms:logs:read',
+  'sms:logs:retry',
+  'sms:test',
 ]);
 
 function resolvePermissionScope(name: string): PermissionScope {
@@ -239,6 +250,12 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Compatibility permission for permission listing endpoints',
   },
   {
+    name: 'security_events:read',
+    displayName: 'Read security events',
+    description:
+      'Allow viewing authentication, authorization and security audit events',
+  },
+  {
     name: 'permissions:create',
     displayName: 'Create permissions',
     description: 'Compatibility permission for permission creation endpoints',
@@ -301,6 +318,36 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     displayName: 'Delete departments',
     description: 'Allow deleting company departments',
   },
+  {
+    name: 'departments:manage-access',
+    displayName: 'Manage department access',
+    description: 'Allow granting and revoking department-level user access',
+  },
+  {
+    name: 'data_scope:company',
+    displayName: 'Company-wide data scope',
+    description: 'Allow access to authorized records across the active company',
+  },
+  {
+    name: 'data_scope:branch',
+    displayName: 'Branch data scope',
+    description: 'Restrict access to specifically assigned branches',
+  },
+  {
+    name: 'data_scope:department',
+    displayName: 'Department data scope',
+    description: 'Restrict access to assigned or managed departments',
+  },
+  {
+    name: 'data_scope:team',
+    displayName: 'Reporting team data scope',
+    description: 'Restrict access to the user and direct reporting employees',
+  },
+  {
+    name: 'data_scope:self',
+    displayName: 'Self data scope',
+    description: 'Restrict access to the authenticated employee record',
+  },
   // Positions
   {
     name: 'positions:read',
@@ -321,6 +368,12 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     name: 'positions:delete',
     displayName: 'Delete positions',
     description: 'Allow deleting company positions',
+  },
+  {
+    name: 'positions:assign-department',
+    displayName: 'Assign positions to departments',
+    description:
+      'Allow assigning and removing department-position relationships',
   },
   // Employees
   {
@@ -369,6 +422,42 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow managing employee lifecycle statuses',
   },
   {
+    name: 'employees:force-exit-status',
+    displayName: 'Force employee exit status',
+    description:
+      'Allow applying exit-related employee statuses outside the offboarding workflow',
+  },
+  {
+    name: 'employees:override-number',
+    displayName: 'Override employee number',
+    description:
+      'Allow manually supplying or reserving employee numbers during approved migration operations',
+  },
+  {
+    name: 'employee_numbering:read',
+    displayName: 'Read employee numbering',
+    description:
+      'Allow viewing company employee-number configuration and next-sequence settings',
+  },
+  {
+    name: 'employee_numbering:update',
+    displayName: 'Update employee numbering',
+    description:
+      'Allow configuring company employee-number prefixes, padding and next sequence values',
+  },
+  {
+    name: 'employee_assignments:read',
+    displayName: 'Read employee assignments',
+    description:
+      'Allow viewing employee assignment history and current branch, department, position and reporting-line data',
+  },
+  {
+    name: 'employee_assignments:update',
+    displayName: 'Update employee assignments',
+    description:
+      'Allow changing employee branch, department, position, manager, grade and cost centre assignments',
+  },
+  {
     name: 'employees.import.template.download',
     displayName: 'Download employee import template',
     description: 'Allow downloading the employee Excel import template',
@@ -393,6 +482,46 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     name: 'employees.import.result.download',
     displayName: 'Download employee import results',
     description: 'Allow downloading employee Excel import result workbooks',
+  },
+  {
+    name: 'employee_grades:read',
+    displayName: 'Read employee grades',
+    description: 'Allow listing and viewing employee grades',
+  },
+  {
+    name: 'employee_grades:create',
+    displayName: 'Create employee grades',
+    description: 'Allow creating employee grades',
+  },
+  {
+    name: 'employee_grades:update',
+    displayName: 'Update employee grades',
+    description: 'Allow updating employee grades',
+  },
+  {
+    name: 'employee_grades:delete',
+    displayName: 'Delete employee grades',
+    description: 'Allow deleting employee grades',
+  },
+  {
+    name: 'cost_centers:read',
+    displayName: 'Read cost centers',
+    description: 'Allow listing and viewing company cost centers',
+  },
+  {
+    name: 'cost_centers:create',
+    displayName: 'Create cost centers',
+    description: 'Allow creating company cost centers',
+  },
+  {
+    name: 'cost_centers:update',
+    displayName: 'Update cost centers',
+    description: 'Allow updating company cost centers',
+  },
+  {
+    name: 'cost_centers:delete',
+    displayName: 'Delete cost centers',
+    description: 'Allow deleting company cost centers',
   },
   // Leave types
   {
@@ -914,6 +1043,105 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     displayName: 'Read team attendance',
     description:
       'Allow viewing attendance summaries for direct reports and scoped teams',
+  },
+  {
+    name: 'manager_self_service:read',
+    displayName: 'Access manager self-service',
+    description:
+      'Allow access to the manager self-service dashboard and action inbox',
+  },
+  {
+    name: 'manager_team:read',
+    displayName: 'Read authorized team members',
+    description: 'Allow listing employees within the manager data scope',
+  },
+  {
+    name: 'action_items:read-own',
+    displayName: 'Read own action items',
+    description: "Allow reading the current user's action inbox",
+  },
+  {
+    name: 'dashboard:employee',
+    displayName: 'Read employee dashboard',
+    description: 'Allow viewing the employee self-service dashboard',
+  },
+  {
+    name: 'dashboard:manager',
+    displayName: 'Read manager dashboard',
+    description: 'Allow viewing the manager dashboard',
+  },
+  {
+    name: 'dashboard:hr',
+    displayName: 'Read HR dashboard',
+    description: 'Allow viewing the HR operational dashboard',
+  },
+  {
+    name: 'dashboard:management',
+    displayName: 'Read management dashboard',
+    description: 'Allow viewing the executive management dashboard',
+  },
+  {
+    name: 'notifications:test',
+    displayName: 'Send test notifications',
+    description: 'Allow sending test notifications to any company user',
+  },
+  {
+    name: 'notifications:delivery-logs:read',
+    displayName: 'Read notification delivery logs',
+    description: 'Allow viewing queued notification delivery history',
+  },
+  {
+    name: 'notifications:mail-logs:read',
+    displayName: 'Read notification mail logs',
+    description: 'Allow viewing queued notification email history',
+  },
+  {
+    name: 'notifications:mail-logs:retry',
+    displayName: 'Retry notification mail logs',
+    description: 'Allow retrying failed queued notification emails',
+  },
+  {
+    name: 'notifications:settings:read',
+    displayName: 'Read notification channel settings',
+    description: 'Allow viewing email and in-app notification channel settings',
+  },
+  {
+    name: 'notifications:settings:update',
+    displayName: 'Update notification channel settings',
+    description:
+      'Allow updating email and in-app notification channel settings',
+  },
+  {
+    name: 'sms:settings:read',
+    displayName: 'Read SMS settings',
+    description: 'Allow viewing SMS global settings and registry configuration',
+  },
+  {
+    name: 'sms:settings:update',
+    displayName: 'Update SMS settings',
+    description:
+      'Allow updating SMS global settings and registry configuration',
+  },
+  {
+    name: 'sms:logs:read',
+    displayName: 'Read SMS logs',
+    description: 'Allow viewing SMS notification delivery history',
+  },
+  {
+    name: 'sms:logs:retry',
+    displayName: 'Retry SMS logs',
+    description: 'Allow retrying failed SMS notifications',
+  },
+  {
+    name: 'sms:test',
+    displayName: 'Send test SMS',
+    description: 'Allow sending administrator SMS tests',
+  },
+  {
+    name: 'notification_preferences:manage-own',
+    displayName: 'Manage own notification preferences',
+    description:
+      "Allow managing the current user's own notification channel preferences",
   },
   {
     name: 'attendance_business_trips:read',
@@ -1559,9 +1787,104 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow deleting offboarding documents',
   },
   {
+    name: 'offboarding_access:read',
+    displayName: 'Read offboarding access-termination operations',
+    description: 'Allow viewing offboarding access-termination operations',
+  },
+  {
+    name: 'offboarding_access:retry',
+    displayName: 'Retry failed access termination',
+    description: 'Allow retrying a failed offboarding access termination',
+  },
+  {
+    name: 'offboarding_access:emergency-terminate',
+    displayName: 'Immediately terminate employee access',
+    description:
+      'Allow immediately scheduling emergency offboarding access termination',
+  },
+  {
+    name: 'offboarding_requests:finalize',
+    displayName: 'Finalize completed employee offboarding',
+    description:
+      'Allow finalizing an offboarding request after access termination completes',
+  },
+  {
+    name: 'offboarding_assets:verify',
+    displayName: 'Verify returned employee assets',
+    description: 'Allow verifying condition and receipt of returned assets',
+  },
+  {
+    name: 'offboarding_assets:waive',
+    displayName: 'Waive unresolved employee assets',
+    description: 'Allow waiving a missing or unresolved asset return',
+  },
+  {
+    name: 'offboarding_settlements:verify',
+    displayName: 'Verify final-settlement readiness',
+    description: 'Allow verifying offboarding settlement items',
+  },
+  {
+    name: 'offboarding_settlements:waive',
+    displayName: 'Waive an offboarding settlement item',
+    description: 'Allow waiving an offboarding settlement item',
+  },
+  {
+    name: 'offboarding_approvals:delegate',
+    displayName: 'Delegate assigned offboarding approval',
+    description: 'Allow delegating an approval assigned to the current actor',
+  },
+  {
+    name: 'offboarding_approvals:delegate-any',
+    displayName: 'Delegate any offboarding approval',
+    description: 'Allow HR to delegate any pending offboarding approval',
+  },
+  {
+    name: 'offboarding_letters:read',
+    displayName: 'Read generated exit letters',
+    description: 'Allow reading generated relieving and service letters',
+  },
+  {
     name: 'self_service_requests:approve',
     displayName: 'Approve self-service requests',
     description: 'Allow reviewing employee self-service approval requests',
+  },
+  {
+    name: 'profile_change_request.view_all',
+    displayName: 'View profile change requests',
+    description: 'Allow listing profile change requests for HR review',
+  },
+  {
+    name: 'profile_change_request.review',
+    displayName: 'Start profile change review',
+    description: 'Allow starting review of employee profile change requests',
+  },
+  {
+    name: 'profile_change_request.approve',
+    displayName: 'Approve profile changes',
+    description: 'Allow approving employee profile change requests',
+  },
+  {
+    name: 'profile_change_request.reject',
+    displayName: 'Reject profile changes',
+    description: 'Allow rejecting employee profile change requests',
+  },
+  {
+    name: 'profile_change_request.request_correction',
+    displayName: 'Request profile change correction',
+    description:
+      'Allow returning employee profile change requests for correction',
+  },
+  {
+    name: 'profile_change_request.view_audit',
+    displayName: 'View profile change audit',
+    description:
+      'Allow viewing audit history for employee profile change requests',
+  },
+  {
+    name: 'profile_change_request.view_pending_files',
+    displayName: 'View pending profile change files',
+    description:
+      'Allow previewing pending files attached to employee profile change requests',
   },
   {
     name: 'notifications:read',
@@ -1584,9 +1907,754 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow sending test or operational notifications',
   },
   {
+    name: 'scheduled_reports:read',
+    displayName: 'Read scheduled reports',
+    description:
+      'Allow viewing scheduled report definitions, templates, and schedules',
+  },
+  {
+    name: 'scheduled_reports:create',
+    displayName: 'Create scheduled reports',
+    description: 'Allow creating report templates and schedules',
+  },
+  {
+    name: 'scheduled_reports:update',
+    displayName: 'Update scheduled reports',
+    description: 'Allow updating report templates and schedules',
+  },
+  {
+    name: 'scheduled_reports:delete',
+    displayName: 'Delete scheduled reports',
+    description: 'Allow deleting report templates and schedules',
+  },
+  {
+    name: 'scheduled_reports:run',
+    displayName: 'Run scheduled reports',
+    description: 'Allow manually running scheduled reports and test deliveries',
+  },
+  {
+    name: 'scheduled_reports:manage_smtp',
+    displayName: 'Manage scheduled report SMTP',
+    description:
+      'Allow creating, updating, and deleting scheduled-report SMTP configurations',
+  },
+  {
+    name: 'scheduled_reports:test_smtp',
+    displayName: 'Test scheduled report SMTP',
+    description:
+      'Allow validating SMTP configurations before they are saved or activated',
+  },
+  {
+    name: 'scheduled_reports:view_history',
+    displayName: 'View scheduled report history',
+    description: 'Allow viewing scheduled report execution history',
+  },
+  {
+    name: 'scheduled_reports:download',
+    displayName: 'Download generated scheduled reports',
+    description:
+      'Allow downloading the generated file for a scheduled report execution',
+  },
+  {
     name: 'hrms_launch_readiness:read',
     displayName: 'Read HRMS launch readiness',
     description: 'Allow viewing the HRMS launch readiness report',
+  },
+  {
+    name: 'probation_policies:read',
+    displayName: 'Read probation policies',
+    description: 'Allow viewing probation policies',
+  },
+  {
+    name: 'probation_policies:create',
+    displayName: 'Create probation policies',
+    description: 'Allow creating probation policies',
+  },
+  {
+    name: 'probation_policies:update',
+    displayName: 'Update probation policies',
+    description: 'Allow updating probation policies',
+  },
+  {
+    name: 'probation_cases:read',
+    displayName: 'Read probation cases',
+    description: 'Allow viewing probation and confirmation cases',
+  },
+  {
+    name: 'probation_cases:read-team',
+    displayName: 'Read authorized team probation cases',
+    description:
+      'Allow managers to view probation cases for employees they are assigned to review',
+  },
+  {
+    name: 'probation_reviews:self-assess',
+    displayName: 'Submit own probation self-assessment',
+    description:
+      'Allow employees to submit their own probation self-assessment',
+  },
+  {
+    name: 'probation_reviews:manager-review',
+    displayName: 'Review assigned employee probation',
+    description: 'Allow managers to submit probation manager reviews',
+  },
+  {
+    name: 'probation_reviews:manager-review-any',
+    displayName: 'Review any authorized employee probation',
+    description:
+      'Allow reviewing probation cases beyond the direct reporting line, subject to HR access scope',
+  },
+  {
+    name: 'probation_reviews:hr-decision',
+    displayName: 'Make final probation decision',
+    description:
+      'Allow HR to confirm, extend, not-confirm, or recommend termination for a probation case',
+  },
+  {
+    name: 'probation_letters:generate',
+    displayName: 'Generate probation and confirmation letters',
+    description:
+      'Allow generating confirmation, extension, and outcome letters for a probation case',
+  },
+  {
+    name: 'employee_movements:create',
+    displayName: 'Create employee movement requests',
+    description:
+      'Allow creating department, branch, position, grade, manager, and salary movement requests',
+  },
+  {
+    name: 'employee_movements:read',
+    displayName: 'Read employee movement requests',
+    description: 'Allow viewing employee movement requests',
+  },
+  {
+    name: 'employee_movements:submit',
+    displayName: 'Submit employee movement requests',
+    description: 'Allow submitting draft employee movements for approval',
+  },
+  {
+    name: 'employee_movements:approve',
+    displayName: 'Approve employee movements',
+    description: 'Allow approving, rejecting, or returning employee movements',
+  },
+  {
+    name: 'employee_movements:finance-approve',
+    displayName: 'Approve salary-related movements',
+    description:
+      'Additional approval permission required for movements that include a salary revision',
+  },
+  {
+    name: 'employee_movements:management-approve',
+    displayName: 'Approve senior organizational movements',
+    description:
+      'Additional approval permission required for promotions and demotions',
+  },
+  {
+    name: 'employee_movements:apply',
+    displayName: 'Apply approved employee movements',
+    description: 'Allow applying approved or scheduled employee movements',
+  },
+  {
+    name: 'employee_movements:retry',
+    displayName: 'Retry failed movement operations',
+    description:
+      'Allow retrying failed or skipped downstream movement operations',
+  },
+  {
+    name: 'employee_movements:cancel',
+    displayName: 'Cancel employee movements',
+    description: 'Allow cancelling an employee movement before it is applied',
+  },
+  {
+    name: 'employee_movements:backdate',
+    displayName: 'Create backdated employee movements',
+    description:
+      'Allow creating an employee movement with an effective date in the past',
+  },
+  {
+    name: 'employee_compensation:read',
+    displayName: 'Read employee compensation history',
+    description: 'Allow viewing employee compensation version history',
+  },
+  {
+    name: 'employee_positions:correct-history',
+    displayName: 'Correct employee position history',
+    description:
+      'Allow direct creation, modification, or ending of primary position assignments outside the movement workflow, for authorized administrative corrections only',
+  },
+  {
+    name: 'employee_movements:read-own',
+    displayName: 'Read own employee movements',
+    description: 'Allow an employee to view their own movement requests',
+  },
+  {
+    name: 'employee_movements:acknowledge-own',
+    displayName: 'Acknowledge own employee movement',
+    description:
+      'Allow an employee to acknowledge a completed movement affecting them',
+  },
+  {
+    name: 'performance_financial_years:read',
+    displayName: 'Read performance financial years',
+    description: 'Allow viewing performance financial years',
+  },
+  {
+    name: 'performance_financial_years:create',
+    displayName: 'Create performance financial years',
+    description: 'Allow creating performance financial years',
+  },
+  {
+    name: 'performance_periods:read',
+    displayName: 'Read performance periods',
+    description: 'Allow viewing performance periods',
+  },
+  {
+    name: 'performance_periods:create',
+    displayName: 'Generate performance periods',
+    description: 'Allow generating monthly and quarterly performance periods',
+  },
+  {
+    name: 'performance_rating_scales:read',
+    displayName: 'Read performance rating scales',
+    description: 'Allow viewing performance rating scales',
+  },
+  {
+    name: 'performance_rating_scales:create',
+    displayName: 'Create performance rating scales',
+    description: 'Allow creating performance rating scales',
+  },
+  {
+    name: 'performance_competencies:read',
+    displayName: 'Read competency templates',
+    description:
+      'Allow viewing competency templates and competency appraisal setup',
+  },
+  {
+    name: 'performance_competencies:create',
+    displayName: 'Create competency templates',
+    description: 'Allow creating competency templates for appraisals',
+  },
+  {
+    name: 'kpi_definitions:read',
+    displayName: 'Read KPI definitions',
+    description: 'Allow viewing KPI definitions and versions',
+  },
+  {
+    name: 'kpi_definitions:create',
+    displayName: 'Create KPI definitions',
+    description: 'Allow creating KPI definitions',
+  },
+  {
+    name: 'kpi_definitions:update',
+    displayName: 'Update KPI definitions',
+    description: 'Allow creating new KPI definition versions',
+  },
+  {
+    name: 'kpi_applicability_rules:read',
+    displayName: 'Read KPI applicability rules',
+    description: 'Allow viewing KPI applicability rules and matching logic',
+  },
+  {
+    name: 'kpi_applicability_rules:create',
+    displayName: 'Create KPI applicability rules',
+    description: 'Allow creating KPI applicability rules',
+  },
+  {
+    name: 'kpi_templates:read',
+    displayName: 'Read KPI templates',
+    description: 'Allow viewing KPI templates',
+  },
+  {
+    name: 'kpi_templates:create',
+    displayName: 'Create KPI templates',
+    description: 'Allow creating KPI templates',
+  },
+  {
+    name: 'performance_plans:read',
+    displayName: 'Read performance plans',
+    description: 'Allow viewing employee performance plans',
+  },
+  {
+    name: 'performance_plans:create',
+    displayName: 'Create performance plans',
+    description: 'Allow assigning employee performance plans',
+  },
+  {
+    name: 'performance_assignments:create',
+    displayName: 'Create performance assignments',
+    description:
+      'Allow freezing monthly or quarterly KPI assignments for employees',
+  },
+  {
+    name: 'performance_reviews:self-review',
+    displayName: 'Submit performance self review',
+    description: 'Allow employees to submit their own performance review',
+  },
+  {
+    name: 'performance_reviews:approve',
+    displayName: 'Approve performance reviews',
+    description: 'Allow HR to approve and publish performance reviews',
+  },
+  {
+    name: 'performance_reviews:moderate',
+    displayName: 'Moderate performance reviews',
+    description: 'Allow moderated score adjustments for performance reviews',
+  },
+  {
+    name: 'performance_reviews:reopen',
+    displayName: 'Reopen performance reviews',
+    description:
+      'Allow reopening published performance reviews into a new revision',
+  },
+  {
+    name: 'performance_reviews:appeal',
+    displayName: 'Submit performance appeals',
+    description:
+      'Allow employees to appeal their own published performance reviews',
+  },
+  {
+    name: 'performance_reviews:appeal-review',
+    displayName: 'Review performance appeals',
+    description:
+      'Allow HR or management to view and handle performance appeals',
+  },
+  {
+    name: 'performance_kpis:sync',
+    displayName: 'Sync system KPI achievements',
+    description:
+      'Allow recalculating attendance and leave derived KPI achievements',
+  },
+  {
+    name: 'performance_aggregates:read',
+    displayName: 'Read performance aggregates',
+    description: 'Allow viewing quarterly and annual performance aggregates',
+  },
+  {
+    name: 'performance_aggregates:calculate',
+    displayName: 'Calculate performance aggregates',
+    description:
+      'Allow calculating quarterly and annual employee performance aggregates',
+  },
+  {
+    name: 'performance_dashboards:read',
+    displayName: 'Read performance dashboards',
+    description: 'Allow viewing company performance summaries and dashboards',
+  },
+  {
+    name: 'performance_self_service:read',
+    displayName: 'Read own performance',
+    description: 'Allow employees to view their own performance records',
+  },
+  {
+    name: 'performance_self_service:update',
+    displayName: 'Update own KPI achievements',
+    description: 'Allow employees to update their own KPI achievements',
+  },
+  {
+    name: 'performance_manager:read',
+    displayName: 'Read team performance',
+    description: 'Allow managers to view performance data for assigned teams',
+  },
+  {
+    name: 'performance_manager:review',
+    displayName: 'Submit manager performance review',
+    description:
+      'Allow managers to submit review comments and competency ratings',
+  },
+  {
+    name: 'performance_manager:validate',
+    displayName: 'Validate team KPI achievements',
+    description: 'Allow managers to validate assigned KPI achievements',
+  },
+  {
+    name: 'performance_pip:read',
+    displayName: 'Read performance improvement plans',
+    description: 'Allow viewing performance improvement plans and milestones',
+  },
+  {
+    name: 'performance_pip:create',
+    displayName: 'Create performance improvement plans',
+    description: 'Allow creating performance improvement plans for reviews',
+  },
+  {
+    name: 'performance_pip:review',
+    displayName: 'Review performance improvement milestones',
+    description: 'Allow reviewing performance improvement plan milestones',
+  },
+  {
+    name: 'performance_pip:close',
+    displayName: 'Close performance improvement plans',
+    description: 'Allow closing completed performance improvement plans',
+  },
+  {
+    name: 'work_activities:self-service:read',
+    displayName: 'Read own work activities',
+    description:
+      'Allow employees to view their own daily activities and activity reports',
+  },
+  {
+    name: 'work_activities:self-service:update',
+    displayName: 'Update own work activities',
+    description:
+      'Allow employees to create and submit their own daily activity reports',
+  },
+  {
+    name: 'field_visits:self-service:read',
+    displayName: 'Read own field visits',
+    description:
+      'Allow employees to view their own field visit plans, visits, and follow-ups',
+  },
+  {
+    name: 'field_visits:self-service:update',
+    displayName: 'Update own field visits',
+    description:
+      'Allow employees to manage their own field visit plans, check-ins, evidence, and expenses',
+  },
+  {
+    name: 'work_activities:manager:read',
+    displayName: 'Read team work activities',
+    description:
+      'Allow managers to view team daily activity reports and dashboards',
+  },
+  {
+    name: 'work_activities:manager:review',
+    displayName: 'Review team work activities',
+    description:
+      'Allow managers to approve, return, or reject daily activity reports',
+  },
+  {
+    name: 'field_visits:manager:read',
+    displayName: 'Read team field visits',
+    description:
+      'Allow managers to view team field visit plans, visits, and dashboards',
+  },
+  {
+    name: 'field_visits:manager:review',
+    displayName: 'Review team field visits',
+    description:
+      'Allow managers to review field visits, opportunities, and visit expenses',
+  },
+  {
+    name: 'work_activities:config',
+    displayName: 'Configure work activities',
+    description: 'Allow HR to manage activity categories and activity policies',
+  },
+  {
+    name: 'field_visits:config',
+    displayName: 'Configure field visits',
+    description: 'Allow HR to manage field party references and visit policies',
+  },
+  {
+    name: 'work_activities:hr:read',
+    displayName: 'Read work activity summaries',
+    description:
+      'Allow HR to view company work-activity reports, dashboards, and exceptions',
+  },
+  {
+    name: 'field_visits:hr:read',
+    displayName: 'Read field visit summaries',
+    description:
+      'Allow HR to view company field-visit reports, dashboards, and exceptions',
+  },
+  {
+    name: 'field_locations:read',
+    displayName: 'Read field locations',
+    description:
+      'Allow authorized users to view approved field-visit map locations',
+  },
+  {
+    name: 'field_locations:export',
+    displayName: 'Export field locations',
+    description:
+      'Allow authorized users to export approved field-visit map locations',
+  },
+  {
+    name: 'payroll:config',
+    displayName: 'Configure payroll',
+    description:
+      'Allow managing payroll components, structures, calendars, and statutory rules',
+  },
+  {
+    name: 'payroll:config:read',
+    displayName: 'Read payroll configuration',
+    description:
+      'Allow viewing payroll components, structures, calendars, and statutory rules',
+  },
+  {
+    name: 'payroll:profiles',
+    displayName: 'Manage payroll profiles',
+    description:
+      'Allow managing employee payroll, statutory, and payment profiles',
+  },
+  {
+    name: 'payroll:profiles:read',
+    displayName: 'Read payroll profiles',
+    description: 'Allow viewing masked employee payroll profiles',
+  },
+  {
+    name: 'payroll:periods',
+    displayName: 'Manage payroll periods',
+    description: 'Allow generating and managing payroll calendar periods',
+  },
+  {
+    name: 'payroll:periods:read',
+    displayName: 'Read payroll periods',
+    description: 'Allow viewing payroll periods',
+  },
+  {
+    name: 'payroll:inputs',
+    displayName: 'Manage payroll inputs',
+    description:
+      'Allow creating payroll adjustments, reimbursements, deductions, and other inputs',
+  },
+  {
+    name: 'payroll:inputs:read',
+    displayName: 'Read payroll inputs',
+    description: 'Allow viewing payroll inputs',
+  },
+  {
+    name: 'payroll:inputs:approve',
+    displayName: 'Approve payroll inputs',
+    description: 'Allow approving payroll inputs before calculation',
+  },
+  {
+    name: 'payroll:runs',
+    displayName: 'Create payroll runs',
+    description:
+      'Allow creating regular, supplementary, off-cycle, reversal, and final-settlement runs',
+  },
+  {
+    name: 'payroll:runs:read',
+    displayName: 'Read payroll runs',
+    description: 'Allow viewing payroll runs and employee payroll results',
+  },
+  {
+    name: 'payroll:runs:process',
+    displayName: 'Process payroll runs',
+    description: 'Allow calculating payroll runs',
+  },
+  {
+    name: 'payroll:runs:approve',
+    displayName: 'Approve payroll runs',
+    description:
+      'Allow HR, Finance, or management approval of calculated payroll',
+  },
+  {
+    name: 'payroll:runs:lock',
+    displayName: 'Lock payroll runs',
+    description: 'Allow locking approved payroll runs',
+  },
+  {
+    name: 'payroll:payslips',
+    displayName: 'Generate payslips',
+    description: 'Allow generating payslips from locked payroll',
+  },
+  {
+    name: 'payroll:payslips:read',
+    displayName: 'Read payslips',
+    description: 'Allow viewing generated company payslips',
+  },
+  {
+    name: 'payroll:payslips:self',
+    displayName: 'Read own payslips',
+    description: 'Allow employees to view their own payslips',
+  },
+  {
+    name: 'payroll:banking',
+    displayName: 'Generate payroll bank files',
+    description:
+      'Allow generating and downloading payroll bank transfer batches',
+  },
+  {
+    name: 'payroll:accounting',
+    displayName: 'Generate payroll journals',
+    description: 'Allow generating payroll accounting journal batches',
+  },
+  {
+    name: 'payroll:reports',
+    displayName: 'View payroll reports',
+    description:
+      'Allow viewing payroll dashboards, variance, and statutory reports',
+  },
+  {
+    name: 'payroll:final-settlements',
+    displayName: 'Manage payroll final settlements',
+    description:
+      'Allow calculating payroll-linked final settlements for offboarding',
+  },
+  {
+    name: 'employee_finance:products',
+    displayName: 'Manage employee finance products',
+    description: 'Allow configuring staff loan and salary advance products',
+  },
+  {
+    name: 'employee_finance:products:read',
+    displayName: 'Read employee finance products',
+    description: 'Allow viewing staff loan and salary advance products',
+  },
+  {
+    name: 'employee_finance:applications:self',
+    displayName: 'Manage own employee finance applications',
+    description:
+      'Allow employees to apply for and track staff loans and salary advances',
+  },
+  {
+    name: 'employee_finance:applications:read',
+    displayName: 'Read employee finance applications',
+    description:
+      'Allow viewing employee finance applications and eligibility results',
+  },
+  {
+    name: 'employee_finance:applications:manager-review',
+    displayName: 'Review employee finance applications',
+    description:
+      'Allow managers to recommend staff loan and salary advance applications',
+  },
+  {
+    name: 'employee_finance:applications:hr-approve',
+    displayName: 'HR approve employee finance applications',
+    description:
+      'Allow HR to approve staff loan and salary advance applications',
+  },
+  {
+    name: 'employee_finance:applications:finance-approve',
+    displayName: 'Finance approve employee finance applications',
+    description:
+      'Allow Finance to approve staff loan and salary advance applications',
+  },
+  {
+    name: 'employee_finance:accounts:read',
+    displayName: 'Read employee finance accounts',
+    description: 'Allow viewing staff loan and salary advance accounts',
+  },
+  {
+    name: 'employee_finance:disbursements',
+    displayName: 'Manage employee finance disbursements',
+    description:
+      'Allow creating and confirming staff loan and salary advance disbursements',
+  },
+  {
+    name: 'employee_finance:disbursements:approve',
+    displayName: 'Approve employee finance disbursements',
+    description: 'Allow approving staff loan and salary advance disbursements',
+  },
+  {
+    name: 'employee_finance:repayments',
+    displayName: 'Manage employee finance repayments',
+    description:
+      'Allow recording direct and additional staff loan or salary advance repayments',
+  },
+  {
+    name: 'employee_finance:repayments:approve',
+    displayName: 'Approve employee finance repayments',
+    description: 'Allow approving and posting employee finance repayments',
+  },
+  {
+    name: 'employee_finance:payroll',
+    displayName: 'Manage employee finance payroll instructions',
+    description:
+      'Allow generating payroll deductions for staff loans and salary advances',
+  },
+  {
+    name: 'employee_finance:settlements',
+    displayName: 'Manage employee finance settlements',
+    description:
+      'Allow deferments, reschedules, settlement quotes, and exit recoveries',
+  },
+  {
+    name: 'employee_finance:reports',
+    displayName: 'View employee finance reports',
+    description: 'Allow viewing staff loan and salary advance dashboards',
+  },
+  {
+    name: 'employee_finance:reconciliation',
+    displayName: 'Run employee finance reconciliation',
+    description:
+      'Allow reconciling staff loan and salary advance ledgers and payroll instructions',
+  },
+  {
+    name: 'analytics:sources:read',
+    displayName: 'View analytics sources',
+    description:
+      'Allow viewing registered transactional sources available to analytics',
+  },
+  {
+    name: 'analytics:datasets:read',
+    displayName: 'View analytics datasets',
+    description: 'Allow viewing analytics dataset catalog and freshness status',
+  },
+  {
+    name: 'analytics:metrics:read',
+    displayName: 'View analytics metrics',
+    description: 'Allow viewing governed metric definitions and versions',
+  },
+  {
+    name: 'analytics:refresh',
+    displayName: 'Refresh analytics snapshots',
+    description:
+      'Allow manually refreshing analytics dimensions, facts, and aggregates',
+  },
+  {
+    name: 'analytics:dashboards:hr',
+    displayName: 'View HR analytics dashboard',
+    description:
+      'Allow viewing HR workforce, attendance, leave, payroll, and finance intelligence',
+  },
+  {
+    name: 'analytics:dashboards:management',
+    displayName: 'View management analytics dashboard',
+    description:
+      'Allow viewing executive management intelligence and risk indicators',
+  },
+  {
+    name: 'analytics:dashboards:manager',
+    displayName: 'View manager analytics dashboard',
+    description: 'Allow managers to view scoped team analytics',
+  },
+  {
+    name: 'analytics:dashboards:sales-field',
+    displayName: 'View sales and field analytics dashboard',
+    description: 'Allow viewing field activity and visit analytics',
+  },
+  {
+    name: 'analytics:reports',
+    displayName: 'Run analytics reports',
+    description: 'Allow running governed custom analytics reports',
+  },
+  {
+    name: 'analytics:exports',
+    displayName: 'Export analytics reports',
+    description:
+      'Allow exporting governed analytics reports with retention controls',
+  },
+  {
+    name: 'analytics:statutory-reports',
+    displayName: 'Generate statutory reports',
+    description:
+      'Allow generating statutory and compliance reports from locked payroll data',
+  },
+  {
+    name: 'analytics:reconciliation',
+    displayName: 'Run analytics reconciliation',
+    description:
+      'Allow reconciling analytics facts against payroll and employee finance sources',
+  },
+  {
+    name: 'analytics:audit:read',
+    displayName: 'View analytics audit logs',
+    description:
+      'Allow viewing sensitive analytics access and export audit trails',
+  },
+  {
+    name: 'analytics:sensitive',
+    displayName: 'View sensitive analytics',
+    description:
+      'Allow viewing highly restricted analytics values where policy permits',
+  },
+  {
+    name: 'analytics:location',
+    displayName: 'View analytics location data',
+    description:
+      'Allow viewing analytics derived from field location and visit data',
   },
 ];
 
@@ -1603,27 +2671,15 @@ export default class PermissionsSeeder implements Seeder {
 
     try {
       const repo: Repository<Permission> = qr.manager.getRepository(Permission);
+      const permissions = PERMISSION_SEEDS.map((seed) => ({
+        name: seed.name,
+        display_name: seed.displayName,
+        description: seed.description,
+        scope: resolvePermissionScope(seed.name),
+        is_system_generated: true,
+      }));
 
-      for (const seed of PERMISSION_SEEDS) {
-        let permission = await repo.findOne({ where: { name: seed.name } });
-
-        if (!permission) {
-          permission = repo.create({
-            name: seed.name,
-            display_name: seed.displayName,
-            description: seed.description,
-            scope: resolvePermissionScope(seed.name),
-            is_system_generated: true,
-          });
-        } else {
-          permission.display_name = seed.displayName;
-          permission.description = seed.description;
-          permission.scope = resolvePermissionScope(seed.name);
-          permission.is_system_generated = true;
-        }
-
-        await repo.save(permission);
-      }
+      await repo.upsert(permissions, ['name']);
 
       await qr.commitTransaction();
       const totals = PERMISSION_SEEDS.reduce(

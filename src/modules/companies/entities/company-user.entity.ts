@@ -15,6 +15,7 @@ import { Company } from './company.entity';
 import { CompanyUserRole } from './company-user-role.entity';
 import { CompanyUserPermission } from './company-user-permission.entity';
 import { CompanyUserBranchAccess } from '../../hr/branches/entities/company-user-branch-access.entity';
+import { CompanyUserDepartmentAccess } from '../../hr/departments/entities/company-user-department-access.entity';
 import { Employee } from '../../hr/employees/entities/employee.entity';
 
 @Entity('company_users')
@@ -76,6 +77,15 @@ export class CompanyUser {
     },
   )
   branch_accesses: CompanyUserBranchAccess[];
+
+  @OneToMany(
+    () => CompanyUserDepartmentAccess,
+    (assignment) => assignment.company_user,
+    {
+      cascade: true,
+    },
+  )
+  department_accesses: CompanyUserDepartmentAccess[];
 
   @OneToOne(() => Employee, (employee) => employee.company_user)
   employee: Employee | null;

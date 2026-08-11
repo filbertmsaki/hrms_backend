@@ -7,6 +7,8 @@ import { OffboardingWorkflowStep } from './entities/offboarding-workflow-step.en
 import { OffboardingRequest } from './entities/offboarding-request.entity';
 import { OffboardingTask } from './entities/offboarding-task.entity';
 import { OffboardingAction } from './entities/offboarding-action.entity';
+import { OffboardingAccessOperation } from './entities/offboarding-access-operation.entity';
+import { OffboardingNumberSequence } from './entities/offboarding-number-sequence.entity';
 import { OffboardingAssetReturn } from './entities/offboarding-asset-return.entity';
 import { OffboardingApproval } from './entities/offboarding-approval.entity';
 import { OffboardingClearance } from './entities/offboarding-clearance.entity';
@@ -28,15 +30,22 @@ import { EmployeeTimetable } from '../attendance/timetable/employee-timetables/e
 import { EmployeeTimetableStatusEnum } from '../attendance/timetable/employee-timetables/enums/employee-timetable-status.enum';
 import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
 import { HrAccessService } from '../shared/hr-access.service';
+import { PositionAvailabilityService } from '../shared/position-availability.service';
 import { OffboardingAuditService } from './services/offboarding-audit.service';
+import { OffboardingNoticeService } from './services/offboarding-notice.service';
 import { OffboardingWorkflowService } from './services/offboarding-workflow.service';
 import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
 import { OffboardingRequestStatusEnum } from './enums/offboarding-request-status.enum';
 import { OffboardingSettlementStatusEnum } from './enums/offboarding-settlement-status.enum';
+import { OffboardingAssetStatusEnum } from './enums/offboarding-asset-status.enum';
 import { OffboardingTaskStatusEnum } from './enums/offboarding-task-status.enum';
 import { OffboardingTypeEnum } from './enums/offboarding-type.enum';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { FilesService } from '../../files/files.service';
+import { EmployeeAssignmentService } from '../employees/employee-assignment.service';
+import { SecurityEventsService } from '../../security/security-events.service';
+import { LeaveBalance } from '../leave/entities/leave-balance.entity';
+import { LeaveBalanceLedgerService } from '../leave/services/leave-balance-ledger.service';
 
 type MockRepo<T = unknown> = Record<string, jest.Mock> & { __entity?: T };
 
@@ -54,8 +63,15 @@ describe('OffboardingService', () => {
   let documentRepository: MockRepo<Document>;
   let dataSource: { transaction: jest.Mock };
   let hrAccessService: { assertCanAccessEmployee: jest.Mock };
+  let positionAvailabilityService: {
+    isPositionAvailableForBranch: jest.Mock;
+    isPositionAvailableForDepartment: jest.Mock;
+  };
   let offboardingAuditService: { log: jest.Mock };
-  let filesService: { saveBase64File: jest.Mock };
+  let filesService: {
+    saveBase64File: jest.Mock;
+    savePrivateBase64File: jest.Mock;
+  };
   let actor: AuthenticatedUser;
 
   beforeEach(() => {
@@ -67,6 +83,8 @@ describe('OffboardingService', () => {
     const offboardingTaskRepository = createRepositoryMock<OffboardingTask>();
     const offboardingActionRepository =
       createRepositoryMock<OffboardingAction>();
+    const offboardingAccessOperationRepository =
+      createRepositoryMock<OffboardingAccessOperation>();
     const offboardingAssetReturnRepository =
       createRepositoryMock<OffboardingAssetReturn>();
     const offboardingSettlementItemRepository =
@@ -79,6 +97,8 @@ describe('OffboardingService', () => {
       createRepositoryMock<OffboardingExitInterview>();
     const offboardingAuditLogRepository =
       createRepositoryMock<OffboardingAuditLog>();
+    const offboardingNumberSequenceRepository =
+      createRepositoryMock<OffboardingNumberSequence>();
     documentRepository = createRepositoryMock<Document>();
     const employeeRepository = createRepositoryMock<Employee>();
     const shiftAssignmentRepository = createRepositoryMock<ShiftAssignment>();
@@ -100,11 +120,16 @@ describe('OffboardingService', () => {
     hrAccessService = {
       assertCanAccessEmployee: jest.fn(),
     };
+    positionAvailabilityService = {
+      isPositionAvailableForBranch: jest.fn().mockResolvedValue(true),
+      isPositionAvailableForDepartment: jest.fn().mockResolvedValue(true),
+    };
     offboardingAuditService = {
       log: jest.fn(),
     };
     filesService = {
       saveBase64File: jest.fn(),
+      savePrivateBase64File: jest.fn(),
     };
 
     actor = {
@@ -125,12 +150,14 @@ describe('OffboardingService', () => {
       offboardingRequestRepository as unknown as Repository<OffboardingRequest>,
       offboardingTaskRepository as unknown as Repository<OffboardingTask>,
       offboardingActionRepository as unknown as Repository<OffboardingAction>,
+      offboardingAccessOperationRepository as unknown as Repository<OffboardingAccessOperation>,
       offboardingAssetReturnRepository as unknown as Repository<OffboardingAssetReturn>,
       offboardingSettlementItemRepository as unknown as Repository<OffboardingSettlementItem>,
       offboardingApprovalRepository as unknown as Repository<OffboardingApproval>,
       offboardingClearanceRepository as unknown as Repository<OffboardingClearance>,
       offboardingExitInterviewRepository as unknown as Repository<OffboardingExitInterview>,
       offboardingAuditLogRepository as unknown as Repository<OffboardingAuditLog>,
+      offboardingNumberSequenceRepository as unknown as Repository<OffboardingNumberSequence>,
       documentRepository as unknown as Repository<Document>,
       employeeRepository as unknown as Repository<Employee>,
       shiftAssignmentRepository as unknown as Repository<ShiftAssignment>,
@@ -144,96 +171,71 @@ describe('OffboardingService', () => {
       companyUserRoleRepository as unknown as Repository<CompanyUserRole>,
       roleRepository as unknown as Repository<Role>,
       hrAccessService as unknown as HrAccessService,
+      positionAvailabilityService as unknown as PositionAvailabilityService,
       offboardingAuditService as unknown as OffboardingAuditService,
+      {} as OffboardingNoticeService,
       {} as OffboardingWorkflowService,
       { emit: jest.fn() } as unknown as EventEmitter2,
       { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService,
       filesService as unknown as FilesService,
+      {
+        endAssignmentsForExit: jest.fn(),
+      } as unknown as EmployeeAssignmentService,
+      { log: jest.fn() } as unknown as SecurityEventsService,
+      createRepositoryMock<LeaveBalance>() as unknown as Repository<LeaveBalance>,
+      {
+        calculateAvailableDays: jest.fn().mockReturnValue(0),
+      } as unknown as LeaveBalanceLedgerService,
     );
   });
 
   it('finalizes employee exit and closes future attendance assignments and summaries', async () => {
-    offboardingRequestRepository.findOne.mockResolvedValue({
+    const requestForFinalization = {
       id: 77,
+      company_id: 10,
       employee_id: 501,
-      status: OffboardingRequestStatusEnum.IN_PROGRESS,
+      status: OffboardingRequestStatusEnum.READY_FOR_FINALIZATION,
       offboarding_type: OffboardingTypeEnum.TERMINATION,
       last_working_date: '2026-06-12',
       reason: 'Policy breach',
+      access_terminated_at: new Date('2026-06-12T18:00:00.000Z'),
       tasks: [{ status: OffboardingTaskStatusEnum.COMPLETED }],
+      actions: [],
+      asset_returns: [],
+      settlement_items: [],
       approvals: [],
       clearances: [],
-      employee: { id: 501, company_user: { id: 11 } },
-    });
+      employee: { id: 501, company_user: { id: 11, company_user_id: 11 } },
+    };
+    offboardingRequestRepository.findOne.mockResolvedValue(
+      requestForFinalization,
+    );
 
+    const employeeForFinalization = {
+      id: 501,
+      employment_status: EmploymentStatusEnum.ACTIVE,
+      exit_date: null,
+      exit_reason: null,
+    };
+
+    const requestQueryBuilder = {
+      setLock: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getOneOrFail: jest.fn().mockResolvedValue(requestForFinalization),
+    };
     const requestRepo = {
-      findOne: jest.fn().mockResolvedValue({
-        id: 77,
-        company_id: 10,
-        employee_id: 501,
-        status: OffboardingRequestStatusEnum.COMPLETED,
-        offboarding_type: OffboardingTypeEnum.TERMINATION,
-        title: 'Employee exit',
-        description: null,
-        reason: 'Policy breach',
-        notice_date: null,
-        last_working_date: '2026-06-12',
-        submitted_at: null,
-        completed_at: new Date('2026-06-12T10:00:00.000Z'),
-        cancelled_at: null,
-        progress_percentage: '100.00',
-        metadata: null,
-        created_at: new Date('2026-06-01T10:00:00.000Z'),
-        updated_at: new Date('2026-06-12T10:00:00.000Z'),
-        workflow: null,
-        tasks: [{ status: OffboardingTaskStatusEnum.COMPLETED }],
-        actions: [],
-        asset_returns: [],
-        settlement_items: [],
-        approvals: [],
-        clearances: [],
-        exit_interview: null,
-        employee: {
-          id: 501,
-          employee_no: 'EMP-501',
-          first_name: 'Jane',
-          middle_name: null,
-          last_name: 'Doe',
-          employment_status: EmploymentStatusEnum.TERMINATED,
-          company_user: {
-            id: 11,
-            user: { email: 'jane.doe@example.com' },
-          },
-        },
-      }),
+      createQueryBuilder: jest.fn(() => requestQueryBuilder),
       save: jest.fn((value: unknown) => value),
-      findOneOrFail: jest
-        .fn()
-        .mockResolvedValueOnce({
-          id: 77,
-          company_id: 10,
-          employee_id: 501,
-          status: OffboardingRequestStatusEnum.IN_PROGRESS,
-          offboarding_type: OffboardingTypeEnum.TERMINATION,
-          last_working_date: '2026-06-12',
-          reason: 'Policy breach',
-        })
-        .mockResolvedValueOnce({
-          id: 77,
-          employee: {
-            id: 501,
-            employment_status: EmploymentStatusEnum.TERMINATED,
-            exit_date: '2026-06-12',
-          },
-        }),
+    };
+    const employeeQueryBuilder = {
+      setLock: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getOneOrFail: jest.fn().mockResolvedValue(employeeForFinalization),
     };
     const employeeRepo = {
-      findOneOrFail: jest.fn().mockResolvedValue({
-        id: 501,
-        employment_status: EmploymentStatusEnum.ACTIVE,
-        exit_date: null,
-        exit_reason: null,
-      }),
+      createQueryBuilder: jest.fn(() => employeeQueryBuilder),
       save: jest.fn((value: unknown) => value),
     };
     const shiftAssignments = [
@@ -305,6 +307,20 @@ describe('OffboardingService', () => {
     const summaryRepo = {
       createQueryBuilder: jest.fn(() => deleteBuilder),
     };
+    const leaveBalanceRepo = {
+      find: jest.fn().mockResolvedValue([]),
+    };
+    const settlementItemRepo = {
+      find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn().mockResolvedValue(null),
+      create: jest.fn((value: unknown) => value),
+      save: jest.fn((value: unknown) => value),
+    };
+    const accessOperationRepo = {
+      count: jest.fn().mockResolvedValue(0),
+      save: jest.fn((value: unknown) => value),
+      create: jest.fn((value: unknown) => value),
+    };
 
     const manager = {
       getRepository: jest.fn((entity: { name?: string }) => {
@@ -314,6 +330,9 @@ describe('OffboardingService', () => {
         if (entity === ShiftSchedule) return shiftScheduleRepo;
         if (entity === EmployeeTimetable) return employeeTimetableRepo;
         if (entity === AttendanceDailySummary) return summaryRepo;
+        if (entity === LeaveBalance) return leaveBalanceRepo;
+        if (entity === OffboardingSettlementItem) return settlementItemRepo;
+        if (entity === OffboardingAccessOperation) return accessOperationRepo;
         throw new Error(`Unexpected repository request: ${entity?.name}`);
       }),
     } as unknown as EntityManager;
@@ -322,7 +341,7 @@ describe('OffboardingService', () => {
       (callback: (manager: EntityManager) => unknown) => callback(manager),
     );
 
-    await service.completeOffboardingRequest(10, 77, actor);
+    await service.finalizeOffboarding(10, 77, actor);
 
     expect(employeeRepo.save).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -388,7 +407,7 @@ describe('OffboardingService', () => {
     jest
       .spyOn(service as any, 'findOffboardingRequestOrFail')
       .mockResolvedValue({ employee: { id: 501 } });
-    filesService.saveBase64File.mockResolvedValue({
+    filesService.savePrivateBase64File.mockResolvedValue({
       storedFileName: 'offboarding-77-stored.pdf',
       originalFileName: 'clearance-form.pdf',
       mimeType: 'application/pdf',
@@ -416,7 +435,7 @@ describe('OffboardingService', () => {
       actor,
     );
 
-    expect(filesService.saveBase64File).toHaveBeenCalledWith(
+    expect(filesService.savePrivateBase64File).toHaveBeenCalledWith(
       expect.objectContaining({ fileName: 'clearance-form.pdf' }),
       expect.objectContaining({
         directorySegments: ['documents', 'offboarding', 'company-10'],
@@ -432,5 +451,192 @@ describe('OffboardingService', () => {
         file_path: '/uploads/documents/offboarding/company-10/offboarding.pdf',
       }),
     );
+  });
+
+  describe('assertAssetReturnRules', () => {
+    const callRule = (
+      status: OffboardingAssetStatusEnum,
+      overrides: Partial<{
+        received_by_company_user_id: number | null;
+        condition_at_return: string | null;
+        liability_amount: string | null;
+        liability_acknowledged: boolean;
+        remarks: string | null;
+      }> = {},
+    ) =>
+      (
+        service as unknown as {
+          assertAssetReturnRules: (
+            status: OffboardingAssetStatusEnum,
+            input: {
+              received_by_company_user_id: number | null;
+              condition_at_return: string | null;
+              liability_amount: string | null;
+              liability_acknowledged: boolean;
+              remarks: string | null;
+            },
+          ) => void;
+        }
+      ).assertAssetReturnRules(status, {
+        received_by_company_user_id: null,
+        condition_at_return: null,
+        liability_amount: null,
+        liability_acknowledged: false,
+        remarks: null,
+        ...overrides,
+      });
+
+    it('requires a receiver and return condition for RETURNED', () => {
+      expect(() => callRule(OffboardingAssetStatusEnum.RETURNED)).toThrow(
+        'receiver and a return condition',
+      );
+
+      expect(() =>
+        callRule(OffboardingAssetStatusEnum.RETURNED, {
+          received_by_company_user_id: 5,
+          condition_at_return: 'good',
+        }),
+      ).not.toThrow();
+    });
+
+    it('requires a liability amount or explicit acknowledgement for MISSING', () => {
+      expect(() => callRule(OffboardingAssetStatusEnum.MISSING)).toThrow(
+        'liability amount or an explicit no-liability acknowledgement',
+      );
+
+      expect(() =>
+        callRule(OffboardingAssetStatusEnum.MISSING, {
+          liability_acknowledged: true,
+        }),
+      ).not.toThrow();
+
+      expect(() =>
+        callRule(OffboardingAssetStatusEnum.MISSING, {
+          liability_amount: '150.00',
+        }),
+      ).not.toThrow();
+    });
+
+    it('requires a reason in remarks for WAIVED', () => {
+      expect(() => callRule(OffboardingAssetStatusEnum.WAIVED)).toThrow(
+        'waiver reason',
+      );
+
+      expect(() =>
+        callRule(OffboardingAssetStatusEnum.WAIVED, {
+          remarks: 'Company approved write-off',
+        }),
+      ).not.toThrow();
+    });
+
+    it('does not restrict PENDING items', () => {
+      expect(() => callRule(OffboardingAssetStatusEnum.PENDING)).not.toThrow();
+    });
+  });
+
+  describe('ensureAssetLiabilitySettlementItem', () => {
+    const callEnsure = (
+      assetReturn: Partial<OffboardingAssetReturn>,
+      manager: EntityManager,
+    ) =>
+      (
+        service as unknown as {
+          ensureAssetLiabilitySettlementItem: (
+            companyId: number,
+            offboardingRequestId: number,
+            assetReturn: OffboardingAssetReturn,
+            actor: AuthenticatedUser,
+            manager: EntityManager,
+          ) => Promise<void>;
+        }
+      ).ensureAssetLiabilitySettlementItem(
+        10,
+        77,
+        assetReturn as OffboardingAssetReturn,
+        actor,
+        manager,
+      );
+
+    it('does nothing for a non-MISSING asset return', async () => {
+      const settlementRepo = createRepositoryMock<OffboardingSettlementItem>();
+      const manager = {
+        getRepository: jest.fn(() => settlementRepo),
+      } as unknown as EntityManager;
+
+      await callEnsure(
+        { id: 1, status: OffboardingAssetStatusEnum.RETURNED },
+        manager,
+      );
+
+      expect(settlementRepo.findOne).not.toHaveBeenCalled();
+      expect(settlementRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('creates a linked settlement item for a MISSING asset', async () => {
+      const settlementRepo = createRepositoryMock<OffboardingSettlementItem>();
+      settlementRepo.findOne.mockResolvedValue(null);
+      const manager = {
+        getRepository: jest.fn(() => settlementRepo),
+      } as unknown as EntityManager;
+
+      await callEnsure(
+        {
+          id: 5,
+          asset_label: 'Company Laptop',
+          status: OffboardingAssetStatusEnum.MISSING,
+          liability_amount: '500.00',
+          liability_currency: 'USD',
+          liability_acknowledged: false,
+        },
+        manager,
+      );
+
+      expect(settlementRepo.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            offboarding_request_id: 77,
+            source_reference: 'asset-return:5',
+          }),
+        }),
+      );
+      expect(settlementRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source_reference: 'asset-return:5',
+          amount: '500.00',
+          currency: 'USD',
+        }),
+      );
+    });
+
+    it('does not create a duplicate settlement item on repeated saves', async () => {
+      const settlementRepo = createRepositoryMock<OffboardingSettlementItem>();
+      const existing = {
+        id: 9,
+        amount: null,
+        currency: null,
+        calculation_snapshot: null,
+      };
+      settlementRepo.findOne.mockResolvedValue(existing);
+      const manager = {
+        getRepository: jest.fn(() => settlementRepo),
+      } as unknown as EntityManager;
+
+      await callEnsure(
+        {
+          id: 5,
+          asset_label: 'Company Laptop',
+          status: OffboardingAssetStatusEnum.MISSING,
+          liability_amount: '500.00',
+          liability_currency: 'USD',
+          liability_acknowledged: false,
+        },
+        manager,
+      );
+
+      expect(settlementRepo.save).toHaveBeenCalledTimes(1);
+      expect(settlementRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 9, amount: '500.00' }),
+      );
+    });
   });
 });

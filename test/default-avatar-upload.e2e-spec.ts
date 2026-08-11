@@ -1,3 +1,5 @@
+process.env.DB_NAME = process.env.DB_NAME ?? 'hrms_test_db';
+
 let currentUser = {
   id: 7,
   email: 'admin@example.com',
@@ -34,6 +36,7 @@ import {
   INestApplication,
   ValidationPipe,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -44,6 +47,7 @@ import { PermissionsGuard } from '../src/common/guards/permissions.guard';
 import { TenantGuard } from '../src/common/guards/tenant.guard';
 import { FilesService } from '../src/modules/files/files.service';
 import { ImageProcessingService } from '../src/modules/files/image-processing.service';
+import { SecurityEventsService } from '../src/modules/security/security-events.service';
 import { DefaultAvatarsController } from '../src/modules/hr/default-avatars/default-avatars.controller';
 import { DefaultAvatarsService } from '../src/modules/hr/default-avatars/default-avatars.service';
 import { DefaultAvatar } from '../src/modules/hr/default-avatars/entities/default-avatar.entity';
@@ -158,6 +162,27 @@ describe('Default Avatar Upload (e2e)', () => {
         TenantGuard,
         Reflector,
         {
+          provide: SecurityEventsService,
+          useValue: { logBestEffort: jest.fn() },
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string) => {
+              switch (key) {
+                case 'APP_PUBLIC_STORAGE_PATH':
+                  return 'uploads';
+                case 'APP_PRIVATE_STORAGE_PATH':
+                  return 'private-uploads';
+                case 'MAX_UPLOAD_FILE_SIZE_BYTES':
+                  return 10 * 1024 * 1024;
+                default:
+                  return undefined;
+              }
+            }),
+          },
+        },
+        {
           provide: getRepositoryToken(DefaultAvatar),
           useValue: defaultAvatarRepository,
         },
@@ -248,6 +273,10 @@ describe('Default Avatar Upload (e2e)', () => {
     expect(fs.writeFile).toHaveBeenCalledWith(
       expect.stringMatching(/default-avatar-.*\.jpg$/),
       expect.any(Buffer),
+      expect.objectContaining({
+        flag: 'wx',
+        mode: 0o640,
+      }),
     );
   });
 

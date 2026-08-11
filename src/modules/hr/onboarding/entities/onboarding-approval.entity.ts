@@ -6,6 +6,7 @@
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
+  VersionColumn,
 } from 'typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { OnboardingApprovalStatusEnum } from '../enums/onboarding-approval-status.enum';
@@ -32,6 +33,12 @@ export class OnboardingApproval {
   @Column({ type: 'int', nullable: true })
   approver_company_user_id: number | null;
 
+  @Column({ type: 'int', nullable: true })
+  original_approver_company_user_id: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  delegated_from_company_user_id: number | null;
+
   @Column({
     type: 'enum',
     enum: OnboardingApprovalStatusEnum,
@@ -48,8 +55,32 @@ export class OnboardingApproval {
   @Column({ type: 'timestamp', nullable: true })
   acted_at: Date | null;
 
+  @Column({ type: 'timestamp', nullable: true })
+  delegated_at: Date | null;
+
+  @Column({ type: 'text', nullable: true })
+  delegation_reason: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  due_at: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  last_reminder_at: Date | null;
+
+  @Column({ type: 'int', default: 0 })
+  reminder_count: number;
+
+  @Column({ type: 'timestamp', nullable: true })
+  last_escalated_at: Date | null;
+
+  @Column({ type: 'int', default: 0 })
+  escalation_count: number;
+
   @CreateDateColumn()
   created_at: Date;
+
+  @VersionColumn()
+  version: number;
 
   @ManyToOne(() => OnboardingRequest, (request) => request.approvals, {
     onDelete: 'CASCADE',

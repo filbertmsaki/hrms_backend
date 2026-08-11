@@ -15,6 +15,7 @@ import { Branch } from '../../branches/entities/branch.entity';
 import { Department } from '../../departments/entities/department.entity';
 import { Position } from '../../positions/entities/position.entity';
 import { OffboardingApprovalActionTypeEnum } from '../enums/offboarding-approval-action-type.enum';
+import { OffboardingAccessOperationTypeEnum } from '../enums/offboarding-access-operation-type.enum';
 import { OffboardingApproverTypeEnum } from '../enums/offboarding-approver-type.enum';
 import { OffboardingTaskTypeEnum } from '../enums/offboarding-task-type.enum';
 import { OffboardingApproval } from './offboarding-approval.entity';
@@ -88,8 +89,27 @@ export class OffboardingWorkflowStep {
   @Column({ default: true })
   is_required: boolean;
 
+  @Column({ default: false })
+  completion_evidence_required: boolean;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  required_document_type_code: string | null;
+
+  @Column({ default: false })
+  is_system_operation: boolean;
+
+  @Column({
+    type: 'enum',
+    enum: OffboardingAccessOperationTypeEnum,
+    nullable: true,
+  })
+  system_operation_type: OffboardingAccessOperationTypeEnum | null;
+
   @Column({ type: 'int', nullable: true })
   expected_duration_days: number | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  metadata: Record<string, unknown> | null;
 
   @CreateDateColumn()
   created_at: Date;

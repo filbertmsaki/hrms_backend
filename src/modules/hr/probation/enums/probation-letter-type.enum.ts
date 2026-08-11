@@ -1,0 +1,5 @@
+export enum ProbationLetterTypeEnum {
+  CONFIRMATION = 'CONFIRMATION',
+  EXTENSION = 'EXTENSION',
+  NOT_CONFIRMED = 'NOT_CONFIRMED',
+}

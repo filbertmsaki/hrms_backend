@@ -53,4 +53,14 @@ describe('normalizeAttendanceSummaryQuery', () => {
     expect(normalized.fromDate).toBe('2026-06-01');
     expect(normalized.branchId).toBe(8);
   });
+
+  it('accepts rebuild-style snake_case date aliases', () => {
+    const normalized = normalizeAttendanceSummaryQuery({
+      start_date: '2026-07-01',
+      end_date: '2026-07-31',
+    });
+
+    expect(normalized.fromDate).toBe('2026-07-01');
+    expect(normalized.toDate).toBe('2026-07-31');
+  });
 });

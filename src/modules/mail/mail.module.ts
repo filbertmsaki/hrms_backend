@@ -1,12 +1,13 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { MailerModule } from '@nestjs-modules/mailer';
-import { PugAdapter } from '@nestjs-modules/mailer/dist/adapters/pug.adapter';
-import { MAILER_TRANSPORT_FACTORY } from '@nestjs-modules/mailer/dist/constants/mailer.constant';
+import { MAILER_TRANSPORT_FACTORY, MailerModule } from '@nestjs-modules/mailer';
 import { join } from 'path';
 
 import { MailService } from './mail.service';
+import { MailOverrideWarningService } from './mail-override-warning.service';
 import { SafeMailerTransportFactory } from './safe-mailer-transport.factory';
+
+const { PugAdapter } = require('@nestjs-modules/mailer/dist/adapters/pug.adapter');
 
 @Module({
   imports: [
@@ -42,7 +43,7 @@ import { SafeMailerTransportFactory } from './safe-mailer-transport.factory';
       ],
     }),
   ],
-  providers: [MailService],
+  providers: [MailService, MailOverrideWarningService],
   exports: [MailService],
 })
 export class MailModule {}

@@ -9,7 +9,9 @@ import { Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { Branch } from '../branches/entities/branch.entity';
+import { DepartmentPosition } from '../departments/entities/department-position.entity';
 import { Department } from '../departments/entities/department.entity';
+import { Employee } from '../employees/entities/employee.entity';
 import { HrAccessService } from '../shared/hr-access.service';
 import { PositionQueryDto } from './dtos/position-query.dto';
 import { CreatePositionDto } from './dtos/create-position.dto';
@@ -28,6 +30,10 @@ export class PositionsService {
     private readonly branchRepository: Repository<Branch>,
     @InjectRepository(Department)
     private readonly departmentRepository: Repository<Department>,
+    @InjectRepository(DepartmentPosition)
+    private readonly departmentPositionRepository: Repository<DepartmentPosition>,
+    @InjectRepository(Employee)
+    private readonly employeeRepository: Repository<Employee>,
     private readonly hrAccessService: HrAccessService,
     private readonly codeGeneratorService: CodeGeneratorService,
     private readonly positionAvailabilityService: PositionAvailabilityService,
@@ -67,6 +73,15 @@ export class PositionsService {
             status: position.department.status,
           }
         : null,
+      departments: (position.department_mappings ?? [])
+        .filter((mapping) => mapping.department)
+        .map((mapping) => ({
+          id: mapping.department.id,
+          name: mapping.department.name,
+          code: mapping.department.code,
+          branch_id: mapping.department.branch_id,
+          status: mapping.department.status,
+        })),
       reports_to_position: position.reports_to_position
         ? {
             id: position.reports_to_position.id,
@@ -89,6 +104,7 @@ export class PositionsService {
         branch: true,
         department: true,
         reports_to_position: true,
+        department_mappings: { department: true },
       },
     });
 
@@ -120,23 +136,86 @@ export class PositionsService {
     return branch;
   }
 
-  private async resolveDepartment(
+  private async resolveDepartments(
     companyId: number,
-    departmentId: number | null | undefined,
-  ): Promise<Department | null> {
-    if (!departmentId) {
+    departmentIds: number[] | undefined,
+  ): Promise<Department[] | null> {
+    if (!departmentIds) {
       return null;
     }
 
-    const department = await this.departmentRepository.findOne({
-      where: { id: departmentId, company_id: companyId },
-    });
-
-    if (!department) {
-      throw new NotFoundException('Department not found');
+    const uniqueIds = [...new Set(departmentIds)];
+    if (uniqueIds.length === 0) {
+      return [];
     }
 
-    return department;
+    const departments = await this.departmentRepository.find({
+      where: uniqueIds.map((id) => ({ id, company_id: companyId })),
+    });
+
+    if (departments.length !== uniqueIds.length) {
+      throw new NotFoundException(
+        'One or more selected departments could not be found',
+      );
+    }
+
+    return departments;
+  }
+
+  private async syncDepartmentMappings(
+    companyId: number,
+    positionId: number,
+    departments: Department[],
+  ): Promise<void> {
+    const existingMappings = await this.departmentPositionRepository.find({
+      where: { company_id: companyId, position_id: positionId },
+    });
+
+    const nextDepartmentIds = new Set(departments.map((d) => d.id));
+    const mappingsToRemove = existingMappings.filter(
+      (mapping) => !nextDepartmentIds.has(mapping.department_id),
+    );
+
+    for (const mapping of mappingsToRemove) {
+      const employeeCount = await this.employeeRepository.count({
+        where: {
+          primary_position_id: positionId,
+          primary_department_id: mapping.department_id,
+        },
+      });
+
+      if (employeeCount > 0) {
+        const department = await this.departmentRepository.findOne({
+          where: { id: mapping.department_id },
+        });
+        throw new BadRequestException(
+          `Cannot remove this position from ${department?.name ?? 'the department'} because ${employeeCount} employee(s) currently use this department-position combination`,
+        );
+      }
+    }
+
+    const existingDepartmentIds = new Set(
+      existingMappings.map((mapping) => mapping.department_id),
+    );
+    const mappingsToAdd = departments.filter(
+      (department) => !existingDepartmentIds.has(department.id),
+    );
+
+    if (mappingsToRemove.length > 0) {
+      await this.departmentPositionRepository.remove(mappingsToRemove);
+    }
+
+    if (mappingsToAdd.length > 0) {
+      await this.departmentPositionRepository.save(
+        mappingsToAdd.map((department) =>
+          this.departmentPositionRepository.create({
+            company_id: companyId,
+            department_id: department.id,
+            position_id: positionId,
+          }),
+        ),
+      );
+    }
   }
 
   private async resolveReportsToPosition(
@@ -175,21 +254,27 @@ export class PositionsService {
       createPositionDto.branch_id,
       actor,
     );
-    const department = await this.resolveDepartment(
+    const departments = await this.resolveDepartments(
       companyId,
-      createPositionDto.department_id,
+      createPositionDto.department_ids ??
+        (createPositionDto.department_id
+          ? [createPositionDto.department_id]
+          : undefined),
     );
+    const primaryDepartment = departments?.[0] ?? null;
     const reportsToPosition = await this.resolveReportsToPosition(
       companyId,
       createPositionDto.reports_to_position_id,
     );
 
-    this.assertHierarchyConsistency(branch, department);
-    if (department?.branch_id) {
-      await this.hrAccessService.assertCanAccessBranch(
-        actor,
-        department.branch_id,
-      );
+    for (const department of departments ?? []) {
+      this.assertHierarchyConsistency(branch, department);
+      if (department.branch_id) {
+        await this.hrAccessService.assertCanAccessBranch(
+          actor,
+          department.branch_id,
+        );
+      }
     }
 
     const code = await this.codeGeneratorService.resolveCode(
@@ -199,12 +284,14 @@ export class PositionsService {
       { prefix: 'POS-', minDigits: 4 },
     );
 
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { department_ids, ...positionAttributes } = createPositionDto;
     const position = this.positionRepository.create({
-      ...createPositionDto,
+      ...positionAttributes,
       code,
       company_id: companyId,
-      branch_id: branch?.id ?? department?.branch_id ?? null,
-      department_id: department?.id ?? null,
+      branch_id: branch?.id ?? primaryDepartment?.branch_id ?? null,
+      department_id: primaryDepartment?.id ?? null,
       reports_to_position_id: reportsToPosition?.id ?? null,
       is_manager: createPositionDto.is_manager ?? false,
       headcount: createPositionDto.headcount ?? 1,
@@ -212,7 +299,13 @@ export class PositionsService {
       status: createPositionDto.status ?? 'active',
     });
 
-    return this.mapPosition(await this.positionRepository.save(position));
+    const saved = await this.positionRepository.save(position);
+
+    if (departments) {
+      await this.syncDepartmentMappings(companyId, saved.id, departments);
+    }
+
+    return this.mapPosition(await this.findPositionOrFail(companyId, saved.id));
   }
 
   async findAll(
@@ -450,13 +543,21 @@ export class PositionsService {
             actor,
           );
 
-    const department =
-      updatePositionDto.department_id === undefined
-        ? position.department
-        : await this.resolveDepartment(
-            companyId,
-            updatePositionDto.department_id,
-          );
+    const departmentIdsInput =
+      updatePositionDto.department_ids ??
+      (updatePositionDto.department_id !== undefined
+        ? updatePositionDto.department_id
+          ? [updatePositionDto.department_id]
+          : []
+        : undefined);
+
+    const departments = await this.resolveDepartments(
+      companyId,
+      departmentIdsInput,
+    );
+    const primaryDepartment = departments
+      ? (departments[0] ?? null)
+      : position.department;
 
     const reportsToPosition =
       updatePositionDto.reports_to_position_id === undefined
@@ -470,12 +571,15 @@ export class PositionsService {
       throw new BadRequestException('A position cannot report to itself');
     }
 
-    this.assertHierarchyConsistency(branch ?? null, department ?? null);
-    if (department?.branch_id) {
-      await this.hrAccessService.assertCanAccessBranch(
-        actor,
-        department.branch_id,
-      );
+    for (const department of departments ??
+      [primaryDepartment].filter((d): d is Department => Boolean(d))) {
+      this.assertHierarchyConsistency(branch ?? null, department);
+      if (department.branch_id) {
+        await this.hrAccessService.assertCanAccessBranch(
+          actor,
+          department.branch_id,
+        );
+      }
     }
 
     // If code is being updated, validate uniqueness
@@ -494,14 +598,22 @@ export class PositionsService {
       position.code = updatePositionDto.code;
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { department_ids, ...updateAttributes } = updatePositionDto;
     Object.assign(position, {
-      ...updatePositionDto,
-      branch_id: branch?.id ?? department?.branch_id ?? null,
-      department_id: department?.id ?? null,
+      ...updateAttributes,
+      branch_id: branch?.id ?? primaryDepartment?.branch_id ?? null,
+      department_id: primaryDepartment?.id ?? null,
       reports_to_position_id: reportsToPosition?.id ?? null,
     });
 
-    return this.mapPosition(await this.positionRepository.save(position));
+    const saved = await this.positionRepository.save(position);
+
+    if (departments) {
+      await this.syncDepartmentMappings(companyId, saved.id, departments);
+    }
+
+    return this.mapPosition(await this.findPositionOrFail(companyId, saved.id));
   }
 
   async remove(
@@ -516,6 +628,25 @@ export class PositionsService {
         position.branch_id,
       );
     }
+
+    const employeeCount = await this.employeeRepository.count({
+      where: { primary_position_id: positionId },
+    });
+    if (employeeCount > 0) {
+      throw new BadRequestException(
+        `Cannot delete this position because ${employeeCount} employee(s) are currently assigned to it`,
+      );
+    }
+
+    const mappingCount = await this.departmentPositionRepository.count({
+      where: { company_id: companyId, position_id: positionId },
+    });
+    if (mappingCount > 0) {
+      throw new BadRequestException(
+        'Cannot delete this position while it is still assigned to one or more departments. Remove the department assignments first.',
+      );
+    }
+
     await this.positionRepository.remove(position);
     return { message: 'Position deleted successfully' };
   }

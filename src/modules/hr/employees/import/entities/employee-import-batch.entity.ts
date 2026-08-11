@@ -18,9 +18,10 @@ import { EmployeeImportRow } from './employee-import-row.entity';
 @Entity('employee_import_batches')
 @Index('IDX_employee_import_batches_company', ['companyId'])
 @Index('IDX_employee_import_batches_batch_id', ['batchId'], { unique: true })
-@Index('IDX_employee_import_batches_preview_token', ['previewToken'], {
-  unique: true,
-})
+@Index('IDX_employee_import_batch_company_idempotency', [
+  'companyId',
+  'idempotencyKeyHash',
+])
 @Index('IDX_employee_import_batches_status', ['status'])
 export class EmployeeImportBatch {
   @PrimaryGeneratedColumn({ name: 'id' })
@@ -32,8 +33,24 @@ export class EmployeeImportBatch {
   @Column({ name: 'company_id', type: 'int' })
   companyId: number;
 
-  @Column({ name: 'preview_token', type: 'varchar', length: 120 })
-  previewToken: string;
+  @Column({
+    name: 'schema_version',
+    type: 'varchar',
+    length: 20,
+    default: '2.0',
+  })
+  schemaVersion: string;
+
+  @Column({ name: 'preview_token_hash', type: 'varchar', length: 128 })
+  previewTokenHash: string;
+
+  @Column({
+    name: 'idempotency_key_hash',
+    type: 'varchar',
+    length: 128,
+    nullable: true,
+  })
+  idempotencyKeyHash: string | null;
 
   @Column({
     name: 'import_mode',
@@ -60,8 +77,54 @@ export class EmployeeImportBatch {
   @Column({ name: 'file_checksum', type: 'varchar', length: 128 })
   fileChecksum: string;
 
+  @Column({ name: 'source_file_path', type: 'text', nullable: true })
+  sourceFilePath: string | null;
+
+  @Column({
+    name: 'source_mime_type',
+    type: 'varchar',
+    length: 150,
+    nullable: true,
+  })
+  sourceMimeType: string | null;
+
+  @Column({ name: 'result_file_path', type: 'text', nullable: true })
+  resultFilePath: string | null;
+
+  @Column({
+    name: 'result_file_checksum',
+    type: 'varchar',
+    length: 128,
+    nullable: true,
+  })
+  resultFileChecksum: string | null;
+
   @Column({ name: 'uploaded_by_company_user_id', type: 'int', nullable: true })
   uploadedByCompanyUserId: number | null;
+
+  @Column({ name: 'confirmed_by_company_user_id', type: 'int', nullable: true })
+  confirmedByCompanyUserId: number | null;
+
+  @Column({ name: 'confirmed_at', type: 'timestamptz', nullable: true })
+  confirmedAt: Date | null;
+
+  @Column({ name: 'queued_at', type: 'timestamptz', nullable: true })
+  queuedAt: Date | null;
+
+  @Column({ name: 'last_heartbeat_at', type: 'timestamptz', nullable: true })
+  lastHeartbeatAt: Date | null;
+
+  @Column({ name: 'worker_id', type: 'varchar', length: 150, nullable: true })
+  workerId: string | null;
+
+  @Column({ name: 'attempt_count', type: 'int', default: 0 })
+  attemptCount: number;
+
+  @Column({ name: 'cancel_requested', type: 'boolean', default: false })
+  cancelRequested: boolean;
+
+  @Column({ name: 'redacted_at', type: 'timestamptz', nullable: true })
+  redactedAt: Date | null;
 
   @Column({ name: 'preview_expires_at', type: 'timestamp', nullable: true })
   previewExpiresAt: Date | null;

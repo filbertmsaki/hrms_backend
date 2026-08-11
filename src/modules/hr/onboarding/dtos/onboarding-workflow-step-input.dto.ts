@@ -4,6 +4,7 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
+  IsObject,
   IsOptional,
   IsString,
   MaxLength,
@@ -11,6 +12,7 @@ import {
   ValidateIf,
 } from 'class-validator';
 import { OnboardingStepTypeEnum } from '../enums/onboarding-step-type.enum';
+import { OnboardingTaskTypeEnum } from '../enums/onboarding-task-type.enum';
 
 export class OnboardingWorkflowStepInputDto {
   @IsString()
@@ -24,6 +26,10 @@ export class OnboardingWorkflowStepInputDto {
   @IsEnum(OnboardingStepTypeEnum)
   step_type: OnboardingStepTypeEnum;
 
+  @IsEnum(OnboardingTaskTypeEnum)
+  @IsOptional()
+  task_type?: OnboardingTaskTypeEnum;
+
   @ValidateIf((o: OnboardingWorkflowStepInputDto) => !o.assigned_user_id)
   @Type(() => Number)
   @IsInt()
@@ -36,6 +42,12 @@ export class OnboardingWorkflowStepInputDto {
   @IsOptional()
   assigned_user_id?: number;
 
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  assigned_department_id?: number;
+
   @ApiPropertyOptional({ default: true })
   @Type(() => Boolean)
   @IsBoolean()
@@ -47,4 +59,28 @@ export class OnboardingWorkflowStepInputDto {
   @Min(1)
   @IsOptional()
   due_days?: number;
+
+  @IsString()
+  @MaxLength(100)
+  @IsOptional()
+  required_document_type_code?: string;
+
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  requires_verified_document?: boolean;
+
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  completion_evidence_required?: boolean;
+
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  requires_employee_acknowledgement?: boolean;
+
+  @IsObject()
+  @IsOptional()
+  metadata?: Record<string, unknown>;
 }

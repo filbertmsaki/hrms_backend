@@ -38,6 +38,14 @@ import { ProfileChangeRequestsService } from './profile-change-requests.service'
 import { MeProfileChangeRequestsController } from './me-profile-change-requests.controller';
 import { HrProfileChangeRequestsController } from './hr-profile-change-requests.controller';
 import { User } from '../../users/entities/user.entity';
+import { OnboardingRequest } from '../onboarding/entities/onboarding-request.entity';
+import { OffboardingRequest } from '../offboarding/entities/offboarding-request.entity';
+import { ActionInboxModule } from '../action-inbox/action-inbox.module';
+import { HrDocumentsModule } from '../documents/hr-documents.module';
+import { OffboardingModule } from '../offboarding/offboarding.module';
+import { ProbationModule } from '../probation/probation.module';
+import { EmployeeMovementsModule } from '../employee-movements/employee-movements.module';
+import { WorkActivitiesModule } from '../work-activities/work-activities.module';
 
 @Module({
   imports: [
@@ -63,6 +71,8 @@ import { User } from '../../users/entities/user.entity';
       ProfileChangeRequestItem,
       ProfileChangeRequestFile,
       ProfileChangeRequestAudit,
+      OnboardingRequest,
+      OffboardingRequest,
     ]),
     FilesModule,
     NotificationsModule,
@@ -73,6 +83,12 @@ import { User } from '../../users/entities/user.entity';
     LeaveModule,
     AttendanceModule,
     AttendanceProcessingModule,
+    ActionInboxModule,
+    HrDocumentsModule,
+    OffboardingModule,
+    ProbationModule,
+    EmployeeMovementsModule,
+    WorkActivitiesModule,
   ],
   controllers: [
     EmployeeSelfServiceController,

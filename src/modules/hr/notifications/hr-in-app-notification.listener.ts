@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { NotificationsService } from '../../notifications/notifications.service';
+import { NotificationQueueService } from '../../notifications/notification-queue.service';
+import { SmsNotificationManagementService } from '../../sms/sms-notification-management.service';
+import { ActionItemsService } from '../action-inbox/action-items.service';
+import { ActionItemTypeEnum } from '../action-inbox/enums/action-item-type.enum';
 import { NotificationCategoryEnum } from '../../notifications/enums/notification-category.enum';
 import { NotificationPriorityEnum } from '../../notifications/enums/notification-priority.enum';
 import { NotificationTypeEnum } from '../../notifications/enums/notification-type.enum';
@@ -22,9 +26,11 @@ import {
   OffboardingApprovalReminderEvent,
   OffboardingApprovalRequiredEvent,
   OffboardingApprovedEvent,
+  OffboardingAssetOverdueEvent,
   OffboardingClearanceOverdueEvent,
   OffboardingClearanceRequiredEvent,
   OffboardingCompletedEvent,
+  OffboardingSettlementOverdueEvent,
   OffboardingSubmittedEvent,
   OffboardingTaskAssignedEvent,
   OffboardingTaskOverdueEvent,
@@ -34,7 +40,73 @@ import {
 export class HrInAppNotificationListener {
   private readonly logger = new Logger(HrInAppNotificationListener.name);
 
-  constructor(private readonly notificationsService: NotificationsService) {}
+  constructor(
+    private readonly notificationsService: NotificationsService,
+    private readonly actionItemsService: ActionItemsService,
+    private readonly smsNotificationManagementService: SmsNotificationManagementService,
+    private readonly notificationQueueService: NotificationQueueService,
+  ) {}
+
+  private async openApprovalActionItem(input: {
+    companyId: number;
+    approverCompanyUserId: number;
+    approverEmployeeId?: number | null;
+    approverBranchId?: number | null;
+    approverDepartmentId?: number | null;
+    sourceModule: string;
+    sourceEntityType: string;
+    sourceEntityId: string | number;
+    title: string;
+    description?: string | null;
+    actionUrl?: string | null;
+    metadata?: Record<string, unknown> | null;
+  }): Promise<void> {
+    try {
+      await this.actionItemsService.upsertOpen({
+        companyId: input.companyId,
+        assigneeCompanyUserId: input.approverCompanyUserId,
+        assigneeEmployeeId: input.approverEmployeeId ?? null,
+        actionType: ActionItemTypeEnum.APPROVAL,
+        sourceModule: input.sourceModule,
+        sourceEntityType: input.sourceEntityType,
+        sourceEntityId: input.sourceEntityId,
+        sourceKey: `${input.sourceModule}:approval:${input.sourceEntityId}:${input.approverCompanyUserId}`,
+        title: input.title,
+        description: input.description ?? null,
+        priority: 'HIGH',
+        branchId: input.approverBranchId ?? null,
+        departmentId: input.approverDepartmentId ?? null,
+        actionUrl: input.actionUrl ?? null,
+        metadata: input.metadata ?? null,
+      });
+    } catch (error) {
+      this.logger.error(
+        'Failed to open approval action item',
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+
+  private async closeActionItems(
+    companyId: number,
+    sourceModule: string,
+    sourceEntityType: string,
+    sourceEntityId: string | number,
+  ): Promise<void> {
+    try {
+      await this.actionItemsService.completeAllOpenForEntity(
+        companyId,
+        sourceModule,
+        sourceEntityType,
+        sourceEntityId,
+      );
+    } catch (error) {
+      this.logger.error(
+        'Failed to close action items',
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
 
   @OnEvent(LeaveSubmittedEvent.EVENT)
   async onLeaveSubmitted(event: LeaveSubmittedEvent): Promise<void> {
@@ -66,6 +138,42 @@ export class HrInAppNotificationListener {
         })),
     );
 
+    for (const recipient of event.approvers) {
+      if (!recipient.companyUserId) continue;
+      await this.sendSms({
+        code: 'leave.approval.required',
+        module: 'leave',
+        recipientCompanyUserId: recipient.companyUserId,
+        relatedEntityType: 'LEAVE_REQUEST',
+        relatedEntityId: event.leaveRequestId,
+        variables: {
+          employee_name: event.employeeName,
+          leave_type_name: event.leaveTypeName,
+          start_date: event.startDate,
+          end_date: event.endDate,
+          total_days: event.totalDays,
+        },
+      });
+    }
+
+    for (const recipient of event.approvers) {
+      if (!recipient.companyUserId) continue;
+      await this.openApprovalActionItem({
+        companyId: event.companyId,
+        approverCompanyUserId: recipient.companyUserId,
+        approverEmployeeId: recipient.employeeId,
+        approverBranchId: recipient.branchId,
+        approverDepartmentId: recipient.departmentId,
+        sourceModule: 'leave',
+        sourceEntityType: 'LEAVE_REQUEST',
+        sourceEntityId: event.leaveRequestId,
+        title: 'Leave approval required',
+        description: `${event.employeeName}'s ${event.leaveTypeName} request needs your review.`,
+        actionUrl: event.reviewUrl,
+        metadata: { employee_name: event.employeeName },
+      });
+    }
+
     if (event.employeeCompanyUserId) {
       await this.sendOne({
         company_id: event.companyId,
@@ -82,6 +190,21 @@ export class HrInAppNotificationListener {
         action_url: event.reviewUrl.replace('/review', ''),
         dedupe_key: `leave:submitted:employee:${event.leaveRequestId}:${event.employeeCompanyUserId}`,
         metadata: {
+          employee_name: event.employeeName,
+          leave_type_name: event.leaveTypeName,
+          start_date: event.startDate,
+          end_date: event.endDate,
+          total_days: event.totalDays,
+        },
+      });
+
+      await this.sendSms({
+        code: 'leave.application.submitted',
+        module: 'leave',
+        recipientCompanyUserId: event.employeeCompanyUserId,
+        relatedEntityType: 'LEAVE_REQUEST',
+        relatedEntityId: event.leaveRequestId,
+        variables: {
           employee_name: event.employeeName,
           leave_type_name: event.leaveTypeName,
           start_date: event.startDate,
@@ -122,6 +245,42 @@ export class HrInAppNotificationListener {
           },
         })),
     );
+
+    for (const recipient of event.approvers) {
+      if (!recipient.companyUserId) continue;
+      await this.sendSms({
+        code: 'leave.approval.required',
+        module: 'leave',
+        recipientCompanyUserId: recipient.companyUserId,
+        relatedEntityType: 'LEAVE_REQUEST',
+        relatedEntityId: event.leaveRequestId,
+        variables: {
+          employee_name: event.employeeName,
+          leave_type_name: event.leaveTypeName,
+          start_date: event.startDate,
+          end_date: event.endDate,
+          total_days: event.totalDays,
+        },
+      });
+    }
+
+    for (const recipient of event.approvers) {
+      if (!recipient.companyUserId) continue;
+      await this.openApprovalActionItem({
+        companyId: event.companyId,
+        approverCompanyUserId: recipient.companyUserId,
+        approverEmployeeId: recipient.employeeId,
+        approverBranchId: recipient.branchId,
+        approverDepartmentId: recipient.departmentId,
+        sourceModule: 'leave',
+        sourceEntityType: 'LEAVE_REQUEST',
+        sourceEntityId: event.leaveRequestId,
+        title: 'Leave approval required',
+        description: `${event.employeeName}'s ${event.leaveTypeName} request is waiting for your action.`,
+        actionUrl: event.reviewUrl,
+        metadata: { employee_name: event.employeeName },
+      });
+    }
   }
 
   @OnEvent(LeaveApprovedEvent.EVENT)
@@ -152,6 +311,28 @@ export class HrInAppNotificationListener {
         total_days: event.totalDays,
       },
     });
+
+    await this.sendSms({
+      code: 'leave.approved',
+      module: 'leave',
+      recipientCompanyUserId: event.employeeCompanyUserId,
+      relatedEntityType: 'LEAVE_REQUEST',
+      relatedEntityId: event.leaveRequestId,
+      variables: {
+        employee_name: event.employeeName,
+        leave_type_name: event.leaveTypeName,
+        start_date: event.startDate,
+        end_date: event.endDate,
+        total_days: event.totalDays,
+      },
+    });
+
+    await this.closeActionItems(
+      event.companyId,
+      'leave',
+      'LEAVE_REQUEST',
+      event.leaveRequestId,
+    );
   }
 
   @OnEvent(LeaveRejectedEvent.EVENT)
@@ -182,6 +363,28 @@ export class HrInAppNotificationListener {
         rejection_comments: event.rejectionComments,
       },
     });
+
+    await this.sendSms({
+      code: 'leave.rejected',
+      module: 'leave',
+      recipientCompanyUserId: event.employeeCompanyUserId,
+      relatedEntityType: 'LEAVE_REQUEST',
+      relatedEntityId: event.leaveRequestId,
+      variables: {
+        employee_name: event.employeeName,
+        leave_type_name: event.leaveTypeName,
+        start_date: event.startDate,
+        end_date: event.endDate,
+        rejection_comments: event.rejectionComments,
+      },
+    });
+
+    await this.closeActionItems(
+      event.companyId,
+      'leave',
+      'LEAVE_REQUEST',
+      event.leaveRequestId,
+    );
   }
 
   @OnEvent(LeaveReturnedForCorrectionEvent.EVENT)
@@ -214,6 +417,13 @@ export class HrInAppNotificationListener {
         return_reason: event.returnReason,
       },
     });
+
+    await this.closeActionItems(
+      event.companyId,
+      'leave',
+      'LEAVE_REQUEST',
+      event.leaveRequestId,
+    );
   }
 
   @OnEvent(LeaveCancelledEvent.EVENT)
@@ -242,6 +452,13 @@ export class HrInAppNotificationListener {
           },
         })),
     );
+
+    await this.closeActionItems(
+      event.companyId,
+      'leave',
+      'LEAVE_REQUEST',
+      event.leaveRequestId,
+    );
   }
 
   @OnEvent(OnboardingSubmittedEvent.EVENT)
@@ -269,6 +486,27 @@ export class HrInAppNotificationListener {
           },
         })),
     );
+
+    for (const recipient of event.approvers) {
+      if (!recipient.companyUserId) continue;
+      await this.openApprovalActionItem({
+        companyId: event.companyId,
+        approverCompanyUserId: recipient.companyUserId,
+        approverEmployeeId: recipient.employeeId,
+        approverBranchId: recipient.branchId,
+        approverDepartmentId: recipient.departmentId,
+        sourceModule: 'onboarding',
+        sourceEntityType: 'ONBOARDING_REQUEST',
+        sourceEntityId: event.onboardingRequestId,
+        title: 'Onboarding approval required',
+        description: `${event.employeeName}'s onboarding request needs your review.`,
+        actionUrl: event.reviewUrl,
+        metadata: {
+          onboarding_no: event.onboardingNo,
+          employee_name: event.employeeName,
+        },
+      });
+    }
 
     if (event.employeeCompanyUserId) {
       await this.sendOne({
@@ -321,6 +559,27 @@ export class HrInAppNotificationListener {
           },
         })),
     );
+
+    for (const recipient of event.approvers) {
+      if (!recipient.companyUserId) continue;
+      await this.openApprovalActionItem({
+        companyId: event.companyId,
+        approverCompanyUserId: recipient.companyUserId,
+        approverEmployeeId: recipient.employeeId,
+        approverBranchId: recipient.branchId,
+        approverDepartmentId: recipient.departmentId,
+        sourceModule: 'onboarding',
+        sourceEntityType: 'ONBOARDING_REQUEST',
+        sourceEntityId: event.onboardingRequestId,
+        title: 'Onboarding approval required',
+        description: `${event.employeeName}'s onboarding request is waiting for your action.`,
+        actionUrl: event.reviewUrl,
+        metadata: {
+          onboarding_no: event.onboardingNo,
+          employee_name: event.employeeName,
+        },
+      });
+    }
   }
 
   @OnEvent(OnboardingApprovedEvent.EVENT)
@@ -371,6 +630,13 @@ export class HrInAppNotificationListener {
           },
         })),
     );
+
+    await this.closeActionItems(
+      event.companyId,
+      'onboarding',
+      'ONBOARDING_REQUEST',
+      event.onboardingRequestId,
+    );
   }
 
   @OnEvent(OnboardingRejectedEvent.EVENT)
@@ -399,6 +665,13 @@ export class HrInAppNotificationListener {
         rejection_comments: event.rejectionComments,
       },
     });
+
+    await this.closeActionItems(
+      event.companyId,
+      'onboarding',
+      'ONBOARDING_REQUEST',
+      event.onboardingRequestId,
+    );
   }
 
   @OnEvent(OnboardingTaskAssignedEvent.EVENT)
@@ -407,6 +680,32 @@ export class HrInAppNotificationListener {
   ): Promise<void> {
     if (!event.assigneeCompanyUserId) {
       return;
+    }
+
+    try {
+      await this.actionItemsService.upsertOpen({
+        companyId: event.companyId,
+        assigneeCompanyUserId: event.assigneeCompanyUserId,
+        actionType: ActionItemTypeEnum.TASK,
+        sourceModule: 'onboarding',
+        sourceEntityType: 'ONBOARDING_TASK',
+        sourceEntityId: event.taskId,
+        sourceKey: `onboarding:task:${event.taskId}:${event.assigneeCompanyUserId}`,
+        title: event.taskTitle,
+        description: event.taskDescription,
+        priority: 'HIGH',
+        actionUrl: event.taskUrl,
+        dueAt: event.dueDate,
+        metadata: {
+          onboarding_request_id: event.onboardingRequestId,
+          employee_name: event.employeeName,
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        'Failed to open onboarding task action item',
+        error instanceof Error ? error.stack : String(error),
+      );
     }
 
     await this.sendOne({
@@ -538,6 +837,13 @@ export class HrInAppNotificationListener {
         },
       });
     }
+
+    await this.closeActionItems(
+      event.companyId,
+      'onboarding',
+      'ONBOARDING_REQUEST',
+      event.onboardingRequestId,
+    );
   }
 
   @OnEvent(OffboardingSubmittedEvent.EVENT)
@@ -567,6 +873,27 @@ export class HrInAppNotificationListener {
           },
         })),
     );
+
+    for (const recipient of event.approvers) {
+      if (!recipient.companyUserId) continue;
+      await this.openApprovalActionItem({
+        companyId: event.companyId,
+        approverCompanyUserId: recipient.companyUserId,
+        approverEmployeeId: recipient.employeeId,
+        approverBranchId: recipient.branchId,
+        approverDepartmentId: recipient.departmentId,
+        sourceModule: 'offboarding',
+        sourceEntityType: 'OFFBOARDING_REQUEST',
+        sourceEntityId: event.offboardingRequestId,
+        title: 'Offboarding approval required',
+        description: `${event.employeeName}'s offboarding request needs your review.`,
+        actionUrl: event.reviewUrl,
+        metadata: {
+          employee_name: event.employeeName,
+          exit_date: event.exitDate,
+        },
+      });
+    }
 
     if (event.employeeCompanyUserId) {
       await this.sendOne({
@@ -618,6 +945,42 @@ export class HrInAppNotificationListener {
           },
         })),
     );
+
+    for (const recipient of event.approvers) {
+      if (!recipient.companyUserId) continue;
+      await this.sendSms({
+        code: 'offboarding.approval.required',
+        module: 'offboarding',
+        recipientCompanyUserId: recipient.companyUserId,
+        relatedEntityType: 'OFFBOARDING_REQUEST',
+        relatedEntityId: event.offboardingRequestId,
+        variables: {
+          employee_name: event.employeeName,
+          exit_date: event.exitDate,
+        },
+      });
+    }
+
+    for (const recipient of event.approvers) {
+      if (!recipient.companyUserId) continue;
+      await this.openApprovalActionItem({
+        companyId: event.companyId,
+        approverCompanyUserId: recipient.companyUserId,
+        approverEmployeeId: recipient.employeeId,
+        approverBranchId: recipient.branchId,
+        approverDepartmentId: recipient.departmentId,
+        sourceModule: 'offboarding',
+        sourceEntityType: 'OFFBOARDING_REQUEST',
+        sourceEntityId: event.offboardingRequestId,
+        title: 'Offboarding approval required',
+        description: `${event.employeeName}'s offboarding request is waiting for your action.`,
+        actionUrl: event.reviewUrl,
+        metadata: {
+          employee_name: event.employeeName,
+          exit_date: event.exitDate,
+        },
+      });
+    }
   }
 
   @OnEvent(OffboardingApprovedEvent.EVENT)
@@ -667,6 +1030,13 @@ export class HrInAppNotificationListener {
           },
         })),
     );
+
+    await this.closeActionItems(
+      event.companyId,
+      'offboarding',
+      'OFFBOARDING_REQUEST',
+      event.offboardingRequestId,
+    );
   }
 
   @OnEvent(OffboardingTaskAssignedEvent.EVENT)
@@ -675,6 +1045,31 @@ export class HrInAppNotificationListener {
   ): Promise<void> {
     if (!event.assigneeCompanyUserId) {
       return;
+    }
+
+    try {
+      await this.actionItemsService.upsertOpen({
+        companyId: event.companyId,
+        assigneeCompanyUserId: event.assigneeCompanyUserId,
+        actionType: ActionItemTypeEnum.TASK,
+        sourceModule: 'offboarding',
+        sourceEntityType: 'OFFBOARDING_TASK',
+        sourceEntityId: event.taskId,
+        sourceKey: `offboarding:task:${event.taskId}:${event.assigneeCompanyUserId}`,
+        title: event.taskTitle,
+        priority: 'HIGH',
+        actionUrl: event.taskUrl,
+        dueAt: event.dueDate,
+        metadata: {
+          offboarding_request_id: event.offboardingRequestId,
+          employee_name: event.employeeName,
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        'Failed to open offboarding task action item',
+        error instanceof Error ? error.stack : String(error),
+      );
     }
 
     await this.sendOne({
@@ -762,6 +1157,19 @@ export class HrInAppNotificationListener {
         exit_date: event.exitDate,
       },
     });
+
+    await this.sendSms({
+      code: 'offboarding.approval.reminder',
+      module: 'offboarding',
+      recipientCompanyUserId: event.approverCompanyUserId,
+      relatedEntityType: 'OFFBOARDING_APPROVAL',
+      relatedEntityId: event.approvalId,
+      variables: {
+        employee_name: event.employeeName,
+        approval_level: event.approvalLevel,
+        exit_date: event.exitDate,
+      },
+    });
   }
 
   @OnEvent(OffboardingClearanceRequiredEvent.EVENT)
@@ -770,6 +1178,30 @@ export class HrInAppNotificationListener {
   ): Promise<void> {
     if (!event.ownerCompanyUserId) {
       return;
+    }
+
+    try {
+      await this.actionItemsService.upsertOpen({
+        companyId: event.companyId,
+        assigneeCompanyUserId: event.ownerCompanyUserId,
+        actionType: ActionItemTypeEnum.CLEARANCE,
+        sourceModule: 'offboarding',
+        sourceEntityType: 'OFFBOARDING_CLEARANCE',
+        sourceEntityId: event.clearanceId,
+        sourceKey: `offboarding:clearance:${event.clearanceId}:${event.ownerCompanyUserId}`,
+        title: `${event.clearanceType} clearance required`,
+        priority: 'HIGH',
+        actionUrl: event.clearanceUrl,
+        metadata: {
+          employee_name: event.employeeName,
+          clearance_type: event.clearanceType,
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        'Failed to open offboarding clearance action item',
+        error instanceof Error ? error.stack : String(error),
+      );
     }
 
     await this.sendOne({
@@ -821,6 +1253,100 @@ export class HrInAppNotificationListener {
         offboarding_request_id: event.offboardingRequestId,
         employee_name: event.employeeName,
         clearance_type: event.clearanceType,
+        exit_date: event.exitDate,
+        due_date: event.dueDate,
+      },
+    });
+  }
+
+  @OnEvent(OffboardingAssetOverdueEvent.EVENT)
+  async onOffboardingAssetOverdue(
+    event: OffboardingAssetOverdueEvent,
+  ): Promise<void> {
+    if (!event.ownerCompanyUserId) {
+      return;
+    }
+
+    const dayKey = new Date().toISOString().slice(0, 10);
+
+    await this.sendOne({
+      company_id: event.companyId,
+      receiver_company_user_id: event.ownerCompanyUserId,
+      type: NotificationTypeEnum.OFFBOARDING_ASSET_OVERDUE,
+      category: NotificationCategoryEnum.HR,
+      priority: NotificationPriorityEnum.HIGH,
+      title: 'Offboarding Asset Return Overdue',
+      message: `The asset return "${event.assetLabel}" for ${event.employeeName} is overdue.`,
+      related_module: 'offboarding',
+      entity_type: 'OFFBOARDING_ASSET_RETURN',
+      entity_id: event.assetReturnId,
+      action_url: event.assetUrl,
+      dedupe_key: `offboarding:asset-overdue:${event.assetReturnId}:${event.ownerCompanyUserId}:${dayKey}`,
+      metadata: {
+        offboarding_request_id: event.offboardingRequestId,
+        employee_name: event.employeeName,
+        asset_label: event.assetLabel,
+        exit_date: event.exitDate,
+        due_date: event.dueDate,
+      },
+    });
+
+    await this.sendSms({
+      code: 'offboarding.asset.overdue',
+      module: 'offboarding',
+      recipientCompanyUserId: event.ownerCompanyUserId,
+      relatedEntityType: 'OFFBOARDING_ASSET_RETURN',
+      relatedEntityId: event.assetReturnId,
+      variables: {
+        employee_name: event.employeeName,
+        asset_label: event.assetLabel,
+        exit_date: event.exitDate,
+        due_date: event.dueDate,
+      },
+    });
+  }
+
+  @OnEvent(OffboardingSettlementOverdueEvent.EVENT)
+  async onOffboardingSettlementOverdue(
+    event: OffboardingSettlementOverdueEvent,
+  ): Promise<void> {
+    if (!event.ownerCompanyUserId) {
+      return;
+    }
+
+    const dayKey = new Date().toISOString().slice(0, 10);
+
+    await this.sendOne({
+      company_id: event.companyId,
+      receiver_company_user_id: event.ownerCompanyUserId,
+      type: NotificationTypeEnum.OFFBOARDING_SETTLEMENT_OVERDUE,
+      category: NotificationCategoryEnum.HR,
+      priority: NotificationPriorityEnum.HIGH,
+      title: 'Offboarding Settlement Overdue',
+      message: `The settlement item "${event.settlementTitle}" for ${event.employeeName} is overdue.`,
+      related_module: 'offboarding',
+      entity_type: 'OFFBOARDING_SETTLEMENT_ITEM',
+      entity_id: event.settlementItemId,
+      action_url: event.settlementUrl,
+      dedupe_key: `offboarding:settlement-overdue:${event.settlementItemId}:${event.ownerCompanyUserId}:${dayKey}`,
+      metadata: {
+        offboarding_request_id: event.offboardingRequestId,
+        employee_name: event.employeeName,
+        settlement_title: event.settlementTitle,
+        exit_date: event.exitDate,
+        due_date: event.dueDate,
+      },
+    });
+
+    await this.sendSms({
+      code: 'offboarding.settlement.overdue',
+      module: 'offboarding',
+      recipientCompanyUserId: event.ownerCompanyUserId,
+      relatedEntityType: 'OFFBOARDING_SETTLEMENT_ITEM',
+      relatedEntityId: event.settlementItemId,
+      variables: {
+        employee_name: event.employeeName,
+        settlement_title: event.settlementTitle,
         exit_date: event.exitDate,
         due_date: event.dueDate,
       },
@@ -895,6 +1421,13 @@ export class HrInAppNotificationListener {
           },
         })),
     );
+
+    await this.closeActionItems(
+      event.companyId,
+      'offboarding',
+      'OFFBOARDING_REQUEST',
+      event.offboardingRequestId,
+    );
   }
 
   private async sendOne(
@@ -916,5 +1449,24 @@ export class HrInAppNotificationListener {
     for (const input of inputs) {
       await this.sendOne(input);
     }
+  }
+
+  private sendSms(input: {
+    code: string;
+    module: string;
+    recipientCompanyUserId?: number | null;
+    relatedEntityType?: string | null;
+    relatedEntityId?: string | number | null;
+    variables?: Record<string, unknown>;
+  }): Promise<void> {
+    void this.notificationQueueService.enqueueSmsConfiguredNotification({
+      code: input.code,
+      module: input.module,
+      recipientCompanyUserId: input.recipientCompanyUserId ?? null,
+      relatedEntityType: input.relatedEntityType ?? null,
+      relatedEntityId: input.relatedEntityId ?? null,
+      variables: input.variables,
+    });
+    return Promise.resolve();
   }
 }

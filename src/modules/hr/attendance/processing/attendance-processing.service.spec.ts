@@ -4,8 +4,10 @@ import { AttendanceDailySummaryService } from './attendance-daily-summary.servic
 import { AttendanceEmployeeResolverService } from './attendance-employee-resolver.service';
 import { AttendanceProcessingExceptionsService } from './attendance-processing-exceptions.service';
 import { AttendanceProcessingService } from './attendance-processing.service';
+import { AttendanceEventDirectionResolverService } from './attendance-event-direction-resolver.service';
 import { AttendanceProcessedEvent } from './entities/attendance-processed-event.entity';
 import { AttendanceExceptionTypeEnum } from './enums/attendance-exception-type.enum';
+import { AttendanceProcessedEventDirectionEnum } from './enums/attendance-processed-event-direction.enum';
 import { AttendanceRawLogProcessingStatusEnum } from './enums/attendance-raw-log-processing-status.enum';
 
 type MockRepo = Record<string, jest.Mock>;
@@ -33,6 +35,7 @@ describe('AttendanceProcessingService', () => {
   let employeeResolver: { resolveEmployeeId: jest.Mock };
   let exceptionService: { replaceForRawLog: jest.Mock };
   let dailySummaryService: { rebuildSummariesForRange: jest.Mock };
+  let directionResolver: { resolveHikvision: jest.Mock };
 
   beforeEach(() => {
     rawLogRepository = createRepositoryMock();
@@ -52,6 +55,11 @@ describe('AttendanceProcessingService', () => {
         }),
       ),
     };
+    directionResolver = {
+      resolveHikvision: jest
+        .fn()
+        .mockReturnValue(AttendanceProcessedEventDirectionEnum.IN),
+    };
 
     service = new AttendanceProcessingService(
       rawLogRepository as unknown as Repository<HikvisionAttendanceLog>,
@@ -59,6 +67,7 @@ describe('AttendanceProcessingService', () => {
       employeeResolver as unknown as AttendanceEmployeeResolverService,
       exceptionService as unknown as AttendanceProcessingExceptionsService,
       dailySummaryService as unknown as AttendanceDailySummaryService,
+      directionResolver as unknown as AttendanceEventDirectionResolverService,
     );
   });
 

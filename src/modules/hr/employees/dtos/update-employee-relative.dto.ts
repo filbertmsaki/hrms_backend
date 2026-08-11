@@ -1,6 +1,16 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { IsBoolean, IsEmail, IsOptional, IsString } from 'class-validator';
+import { Transform, TransformFnParams, Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsEmail,
+  IsOptional,
+  IsString,
+  Matches,
+} from 'class-validator';
+import {
+  TANZANIA_PHONE_CANONICAL_REGEX,
+  normalizeTanzaniaPhone,
+} from '../../../../common/utils/tanzania-phone.util';
 
 export class UpdateEmployeeRelativeDto {
   @IsString()
@@ -13,6 +23,14 @@ export class UpdateEmployeeRelativeDto {
 
   @IsString()
   @IsOptional()
+  @Transform(({ value }: TransformFnParams): unknown => {
+    if (typeof value !== 'string') return value as unknown;
+    return normalizeTanzaniaPhone(value) ?? value.trim();
+  })
+  @Matches(TANZANIA_PHONE_CANONICAL_REGEX, {
+    message:
+      'Phone number must be a valid Tanzanian number in +255 format, for example +255762650393',
+  })
   phone?: string;
 
   @IsEmail()

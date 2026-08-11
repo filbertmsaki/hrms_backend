@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository } from 'typeorm';
 import { AttendanceMobilePunchRepository } from './repositories/attendance-mobile-punch.repository';
@@ -30,11 +31,14 @@ import { AttendanceGeofence } from '../geofences/entities/attendance-geofence.en
 import { AttendanceWifiNetwork } from '../wifi-networks/entities/attendance-wifi-network.entity';
 import { AttendanceProcessedEvent } from '../processing/entities/attendance-processed-event.entity';
 import { AttendanceDailySummary } from '../processing/entities/attendance-daily-summary.entity';
+import { AttendanceMobilePunch } from './entities/attendance-mobile-punch.entity';
+import { AttendanceEventIngestionService } from '../processing/attendance-event-ingestion.service';
 import { AttendanceScheduleResolverService } from '../processing/attendance-schedule-resolver.service';
 import { ResolvedAttendanceSchedule } from '../processing/entities/resolved-attendance-schedule.type';
 import { AttendanceProcessedEventDirectionEnum } from '../processing/enums/attendance-processed-event-direction.enum';
 import { HikvisionAttendanceLog } from '../../../hikvision/entities/hikvision-attendance-log.entity';
 import { AttendanceCompanyConfigService } from '../shared/attendance-company-config.service';
+import { createAttendanceHash } from '../shared/attendance-hash.util';
 
 @Injectable()
 export class AttendanceMobilePunchesService {
@@ -50,6 +54,8 @@ export class AttendanceMobilePunchesService {
     private readonly wifiValidator: WifiNetworkValidatorService,
     private readonly scheduleResolver: AttendanceScheduleResolverService,
     private readonly attendanceCompanyConfigService: AttendanceCompanyConfigService,
+    private readonly eventIngestionService: AttendanceEventIngestionService,
+    private readonly configService: ConfigService,
     @InjectRepository(AttendanceCheckpoint)
     private readonly checkpointRepository: Repository<AttendanceCheckpoint>,
     @InjectRepository(Employee)
@@ -107,6 +113,19 @@ export class AttendanceMobilePunchesService {
       requestedEmployeeId: params.employeeId ?? null,
       authenticatedEmployeeId: params.authenticatedEmployeeId ?? null,
     });
+    const existingRequest = await this.punchRepo.findByClientRequest(
+      params.companyId,
+      employee.id,
+      params.dto.clientRequestId,
+    );
+    if (existingRequest) {
+      return {
+        message: 'Attendance punch was already received.',
+        idempotent_replay: true,
+        punch: existingRequest,
+      };
+    }
+
     const policy = await this.resolvePolicy(
       params.companyId,
       params.policySetId ?? null,
@@ -117,7 +136,6 @@ export class AttendanceMobilePunchesService {
     const requiredCheckpoints = await this.findRequiredCheckpoints(
       policy?.id ?? null,
     );
-    const punchTime = new Date();
     this.assertEmployeeCanPunch(employee);
 
     const wifiSsid = this.normalizeOptionalString(params.dto.wifiSsid);
@@ -125,6 +143,41 @@ export class AttendanceMobilePunchesService {
     const deviceIdentifier = this.normalizeOptionalString(
       params.dto.deviceIdentifier,
     );
+    const requireDeviceIdentifier =
+      this.configService.get<boolean>(
+        'ATTENDANCE_MOBILE_REQUIRE_DEVICE_IDENTIFIER',
+      ) ?? true;
+    if (requireDeviceIdentifier && !deviceIdentifier) {
+      throw new BadRequestException(
+        'deviceIdentifier is required for mobile attendance',
+      );
+    }
+
+    const clientCapturedAt = params.dto.clientCapturedAt
+      ? new Date(params.dto.clientCapturedAt)
+      : null;
+    if (clientCapturedAt && Number.isNaN(clientCapturedAt.getTime())) {
+      throw new BadRequestException('clientCapturedAt is invalid');
+    }
+
+    const maximumClockSkewSeconds =
+      this.configService.get<number>(
+        'ATTENDANCE_MOBILE_MAX_CLOCK_SKEW_SECONDS',
+      ) ?? 300;
+    const punchTime = new Date();
+    if (clientCapturedAt) {
+      const clockSkewSeconds =
+        Math.abs(punchTime.getTime() - clientCapturedAt.getTime()) / 1000;
+
+      if (clockSkewSeconds > maximumClockSkewSeconds) {
+        throw new BadRequestException({
+          message: 'Mobile device time differs too much from server time.',
+          maximum_clock_skew_seconds: maximumClockSkewSeconds,
+          actual_clock_skew_seconds: Math.round(clockSkewSeconds),
+        });
+      }
+    }
+
     const overrideReason = this.normalizeOptionalString(
       params.dto.overrideReason,
     );
@@ -201,6 +254,21 @@ export class AttendanceMobilePunchesService {
       ? AttendancePunchValidationStatusEnum.APPROVED
       : AttendancePunchValidationStatusEnum.PENDING_OVERRIDE;
 
+    const rawPayload = {
+      clientRequestId: params.dto.clientRequestId,
+      clientCapturedAt: params.dto.clientCapturedAt ?? null,
+      latitude: params.dto.latitude,
+      longitude: params.dto.longitude,
+      accuracyMeters: params.dto.accuracyMeters ?? null,
+      wifiSsid: wifiSsid ?? null,
+      wifiBssid: wifiBssid ?? null,
+      ipAddress,
+      deviceIdentifier: deviceIdentifier ?? null,
+      deviceInfo: params.dto.deviceInfo ?? null,
+      overrideReason: overrideReason ?? null,
+    };
+    const payloadHash = createAttendanceHash(rawPayload);
+
     const punch = this.punchRepo.createEntity({
       companyId: params.companyId,
       branchId: employee.primary_branch_id ?? null,
@@ -212,6 +280,9 @@ export class AttendanceMobilePunchesService {
       source: AttendancePunchSourceEnum.MOBILE,
       punchTime,
       attendanceDate,
+      clientRequestId: params.dto.clientRequestId,
+      clientCapturedAt,
+      receivedAt: punchTime,
       latitude: String(params.dto.latitude),
       longitude: String(params.dto.longitude),
       accuracyMeters:
@@ -236,26 +307,51 @@ export class AttendanceMobilePunchesService {
       isOverrideRequested: !validationPassed && hasOverrideReason,
       overrideReason: overrideReason ?? null,
       deviceInfo: params.dto.deviceInfo ?? null,
-      rawPayload: {
-        ...params.dto,
-        wifiSsid,
-        wifiBssid,
-        ipAddress,
-        deviceIdentifier,
-        overrideReason,
-        requestIp: params.requestIp,
-        userAgent: params.userAgent,
-      },
+      rawPayload,
+      payloadHash,
       isProcessed: false,
       processedEventId: null,
+      processingAttempts: 0,
+      lastProcessingError: null,
     });
 
-    const saved = await this.punchRepo.save(punch);
+    let saved: AttendanceMobilePunch;
+    try {
+      saved = await this.punchRepo.save(punch);
+    } catch (error) {
+      if (this.isUniqueViolation(error)) {
+        const duplicate = await this.punchRepo.findByClientRequest(
+          params.companyId,
+          employee.id,
+          params.dto.clientRequestId,
+        );
+        if (duplicate) {
+          return {
+            message: 'Attendance punch was already received.',
+            idempotent_replay: true,
+            punch: duplicate,
+          };
+        }
+      }
+
+      throw error;
+    }
+
+    if (
+      saved.validationStatus === AttendancePunchValidationStatusEnum.APPROVED
+    ) {
+      await this.eventIngestionService.ingestMobilePunch(
+        saved.companyId,
+        saved.id,
+      );
+      saved = await this.findOne(saved.companyId, saved.id);
+    }
 
     return {
       message: validationPassed
-        ? 'Attendance punch saved successfully.'
+        ? 'Attendance punch saved and processed successfully.'
         : 'Attendance punch saved as pending override.',
+      idempotent_replay: false,
       punch: saved,
     };
   }
@@ -299,8 +395,16 @@ export class AttendanceMobilePunchesService {
     punch.overrideReviewNote = params.dto.reviewNote ?? null;
     punch.isProcessed = false;
     punch.processedEventId = null;
+    punch.processingAttempts = punch.processingAttempts ?? 0;
+    punch.lastProcessingError = null;
 
-    return this.punchRepo.save(punch);
+    await this.punchRepo.save(punch);
+    await this.eventIngestionService.ingestMobilePunch(
+      params.companyId,
+      punch.id,
+    );
+
+    return this.findOne(params.companyId, punch.id);
   }
 
   async rejectOverride(params: {
@@ -1182,5 +1286,14 @@ export class AttendanceMobilePunchesService {
         'You cannot approve or reject your own mobile punch override request.',
       );
     }
+  }
+
+  private isUniqueViolation(error: unknown): boolean {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as { code?: string }).code === '23505'
+    );
   }
 }

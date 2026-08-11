@@ -8,6 +8,9 @@ type MigrationFile = {
   name: string;
 };
 
+const MIGRATION_LINT_DISABLE_DIRECTIVE =
+  '/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access */';
+
 async function getLatestMigrationFile(): Promise<MigrationFile | null> {
   let files: string[] = [];
   try {
@@ -34,11 +37,6 @@ async function getLatestMigrationFile(): Promise<MigrationFile | null> {
     filePath: path.join(MIGRATIONS_DIR, name),
   };
 }
-
-// In TypeORM migration files generated for PostgreSQL, SQL identifiers are
-// wrapped in double-quotes escaped as \" inside the JS template literal, so
-// the raw file contains \"name\". The regex \\\\" matches that two-character
-// sequence (backslash + double-quote). [^\\"]+ matches the identifier itself.
 
 function buildSafeDropFk(
   originalLine: string,
@@ -77,18 +75,144 @@ function buildSafeAddFk(
   );
 }
 
+function dedupeSharedEnumStatements(content: string): string {
+  const createTypeRegex =
+    /^(\s*)await queryRunner\.query\(`CREATE TYPE "public"\."([^"]+)" AS ENUM\(.+`\);$/gm;
+  const dropTypeRegex =
+    /^(\s*)await queryRunner\.query\(`DROP TYPE "public"\."([^"]+)"`\);$/gm;
+
+  const createMatches = Array.from(content.matchAll(createTypeRegex));
+  const dropMatches = Array.from(content.matchAll(dropTypeRegex));
+
+  const createCounts = new Map<string, number>();
+  const dropCounts = new Map<string, number>();
+
+  for (const match of createMatches) {
+    const enumName = match[2];
+    createCounts.set(enumName, (createCounts.get(enumName) ?? 0) + 1);
+  }
+
+  for (const match of dropMatches) {
+    const enumName = match[2];
+    dropCounts.set(enumName, (dropCounts.get(enumName) ?? 0) + 1);
+  }
+
+  const seenCreates = new Map<string, number>();
+  let next = content.replace(
+    createTypeRegex,
+    (full: string, indent: string, enumName: string) => {
+      const total = createCounts.get(enumName) ?? 0;
+      const seen = (seenCreates.get(enumName) ?? 0) + 1;
+      seenCreates.set(enumName, seen);
+
+      if (total <= 1 || seen === 1) {
+        return full;
+      }
+
+      return `${indent}// Deduped duplicate CREATE TYPE for "${enumName}"`;
+    },
+  );
+
+  const seenDrops = new Map<string, number>();
+  next = next.replace(
+    dropTypeRegex,
+    (full: string, indent: string, enumName: string) => {
+      const total = dropCounts.get(enumName) ?? 0;
+      const seen = (seenDrops.get(enumName) ?? 0) + 1;
+      seenDrops.set(enumName, seen);
+
+      if (total <= 1 || seen === total) {
+        return full;
+      }
+
+      return `${indent}// Deduped duplicate DROP TYPE for "${enumName}"`;
+    },
+  );
+
+  return next;
+}
+
+function ensureRequiredSchemas(content: string): string {
+  const createSchemaRegex =
+    /^\s*await queryRunner\.query\(`CREATE SCHEMA IF NOT EXISTS "([^"]+)"`\);$/gm;
+  const schemaReferenceRegex =
+    /await queryRunner\.query\(`CREATE (?:TYPE|TABLE|INDEX) "([^"]+)"\."[^"]+"/gm;
+  const upMethodRegex =
+    /(public async up\(queryRunner: QueryRunner\): Promise<void> \{\r?\n)/;
+
+  const existingSchemas = new Set(
+    Array.from(content.matchAll(createSchemaRegex), (match) => match[1]),
+  );
+  const requiredSchemas = Array.from(
+    new Set(
+      Array.from(content.matchAll(schemaReferenceRegex), (match) => match[1]),
+    ),
+  )
+    .filter((schemaName) => schemaName !== 'public')
+    .filter((schemaName) => !existingSchemas.has(schemaName))
+    .sort();
+
+  if (!requiredSchemas.length) {
+    return content;
+  }
+
+  const schemaLines = requiredSchemas
+    .map(
+      (schemaName) =>
+        `        await queryRunner.query(\`CREATE SCHEMA IF NOT EXISTS "${schemaName}"\`);`,
+    )
+    .join('\n');
+
+  return content.replace(upMethodRegex, `$1${schemaLines}\n`);
+}
+
+function ensureMigrationLintDirective(content: string): string {
+  if (content.includes(MIGRATION_LINT_DISABLE_DIRECTIVE)) {
+    return content;
+  }
+
+  if (
+    content.startsWith(
+      "import { MigrationInterface, QueryRunner } from 'typeorm';",
+    )
+  ) {
+    return content.replace(
+      "import { MigrationInterface, QueryRunner } from 'typeorm';",
+      `import { MigrationInterface, QueryRunner } from 'typeorm';\n\n${MIGRATION_LINT_DISABLE_DIRECTIVE}`,
+    );
+  }
+
+  return `${MIGRATION_LINT_DISABLE_DIRECTIVE}\n\n${content}`;
+}
+
 function patchMigrationContent(content: string): string {
   // Matches PostgreSQL-style: await queryRunner.query(`ALTER TABLE "table" DROP CONSTRAINT "FK_name"`);
   const dropRegex =
-    /(^\s*await queryRunner\.query\(`ALTER TABLE \\"([^"\\]+)\\" DROP CONSTRAINT \\"([^"\\]+)\\"`\);)/gm;
+    /(^\s*await queryRunner\.query\(`ALTER TABLE "([^"]+)" DROP CONSTRAINT "([^"]+)"`\);)/gm;
 
   // Matches PostgreSQL-style: await queryRunner.query(`ALTER TABLE "table" ADD CONSTRAINT "FK_name" FOREIGN KEY ...`);
   const addRegex =
-    /(^\s*await queryRunner\.query\(`ALTER TABLE \\"([^"\\]+)\\" ADD CONSTRAINT \\"([^"\\]+)\\" FOREIGN KEY .+`\);)/gm;
+    /(^\s*await queryRunner\.query\(`ALTER TABLE "([^"]+)" ADD CONSTRAINT "([^"]+)" FOREIGN KEY .+`\);)/gm;
 
   let didPatch = false;
+  let next = ensureMigrationLintDirective(content);
+  if (next !== content) {
+    didPatch = true;
+  }
 
-  let next = content.replace(
+  const schemaGuarded = ensureRequiredSchemas(next);
+  if (schemaGuarded !== next) {
+    didPatch = true;
+    next = schemaGuarded;
+  }
+
+  const deduped = dedupeSharedEnumStatements(next);
+  if (deduped !== next) {
+    didPatch = true;
+    next = deduped;
+  }
+
+  next = next.replace(
     dropRegex,
     (full: string, line: string, tableName: string, fkName: string) => {
       didPatch = true;
@@ -122,14 +246,14 @@ async function main() {
   const patched = patchMigrationContent(raw);
 
   if (patched === raw) {
-    console.log(
-      `No FOREIGN KEY statements found to patch in ${migration.name}.`,
-    );
+    console.log(`No migration patches were needed in ${migration.name}.`);
     return;
   }
 
   await fs.writeFile(migration.filePath, patched, 'utf8');
-  console.log(`Patched ${migration.name} with safe FOREIGN KEY guards.`);
+  console.log(
+    `Patched ${migration.name} with schema guards, enum deduping, and safe FOREIGN KEY guards.`,
+  );
 }
 
 main().catch((error) => {

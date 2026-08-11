@@ -42,8 +42,26 @@ export class EmployeeIdentification {
   @Column({ type: 'date', nullable: true })
   expiry_date: string | null;
 
+  @Column({ type: 'date', nullable: true })
+  issue_date: string | null;
+
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  issuing_authority: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  document_url: string | null;
+
   @Column({ default: false })
   is_primary: boolean;
+
+  @Column({ default: false })
+  is_verified: boolean;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  verified_at: Date | null;
+
+  @Column({ type: 'int', nullable: true })
+  verified_by_company_user_id: number | null;
 
   @CreateDateColumn()
   created_at: Date;

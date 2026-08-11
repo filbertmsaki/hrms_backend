@@ -7,9 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
-import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
-import { AttendanceDailyStatusEnum } from '../attendance/processing/enums/attendance-daily-status.enum';
-import { AttendanceDailyRemarkEnum } from '../attendance/processing/enums/attendance-daily-remark.enum';
+import { AttendanceDailySummaryService } from '../attendance/processing/attendance-daily-summary.service';
 import { Employee } from '../employees/entities/employee.entity';
 import { AttendanceCorrectionRequest } from './entities/attendance-correction-request.entity';
 import { EmployeeProfileUpdateRequest } from './entities/employee-profile-update-request.entity';
@@ -26,12 +24,9 @@ export class EmployeeSelfServiceApprovalService {
 
     @InjectRepository(EmployeeProfileUpdateRequest)
     private readonly profileUpdateRequestRepository: Repository<EmployeeProfileUpdateRequest>,
-
-    @InjectRepository(AttendanceDailySummary)
-    private readonly attendanceDailySummaryRepository: Repository<AttendanceDailySummary>,
-
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
+    private readonly attendanceDailySummaryService: AttendanceDailySummaryService,
   ) {}
 
   // ─── Attendance Correction Requests ────────────────────────────────────────
@@ -106,26 +101,21 @@ export class EmployeeSelfServiceApprovalService {
       );
     }
 
-    const summary = await this.attendanceDailySummaryRepository.findOne({
-      where: {
-        companyId,
-        employeeId: request.employeeId,
-        attendanceDate: request.attendanceDate,
-      },
-    });
-
-    if (!summary) {
-      throw new BadRequestException(
-        'Attendance daily summary not found for this date. Process attendance first before approving.',
-      );
-    }
-
-    this.applyAttendanceCorrectionToSummary(
-      summary,
-      request,
-      actor,
+    const summary = await this.attendanceDailySummaryService.upsertAdjustment(
+      companyId,
+      request.employeeId,
+      request.attendanceDate,
+      this.buildAttendanceCorrectionAdjustment(request, dto),
       reviewerCompanyUserId,
-      dto,
+      {
+        metadata: {
+          source: 'ATTENDANCE_CORRECTION_REQUEST',
+          correction_request_id: request.id,
+          correction_request_type: request.requestType,
+          approved_by_user_id: actor.id,
+          approved_comment: dto.comment ?? null,
+        },
+      },
     );
 
     request.status = SelfServiceRequestStatusEnum.APPROVED;
@@ -138,12 +128,11 @@ export class EmployeeSelfServiceApprovalService {
         approved_at: new Date().toISOString(),
         approved_by_company_user_id: reviewerCompanyUserId,
         comment: dto.comment ?? null,
-        applied_to_summary_id: summary.id,
+        applied_to_summary_id: summary?.id ?? null,
       },
       ...(dto.metadata ? { review_metadata: dto.metadata } : {}),
     };
 
-    await this.attendanceDailySummaryRepository.save(summary);
     const savedRequest = await this.correctionRequestRepository.save(request);
 
     return {
@@ -151,12 +140,12 @@ export class EmployeeSelfServiceApprovalService {
         'Attendance correction request approved and applied successfully.',
       data: this.mapCorrectionRequest(savedRequest),
       applied_summary: {
-        id: summary.id,
-        employee_id: summary.employeeId,
-        attendance_date: summary.attendanceDate,
-        attendance_status: summary.attendanceStatus,
-        check_in_at: summary.checkInAt,
-        check_out_at: summary.checkOutAt,
+        id: summary?.id ?? null,
+        employee_id: summary?.employeeId ?? request.employeeId,
+        attendance_date: summary?.attendanceDate ?? request.attendanceDate,
+        attendance_status: summary?.attendanceStatus ?? null,
+        check_in_at: summary?.checkInAt ?? null,
+        check_out_at: summary?.checkOutAt ?? null,
       },
     };
   }
@@ -334,73 +323,37 @@ export class EmployeeSelfServiceApprovalService {
 
   // ─── Private helpers ────────────────────────────────────────────────────────
 
-  private applyAttendanceCorrectionToSummary(
-    summary: AttendanceDailySummary,
+  private buildAttendanceCorrectionAdjustment(
     request: AttendanceCorrectionRequest,
-    actor: AuthenticatedUser,
-    reviewerCompanyUserId: number,
     dto: ReviewSelfServiceRequestDto,
   ) {
-    const previousSnapshot = {
-      attendanceStatus: summary.attendanceStatus,
-      checkInAt: summary.checkInAt,
-      checkOutAt: summary.checkOutAt,
-    };
-
     const type = request.requestType;
+    const notes = [
+      `Approved attendance correction request #${request.id}.`,
+      request.reason?.trim() || null,
+      dto.comment?.trim() || null,
+    ]
+      .filter((value): value is string => !!value)
+      .join(' ');
 
-    if (
-      type === AttendanceCorrectionRequestTypeEnum.CHECK_IN ||
-      type === AttendanceCorrectionRequestTypeEnum.CHECK_IN_AND_CHECK_OUT ||
-      type === AttendanceCorrectionRequestTypeEnum.MISSING_PUNCH
-    ) {
-      if (request.requestedCheckInAt) {
-        summary.checkInAt = request.requestedCheckInAt;
-      }
-    }
-
-    if (
-      type === AttendanceCorrectionRequestTypeEnum.CHECK_OUT ||
-      type === AttendanceCorrectionRequestTypeEnum.CHECK_IN_AND_CHECK_OUT ||
-      type === AttendanceCorrectionRequestTypeEnum.MISSING_PUNCH
-    ) {
-      if (request.requestedCheckOutAt) {
-        summary.checkOutAt = request.requestedCheckOutAt;
-      }
-    }
-
-    if (
-      type === AttendanceCorrectionRequestTypeEnum.STATUS_CORRECTION &&
-      request.requestedStatus
-    ) {
-      summary.attendanceStatus =
-        request.requestedStatus as AttendanceDailyStatusEnum;
-    }
-
-    const remarks: AttendanceDailyRemarkEnum[] = Array.isArray(summary.remarks)
-      ? [...summary.remarks]
-      : [];
-
-    if (!remarks.includes(AttendanceDailyRemarkEnum.MANUALLY_CORRECTED)) {
-      remarks.push(AttendanceDailyRemarkEnum.MANUALLY_CORRECTED);
-    }
-
-    summary.remarks = remarks;
-    summary.isAdjusted = true;
-    summary.adjustedByCompanyUserId = reviewerCompanyUserId;
-    summary.adjustedAt = new Date();
-
-    summary.flags = {
-      ...this.toObject(summary.flags),
-      manual_correction: {
-        approved: true,
-        request_id: request.id,
-        approved_at: new Date().toISOString(),
-        approved_by_user_id: actor.id,
-        approved_by_company_user_id: reviewerCompanyUserId,
-        comment: dto.comment ?? null,
-        previous: previousSnapshot,
-      },
+    return {
+      check_in_at:
+        type === AttendanceCorrectionRequestTypeEnum.CHECK_IN ||
+        type === AttendanceCorrectionRequestTypeEnum.CHECK_IN_AND_CHECK_OUT ||
+        type === AttendanceCorrectionRequestTypeEnum.MISSING_PUNCH
+          ? (request.requestedCheckInAt?.toISOString() ?? undefined)
+          : undefined,
+      check_out_at:
+        type === AttendanceCorrectionRequestTypeEnum.CHECK_OUT ||
+        type === AttendanceCorrectionRequestTypeEnum.CHECK_IN_AND_CHECK_OUT ||
+        type === AttendanceCorrectionRequestTypeEnum.MISSING_PUNCH
+          ? (request.requestedCheckOutAt?.toISOString() ?? undefined)
+          : undefined,
+      attendance_status:
+        type === AttendanceCorrectionRequestTypeEnum.STATUS_CORRECTION
+          ? (request.requestedStatus ?? undefined)
+          : undefined,
+      notes,
     };
   }
 

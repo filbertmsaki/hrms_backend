@@ -11,7 +11,9 @@ import {
 } from 'typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { Role } from '../../../roles/entities/role.entity';
+import { Department } from '../../departments/entities/department.entity';
 import { OnboardingStepTypeEnum } from '../enums/onboarding-step-type.enum';
+import { OnboardingTaskTypeEnum } from '../enums/onboarding-task-type.enum';
 import { OnboardingApproval } from './onboarding-approval.entity';
 import { OnboardingTask } from './onboarding-task.entity';
 import { OnboardingWorkflow } from './onboarding-workflow.entity';
@@ -47,17 +49,43 @@ export class OnboardingWorkflowStep {
   })
   step_type: OnboardingStepTypeEnum;
 
+  @Column({
+    type: 'enum',
+    enum: OnboardingTaskTypeEnum,
+    enumName: 'onboarding_tasks_task_type_enum',
+    default: OnboardingTaskTypeEnum.GENERAL,
+  })
+  task_type: OnboardingTaskTypeEnum;
+
   @Column({ type: 'int', nullable: true })
   assigned_role_id: number | null;
 
   @Column({ type: 'int', nullable: true })
   assigned_user_id: number | null;
 
+  @Column({ type: 'int', nullable: true })
+  assigned_department_id: number | null;
+
   @Column({ default: true })
   is_required: boolean;
 
   @Column({ type: 'int', nullable: true })
   due_days: number | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  required_document_type_code: string | null;
+
+  @Column({ default: false })
+  requires_verified_document: boolean;
+
+  @Column({ default: false })
+  completion_evidence_required: boolean;
+
+  @Column({ default: false })
+  requires_employee_acknowledgement: boolean;
+
+  @Column({ type: 'json', nullable: true })
+  metadata: Record<string, unknown> | null;
 
   @CreateDateColumn()
   created_at: Date;
@@ -75,6 +103,10 @@ export class OnboardingWorkflowStep {
   @ManyToOne(() => CompanyUser, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'assigned_user_id' })
   assigned_user: CompanyUser | null;
+
+  @ManyToOne(() => Department, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'assigned_department_id' })
+  assigned_department: Department | null;
 
   @OneToMany(() => OnboardingApproval, (approval) => approval.workflow_step)
   onboarding_approvals: OnboardingApproval[];

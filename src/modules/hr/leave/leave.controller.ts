@@ -10,6 +10,7 @@ import {
   Query,
   Req,
   Res,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -46,6 +47,7 @@ import { UpdateLeaveWorkflowDto } from './dtos/update-leave-workflow.dto';
 import { UpdateLeaveWorkflowStepDto } from './dtos/update-leave-workflow-step.dto';
 import { UpsertLeaveMedicalDetailDto } from './dtos/upsert-leave-medical-detail.dto';
 import { LeaveService } from './leave.service';
+import { createDownloadStream } from '../../files/file-download.util';
 
 @ApiTags('Leave')
 @ApiBearerAuth('access-token')
@@ -617,6 +619,24 @@ export class LeaveController {
       dto,
       req.user,
     );
+  }
+
+  @Get('requests/:id/documents/:documentId/download')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_requests:read')
+  async downloadLeaveDocument(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('documentId', ParseIntPipe) documentId: number,
+  ): Promise<StreamableFile> {
+    const file = await this.leaveService.downloadLeaveDocument(
+      req.user.companyId!,
+      id,
+      documentId,
+      req.user,
+    );
+
+    return createDownloadStream(file);
   }
 
   @Patch('requests/:id/medical-detail')

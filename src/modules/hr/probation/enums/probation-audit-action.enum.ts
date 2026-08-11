@@ -1,0 +1,15 @@
+export enum ProbationAuditActionEnum {
+  CASE_CREATED = 'probation.case.created',
+  OBJECTIVE_CREATED = 'probation.objective.created',
+  OBJECTIVE_UPDATED = 'probation.objective.updated',
+  SELF_ASSESSMENT_SUBMITTED = 'probation.self_assessment.submitted',
+  MANAGER_REVIEW_SUBMITTED = 'probation.manager_review.submitted',
+  HR_REVIEW_SUBMITTED = 'probation.hr_review.submitted',
+  EXTENDED = 'probation.extended',
+  EMPLOYEE_CONFIRMED = 'probation.employee.confirmed',
+  EMPLOYEE_NOT_CONFIRMED = 'probation.employee.not_confirmed',
+  TERMINATION_RECOMMENDED = 'probation.termination.recommended',
+  LETTER_GENERATED = 'probation.letter.generated',
+  REVIEWER_REASSIGNED = 'probation.reviewer.reassigned',
+  CASE_CANCELLED = 'probation.case.cancelled',
+}

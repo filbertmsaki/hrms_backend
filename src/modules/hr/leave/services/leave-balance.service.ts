@@ -25,7 +25,10 @@ import { LeaveAuditService } from './leave-audit.service';
 type EmployeeScope = Pick<
   Employee,
   'id' | 'primary_department_id' | 'primary_position_id' | 'primary_branch_id'
->;
+> &
+  Partial<
+    Pick<Employee, 'grade_id' | 'employment_type' | 'confirmation_status'>
+  >;
 
 type PolicyAssignment = {
   policy: LeavePolicy;
@@ -159,37 +162,60 @@ export class LeaveBalanceService {
 
   private calculatePolicyPriority(
     policy: LeavePolicy,
-    employee: Pick<Employee, 'primary_department_id' | 'primary_position_id'>,
+    employee: EmployeeScope,
   ): number {
-    const departmentMatch =
-      policy.applicable_department_id !== null &&
-      policy.applicable_department_id === employee.primary_department_id;
-    const positionMatch =
-      policy.applicable_position_id !== null &&
-      policy.applicable_position_id === employee.primary_position_id;
+    const checks = [
+      {
+        configured: policy.applicable_branch_id != null,
+        matches: policy.applicable_branch_id === employee.primary_branch_id,
+        weight: 32,
+      },
+      {
+        configured: policy.applicable_department_id != null,
+        matches:
+          policy.applicable_department_id === employee.primary_department_id,
+        weight: 16,
+      },
+      {
+        configured: policy.applicable_position_id != null,
+        matches: policy.applicable_position_id === employee.primary_position_id,
+        weight: 8,
+      },
+      {
+        configured: policy.applicable_grade_id != null,
+        matches: policy.applicable_grade_id === employee.grade_id,
+        weight: 4,
+      },
+      {
+        configured: policy.applicable_employment_type != null,
+        matches: policy.applicable_employment_type === employee.employment_type,
+        weight: 2,
+      },
+      {
+        configured: policy.applicable_confirmation_status != null,
+        matches:
+          policy.applicable_confirmation_status ===
+          employee.confirmation_status,
+        weight: 1,
+      },
+    ];
 
-    if (departmentMatch && positionMatch) {
-      return 4;
-    }
-    if (positionMatch) {
-      return 3;
-    }
-    if (departmentMatch) {
-      return 2;
-    }
-    if (
-      policy.applicable_department_id === null &&
-      policy.applicable_position_id === null
-    ) {
-      return 1;
+    for (const check of checks) {
+      if (check.configured && !check.matches) {
+        return 0;
+      }
     }
 
-    return 0;
+    return checks.reduce(
+      (score, check) =>
+        score + (check.configured && check.matches ? check.weight : 0),
+      1,
+    );
   }
 
   async resolvePolicyAssignment(
     companyId: number,
-    employee: Pick<Employee, 'primary_department_id' | 'primary_position_id'>,
+    employee: EmployeeScope,
     leaveTypeId: number,
     manager?: EntityManager,
   ): Promise<PolicyAssignment | null> {
@@ -225,7 +251,15 @@ export class LeaveBalanceService {
       }
 
       const annualQuotaDays = this.toNumber(policyType.annual_quota_days);
-      if (!selected || priority > selected.priority) {
+      if (
+        !selected ||
+        priority > selected.priority ||
+        (priority === selected.priority &&
+          (policy.priority ?? 0) > (selected.policy.priority ?? 0)) ||
+        (priority === selected.priority &&
+          (policy.priority ?? 0) === (selected.policy.priority ?? 0) &&
+          policy.id > selected.policy.id)
+      ) {
         selected = {
           priority,
           policy,
@@ -295,8 +329,8 @@ export class LeaveBalanceService {
       }
 
       if (
-        request.status === LeaveStatusEnum.SUBMITTED ||
-        request.status === LeaveStatusEnum.IN_REVIEW
+        request.status === LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER ||
+        request.status === LeaveStatusEnum.PENDING_HR
       ) {
         pendingDays += totalDays;
       }

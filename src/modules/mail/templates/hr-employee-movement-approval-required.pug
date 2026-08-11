@@ -1,0 +1,10 @@
+doctype html
+html(lang="en")
+  body(style="font-family: Arial, sans-serif; color: #1f2937;")
+    h2 Movement approval required
+    p Hello #{approverName},
+    p A #{movementType} request (#{movementNo}) for #{employeeName} is awaiting your approval.
+    p Effective date: #{effectiveDate}
+    p
+      a(href=reviewUrl) Review movement request
+    p #{appName}

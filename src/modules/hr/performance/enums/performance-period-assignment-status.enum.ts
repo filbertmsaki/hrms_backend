@@ -1,0 +1,9 @@
+export enum PerformancePeriodAssignmentStatusEnum {
+  OPEN = 'OPEN',
+  EMPLOYEE_SUBMITTED = 'EMPLOYEE_SUBMITTED',
+  MANAGER_REVIEW = 'MANAGER_REVIEW',
+  HR_REVIEW = 'HR_REVIEW',
+  APPROVED = 'APPROVED',
+  PUBLISHED = 'PUBLISHED',
+  LOCKED = 'LOCKED',
+}

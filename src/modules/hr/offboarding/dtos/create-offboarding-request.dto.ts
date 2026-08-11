@@ -10,6 +10,7 @@ import {
   MaxLength,
 } from 'class-validator';
 import { OffboardingTypeEnum } from '../enums/offboarding-type.enum';
+import { OffboardingAccessTerminationModeEnum } from '../enums/offboarding-access-termination-mode.enum';
 
 export class CreateOffboardingRequestDto {
   @Type(() => Number)
@@ -53,6 +54,20 @@ export class CreateOffboardingRequestDto {
 
   @IsDateString()
   last_working_date: string;
+
+  @IsEnum(OffboardingAccessTerminationModeEnum)
+  @IsOptional()
+  access_termination_mode?: OffboardingAccessTerminationModeEnum;
+
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  notice_period_waived?: boolean;
+
+  @IsString()
+  @MaxLength(2000)
+  @IsOptional()
+  notice_period_waiver_reason?: string;
 
   @ApiPropertyOptional({ default: false })
   @Type(() => Boolean)

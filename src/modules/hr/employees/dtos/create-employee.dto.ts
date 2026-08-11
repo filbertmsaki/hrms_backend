@@ -24,11 +24,22 @@ import { EmployeeRelativeInputDto } from './employee-relative-input.dto';
 import { EmploymentStatusEnum } from '../enums/employment-status.enum';
 import { EmploymentTypeEnum } from '../enums/employment-type.enum';
 import { EmployeeOnboardingInputDto } from '../../onboarding/dtos/employee-onboarding-input.dto';
+import { EmployeeConfirmationStatusEnum } from '../enums/employee-confirmation-status.enum';
 import { ProfileImageSourceEnum } from '../enums/profile-image-source.enum';
 
 export class CreateEmployeeDto {
   @ApiPropertyOptional({
-    description: 'Leave blank to auto-generate (AICL-XXXXXX)',
+    description:
+      'System generated. Only approved migration operations may supply this value.',
+    example: 'AICL/001',
+  })
+  @Transform(({ value }: TransformFnParams): unknown => {
+    if (typeof value !== 'string') {
+      return value;
+    }
+
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : undefined;
   })
   @IsString()
   @IsOptional()
@@ -107,6 +118,18 @@ export class CreateEmployeeDto {
   @IsOptional()
   primary_position_id?: number;
 
+  @ApiPropertyOptional({ type: Number })
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  grade_id?: number;
+
+  @ApiPropertyOptional({ type: Number })
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  cost_center_id?: number;
+
   @ApiPropertyOptional({
     type: Number,
     description:
@@ -137,11 +160,28 @@ export class CreateEmployeeDto {
 
   @IsDateString()
   @IsOptional()
+  probation_start_date?: string;
+
+  @IsDateString()
+  @IsOptional()
   probation_end_date?: string;
 
   @IsDateString()
   @IsOptional()
+  confirmation_due_date?: string;
+
+  @IsDateString()
+  @IsOptional()
   confirmation_date?: string;
+
+  @ApiPropertyOptional({ enum: EmployeeConfirmationStatusEnum })
+  @IsEnum(EmployeeConfirmationStatusEnum)
+  @IsOptional()
+  confirmation_status?: EmployeeConfirmationStatusEnum;
+
+  @IsString()
+  @IsOptional()
+  confirmation_notes?: string;
 
   @IsDateString()
   @IsOptional()

@@ -1,30 +1,30 @@
 import { Logger } from '@nestjs/common';
 import { HrNotificationListener } from './hr-notification.listener';
-import { MailService } from '../../mail/mail.service';
+import { NotificationQueueService } from '../../notifications/notification-queue.service';
 import {
   LeaveApprovedEvent,
   OffboardingApprovedEvent,
+  OffboardingAssetOverdueEvent,
   OnboardingTaskAssignedEvent,
+  OffboardingSettlementOverdueEvent,
 } from './events';
 
 describe('HrNotificationListener', () => {
   let listener: HrNotificationListener;
-  let mailService: jest.Mocked<Partial<MailService>>;
+  let notificationQueueService: {
+    enqueueMailMethod: jest.Mock;
+  };
   let loggerErrorSpy: jest.SpyInstance;
 
   beforeEach(() => {
-    mailService = {
-      sendLeaveApprovedNotification: jest.fn().mockResolvedValue(undefined),
-      sendOffboardingApprovedNotification: jest
-        .fn()
-        .mockResolvedValue(undefined),
-      sendOnboardingTaskAssignedNotification: jest
-        .fn()
-        .mockResolvedValue(undefined),
+    notificationQueueService = {
+      enqueueMailMethod: jest.fn().mockResolvedValue(undefined),
     };
     loggerErrorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
 
-    listener = new HrNotificationListener(mailService as MailService);
+    listener = new HrNotificationListener(
+      notificationQueueService as unknown as NotificationQueueService,
+    );
   });
 
   afterEach(() => {
@@ -49,18 +49,22 @@ describe('HrNotificationListener', () => {
 
     await listener.onOffboardingApproved(event);
 
-    expect(
-      mailService.sendOffboardingApprovedNotification,
-    ).toHaveBeenCalledTimes(3);
-    expect(
-      mailService.sendOffboardingApprovedNotification,
-    ).toHaveBeenNthCalledWith(1, 'amina@example.com', 'Amina John', event);
-    expect(
-      mailService.sendOffboardingApprovedNotification,
-    ).toHaveBeenNthCalledWith(2, 'hr1@example.com', 'HR One', event);
-    expect(
-      mailService.sendOffboardingApprovedNotification,
-    ).toHaveBeenNthCalledWith(3, 'hr2@example.com', 'HR Two', event);
+    expect(notificationQueueService.enqueueMailMethod).toHaveBeenCalledTimes(3);
+    expect(notificationQueueService.enqueueMailMethod).toHaveBeenNthCalledWith(
+      1,
+      'sendOffboardingApprovedNotification',
+      ['amina@example.com', 'Amina John', event],
+    );
+    expect(notificationQueueService.enqueueMailMethod).toHaveBeenNthCalledWith(
+      2,
+      'sendOffboardingApprovedNotification',
+      ['hr1@example.com', 'HR One', event],
+    );
+    expect(notificationQueueService.enqueueMailMethod).toHaveBeenNthCalledWith(
+      3,
+      'sendOffboardingApprovedNotification',
+      ['hr2@example.com', 'HR Two', event],
+    );
   });
 
   it('passes the task-assigned event directly to the mail service', async () => {
@@ -82,15 +86,62 @@ describe('HrNotificationListener', () => {
 
     await listener.onOnboardingTaskAssigned(event);
 
-    expect(
-      mailService.sendOnboardingTaskAssignedNotification,
-    ).toHaveBeenCalledWith('neema@example.com', event);
+    expect(notificationQueueService.enqueueMailMethod).toHaveBeenCalledWith(
+      'sendOnboardingTaskAssignedNotification',
+      ['neema@example.com', event],
+    );
+  });
+
+  it('sends overdue offboarding asset-return emails to the owner', async () => {
+    const event = new OffboardingAssetOverdueEvent(
+      1,
+      8,
+      22,
+      'Dell Latitude 5440',
+      'Amina John',
+      14,
+      'John HR',
+      'john@example.com',
+      new Date('2026-08-01T09:00:00.000Z'),
+      '2026-08-05',
+      'http://localhost:5173/offboarding/8/assets',
+    );
+
+    await listener.onOffboardingAssetOverdue(event);
+
+    expect(notificationQueueService.enqueueMailMethod).toHaveBeenCalledWith(
+      'sendOffboardingAssetOverdueNotification',
+      ['john@example.com', event],
+    );
+  });
+
+  it('sends overdue offboarding settlement emails to the owner', async () => {
+    const event = new OffboardingSettlementOverdueEvent(
+      1,
+      8,
+      31,
+      'Laptop replacement deduction',
+      'Amina John',
+      15,
+      'Jane Finance',
+      'finance@example.com',
+      new Date('2026-08-02T09:00:00.000Z'),
+      '2026-08-05',
+      'http://localhost:5173/offboarding/8/settlements',
+    );
+
+    await listener.onOffboardingSettlementOverdue(event);
+
+    expect(notificationQueueService.enqueueMailMethod).toHaveBeenCalledWith(
+      'sendOffboardingSettlementOverdueNotification',
+      ['finance@example.com', event],
+    );
   });
 
   it('swallows mail errors and does not throw from event handlers', async () => {
-    mailService.sendLeaveApprovedNotification = jest
-      .fn()
-      .mockRejectedValue(new Error('mail failed'));
+    notificationQueueService.enqueueMailMethod.mockRejectedValue(
+      new Error('mail failed'),
+    );
 
     const event = new LeaveApprovedEvent(
       'Amina John',

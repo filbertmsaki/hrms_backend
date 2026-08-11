@@ -10,11 +10,13 @@ import { DefaultAvatarsModule } from '../hr/default-avatars/default-avatars.modu
 import { UserTwoFactorAuditLog } from './entities/user-two-factor-audit-log.entity';
 import { UserTwoFactorAuditService } from './services/user-two-factor-audit.service';
 import { Employee } from '../hr/employees/entities/employee.entity';
+import { AuthSessionsModule } from '../auth/auth-sessions.module';
 
 @Module({
   imports: [
     forwardRef(() => TwoFaModule),
     TypeOrmModule.forFeature([User, UserTwoFactorAuditLog, Employee]),
+    AuthSessionsModule,
     CompaniesModule,
     DefaultAvatarsModule,
   ],

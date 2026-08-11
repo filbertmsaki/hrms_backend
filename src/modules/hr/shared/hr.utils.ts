@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 
 export function buildPaginationMeta(
@@ -107,4 +108,27 @@ export function addDaysToDateOnly(date: string, days: number): string {
   const base = new Date(`${date}T00:00:00Z`);
   base.setUTCDate(base.getUTCDate() + days);
   return formatDateOnly(base);
+}
+
+export function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+  }
+
+  const keys = Object.keys(value as Record<string, unknown>).sort();
+  const body = keys
+    .map(
+      (key) =>
+        `${JSON.stringify(key)}:${stableStringify((value as Record<string, unknown>)[key])}`,
+    )
+    .join(',');
+  return `{${body}}`;
+}
+
+export function hashStableJson(value: unknown): string {
+  return createHash('sha256').update(stableStringify(value)).digest('hex');
 }

@@ -55,12 +55,16 @@ export class UserProfileDto {
   status: string;
   @ApiProperty({ example: 'employee' })
   user_type: string;
+  @ApiPropertyOptional({ example: 'employee', enum: ['admin', 'employee'] })
+  dashboard_type?: 'admin' | 'employee';
   @ApiProperty({ example: true })
   is_email_verified: boolean;
   @ApiProperty({ example: false })
   is_two_factor_enabled: boolean;
   @ApiProperty({ example: false })
   two_factor_setup_required: boolean;
+  @ApiProperty({ example: false })
+  requires_password_change: boolean;
   @ApiPropertyOptional({ example: '2026-06-01T00:00:00.000Z', nullable: true })
   email_verification_expires?: Date | null;
   @ApiPropertyOptional({ example: '2026-05-13T08:30:00.000Z', nullable: true })

@@ -308,15 +308,12 @@ const PROFILE_FIELD_POLICIES: ProfileFieldPolicy[] = [
     field_name: 'default_avatar_id',
     source_entity: ProfileChangeFieldSourceEntityEnum.EMPLOYEE,
     editable_by_employee: true,
-    requires_approval: true,
+    requires_approval: false,
     editable_by_hr: true,
     sensitive: false,
     validation_rules: ['nullable', 'number'],
     display_label: 'Selected Default Avatar',
-    request_types: [
-      ProfileChangeRequestTypeEnum.PROFILE_PHOTO,
-      ProfileChangeRequestTypeEnum.OTHER_PROFILE_INFORMATION,
-    ],
+    request_types: [],
     value_type: 'number',
   },
 ];

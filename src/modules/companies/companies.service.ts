@@ -6,13 +6,12 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { hashPassword } from '../../common/utils/hash.util';
+import { normalizeTanzaniaPhone } from '../../common/utils/tanzania-phone.util';
 import { Role } from '../roles/entities/role.entity';
 import { PaginationDto, SortDirection } from '../../common/dto/pagination.dto';
 import { User } from '../users/entities/user.entity';
 import { Permission } from '../permissions/entities/permission.entity';
-import { Repository } from 'typeorm';
-import { EntityManager } from 'typeorm';
-import { QueryFailedError } from 'typeorm';
+import { EntityManager, In, QueryFailedError, Repository } from 'typeorm';
 import { AttendanceDevice } from '../access-control/attendance-devices/entities/attendance-device.entity';
 import { AttendanceDeviceStatusEnum } from '../access-control/attendance-devices/enums/attendance-device-status.enum';
 import { AttendancePolicy } from '../hr/attendance/policies/entities/attendance-policy.entity';
@@ -32,11 +31,17 @@ import {
   assertCompanyScopedPermissionAssignment,
   assertCompanyScopedRoleAssignment,
 } from '../../common/utils/permission-scope.util';
+import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
+import { AuditRequestContext } from '../../common/interfaces/audit-request-context.interface';
 import {
   CompanyMembershipContext,
   CompanySummary,
 } from './interfaces/company-membership-context.interface';
 import { DefaultAvatarsService } from '../hr/default-avatars/default-avatars.service';
+import { SecurityEventsService } from '../security/security-events.service';
+import { SecurityEventType } from '../security/enums/security-event-type.enum';
+import { SecurityEventOutcome } from '../security/enums/security-event-outcome.enum';
+import { COMPANY_ROLE_SEEDS } from '../../database/seeds/005-company-roles.seed';
 
 @Injectable()
 export class CompaniesService {
@@ -80,6 +85,7 @@ export class CompaniesService {
 
     @InjectRepository(AttendanceDevice)
     private readonly attendanceDeviceRepository: Repository<AttendanceDevice>,
+    private readonly securityEventsService: SecurityEventsService,
   ) {}
 
   private getCompanyRepository(manager?: EntityManager): Repository<Company> {
@@ -102,6 +108,83 @@ export class CompaniesService {
 
   private getRoleRepository(manager?: EntityManager): Repository<Role> {
     return manager?.getRepository(Role) ?? this.roleRepository;
+  }
+
+  private getPermissionRepository(
+    manager?: EntityManager,
+  ): Repository<Permission> {
+    return manager?.getRepository(Permission) ?? this.permissionRepository;
+  }
+
+  private async ensureDefaultCompanyRoles(
+    companyId: number,
+    roleNames: string[],
+    manager?: EntityManager,
+  ): Promise<void> {
+    const normalizedRoleNames = Array.from(
+      new Set(
+        roleNames
+          .map((roleName) => roleName.trim())
+          .filter((roleName) => roleName.length > 0),
+      ),
+    );
+
+    if (!normalizedRoleNames.length) {
+      return;
+    }
+
+    const requestedSeeds = COMPANY_ROLE_SEEDS.filter((seed) =>
+      normalizedRoleNames.includes(seed.name),
+    );
+
+    if (!requestedSeeds.length) {
+      return;
+    }
+
+    const roleRepository = this.getRoleRepository(manager);
+    const permissionRepository = this.getPermissionRepository(manager);
+    const existingRoles = await roleRepository.find({
+      where: requestedSeeds.map((seed) => ({
+        company_id: companyId,
+        name: seed.name,
+      })),
+      relations: ['permissions'],
+    });
+    const existingRoleNames = new Set(existingRoles.map((role) => role.name));
+    const missingSeeds = requestedSeeds.filter(
+      (seed) => !existingRoleNames.has(seed.name),
+    );
+
+    if (!missingSeeds.length) {
+      return;
+    }
+
+    const permissionNames = Array.from(
+      new Set(missingSeeds.flatMap((seed) => seed.permissionNames)),
+    );
+    const permissions = permissionNames.length
+      ? await permissionRepository.find({
+          where: { name: In(permissionNames) },
+        })
+      : [];
+    const permissionMap = new Map(
+      permissions.map((permission) => [permission.name, permission]),
+    );
+
+    for (const seed of missingSeeds) {
+      const role = roleRepository.create({
+        name: seed.name,
+        display_name: seed.displayName,
+        description: seed.description,
+        company_id: companyId,
+        is_system_generated: true,
+        permissions: Array.from(new Set(seed.permissionNames))
+          .map((permissionName) => permissionMap.get(permissionName))
+          .filter((permission): permission is Permission => permission != null),
+      });
+
+      await roleRepository.save(role);
+    }
   }
 
   private async findRoleByNameForCompany(
@@ -153,6 +236,7 @@ export class CompaniesService {
     manager?: EntityManager,
   ): Promise<Role[]> {
     const uniqueRoleNames = Array.from(new Set(roleNames));
+    await this.ensureDefaultCompanyRoles(companyId, uniqueRoleNames, manager);
     const roles: Role[] = [];
 
     for (const roleName of uniqueRoleNames) {
@@ -176,6 +260,20 @@ export class CompaniesService {
 
   private getUserRepository(manager?: EntityManager): Repository<User> {
     return manager?.getRepository(User) ?? this.userRepository;
+  }
+
+  private async revokeAllUserSessions(userId: number): Promise<void> {
+    await this.userRepository
+      .createQueryBuilder()
+      .update(User)
+      .set({
+        auth_token_invalid_before: new Date(),
+        auth_token_version: () => '"auth_token_version" + 1',
+      })
+      .where('id = :userId', {
+        userId,
+      })
+      .execute();
   }
 
   private slugify(value: string): string {
@@ -342,9 +440,16 @@ export class CompaniesService {
 
     return this.companyRepository.manager.transaction(async (manager) => {
       const userRepository = this.getUserRepository(manager);
+      const normalizedAdminPhone = normalizeTanzaniaPhone(admin_phone);
+
+      if (!normalizedAdminPhone) {
+        throw new BadRequestException(
+          'Administrator phone number must be a valid Tanzanian number in +255 format',
+        );
+      }
 
       const existingUser = await userRepository.findOne({
-        where: [{ email: admin_email }, { phone: admin_phone }],
+        where: [{ email: admin_email }, { phone: normalizedAdminPhone }],
       });
 
       if (existingUser) {
@@ -364,7 +469,7 @@ export class CompaniesService {
           user_no: userNo,
           first_name: admin_first_name,
           last_name: admin_last_name,
-          phone: admin_phone,
+          phone: normalizedAdminPhone,
           email: admin_email,
           password: hashedPassword,
           status: 'active',
@@ -568,6 +673,8 @@ export class CompaniesService {
       isDefault?: boolean;
       roleIds?: number[];
       roleNames?: string[];
+      actor?: AuthenticatedUser;
+      context?: AuditRequestContext;
     },
     manager?: EntityManager,
   ): Promise<CompanyMembershipContext> {
@@ -651,6 +758,7 @@ export class CompaniesService {
     }
 
     if (!roleIds.size) {
+      await this.ensureDefaultCompanyRoles(companyId, ['EMPLOYEE'], manager);
       const viewerRole = await this.findRoleByNameForCompany(
         'EMPLOYEE',
         companyId,
@@ -688,13 +796,37 @@ export class CompaniesService {
       }
     }
 
-    return this.getMembershipContext(userId, companyId, manager);
+    const membershipContext = await this.getMembershipContext(
+      userId,
+      companyId,
+      manager,
+    );
+
+    if (options?.actor) {
+      await this.securityEventsService.log({
+        eventType: SecurityEventType.COMPANY_MEMBERSHIP_ADDED,
+        outcome: SecurityEventOutcome.SUCCESS,
+        actor: options.actor,
+        companyId,
+        targetUserId: userId,
+        targetCompanyUserId: membership.id,
+        newValues: {
+          is_default: membership.is_default,
+          roles: membershipContext.roles,
+        },
+        context: options.context,
+      });
+    }
+
+    return membershipContext;
   }
 
   async assignRole(
     companyId: number,
     userId: number,
     roleId: number,
+    actor?: AuthenticatedUser,
+    context?: AuditRequestContext,
   ): Promise<CompanyMembershipContext> {
     const membership = await this.companyUserRepository.findOne({
       where: {
@@ -729,6 +861,23 @@ export class CompaniesService {
           role_id: roleId,
         }),
       );
+
+      if (actor) {
+        await this.securityEventsService.log({
+          eventType: SecurityEventType.ROLE_ASSIGNED,
+          outcome: SecurityEventOutcome.SUCCESS,
+          actor,
+          companyId,
+          targetUserId: userId,
+          targetCompanyUserId: membership.id,
+          roleId,
+          newValues: {
+            role_id: roleId,
+            role_name: role.name,
+          },
+          context,
+        });
+      }
     }
 
     return this.getMembershipContext(userId, companyId);
@@ -738,6 +887,8 @@ export class CompaniesService {
     companyId: number,
     userId: number,
     roleId: number,
+    actor?: AuthenticatedUser,
+    context?: AuditRequestContext,
   ): Promise<CompanyMembershipContext> {
     const membership = await this.companyUserRepository.findOne({
       where: {
@@ -756,6 +907,24 @@ export class CompaniesService {
       role_id: roleId,
     });
 
+    if (actor) {
+      const role = await this.roleRepository.findOne({ where: { id: roleId } });
+      await this.securityEventsService.log({
+        eventType: SecurityEventType.ROLE_REVOKED,
+        outcome: SecurityEventOutcome.SUCCESS,
+        actor,
+        companyId,
+        targetUserId: userId,
+        targetCompanyUserId: membership.id,
+        roleId,
+        oldValues: {
+          role_id: roleId,
+          role_name: role?.name ?? null,
+        },
+        context,
+      });
+    }
+
     return this.getMembershipContext(userId, companyId);
   }
 
@@ -768,6 +937,8 @@ export class CompaniesService {
   async removeUserFromCompany(
     companyId: number,
     userId: number,
+    actor?: AuthenticatedUser,
+    context?: AuditRequestContext,
   ): Promise<{ message: string }> {
     const membership = await this.companyUserRepository.findOne({
       where: {
@@ -794,6 +965,27 @@ export class CompaniesService {
     membership.status = 'inactive';
     membership.is_default = false;
     await this.companyUserRepository.save(membership);
+    await this.revokeAllUserSessions(userId);
+
+    if (actor) {
+      await this.securityEventsService.log({
+        eventType: SecurityEventType.COMPANY_MEMBERSHIP_REMOVED,
+        outcome: SecurityEventOutcome.SUCCESS,
+        actor,
+        companyId,
+        targetUserId: userId,
+        targetCompanyUserId: membership.id,
+        oldValues: {
+          status: 'active',
+          is_default: true,
+        },
+        newValues: {
+          status: 'inactive',
+          is_default: false,
+        },
+        context,
+      });
+    }
 
     return { message: 'User removed from company successfully' };
   }
@@ -880,6 +1072,8 @@ export class CompaniesService {
   async addExistingUserToCurrentCompany(
     companyId: number,
     dto: AddCompanyUserDto,
+    actor?: AuthenticatedUser,
+    context?: AuditRequestContext,
   ) {
     const existingMembership = await this.companyUserRepository.findOne({
       where: { company_id: companyId, user_id: dto.user_id, status: 'active' },
@@ -893,6 +1087,8 @@ export class CompaniesService {
       isDefault: dto.is_default,
       roleIds: dto.role_ids,
       roleNames: dto.role_names,
+      actor,
+      context,
     });
   }
 
@@ -900,6 +1096,8 @@ export class CompaniesService {
     companyId: number,
     userId: number,
     permissionId: number,
+    actor?: AuthenticatedUser,
+    context?: AuditRequestContext,
   ) {
     const membership = await this.companyUserRepository.findOne({
       where: { company_id: companyId, user_id: userId, status: 'active' },
@@ -930,6 +1128,23 @@ export class CompaniesService {
           permission_id: permissionId,
         }),
       );
+
+      if (actor) {
+        await this.securityEventsService.log({
+          eventType: SecurityEventType.DIRECT_PERMISSION_ASSIGNED,
+          outcome: SecurityEventOutcome.SUCCESS,
+          actor,
+          companyId,
+          targetUserId: userId,
+          targetCompanyUserId: membership.id,
+          permissionId,
+          newValues: {
+            permission_id: permission.id,
+            permission_name: permission.name,
+          },
+          context,
+        });
+      }
     }
 
     return this.getMembershipContext(userId, companyId);
@@ -939,6 +1154,8 @@ export class CompaniesService {
     companyId: number,
     userId: number,
     permissionId: number,
+    actor?: AuthenticatedUser,
+    context?: AuditRequestContext,
   ) {
     const membership = await this.companyUserRepository.findOne({
       where: { company_id: companyId, user_id: userId, status: 'active' },
@@ -952,6 +1169,26 @@ export class CompaniesService {
       company_user_id: membership.id,
       permission_id: permissionId,
     });
+
+    if (actor) {
+      const permission = await this.permissionRepository.findOne({
+        where: { id: permissionId },
+      });
+      await this.securityEventsService.log({
+        eventType: SecurityEventType.DIRECT_PERMISSION_REVOKED,
+        outcome: SecurityEventOutcome.SUCCESS,
+        actor,
+        companyId,
+        targetUserId: userId,
+        targetCompanyUserId: membership.id,
+        permissionId,
+        oldValues: {
+          permission_id: permissionId,
+          permission_name: permission?.name ?? null,
+        },
+        context,
+      });
+    }
 
     return this.getMembershipContext(userId, companyId);
   }

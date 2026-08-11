@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
@@ -9,16 +10,32 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import type { AuditRequestContext } from '../../../common/interfaces/audit-request-context.interface';
 import { hashPassword } from '../../../common/utils/hash.util';
+import { hasPermission } from '../../../common/utils/permission.util';
+import { normalizeTanzaniaPhone } from '../../../common/utils/tanzania-phone.util';
 import { CompaniesService } from '../../companies/companies.service';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
+import { FilesService } from '../../files/files.service';
+import { Base64FileDto } from '../../files/dtos/base64-file.dto';
+import {
+  HR_PRIVATE_DOCUMENT_MAX_BYTES,
+  HR_PRIVATE_DOCUMENT_MIME_TYPES,
+} from '../../files/file-policy';
+import { SecurityEventOutcome } from '../../security/enums/security-event-outcome.enum';
+import { SecurityEventType } from '../../security/enums/security-event-type.enum';
+import { SecurityEventsService } from '../../security/security-events.service';
 import { User } from '../../users/entities/user.entity';
 import { UsersService } from '../../users/users.service';
 import { Branch } from '../branches/entities/branch.entity';
+import { CostCenter } from '../cost-centers/entities/cost-center.entity';
+import { DefaultAvatarsService } from '../default-avatars/default-avatars.service';
 import { Department } from '../departments/entities/department.entity';
+import { EmployeeAttendanceReadinessService } from '../launch-readiness/employee-attendance-readiness.service';
 import { LeaveBalanceService } from '../leave/services/leave-balance.service';
 import { OnboardingService } from '../onboarding/onboarding.service';
 import { Position } from '../positions/entities/position.entity';
+import { EmployeeGrade } from '../grades/entities/employee-grade.entity';
 import { HrAccessService } from '../shared/hr-access.service';
 import { PositionAvailabilityService } from '../shared/position-availability.service';
 import { buildPaginationMeta, formatDateOnly } from '../shared/hr.utils';
@@ -56,8 +73,8 @@ import { UpdateEmployeeExperienceDto } from './dtos/update-employee-experience.d
 import { UpdateEmployeeIdentificationDto } from './dtos/update-employee-identification.dto';
 import { UpdateEmployeeProfessionalQualificationDto } from './dtos/update-employee-professional-qualification.dto';
 import { UpdateEmployeeRelativeDto } from './dtos/update-employee-relative.dto';
-import { EmployeeAttendanceReadinessService } from '../launch-readiness/employee-attendance-readiness.service';
 import { ContactTypeEnum } from './enums/contact-type.enum';
+import { EmployeeConfirmationStatusEnum } from './enums/employee-confirmation-status.enum';
 import { EmployeePositionAssignmentTypeEnum } from './enums/employee-position-assignment-type.enum';
 import { EmployeePositionStatusEnum } from './enums/employee-position-status.enum';
 import { EmploymentStatusEnum } from './enums/employment-status.enum';
@@ -75,12 +92,26 @@ import { EmployeeAcademicQualification } from './entities/employee-academic-qual
 import { EmployeeProfessionalQualification } from './entities/employee-professional-qualification.entity';
 import { EmployeeRelative } from './entities/employee-relative.entity';
 import { Employee } from './entities/employee.entity';
-import { FilesService } from '../../files/files.service';
-import { Base64FileDto } from '../../files/dtos/base64-file.dto';
-import { DefaultAvatarsService } from '../default-avatars/default-avatars.service';
 import { ProfileImageSourceEnum } from './enums/profile-image-source.enum';
+import { EmployeeAssignmentService } from './employee-assignment.service';
+import { EmployeeLifecycleService } from './employee-lifecycle.service';
+import { EmployeeNumberService } from './employee-number.service';
 
 type EmployeeMutationDto = CreateEmployeeDto | UpdateEmployeeDto;
+const EMPTY_AUDIT_CONTEXT: AuditRequestContext = {
+  ipAddress: null,
+  userAgent: null,
+  requestId: null,
+};
+const ARCHIVED_CONTACT_NOTE_PREFIX = '[ARCHIVED_CONTACT]';
+const ARCHIVED_ADDRESS_PREFIX = '[ARCHIVED_ADDRESS]';
+const ARCHIVED_RELATIVE_PREFIX = '[ARCHIVED_RELATIVE]';
+const ARCHIVED_IDENTIFICATION_PREFIX = '[ARCHIVED_IDENTIFICATION]';
+const ARCHIVED_DOCUMENT_NOTE_PREFIX = '[ARCHIVED_DOCUMENT]';
+const ARCHIVED_BANK_ACCOUNT_STATUS = 'ARCHIVED';
+const ARCHIVED_ACADEMIC_QUALIFICATION_PREFIX = '[ARCHIVED_ACADEMIC]';
+const ARCHIVED_PROFESSIONAL_QUALIFICATION_PREFIX = '[ARCHIVED_PROFESSIONAL]';
+const ARCHIVED_EXPERIENCE_PREFIX = '[ARCHIVED_EXPERIENCE]';
 
 @Injectable()
 export class EmployeesService {
@@ -130,6 +161,10 @@ export class EmployeesService {
     private readonly attendanceReadinessService: EmployeeAttendanceReadinessService,
     private readonly filesService: FilesService,
     private readonly defaultAvatarsService: DefaultAvatarsService,
+    private readonly securityEventsService: SecurityEventsService,
+    private readonly employeeNumberService: EmployeeNumberService,
+    private readonly employeeAssignmentService: EmployeeAssignmentService,
+    private readonly employeeLifecycleService: EmployeeLifecycleService,
   ) {}
 
   private getEmployeeRepository(manager?: EntityManager): Repository<Employee> {
@@ -257,6 +292,24 @@ export class EmployeesService {
     );
   }
 
+  private getEmployeeGradeRepository(
+    manager?: EntityManager,
+  ): Repository<EmployeeGrade> {
+    return (
+      manager?.getRepository(EmployeeGrade) ??
+      this.dataSource.getRepository(EmployeeGrade)
+    );
+  }
+
+  private getCostCenterRepository(
+    manager?: EntityManager,
+  ): Repository<CostCenter> {
+    return (
+      manager?.getRepository(CostCenter) ??
+      this.dataSource.getRepository(CostCenter)
+    );
+  }
+
   private normalizeOptionalString(value: unknown): string | null {
     if (typeof value !== 'string') {
       return null;
@@ -264,6 +317,16 @@ export class EmployeesService {
 
     const trimmed = value.trim();
     return trimmed.length ? trimmed : null;
+  }
+
+  private normalizeDocumentMetadata(
+    value: unknown,
+  ): Record<string, unknown> | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+
+    return value as Record<string, unknown>;
   }
 
   private assertDateOrder(
@@ -389,6 +452,37 @@ export class EmployeesService {
     };
   }
 
+  private mapGrade(grade?: EmployeeGrade | null) {
+    if (!grade) {
+      return null;
+    }
+
+    return {
+      id: grade.id,
+      code: grade.code,
+      name: grade.name,
+      level: grade.level,
+      description: grade.description,
+      status: grade.status,
+    };
+  }
+
+  private mapCostCenter(costCenter?: CostCenter | null) {
+    if (!costCenter) {
+      return null;
+    }
+
+    return {
+      id: costCenter.id,
+      code: costCenter.code,
+      name: costCenter.name,
+      branch_id: costCenter.branch_id,
+      department_id: costCenter.department_id,
+      description: costCenter.description,
+      status: costCenter.status,
+    };
+  }
+
   private mapMembership(membership?: CompanyUser | null) {
     if (!membership) {
       return null;
@@ -449,8 +543,18 @@ export class EmployeesService {
       employee_id: document.employee_id,
       type: document.type,
       title: document.title,
-      file_url: document.file_url,
+      classification: document.classification,
+      file_url: `/api/employees/${document.employee_id}/documents/${document.id}/download`,
+      original_file_name: document.original_file_name,
+      mime_type: document.mime_type,
+      file_size: document.file_size,
       notes: document.notes,
+      metadata: document.metadata,
+      retention_until: document.retention_until,
+      download_count: document.download_count,
+      last_downloaded_at: document.last_downloaded_at,
+      last_downloaded_by_company_user_id:
+        document.last_downloaded_by_company_user_id,
       uploaded_at: document.uploaded_at,
       uploaded_by_company_user_id: document.uploaded_by_company_user_id,
       uploaded_by: document.uploaded_by?.user
@@ -523,8 +627,14 @@ export class EmployeesService {
       identification_type: identification.identification_type,
       identification_number: identification.identification_number,
       issued_country: identification.issued_country,
+      issue_date: identification.issue_date,
+      issuing_authority: identification.issuing_authority,
+      document_url: identification.document_url,
       expiry_date: identification.expiry_date,
       is_primary: identification.is_primary,
+      is_verified: identification.is_verified,
+      verified_at: identification.verified_at,
+      verified_by_company_user_id: identification.verified_by_company_user_id,
       created_at: identification.created_at,
       updated_at: identification.updated_at,
     };
@@ -538,12 +648,121 @@ export class EmployeesService {
       account_name: bankAccount.account_name,
       account_number: bankAccount.account_number,
       branch_name: bankAccount.branch_name,
+      bank_code: bankAccount.bank_code,
+      bank_branch_code: bankAccount.bank_branch_code,
+      account_currency: bankAccount.account_currency,
+      account_type: bankAccount.account_type,
       swift_code: bankAccount.swift_code,
       mobile_money_provider: bankAccount.mobile_money_provider,
+      verification_status: bankAccount.verification_status,
+      verified_at: bankAccount.verified_at,
+      verified_by_company_user_id: bankAccount.verified_by_company_user_id,
+      effective_from: bankAccount.effective_from,
+      effective_to: bankAccount.effective_to,
       is_primary: bankAccount.is_primary,
       created_at: bankAccount.created_at,
       updated_at: bankAccount.updated_at,
     };
+  }
+
+  private isArchivedDocument(document: EmployeeDocument): boolean {
+    return document.notes?.startsWith(ARCHIVED_DOCUMENT_NOTE_PREFIX) ?? false;
+  }
+
+  private isArchivedContact(contact: EmployeeContact): boolean {
+    return contact.notes?.startsWith(ARCHIVED_CONTACT_NOTE_PREFIX) ?? false;
+  }
+
+  private isArchivedAddress(address: EmployeeAddress): boolean {
+    return address.address_line_1?.startsWith(ARCHIVED_ADDRESS_PREFIX) ?? false;
+  }
+
+  private isArchivedRelative(relative: EmployeeRelative): boolean {
+    return relative.relationship?.startsWith(ARCHIVED_RELATIVE_PREFIX) ?? false;
+  }
+
+  private isArchivedIdentification(
+    identification: EmployeeIdentification,
+  ): boolean {
+    return (
+      identification.identification_number?.startsWith(
+        ARCHIVED_IDENTIFICATION_PREFIX,
+      ) ?? false
+    );
+  }
+
+  private isArchivedBankAccount(bankAccount: EmployeeBankAccount): boolean {
+    return bankAccount.verification_status === ARCHIVED_BANK_ACCOUNT_STATUS;
+  }
+
+  private isArchivedAcademicQualification(
+    qualification: EmployeeAcademicQualification,
+  ): boolean {
+    return (
+      qualification.field_of_study?.startsWith(
+        ARCHIVED_ACADEMIC_QUALIFICATION_PREFIX,
+      ) ?? false
+    );
+  }
+
+  private isArchivedProfessionalQualification(
+    qualification: EmployeeProfessionalQualification,
+  ): boolean {
+    return (
+      qualification.programme_name?.startsWith(
+        ARCHIVED_PROFESSIONAL_QUALIFICATION_PREFIX,
+      ) ?? false
+    );
+  }
+
+  private isArchivedExperienceDetail(
+    experienceDetail: EmployeeExperience,
+  ): boolean {
+    return (
+      experienceDetail.job_title?.startsWith(ARCHIVED_EXPERIENCE_PREFIX) ??
+      false
+    );
+  }
+
+  private buildArchiveAuditNote(
+    prefix: string,
+    actor: AuthenticatedUser,
+    existingNotes?: string | null,
+  ): string {
+    const archiveNote = `${prefix} archived_at=${new Date().toISOString()} archived_by_company_user_id=${actor.companyMembershipId ?? 'unknown'}`;
+
+    if (!existingNotes) {
+      return archiveNote;
+    }
+
+    return `${archiveNote}\n${existingNotes}`;
+  }
+
+  private buildArchivedFieldValue(
+    prefix: string,
+    value: string | null | undefined,
+    maxLength: number,
+  ): string {
+    const normalizedValue = this.normalizeOptionalString(value);
+    const archivedValue = normalizedValue
+      ? `${prefix} ${normalizedValue}`
+      : prefix;
+
+    return archivedValue.slice(0, maxLength);
+  }
+
+  private buildArchivedUniqueFieldValue(
+    prefix: string,
+    uniqueToken: string,
+    value: string | null | undefined,
+    maxLength: number,
+  ): string {
+    const normalizedValue = this.normalizeOptionalString(value);
+    const archivedValue = normalizedValue
+      ? `${prefix} ${uniqueToken} ${normalizedValue}`
+      : `${prefix} ${uniqueToken}`;
+
+    return archivedValue.slice(0, maxLength);
   }
 
   private mapAcademicQualification(
@@ -665,26 +884,39 @@ export class EmployeesService {
         employee.profile_image_source ?? ProfileImageSourceEnum.UPLOADED,
       default_avatar_id: employee.default_avatar_id,
       selected_default_avatar: resolvedAvatar.selected_default_avatar,
+      company_id: employee.company_id,
       primary_branch_id: employee.primary_branch_id,
       primary_department_id: employee.primary_department_id,
       primary_position_id: employee.primary_position_id,
       position_id: employee.primary_position_id,
+      grade_id: employee.grade_id,
+      cost_center_id: employee.cost_center_id,
       employment_status: employee.employment_status,
       employment_type: employee.employment_type,
       hire_date: employee.hire_date,
+      probation_start_date: employee.probation_start_date,
       probation_end_date: employee.probation_end_date,
+      confirmation_due_date: employee.confirmation_due_date,
       confirmation_date: employee.confirmation_date,
+      confirmation_status: employee.confirmation_status,
+      confirmed_by_company_user_id: employee.confirmed_by_company_user_id,
+      confirmation_notes: employee.confirmation_notes,
       exit_date: employee.exit_date,
       reports_to: employee.reports_to,
       exit_reason: employee.exit_reason,
       notes: employee.notes,
       metadata: employee.metadata,
+      status_changed_at: employee.status_changed_at,
+      status_changed_by_company_user_id:
+        employee.status_changed_by_company_user_id,
       created_at: employee.created_at,
       updated_at: employee.updated_at,
       primary_branch: this.mapBranch(employee.primary_branch),
       primary_department: this.mapDepartment(employee.primary_department),
       primary_position: this.mapPosition(employee.primary_position),
       position: this.mapPosition(employee.primary_position),
+      grade: this.mapGrade(employee.grade),
+      cost_center: this.mapCostCenter(employee.cost_center),
       manager: employee.manager
         ? {
             id: employee.manager.id,
@@ -719,37 +951,65 @@ export class EmployeesService {
           notes: assignment.notes,
           position: this.mapPosition(assignment.position),
         })) ?? [],
-      contacts: this.sortPrimaryFirst(employee.contacts).map((contact) =>
-        this.mapContact(contact),
-      ),
-      addresses: this.sortPrimaryFirst(employee.addresses).map((address) =>
-        this.mapAddress(address),
-      ),
-      relatives: this.sortPrimaryFirst(employee.relatives).map((relative) =>
-        this.mapRelative(relative),
-      ),
-      identifications: this.sortPrimaryFirst(employee.identifications).map(
-        (identification) => this.mapIdentification(identification),
-      ),
-      bank_accounts: this.sortPrimaryFirst(employee.bank_accounts).map(
-        (bankAccount) => this.mapBankAccount(bankAccount),
-      ),
+      contacts: this.sortPrimaryFirst(
+        employee.contacts?.filter(
+          (contact) => !this.isArchivedContact(contact),
+        ),
+      ).map((contact) => this.mapContact(contact)),
+      addresses: this.sortPrimaryFirst(
+        employee.addresses?.filter(
+          (address) => !this.isArchivedAddress(address),
+        ),
+      ).map((address) => this.mapAddress(address)),
+      relatives: this.sortPrimaryFirst(
+        employee.relatives?.filter(
+          (relative) => !this.isArchivedRelative(relative),
+        ),
+      ).map((relative) => this.mapRelative(relative)),
+      identifications: this.sortPrimaryFirst(
+        employee.identifications?.filter(
+          (identification) => !this.isArchivedIdentification(identification),
+        ),
+      ).map((identification) => this.mapIdentification(identification)),
+      bank_accounts: this.sortPrimaryFirst(
+        employee.bank_accounts.filter(
+          (bankAccount) => !this.isArchivedBankAccount(bankAccount),
+        ),
+      ).map((bankAccount) => this.mapBankAccount(bankAccount)),
       academic_qualifications:
-        employee.academic_qualifications?.map((academicQualification) =>
-          this.mapAcademicQualification(academicQualification),
-        ) ?? [],
+        employee.academic_qualifications
+          ?.filter(
+            (academicQualification) =>
+              !this.isArchivedAcademicQualification(academicQualification),
+          )
+          .map((academicQualification) =>
+            this.mapAcademicQualification(academicQualification),
+          ) ?? [],
       professional_qualifications:
-        employee.professional_qualifications?.map((professionalQualification) =>
-          this.mapProfessionalQualification(professionalQualification),
-        ) ?? [],
+        employee.professional_qualifications
+          ?.filter(
+            (professionalQualification) =>
+              !this.isArchivedProfessionalQualification(
+                professionalQualification,
+              ),
+          )
+          .map((professionalQualification) =>
+            this.mapProfessionalQualification(professionalQualification),
+          ) ?? [],
       experience_details:
-        employee.experience_details?.map((experienceDetail) =>
-          this.mapExperienceDetail(experienceDetail),
-        ) ?? [],
+        employee.experience_details
+          ?.filter(
+            (experienceDetail) =>
+              !this.isArchivedExperienceDetail(experienceDetail),
+          )
+          .map((experienceDetail) =>
+            this.mapExperienceDetail(experienceDetail),
+          ) ?? [],
       company_user: this.mapMembership(employee.company_user),
       documents: includeDocuments
-        ? (employee.documents?.map((document) => this.mapDocument(document)) ??
-          [])
+        ? (employee.documents
+            ?.filter((document) => !this.isArchivedDocument(document))
+            .map((document) => this.mapDocument(document)) ?? [])
         : undefined,
     };
   }
@@ -769,6 +1029,8 @@ export class EmployeesService {
         parent: true,
       },
       primary_position: true,
+      grade: true,
+      cost_center: true,
       manager: {
         company_user: {
           user: true,
@@ -909,14 +1171,13 @@ export class EmployeesService {
       createEmployeeDto.contacts,
       'email',
     );
-    const phone = this.getPrimaryContactValue(
-      createEmployeeDto.contacts,
-      'phone_number',
+    const phone = normalizeTanzaniaPhone(
+      this.getPrimaryContactValue(createEmployeeDto.contacts, 'phone_number'),
     );
 
     if (!email || !phone) {
       throw new BadRequestException(
-        'Employee contact details must include an email and phone number',
+        'Employee contact details must include an email and a valid Tanzanian phone number in +255 format',
       );
     }
 
@@ -1067,6 +1328,15 @@ export class EmployeesService {
         `Employee number "${employeeNo}" already exists in this company`,
       );
     }
+  }
+
+  private normalizeOptionalEmployeeNumber(value: string | null | undefined) {
+    if (typeof value !== 'string') {
+      return undefined;
+    }
+
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : undefined;
   }
 
   private normalizeDepartmentInputs(
@@ -1255,6 +1525,12 @@ export class EmployeesService {
       issued_country:
         this.normalizeOptionalString(identification.issued_country) ??
         undefined,
+      issue_date: identification.issue_date,
+      issuing_authority:
+        this.normalizeOptionalString(identification.issuing_authority) ??
+        undefined,
+      document_url:
+        this.normalizeOptionalString(identification.document_url) ?? undefined,
       expiry_date: identification.expiry_date,
       is_primary: identification.is_primary ?? false,
     }));
@@ -1298,11 +1574,30 @@ export class EmployeesService {
       account_number: bankAccount.account_number.trim(),
       branch_name:
         this.normalizeOptionalString(bankAccount.branch_name) ?? undefined,
+      bank_code:
+        this.normalizeOptionalString(bankAccount.bank_code)?.toUpperCase() ??
+        undefined,
+      bank_branch_code:
+        this.normalizeOptionalString(bankAccount.bank_branch_code) ?? undefined,
+      account_currency:
+        this.normalizeOptionalString(
+          bankAccount.account_currency,
+        )?.toUpperCase() ?? 'TZS',
+      account_type:
+        this.normalizeOptionalString(bankAccount.account_type) ?? undefined,
       swift_code:
         this.normalizeOptionalString(bankAccount.swift_code) ?? undefined,
       mobile_money_provider:
         this.normalizeOptionalString(bankAccount.mobile_money_provider) ??
         undefined,
+      verification_status:
+        this.normalizeOptionalString(
+          bankAccount.verification_status,
+        )?.toUpperCase() ?? 'PENDING',
+      effective_from:
+        this.normalizeOptionalString(bankAccount.effective_from) ?? undefined,
+      effective_to:
+        this.normalizeOptionalString(bankAccount.effective_to) ?? undefined,
       is_primary: bankAccount.is_primary ?? false,
     }));
 
@@ -1583,6 +1878,82 @@ export class EmployeesService {
     };
   }
 
+  private async resolveEmployeeGrade(
+    companyId: number,
+    gradeId: number | null | undefined,
+    manager?: EntityManager,
+  ): Promise<EmployeeGrade | null> {
+    if (gradeId == null) {
+      return null;
+    }
+
+    const grade = await this.getEmployeeGradeRepository(manager).findOne({
+      where: { id: gradeId, company_id: companyId },
+    });
+
+    if (!grade) {
+      throw new NotFoundException('Employee grade not found');
+    }
+
+    return grade;
+  }
+
+  private async resolveCostCenter(
+    companyId: number,
+    costCenterId: number | null | undefined,
+    actor: AuthenticatedUser,
+    manager?: EntityManager,
+  ): Promise<CostCenter | null> {
+    if (costCenterId == null) {
+      return null;
+    }
+
+    const costCenter = await this.getCostCenterRepository(manager).findOne({
+      where: { id: costCenterId, company_id: companyId },
+    });
+
+    if (!costCenter) {
+      throw new NotFoundException('Cost center not found');
+    }
+
+    if (costCenter.branch_id) {
+      await this.hrAccessService.assertCanAccessBranch(
+        actor,
+        costCenter.branch_id,
+      );
+    }
+
+    if (costCenter.department_id) {
+      await this.hrAccessService.assertCanAccessDepartment(
+        actor,
+        costCenter.department_id,
+      );
+    }
+
+    return costCenter;
+  }
+
+  private buildEmployeeAuditSnapshot(employee: Partial<Employee>) {
+    return {
+      company_user_id: employee.company_user_id ?? null,
+      employee_no: employee.employee_no ?? null,
+      first_name: employee.first_name ?? null,
+      middle_name: employee.middle_name ?? null,
+      last_name: employee.last_name ?? null,
+      preferred_name: employee.preferred_name ?? null,
+      gender: employee.gender ?? null,
+      date_of_birth: employee.date_of_birth ?? null,
+      marital_status: employee.marital_status ?? null,
+      nationality: employee.nationality ?? null,
+      employment_type: employee.employment_type ?? null,
+      hire_date: employee.hire_date ?? null,
+      notes: employee.notes ?? null,
+      metadata: employee.metadata ?? null,
+      default_avatar_id: employee.default_avatar_id ?? null,
+      profile_image_source: employee.profile_image_source ?? null,
+    };
+  }
+
   private buildEmployeeEntityPayload(
     dto: Record<string, unknown>,
     branch: Branch | null,
@@ -1608,8 +1979,12 @@ export class EmployeesService {
       'employment_status',
       'employment_type',
       'hire_date',
+      'probation_start_date',
       'probation_end_date',
+      'confirmation_due_date',
       'confirmation_date',
+      'confirmation_status',
+      'confirmation_notes',
       'exit_date',
       'exit_reason',
       'notes',
@@ -1808,6 +2183,7 @@ export class EmployeesService {
     companyId: number,
     employee: Employee,
     primaryPosition: Position | null,
+    actor: AuthenticatedUser,
     manager?: EntityManager,
   ): Promise<void> {
     const repository = this.getEmployeePositionRepository(manager);
@@ -1820,6 +2196,7 @@ export class EmployeesService {
         is_primary: false,
         status: EmployeePositionStatusEnum.COMPLETED,
         end_date: today,
+        ended_by_company_user_id: actor.companyMembershipId ?? null,
       })
       .where('company_id = :companyId', { companyId })
       .andWhere('employee_id = :employeeId', { employeeId: employee.id })
@@ -1866,6 +2243,8 @@ export class EmployeesService {
         assignment_type: EmployeePositionAssignmentTypeEnum.PRIMARY,
         status: EmployeePositionStatusEnum.ACTIVE,
         notes: 'Auto-synced from employee primary position',
+        assignment_reason: 'Initial employee assignment',
+        assigned_by_company_user_id: actor.companyMembershipId ?? null,
       }),
     );
   }
@@ -1974,8 +2353,14 @@ export class EmployeesService {
           identification_type: identification.identification_type,
           identification_number: identification.identification_number,
           issued_country: identification.issued_country ?? null,
+          issue_date: identification.issue_date ?? null,
+          issuing_authority: identification.issuing_authority ?? null,
+          document_url: identification.document_url ?? null,
           expiry_date: identification.expiry_date ?? null,
           is_primary: identification.is_primary ?? false,
+          is_verified: false,
+          verified_at: null,
+          verified_by_company_user_id: null,
         }),
       ),
     );
@@ -2001,8 +2386,15 @@ export class EmployeesService {
           account_name: bankAccount.account_name ?? null,
           account_number: bankAccount.account_number,
           branch_name: bankAccount.branch_name ?? null,
+          bank_code: bankAccount.bank_code ?? null,
+          bank_branch_code: bankAccount.bank_branch_code ?? null,
+          account_currency: bankAccount.account_currency ?? 'TZS',
+          account_type: bankAccount.account_type ?? null,
           swift_code: bankAccount.swift_code ?? null,
           mobile_money_provider: bankAccount.mobile_money_provider ?? null,
+          verification_status: bankAccount.verification_status ?? 'PENDING',
+          effective_from: bankAccount.effective_from ?? null,
+          effective_to: bankAccount.effective_to ?? null,
           is_primary: bankAccount.is_primary ?? false,
         }),
       ),
@@ -2143,10 +2535,15 @@ export class EmployeesService {
     actor: AuthenticatedUser,
     manager?: EntityManager,
   ): Promise<Employee> {
+    const lifecycleFields = dto as Partial<
+      Pick<Employee, 'employment_status' | 'exit_date' | 'exit_reason'>
+    >;
+    const numberedFields = dto as { employee_no?: string | null };
+
     const normalizedStatus = this.normalizeStatusFields({
-      employment_status: dto.employment_status,
-      exit_date: dto.exit_date,
-      exit_reason: dto.exit_reason,
+      employment_status: lifecycleFields.employment_status,
+      exit_date: lifecycleFields.exit_date,
+      exit_reason: lifecycleFields.exit_reason,
     });
 
     const branch =
@@ -2234,10 +2631,29 @@ export class EmployeesService {
           )
         : (employee.manager ?? null);
 
-    if ('employee_no' in dto && dto.employee_no) {
+    const grade =
+      'grade_id' in dto
+        ? await this.resolveEmployeeGrade(companyId, dto.grade_id, manager)
+        : null;
+
+    const costCenter =
+      'cost_center_id' in dto
+        ? await this.resolveCostCenter(
+            companyId,
+            dto.cost_center_id,
+            actor,
+            manager,
+          )
+        : null;
+
+    const normalizedEmployeeNo = this.normalizeOptionalEmployeeNumber(
+      numberedFields.employee_no,
+    );
+
+    if ('employee_no' in dto && normalizedEmployeeNo) {
       await this.assertUniqueEmployeeNumber(
         companyId,
-        dto.employee_no,
+        normalizedEmployeeNo,
         employee.id || undefined,
         manager,
       );
@@ -2246,6 +2662,10 @@ export class EmployeesService {
     const payload = this.buildEmployeeEntityPayload(
       {
         ...dto,
+        employee_no:
+          'employee_no' in dto
+            ? normalizedEmployeeNo
+            : numberedFields.employee_no,
         ...normalizedStatus,
       },
       branch,
@@ -2255,8 +2675,32 @@ export class EmployeesService {
     );
 
     Object.assign(employee, payload);
+    employee.company_id = companyId;
+    if ('grade_id' in dto) {
+      employee.grade_id = grade?.id ?? null;
+    }
+    if ('cost_center_id' in dto) {
+      employee.cost_center_id = costCenter?.id ?? null;
+    }
     employee.gender = this.normalizeGender(employee.gender);
     await this.applyProfileImageSelection(companyId, employee, dto);
+
+    if (
+      employee.confirmation_status === EmployeeConfirmationStatusEnum.CONFIRMED
+    ) {
+      employee.confirmed_by_company_user_id = actor.companyMembershipId ?? null;
+      employee.confirmation_date =
+        employee.confirmation_date ?? this.getTodayDate();
+    } else if ('confirmation_status' in dto) {
+      employee.confirmed_by_company_user_id = null;
+      if (!('confirmation_date' in dto)) {
+        employee.confirmation_date = null;
+      }
+    }
+
+    if (!employee.probation_start_date && employee.probation_end_date) {
+      employee.probation_start_date = employee.hire_date ?? this.getTodayDate();
+    }
 
     if (
       !employee.primary_branch_id &&
@@ -2314,6 +2758,7 @@ export class EmployeesService {
         companyId,
         saved,
         primaryPosition,
+        actor,
         manager,
       );
     }
@@ -2407,6 +2852,7 @@ export class EmployeesService {
     companyId: number,
     createEmployeeDto: CreateEmployeeDto,
     actor: AuthenticatedUser,
+    context: AuditRequestContext = EMPTY_AUDIT_CONTEXT,
   ) {
     const creation = await this.dataSource.transaction(async (manager) => {
       const membership = await this.resolveCompanyMembershipForEmployeeCreation(
@@ -2420,6 +2866,7 @@ export class EmployeesService {
         membership,
         createEmployeeDto,
         actor,
+        context,
         manager,
       );
     });
@@ -2466,6 +2913,11 @@ export class EmployeesService {
         membership,
         createEmployeeDto,
         actor,
+        {
+          ipAddress: null,
+          userAgent: null,
+          requestId: null,
+        },
         manager,
       );
     }
@@ -2486,6 +2938,11 @@ export class EmployeesService {
         membership,
         createEmployeeDto,
         actor,
+        {
+          ipAddress: null,
+          userAgent: null,
+          requestId: null,
+        },
         txManager,
       );
     });
@@ -2496,6 +2953,7 @@ export class EmployeesService {
     membership: CompanyUser,
     createEmployeeDto: CreateEmployeeDto,
     actor: AuthenticatedUser,
+    context: AuditRequestContext,
     manager: EntityManager,
   ): Promise<{ employeeId: number; onboardingRequestId: number | null }> {
     const existingEmployee = await this.getEmployeeRepository(manager).findOne({
@@ -2508,18 +2966,28 @@ export class EmployeesService {
       );
     }
 
-    const employeeNo =
-      createEmployeeDto.employee_no ||
-      (await this.generateNextEmployeeNo(companyId, manager));
-
-    await this.assertUniqueEmployeeNumber(
-      companyId,
-      employeeNo,
-      undefined,
-      manager,
+    const requestedEmployeeNo = this.normalizeOptionalEmployeeNumber(
+      createEmployeeDto.employee_no,
     );
+    let employeeNo: string;
+
+    if (requestedEmployeeNo) {
+      if (!hasPermission(actor.permissions, 'employees:override-number')) {
+        throw new ForbiddenException(
+          'Manual employee numbers require the employees:override-number permission',
+        );
+      }
+
+      employeeNo = await this.employeeNumberService.reserveImportedNumber(
+        companyId,
+        requestedEmployeeNo,
+      );
+    } else {
+      employeeNo = await this.employeeNumberService.allocateNext(companyId);
+    }
 
     const employee = this.getEmployeeRepository(manager).create({
+      company_id: companyId,
       company_user_id: membership.id,
       employee_no: employeeNo,
       first_name: createEmployeeDto.first_name,
@@ -2541,6 +3009,12 @@ export class EmployeesService {
     await this.initializeCurrentYearLeaveBalances(
       companyId,
       savedEmployee,
+      manager,
+    );
+    await this.employeeAssignmentService.recordInitialAssignments(
+      companyId,
+      savedEmployee,
+      actor,
       manager,
     );
 
@@ -2566,6 +3040,24 @@ export class EmployeesService {
         );
       onboardingRequestId = onboardingRequest.id;
     }
+
+    await this.securityEventsService.log(
+      {
+        eventType: SecurityEventType.EMPLOYEE_CREATED,
+        outcome: SecurityEventOutcome.SUCCESS,
+        actor,
+        companyId,
+        targetCompanyUserId: savedEmployee.company_user_id,
+        resourceType: 'employee',
+        resourceId: savedEmployee.id,
+        newValues: {
+          ...this.buildEmployeeAuditSnapshot(savedEmployee),
+          onboarding_request_id: onboardingRequestId,
+        },
+        context,
+      },
+      manager,
+    );
 
     return {
       employeeId: savedEmployee.id,
@@ -2703,8 +3195,14 @@ export class EmployeesService {
       position_id,
     } = query;
 
-    if (branch_id) {
+    if (branch_id && this.hrAccessService.hasBranchScope(actor)) {
       await this.hrAccessService.assertCanAccessBranch(actor, branch_id);
+    }
+    if (department_id && this.hrAccessService.hasDepartmentScope(actor)) {
+      await this.hrAccessService.assertCanAccessDepartment(
+        actor,
+        department_id,
+      );
     }
 
     const qb = this.employeeRepository
@@ -2811,31 +3309,20 @@ export class EmployeesService {
       );
     }
 
-    const accessibleBranchIds =
-      await this.hrAccessService.getAccessibleBranchIds(actor);
+    const accessibleEmployeeIds =
+      await this.hrAccessService.getAccessibleEmployeeIds(actor);
 
-    if (accessibleBranchIds?.length === 0) {
+    if (accessibleEmployeeIds?.length === 0) {
       return {
         data: [],
         meta: buildPaginationMeta(0, 0, limit, page),
       };
     }
 
-    if (accessibleBranchIds) {
-      qb.andWhere(
-        `(
-          employee.primary_branch_id IN (:...branchIds)
-          OR EXISTS (
-            SELECT 1
-            FROM employee_departments department_assignments
-            INNER JOIN departments department
-              ON department.id = department_assignments.department_id
-            WHERE department_assignments.employee_id = employee.id
-              AND department.branch_id IN (:...branchIds)
-          )
-        )`,
-        { branchIds: accessibleBranchIds },
-      );
+    if (accessibleEmployeeIds) {
+      qb.andWhere('employee.id IN (:...employeeIds)', {
+        employeeIds: accessibleEmployeeIds,
+      });
     }
 
     const allowedSortFields = [
@@ -2909,12 +3396,14 @@ export class EmployeesService {
     employeeId: number,
     updateEmployeeDto: UpdateEmployeeDto,
     actor: AuthenticatedUser,
+    context: AuditRequestContext = EMPTY_AUDIT_CONTEXT,
   ) {
     const existingEmployee = await this.findEmployeeByIdOrFail(
       companyId,
       employeeId,
     );
     await this.hrAccessService.assertCanAccessEmployee(actor, existingEmployee);
+    const oldValues = this.buildEmployeeAuditSnapshot(existingEmployee);
 
     const updatedEmployeeId = await this.dataSource.transaction(
       async (manager) => {
@@ -2975,6 +3464,22 @@ export class EmployeesService {
           );
         }
 
+        await this.securityEventsService.log(
+          {
+            eventType: SecurityEventType.EMPLOYEE_UPDATED,
+            outcome: SecurityEventOutcome.SUCCESS,
+            actor,
+            companyId,
+            targetCompanyUserId: savedEmployee.company_user_id,
+            resourceType: 'employee',
+            resourceId: savedEmployee.id,
+            oldValues,
+            newValues: this.buildEmployeeAuditSnapshot(savedEmployee),
+            context,
+          },
+          manager,
+        );
+
         return savedEmployee.id;
       },
     );
@@ -2987,13 +3492,119 @@ export class EmployeesService {
     employeeId: number,
     changeEmployeeStatusDto: ChangeEmployeeStatusDto,
     actor: AuthenticatedUser,
+    context: AuditRequestContext = EMPTY_AUDIT_CONTEXT,
   ) {
+    const existingEmployee = await this.findEmployeeByIdOrFail(
+      companyId,
+      employeeId,
+    );
+    await this.hrAccessService.assertCanAccessEmployee(actor, existingEmployee);
+    this.employeeLifecycleService.assertTransition(
+      existingEmployee.employment_status,
+      changeEmployeeStatusDto.employment_status,
+      actor,
+    );
+
     if (
       changeEmployeeStatusDto.employment_status === EmploymentStatusEnum.ACTIVE
     ) {
       await this.assertAttendanceReady(companyId, employeeId);
     }
-    return this.update(companyId, employeeId, changeEmployeeStatusDto, actor);
+
+    const oldValues = {
+      employment_status: existingEmployee.employment_status,
+      exit_date: existingEmployee.exit_date,
+      exit_reason: existingEmployee.exit_reason,
+      notes: existingEmployee.notes,
+      status_changed_at: existingEmployee.status_changed_at,
+      status_changed_by_company_user_id:
+        existingEmployee.status_changed_by_company_user_id,
+    };
+
+    const updatedEmployeeId = await this.dataSource.transaction(
+      async (manager) => {
+        const employee = await this.getEmployeeRepository(manager).findOne({
+          where: { id: employeeId, company_id: companyId },
+        });
+
+        if (!employee) {
+          throw new NotFoundException('Employee not found');
+        }
+
+        const wasActive =
+          employee.employment_status === EmploymentStatusEnum.ACTIVE;
+        employee.employment_status = changeEmployeeStatusDto.employment_status;
+        employee.notes =
+          changeEmployeeStatusDto.notes !== undefined
+            ? this.normalizeOptionalString(changeEmployeeStatusDto.notes)
+            : employee.notes;
+        employee.status_changed_at = new Date();
+        employee.status_changed_by_company_user_id =
+          actor.companyMembershipId ?? null;
+
+        if (
+          [
+            EmploymentStatusEnum.RESIGNED,
+            EmploymentStatusEnum.TERMINATED,
+            EmploymentStatusEnum.RETIRED,
+            EmploymentStatusEnum.EXITED,
+          ].includes(employee.employment_status)
+        ) {
+          employee.exit_date =
+            changeEmployeeStatusDto.exit_date ??
+            changeEmployeeStatusDto.effective_date;
+          employee.exit_reason = this.normalizeOptionalString(
+            changeEmployeeStatusDto.exit_reason,
+          );
+        } else {
+          employee.exit_date = null;
+          employee.exit_reason = null;
+        }
+
+        const savedEmployee =
+          await this.getEmployeeRepository(manager).save(employee);
+
+        if (
+          !wasActive &&
+          savedEmployee.employment_status === EmploymentStatusEnum.ACTIVE
+        ) {
+          await this.initializeCurrentYearLeaveBalances(
+            companyId,
+            savedEmployee,
+            manager,
+          );
+        }
+
+        await this.securityEventsService.log(
+          {
+            eventType: SecurityEventType.EMPLOYEE_STATUS_CHANGED,
+            outcome: SecurityEventOutcome.SUCCESS,
+            actor,
+            companyId,
+            targetCompanyUserId: savedEmployee.company_user_id,
+            resourceType: 'employee',
+            resourceId: savedEmployee.id,
+            oldValues,
+            newValues: {
+              employment_status: savedEmployee.employment_status,
+              exit_date: savedEmployee.exit_date,
+              exit_reason: savedEmployee.exit_reason,
+              notes: savedEmployee.notes,
+              status_changed_at: savedEmployee.status_changed_at,
+              status_changed_by_company_user_id:
+                savedEmployee.status_changed_by_company_user_id,
+              effective_date: changeEmployeeStatusDto.effective_date,
+            },
+            context,
+          },
+          manager,
+        );
+
+        return savedEmployee.id;
+      },
+    );
+
+    return this.findOne(companyId, updatedEmployeeId, actor);
   }
 
   private async assertAttendanceReady(
@@ -3028,14 +3639,31 @@ export class EmployeesService {
     employeeId: number,
     addEmployeeDocumentDto: AddEmployeeDocumentDto,
     actor: AuthenticatedUser,
+    context: AuditRequestContext = EMPTY_AUDIT_CONTEXT,
   ) {
     const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
-    const storedFile = await this.filesService.saveBase64File(
+
+    const retentionUntil = addEmployeeDocumentDto.retention_until
+      ? new Date(addEmployeeDocumentDto.retention_until)
+      : null;
+    if (retentionUntil && Number.isNaN(retentionUntil.getTime())) {
+      throw new BadRequestException('retention_until must be a valid ISO date');
+    }
+    if (retentionUntil && retentionUntil <= new Date()) {
+      throw new BadRequestException(
+        'retention_until must be a future timestamp',
+      );
+    }
+
+    const storedFile = await this.filesService.savePrivateBase64File(
       addEmployeeDocumentDto.file,
       {
         directorySegments: ['documents', 'employees', `company-${companyId}`],
         fileNamePrefix: `employee-${employeeId}`,
+        allowedMimeTypes: [...HR_PRIVATE_DOCUMENT_MIME_TYPES],
+        maxFileSizeBytes: HR_PRIVATE_DOCUMENT_MAX_BYTES,
+        validateFileSignature: true,
       },
     );
 
@@ -3046,7 +3674,17 @@ export class EmployeesService {
         type: this.normalizeOptionalString(addEmployeeDocumentDto.type),
         title: this.normalizeOptionalString(addEmployeeDocumentDto.title),
         file_url: storedFile.publicPath,
+        original_file_name: storedFile.originalFileName,
+        mime_type: storedFile.mimeType,
+        file_size: String(storedFile.fileSize),
+        classification:
+          addEmployeeDocumentDto.classification?.trim().toUpperCase() ??
+          'PRIVATE',
         notes: this.normalizeOptionalString(addEmployeeDocumentDto.notes),
+        metadata: this.normalizeDocumentMetadata(
+          addEmployeeDocumentDto.metadata,
+        ),
+        retention_until: retentionUntil,
         uploaded_by_company_user_id: actor.companyMembershipId ?? null,
       }),
     );
@@ -3060,7 +3698,94 @@ export class EmployeesService {
       },
     });
 
+    await this.securityEventsService.logBestEffort({
+      eventType: SecurityEventType.EMPLOYEE_UPDATED,
+      outcome: SecurityEventOutcome.SUCCESS,
+      actor,
+      companyId,
+      targetUserId: actor.id,
+      resourceType: 'employee_document',
+      resourceId: savedDocument.id,
+      context,
+      metadata: {
+        action: 'employee_document_uploaded',
+        employee_id: employee.id,
+        classification: savedDocument.classification,
+      },
+    });
+
     return this.mapDocument(savedDocument);
+  }
+
+  async downloadDocument(
+    companyId: number,
+    employeeId: number,
+    documentId: number,
+    actor: AuthenticatedUser,
+    context: AuditRequestContext = EMPTY_AUDIT_CONTEXT,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    const document = await this.employeeDocumentRepository.findOne({
+      where: {
+        id: documentId,
+        employee_id: employee.id,
+      },
+    });
+
+    if (!document) {
+      throw new NotFoundException('Employee document not found');
+    }
+
+    if (this.isArchivedDocument(document)) {
+      throw new NotFoundException('Employee document has been archived');
+    }
+
+    if (document.retention_until && document.retention_until <= new Date()) {
+      throw new NotFoundException(
+        'Employee document is no longer available for download',
+      );
+    }
+
+    const buffer = await this.filesService.readManagedFile(document.file_url);
+
+    if (!buffer) {
+      throw new NotFoundException(
+        'Employee document file was not found in storage',
+      );
+    }
+
+    document.download_count = (document.download_count ?? 0) + 1;
+    document.last_downloaded_at = new Date();
+    document.last_downloaded_by_company_user_id =
+      actor.companyMembershipId ?? null;
+    await this.employeeDocumentRepository.save(document);
+
+    await this.securityEventsService.logBestEffort({
+      eventType: SecurityEventType.EMPLOYEE_DOCUMENT_DOWNLOADED,
+      outcome: SecurityEventOutcome.SUCCESS,
+      actor,
+      companyId,
+      targetUserId: actor.id,
+      resourceType: 'employee_document',
+      resourceId: document.id,
+      context,
+      metadata: {
+        employee_id: employee.id,
+        classification: document.classification,
+        download_count: document.download_count,
+      },
+    });
+
+    return {
+      buffer,
+      fileName:
+        document.original_file_name ??
+        document.title ??
+        `employee-document-${document.id}`,
+      mimeType: document.mime_type ?? 'application/octet-stream',
+    };
   }
 
   async removeDocument(
@@ -3083,8 +3808,21 @@ export class EmployeesService {
       throw new NotFoundException('Employee document not found');
     }
 
-    await this.employeeDocumentRepository.remove(document);
-    return { message: 'Employee document deleted successfully' };
+    if (this.isArchivedDocument(document)) {
+      return {
+        message:
+          'Employee document retained in historical records. Hard delete is disabled.',
+      };
+    }
+
+    document.notes = this.buildArchiveAuditNote(
+      ARCHIVED_DOCUMENT_NOTE_PREFIX,
+      actor,
+      document.notes,
+    );
+    await this.employeeDocumentRepository.save(document);
+
+    return { message: 'Employee document archived successfully' };
   }
 
   // ──────────────────────────────────────────────
@@ -3135,6 +3873,10 @@ export class EmployeesService {
       throw new NotFoundException('Employee contact not found');
     }
 
+    if (this.isArchivedContact(contact)) {
+      throw new NotFoundException('Employee contact has been archived');
+    }
+
     if (dto.contact_type !== undefined) contact.contact_type = dto.contact_type;
     if (dto.phone_number !== undefined)
       contact.phone_number = this.normalizeOptionalString(dto.phone_number);
@@ -3168,8 +3910,23 @@ export class EmployeesService {
       throw new NotFoundException('Employee contact not found');
     }
 
-    await repository.remove(contact);
-    return { message: 'Employee contact deleted successfully' };
+    if (this.isArchivedContact(contact)) {
+      return {
+        message:
+          'Employee contact retained in historical records. Hard delete is disabled.',
+      };
+    }
+
+    contact.is_primary = false;
+    contact.is_verified = false;
+    contact.notes = this.buildArchiveAuditNote(
+      ARCHIVED_CONTACT_NOTE_PREFIX,
+      actor,
+      contact.notes,
+    );
+
+    await repository.save(contact);
+    return { message: 'Employee contact archived successfully' };
   }
 
   // ──────────────────────────────────────────────
@@ -3222,6 +3979,10 @@ export class EmployeesService {
       throw new NotFoundException('Employee address not found');
     }
 
+    if (this.isArchivedAddress(address)) {
+      throw new NotFoundException('Employee address has been archived');
+    }
+
     if (dto.address_line_1 !== undefined)
       address.address_line_1 = this.normalizeOptionalString(dto.address_line_1);
     if (dto.address_line_2 !== undefined)
@@ -3259,8 +4020,22 @@ export class EmployeesService {
       throw new NotFoundException('Employee address not found');
     }
 
-    await repository.remove(address);
-    return { message: 'Employee address deleted successfully' };
+    if (this.isArchivedAddress(address)) {
+      return {
+        message:
+          'Employee address retained in historical records. Hard delete is disabled.',
+      };
+    }
+
+    address.address_line_1 = this.buildArchivedFieldValue(
+      ARCHIVED_ADDRESS_PREFIX,
+      address.address_line_1,
+      255,
+    );
+    address.is_primary = false;
+
+    await repository.save(address);
+    return { message: 'Employee address archived successfully' };
   }
 
   // ──────────────────────────────────────────────
@@ -3313,6 +4088,10 @@ export class EmployeesService {
       throw new NotFoundException('Employee relative not found');
     }
 
+    if (this.isArchivedRelative(relative)) {
+      throw new NotFoundException('Employee relative has been archived');
+    }
+
     if (dto.full_name !== undefined) relative.full_name = dto.full_name.trim();
     if (dto.relationship !== undefined)
       relative.relationship = dto.relationship.trim();
@@ -3351,8 +4130,23 @@ export class EmployeesService {
       throw new NotFoundException('Employee relative not found');
     }
 
-    await repository.remove(relative);
-    return { message: 'Employee relative deleted successfully' };
+    if (this.isArchivedRelative(relative)) {
+      return {
+        message:
+          'Employee relative retained in historical records. Hard delete is disabled.',
+      };
+    }
+
+    relative.relationship = this.buildArchivedFieldValue(
+      ARCHIVED_RELATIVE_PREFIX,
+      relative.relationship,
+      100,
+    );
+    relative.is_primary = false;
+    relative.is_emergency_contact = false;
+
+    await repository.save(relative);
+    return { message: 'Employee relative archived successfully' };
   }
 
   // ──────────────────────────────────────────────
@@ -3375,8 +4169,14 @@ export class EmployeesService {
         identification_type: dto.identification_type,
         identification_number: dto.identification_number.trim(),
         issued_country: this.normalizeOptionalString(dto.issued_country),
+        issue_date: dto.issue_date ?? null,
+        issuing_authority: this.normalizeOptionalString(dto.issuing_authority),
+        document_url: this.normalizeOptionalString(dto.document_url),
         expiry_date: dto.expiry_date ?? null,
         is_primary: dto.is_primary ?? false,
+        is_verified: false,
+        verified_at: null,
+        verified_by_company_user_id: null,
       }),
     );
 
@@ -3402,6 +4202,10 @@ export class EmployeesService {
       throw new NotFoundException('Employee identification not found');
     }
 
+    if (this.isArchivedIdentification(identification)) {
+      throw new NotFoundException('Employee identification has been archived');
+    }
+
     if (dto.identification_type !== undefined)
       identification.identification_type = dto.identification_type;
     if (dto.identification_number !== undefined)
@@ -3409,6 +4213,16 @@ export class EmployeesService {
     if (dto.issued_country !== undefined)
       identification.issued_country = this.normalizeOptionalString(
         dto.issued_country,
+      );
+    if (dto.issue_date !== undefined)
+      identification.issue_date = dto.issue_date;
+    if (dto.issuing_authority !== undefined)
+      identification.issuing_authority = this.normalizeOptionalString(
+        dto.issuing_authority,
+      );
+    if (dto.document_url !== undefined)
+      identification.document_url = this.normalizeOptionalString(
+        dto.document_url,
       );
     if (dto.expiry_date !== undefined)
       identification.expiry_date = dto.expiry_date ?? null;
@@ -3437,8 +4251,26 @@ export class EmployeesService {
       throw new NotFoundException('Employee identification not found');
     }
 
-    await repository.remove(identification);
-    return { message: 'Employee identification deleted successfully' };
+    if (this.isArchivedIdentification(identification)) {
+      return {
+        message:
+          'Employee identification retained in historical records. Hard delete is disabled.',
+      };
+    }
+
+    identification.identification_number = this.buildArchivedUniqueFieldValue(
+      ARCHIVED_IDENTIFICATION_PREFIX,
+      String(identification.id),
+      identification.identification_number,
+      120,
+    );
+    identification.is_primary = false;
+    identification.is_verified = false;
+    identification.verified_at = null;
+    identification.verified_by_company_user_id = null;
+
+    await repository.save(identification);
+    return { message: 'Employee identification archived successfully' };
   }
 
   // ──────────────────────────────────────────────
@@ -3464,10 +4296,23 @@ export class EmployeesService {
           this.normalizeOptionalString(dto.account_name) ?? employeeName,
         account_number: dto.account_number.trim(),
         branch_name: this.normalizeOptionalString(dto.branch_name),
+        bank_code:
+          this.normalizeOptionalString(dto.bank_code)?.toUpperCase() ?? null,
+        bank_branch_code: this.normalizeOptionalString(dto.bank_branch_code),
+        account_currency:
+          this.normalizeOptionalString(dto.account_currency)?.toUpperCase() ??
+          'TZS',
+        account_type: this.normalizeOptionalString(dto.account_type),
         swift_code: this.normalizeOptionalString(dto.swift_code),
         mobile_money_provider: this.normalizeOptionalString(
           dto.mobile_money_provider,
         ),
+        verification_status:
+          this.normalizeOptionalString(
+            dto.verification_status,
+          )?.toUpperCase() ?? 'PENDING',
+        effective_from: this.normalizeOptionalString(dto.effective_from),
+        effective_to: this.normalizeOptionalString(dto.effective_to),
         is_primary: dto.is_primary ?? false,
       }),
     );
@@ -3494,6 +4339,10 @@ export class EmployeesService {
       throw new NotFoundException('Employee bank account not found');
     }
 
+    if (this.isArchivedBankAccount(bankAccount)) {
+      throw new NotFoundException('Employee bank account has been archived');
+    }
+
     if (dto.bank_name !== undefined)
       bankAccount.bank_name = this.normalizeOptionalString(dto.bank_name);
     if (dto.account_name !== undefined)
@@ -3502,12 +4351,41 @@ export class EmployeesService {
       bankAccount.account_number = dto.account_number.trim();
     if (dto.branch_name !== undefined)
       bankAccount.branch_name = this.normalizeOptionalString(dto.branch_name);
+    if (dto.bank_code !== undefined)
+      bankAccount.bank_code =
+        this.normalizeOptionalString(dto.bank_code)?.toUpperCase() ?? null;
+    if (dto.bank_branch_code !== undefined)
+      bankAccount.bank_branch_code = this.normalizeOptionalString(
+        dto.bank_branch_code,
+      );
+    if (dto.account_currency !== undefined)
+      bankAccount.account_currency =
+        this.normalizeOptionalString(dto.account_currency)?.toUpperCase() ??
+        'TZS';
+    if (dto.account_type !== undefined)
+      bankAccount.account_type = this.normalizeOptionalString(dto.account_type);
     if (dto.swift_code !== undefined)
       bankAccount.swift_code = this.normalizeOptionalString(dto.swift_code);
     if (dto.mobile_money_provider !== undefined)
       bankAccount.mobile_money_provider = this.normalizeOptionalString(
         dto.mobile_money_provider,
       );
+    if (dto.verification_status !== undefined) {
+      bankAccount.verification_status =
+        this.normalizeOptionalString(dto.verification_status)?.toUpperCase() ??
+        'PENDING';
+      if (bankAccount.verification_status === 'VERIFIED') {
+        bankAccount.verified_at = new Date();
+        bankAccount.verified_by_company_user_id =
+          actor.companyMembershipId ?? null;
+      }
+    }
+    if (dto.effective_from !== undefined)
+      bankAccount.effective_from = this.normalizeOptionalString(
+        dto.effective_from,
+      );
+    if (dto.effective_to !== undefined)
+      bankAccount.effective_to = this.normalizeOptionalString(dto.effective_to);
     if (dto.is_primary !== undefined) bankAccount.is_primary = dto.is_primary;
 
     const saved = await repository.save(bankAccount);
@@ -3532,8 +4410,20 @@ export class EmployeesService {
       throw new NotFoundException('Employee bank account not found');
     }
 
-    await repository.remove(bankAccount);
-    return { message: 'Employee bank account deleted successfully' };
+    if (this.isArchivedBankAccount(bankAccount)) {
+      return {
+        message:
+          'Employee bank account retained in historical records. Hard delete is disabled.',
+      };
+    }
+
+    bankAccount.verification_status = ARCHIVED_BANK_ACCOUNT_STATUS;
+    bankAccount.is_primary = false;
+    bankAccount.effective_to =
+      bankAccount.effective_to ?? formatDateOnly(new Date());
+
+    await repository.save(bankAccount);
+    return { message: 'Employee bank account archived successfully' };
   }
 
   async listAcademicQualifications(
@@ -3555,9 +4445,11 @@ export class EmployeesService {
       order: { id: 'ASC' },
     });
 
-    return qualifications.map((qualification) =>
-      this.mapAcademicQualification(qualification),
-    );
+    return qualifications
+      .filter(
+        (qualification) => !this.isArchivedAcademicQualification(qualification),
+      )
+      .map((qualification) => this.mapAcademicQualification(qualification));
   }
 
   async addAcademicQualification(
@@ -3628,6 +4520,12 @@ export class EmployeesService {
       throw new NotFoundException('Employee academic qualification not found');
     }
 
+    if (this.isArchivedAcademicQualification(qualification)) {
+      throw new NotFoundException(
+        'Employee academic qualification has been archived',
+      );
+    }
+
     if (dto.country_of_residence !== undefined) {
       qualification.country_of_residence = dto.country_of_residence.trim();
     }
@@ -3684,8 +4582,21 @@ export class EmployeesService {
       throw new NotFoundException('Employee academic qualification not found');
     }
 
-    await repository.remove(qualification);
-    return { message: 'Employee academic qualification deleted successfully' };
+    if (this.isArchivedAcademicQualification(qualification)) {
+      return {
+        message:
+          'Employee academic qualification retained in historical records. Hard delete is disabled.',
+      };
+    }
+
+    qualification.field_of_study = this.buildArchivedFieldValue(
+      ARCHIVED_ACADEMIC_QUALIFICATION_PREFIX,
+      qualification.field_of_study,
+      150,
+    );
+
+    await repository.save(qualification);
+    return { message: 'Employee academic qualification archived successfully' };
   }
 
   async listProfessionalQualifications(
@@ -3707,9 +4618,12 @@ export class EmployeesService {
       order: { id: 'ASC' },
     });
 
-    return qualifications.map((qualification) =>
-      this.mapProfessionalQualification(qualification),
-    );
+    return qualifications
+      .filter(
+        (qualification) =>
+          !this.isArchivedProfessionalQualification(qualification),
+      )
+      .map((qualification) => this.mapProfessionalQualification(qualification));
   }
 
   async addProfessionalQualification(
@@ -3783,6 +4697,12 @@ export class EmployeesService {
       );
     }
 
+    if (this.isArchivedProfessionalQualification(qualification)) {
+      throw new NotFoundException(
+        'Employee professional qualification has been archived',
+      );
+    }
+
     if (dto.country_of_residence !== undefined) {
       qualification.country_of_residence = dto.country_of_residence.trim();
     }
@@ -3840,9 +4760,22 @@ export class EmployeesService {
       );
     }
 
-    await repository.remove(qualification);
+    if (this.isArchivedProfessionalQualification(qualification)) {
+      return {
+        message:
+          'Employee professional qualification retained in historical records. Hard delete is disabled.',
+      };
+    }
+
+    qualification.programme_name = this.buildArchivedFieldValue(
+      ARCHIVED_PROFESSIONAL_QUALIFICATION_PREFIX,
+      qualification.programme_name,
+      150,
+    );
+
+    await repository.save(qualification);
     return {
-      message: 'Employee professional qualification deleted successfully',
+      message: 'Employee professional qualification archived successfully',
     };
   }
 
@@ -3860,9 +4793,12 @@ export class EmployeesService {
       order: { start_date: 'DESC', id: 'DESC' },
     });
 
-    return experienceDetails.map((experienceDetail) =>
-      this.mapExperienceDetail(experienceDetail),
-    );
+    return experienceDetails
+      .filter(
+        (experienceDetail) =>
+          !this.isArchivedExperienceDetail(experienceDetail),
+      )
+      .map((experienceDetail) => this.mapExperienceDetail(experienceDetail));
   }
 
   async addExperienceDetail(
@@ -3926,6 +4862,12 @@ export class EmployeesService {
       throw new NotFoundException('Employee experience detail not found');
     }
 
+    if (this.isArchivedExperienceDetail(experienceDetail)) {
+      throw new NotFoundException(
+        'Employee experience detail has been archived',
+      );
+    }
+
     if (dto.company_name !== undefined) {
       experienceDetail.company_name = dto.company_name.trim();
     }
@@ -3986,18 +4928,61 @@ export class EmployeesService {
       throw new NotFoundException('Employee experience detail not found');
     }
 
-    await repository.remove(experienceDetail);
-    return { message: 'Employee experience detail deleted successfully' };
+    if (this.isArchivedExperienceDetail(experienceDetail)) {
+      return {
+        message:
+          'Employee experience detail retained in historical records. Hard delete is disabled.',
+      };
+    }
+
+    experienceDetail.job_title = this.buildArchivedFieldValue(
+      ARCHIVED_EXPERIENCE_PREFIX,
+      experienceDetail.job_title,
+      150,
+    );
+    experienceDetail.currently_working = false;
+    experienceDetail.end_date =
+      experienceDetail.end_date ?? formatDateOnly(new Date());
+
+    await repository.save(experienceDetail);
+    return { message: 'Employee experience detail archived successfully' };
   }
 
   async remove(
     companyId: number,
     employeeId: number,
     actor: AuthenticatedUser,
+    context: AuditRequestContext = EMPTY_AUDIT_CONTEXT,
   ): Promise<{ message: string }> {
     const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
-    await this.employeeRepository.remove(employee);
-    return { message: 'Employee deleted successfully' };
+
+    if (
+      [
+        EmploymentStatusEnum.INACTIVE,
+        EmploymentStatusEnum.RESIGNED,
+        EmploymentStatusEnum.TERMINATED,
+        EmploymentStatusEnum.RETIRED,
+        EmploymentStatusEnum.EXITED,
+      ].includes(employee.employment_status)
+    ) {
+      return {
+        message:
+          'Employee retained in historical records. Hard delete is disabled.',
+      };
+    }
+
+    await this.changeStatus(
+      companyId,
+      employeeId,
+      {
+        employment_status: EmploymentStatusEnum.INACTIVE,
+        effective_date: formatDateOnly(new Date()),
+      },
+      actor,
+      context,
+    );
+
+    return { message: 'Employee archived successfully' };
   }
 }

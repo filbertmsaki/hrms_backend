@@ -13,9 +13,11 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
+import { CurrentAuditContext } from '../../common/decorators/audit-request-context.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { PlatformGuard } from '../../common/guards/platform.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import type { AuditRequestContext } from '../../common/interfaces/audit-request-context.interface';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { CreatePermissionDto } from './dtos/create-permission.dto';
 import { UpdatePermissionDto } from './dtos/update-permission.dto';
@@ -41,9 +43,14 @@ export class PermissionsController {
   @ApiCreateOperation('Permission', 'Create a new permission in platform scope')
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
     @Body() createPermissionDto: CreatePermissionDto,
   ) {
-    return this.permissionsService.create(createPermissionDto, req.user);
+    return this.permissionsService.create(
+      createPermissionDto,
+      req.user,
+      context,
+    );
   }
 
   @Get()
@@ -74,10 +81,16 @@ export class PermissionsController {
   @ApiUpdateOperation('Permission', 'Update a permission in platform scope')
   update(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
     @Param('id', ParseIntPipe) id: number,
     @Body() updatePermissionDto: UpdatePermissionDto,
   ) {
-    return this.permissionsService.update(id, updatePermissionDto, req.user);
+    return this.permissionsService.update(
+      id,
+      updatePermissionDto,
+      req.user,
+      context,
+    );
   }
 
   @Delete(':id')
@@ -86,8 +99,9 @@ export class PermissionsController {
   @ApiDeleteOperation('Permission', 'Delete a permission in platform scope')
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.permissionsService.remove(id, req.user);
+    return this.permissionsService.remove(id, req.user, context);
   }
 }

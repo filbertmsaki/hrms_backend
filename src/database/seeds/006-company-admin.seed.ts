@@ -53,8 +53,12 @@ export default class CompanyAdminSeeder implements Seeder {
       const phone = process.env.COMPANY_ADMIN_PHONE ?? '+255700000002';
       const firstName = process.env.COMPANY_ADMIN_FIRST_NAME ?? 'System';
       const lastName = process.env.COMPANY_ADMIN_LAST_NAME ?? 'Administrator';
-      const rawPassword = process.env.COMPANY_ADMIN_PASSWORD ?? 'Admin123!';
+      const rawPassword = process.env.COMPANY_ADMIN_PASSWORD;
       const userNo = process.env.COMPANY_ADMIN_USER_NO ?? 'ADM-00001';
+
+      if (!rawPassword?.trim()) {
+        throw new Error('COMPANY_ADMIN_PASSWORD must be set before seeding.');
+      }
 
       let user =
         (await userRepo.findOne({ where: { email }, relations: ['roles'] })) ??
@@ -67,7 +71,7 @@ export default class CompanyAdminSeeder implements Seeder {
           last_name: lastName,
           email,
           phone,
-          password: await hashPassword(rawPassword),
+          password: await hashPassword(rawPassword.trim()),
           user_type: 'COMPANY_USER',
           status: 'active',
           is_email_verified: true,

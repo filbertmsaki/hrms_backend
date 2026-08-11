@@ -3,7 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { MailService } from './mail.service';
 import {
   LeaveApprovedEvent,
+  OffboardingAssetOverdueEvent,
   OffboardingClearanceRequiredEvent,
+  OffboardingSettlementOverdueEvent,
   OnboardingTaskAssignedEvent,
 } from '../hr/notifications/events';
 
@@ -140,6 +142,82 @@ describe('MailService', () => {
           employeeName: 'Amina John',
           clearanceType: 'system_access',
           clearanceUrl: 'http://localhost:5173/offboarding/4/clearances',
+        }) as unknown,
+      }),
+    );
+  });
+
+  it('sends the offboarding asset-overdue template using owner data from the event', async () => {
+    const event = new OffboardingAssetOverdueEvent(
+      1,
+      4,
+      15,
+      'Dell Latitude 5440',
+      'Amina John',
+      7,
+      'John HR',
+      'john@example.com',
+      new Date('2026-08-01T09:00:00.000Z'),
+      '2026-08-05',
+      'http://localhost:5173/offboarding/4/assets',
+    );
+
+    await service.sendOffboardingAssetOverdueNotification(
+      event.ownerEmail!,
+      event,
+    );
+
+    expect(mailerService.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'john@example.com',
+        template: 'hr-offboarding-asset-overdue',
+        mailSafetyContext: {
+          sourceModule:
+            'HrNotificationListener.sendOffboardingAssetOverdueNotification',
+        },
+        context: expect.objectContaining({
+          ownerName: 'John HR',
+          employeeName: 'Amina John',
+          assetLabel: 'Dell Latitude 5440',
+          assetUrl: 'http://localhost:5173/offboarding/4/assets',
+        }) as unknown,
+      }),
+    );
+  });
+
+  it('sends the offboarding settlement-overdue template using owner data from the event', async () => {
+    const event = new OffboardingSettlementOverdueEvent(
+      1,
+      4,
+      16,
+      'Laptop replacement deduction',
+      'Amina John',
+      8,
+      'Jane Finance',
+      'finance@example.com',
+      new Date('2026-08-02T09:00:00.000Z'),
+      '2026-08-05',
+      'http://localhost:5173/offboarding/4/settlements',
+    );
+
+    await service.sendOffboardingSettlementOverdueNotification(
+      event.ownerEmail!,
+      event,
+    );
+
+    expect(mailerService.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'finance@example.com',
+        template: 'hr-offboarding-settlement-overdue',
+        mailSafetyContext: {
+          sourceModule:
+            'HrNotificationListener.sendOffboardingSettlementOverdueNotification',
+        },
+        context: expect.objectContaining({
+          ownerName: 'Jane Finance',
+          employeeName: 'Amina John',
+          settlementTitle: 'Laptop replacement deduction',
+          settlementUrl: 'http://localhost:5173/offboarding/4/settlements',
         }) as unknown,
       }),
     );

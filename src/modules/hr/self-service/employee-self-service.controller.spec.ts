@@ -5,7 +5,11 @@ jest.mock('digest-fetch', () => ({
   default: jest.fn(),
 }));
 import { EmployeeSelfServiceController } from './employee-self-service.controller';
+import { ProfileChangeRequestsService } from './profile-change-requests.service';
 import { EmployeeSelfServiceService } from './employee-self-service.service';
+import { NotificationPreferencesService } from '../../notifications/notification-preferences.service';
+import { ProbationService } from '../probation/probation.service';
+import { EmployeeMovementsService } from '../employee-movements/employee-movements.service';
 
 describe('EmployeeSelfServiceController', () => {
   let controller: EmployeeSelfServiceController;
@@ -14,6 +18,23 @@ describe('EmployeeSelfServiceController', () => {
     getProfile: jest.Mock;
     getProfilePhoto: jest.Mock;
     getStatus: jest.Mock;
+    selectProfileAvatar: jest.Mock;
+  };
+  let profileChangeRequestsService: {
+    createProfilePhotoRequest: jest.Mock;
+  };
+  let notificationPreferencesService: {
+    findMine: jest.Mock;
+    setPreference: jest.Mock;
+  };
+  let probationService: {
+    getMyProbation: jest.Mock;
+    submitSelfAssessment: jest.Mock;
+  };
+  let employeeMovementsService: {
+    findMyMovements: jest.Mock;
+    findMyMovement: jest.Mock;
+    acknowledgeMyMovement: jest.Mock;
   };
 
   const user: AuthenticatedUser = {
@@ -35,10 +56,31 @@ describe('EmployeeSelfServiceController', () => {
       getProfile: jest.fn(),
       getProfilePhoto: jest.fn(),
       getStatus: jest.fn(),
+      selectProfileAvatar: jest.fn(),
+    };
+    profileChangeRequestsService = {
+      createProfilePhotoRequest: jest.fn(),
+    };
+    notificationPreferencesService = {
+      findMine: jest.fn(),
+      setPreference: jest.fn(),
+    };
+    probationService = {
+      getMyProbation: jest.fn(),
+      submitSelfAssessment: jest.fn(),
+    };
+    employeeMovementsService = {
+      findMyMovements: jest.fn(),
+      findMyMovement: jest.fn(),
+      acknowledgeMyMovement: jest.fn(),
     };
 
     controller = new EmployeeSelfServiceController(
       employeeSelfServiceService as unknown as EmployeeSelfServiceService,
+      profileChangeRequestsService as unknown as ProfileChangeRequestsService,
+      notificationPreferencesService as unknown as NotificationPreferencesService,
+      probationService as unknown as ProbationService,
+      employeeMovementsService as unknown as EmployeeMovementsService,
     );
   });
 
@@ -234,6 +276,24 @@ describe('EmployeeSelfServiceController', () => {
       result.leave.recent_requests[0].approvals[0].approver.profile_photo_url,
     ).toBe(
       'http://localhost:3000/uploads/profile-photos/company-7/employee-31-avatar.png',
+    );
+  });
+
+  it('routes default avatar selection through the immediate self-service service', async () => {
+    employeeSelfServiceService.selectProfileAvatar.mockResolvedValue({
+      profile_photo_url: '/uploads/default-avatars/company-7/avatar-8.png',
+    });
+
+    await controller.selectProfileAvatar(
+      {
+        user,
+      } as unknown as ExpressRequest & { user: AuthenticatedUser },
+      { default_avatar_id: 8 },
+    );
+
+    expect(employeeSelfServiceService.selectProfileAvatar).toHaveBeenCalledWith(
+      user,
+      { default_avatar_id: 8 },
     );
   });
 });

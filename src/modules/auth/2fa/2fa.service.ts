@@ -3,6 +3,7 @@ import {
   Injectable,
   BadRequestException,
   ForbiddenException,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -10,7 +11,13 @@ import { generateSecret, generateURI, verify } from 'otplib';
 import * as qrcode from 'qrcode';
 import * as crypto from 'crypto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import type { AuditRequestContext } from '../../../common/interfaces/audit-request-context.interface';
 import { CompaniesService } from '../../companies/companies.service';
+import { SecurityEventOutcome } from '../../security/enums/security-event-outcome.enum';
+import { SecurityEventType } from '../../security/enums/security-event-type.enum';
+import { SecurityEventsService } from '../../security/security-events.service';
+import { NotificationQueueService } from '../../notifications/notification-queue.service';
+import { SmsNotificationManagementService } from '../../sms/sms-notification-management.service';
 import { UsersService } from '../../users/users.service';
 import { UserTwoFactorAuditService } from '../../users/services/user-two-factor-audit.service';
 import { decryptTwoFactorSecret } from './utils/two-factor-secret.util';
@@ -22,11 +29,16 @@ type AuditContext = {
 
 @Injectable()
 export class TwoFaService {
+  private readonly logger = new Logger(TwoFaService.name);
+
   constructor(
     private usersService: UsersService,
     private configService: ConfigService,
     private companiesService: CompaniesService,
     private userTwoFactorAuditService: UserTwoFactorAuditService,
+    private readonly securityEventsService: SecurityEventsService,
+    private readonly smsNotificationManagementService: SmsNotificationManagementService,
+    private readonly notificationQueueService: NotificationQueueService,
   ) {}
 
   private normalizeCode(code: string): string {
@@ -110,7 +122,11 @@ export class TwoFaService {
     };
   }
 
-  async verifyAndActivate2FA(userId: number, token: string) {
+  async verifyAndActivate2FA(
+    userId: number,
+    token: string,
+    context?: AuditRequestContext | null,
+  ) {
     const user = await this.usersService.findByIdWithTwoFactor(userId);
     if (!user) throw new BadRequestException('User not found');
 
@@ -148,6 +164,32 @@ export class TwoFaService {
     );
 
     await this.usersService.complete2FASetup(userId, decryptedSecret, hashed);
+    await this.securityEventsService.logBestEffort({
+      eventType: SecurityEventType.TWO_FACTOR_ENABLED,
+      outcome: SecurityEventOutcome.SUCCESS,
+      targetUserId: user.id,
+      resourceType: 'user_2fa',
+      resourceId: user.id,
+      newValues: {
+        is_two_factor_enabled: true,
+        two_factor_setup_required: false,
+      },
+      context,
+    });
+
+    this.sendSmsNotificationBestEffort({
+      code: 'auth.two_factor.enabled',
+      module: 'auth',
+      recipientPhone: user.phone ?? null,
+      relatedEntityType: 'USER',
+      relatedEntityId: user.id,
+      variables: {
+        first_name: user.first_name,
+        last_name: user.last_name,
+        email: user.email,
+      },
+      context: context ?? null,
+    });
 
     const formattedBackupCodes = this.formatBackupCodes(backupCodes);
 
@@ -204,7 +246,11 @@ export class TwoFaService {
     throw new UnauthorizedException('Invalid 2FA code');
   }
 
-  async disable2FA(userId: number, token: string) {
+  async disable2FA(
+    userId: number,
+    token: string,
+    context?: AuditRequestContext | null,
+  ) {
     const user = await this.usersService.findByIdWithTwoFactor(userId);
     if (!user || !user.is_two_factor_enabled) {
       throw new BadRequestException('2FA is not enabled');
@@ -221,6 +267,36 @@ export class TwoFaService {
 
     await this.usersService.disable2FA(userId);
     await this.usersService.markAuthTokensInvalidBefore(userId, new Date());
+    await this.securityEventsService.logBestEffort({
+      eventType: SecurityEventType.TWO_FACTOR_DISABLED,
+      outcome: SecurityEventOutcome.SUCCESS,
+      targetUserId: user.id,
+      resourceType: 'user_2fa',
+      resourceId: user.id,
+      oldValues: {
+        is_two_factor_enabled: true,
+        two_factor_setup_required: false,
+      },
+      newValues: {
+        is_two_factor_enabled: false,
+        two_factor_setup_required: false,
+      },
+      context,
+    });
+
+    this.sendSmsNotificationBestEffort({
+      code: 'auth.two_factor.disabled',
+      module: 'auth',
+      recipientPhone: user.phone ?? null,
+      relatedEntityType: 'USER',
+      relatedEntityId: user.id,
+      variables: {
+        first_name: user.first_name,
+        last_name: user.last_name,
+        email: user.email,
+      },
+      context: context ?? null,
+    });
 
     return { message: '2FA successfully disabled' };
   }
@@ -302,6 +378,43 @@ export class TwoFaService {
       payload: {
         target_user_no: user.user_no,
         two_factor_setup_required: true,
+      },
+    });
+    await this.securityEventsService.logBestEffort({
+      eventType: SecurityEventType.TWO_FACTOR_ENABLED,
+      outcome: SecurityEventOutcome.SUCCESS,
+      actor,
+      companyId,
+      targetUserId: user.id,
+      resourceType: 'user_2fa',
+      resourceId: user.id,
+      newValues: {
+        is_two_factor_enabled: true,
+        two_factor_setup_required: true,
+      },
+      context: {
+        ipAddress: auditContext.ipAddress ?? null,
+        userAgent: auditContext.userAgent ?? null,
+        requestId: null,
+      },
+    });
+
+    this.sendSmsNotificationBestEffort({
+      code: 'auth.two_factor.enabled',
+      module: 'auth',
+      recipientPhone: user.phone ?? null,
+      relatedEntityType: 'USER',
+      relatedEntityId: user.id,
+      actor,
+      variables: {
+        first_name: user.first_name,
+        last_name: user.last_name,
+        email: user.email,
+      },
+      context: {
+        ipAddress: auditContext.ipAddress ?? null,
+        userAgent: auditContext.userAgent ?? null,
+        requestId: null,
       },
     });
 
@@ -395,6 +508,48 @@ export class TwoFaService {
         sessions_revoked: true,
       },
     });
+    await this.securityEventsService.logBestEffort({
+      eventType: SecurityEventType.TWO_FACTOR_DISABLED,
+      outcome: SecurityEventOutcome.SUCCESS,
+      actor,
+      companyId,
+      targetUserId: user.id,
+      resourceType: 'user_2fa',
+      resourceId: user.id,
+      reason: normalizedReason,
+      oldValues: {
+        is_two_factor_enabled: user.is_two_factor_enabled,
+        two_factor_setup_required: user.two_factor_setup_required,
+      },
+      newValues: {
+        is_two_factor_enabled: false,
+        two_factor_setup_required: false,
+      },
+      context: {
+        ipAddress: auditContext.ipAddress ?? null,
+        userAgent: auditContext.userAgent ?? null,
+        requestId: null,
+      },
+    });
+
+    this.sendSmsNotificationBestEffort({
+      code: 'auth.two_factor.disabled',
+      module: 'auth',
+      recipientPhone: user.phone ?? null,
+      relatedEntityType: 'USER',
+      relatedEntityId: user.id,
+      actor,
+      variables: {
+        first_name: user.first_name,
+        last_name: user.last_name,
+        email: user.email,
+      },
+      context: {
+        ipAddress: auditContext.ipAddress ?? null,
+        userAgent: auditContext.userAgent ?? null,
+        requestId: null,
+      },
+    });
 
     return {
       success: true,
@@ -405,5 +560,27 @@ export class TwoFaService {
         twoFactorSetupRequired: false,
       },
     };
+  }
+
+  private sendSmsNotificationBestEffort(input: {
+    code: string;
+    module: string;
+    recipientPhone?: string | null;
+    relatedEntityType?: string | null;
+    relatedEntityId?: string | number | null;
+    actor?: AuthenticatedUser | null;
+    variables?: Record<string, unknown>;
+    context?: AuditRequestContext | null;
+  }): void {
+    void this.notificationQueueService.enqueueSmsConfiguredNotification({
+      code: input.code,
+      module: input.module,
+      recipientPhone: input.recipientPhone ?? null,
+      relatedEntityType: input.relatedEntityType ?? null,
+      relatedEntityId: input.relatedEntityId ?? null,
+      actor: input.actor ?? null,
+      variables: input.variables,
+      context: input.context ?? null,
+    });
   }
 }

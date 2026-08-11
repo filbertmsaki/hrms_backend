@@ -1,3 +1,5 @@
+process.env.DB_NAME = process.env.DB_NAME ?? 'hrms_test_db';
+
 const e2eUser = {
   id: 9,
   email: 'tester@example.com',
@@ -47,11 +49,15 @@ import { LeaveApprovalWorkflow } from '../src/modules/hr/leave/entities/leave-ap
 import { LeaveApprovalWorkflowStep } from '../src/modules/hr/leave/entities/leave-approval-workflow-step.entity';
 import { LeaveMedicalDetail } from '../src/modules/hr/leave/entities/leave-medical-detail.entity';
 import { LeaveDocument } from '../src/modules/hr/leave/entities/leave-document.entity';
+import { LeaveNumberSequence } from '../src/modules/hr/leave/entities/leave-number-sequence.entity';
 import { Holiday } from '../src/modules/hr/leave/entities/holiday.entity';
 import { Employee } from '../src/modules/hr/employees/entities/employee.entity';
 import { Branch } from '../src/modules/hr/branches/entities/branch.entity';
 import { Department } from '../src/modules/hr/departments/entities/department.entity';
+import { EmployeeGrade } from '../src/modules/hr/grades/entities/employee-grade.entity';
 import { Position } from '../src/modules/hr/positions/entities/position.entity';
+import { LeaveDurationCalculatorService } from '../src/modules/hr/leave/services/leave-duration-calculator.service';
+import { SecurityEventsService } from '../src/modules/security/security-events.service';
 import { CompanyUser } from '../src/modules/companies/entities/company-user.entity';
 import { Role } from '../src/modules/roles/entities/role.entity';
 import { LeaveAuditService } from '../src/modules/hr/leave/services/leave-audit.service';
@@ -69,6 +75,7 @@ import { LeaveRecordStatusEnum } from '../src/modules/hr/leave/enums/leave-recor
 import { LeaveGenderRestrictionEnum } from '../src/modules/hr/leave/enums/leave-gender-restriction.enum';
 import { LeaveBalanceLedgerService } from '../src/modules/hr/leave/services/leave-balance-ledger.service';
 import { FilesService } from '../src/modules/files/files.service';
+import { PositionAvailabilityService } from '../src/modules/hr/shared/position-availability.service';
 
 type MockRepo = Record<string, jest.Mock>;
 
@@ -97,6 +104,7 @@ describe('Leave Flow (e2e)', () => {
   let app: INestApplication;
   let dataSource: { transaction: jest.Mock; getRepository: jest.Mock };
   let leaveTypeRepository: MockRepo;
+  let leaveNumberSequenceRepository: MockRepo;
   let leavePolicyRepository: MockRepo;
   let leaveBalanceRepository: MockRepo;
   let leaveRequestRepository: MockRepo;
@@ -120,6 +128,10 @@ describe('Leave Flow (e2e)', () => {
     hasCompanyWideBranchAccess: jest.Mock;
   };
   let leaveAuditService: { log: jest.Mock };
+  let positionAvailabilityService: {
+    isPositionAvailableForBranch: jest.Mock;
+    isPositionAvailableForDepartment: jest.Mock;
+  };
   let leaveBalanceService: {
     toDecimal: jest.Mock;
     toNumber: jest.Mock;
@@ -158,6 +170,7 @@ describe('Leave Flow (e2e)', () => {
       getRepository: jest.fn(),
     };
     leaveTypeRepository = createRepositoryMock();
+    leaveNumberSequenceRepository = createRepositoryMock();
     leavePolicyRepository = createRepositoryMock();
     leaveBalanceRepository = createRepositoryMock();
     leaveRequestRepository = createRepositoryMock();
@@ -182,6 +195,10 @@ describe('Leave Flow (e2e)', () => {
     };
     leaveAuditService = {
       log: jest.fn(),
+    };
+    positionAvailabilityService = {
+      isPositionAvailableForBranch: jest.fn().mockResolvedValue(true),
+      isPositionAvailableForDepartment: jest.fn().mockResolvedValue(true),
     };
     leaveBalanceService = {
       toDecimal: jest.fn((value: number) => value.toFixed(2)),
@@ -231,6 +248,10 @@ describe('Leave Flow (e2e)', () => {
           useValue: leavePolicyRepository,
         },
         {
+          provide: getRepositoryToken(LeaveNumberSequence),
+          useValue: leaveNumberSequenceRepository,
+        },
+        {
           provide: getRepositoryToken(LeaveBalance),
           useValue: leaveBalanceRepository,
         },
@@ -269,6 +290,10 @@ describe('Leave Flow (e2e)', () => {
           provide: getRepositoryToken(Department),
           useValue: departmentRepository,
         },
+        {
+          provide: getRepositoryToken(EmployeeGrade),
+          useValue: createRepositoryMock(),
+        },
         { provide: getRepositoryToken(Position), useValue: positionRepository },
         {
           provide: getRepositoryToken(CompanyUser),
@@ -280,17 +305,47 @@ describe('Leave Flow (e2e)', () => {
           useValue: attendanceRecalculationJobRepository,
         },
         { provide: HrAccessService, useValue: hrAccessService },
+        {
+          provide: PositionAvailabilityService,
+          useValue: positionAvailabilityService,
+        },
         { provide: LeaveAuditService, useValue: leaveAuditService },
         { provide: LeaveBalanceService, useValue: leaveBalanceService },
         {
           provide: LeaveBalanceLedgerService,
           useValue: leaveBalanceLedgerService,
         },
+        {
+          provide: LeaveDurationCalculatorService,
+          useValue: {
+            calculate: jest.fn().mockResolvedValue({
+              totalDays: 1,
+              requestedMinutes: null,
+              snapshot: {
+                duration_type: 'FULL_DAY',
+                start_date: '2026-06-10',
+                end_date: '2026-06-10',
+                start_time: null,
+                end_time: null,
+                included_dates: ['2026-06-10'],
+                excluded_dates: [],
+                working_day_minutes: 480,
+                policy_id: null,
+                calculated_at: '2026-06-09T00:00:00.000Z',
+              },
+              hash: 'test-hash',
+            }),
+          },
+        },
         { provide: LeaveWorkflowService, useValue: leaveWorkflowService },
         { provide: LeavePdfService, useValue: {} },
         { provide: EventEmitter2, useValue: eventEmitter },
         { provide: ConfigService, useValue: configService },
         { provide: FilesService, useValue: filesService },
+        {
+          provide: SecurityEventsService,
+          useValue: { logBestEffort: jest.fn() },
+        },
       ],
     }).compile();
 

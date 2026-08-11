@@ -1,0 +1,13 @@
+doctype html
+html(lang="en")
+  body(style="font-family: Arial, sans-serif; color: #1f2937;")
+    h2 Offboarding asset return overdue
+    p Hello #{ownerName || 'Team member'},
+    p The asset return "#{assetLabel}" for #{employeeName} is overdue.
+    if exitDate
+      p Exit date: #{exitDate}
+    if dueDate
+      p Due date: #{dueDate}
+    p
+      a(href=assetUrl) Open asset return queue in the app
+    p #{appName}

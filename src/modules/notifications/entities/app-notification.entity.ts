@@ -130,6 +130,18 @@ export class AppNotification {
   @Column({ type: 'timestamp', nullable: true })
   archived_at: Date | null;
 
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  event_key: string | null;
+
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  template_code: string | null;
+
+  @Column({ type: 'boolean', default: false })
+  is_mandatory: boolean;
+
+  @Column({ type: 'jsonb', nullable: true })
+  payload: Record<string, unknown> | null;
+
   @CreateDateColumn()
   created_at: Date;
 

@@ -1,165 +1,646 @@
-import { DataSource, Repository } from 'typeorm';
-jest.mock('digest-fetch', () => ({
-  __esModule: true,
-  default: jest.fn(),
-}));
+import type { AuditRequestContext } from '../../../common/interfaces/audit-request-context.interface';
+import type { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import { EmploymentStatusEnum } from './enums/employment-status.enum';
 import { EmployeesService } from './employees.service';
-import { Employee } from './entities/employee.entity';
-import { EmployeeDepartment } from './entities/employee-department.entity';
-import { EmployeeDocument } from './entities/employee-document.entity';
-import { EmployeeContact } from './entities/employee-contact.entity';
-import { EmployeeAddress } from './entities/employee-address.entity';
-import { EmployeeRelative } from './entities/employee-relative.entity';
-import { EmployeeIdentification } from './entities/employee-identification.entity';
-import { EmployeeBankAccount } from './entities/employee-bank-account.entity';
-import { EmployeeAcademicQualification } from './entities/employee-academic-qualification.entity';
-import { EmployeeProfessionalQualification } from './entities/employee-professional-qualification.entity';
-import { EmployeeExperience } from './entities/employee-experience.entity';
-import { CompanyUser } from '../../companies/entities/company-user.entity';
-import { User } from '../../users/entities/user.entity';
-import { Branch } from '../branches/entities/branch.entity';
-import { Department } from '../departments/entities/department.entity';
-import { Position } from '../positions/entities/position.entity';
-import { EmployeePosition } from './entities/employee-position.entity';
-import { CompaniesService } from '../../companies/companies.service';
-import { UsersService } from '../../users/users.service';
-import { HrAccessService } from '../shared/hr-access.service';
-import { OnboardingService } from '../onboarding/onboarding.service';
-import { LeaveBalanceService } from '../leave/services/leave-balance.service';
-import { EmployeeAttendanceReadinessService } from '../launch-readiness/employee-attendance-readiness.service';
-import { FilesService } from '../../files/files.service';
-import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 
-type MockRepo = Record<string, jest.Mock>;
+const actor: AuthenticatedUser = {
+  id: 7,
+  email: 'hr@example.com',
+  userType: 'COMPANY_USER',
+  companyId: 12,
+  companyMembershipId: 44,
+  permissions: ['employees:update'],
+  roles: ['HR_MANAGER'],
+  scope: 'company',
+};
 
-const createRepositoryMock = (): MockRepo => ({
-  findOne: jest.fn(),
-  findOneOrFail: jest.fn(),
-  create: jest.fn((value: unknown) => value),
-  save: jest.fn((value: unknown) => value),
-});
+const deleteActor: AuthenticatedUser = {
+  ...actor,
+  permissions: ['employees:delete'],
+};
 
-describe('EmployeesService', () => {
-  let service: EmployeesService;
-  let employeeRepository: MockRepo;
-  let employeeDocumentRepository: MockRepo;
-  let hrAccessService: { assertCanAccessEmployee: jest.Mock };
-  let filesService: { saveBase64File: jest.Mock };
+const context: AuditRequestContext = {
+  ipAddress: '127.0.0.1',
+  userAgent: 'jest',
+  requestId: 'req-1',
+};
 
-  const actor: AuthenticatedUser = {
-    id: 9,
-    email: 'hr@example.com',
-    scope: 'company',
-    userType: 'COMPANY_USER',
-    companyId: 10,
-    companyMembershipId: 33,
-    roles: [],
-    permissions: [],
-  };
-
-  beforeEach(() => {
-    employeeRepository = createRepositoryMock();
-    employeeDocumentRepository = createRepositoryMock();
-    hrAccessService = {
-      assertCanAccessEmployee: jest.fn(),
-    };
-    filesService = {
-      saveBase64File: jest.fn(),
+describe('EmployeesService.remove', () => {
+  it('archives active employees instead of hard deleting them', async () => {
+    const employee = {
+      id: 15,
+      employment_status: EmploymentStatusEnum.ACTIVE,
     };
 
-    service = new EmployeesService(
-      {} as DataSource,
-      employeeRepository as unknown as Repository<Employee>,
-      createRepositoryMock() as unknown as Repository<EmployeeDepartment>,
-      employeeDocumentRepository as unknown as Repository<EmployeeDocument>,
-      createRepositoryMock() as unknown as Repository<EmployeeContact>,
-      createRepositoryMock() as unknown as Repository<EmployeeAddress>,
-      createRepositoryMock() as unknown as Repository<EmployeeRelative>,
-      createRepositoryMock() as unknown as Repository<EmployeeIdentification>,
-      createRepositoryMock() as unknown as Repository<EmployeeBankAccount>,
-      createRepositoryMock() as unknown as Repository<EmployeeAcademicQualification>,
-      createRepositoryMock() as unknown as Repository<EmployeeProfessionalQualification>,
-      createRepositoryMock() as unknown as Repository<EmployeeExperience>,
-      createRepositoryMock() as unknown as Repository<CompanyUser>,
-      createRepositoryMock() as unknown as Repository<User>,
-      createRepositoryMock() as unknown as Repository<Branch>,
-      createRepositoryMock() as unknown as Repository<Department>,
-      createRepositoryMock() as unknown as Repository<Position>,
-      createRepositoryMock() as unknown as Repository<EmployeePosition>,
-      {} as CompaniesService,
-      {} as UsersService,
-      hrAccessService as unknown as HrAccessService,
-      {} as OnboardingService,
-      {} as LeaveBalanceService,
-      {} as EmployeeAttendanceReadinessService,
-      filesService as unknown as FilesService,
+    const service = {
+      findEmployeeByIdOrFail: jest.fn().mockResolvedValue(employee),
+      hrAccessService: {
+        assertCanAccessEmployee: jest.fn().mockResolvedValue(undefined),
+      },
+      changeStatus: jest.fn().mockResolvedValue(employee),
+      employeeRepository: {
+        remove: jest.fn(),
+      },
+    };
+
+    const result = await EmployeesService.prototype.remove.call(
+      service,
+      deleteActor.companyId,
+      employee.id,
+      deleteActor,
+      context,
     );
+
+    expect(service.findEmployeeByIdOrFail).toHaveBeenCalledWith(
+      deleteActor.companyId,
+      employee.id,
+    );
+    expect(
+      service.hrAccessService.assertCanAccessEmployee,
+    ).toHaveBeenCalledWith(deleteActor, employee);
+    expect(service.changeStatus).toHaveBeenCalledWith(
+      deleteActor.companyId,
+      employee.id,
+      expect.objectContaining({
+        employment_status: EmploymentStatusEnum.INACTIVE,
+      }),
+      deleteActor,
+      context,
+    );
+    expect(service.employeeRepository.remove).not.toHaveBeenCalled();
+    expect(result).toEqual({ message: 'Employee archived successfully' });
   });
 
-  it('stores employee documents through the shared files service', async () => {
-    employeeRepository.findOne.mockResolvedValue({
-      id: 15,
-      company_user: { company_id: 10 },
-    });
-    filesService.saveBase64File.mockResolvedValue({
-      publicPath: '/uploads/documents/employees/company-10/employee-15.pdf',
-    });
-    employeeDocumentRepository.save.mockResolvedValue({ id: 44 });
-    employeeDocumentRepository.findOneOrFail.mockResolvedValue({
-      id: 44,
-      employee_id: 15,
-      type: 'contract',
-      title: 'Signed Contract',
-      file_url: '/uploads/documents/employees/company-10/employee-15.pdf',
-      notes: 'Signed copy',
-      uploaded_at: new Date('2026-07-23T08:00:00.000Z'),
-      uploaded_by_company_user_id: 33,
-      uploaded_by: {
-        user: {
-          id: 21,
-          user_no: 'USR-21',
-          first_name: 'Alice',
-          last_name: 'Smith',
-          email: 'alice@example.com',
-        },
-      },
-    });
+  it('keeps already historical employees without mutating them', async () => {
+    const employee = {
+      id: 21,
+      employment_status: EmploymentStatusEnum.EXITED,
+    };
 
-    const result = await service.addDocument(
-      10,
-      15,
-      {
-        type: 'contract',
-        title: 'Signed Contract',
-        notes: 'Signed copy',
-        file: {
-          fileName: 'signed-contract.pdf',
-          fileSize: 12,
-          mimeType: 'application/pdf',
-          fileString: Buffer.from('hello world!').toString('base64'),
-        },
+    const service = {
+      findEmployeeByIdOrFail: jest.fn().mockResolvedValue(employee),
+      hrAccessService: {
+        assertCanAccessEmployee: jest.fn().mockResolvedValue(undefined),
       },
+      changeStatus: jest.fn(),
+      employeeRepository: {
+        remove: jest.fn(),
+      },
+    };
+
+    const result = await EmployeesService.prototype.remove.call(
+      service,
+      deleteActor.companyId,
+      employee.id,
+      deleteActor,
+      context,
+    );
+
+    expect(service.changeStatus).not.toHaveBeenCalled();
+    expect(service.employeeRepository.remove).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      message:
+        'Employee retained in historical records. Hard delete is disabled.',
+    });
+  });
+});
+
+describe('EmployeesService.removeDocument', () => {
+  it('archives employee documents instead of deleting the record and file', async () => {
+    const employee = { id: 15 };
+    const document = {
+      id: 9,
+      employee_id: employee.id,
+      file_url: '/private/doc.pdf',
+      notes: 'original note',
+    };
+
+    const service = {
+      findEmployeeByIdOrFail: jest.fn().mockResolvedValue(employee),
+      hrAccessService: {
+        assertCanAccessEmployee: jest.fn().mockResolvedValue(undefined),
+      },
+      employeeDocumentRepository: {
+        findOne: jest.fn().mockResolvedValue(document),
+        save: jest.fn().mockImplementation(async (value) => value),
+        remove: jest.fn(),
+      },
+      filesService: {
+        removeManagedFile: jest.fn(),
+      },
+      isArchivedDocument: EmployeesService.prototype['isArchivedDocument'],
+      buildArchiveAuditNote:
+        EmployeesService.prototype['buildArchiveAuditNote'],
+    };
+
+    const result = await EmployeesService.prototype.removeDocument.call(
+      service,
+      actor.companyId,
+      employee.id,
+      document.id,
       actor,
     );
 
-    expect(filesService.saveBase64File).toHaveBeenCalledWith(
-      expect.objectContaining({ fileName: 'signed-contract.pdf' }),
+    expect(service.employeeDocumentRepository.save).toHaveBeenCalledWith(
       expect.objectContaining({
-        directorySegments: ['documents', 'employees', 'company-10'],
+        id: document.id,
+        notes: expect.stringContaining('[ARCHIVED_DOCUMENT]'),
       }),
     );
-    expect(employeeDocumentRepository.save).toHaveBeenCalledWith(
+    expect(service.employeeDocumentRepository.remove).not.toHaveBeenCalled();
+    expect(service.filesService.removeManagedFile).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      message: 'Employee document archived successfully',
+    });
+  });
+});
+
+describe('EmployeesService.downloadDocument', () => {
+  it('increments download audit fields and writes a security event', async () => {
+    const employee = { id: 15 };
+    const document = {
+      id: 9,
+      employee_id: employee.id,
+      file_url: '/private/doc.pdf',
+      original_file_name: 'doc.pdf',
+      mime_type: 'application/pdf',
+      classification: 'PRIVATE',
+      download_count: 2,
+      retention_until: null,
+    };
+
+    const service = {
+      findEmployeeByIdOrFail: jest.fn().mockResolvedValue(employee),
+      hrAccessService: {
+        assertCanAccessEmployee: jest.fn().mockResolvedValue(undefined),
+      },
+      employeeDocumentRepository: {
+        findOne: jest.fn().mockResolvedValue(document),
+        save: jest.fn().mockImplementation(async (value) => value),
+      },
+      filesService: {
+        readManagedFile: jest.fn().mockResolvedValue(Buffer.from('file')),
+      },
+      securityEventsService: {
+        logBestEffort: jest.fn().mockResolvedValue(undefined),
+      },
+      isArchivedDocument: EmployeesService.prototype['isArchivedDocument'],
+    };
+
+    const result = await EmployeesService.prototype.downloadDocument.call(
+      service,
+      actor.companyId,
+      employee.id,
+      document.id,
+      actor,
+      context,
+    );
+
+    expect(service.employeeDocumentRepository.save).toHaveBeenCalledWith(
       expect.objectContaining({
-        employee_id: 15,
-        file_url: '/uploads/documents/employees/company-10/employee-15.pdf',
+        id: document.id,
+        download_count: 3,
+        last_downloaded_by_company_user_id: actor.companyMembershipId,
       }),
     );
-    expect(result).toEqual(
+    expect(service.securityEventsService.logBestEffort).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: 44,
-        employee_id: 15,
-        file_url: '/uploads/documents/employees/company-10/employee-15.pdf',
+        eventType: 'EMPLOYEE_DOCUMENT_DOWNLOADED',
+        companyId: actor.companyId,
+        context,
       }),
     );
+    expect(result).toEqual({
+      buffer: Buffer.from('file'),
+      fileName: 'doc.pdf',
+      mimeType: 'application/pdf',
+    });
+  });
+});
+
+describe('EmployeesService.removeBankAccount', () => {
+  it('archives bank accounts instead of deleting them', async () => {
+    const employee = { id: 15 };
+    const bankAccount = {
+      id: 4,
+      employee_id: employee.id,
+      verification_status: 'VERIFIED',
+      is_primary: true,
+      effective_to: null,
+    };
+
+    const repository = {
+      findOne: jest.fn().mockResolvedValue(bankAccount),
+      save: jest.fn().mockImplementation(async (value) => value),
+      remove: jest.fn(),
+    };
+
+    const service = {
+      findEmployeeByIdOrFail: jest.fn().mockResolvedValue(employee),
+      hrAccessService: {
+        assertCanAccessEmployee: jest.fn().mockResolvedValue(undefined),
+      },
+      getEmployeeBankAccountRepository: jest.fn().mockReturnValue(repository),
+      isArchivedBankAccount:
+        EmployeesService.prototype['isArchivedBankAccount'],
+    };
+
+    const result = await EmployeesService.prototype.removeBankAccount.call(
+      service,
+      actor.companyId,
+      employee.id,
+      bankAccount.id,
+      actor,
+    );
+
+    expect(repository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: bankAccount.id,
+        verification_status: 'ARCHIVED',
+        is_primary: false,
+        effective_to: expect.any(String),
+      }),
+    );
+    expect(repository.remove).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      message: 'Employee bank account archived successfully',
+    });
+  });
+});
+
+describe('EmployeesService.removeContact', () => {
+  it('archives employee contacts instead of deleting them', async () => {
+    const employee = { id: 15 };
+    const contact = {
+      id: 3,
+      employee_id: employee.id,
+      is_primary: true,
+      is_verified: true,
+      notes: 'primary contact',
+    };
+
+    const repository = {
+      findOne: jest.fn().mockResolvedValue(contact),
+      save: jest.fn().mockImplementation(async (value) => value),
+      remove: jest.fn(),
+    };
+
+    const service = {
+      findEmployeeByIdOrFail: jest.fn().mockResolvedValue(employee),
+      hrAccessService: {
+        assertCanAccessEmployee: jest.fn().mockResolvedValue(undefined),
+      },
+      getEmployeeContactRepository: jest.fn().mockReturnValue(repository),
+      isArchivedContact: EmployeesService.prototype['isArchivedContact'],
+      buildArchiveAuditNote:
+        EmployeesService.prototype['buildArchiveAuditNote'],
+    };
+
+    const result = await EmployeesService.prototype.removeContact.call(
+      service,
+      actor.companyId,
+      employee.id,
+      contact.id,
+      actor,
+    );
+
+    expect(repository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: contact.id,
+        is_primary: false,
+        is_verified: false,
+        notes: expect.stringContaining('[ARCHIVED_CONTACT]'),
+      }),
+    );
+    expect(repository.remove).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      message: 'Employee contact archived successfully',
+    });
+  });
+});
+
+describe('EmployeesService.removeAddress', () => {
+  it('archives employee addresses instead of deleting them', async () => {
+    const employee = { id: 15 };
+    const address = {
+      id: 5,
+      employee_id: employee.id,
+      address_line_1: '123 Main Street',
+      is_primary: true,
+    };
+
+    const repository = {
+      findOne: jest.fn().mockResolvedValue(address),
+      save: jest.fn().mockImplementation(async (value) => value),
+      remove: jest.fn(),
+    };
+
+    const service = {
+      findEmployeeByIdOrFail: jest.fn().mockResolvedValue(employee),
+      hrAccessService: {
+        assertCanAccessEmployee: jest.fn().mockResolvedValue(undefined),
+      },
+      getEmployeeAddressRepository: jest.fn().mockReturnValue(repository),
+      isArchivedAddress: EmployeesService.prototype['isArchivedAddress'],
+      buildArchivedFieldValue:
+        EmployeesService.prototype['buildArchivedFieldValue'],
+      normalizeOptionalString:
+        EmployeesService.prototype['normalizeOptionalString'],
+    };
+
+    const result = await EmployeesService.prototype.removeAddress.call(
+      service,
+      actor.companyId,
+      employee.id,
+      address.id,
+      actor,
+    );
+
+    expect(repository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: address.id,
+        address_line_1: expect.stringContaining('[ARCHIVED_ADDRESS]'),
+        is_primary: false,
+      }),
+    );
+    expect(repository.remove).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      message: 'Employee address archived successfully',
+    });
+  });
+});
+
+describe('EmployeesService.removeRelative', () => {
+  it('archives employee relatives instead of deleting them', async () => {
+    const employee = { id: 15 };
+    const relative = {
+      id: 6,
+      employee_id: employee.id,
+      relationship: 'Spouse',
+      is_primary: true,
+      is_emergency_contact: true,
+    };
+
+    const repository = {
+      findOne: jest.fn().mockResolvedValue(relative),
+      save: jest.fn().mockImplementation(async (value) => value),
+      remove: jest.fn(),
+    };
+
+    const service = {
+      findEmployeeByIdOrFail: jest.fn().mockResolvedValue(employee),
+      hrAccessService: {
+        assertCanAccessEmployee: jest.fn().mockResolvedValue(undefined),
+      },
+      getEmployeeRelativeRepository: jest.fn().mockReturnValue(repository),
+      isArchivedRelative: EmployeesService.prototype['isArchivedRelative'],
+      buildArchivedFieldValue:
+        EmployeesService.prototype['buildArchivedFieldValue'],
+      normalizeOptionalString:
+        EmployeesService.prototype['normalizeOptionalString'],
+    };
+
+    const result = await EmployeesService.prototype.removeRelative.call(
+      service,
+      actor.companyId,
+      employee.id,
+      relative.id,
+      actor,
+    );
+
+    expect(repository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: relative.id,
+        relationship: expect.stringContaining('[ARCHIVED_RELATIVE]'),
+        is_primary: false,
+        is_emergency_contact: false,
+      }),
+    );
+    expect(repository.remove).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      message: 'Employee relative archived successfully',
+    });
+  });
+});
+
+describe('EmployeesService.removeIdentification', () => {
+  it('archives employee identifications instead of deleting them', async () => {
+    const employee = { id: 15 };
+    const identification = {
+      id: 8,
+      employee_id: employee.id,
+      identification_number: 'A12345678',
+      is_primary: true,
+      is_verified: true,
+      verified_at: new Date('2025-01-01T00:00:00.000Z'),
+      verified_by_company_user_id: 22,
+    };
+
+    const repository = {
+      findOne: jest.fn().mockResolvedValue(identification),
+      save: jest.fn().mockImplementation(async (value) => value),
+      remove: jest.fn(),
+    };
+
+    const service = {
+      findEmployeeByIdOrFail: jest.fn().mockResolvedValue(employee),
+      hrAccessService: {
+        assertCanAccessEmployee: jest.fn().mockResolvedValue(undefined),
+      },
+      getEmployeeIdentificationRepository: jest
+        .fn()
+        .mockReturnValue(repository),
+      isArchivedIdentification:
+        EmployeesService.prototype['isArchivedIdentification'],
+      buildArchivedUniqueFieldValue:
+        EmployeesService.prototype['buildArchivedUniqueFieldValue'],
+      normalizeOptionalString:
+        EmployeesService.prototype['normalizeOptionalString'],
+    };
+
+    const result = await EmployeesService.prototype.removeIdentification.call(
+      service,
+      actor.companyId,
+      employee.id,
+      identification.id,
+      actor,
+    );
+
+    expect(repository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: identification.id,
+        identification_number: expect.stringContaining(
+          '[ARCHIVED_IDENTIFICATION]',
+        ),
+        is_primary: false,
+        is_verified: false,
+        verified_at: null,
+        verified_by_company_user_id: null,
+      }),
+    );
+    expect(repository.remove).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      message: 'Employee identification archived successfully',
+    });
+  });
+});
+
+describe('EmployeesService.removeAcademicQualification', () => {
+  it('archives academic qualifications instead of deleting them', async () => {
+    const employee = { id: 15 };
+    const qualification = {
+      id: 10,
+      employee_id: employee.id,
+      field_of_study: 'Computer Science',
+    };
+
+    const repository = {
+      findOne: jest.fn().mockResolvedValue(qualification),
+      save: jest.fn().mockImplementation(async (value) => value),
+      remove: jest.fn(),
+    };
+
+    const service = {
+      findEmployeeByIdOrFail: jest.fn().mockResolvedValue(employee),
+      hrAccessService: {
+        assertCanAccessEmployee: jest.fn().mockResolvedValue(undefined),
+      },
+      getEmployeeAcademicQualificationRepository: jest
+        .fn()
+        .mockReturnValue(repository),
+      isArchivedAcademicQualification:
+        EmployeesService.prototype['isArchivedAcademicQualification'],
+      buildArchivedFieldValue:
+        EmployeesService.prototype['buildArchivedFieldValue'],
+      normalizeOptionalString:
+        EmployeesService.prototype['normalizeOptionalString'],
+    };
+
+    const result =
+      await EmployeesService.prototype.removeAcademicQualification.call(
+        service,
+        actor.companyId,
+        employee.id,
+        qualification.id,
+        actor,
+      );
+
+    expect(repository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: qualification.id,
+        field_of_study: expect.stringContaining('[ARCHIVED_ACADEMIC]'),
+      }),
+    );
+    expect(repository.remove).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      message: 'Employee academic qualification archived successfully',
+    });
+  });
+});
+
+describe('EmployeesService.removeProfessionalQualification', () => {
+  it('archives professional qualifications instead of deleting them', async () => {
+    const employee = { id: 15 };
+    const qualification = {
+      id: 11,
+      employee_id: employee.id,
+      programme_name: 'Project Management',
+    };
+
+    const repository = {
+      findOne: jest.fn().mockResolvedValue(qualification),
+      save: jest.fn().mockImplementation(async (value) => value),
+      remove: jest.fn(),
+    };
+
+    const service = {
+      findEmployeeByIdOrFail: jest.fn().mockResolvedValue(employee),
+      hrAccessService: {
+        assertCanAccessEmployee: jest.fn().mockResolvedValue(undefined),
+      },
+      getEmployeeProfessionalQualificationRepository: jest
+        .fn()
+        .mockReturnValue(repository),
+      isArchivedProfessionalQualification:
+        EmployeesService.prototype['isArchivedProfessionalQualification'],
+      buildArchivedFieldValue:
+        EmployeesService.prototype['buildArchivedFieldValue'],
+      normalizeOptionalString:
+        EmployeesService.prototype['normalizeOptionalString'],
+    };
+
+    const result =
+      await EmployeesService.prototype.removeProfessionalQualification.call(
+        service,
+        actor.companyId,
+        employee.id,
+        qualification.id,
+        actor,
+      );
+
+    expect(repository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: qualification.id,
+        programme_name: expect.stringContaining('[ARCHIVED_PROFESSIONAL]'),
+      }),
+    );
+    expect(repository.remove).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      message: 'Employee professional qualification archived successfully',
+    });
+  });
+});
+
+describe('EmployeesService.removeExperienceDetail', () => {
+  it('archives experience details instead of deleting them', async () => {
+    const employee = { id: 15 };
+    const experienceDetail = {
+      id: 12,
+      employee_id: employee.id,
+      job_title: 'Engineer',
+      currently_working: true,
+      end_date: null,
+    };
+
+    const repository = {
+      findOne: jest.fn().mockResolvedValue(experienceDetail),
+      save: jest.fn().mockImplementation(async (value) => value),
+      remove: jest.fn(),
+    };
+
+    const service = {
+      findEmployeeByIdOrFail: jest.fn().mockResolvedValue(employee),
+      hrAccessService: {
+        assertCanAccessEmployee: jest.fn().mockResolvedValue(undefined),
+      },
+      getEmployeeExperienceRepository: jest.fn().mockReturnValue(repository),
+      isArchivedExperienceDetail:
+        EmployeesService.prototype['isArchivedExperienceDetail'],
+      buildArchivedFieldValue:
+        EmployeesService.prototype['buildArchivedFieldValue'],
+      normalizeOptionalString:
+        EmployeesService.prototype['normalizeOptionalString'],
+    };
+
+    const result = await EmployeesService.prototype.removeExperienceDetail.call(
+      service,
+      actor.companyId,
+      employee.id,
+      experienceDetail.id,
+      actor,
+    );
+
+    expect(repository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: experienceDetail.id,
+        job_title: expect.stringContaining('[ARCHIVED_EXPERIENCE]'),
+        currently_working: false,
+        end_date: expect.any(String),
+      }),
+    );
+    expect(repository.remove).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      message: 'Employee experience detail archived successfully',
+    });
   });
 });

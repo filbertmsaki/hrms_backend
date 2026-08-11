@@ -4,4 +4,5 @@ export enum DocumentModuleEnum {
   LEAVE = 'LEAVE',
   EMPLOYEE = 'EMPLOYEE',
   CONTRACT = 'CONTRACT',
+  PROBATION = 'PROBATION',
 }

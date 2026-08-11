@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -276,7 +277,19 @@ export class OffboardingWorkflowService {
 
     if (step.assigned_branch_id) {
       assignments.andWhere(
-        '(position.branch_id = :branchId OR employee.primary_branch_id = :branchId)',
+        `(
+          position.branch_id = :branchId
+          OR employee.primary_branch_id = :branchId
+          OR EXISTS (
+            SELECT 1
+            FROM department_positions department_position
+            INNER JOIN departments mapped_department
+              ON mapped_department.id = department_position.department_id
+            WHERE department_position.company_id = :companyId
+              AND department_position.position_id = position.id
+              AND mapped_department.branch_id = :branchId
+          )
+        )`,
         {
           branchId: step.assigned_branch_id,
         },
@@ -285,7 +298,17 @@ export class OffboardingWorkflowService {
 
     if (step.assigned_department_id) {
       assignments.andWhere(
-        '(position.department_id = :departmentId OR employee.primary_department_id = :departmentId)',
+        `(
+          position.department_id = :departmentId
+          OR employee.primary_department_id = :departmentId
+          OR EXISTS (
+            SELECT 1
+            FROM department_positions department_position
+            WHERE department_position.company_id = :companyId
+              AND department_position.position_id = position.id
+              AND department_position.department_id = :departmentId
+          )
+        )`,
         { departmentId: step.assigned_department_id },
       );
     }
@@ -302,6 +325,16 @@ export class OffboardingWorkflowService {
     workflowId?: number | null,
     manager?: EntityManager,
   ): Promise<WorkflowInitResult> {
+    if (
+      request.submitted_at ||
+      (request.status !== OffboardingRequestStatusEnum.DRAFT &&
+        request.status !== OffboardingRequestStatusEnum.PENDING_MANAGER)
+    ) {
+      throw new ConflictException(
+        'Submitted offboarding workflows cannot be regenerated',
+      );
+    }
+
     const workflow = await this.resolveWorkflow(companyId, workflowId, manager);
     const stepRepository = this.getWorkflowStepRepository(manager);
     const steps = await stepRepository.find({
@@ -339,6 +372,8 @@ export class OffboardingWorkflowService {
           title: step.task_title,
           description: step.task_description,
           task_type: step.task_type,
+          is_required: step.is_required,
+          completion_evidence_required: step.completion_evidence_required,
           due_date:
             step.expected_duration_days && step.expected_duration_days > 0
               ? new Date(
@@ -349,6 +384,9 @@ export class OffboardingWorkflowService {
           metadata: {
             approval_level: step.approval_level,
             action_type: step.action_type,
+            is_system_operation: step.is_system_operation,
+            system_operation_type: step.system_operation_type,
+            required_document_type_code: step.required_document_type_code,
           },
         }),
       );
@@ -388,10 +426,34 @@ export class OffboardingWorkflowService {
     }
 
     request.workflow_id = workflow.id;
+    request.workflow_version = workflow.version;
+    request.workflow_snapshot = {
+      workflow: {
+        id: workflow.id,
+        name: workflow.name,
+        version: workflow.version,
+      },
+      steps: steps.map((step) => ({
+        id: step.id,
+        approval_level: step.approval_level,
+        step_name: step.step_name,
+        task_title: step.task_title,
+        task_type: step.task_type,
+        action_type: step.action_type,
+        is_required: step.is_required,
+        completion_evidence_required: step.completion_evidence_required,
+        is_system_operation: step.is_system_operation,
+        system_operation_type: step.system_operation_type,
+        required_document_type_code: step.required_document_type_code,
+      })),
+    };
     request.status = pendingApprovals
       ? OffboardingRequestStatusEnum.WAITING_APPROVAL
       : OffboardingRequestStatusEnum.IN_PROGRESS;
 
+    workflow.is_locked = true;
+    workflow.locked_at = workflow.locked_at ?? new Date();
+    await this.getWorkflowRepository(manager).save(workflow);
     await this.getRequestRepository(manager).save(request);
     return { workflow, steps, pending_approvals: pendingApprovals };
   }
@@ -509,13 +571,70 @@ export class OffboardingWorkflowService {
 
     request.status = stillPending.length
       ? OffboardingRequestStatusEnum.WAITING_APPROVAL
-      : OffboardingRequestStatusEnum.APPROVED;
+      : OffboardingRequestStatusEnum.IN_PROGRESS;
 
     const saved = await requestRepository.save(request);
     this.emitOffboardingOutcome(saved, manager).catch((e) =>
       this.logger.error('Offboarding outcome emit failed', e),
     );
     return saved;
+  }
+
+  async delegateApproval(
+    offboardingRequestId: number,
+    approvalId: number,
+    actorCompanyUserId: number,
+    targetCompanyUserId: number,
+    reason: string,
+    canDelegateAny: boolean,
+    manager?: EntityManager,
+  ): Promise<OffboardingApproval> {
+    const approvalRepository = this.getApprovalRepository(manager);
+    const requestRepository = this.getRequestRepository(manager);
+
+    const approval = await approvalRepository.findOne({
+      where: { id: approvalId, offboarding_request_id: offboardingRequestId },
+    });
+    if (!approval) {
+      throw new NotFoundException('Offboarding approval not found');
+    }
+
+    if (approval.status !== OffboardingApprovalStatusEnum.PENDING) {
+      throw new BadRequestException('Only a pending approval can be delegated');
+    }
+
+    if (
+      !canDelegateAny &&
+      approval.approver_company_user_id !== actorCompanyUserId
+    ) {
+      throw new ForbiddenException(
+        'Only the assigned approver may delegate this approval',
+      );
+    }
+
+    const request = await requestRepository.findOne({
+      where: { id: offboardingRequestId },
+      relations: { employee: true },
+    });
+    if (!request) {
+      throw new NotFoundException('Offboarding request not found');
+    }
+
+    if (targetCompanyUserId === request.employee.company_user_id) {
+      throw new BadRequestException(
+        'The employee being offboarded cannot be assigned as their own approver',
+      );
+    }
+
+    approval.original_approver_company_user_id =
+      approval.original_approver_company_user_id ??
+      approval.approver_company_user_id;
+    approval.delegated_from_company_user_id = approval.approver_company_user_id;
+    approval.approver_company_user_id = targetCompanyUserId;
+    approval.delegated_at = new Date();
+    approval.delegation_reason = reason.trim();
+
+    return approvalRepository.save(approval);
   }
 
   async closeAllPendingApprovals(
@@ -565,7 +684,7 @@ export class OffboardingWorkflowService {
       'http://localhost:5173';
     const exitDate = loaded.last_working_date ?? null;
 
-    if (loaded.status === OffboardingRequestStatusEnum.APPROVED) {
+    if (loaded.status === OffboardingRequestStatusEnum.IN_PROGRESS) {
       this.eventEmitter.emit(
         OffboardingApprovedEvent.EVENT,
         new OffboardingApprovedEvent(

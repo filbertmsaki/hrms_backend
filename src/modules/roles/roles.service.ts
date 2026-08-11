@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import { PaginationDto, SortDirection } from '../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
+import { AuditRequestContext } from '../../common/interfaces/audit-request-context.interface';
 import { assertPermissionsMatchRoleScope } from '../../common/utils/permission-scope.util';
 import {
   assertCanManageScopedRbacRecord,
@@ -28,6 +29,9 @@ import { Role } from './entities/role.entity';
 import { RoleAuditActionEnum } from './enums/role-audit-action.enum';
 import { RoleAuditService } from './services/role-audit.service';
 import { DefaultAvatarsService } from '../hr/default-avatars/default-avatars.service';
+import { SecurityEventsService } from '../security/security-events.service';
+import { SecurityEventType } from '../security/enums/security-event-type.enum';
+import { SecurityEventOutcome } from '../security/enums/security-event-outcome.enum';
 
 @Injectable()
 export class RolesService {
@@ -44,6 +48,7 @@ export class RolesService {
     private readonly companyUserRoleRepository: Repository<CompanyUserRole>,
     private readonly roleAuditService: RoleAuditService,
     private readonly defaultAvatarsService: DefaultAvatarsService,
+    private readonly securityEventsService: SecurityEventsService,
   ) {}
 
   private createBaseQuery() {
@@ -207,6 +212,7 @@ export class RolesService {
   async create(
     createRoleDto: CreateRoleDto,
     actor?: AuthenticatedUser,
+    context?: AuditRequestContext,
   ): Promise<Role> {
     assertCanCreateSystemGeneratedRbacRecord(
       actor,
@@ -238,7 +244,29 @@ export class RolesService {
       permissions,
     });
 
-    return this.rolesRepository.save(role);
+    const savedRole = await this.rolesRepository.save(role);
+
+    if (actor) {
+      await this.securityEventsService.log({
+        eventType: SecurityEventType.ROLE_CREATED,
+        outcome: SecurityEventOutcome.SUCCESS,
+        actor,
+        companyId: savedRole.company_id,
+        roleId: savedRole.id,
+        resourceType: 'role',
+        resourceId: savedRole.id,
+        newValues: {
+          name: savedRole.name,
+          display_name: savedRole.display_name,
+          company_id: savedRole.company_id,
+          permission_ids:
+            savedRole.permissions?.map((permission) => permission.id) ?? [],
+        },
+        context,
+      });
+    }
+
+    return savedRole;
   }
 
   async findAll(actor?: AuthenticatedUser): Promise<Role[]> {
@@ -367,6 +395,7 @@ export class RolesService {
     roleId: number,
     userId: number,
     actor: AuthenticatedUser,
+    context?: AuditRequestContext,
   ) {
     const { role, companyId } = await this.findCurrentCompanyRoleOrFail(
       roleId,
@@ -421,6 +450,23 @@ export class RolesService {
           },
         },
       });
+
+      await this.securityEventsService.log({
+        eventType: SecurityEventType.ROLE_ASSIGNED,
+        outcome: SecurityEventOutcome.SUCCESS,
+        actor,
+        companyId,
+        targetUserId: userId,
+        targetCompanyUserId: membership.id,
+        roleId: role.id,
+        resourceType: 'company_user_role',
+        resourceId: assignment.id,
+        newValues: {
+          role_id: role.id,
+          role_name: role.name,
+        },
+        context,
+      });
     }
 
     return {
@@ -439,6 +485,7 @@ export class RolesService {
     roleId: number,
     userId: number,
     actor: AuthenticatedUser,
+    context?: AuditRequestContext,
   ) {
     const { role, companyId } = await this.findCurrentCompanyRoleOrFail(
       roleId,
@@ -466,6 +513,21 @@ export class RolesService {
     await this.companyUserRoleRepository.delete({
       company_user_id: membership.id,
       role_id: role.id,
+    });
+
+    await this.securityEventsService.log({
+      eventType: SecurityEventType.ROLE_REVOKED,
+      outcome: SecurityEventOutcome.SUCCESS,
+      actor,
+      companyId,
+      targetUserId: userId,
+      targetCompanyUserId: membership.id,
+      roleId: role.id,
+      oldValues: {
+        role_id: role.id,
+        role_name: role.name,
+      },
+      context,
     });
 
     return {
@@ -510,6 +572,7 @@ export class RolesService {
     roleId: number,
     permissionId: number,
     actor: AuthenticatedUser,
+    context?: AuditRequestContext,
   ) {
     const { role } = await this.findCurrentCompanyRoleOrFail(roleId, actor);
 
@@ -543,6 +606,20 @@ export class RolesService {
           permission_name: permission.name,
         },
       });
+
+      await this.securityEventsService.log({
+        eventType: SecurityEventType.ROLE_PERMISSION_ASSIGNED,
+        outcome: SecurityEventOutcome.SUCCESS,
+        actor,
+        companyId: role.company_id,
+        roleId: role.id,
+        permissionId: permission.id,
+        newValues: {
+          permission_id: permission.id,
+          permission_name: permission.name,
+        },
+        context,
+      });
     }
 
     const updated = await this.findAccessibleRoleOrFail(role.id, actor);
@@ -565,6 +642,7 @@ export class RolesService {
     roleId: number,
     permissionId: number,
     actor: AuthenticatedUser,
+    context?: AuditRequestContext,
   ) {
     const { role } = await this.findCurrentCompanyRoleOrFail(roleId, actor);
 
@@ -604,6 +682,19 @@ export class RolesService {
       old_values: { permission_id: permissionId },
     });
 
+    await this.securityEventsService.log({
+      eventType: SecurityEventType.ROLE_PERMISSION_REVOKED,
+      outcome: SecurityEventOutcome.SUCCESS,
+      actor,
+      companyId: role.company_id,
+      roleId: role.id,
+      permissionId,
+      oldValues: {
+        permission_id: permissionId,
+      },
+      context,
+    });
+
     const updated = await this.findAccessibleRoleOrFail(role.id, actor);
 
     return {
@@ -624,8 +715,17 @@ export class RolesService {
     id: number,
     updateRoleDto: UpdateRoleDto,
     actor?: AuthenticatedUser,
+    context?: AuditRequestContext,
   ): Promise<Role> {
     const role = await this.findAccessibleRoleOrFail(id, actor);
+    const previousValues = {
+      name: role.name,
+      display_name: role.display_name,
+      description: role.description,
+      company_id: role.company_id,
+      permission_ids:
+        role.permissions?.map((permission) => permission.id) ?? [],
+    };
 
     assertCanMutateSystemGeneratedRbacRecord(actor, role, 'role');
     assertCanManageScopedRbacRecord(actor, role, 'role');
@@ -664,14 +764,62 @@ export class RolesService {
       role.is_system_generated = updateRoleDto.is_system_generated;
     }
 
-    return this.rolesRepository.save(role);
+    const savedRole = await this.rolesRepository.save(role);
+
+    if (actor) {
+      await this.securityEventsService.log({
+        eventType: SecurityEventType.ROLE_UPDATED,
+        outcome: SecurityEventOutcome.SUCCESS,
+        actor,
+        companyId: savedRole.company_id,
+        roleId: savedRole.id,
+        resourceType: 'role',
+        resourceId: savedRole.id,
+        oldValues: previousValues,
+        newValues: {
+          name: savedRole.name,
+          display_name: savedRole.display_name,
+          description: savedRole.description,
+          company_id: savedRole.company_id,
+          permission_ids:
+            savedRole.permissions?.map((permission) => permission.id) ?? [],
+        },
+        context,
+      });
+    }
+
+    return savedRole;
   }
 
-  async remove(id: number, actor?: AuthenticatedUser): Promise<void> {
+  async remove(
+    id: number,
+    actor?: AuthenticatedUser,
+    context?: AuditRequestContext,
+  ): Promise<void> {
     const role = await this.findAccessibleRoleOrFail(id, actor);
 
     assertCanMutateSystemGeneratedRbacRecord(actor, role, 'role');
     assertCanManageScopedRbacRecord(actor, role, 'role');
+
+    if (actor) {
+      await this.securityEventsService.log({
+        eventType: SecurityEventType.ROLE_DELETED,
+        outcome: SecurityEventOutcome.SUCCESS,
+        actor,
+        companyId: role.company_id,
+        roleId: role.id,
+        resourceType: 'role',
+        resourceId: role.id,
+        oldValues: {
+          name: role.name,
+          display_name: role.display_name,
+          description: role.description,
+          permission_ids:
+            role.permissions?.map((permission) => permission.id) ?? [],
+        },
+        context,
+      });
+    }
 
     await this.rolesRepository.remove(role);
   }

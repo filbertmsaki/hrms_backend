@@ -7,6 +7,7 @@
   ManyToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
+  VersionColumn,
 } from 'typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { OffboardingTaskPriorityEnum } from '../enums/offboarding-task-priority.enum';
@@ -73,6 +74,21 @@ export class OffboardingTask {
   @Column({ type: 'timestamp', nullable: true })
   completed_at: Date | null;
 
+  @Column({ default: true })
+  is_required: boolean;
+
+  @Column({ default: false })
+  completion_evidence_required: boolean;
+
+  @Column({ type: 'int', nullable: true })
+  evidence_document_id: number | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  completion_data: Record<string, unknown> | null;
+
+  @Column({ type: 'int', nullable: true })
+  completed_by_company_user_id: number | null;
+
   @Column({ type: 'timestamp', nullable: true })
   reopened_at: Date | null;
 
@@ -88,7 +104,19 @@ export class OffboardingTask {
   @Column({ type: 'text', nullable: true })
   remarks: string | null;
 
-  @Column({ type: 'json', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
+  last_reminder_at: Date | null;
+
+  @Column({ type: 'int', default: 0 })
+  reminder_count: number;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  last_escalated_at: Date | null;
+
+  @Column({ type: 'int', default: 0 })
+  escalation_count: number;
+
+  @Column({ type: 'jsonb', nullable: true })
   metadata: Record<string, unknown> | null;
 
   @CreateDateColumn()
@@ -96,6 +124,9 @@ export class OffboardingTask {
 
   @UpdateDateColumn()
   updated_at: Date;
+
+  @VersionColumn()
+  version: number;
 
   @ManyToOne(() => OffboardingRequest, (request) => request.tasks, {
     onDelete: 'CASCADE',
@@ -112,6 +143,10 @@ export class OffboardingTask {
   @ManyToOne(() => CompanyUser, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'assigned_to_company_user_id' })
   assigned_to_company_user: CompanyUser | null;
+
+  @ManyToOne(() => CompanyUser, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'completed_by_company_user_id' })
+  completed_by_company_user: CompanyUser | null;
 
   @ManyToOne(() => CompanyUser, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'reopened_by_company_user_id' })

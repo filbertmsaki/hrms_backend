@@ -17,6 +17,9 @@ import { EmployeeImportRowStatusEnum } from '../enums/employee-import-row-status
 @Index('IDX_employee_import_rows_batch', ['batchId'])
 @Index('IDX_employee_import_rows_status', ['status'])
 @Index('IDX_employee_import_rows_employee_number', ['employeeNumber'])
+@Index('UQ_employee_import_batch_row', ['batchId', 'rowNumber'], {
+  unique: true,
+})
 export class EmployeeImportRow {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
@@ -26,6 +29,9 @@ export class EmployeeImportRow {
 
   @Column({ name: 'row_number', type: 'int' })
   rowNumber: number;
+
+  @Column({ name: 'row_key', type: 'varchar', length: 128 })
+  rowKey: string;
 
   @Column({
     name: 'status',
@@ -78,6 +84,21 @@ export class EmployeeImportRow {
 
   @Column({ name: 'errors', type: 'json', nullable: true })
   errors: string[] | null;
+
+  @Column({ name: 'error_code', type: 'varchar', length: 100, nullable: true })
+  errorCode: string | null;
+
+  @Column({ name: 'attempt_count', type: 'int', default: 0 })
+  attemptCount: number;
+
+  @Column({ name: 'started_at', type: 'timestamptz', nullable: true })
+  startedAt: Date | null;
+
+  @Column({ name: 'processed_at', type: 'timestamptz', nullable: true })
+  processedAt: Date | null;
+
+  @Column({ name: 'last_error_at', type: 'timestamptz', nullable: true })
+  lastErrorAt: Date | null;
 
   @Column({ name: 'matched_employee_id', type: 'int', nullable: true })
   matchedEmployeeId: number | null;

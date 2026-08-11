@@ -5,6 +5,7 @@ import { OffboardingCronService } from './offboarding-cron.service';
 import { OffboardingApproval } from '../entities/offboarding-approval.entity';
 import { OffboardingClearance } from '../entities/offboarding-clearance.entity';
 import { OffboardingTask } from '../entities/offboarding-task.entity';
+import type { PostgresAdvisoryLockService } from '../../../../common/database/postgres-advisory-lock.service';
 import {
   OffboardingApprovalReminderEvent,
   OffboardingClearanceOverdueEvent,
@@ -21,6 +22,9 @@ type QueryBuilderMock<T> = {
     (a: string, b?: unknown) => QueryBuilderMock<T>
   >;
   getMany: jest.MockedFunction<() => Promise<T[]>>;
+  update: jest.MockedFunction<() => QueryBuilderMock<T>>;
+  set: jest.MockedFunction<(a: unknown) => QueryBuilderMock<T>>;
+  execute: jest.MockedFunction<() => Promise<{ affected: number }>>;
 };
 
 const createQueryBuilderMock = <T>(items: T[]): QueryBuilderMock<T> => {
@@ -30,12 +34,17 @@ const createQueryBuilderMock = <T>(items: T[]): QueryBuilderMock<T> => {
     where: jest.fn(),
     andWhere: jest.fn(),
     getMany: jest.fn().mockResolvedValue(items),
+    update: jest.fn(),
+    set: jest.fn(),
+    execute: jest.fn().mockResolvedValue({ affected: 1 }),
   } as QueryBuilderMock<T>;
 
   builder.innerJoin.mockReturnValue(builder);
   builder.leftJoinAndSelect.mockReturnValue(builder);
   builder.where.mockReturnValue(builder);
   builder.andWhere.mockReturnValue(builder);
+  builder.update.mockReturnValue(builder);
+  builder.set.mockReturnValue(builder);
   return builder;
 };
 
@@ -139,12 +148,32 @@ describe('OffboardingCronService', () => {
       }),
     } as unknown as ConfigService;
 
+    const advisoryLockService = {
+      runWithLock: jest.fn(
+        async (_key: string, callback: () => Promise<unknown>) => ({
+          acquired: true,
+          result: await callback(),
+        }),
+      ),
+    } as unknown as PostgresAdvisoryLockService;
+
+    const emptyRepository = {
+      createQueryBuilder: jest.fn().mockReturnValue(createQueryBuilderMock([])),
+    };
+
     const service = new OffboardingCronService(
       taskRepository,
       clearanceRepository,
       approvalRepository,
+      emptyRepository as unknown as Repository<
+        import('../entities/offboarding-asset-return.entity').OffboardingAssetReturn
+      >,
+      emptyRepository as unknown as Repository<
+        import('../entities/offboarding-settlement-item.entity').OffboardingSettlementItem
+      >,
       eventEmitter,
       configService,
+      advisoryLockService,
     );
 
     await service.handleOffboardingEscalations();

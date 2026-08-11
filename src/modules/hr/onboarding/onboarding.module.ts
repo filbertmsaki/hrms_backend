@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CompaniesModule } from '../../companies/companies.module';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
@@ -22,6 +22,8 @@ import { OnboardingController } from './onboarding.controller';
 import { OnboardingService } from './onboarding.service';
 import { OnboardingApproval } from './entities/onboarding-approval.entity';
 import { OnboardingAuditLog } from './entities/onboarding-audit-log.entity';
+import { OnboardingNumberSequence } from './entities/onboarding-number-sequence.entity';
+import { OnboardingProvisioningOperation } from './entities/onboarding-provisioning-operation.entity';
 import { OnboardingRequest } from './entities/onboarding-request.entity';
 import { OnboardingTask } from './entities/onboarding-task.entity';
 import { OnboardingWorkflowStep } from './entities/onboarding-workflow-step.entity';
@@ -29,6 +31,7 @@ import { OnboardingWorkflow } from './entities/onboarding-workflow.entity';
 import { OnboardingAuditService } from './services/onboarding-audit.service';
 import { OnboardingCronService } from './services/onboarding-cron.service';
 import { OnboardingWorkflowService } from './services/onboarding-workflow.service';
+import { ProbationModule } from '../probation/probation.module';
 
 @Module({
   imports: [
@@ -39,6 +42,8 @@ import { OnboardingWorkflowService } from './services/onboarding-workflow.servic
       OnboardingTask,
       OnboardingApproval,
       OnboardingAuditLog,
+      OnboardingNumberSequence,
+      OnboardingProvisioningOperation,
       Document,
       Employee,
       Branch,
@@ -58,6 +63,7 @@ import { OnboardingWorkflowService } from './services/onboarding-workflow.servic
     ShiftEngineModule,
     TimetableEngineModule,
     EmployeeDeviceAssignmentsModule,
+    forwardRef(() => ProbationModule),
   ],
   controllers: [OnboardingController],
   providers: [

@@ -1,13 +1,18 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, TransformFnParams, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsEmail,
   IsEnum,
+  Matches,
   IsOptional,
   IsString,
 } from 'class-validator';
 import { ContactTypeEnum } from '../enums/contact-type.enum';
+import {
+  TANZANIA_PHONE_CANONICAL_REGEX,
+  normalizeTanzaniaPhone,
+} from '../../../../common/utils/tanzania-phone.util';
 
 export class EmployeeContactInputDto {
   @ApiPropertyOptional({
@@ -19,6 +24,14 @@ export class EmployeeContactInputDto {
 
   @IsString()
   @IsOptional()
+  @Transform(({ value }: TransformFnParams): unknown => {
+    if (typeof value !== 'string') return value as unknown;
+    return normalizeTanzaniaPhone(value) ?? value.trim();
+  })
+  @Matches(TANZANIA_PHONE_CANONICAL_REGEX, {
+    message:
+      'Phone number must be a valid Tanzanian number in +255 format, for example +255762650393',
+  })
   phone_number?: string;
 
   @IsEmail()

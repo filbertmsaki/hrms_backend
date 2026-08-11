@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Branch } from '../branches/entities/branch.entity';
 import { DepartmentPosition } from '../departments/entities/department-position.entity';
 import { Department } from '../departments/entities/department.entity';
+import { Employee } from '../employees/entities/employee.entity';
 import { HrSharedModule } from '../shared/hr-shared.module';
 import { PositionsController } from './positions.controller';
 import { PositionsService } from './positions.service';
@@ -15,6 +16,7 @@ import { Position } from './entities/position.entity';
       Branch,
       Department,
       DepartmentPosition,
+      Employee,
     ]),
     HrSharedModule,
   ],

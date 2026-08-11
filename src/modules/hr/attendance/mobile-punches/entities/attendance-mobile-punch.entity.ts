@@ -6,6 +6,7 @@ import {
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
+  Unique,
   UpdateDateColumn,
 } from 'typeorm';
 import { Company } from '../../../../companies/entities/company.entity';
@@ -33,6 +34,11 @@ import { Branch } from 'src/modules/hr/branches/entities/branch.entity';
 @Index('IDX_attendance_mobile_punches_employee_date', [
   'employeeId',
   'attendanceDate',
+])
+@Unique('UQ_attendance_mobile_punch_client_request', [
+  'companyId',
+  'employeeId',
+  'clientRequestId',
 ])
 export class AttendanceMobilePunch {
   @PrimaryGeneratedColumn()
@@ -76,6 +82,19 @@ export class AttendanceMobilePunch {
 
   @Column({ name: 'attendance_date', type: 'date' })
   attendanceDate: string;
+
+  @Column({ name: 'client_request_id', type: 'uuid' })
+  clientRequestId: string;
+
+  @Column({ name: 'client_captured_at', type: 'timestamptz', nullable: true })
+  clientCapturedAt: Date | null;
+
+  @Column({
+    name: 'received_at',
+    type: 'timestamptz',
+    default: () => 'CURRENT_TIMESTAMP',
+  })
+  receivedAt: Date;
 
   @Column({
     name: 'latitude',
@@ -144,10 +163,10 @@ export class AttendanceMobilePunch {
   @Column({ name: 'validation_message', type: 'text', nullable: true })
   validationMessage: string | null;
 
-  @Column({ name: 'geofence_validation_result', type: 'json', nullable: true })
+  @Column({ name: 'geofence_validation_result', type: 'jsonb', nullable: true })
   geofenceValidationResult: Record<string, any> | null;
 
-  @Column({ name: 'wifi_validation_result', type: 'json', nullable: true })
+  @Column({ name: 'wifi_validation_result', type: 'jsonb', nullable: true })
   wifiValidationResult: Record<string, any> | null;
 
   @Column({ name: 'is_override_requested', type: 'boolean', default: false })
@@ -165,11 +184,14 @@ export class AttendanceMobilePunch {
   @Column({ name: 'override_review_note', type: 'text', nullable: true })
   overrideReviewNote: string | null;
 
-  @Column({ name: 'device_info', type: 'json', nullable: true })
+  @Column({ name: 'device_info', type: 'jsonb', nullable: true })
   deviceInfo: Record<string, any> | null;
 
-  @Column({ name: 'raw_payload', type: 'json', nullable: true })
+  @Column({ name: 'raw_payload', type: 'jsonb', nullable: true })
   rawPayload: Record<string, any> | null;
+
+  @Column({ name: 'payload_hash', type: 'varchar', length: 128 })
+  payloadHash: string;
 
   /**
    * Later, when connected to attendance_processed_events,
@@ -180,6 +202,12 @@ export class AttendanceMobilePunch {
 
   @Column({ name: 'processed_event_id', type: 'int', nullable: true })
   processedEventId: number | null;
+
+  @Column({ name: 'processing_attempts', type: 'int', default: 0 })
+  processingAttempts: number;
+
+  @Column({ name: 'last_processing_error', type: 'text', nullable: true })
+  lastProcessingError: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

@@ -1,17 +1,21 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomBytes } from 'crypto';
 import { EntityManager, MoreThan, Repository } from 'typeorm';
 
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { comparePasswords, hashPassword } from 'src/common/utils/hash.util';
 import { hasPermission } from 'src/common/utils/permission.util';
+import { normalizeTanzaniaPhone } from 'src/common/utils/tanzania-phone.util';
 import { CompaniesService } from '../companies/companies.service';
 import { CompanyUser } from '../companies/entities/company-user.entity';
+import { AuthSessionsService } from '../auth/auth-sessions.service';
 import { Permission } from '../permissions/entities/permission.entity';
 import { Role } from '../roles/entities/role.entity';
 import { encryptTwoFactorSecret } from '../auth/2fa/utils/two-factor-secret.util';
@@ -22,6 +26,18 @@ import { User } from './entities/user.entity';
 import { DefaultAvatarsService } from '../hr/default-avatars/default-avatars.service';
 import { Employee } from '../hr/employees/entities/employee.entity';
 import { ProfileImageSourceEnum } from '../hr/employees/enums/profile-image-source.enum';
+
+type EmployeeImportAccountResult = {
+  user: User;
+  membership: CompanyUser;
+  action: 'CREATED';
+};
+
+type EmployeeImportAccountMetadata = {
+  provisioned?: boolean;
+  requires_password_change?: boolean;
+  provisioned_at?: string;
+};
 
 @Injectable()
 export class UsersService {
@@ -36,6 +52,7 @@ export class UsersService {
     private readonly permissionRepository: Repository<Permission>,
     private readonly companiesService: CompaniesService,
     private readonly defaultAvatarsService: DefaultAvatarsService,
+    private readonly authSessionsService: AuthSessionsService,
   ) {}
 
   private extractRoleIds(
@@ -252,6 +269,64 @@ export class UsersService {
     };
   }
 
+  private readEmployeeImportAccountMetadata(
+    metadata: Record<string, unknown> | null | undefined,
+  ): EmployeeImportAccountMetadata | null {
+    if (!metadata || typeof metadata !== 'object') {
+      return null;
+    }
+
+    const raw = metadata.employee_import_account;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return null;
+    }
+
+    return raw as EmployeeImportAccountMetadata;
+  }
+
+  private hasPendingEmployeeImportPasswordChange(
+    metadata: Record<string, unknown> | null | undefined,
+  ): boolean {
+    return (
+      this.readEmployeeImportAccountMetadata(metadata)
+        ?.requires_password_change === true
+    );
+  }
+
+  private clearEmployeeImportPasswordChangeMetadata(
+    metadata: Record<string, unknown> | null | undefined,
+  ): Record<string, unknown> | null {
+    if (!metadata || typeof metadata !== 'object') {
+      return metadata ?? null;
+    }
+
+    const current = this.readEmployeeImportAccountMetadata(metadata);
+    if (!current?.requires_password_change) {
+      return metadata;
+    }
+
+    return {
+      ...metadata,
+      employee_import_account: {
+        ...current,
+        requires_password_change: false,
+      },
+    };
+  }
+
+  private async findEmployeesForUser(userId: number, companyId?: number) {
+    const query = this.employeeRepository
+      .createQueryBuilder('employee')
+      .innerJoin('employee.company_user', 'membership')
+      .where('membership.user_id = :userId', { userId });
+
+    if (companyId) {
+      query.andWhere('membership.company_id = :companyId', { companyId });
+    }
+
+    return query.getMany();
+  }
+
   async generateUserNo(manager?: EntityManager): Promise<string> {
     const repository = manager?.getRepository(User) ?? this.userRepository;
     const year = new Date().getFullYear();
@@ -277,11 +352,147 @@ export class UsersService {
     return `${prefix}${String(nextNumber).padStart(5, '0')}`;
   }
 
+  private async generateImportPlaceholderPhone(
+    manager?: EntityManager,
+  ): Promise<string> {
+    const repository = manager?.getRepository(User) ?? this.userRepository;
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const candidate = `+999${Math.floor(
+        100000000 + Math.random() * 900000000,
+      )}`;
+      const existing = await repository.findOne({
+        where: { phone: candidate },
+      });
+      if (!existing) {
+        return candidate;
+      }
+    }
+
+    throw new ConflictException(
+      'Could not generate a unique placeholder phone number for the import user',
+    );
+  }
+
+  async ensureEmployeeImportAccount(
+    companyId: number,
+    input: {
+      email: string;
+      firstName: string;
+      lastName: string;
+      roleNames?: string[];
+    },
+    manager?: EntityManager,
+  ): Promise<EmployeeImportAccountResult> {
+    const repository = manager?.getRepository(User) ?? this.userRepository;
+    const membershipRepository =
+      manager?.getRepository(CompanyUser) ??
+      this.userRepository.manager.getRepository(CompanyUser);
+
+    const email = input.email.trim().toLowerCase();
+    const existingUser = await repository.findOne({
+      where: { email },
+      select: ['id', 'email'],
+    });
+
+    if (existingUser) {
+      throw new ConflictException(`A user already exists with email ${email}.`);
+    }
+
+    const hashedPassword = await hashPassword(
+      randomBytes(24).toString('base64url'),
+    );
+    const user = await repository.save(
+      repository.create({
+        user_no: await this.generateUserNo(manager),
+        first_name: input.firstName.trim(),
+        last_name: input.lastName.trim(),
+        phone: await this.generateImportPlaceholderPhone(manager),
+        email,
+        password: hashedPassword,
+        status: 'inactive',
+        user_type: 'COMPANY_USER',
+        is_email_verified: false,
+        must_set_password: true,
+        activated_at: null,
+        account_provisioning_status: 'pending_activation',
+      }),
+    );
+
+    await this.companiesService.addUserToCompany(
+      user.id,
+      companyId,
+      {
+        roleNames:
+          input.roleNames?.length && input.roleNames.length > 0
+            ? input.roleNames
+            : ['EMPLOYEE'],
+      },
+      manager,
+    );
+
+    const membership = await membershipRepository.findOne({
+      where: {
+        company_id: companyId,
+        user_id: user.id,
+        status: 'active',
+      },
+    });
+
+    if (!membership) {
+      throw new NotFoundException('Company membership could not be created');
+    }
+
+    return {
+      user,
+      membership,
+      action: 'CREATED',
+    };
+  }
+
+  async hasPendingImportedPasswordChange(
+    userId: number,
+    companyId?: number,
+  ): Promise<boolean> {
+    const employees = await this.findEmployeesForUser(userId, companyId);
+    return employees.some((employee) =>
+      this.hasPendingEmployeeImportPasswordChange(employee.metadata),
+    );
+  }
+
+  async clearPendingImportedPasswordChange(userId: number): Promise<void> {
+    const employees = await this.findEmployeesForUser(userId);
+    const employeesToUpdate = employees.filter((employee) =>
+      this.hasPendingEmployeeImportPasswordChange(employee.metadata),
+    );
+
+    if (employeesToUpdate.length === 0) {
+      return;
+    }
+
+    for (const employee of employeesToUpdate) {
+      employee.metadata = this.clearEmployeeImportPasswordChangeMetadata(
+        employee.metadata,
+      );
+    }
+
+    await this.employeeRepository.save(employeesToUpdate);
+  }
+
   async createForCompany(
     companyId: number,
     createUserDto: CreateUserDto,
   ): Promise<UserProfileDto | { message: string; user: UserProfileDto }> {
     const { roles, password, ...userData } = createUserDto;
+    const normalizedPhone = normalizeTanzaniaPhone(userData.phone);
+
+    if (!normalizedPhone) {
+      throw new BadRequestException(
+        'Phone number must be a valid Tanzanian number in +255 format',
+      );
+    }
+
+    userData.phone = normalizedPhone;
     const existingByEmail = await this.userRepository.findOne({
       where: { email: userData.email },
     });
@@ -378,6 +589,7 @@ export class UsersService {
         'is_two_factor_enabled',
         'two_factor_setup_required',
         'auth_token_invalid_before',
+        'auth_token_version',
       ],
       relations: ['roles', 'roles.permissions', 'permissions'],
     });
@@ -417,6 +629,7 @@ export class UsersService {
         'user.two_factor_disabled_by',
         'user.two_factor_disabled_reason',
         'user.auth_token_invalid_before',
+        'user.auth_token_version',
       ])
       .where('user.id = :id', { id })
       .getOne();
@@ -448,6 +661,12 @@ export class UsersService {
     const permissionEntities = membership
       ? this.getMembershipPermissionEntities(membership)
       : await this.resolvePermissionEntitiesByNames(currentCompany.permissions);
+    const dashboardType = hasPermission(
+      permissionEntities.map((permission) => permission.name),
+      'view_company_dashboard',
+    )
+      ? 'admin'
+      : 'employee';
     const resolvedAvatar =
       await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
         companyId,
@@ -469,9 +688,13 @@ export class UsersService {
         this.defaultAvatarsService.buildProfilePicturePayload(resolvedAvatar),
       status: user.status,
       user_type: user.user_type,
+      dashboard_type: dashboardType,
       is_email_verified: user.is_email_verified,
       is_two_factor_enabled: user.is_two_factor_enabled,
       two_factor_setup_required: user.two_factor_setup_required,
+      requires_password_change: this.hasPendingEmployeeImportPasswordChange(
+        membership?.employee?.metadata,
+      ),
       email_verification_expires: user.email_verification_expires,
       last_login_at: user.last_login_at,
       last_login_ip: user.last_login_ip,
@@ -525,6 +748,12 @@ export class UsersService {
     const permissionEntities = membership
       ? this.getMembershipPermissionEntities(membership)
       : await this.resolvePermissionEntitiesByNames(companyContext.permissions);
+    const dashboardType = hasPermission(
+      permissionEntities.map((permission) => permission.name),
+      'view_company_dashboard',
+    )
+      ? 'admin'
+      : 'employee';
     const resolvedAvatar =
       await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
         companyId,
@@ -546,9 +775,13 @@ export class UsersService {
         this.defaultAvatarsService.buildProfilePicturePayload(resolvedAvatar),
       status: user.status,
       user_type: user.user_type,
+      dashboard_type: dashboardType,
       is_email_verified: user.is_email_verified,
       is_two_factor_enabled: user.is_two_factor_enabled,
       two_factor_setup_required: user.two_factor_setup_required,
+      requires_password_change: this.hasPendingEmployeeImportPasswordChange(
+        membership?.employee?.metadata,
+      ),
       email_verification_expires: user.email_verification_expires,
       last_login_at: user.last_login_at,
       last_login_ip: user.last_login_ip,
@@ -692,7 +925,12 @@ export class UsersService {
   }
 
   async findByPhone(phone: string): Promise<User | null> {
-    return this.userRepository.findOne({ where: { phone } });
+    const normalizedPhone = normalizeTanzaniaPhone(phone);
+    if (!normalizedPhone) {
+      return null;
+    }
+
+    return this.userRepository.findOne({ where: { phone: normalizedPhone } });
   }
 
   async findByUserNo(userNo: string): Promise<User | null> {
@@ -714,8 +952,58 @@ export class UsersService {
     });
   }
 
+  async revokeAllSessions(
+    userId: number,
+    invalidBefore = new Date(),
+  ): Promise<void> {
+    await this.userRepository
+      .createQueryBuilder()
+      .update(User)
+      .set({
+        auth_token_invalid_before: invalidBefore,
+        auth_token_version: () => '"auth_token_version" + 1',
+      })
+      .where('id = :userId', {
+        userId,
+      })
+      .execute();
+
+    await this.authSessionsService.revokeAllSessionsForUser(
+      userId,
+      'all_sessions_revoked',
+    );
+  }
+
   async updatePassword(id: number, hashedPassword: string): Promise<void> {
     await this.userRepository.update(id, { password: hashedPassword });
+    await this.clearPendingImportedPasswordChange(id);
+  }
+
+  async updatePasswordAndRevokeSessions(
+    userId: number,
+    hashedPassword: string,
+  ): Promise<void> {
+    await this.userRepository.manager.transaction(async (manager) => {
+      await manager
+        .getRepository(User)
+        .createQueryBuilder()
+        .update(User)
+        .set({
+          password: hashedPassword,
+          auth_token_invalid_before: new Date(),
+          auth_token_version: () => '"auth_token_version" + 1',
+        })
+        .where('id = :userId', {
+          userId,
+        })
+        .execute();
+    });
+
+    await this.authSessionsService.revokeAllSessionsForUser(
+      userId,
+      'password_changed',
+    );
+    await this.clearPendingImportedPasswordChange(userId);
   }
 
   async update(id: number, updateUserDto: UpdateUserDto): Promise<User> {
@@ -724,6 +1012,16 @@ export class UsersService {
       roles?: unknown;
     };
     void roles;
+    if (typeof safeUpdate.phone === 'string') {
+      const normalizedPhone = normalizeTanzaniaPhone(safeUpdate.phone);
+      if (!normalizedPhone) {
+        throw new BadRequestException(
+          'Phone number must be a valid Tanzanian number in +255 format',
+        );
+      }
+
+      safeUpdate.phone = normalizedPhone;
+    }
     Object.assign(user, safeUpdate);
     return this.userRepository.save(user);
   }
@@ -757,10 +1055,19 @@ export class UsersService {
       throw new UnauthorizedException('Current password incorrect');
     }
 
-    const hashed = await hashPassword(newPassword);
-    await this.userRepository.update(userId, { password: hashed });
+    const isSamePassword = await comparePasswords(newPassword, user.password);
+    if (isSamePassword) {
+      throw new UnauthorizedException(
+        'New password must be different from the current password',
+      );
+    }
 
-    return { message: 'Password changed successfully' };
+    const hashed = await hashPassword(newPassword);
+    await this.updatePasswordAndRevokeSessions(userId, hashed);
+
+    return {
+      message: 'Password changed successfully. Please log in again.',
+    };
   }
 
   async updateVerificationToken(
@@ -836,6 +1143,15 @@ export class UsersService {
     await this.userRepository.update(userId, update);
   }
 
+  async requireTwoFactorSetup(userId: number): Promise<void> {
+    await this.userRepository.update(userId, {
+      is_two_factor_enabled: true,
+      two_factor_setup_required: true,
+      two_factor_secret: null,
+      two_factor_backup_codes: null,
+    });
+  }
+
   async updateBackupCodes(
     userId: number,
     backupCodes: string[],
@@ -887,6 +1203,11 @@ export class UsersService {
       two_factor_disabled_reason: reason,
       auth_token_invalid_before: revokedAt,
     });
+
+    await this.authSessionsService.revokeAllSessionsForUser(
+      userId,
+      'two_factor_disabled',
+    );
   }
 
   async markAuthTokensInvalidBefore(
@@ -896,6 +1217,11 @@ export class UsersService {
     await this.userRepository.update(userId, {
       auth_token_invalid_before: invalidBefore,
     });
+
+    await this.authSessionsService.revokeAllSessionsForUser(
+      userId,
+      'tokens_invalidated',
+    );
   }
 
   async hasAnotherProtectedTwoFactorAdmin(

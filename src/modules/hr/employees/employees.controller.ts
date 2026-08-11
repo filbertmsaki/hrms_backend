@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   Param,
   ParseIntPipe,
   Patch,
@@ -10,6 +11,7 @@ import {
   Query,
   Req,
   Res,
+  StreamableFile,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -18,11 +20,14 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest, Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { CurrentAuditContext } from '../../../common/decorators/audit-request-context.decorator';
 import { Permissions } from '../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import type { AuditRequestContext } from '../../../common/interfaces/audit-request-context.interface';
 import { AddEmployeeDocumentDto } from './dtos/add-employee-document.dto';
+import { ChangeEmployeeAssignmentDto } from './dtos/change-employee-assignment.dto';
 import { ChangeEmployeeStatusDto } from './dtos/change-employee-status.dto';
 import { CreateEmployeeAddressDto } from './dtos/create-employee-address.dto';
 import { CreateEmployeeAcademicQualificationDto } from './dtos/create-employee-academic-qualification.dto';
@@ -47,8 +52,10 @@ import { UpdateEmployeeRelativeDto } from './dtos/update-employee-relative.dto';
 import { EmployeeImportConfirmDto } from './import/dto/employee-import-confirm.dto';
 import { EmployeeImportHistoryQueryDto } from './import/dto/employee-import-history-query.dto';
 import { EmployeeImportPreviewRequestDto } from './import/dto/employee-import-preview-request.dto';
+import { EmployeeAssignmentService } from './employee-assignment.service';
 import { EmployeeImportService } from './import/employee-import.service';
 import { EmployeesService } from './employees.service';
+import { createDownloadStream } from '../../files/file-download.util';
 import {
   ApiCreateOperation,
   ApiDeleteOperation,
@@ -70,6 +77,7 @@ import {
 export class EmployeesController {
   constructor(
     private readonly employeesService: EmployeesService,
+    private readonly employeeAssignmentService: EmployeeAssignmentService,
     private readonly employeeImportService: EmployeeImportService,
   ) {}
 
@@ -86,12 +94,14 @@ export class EmployeesController {
   )
   create(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
     @Body() createEmployeeDto: CreateEmployeeDto,
   ) {
     return this.employeesService.create(
       req.user.companyId!,
       createEmployeeDto,
       req.user,
+      context,
     );
   }
 
@@ -196,12 +206,16 @@ export class EmployeesController {
   @Permissions('employees.import.execute')
   confirmImport(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Body() dto: EmployeeImportConfirmDto,
   ) {
     return this.employeeImportService.confirmImport(
       req.user.companyId!,
       dto,
       req.user,
+      context,
+      idempotencyKey,
     );
   }
 
@@ -215,7 +229,27 @@ export class EmployeesController {
     return this.employeeImportService.listHistory(req.user.companyId!, query);
   }
 
+  @Get('import/:batchId/preview')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees.import.history.view')
+  getImportPreview(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('batchId') batchId: string,
+  ) {
+    return this.employeeImportService.getPreview(req.user.companyId!, batchId);
+  }
+
   @Get('import/:batchId/result')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees.import.result.download')
+  getImportResult(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('batchId') batchId: string,
+  ) {
+    return this.employeeImportService.getResult(req.user.companyId!, batchId);
+  }
+
+  @Get('import/:batchId/errors/download')
   @UseGuards(PermissionsGuard)
   @Permissions('employees.import.result.download')
   async downloadImportResult(
@@ -272,6 +306,7 @@ export class EmployeesController {
   update(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
+    @CurrentAuditContext() context: AuditRequestContext,
     @Body() updateEmployeeDto: UpdateEmployeeDto,
   ) {
     return this.employeesService.update(
@@ -279,6 +314,33 @@ export class EmployeesController {
       id,
       updateEmployeeDto,
       req.user,
+      context,
+    );
+  }
+
+  @Patch(':id/assignment')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_assignments:update')
+  @ApiOperationSummary(
+    'Change employee assignment',
+    'Updates employee branch, department, position, manager, grade and cost centre using effective-dated history.',
+  )
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiNotFoundResponse('Employee')
+  @ApiSuccessResponse(200, 'Employee assignment updated')
+  changeAssignment(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentAuditContext() context: AuditRequestContext,
+    @Body() changeEmployeeAssignmentDto: ChangeEmployeeAssignmentDto,
+  ) {
+    return this.employeeAssignmentService.changeAssignment(
+      req.user.companyId!,
+      id,
+      changeEmployeeAssignmentDto,
+      req.user,
+      context,
     );
   }
 
@@ -296,6 +358,7 @@ export class EmployeesController {
   changeStatus(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
+    @CurrentAuditContext() context: AuditRequestContext,
     @Body() changeEmployeeStatusDto: ChangeEmployeeStatusDto,
   ) {
     return this.employeesService.changeStatus(
@@ -303,18 +366,28 @@ export class EmployeesController {
       id,
       changeEmployeeStatusDto,
       req.user,
+      context,
     );
   }
 
   @Delete(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:delete')
-  @ApiDeleteOperation('Employee', 'Delete an employee profile')
+  @ApiDeleteOperation(
+    'Employee',
+    'Archive an employee profile without permanently deleting historical data',
+  )
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
+    @CurrentAuditContext() context: AuditRequestContext,
   ) {
-    return this.employeesService.remove(req.user.companyId!, id, req.user);
+    return this.employeesService.remove(
+      req.user.companyId!,
+      id,
+      req.user,
+      context,
+    );
   }
 
   // ════════════════════════════════════════════
@@ -336,13 +409,35 @@ export class EmployeesController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
     @Body() addEmployeeDocumentDto: AddEmployeeDocumentDto,
+    @CurrentAuditContext() context: AuditRequestContext,
   ) {
     return this.employeesService.addDocument(
       req.user.companyId!,
       id,
       addEmployeeDocumentDto,
       req.user,
+      context,
     );
+  }
+
+  @Get(':employeeId/documents/:documentId/download')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:read')
+  async downloadEmployeeDocument(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('documentId', ParseIntPipe) documentId: number,
+    @CurrentAuditContext() context: AuditRequestContext,
+  ): Promise<StreamableFile> {
+    const file = await this.employeesService.downloadDocument(
+      req.user.companyId!,
+      employeeId,
+      documentId,
+      req.user,
+      context,
+    );
+
+    return createDownloadStream(file);
   }
 
   @Delete(':employeeId/documents/:documentId')

@@ -21,4 +21,32 @@ export class LeavePolicyTypeInputDto {
   @IsBoolean()
   @IsOptional()
   requires_approval?: boolean;
+
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  encashment_enabled?: boolean;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  maximum_encashment_days?: number;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  minimum_balance_after_encashment?: number;
+
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  encashment_requires_approval?: boolean;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  maximum_accumulation_days?: number;
 }

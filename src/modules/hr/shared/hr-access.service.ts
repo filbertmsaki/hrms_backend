@@ -4,10 +4,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { hasPermission } from '../../../common/utils/permission.util';
 import { CompanyUserBranchAccess } from '../branches/entities/company-user-branch-access.entity';
+import { CompanyUserDepartmentAccess } from '../departments/entities/company-user-department-access.entity';
+import { Department } from '../departments/entities/department.entity';
 import { Employee } from '../employees/entities/employee.entity';
 
 @Injectable()
@@ -15,32 +17,255 @@ export class HrAccessService {
   constructor(
     @InjectRepository(CompanyUserBranchAccess)
     private readonly branchAccessRepository: Repository<CompanyUserBranchAccess>,
+    @InjectRepository(CompanyUserDepartmentAccess)
+    private readonly departmentAccessRepository: Repository<CompanyUserDepartmentAccess>,
+    @InjectRepository(Department)
+    private readonly departmentRepository: Repository<Department>,
+    @InjectRepository(Employee)
+    private readonly employeeRepository: Repository<Employee>,
   ) {}
 
-  hasCompanyWideBranchAccess(actor: AuthenticatedUser): boolean {
-    return (
-      actor.roles.includes('COMPANY_ADMIN') ||
-      hasPermission(actor.permissions, 'view_company_data')
-    );
+  hasCompanyScope(actor: AuthenticatedUser): boolean {
+    return hasPermission(actor.permissions, 'data_scope:company');
   }
 
-  async getAccessibleBranchIds(
+  hasBranchScope(actor: AuthenticatedUser): boolean {
+    return hasPermission(actor.permissions, 'data_scope:branch');
+  }
+
+  hasDepartmentScope(actor: AuthenticatedUser): boolean {
+    return hasPermission(actor.permissions, 'data_scope:department');
+  }
+
+  hasTeamScope(actor: AuthenticatedUser): boolean {
+    return hasPermission(actor.permissions, 'data_scope:team');
+  }
+
+  hasSelfScope(actor: AuthenticatedUser): boolean {
+    return hasPermission(actor.permissions, 'data_scope:self');
+  }
+
+  private async getManagedDepartmentIds(
+    actor: AuthenticatedUser,
+  ): Promise<number[]> {
+    if (!actor.employeeId) {
+      return [];
+    }
+
+    const managedDepartments = await this.departmentRepository.find({
+      where: {
+        manager_employee_id: actor.employeeId,
+      },
+      select: ['id'],
+    });
+
+    return managedDepartments.map((department) => department.id);
+  }
+
+  private async getReportingEmployeeIds(
+    actor: AuthenticatedUser,
+  ): Promise<number[]> {
+    if (!actor.employeeId) {
+      return [];
+    }
+
+    const seen = new Set<number>();
+    const queue = [actor.employeeId];
+
+    while (queue.length) {
+      const managerId = queue.shift()!;
+      const directReports = await this.employeeRepository.find({
+        where: { reports_to: managerId },
+        select: ['id'],
+      });
+
+      for (const directReport of directReports) {
+        if (seen.has(directReport.id)) {
+          continue;
+        }
+
+        seen.add(directReport.id);
+        queue.push(directReport.id);
+      }
+    }
+
+    return Array.from(seen);
+  }
+
+  async getAccessibleDepartmentIds(
     actor: AuthenticatedUser,
   ): Promise<number[] | null> {
-    if (this.hasCompanyWideBranchAccess(actor)) {
+    if (this.hasCompanyScope(actor)) {
       return null;
+    }
+
+    if (!this.hasDepartmentScope(actor)) {
+      return [];
     }
 
     if (!actor.companyMembershipId) {
       throw new ForbiddenException('Active company membership is required');
     }
 
-    const assignments = await this.branchAccessRepository.find({
+    const assignments = await this.departmentAccessRepository.find({
       where: { company_user_id: actor.companyMembershipId },
-      select: ['branch_id'],
+      select: ['department_id'],
     });
+    const managedDepartmentIds = await this.getManagedDepartmentIds(actor);
 
-    return assignments.map((assignment) => assignment.branch_id);
+    return Array.from(
+      new Set([
+        ...assignments.map((assignment) => assignment.department_id),
+        ...managedDepartmentIds,
+      ]),
+    );
+  }
+
+  async getAccessibleBranchIds(
+    actor: AuthenticatedUser,
+  ): Promise<number[] | null> {
+    if (this.hasCompanyScope(actor)) {
+      return null;
+    }
+
+    if (this.hasBranchScope(actor)) {
+      if (!actor.companyMembershipId) {
+        throw new ForbiddenException('Active company membership is required');
+      }
+
+      const assignments = await this.branchAccessRepository.find({
+        where: { company_user_id: actor.companyMembershipId },
+        select: ['branch_id'],
+      });
+
+      return Array.from(
+        new Set(assignments.map((assignment) => assignment.branch_id)),
+      );
+    }
+
+    if (this.hasDepartmentScope(actor)) {
+      const departmentIds = await this.getAccessibleDepartmentIds(actor);
+      if (!departmentIds?.length) {
+        return [];
+      }
+
+      const departments = await this.departmentRepository.find({
+        where: {
+          id: In(departmentIds),
+        },
+        select: ['branch_id'],
+      });
+
+      return Array.from(
+        new Set(
+          departments
+            .map((department) => department.branch_id)
+            .filter(
+              (branchId): branchId is number => typeof branchId === 'number',
+            ),
+        ),
+      );
+    }
+
+    return [];
+  }
+
+  async getAccessibleEmployeeIds(
+    actor: AuthenticatedUser,
+  ): Promise<number[] | null> {
+    if (this.hasCompanyScope(actor)) {
+      return null;
+    }
+
+    const employeeIds = new Set<number>();
+
+    if (actor.employeeId) {
+      employeeIds.add(actor.employeeId);
+    }
+
+    if (this.hasBranchScope(actor)) {
+      const branchIds = await this.getAccessibleBranchIds(actor);
+
+      if (branchIds?.length) {
+        const branchEmployees = await this.employeeRepository
+          .createQueryBuilder('employee')
+          .leftJoin('employee.department_assignments', 'departmentAssignment')
+          .leftJoin('departmentAssignment.department', 'department')
+          .where('employee.primary_branch_id IN (:...branchIds)', { branchIds })
+          .orWhere('department.branch_id IN (:...branchIds)', { branchIds })
+          .select('employee.id', 'id')
+          .getRawMany<{ id: number }>();
+
+        branchEmployees.forEach((row) => employeeIds.add(Number(row.id)));
+      }
+    }
+
+    if (this.hasDepartmentScope(actor)) {
+      const departmentIds = await this.getAccessibleDepartmentIds(actor);
+
+      if (departmentIds?.length) {
+        const departmentEmployees = await this.employeeRepository
+          .createQueryBuilder('employee')
+          .leftJoin('employee.department_assignments', 'departmentAssignment')
+          .where('employee.primary_department_id IN (:...departmentIds)', {
+            departmentIds,
+          })
+          .orWhere(
+            'departmentAssignment.department_id IN (:...departmentIds)',
+            {
+              departmentIds,
+            },
+          )
+          .select('employee.id', 'id')
+          .getRawMany<{ id: number }>();
+
+        departmentEmployees.forEach((row) => employeeIds.add(Number(row.id)));
+      }
+    }
+
+    if (this.hasTeamScope(actor)) {
+      const reportingEmployeeIds = await this.getReportingEmployeeIds(actor);
+      reportingEmployeeIds.forEach((employeeId) => employeeIds.add(employeeId));
+    }
+
+    return Array.from(employeeIds);
+  }
+
+  async assertCanAccessDepartment(
+    actor: AuthenticatedUser,
+    departmentId: number | null | undefined,
+  ): Promise<void> {
+    if (!departmentId) {
+      return;
+    }
+
+    if (this.hasCompanyScope(actor)) {
+      return;
+    }
+
+    if (this.hasDepartmentScope(actor)) {
+      const departmentIds = await this.getAccessibleDepartmentIds(actor);
+
+      if (departmentIds?.includes(departmentId)) {
+        return;
+      }
+    }
+
+    if (this.hasBranchScope(actor)) {
+      const department = await this.departmentRepository.findOne({
+        where: { id: departmentId },
+        select: ['branch_id'],
+      });
+
+      const branchIds = await this.getAccessibleBranchIds(actor);
+      if (department?.branch_id && branchIds?.includes(department.branch_id)) {
+        return;
+      }
+    }
+
+    throw new ForbiddenException(
+      'You do not have access to the requested department',
+    );
   }
 
   async assertCanAccessBranch(
@@ -51,13 +276,13 @@ export class HrAccessService {
       return;
     }
 
-    const branchIds = await this.getAccessibleBranchIds(actor);
-
-    if (branchIds === null) {
+    if (this.hasCompanyScope(actor)) {
       return;
     }
 
-    if (!branchIds.includes(branchId)) {
+    const branchIds = await this.getAccessibleBranchIds(actor);
+
+    if (!branchIds?.includes(branchId)) {
       throw new ForbiddenException(
         'You do not have access to the requested branch',
       );
@@ -79,40 +304,18 @@ export class HrAccessService {
       return;
     }
 
-    const branchIds = await this.getAccessibleBranchIds(actor);
-
-    if (branchIds === null) {
+    if (this.hasCompanyScope(actor)) {
       return;
     }
 
-    const departmentBranchIds =
-      employee.department_assignments
-        ?.map((assignment) => assignment.department?.branch_id)
-        .filter(
-          (branchId): branchId is number => typeof branchId === 'number',
-        ) ?? [];
-    const primaryDepartmentBranchId =
-      employee.primary_department?.branch_id ?? null;
-    const primaryPositionBranchId =
-      employee.primary_position?.branch_id ?? null;
-
-    const hasAccess =
-      (employee.primary_branch_id
-        ? branchIds.includes(employee.primary_branch_id)
-        : false) ||
-      (primaryDepartmentBranchId
-        ? branchIds.includes(primaryDepartmentBranchId)
-        : false) ||
-      (primaryPositionBranchId
-        ? branchIds.includes(primaryPositionBranchId)
-        : false) ||
-      departmentBranchIds.some((branchId) => branchIds.includes(branchId));
-
-    if (!hasAccess) {
-      throw new ForbiddenException(
-        'You do not have access to the requested employee',
-      );
+    const accessibleEmployeeIds = await this.getAccessibleEmployeeIds(actor);
+    if (accessibleEmployeeIds?.includes(employee.id)) {
+      return;
     }
+
+    throw new ForbiddenException(
+      'You do not have access to the requested employee',
+    );
   }
 
   assertCompanyScopedActor(actor: AuthenticatedUser): void {

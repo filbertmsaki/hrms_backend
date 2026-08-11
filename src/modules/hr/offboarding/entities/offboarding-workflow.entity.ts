@@ -34,6 +34,18 @@ export class OffboardingWorkflow {
   @Column({ default: false })
   is_default: boolean;
 
+  @Column({ type: 'int', default: 1 })
+  version: number;
+
+  @Column({ type: 'int', nullable: true })
+  root_workflow_id: number | null;
+
+  @Column({ default: false })
+  is_locked: boolean;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  locked_at: Date | null;
+
   @Column({
     type: 'enum',
     enum: OffboardingRecordStatusEnum,

@@ -34,19 +34,28 @@ export type SafeSendMailOptions = ISendMailOptions & {
 export type MailRecipientSafetyConfig = {
   appEnv?: string | null;
   nodeEnv?: string | null;
+  appName?: string | null;
   overrideEnabled: boolean;
   testTo?: string | null;
   testCc?: string | null;
   testBcc?: string | null;
+  addOriginalRecipientsToBody?: boolean;
+  subjectPrefix?: string | null;
 };
 
 export type ResolvedMailRecipientSafetyConfig = {
   environment: NormalizedAppEnvironment;
   rawEnvironment: string | null;
+  appName: string;
   overrideEnabled: boolean;
   testTo: string[];
   testCc: string[];
   testBcc: string[];
+  invalidTestTo: string[];
+  invalidTestCc: string[];
+  invalidTestBcc: string[];
+  addOriginalRecipientsToBody: boolean;
+  subjectPrefix: string | null;
 };
 
 export type MailRecipientSafetyResult = {
@@ -66,11 +75,6 @@ export class UnsafeEmailDeliveryError extends Error {
 
 const EMAIL_SEPARATOR_REGEX = /[,\n;]+/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const DEVELOPMENT_ENVS = new Set<NormalizedAppEnvironment>([
-  'local',
-  'development',
-  'uat',
-]);
 
 export function normalizeAppEnvironment(
   value?: string | null,
@@ -121,14 +125,23 @@ export function resolveMailRecipientSafetyConfig(
   const rawEnvironment =
     config.appEnv?.trim() || config.nodeEnv?.trim() || null;
   const environment = normalizeAppEnvironment(rawEnvironment);
+  const parsedTestTo = parseConfiguredRecipients(config.testTo);
+  const parsedTestCc = parseConfiguredRecipients(config.testCc);
+  const parsedTestBcc = parseConfiguredRecipients(config.testBcc);
 
   return {
     environment,
     rawEnvironment,
+    appName: config.appName?.trim() || 'Your App',
     overrideEnabled: config.overrideEnabled,
-    testTo: parseConfiguredRecipients(config.testTo),
-    testCc: parseConfiguredRecipients(config.testCc),
-    testBcc: parseConfiguredRecipients(config.testBcc),
+    testTo: parsedTestTo.valid,
+    testCc: parsedTestCc.valid,
+    testBcc: parsedTestBcc.valid,
+    invalidTestTo: parsedTestTo.invalid,
+    invalidTestCc: parsedTestCc.invalid,
+    invalidTestBcc: parsedTestBcc.invalid,
+    addOriginalRecipientsToBody: config.addOriginalRecipientsToBody !== false,
+    subjectPrefix: config.subjectPrefix?.trim() || null,
   };
 }
 
@@ -138,11 +151,17 @@ export function resolveMailRecipientSafetyConfigFromConfigService(
   return resolveMailRecipientSafetyConfig({
     appEnv: configService.get<string>('APP_ENV'),
     nodeEnv: configService.get<string>('NODE_ENV'),
+    appName: configService.get<string>('APP_NAME'),
     overrideEnabled:
       configService.get<boolean>('MAIL_OVERRIDE_ENABLED') === true,
     testTo: configService.get<string>('MAIL_TEST_TO'),
     testCc: configService.get<string>('MAIL_TEST_CC'),
     testBcc: configService.get<string>('MAIL_TEST_BCC'),
+    addOriginalRecipientsToBody:
+      configService.get<boolean>(
+        'MAIL_OVERRIDE_ADD_ORIGINAL_RECIPIENTS_TO_BODY',
+      ) !== false,
+    subjectPrefix: configService.get<string>('MAIL_OVERRIDE_SUBJECT_PREFIX'),
   });
 }
 
@@ -152,11 +171,18 @@ export function resolveMailRecipientSafetyConfigFromEnv(
   return resolveMailRecipientSafetyConfig({
     appEnv: env.APP_ENV,
     nodeEnv: env.NODE_ENV,
+    appName: env.APP_NAME,
     overrideEnabled:
       env.MAIL_OVERRIDE_ENABLED === 'true' || env.MAIL_OVERRIDE_ENABLED === '1',
     testTo: env.MAIL_TEST_TO,
     testCc: env.MAIL_TEST_CC,
     testBcc: env.MAIL_TEST_BCC,
+    addOriginalRecipientsToBody:
+      env.MAIL_OVERRIDE_ADD_ORIGINAL_RECIPIENTS_TO_BODY === undefined
+        ? true
+        : env.MAIL_OVERRIDE_ADD_ORIGINAL_RECIPIENTS_TO_BODY === 'true' ||
+          env.MAIL_OVERRIDE_ADD_ORIGINAL_RECIPIENTS_TO_BODY === '1',
+    subjectPrefix: env.MAIL_OVERRIDE_SUBJECT_PREFIX,
   });
 }
 
@@ -166,7 +192,7 @@ export function applyMailRecipientSafety(
   logger?: Pick<Logger, 'log' | 'warn'>,
 ): MailRecipientSafetyResult {
   const result = prepareMailRecipientSafety(options, config, logger);
-  appendMailRecipientSafetyDebugFooter(options, result);
+  appendMailRecipientSafetyDebugFooter(options, result, config);
   return result;
 }
 
@@ -179,42 +205,42 @@ export function prepareMailRecipientSafety(
   const originalCc = normalizeRecipientInput(options.cc);
   const originalBcc = normalizeRecipientInput(options.bcc);
 
-  if (config.environment === 'production') {
-    if (config.overrideEnabled) {
-      logger?.warn?.(
-        `Ignoring MAIL_OVERRIDE_ENABLED in production for source "${resolveSourceModule(options)}".`,
-      );
-    }
-
-    return {
-      environment: config.environment,
-      recipientsOverridden: false,
-      originalTo,
-      originalCc,
-      originalBcc,
-    };
-  }
-
-  if (!DEVELOPMENT_ENVS.has(config.environment)) {
-    return {
-      environment: config.environment,
-      recipientsOverridden: false,
-      originalTo,
-      originalCc,
-      originalBcc,
-    };
-  }
-
   if (!config.overrideEnabled) {
-    throw new UnsafeEmailDeliveryError(
-      `Email delivery is blocked in ${config.environment}. Enable MAIL_OVERRIDE_ENABLED and configure MAIL_TEST_TO to send safely.`,
-    );
+    return {
+      environment: config.environment,
+      recipientsOverridden: false,
+      originalTo,
+      originalCc,
+      originalBcc,
+    };
+  }
+
+  const invalidConfiguredRecipients = [
+    ...config.invalidTestTo,
+    ...config.invalidTestCc,
+    ...config.invalidTestBcc,
+  ];
+
+  if (invalidConfiguredRecipients.length > 0) {
+    const message =
+      `Email override is enabled, but one or more configured test recipients are invalid: ${invalidConfiguredRecipients.join(', ')}. ` +
+      'The email was blocked to prevent delivery to the original recipients.';
+    logger?.warn?.(message);
+    throw new UnsafeEmailDeliveryError(message);
   }
 
   if (!config.testTo.length) {
-    throw new UnsafeEmailDeliveryError(
-      `Email delivery is blocked in ${config.environment} because MAIL_TEST_TO is missing or invalid while recipient override is enabled.`,
-    );
+    const message =
+      'Email override is enabled, but MAIL_TEST_TO is not configured. The email was blocked to prevent delivery to the original recipients.';
+    logger?.warn?.(message);
+    throw new UnsafeEmailDeliveryError(message);
+  }
+
+  if (config.subjectPrefix && typeof options.subject === 'string') {
+    const normalizedPrefix = config.subjectPrefix.trim();
+    if (normalizedPrefix && !options.subject.startsWith(normalizedPrefix)) {
+      options.subject = `${normalizedPrefix} ${options.subject}`.trim();
+    }
   }
 
   options.to = [...config.testTo];
@@ -222,7 +248,7 @@ export function prepareMailRecipientSafety(
   options.bcc = config.testBcc.length ? [...config.testBcc] : undefined;
 
   logger?.log?.(
-    `Mail recipient override applied for source "${resolveSourceModule(options)}" in ${config.environment}. Original recipient counts: to=${originalTo.length}, cc=${originalCc.length}, bcc=${originalBcc.length}.`,
+    `Email recipient override applied. Environment: ${config.rawEnvironment ?? config.environment}. Application: ${config.appName}. Source: ${resolveSourceModule(options)}. Original recipient count: ${originalTo.length + originalCc.length + originalBcc.length}. Test recipient count: ${config.testTo.length + config.testCc.length + config.testBcc.length}. Replaced to=${originalTo.length > 0}, cc=${originalCc.length > 0}, bcc=${originalBcc.length > 0}.`,
   );
 
   return {
@@ -237,17 +263,24 @@ export function prepareMailRecipientSafety(
 export function appendMailRecipientSafetyDebugFooter(
   options: SafeSendMailOptions,
   result: MailRecipientSafetyResult,
+  config: Pick<
+    ResolvedMailRecipientSafetyConfig,
+    'appName' | 'rawEnvironment' | 'addOriginalRecipientsToBody'
+  >,
 ) {
   if (!result.recipientsOverridden) {
     return;
   }
 
   const debugBlock = buildDebugFooter(
+    config.appName,
+    config.rawEnvironment ?? result.environment,
     result.environment,
     resolveSourceModule(options),
     result.originalTo,
     result.originalCc,
     result.originalBcc,
+    config.addOriginalRecipientsToBody,
   );
 
   if (typeof options.html === 'string' || Buffer.isBuffer(options.html)) {
@@ -261,16 +294,45 @@ export function appendMailRecipientSafetyDebugFooter(
   }
 }
 
-function parseConfiguredRecipients(value?: string | null): string[] {
+function parseConfiguredRecipients(value?: string | null): {
+  valid: string[];
+  invalid: string[];
+} {
   if (!value || value.trim() === '') {
-    return [];
+    return {
+      valid: [],
+      invalid: [],
+    };
   }
 
-  return value
-    .split(EMAIL_SEPARATOR_REGEX)
-    .map((item) => item.trim())
-    .filter((item) => item !== '')
-    .filter((item) => EMAIL_REGEX.test(item));
+  const valid: string[] = [];
+  const invalid: string[] = [];
+  const seen = new Set<string>();
+
+  for (const rawValue of value.split(EMAIL_SEPARATOR_REGEX)) {
+    const trimmed = rawValue.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    if (!EMAIL_REGEX.test(trimmed)) {
+      invalid.push(trimmed);
+      continue;
+    }
+
+    const normalized = trimmed.toLowerCase();
+    if (seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    valid.push(normalized);
+  }
+
+  return {
+    valid,
+    invalid,
+  };
 }
 
 function normalizeRecipientInput(
@@ -306,26 +368,40 @@ function normalizeRecipientInput(
 }
 
 function buildDebugFooter(
+  appName: string,
+  displayEnvironment: string,
   environment: NormalizedAppEnvironment,
   sourceModule: string,
   originalTo: ParsedAddress[],
   originalCc: ParsedAddress[],
   originalBcc: ParsedAddress[],
+  includeOriginalRecipients: boolean,
 ) {
-  const fields = [
-    ['Current Environment', environment],
+  const fields: Array<readonly [string, string]> = [
+    ['Environment', displayEnvironment],
+    ['Application', appName],
     ['Source Module', sourceModule],
-    ['Original To', formatAddressList(originalTo)],
-    ['Original CC', formatAddressList(originalCc)],
-    ['Original BCC', formatAddressList(originalBcc)],
-  ] as const;
+  ];
+  const originalRecipientFields: Array<readonly [string, string]> =
+    includeOriginalRecipients
+      ? [
+          ['Original To', formatAddressList(originalTo)],
+          ['Original Cc', formatAddressList(originalCc)],
+          ['Original Bcc', formatAddressList(originalBcc)],
+        ]
+      : [];
 
   const html = [
     '<hr />',
     '<section style="margin-top:24px;padding:16px;border:1px solid #d1d5db;background:#fff8dc;color:#111827;font-family:Arial,sans-serif;font-size:14px;">',
-    '<strong>Development Mail Override Applied</strong>',
+    '<strong>TEST EMAIL - RECIPIENT OVERRIDE ENABLED</strong>',
+    '<p style="margin:12px 0 0;">This message was redirected by the application email test configuration.</p>',
     '<ul style="margin:12px 0 0 18px;padding:0;">',
     ...fields.map(
+      ([label, value]) =>
+        `<li><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</li>`,
+    ),
+    ...originalRecipientFields.map(
       ([label, value]) =>
         `<li><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</li>`,
     ),
@@ -336,9 +412,13 @@ function buildDebugFooter(
   const text = [
     '',
     '',
-    '--- Development Mail Override Applied ---',
+    'TEST EMAIL - RECIPIENT OVERRIDE ENABLED',
+    'This message was redirected by the application email test configuration.',
     ...fields.map(([label, value]) => `${label}: ${value}`),
+    ...originalRecipientFields.map(([label, value]) => `${label}: ${value}`),
   ].join('\n');
+
+  void environment;
 
   return { html, text };
 }

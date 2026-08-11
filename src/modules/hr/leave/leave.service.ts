@@ -6,7 +6,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  In,
+  IsNull,
+  QueryFailedError,
+  Repository,
+} from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { hasAnyPermission } from '../../../common/utils/permission.util';
@@ -14,6 +21,7 @@ import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { Role } from '../../roles/entities/role.entity';
 import { HrAccessService } from '../shared/hr-access.service';
 import { buildPaginationMeta, normalizeDateInput } from '../shared/hr.utils';
+import { PositionAvailabilityService } from '../shared/position-availability.service';
 import { AddLeaveDocumentDto } from './dtos/add-leave-document.dto';
 import { AdjustLeaveBalanceDto } from './dtos/adjust-leave-balance.dto';
 import { CancelLeaveRequestDto } from './dtos/cancel-leave-request.dto';
@@ -44,6 +52,9 @@ import { LeaveApproverTypeEnum } from './enums/leave-approver-type.enum';
 import { LeaveGenderRestrictionEnum } from './enums/leave-gender-restriction.enum';
 import { LeaveRecordStatusEnum } from './enums/leave-record-status.enum';
 import { LeaveStatusEnum } from './enums/leave-status.enum';
+import { LeaveDayTreatmentEnum } from './enums/leave-day-treatment.enum';
+import { LeaveDurationTypeEnum } from './enums/leave-duration-type.enum';
+import { LeaveHalfDaySessionEnum } from './enums/leave-half-day-session.enum';
 import { LeaveApprovalWorkflowStep } from './entities/leave-approval-workflow-step.entity';
 import { LeaveApprovalWorkflow } from './entities/leave-approval-workflow.entity';
 import { LeaveBalanceAdjustment } from './entities/leave-balance-adjustment.entity';
@@ -51,6 +62,7 @@ import { LeaveBalance } from './entities/leave-balance.entity';
 import { LeaveBalanceTransaction } from './entities/leave-balance-transaction.entity';
 import { LeaveDocument } from './entities/leave-document.entity';
 import { LeaveMedicalDetail } from './entities/leave-medical-detail.entity';
+import { LeaveNumberSequence } from './entities/leave-number-sequence.entity';
 import { LeavePolicyType } from './entities/leave-policy-type.entity';
 import { LeavePolicy } from './entities/leave-policy.entity';
 import { LeaveRequest } from './entities/leave-request.entity';
@@ -58,12 +70,15 @@ import { LeaveType } from './entities/leave-type.entity';
 import { LeaveAuditService } from './services/leave-audit.service';
 import { LeaveBalanceService } from './services/leave-balance.service';
 import { LeaveBalanceLedgerService } from './services/leave-balance-ledger.service';
+import { LeaveDurationCalculatorService } from './services/leave-duration-calculator.service';
 import { LeavePdfService } from './services/leave-pdf.service';
 import { LeaveWorkflowService } from './services/leave-workflow.service';
 import { Employee } from '../employees/entities/employee.entity';
+import { EmployeeConfirmationStatusEnum } from '../employees/enums/employee-confirmation-status.enum';
 import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
 import { Branch } from '../branches/entities/branch.entity';
 import { Department } from '../departments/entities/department.entity';
+import { EmployeeGrade } from '../grades/entities/employee-grade.entity';
 import { Position } from '../positions/entities/position.entity';
 import { AttendanceRecalculationJob } from '../attendance/processing/entities/attendance-recalculation-job.entity';
 import { AttendanceProcessingJobStatusEnum } from '../attendance/processing/enums/attendance-processing-job-status.enum';
@@ -81,8 +96,13 @@ import { buildNotificationRecipient } from '../notifications/notification-recipi
 import { LeaveRequestApproval } from './entities/leave-request-approval.entity';
 import { LeaveApprovalStatusEnum } from './enums/leave-approval-status.enum';
 import { FilesService } from '../../files/files.service';
+import {
+  HR_PRIVATE_DOCUMENT_MAX_BYTES,
+  HR_PRIVATE_DOCUMENT_MIME_TYPES,
+} from '../../files/file-policy';
 
 type PolicyContext = {
+  policy: LeavePolicy | null;
   allowNegativeBalance: boolean;
   maxConsecutiveDays: number | null;
   minServiceMonths: number;
@@ -99,6 +119,8 @@ export class LeaveService {
     private readonly leaveTypeRepository: Repository<LeaveType>,
     @InjectRepository(LeavePolicy)
     private readonly leavePolicyRepository: Repository<LeavePolicy>,
+    @InjectRepository(LeaveNumberSequence)
+    private readonly leaveNumberSequenceRepository: Repository<LeaveNumberSequence>,
     @InjectRepository(LeaveBalance)
     private readonly leaveBalanceRepository: Repository<LeaveBalance>,
     @InjectRepository(LeaveRequest)
@@ -121,6 +143,8 @@ export class LeaveService {
     private readonly branchRepository: Repository<Branch>,
     @InjectRepository(Department)
     private readonly departmentRepository: Repository<Department>,
+    @InjectRepository(EmployeeGrade)
+    private readonly employeeGradeRepository: Repository<EmployeeGrade>,
     @InjectRepository(Position)
     private readonly positionRepository: Repository<Position>,
     @InjectRepository(CompanyUser)
@@ -130,9 +154,11 @@ export class LeaveService {
     @InjectRepository(AttendanceRecalculationJob)
     private readonly attendanceRecalculationJobRepository: Repository<AttendanceRecalculationJob>,
     private readonly hrAccessService: HrAccessService,
+    private readonly positionAvailabilityService: PositionAvailabilityService,
     private readonly leaveAuditService: LeaveAuditService,
     private readonly leaveBalanceService: LeaveBalanceService,
     private readonly leaveBalanceLedgerService: LeaveBalanceLedgerService,
+    private readonly leaveDurationCalculatorService: LeaveDurationCalculatorService,
     private readonly leaveWorkflowService: LeaveWorkflowService,
     private readonly leavePdfService: LeavePdfService,
     private readonly eventEmitter: EventEmitter2,
@@ -146,6 +172,25 @@ export class LeaveService {
     }
     const trimmed = value.trim();
     return trimmed.length ? trimmed : null;
+  }
+
+  private normalizeOptionalTimeString(value: unknown): string | null {
+    const normalized = this.normalizeOptionalString(value);
+    if (!normalized) {
+      return null;
+    }
+
+    return /^([01]\d|2[0-3]):[0-5]\d$/.test(normalized) ? normalized : null;
+  }
+
+  private isUniqueViolation(error: unknown): boolean {
+    return (
+      error instanceof QueryFailedError &&
+      typeof (error as QueryFailedError & { driverError?: { code?: string } })
+        .driverError?.code === 'string' &&
+      (error as QueryFailedError & { driverError?: { code?: string } })
+        .driverError?.code === '23505'
+    );
   }
 
   private assertDateOrder(
@@ -254,7 +299,7 @@ export class LeaveService {
       return requestedEmployeeId;
     }
 
-    if (this.hrAccessService.hasCompanyWideBranchAccess(actor)) {
+    if (this.hrAccessService.hasCompanyScope(actor)) {
       return null;
     }
 
@@ -302,7 +347,7 @@ export class LeaveService {
 
   private actorCanManageLeaveBalances(actor: AuthenticatedUser): boolean {
     return (
-      this.hrAccessService.hasCompanyWideBranchAccess(actor) ||
+      this.hrAccessService.hasCompanyScope(actor) ||
       this.actorHasAnyPermission(actor, [
         'leave-balances.manage',
         'leave-balances.adjust',
@@ -368,7 +413,7 @@ export class LeaveService {
       companyId,
       actor,
     );
-    const employee = await this.findEmployeeOrFail(companyId, actorEmployeeId);
+    await this.findEmployeeOrFail(companyId, actorEmployeeId);
     const scopedEmployeeIds = new Set<number>([actorEmployeeId]);
 
     if (
@@ -379,12 +424,6 @@ export class LeaveService {
     ) {
       const branchIds =
         (await this.hrAccessService.getAccessibleBranchIds(actor)) ?? [];
-      if (
-        actor.roles.includes('BRANCH_MANAGER') &&
-        typeof employee.primary_branch_id === 'number'
-      ) {
-        branchIds.push(employee.primary_branch_id);
-      }
 
       const normalizedBranchIds = Array.from(new Set(branchIds));
       if (normalizedBranchIds.length) {
@@ -403,22 +442,26 @@ export class LeaveService {
         });
       }
 
-      if (
-        actor.roles.includes('DEPARTMENT_MANAGER') &&
-        typeof employee.primary_department_id === 'number'
-      ) {
-        const departmentEmployees = await this.employeeRepository.find({
-          where: { primary_department_id: employee.primary_department_id },
-          relations: { company_user: true },
-          select: {
-            id: true,
-            company_user: { company_id: true },
-          },
-        });
+      const accessibleDepartmentIds =
+        (await this.hrAccessService.getAccessibleDepartmentIds(actor)) ?? [];
+
+      if (accessibleDepartmentIds.length) {
+        const departmentEmployees = await this.employeeRepository
+          .createQueryBuilder('employee')
+          .leftJoin('employee.department_assignments', 'departmentAssignment')
+          .innerJoin('employee.company_user', 'companyUser')
+          .where('companyUser.company_id = :companyId', { companyId })
+          .andWhere(
+            '(employee.primary_department_id IN (:...departmentIds) OR departmentAssignment.department_id IN (:...departmentIds))',
+            {
+              departmentIds: accessibleDepartmentIds,
+            },
+          )
+          .select('employee.id', 'id')
+          .getRawMany<{ id: number }>();
+
         departmentEmployees.forEach((item) => {
-          if (item.company_user?.company_id === companyId) {
-            scopedEmployeeIds.add(item.id);
-          }
+          scopedEmployeeIds.add(Number(item.id));
         });
       }
 
@@ -494,95 +537,113 @@ export class LeaveService {
     );
   }
 
+  private getLeaveNumberSequenceRepository(
+    manager?: EntityManager,
+  ): Repository<LeaveNumberSequence> {
+    return (
+      manager?.getRepository(LeaveNumberSequence) ??
+      this.leaveNumberSequenceRepository
+    );
+  }
+
   private async generateLeaveNo(
     companyId: number,
     manager?: EntityManager,
   ): Promise<string> {
-    const repository =
-      manager?.getRepository(LeaveRequest) ?? this.leaveRequestRepository;
-    const year = new Date().getFullYear();
+    const repository = this.getLeaveNumberSequenceRepository(manager);
+    const year = new Date().getUTCFullYear();
     const prefix = `LV-${year}-`;
-    const latest = await repository
-      .createQueryBuilder('leaveRequest')
-      .where('leaveRequest.company_id = :companyId', { companyId })
-      .andWhere('leaveRequest.leave_no LIKE :prefix', { prefix: `${prefix}%` })
-      .orderBy('leaveRequest.id', 'DESC')
+
+    let sequence = await repository
+      .createQueryBuilder('sequence')
+      .setLock('pessimistic_write')
+      .where('sequence.company_id = :companyId', { companyId })
+      .andWhere('sequence.sequence_year = :year', { year })
       .getOne();
 
-    const nextSequence = latest
-      ? Number(latest.leave_no.split('-').pop() ?? '0') + 1
-      : 1;
+    if (!sequence) {
+      try {
+        sequence = await repository.save(
+          repository.create({
+            company_id: companyId,
+            sequence_year: year,
+            next_number: 2,
+          }),
+        );
 
-    return `${prefix}${String(nextSequence).padStart(6, '0')}`;
+        return `${prefix}${String(1).padStart(6, '0')}`;
+      } catch (error) {
+        if (!this.isUniqueViolation(error)) {
+          throw error;
+        }
+
+        sequence = await repository
+          .createQueryBuilder('sequence')
+          .setLock('pessimistic_write')
+          .where('sequence.company_id = :companyId', { companyId })
+          .andWhere('sequence.sequence_year = :year', { year })
+          .getOneOrFail();
+      }
+    }
+
+    const sequenceNumber = sequence.next_number;
+    sequence.next_number += 1;
+    await repository.save(sequence);
+
+    return `${prefix}${String(sequenceNumber).padStart(6, '0')}`;
   }
 
-  private async calculateLeaveDays(
-    companyId: number,
-    branchId: number | null,
-    startDate: string,
-    endDate: string,
-  ): Promise<number> {
-    const normalizedStartDate = normalizeDateInput(startDate, 'start_date');
-    const normalizedEndDate = normalizeDateInput(endDate, 'end_date');
+  private async calculateLeaveDuration(params: {
+    companyId: number;
+    employee: Employee;
+    policy: LeavePolicy | null;
+    durationType: LeaveDurationTypeEnum;
+    startDate: string;
+    endDate: string;
+    halfDaySession?: LeaveHalfDaySessionEnum | null;
+    startTime?: string | null;
+    endTime?: string | null;
+  }) {
+    const durationType = params.durationType ?? LeaveDurationTypeEnum.FULL_DAY;
 
-    this.assertDateOrder(
-      normalizedStartDate,
-      normalizedEndDate,
-      'end_date cannot be before start_date',
-    );
-    const attendanceHolidaysQuery = this.attendanceHolidayRepository
-      .createQueryBuilder('holiday')
-      .where('holiday.company_id = :companyId', { companyId })
-      .andWhere('holiday.date >= :startDate', {
-        startDate: normalizedStartDate,
-      })
-      .andWhere('holiday.date <= :endDate', { endDate: normalizedEndDate });
-
-    if (branchId === null) {
-      attendanceHolidaysQuery.andWhere('holiday.branch_id IS NULL');
-    } else {
-      attendanceHolidaysQuery.andWhere(
-        '(holiday.branch_id = :branchId OR holiday.branch_id IS NULL)',
-        { branchId },
-      );
-    }
-
-    const attendanceHolidays = await attendanceHolidaysQuery.getMany();
-
-    const start = new Date(`${normalizedStartDate}T00:00:00.000Z`);
-    const end = new Date(`${normalizedEndDate}T00:00:00.000Z`);
-    const totalDays =
-      Math.floor((end.getTime() - start.getTime()) / 86400000) + 1;
-    if (totalDays <= 0) {
-      return 0;
-    }
-
-    let leaveDays = 0;
-    for (let offset = 0; offset < totalDays; offset += 1) {
-      const date = new Date(start.getTime() + offset * 86400000);
-      const day = date.getUTCDay();
-      if (day === 0 || day === 6) {
-        continue;
+    if (durationType === LeaveDurationTypeEnum.HALF_DAY) {
+      if (params.startDate !== params.endDate) {
+        throw new BadRequestException(
+          'Half-day leave must start and end on the same date.',
+        );
       }
 
-      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-      const dateOfMonth = String(date.getUTCDate()).padStart(2, '0');
-      const dateKey = `${date.getUTCFullYear()}-${month}-${dateOfMonth}`;
-
-      const isAttendanceHoliday = attendanceHolidays.some((holiday) => {
-        if (holiday.isRecurring) {
-          const [, holidayMonth, holidayDay] = holiday.date.split('-');
-          return holidayMonth === month && holidayDay === dateOfMonth;
-        }
-        return holiday.date === dateKey;
-      });
-
-      if (!isAttendanceHoliday) {
-        leaveDays += 1;
+      if (!params.halfDaySession) {
+        throw new BadRequestException(
+          'half_day_session is required for half-day leave.',
+        );
       }
     }
 
-    return leaveDays;
+    if (durationType === LeaveDurationTypeEnum.SHORT_LEAVE) {
+      if (params.startDate !== params.endDate) {
+        throw new BadRequestException(
+          'Short leave must start and end on the same date.',
+        );
+      }
+
+      if (!params.startTime || !params.endTime) {
+        throw new BadRequestException(
+          'start_time and end_time are required for short leave.',
+        );
+      }
+    }
+
+    return this.leaveDurationCalculatorService.calculate({
+      companyId: params.companyId,
+      employee: params.employee,
+      policy: params.policy,
+      durationType,
+      startDate: params.startDate,
+      endDate: params.endDate,
+      startTime: params.startTime ?? undefined,
+      endTime: params.endTime ?? undefined,
+    });
   }
 
   private async validateNoOverlap(
@@ -650,6 +711,7 @@ export class LeaveService {
 
     if (!selected) {
       return {
+        policy: null,
         allowNegativeBalance: false,
         maxConsecutiveDays: null,
         minServiceMonths: 0,
@@ -659,6 +721,7 @@ export class LeaveService {
     }
 
     return {
+      policy: selected.policy,
       allowNegativeBalance: selected.policy.allow_negative_balance,
       maxConsecutiveDays: selected.policy.max_consecutive_days,
       minServiceMonths: selected.policy.min_service_months,
@@ -841,13 +904,30 @@ export class LeaveService {
       company_id: entity.company_id,
       name: entity.name,
       description: entity.description,
+      applicable_branch_id: entity.applicable_branch_id,
       applicable_department_id: entity.applicable_department_id,
       applicable_position_id: entity.applicable_position_id,
+      applicable_grade_id: entity.applicable_grade_id,
+      applicable_employment_type: entity.applicable_employment_type,
+      applicable_confirmation_status: entity.applicable_confirmation_status,
       accrual_method: entity.accrual_method,
       accrual_rate: entity.accrual_rate,
       max_consecutive_days: entity.max_consecutive_days,
       min_service_months: entity.min_service_months,
+      allow_during_probation: entity.allow_during_probation,
       allow_negative_balance: entity.allow_negative_balance,
+      weekly_off_treatment: entity.weekly_off_treatment,
+      holiday_treatment: entity.holiday_treatment,
+      allow_half_day: entity.allow_half_day,
+      allow_short_leave: entity.allow_short_leave,
+      minimum_short_leave_minutes: entity.minimum_short_leave_minutes,
+      maximum_short_leave_minutes: entity.maximum_short_leave_minutes,
+      minimum_notice_days: entity.minimum_notice_days,
+      maximum_backdate_days: entity.maximum_backdate_days,
+      cancellation_requires_approval: entity.cancellation_requires_approval,
+      cancellation_cutoff_days: entity.cancellation_cutoff_days,
+      maximum_accumulation_days: entity.maximum_accumulation_days,
+      priority: entity.priority,
       attendance_balance_deduction_enabled:
         entity.attendance_balance_deduction_enabled,
       absent_day_deduction_days: entity.absent_day_deduction_days,
@@ -863,6 +943,12 @@ export class LeaveService {
           annual_quota_days: entry.annual_quota_days,
           max_per_request_days: entry.max_per_request_days,
           requires_approval: entry.requires_approval,
+          encashment_enabled: entry.encashment_enabled,
+          maximum_encashment_days: entry.maximum_encashment_days,
+          minimum_balance_after_encashment:
+            entry.minimum_balance_after_encashment,
+          encashment_requires_approval: entry.encashment_requires_approval,
+          maximum_accumulation_days: entry.maximum_accumulation_days,
         })) ?? [],
     };
   }
@@ -1039,10 +1125,20 @@ export class LeaveService {
       leave_no: entity.leave_no,
       start_date: entity.start_date,
       end_date: entity.end_date,
+      duration_type: entity.duration_type,
+      half_day_session: entity.half_day_session,
+      start_time: entity.start_time,
+      end_time: entity.end_time,
+      requested_minutes: entity.requested_minutes,
       total_days: entity.total_days,
+      calculation_snapshot: entity.calculation_snapshot,
+      calculation_hash: entity.calculation_hash,
+      calculation_version: entity.calculation_version,
       reason: entity.reason,
       current_approval_level: entity.current_approval_level,
       approval_cycle: entity.approval_cycle,
+      workflow_version: entity.workflow_version,
+      workflow_snapshot: entity.workflow_snapshot,
       status: entity.status,
       rejection_reason: entity.rejection_reason,
       returned_at: entity.returned_at,
@@ -1052,6 +1148,7 @@ export class LeaveService {
       cancelled_at: entity.cancelled_at,
       created_at: entity.created_at,
       updated_at: entity.updated_at,
+      version: entity.version,
       employee: entity.employee
         ? {
             id: entity.employee.id,
@@ -1120,7 +1217,9 @@ export class LeaveService {
       documents:
         entity.documents?.map((document) => ({
           id: document.id,
-          file_url: document.file_url,
+          file_url:
+            `/api/leave/requests/${entity.id}` +
+            `/documents/${document.id}/download`,
           file_name: document.file_name,
           file_type: document.file_type,
           uploaded_at: document.uploaded_at,
@@ -1318,31 +1417,53 @@ export class LeaveService {
   private async validatePolicyReferences(
     companyId: number,
     values: {
+      applicable_branch_id?: number;
       applicable_department_id?: number;
       applicable_position_id?: number;
+      applicable_grade_id?: number;
     },
   ): Promise<void> {
-    if (values.applicable_department_id !== undefined) {
-      if (!values.applicable_department_id) {
-        return;
+    if (values.applicable_branch_id !== undefined) {
+      if (values.applicable_branch_id) {
+        const branch = await this.branchRepository.findOne({
+          where: { id: values.applicable_branch_id, company_id: companyId },
+        });
+        if (!branch) {
+          throw new NotFoundException('Applicable branch not found');
+        }
       }
-      const department = await this.departmentRepository.findOne({
-        where: { id: values.applicable_department_id, company_id: companyId },
-      });
-      if (!department) {
-        throw new NotFoundException('Applicable department not found');
+    }
+
+    if (values.applicable_department_id !== undefined) {
+      if (values.applicable_department_id) {
+        const department = await this.departmentRepository.findOne({
+          where: { id: values.applicable_department_id, company_id: companyId },
+        });
+        if (!department) {
+          throw new NotFoundException('Applicable department not found');
+        }
       }
     }
 
     if (values.applicable_position_id !== undefined) {
-      if (!values.applicable_position_id) {
-        return;
+      if (values.applicable_position_id) {
+        const position = await this.positionRepository.findOne({
+          where: { id: values.applicable_position_id, company_id: companyId },
+        });
+        if (!position) {
+          throw new NotFoundException('Applicable position not found');
+        }
       }
-      const position = await this.positionRepository.findOne({
-        where: { id: values.applicable_position_id, company_id: companyId },
-      });
-      if (!position) {
-        throw new NotFoundException('Applicable position not found');
+    }
+
+    if (values.applicable_grade_id !== undefined) {
+      if (values.applicable_grade_id) {
+        const grade = await this.employeeGradeRepository.findOne({
+          where: { id: values.applicable_grade_id, company_id: companyId },
+        });
+        if (!grade) {
+          throw new NotFoundException('Applicable grade not found');
+        }
       }
     }
   }
@@ -1381,6 +1502,24 @@ export class LeaveService {
               ? this.leaveBalanceService.toDecimal(entry.max_per_request_days)
               : null,
           requires_approval: entry.requires_approval ?? true,
+          encashment_enabled: entry.encashment_enabled ?? false,
+          maximum_encashment_days:
+            entry.maximum_encashment_days !== undefined
+              ? this.leaveBalanceService.toDecimal(
+                  entry.maximum_encashment_days,
+                )
+              : null,
+          minimum_balance_after_encashment: this.leaveBalanceService.toDecimal(
+            entry.minimum_balance_after_encashment ?? 0,
+          ),
+          encashment_requires_approval:
+            entry.encashment_requires_approval ?? true,
+          maximum_accumulation_days:
+            entry.maximum_accumulation_days !== undefined
+              ? this.leaveBalanceService.toDecimal(
+                  entry.maximum_accumulation_days,
+                )
+              : null,
         }),
       ),
     );
@@ -1400,8 +1539,16 @@ export class LeaveService {
           company_id: companyId,
           name: dto.name.trim(),
           description: this.normalizeOptionalString(dto.description),
+          applicable_branch_id: dto.applicable_branch_id ?? null,
           applicable_department_id: dto.applicable_department_id ?? null,
           applicable_position_id: dto.applicable_position_id ?? null,
+          applicable_grade_id: dto.applicable_grade_id ?? null,
+          applicable_employment_type: this.normalizeOptionalString(
+            dto.applicable_employment_type,
+          ),
+          applicable_confirmation_status: this.normalizeOptionalString(
+            dto.applicable_confirmation_status,
+          ),
           accrual_method: dto.accrual_method ?? LeaveAccrualMethodEnum.YEARLY,
           accrual_rate:
             dto.accrual_rate !== undefined
@@ -1409,7 +1556,28 @@ export class LeaveService {
               : null,
           max_consecutive_days: dto.max_consecutive_days ?? null,
           min_service_months: dto.min_service_months ?? 0,
+          allow_during_probation: dto.allow_during_probation ?? true,
           allow_negative_balance: dto.allow_negative_balance ?? false,
+          weekly_off_treatment:
+            dto.weekly_off_treatment ?? LeaveDayTreatmentEnum.EMPLOYEE_SCHEDULE,
+          holiday_treatment:
+            dto.holiday_treatment ?? LeaveDayTreatmentEnum.EXCLUDE,
+          allow_half_day: dto.allow_half_day ?? false,
+          allow_short_leave: dto.allow_short_leave ?? false,
+          minimum_short_leave_minutes: dto.minimum_short_leave_minutes ?? null,
+          maximum_short_leave_minutes: dto.maximum_short_leave_minutes ?? null,
+          minimum_notice_days: dto.minimum_notice_days ?? null,
+          maximum_backdate_days: dto.maximum_backdate_days ?? 0,
+          cancellation_requires_approval:
+            dto.cancellation_requires_approval ?? false,
+          cancellation_cutoff_days: dto.cancellation_cutoff_days ?? 0,
+          maximum_accumulation_days:
+            dto.maximum_accumulation_days !== undefined
+              ? this.leaveBalanceService.toDecimal(
+                  dto.maximum_accumulation_days,
+                )
+              : null,
+          priority: dto.priority ?? 0,
           attendance_balance_deduction_enabled:
             dto.attendance_balance_deduction_enabled ?? false,
           absent_day_deduction_days: this.leaveBalanceService.toDecimal(
@@ -1545,11 +1713,27 @@ export class LeaveService {
       if (dto.description !== undefined) {
         policy.description = this.normalizeOptionalString(dto.description);
       }
+      if (dto.applicable_branch_id !== undefined) {
+        policy.applicable_branch_id = dto.applicable_branch_id ?? null;
+      }
       if (dto.applicable_department_id !== undefined) {
         policy.applicable_department_id = dto.applicable_department_id ?? null;
       }
       if (dto.applicable_position_id !== undefined) {
         policy.applicable_position_id = dto.applicable_position_id ?? null;
+      }
+      if (dto.applicable_grade_id !== undefined) {
+        policy.applicable_grade_id = dto.applicable_grade_id ?? null;
+      }
+      if (dto.applicable_employment_type !== undefined) {
+        policy.applicable_employment_type = this.normalizeOptionalString(
+          dto.applicable_employment_type,
+        );
+      }
+      if (dto.applicable_confirmation_status !== undefined) {
+        policy.applicable_confirmation_status = this.normalizeOptionalString(
+          dto.applicable_confirmation_status,
+        );
       }
       if (dto.accrual_method !== undefined)
         policy.accrual_method = dto.accrual_method;
@@ -1565,8 +1749,53 @@ export class LeaveService {
       if (dto.min_service_months !== undefined) {
         policy.min_service_months = dto.min_service_months;
       }
+      if (dto.allow_during_probation !== undefined) {
+        policy.allow_during_probation = dto.allow_during_probation;
+      }
       if (dto.allow_negative_balance !== undefined) {
         policy.allow_negative_balance = dto.allow_negative_balance;
+      }
+      if (dto.weekly_off_treatment !== undefined) {
+        policy.weekly_off_treatment = dto.weekly_off_treatment;
+      }
+      if (dto.holiday_treatment !== undefined) {
+        policy.holiday_treatment = dto.holiday_treatment;
+      }
+      if (dto.allow_half_day !== undefined) {
+        policy.allow_half_day = dto.allow_half_day;
+      }
+      if (dto.allow_short_leave !== undefined) {
+        policy.allow_short_leave = dto.allow_short_leave;
+      }
+      if (dto.minimum_short_leave_minutes !== undefined) {
+        policy.minimum_short_leave_minutes =
+          dto.minimum_short_leave_minutes ?? null;
+      }
+      if (dto.maximum_short_leave_minutes !== undefined) {
+        policy.maximum_short_leave_minutes =
+          dto.maximum_short_leave_minutes ?? null;
+      }
+      if (dto.minimum_notice_days !== undefined) {
+        policy.minimum_notice_days = dto.minimum_notice_days ?? null;
+      }
+      if (dto.maximum_backdate_days !== undefined) {
+        policy.maximum_backdate_days = dto.maximum_backdate_days;
+      }
+      if (dto.cancellation_requires_approval !== undefined) {
+        policy.cancellation_requires_approval =
+          dto.cancellation_requires_approval;
+      }
+      if (dto.cancellation_cutoff_days !== undefined) {
+        policy.cancellation_cutoff_days = dto.cancellation_cutoff_days;
+      }
+      if (dto.maximum_accumulation_days !== undefined) {
+        policy.maximum_accumulation_days =
+          dto.maximum_accumulation_days === null
+            ? null
+            : this.leaveBalanceService.toDecimal(dto.maximum_accumulation_days);
+      }
+      if (dto.priority !== undefined) {
+        policy.priority = dto.priority;
       }
       if (dto.attendance_balance_deduction_enabled !== undefined) {
         policy.attendance_balance_deduction_enabled =
@@ -1793,8 +2022,11 @@ export class LeaveService {
 
       if (
         step.assigned_branch_id &&
-        position.branch_id &&
-        position.branch_id !== step.assigned_branch_id
+        !(await this.positionAvailabilityService.isPositionAvailableForBranch(
+          companyId,
+          position,
+          step.assigned_branch_id,
+        ))
       ) {
         throw new BadRequestException(
           `Position ${step.position_id} does not belong to branch ${step.assigned_branch_id}`,
@@ -1803,8 +2035,11 @@ export class LeaveService {
 
       if (
         step.assigned_department_id &&
-        position.department_id &&
-        position.department_id !== step.assigned_department_id
+        !(await this.positionAvailabilityService.isPositionAvailableForDepartment(
+          companyId,
+          position,
+          step.assigned_department_id,
+        ))
       ) {
         throw new BadRequestException(
           `Position ${step.position_id} does not belong to department ${step.assigned_department_id}`,
@@ -2754,18 +2989,6 @@ export class LeaveService {
       );
     }
 
-    const totalDays = await this.calculateLeaveDays(
-      companyId,
-      employee.primary_branch_id ?? null,
-      normalizedStartDate,
-      normalizedEndDate,
-    );
-    if (totalDays <= 0) {
-      throw new BadRequestException(
-        'Selected period results in zero leave days after holidays/weekends',
-      );
-    }
-
     await this.validateNoOverlap(
       companyId,
       dto.employee_id,
@@ -2778,6 +3001,43 @@ export class LeaveService {
       employee,
       dto.leave_type_id,
     );
+
+    if (
+      policyContext.policy &&
+      !policyContext.policy.allow_during_probation &&
+      [
+        EmployeeConfirmationStatusEnum.PROBATION,
+        EmployeeConfirmationStatusEnum.PROBATION_EXTENDED,
+      ].includes(employee.confirmation_status)
+    ) {
+      throw new BadRequestException(
+        'Leave is not allowed during probation under the applicable leave policy.',
+      );
+    }
+
+    const durationType = dto.duration_type ?? LeaveDurationTypeEnum.FULL_DAY;
+    const normalizedStartTime = this.normalizeOptionalTimeString(
+      dto.start_time,
+    );
+    const normalizedEndTime = this.normalizeOptionalTimeString(dto.end_time);
+    const calculation = await this.calculateLeaveDuration({
+      companyId,
+      employee,
+      policy: policyContext.policy,
+      durationType,
+      startDate: normalizedStartDate,
+      endDate: normalizedEndDate,
+      halfDaySession: dto.half_day_session ?? null,
+      startTime: normalizedStartTime,
+      endTime: normalizedEndTime,
+    });
+    const totalDays = calculation.totalDays;
+
+    if (totalDays <= 0) {
+      throw new BadRequestException(
+        'Selected period results in zero leave days after holidays/weekends',
+      );
+    }
 
     if (
       policyContext.maxConsecutiveDays &&
@@ -2817,11 +3077,30 @@ export class LeaveService {
           leave_no: leaveNo,
           start_date: normalizedStartDate,
           end_date: normalizedEndDate,
+          duration_type: durationType,
+          half_day_session:
+            durationType === LeaveDurationTypeEnum.HALF_DAY
+              ? (dto.half_day_session ?? null)
+              : null,
+          start_time:
+            durationType === LeaveDurationTypeEnum.SHORT_LEAVE
+              ? normalizedStartTime
+              : null,
+          end_time:
+            durationType === LeaveDurationTypeEnum.SHORT_LEAVE
+              ? normalizedEndTime
+              : null,
+          requested_minutes: calculation.requestedMinutes,
           total_days: this.leaveBalanceService.toDecimal(totalDays),
+          calculation_snapshot: calculation.snapshot,
+          calculation_hash: calculation.hash,
+          calculation_version: 1,
           reason: dto.reason.trim(),
           current_approval_level: 0,
           status: LeaveStatusEnum.DRAFT,
           rejection_reason: null,
+          workflow_version: null,
+          workflow_snapshot: null,
           applied_at: null,
           created_by_company_user_id: actor.companyMembershipId!,
         }),
@@ -2938,18 +3217,6 @@ export class LeaveService {
       );
     }
 
-    const totalDays = await this.calculateLeaveDays(
-      companyId,
-      leaveRequest.employee.primary_branch_id ?? null,
-      normalizedStartDate,
-      normalizedEndDate,
-    );
-    if (totalDays <= 0) {
-      throw new BadRequestException(
-        'Selected period results in zero leave days after holidays/weekends',
-      );
-    }
-
     await this.validateNoOverlap(
       companyId,
       leaveRequest.employee_id,
@@ -2963,6 +3230,39 @@ export class LeaveService {
       leaveRequest.employee,
       leaveRequest.leave_type_id,
     );
+
+    if (
+      policyContext.policy &&
+      !policyContext.policy.allow_during_probation &&
+      [
+        EmployeeConfirmationStatusEnum.PROBATION,
+        EmployeeConfirmationStatusEnum.PROBATION_EXTENDED,
+      ].includes(leaveRequest.employee.confirmation_status)
+    ) {
+      throw new BadRequestException(
+        'Leave is not allowed during probation under the applicable leave policy.',
+      );
+    }
+
+    const calculation = await this.calculateLeaveDuration({
+      companyId,
+      employee: leaveRequest.employee,
+      policy: policyContext.policy,
+      durationType:
+        leaveRequest.duration_type ?? LeaveDurationTypeEnum.FULL_DAY,
+      startDate: normalizedStartDate,
+      endDate: normalizedEndDate,
+      halfDaySession: leaveRequest.half_day_session,
+      startTime: leaveRequest.start_time,
+      endTime: leaveRequest.end_time,
+    });
+    const totalDays = calculation.totalDays;
+
+    if (totalDays <= 0) {
+      throw new BadRequestException(
+        'Selected period results in zero leave days after holidays/weekends',
+      );
+    }
 
     if (
       policyContext.maxConsecutiveDays &&
@@ -3008,6 +3308,10 @@ export class LeaveService {
       }
 
       current.total_days = this.leaveBalanceService.toDecimal(totalDays);
+      current.requested_minutes = calculation.requestedMinutes;
+      current.calculation_snapshot = calculation.snapshot;
+      current.calculation_hash = calculation.hash;
+      current.calculation_version = (current.calculation_version ?? 0) + 1;
       current.reason = current.reason.trim();
       await repository.save(current);
 
@@ -3112,18 +3416,6 @@ export class LeaveService {
       'end_date cannot be before start_date',
     );
 
-    const totalDays = await this.calculateLeaveDays(
-      companyId,
-      leaveRequest.employee.primary_branch_id ?? null,
-      normalizedStartDate,
-      normalizedEndDate,
-    );
-    if (totalDays <= 0) {
-      throw new BadRequestException(
-        'Selected period results in zero leave days after holidays/weekends',
-      );
-    }
-
     await this.validateNoOverlap(
       companyId,
       leaveRequest.employee_id,
@@ -3137,6 +3429,39 @@ export class LeaveService {
       leaveRequest.employee,
       leaveRequest.leave_type_id,
     );
+
+    if (
+      policyContext.policy &&
+      !policyContext.policy.allow_during_probation &&
+      [
+        EmployeeConfirmationStatusEnum.PROBATION,
+        EmployeeConfirmationStatusEnum.PROBATION_EXTENDED,
+      ].includes(leaveRequest.employee.confirmation_status)
+    ) {
+      throw new BadRequestException(
+        'Leave is not allowed during probation under the applicable leave policy.',
+      );
+    }
+
+    const calculation = await this.calculateLeaveDuration({
+      companyId,
+      employee: leaveRequest.employee,
+      policy: policyContext.policy,
+      durationType:
+        leaveRequest.duration_type ?? LeaveDurationTypeEnum.FULL_DAY,
+      startDate: normalizedStartDate,
+      endDate: normalizedEndDate,
+      halfDaySession: leaveRequest.half_day_session,
+      startTime: leaveRequest.start_time,
+      endTime: leaveRequest.end_time,
+    });
+    const totalDays = calculation.totalDays;
+
+    if (totalDays <= 0) {
+      throw new BadRequestException(
+        'Selected period results in zero leave days after holidays/weekends',
+      );
+    }
 
     const resubmitted = await this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(LeaveRequest);
@@ -3157,6 +3482,10 @@ export class LeaveService {
       current.total_days = this.leaveBalanceService.toDecimal(totalDays);
       current.start_date = normalizedStartDate;
       current.end_date = normalizedEndDate;
+      current.requested_minutes = calculation.requestedMinutes;
+      current.calculation_snapshot = calculation.snapshot;
+      current.calculation_hash = calculation.hash;
+      current.calculation_version = (current.calculation_version ?? 0) + 1;
       current.approval_cycle += 1;
       await repository.save(current);
 
@@ -3688,9 +4017,12 @@ export class LeaveService {
       actor,
       leaveRequest.employee,
     );
-    const storedFile = await this.filesService.saveBase64File(dto.file, {
+    const storedFile = await this.filesService.savePrivateBase64File(dto.file, {
       directorySegments: ['documents', 'leave', `company-${companyId}`],
       fileNamePrefix: `leave-${leaveRequestId}`,
+      allowedMimeTypes: [...HR_PRIVATE_DOCUMENT_MIME_TYPES],
+      maxFileSizeBytes: HR_PRIVATE_DOCUMENT_MAX_BYTES,
+      validateFileSignature: true,
     });
 
     const document = await this.leaveDocumentRepository.save(
@@ -3716,7 +4048,77 @@ export class LeaveService {
       },
     });
 
-    return document;
+    return {
+      ...document,
+      file_url:
+        `/api/leave/requests/${leaveRequest.id}` +
+        `/documents/${document.id}/download`,
+    };
+  }
+
+  async downloadLeaveDocument(
+    companyId: number,
+    leaveRequestId: number,
+    documentId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const leaveRequest = await this.leaveRequestRepository.findOne({
+      where: {
+        id: leaveRequestId,
+        company_id: companyId,
+      },
+      relations: {
+        employee: {
+          company_user: true,
+        },
+      },
+    });
+
+    if (!leaveRequest) {
+      throw new NotFoundException('Leave request not found');
+    }
+
+    await this.hrAccessService.assertCanAccessEmployee(
+      actor,
+      leaveRequest.employee,
+    );
+
+    const document = await this.leaveDocumentRepository.findOne({
+      where: {
+        id: documentId,
+        leave_request_id: leaveRequest.id,
+      },
+    });
+
+    if (!document) {
+      throw new NotFoundException('Leave document not found');
+    }
+
+    const buffer = await this.filesService.readManagedFile(document.file_url);
+
+    if (!buffer) {
+      throw new NotFoundException(
+        'Leave document file was not found in storage',
+      );
+    }
+
+    await this.leaveAuditService.log({
+      company_id: companyId,
+      leave_request_id: leaveRequest.id,
+      action: 'leave_request.document_downloaded',
+      entity_name: 'leave_document',
+      entity_id: document.id,
+      actor,
+      payload: {
+        file_name: document.file_name,
+      },
+    });
+
+    return {
+      buffer,
+      fileName: document.file_name,
+      mimeType: document.file_type || 'application/octet-stream',
+    };
   }
 
   async upsertMedicalDetail(

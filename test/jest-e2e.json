@@ -1,12 +1,38 @@
 {
-  "moduleFileExtensions": ["js", "json", "ts"],
+  "moduleFileExtensions": [
+    "js",
+    "json",
+    "ts"
+  ],
   "rootDir": "..",
+  "roots": [
+    "<rootDir>/src",
+    "<rootDir>/test"
+  ],
   "testEnvironment": "node",
   "testRegex": ".e2e-spec.ts$",
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "transformIgnorePatterns": [
+    "node_modules/(?!(otplib|@otplib|@scure|@noble|digest-fetch|md5)/)"
+  ],
   "moduleNameMapper": {
     "^src/(.*)$": "<rootDir>/src/$1"
   },
-  "transform": {
-    "^.+\\.(t|j)s$": "ts-jest"
-  }
+  "setupFilesAfterEnv": [
+    "<rootDir>/test/setup-e2e.ts"
+  ],
+  "modulePathIgnorePatterns": [
+    "<rootDir>/dist",
+    "<rootDir>/coverage"
+  ],
+  "watchPathIgnorePatterns": [
+    "<rootDir>/dist",
+    "<rootDir>/coverage"
+  ],
+  "maxWorkers": 1,
+  "detectOpenHandles": true,
+  "forceExit": true,
+  "verbose": true
 }

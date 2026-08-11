@@ -4,4 +4,9 @@ export enum OnboardingTaskTypeEnum {
   IT = 'it',
   DEPARTMENT = 'department',
   MANAGER = 'manager',
+  DOCUMENT = 'document',
+  ASSET = 'asset',
+  INDUCTION = 'induction',
+  ACKNOWLEDGEMENT = 'acknowledgement',
+  SYSTEM = 'system',
 }

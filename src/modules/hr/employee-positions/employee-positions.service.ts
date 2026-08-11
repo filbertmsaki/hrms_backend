@@ -1,10 +1,11 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { EmployeePositionAssignmentTypeEnum } from '../employees/enums/employee-position-assignment-type.enum';
@@ -14,6 +15,7 @@ import { EmployeePosition } from '../employees/entities/employee-position.entity
 import { Position } from '../positions/entities/position.entity';
 import { HrAccessService } from '../shared/hr-access.service';
 import { PositionAvailabilityService } from '../shared/position-availability.service';
+import { formatDateOnly } from '../shared/hr.utils';
 import { buildPaginationMeta } from '../shared/hr.utils';
 import { CreateEmployeePositionDto } from './dtos/create-employee-position.dto';
 import { EmployeePositionQueryDto } from './dtos/employee-position-query.dto';
@@ -46,6 +48,9 @@ export class EmployeePositionsService {
       assignment_type: entity.assignment_type,
       status: entity.status,
       notes: entity.notes,
+      assignment_reason: entity.assignment_reason,
+      assigned_by_company_user_id: entity.assigned_by_company_user_id,
+      ended_by_company_user_id: entity.ended_by_company_user_id,
       created_at: entity.created_at,
       updated_at: entity.updated_at,
       employee: entity.employee
@@ -66,6 +71,15 @@ export class EmployeePositionsService {
           }
         : null,
     };
+  }
+
+  private assertPrimaryChangeAuthorized(actor: AuthenticatedUser): void {
+    if (!actor.permissions.includes('employee_positions:correct-history')) {
+      throw new ForbiddenException(
+        'Primary position changes must be made through the employee movement workflow. ' +
+          'Use employee_positions:correct-history for authorized administrative corrections.',
+      );
+    }
   }
 
   private async findEmployeeOrFail(
@@ -116,18 +130,21 @@ export class EmployeePositionsService {
   private async syncEmployeePrimarySnapshot(
     employeeId: number,
     companyId: number,
+    manager: EntityManager,
   ): Promise<void> {
-    const currentPrimary = await this.employeePositionRepository.findOne({
-      where: {
-        company_id: companyId,
-        employee_id: employeeId,
-        is_primary: true,
-        status: EmployeePositionStatusEnum.ACTIVE,
-      },
-      order: { id: 'DESC' },
-    });
+    const currentPrimary = await manager
+      .getRepository(EmployeePosition)
+      .findOne({
+        where: {
+          company_id: companyId,
+          employee_id: employeeId,
+          is_primary: true,
+          status: EmployeePositionStatusEnum.ACTIVE,
+        },
+        order: { id: 'DESC' },
+      });
 
-    await this.employeeRepository.update(
+    await manager.getRepository(Employee).update(
       { id: employeeId },
       {
         primary_position_id: currentPrimary?.position_id ?? null,
@@ -176,6 +193,10 @@ export class EmployeePositionsService {
       throw new BadRequestException('end_date cannot be before start_date');
     }
 
+    if (dto.is_primary) {
+      this.assertPrimaryChangeAuthorized(actor);
+    }
+
     const employee = await this.findEmployeeOrFail(companyId, dto.employee_id);
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
@@ -219,7 +240,7 @@ export class EmployeePositionsService {
         }),
       );
 
-      await this.syncEmployeePrimarySnapshot(employee.id, companyId);
+      await this.syncEmployeePrimarySnapshot(employee.id, companyId, manager);
       return saved.id;
     });
 
@@ -338,6 +359,11 @@ export class EmployeePositionsService {
     );
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
+    const willBePrimary = dto.is_primary ?? existing.is_primary;
+    if (existing.is_primary || willBePrimary) {
+      this.assertPrimaryChangeAuthorized(actor);
+    }
+
     const nextEmployee = dto.employee_id
       ? await this.findEmployeeOrFail(companyId, dto.employee_id)
       : employee;
@@ -391,9 +417,13 @@ export class EmployeePositionsService {
       });
 
       await manager.getRepository(EmployeePosition).save(existing);
-      await this.syncEmployeePrimarySnapshot(nextEmployee.id, companyId);
+      await this.syncEmployeePrimarySnapshot(
+        nextEmployee.id,
+        companyId,
+        manager,
+      );
       if (nextEmployee.id !== employee.id) {
-        await this.syncEmployeePrimarySnapshot(employee.id, companyId);
+        await this.syncEmployeePrimarySnapshot(employee.id, companyId, manager);
       }
     });
 
@@ -412,11 +442,20 @@ export class EmployeePositionsService {
     );
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
+    if (assignment.is_primary) {
+      throw new BadRequestException(
+        'Primary position assignments must be ended through an employee movement.',
+      );
+    }
+
     await this.dataSource.transaction(async (manager) => {
-      await manager.getRepository(EmployeePosition).remove(assignment);
-      await this.syncEmployeePrimarySnapshot(employee.id, companyId);
+      assignment.status = EmployeePositionStatusEnum.COMPLETED;
+      assignment.end_date = assignment.end_date ?? formatDateOnly(new Date());
+      assignment.ended_by_company_user_id = actor.companyMembershipId ?? null;
+      await manager.getRepository(EmployeePosition).save(assignment);
+      await this.syncEmployeePrimarySnapshot(employee.id, companyId, manager);
     });
 
-    return { message: 'Employee position assignment deleted successfully' };
+    return { message: 'Employee position assignment ended successfully' };
   }
 }

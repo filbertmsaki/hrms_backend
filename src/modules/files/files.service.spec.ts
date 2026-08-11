@@ -5,14 +5,30 @@ jest.mock('fs/promises', () => ({
   rm: jest.fn().mockResolvedValue(undefined),
 }));
 import { BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { FilesService } from './files.service';
 
 describe('FilesService', () => {
   let service: FilesService;
+  let configService: Pick<ConfigService, 'get'>;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new FilesService();
+    configService = {
+      get: jest.fn().mockImplementation((key: string) => {
+        switch (key) {
+          case 'APP_PUBLIC_STORAGE_PATH':
+            return 'uploads';
+          case 'APP_PRIVATE_STORAGE_PATH':
+            return 'private-uploads';
+          case 'MAX_UPLOAD_FILE_SIZE_BYTES':
+            return 10 * 1024 * 1024;
+          default:
+            return undefined;
+        }
+      }),
+    };
+    service = new FilesService(configService as ConfigService);
   });
 
   it('stores a base64 file and returns normalized metadata', async () => {
@@ -33,6 +49,10 @@ describe('FilesService', () => {
     expect(fs.writeFile).toHaveBeenCalledWith(
       expect.stringContaining('uploads'),
       expect.any(Buffer),
+      expect.objectContaining({
+        flag: 'wx',
+        mode: 0o640,
+      }),
     );
     expect(result).toEqual(
       expect.objectContaining({

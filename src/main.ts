@@ -1,9 +1,13 @@
+import { Logger, RequestMethod, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
-import { RequestMethod, ValidationPipe } from '@nestjs/common';
-import { join } from 'path';
 import { static as expressStatic } from 'express';
+import helmet from 'helmet';
+import { join, resolve } from 'path';
+
+import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import {
   createSwaggerDocument,
   OPENAPI_JSON_PATH,
@@ -13,38 +17,188 @@ import {
 } from './docs/swagger-docs';
 import { SCALAR_DOCS_PATH, setupScalarDocumentation } from './docs/scalar-docs';
 
-async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-  app.setGlobalPrefix('api', {
+async function bootstrap(): Promise<void> {
+  console.log('[BOOT-1] main.ts loaded');
+
+  const logger = new Logger('Bootstrap');
+
+  console.log('[BOOT-2] Creating Nest application');
+
+  const app = await NestFactory.create(AppModule, {
+    logger: ['log', 'error', 'warn', 'debug', 'verbose'],
+  });
+
+  console.log('[BOOT-3] Nest application created');
+
+  const configService = app.get(ConfigService);
+  console.log('[BOOT-4] ConfigService loaded');
+
+  const appEnv = configService.get<string>('APP_ENV') ?? 'development';
+  const host = configService.get<string>('APP_HOST') ?? '0.0.0.0';
+  const rawPort = configService.get<string | number>('APP_PORT');
+
+  if (!rawPort) {
+    throw new Error('APP_PORT is required');
+  }
+
+  const port = Number(rawPort);
+
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid APP_PORT value: ${String(rawPort)}`);
+  }
+
+  const globalPrefix = configService.get<string>('APP_GLOBAL_PREFIX') ?? 'api';
+  const allowedOrigins =
+    configService.get<string[]>('APP_ALLOWED_ORIGINS') ?? [];
+  const trustProxy = configService.get<boolean>('APP_TRUST_PROXY') ?? false;
+  const enableApiDocs =
+    configService.get<boolean>('APP_ENABLE_API_DOCS') ?? false;
+  const publicStorageRoot = resolve(
+    process.cwd(),
+    configService.get<string>('APP_PUBLIC_STORAGE_PATH') ?? 'uploads',
+  );
+
+  console.log('[BOOT-5] Configuration loaded', {
+    appEnv,
+    host,
+    port,
+    globalPrefix,
+    enableApiDocs,
+  });
+
+  if (trustProxy) {
+    const expressApplication = app.getHttpAdapter().getInstance() as {
+      set(setting: string, value: number): void;
+    };
+    expressApplication.set('trust proxy', 1);
+  }
+
+  app.setGlobalPrefix(globalPrefix, {
     exclude: [{ path: '', method: RequestMethod.GET }],
   });
+
+  const correlationIdMiddleware = new CorrelationIdMiddleware();
+
+  app.use(correlationIdMiddleware.use.bind(correlationIdMiddleware));
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
       transform: true,
       forbidNonWhitelisted: true,
+      stopAtFirstError: false,
+      transformOptions: {
+        enableImplicitConversion: false,
+      },
+    }),
+  );
+  app.use(
+    helmet({
+      // Swagger/Scalar rely on inline assets that do not work with Helmet's
+      // default CSP without a dedicated nonce/hash policy.
+      contentSecurityPolicy: enableApiDocs ? false : undefined,
+      // Public avatars and profile photos are consumed by the frontend on a
+      // separate origin, so keep those assets loadable.
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
     }),
   );
 
-  app.enableCors();
-  app.use('/uploads', expressStatic(join(process.cwd(), 'uploads')));
+  app.enableCors({
+    origin: (
+      origin: string | undefined,
+      callback: (error: Error | null, allow?: boolean) => void,
+    ) => {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
 
-  const document = createSwaggerDocument(app);
-  setupSwaggerDocumentation(app, document);
-  setupOpenApiJson(app, document);
-  setupScalarDocumentation(app, document);
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
 
-  const port = process.env.PORT || 3000;
-  await app.listen(port, '0.0.0.0');
-  console.log(`Application is running on: http://localhost:${port}`);
-  console.log(
-    `Swagger API Docs: http://localhost:${port}/${SWAGGER_DOCS_PATH}`,
+      callback(
+        new Error(`Origin '${origin}' is not allowed by CORS policy.`),
+        false,
+      );
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Authorization',
+      'Content-Type',
+      'Accept',
+      'X-Request-Id',
+      'X-Company-Id',
+    ],
+    exposedHeaders: ['Content-Disposition', 'Content-Length', 'X-Request-Id'],
+    maxAge: 86400,
+  });
+
+  const staticOptions = {
+    dotfiles: 'deny' as const,
+    index: false,
+    redirect: false,
+    fallthrough: false,
+    maxAge: appEnv === 'production' ? '1d' : 0,
+  };
+
+  app.use(
+    '/uploads/profile-photos',
+    expressStatic(join(publicStorageRoot, 'profile-photos'), staticOptions),
   );
-  console.log(`Scalar API Docs: http://localhost:${port}${SCALAR_DOCS_PATH}`);
-  console.log(`OpenAPI JSON: http://localhost:${port}${OPENAPI_JSON_PATH}`);
+  app.use(
+    '/uploads/default-avatars',
+    expressStatic(join(publicStorageRoot, 'default-avatars'), staticOptions),
+  );
+
+  console.log('[BOOT-6] Middleware configured');
+
+  if (enableApiDocs) {
+    console.log('[BOOT-7] Creating Swagger document');
+
+    const document = createSwaggerDocument(app);
+
+    console.log('[BOOT-8] Swagger document created');
+
+    setupSwaggerDocumentation(app, document);
+    setupOpenApiJson(app, document);
+    setupScalarDocumentation(app, document);
+
+    logger.log(`Swagger documentation enabled at /${SWAGGER_DOCS_PATH}`);
+    logger.log(`Scalar documentation enabled at ${SCALAR_DOCS_PATH}`);
+    logger.log(`OpenAPI JSON enabled at ${OPENAPI_JSON_PATH}`);
+  } else {
+    console.log('[BOOT-7] API documentation disabled');
+    logger.log('API documentation is disabled.');
+  }
+
+  app.enableShutdownHooks();
+
+  console.log(`[BOOT-8] Starting HTTP listener ${host}:${port}`);
+
+  await app.listen(port, host);
+
+  console.log(
+    `[BOOT-9] HRMS API STARTED: http://${host}:${port}/${globalPrefix}`,
+  );
+
+  logger.log(`HRMS API running in ${appEnv} mode on ${host}:${port}`);
 }
-bootstrap().catch((error) => {
-  console.error('Failed to bootstrap application', error);
+
+bootstrap().catch((error: unknown) => {
+  console.error('\n========================================');
+  console.error('HRMS BOOTSTRAP FAILED');
+  console.error('========================================');
+
+  if (error instanceof Error) {
+    console.error(error.stack ?? error.message);
+  } else {
+    console.error(error);
+  }
+
+  console.error('========================================\n');
+
   process.exit(1);
 });

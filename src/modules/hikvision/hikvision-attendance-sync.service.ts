@@ -1,5 +1,7 @@
 import {
   BadRequestException,
+  forwardRef,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -26,6 +28,9 @@ import { HikvisionSyncLogDirectionEnum } from '../access-control/hikvision-sync-
 import { HikvisionSyncLogStatusEnum } from '../access-control/hikvision-sync-logs/enum/hikvision-sync-log-status.enum';
 import { HikvisionSyncLogTypeEnum } from '../access-control/hikvision-sync-logs/enum/hikvision-sync-log-type.enum';
 import { buildPaginationMeta } from '../hr/shared/hr.utils';
+import { createAttendanceHash } from '../hr/attendance/shared/attendance-hash.util';
+import { AttendanceEmployeeResolverService } from '../hr/attendance/processing/attendance-employee-resolver.service';
+import { AttendanceRecalculationService } from '../hr/attendance/processing/attendance-recalculation.service';
 import { AttendanceProcessingJobStatusEnum } from '../hr/attendance/processing/enums/attendance-processing-job-status.enum';
 import { AttendanceRawLogProcessingStatusEnum } from '../hr/attendance/processing/enums/attendance-raw-log-processing-status.enum';
 import { AttendanceRecalculationJob } from '../hr/attendance/processing/entities/attendance-recalculation-job.entity';
@@ -107,6 +112,9 @@ type MappedAttendanceRow = {
   statusValue: number | null;
   eventKey: string;
   processingStatus: AttendanceRawLogProcessingStatusEnum;
+  payloadHash: string;
+  receivedAt: Date;
+  sourceTimezone: string | null;
   rawPayload: Record<string, unknown>;
 };
 
@@ -114,6 +122,11 @@ type SyncByConditionOptions = {
   trigger: AttendanceSyncTrigger;
   updateSyncCursor: boolean;
   requestedByCompanyUserId?: number | null;
+  queueAttendanceRecalculation?: boolean;
+};
+
+type AttendanceSyncExecutionOptions = {
+  queueAttendanceRecalculation?: boolean;
 };
 
 type AttendanceSyncByConditionResult = {
@@ -177,6 +190,9 @@ export class HikvisionAttendanceSyncService {
     private readonly hikvisionSyncQueue: Queue<HikvisionSyncJobData>,
     private readonly hikvisionAccessControlService: HikvisionAccessControlService,
     private readonly hikvisionHelper: HikvisionHelperService,
+    private readonly attendanceEmployeeResolver: AttendanceEmployeeResolverService,
+    @Inject(forwardRef(() => AttendanceRecalculationService))
+    private readonly attendanceRecalculationService: AttendanceRecalculationService,
   ) {}
 
   async getAcsEventCapabilities(companyId: number, deviceId: number) {
@@ -214,6 +230,7 @@ export class HikvisionAttendanceSyncService {
     timezone?: string,
     employeeNo?: string,
     maxResults = this.defaultAttendancePageSize,
+    options: AttendanceSyncExecutionOptions = {},
   ) {
     const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(
       companyId,
@@ -231,6 +248,51 @@ export class HikvisionAttendanceSyncService {
       endTime,
       employeeNo,
       maxResults,
+      null,
+      options,
+    );
+  }
+
+  async syncAttendanceByDateRangeForDeviceTimezone(
+    companyId: number,
+    deviceId: number,
+    startDate: string,
+    endDate: string,
+    employeeNo?: string,
+    maxResults = this.defaultAttendancePageSize,
+    requestedByCompanyUserId: number | null = null,
+    options: AttendanceSyncExecutionOptions = {},
+  ) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+      throw new BadRequestException('startDate must be in YYYY-MM-DD format');
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+      throw new BadRequestException('endDate must be in YYYY-MM-DD format');
+    }
+    if (endDate < startDate) {
+      throw new BadRequestException('endDate cannot be before startDate');
+    }
+
+    const device = await this.hikvisionHelper.findHikvisionDeviceOrFail(
+      companyId,
+      deviceId,
+      true,
+    );
+    const selectedTimezone = device.timezone?.trim() || 'UTC';
+    this.ensureValidTimeZone(selectedTimezone);
+
+    const startOffset = this.resolveOffsetForDate(selectedTimezone, startDate);
+    const endOffset = this.resolveOffsetForDate(selectedTimezone, endDate);
+
+    return this.syncAttendance(
+      companyId,
+      deviceId,
+      `${startDate}T00:00:00${startOffset}`,
+      `${endDate}T23:59:59${endOffset}`,
+      employeeNo,
+      maxResults,
+      requestedByCompanyUserId,
+      options,
     );
   }
 
@@ -273,6 +335,7 @@ export class HikvisionAttendanceSyncService {
     employeeNo?: string,
     maxResults = this.defaultAttendancePageSize,
     requestedByCompanyUserId: number | null = null,
+    options: AttendanceSyncExecutionOptions = {},
   ) {
     if (employeeNo?.trim()) {
       return this.syncAttendanceByEmployee(
@@ -283,6 +346,7 @@ export class HikvisionAttendanceSyncService {
         endTime,
         maxResults,
         requestedByCompanyUserId,
+        options,
       );
     }
 
@@ -293,6 +357,7 @@ export class HikvisionAttendanceSyncService {
       endTime,
       maxResults,
       requestedByCompanyUserId,
+      options,
     );
   }
 
@@ -303,6 +368,7 @@ export class HikvisionAttendanceSyncService {
     endTime: string,
     maxResults = this.defaultAttendancePageSize,
     requestedByCompanyUserId: number | null = null,
+    options: AttendanceSyncExecutionOptions = {},
   ) {
     this.ensureIsoRange(startTime, endTime);
 
@@ -333,6 +399,8 @@ export class HikvisionAttendanceSyncService {
         trigger: 'MANUAL',
         updateSyncCursor: true,
         requestedByCompanyUserId,
+        queueAttendanceRecalculation:
+          options.queueAttendanceRecalculation ?? true,
       },
     );
   }
@@ -518,6 +586,7 @@ export class HikvisionAttendanceSyncService {
     endTime: string,
     maxResults = this.defaultAttendancePageSize,
     requestedByCompanyUserId: number | null = null,
+    options: AttendanceSyncExecutionOptions = {},
   ) {
     this.ensureIsoRange(startTime, endTime);
     const normalizedEmployeeNo = this.ensureEmployeeNo(employeeNo);
@@ -554,6 +623,8 @@ export class HikvisionAttendanceSyncService {
         trigger: 'MANUAL',
         updateSyncCursor: false,
         requestedByCompanyUserId,
+        queueAttendanceRecalculation:
+          options.queueAttendanceRecalculation ?? true,
       },
     );
   }
@@ -1157,7 +1228,8 @@ export class HikvisionAttendanceSyncService {
       status !== 'FAILED' &&
       normalized.startTime &&
       normalized.endTime &&
-      (counters.recordsCreated > 0 || counters.recordsUpdated > 0)
+      (counters.recordsCreated > 0 || counters.recordsUpdated > 0) &&
+      options.queueAttendanceRecalculation !== false
     ) {
       try {
         await this.queueAttendanceProcessingRecalculation({
@@ -1263,6 +1335,8 @@ export class HikvisionAttendanceSyncService {
         counters.validPunchRecords += 1;
         if (!mapped.isEmployeeMapped) {
           counters.unmappedEmployees += 1;
+          counters.skipped += 1;
+          continue;
         }
 
         const existing =
@@ -1310,6 +1384,9 @@ export class HikvisionAttendanceSyncService {
             statusValue: mapped.statusValue,
             eventKey: mapped.eventKey,
             processingStatus: mapped.processingStatus,
+            payloadHash: mapped.payloadHash,
+            receivedAt: mapped.receivedAt,
+            sourceTimezone: mapped.sourceTimezone,
             rawPayload: mapped.rawPayload,
           }),
         );
@@ -1427,52 +1504,11 @@ export class HikvisionAttendanceSyncService {
       }
     };
 
-    const applyDate = <K extends keyof HikvisionAttendanceLog>(
-      key: K,
-      value: Date | null,
-      options: { onlyWhenMissing?: boolean } = {},
-    ) => {
-      if (!value) {
-        return;
-      }
-
-      const current = existing[key];
-      const currentTime = current instanceof Date ? current.getTime() : null;
-      if (options.onlyWhenMissing) {
-        if (currentTime === null) {
-          existing[key] = value as HikvisionAttendanceLog[K];
-          changed = true;
-        }
-        return;
-      }
-
-      if (currentTime !== value.getTime()) {
-        existing[key] = value as HikvisionAttendanceLog[K];
-        changed = true;
-      }
-    };
-
     const wasMapped = existing.isEmployeeMapped;
 
     applyNumber('employeeId', mapped.employeeId);
     applyBoolean('isEmployeeMapped', mapped.isEmployeeMapped);
-    applyString('employeeName', mapped.employeeName);
-    applyString('cardNo', mapped.cardNo);
-    applyString('attendanceStatus', mapped.attendanceStatus);
-    applyString('verifyMode', mapped.verifyMode);
-    applyString('cardReaderKind', mapped.cardReaderKind);
-    applyString('serialNo', mapped.serialNo, { onlyWhenMissing: true });
-    applyString('deviceNo', mapped.deviceNo);
-    applyString('remoteHostAddr', mapped.remoteHostAddr);
-    applyString('netUser', mapped.netUser);
-    applyString('userType', mapped.userType);
-    applyString('eventType', mapped.eventType);
-    applyString('eventKey', mapped.eventKey);
     applyString('employeeNo', mapped.employeeNo, { onlyWhenMissing: true });
-    applyNumber('doorNo', mapped.doorNo);
-    applyNumber('cardReaderNo', mapped.cardReaderNo);
-    applyNumber('statusValue', mapped.statusValue);
-    applyDate('deviceTime', mapped.deviceTime);
 
     if (!wasMapped && mapped.isEmployeeMapped) {
       existing.processingStatus = AttendanceRawLogProcessingStatusEnum.PENDING;
@@ -1488,13 +1524,6 @@ export class HikvisionAttendanceSyncService {
         AttendanceRawLogProcessingStatusEnum.UNMATCHED_EMPLOYEE;
       existing.processedAt = null;
       existing.lastProcessingError = null;
-      changed = true;
-    }
-
-    const existingPayload = JSON.stringify(existing.rawPayload ?? {});
-    const nextPayload = JSON.stringify(mapped.rawPayload ?? {});
-    if (existingPayload !== nextPayload) {
-      existing.rawPayload = mapped.rawPayload;
       changed = true;
     }
 
@@ -1516,6 +1545,7 @@ export class HikvisionAttendanceSyncService {
     const eventTime = this.parseDateOrFail(item.time, 'time');
     const employeeNo = this.resolveAttendanceEmployeeNo(item);
     const isEmployeeMapped = employeeId !== null;
+    const payloadHash = createAttendanceHash(item);
 
     return {
       companyId: device.companyId,
@@ -1554,6 +1584,9 @@ export class HikvisionAttendanceSyncService {
       processingStatus: isEmployeeMapped
         ? AttendanceRawLogProcessingStatusEnum.PENDING
         : AttendanceRawLogProcessingStatusEnum.UNMATCHED_EMPLOYEE,
+      payloadHash,
+      receivedAt: new Date(),
+      sourceTimezone: device.timezone ?? null,
       rawPayload: item,
     };
   }
@@ -1571,6 +1604,7 @@ export class HikvisionAttendanceSyncService {
     ];
     const employeeMappings = await this.resolveEmployeeMappings(
       device.companyId,
+      device.id,
       employeeNumbers,
     );
 
@@ -1585,26 +1619,22 @@ export class HikvisionAttendanceSyncService {
 
   private async resolveEmployeeMappings(
     companyId: number,
+    deviceId: number,
     employeeNumbers: string[],
   ): Promise<Map<string, number>> {
     if (employeeNumbers.length === 0) {
       return new Map();
     }
 
-    const employees = await this.employeeRepository
-      .createQueryBuilder('employee')
-      .innerJoin('employee.company_user', 'companyUser')
-      .where('companyUser.company_id = :companyId', { companyId })
-      .andWhere('employee.employee_no IN (:...employeeNumbers)', {
-        employeeNumbers,
-      })
-      .orderBy('employee.id', 'ASC')
-      .getMany();
-
     const mapping = new Map<string, number>();
-    for (const employee of employees) {
-      if (!mapping.has(employee.employee_no)) {
-        mapping.set(employee.employee_no, employee.id);
+    for (const employeeNo of employeeNumbers) {
+      const result = await this.attendanceEmployeeResolver.resolveEmployeeId(
+        companyId,
+        employeeNo,
+        deviceId,
+      );
+      if (result.employeeId && !mapping.has(employeeNo)) {
+        mapping.set(employeeNo, result.employeeId);
       }
     }
 
@@ -1906,13 +1936,13 @@ export class HikvisionAttendanceSyncService {
   }): Promise<void> {
     const employeeId = input.employeeNo
       ? ((
-          await this.resolveEmployeeMappings(input.companyId, [
+          await this.resolveEmployeeMappings(input.companyId, input.deviceId, [
             input.employeeNo,
           ])
         ).get(input.employeeNo) ?? null)
       : null;
 
-    await this.attendanceRecalculationJobRepository.save(
+    const job = await this.attendanceRecalculationJobRepository.save(
       this.attendanceRecalculationJobRepository.create({
         companyId: input.companyId,
         employeeId,
@@ -1935,10 +1965,23 @@ export class HikvisionAttendanceSyncService {
         },
       }),
     );
+    void this.startQueuedAttendanceRecalculationJob(job.id);
 
     this.logger.log(
       `Prepared attendance recalculation job for device ${input.deviceId}: dateFrom=${this.toDateOnly(input.startTime)}, dateTo=${this.toDateOnly(input.endTime)}, employeeNo=${input.employeeNo ?? 'ALL'}`,
     );
+  }
+
+  private async startQueuedAttendanceRecalculationJob(
+    jobId: number,
+  ): Promise<void> {
+    try {
+      await this.attendanceRecalculationService.executeJob(jobId);
+    } catch (error) {
+      this.logger.warn(
+        `Queued attendance recalculation job ${jobId} will remain pending for scheduled retry: ${(error as Error).message}`,
+      );
+    }
   }
 
   private async requestAcsEventsWithRetry(

@@ -9,6 +9,7 @@
   PrimaryGeneratedColumn,
   Unique,
   UpdateDateColumn,
+  VersionColumn,
 } from 'typeorm';
 import { Company } from '../../../companies/entities/company.entity';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
@@ -37,6 +38,9 @@ export class OnboardingRequest {
 
   @Column({ type: 'int', nullable: true })
   workflow_id: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  workflow_version: number | null;
 
   @Column({ length: 50 })
   onboarding_no: string;
@@ -88,7 +92,49 @@ export class OnboardingRequest {
   finalized_by_company_user_id: number | null;
 
   @Column({ type: 'json', nullable: true })
+  workflow_snapshot: Record<string, unknown> | null;
+
+  @Column({ type: 'json', nullable: true })
+  readiness_snapshot: Record<string, unknown> | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  readiness_checked_at: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  employee_acknowledged_at: Date | null;
+
+  @Column({ type: 'int', nullable: true })
+  employee_acknowledged_by_user_id: number | null;
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  employee_acknowledgement_version: string | null;
+
+  @Column({ type: 'varchar', length: 45, nullable: true })
+  employee_acknowledgement_ip: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  activation_requested_at: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  activation_started_at: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  activation_failed_at: Date | null;
+
+  @Column({ type: 'text', nullable: true })
+  activation_failure_reason: string | null;
+
+  @Column({ type: 'int', default: 0 })
+  activation_attempt_count: number;
+
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  activation_worker_id: string | null;
+
+  @Column({ type: 'json', nullable: true })
   metadata: Record<string, unknown> | null;
+
+  @VersionColumn()
+  version: number;
 
   @CreateDateColumn()
   created_at: Date;

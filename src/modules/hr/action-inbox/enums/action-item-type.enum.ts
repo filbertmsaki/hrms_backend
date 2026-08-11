@@ -1,0 +1,8 @@
+export enum ActionItemTypeEnum {
+  APPROVAL = 'APPROVAL',
+  TASK = 'TASK',
+  CLEARANCE = 'CLEARANCE',
+  DOCUMENT = 'DOCUMENT',
+  REMINDER = 'REMINDER',
+  EXCEPTION = 'EXCEPTION',
+}

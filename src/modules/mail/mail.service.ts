@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MailerService } from '@nestjs-modules/mailer';
 import type { ISendMailOptions } from '@nestjs-modules/mailer';
@@ -12,9 +12,11 @@ import {
   OffboardingApprovalReminderEvent,
   OffboardingApprovalRequiredEvent,
   OffboardingApprovedEvent,
+  OffboardingAssetOverdueEvent,
   OffboardingClearanceOverdueEvent,
   OffboardingClearanceRequiredEvent,
   OffboardingCompletedEvent,
+  OffboardingSettlementOverdueEvent,
   OffboardingSubmittedEvent,
   OffboardingTaskAssignedEvent,
   OffboardingTaskOverdueEvent,
@@ -24,11 +26,18 @@ import {
   OnboardingRejectedEvent,
   OnboardingSubmittedEvent,
   OnboardingTaskAssignedEvent,
+  EmployeeMovementApprovalRequiredEvent,
+  EmployeeMovementApprovedEvent,
+  EmployeeMovementRejectedEvent,
+  EmployeeMovementAppliedEvent,
 } from '../hr/notifications/events';
 import type { SafeSendMailOptions } from './mail-recipient-safety.util';
+import type { MailSendResult } from './mail-send-result.interface';
 
 @Injectable()
 export class MailService {
+  private readonly logger = new Logger(MailService.name);
+
   constructor(
     private readonly mailerService: MailerService,
     private readonly configService: ConfigService,
@@ -38,8 +47,8 @@ export class MailService {
     to: string,
     name: string,
     resetLink: string,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: 'Reset Your Password',
@@ -58,8 +67,8 @@ export class MailService {
   async sendPasswordChangedSuccessEmail(
     to: string,
     name: string,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: 'Your Password Has Been Changed',
@@ -79,8 +88,8 @@ export class MailService {
     to: string,
     name: string,
     verificationLink: string,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: 'Verify Your Email Address',
@@ -102,9 +111,9 @@ export class MailService {
   async sendWelcomeEmailAfterVerification(
     to: string,
     name: string,
-  ): Promise<void> {
+  ): Promise<MailSendResult> {
     try {
-      await this.sendMail(
+      return await this.sendMail(
         {
           to,
           subject: 'Welcome to Your App!',
@@ -125,7 +134,11 @@ export class MailService {
         'Auth.sendWelcomeEmailAfterVerification',
       );
     } catch (error) {
-      console.error('Failed to send welcome email:', error);
+      this.logger.error(
+        'Failed to send welcome email after verification',
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw error;
     }
   }
 
@@ -133,8 +146,8 @@ export class MailService {
     to: string,
     approverName: string,
     event: LeaveSubmittedEvent,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: `Leave Request Pending Your Approval - ${event.employeeName}`,
@@ -149,8 +162,8 @@ export class MailService {
     to: string,
     approverName: string,
     event: LeaveApprovalRequiredEvent,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: `Action Required: Leave Approval for ${event.employeeName}`,
@@ -164,8 +177,8 @@ export class MailService {
   async sendLeaveApprovedNotification(
     to: string,
     event: LeaveApprovedEvent,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: 'Your Leave Request Has Been Approved',
@@ -179,8 +192,8 @@ export class MailService {
   async sendLeaveRejectedNotification(
     to: string,
     event: LeaveRejectedEvent,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: 'Your Leave Request Was Not Approved',
@@ -194,8 +207,8 @@ export class MailService {
   async sendLeaveReturnedForCorrectionNotification(
     to: string,
     event: LeaveReturnedForCorrectionEvent,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: 'Your Leave Request Needs Correction',
@@ -210,8 +223,8 @@ export class MailService {
     to: string,
     approverName: string,
     event: LeaveCancelledEvent,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: `Leave Request Cancelled - ${event.employeeName}`,
@@ -222,11 +235,72 @@ export class MailService {
     );
   }
 
+  async sendEmployeeMovementApprovalRequiredNotification(
+    to: string,
+    approverName: string,
+    event: EmployeeMovementApprovalRequiredEvent,
+  ): Promise<MailSendResult> {
+    return this.sendMail(
+      {
+        to,
+        subject: `Action Required: Movement Approval for ${event.employeeName}`,
+        template: 'hr-employee-movement-approval-required',
+        context: { ...this.baseCtx(), approverName, ...event },
+      },
+      'HrNotificationListener.sendEmployeeMovementApprovalRequiredNotification',
+    );
+  }
+
+  async sendEmployeeMovementApprovedNotification(
+    to: string,
+    event: EmployeeMovementApprovedEvent,
+  ): Promise<MailSendResult> {
+    return this.sendMail(
+      {
+        to,
+        subject: `Your Movement Request Has Been Approved - ${event.movementNo}`,
+        template: 'hr-employee-movement-approved',
+        context: { ...this.baseCtx(), ...event },
+      },
+      'HrNotificationListener.sendEmployeeMovementApprovedNotification',
+    );
+  }
+
+  async sendEmployeeMovementRejectedNotification(
+    to: string,
+    event: EmployeeMovementRejectedEvent,
+  ): Promise<MailSendResult> {
+    return this.sendMail(
+      {
+        to,
+        subject: `Your Movement Request Was Not Approved - ${event.movementNo}`,
+        template: 'hr-employee-movement-rejected',
+        context: { ...this.baseCtx(), ...event },
+      },
+      'HrNotificationListener.sendEmployeeMovementRejectedNotification',
+    );
+  }
+
+  async sendEmployeeMovementAppliedNotification(
+    to: string,
+    event: EmployeeMovementAppliedEvent,
+  ): Promise<MailSendResult> {
+    return this.sendMail(
+      {
+        to,
+        subject: `Your Movement Has Taken Effect - ${event.movementNo}`,
+        template: 'hr-employee-movement-applied',
+        context: { ...this.baseCtx(), ...event },
+      },
+      'HrNotificationListener.sendEmployeeMovementAppliedNotification',
+    );
+  }
+
   async sendOnboardingSubmittedToEmployee(
     to: string,
     event: OnboardingSubmittedEvent,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: 'Your Onboarding Has Started',
@@ -241,8 +315,8 @@ export class MailService {
     to: string,
     approverName: string,
     event: OnboardingSubmittedEvent,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: `Onboarding Approval Required - ${event.employeeName}`,
@@ -257,8 +331,8 @@ export class MailService {
     to: string,
     approverName: string,
     event: OnboardingApprovalRequiredEvent,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: `Action Required: Onboarding Approval for ${event.employeeName}`,
@@ -273,8 +347,8 @@ export class MailService {
     to: string,
     recipientName: string,
     event: OnboardingApprovedEvent,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: `Onboarding Approved - ${event.employeeName}`,
@@ -288,8 +362,8 @@ export class MailService {
   async sendOnboardingRejectedNotification(
     to: string,
     event: OnboardingRejectedEvent,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: 'Your Onboarding Request Was Not Approved',
@@ -303,8 +377,8 @@ export class MailService {
   async sendOnboardingTaskAssignedNotification(
     to: string,
     event: OnboardingTaskAssignedEvent,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: `New Onboarding Task Assigned - ${event.taskTitle}`,
@@ -319,8 +393,8 @@ export class MailService {
     to: string,
     recipientName: string,
     event: OnboardingCompletedEvent,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: `Onboarding Complete - ${event.employeeName}`,
@@ -334,8 +408,8 @@ export class MailService {
   async sendOffboardingSubmittedToEmployee(
     to: string,
     event: OffboardingSubmittedEvent,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: 'Your Offboarding Process Has Started',
@@ -350,8 +424,8 @@ export class MailService {
     to: string,
     approverName: string,
     event: OffboardingSubmittedEvent,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: `Offboarding Approval Required - ${event.employeeName}`,
@@ -366,8 +440,8 @@ export class MailService {
     to: string,
     approverName: string,
     event: OffboardingApprovalRequiredEvent,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: `Action Required: Offboarding Approval for ${event.employeeName}`,
@@ -382,8 +456,8 @@ export class MailService {
     to: string,
     recipientName: string,
     event: OffboardingApprovedEvent,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: `Offboarding Approved - ${event.employeeName}`,
@@ -397,8 +471,8 @@ export class MailService {
   async sendOffboardingTaskAssignedNotification(
     to: string,
     event: OffboardingTaskAssignedEvent,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: `New Offboarding Task Assigned - ${event.taskTitle}`,
@@ -412,8 +486,8 @@ export class MailService {
   async sendOffboardingTaskOverdueNotification(
     to: string,
     event: OffboardingTaskOverdueEvent,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: `Overdue Offboarding Task - ${event.taskTitle}`,
@@ -427,8 +501,8 @@ export class MailService {
   async sendOffboardingApprovalReminderNotification(
     to: string,
     event: OffboardingApprovalReminderEvent,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: `Offboarding Approval Reminder - ${event.employeeName}`,
@@ -442,8 +516,8 @@ export class MailService {
   async sendOffboardingClearanceRequiredNotification(
     to: string,
     event: OffboardingClearanceRequiredEvent,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: `Clearance Required: ${event.clearanceType} - ${event.employeeName}`,
@@ -457,8 +531,8 @@ export class MailService {
   async sendOffboardingClearanceOverdueNotification(
     to: string,
     event: OffboardingClearanceOverdueEvent,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: `Overdue Offboarding Clearance - ${event.clearanceType}`,
@@ -469,12 +543,42 @@ export class MailService {
     );
   }
 
+  async sendOffboardingAssetOverdueNotification(
+    to: string,
+    event: OffboardingAssetOverdueEvent,
+  ): Promise<MailSendResult> {
+    return this.sendMail(
+      {
+        to,
+        subject: `Overdue Offboarding Asset Return - ${event.assetLabel}`,
+        template: 'hr-offboarding-asset-overdue',
+        context: { ...this.baseCtx(), ...event },
+      },
+      'HrNotificationListener.sendOffboardingAssetOverdueNotification',
+    );
+  }
+
+  async sendOffboardingSettlementOverdueNotification(
+    to: string,
+    event: OffboardingSettlementOverdueEvent,
+  ): Promise<MailSendResult> {
+    return this.sendMail(
+      {
+        to,
+        subject: `Overdue Offboarding Settlement - ${event.settlementTitle}`,
+        template: 'hr-offboarding-settlement-overdue',
+        context: { ...this.baseCtx(), ...event },
+      },
+      'HrNotificationListener.sendOffboardingSettlementOverdueNotification',
+    );
+  }
+
   async sendOffboardingCompletedNotification(
     to: string,
     recipientName: string,
     event: OffboardingCompletedEvent,
-  ): Promise<void> {
-    await this.sendMail(
+  ): Promise<MailSendResult> {
+    return this.sendMail(
       {
         to,
         subject: `Offboarding Completed - ${event.employeeName}`,
@@ -485,10 +589,43 @@ export class MailService {
     );
   }
 
+  /**
+   * Generic email channel for the notification-delivery pipeline. Unlike the
+   * templated senders above, this has no fixed HR event shape — callers
+   * supply their own subject/message/action link.
+   */
+  async sendGenericNotificationEmail(
+    to: string,
+    subject: string,
+    message: string,
+    actionUrl?: string | null,
+  ): Promise<MailSendResult> {
+    const safeOptions: SafeSendMailOptions = {
+      to,
+      subject,
+      html: `<p>${message}</p>${
+        actionUrl ? `<p><a href="${actionUrl}">View details</a></p>` : ''
+      }`,
+      text: actionUrl ? `${message}\n\n${actionUrl}` : message,
+      mailSafetyContext: {
+        sourceModule: 'Notifications.sendGenericNotificationEmail',
+      },
+    };
+
+    const result = (await this.mailerService.sendMail(
+      safeOptions as ISendMailOptions,
+    )) as { messageId?: string; response?: string } | undefined;
+
+    return {
+      messageId: result?.messageId ?? null,
+      response: result?.response ?? null,
+    };
+  }
+
   private async sendMail(
     options: ISendMailOptions,
     sourceModule: string,
-  ): Promise<void> {
+  ): Promise<MailSendResult> {
     const safeOptions: SafeSendMailOptions = {
       ...(options as SafeSendMailOptions),
       mailSafetyContext: {
@@ -496,7 +633,20 @@ export class MailService {
       },
     };
 
-    await this.mailerService.sendMail(safeOptions as ISendMailOptions);
+    const result = (await this.mailerService.sendMail(
+      safeOptions as ISendMailOptions,
+    )) as { messageId?: string; response?: string } | undefined;
+
+    if (result?.messageId || result?.response) {
+      this.logger.log(
+        `Email sent via ${sourceModule}. Message ID: ${result.messageId ?? 'n/a'}. Provider response: ${result.response ?? 'n/a'}.`,
+      );
+    }
+
+    return {
+      messageId: result?.messageId ?? null,
+      response: result?.response ?? null,
+    };
   }
 
   private baseCtx() {

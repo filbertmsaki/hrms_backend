@@ -1,0 +1,653 @@
+process.env.DB_HOST = process.env.DB_HOST ?? 'localhost';
+process.env.DB_PORT = process.env.DB_PORT ?? '5432';
+process.env.DB_USERNAME = process.env.DB_USERNAME ?? 'postgres';
+process.env.DB_PASSWORD = process.env.DB_PASSWORD ?? 'postgres';
+process.env.DB_NAME = process.env.DB_NAME ?? 'hrms_test_db';
+
+import './setup-e2e';
+import 'reflect-metadata';
+import { ConfigService } from '@nestjs/config';
+import { DataSource, Repository } from 'typeorm';
+import { SeederFactoryManager } from 'typeorm-extension';
+import { AppDataSource } from '../src/database/data-source';
+import PayrollBaselineSeeder from '../src/database/seeds/038-payroll-baseline.seed';
+import {
+  ALLIANCE_COMPANY_NAME,
+  ALLIANCE_COMPANY_SLUG,
+} from '../src/database/seeds/company-structure.constants';
+import { Company } from '../src/modules/companies/entities/company.entity';
+import { CompanyUser } from '../src/modules/companies/entities/company-user.entity';
+import { User } from '../src/modules/users/entities/user.entity';
+import { Employee } from '../src/modules/hr/employees/entities/employee.entity';
+import { EmployeeBankAccount } from '../src/modules/hr/employees/entities/employee-bank-account.entity';
+import { EmploymentStatusEnum } from '../src/modules/hr/employees/enums/employment-status.enum';
+import {
+  PayrollCalendar,
+  PayrollPeriod,
+} from '../src/modules/hr/payroll/entities/payroll-configuration.entities';
+import {
+  EmployeePayrollLineItem,
+  EmployeePayrollResult,
+  PayrollAuditLog,
+  PayrollInput,
+  PayrollRun,
+  PayrollRunApproval,
+  Payslip,
+} from '../src/modules/hr/payroll/entities/payroll-run.entities';
+import { EmployeePayrollProfile } from '../src/modules/hr/payroll/entities/employee-payroll-profile.entity';
+import {
+  EmployeePayrollProfileService,
+  EmployeePayrollCalculationService,
+  PayrollAuditService,
+  PayrollConfigurationService,
+  PayrollInputService,
+  PayrollProrationService,
+  PayrollRunService,
+  PayslipService,
+  ProgressiveTaxService,
+  StatutoryCalculationService,
+} from '../src/modules/hr/payroll/services/payroll-core.services';
+import {
+  EmployeePayrollResultStatusEnum,
+  PayrollApprovalStageEnum,
+  PayrollInputStatusEnum,
+  PayrollRunStatusEnum,
+} from '../src/modules/hr/payroll/payroll.enums';
+import { EmployeeCompensationVersion } from '../src/modules/hr/employee-movements/entities/employee-compensation-version.entity';
+import { EmployeeCompensationVersionStatusEnum } from '../src/modules/hr/employee-movements/entities/employee-compensation-version.entity';
+import { AttendanceDailySummary } from '../src/modules/hr/attendance/processing/entities/attendance-daily-summary.entity';
+import { LeaveRequest } from '../src/modules/hr/leave/entities/leave-request.entity';
+import { HrAccessService } from '../src/modules/hr/shared/hr-access.service';
+import type { AuthenticatedUser } from '../src/common/interfaces/authenticated-user.interface';
+import type { EmployeeFinancePayrollInstructionService } from '../src/modules/hr/employee-finance/services/employee-finance-core.services';
+import { PayrollMoney } from '../src/modules/hr/payroll/services/payroll-money.util';
+
+class TestConfigService {
+  private readonly values = new Map<string, unknown>([
+    ['PAYROLL_DEFAULT_CUTOFF_DAY', 20],
+    ['PAYROLL_DEFAULT_PAYMENT_DAY', 28],
+    ['PAYROLL_DEFAULT_TIMEZONE', 'Africa/Dar_es_Salaam'],
+    ['PAYROLL_DEFAULT_CURRENCY', 'TZS'],
+    ['PAYROLL_DEFAULT_PRORATION_METHOD', 'CALENDAR_DAYS'],
+    ['PAYROLL_ALLOW_NEGATIVE_NET_PAY', false],
+    ['PAYROLL_REQUIRE_HR_APPROVAL', true],
+    ['PAYROLL_REQUIRE_FINANCE_APPROVAL', false],
+    ['PAYROLL_REQUIRE_MANAGEMENT_APPROVAL', false],
+    ['PAYROLL_REQUIRE_MAKER_CHECKER', false],
+  ]);
+
+  get<T>(key: string, defaultValue?: T): T {
+    if (this.values.has(key)) {
+      return this.values.get(key) as T;
+    }
+    return defaultValue as T;
+  }
+}
+
+describe('Payroll run flow (e2e, real Postgres)', () => {
+  let dataSource: DataSource;
+  let company: Company;
+  let createdCompany = false;
+
+  let adminUserId: number;
+  let adminCompanyUserId: number;
+  let employeeUserId: number;
+  let employeeCompanyUserId: number;
+  let employeeId: number;
+  let bankAccountId: number;
+  let compensationId: number;
+  let profileId: number;
+  let periodId: number;
+  let inputId: number;
+  let runId: number;
+  let payslipId: number;
+
+  let payrollCalendarRepository: Repository<PayrollCalendar>;
+  let payrollPeriodRepository: Repository<PayrollPeriod>;
+  let payrollRunRepository: Repository<PayrollRun>;
+  let payrollInputRepository: Repository<PayrollInput>;
+  let payrollResultRepository: Repository<EmployeePayrollResult>;
+  let payrollLineItemRepository: Repository<EmployeePayrollLineItem>;
+  let payslipRepository: Repository<Payslip>;
+
+  let profileService: EmployeePayrollProfileService;
+  let configurationService: PayrollConfigurationService;
+  let inputService: PayrollInputService;
+  let runService: PayrollRunService;
+  let payslipService: PayslipService;
+
+  const hrAccessService = {
+    ensureActorCompanyId: jest.fn(
+      (actor: AuthenticatedUser) => actor.companyId,
+    ),
+    assertCanAccessEmployee: jest.fn(),
+    assertCompanyScopedActor: jest.fn(),
+  } as unknown as HrAccessService;
+
+  const employeeFinancePayrollInstructionService = {
+    reserveForPayrollRun: jest.fn().mockResolvedValue([]),
+    lockForPayrollRun: jest.fn().mockResolvedValue(undefined),
+  } as unknown as EmployeeFinancePayrollInstructionService;
+
+  const smsNotificationManagementService = {} as never;
+  const notificationQueueService = {
+    enqueueSmsConfiguredNotification: jest.fn().mockResolvedValue(undefined),
+  } as never;
+
+  const configService = new TestConfigService() as unknown as ConfigService;
+
+  const adminActor = (): AuthenticatedUser => ({
+    id: adminUserId,
+    email: 'payroll.admin@example.com',
+    scope: 'company',
+    userType: 'COMPANY_USER',
+    companyId: company.id,
+    companyMembershipId: adminCompanyUserId,
+    permissions: [],
+    roles: [],
+  });
+
+  const employeeActor = (): AuthenticatedUser => ({
+    id: employeeUserId,
+    email: 'payroll.employee@example.com',
+    scope: 'company',
+    userType: 'COMPANY_USER',
+    companyId: company.id,
+    companyMembershipId: employeeCompanyUserId,
+    employeeId,
+    permissions: [],
+    roles: [],
+  });
+
+  beforeAll(async () => {
+    dataSource = AppDataSource.isInitialized
+      ? AppDataSource
+      : await AppDataSource.initialize();
+
+    const existingCompany = await dataSource.getRepository(Company).findOne({
+      where: { slug: ALLIANCE_COMPANY_SLUG },
+    });
+    company =
+      existingCompany ??
+      (await dataSource.getRepository(Company).save(
+        dataSource.getRepository(Company).create({
+          name: ALLIANCE_COMPANY_NAME,
+          slug: ALLIANCE_COMPANY_SLUG,
+          status: 'active',
+          metadata: { source: 'payroll-e2e' },
+        }),
+      ));
+
+    createdCompany = !existingCompany;
+
+    await new PayrollBaselineSeeder().run(
+      dataSource,
+      {} as SeederFactoryManager,
+    );
+
+    payrollCalendarRepository = dataSource.getRepository(PayrollCalendar);
+    payrollPeriodRepository = dataSource.getRepository(PayrollPeriod);
+    payrollRunRepository = dataSource.getRepository(PayrollRun);
+    payrollInputRepository = dataSource.getRepository(PayrollInput);
+    payrollResultRepository = dataSource.getRepository(EmployeePayrollResult);
+    payrollLineItemRepository = dataSource.getRepository(
+      EmployeePayrollLineItem,
+    );
+    payslipRepository = dataSource.getRepository(Payslip);
+
+    const auditService = new PayrollAuditService(
+      dataSource.getRepository(PayrollAuditLog),
+      hrAccessService,
+    );
+    profileService = new EmployeePayrollProfileService(
+      hrAccessService,
+      auditService,
+      dataSource.getRepository(EmployeePayrollProfile),
+      dataSource.getRepository(Employee),
+      dataSource.getRepository(EmployeeBankAccount),
+    );
+    configurationService = new PayrollConfigurationService(
+      configService,
+      hrAccessService,
+      auditService,
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollComponent,
+      ),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .SalaryStructure,
+      ),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .SalaryStructureComponent,
+      ),
+      dataSource.getRepository(PayrollCalendar),
+      dataSource.getRepository(PayrollPeriod),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .StatutoryScheme,
+      ),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .StatutoryRuleVersion,
+      ),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .StatutoryTaxBand,
+      ),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollAccountingMapping,
+      ),
+    );
+    inputService = new PayrollInputService(
+      hrAccessService,
+      payrollInputRepository,
+      payrollPeriodRepository,
+    );
+
+    const prorationService = new PayrollProrationService();
+    const progressiveTaxService = new ProgressiveTaxService();
+    const statutoryCalculationService = new StatutoryCalculationService(
+      progressiveTaxService,
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .StatutoryScheme,
+      ),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .StatutoryRuleVersion,
+      ),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .StatutoryTaxBand,
+      ),
+    );
+    const calculationService = new EmployeePayrollCalculationService(
+      configService,
+      prorationService,
+      statutoryCalculationService,
+      employeeFinancePayrollInstructionService,
+      dataSource.getRepository(EmployeePayrollProfile),
+      dataSource.getRepository(Employee),
+      dataSource.getRepository(EmployeeBankAccount),
+      dataSource.getRepository(EmployeeCompensationVersion),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollComponent,
+      ),
+      payrollInputRepository,
+      dataSource.getRepository(AttendanceDailySummary),
+      dataSource.getRepository(LeaveRequest),
+    );
+    runService = new PayrollRunService(
+      configService,
+      hrAccessService,
+      calculationService,
+      employeeFinancePayrollInstructionService,
+      auditService,
+      payrollPeriodRepository,
+      payrollRunRepository,
+      payrollResultRepository,
+      payrollLineItemRepository,
+      dataSource.getRepository(PayrollRunApproval),
+    );
+    payslipService = new PayslipService(
+      hrAccessService,
+      auditService,
+      smsNotificationManagementService,
+      notificationQueueService,
+      payrollRunRepository,
+      payrollResultRepository,
+      payrollLineItemRepository,
+      payslipRepository,
+    );
+  });
+
+  beforeEach(async () => {
+    const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+
+    const adminUser = await dataSource.getRepository(User).save(
+      dataSource.getRepository(User).create({
+        user_no: `PA-${suffix}`.slice(0, 20),
+        first_name: 'Payroll',
+        last_name: 'Admin',
+        phone: `+2557${suffix}`.slice(0, 20),
+        email: `payroll.admin.${suffix}@example.com`,
+        password: 'not-a-real-hash',
+        status: 'active',
+        user_type: 'COMPANY_USER',
+        auth_token_version: 1,
+      }),
+    );
+    adminUserId = adminUser.id;
+
+    const adminMembership = await dataSource.getRepository(CompanyUser).save(
+      dataSource.getRepository(CompanyUser).create({
+        company_id: company.id,
+        user_id: adminUserId,
+        status: 'active',
+        is_default: true,
+      }),
+    );
+    adminCompanyUserId = adminMembership.id;
+
+    const employeeUser = await dataSource.getRepository(User).save(
+      dataSource.getRepository(User).create({
+        user_no: `PE-${suffix}`.slice(0, 20),
+        first_name: 'Payroll',
+        last_name: 'Employee',
+        phone: `+2558${suffix}`.slice(0, 20),
+        email: `payroll.employee.${suffix}@example.com`,
+        password: 'not-a-real-hash',
+        status: 'active',
+        user_type: 'COMPANY_USER',
+        auth_token_version: 1,
+      }),
+    );
+    employeeUserId = employeeUser.id;
+
+    const employeeMembership = await dataSource.getRepository(CompanyUser).save(
+      dataSource.getRepository(CompanyUser).create({
+        company_id: company.id,
+        user_id: employeeUserId,
+        status: 'active',
+        is_default: true,
+      }),
+    );
+    employeeCompanyUserId = employeeMembership.id;
+
+    const employee = await dataSource.getRepository(Employee).save(
+      dataSource.getRepository(Employee).create({
+        company_id: company.id,
+        company_user_id: employeeCompanyUserId,
+        employee_no: `EMP-${suffix}`.slice(0, 50),
+        first_name: 'Payroll',
+        last_name: 'Employee',
+        gender: 'female',
+        employment_status: EmploymentStatusEnum.ACTIVE,
+        hire_date: '2026-01-01',
+      }),
+    );
+    employeeId = employee.id;
+
+    const bankAccount = await dataSource
+      .getRepository(EmployeeBankAccount)
+      .save(
+        dataSource.getRepository(EmployeeBankAccount).create({
+          employee_id: employeeId,
+          bank_name: 'National Bank',
+          account_name: 'Payroll Employee',
+          account_number: `0000${suffix}`.slice(-12),
+          bank_code: 'NMB',
+          bank_branch_code: '001',
+          account_currency: 'TZS',
+          verification_status: 'VERIFIED',
+          verified_at: new Date('2026-08-01T00:00:00.000Z'),
+          is_primary: true,
+        }),
+      );
+    bankAccountId = bankAccount.id;
+
+    const profile = (await profileService.upsert(adminActor(), {
+      employee_id: employeeId,
+      payroll_number: `PAY-${suffix}`.slice(0, 60),
+      primary_bank_account_id: bankAccountId,
+      currency: 'TZS',
+      pay_frequency: 'MONTHLY',
+      payroll_enabled: true,
+      effective_from: '2026-01-01',
+    })) as EmployeePayrollProfile;
+    profileId = profile.id;
+
+    const compensation = await dataSource
+      .getRepository(EmployeeCompensationVersion)
+      .save(
+        dataSource.getRepository(EmployeeCompensationVersion).create({
+          companyId: company.id,
+          employeeId,
+          movementId: null,
+          baseSalary: '1000000.00',
+          currency: 'TZS',
+          salaryStructureCode: 'STD-MONTHLY',
+          payFrequency: 'MONTHLY',
+          effectiveFrom: '2026-01-01',
+          effectiveTo: null,
+          status: EmployeeCompensationVersionStatusEnum.ACTIVE,
+          revisionReference: 'PAYROLL-E2E',
+          justification: 'Initial compensation for payroll e2e',
+          approvedByCompanyUserId: adminCompanyUserId,
+          createdByCompanyUserId: adminCompanyUserId,
+          payrollSyncStatus: 'READY',
+        }),
+      );
+    compensationId = compensation.id;
+  });
+
+  afterEach(async () => {
+    const auditActorIds = [adminCompanyUserId, employeeCompanyUserId].filter(
+      (value): value is number => Boolean(value),
+    );
+
+    if (payslipId) {
+      await payslipRepository.delete({ id: payslipId });
+      payslipId = 0;
+    }
+    if (runId) {
+      await dataSource
+        .getRepository(PayrollRunApproval)
+        .delete({ payrollRunId: runId });
+      await payrollLineItemRepository.delete({ payrollRunId: runId });
+      await payrollResultRepository.delete({ payrollRunId: runId });
+      await payrollRunRepository.delete({ id: runId });
+      runId = 0;
+    }
+    if (inputId) {
+      await payrollInputRepository.delete({ id: inputId });
+      inputId = 0;
+    }
+    if (periodId) {
+      await payrollPeriodRepository.delete({ id: periodId });
+      periodId = 0;
+    }
+    if (profileId) {
+      await dataSource
+        .getRepository(EmployeePayrollProfile)
+        .delete({ id: profileId });
+      profileId = 0;
+    }
+    if (compensationId) {
+      await dataSource
+        .getRepository(EmployeeCompensationVersion)
+        .delete({ id: compensationId });
+      compensationId = 0;
+    }
+    if (bankAccountId) {
+      await dataSource
+        .getRepository(EmployeeBankAccount)
+        .delete({ id: bankAccountId });
+      bankAccountId = 0;
+    }
+    if (employeeId) {
+      await dataSource.getRepository(Employee).delete({ id: employeeId });
+      employeeId = 0;
+    }
+    if (employeeCompanyUserId) {
+      await dataSource
+        .getRepository(CompanyUser)
+        .delete({ id: employeeCompanyUserId });
+      employeeCompanyUserId = 0;
+    }
+    if (employeeUserId) {
+      await dataSource.getRepository(User).delete({ id: employeeUserId });
+      employeeUserId = 0;
+    }
+    if (adminCompanyUserId) {
+      await dataSource
+        .getRepository(CompanyUser)
+        .delete({ id: adminCompanyUserId });
+      adminCompanyUserId = 0;
+    }
+    if (adminUserId) {
+      await dataSource.getRepository(User).delete({ id: adminUserId });
+      adminUserId = 0;
+    }
+
+    if (auditActorIds.length > 0) {
+      await dataSource
+        .getRepository(PayrollAuditLog)
+        .createQueryBuilder()
+        .delete()
+        .where('company_id = :companyId', { companyId: company.id })
+        .andWhere('actor_company_user_id IN (:...ids)', {
+          ids: auditActorIds,
+        })
+        .execute();
+    }
+  });
+
+  afterAll(async () => {
+    if (createdCompany) {
+      await dataSource.getRepository(Company).delete({ id: company.id });
+    }
+    if (dataSource?.isInitialized) {
+      await dataSource.destroy();
+    }
+  });
+
+  it('processes, approves, locks, and generates payslips for a seeded baseline payroll run', async () => {
+    const calendar = await payrollCalendarRepository.findOneOrFail({
+      where: { companyId: company.id, code: 'MAIN' },
+    });
+
+    const periodYear = 2090 + Math.floor(Math.random() * 5);
+    const periodMonth = 1 + Math.floor(Math.random() * 12);
+    const period = await configurationService.generatePeriod(adminActor(), {
+      payroll_calendar_id: calendar.id,
+      year: periodYear,
+      month: periodMonth,
+    });
+    periodId = period.id;
+
+    const input = await inputService.create(adminActor(), {
+      payroll_period_id: period.id,
+      employee_id: employeeId,
+      component_code: 'HOUSING',
+      source_module: 'MANUAL',
+      source_reference: 'PAYROLL-E2E-HOUSING',
+      amount: '250000.00',
+      currency: 'TZS',
+      status: PayrollInputStatusEnum.DRAFT,
+      payload: { note: 'Housing allowance for payroll e2e' },
+    });
+    inputId = input.id;
+    await inputService.approve(adminActor(), input.id);
+
+    const run = await runService.create(adminActor(), {
+      payroll_period_id: period.id,
+    });
+    runId = run.id;
+
+    const processedRun = await runService.process(adminActor(), run.id);
+    expect(processedRun.status).toBe(PayrollRunStatusEnum.PENDING_HR_APPROVAL);
+    expect(processedRun.employeeCount).toBe(1);
+    expect(processedRun.grossTotal).toBe('1250000.00');
+    expect(processedRun.taxableTotal).toBe('1250000.00');
+    expect(processedRun.deductionTotal).toBe('303000.00');
+    expect(processedRun.employerContributionTotal).toBe('165000.00');
+    expect(processedRun.netPayTotal).toBe('947000.00');
+    expect(processedRun.totalEmployerCost).toBe('1415000.00');
+    expect(processedRun.calculationHash).toEqual(expect.any(String));
+
+    const result = await payrollResultRepository.findOneOrFail({
+      where: { payrollRunId: run.id, employeeId, companyId: company.id },
+    });
+    expect(result.status).toBe(EmployeePayrollResultStatusEnum.CALCULATED);
+    expect(result.grossPay).toBe('1250000.00');
+    expect(result.employeeDeductions).toBe('303000.00');
+    expect(result.netPay).toBe('947000.00');
+    expect(result.warnings).toEqual([]);
+
+    const lines = await payrollLineItemRepository.find({
+      where: { payrollRunId: run.id, employeeId, companyId: company.id },
+      order: { calculationOrder: 'ASC', id: 'ASC' },
+    });
+    const amountByCode = new Map(
+      lines.map((line) => [line.componentCode, line.amount]),
+    );
+    const employerAmountByCode = new Map(
+      lines.map((line) => [line.componentCode, line.employerAmount]),
+    );
+
+    expect(amountByCode.get('BASIC')).toBe('1000000.00');
+    expect(amountByCode.get('HOUSING')).toBe('250000.00');
+    expect(amountByCode.get('NSSF_EE')).toBe('100000.00');
+    expect(amountByCode.get('NHIF_EE')).toBe('30000.00');
+    expect(amountByCode.get('PAYE')).toBe('173000.00');
+    expect(employerAmountByCode.get('NSSF_ER')).toBe('100000.00');
+    expect(employerAmountByCode.get('NHIF_ER')).toBe('30000.00');
+    expect(employerAmountByCode.get('SDL_ER')).toBe('35000.00');
+
+    const approvedRun = await runService.approve(adminActor(), run.id, {
+      stage: PayrollApprovalStageEnum.HR,
+      calculation_hash: processedRun.calculationHash!,
+      comments: 'Payroll e2e approval',
+    });
+    expect(approvedRun.status).toBe(PayrollRunStatusEnum.APPROVED);
+
+    const lockedRun = await runService.lock(adminActor(), run.id);
+    expect(lockedRun.status).toBe(PayrollRunStatusEnum.LOCKED);
+
+    const lockedResult = await payrollResultRepository.findOneOrFail({
+      where: { id: result.id },
+    });
+    expect(lockedResult.status).toBe(EmployeePayrollResultStatusEnum.LOCKED);
+
+    const lockedPeriod = await payrollPeriodRepository.findOneOrFail({
+      where: { id: period.id },
+    });
+    expect(lockedPeriod.status).toBe('LOCKED');
+
+    const payslips = await payslipService.generateForRun(adminActor(), run.id);
+    expect(payslips).toHaveLength(1);
+    payslipId = payslips[0].id;
+    expect(payslips[0].payslipNo).toBe(`PS-${lockedRun.runNo}-${employeeId}`);
+
+    const mine = await payslipService.listMine(employeeActor());
+    expect(mine).toHaveLength(1);
+    expect(mine[0].id).toBe(payslipId);
+
+    const download = await payslipService.downloadMine(
+      employeeActor(),
+      payslipId,
+    );
+    expect(download.file_name).toBe(`${payslips[0].payslipNo}.json`);
+    expect(download.content).toContain(lockedRun.runNo);
+    expect(download.content).toContain('"componentCode": "PAYE"');
+
+    expect(
+      employeeFinancePayrollInstructionService.reserveForPayrollRun,
+    ).toHaveBeenCalledWith(company.id, period.id, run.id, employeeId);
+    expect(
+      employeeFinancePayrollInstructionService.lockForPayrollRun,
+    ).toHaveBeenCalledWith(company.id, run.id);
+
+    const recomputedNet = PayrollMoney.add(
+      amountByCode.get('BASIC'),
+      amountByCode.get('HOUSING'),
+    );
+    expect(
+      PayrollMoney.add(
+        recomputedNet,
+        PayrollMoney.fromCents(
+          -(
+            PayrollMoney.toCents(amountByCode.get('NSSF_EE')) +
+            PayrollMoney.toCents(amountByCode.get('NHIF_EE')) +
+            PayrollMoney.toCents(amountByCode.get('PAYE'))
+          ),
+        ),
+      ),
+    ).toBe('947000.00');
+  });
+});

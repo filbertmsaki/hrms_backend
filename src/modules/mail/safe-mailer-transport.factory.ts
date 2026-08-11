@@ -1,12 +1,11 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import nodemailer from 'nodemailer';
-import { MAILER_OPTIONS } from '@nestjs-modules/mailer/dist/constants/mailer.constant';
-import type { MailerTransportFactory } from '@nestjs-modules/mailer/dist/interfaces/mailer-transport-factory.interface';
-import type {
-  MailerOptions,
-  TransportType,
-} from '@nestjs-modules/mailer/dist/interfaces/mailer-options.interface';
+import {
+  MAILER_OPTIONS,
+  type MailerOptions,
+  type MailerTransportFactory,
+} from '@nestjs-modules/mailer';
 import {
   applyMailRecipientSafety,
   appendMailRecipientSafetyDebugFooter,
@@ -32,6 +31,8 @@ type TransportPlugin = (
 type MailTransporter = {
   use(step: 'stream' | 'compile', plugin: TransportPlugin): void;
 };
+
+type TransportType = NonNullable<MailerOptions['transport']>;
 
 type NodemailerModule = {
   createTransport(
@@ -65,11 +66,17 @@ export class SafeMailerTransportFactory implements MailerTransportFactory {
 
     transporter.use('stream', (mail, callback) => {
       try {
-        appendMailRecipientSafetyDebugFooter(
-          mail.data,
-          mail.data.__mailRecipientSafetyResult ??
-            applyMailRecipientSafety(mail.data, this.safetyConfig, this.logger),
-        );
+        const safetyResult = mail.data.__mailRecipientSafetyResult;
+
+        if (safetyResult) {
+          appendMailRecipientSafetyDebugFooter(
+            mail.data,
+            safetyResult,
+            this.safetyConfig,
+          );
+        } else {
+          applyMailRecipientSafety(mail.data, this.safetyConfig, this.logger);
+        }
         callback();
       } catch (error) {
         callback(error as Error);

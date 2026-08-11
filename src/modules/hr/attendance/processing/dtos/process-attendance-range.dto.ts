@@ -24,6 +24,13 @@ export class ProcessAttendanceRangeDto {
   @IsOptional()
   employee_id?: number;
 
+  @ApiPropertyOptional({ example: 12 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  device_id?: number;
+
   @ApiPropertyOptional({ default: true })
   @IsBoolean()
   @IsOptional()

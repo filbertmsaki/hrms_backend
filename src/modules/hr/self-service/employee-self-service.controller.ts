@@ -45,6 +45,15 @@ import { TeamAttendanceQueryDto } from './dtos/team-attendance-query.dto';
 import { EmployeeSelfServiceService } from './employee-self-service.service';
 import { SelectDefaultAvatarDto } from '../default-avatars/dtos/select-default-avatar.dto';
 import { ProfileChangeRequestsService } from './profile-change-requests.service';
+import { MyRequestTimelineQueryDto } from './dtos/my-request-timeline-query.dto';
+import { CreateMyResignationDto } from './dtos/create-my-resignation.dto';
+import { ActionItemQueryDto } from '../action-inbox/dtos/action-item-query.dto';
+import { UploadDocumentDto } from '../documents/dtos/upload-document.dto';
+import { SetMyNotificationPreferenceDto } from './dtos/set-my-notification-preference.dto';
+import { NotificationPreferencesService } from '../../notifications/notification-preferences.service';
+import { ProbationService } from '../probation/probation.service';
+import { SubmitProbationSelfAssessmentDto } from '../probation/dtos/submit-probation-self-assessment.dto';
+import { EmployeeMovementsService } from '../employee-movements/employee-movements.service';
 
 @ApiTags('Employee Self Service')
 @ApiBearerAuth('access-token')
@@ -54,7 +63,55 @@ export class EmployeeSelfServiceController {
   constructor(
     private readonly employeeSelfServiceService: EmployeeSelfServiceService,
     private readonly profileChangeRequestsService: ProfileChangeRequestsService,
+    private readonly notificationPreferencesService: NotificationPreferencesService,
+    private readonly probationService: ProbationService,
+    private readonly employeeMovementsService: EmployeeMovementsService,
   ) {}
+
+  @Get('movements')
+  @ApiOperation({ summary: 'Get my employee movement requests' })
+  getMyMovements(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.employeeMovementsService.findMyMovements(req.user);
+  }
+
+  @Get('movements/:id')
+  @ApiOperation({ summary: 'Get one of my employee movement requests' })
+  getMyMovement(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.employeeMovementsService.findMyMovement(req.user, id);
+  }
+
+  @Post('movements/:id/acknowledge')
+  @ApiOperation({ summary: 'Acknowledge one of my employee movements' })
+  acknowledgeMyMovement(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.employeeMovementsService.acknowledgeMyMovement(req.user, id);
+  }
+
+  @Get('probation')
+  @ApiOperation({ summary: 'Get my probation and confirmation status' })
+  getMyProbation(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.probationService.getMyProbation(req.user);
+  }
+
+  @Post('probation/:caseId/self-assessment')
+  @ApiOperation({ summary: 'Submit my probation self-assessment' })
+  submitMyProbationAssessment(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('caseId', ParseIntPipe) caseId: number,
+    @Body() dto: SubmitProbationSelfAssessmentDto,
+  ) {
+    return this.probationService.submitSelfAssessment(
+      req.user.companyId!,
+      caseId,
+      req.user,
+      dto,
+    );
+  }
 
   private readonly allowedProfilePhotoMimeTypes = new Set([
     'image/svg+xml',
@@ -131,7 +188,7 @@ export class EmployeeSelfServiceController {
   }
 
   @Post('profile/photo')
-  @ApiOperation({ summary: 'Upload my profile picture' })
+  @ApiOperation({ summary: 'Submit my profile picture for approval' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -168,7 +225,7 @@ export class EmployeeSelfServiceController {
 
     if (!this.allowedProfilePhotoMimeTypes.has(file.mimetype)) {
       throw new BadRequestException(
-        'Only JPEG, PNG, and WEBP profile pictures are allowed.',
+        'Only SVG, JPEG, PNG, and WEBP profile pictures are allowed.',
       );
     }
 
@@ -203,11 +260,7 @@ export class EmployeeSelfServiceController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: SelectDefaultAvatarDto,
   ) {
-    return this.profileChangeRequestsService.submitAvatarSelectionRequest(
-      req.user,
-      dto.default_avatar_id ?? null,
-      this.buildRequestContext(req),
-    );
+    return this.employeeSelfServiceService.selectProfileAvatar(req.user, dto);
   }
 
   @Get('status')
@@ -519,6 +572,121 @@ export class EmployeeSelfServiceController {
     );
   }
 
+  // ─── Action items, request timeline, documents, onboarding/offboarding ───────
+
+  @Get('action-items')
+  @ApiOperation({ summary: 'Get my pending action items' })
+  getMyActionItems(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: ActionItemQueryDto,
+  ) {
+    return this.employeeSelfServiceService.getMyActionItems(req.user, query);
+  }
+
+  @Get('requests')
+  @ApiOperation({ summary: 'Get my unified HR request timeline' })
+  getMyRequests(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: MyRequestTimelineQueryDto,
+  ) {
+    return this.employeeSelfServiceService.getMyRequestTimeline(
+      req.user,
+      query,
+    );
+  }
+
+  @Get('documents')
+  @ApiOperation({ summary: 'Get my employee documents' })
+  getMyDocuments(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.employeeSelfServiceService.getMyDocuments(req.user);
+  }
+
+  @Post('documents')
+  @ApiOperation({ summary: 'Upload one of my employee documents' })
+  uploadMyDocument(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: UploadDocumentDto,
+  ) {
+    return this.employeeSelfServiceService.uploadMyDocument(req.user, dto);
+  }
+
+  @Get('documents/:id/download')
+  @ApiOperation({ summary: 'Download one of my employee documents' })
+  async downloadMyDocument(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Res() res: Response,
+  ) {
+    const file = await this.employeeSelfServiceService.downloadMyDocument(
+      req.user,
+      id,
+    );
+
+    res.setHeader('Content-Type', file.mimeType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${file.fileName}"`,
+    );
+    res.send(file.buffer);
+  }
+
+  @Get('onboarding')
+  @ApiOperation({ summary: 'Get my onboarding requests' })
+  getMyOnboarding(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.employeeSelfServiceService.getMyOnboarding(req.user);
+  }
+
+  @Get('offboarding')
+  @ApiOperation({ summary: 'Get my offboarding requests' })
+  getMyOffboarding(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.employeeSelfServiceService.getMyOffboarding(req.user);
+  }
+
+  @Post('resignation')
+  @ApiOperation({ summary: 'Submit my resignation' })
+  createMyResignation(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: CreateMyResignationDto,
+  ) {
+    return this.employeeSelfServiceService.createMyResignation(
+      req.user,
+      dto,
+      this.buildOffboardingContext(req),
+    );
+  }
+
+  @Get('notifications/preferences')
+  @ApiOperation({ summary: 'Get my notification channel preferences' })
+  getMyNotificationPreferences(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  ) {
+    if (!req.user.companyMembershipId) {
+      throw new BadRequestException('Active company context is required');
+    }
+
+    return this.notificationPreferencesService.findMine(
+      req.user.companyMembershipId,
+    );
+  }
+
+  @Post('notifications/preferences')
+  @ApiOperation({ summary: 'Set one of my notification channel preferences' })
+  setMyNotificationPreference(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: SetMyNotificationPreferenceDto,
+  ) {
+    if (!req.user.companyMembershipId) {
+      throw new BadRequestException('Active company context is required');
+    }
+
+    return this.notificationPreferencesService.setPreference(
+      req.user.companyMembershipId,
+      dto.notification_type,
+      dto.channel,
+      dto.is_enabled,
+    );
+  }
+
   // ─── Manager / Team Attendance ────────────────────────────────────────────────
 
   @Get('team/attendance')
@@ -603,6 +771,14 @@ export class EmployeeSelfServiceController {
     const normalized = firstValue?.split(',')[0]?.trim();
 
     return normalized || null;
+  }
+
+  private buildOffboardingContext(req: ExpressRequest) {
+    const userAgentHeader = req.headers['user-agent'];
+    return {
+      ip_address: req.ip ?? null,
+      user_agent: typeof userAgentHeader === 'string' ? userAgentHeader : null,
+    };
   }
 
   private buildRequestContext(req: ExpressRequest) {

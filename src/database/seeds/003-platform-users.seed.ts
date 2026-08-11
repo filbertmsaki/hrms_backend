@@ -37,8 +37,7 @@ export default class PlatformUsersSeeder implements Seeder {
         'Insurance';
       const rawPassword =
         process.env.PLATFORM_ADMIN_PASSWORD ??
-        process.env.INITIAL_OWNER_PASSWORD ??
-        'Owner123!';
+        process.env.INITIAL_OWNER_PASSWORD;
       const userNo =
         process.env.PLATFORM_ADMIN_USER_NO ??
         process.env.INITIAL_OWNER_USER_NO ??
@@ -52,6 +51,12 @@ export default class PlatformUsersSeeder implements Seeder {
         where: { name: 'SUPER_ADMIN', company_id: IsNull() },
       });
 
+      if (!rawPassword?.trim()) {
+        throw new Error(
+          'PLATFORM_ADMIN_PASSWORD or INITIAL_OWNER_PASSWORD must be set before seeding.',
+        );
+      }
+
       if (!user) {
         user = userRepo.create({
           user_no: userNo,
@@ -59,7 +64,7 @@ export default class PlatformUsersSeeder implements Seeder {
           last_name: lastName,
           email,
           phone,
-          password: await hashPassword(rawPassword),
+          password: await hashPassword(rawPassword.trim()),
           user_type: 'OWNER',
           status: 'active',
           is_email_verified: true,

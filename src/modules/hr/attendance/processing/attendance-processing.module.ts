@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { HikvisionAttendanceLog } from '../../../hikvision/entities/hikvision-attendance-log.entity';
@@ -33,6 +33,8 @@ import { EmployeeDeviceIdentity } from './entities/employee-device-identity.enti
 import { AttendanceMobilePunch } from '../mobile-punches/entities/attendance-mobile-punch.entity';
 import { AttendanceBusinessTripsController } from './attendance-business-trips.controller';
 import { AttendanceBusinessTripsService } from './attendance-business-trips.service';
+import { AttendanceEventDirectionResolverService } from './attendance-event-direction-resolver.service';
+import { AttendanceEventIngestionService } from './attendance-event-ingestion.service';
 import { AttendanceProcessingController } from './attendance-processing.controller';
 import { AttendanceEmployeeResolverService } from './attendance-employee-resolver.service';
 import { AttendanceProcessingExceptionsService } from './attendance-processing-exceptions.service';
@@ -47,6 +49,8 @@ import { AttendanceReportCsvService } from './reports/attendance-report-csv.serv
 import { AttendanceReportPdfService } from './reports/attendance-report-pdf.service';
 import { AttendanceReportService } from './reports/attendance-report.service';
 import { AttendanceReportXlsxService } from './reports/attendance-report-xlsx.service';
+import { HikvisionModule } from '../../../hikvision/hikvision.module';
+import { PostgresAdvisoryLockService } from '../../../../common/database/postgres-advisory-lock.service';
 
 @Module({
   imports: [
@@ -82,7 +86,8 @@ import { AttendanceReportXlsxService } from './reports/attendance-report-xlsx.se
       AttendanceBusinessTrip,
     ]),
     HrSharedModule,
-    LeaveModule,
+    forwardRef(() => LeaveModule),
+    forwardRef(() => HikvisionModule),
   ],
   controllers: [
     AttendanceProcessingController,
@@ -90,6 +95,8 @@ import { AttendanceReportXlsxService } from './reports/attendance-report-xlsx.se
   ],
   providers: [
     AttendanceBusinessTripsService,
+    AttendanceEventDirectionResolverService,
+    AttendanceEventIngestionService,
     AttendanceEmployeeResolverService,
     AttendanceProcessingExceptionsService,
     AttendanceScheduleResolverService,
@@ -103,9 +110,12 @@ import { AttendanceReportXlsxService } from './reports/attendance-report-xlsx.se
     AttendanceReportPdfService,
     AttendanceReportService,
     AttendanceReportXlsxService,
+    PostgresAdvisoryLockService,
   ],
   exports: [
     AttendanceBusinessTripsService,
+    AttendanceEventDirectionResolverService,
+    AttendanceEventIngestionService,
     AttendanceProcessingExceptionsService,
     AttendanceScheduleResolverService,
     AttendanceProcessingService,

@@ -8,6 +8,10 @@ import {
   Matches,
   MinLength,
 } from 'class-validator';
+import {
+  TANZANIA_PHONE_CANONICAL_REGEX,
+  normalizeTanzaniaPhone,
+} from '../../../common/utils/tanzania-phone.util';
 
 export class CreateCompanyDto {
   @IsString()
@@ -64,13 +68,11 @@ export class CreateCompanyDto {
   @IsNotEmpty({ message: 'Administrator phone number is required' })
   @Transform(({ value }: TransformFnParams): unknown => {
     if (typeof value !== 'string') return value as unknown;
-    return value.replace(/\s+/g, '').trim();
+    return normalizeTanzaniaPhone(value) ?? value.replace(/\s+/g, '').trim();
   })
-  @Matches(/^(0\d{9}|255\d{9}|\+255\d{9})$/, {
+  @Matches(TANZANIA_PHONE_CANONICAL_REGEX, {
     message:
-      'Phone number must be valid Tanzanian format: ' +
-      '10 digits starting with 0, 12 digits starting with 255, ' +
-      'or 13 characters starting with +255',
+      'Phone number must be a valid Tanzanian number in +255 format, for example +255762650393',
   })
   admin_phone: string;
 

@@ -12,6 +12,8 @@ import { createClient, RedisClientType } from 'redis';
 import { Server, Socket } from 'socket.io';
 import { Repository } from 'typeorm';
 import { CompanyUser } from '../companies/entities/company-user.entity';
+import { TokenBlacklistService } from '../auth/token-blacklist.service';
+import { UsersService } from '../users/users.service';
 
 type NotificationSocketPayload = {
   sub: number;
@@ -20,6 +22,8 @@ type NotificationSocketPayload = {
   scope: 'platform' | 'company';
   companyId?: number;
   membershipId?: number;
+  tokenVersion?: number;
+  iat?: number;
 };
 
 type RealtimeEnvelope = {
@@ -31,7 +35,22 @@ type RealtimeEnvelope = {
 @WebSocketGateway({
   namespace: 'notifications',
   cors: {
-    origin: '*',
+    origin: (
+      origin: string | undefined,
+      callback: (err: Error | null, allow?: boolean) => void,
+    ) => {
+      const allowed = (process.env.NOTIFICATION_WEBSOCKET_ALLOWED_ORIGINS ?? '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
+
+      if (!allowed.length || !origin || allowed.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(null, false);
+    },
     credentials: true,
   },
 })
@@ -55,6 +74,8 @@ export class NotificationsGateway
     private readonly configService: ConfigService,
     @InjectRepository(CompanyUser)
     private readonly companyUserRepository: Repository<CompanyUser>,
+    private readonly blacklistService: TokenBlacklistService,
+    private readonly usersService: UsersService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -135,6 +156,51 @@ export class NotificationsGateway
       ) {
         client.emit('notification:error', {
           message: 'Invalid company notification token',
+        });
+        client.disconnect();
+        return;
+      }
+
+      const isBlacklisted = await this.blacklistService.isBlacklisted(token);
+      if (isBlacklisted) {
+        client.emit('notification:error', {
+          message: 'Token has been revoked',
+        });
+        client.disconnect();
+        return;
+      }
+
+      const user = await this.usersService
+        .findById(payload.sub)
+        .catch(() => null);
+
+      if (!user || user.status !== 'active') {
+        client.emit('notification:error', {
+          message: 'User account is inactive',
+        });
+        client.disconnect();
+        return;
+      }
+
+      if (
+        typeof payload.tokenVersion !== 'number' ||
+        payload.tokenVersion !== (user.auth_token_version ?? 0)
+      ) {
+        client.emit('notification:error', {
+          message: 'Session has been revoked',
+        });
+        client.disconnect();
+        return;
+      }
+
+      if (
+        payload.iat &&
+        user.auth_token_invalid_before &&
+        payload.iat <=
+          Math.floor(user.auth_token_invalid_before.getTime() / 1000)
+      ) {
+        client.emit('notification:error', {
+          message: 'Session has been revoked',
         });
         client.disconnect();
         return;

@@ -30,8 +30,8 @@ export class PositionAvailabilityService {
     position: Position,
     departmentId: number,
   ): Promise<boolean> {
-    if (position.department_id !== null) {
-      return position.department_id === departmentId;
+    if (position.department_id === departmentId) {
+      return true;
     }
 
     const mapping = await this.departmentPositionRepository.findOne({
@@ -46,6 +46,10 @@ export class PositionAvailabilityService {
       return true;
     }
 
+    if (position.department_id !== null) {
+      return false;
+    }
+
     return !(await this.positionHasMappings(companyId, position.id));
   }
 
@@ -54,8 +58,8 @@ export class PositionAvailabilityService {
     position: Position,
     branchId: number,
   ): Promise<boolean> {
-    if (position.branch_id !== null) {
-      return position.branch_id === branchId;
+    if (position.branch_id === branchId) {
+      return true;
     }
 
     const mapping = await this.departmentPositionRepository
@@ -70,6 +74,10 @@ export class PositionAvailabilityService {
 
     if (mapping) {
       return true;
+    }
+
+    if (position.branch_id !== null) {
+      return false;
     }
 
     return !(await this.positionHasMappings(companyId, position.id));

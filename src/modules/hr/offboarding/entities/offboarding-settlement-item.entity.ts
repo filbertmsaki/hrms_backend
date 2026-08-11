@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { OffboardingSettlementItemTypeEnum } from '../enums/offboarding-settlement-item-type.enum';
+import { OffboardingSettlementSourceEnum } from '../enums/offboarding-settlement-source.enum';
 import { OffboardingSettlementStatusEnum } from '../enums/offboarding-settlement-status.enum';
 import { OffboardingRequest } from './offboarding-request.entity';
 
@@ -61,6 +62,43 @@ export class OffboardingSettlementItem {
 
   @Column({ type: 'text', nullable: true })
   remarks: string | null;
+
+  @Column({
+    type: 'enum',
+    enum: OffboardingSettlementSourceEnum,
+    default: OffboardingSettlementSourceEnum.MANUAL,
+  })
+  source_type: OffboardingSettlementSourceEnum;
+
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  source_reference: string | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  calculation_snapshot: Record<string, unknown> | null;
+
+  @Column({ type: 'int', nullable: true })
+  verified_by_company_user_id: number | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  verified_at: Date | null;
+
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  payment_reference: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  paid_at: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  last_reminder_at: Date | null;
+
+  @Column({ type: 'int', default: 0 })
+  reminder_count: number;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  last_escalated_at: Date | null;
+
+  @Column({ type: 'int', default: 0 })
+  escalation_count: number;
 
   @Column({ type: 'json', nullable: true })
   metadata: Record<string, unknown> | null;

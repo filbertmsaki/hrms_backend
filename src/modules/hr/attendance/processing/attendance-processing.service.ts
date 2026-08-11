@@ -2,8 +2,11 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 import { HikvisionAttendanceLog } from '../../../hikvision/entities/hikvision-attendance-log.entity';
+import { createAttendanceHash } from '../shared/attendance-hash.util';
 import { AttendanceProcessingExceptionsService } from './attendance-processing-exceptions.service';
+import { AttendanceEventDirectionResolverService } from './attendance-event-direction-resolver.service';
 import { AttendanceProcessedEvent } from './entities/attendance-processed-event.entity';
+import { AttendanceEventSourceEnum } from './enums/attendance-event-source.enum';
 import { AttendanceProcessedEventDirectionEnum } from './enums/attendance-processed-event-direction.enum';
 import { AttendanceExceptionTypeEnum } from './enums/attendance-exception-type.enum';
 import { AttendanceRawLogProcessingStatusEnum } from './enums/attendance-raw-log-processing-status.enum';
@@ -29,6 +32,7 @@ export class AttendanceProcessingService {
     private readonly employeeResolver: AttendanceEmployeeResolverService,
     private readonly exceptionService: AttendanceProcessingExceptionsService,
     private readonly dailySummaryService: AttendanceDailySummaryService,
+    private readonly directionResolver: AttendanceEventDirectionResolverService,
   ) {}
 
   async processRange(companyId: number, dto: ProcessAttendanceRangeDto) {
@@ -67,6 +71,12 @@ export class AttendanceProcessingService {
         .andWhere('log.id > :cursor', { cursor })
         .orderBy('log.id', 'ASC')
         .take(batchSize);
+
+      if (dto.device_id) {
+        qb.andWhere('log.device_id = :deviceId', {
+          deviceId: dto.device_id,
+        });
+      }
 
       const rows = await qb.getMany();
       if (rows.length === 0) break;
@@ -108,6 +118,7 @@ export class AttendanceProcessingService {
         startDate,
         endDate,
         employeeId: dto.employee_id,
+        deviceId: dto.device_id,
         forceRebuild,
       });
       counters.summariesUpserted = summaryResult.summariesUpserted;
@@ -117,6 +128,7 @@ export class AttendanceProcessingService {
       companyId,
       startDate,
       endDate,
+      deviceId: dto.device_id ?? null,
       ...counters,
       summary: summaryResult,
       status: counters.processedFailed > 0 ? 'PARTIAL' : 'SUCCESS',
@@ -248,8 +260,9 @@ export class AttendanceProcessingService {
         counters.unmatched += 1;
       }
 
+      const sourceKey = `HIKVISION:${rawLog.id}`;
       const existing = await this.processedEventRepository.findOne({
-        where: { rawLogId: rawLog.id },
+        where: { sourceKey },
       });
       const existingTarget =
         existing?.employeeId && existing.attendanceDate
@@ -294,15 +307,23 @@ export class AttendanceProcessingService {
             employeeNo: rawLog.employeeNo,
             deviceId: rawLog.deviceId,
             rawLogId: rawLog.id,
+            mobilePunchId: null,
+            source: AttendanceEventSourceEnum.HIKVISION,
+            sourceId: rawLog.id,
+            sourceKey,
             eventTime: rawLog.eventTime,
             attendanceDate: this.asDate(rawLog.eventTime),
-            direction: this.inferDirection(rawLog),
+            direction: this.directionResolver.resolveHikvision(rawLog),
             eventType: rawLog.eventType,
             verifyMode: rawLog.verifyMode,
             isValid,
             processingStatus: nextProcessingStatus,
             processingReason: resolution.reason,
+            payloadHash:
+              rawLog.payloadHash ?? createAttendanceHash(rawLog.rawPayload),
             rawPayloadSnapshot: rawLog.rawPayload,
+            receivedAt: rawLog.receivedAt ?? rawLog.createdAt,
+            processingVersion: 2,
           }),
         );
         counters.inserted += 1;
@@ -410,19 +431,17 @@ export class AttendanceProcessingService {
     assign('deviceId', rawLog.deviceId);
     assign('eventTime', rawLog.eventTime);
     assign('attendanceDate', nextAttendanceDate);
-    assign('direction', this.inferDirection(rawLog));
+    assign('direction', this.directionResolver.resolveHikvision(rawLog));
     assign('eventType', rawLog.eventType);
     assign('verifyMode', rawLog.verifyMode);
     assign('isValid', resolution.isValid);
     assign('processingStatus', resolution.processingStatus);
     assign('processingReason', resolution.reason);
-
-    const currentPayload = JSON.stringify(existing.rawPayloadSnapshot ?? null);
-    const nextPayload = JSON.stringify(rawLog.rawPayload ?? null);
-    if (currentPayload !== nextPayload) {
-      existing.rawPayloadSnapshot = rawLog.rawPayload;
-      changed = true;
-    }
+    assign(
+      'payloadHash',
+      rawLog.payloadHash ?? createAttendanceHash(rawLog.rawPayload),
+    );
+    assign('receivedAt', rawLog.receivedAt ?? rawLog.createdAt);
 
     if (!changed) {
       return false;
@@ -477,25 +496,7 @@ export class AttendanceProcessingService {
   private inferDirection(
     rawLog: HikvisionAttendanceLog,
   ): AttendanceProcessedEventDirectionEnum {
-    const checkInMinors = new Set([1, 3, 75]);
-    const checkOutMinors = new Set([2, 4, 76]);
-
-    if (typeof rawLog.minor === 'number') {
-      if (checkInMinors.has(rawLog.minor))
-        return AttendanceProcessedEventDirectionEnum.IN;
-      if (checkOutMinors.has(rawLog.minor))
-        return AttendanceProcessedEventDirectionEnum.OUT;
-    }
-
-    const status = (rawLog.attendanceStatus ?? '')
-      .toLowerCase()
-      .replace(/[\s_-]/g, '');
-    if (status.includes('checkin') || status === 'in')
-      return AttendanceProcessedEventDirectionEnum.IN;
-    if (status.includes('checkout') || status === 'out')
-      return AttendanceProcessedEventDirectionEnum.OUT;
-
-    return AttendanceProcessedEventDirectionEnum.UNKNOWN;
+    return this.directionResolver.resolveHikvision(rawLog);
   }
 
   private isDuplicateError(error: unknown): boolean {

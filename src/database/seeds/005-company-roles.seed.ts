@@ -8,7 +8,7 @@ import {
   ALLIANCE_COMPANY_SLUG,
 } from './company-structure.constants';
 
-type CompanyRoleSeed = {
+export type CompanyRoleSeed = {
   name: string;
   displayName: string;
   description: string;
@@ -64,6 +64,10 @@ const ORG_STRUCTURE_READ_PERMISSIONS = [
   'branches:read',
   'departments:read',
   'positions:read',
+  'employee_grades:read',
+  'cost_centers:read',
+  'employee_assignments:read',
+  'employee_numbering:read',
 ];
 
 /** Team approval permissions shared by all manager-level roles */
@@ -94,6 +98,15 @@ const COMPANY_USER_ADMIN_PERMISSIONS = [
 const TEAM_ATTENDANCE_PERMISSIONS = ['team_attendance:read'];
 
 const SELF_SERVICE_APPROVAL_PERMISSIONS = ['self_service_requests:approve'];
+const PROFILE_CHANGE_APPROVAL_PERMISSIONS = [
+  'profile_change_request.view_all',
+  'profile_change_request.review',
+  'profile_change_request.approve',
+  'profile_change_request.reject',
+  'profile_change_request.request_correction',
+  'profile_change_request.view_audit',
+  'profile_change_request.view_pending_files',
+];
 
 const ATTENDANCE_BUSINESS_TRIP_FULL_PERMISSIONS = [
   'attendance_business_trips:read',
@@ -112,7 +125,7 @@ const ATTENDANCE_BUSINESS_TRIP_OPERATIONAL_PERMISSIONS = [
   'attendance_business_trips:cancel',
 ];
 
-const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
+export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
   // ───────────────────────────────────────────────
   // 1. COMPANY_ADMIN
   // Full control over their company tenant.
@@ -128,6 +141,8 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'view_company_dashboard',
       'view_company_data',
       'update_company_data',
+      'data_scope:company',
+      'security_events:read',
       // Users & roles
       'manage_company_users',
       'create_company_user',
@@ -151,6 +166,25 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'roles:revoke-permission',
       'permissions:read',
       'notifications:send',
+      'notifications:test',
+      'notifications:delivery-logs:read',
+      'notifications:mail-logs:read',
+      'notifications:mail-logs:retry',
+      'notifications:settings:read',
+      'notifications:settings:update',
+      'sms:settings:read',
+      'sms:settings:update',
+      'sms:logs:read',
+      'sms:logs:retry',
+      'sms:test',
+      'scheduled_reports:read',
+      'scheduled_reports:create',
+      'scheduled_reports:update',
+      'scheduled_reports:delete',
+      'scheduled_reports:run',
+      'scheduled_reports:manage_smtp',
+      'scheduled_reports:test_smtp',
+      'scheduled_reports:view_history',
       // Org structure
       'branches:read',
       'branches:create',
@@ -161,16 +195,28 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'departments:create',
       'departments:update',
       'departments:delete',
+      'departments:manage-access',
       'positions:read',
       'positions:create',
       'positions:update',
       'positions:delete',
+      'positions:assign-department',
       // Employees (full lifecycle)
       'employees:read',
       'employees:create',
       'employees:update',
       'employees:delete',
       'employees:change-status',
+      'employees:force-exit-status',
+      'employees:override-number',
+      'employee_assignments:update',
+      'employee_numbering:update',
+      'employee_grades:create',
+      'employee_grades:update',
+      'employee_grades:delete',
+      'cost_centers:create',
+      'cost_centers:update',
+      'cost_centers:delete',
       'default_avatars:read',
       'default_avatars:create',
       'default_avatars:update',
@@ -402,6 +448,7 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'offboarding_documents:create',
       'offboarding_documents:read',
       ...SELF_SERVICE_APPROVAL_PERMISSIONS,
+      ...PROFILE_CHANGE_APPROVAL_PERMISSIONS,
     ],
   },
 
@@ -419,6 +466,7 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'Manages HR operations: employees, leave, attendance, onboarding, offboarding, shifts, and reports.',
     permissionNames: [
       'view_company_dashboard',
+      'data_scope:company',
       // Self-service (HR Manager is also an employee)
       ...SELF_SERVICE_PERMISSIONS,
       // Org structure read
@@ -430,6 +478,16 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'employees:create',
       'employees:delete',
       'employees:change-status',
+      'employees:force-exit-status',
+      'employees:override-number',
+      'employee_assignments:update',
+      'employee_numbering:update',
+      'employee_grades:create',
+      'employee_grades:update',
+      'employee_grades:delete',
+      'cost_centers:create',
+      'cost_centers:update',
+      'cost_centers:delete',
       'employees.import.template.download',
       'employees.import.preview',
       'employees.import.execute',
@@ -494,6 +552,7 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       ...TEAM_ATTENDANCE_PERMISSIONS,
       ...ATTENDANCE_BUSINESS_TRIP_FULL_PERMISSIONS,
       ...SELF_SERVICE_APPROVAL_PERMISSIONS,
+      ...PROFILE_CHANGE_APPROVAL_PERMISSIONS,
       'hrms_launch_readiness:read',
       // Shifts (full management)
       'shifts:read',
@@ -617,6 +676,17 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'roles:assign-permission',
       'roles:revoke-permission',
       'notifications:send',
+      'notifications:test',
+      'notifications:delivery-logs:read',
+      'notifications:mail-logs:read',
+      'notifications:mail-logs:retry',
+      'notifications:settings:read',
+      'notifications:settings:update',
+      'sms:settings:read',
+      'sms:settings:update',
+      'sms:logs:read',
+      'sms:logs:retry',
+      'sms:test',
     ],
   },
 
@@ -632,12 +702,14 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
     description:
       'Handles daily HR activities: employee records, documents, leave review, attendance, and onboarding tasks.',
     permissionNames: [
+      'data_scope:company',
       // Self-service (HR Officer is also an employee)
       ...SELF_SERVICE_PERMISSIONS,
       ...ORG_STRUCTURE_READ_PERMISSIONS,
       'users:read',
       // Employees (no delete, no status change)
       'employees:update',
+      'employee_assignments:update',
       'employees.import.template.download',
       'employees.import.preview',
       'employees.import.execute',
@@ -658,6 +730,7 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'attendance_processing:read',
       ...ATTENDANCE_BUSINESS_TRIP_OPERATIONAL_PERMISSIONS,
       ...SELF_SERVICE_APPROVAL_PERMISSIONS,
+      ...PROFILE_CHANGE_APPROVAL_PERMISSIONS,
       'hrms_launch_readiness:read',
       // Shifts (read only)
       'shifts:read',
@@ -700,6 +773,7 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'Manages employees within their department. Approves leave, shift changes, and workflow steps. No HR lifecycle powers.',
     permissionNames: [
       'view_company_dashboard',
+      'data_scope:department',
       // Self-service (covers view_company_data, employees:read, leave, attendance, shift change)
       ...SELF_SERVICE_PERMISSIONS,
       ...ORG_STRUCTURE_READ_PERMISSIONS,
@@ -727,6 +801,7 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'Manages employees, attendance, and approvals for their branch. Branch-scoped equivalent of Department Manager.',
     permissionNames: [
       'view_company_dashboard',
+      'data_scope:branch',
       // Self-service (covers view_company_data, employees:read, leave, attendance, shift change)
       ...SELF_SERVICE_PERMISSIONS,
       // ORG_STRUCTURE_READ_PERMISSIONS already includes branches:read
@@ -755,7 +830,104 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
     displayName: 'Employee',
     description:
       'Self-service role. Can view profile, attendance, leave balance, and submit requests. Data is scoped to own records.',
-    permissionNames: [...SELF_SERVICE_PERMISSIONS],
+    permissionNames: ['data_scope:self', ...SELF_SERVICE_PERMISSIONS],
+  },
+
+  {
+    name: 'IT_ADMIN',
+    displayName: 'IT Administrator',
+    description:
+      'Manages user accounts, authentication, access-control devices and technical security configuration.',
+    permissionNames: [
+      'data_scope:company',
+      'company_users:read',
+      'company_users:create',
+      'company_users:update',
+      'users:read',
+      'users:create',
+      'users:update',
+      'users:assign-role',
+      'users:revoke-role',
+      'users:manage-2fa',
+      'users:enable-2fa',
+      'users:disable-2fa',
+      'roles:read',
+      'permissions:read',
+      'branches:read',
+      'departments:read',
+      'positions:read',
+      'attendance_devices:read',
+      'attendance_devices:create',
+      'attendance_devices:update',
+      'employee_access_credentials:read',
+      'employee_access_credentials:update',
+      'employee_device_assignments:read',
+      'employee_device_assignments:create',
+      'employee_device_assignments:update',
+      'employee_device_assignments:delete',
+      'access_control_sync:execute',
+      'security_events:read',
+    ],
+  },
+
+  {
+    name: 'ATTENDANCE_ADMIN',
+    displayName: 'Attendance Administrator',
+    description:
+      'Manages attendance policies, shifts, devices, corrections and attendance processing.',
+    permissionNames: [
+      'data_scope:company',
+      'employees:read',
+      'branches:read',
+      'departments:read',
+      'attendance_policies:read',
+      'attendance_policies:create',
+      'attendance_policies:update',
+      'attendance_devices:read',
+      'attendance_device_sync_logs:read',
+      'attendance_processing:read',
+      'attendance_processing:execute',
+      'attendance_recalculation:execute',
+      'attendance_summaries:read',
+      'attendance_mobile_punches:update',
+      'team_attendance:read',
+      'shifts:read',
+      'shift_assignments:read',
+      'shift_assignments:create',
+      'shift_assignments:update',
+      'timetables:read',
+      'employee_timetables:read',
+      'employee_timetables:create',
+      'employee_timetables:update',
+    ],
+  },
+
+  {
+    name: 'LEAVE_ADMIN',
+    displayName: 'Leave Administrator',
+    description:
+      'Manages leave types, policies, balances, workflows and HR leave approvals.',
+    permissionNames: [
+      'data_scope:company',
+      'employees:read',
+      'branches:read',
+      'departments:read',
+      'leave_types:read',
+      'leave_types:create',
+      'leave_types:update',
+      'leave_policies:read',
+      'leave_policies:create',
+      'leave_policies:update',
+      'leave_workflows:read',
+      'leave_workflows:create',
+      'leave_workflows:update',
+      'leave_balances:read',
+      'leave_balances:adjust',
+      'leave_requests:read',
+      'leave_requests:update',
+      'leave_requests:approve',
+      'leave_requests:cancel',
+    ],
   },
 
   // ───────────────────────────────────────────────
@@ -772,6 +944,8 @@ const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
     permissionNames: [
       'view_company_dashboard',
       'view_company_data',
+      'data_scope:company',
+      'security_events:read',
       ...ORG_STRUCTURE_READ_PERMISSIONS,
       'users:read',
       'employees:read',

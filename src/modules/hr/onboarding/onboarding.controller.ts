@@ -9,21 +9,27 @@ import {
   Post,
   Query,
   Req,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
+import { CurrentAuditContext } from '../../../common/decorators/audit-request-context.decorator';
 import { Permissions } from '../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import type { AuditRequestContext } from '../../../common/interfaces/audit-request-context.interface';
+import { AcknowledgeOnboardingDto } from './dtos/acknowledge-onboarding.dto';
 import { CancelOnboardingRequestDto } from './dtos/cancel-onboarding-request.dto';
+import { CloneOnboardingWorkflowDto } from './dtos/clone-onboarding-workflow.dto';
 import { CompleteOnboardingTaskDto } from './dtos/complete-onboarding-task.dto';
 import { CreateOnboardingRequestDto } from './dtos/create-onboarding-request.dto';
 import { CreateOnboardingTaskDto } from './dtos/create-onboarding-task.dto';
 import { CreateOnboardingWorkflowStepDto } from './dtos/create-onboarding-workflow-step.dto';
 import { CreateOnboardingWorkflowDto } from './dtos/create-onboarding-workflow.dto';
+import { DelegateOnboardingApprovalDto } from './dtos/delegate-onboarding-approval.dto';
 import { OnboardingApprovalActionDto } from './dtos/onboarding-approval-action.dto';
 import { OnboardingRequestQueryDto } from './dtos/onboarding-request-query.dto';
 import { OnboardingWorkflowQueryDto } from './dtos/onboarding-workflow-query.dto';
@@ -36,6 +42,7 @@ import { UpdateDocumentDto } from './dtos/update-document.dto';
 import { UploadDocumentDto } from './dtos/upload-document.dto';
 import { VerifyDocumentDto } from './dtos/verify-document.dto';
 import { OnboardingService } from './onboarding.service';
+import { createDownloadStream } from '../../files/file-download.util';
 
 @ApiTags('Onboarding')
 @ApiBearerAuth('access-token')
@@ -301,6 +308,62 @@ export class OnboardingController {
     );
   }
 
+  @Post('requests/:id/acknowledge')
+  @UseGuards(PermissionsGuard)
+  @Permissions('onboarding_requests:update')
+  @ApiOperation({ summary: 'Record employee onboarding acknowledgement' })
+  acknowledgeOnboarding(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AcknowledgeOnboardingDto,
+  ) {
+    return this.onboardingService.acknowledgeOnboarding(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+      context,
+    );
+  }
+
+  @Post('workflows/:id/clone')
+  @UseGuards(PermissionsGuard)
+  @Permissions('onboarding_workflows:create')
+  @ApiOperation({
+    summary: 'Clone onboarding workflow into a new editable version',
+  })
+  cloneWorkflow(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CloneOnboardingWorkflowDto,
+  ) {
+    return this.onboardingService.cloneOnboardingWorkflow(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
+  }
+
+  @Get('requests/:id/documents/:documentId/download')
+  @UseGuards(PermissionsGuard)
+  @Permissions('onboarding_documents:read')
+  async downloadDocument(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('documentId', ParseIntPipe) documentId: number,
+  ): Promise<StreamableFile> {
+    const file = await this.onboardingService.downloadDocument(
+      req.user.companyId!,
+      id,
+      documentId,
+      req.user,
+    );
+
+    return createDownloadStream(file);
+  }
+
   @Patch('requests/:id/documents/:documentId')
   @UseGuards(PermissionsGuard)
   @Permissions('onboarding_documents:update')
@@ -477,6 +540,25 @@ export class OnboardingController {
         comments: dto.comments,
         signature_url: dto.signature_url,
       },
+      req.user,
+    );
+  }
+
+  @Post('requests/:id/approvals/:approvalId/delegate')
+  @UseGuards(PermissionsGuard)
+  @Permissions('onboarding_requests:approve')
+  @ApiOperation({ summary: 'Delegate a pending onboarding approval' })
+  delegateApproval(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('approvalId', ParseIntPipe) approvalId: number,
+    @Body() dto: DelegateOnboardingApprovalDto,
+  ) {
+    return this.onboardingService.delegateApproval(
+      req.user.companyId!,
+      id,
+      approvalId,
+      dto,
       req.user,
     );
   }

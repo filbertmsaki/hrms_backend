@@ -1,12 +1,14 @@
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsDateString,
   IsInt,
   IsIP,
   IsNumber,
   IsObject,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -48,6 +50,23 @@ class AttendanceMobilePunchDeviceInfoDto {
 }
 
 export class CreateAttendanceMobilePunchDto {
+  @ApiProperty({
+    example: '01c21917-8762-4a66-b75b-049c09fb5660',
+    description:
+      'A unique request ID generated once by the mobile application. Retrying the same request must reuse this value.',
+  })
+  @IsUUID()
+  clientRequestId: string;
+
+  @ApiPropertyOptional({
+    example: '2026-08-03T08:15:00.000Z',
+    description:
+      'Time reported by the mobile device. The server time remains authoritative.',
+  })
+  @IsOptional()
+  @IsDateString()
+  clientCapturedAt?: string;
+
   @ApiPropertyOptional({ example: 39 })
   @IsOptional()
   @Type(() => Number)

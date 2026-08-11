@@ -43,6 +43,30 @@ export class OffboardingApproval {
   @Column({ type: 'timestamp', nullable: true })
   acted_at: Date | null;
 
+  @Column({ type: 'int', nullable: true })
+  original_approver_company_user_id: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  delegated_from_company_user_id: number | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  delegated_at: Date | null;
+
+  @Column({ type: 'text', nullable: true })
+  delegation_reason: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  last_reminder_at: Date | null;
+
+  @Column({ type: 'int', default: 0 })
+  reminder_count: number;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  last_escalated_at: Date | null;
+
+  @Column({ type: 'int', default: 0 })
+  escalation_count: number;
+
   @CreateDateColumn()
   created_at: Date;
 

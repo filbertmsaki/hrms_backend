@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { APP_GUARD } from '@nestjs/core';
-import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { validateEnv } from './config/env.validation';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
@@ -9,6 +8,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AppService } from './app.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { SecurityModule } from './modules/security/security.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { RolesModule } from './modules/roles/roles.module';
@@ -20,27 +20,29 @@ import { HikvisionModule } from './modules/hikvision/hikvision.module';
 import { AccessControlModule } from './modules/access-control/access-control.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { ScheduledReportingModule } from './modules/scheduled-reporting/scheduled-reporting.module';
+import { SystemHealthModule } from './modules/system-health/system-health.module';
 import { TenantGuard } from './common/guards/tenant.guard';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { createAppTypeOrmModuleOptions } from './database/typeorm-options';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { ConditionalBullModule } from './infrastructure/queues/conditional-bull.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      cache: true,
+      expandVariables: true,
+      envFilePath: [
+        `.env.${process.env.APP_ENV ?? process.env.NODE_ENV ?? 'development'}.local`,
+        '.env.local',
+        '.env',
+      ],
       validate: validateEnv,
     }),
     ScheduleModule.forRoot(),
     EventEmitterModule.forRoot(),
-    BullModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        connection: {
-          url:
-            configService.get<string>('REDIS_URL') ?? 'redis://127.0.0.1:6379',
-        },
-      }),
-    }),
+    ConditionalBullModule.forRoot(),
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -55,19 +57,10 @@ import { TenantGuard } from './common/guards/tenant.guard';
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        type: 'postgres',
-        host: configService.get<string>('DB_HOST', 'localhost'),
-        port: configService.get<number>('DB_PORT', 5432),
-        username: configService.get<string>('DB_USERNAME', 'postgres'),
-        password: configService.get<string>('DB_PASSWORD', ''),
-        database: configService.get<string>('DB_NAME', 'hrms_db'),
-
-        entities: [__dirname + '/**/*.entity{.ts,.js}'],
-        synchronize: false,
-        logging: configService.get<string>('NODE_ENV') === 'development',
-      }),
+      useFactory: (configService: ConfigService) =>
+        createAppTypeOrmModuleOptions(configService),
     }),
+    SecurityModule,
     AuthModule,
     UsersModule,
     CompaniesModule,
@@ -79,11 +72,17 @@ import { TenantGuard } from './common/guards/tenant.guard';
     AccessControlModule,
     NotificationsModule,
     ScheduledReportingModule,
+    SystemHealthModule,
+    AnalyticsModule,
   ],
   controllers: [AppController],
   providers: [
     AppService,
     TenantGuard,
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,

@@ -23,6 +23,7 @@ import { AccessGroupEmployeeSourceEnum } from '../access-group-employees/enum/ac
 import { AccessGroupStatusEnum } from '../access-groups/enum/access-group-status.enum';
 import { AccessGroup } from '../access-groups/entity/access-group.entity';
 import { AccessGroupSourceEnum } from '../access-groups/enum/access-group-source.enum';
+import { AccessOrganizationEmployee } from '../access-organization-employees/entity/access-organization-employee.entity';
 import { AccessOrganization } from '../access-organizations/entity/access-organization.entity';
 import { AccessOrganizationSourceEnum } from '../access-organizations/enum/access-organization-source.enum';
 import { AccessScheduleTemplate } from '../access-schedule-templates/entity/access-schedule-template.entity';
@@ -67,6 +68,8 @@ export class AccessControlSyncService {
     private readonly accessWeekPlanSegmentRepository: Repository<AccessWeekPlanSegment>,
     @InjectRepository(AccessOrganization)
     private readonly accessOrganizationRepository: Repository<AccessOrganization>,
+    @InjectRepository(AccessOrganizationEmployee)
+    private readonly accessOrganizationEmployeeRepository: Repository<AccessOrganizationEmployee>,
     @InjectRepository(EmployeeAccessCredential)
     private readonly employeeAccessCredentialRepository: Repository<EmployeeAccessCredential>,
     @InjectRepository(EmployeeDeviceAssignment)
@@ -957,6 +960,8 @@ export class AccessControlSyncService {
           continue;
         }
 
+        await this.upsertOrganizationEmployeeMembership(assignment);
+
         const door = await this.accessDoorRepository.findOne({
           where: { companyId, deviceId, doorNo: plan.doorNo },
         });
@@ -1039,6 +1044,82 @@ export class AccessControlSyncService {
       device_id: deviceId,
       groups: results,
     };
+  }
+
+  private async upsertOrganizationEmployeeMembership(
+    assignment: EmployeeDeviceAssignment,
+  ): Promise<void> {
+    if (!assignment.employeeId || !assignment.organizationId) {
+      return;
+    }
+
+    const employee = await this.employeeRepository.findOne({
+      where: { id: assignment.employeeId },
+      select: ['id', 'employee_no', 'first_name', 'middle_name', 'last_name'],
+    });
+    if (!employee) {
+      return;
+    }
+
+    const employeeName = [
+      employee.first_name,
+      employee.middle_name,
+      employee.last_name,
+    ]
+      .filter((value) => value?.trim())
+      .join(' ')
+      .trim();
+    const existingMembership =
+      await this.accessOrganizationEmployeeRepository.findOne({
+        where: { employeeId: employee.id },
+      });
+
+    if (!existingMembership) {
+      await this.accessOrganizationEmployeeRepository.save(
+        this.accessOrganizationEmployeeRepository.create({
+          organizationId: assignment.organizationId,
+          employeeId: employee.id,
+          employeeNo: employee.employee_no,
+          employeeName: employeeName || null,
+          metadata: {
+            source: 'DEVICE_SYNC',
+            device_id: assignment.deviceId,
+          },
+        }),
+      );
+      return;
+    }
+
+    let shouldSave = false;
+    if (existingMembership.organizationId !== assignment.organizationId) {
+      existingMembership.organizationId = assignment.organizationId;
+      shouldSave = true;
+    }
+    if (existingMembership.employeeNo !== employee.employee_no) {
+      existingMembership.employeeNo = employee.employee_no;
+      shouldSave = true;
+    }
+    if ((existingMembership.employeeName ?? null) !== (employeeName || null)) {
+      existingMembership.employeeName = employeeName || null;
+      shouldSave = true;
+    }
+
+    const currentMetadata = existingMembership.metadata ?? {};
+    if (
+      currentMetadata.source !== 'DEVICE_SYNC' ||
+      currentMetadata.device_id !== assignment.deviceId
+    ) {
+      existingMembership.metadata = {
+        ...currentMetadata,
+        source: 'DEVICE_SYNC',
+        device_id: assignment.deviceId,
+      };
+      shouldSave = true;
+    }
+
+    if (shouldSave) {
+      await this.accessOrganizationEmployeeRepository.save(existingMembership);
+    }
   }
 
   private async syncEmployeeToDevice(params: {

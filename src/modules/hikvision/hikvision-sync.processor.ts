@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import type { Job } from 'bullmq';
 import { HikvisionAttendanceSyncService } from './hikvision-attendance-sync.service';
+import { HikvisionImportSyncService } from './hikvision-import-sync.service';
 import { HikvisionPeopleCredentialSyncService } from './hikvision-people-credential-sync.service';
 import {
   HIKVISION_SYNC_QUEUE,
@@ -16,6 +17,7 @@ export class HikvisionSyncProcessor extends WorkerHost {
   constructor(
     private readonly attendanceSyncService: HikvisionAttendanceSyncService,
     private readonly peopleCredentialSyncService: HikvisionPeopleCredentialSyncService,
+    private readonly hikvisionImportSyncService: HikvisionImportSyncService,
   ) {
     super();
   }
@@ -46,6 +48,15 @@ export class HikvisionSyncProcessor extends WorkerHost {
           await this.peopleCredentialSyncService.syncAllFingerprintsForSyncedUsers(
             job.data.companyId,
             job.data.deviceId,
+          );
+        await job.updateProgress(100);
+        return result;
+      }
+
+      case HikvisionSyncJobName.SYNC_IMPORTED_EMPLOYEES: {
+        const result =
+          await this.hikvisionImportSyncService.runQueuedImportedEmployeesSync(
+            job.data,
           );
         await job.updateProgress(100);
         return result;

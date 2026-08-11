@@ -10,6 +10,22 @@ import {
   ALLIANCE_DEPARTMENT_POSITIONS,
 } from './company-structure.constants';
 
+const REQUIRED_STANDARD_POSITION_CODES = [
+  'SENIOR_MANAGER',
+  'MANAGER',
+  'ASSISTANT_MANAGER',
+  'SENIOR_EXECUTIVE',
+  'EXECUTIVE',
+] as const;
+
+const OPTIONAL_STANDARD_POSITION_CODES = ['DEPUTY_MANAGER'] as const;
+
+type DepartmentPositionSeedCandidate = {
+  departmentCode: string;
+  positionCode: string;
+  source: 'existing_matrix' | 'required_standard' | 'optional_standard';
+};
+
 export default class DepartmentPositionMappingsSeeder implements Seeder {
   public async run(
     dataSource: DataSource,
@@ -40,44 +56,80 @@ export default class DepartmentPositionMappingsSeeder implements Seeder {
       }
 
       const departments = await departmentRepo.find({
-        where: { company_id: company.id },
+        where: { company_id: company.id, status: 'active' },
       });
       const positions = await positionRepo.find({
+        where: { company_id: company.id, status: 'active', is_active: true },
+      });
+      const existingMappings = await departmentPositionRepo.find({
         where: { company_id: company.id },
       });
 
       const departmentMap = new Map(
-        departments.map((department) => [department.code!, department]),
+        departments
+          .filter((department) => Boolean(department.code))
+          .map((department) => [department.code!, department]),
       );
       const positionMap = new Map(
-        positions.map((position) => [position.code!, position]),
+        positions
+          .filter((position) => Boolean(position.code))
+          .map((position) => [position.code!, position]),
       );
+      const existingKeys = new Set(
+        existingMappings.map(
+          (mapping) =>
+            `${mapping.company_id}:${mapping.department_id}:${mapping.position_id}`,
+        ),
+      );
+      const missingRequiredPositions = REQUIRED_STANDARD_POSITION_CODES.filter(
+        (code) => !positionMap.has(code),
+      );
+      const missingOptionalPositions = OPTIONAL_STANDARD_POSITION_CODES.filter(
+        (code) => !positionMap.has(code),
+      );
+      const candidates = this.buildCandidates(Array.from(departmentMap.keys()));
+      const seenCandidates = new Set<string>();
+      let createdCount = 0;
 
-      for (const seed of ALLIANCE_DEPARTMENT_POSITIONS) {
-        const department = departmentMap.get(seed.departmentCode);
-        const position = positionMap.get(seed.positionCode);
+      if (missingRequiredPositions.length > 0) {
+        console.warn(
+          `[Seeder][DepartmentPositions] Missing required existing positions for company "${company.name}": ${missingRequiredPositions.join(', ')}`,
+        );
+      }
+
+      if (missingOptionalPositions.length > 0) {
+        console.warn(
+          `[Seeder][DepartmentPositions] Missing optional existing positions for company "${company.name}": ${missingOptionalPositions.join(', ')}`,
+        );
+      }
+
+      for (const candidate of candidates) {
+        const candidateKey = `${candidate.departmentCode}:${candidate.positionCode}`;
+        if (seenCandidates.has(candidateKey)) {
+          continue;
+        }
+        seenCandidates.add(candidateKey);
+
+        const department = departmentMap.get(candidate.departmentCode);
+        const position = positionMap.get(candidate.positionCode);
 
         if (!department) {
-          throw new Error(
-            `Department "${seed.departmentCode}" not found for department-position mapping.`,
+          console.warn(
+            `[Seeder][DepartmentPositions] Skipped mapping because department "${candidate.departmentCode}" was not found among active departments.`,
           );
+          continue;
         }
 
         if (!position) {
-          throw new Error(
-            `Position "${seed.positionCode}" not found for department-position mapping.`,
+          console.warn(
+            `[Seeder][DepartmentPositions] Skipped mapping because position "${candidate.positionCode}" was not found among active positions.`,
           );
+          continue;
         }
 
-        const existing = await departmentPositionRepo.findOne({
-          where: {
-            company_id: company.id,
-            department_id: department.id,
-            position_id: position.id,
-          },
-        });
+        const existingKey = `${company.id}:${department.id}:${position.id}`;
 
-        if (!existing) {
+        if (!existingKeys.has(existingKey)) {
           await departmentPositionRepo.save(
             departmentPositionRepo.create({
               company_id: company.id,
@@ -85,12 +137,14 @@ export default class DepartmentPositionMappingsSeeder implements Seeder {
               position_id: position.id,
             }),
           );
+          existingKeys.add(existingKey);
+          createdCount += 1;
         }
       }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][DepartmentPositions] Upserted ${ALLIANCE_DEPARTMENT_POSITIONS.length} mappings for company "${company.name}"`,
+        `[Seeder][DepartmentPositions] Ensured ${seenCandidates.size} candidate mappings for company "${company.name}". Created ${createdCount} new mappings.`,
       );
     } catch (error) {
       await qr.rollbackTransaction();
@@ -99,5 +153,30 @@ export default class DepartmentPositionMappingsSeeder implements Seeder {
     } finally {
       await qr.release();
     }
+  }
+
+  private buildCandidates(
+    departmentCodes: string[],
+  ): DepartmentPositionSeedCandidate[] {
+    return [
+      ...ALLIANCE_DEPARTMENT_POSITIONS.map((seed) => ({
+        ...seed,
+        source: 'existing_matrix' as const,
+      })),
+      ...departmentCodes.flatMap((departmentCode) =>
+        REQUIRED_STANDARD_POSITION_CODES.map((positionCode) => ({
+          departmentCode,
+          positionCode,
+          source: 'required_standard' as const,
+        })),
+      ),
+      ...departmentCodes.flatMap((departmentCode) =>
+        OPTIONAL_STANDARD_POSITION_CODES.map((positionCode) => ({
+          departmentCode,
+          positionCode,
+          source: 'optional_standard' as const,
+        })),
+      ),
+    ];
   }
 }

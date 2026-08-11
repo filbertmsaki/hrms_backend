@@ -10,6 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { hasPermission } from '../../../common/utils/permission.util';
+import { normalizeTanzaniaPhone } from '../../../common/utils/tanzania-phone.util';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { FilesService } from '../../files/files.service';
 import { ImageProcessingService } from '../../files/image-processing.service';
@@ -453,7 +454,7 @@ export class ProfileChangeRequestsService {
       (!request.items || request.items.length === 0)
     ) {
       throw new BadRequestException(
-        'A profile photo request requires a pending photo or an approved avatar selection change.',
+        'A profile photo request requires a pending uploaded photo.',
       );
     }
 
@@ -636,91 +637,109 @@ export class ProfileChangeRequestsService {
       allowedMimeTypes: this.profilePhotoAllowedMimeTypes,
     });
 
-    const request = this.requestRepository.create({
-      reference_number: this.buildReferenceNumber(),
-      company_id: snapshot.membership.company_id,
-      employee_id: snapshot.employee.id,
-      requested_by_user_id: actor.id,
-      request_type: ProfileChangeRequestTypeEnum.PROFILE_PHOTO,
-      status: ProfileChangeRequestStatusEnum.DRAFT,
-      reason: 'Profile photo update',
-      items: [
-        this.itemRepository.create({
-          field_name: 'profile_photo_file',
-          field_label: 'Profile Photo',
-          source_entity: ProfileChangeFieldSourceEntityEnum.EMPLOYEE,
-          old_value: snapshot.employee.profile_photo_url,
-          new_value: storedFile.publicPath,
-          value_type: 'string',
-          status: ProfileChangeRequestItemStatusEnum.PENDING,
-          validation_status: ProfileChangeRequestItemValidationStatusEnum.VALID,
-          validation_errors: null,
-          sensitive: false,
-        }),
-      ],
-      files: [
-        this.fileRepository.create({
-          file_purpose:
-            ProfileChangeRequestFilePurposeEnum.PROPOSED_PROFILE_PHOTO,
-          status: ProfileChangeRequestFileStatusEnum.PENDING,
-          storage_visibility: 'private',
-          file_path: storedFile.publicPath,
-          original_file_name: storedFile.originalFileName,
-          stored_file_name: storedFile.storedFileName,
-          file_extension: storedFile.fileExtension,
-          mime_type: storedFile.mimeType,
-          file_size: storedFile.fileSize,
-          width: processedPhoto.width,
-          height: processedPhoto.height,
-          uploaded_by_user_id: actor.id,
-        }),
-      ],
-    });
+    let saved: ProfileChangeRequest;
+    try {
+      saved = await this.dataSource.transaction(async (manager) => {
+        const request = manager.getRepository(ProfileChangeRequest).create({
+          reference_number: this.buildReferenceNumber(),
+          company_id: snapshot.membership.company_id,
+          employee_id: snapshot.employee.id,
+          requested_by_user_id: actor.id,
+          request_type: ProfileChangeRequestTypeEnum.PROFILE_PHOTO,
+          status: ProfileChangeRequestStatusEnum.DRAFT,
+          reason: 'Profile photo update',
+          items: [
+            manager.getRepository(ProfileChangeRequestItem).create({
+              field_name: 'profile_photo_file',
+              field_label: 'Profile Photo',
+              source_entity: ProfileChangeFieldSourceEntityEnum.EMPLOYEE,
+              old_value: snapshot.employee.profile_photo_url,
+              new_value: storedFile.publicPath,
+              value_type: 'string',
+              status: ProfileChangeRequestItemStatusEnum.PENDING,
+              validation_status:
+                ProfileChangeRequestItemValidationStatusEnum.VALID,
+              validation_errors: null,
+              sensitive: false,
+            }),
+          ],
+          files: [
+            manager.getRepository(ProfileChangeRequestFile).create({
+              file_purpose:
+                ProfileChangeRequestFilePurposeEnum.PROPOSED_PROFILE_PHOTO,
+              status: ProfileChangeRequestFileStatusEnum.PENDING,
+              storage_visibility: 'private',
+              file_path: storedFile.publicPath,
+              original_file_name: storedFile.originalFileName,
+              stored_file_name: storedFile.storedFileName,
+              file_extension: storedFile.fileExtension,
+              mime_type: storedFile.mimeType,
+              file_size: storedFile.fileSize,
+              width: processedPhoto.width,
+              height: processedPhoto.height,
+              uploaded_by_user_id: actor.id,
+            }),
+          ],
+        });
 
-    const saved = await this.requestRepository.save(request);
-    await this.createAudit(
-      saved,
-      ProfileChangeRequestAuditActionEnum.REQUEST_CREATED,
-      actor,
-      context,
-      {
-        request_type: ProfileChangeRequestTypeEnum.PROFILE_PHOTO,
-        upload_file_name: storedFile.originalFileName,
-      },
-    );
-    await this.createAudit(
-      saved,
-      ProfileChangeRequestAuditActionEnum.FILE_UPLOADED,
-      actor,
-      context,
-      {
-        file_name: storedFile.originalFileName,
-        mime_type: storedFile.mimeType,
-        file_size: storedFile.fileSize,
-      },
-    );
+        const created = await manager
+          .getRepository(ProfileChangeRequest)
+          .save(request);
+
+        await this.supersedeActiveProfilePhotoRequestsWithManager(
+          manager,
+          snapshot,
+          created,
+          actor,
+          context,
+        );
+
+        await this.createAuditWithManager(
+          manager,
+          created,
+          ProfileChangeRequestAuditActionEnum.REQUEST_CREATED,
+          actor,
+          context,
+          {
+            request_type: ProfileChangeRequestTypeEnum.PROFILE_PHOTO,
+            upload_file_name: storedFile.originalFileName,
+          },
+        );
+        await this.createAuditWithManager(
+          manager,
+          created,
+          ProfileChangeRequestAuditActionEnum.FILE_UPLOADED,
+          actor,
+          context,
+          {
+            file_name: storedFile.originalFileName,
+            mime_type: storedFile.mimeType,
+            file_size: storedFile.fileSize,
+          },
+        );
+
+        return created;
+      });
+    } catch (error) {
+      await this.filesService.removeManagedFile(storedFile.publicPath);
+      throw error;
+    }
 
     return this.submit(actor, saved.id, context);
   }
 
-  async submitAvatarSelectionRequest(
+  submitAvatarSelectionRequest(
     actor: AuthenticatedUser,
     defaultAvatarId: number | null,
     context?: RequestActorContext,
   ) {
-    const dto: CreateProfileChangeRequestDto = {
-      request_type: ProfileChangeRequestTypeEnum.PROFILE_PHOTO,
-      changes: {
-        default_avatar_id: defaultAvatarId,
-      },
-      reason:
-        defaultAvatarId === null
-          ? 'Clear selected default avatar'
-          : 'Change selected default avatar',
-    };
+    void actor;
+    void defaultAvatarId;
+    void context;
 
-    const created = await this.createDraft(actor, dto, context);
-    return this.submit(actor, created.id, context);
+    throw new BadRequestException(
+      'Default avatar changes are applied immediately and do not create approval requests.',
+    );
   }
 
   async listForReview(
@@ -1157,7 +1176,7 @@ export class ProfileChangeRequestsService {
       actor,
       {
         title: 'Profile Change Request Rejected',
-        message: `Your profile change request ${request.reference_number} was rejected.`,
+        message: `Your profile change request ${request.reference_number} was rejected. Reason: ${request.rejection_reason}.`,
         type: NotificationTypeEnum.GENERAL,
       },
       context,
@@ -1220,7 +1239,7 @@ export class ProfileChangeRequestsService {
       actor,
       {
         title: 'Profile Change Correction Required',
-        message: `Your profile change request ${request.reference_number} needs correction before approval.`,
+        message: `Your profile change request ${request.reference_number} needs correction before approval. Instructions: ${request.correction_instructions}.`,
         type: NotificationTypeEnum.GENERAL,
       },
       context,
@@ -1322,6 +1341,14 @@ export class ProfileChangeRequestsService {
         continue;
       }
 
+      if (!policy.requires_approval) {
+        errors.push({
+          field: fieldName,
+          code: 'FIELD_DOES_NOT_REQUIRE_APPROVAL',
+          message: `${policy.display_label} is updated directly and does not belong in a profile change approval request.`,
+        });
+        continue;
+      }
       if (
         !this.policyService.isFieldAllowedForRequestType(fieldName, requestType)
       ) {
@@ -1386,7 +1413,7 @@ export class ProfileChangeRequestsService {
           field: 'profile_photo',
           code: 'PROFILE_PHOTO_REQUIRED',
           message:
-            'A profile photo request must include a pending uploaded photo or an avatar selection change.',
+            'A profile photo request must include a pending uploaded photo.',
         });
       }
     }
@@ -1451,17 +1478,17 @@ export class ProfileChangeRequestsService {
       }
 
       if (rule === 'phone' && value) {
-        const phoneValue = this.readScalarString(value);
-        if (!/^\+?[0-9][0-9\s-]{7,19}$/.test(phoneValue)) {
+        const phoneValue = this.serializeValue(value)?.trim() ?? '';
+        if (!normalizeTanzaniaPhone(phoneValue)) {
           issues.push({
             code: 'INVALID_PHONE_NUMBER',
-            message: `${policy.display_label} has an invalid phone number format.`,
+            message: `${policy.display_label} must be a valid Tanzanian phone number in +255 format.`,
           });
         }
       }
 
       if (rule === 'email' && value) {
-        const emailValue = this.readScalarString(value);
+        const emailValue = this.serializeValue(value)?.trim() ?? '';
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailValue)) {
           issues.push({
             code: 'INVALID_EMAIL',
@@ -1471,7 +1498,7 @@ export class ProfileChangeRequestsService {
       }
 
       if (rule === 'date' && value) {
-        const dateValue = this.readScalarString(value);
+        const dateValue = this.serializeValue(value)?.trim() ?? '';
         if (
           !/^\d{4}-\d{2}-\d{2}$/.test(dateValue) ||
           Number.isNaN(Date.parse(dateValue))
@@ -1484,7 +1511,8 @@ export class ProfileChangeRequestsService {
       }
 
       if (rule === 'past_or_today' && value) {
-        const dateValue = new Date(this.readScalarString(value));
+        const dateInput = this.serializeValue(value);
+        const dateValue = new Date(dateInput ?? '');
         if (dateValue.getTime() > Date.now()) {
           issues.push({
             code: 'DATE_IN_FUTURE',
@@ -1495,7 +1523,7 @@ export class ProfileChangeRequestsService {
 
       if (rule.startsWith('max:') && value !== null && value !== undefined) {
         const maxLength = Number(rule.split(':')[1]);
-        if (this.readScalarString(value).length > maxLength) {
+        if ((this.serializeValue(value)?.length ?? 0) > maxLength) {
           issues.push({
             code: 'MAX_LENGTH_EXCEEDED',
             message: `${policy.display_label} exceeds the maximum allowed length of ${maxLength}.`,
@@ -1522,7 +1550,9 @@ export class ProfileChangeRequestsService {
           .split(':')[1]
           .split(',')
           .map((entry) => entry.trim().toLowerCase());
-        if (!allowed.includes(this.readScalarString(value).toLowerCase())) {
+        const normalizedValue =
+          this.serializeValue(value)?.trim().toLowerCase() ?? '';
+        if (!allowed.includes(normalizedValue)) {
           issues.push({
             code: 'INVALID_ENUM_VALUE',
             message: `${policy.display_label} contains an unsupported value.`,
@@ -1981,6 +2011,21 @@ export class ProfileChangeRequestsService {
       request.employee_id,
       request.requested_by_user_id,
     );
+    const employeeName = this.resolveRequestEmployeeName(request);
+    const pendingPhotoFile = request.files?.find(
+      (file) =>
+        file.file_purpose ===
+          ProfileChangeRequestFilePurposeEnum.PROPOSED_PROFILE_PHOTO &&
+        file.status === ProfileChangeRequestFileStatusEnum.PENDING,
+    );
+    const isProfilePhotoRequest =
+      request.request_type === ProfileChangeRequestTypeEnum.PROFILE_PHOTO;
+    const title = isProfilePhotoRequest
+      ? 'Profile Picture Approval Required'
+      : 'Profile Change Review Required';
+    const message = isProfilePhotoRequest
+      ? `${employeeName} submitted a new profile picture for approval on ${this.formatNotificationDate(request.submitted_at ?? request.created_at)}.`
+      : `${employeeName} submitted profile changes that need review.`;
 
     const tasks = reviewers.map(async (reviewer) => {
       try {
@@ -1991,8 +2036,8 @@ export class ProfileChangeRequestsService {
           type: NotificationTypeEnum.GENERAL,
           category: NotificationCategoryEnum.HR,
           priority: NotificationPriorityEnum.HIGH,
-          title: 'Profile Change Review Required',
-          message: `Profile change request ${request.reference_number} needs review.`,
+          title,
+          message,
           related_module: 'profile_change_requests',
           entity_type: 'PROFILE_CHANGE_REQUEST',
           entity_id: request.id,
@@ -2003,6 +2048,11 @@ export class ProfileChangeRequestsService {
             reference_number: request.reference_number,
             request_type: request.request_type,
             status: request.status,
+            employee_id: request.employee_id,
+            employee_no: request.employee?.employee_no ?? null,
+            employee_name: employeeName,
+            submitted_at: request.submitted_at ?? request.created_at,
+            pending_profile_photo_file_id: pendingPhotoFile?.id ?? null,
           },
           dedupe_key: `profile-change-review:${request.id}:${reviewer.id}`,
         });
@@ -2087,6 +2137,8 @@ export class ProfileChangeRequestsService {
           reference_number: request.reference_number,
           request_type: request.request_type,
           status: request.status,
+          rejection_reason: request.rejection_reason ?? null,
+          correction_instructions: request.correction_instructions ?? null,
         },
         dedupe_key: `profile-change-requester:${request.id}:${requesterMembership.id}:${request.status}`,
       });
@@ -2381,11 +2433,7 @@ export class ProfileChangeRequestsService {
   }
 
   private readNullableString(value: unknown): string | null {
-    if (value === null || value === undefined) {
-      return null;
-    }
-
-    const normalized = this.readScalarString(value);
+    const normalized = this.serializeValue(value)?.trim() ?? '';
     return normalized.length ? normalized : null;
   }
 
@@ -2419,6 +2467,116 @@ export class ProfileChangeRequestsService {
       .toString(36)
       .slice(2, 10)
       .toUpperCase()}`;
+  }
+
+  private async supersedeActiveProfilePhotoRequestsWithManager(
+    manager: DataSource['manager'],
+    snapshot: ProfileSnapshot,
+    replacementRequest: ProfileChangeRequest,
+    actor: AuthenticatedUser,
+    context?: RequestActorContext,
+  ) {
+    const activeRequests = await manager
+      .getRepository(ProfileChangeRequest)
+      .find({
+        where: {
+          company_id: snapshot.membership.company_id,
+          employee_id: snapshot.employee.id,
+          request_type: ProfileChangeRequestTypeEnum.PROFILE_PHOTO,
+          status: In(ACTIVE_REQUEST_STATUSES),
+          deleted_at: IsNull(),
+        },
+        relations: {
+          files: true,
+          employee: true,
+        },
+      });
+
+    for (const request of activeRequests) {
+      if (request.id === replacementRequest.id) {
+        continue;
+      }
+
+      const previousStatus = request.status;
+      request.status = ProfileChangeRequestStatusEnum.SUPERSEDED;
+      request.review_comment =
+        'Superseded by a newer profile picture submission.';
+      request.metadata = {
+        ...this.toObject(request.metadata),
+        superseded_by_request_id: replacementRequest.id,
+        superseded_by_reference_number: replacementRequest.reference_number,
+      };
+      await manager.getRepository(ProfileChangeRequest).save(request);
+
+      await this.createAuditWithManager(
+        manager,
+        request,
+        ProfileChangeRequestAuditActionEnum.REQUEST_SUPERSEDED,
+        actor,
+        context,
+        {
+          superseded_by_request_id: replacementRequest.id,
+          superseded_by_reference_number: replacementRequest.reference_number,
+        },
+        previousStatus,
+        request.status,
+      );
+
+      for (const file of request.files ?? []) {
+        if (file.status !== ProfileChangeRequestFileStatusEnum.PENDING) {
+          continue;
+        }
+
+        await this.filesService.removeManagedFile(file.file_path);
+        file.status = ProfileChangeRequestFileStatusEnum.REMOVED;
+        await manager.getRepository(ProfileChangeRequestFile).save(file);
+        await this.createAuditWithManager(
+          manager,
+          request,
+          ProfileChangeRequestAuditActionEnum.PENDING_FILE_REMOVED,
+          actor,
+          context,
+          {
+            file_id: file.id,
+            original_file_name: file.original_file_name,
+            reason: 'Superseded by a newer profile picture submission.',
+          },
+          request.status,
+          request.status,
+        );
+      }
+    }
+  }
+
+  private resolveRequestEmployeeName(request: ProfileChangeRequest) {
+    const firstName =
+      request.employee?.company_user?.user?.first_name ??
+      request.employee?.first_name;
+    const lastName =
+      request.employee?.company_user?.user?.last_name ??
+      request.employee?.last_name;
+    const fullName = [firstName, lastName].filter(Boolean).join(' ').trim();
+
+    return fullName || request.employee?.employee_no || 'An employee';
+  }
+
+  private formatNotificationDate(value: Date | null | undefined) {
+    if (!value) {
+      return 'an unknown date';
+    }
+
+    try {
+      return new Intl.DateTimeFormat('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+      }).format(value);
+    } catch {
+      return value.toISOString();
+    }
   }
 
   private async createAudit(

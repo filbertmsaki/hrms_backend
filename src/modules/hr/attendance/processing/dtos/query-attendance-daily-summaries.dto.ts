@@ -60,6 +60,11 @@ export class QueryAttendanceDailySummariesDto extends PaginationDto {
   @IsOptional()
   startDate?: string;
 
+  @ApiPropertyOptional({ example: '2026-05-01' })
+  @IsDateString()
+  @IsOptional()
+  start_date?: string;
+
   @ApiPropertyOptional({ example: '2026-05-31' })
   @IsDateString()
   @IsOptional()
@@ -74,6 +79,11 @@ export class QueryAttendanceDailySummariesDto extends PaginationDto {
   @IsDateString()
   @IsOptional()
   endDate?: string;
+
+  @ApiPropertyOptional({ example: '2026-05-31' })
+  @IsDateString()
+  @IsOptional()
+  end_date?: string;
 
   @ApiPropertyOptional({ example: 5, description: 'Filter by branch ID' })
   @Type(() => Number)

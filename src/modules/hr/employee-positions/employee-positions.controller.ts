@@ -115,7 +115,7 @@ export class EmployeePositionsController {
   @Permissions('employees:update')
   @ApiDeleteOperation(
     'Employee Position',
-    'Delete an employee position assignment',
+    'End an employee position assignment',
   )
   remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },

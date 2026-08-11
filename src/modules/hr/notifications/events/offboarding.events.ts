@@ -130,6 +130,40 @@ export class OffboardingClearanceOverdueEvent {
   ) {}
 }
 
+export class OffboardingAssetOverdueEvent {
+  static readonly EVENT = 'hr.offboarding.asset_overdue';
+  constructor(
+    public readonly companyId: number,
+    public readonly offboardingRequestId: number,
+    public readonly assetReturnId: number,
+    public readonly assetLabel: string,
+    public readonly employeeName: string,
+    public readonly ownerCompanyUserId: number | null,
+    public readonly ownerName: string | null,
+    public readonly ownerEmail: string | null,
+    public readonly dueDate: Date,
+    public readonly exitDate: string | null,
+    public readonly assetUrl: string,
+  ) {}
+}
+
+export class OffboardingSettlementOverdueEvent {
+  static readonly EVENT = 'hr.offboarding.settlement_overdue';
+  constructor(
+    public readonly companyId: number,
+    public readonly offboardingRequestId: number,
+    public readonly settlementItemId: number,
+    public readonly settlementTitle: string,
+    public readonly employeeName: string,
+    public readonly ownerCompanyUserId: number | null,
+    public readonly ownerName: string | null,
+    public readonly ownerEmail: string | null,
+    public readonly dueDate: Date,
+    public readonly exitDate: string | null,
+    public readonly settlementUrl: string,
+  ) {}
+}
+
 export class OffboardingApprovalReminderEvent {
   static readonly EVENT = 'hr.offboarding.approval_reminder';
   constructor(

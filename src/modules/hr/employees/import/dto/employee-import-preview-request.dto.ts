@@ -1,13 +1,31 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsEnum, IsOptional } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
+import { EmployeeImportActivationModeEnum } from '../enums/employee-import-activation-mode.enum';
 import { EmployeeImportModeEnum } from '../enums/employee-import-mode.enum';
+import { EmployeeImportNumberModeEnum } from '../enums/employee-import-number-mode.enum';
 
 export class EmployeeImportPreviewRequestDto {
   @ApiPropertyOptional({ enum: EmployeeImportModeEnum })
   @IsEnum(EmployeeImportModeEnum)
   @IsOptional()
   import_mode?: EmployeeImportModeEnum;
+
+  @ApiPropertyOptional({ enum: EmployeeImportNumberModeEnum })
+  @IsEnum(EmployeeImportNumberModeEnum)
+  @IsOptional()
+  employee_number_mode?: EmployeeImportNumberModeEnum;
+
+  @ApiPropertyOptional({ enum: EmployeeImportActivationModeEnum })
+  @IsEnum(EmployeeImportActivationModeEnum)
+  @IsOptional()
+  activation_mode?: EmployeeImportActivationModeEnum;
 
   @ApiPropertyOptional({
     description:
@@ -32,4 +50,9 @@ export class EmployeeImportPreviewRequestDto {
   @IsBoolean()
   @IsOptional()
   process_valid_rows_only?: boolean;
+
+  @IsString()
+  @MaxLength(500)
+  @IsOptional()
+  import_reason?: string;
 }

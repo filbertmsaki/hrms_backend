@@ -62,8 +62,41 @@ export class OffboardingAssetReturn {
   @Column({ type: 'text', nullable: true })
   condition_notes: string | null;
 
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  condition_at_return: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  return_evidence_document_id: number | null;
+
+  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true })
+  liability_amount: string | null;
+
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  liability_currency: string | null;
+
+  @Column({ default: false })
+  liability_acknowledged: boolean;
+
+  @Column({ type: 'int', nullable: true })
+  verified_by_company_user_id: number | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  verified_at: Date | null;
+
   @Column({ type: 'text', nullable: true })
   remarks: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  last_reminder_at: Date | null;
+
+  @Column({ type: 'int', default: 0 })
+  reminder_count: number;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  last_escalated_at: Date | null;
+
+  @Column({ type: 'int', default: 0 })
+  escalation_count: number;
 
   @Column({ type: 'json', nullable: true })
   metadata: Record<string, unknown> | null;

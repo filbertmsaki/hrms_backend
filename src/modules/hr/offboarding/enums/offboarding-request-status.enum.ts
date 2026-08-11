@@ -7,4 +7,10 @@ export enum OffboardingRequestStatusEnum {
   REJECTED = 'rejected',
   COMPLETED = 'completed',
   CANCELLED = 'cancelled',
+  PENDING_MANAGER = 'pending_manager',
+  READY_FOR_TERMINATION = 'ready_for_termination',
+  TERMINATION_SCHEDULED = 'termination_scheduled',
+  TERMINATING_ACCESS = 'terminating_access',
+  ACCESS_TERMINATION_FAILED = 'access_termination_failed',
+  READY_FOR_FINALIZATION = 'ready_for_finalization',
 }
