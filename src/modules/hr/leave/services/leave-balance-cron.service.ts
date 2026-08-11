@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -13,9 +14,21 @@ export class LeaveBalanceCronService implements OnModuleInit {
     @InjectRepository(Company)
     private readonly companyRepository: Repository<Company>,
     private readonly leaveBalanceService: LeaveBalanceService,
+    private readonly configService: ConfigService,
   ) {}
 
   async onModuleInit(): Promise<void> {
+    const appEnv =
+      this.configService.get<string>('APP_ENV') ??
+      this.configService.get<string>('NODE_ENV');
+
+    if (appEnv === 'test') {
+      this.logger.log(
+        'Skipping startup leave balance generation in test environment',
+      );
+      return;
+    }
+
     await this.generateCurrentYearBalancesForAllCompanies('startup');
   }
 

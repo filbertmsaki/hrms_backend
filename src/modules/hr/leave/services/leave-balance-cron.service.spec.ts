@@ -16,6 +16,9 @@ describe('LeaveBalanceCronService', () => {
     getFiscalYearFromDate: jest.Mock;
     generateBalancesForCompany: jest.Mock;
   };
+  let configService: {
+    get: jest.Mock;
+  };
 
   beforeEach(() => {
     companyRepository = createRepositoryMock();
@@ -25,10 +28,14 @@ describe('LeaveBalanceCronService', () => {
         .fn()
         .mockResolvedValue({ generated_balances: 5 }),
     };
+    configService = {
+      get: jest.fn().mockReturnValue(undefined),
+    };
 
     service = new LeaveBalanceCronService(
       companyRepository as unknown as Repository<Company>,
       leaveBalanceService as unknown as LeaveBalanceService,
+      configService as never,
     );
   });
 
@@ -52,5 +59,18 @@ describe('LeaveBalanceCronService', () => {
     expect(
       leaveBalanceService.generateBalancesForCompany,
     ).toHaveBeenNthCalledWith(2, 2, '2026');
+  });
+
+  it('skips startup backfill in the test environment', async () => {
+    configService.get.mockImplementation((key: string) =>
+      key === 'APP_ENV' ? 'test' : undefined,
+    );
+
+    await service.onModuleInit();
+
+    expect(companyRepository.find).not.toHaveBeenCalled();
+    expect(
+      leaveBalanceService.generateBalancesForCompany,
+    ).not.toHaveBeenCalled();
   });
 });

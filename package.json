@@ -42,7 +42,7 @@
     "db:wipe": "ts-node -r tsconfig-paths/register src/scripts/backup-and-wipe-database.ts",
     "db:wipe:dry-run": "ts-node -r tsconfig-paths/register src/scripts/backup-and-wipe-database.ts --dry-run",
     "report:daily:setup-send": "ts-node -r tsconfig-paths/register src/scripts/setup-and-send-daily-attendance-report.ts",
-    "validate:push": "npm run lint:check && npm run build && npm test -- --runInBand"
+    "validate:push": "npm run lint:check && npm run build && npm test -- --runInBand && npm run test:e2e"
   },
   "dependencies": {
     "@nestjs-modules/mailer": "^2.0.2",
