@@ -135,6 +135,12 @@ describe('EmployeeImportService', () => {
   let filesService: {
     savePrivateBufferFile: jest.Mock;
   };
+  let shiftAssignmentsService: {
+    create: jest.Mock;
+  };
+  let employeeTimetablesService: {
+    create: jest.Mock;
+  };
   let hikvisionImportSyncService: {
     scheduleImportedEmployeesSync: jest.Mock;
   };
@@ -169,6 +175,12 @@ describe('EmployeeImportService', () => {
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       }),
     };
+    shiftAssignmentsService = {
+      create: jest.fn().mockResolvedValue(undefined),
+    };
+    employeeTimetablesService = {
+      create: jest.fn().mockResolvedValue(undefined),
+    };
     hikvisionImportSyncService = {
       scheduleImportedEmployeesSync: jest
         .fn()
@@ -197,8 +209,8 @@ describe('EmployeeImportService', () => {
       {} as never,
       {} as never,
       filesService as never,
-      {} as never,
-      {} as never,
+      shiftAssignmentsService as never,
+      employeeTimetablesService as never,
       {} as never,
       configService as never,
       branchesService as never,
@@ -272,6 +284,7 @@ describe('EmployeeImportService', () => {
     expect(workbook.getWorksheet('Employees')).toBeDefined();
     expect(workbook.getWorksheet('Instructions')).toBeDefined();
     expect(workbook.getWorksheet('Branches')).toBeDefined();
+    expect(workbook.getWorksheet('Import Review')).toBeUndefined();
 
     const employeeSheet = workbook.getWorksheet('Employees');
     const headers = Array.from(
@@ -289,58 +302,60 @@ describe('EmployeeImportService', () => {
       'last_name',
       'employee_number',
       'email',
-      'phone',
       'gender',
-      'date_of_birth',
-      'marital_status',
-      'nationality',
       'employment_date',
-      'employment_type',
       'branch_code',
       'department_code',
       'position_code',
-      'manager_employee_number',
-      'grade_code',
-      'cost_center_code',
-      'shift_code',
-      'timetable_code',
-      'national_id',
-      'tax_id',
-      'social_security_number',
-      'passport_number',
-      'work_permit_number',
-      'address',
-      'emergency_contact_name',
-      'emergency_contact_phone',
+      'employment_type',
       'access_device_codes',
       'device_employee_number',
-      'card_number',
-      'notes',
     ]);
-    expect(employeeSheet?.getCell('M2').dataValidation.type).toBe('list');
-    expect(employeeSheet?.getCell('M2').dataValidation.formulae).toEqual([
-      'BranchCodes',
+    expect(employeeSheet?.views).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          state: 'frozen',
+          xSplit: 1,
+          ySplit: 1,
+          topLeftCell: 'B2',
+        }),
+      ]),
+    );
+    expect(employeeSheet?.autoFilter).toBe('A1:M1');
+    expect(employeeSheet?.getColumn(1).width).toBe(16);
+    expect(employeeSheet?.getColumn(5).width).toBe(31);
+    expect(employeeSheet?.getCell('A2').value).toBeNull();
+    expect(employeeSheet?.getCell('F2').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('F2').dataValidation.formulae).toEqual([
+      '=GenderValues',
     ]);
-    expect(employeeSheet?.getCell('N2').dataValidation.type).toBe('list');
-    expect(employeeSheet?.getCell('N2').dataValidation.formulae).toEqual([
-      'DepartmentCodes',
+    expect(employeeSheet?.getCell('H10').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('H10').dataValidation.formulae).toEqual([
+      '=BranchCodes',
     ]);
-    expect(employeeSheet?.getCell('O2').dataValidation.type).toBe('list');
-    expect(employeeSheet?.getCell('O2').dataValidation.formulae).toEqual([
-      'PositionCodes',
+    expect(employeeSheet?.getCell('I10').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('I10').dataValidation.formulae).toEqual([
+      '=DepartmentCodes',
     ]);
-    expect(employeeSheet?.getCell('L2').dataValidation.type).toBe('list');
-    expect(employeeSheet?.getCell('L2').dataValidation.formulae).toEqual([
-      'EmploymentTypes',
+    expect(employeeSheet?.getCell('J10').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('J10').dataValidation.formulae).toEqual([
+      '=PositionCodes',
     ]);
-    expect(employeeSheet?.getCell('G2').dataValidation.type).toBe('list');
-    expect(employeeSheet?.getCell('G2').dataValidation.formulae).toEqual([
-      'GenderValues',
+    expect(employeeSheet?.getCell('K10').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('K10').dataValidation.formulae).toEqual([
+      '=EmploymentTypes',
     ]);
-    expect(employeeSheet?.getCell('AC2').dataValidation.type).toBe('list');
-    expect(employeeSheet?.getCell('AC2').dataValidation.formulae).toEqual([
-      'AccessDeviceCodes',
+    expect(employeeSheet?.getCell('F10').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('F10').dataValidation.formulae).toEqual([
+      '=GenderValues',
     ]);
+    expect(employeeSheet?.getCell('L10').dataValidation.type).toBe('list');
+    expect(employeeSheet?.getCell('L10').dataValidation.formulae).toEqual([
+      '=AccessDeviceCodes',
+    ]);
+    expect(employeeSheet?.getCell('L10').dataValidation.errorTitle).toBe(
+      'Use device codes',
+    );
     expect(workbook.definedNames.model).toEqual(
       expect.arrayContaining([
         { name: 'BranchCodes', ranges: ['Branches!$A$2'] },
@@ -350,6 +365,12 @@ describe('EmployeeImportService', () => {
         { name: 'GenderValues', ranges: ['Genders!$A$2:$A$3'] },
         { name: 'AccessDeviceCodes', ranges: ["'Access Devices'!$A$2"] },
       ]),
+    );
+
+    const instructionsSheet = workbook.getWorksheet('Instructions');
+    expect(instructionsSheet?.getCell('A2').text).toBe('Required columns');
+    expect(instructionsSheet?.getCell('B8').text).toContain(
+      'Select a single device code from the dropdown',
     );
   });
 
@@ -398,16 +419,9 @@ describe('EmployeeImportService', () => {
       'last_name',
       'email',
       'gender',
-      'phone_number',
+      'phone_extension',
     ]);
-    sheet.addRow([
-      'Jane',
-      'Jane',
-      'Doe',
-      'jane@example.com',
-      'female',
-      '+255712345678',
-    ]);
+    sheet.addRow(['Jane', 'Jane', 'Doe', 'jane@example.com', 'female', '101']);
     const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
 
     jest.spyOn(service as any, 'loadReferenceData').mockResolvedValue({
@@ -484,7 +498,9 @@ describe('EmployeeImportService', () => {
     expect(result.rows[0]?.errors).toEqual(
       expect.arrayContaining([
         expect.stringContaining('Duplicate header "first_name"'),
-        expect.stringContaining('Unsupported columns detected: phone_number'),
+        expect.stringContaining(
+          'Unsupported columns detected: phone_extension',
+        ),
       ]),
     );
   });
@@ -641,6 +657,107 @@ describe('EmployeeImportService', () => {
       ]),
     );
   }, 20000);
+
+  it('applies the company default timetable and its default shift for old-template rows', () => {
+    const row = (
+      service as unknown as {
+        validatePreviewRow: (
+          companyId: number,
+          rowNumber: number,
+          values: Record<string, unknown>,
+          dto: Record<string, unknown>,
+          references: Record<string, unknown>,
+        ) => {
+          previewStatus: string;
+          normalizedData: Record<string, unknown>;
+        };
+      }
+    ).validatePreviewRow(
+      10,
+      2,
+      {
+        first_name: 'Jane',
+        middle_name: '',
+        last_name: 'Doe',
+        employee_number: '',
+        email: 'jane.doe@example.com',
+        gender: 'female',
+        employment_date: '2026-07-28',
+        branch_code: 'HQ',
+        department_code: 'HR',
+        position_code: 'HRO',
+        employment_type: 'full_time',
+      },
+      {},
+      {
+        branches: [
+          { id: 1, code: 'HQ', name: 'Head Office', status: 'active' },
+        ],
+        departments: [
+          {
+            id: 2,
+            code: 'HR',
+            name: 'Human Resources',
+            branch_id: 1,
+            status: 'active',
+          },
+        ],
+        positions: [
+          {
+            id: 3,
+            code: 'HRO',
+            name: 'HR Officer',
+            branch_id: 1,
+            department_id: 2,
+            status: 'active',
+          },
+        ],
+        departmentPositionMappings: [],
+        shifts: [
+          {
+            id: 4,
+            code: 'DAY',
+            name: 'Day Shift',
+            status: 'ACTIVE',
+          },
+        ],
+        timetables: [
+          {
+            id: 5,
+            code: 'STD',
+            name: 'Standard Week',
+            status: 'ACTIVE',
+            isDefault: true,
+            days: [
+              {
+                dayOfWeek: 2,
+                isWorkingDay: true,
+                defaultShiftId: 4,
+              },
+            ],
+          },
+        ],
+        devices: [],
+        roles: [],
+        employees: [],
+        companyUsers: [],
+        users: [],
+        identifications: [],
+        deviceAssignments: [],
+        credentials: [],
+      },
+    );
+
+    expect(row.previewStatus).toBe('READY_FOR_IMPORT');
+    expect(row.normalizedData).toEqual(
+      expect.objectContaining({
+        shift_code: 'DAY',
+        shift_id: 4,
+        timetable_code: 'STD',
+        timetable_id: 5,
+      }),
+    );
+  });
 
   it('ignores blank optional lookup cells during preview validation', async () => {
     const workbook = new ExcelJS.Workbook();
@@ -1229,6 +1346,54 @@ describe('EmployeeImportService', () => {
     expect(row.userAccount.existingUserId).toBe(44);
   });
 
+  it('generates a stable fallback idempotency key when the confirm header is missing', () => {
+    const resolveImportIdempotencyKey = (
+      service as unknown as {
+        resolveImportIdempotencyKey: (
+          companyId: number,
+          dto: {
+            batch_id?: string;
+            preview_token?: string;
+            row_ids?: number[];
+            excluded_row_ids?: number[];
+            skip_existing_records?: boolean;
+            exclude_invalid_records?: boolean;
+            process_valid_rows_only?: boolean;
+          },
+          value?: string | null,
+        ) => string;
+      }
+    ).resolveImportIdempotencyKey.bind(service);
+
+    const first = resolveImportIdempotencyKey(
+      10,
+      {
+        preview_token: 'preview-token',
+        row_ids: [9, 4, 9, 2],
+        excluded_row_ids: [7, 3],
+        skip_existing_records: true,
+        exclude_invalid_records: true,
+        process_valid_rows_only: true,
+      },
+      null,
+    );
+    const second = resolveImportIdempotencyKey(
+      10,
+      {
+        preview_token: 'preview-token',
+        row_ids: [2, 4, 9],
+        excluded_row_ids: [3, 7],
+        skip_existing_records: true,
+        exclude_invalid_records: true,
+        process_valid_rows_only: true,
+      },
+      undefined,
+    );
+
+    expect(first).toMatch(/^auto-employee-import-[a-f0-9]{64}$/);
+    expect(second).toBe(first);
+  });
+
   it('creates a company membership through UsersService for a new import user', async () => {
     const ensureEmployeeImportAccount = jest.fn().mockResolvedValue({
       user: { id: 91 },
@@ -1329,6 +1494,238 @@ describe('EmployeeImportService', () => {
     expect(membership.createdUserId).toBeNull();
     expect(membership.linkedUserId).toBe(92);
     expect(membership.userAction).toBe('REUSE_EXISTING_LINKED_USER');
+  });
+
+  it('creates employees from the old template with default timetable and shift assignments', async () => {
+    const batchRepository = (
+      service as unknown as {
+        batchRepository: MockRepo;
+      }
+    ).batchRepository;
+    const rowRepository = (
+      service as unknown as {
+        rowRepository: MockRepo;
+      }
+    ).rowRepository;
+    const employeesService = {
+      createForCompanyUser: jest.fn().mockResolvedValue({
+        employeeId: 38,
+        onboardingRequestId: null,
+      }),
+      update: jest.fn(),
+    };
+    const txEmployeeRepository = {
+      findOneOrFail: jest.fn().mockResolvedValue({
+        id: 38,
+        employee_no: 'EMP-1001',
+        first_name: 'Jane',
+        middle_name: null,
+        last_name: 'Doe',
+      }),
+    };
+    const batchQueryBuilder: Record<string, jest.Mock> = {
+      leftJoinAndSelect: jest.fn(() => batchQueryBuilder),
+      where: jest.fn(() => batchQueryBuilder),
+      andWhere: jest.fn(() => batchQueryBuilder),
+      orderBy: jest.fn(() => batchQueryBuilder),
+      setLock: jest.fn(() => batchQueryBuilder),
+      getOne: jest.fn(() => Promise.resolve(storedBatch)),
+    };
+    const txManager = {
+      getRepository: jest.fn((entity: unknown) => {
+        if (entity === Employee) {
+          return txEmployeeRepository;
+        }
+        if (entity === EmployeeImportBatch) {
+          return {
+            ...batchRepository,
+            createQueryBuilder: jest.fn(() => batchQueryBuilder),
+          };
+        }
+        if (entity === EmployeeImportRow) {
+          return rowRepository;
+        }
+        return createRepositoryMock();
+      }),
+    };
+
+    (
+      service as unknown as {
+        employeesService: typeof employeesService;
+        dataSource: {
+          transaction: jest.Mock;
+        };
+      }
+    ).employeesService = employeesService;
+    (
+      service as unknown as {
+        dataSource: {
+          transaction: jest.Mock;
+        };
+      }
+    ).dataSource = {
+      transaction: jest.fn((callback: (manager: unknown) => unknown) =>
+        callback(txManager),
+      ),
+    };
+
+    const storedRow = {
+      rowNumber: 2,
+      rawData: {
+        first_name: 'Jane',
+        middle_name: '',
+        last_name: 'Doe',
+        employee_number: '',
+        email: 'jane.old-template@example.com',
+        gender: 'female',
+        employment_date: '2026-07-28',
+        branch_code: 'HQ',
+        department_code: 'HR',
+        position_code: 'HRO',
+        employment_type: 'full_time',
+        access_device_codes: '',
+        device_employee_number: '',
+      },
+      errors: [],
+      warnings: [],
+      normalizedData: null,
+      importAction: null,
+      employeeName: 'Jane Doe',
+      employeeNumber: null,
+      deviceEmployeeNumber: null,
+      matchedEmployeeId: null,
+      status: EmployeeImportRowStatusEnum.QUEUED,
+    } as EmployeeImportRow;
+
+    const storedBatch = {
+      id: 502,
+      companyId: 10,
+      batchId: 'IMPORT-20260812-OLD-TEMPLATE',
+      previewToken: 'preview-token',
+      status: EmployeeImportBatchStatusEnum.QUEUED,
+      importMode: EmployeeImportModeEnum.CREATE_ONLY,
+      metadata: {
+        process_valid_rows_only: true,
+        requested_by: { ...actor },
+      },
+      rows: [storedRow],
+    } as EmployeeImportBatch;
+
+    batchRepository.findOne.mockResolvedValue(storedBatch);
+    batchRepository.save.mockImplementation((value: unknown) => value);
+    batchRepository.update = jest.fn().mockResolvedValue(undefined);
+    rowRepository.save.mockImplementation((value: unknown) => value);
+    rowRepository.find.mockResolvedValue([storedRow]);
+
+    jest.spyOn(service as any, 'loadReferenceData').mockResolvedValue({
+      branches: [{ id: 1, code: 'HQ', name: 'Head Office', status: 'active' }],
+      departments: [
+        {
+          id: 2,
+          code: 'HR',
+          name: 'Human Resources',
+          branch_id: 1,
+          status: 'active',
+        },
+      ],
+      positions: [
+        {
+          id: 3,
+          code: 'HRO',
+          name: 'HR Officer',
+          branch_id: 1,
+          department_id: 2,
+          status: 'active',
+        },
+      ],
+      departmentPositionMappings: [],
+      shifts: [
+        {
+          id: 4,
+          code: 'DAY',
+          name: 'Day Shift',
+          status: 'ACTIVE',
+        },
+      ],
+      timetables: [
+        {
+          id: 5,
+          code: 'STD',
+          name: 'Standard Week',
+          status: 'ACTIVE',
+          isDefault: true,
+          days: [
+            {
+              dayOfWeek: 2,
+              isWorkingDay: true,
+              defaultShiftId: 4,
+            },
+          ],
+        },
+      ],
+      devices: [],
+      roles: [],
+      employees: [],
+      companyUsers: [],
+      users: [],
+      identifications: [],
+      deviceAssignments: [],
+      credentials: [],
+    });
+    jest
+      .spyOn(service as any, 'applyActorBranchValidation')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(service as any, 'applyBatchDuplicateValidation')
+      .mockImplementation(() => undefined);
+    jest
+      .spyOn(service as any, 'applyManagerValidation')
+      .mockImplementation(() => undefined);
+    jest
+      .spyOn(service as any, 'ensureMembershipForImportRow')
+      .mockResolvedValue({
+        membership: { id: 18, user_id: 41 },
+        createdUserId: 41,
+        linkedUserId: 41,
+        userAction: 'CREATE_NEW_USER',
+      });
+    jest
+      .spyOn(service as any, 'applyManagerAssignments')
+      .mockResolvedValue(undefined);
+
+    const jobData: EmployeeImportJobData = {
+      companyId: 10,
+      databaseBatchId: 502,
+      batchId: 'IMPORT-20260812-OLD-TEMPLATE',
+      requestedByUserId: actor.id,
+      requestedByCompanyUserId: actor.companyMembershipId ?? null,
+    };
+
+    await service.processQueuedBatch(jobData, 'worker-1');
+
+    expect(employeesService.createForCompanyUser).toHaveBeenCalledWith(
+      10,
+      18,
+      expect.objectContaining({
+        first_name: 'Jane',
+        last_name: 'Doe',
+        hire_date: '2026-07-28',
+      }),
+      expect.objectContaining({ id: actor.id, email: actor.email }),
+      txManager,
+    );
+    expect(employeeTimetablesService.create).toHaveBeenCalledWith(10, {
+      employee_id: 38,
+      timetable_id: 5,
+      effective_from: '2026-07-28',
+    });
+    expect(shiftAssignmentsService.create).toHaveBeenCalledWith(10, {
+      employee_id: 38,
+      shift_id: 4,
+      effective_from: '2026-07-28',
+    });
+    expect(storedRow.status).toBe(EmployeeImportRowStatusEnum.IMPORTED);
+    expect(storedRow.createdEmployeeId).toBe(38);
   });
 
   it('uses the next standard employee number when import employee_number is blank', async () => {
@@ -1763,6 +2160,7 @@ describe('EmployeeImportService', () => {
 
     batchRepository.findOne.mockResolvedValue({
       batchId: 'IMPORT-20260730-REPORT',
+      completedAt: new Date('2026-07-30T08:15:42.000Z'),
       rows: [
         {
           rowNumber: 4,
@@ -1770,6 +2168,21 @@ describe('EmployeeImportService', () => {
             first_name: 'Mary',
             last_name: 'Joseph',
             email: 'mary@example.com',
+            branch_code: 'HQ',
+            department_code: 'FIN',
+            position_code: 'ACC',
+            employment_type: 'full_time',
+          },
+          normalizedData: {
+            branch_code: 'HQ',
+            branch_name: 'Head Office',
+            department_code: null,
+            department_name: null,
+            position_code: 'ACC',
+            position_name: 'Accountant',
+            employment_type: 'full_time',
+            shift_name: 'General Shift',
+            timetable_name: 'Standard Week',
           },
           status: EmployeeImportRowStatusEnum.SKIPPED,
           importAction: 'CREATE',
@@ -1797,16 +2210,35 @@ describe('EmployeeImportService', () => {
       ) as ArrayBuffer,
     );
 
-    expect(result.fileName).toBe('IMPORT-20260730-REPORT-result.xlsx');
-    const sheet = workbook.getWorksheet('Import Results');
-    expect(sheet?.getRow(1).values).toEqual(
+    expect(result.fileName).toMatch(
+      /^employee-import-result-\d{8}-\d{6}\.xlsx$/,
+    );
+    const reviewSheet = workbook.getWorksheet('Employee Import Mapping Review');
+    expect(reviewSheet?.getCell('A1').text).toBe(
+      'Employee Import Mapping Review',
+    );
+    expect(reviewSheet?.getCell('A3').text).toBe('Metric');
+    expect(reviewSheet?.getCell('A11').text).toBe('Excel row number');
+    expect(reviewSheet?.getCell('A12').value).toBe(4);
+    expect(reviewSheet?.getCell('B12').text).toBe('');
+    expect(reviewSheet?.getCell('C12').text).toBe('Mary Joseph');
+    expect(reviewSheet?.getCell('F12').text).toBe('Head Office');
+    expect(reviewSheet?.getCell('O12').text).toBe('General Shift');
+    expect(reviewSheet?.getCell('P12').text).toBe('Standard Week');
+    expect(reviewSheet?.getCell('R12').text).toBe('FAILED');
+    expect(reviewSheet?.getCell('S12').text).toContain(
+      'Department code "FIN" was not found',
+    );
+
+    const resultSheet = workbook.getWorksheet('Import Results');
+    expect(resultSheet?.getRow(1).values).toEqual(
       expect.arrayContaining([
         'preview_status',
         'matched_by',
         'existing_employee',
       ]),
     );
-    expect(sheet?.getRow(2).values).toEqual(
+    expect(resultSheet?.getRow(2).values).toEqual(
       expect.arrayContaining([
         'SKIPPED',
         'INVALID_RECORD',

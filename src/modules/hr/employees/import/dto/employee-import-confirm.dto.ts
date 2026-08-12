@@ -3,11 +3,17 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
+  IsEnum,
   IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
 } from 'class-validator';
+
+export enum EmployeeImportExecutionModeEnum {
+  NORMAL = 'NORMAL',
+  SYNC = 'SYNC',
+}
 
 export class EmployeeImportConfirmDto {
   @ApiPropertyOptional()
@@ -69,4 +75,14 @@ export class EmployeeImportConfirmDto {
   @IsBoolean()
   @IsOptional()
   process_valid_rows_only?: boolean;
+
+  @ApiPropertyOptional({
+    enum: EmployeeImportExecutionModeEnum,
+    default: EmployeeImportExecutionModeEnum.NORMAL,
+    description:
+      'Execution mode for the confirmed import. NORMAL queues the batch; SYNC processes it in the request.',
+  })
+  @IsEnum(EmployeeImportExecutionModeEnum)
+  @IsOptional()
+  execution_mode?: EmployeeImportExecutionModeEnum;
 }

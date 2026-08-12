@@ -54,6 +54,7 @@ import { EmployeeImportModeEnum } from './enums/employee-import-mode.enum';
 import { EmployeeImportNumberModeEnum } from './enums/employee-import-number-mode.enum';
 import { EmployeeImportOutboxEventType } from './enums/employee-import-outbox-event-type.enum';
 import { EmployeeImportRowStatusEnum } from './enums/employee-import-row-status.enum';
+import { EmployeeImportExecutionModeEnum } from './dto/employee-import-confirm.dto';
 import { Employee } from '../entities/employee.entity';
 import { EmployeeIdentification } from '../entities/employee-identification.entity';
 import { EmploymentStatusEnum } from '../enums/employment-status.enum';
@@ -227,34 +228,68 @@ const SUPPORTED_MIME_TYPES = new Set([
   'application/octet-stream',
 ]);
 const TEMPLATE_VALIDATION_ROW_COUNT = 500;
+const TEMPLATE_DATA_START_ROW = 2;
 const GENDER_VALUES = ['male', 'female'] as const;
+const EMPLOYEE_TEMPLATE_COLUMN_WIDTHS = [
+  16, 16, 18, 18, 31, 11, 17, 14, 36, 30, 17, 21, 24,
+] as const;
+const IMPORT_RESULTS_SHEET = 'Import Results';
+const EMPLOYEE_IMPORT_MAPPING_REVIEW_SHEET = 'Employee Import Mapping Review';
+const IMPORT_REVIEW_COLUMNS = [
+  { header: 'Excel row number', width: 16 },
+  { header: 'employee number', width: 18 },
+  { header: 'employee name', width: 28 },
+  { header: 'email', width: 31 },
+  { header: 'branch code', width: 16 },
+  { header: 'resolved branch', width: 30 },
+  { header: 'department code', width: 22 },
+  { header: 'resolved department', width: 32 },
+  { header: 'position code', width: 20 },
+  { header: 'resolved position', width: 30 },
+  { header: 'employment type', width: 18 },
+  { header: 'access device codes', width: 22 },
+  { header: 'resolved access devices', width: 34 },
+  { header: 'device employee number', width: 24 },
+  { header: 'assigned default shift', width: 24 },
+  { header: 'assigned default timetable', width: 28 },
+  { header: 'imported employee id', width: 22 },
+  { header: 'import status', width: 16 },
+  { header: 'validation/import message', width: 60 },
+] as const;
 const EMPTY_AUDIT_CONTEXT: AuditRequestContext = {
   ipAddress: null,
   userAgent: null,
   requestId: null,
 };
 
-const IMPORT_COLUMNS = [
+const TEMPLATE_COLUMNS = [
   'first_name',
   'middle_name',
   'last_name',
   'employee_number',
   'email',
-  'phone',
   'gender',
-  'date_of_birth',
-  'marital_status',
-  'nationality',
   'employment_date',
-  'employment_type',
   'branch_code',
   'department_code',
   'position_code',
+  'employment_type',
+  'access_device_codes',
+  'device_employee_number',
+] as const;
+
+const OPTIONAL_IMPORT_COLUMNS = [
+  'phone',
+  'date_of_birth',
+  'marital_status',
+  'nationality',
   'manager_employee_number',
   'grade_code',
   'cost_center_code',
   'shift_code',
+  'shift_effective_from',
   'timetable_code',
+  'timetable_effective_from',
   'national_id',
   'tax_id',
   'social_security_number',
@@ -263,10 +298,13 @@ const IMPORT_COLUMNS = [
   'address',
   'emergency_contact_name',
   'emergency_contact_phone',
-  'access_device_codes',
-  'device_employee_number',
   'card_number',
   'notes',
+] as const;
+
+const IMPORT_COLUMNS = [
+  ...TEMPLATE_COLUMNS,
+  ...OPTIONAL_IMPORT_COLUMNS,
 ] as const;
 
 type ImportColumn = (typeof IMPORT_COLUMNS)[number];
@@ -276,8 +314,11 @@ const REQUIRED_COLUMNS: ImportColumn[] = [
   'last_name',
   'email',
   'gender',
-  'employment_date',
 ];
+
+const HEADER_ALIASES: Record<string, ImportColumn> = {
+  phone_number: 'phone',
+};
 
 @Injectable()
 export class EmployeeImportService {
@@ -409,19 +450,29 @@ export class EmployeeImportService {
       status: device.status,
     }));
 
-    employeeSheet.addRow(IMPORT_COLUMNS);
+    employeeSheet.addRow(TEMPLATE_COLUMNS);
     const headerRow = employeeSheet.getRow(1);
     headerRow.font = { bold: true };
-    employeeSheet.views = [{ state: 'frozen', ySplit: 1 }];
+    employeeSheet.views = [
+      { state: 'frozen', xSplit: 1, ySplit: 1, topLeftCell: 'B2' },
+    ];
     employeeSheet.autoFilter = {
       from: { row: 1, column: 1 },
-      to: { row: 1, column: IMPORT_COLUMNS.length },
+      to: { row: 1, column: TEMPLATE_COLUMNS.length },
     };
 
     const requiredSet = new Set<string>(REQUIRED_COLUMNS);
-    IMPORT_COLUMNS.forEach((column, index) => {
+    TEMPLATE_COLUMNS.forEach((column, index) => {
       const worksheetColumn = employeeSheet.getColumn(index + 1);
-      worksheetColumn.width = Math.max(column.length + 6, 18);
+      worksheetColumn.width =
+        EMPLOYEE_TEMPLATE_COLUMN_WIDTHS[index] ??
+        Math.max(column.length + 6, 18);
+      headerRow.getCell(index + 1).border = {
+        top: { style: 'thin' },
+        bottom: { style: 'thin' },
+        left: { style: 'thin' },
+        right: { style: 'thin' },
+      };
       if (requiredSet.has(column)) {
         headerRow.getCell(index + 1).fill = {
           type: 'pattern',
@@ -430,102 +481,36 @@ export class EmployeeImportService {
         };
       }
     });
-
-    employeeSheet.addRow([
-      'Jane',
-      '',
-      'Doe',
-      '',
-      'jane.doe@example.com',
-      '+255700000000',
-      'female',
-      '1995-01-01',
-      'single',
-      'Tanzanian',
-      '2026-08-03',
-      EmploymentTypeEnum.FULL_TIME,
-      'HQ',
-      'IT',
-      'EXECUTIVE',
-      '',
-      'G3',
-      'IT001',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
-      'Dar es Salaam',
-      'John Doe',
-      '+255700000001',
-      '',
-      '',
-      '',
-      '',
-    ]);
-    employeeSheet.getRow(2).font = { italic: true };
+    this.applyEmployeeTemplateGrid(employeeSheet);
 
     instructionsSheet.columns = [
       { header: 'Topic', key: 'topic', width: 28 },
       { header: 'Details', key: 'details', width: 100 },
     ];
     instructionsSheet.getRow(1).font = { bold: true };
-    instructionsSheet.views = [{ state: 'frozen', ySplit: 1 }];
     const instructionRows = [
-      ['Template version', EMPLOYEE_IMPORT_SCHEMA_VERSION],
       ['Required columns', REQUIRED_COLUMNS.join(', ')],
+      ['Start row', 'Enter employee records starting from row 2.'],
       [
         'Optional columns',
-        IMPORT_COLUMNS.filter((column) => !requiredSet.has(column)).join(', '),
+        TEMPLATE_COLUMNS.filter((column) => !requiredSet.has(column)).join(
+          ', ',
+        ),
       ],
       ['Date format', 'Use ISO date values like YYYY-MM-DD.'],
       ['Gender values', GENDER_VALUES.join(', ')],
       ['Employment type values', Object.values(EmploymentTypeEnum).join(', ')],
       [
-        'Employee number',
-        'Leave blank when employee_number_mode is GENERATE. The application will allocate the next company employee number.',
-      ],
-      [
-        'Preserving numbers',
-        'PRESERVE_SOURCE is for approved migration only and requires employees:override-number.',
-      ],
-      [
-        'Activation mode',
-        'CREATE_ONBOARDING creates employees in onboarding status. MIGRATE_AS_ACTIVE is intended only for verified migration of existing employees.',
-      ],
-      [
         'Access devices',
-        'Optional. Enter one or more active access-device codes separated by commas using values from the Access Devices sheet. Leave blank to import the employee without any device assignment.',
-      ],
-      [
-        'Device employee number',
-        'Optional. Enter the employee number to use on the access-control device. If access devices are provided and this field is blank, HRMS uses the employee number generated for the imported employee.',
+        'Select a single device code from the dropdown, or enter multiple device codes as a comma-separated list using values from the Access Devices sheet. device_employee_number is required whenever access_device_codes are supplied and the same device employee number is applied to every selected device.',
       ],
       [
         'Lookup strategy',
-        'Use branch_code, department_code, position_code, and access_device_codes exactly as listed in the reference sheets. Department codes are branch-specific, and position codes are reusable but only valid where mapped in the Positions sheet.',
-      ],
-      [
-        'Unique values',
-        'Employee number is unique per company when provided. Email is unique per user. device_employee_number must be unique per selected device.',
+        'Use branch_code, department_code, position_code, and access_device_codes exactly as listed in the reference sheets. Only records with populated codes appear in the dropdowns.',
       ],
       [
         'Optional blanks',
-        'Blank optional cells are ignored. Employees can be imported successfully without access-device assignment. In update mode, blank cells do not clear existing values.',
-      ],
-      [
-        'Existing employee matching',
-        'Rows are matched using employee_number and email. CREATE_ONLY rejects matches, UPDATE_EXISTING requires a match.',
-      ],
-      [
-        'User records',
-        'The import creates inactive pending user accounts with unique random credentials. Imported users remain unverified and must set a password during activation.',
-      ],
-      [
-        'Template example row',
-        'The italic sample row is for guidance only and must be removed before import.',
+        'Blank optional cells are ignored. In update mode, blank cells do not clear existing values.',
       ],
     ];
     instructionRows.forEach(([topic, details]) =>
@@ -576,6 +561,10 @@ export class EmployeeImportService {
       'Branches',
       1,
       'BranchCodes',
+      {
+        promptTitle: 'Select branch code',
+        prompt: 'Choose a branch code from the Branches sheet list.',
+      },
     );
     this.addListValidationFromSheet(
       workbook,
@@ -584,6 +573,10 @@ export class EmployeeImportService {
       'Departments',
       1,
       'DepartmentCodes',
+      {
+        promptTitle: 'Select department code',
+        prompt: 'Choose a department code from the Departments sheet list.',
+      },
     );
     this.addListValidationFromSheet(
       workbook,
@@ -592,6 +585,10 @@ export class EmployeeImportService {
       'Positions',
       1,
       'PositionCodes',
+      {
+        promptTitle: 'Select position code',
+        prompt: 'Choose a position code from the Positions sheet list.',
+      },
     );
     this.addListValidationFromSheet(
       workbook,
@@ -600,6 +597,10 @@ export class EmployeeImportService {
       'Employment Types',
       1,
       'EmploymentTypes',
+      {
+        promptTitle: 'Select employment type',
+        prompt: 'Choose a supported employment type from the list.',
+      },
     );
     this.addListValidationFromSheet(
       workbook,
@@ -608,6 +609,10 @@ export class EmployeeImportService {
       'Genders',
       1,
       'GenderValues',
+      {
+        promptTitle: 'Select gender',
+        prompt: 'Choose a supported gender value from the list.',
+      },
     );
     this.addListValidationFromSheet(
       workbook,
@@ -617,6 +622,9 @@ export class EmployeeImportService {
       1,
       'AccessDeviceCodes',
       {
+        promptTitle: 'Select access device code',
+        prompt:
+          'Choose a device code from the list, or enter multiple valid codes separated by commas.',
         errorStyle: 'warning',
         errorTitle: 'Use device codes',
         error:
@@ -791,19 +799,19 @@ export class EmployeeImportService {
   ): Promise<EmployeeImportResponseDto & { rows: Record<string, unknown>[] }> {
     const batchId = this.optionalString(dto.batch_id);
     const previewToken = this.optionalString(dto.preview_token);
+    const executionMode =
+      dto.execution_mode ?? EmployeeImportExecutionModeEnum.NORMAL;
     if (!batchId && !previewToken) {
       throw new BadRequestException(
         'batch_id or preview_token is required to confirm an employee import',
       );
     }
 
-    const normalizedIdempotencyKey =
-      this.normalizeIdempotencyKey(idempotencyKey);
-    if (!normalizedIdempotencyKey) {
-      throw new BadRequestException(
-        'The Idempotency-Key header is required to confirm an employee import.',
-      );
-    }
+    const normalizedIdempotencyKey = this.resolveImportIdempotencyKey(
+      companyId,
+      dto,
+      idempotencyKey,
+    );
 
     const idempotencyKeyHash = this.hashIdempotencyKey(
       normalizedIdempotencyKey,
@@ -1035,8 +1043,12 @@ export class EmployeeImportService {
       batch.metadata = {
         ...(batch.metadata ?? {}),
         process_valid_rows_only: processValidRowsOnly,
+        execution_mode: executionMode,
         selected_row_ids: Array.from(selectedRowIds),
         requested_idempotency_key: normalizedIdempotencyKey,
+        idempotency_key_source: this.normalizeIdempotencyKey(idempotencyKey)
+          ? 'header'
+          : 'generated',
         existing_skipped: existingSkipped,
         invalid_skipped: invalidSkipped,
         duplicate_in_file_skipped: duplicateInFileSkipped,
@@ -1047,28 +1059,57 @@ export class EmployeeImportService {
 
       await rowRepository.save(batch.rows);
       const savedBatch = await batchRepository.save(batch);
-      await outboxRepository.save(
-        outboxRepository.create({
-          eventId: crypto.randomUUID(),
-          companyId,
-          batchId: savedBatch.id,
-          eventType: EmployeeImportOutboxEventType.PROCESS_IMPORT_BATCH,
-          payload: {
+      if (executionMode === EmployeeImportExecutionModeEnum.NORMAL) {
+        await outboxRepository.save(
+          outboxRepository.create({
+            eventId: crypto.randomUUID(),
             companyId,
-            databaseBatchId: savedBatch.id,
-            batchId: savedBatch.batchId,
-            requestedByUserId: actor.id ?? null,
-            requestedByCompanyUserId: actor.companyMembershipId ?? null,
-          },
-        }),
-      );
+            batchId: savedBatch.id,
+            eventType: EmployeeImportOutboxEventType.PROCESS_IMPORT_BATCH,
+            payload: {
+              companyId,
+              databaseBatchId: savedBatch.id,
+              batchId: savedBatch.batchId,
+              requestedByUserId: actor.id ?? null,
+              requestedByCompanyUserId: actor.companyMembershipId ?? null,
+            },
+          }),
+        );
+      }
 
       return {
         batch: savedBatch,
         replayed: false,
         queuedRows,
+        executionMode,
       };
     });
+
+    if (executionMode === EmployeeImportExecutionModeEnum.SYNC) {
+      if (
+        ![
+          EmployeeImportBatchStatusEnum.COMPLETED,
+          EmployeeImportBatchStatusEnum.COMPLETED_WITH_ERRORS,
+          EmployeeImportBatchStatusEnum.FAILED,
+          EmployeeImportBatchStatusEnum.CANCELLED,
+          EmployeeImportBatchStatusEnum.EXPIRED,
+        ].includes(result.batch.status)
+      ) {
+        await this.processQueuedBatch(
+          {
+            companyId,
+            databaseBatchId: result.batch.id,
+            batchId: result.batch.batchId,
+            requestedByUserId: actor.id ?? null,
+            requestedByCompanyUserId: actor.companyMembershipId ?? null,
+          },
+          `sync-${result.batch.batchId}`,
+        );
+      }
+
+      return (await this.getResult(companyId, result.batch.batchId)) as
+        EmployeeImportResponseDto & { rows: Record<string, unknown>[] };
+    }
 
     return this.buildQueuedImportResponse(
       result.batch,
@@ -1625,83 +1666,7 @@ export class EmployeeImportService {
       throw new NotFoundException('Employee import batch not found');
     }
 
-    const workbook = new ExcelJS.Workbook();
-    const resultSheet = workbook.addWorksheet('Import Results');
-    const columns = [
-      'row_number',
-      ...IMPORT_COLUMNS,
-      'status',
-      'preview_status',
-      'device_assignment_status',
-      'device_assignment_message',
-      'device_codes',
-      'effective_device_employee_number',
-      'import_action',
-      'employee_id',
-      'user_id',
-      'matched_by',
-      'existing_employee',
-      'errors',
-      'warnings',
-    ];
-
-    resultSheet.addRow(columns);
-    resultSheet.getRow(1).font = { bold: true };
-    resultSheet.views = [{ state: 'frozen', ySplit: 1 }];
-    resultSheet.autoFilter = {
-      from: { row: 1, column: 1 },
-      to: { row: 1, column: columns.length },
-    };
-
-    for (const row of batch.rows.sort(
-      (left, right) => left.rowNumber - right.rowNumber,
-    )) {
-      const deviceAssignment =
-        (row.resultData?.device_assignment as
-          | DeviceAssignmentPreview
-          | undefined) ?? this.buildDeviceAssignmentPreview(row, null);
-      const output: Record<string, unknown> = {
-        row_number: row.rowNumber,
-      };
-
-      for (const column of IMPORT_COLUMNS) {
-        output[column] = this.exportSafeCellValue(row.rawData[column] ?? '');
-      }
-
-      output.status = row.status;
-      output.preview_status = row.resultData?.preview_status ?? '';
-      output.device_assignment_status = deviceAssignment.status;
-      output.device_assignment_message = deviceAssignment.message;
-      output.device_codes = deviceAssignment.deviceCodes.join(', ');
-      output.effective_device_employee_number =
-        deviceAssignment.effectiveDeviceEmployeeNumber ?? '';
-      output.import_action = row.importAction ?? '';
-      output.employee_id = row.createdEmployeeId ?? '';
-      output.user_id = row.createdUserId ?? '';
-      output.matched_by = Array.isArray(row.resultData?.matched_by)
-        ? (row.resultData?.matched_by as string[]).join(', ')
-        : '';
-      output.existing_employee =
-        row.resultData?.existing_employee &&
-        typeof row.resultData.existing_employee === 'object' &&
-        !Array.isArray(row.resultData.existing_employee)
-          ? ((row.resultData.existing_employee as { fullName?: string })
-              .fullName ?? '')
-          : '';
-      output.errors = (row.errors ?? []).join(' | ');
-      output.warnings = (row.warnings ?? []).join(' | ');
-      resultSheet.addRow(columns.map((column) => output[column] ?? ''));
-    }
-
-    resultSheet.columns.forEach((column) => {
-      column.width = 22;
-    });
-
-    const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
-    return {
-      buffer,
-      fileName: `${batch.batchId}-result.xlsx`,
-    };
+    return this.buildResultWorkbook(batch);
   }
 
   private async persistPreviewBatch(
@@ -1855,6 +1820,7 @@ export class EmployeeImportService {
     const email = this.optionalString(values.email)?.toLowerCase() ?? null;
     const gender = this.optionalString(values.gender)?.toLowerCase() ?? null;
     const employeeNumber = this.optionalString(values.employee_number);
+    const phone = this.optionalString(values.phone);
     const deviceEmployeeNumber = this.optionalString(
       values.device_employee_number,
     );
@@ -1898,6 +1864,14 @@ export class EmployeeImportService {
         'email',
         values.email ?? null,
         'Email address format is invalid',
+      );
+    }
+    if (phone && !/^\+?[0-9][0-9()\s-]{5,24}$/.test(phone)) {
+      this.addIssue(
+        row,
+        'phone',
+        values.phone ?? null,
+        'Phone number format is invalid',
       );
     }
 
@@ -2089,6 +2063,102 @@ export class EmployeeImportService {
       );
     }
 
+    const dateOfBirthErrors: string[] = [];
+    const dateOfBirth = this.parseDate(
+      values.date_of_birth,
+      'date_of_birth',
+      dateOfBirthErrors,
+    );
+    dateOfBirthErrors.forEach((message) =>
+      this.addIssue(
+        row,
+        'date_of_birth',
+        values.date_of_birth ?? null,
+        message,
+        'Use an ISO date like YYYY-MM-DD.',
+      ),
+    );
+    if (dateOfBirth && dateOfBirth > this.getTodayIsoDate()) {
+      this.addIssue(
+        row,
+        'date_of_birth',
+        values.date_of_birth ?? null,
+        'Date of birth cannot be in the future',
+      );
+    }
+
+    const shiftEffectiveFromErrors: string[] = [];
+    const shiftEffectiveFrom = this.parseDate(
+      values.shift_effective_from,
+      'shift_effective_from',
+      shiftEffectiveFromErrors,
+    );
+    shiftEffectiveFromErrors.forEach((message) =>
+      this.addIssue(
+        row,
+        'shift_effective_from',
+        values.shift_effective_from ?? null,
+        message,
+        'Use an ISO date like YYYY-MM-DD.',
+      ),
+    );
+
+    const timetableEffectiveFromErrors: string[] = [];
+    const timetableEffectiveFrom = this.parseDate(
+      values.timetable_effective_from,
+      'timetable_effective_from',
+      timetableEffectiveFromErrors,
+    );
+    timetableEffectiveFromErrors.forEach((message) =>
+      this.addIssue(
+        row,
+        'timetable_effective_from',
+        values.timetable_effective_from ?? null,
+        message,
+        'Use an ISO date like YYYY-MM-DD.',
+      ),
+    );
+
+    const providedShiftCode = this.optionalString(values.shift_code);
+    const explicitShift = providedShiftCode
+      ? this.resolveShiftReference(values.shift_code, references.shifts)
+      : null;
+    if (providedShiftCode && !explicitShift) {
+      this.addIssue(
+        row,
+        'shift_code',
+        providedShiftCode,
+        `Shift code "${providedShiftCode}" was not found`,
+      );
+    }
+
+    const providedTimetableCode = this.optionalString(values.timetable_code);
+    const explicitTimetable = providedTimetableCode
+      ? this.resolveTimetableReference(
+          values.timetable_code,
+          references.timetables,
+        )
+      : null;
+    if (providedTimetableCode && !explicitTimetable) {
+      this.addIssue(
+        row,
+        'timetable_code',
+        providedTimetableCode,
+        `Timetable code "${providedTimetableCode}" was not found`,
+      );
+    }
+
+    const resolvedTimetable =
+      explicitTimetable ??
+      this.findCompanyDefaultTimetable(references.timetables);
+    const resolvedShift =
+      explicitShift ??
+      this.resolveDefaultShiftForImport(
+        resolvedTimetable,
+        employmentDate,
+        references.shifts,
+      );
+
     const deviceCodes = this.parseMultiValue(values.access_device_codes);
     const resolvedDevices: AttendanceDevice[] = [];
     for (const code of deviceCodes) {
@@ -2167,20 +2237,59 @@ export class EmployeeImportService {
     normalizedData.last_name = lastName ?? null;
     normalizedData.employee_number = employeeNumber;
     normalizedData.email = email;
+    normalizedData.phone = phone;
     normalizedData.gender = gender;
+    normalizedData.date_of_birth = dateOfBirth;
+    normalizedData.marital_status =
+      this.optionalString(values.marital_status) ?? null;
+    normalizedData.nationality =
+      this.optionalString(values.nationality) ?? null;
     normalizedData.employment_date = employmentDate;
     normalizedData.branch_code = branch?.code ?? null;
     normalizedData.branch_id = branch?.id ?? null;
+    normalizedData.branch_name = branch?.name ?? null;
     normalizedData.department_code = department?.code ?? null;
     normalizedData.department_id = department?.id ?? null;
+    normalizedData.department_name = department?.name ?? null;
     normalizedData.position_code = position?.code ?? null;
     normalizedData.position_id = position?.id ?? null;
+    normalizedData.position_name = position?.name ?? null;
+    normalizedData.manager_employee_number =
+      this.optionalString(values.manager_employee_number) ?? null;
     normalizedData.employment_type = employmentType;
+    normalizedData.shift_code = resolvedShift?.code ?? null;
+    normalizedData.shift_id = resolvedShift?.id ?? null;
+    normalizedData.shift_name = resolvedShift?.name ?? null;
+    normalizedData.shift_effective_from = shiftEffectiveFrom;
+    normalizedData.timetable_code = resolvedTimetable?.code ?? null;
+    normalizedData.timetable_id = resolvedTimetable?.id ?? null;
+    normalizedData.timetable_name = resolvedTimetable?.name ?? null;
+    normalizedData.timetable_effective_from = timetableEffectiveFrom;
+    normalizedData.national_id =
+      this.optionalString(values.national_id) ?? null;
+    normalizedData.tax_id = this.optionalString(values.tax_id) ?? null;
+    normalizedData.social_security_number =
+      this.optionalString(values.social_security_number) ?? null;
+    normalizedData.passport_number =
+      this.optionalString(values.passport_number) ?? null;
+    normalizedData.work_permit_number =
+      this.optionalString(values.work_permit_number) ?? null;
+    normalizedData.address = this.optionalString(values.address) ?? null;
+    normalizedData.emergency_contact_name =
+      this.optionalString(values.emergency_contact_name) ?? null;
+    normalizedData.emergency_contact_phone =
+      this.optionalString(values.emergency_contact_phone) ?? null;
     normalizedData.access_device_codes = resolvedDevices.map(
       (device) => device.deviceCode,
     );
+    normalizedData.access_device_names = resolvedDevices.map(
+      (device) => device.deviceName,
+    );
     normalizedData.device_ids = resolvedDevices.map((device) => device.id);
     normalizedData.device_employee_number = deviceEmployeeNumber;
+    normalizedData.card_number =
+      this.optionalString(values.card_number) ?? null;
+    normalizedData.notes = this.optionalString(values.notes) ?? null;
 
     row.normalizedData = normalizedData;
     row.warnings = warnings;
@@ -2283,17 +2392,7 @@ export class EmployeeImportService {
         auto_start: false,
       },
       contacts: contacts.length > 0 ? contacts : undefined,
-      identifications: this.optionalString(normalizedData.national_id)
-        ? [
-            {
-              identification_type: IdentificationTypeEnum.NATIONAL_ID,
-              identification_number: String(normalizedData.national_id),
-              issued_country:
-                this.optionalString(normalizedData.nationality) ?? undefined,
-              is_primary: true,
-            },
-          ]
-        : undefined,
+      identifications: this.buildEmployeeIdentificationInputs(normalizedData),
       addresses: this.optionalString(normalizedData.address)
         ? [
             {
@@ -2317,6 +2416,153 @@ export class EmployeeImportService {
           ]
         : undefined,
     };
+  }
+
+  private buildEmployeeIdentificationInputs(
+    normalizedData: Record<string, unknown>,
+  ):
+    | Array<{
+        identification_type: IdentificationTypeEnum;
+        identification_number: string;
+        issued_country?: string;
+        is_primary: boolean;
+      }>
+    | undefined {
+    const issuedCountry =
+      this.optionalString(normalizedData.nationality) ?? undefined;
+    const identificationFields: Array<{
+      field:
+        | 'national_id'
+        | 'tax_id'
+        | 'social_security_number'
+        | 'passport_number'
+        | 'work_permit_number';
+      type: IdentificationTypeEnum;
+      isPrimary: boolean;
+    }> = [
+      {
+        field: 'national_id',
+        type: IdentificationTypeEnum.NATIONAL_ID,
+        isPrimary: true,
+      },
+      {
+        field: 'tax_id',
+        type: IdentificationTypeEnum.TAX_ID,
+        isPrimary: false,
+      },
+      {
+        field: 'social_security_number',
+        type: IdentificationTypeEnum.SOCIAL_SECURITY,
+        isPrimary: false,
+      },
+      {
+        field: 'passport_number',
+        type: IdentificationTypeEnum.PASSPORT,
+        isPrimary: false,
+      },
+      {
+        field: 'work_permit_number',
+        type: IdentificationTypeEnum.WORK_PERMIT,
+        isPrimary: false,
+      },
+    ];
+
+    const inputs = identificationFields.flatMap((item) => {
+      const value = this.optionalString(normalizedData[item.field]);
+      if (!value) {
+        return [];
+      }
+
+      return [
+        {
+          identification_type: item.type,
+          identification_number: value,
+          issued_country: issuedCountry,
+          is_primary: item.isPrimary,
+        },
+      ];
+    });
+
+    if (inputs.length === 0) {
+      return undefined;
+    }
+
+    if (!inputs.some((item) => item.is_primary)) {
+      inputs[0].is_primary = true;
+    }
+
+    return inputs;
+  }
+
+  private findCompanyDefaultTimetable(
+    timetables: Timetable[],
+  ): Timetable | null {
+    return (
+      timetables.find(
+        (timetable) =>
+          timetable.status === TimetableStatusEnum.ACTIVE &&
+          timetable.isDefault,
+      ) ?? null
+    );
+  }
+
+  private resolveDefaultShiftForImport(
+    timetable: Timetable | null,
+    effectiveDate: string | null,
+    shifts: Shift[],
+  ): Shift | null {
+    if (!timetable?.days?.length) {
+      return null;
+    }
+
+    const activeShiftById = new Map(
+      shifts
+        .filter((shift) => shift.status === ShiftStatusEnum.ACTIVE)
+        .map((shift) => [shift.id, shift] as const),
+    );
+    const workingDays = timetable.days
+      .filter((day) => day.isWorkingDay && day.defaultShiftId)
+      .sort((left, right) => left.dayOfWeek - right.dayOfWeek);
+
+    if (workingDays.length === 0) {
+      return null;
+    }
+
+    const targetDayOfWeek = this.getDayOfWeekFromIsoDate(effectiveDate);
+    const orderedDays =
+      targetDayOfWeek === null
+        ? workingDays
+        : [
+            ...workingDays.filter((day) => day.dayOfWeek === targetDayOfWeek),
+            ...workingDays.filter((day) => day.dayOfWeek !== targetDayOfWeek),
+          ];
+
+    for (const day of orderedDays) {
+      const shiftId = day.defaultShiftId ?? day.defaultShift?.id ?? null;
+      if (!shiftId) {
+        continue;
+      }
+
+      const shift = activeShiftById.get(shiftId) ?? null;
+      if (shift) {
+        return shift;
+      }
+    }
+
+    return null;
+  }
+
+  private getDayOfWeekFromIsoDate(dateText: string | null): number | null {
+    if (!dateText) {
+      return null;
+    }
+
+    const date = new Date(`${dateText}T00:00:00.000Z`);
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+
+    return date.getUTCDay();
   }
 
   private buildEmployeeUpdateDto(
@@ -3385,11 +3631,10 @@ export class EmployeeImportService {
     batchId?: string | null,
     previewToken?: string | null,
   ): Promise<EmployeeImportBatch | null> {
+    const rowRepository = repository.manager.getRepository(EmployeeImportRow);
     const query = repository
       .createQueryBuilder('batch')
-      .leftJoinAndSelect('batch.rows', 'row')
       .where('batch.companyId = :companyId', { companyId })
-      .orderBy('row.rowNumber', 'ASC')
       .setLock('pessimistic_write');
 
     if (batchId) {
@@ -3400,7 +3645,17 @@ export class EmployeeImportService {
       });
     }
 
-    return query.getOne();
+    const batch = await query.getOne();
+    if (!batch) {
+      return null;
+    }
+
+    batch.rows = await rowRepository.find({
+      where: { batchId: batch.id },
+      order: { rowNumber: 'ASC' },
+    });
+
+    return batch;
   }
 
   private buildPreviewRequestDtoFromBatch(
@@ -3503,6 +3758,39 @@ export class EmployeeImportService {
   private normalizeIdempotencyKey(value?: string | null): string | null {
     const normalized = this.optionalString(value);
     return normalized ? normalized.slice(0, 255) : null;
+  }
+
+  private resolveImportIdempotencyKey(
+    companyId: number,
+    dto: EmployeeImportConfirmDto,
+    value?: string | null,
+  ): string {
+    const normalized = this.normalizeIdempotencyKey(value);
+    if (normalized) {
+      return normalized;
+    }
+
+    const stablePayload = {
+      companyId,
+      batch_id: this.optionalString(dto.batch_id) ?? null,
+      preview_token: this.optionalString(dto.preview_token) ?? null,
+      row_ids: [...new Set(dto.row_ids ?? [])].sort(
+        (left, right) => left - right,
+      ),
+      excluded_row_ids: [...new Set(dto.excluded_row_ids ?? [])].sort(
+        (left, right) => left - right,
+      ),
+      skip_existing_records: dto.skip_existing_records ?? null,
+      exclude_invalid_records: dto.exclude_invalid_records ?? null,
+      process_valid_rows_only: dto.process_valid_rows_only ?? null,
+    };
+
+    const hash = crypto
+      .createHash('sha256')
+      .update(JSON.stringify(stablePayload))
+      .digest('hex');
+
+    return `auto-employee-import-${hash}`;
   }
 
   private hashIdempotencyKey(value: string): string {
@@ -3612,7 +3900,12 @@ export class EmployeeImportService {
     batch: EmployeeImportBatch,
   ): Promise<{ buffer: Buffer; fileName: string }> {
     const workbook = new ExcelJS.Workbook();
-    const resultSheet = workbook.addWorksheet('Import Results');
+    const importReviewSheet = workbook.addWorksheet(
+      EMPLOYEE_IMPORT_MAPPING_REVIEW_SHEET,
+    );
+    this.populateImportReviewSheet(importReviewSheet, batch);
+
+    const resultSheet = workbook.addWorksheet(IMPORT_RESULTS_SHEET);
     const columns = [
       'row_number',
       ...IMPORT_COLUMNS,
@@ -3686,7 +3979,7 @@ export class EmployeeImportService {
     const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
     return {
       buffer,
-      fileName: `${batch.batchId}-result.xlsx`,
+      fileName: this.buildResultWorkbookFileName(batch),
     };
   }
 
@@ -3699,14 +3992,15 @@ export class EmployeeImportService {
     const unsupportedHeaders: string[] = [];
 
     headerRow.eachCell({ includeEmpty: false }, (cell) => {
-      const header = this.normalizeHeader(
+      const rawHeader = this.normalizeHeader(
         this.optionalString(this.readCellValue(cell.value)) ?? '',
       );
+      const header = HEADER_ALIASES[rawHeader] ?? rawHeader;
       if (!header) {
         return;
       }
       headers.push(header);
-      if (!IMPORT_COLUMNS.includes(header as ImportColumn)) {
+      if (!IMPORT_COLUMNS.includes(header)) {
         unsupportedHeaders.push(header);
       }
     });
@@ -3863,6 +4157,11 @@ export class EmployeeImportService {
       }),
       this.timetableRepository.find({
         where: { companyId },
+        relations: {
+          days: {
+            defaultShift: true,
+          },
+        },
         order: { name: 'ASC' },
       }),
       this.attendanceDeviceRepository.find({
@@ -4014,13 +4313,434 @@ export class EmployeeImportService {
     const sheet = workbook.addWorksheet(name);
     sheet.addRow(columns);
     sheet.getRow(1).font = { bold: true };
-    sheet.views = [{ state: 'frozen', ySplit: 1 }];
     for (const row of rows) {
       sheet.addRow(columns.map((column) => row[column] ?? ''));
     }
     sheet.columns.forEach((column) => {
       column.width = 22;
     });
+  }
+
+  private applyEmployeeTemplateGrid(employeeSheet: ExcelJS.Worksheet): void {
+    for (
+      let rowNumber = 2;
+      rowNumber <= TEMPLATE_VALIDATION_ROW_COUNT;
+      rowNumber += 1
+    ) {
+      const row = employeeSheet.getRow(rowNumber);
+      row.height = 12.65;
+
+      TEMPLATE_COLUMNS.forEach((column, index) => {
+        const cell = row.getCell(index + 1);
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFFFFFFF' },
+        };
+        cell.font = {
+          name: 'Calibri',
+          size: 10,
+          color: { argb: 'FF1F1F1F' },
+        };
+        cell.alignment = { vertical: 'middle' };
+        cell.border = {
+          top: { style: 'thin' },
+          bottom: { style: 'thin' },
+          left: { style: 'thin' },
+          right: { style: 'thin' },
+        };
+
+        if (
+          column !== 'first_name' &&
+          column !== 'middle_name' &&
+          column !== 'last_name' &&
+          column !== 'gender'
+        ) {
+          cell.numFmt = '@';
+        }
+      });
+    }
+  }
+
+  private populateImportReviewSheet(
+    importReviewSheet: ExcelJS.Worksheet,
+    batch: EmployeeImportBatch,
+  ): void {
+    const sortedRows = [...(batch.rows ?? [])].sort(
+      (left, right) => left.rowNumber - right.rowNumber,
+    );
+    const summaryRows = this.buildImportResultSummaryRows(batch, sortedRows);
+    const detailRows = sortedRows.map((row) =>
+      this.buildImportReviewDetailRow(row),
+    );
+    const detailHeaderRowNumber = summaryRows.length + 5;
+    const lastColumnLetter = this.getExcelColumnLetter(
+      IMPORT_REVIEW_COLUMNS.length,
+    );
+
+    importReviewSheet.mergeCells(`A1:${lastColumnLetter}1`);
+    importReviewSheet.getCell('A1').value = 'Employee Import Mapping Review';
+    importReviewSheet.getCell('A1').fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF1F4E78' },
+    };
+    importReviewSheet.getCell('A1').font = {
+      name: 'Calibri',
+      size: 15,
+      bold: true,
+      color: { argb: 'FFFFFFFF' },
+    };
+    importReviewSheet.getCell('A1').alignment = {
+      horizontal: 'center',
+      vertical: 'middle',
+    };
+    importReviewSheet.getRow(1).height = 22;
+    importReviewSheet.views = [
+      { state: 'frozen', ySplit: detailHeaderRowNumber },
+    ];
+
+    IMPORT_REVIEW_COLUMNS.forEach((column, index) => {
+      importReviewSheet.getColumn(index + 1).width = column.width;
+    });
+
+    const summaryHeaderRow = importReviewSheet.getRow(3);
+    summaryHeaderRow.getCell(1).value = 'Metric';
+    summaryHeaderRow.getCell(2).value = 'Value';
+    ['A3', 'B3'].forEach((address) => {
+      const cell = importReviewSheet.getCell(address);
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFD9EAF7' },
+      };
+      cell.font = {
+        name: 'Calibri',
+        size: 11,
+        bold: true,
+        color: { argb: 'FF17365D' },
+      };
+      cell.alignment = {
+        horizontal: 'center',
+        vertical: 'middle',
+      };
+    });
+
+    summaryRows.forEach(([metric, value], index) => {
+      const row = importReviewSheet.getRow(4 + index);
+      row.getCell(1).value = metric;
+      row.getCell(2).value = value;
+      row.eachCell({ includeEmpty: false }, (cell) => {
+        cell.font = {
+          name: 'Calibri',
+          size: 11,
+          color: { theme: 1 },
+        };
+        cell.alignment = {
+          vertical: 'top',
+          wrapText: true,
+        };
+      });
+    });
+
+    const detailHeaderRow = importReviewSheet.getRow(detailHeaderRowNumber);
+    IMPORT_REVIEW_COLUMNS.forEach((item, index) => {
+      detailHeaderRow.getCell(index + 1).value = item.header;
+    });
+    for (let index = 1; index <= IMPORT_REVIEW_COLUMNS.length; index += 1) {
+      const cell = detailHeaderRow.getCell(index);
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF1F4E78' },
+      };
+      cell.font = {
+        name: 'Calibri',
+        size: 11,
+        bold: true,
+        color: { argb: 'FFFFFFFF' },
+      };
+      cell.alignment = {
+        horizontal: 'center',
+        vertical: 'middle',
+        wrapText: true,
+      };
+    }
+
+    detailRows.forEach((detailRow, index) => {
+      const row = importReviewSheet.getRow(detailHeaderRowNumber + 1 + index);
+      IMPORT_REVIEW_COLUMNS.forEach((column, columnIndex) => {
+        const cell = row.getCell(columnIndex + 1);
+        cell.value = detailRow[column.header] ?? '';
+        cell.alignment = {
+          vertical: 'top',
+          wrapText: true,
+        };
+        cell.font = {
+          name: 'Calibri',
+          size: 11,
+        };
+      });
+    });
+
+    importReviewSheet.autoFilter = {
+      from: { row: detailHeaderRowNumber, column: 1 },
+      to: {
+        row: detailHeaderRowNumber,
+        column: IMPORT_REVIEW_COLUMNS.length,
+      },
+    };
+  }
+
+  private buildImportResultSummaryRows(
+    batch: EmployeeImportBatch,
+    rows: EmployeeImportRow[],
+  ): Array<[string, string | number]> {
+    const totalRows = rows.length;
+    const successfulImports = rows.filter(
+      (row) => this.mapImportReviewStatus(row) === 'SUCCESS',
+    ).length;
+    const failedImports = rows.filter(
+      (row) => this.mapImportReviewStatus(row) === 'FAILED',
+    ).length;
+    const skippedRecords = rows.filter(
+      (row) => this.mapImportReviewStatus(row) === 'SKIPPED',
+    ).length;
+    const duplicateRecords = rows.filter(
+      (row) => this.mapImportReviewStatus(row) === 'DUPLICATE',
+    ).length;
+
+    return [
+      ['Total rows processed', totalRows],
+      ['Successful imports', successfulImports],
+      ['Failed imports', failedImports],
+      ['Skipped records', skippedRecords],
+      ['Duplicate records', duplicateRecords],
+      [
+        'Import date/time',
+        this.formatImportResultTimestamp(
+          batch.completedAt ?? batch.createdAt ?? new Date(),
+        ),
+      ],
+    ];
+  }
+
+  private buildImportReviewDetailRow(
+    row: EmployeeImportRow,
+  ): Record<(typeof IMPORT_REVIEW_COLUMNS)[number]['header'], string | number> {
+    const normalizedData = row.normalizedData ?? {};
+    const rawData = row.rawData ?? {};
+    const deviceAssignment =
+      (row.resultData?.device_assignment as
+        | DeviceAssignmentPreview
+        | undefined) ?? this.buildDeviceAssignmentPreview(row, null);
+    const accessDeviceCodes = Array.isArray(normalizedData.access_device_codes)
+      ? (normalizedData.access_device_codes as unknown[])
+          .filter(
+            (value): value is string =>
+              typeof value === 'string' && value.trim().length > 0,
+          )
+          .join(', ')
+      : this.parseMultiValue(rawData.access_device_codes).join(', ');
+    const resolvedAccessDevices = Array.isArray(
+      normalizedData.access_device_names,
+    )
+      ? (normalizedData.access_device_names as unknown[])
+          .filter(
+            (value): value is string =>
+              typeof value === 'string' && value.trim().length > 0,
+          )
+          .join(', ')
+      : '';
+
+    return {
+      'Excel row number': row.rowNumber,
+      'employee number':
+        this.exportSafeCellValue(
+          row.employeeNumber ??
+            this.optionalString(normalizedData.employee_number) ??
+            this.optionalString(rawData.employee_number) ??
+            '',
+        ) ?? '',
+      'employee name':
+        this.optionalString(row.employeeName) ??
+        this.buildEmployeeNameFromRowData(rawData, normalizedData),
+      email:
+        this.exportSafeCellValue(
+          this.optionalString(normalizedData.email) ??
+            this.optionalString(rawData.email) ??
+            '',
+        ) ?? '',
+      'branch code':
+        this.exportSafeCellValue(
+          this.optionalString(normalizedData.branch_code) ??
+            this.optionalString(rawData.branch_code) ??
+            '',
+        ) ?? '',
+      'resolved branch': this.optionalString(normalizedData.branch_name) ?? '',
+      'department code':
+        this.exportSafeCellValue(
+          this.optionalString(normalizedData.department_code) ??
+            this.optionalString(rawData.department_code) ??
+            '',
+        ) ?? '',
+      'resolved department':
+        this.optionalString(normalizedData.department_name) ?? '',
+      'position code':
+        this.exportSafeCellValue(
+          this.optionalString(normalizedData.position_code) ??
+            this.optionalString(rawData.position_code) ??
+            '',
+        ) ?? '',
+      'resolved position':
+        this.optionalString(normalizedData.position_name) ?? '',
+      'employment type':
+        this.exportSafeCellValue(
+          this.optionalString(normalizedData.employment_type) ??
+            this.optionalString(rawData.employment_type) ??
+            '',
+        ) ?? '',
+      'access device codes': this.exportSafeCellValue(accessDeviceCodes) ?? '',
+      'resolved access devices':
+        this.exportSafeCellValue(resolvedAccessDevices) ?? '',
+      'device employee number':
+        this.exportSafeCellValue(
+          deviceAssignment.effectiveDeviceEmployeeNumber ??
+            this.optionalString(rawData.device_employee_number) ??
+            '',
+        ) ?? '',
+      'assigned default shift':
+        this.optionalString(normalizedData.shift_name) ??
+        this.optionalString(normalizedData.shift_code) ??
+        '',
+      'assigned default timetable':
+        this.optionalString(normalizedData.timetable_name) ??
+        this.optionalString(normalizedData.timetable_code) ??
+        '',
+      'imported employee id':
+        row.createdEmployeeId ?? row.matchedEmployeeId ?? '',
+      'import status': this.mapImportReviewStatus(row),
+      'validation/import message': this.buildImportReviewMessage(row),
+    };
+  }
+
+  private mapImportReviewStatus(
+    row: EmployeeImportRow,
+  ): 'SUCCESS' | 'FAILED' | 'SKIPPED' | 'DUPLICATE' {
+    const previewStatus =
+      (row.resultData?.preview_status as PreviewRecordStatus | undefined) ??
+      null;
+    const finalStatus =
+      (row.resultData?.final_status as FinalRecordStatus | undefined) ?? null;
+
+    if (
+      previewStatus === 'DUPLICATE_IN_FILE' ||
+      finalStatus === 'DUPLICATE_IN_FILE'
+    ) {
+      return 'DUPLICATE';
+    }
+    if (
+      row.status === EmployeeImportRowStatusEnum.IMPORTED ||
+      row.status === EmployeeImportRowStatusEnum.UPDATED ||
+      finalStatus === 'IMPORTED'
+    ) {
+      return 'SUCCESS';
+    }
+    if (
+      row.status === EmployeeImportRowStatusEnum.FAILED ||
+      finalStatus === 'IMPORT_FAILED' ||
+      previewStatus === 'INVALID_RECORD'
+    ) {
+      return 'FAILED';
+    }
+    return 'SKIPPED';
+  }
+
+  private buildImportReviewMessage(row: EmployeeImportRow): string {
+    const errors = row.errors ?? [];
+    if (errors.length > 0) {
+      return errors.join(' | ');
+    }
+    const warnings = row.warnings ?? [];
+    if (warnings.length > 0) {
+      return warnings.join(' | ');
+    }
+
+    const previewStatus =
+      (row.resultData?.preview_status as PreviewRecordStatus | undefined) ??
+      null;
+    const finalStatus =
+      (row.resultData?.final_status as FinalRecordStatus | undefined) ?? null;
+
+    if (previewStatus === 'DUPLICATE_IN_FILE') {
+      return 'Duplicate employee row found in the uploaded file.';
+    }
+    if (previewStatus === 'EXISTING_RECORD') {
+      return 'Employee already exists and was skipped.';
+    }
+    if (finalStatus === 'EXCLUDED_BY_USER') {
+      return 'Row was excluded from the confirmed import.';
+    }
+    if (
+      row.status === EmployeeImportRowStatusEnum.UPDATED ||
+      row.importAction === 'UPDATE'
+    ) {
+      return 'Employee record updated successfully.';
+    }
+    if (
+      row.status === EmployeeImportRowStatusEnum.IMPORTED ||
+      finalStatus === 'IMPORTED'
+    ) {
+      return 'Employee imported successfully.';
+    }
+    if (row.status === EmployeeImportRowStatusEnum.FAILED) {
+      return 'Employee import failed.';
+    }
+    if (row.status === EmployeeImportRowStatusEnum.SKIPPED) {
+      return 'Row was skipped during import.';
+    }
+    return 'Import result recorded.';
+  }
+
+  private buildEmployeeNameFromRowData(
+    rawData: Record<string, unknown>,
+    normalizedData: Record<string, unknown>,
+  ): string {
+    const parts = [
+      this.optionalString(normalizedData.first_name) ??
+        this.optionalString(rawData.first_name),
+      this.optionalString(normalizedData.middle_name) ??
+        this.optionalString(rawData.middle_name),
+      this.optionalString(normalizedData.last_name) ??
+        this.optionalString(rawData.last_name),
+    ].filter((value): value is string => Boolean(value && value.trim()));
+
+    return parts.join(' ');
+  }
+
+  private buildResultWorkbookFileName(batch: EmployeeImportBatch): string {
+    const timestamp = batch.completedAt ?? batch.createdAt ?? new Date();
+    return `employee-import-result-${this.formatFileTimestamp(timestamp)}.xlsx`;
+  }
+
+  private formatFileTimestamp(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    return `${year}${month}${day}-${hours}${minutes}${seconds}`;
+  }
+
+  private formatImportResultTimestamp(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
   }
 
   private addListValidationFromSheet(
@@ -4050,7 +4770,7 @@ export class EmployeeImportService {
     }
 
     for (
-      let rowNumber = 2;
+      let rowNumber = TEMPLATE_DATA_START_ROW;
       rowNumber <= TEMPLATE_VALIDATION_ROW_COUNT;
       rowNumber += 1
     ) {
@@ -4059,8 +4779,9 @@ export class EmployeeImportService {
         .getCell(employeeColumnIndex).dataValidation = {
         type: 'list',
         allowBlank: true,
+        showInputMessage: true,
         showErrorMessage: true,
-        formulae: [definedName],
+        formulae: [`=${definedName}`],
         ...overrides,
       };
     }

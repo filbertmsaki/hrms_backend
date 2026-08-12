@@ -131,7 +131,7 @@ describe('Employee Import Endpoints (e2e)', () => {
       }),
       downloadResult: jest.fn().mockResolvedValue({
         buffer: Buffer.from('fake-xlsx-binary'),
-        fileName: 'IMPORT-20260730-RESULT-result.xlsx',
+        fileName: 'employee-import-result-20260730-101500.xlsx',
       }),
     };
 
@@ -220,7 +220,7 @@ describe('Employee Import Endpoints (e2e)', () => {
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     );
     expect(response.headers['content-disposition']).toContain(
-      'attachment; filename=IMPORT-20260730-RESULT-result.xlsx',
+      'attachment; filename=employee-import-result-20260730-101500.xlsx',
     );
     expect(Buffer.isBuffer(response.body)).toBe(true);
     if (!Buffer.isBuffer(response.body)) {
