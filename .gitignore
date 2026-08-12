@@ -17,8 +17,6 @@ lerna-debug.log*
 /src/database/migrations/*
 !/src/database/migrations/*.ts
 !/src/database/migrations/*.js
-/src/database/migrations/1780384036110-Migration.ts
-/src/database/migrations/1780384036110-Migration.js
 
 # Tests
 /coverage
@@ -26,6 +24,8 @@ lerna-debug.log*
 /test/*
 !/test/jest-e2e.json
 !/test/*.e2e-spec.ts
+!/test/setup-e2e.ts
+!/test/helpers/
 /test/fixtures/
 
 # IDEs and editors
@@ -77,3 +77,6 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # Local lint artifacts
 lint-report*.json
+
+# Deploy-script-generated rollback pointer (per-environment, written by scripts/deploy-*.sh)
+.previous-deploy-sha
