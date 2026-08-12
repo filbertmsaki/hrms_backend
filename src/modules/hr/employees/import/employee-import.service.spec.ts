@@ -10,6 +10,7 @@ import { EmployeeImportJobData } from './employee-import-job.constants';
 import { EmployeeImportBatch } from './entities/employee-import-batch.entity';
 import { EmployeeImportOutboxEvent } from './entities/employee-import-outbox-event.entity';
 import { EmployeeImportRow } from './entities/employee-import-row.entity';
+import { EmployeeImportExecutionModeEnum } from './dto/employee-import-confirm.dto';
 import { Employee } from '../entities/employee.entity';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { User } from '../../../users/entities/user.entity';
@@ -1392,6 +1393,328 @@ describe('EmployeeImportService', () => {
 
     expect(first).toMatch(/^auto-employee-import-[a-f0-9]{64}$/);
     expect(second).toBe(first);
+  });
+
+  it('queues import confirmation by default in NORMAL mode', async () => {
+    const batchRepository = createRepositoryMock();
+    const rowRepository = createRepositoryMock();
+    const outboxRepository = createRepositoryMock();
+    const txManager = {
+      getRepository: jest.fn((entity: unknown) => {
+        if (entity === EmployeeImportBatch) {
+          return batchRepository;
+        }
+        if (entity === EmployeeImportRow) {
+          return rowRepository;
+        }
+        if (entity === EmployeeImportOutboxEvent) {
+          return outboxRepository;
+        }
+        return createRepositoryMock();
+      }),
+    };
+
+    const storedRow = {
+      id: 201,
+      rowNumber: 2,
+      rowKey: 'row-2',
+      rawData: {
+        first_name: 'Jane',
+        last_name: 'Doe',
+        email: 'jane@example.com',
+        gender: 'female',
+      },
+      normalizedData: null,
+      warnings: [],
+      errors: [],
+      employeeName: 'Jane Doe',
+      employeeNumber: 'EMP-001',
+      deviceEmployeeNumber: null,
+      importAction: null,
+      matchedEmployeeId: null,
+      status: EmployeeImportRowStatusEnum.READY,
+      resultData: {},
+    } as EmployeeImportRow;
+    const batch = {
+      id: 301,
+      companyId: 10,
+      batchId: 'IMPORT-20260812-CONFIRM',
+      importMode: EmployeeImportModeEnum.CREATE_ONLY,
+      status: EmployeeImportBatchStatusEnum.PREVIEW_READY,
+      rows: [storedRow],
+      metadata: {},
+      validationSummary: {},
+      totalRows: 1,
+      successfulRows: 0,
+      failedRows: 0,
+      warningRows: 0,
+      createdEmployees: 0,
+      updatedEmployees: 0,
+      createdUsers: 0,
+      deviceAssignmentsCreated: 0,
+      deviceSyncPending: 0,
+    } as EmployeeImportBatch;
+
+    rowRepository.save.mockImplementation(async (value: unknown) => value);
+    batchRepository.save.mockImplementation(async (value: unknown) => value);
+    outboxRepository.create.mockImplementation((value: unknown) => value);
+    outboxRepository.save.mockImplementation(async (value: unknown) => value);
+    (
+      service as unknown as {
+        dataSource: { transaction: jest.Mock };
+      }
+    ).dataSource = {
+      transaction: jest.fn((callback: (manager: unknown) => unknown) =>
+        callback(txManager),
+      ),
+    };
+
+    jest
+      .spyOn(service as any, 'findBatchForProcessing')
+      .mockResolvedValue(batch);
+    jest.spyOn(service as any, 'loadReferenceData').mockResolvedValue({
+      branches: [],
+      departments: [],
+      positions: [],
+      departmentPositionMappings: [],
+      shifts: [],
+      timetables: [],
+      devices: [],
+      roles: [],
+      employees: [],
+      companyUsers: [],
+      users: [],
+      identifications: [],
+      deviceAssignments: [],
+      credentials: [],
+    });
+    jest
+      .spyOn(service as any, 'applyActorBranchValidation')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(service as any, 'applyBatchDuplicateValidation')
+      .mockImplementation(() => undefined);
+    jest
+      .spyOn(service as any, 'applyManagerValidation')
+      .mockImplementation(() => undefined);
+    jest.spyOn(service as any, 'validatePreviewRow').mockReturnValue({
+      rowNumber: 2,
+      identifier: 'Jane Doe',
+      rawData: storedRow.rawData,
+      normalizedData: {
+        first_name: 'Jane',
+        last_name: 'Doe',
+        email: 'jane@example.com',
+        gender: 'female',
+        access_device_codes: [],
+      },
+      errors: [],
+      warnings: [],
+      issues: [],
+      importAction: 'CREATE',
+      matchedEmployeeId: null,
+      matchedBy: [],
+      existingEmployee: null,
+      duplicateInFile: [],
+      previewStatus: 'READY_FOR_IMPORT',
+      employeeNumber: 'EMP-001',
+      deviceEmployeeNumber: null,
+      employeeName: 'Jane Doe',
+      userAccount: null,
+    });
+    const processQueuedBatchSpy = jest.spyOn(service, 'processQueuedBatch');
+
+    const result = await service.confirmImport(
+      10,
+      { preview_token: 'preview-token' },
+      actor,
+    );
+
+    expect(result.status).toBe(EmployeeImportBatchStatusEnum.QUEUED);
+    expect(outboxRepository.save).toHaveBeenCalledTimes(1);
+    expect(processQueuedBatchSpy).not.toHaveBeenCalled();
+  });
+
+  it('processes import confirmation immediately in SYNC mode', async () => {
+    const batchRepository = createRepositoryMock();
+    const rowRepository = createRepositoryMock();
+    const outboxRepository = createRepositoryMock();
+    const txManager = {
+      getRepository: jest.fn((entity: unknown) => {
+        if (entity === EmployeeImportBatch) {
+          return batchRepository;
+        }
+        if (entity === EmployeeImportRow) {
+          return rowRepository;
+        }
+        if (entity === EmployeeImportOutboxEvent) {
+          return outboxRepository;
+        }
+        return createRepositoryMock();
+      }),
+    };
+
+    const storedRow = {
+      id: 202,
+      rowNumber: 2,
+      rowKey: 'row-2',
+      rawData: {
+        first_name: 'John',
+        last_name: 'Importer',
+        email: 'john@example.com',
+        gender: 'male',
+      },
+      normalizedData: null,
+      warnings: [],
+      errors: [],
+      employeeName: 'John Importer',
+      employeeNumber: 'EMP-002',
+      deviceEmployeeNumber: null,
+      importAction: null,
+      matchedEmployeeId: null,
+      status: EmployeeImportRowStatusEnum.READY,
+      resultData: {},
+    } as EmployeeImportRow;
+    const batch = {
+      id: 302,
+      companyId: 10,
+      batchId: 'IMPORT-20260812-SYNC',
+      importMode: EmployeeImportModeEnum.CREATE_ONLY,
+      status: EmployeeImportBatchStatusEnum.PREVIEW_READY,
+      rows: [storedRow],
+      metadata: {},
+      validationSummary: {},
+      totalRows: 1,
+      successfulRows: 0,
+      failedRows: 0,
+      warningRows: 0,
+      createdEmployees: 0,
+      updatedEmployees: 0,
+      createdUsers: 0,
+      deviceAssignmentsCreated: 0,
+      deviceSyncPending: 0,
+    } as EmployeeImportBatch;
+
+    rowRepository.save.mockImplementation(async (value: unknown) => value);
+    batchRepository.save.mockImplementation(async (value: unknown) => value);
+    outboxRepository.create.mockImplementation((value: unknown) => value);
+    outboxRepository.save.mockImplementation(async (value: unknown) => value);
+    (
+      service as unknown as {
+        dataSource: { transaction: jest.Mock };
+      }
+    ).dataSource = {
+      transaction: jest.fn((callback: (manager: unknown) => unknown) =>
+        callback(txManager),
+      ),
+    };
+
+    jest
+      .spyOn(service as any, 'findBatchForProcessing')
+      .mockResolvedValue(batch);
+    jest.spyOn(service as any, 'loadReferenceData').mockResolvedValue({
+      branches: [],
+      departments: [],
+      positions: [],
+      departmentPositionMappings: [],
+      shifts: [],
+      timetables: [],
+      devices: [],
+      roles: [],
+      employees: [],
+      companyUsers: [],
+      users: [],
+      identifications: [],
+      deviceAssignments: [],
+      credentials: [],
+    });
+    jest
+      .spyOn(service as any, 'applyActorBranchValidation')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(service as any, 'applyBatchDuplicateValidation')
+      .mockImplementation(() => undefined);
+    jest
+      .spyOn(service as any, 'applyManagerValidation')
+      .mockImplementation(() => undefined);
+    jest.spyOn(service as any, 'validatePreviewRow').mockReturnValue({
+      rowNumber: 2,
+      identifier: 'John Importer',
+      rawData: storedRow.rawData,
+      normalizedData: {
+        first_name: 'John',
+        last_name: 'Importer',
+        email: 'john@example.com',
+        gender: 'male',
+        access_device_codes: [],
+      },
+      errors: [],
+      warnings: [],
+      issues: [],
+      importAction: 'CREATE',
+      matchedEmployeeId: null,
+      matchedBy: [],
+      existingEmployee: null,
+      duplicateInFile: [],
+      previewStatus: 'READY_FOR_IMPORT',
+      employeeNumber: 'EMP-002',
+      deviceEmployeeNumber: null,
+      employeeName: 'John Importer',
+      userAccount: null,
+    });
+    const processQueuedBatchSpy = jest
+      .spyOn(service, 'processQueuedBatch')
+      .mockResolvedValue(undefined);
+    const getResultSpy = jest.spyOn(service, 'getResult').mockResolvedValue({
+      batchId: 'IMPORT-20260812-SYNC',
+      status: EmployeeImportBatchStatusEnum.COMPLETED,
+      totalRows: 1,
+      successfulRows: 1,
+      failedRows: 0,
+      skippedRows: 0,
+      warningRows: 0,
+      createdEmployees: 1,
+      updatedEmployees: 0,
+      createdUsers: 1,
+      deviceAssignmentsCreated: 0,
+      deviceSyncPending: 0,
+      summary: { successfullyImported: 1 },
+      rows: [],
+      previewToken: null,
+      previewExpiresAt: null,
+      previewSummary: null,
+      duplicateRows: 0,
+      validRows: 1,
+      invalidRows: 0,
+      importMode: EmployeeImportModeEnum.CREATE_ONLY,
+      originalFileName: 'employees.xlsx',
+      fileSize: 0,
+      createdAt: new Date(),
+      completedAt: new Date(),
+      startedAt: new Date(),
+      updatedEmployeesCount: 0,
+    } as unknown as Awaited<ReturnType<EmployeeImportService['getResult']>>);
+
+    const result = await service.confirmImport(
+      10,
+      {
+        preview_token: 'preview-token',
+        execution_mode: EmployeeImportExecutionModeEnum.SYNC,
+      },
+      actor,
+    );
+
+    expect(outboxRepository.save).not.toHaveBeenCalled();
+    expect(processQueuedBatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: 10,
+        databaseBatchId: 302,
+        batchId: 'IMPORT-20260812-SYNC',
+      }),
+      'sync-IMPORT-20260812-SYNC',
+    );
+    expect(getResultSpy).toHaveBeenCalledWith(10, 'IMPORT-20260812-SYNC');
+    expect(result.status).toBe(EmployeeImportBatchStatusEnum.COMPLETED);
   });
 
   it('creates a company membership through UsersService for a new import user', async () => {

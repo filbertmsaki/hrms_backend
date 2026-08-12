@@ -1107,8 +1107,10 @@ export class EmployeeImportService {
         );
       }
 
-      return (await this.getResult(companyId, result.batch.batchId)) as
-        EmployeeImportResponseDto & { rows: Record<string, unknown>[] };
+      return (await this.getResult(
+        companyId,
+        result.batch.batchId,
+      )) as EmployeeImportResponseDto & { rows: Record<string, unknown>[] };
     }
 
     return this.buildQueuedImportResponse(
