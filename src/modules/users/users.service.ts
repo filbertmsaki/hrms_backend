@@ -588,6 +588,7 @@ export class UsersService {
         'is_email_verified',
         'is_two_factor_enabled',
         'two_factor_setup_required',
+        'force_two_factor',
         'auth_token_invalid_before',
         'auth_token_version',
       ],
@@ -1150,6 +1151,10 @@ export class UsersService {
       two_factor_secret: null,
       two_factor_backup_codes: null,
     });
+  }
+
+  async setForceTwoFactor(userId: number, force: boolean): Promise<void> {
+    await this.userRepository.update(userId, { force_two_factor: force });
   }
 
   async updateBackupCodes(

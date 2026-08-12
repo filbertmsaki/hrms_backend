@@ -43,6 +43,7 @@ import { TenantGuard } from '../src/common/guards/tenant.guard';
 import { TwoFaService } from '../src/modules/auth/2fa/2fa.service';
 import { SecurityEventsService } from '../src/modules/security/security-events.service';
 import { TwoFactorPolicyService } from '../src/modules/security/two-factor-policy.service';
+import { CompaniesService } from '../src/modules/companies/companies.service';
 import { UsersController } from '../src/modules/users/users.controller';
 import { UsersService } from '../src/modules/users/users.service';
 
@@ -100,6 +101,7 @@ describe('User Admin 2FA Endpoints (e2e)', () => {
           provide: TwoFactorPolicyService,
           useValue: { assertCanDisable: jest.fn() },
         },
+        { provide: CompaniesService, useValue: {} },
         PermissionsGuard,
         TenantGuard,
         Reflector,

@@ -44,6 +44,7 @@ import { TwoFaService } from '../src/modules/auth/2fa/2fa.service';
 import { UsersController } from '../src/modules/users/users.controller';
 import { SecurityEventsService } from '../src/modules/security/security-events.service';
 import { TwoFactorPolicyService } from '../src/modules/security/two-factor-policy.service';
+import { CompaniesService } from '../src/modules/companies/companies.service';
 import { UsersService } from '../src/modules/users/users.service';
 
 describe('User Avatar Endpoints (e2e)', () => {
@@ -82,6 +83,7 @@ describe('User Avatar Endpoints (e2e)', () => {
         { provide: UsersService, useValue: usersService },
         { provide: TwoFaService, useValue: {} },
         { provide: TwoFactorPolicyService, useValue: {} },
+        { provide: CompaniesService, useValue: {} },
         PermissionsGuard,
         TenantGuard,
         Reflector,

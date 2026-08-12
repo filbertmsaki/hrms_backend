@@ -421,14 +421,15 @@ export class AuthService {
         response,
       );
 
-    const roleRequiresTwoFactor = this.twoFactorPolicyService.isRequired(
+    const twoFactorRecommended = this.twoFactorPolicyService.isRecommended(
       activeCompanyContext.roles,
     );
     const currentTwoFactorStatus = await this.twoFaService.getTwoFactorStatus(
       user.id,
     );
+    const userForcesTwoFactor = (user as User).force_two_factor;
 
-    if (roleRequiresTwoFactor && !currentTwoFactorStatus.fullyConfigured) {
+    if (userForcesTwoFactor && !currentTwoFactorStatus.fullyConfigured) {
       await this.usersService.requireTwoFactorSetup(user.id);
       await this.logSecurityEvent(
         SecurityEventType.TWO_FACTOR_SETUP_REQUIRED,
@@ -438,7 +439,7 @@ export class AuthService {
           companyId: activeCompanyContext.companyId,
           context,
           metadata: {
-            protected_roles: activeCompanyContext.roles,
+            force_two_factor: true,
           },
         },
       );
@@ -447,7 +448,7 @@ export class AuthService {
         ...responseWithPasswordRequirement,
         requires2FASetup: true,
         message:
-          'Two-factor authentication is mandatory for your role. Complete setup before continuing.',
+          'Two-factor authentication is mandatory for your account. Complete setup before continuing.',
       };
     }
 
@@ -472,6 +473,15 @@ export class AuthService {
         message: responseWithPasswordRequirement.requiresPasswordChange
           ? 'You must change your temporary password before continuing.'
           : 'Two-factor authentication has been enabled for your account. Complete setup now before continuing.',
+      };
+    }
+
+    if (twoFactorRecommended && !currentTwoFactorStatus.fullyConfigured) {
+      return {
+        ...responseWithPasswordRequirement,
+        recommends2FA: true,
+        message:
+          'We recommend enabling two-factor authentication for your account.',
       };
     }
 

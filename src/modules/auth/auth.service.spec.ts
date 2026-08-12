@@ -41,7 +41,10 @@ describe('AuthService', () => {
     verify2FALogin: jest.Mock;
   };
   let securityEventsService: { logBestEffort: jest.Mock };
-  let twoFactorPolicyService: { isRequired: jest.Mock };
+  let twoFactorPolicyService: {
+    isRequired: jest.Mock;
+    isRecommended: jest.Mock;
+  };
   let smsNotificationManagementService: {
     sendConfiguredNotification: jest.Mock;
   };
@@ -84,6 +87,7 @@ describe('AuthService', () => {
     };
     twoFactorPolicyService = {
       isRequired: jest.fn().mockReturnValue(false),
+      isRecommended: jest.fn().mockReturnValue(false),
     };
     smsNotificationManagementService = {
       sendConfiguredNotification: jest.fn(),

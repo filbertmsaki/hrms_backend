@@ -1,6 +1,7 @@
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
 import {
+  HttpException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -10,8 +11,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { hasPermission } from '../../../common/utils/permission.util';
+import { isDebugModeEnabled } from '../../../common/utils/debug-mode.util';
 import { CompaniesService } from '../../companies/companies.service';
-import { TwoFactorPolicyService } from '../../security/two-factor-policy.service';
 import { UsersService } from '../../users/users.service';
 import { TokenBlacklistService } from '../token-blacklist.service';
 import { Request } from 'express';
@@ -41,6 +42,14 @@ type JwtAccessPayload = {
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   private readonly logger = new Logger(JwtStrategy.name);
+
+  private buildInternalErrorMessage(error: unknown, fallback: string): string {
+    const isProduction = process.env.APP_ENV === 'production';
+    const showRealError =
+      (!isProduction || isDebugModeEnabled()) && error instanceof Error;
+
+    return showRealError ? error.message : fallback;
+  }
 
   private resolveDashboardType(
     permissions: string[] | undefined,
@@ -119,7 +128,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private blacklistService: TokenBlacklistService,
     private readonly companiesService: CompaniesService,
     private readonly usersService: UsersService,
-    private readonly twoFactorPolicyService: TwoFactorPolicyService,
     private readonly authSessionsService: AuthSessionsService,
   ) {
     super({
@@ -159,7 +167,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
           `Failed to load user ${payload.sub} during token validation`,
           error instanceof Error ? error.stack : undefined,
         );
-        throw new InternalServerErrorException('Failed to validate session');
+        throw new InternalServerErrorException(
+          this.buildInternalErrorMessage(error, 'Failed to validate session'),
+        );
       }
 
       throw new UnauthorizedException('User account is no longer available');
@@ -254,11 +264,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         payload.companyId,
       );
 
-      const twoFactorRequired = this.twoFactorPolicyService.isRequired(
-        companyContext.roles,
-      );
       const twoFactorIncomplete =
-        twoFactorRequired &&
+        user.force_two_factor &&
         (!user.is_two_factor_enabled || user.two_factor_setup_required);
 
       if (twoFactorIncomplete && !this.isTwoFactorSetupAllowedRoute(req)) {
@@ -281,6 +288,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         employeeId: companyContext.employeeId ?? undefined,
         employeeNo: companyContext.employeeNo ?? undefined,
         requiresPasswordChange,
+        forceTwoFactor: user.force_two_factor,
         roles: companyContext.roles,
         permissions: companyContext.permissions,
       };
@@ -291,11 +299,17 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         );
       }
 
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
       this.logger.error(
         `Failed to load membership context for user ${payload.sub} in company ${payload.companyId}`,
         error instanceof Error ? error.stack : undefined,
       );
-      throw new InternalServerErrorException('Failed to validate session');
+      throw new InternalServerErrorException(
+        this.buildInternalErrorMessage(error, 'Failed to validate session'),
+      );
     }
   }
 }

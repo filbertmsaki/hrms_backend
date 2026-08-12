@@ -202,6 +202,7 @@ export function validateEnv(env: Env) {
     'APP_TRUST_PROXY',
     APP_ENV === 'production',
   );
+  const DEBUG = optionalBool(env, 'DEBUG', false);
   const APP_PUBLIC_STORAGE_PATH = optionalString(
     env,
     'APP_PUBLIC_STORAGE_PATH',
@@ -1746,6 +1747,7 @@ export function validateEnv(env: Env) {
     APP_ALLOWED_ORIGINS,
     APP_ENABLE_API_DOCS,
     APP_TRUST_PROXY,
+    DEBUG,
     APP_PUBLIC_STORAGE_PATH,
     APP_PRIVATE_STORAGE_PATH,
     MAX_UPLOAD_FILE_SIZE_BYTES,

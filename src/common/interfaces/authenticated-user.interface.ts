@@ -16,6 +16,7 @@ export interface AuthenticatedUser {
   employeeId?: number;
   employeeNo?: string;
   requiresPasswordChange?: boolean;
+  forceTwoFactor?: boolean;
   roles: string[];
   permissions: string[];
 }

@@ -69,6 +69,9 @@ export class User {
   @Column({ default: false })
   two_factor_setup_required: boolean;
 
+  @Column({ default: false })
+  force_two_factor: boolean;
+
   @Column({ type: 'text', nullable: true, select: false })
   two_factor_secret: string | null;
 

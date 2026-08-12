@@ -1,9 +1,14 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+/**
+ * AUTH_REQUIRED_2FA_ROLES only drives a non-blocking recommendation for
+ * users in those roles. Actual mandatory enforcement is controlled per
+ * individual user via User.force_two_factor.
+ */
 @Injectable()
 export class TwoFactorPolicyService {
-  private readonly protectedRoles: Set<string>;
+  private readonly recommendedRoles: Set<string>;
 
   constructor(configService: ConfigService) {
     const configuredRoles =
@@ -17,7 +22,7 @@ export class TwoFactorPolicyService {
         'AUDITOR',
       ].join(',');
 
-    this.protectedRoles = new Set(
+    this.recommendedRoles = new Set(
       configuredRoles
         .split(',')
         .map((role) => role.trim().toUpperCase())
@@ -25,14 +30,18 @@ export class TwoFactorPolicyService {
     );
   }
 
-  isRequired(roles: string[]): boolean {
-    return roles.some((role) => this.protectedRoles.has(role.toUpperCase()));
+  /**
+   * Whether users holding any of these roles should be shown a
+   * recommendation to enable 2FA. Does not block access.
+   */
+  isRecommended(roles: string[]): boolean {
+    return roles.some((role) => this.recommendedRoles.has(role.toUpperCase()));
   }
 
-  assertCanDisable(roles: string[]): void {
-    if (this.isRequired(roles)) {
+  assertCanDisable(forceTwoFactor: boolean): void {
+    if (forceTwoFactor) {
       throw new ForbiddenException(
-        'Two-factor authentication is mandatory for this role',
+        'Two-factor authentication is mandatory for this account',
       );
     }
   }

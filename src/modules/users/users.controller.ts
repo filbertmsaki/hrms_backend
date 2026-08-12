@@ -40,8 +40,10 @@ import { CreateUserDto } from './dtos/create-user.dto';
 import { UpdateUserDto } from './dtos/update-user.dto';
 import { UsersService } from './users.service';
 import { AdminDisableUser2FADto } from './dtos/admin-disable-user-2fa.dto';
+import { SetForceTwoFactorDto } from './dtos/set-force-two-factor.dto';
 import { SelectUserAvatarDto } from './dtos/select-user-avatar.dto';
 import { TwoFactorPolicyService } from '../security/two-factor-policy.service';
+import { CompaniesService } from '../companies/companies.service';
 
 @ApiTags('Users')
 @ApiBearerAuth('access-token')
@@ -52,6 +54,7 @@ export class UsersController {
     private readonly usersService: UsersService,
     private readonly twoFaService: TwoFaService,
     private readonly twoFactorPolicyService: TwoFactorPolicyService,
+    private readonly companiesService: CompaniesService,
   ) {}
 
   @Get('me')
@@ -483,6 +486,52 @@ export class UsersController {
     );
   }
 
+  @Patch(':userId/two-factor/force')
+  @UseGuards(PermissionsGuard)
+  @Permissions('users:manage-2fa')
+  @ApiOperationSummary(
+    'Set mandatory two-factor authentication for a user',
+    'Allows an authorized administrator to mark two-factor authentication as mandatory (or optional) for a specific user, independent of their role. When mandatory and not yet configured, the user is blocked from using the system until 2FA setup is completed.',
+    'Users_setForceTwoFactor',
+  )
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiNotFoundResponse('User')
+  @ApiSuccessResponse(200, 'User force-2FA setting updated successfully', {
+    schema: {
+      example: {
+        success: true,
+        message: 'Two-factor authentication is now mandatory for this user.',
+        data: {
+          userId: 12,
+          forceTwoFactor: true,
+        },
+      },
+    },
+  })
+  async setForceTwoFactor(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('userId', ParseIntPipe) userId: number,
+    @Body() dto: SetForceTwoFactorDto,
+  ) {
+    await this.companiesService.findCompanyUserContext(
+      req.user.companyId!,
+      userId,
+    );
+    await this.usersService.setForceTwoFactor(userId, dto.force);
+
+    return {
+      success: true,
+      message: dto.force
+        ? 'Two-factor authentication is now mandatory for this user.'
+        : 'Two-factor authentication is no longer mandatory for this user.',
+      data: {
+        userId,
+        forceTwoFactor: dto.force,
+      },
+    };
+  }
+
   @Post('2fa/setup')
   @ApiOperationSummary(
     'Setup two-factor authentication',
@@ -537,7 +586,9 @@ export class UsersController {
     @CurrentAuditContext() context: AuditRequestContext,
     @Body() dto: Verify2FaDto,
   ) {
-    this.twoFactorPolicyService.assertCanDisable(req.user.roles);
+    this.twoFactorPolicyService.assertCanDisable(
+      req.user.forceTwoFactor ?? false,
+    );
     return this.twoFaService.disable2FA(req.user.id, dto.token, context);
   }
 

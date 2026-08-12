@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import type { CorrelatedRequest } from '../middleware/correlation-id.middleware';
+import { isDebugModeEnabled } from '../utils/debug-mode.util';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
@@ -52,9 +53,16 @@ export class HttpExceptionFilter implements ExceptionFilter {
     errors?: Record<string, string[]>;
   } {
     if (!(exception instanceof HttpException)) {
+      const isProduction = process.env.APP_ENV === 'production';
+      const showRealError =
+        (!isProduction || isDebugModeEnabled()) && exception instanceof Error;
+      const message = showRealError
+        ? exception.message
+        : 'Internal server error';
+
       return {
         status: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: 'Internal server error',
+        message,
       };
     }
 

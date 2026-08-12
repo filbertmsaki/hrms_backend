@@ -118,10 +118,7 @@ async function bootstrap(): Promise<void> {
         return;
       }
 
-      callback(
-        new Error(`Origin '${origin}' is not allowed by CORS policy.`),
-        false,
-      );
+      callback(null, false);
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
