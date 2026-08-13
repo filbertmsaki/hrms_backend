@@ -9,6 +9,7 @@ import {
   normalizeConfiguredEnvironment,
   resolveMailRecipientSafetyConfig,
 } from '../modules/mail/mail-recipient-safety.util';
+import { normalizeAllowedOriginPattern } from '../common/utils/allowed-origin.util';
 
 type Env = Record<string, string | undefined>;
 
@@ -77,16 +78,7 @@ function validateUrl(value: string, key: string): string {
 }
 
 function validateOrigin(value: string): string {
-  const parsed = validateUrl(value, 'APP_ALLOWED_ORIGINS');
-  const url = new URL(parsed);
-
-  if (url.pathname !== '/' || url.search || url.hash) {
-    throw new Error(
-      `APP_ALLOWED_ORIGINS must contain origins only, without paths: ${value}`,
-    );
-  }
-
-  return url.origin;
+  return normalizeAllowedOriginPattern(value, 'APP_ALLOWED_ORIGINS');
 }
 
 function isLocalTestingUrl(value: string): boolean {

@@ -9,6 +9,7 @@ import { DataSource } from 'typeorm';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
+import { isOriginAllowed } from './common/utils/allowed-origin.util';
 import { runAllSeeders } from './database/seeds';
 import { assertSecureSeederPasswords } from './database/seeds/seeder-guards';
 import {
@@ -118,7 +119,7 @@ async function bootstrap(): Promise<void> {
         return;
       }
 
-      if (allowedOrigins.includes(origin)) {
+      if (isOriginAllowed(origin, allowedOrigins)) {
         callback(null, true);
         return;
       }

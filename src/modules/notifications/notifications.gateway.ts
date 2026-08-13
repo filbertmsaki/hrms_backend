@@ -11,6 +11,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { createClient, RedisClientType } from 'redis';
 import { Server, Socket } from 'socket.io';
 import { Repository } from 'typeorm';
+import { isOriginAllowed } from '../../common/utils/allowed-origin.util';
 import { CompanyUser } from '../companies/entities/company-user.entity';
 import { TokenBlacklistService } from '../auth/token-blacklist.service';
 import { UsersService } from '../users/users.service';
@@ -44,7 +45,7 @@ type RealtimeEnvelope = {
         .map((value) => value.trim())
         .filter(Boolean);
 
-      if (!allowed.length || !origin || allowed.includes(origin)) {
+      if (!allowed.length || !origin || isOriginAllowed(origin, allowed)) {
         callback(null, true);
         return;
       }
