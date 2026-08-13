@@ -111,7 +111,9 @@ describe('allowed-origin.util', () => {
 
     it('matches subdomains', () => {
       expect(
-        isOriginAllowed('https://app.alliance.co.tz', ['https://*.alliance.co.tz']),
+        isOriginAllowed('https://app.alliance.co.tz', [
+          'https://*.alliance.co.tz',
+        ]),
       ).toBe(true);
     });
 

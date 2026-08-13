@@ -35,7 +35,9 @@ function parseHttpOrigin(value: string, key: string): URL {
   }
 
   if (parsed.pathname !== '/' || parsed.search || parsed.hash) {
-    throw new Error(`${key} must contain origins only, without paths: ${value}`);
+    throw new Error(
+      `${key} must contain origins only, without paths: ${value}`,
+    );
   }
 
   return parsed;
@@ -119,11 +121,14 @@ export function isOriginAllowed(
       return true;
     }
 
-    const exactHostAnyPortMatch = allowedOrigin.match(EXACT_HOST_ANY_PORT_PATTERN);
+    const exactHostAnyPortMatch = allowedOrigin.match(
+      EXACT_HOST_ANY_PORT_PATTERN,
+    );
 
     if (exactHostAnyPortMatch) {
       return (
-        parsedOrigin.protocol === `${exactHostAnyPortMatch[1].toLowerCase()}:` &&
+        parsedOrigin.protocol ===
+          `${exactHostAnyPortMatch[1].toLowerCase()}:` &&
         parsedOrigin.hostname.toLowerCase() ===
           normalizeHostname(exactHostAnyPortMatch[2])
       );
@@ -137,9 +142,7 @@ export function isOriginAllowed(
       return (
         parsedOrigin.protocol === `${protocol.toLowerCase()}:` &&
         parsedOrigin.hostname.match(/^\d{1,3}(?:\.\d{1,3}){3}$/) !== null &&
-        parsedOrigin.hostname
-          .split('.')
-          .every(isValidIpv4Octet) &&
+        parsedOrigin.hostname.split('.').every(isValidIpv4Octet) &&
         parsedOrigin.hostname.startsWith(
           `${firstOctet}.${secondOctet}.${thirdOctet}.`,
         )
@@ -159,7 +162,10 @@ export function isOriginAllowed(
       normalizedHostname !== normalizedDomain &&
       normalizedHostname.endsWith(`.${normalizedDomain}`);
 
-    if (!isSubdomainMatch || parsedOrigin.protocol !== `${protocol.toLowerCase()}:`) {
+    if (
+      !isSubdomainMatch ||
+      parsedOrigin.protocol !== `${protocol.toLowerCase()}:`
+    ) {
       return false;
     }
 
