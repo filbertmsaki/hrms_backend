@@ -1410,10 +1410,11 @@ export class AuthService {
     response: T,
   ): Promise<T & { requiresPasswordChange: boolean }> {
     const requiresPasswordChange =
-      await this.usersService.hasPendingImportedPasswordChange(
+      user.must_set_password ||
+      (await this.usersService.hasPendingImportedPasswordChange(
         user.id,
         companyId,
-      );
+      ));
 
     const responseRecord = response as Record<string, unknown>;
     const responseUser =

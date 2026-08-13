@@ -6,8 +6,9 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
-import { EntityManager, MoreThan, Repository } from 'typeorm';
+import { EntityManager, In, MoreThan, Repository } from 'typeorm';
 
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { comparePasswords, hashPassword } from 'src/common/utils/hash.util';
@@ -53,6 +54,7 @@ export class UsersService {
     private readonly companiesService: CompaniesService,
     private readonly defaultAvatarsService: DefaultAvatarsService,
     private readonly authSessionsService: AuthSessionsService,
+    private readonly configService: ConfigService,
   ) {}
 
   private extractRoleIds(
@@ -67,6 +69,24 @@ export class UsersService {
       .filter((roleId): roleId is number => typeof roleId === 'number');
 
     return roleIds.length ? roleIds : undefined;
+  }
+
+  private static readonly PASSWORD_CHANGE_EXEMPT_ROLE_NAMES = [
+    'COMPANY_ADMIN',
+    'SYSTEM_ADMIN',
+  ];
+
+  private async hasAdminRole(roleIds?: number[]): Promise<boolean> {
+    if (!roleIds?.length) {
+      return false;
+    }
+
+    const roles = await this.roleRepository.findBy({ id: In(roleIds) });
+    return roles.some((role) =>
+      UsersService.PASSWORD_CHANGE_EXEMPT_ROLE_NAMES.includes(
+        role.name?.trim().toUpperCase(),
+      ),
+    );
   }
 
   private async findOrFail(id: number): Promise<User> {
@@ -406,9 +426,14 @@ export class UsersService {
     let action: EmployeeImportAccountResult['action'] = 'REUSED';
 
     if (!user) {
-      const hashedPassword = await hashPassword(
-        randomBytes(24).toString('base64url'),
+      const defaultPassword = this.configService.get<string>(
+        'EMPLOYEE_IMPORT_DEFAULT_PASSWORD',
       );
+      const rawPassword =
+        defaultPassword && defaultPassword.trim().length > 0
+          ? defaultPassword.trim()
+          : randomBytes(24).toString('base64url');
+      const hashedPassword = await hashPassword(rawPassword);
       user = await repository.save(
         repository.create({
           user_no: await this.generateUserNo(manager),
@@ -417,12 +442,12 @@ export class UsersService {
           phone: await this.generateImportPlaceholderPhone(manager),
           email,
           password: hashedPassword,
-          status: 'inactive',
+          status: 'active',
           user_type: 'COMPANY_USER',
-          is_email_verified: false,
+          is_email_verified: true,
           must_set_password: true,
-          activated_at: null,
-          account_provisioning_status: 'pending_activation',
+          activated_at: new Date(),
+          account_provisioning_status: 'active',
         }),
       );
       action = 'CREATED';
@@ -553,6 +578,7 @@ export class UsersService {
       };
     }
 
+    const mustSetPassword = !(await this.hasAdminRole(roleIds));
     const hashedPassword = await hashPassword(password);
     const user = this.userRepository.create({
       ...userData,
@@ -561,6 +587,7 @@ export class UsersService {
       status: userData.status ?? 'active',
       user_type: 'COMPANY_USER',
       is_email_verified: true,
+      must_set_password: mustSetPassword,
     });
 
     const savedUser = await this.userRepository.save(user);
@@ -985,7 +1012,10 @@ export class UsersService {
   }
 
   async updatePassword(id: number, hashedPassword: string): Promise<void> {
-    await this.userRepository.update(id, { password: hashedPassword });
+    await this.userRepository.update(id, {
+      password: hashedPassword,
+      must_set_password: false,
+    });
     await this.clearPendingImportedPasswordChange(id);
   }
 
@@ -1000,6 +1030,7 @@ export class UsersService {
         .update(User)
         .set({
           password: hashedPassword,
+          must_set_password: false,
           auth_token_invalid_before: new Date(),
           auth_token_version: () => '"auth_token_version" + 1',
         })

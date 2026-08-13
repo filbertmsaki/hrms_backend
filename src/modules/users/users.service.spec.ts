@@ -1,4 +1,5 @@
 import { Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
 import { CompanyUser } from '../companies/entities/company-user.entity';
 import { CompaniesService } from '../companies/companies.service';
 import { DefaultAvatarsService } from '../hr/default-avatars/default-avatars.service';
@@ -40,6 +41,8 @@ describe('UsersService avatar management', () => {
       {} as Repository<Permission>,
       {} as CompaniesService,
       defaultAvatarsService as unknown as DefaultAvatarsService,
+      {} as AuthSessionsService,
+      {} as ConfigService,
     );
   });
 
@@ -275,6 +278,9 @@ describe('UsersService employee import provisioning', () => {
   let companiesService: {
     addUserToCompany: jest.Mock;
   };
+  let configService: {
+    get: jest.Mock;
+  };
 
   beforeEach(() => {
     companyUserRepository = {
@@ -296,6 +302,15 @@ describe('UsersService employee import provisioning', () => {
     companiesService = {
       addUserToCompany: jest.fn().mockResolvedValue(undefined),
     };
+    configService = {
+      get: jest
+        .fn()
+        .mockImplementation((key: string) =>
+          key === 'EMPLOYEE_IMPORT_DEFAULT_PASSWORD'
+            ? 'ImportedEmployee!2026'
+            : undefined,
+        ),
+    };
 
     service = new UsersService(
       userRepository as unknown as Repository<User>,
@@ -305,10 +320,11 @@ describe('UsersService employee import provisioning', () => {
       companiesService as unknown as CompaniesService,
       {} as DefaultAvatarsService,
       {} as AuthSessionsService,
+      configService as unknown as ConfigService,
     );
   });
 
-  it('creates a new pending-activation user for employee import when no account exists', async () => {
+  it('creates a new active user for employee import when no account exists', async () => {
     userRepository.findOne.mockResolvedValue(null);
     userRepository.save.mockResolvedValue({
       id: 71,
@@ -338,9 +354,9 @@ describe('UsersService employee import provisioning', () => {
       expect.objectContaining({
         user_no: 'USER-2026-00001',
         email: 'new.import@example.com',
-        status: 'inactive',
+        status: 'active',
         must_set_password: true,
-        account_provisioning_status: 'pending_activation',
+        account_provisioning_status: 'active',
       }),
     );
     expect(companiesService.addUserToCompany).toHaveBeenCalledWith(

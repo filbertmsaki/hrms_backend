@@ -1194,7 +1194,7 @@ describe('EmployeeImportService', () => {
     ]);
   });
 
-  it('previews imported users as pending activation accounts', () => {
+  it('previews imported users as active employee accounts', () => {
     configService.get.mockReturnValueOnce(undefined);
 
     const row = (
@@ -1240,7 +1240,7 @@ describe('EmployeeImportService', () => {
 
     expect(row.previewStatus).toBe('READY_FOR_IMPORT');
     expect(row.userAccount.action).toBe('CREATE_NEW_USER');
-    expect(row.userAccount.userStatus).toBe('inactive');
+    expect(row.userAccount.userStatus).toBe('active');
     expect(row.userAccount.passwordChangeRequiredOnFirstLogin).toBe(true);
   });
 

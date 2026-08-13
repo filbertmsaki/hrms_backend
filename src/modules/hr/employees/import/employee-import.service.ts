@@ -1478,7 +1478,7 @@ export class EmployeeImportService {
       failedDuringImport: batch.failedRows,
       userProvisioningMessage:
         createdUsers > 0
-          ? 'Imported employee accounts were created as pending activation users. They remain inactive, unverified, and must set a password during activation.'
+          ? 'Imported employee accounts were created as active users with the default employee import password. They must change their password on first login.'
           : undefined,
     };
     batch.validationSummary = {
@@ -2379,10 +2379,7 @@ export class EmployeeImportService {
         this.toNumber(normalizedData.department_id) ?? undefined,
       primary_position_id:
         this.toNumber(normalizedData.position_id) ?? undefined,
-      employment_status:
-        activationMode === EmployeeImportActivationModeEnum.MIGRATE_AS_ACTIVE
-          ? EmploymentStatusEnum.ACTIVE
-          : EmploymentStatusEnum.ONBOARDING,
+      employment_status: EmploymentStatusEnum.ACTIVE,
       employment_type:
         (this.optionalString(
           normalizedData.employment_type,
@@ -2787,10 +2784,10 @@ export class EmployeeImportService {
       loginIdentifier: email,
       role: roleLabel,
       status: 'VALID',
-      userStatus: 'inactive',
+      userStatus: 'active',
       existingUserId: null,
       message:
-        'A new inactive pending-activation system user will be created and assigned the Employee role.',
+        'A new active system user will be created with the default employee import password and must change it on first login.',
       passwordChangeRequiredOnFirstLogin: true,
       limitation,
     };
