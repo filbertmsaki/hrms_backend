@@ -1,10 +1,12 @@
 import { Repository } from 'typeorm';
+import { CompanyUser } from '../companies/entities/company-user.entity';
 import { CompaniesService } from '../companies/companies.service';
 import { DefaultAvatarsService } from '../hr/default-avatars/default-avatars.service';
 import { Employee } from '../hr/employees/entities/employee.entity';
 import { ProfileImageSourceEnum } from '../hr/employees/enums/profile-image-source.enum';
 import { Permission } from '../permissions/entities/permission.entity';
 import { Role } from '../roles/entities/role.entity';
+import { AuthSessionsService } from '../auth/auth-sessions.service';
 import { User } from './entities/user.entity';
 import { UsersService } from './users.service';
 
@@ -255,4 +257,135 @@ describe('UsersService avatar management', () => {
       );
     },
   );
+});
+
+describe('UsersService employee import provisioning', () => {
+  let service: UsersService;
+  let userRepository: {
+    findOne: jest.Mock;
+    save: jest.Mock;
+    create: jest.Mock;
+    manager: {
+      getRepository: jest.Mock;
+    };
+  };
+  let companyUserRepository: {
+    findOne: jest.Mock;
+  };
+  let companiesService: {
+    addUserToCompany: jest.Mock;
+  };
+
+  beforeEach(() => {
+    companyUserRepository = {
+      findOne: jest.fn(),
+    };
+    userRepository = {
+      findOne: jest.fn(),
+      save: jest.fn(),
+      create: jest.fn((value: unknown) => value),
+      manager: {
+        getRepository: jest.fn((entity: unknown) => {
+          if (entity === CompanyUser) {
+            return companyUserRepository;
+          }
+          return {};
+        }),
+      },
+    };
+    companiesService = {
+      addUserToCompany: jest.fn().mockResolvedValue(undefined),
+    };
+
+    service = new UsersService(
+      userRepository as unknown as Repository<User>,
+      {} as Repository<Employee>,
+      {} as Repository<Role>,
+      {} as Repository<Permission>,
+      companiesService as unknown as CompaniesService,
+      {} as DefaultAvatarsService,
+      {} as AuthSessionsService,
+    );
+  });
+
+  it('creates a new pending-activation user for employee import when no account exists', async () => {
+    userRepository.findOne.mockResolvedValue(null);
+    userRepository.save.mockResolvedValue({
+      id: 71,
+      email: 'new.import@example.com',
+    });
+    companyUserRepository.findOne.mockResolvedValue({
+      id: 18,
+      company_id: 10,
+      user_id: 71,
+      status: 'active',
+    });
+    jest
+      .spyOn(service as never, 'generateUserNo')
+      .mockResolvedValue('USER-2026-00001');
+    jest
+      .spyOn(service as never, 'generateImportPlaceholderPhone')
+      .mockResolvedValue('+999123456789');
+
+    const result = await service.ensureEmployeeImportAccount(10, {
+      email: 'new.import@example.com',
+      firstName: 'New',
+      lastName: 'Import',
+      roleNames: ['EMPLOYEE'],
+    });
+
+    expect(userRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user_no: 'USER-2026-00001',
+        email: 'new.import@example.com',
+        status: 'inactive',
+        must_set_password: true,
+        account_provisioning_status: 'pending_activation',
+      }),
+    );
+    expect(companiesService.addUserToCompany).toHaveBeenCalledWith(
+      71,
+      10,
+      { roleNames: ['EMPLOYEE'] },
+      undefined,
+    );
+    expect(result.action).toBe('CREATED');
+    expect(result.membership.user_id).toBe(71);
+  });
+
+  it('reuses an existing user account during employee import instead of creating a duplicate', async () => {
+    userRepository.findOne.mockResolvedValue({
+      id: 81,
+      email: 'existing.import@example.com',
+      status: 'active',
+      user_type: 'COMPANY_USER',
+      is_email_verified: true,
+      must_set_password: false,
+      activated_at: new Date('2026-08-10T10:00:00.000Z'),
+      account_provisioning_status: 'active',
+    });
+    companyUserRepository.findOne.mockResolvedValue({
+      id: 28,
+      company_id: 10,
+      user_id: 81,
+      status: 'active',
+    });
+
+    const result = await service.ensureEmployeeImportAccount(10, {
+      email: 'existing.import@example.com',
+      firstName: 'Existing',
+      lastName: 'Import',
+      roleNames: ['EMPLOYEE'],
+    });
+
+    expect(userRepository.save).not.toHaveBeenCalled();
+    expect(companiesService.addUserToCompany).toHaveBeenCalledWith(
+      81,
+      10,
+      { roleNames: ['EMPLOYEE'] },
+      undefined,
+    );
+    expect(result.action).toBe('REUSED');
+    expect(result.membership.user_id).toBe(81);
+  });
 });

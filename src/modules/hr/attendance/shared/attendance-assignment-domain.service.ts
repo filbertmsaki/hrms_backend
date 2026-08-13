@@ -1,6 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { ShiftAssignment } from '../shift/shift-assignments/entities/shift-assignment.entity';
 import { ShiftAssignmentStatusEnum } from '../shift/shift-assignments/enums/shift-assignment-status.enum';
 import { EmployeeTimetable } from '../timetable/employee-timetables/entities/employee-timetable.entity';
@@ -16,6 +16,23 @@ export class AttendanceAssignmentDomainService {
     private readonly employeeTimetableRepository: Repository<EmployeeTimetable>,
   ) {}
 
+  private getShiftAssignmentRepository(
+    manager?: EntityManager,
+  ): Repository<ShiftAssignment> {
+    return (
+      manager?.getRepository(ShiftAssignment) ?? this.shiftAssignmentRepository
+    );
+  }
+
+  private getEmployeeTimetableRepository(
+    manager?: EntityManager,
+  ): Repository<EmployeeTimetable> {
+    return (
+      manager?.getRepository(EmployeeTimetable) ??
+      this.employeeTimetableRepository
+    );
+  }
+
   async ensureNoOverlappingShiftAssignment(input: {
     companyId: number;
     employeeId: number;
@@ -23,12 +40,13 @@ export class AttendanceAssignmentDomainService {
     effectiveTo: string | null;
     status: ShiftAssignmentStatusEnum;
     ignoreId?: number;
+    manager?: EntityManager;
   }): Promise<void> {
     if (input.status !== ShiftAssignmentStatusEnum.ACTIVE) {
       return;
     }
 
-    const qb = this.shiftAssignmentRepository
+    const qb = this.getShiftAssignmentRepository(input.manager)
       .createQueryBuilder('assignment')
       .andWhere('assignment.status = :status', {
         status: ShiftAssignmentStatusEnum.ACTIVE,
@@ -51,12 +69,13 @@ export class AttendanceAssignmentDomainService {
     effectiveTo: string | null;
     status: EmployeeTimetableStatusEnum;
     ignoreId?: number;
+    manager?: EntityManager;
   }): Promise<void> {
     if (input.status !== EmployeeTimetableStatusEnum.ACTIVE) {
       return;
     }
 
-    const qb = this.employeeTimetableRepository
+    const qb = this.getEmployeeTimetableRepository(input.manager)
       .createQueryBuilder('employeeTimetable')
       .andWhere('employeeTimetable.status = :status', {
         status: EmployeeTimetableStatusEnum.ACTIVE,

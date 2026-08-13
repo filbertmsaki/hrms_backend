@@ -3072,25 +3072,25 @@ export class Migration1786523879185 implements MigrationInterface {
       `CREATE INDEX "IDX_employee_finance_audit_company_entity" ON "employee_finance_audit_logs" ("company_id", "entity_type", "entity_id") `,
     );
     await queryRunner.query(
-      `CREATE TYPE "analytics"."analytics_datasets_dataset_type_enum" AS ENUM('DIMENSION', 'FACT', 'AGGREGATE', 'MATERIALIZED_VIEW', 'EXTERNAL')`,
+      `DO $$ BEGIN CREATE TYPE "analytics"."analytics_datasets_dataset_type_enum" AS ENUM('DIMENSION', 'FACT', 'AGGREGATE', 'MATERIALIZED_VIEW', 'EXTERNAL'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`,
     );
     await queryRunner.query(
-      `CREATE TYPE "analytics"."analytics_datasets_refresh_mode_enum" AS ENUM('EVENT_DRIVEN', 'INCREMENTAL', 'FULL_REFRESH', 'PERIOD_CLOSE', 'MANUAL')`,
+      `DO $$ BEGIN CREATE TYPE "analytics"."analytics_datasets_refresh_mode_enum" AS ENUM('EVENT_DRIVEN', 'INCREMENTAL', 'FULL_REFRESH', 'PERIOD_CLOSE', 'MANUAL'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`,
     );
     await queryRunner.query(
-      `CREATE TYPE "analytics"."analytics_datasets_sensitivity_enum" AS ENUM('PUBLIC_INTERNAL', 'INTERNAL', 'CONFIDENTIAL', 'HIGHLY_RESTRICTED')`,
+      `DO $$ BEGIN CREATE TYPE "analytics"."analytics_datasets_sensitivity_enum" AS ENUM('PUBLIC_INTERNAL', 'INTERNAL', 'CONFIDENTIAL', 'HIGHLY_RESTRICTED'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`,
     );
     await queryRunner.query(
       `CREATE TABLE "analytics"."analytics_datasets" ("id" SERIAL NOT NULL, "company_id" integer, "code" character varying(100) NOT NULL, "name" character varying(180) NOT NULL, "dataset_type" "analytics"."analytics_datasets_dataset_type_enum" NOT NULL, "source_code" character varying(100) NOT NULL, "physical_name" character varying(180) NOT NULL, "refresh_mode" "analytics"."analytics_datasets_refresh_mode_enum" NOT NULL, "refresh_configuration" jsonb, "sensitivity" "analytics"."analytics_datasets_sensitivity_enum" NOT NULL, "allowed_dimensions" jsonb NOT NULL, "allowed_measures" jsonb NOT NULL, "latest_refresh_at" TIMESTAMP WITH TIME ZONE, "status" character varying(30) NOT NULL DEFAULT 'ACTIVE', "version" integer NOT NULL, CONSTRAINT "UQ_analytics_dataset_company_code" UNIQUE ("company_id", "code"), CONSTRAINT "PK_f07c141ec32eb70935ec470d839" PRIMARY KEY ("id"))`,
     );
     await queryRunner.query(
-      `CREATE TYPE "analytics"."analytics_metric_definitions_aggregation_enum" AS ENUM('COUNT', 'DISTINCT_COUNT', 'SUM', 'AVERAGE', 'MINIMUM', 'MAXIMUM', 'RATIO', 'PERCENTAGE', 'MEDIAN', 'WEIGHTED_AVERAGE')`,
+      `DO $$ BEGIN CREATE TYPE "analytics"."analytics_metric_definitions_aggregation_enum" AS ENUM('COUNT', 'DISTINCT_COUNT', 'SUM', 'AVERAGE', 'MINIMUM', 'MAXIMUM', 'RATIO', 'PERCENTAGE', 'MEDIAN', 'WEIGHTED_AVERAGE'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`,
     );
     await queryRunner.query(
-      `CREATE TYPE "analytics"."analytics_metric_definitions_default_time_grain_enum" AS ENUM('DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'ANNUAL')`,
+      `DO $$ BEGIN CREATE TYPE "analytics"."analytics_metric_definitions_default_time_grain_enum" AS ENUM('DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'ANNUAL'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`,
     );
     await queryRunner.query(
-      `CREATE TYPE "analytics"."analytics_metric_definitions_sensitivity_enum" AS ENUM('PUBLIC_INTERNAL', 'INTERNAL', 'CONFIDENTIAL', 'HIGHLY_RESTRICTED')`,
+      `DO $$ BEGIN CREATE TYPE "analytics"."analytics_metric_definitions_sensitivity_enum" AS ENUM('PUBLIC_INTERNAL', 'INTERNAL', 'CONFIDENTIAL', 'HIGHLY_RESTRICTED'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`,
     );
     await queryRunner.query(
       `CREATE TABLE "analytics"."analytics_metric_definitions" ("id" SERIAL NOT NULL, "company_id" integer, "code" character varying(100) NOT NULL, "name" character varying(180) NOT NULL, "description" text NOT NULL, "version_number" integer NOT NULL, "dataset_code" character varying(100) NOT NULL, "aggregation" "analytics"."analytics_metric_definitions_aggregation_enum" NOT NULL, "formula_code" character varying(100) NOT NULL, "formula_configuration" jsonb NOT NULL, "default_time_grain" "analytics"."analytics_metric_definitions_default_time_grain_enum" NOT NULL, "allowed_dimensions" jsonb NOT NULL, "default_filters" jsonb, "exclusion_rules" jsonb, "rounding_scale" integer NOT NULL DEFAULT '2', "sensitivity" "analytics"."analytics_metric_definitions_sensitivity_enum" NOT NULL, "effective_from" date NOT NULL, "effective_to" date, "is_locked" boolean NOT NULL DEFAULT false, "definition_hash" character varying(128) NOT NULL, "approved_by_company_user_id" integer, "approved_at" TIMESTAMP WITH TIME ZONE, "status" character varying(30) NOT NULL DEFAULT 'DRAFT', CONSTRAINT "UQ_analytics_metric_company_code_version" UNIQUE ("company_id", "code", "version_number"), CONSTRAINT "PK_eb3d4a495970bee34fb9e31a448" PRIMARY KEY ("id"))`,
@@ -3138,10 +3138,10 @@ export class Migration1786523879185 implements MigrationInterface {
       `CREATE INDEX "IDX_analytics_generic_fact_company_date" ON "analytics"."analytics_generic_facts" ("company_id", "dataset_code", "fact_date") `,
     );
     await queryRunner.query(
-      `CREATE TYPE "analytics"."analytics_snapshot_runs_refresh_mode_enum" AS ENUM('EVENT_DRIVEN', 'INCREMENTAL', 'FULL_REFRESH', 'PERIOD_CLOSE', 'MANUAL')`,
+      `DO $$ BEGIN CREATE TYPE "analytics"."analytics_snapshot_runs_refresh_mode_enum" AS ENUM('EVENT_DRIVEN', 'INCREMENTAL', 'FULL_REFRESH', 'PERIOD_CLOSE', 'MANUAL'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`,
     );
     await queryRunner.query(
-      `CREATE TYPE "analytics"."analytics_snapshot_runs_status_enum" AS ENUM('PENDING', 'RUNNING', 'COMPLETED', 'COMPLETED_WITH_WARNINGS', 'FAILED', 'RECONCILIATION_FAILED', 'CANCELLED')`,
+      `DO $$ BEGIN CREATE TYPE "analytics"."analytics_snapshot_runs_status_enum" AS ENUM('PENDING', 'RUNNING', 'COMPLETED', 'COMPLETED_WITH_WARNINGS', 'FAILED', 'RECONCILIATION_FAILED', 'CANCELLED'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`,
     );
     await queryRunner.query(
       `CREATE TABLE "analytics"."analytics_snapshot_runs" ("id" BIGSERIAL NOT NULL, "company_id" integer, "run_no" character varying(80) NOT NULL, "dataset_code" character varying(100) NOT NULL, "refresh_mode" "analytics"."analytics_snapshot_runs_refresh_mode_enum" NOT NULL, "date_from" date, "date_to" date, "status" "analytics"."analytics_snapshot_runs_status_enum" NOT NULL, "source_record_count" bigint NOT NULL DEFAULT '0', "inserted_record_count" bigint NOT NULL DEFAULT '0', "updated_record_count" bigint NOT NULL DEFAULT '0', "failed_record_count" bigint NOT NULL DEFAULT '0', "source_hash" character varying(128), "output_hash" character varying(128), "started_at" TIMESTAMP WITH TIME ZONE NOT NULL, "completed_at" TIMESTAMP WITH TIME ZONE, "warnings" jsonb, "errors" jsonb, CONSTRAINT "UQ_analytics_snapshot_run_no" UNIQUE ("run_no"), CONSTRAINT "PK_e82cf8104cde199dadc30757fa1" PRIMARY KEY ("id"))`,
@@ -3162,7 +3162,7 @@ export class Migration1786523879185 implements MigrationInterface {
       `CREATE TABLE "analytics"."analytics_change_events" ("id" BIGSERIAL NOT NULL, "company_id" integer, "source_code" character varying(100) NOT NULL, "source_id" character varying(120) NOT NULL, "event_type" character varying(80) NOT NULL, "idempotency_key" character varying(180) NOT NULL, "payload" jsonb, "status" character varying(30) NOT NULL DEFAULT 'PENDING', "created_at" TIMESTAMP NOT NULL DEFAULT now(), "processed_at" TIMESTAMP WITH TIME ZONE, CONSTRAINT "UQ_analytics_change_event_idempotency" UNIQUE ("idempotency_key"), CONSTRAINT "PK_165f589e7c5ae544922325da73d" PRIMARY KEY ("id"))`,
     );
     await queryRunner.query(
-      `CREATE TYPE "analytics"."analytics_export_jobs_status_enum" AS ENUM('PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'EXPIRED')`,
+      `DO $$ BEGIN CREATE TYPE "analytics"."analytics_export_jobs_status_enum" AS ENUM('PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'EXPIRED'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`,
     );
     await queryRunner.query(
       `CREATE TABLE "analytics"."analytics_export_jobs" ("id" BIGSERIAL NOT NULL, "company_id" integer NOT NULL, "requested_by_company_user_id" integer, "report_code" character varying(100) NOT NULL, "output_format" character varying(20) NOT NULL, "status" "analytics"."analytics_export_jobs_status_enum" NOT NULL DEFAULT 'PENDING', "filters" jsonb NOT NULL, "row_count" integer NOT NULL DEFAULT '0', "file_path" text, "expires_at" TIMESTAMP WITH TIME ZONE NOT NULL, "idempotency_key" character varying(180) NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "UQ_analytics_export_idempotency" UNIQUE ("company_id", "idempotency_key"), CONSTRAINT "PK_6bb48c4047977b68b991a48a02f" PRIMARY KEY ("id"))`,
@@ -3171,7 +3171,7 @@ export class Migration1786523879185 implements MigrationInterface {
       `CREATE TABLE "analytics"."analytics_alert_rules" ("id" SERIAL NOT NULL, "company_id" integer, "code" character varying(100) NOT NULL, "name" character varying(180) NOT NULL, "metric_code" character varying(100) NOT NULL, "condition" jsonb NOT NULL, "status" character varying(30) NOT NULL DEFAULT 'ACTIVE', CONSTRAINT "PK_0eca0d52376e138bf836670d67b" PRIMARY KEY ("id"))`,
     );
     await queryRunner.query(
-      `CREATE TYPE "analytics"."analytics_access_logs_sensitivity_enum" AS ENUM('PUBLIC_INTERNAL', 'INTERNAL', 'CONFIDENTIAL', 'HIGHLY_RESTRICTED')`,
+      `DO $$ BEGIN CREATE TYPE "analytics"."analytics_access_logs_sensitivity_enum" AS ENUM('PUBLIC_INTERNAL', 'INTERNAL', 'CONFIDENTIAL', 'HIGHLY_RESTRICTED'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`,
     );
     await queryRunner.query(
       `CREATE TABLE "analytics"."analytics_access_logs" ("id" BIGSERIAL NOT NULL, "company_id" integer, "actor_company_user_id" integer, "employee_id" integer, "action" character varying(80) NOT NULL, "resource_type" character varying(80) NOT NULL, "resource_code" character varying(120) NOT NULL, "purpose" character varying(180), "scope_hash" character varying(128) NOT NULL, "sensitivity" "analytics"."analytics_access_logs_sensitivity_enum" NOT NULL, "metadata" jsonb, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_2bb70e5b181fe8ea0fcebad8eb1" PRIMARY KEY ("id"))`,

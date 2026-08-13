@@ -2,8 +2,9 @@ import { Type } from 'class-transformer';
 import { IsInt, IsOptional, Matches, Max, Min } from 'class-validator';
 
 export class ConfigureEmployeeNumberDto {
-  @Matches(/^[A-Z0-9]{2,20}$/, {
-    message: 'prefix must contain only uppercase letters and numbers',
+  @Matches(/^$|^[A-Z0-9]{2,20}$/, {
+    message:
+      'prefix must be blank or contain 2 to 20 uppercase letters and numbers',
   })
   prefix: string;
 

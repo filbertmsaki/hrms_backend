@@ -30,7 +30,7 @@ import { ProfileImageSourceEnum } from '../hr/employees/enums/profile-image-sour
 type EmployeeImportAccountResult = {
   user: User;
   membership: CompanyUser;
-  action: 'CREATED';
+  action: 'CREATED' | 'REUSED';
 };
 
 type EmployeeImportAccountMetadata = {
@@ -390,34 +390,43 @@ export class UsersService {
       this.userRepository.manager.getRepository(CompanyUser);
 
     const email = input.email.trim().toLowerCase();
-    const existingUser = await repository.findOne({
+    let user = await repository.findOne({
       where: { email },
-      select: ['id', 'email'],
+      select: [
+        'id',
+        'email',
+        'status',
+        'user_type',
+        'is_email_verified',
+        'must_set_password',
+        'activated_at',
+        'account_provisioning_status',
+      ],
     });
+    let action: EmployeeImportAccountResult['action'] = 'REUSED';
 
-    if (existingUser) {
-      throw new ConflictException(`A user already exists with email ${email}.`);
+    if (!user) {
+      const hashedPassword = await hashPassword(
+        randomBytes(24).toString('base64url'),
+      );
+      user = await repository.save(
+        repository.create({
+          user_no: await this.generateUserNo(manager),
+          first_name: input.firstName.trim(),
+          last_name: input.lastName.trim(),
+          phone: await this.generateImportPlaceholderPhone(manager),
+          email,
+          password: hashedPassword,
+          status: 'inactive',
+          user_type: 'COMPANY_USER',
+          is_email_verified: false,
+          must_set_password: true,
+          activated_at: null,
+          account_provisioning_status: 'pending_activation',
+        }),
+      );
+      action = 'CREATED';
     }
-
-    const hashedPassword = await hashPassword(
-      randomBytes(24).toString('base64url'),
-    );
-    const user = await repository.save(
-      repository.create({
-        user_no: await this.generateUserNo(manager),
-        first_name: input.firstName.trim(),
-        last_name: input.lastName.trim(),
-        phone: await this.generateImportPlaceholderPhone(manager),
-        email,
-        password: hashedPassword,
-        status: 'inactive',
-        user_type: 'COMPANY_USER',
-        is_email_verified: false,
-        must_set_password: true,
-        activated_at: null,
-        account_provisioning_status: 'pending_activation',
-      }),
-    );
 
     await this.companiesService.addUserToCompany(
       user.id,
@@ -446,7 +455,7 @@ export class UsersService {
     return {
       user,
       membership,
-      action: 'CREATED',
+      action,
     };
   }
 

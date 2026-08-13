@@ -4,10 +4,13 @@ import { NestFactory } from '@nestjs/core';
 import { static as expressStatic } from 'express';
 import helmet from 'helmet';
 import { join, resolve } from 'path';
+import { DataSource } from 'typeorm';
 
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
+import { runAllSeeders } from './database/seeds';
+import { assertSecureSeederPasswords } from './database/seeds/seeder-guards';
 import {
   createSwaggerDocument,
   OPENAPI_JSON_PATH,
@@ -57,6 +60,8 @@ async function bootstrap(): Promise<void> {
     process.cwd(),
     configService.get<string>('APP_PUBLIC_STORAGE_PATH') ?? 'uploads',
   );
+  const runSeederOnStartup =
+    configService.get<boolean>('RUN_SEEDER_ON_STARTUP') ?? false;
 
   console.log('[BOOT-5] Configuration loaded', {
     appEnv,
@@ -151,6 +156,13 @@ async function bootstrap(): Promise<void> {
   );
 
   console.log('[BOOT-6] Middleware configured');
+
+  if (runSeederOnStartup) {
+    logger.log('RUN_SEEDER_ON_STARTUP enabled. Running database seeders.');
+    assertSecureSeederPasswords();
+    await runAllSeeders(app.get(DataSource));
+    logger.log('Database seeders completed during application startup.');
+  }
 
   if (enableApiDocs) {
     console.log('[BOOT-7] Creating Swagger document');

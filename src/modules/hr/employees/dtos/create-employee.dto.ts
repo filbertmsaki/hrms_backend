@@ -31,7 +31,7 @@ export class CreateEmployeeDto {
   @ApiPropertyOptional({
     description:
       'System generated. Only approved migration operations may supply this value.',
-    example: 'AICL/001',
+    example: '00001',
   })
   @Transform(({ value }: TransformFnParams): unknown => {
     if (typeof value !== 'string') {

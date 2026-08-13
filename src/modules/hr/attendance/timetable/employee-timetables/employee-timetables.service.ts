@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
 import { buildPaginationMeta } from '../../../shared/hr.utils';
 import { Employee } from '../../../employees/entities/employee.entity';
@@ -33,12 +33,32 @@ export class EmployeeTimetablesService {
     private readonly attendanceAssignmentDomainService: AttendanceAssignmentDomainService,
   ) {}
 
+  private getEmployeeTimetableRepository(
+    manager?: EntityManager,
+  ): Repository<EmployeeTimetable> {
+    return (
+      manager?.getRepository(EmployeeTimetable) ??
+      this.employeeTimetableRepository
+    );
+  }
+
+  private getTimetableRepository(
+    manager?: EntityManager,
+  ): Repository<Timetable> {
+    return manager?.getRepository(Timetable) ?? this.timetableRepository;
+  }
+
+  private getEmployeeRepository(manager?: EntityManager): Repository<Employee> {
+    return manager?.getRepository(Employee) ?? this.employeeRepository;
+  }
+
   private async ensureTimetable(
     companyId: number,
     timetableId: number,
+    manager?: EntityManager,
   ): Promise<void> {
     await ensureCompanyOwnedEntity(
-      this.timetableRepository,
+      this.getTimetableRepository(manager),
       { id: timetableId, companyId },
       'timetable_id does not belong to the active company',
     );
@@ -47,9 +67,10 @@ export class EmployeeTimetablesService {
   private async ensureEmployee(
     companyId: number,
     employeeId: number,
+    manager?: EntityManager,
   ): Promise<void> {
     await ensureEmployeeBelongsToCompany(
-      this.employeeRepository,
+      this.getEmployeeRepository(manager),
       companyId,
       employeeId,
     );
@@ -66,9 +87,15 @@ export class EmployeeTimetablesService {
     return item;
   }
 
-  async create(companyId: number, dto: CreateEmployeeTimetableDto) {
-    await this.ensureEmployee(companyId, dto.employee_id);
-    await this.ensureTimetable(companyId, dto.timetable_id);
+  async create(
+    companyId: number,
+    dto: CreateEmployeeTimetableDto,
+    manager?: EntityManager,
+  ) {
+    const repository = this.getEmployeeTimetableRepository(manager);
+
+    await this.ensureEmployee(companyId, dto.employee_id, manager);
+    await this.ensureTimetable(companyId, dto.timetable_id, manager);
     ensureDateRangeOrder(dto.effective_from, dto.effective_to ?? null);
     await this.attendanceAssignmentDomainService.ensureNoOverlappingEmployeeTimetable(
       {
@@ -77,6 +104,7 @@ export class EmployeeTimetablesService {
         effectiveFrom: dto.effective_from,
         effectiveTo: dto.effective_to ?? null,
         status: dto.status ?? EmployeeTimetableStatusEnum.ACTIVE,
+        manager,
       },
     );
     await this.attendanceAssignmentDomainService.ensureNoConflictingAssignmentType(
@@ -90,7 +118,7 @@ export class EmployeeTimetablesService {
       },
     );
 
-    const duplicate = await this.employeeTimetableRepository.findOne({
+    const duplicate = await repository.findOne({
       where: {
         companyId,
         employeeId: dto.employee_id,
@@ -103,8 +131,8 @@ export class EmployeeTimetablesService {
         'Employee timetable assignment already exists for effective_from',
       );
 
-    return this.employeeTimetableRepository.save(
-      this.employeeTimetableRepository.create({
+    return repository.save(
+      repository.create({
         companyId,
         employeeId: dto.employee_id,
         timetableId: dto.timetable_id,

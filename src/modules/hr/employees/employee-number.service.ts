@@ -31,14 +31,23 @@ export class EmployeeNumberService {
     return prefix.trim().toUpperCase();
   }
 
+  private buildEmployeeNumberFormat(
+    sequence: Pick<EmployeeNumberSequence, 'prefix' | 'padding'>,
+  ): string {
+    const paddedNumber = '0'.repeat(sequence.padding);
+    return sequence.prefix
+      ? `${sequence.prefix}/${paddedNumber}`
+      : paddedNumber;
+  }
+
   private formatEmployeeNumber(
     sequence: Pick<EmployeeNumberSequence, 'prefix' | 'padding'>,
     number: number,
   ): string {
-    return [
-      sequence.prefix,
-      String(number).padStart(sequence.padding, '0'),
-    ].join('/');
+    const paddedNumber = String(number).padStart(sequence.padding, '0');
+    return sequence.prefix
+      ? `${sequence.prefix}/${paddedNumber}`
+      : paddedNumber;
   }
 
   async getConfiguration(companyId: number): Promise<EmployeeNumberSequence> {
@@ -140,7 +149,7 @@ export class EmployeeNumberService {
 
       if (!sequence) {
         throw new BadRequestException(
-          'Configure the employee number prefix before creating employees',
+          'Configure the employee number format before creating employees',
         );
       }
 
@@ -176,11 +185,13 @@ export class EmployeeNumberService {
         );
       }
 
-      const pattern = new RegExp(`^${sequence.prefix}/(\\d+)$`);
+      const pattern = sequence.prefix
+        ? new RegExp(`^${sequence.prefix}/(\\d+)$`)
+        : /^(\d+)$/;
       const match = normalized.match(pattern);
       if (!match) {
         throw new BadRequestException(
-          `Imported employee number must use format ${sequence.prefix}/${'0'.repeat(sequence.padding)}`,
+          `Imported employee number must use format ${this.buildEmployeeNumberFormat(sequence)}`,
         );
       }
 

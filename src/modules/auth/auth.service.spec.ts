@@ -303,6 +303,81 @@ describe('AuthService', () => {
     expect(result.refresh_token).toBe('refresh-token');
   });
 
+  it('authenticates imported employees into the employee portal with their assigned self-service permissions', async () => {
+    jest.spyOn(service, 'validateUser').mockResolvedValue({
+      id: 19,
+      email: 'employee@example.com',
+      first_name: 'Grace',
+      last_name: 'Mrema',
+      status: 'active',
+      user_type: 'COMPANY_USER',
+      is_email_verified: true,
+      is_two_factor_enabled: false,
+      two_factor_setup_required: false,
+    } as never);
+
+    companiesService.listUserCompanies.mockResolvedValue([
+      {
+        companyId: 12,
+        companyName: 'Acme HR',
+        companySlug: 'acme-hr',
+        membershipId: 54,
+        employeeId: 91,
+        employeeNo: '00091',
+        isDefault: true,
+        roles: ['EMPLOYEE'],
+        permissions: [
+          'data_scope:self',
+          'leave_requests:create',
+          'attendance_mobile_punches:create',
+        ],
+      },
+    ]);
+    companiesService.setActiveMembership.mockResolvedValue({
+      companyId: 12,
+      companyName: 'Acme HR',
+      companySlug: 'acme-hr',
+      membershipId: 54,
+      employeeId: 91,
+      employeeNo: '00091',
+      isDefault: true,
+      roles: ['EMPLOYEE'],
+      permissions: [
+        'data_scope:self',
+        'leave_requests:create',
+        'attendance_mobile_punches:create',
+      ],
+      status: 'active',
+    });
+    twoFaService.getTwoFactorStatus.mockResolvedValue({
+      enabled: false,
+      setupRequired: false,
+      fullyConfigured: false,
+    });
+
+    const rawResult: unknown = await service.login(
+      { email: 'employee@example.com', password: 'ChangeMe@123' },
+      { ipAddress: '197.250.10.22', userAgent: null, requestId: null },
+    );
+    const result = rawResult as {
+      dashboard_type: string;
+      user: {
+        roles: string[];
+        permissions: string[];
+        dashboard_type: string;
+      };
+    };
+
+    expect(result.dashboard_type).toBe('employee');
+    expect(result.user.roles).toEqual(['EMPLOYEE']);
+    expect(result.user.permissions).toEqual([
+      'data_scope:self',
+      'leave_requests:create',
+      'attendance_mobile_punches:create',
+    ]);
+    expect(result.user.dashboard_type).toBe('employee');
+  });
+
   it('returns a temporary token when the user has fully configured 2FA', async () => {
     jest.spyOn(service, 'validateUser').mockResolvedValue({
       id: 9,

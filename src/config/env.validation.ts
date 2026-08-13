@@ -391,6 +391,11 @@ export function validateEnv(env: Env) {
     'EMPLOYEE_IMPORT_DEFAULT_PASSWORD',
     '',
   );
+  const RUN_SEEDER_ON_STARTUP = optionalBool(
+    env,
+    'RUN_SEEDER_ON_STARTUP',
+    false,
+  );
 
   const AUTH_REQUIRED_2FA_ROLES = optionalString(
     env,
@@ -1789,6 +1794,7 @@ export function validateEnv(env: Env) {
     ENABLE_EMAIL_VERIFICATION,
     EMAIL_VERIFICATION_EXPIRY_HOURS,
     EMPLOYEE_IMPORT_DEFAULT_PASSWORD,
+    RUN_SEEDER_ON_STARTUP,
     AUTH_REQUIRED_2FA_ROLES,
     EMPLOYEE_IMPORT_MAX_FILE_SIZE_BYTES,
     EMPLOYEE_IMPORT_MAX_ROWS,

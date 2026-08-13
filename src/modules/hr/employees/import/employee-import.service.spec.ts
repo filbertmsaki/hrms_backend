@@ -12,6 +12,7 @@ import { EmployeeImportOutboxEvent } from './entities/employee-import-outbox-eve
 import { EmployeeImportRow } from './entities/employee-import-row.entity';
 import { EmployeeImportExecutionModeEnum } from './dto/employee-import-confirm.dto';
 import { Employee } from '../entities/employee.entity';
+import { EmployeeNumberSequence } from '../entities/employee-number-sequence.entity';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { User } from '../../../users/entities/user.entity';
 import { Branch } from '../../branches/entities/branch.entity';
@@ -154,7 +155,7 @@ describe('EmployeeImportService', () => {
     companyId: 10,
     companyMembershipId: 33,
     roles: [],
-    permissions: [],
+    permissions: ['employees:change-status'],
   };
 
   beforeEach(() => {
@@ -1294,7 +1295,7 @@ describe('EmployeeImportService', () => {
     expect(row.userAccount.message).toContain('Employee role');
   });
 
-  it('flags duplicate email addresses as user conflicts during preview', () => {
+  it('flags platform owner accounts as user conflicts during preview', () => {
     const row = (
       service as unknown as {
         validatePreviewRow: (
@@ -1334,6 +1335,7 @@ describe('EmployeeImportService', () => {
             id: 44,
             email: 'mary.joseph@example.com',
             status: 'active',
+            user_type: 'OWNER',
           },
         ],
         identifications: [],
@@ -1345,6 +1347,68 @@ describe('EmployeeImportService', () => {
     expect(row.previewStatus).toBe('INVALID_RECORD');
     expect(row.userAccount.action).toBe('USER_CONFLICT');
     expect(row.userAccount.existingUserId).toBe(44);
+  });
+
+  it('reuses an existing user account during preview when it is not linked to another employee in the company', () => {
+    const row = (
+      service as unknown as {
+        validatePreviewRow: (
+          companyId: number,
+          rowNumber: number,
+          values: Record<string, unknown>,
+          dto: Record<string, unknown>,
+          references: Record<string, unknown>,
+        ) => {
+          errors: string[];
+          previewStatus: string;
+          userAccount: {
+            action: string;
+            existingUserId: number | null;
+            message: string;
+          };
+        };
+      }
+    ).validatePreviewRow(
+      10,
+      9,
+      {
+        first_name: 'Mary',
+        last_name: 'Joseph',
+        email: 'mary.joseph@example.com',
+        gender: 'female',
+      },
+      {},
+      {
+        branches: [],
+        departments: [],
+        positions: [],
+        shifts: [],
+        timetables: [],
+        devices: [],
+        roles: [],
+        employees: [],
+        companyUsers: [],
+        users: [
+          {
+            id: 44,
+            email: 'mary.joseph@example.com',
+            status: 'active',
+            user_type: 'COMPANY_USER',
+            must_set_password: false,
+          },
+        ],
+        identifications: [],
+        deviceAssignments: [],
+        credentials: [],
+      },
+    );
+
+    expect(row.previewStatus).toBe('READY_FOR_IMPORT');
+    expect(row.userAccount.action).toBe('REUSE_EXISTING_LINKED_USER');
+    expect(row.userAccount.existingUserId).toBe(44);
+    expect(row.userAccount.message).toContain(
+      'Existing system user will be added to the company',
+    );
   });
 
   it('generates a stable fallback idempotency key when the confirm header is missing', () => {
@@ -1399,6 +1463,7 @@ describe('EmployeeImportService', () => {
     const batchRepository = createRepositoryMock();
     const rowRepository = createRepositoryMock();
     const outboxRepository = createRepositoryMock();
+    const sequenceRepository = createRepositoryMock();
     const txManager = {
       getRepository: jest.fn((entity: unknown) => {
         if (entity === EmployeeImportBatch) {
@@ -1409,6 +1474,9 @@ describe('EmployeeImportService', () => {
         }
         if (entity === EmployeeImportOutboxEvent) {
           return outboxRepository;
+        }
+        if (entity === EmployeeNumberSequence) {
+          return sequenceRepository;
         }
         return createRepositoryMock();
       }),
@@ -1459,6 +1527,7 @@ describe('EmployeeImportService', () => {
     batchRepository.save.mockImplementation(async (value: unknown) => value);
     outboxRepository.create.mockImplementation((value: unknown) => value);
     outboxRepository.save.mockImplementation(async (value: unknown) => value);
+    sequenceRepository.findOne.mockResolvedValue({ id: 1, company_id: 10 });
     (
       service as unknown as {
         dataSource: { transaction: jest.Mock };
@@ -1539,6 +1608,7 @@ describe('EmployeeImportService', () => {
     const batchRepository = createRepositoryMock();
     const rowRepository = createRepositoryMock();
     const outboxRepository = createRepositoryMock();
+    const sequenceRepository = createRepositoryMock();
     const txManager = {
       getRepository: jest.fn((entity: unknown) => {
         if (entity === EmployeeImportBatch) {
@@ -1549,6 +1619,9 @@ describe('EmployeeImportService', () => {
         }
         if (entity === EmployeeImportOutboxEvent) {
           return outboxRepository;
+        }
+        if (entity === EmployeeNumberSequence) {
+          return sequenceRepository;
         }
         return createRepositoryMock();
       }),
@@ -1599,6 +1672,7 @@ describe('EmployeeImportService', () => {
     batchRepository.save.mockImplementation(async (value: unknown) => value);
     outboxRepository.create.mockImplementation((value: unknown) => value);
     outboxRepository.save.mockImplementation(async (value: unknown) => value);
+    sequenceRepository.findOne.mockResolvedValue({ id: 1, company_id: 10 });
     (
       service as unknown as {
         dataSource: { transaction: jest.Mock };
@@ -1717,6 +1791,134 @@ describe('EmployeeImportService', () => {
     expect(result.status).toBe(EmployeeImportBatchStatusEnum.COMPLETED);
   });
 
+  it('fails confirm once when employee number configuration is missing for create rows', async () => {
+    const batchRepository = createRepositoryMock();
+    const rowRepository = createRepositoryMock();
+    const outboxRepository = createRepositoryMock();
+    const sequenceRepository = createRepositoryMock();
+    const txManager = {
+      getRepository: jest.fn((entity: unknown) => {
+        if (entity === EmployeeImportBatch) {
+          return batchRepository;
+        }
+        if (entity === EmployeeImportRow) {
+          return rowRepository;
+        }
+        if (entity === EmployeeImportOutboxEvent) {
+          return outboxRepository;
+        }
+        if (entity === EmployeeNumberSequence) {
+          return sequenceRepository;
+        }
+        return createRepositoryMock();
+      }),
+    };
+
+    const storedRow = {
+      id: 203,
+      rowNumber: 2,
+      rowKey: 'row-2',
+      rawData: {
+        first_name: 'Prefix',
+        last_name: 'Missing',
+        email: 'prefix.missing@example.com',
+        gender: 'female',
+      },
+      normalizedData: null,
+      warnings: [],
+      errors: [],
+      employeeName: 'Prefix Missing',
+      employeeNumber: null,
+      deviceEmployeeNumber: null,
+      importAction: null,
+      matchedEmployeeId: null,
+      status: EmployeeImportRowStatusEnum.READY,
+      resultData: {},
+    } as EmployeeImportRow;
+    const batch = {
+      id: 303,
+      companyId: 10,
+      batchId: 'IMPORT-20260812-NO-PREFIX',
+      importMode: EmployeeImportModeEnum.CREATE_ONLY,
+      status: EmployeeImportBatchStatusEnum.PREVIEW_READY,
+      rows: [storedRow],
+      metadata: {},
+      validationSummary: {},
+    } as EmployeeImportBatch;
+
+    sequenceRepository.findOne.mockResolvedValue(null);
+    (
+      service as unknown as {
+        dataSource: { transaction: jest.Mock };
+      }
+    ).dataSource = {
+      transaction: jest.fn((callback: (manager: unknown) => unknown) =>
+        callback(txManager),
+      ),
+    };
+
+    jest
+      .spyOn(service as any, 'findBatchForProcessing')
+      .mockResolvedValue(batch);
+    jest.spyOn(service as any, 'loadReferenceData').mockResolvedValue({
+      branches: [],
+      departments: [],
+      positions: [],
+      departmentPositionMappings: [],
+      shifts: [],
+      timetables: [],
+      devices: [],
+      roles: [],
+      employees: [],
+      companyUsers: [],
+      users: [],
+      identifications: [],
+      deviceAssignments: [],
+      credentials: [],
+    });
+    jest
+      .spyOn(service as any, 'applyActorBranchValidation')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(service as any, 'applyBatchDuplicateValidation')
+      .mockImplementation(() => undefined);
+    jest
+      .spyOn(service as any, 'applyManagerValidation')
+      .mockImplementation(() => undefined);
+    jest.spyOn(service as any, 'validatePreviewRow').mockReturnValue({
+      rowNumber: 2,
+      identifier: 'Prefix Missing',
+      rawData: storedRow.rawData,
+      normalizedData: {
+        first_name: 'Prefix',
+        last_name: 'Missing',
+        email: 'prefix.missing@example.com',
+        gender: 'female',
+        access_device_codes: [],
+      },
+      errors: [],
+      warnings: [],
+      issues: [],
+      importAction: 'CREATE',
+      matchedEmployeeId: null,
+      matchedBy: [],
+      existingEmployee: null,
+      duplicateInFile: [],
+      previewStatus: 'READY_FOR_IMPORT',
+      employeeNumber: null,
+      deviceEmployeeNumber: null,
+      employeeName: 'Prefix Missing',
+      userAccount: null,
+    });
+
+    await expect(
+      service.confirmImport(10, { preview_token: 'preview-token' }, actor),
+    ).rejects.toThrow(
+      'Configure the employee number format before confirming employee imports that create employees.',
+    );
+    expect(outboxRepository.save).not.toHaveBeenCalled();
+  });
+
   it('creates a company membership through UsersService for a new import user', async () => {
     const ensureEmployeeImportAccount = jest.fn().mockResolvedValue({
       user: { id: 91 },
@@ -1726,6 +1928,7 @@ describe('EmployeeImportService', () => {
         user_id: 91,
         status: 'active',
       },
+      action: 'CREATED',
     });
     (
       service as unknown as {
@@ -1777,18 +1980,97 @@ describe('EmployeeImportService', () => {
     expect(membership.userAction).toBe('CREATE_NEW_USER');
   });
 
+  it('reuses an existing system user through UsersService without creating a duplicate import account', async () => {
+    const ensureEmployeeImportAccount = jest.fn().mockResolvedValue({
+      user: { id: 91 },
+      membership: {
+        id: 18,
+        company_id: 10,
+        user_id: 91,
+        status: 'active',
+      },
+      action: 'REUSED',
+    });
+    (
+      service as unknown as {
+        usersService: { ensureEmployeeImportAccount: jest.Mock };
+      }
+    ).usersService = {
+      ensureEmployeeImportAccount,
+    };
+    jest
+      .spyOn(service as any, 'getRequiredDefaultEmployeeRole')
+      .mockResolvedValue({ id: 7, name: 'EMPLOYEE' });
+
+    const membership = await (
+      service as unknown as {
+        ensureMembershipForImportRow: (
+          companyId: number,
+          previewRow: Record<string, unknown>,
+          manager?: unknown,
+        ) => Promise<{
+          membership: { id: number; user_id: number };
+          createdUserId: number | null;
+          linkedUserId: number;
+          userAction: string;
+        }>;
+      }
+    ).ensureMembershipForImportRow(10, {
+      importAction: 'CREATE',
+      normalizedData: {
+        first_name: 'Api',
+        last_name: 'Reuse',
+        email: 'api.reuse.tx@example.com',
+      },
+    });
+
+    expect(ensureEmployeeImportAccount).toHaveBeenCalledWith(
+      10,
+      {
+        email: 'api.reuse.tx@example.com',
+        firstName: 'Api',
+        lastName: 'Reuse',
+        roleNames: ['EMPLOYEE'],
+      },
+      undefined,
+    );
+    expect(membership.membership.id).toBe(18);
+    expect(membership.membership.user_id).toBe(91);
+    expect(membership.createdUserId).toBeNull();
+    expect(membership.linkedUserId).toBe(91);
+    expect(membership.userAction).toBe('REUSE_EXISTING_LINKED_USER');
+  });
+
   it('reuses the existing linked membership for update rows', async () => {
     const companyUserRepository = (
       service as unknown as {
         companyUserRepository: MockRepo;
       }
     ).companyUserRepository;
-    companyUserRepository.findOne.mockResolvedValue({
-      id: 19,
-      company_id: 10,
-      user_id: 92,
-      status: 'active',
-    });
+    companyUserRepository.findOne
+      .mockResolvedValueOnce({
+        id: 19,
+        company_id: 10,
+        user_id: 92,
+        status: 'active',
+      })
+      .mockResolvedValueOnce({
+        id: 19,
+        company_id: 10,
+        user_id: 92,
+        status: 'active',
+      });
+    const companiesService = {
+      addUserToCompany: jest.fn().mockResolvedValue(undefined),
+    };
+    (
+      service as unknown as {
+        companiesService: typeof companiesService;
+      }
+    ).companiesService = companiesService as never;
+    jest
+      .spyOn(service as any, 'getRequiredDefaultEmployeeRole')
+      .mockResolvedValue({ id: 7, name: 'EMPLOYEE' });
 
     const membership = await (
       service as unknown as {
@@ -1806,12 +2088,21 @@ describe('EmployeeImportService', () => {
     ).ensureMembershipForImportRow(10, {
       importAction: 'UPDATE',
       existingEmployee: {
+        id: 19,
         companyUserId: 19,
         userId: 92,
       },
       normalizedData: {},
     });
 
+    expect(companiesService.addUserToCompany).toHaveBeenCalledWith(
+      92,
+      10,
+      {
+        roleNames: ['EMPLOYEE'],
+      },
+      undefined,
+    );
     expect(membership.membership.id).toBe(19);
     expect(membership.membership.user_id).toBe(92);
     expect(membership.createdUserId).toBeNull();
@@ -2037,16 +2328,24 @@ describe('EmployeeImportService', () => {
       expect.objectContaining({ id: actor.id, email: actor.email }),
       txManager,
     );
-    expect(employeeTimetablesService.create).toHaveBeenCalledWith(10, {
-      employee_id: 38,
-      timetable_id: 5,
-      effective_from: '2026-07-28',
-    });
-    expect(shiftAssignmentsService.create).toHaveBeenCalledWith(10, {
-      employee_id: 38,
-      shift_id: 4,
-      effective_from: '2026-07-28',
-    });
+    expect(employeeTimetablesService.create).toHaveBeenCalledWith(
+      10,
+      {
+        employee_id: 38,
+        timetable_id: 5,
+        effective_from: '2026-07-28',
+      },
+      txManager,
+    );
+    expect(shiftAssignmentsService.create).toHaveBeenCalledWith(
+      10,
+      {
+        employee_id: 38,
+        shift_id: 4,
+        effective_from: '2026-07-28',
+      },
+      txManager,
+    );
     expect(storedRow.status).toBe(EmployeeImportRowStatusEnum.IMPORTED);
     expect(storedRow.createdEmployeeId).toBe(38);
   });
@@ -2208,7 +2507,7 @@ describe('EmployeeImportService', () => {
             email: 'ahlam.import@example.com',
             gender: 'female',
             employee_number: null,
-            employee_status: EmploymentStatusEnum.ONBOARDING,
+            employee_status: EmploymentStatusEnum.ACTIVE,
             access_device_codes: [],
           },
           errors: [],
@@ -2246,7 +2545,7 @@ describe('EmployeeImportService', () => {
       10,
       18,
       expect.objectContaining({
-        employment_status: EmploymentStatusEnum.ONBOARDING,
+        employment_status: EmploymentStatusEnum.ACTIVE,
         onboarding: {
           auto_start: false,
         },

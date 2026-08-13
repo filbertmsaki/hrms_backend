@@ -69,6 +69,7 @@ import { ContactTypeEnum } from '../enums/contact-type.enum';
 import { HikvisionImportSyncService } from '../../../hikvision/hikvision-import-sync.service';
 import { BranchesService } from '../../branches/branches.service';
 import { EmployeeImportJobData } from './employee-import-job.constants';
+import { EmployeeNumberSequence } from '../entities/employee-number-sequence.entity';
 
 type UploadedExcelFile = {
   originalname: string;
@@ -950,6 +951,14 @@ export class EmployeeImportService {
         );
       }
 
+      await this.assertEmployeeNumberConfigurationForCreateRows(
+        companyId,
+        batch,
+        previewRowsByStoredId,
+        selectedRowIds,
+        manager.getRepository(EmployeeNumberSequence),
+      );
+
       let queuedRows = 0;
       let existingSkipped = 0;
       let invalidSkipped = 0;
@@ -1298,6 +1307,7 @@ export class EmployeeImportService {
             normalizedData,
             null,
             importedEmployeesByNumber,
+            manager,
             manager.getRepository(EmployeeDeviceAssignment),
             manager.getRepository(EmployeeAccessCredential),
           );
@@ -1733,7 +1743,7 @@ export class EmployeeImportService {
           dto.employee_number_mode ?? EmployeeImportNumberModeEnum.GENERATE,
         activation_mode:
           dto.activation_mode ??
-          EmployeeImportActivationModeEnum.CREATE_ONBOARDING,
+          EmployeeImportActivationModeEnum.MIGRATE_AS_ACTIVE,
         import_reason: this.optionalString(dto.import_reason) ?? null,
       },
     });
@@ -2346,7 +2356,7 @@ export class EmployeeImportService {
       (this.optionalString(
         batch.metadata?.activation_mode,
       ) as EmployeeImportActivationModeEnum | null) ??
-      EmployeeImportActivationModeEnum.CREATE_ONBOARDING;
+      EmployeeImportActivationModeEnum.MIGRATE_AS_ACTIVE;
 
     return {
       employee_no:
@@ -2711,6 +2721,24 @@ export class EmployeeImportService {
         candidate.email?.trim().toLowerCase() === email.toLowerCase(),
     );
     if (existingUser) {
+      if (existingUser.user_type === 'OWNER') {
+        const message =
+          'A platform owner account cannot be linked to an imported employee record.';
+        this.addIssueOnce(row, 'email', email, message, undefined, 'existing');
+
+        return {
+          action: 'USER_CONFLICT',
+          loginIdentifier: email,
+          role: roleLabel,
+          status: 'INVALID',
+          userStatus: existingUser.status ?? null,
+          existingUserId: existingUser.id,
+          message,
+          passwordChangeRequiredOnFirstLogin: false,
+          limitation,
+        };
+      }
+
       const existingMembership =
         references.companyUsers.find(
           (companyUser) => companyUser.user_id === existingUser.id,
@@ -2721,20 +2749,35 @@ export class EmployeeImportService {
           : (references.employees.find(
               (employee) => employee.company_user_id === existingMembership.id,
             ) ?? null);
-      const message = linkedEmployee
-        ? `A user already exists with email ${email}, but the account is linked to a different employee.`
-        : `A user already exists with email ${email}.`;
-      this.addIssueOnce(row, 'email', email, message, undefined, 'existing');
+      if (linkedEmployee) {
+        const message = `A user already exists with email ${email}, but the account is linked to a different employee.`;
+        this.addIssueOnce(row, 'email', email, message, undefined, 'existing');
+
+        return {
+          action: 'USER_CONFLICT',
+          loginIdentifier: email,
+          role: roleLabel,
+          status: 'INVALID',
+          userStatus: existingUser.status ?? null,
+          existingUserId: existingUser.id,
+          message,
+          passwordChangeRequiredOnFirstLogin: false,
+          limitation,
+        };
+      }
 
       return {
-        action: 'USER_CONFLICT',
+        action: 'REUSE_EXISTING_LINKED_USER',
         loginIdentifier: email,
         role: roleLabel,
-        status: 'INVALID',
+        status: row.errors.length > 0 ? 'INVALID' : 'VALID',
         userStatus: existingUser.status ?? null,
         existingUserId: existingUser.id,
-        message,
-        passwordChangeRequiredOnFirstLogin: false,
+        message: existingMembership
+          ? 'Existing system user will be linked to the imported employee and assigned the Employee role if it is missing.'
+          : 'Existing system user will be added to the company, linked to the imported employee, and assigned the Employee role if it is missing.',
+        passwordChangeRequiredOnFirstLogin:
+          existingUser.must_set_password ?? false,
         limitation,
       };
     }
@@ -2766,6 +2809,10 @@ export class EmployeeImportService {
     const normalizedData = previewRow.normalizedData ?? {};
     const companyUserRepository =
       manager?.getRepository(CompanyUser) ?? this.companyUserRepository;
+    const role = await this.getRequiredDefaultEmployeeRole(
+      companyId,
+      manager?.getRepository(Role) ?? this.roleRepository,
+    );
 
     if (previewRow.importAction === 'UPDATE') {
       const companyUserId = previewRow.existingEmployee?.companyUserId;
@@ -2788,8 +2835,29 @@ export class EmployeeImportService {
         throw new NotFoundException('Company membership not found');
       }
 
+      await this.companiesService.addUserToCompany(
+        linkedUserId,
+        companyId,
+        {
+          roleNames: [role.name],
+        },
+        manager,
+      );
+
+      const refreshedMembership = await companyUserRepository.findOne({
+        where: {
+          id: companyUserId,
+          company_id: companyId,
+          status: 'active',
+        },
+      });
+
+      if (!refreshedMembership) {
+        throw new NotFoundException('Company membership not found');
+      }
+
       return {
-        membership,
+        membership: refreshedMembership,
         createdUserId: null,
         linkedUserId,
         userAction: 'REUSE_EXISTING_LINKED_USER',
@@ -2805,11 +2873,6 @@ export class EmployeeImportService {
       );
     }
 
-    const role = await this.getRequiredDefaultEmployeeRole(
-      companyId,
-      manager?.getRepository(Role) ?? this.roleRepository,
-    );
-
     const account = await this.usersService.ensureEmployeeImportAccount(
       companyId,
       {
@@ -2823,9 +2886,12 @@ export class EmployeeImportService {
 
     return {
       membership: account.membership,
-      createdUserId: account.user.id,
+      createdUserId: account.action === 'CREATED' ? account.user.id : null,
       linkedUserId: account.user.id,
-      userAction: 'CREATE_NEW_USER',
+      userAction:
+        account.action === 'CREATED'
+          ? 'CREATE_NEW_USER'
+          : 'REUSE_EXISTING_LINKED_USER',
     };
   }
 
@@ -2835,6 +2901,7 @@ export class EmployeeImportService {
     normalizedData: Record<string, unknown>,
     roleId: number | null,
     importedEmployeesByNumber: Map<string, number>,
+    manager: EntityManager,
     assignmentRepo: Repository<EmployeeDeviceAssignment>,
     credentialRepo: Repository<EmployeeAccessCredential>,
   ): Promise<void> {
@@ -2843,26 +2910,34 @@ export class EmployeeImportService {
 
     const shiftId = this.toNumber(normalizedData.shift_id);
     if (shiftId) {
-      await this.shiftAssignmentsService.create(companyId, {
-        employee_id: employee.id,
-        shift_id: shiftId,
-        effective_from:
-          this.optionalString(normalizedData.shift_effective_from) ??
-          this.optionalString(normalizedData.employment_date) ??
-          new Date().toISOString().slice(0, 10),
-      });
+      await this.shiftAssignmentsService.create(
+        companyId,
+        {
+          employee_id: employee.id,
+          shift_id: shiftId,
+          effective_from:
+            this.optionalString(normalizedData.shift_effective_from) ??
+            this.optionalString(normalizedData.employment_date) ??
+            new Date().toISOString().slice(0, 10),
+        },
+        manager,
+      );
     }
 
     const timetableId = this.toNumber(normalizedData.timetable_id);
     if (timetableId) {
-      await this.employeeTimetablesService.create(companyId, {
-        employee_id: employee.id,
-        timetable_id: timetableId,
-        effective_from:
-          this.optionalString(normalizedData.timetable_effective_from) ??
-          this.optionalString(normalizedData.employment_date) ??
-          new Date().toISOString().slice(0, 10),
-      });
+      await this.employeeTimetablesService.create(
+        companyId,
+        {
+          employee_id: employee.id,
+          timetable_id: timetableId,
+          effective_from:
+            this.optionalString(normalizedData.timetable_effective_from) ??
+            this.optionalString(normalizedData.employment_date) ??
+            new Date().toISOString().slice(0, 10),
+        },
+        manager,
+      );
     }
 
     const deviceIds =
@@ -3627,6 +3702,41 @@ export class EmployeeImportService {
     };
   }
 
+  private async assertEmployeeNumberConfigurationForCreateRows(
+    companyId: number,
+    batch: EmployeeImportBatch,
+    previewRowsByStoredId: Map<number, PreviewRow>,
+    selectedRowIds: Set<number>,
+    sequenceRepository: Repository<EmployeeNumberSequence>,
+  ): Promise<void> {
+    const requiresGeneratedOrReservedNumbers = batch.rows.some((storedRow) => {
+      const rowId = this.getStoredRowKey(storedRow);
+      if (!selectedRowIds.has(rowId)) {
+        return false;
+      }
+
+      const previewRow = previewRowsByStoredId.get(rowId);
+      if (!previewRow || previewRow.previewStatus !== 'READY_FOR_IMPORT') {
+        return false;
+      }
+
+      return (previewRow.importAction ?? 'CREATE') === 'CREATE';
+    });
+
+    if (!requiresGeneratedOrReservedNumbers) {
+      return;
+    }
+
+    const sequence = await sequenceRepository.findOne({
+      where: { company_id: companyId },
+    });
+    if (!sequence) {
+      throw new BadRequestException(
+        'Configure the employee number format before confirming employee imports that create employees.',
+      );
+    }
+  }
+
   private async findBatchForProcessing(
     repository: Repository<EmployeeImportBatch>,
     companyId: number,
@@ -3675,7 +3785,7 @@ export class EmployeeImportService {
         (this.optionalString(
           batch.metadata?.activation_mode,
         ) as EmployeeImportActivationModeEnum | null) ??
-        EmployeeImportActivationModeEnum.CREATE_ONBOARDING,
+        EmployeeImportActivationModeEnum.MIGRATE_AS_ACTIVE,
       process_valid_rows_only:
         override?.process_valid_rows_only ??
         (batch.metadata?.process_valid_rows_only as boolean | undefined) ??

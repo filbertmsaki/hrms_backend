@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
 import { buildPaginationMeta } from '../../../shared/hr.utils';
 import { Employee } from '../../../employees/entities/employee.entity';
@@ -36,9 +36,37 @@ export class ShiftAssignmentsService {
     private readonly attendanceAssignmentDomainService: AttendanceAssignmentDomainService,
   ) {}
 
-  private async ensureShift(companyId: number, shiftId: number): Promise<void> {
+  private getShiftAssignmentRepository(
+    manager?: EntityManager,
+  ): Repository<ShiftAssignment> {
+    return (
+      manager?.getRepository(ShiftAssignment) ?? this.shiftAssignmentRepository
+    );
+  }
+
+  private getShiftRepository(manager?: EntityManager): Repository<Shift> {
+    return manager?.getRepository(Shift) ?? this.shiftRepository;
+  }
+
+  private getEmployeeRepository(manager?: EntityManager): Repository<Employee> {
+    return manager?.getRepository(Employee) ?? this.employeeRepository;
+  }
+
+  private getRotationGroupRepository(
+    manager?: EntityManager,
+  ): Repository<ShiftRotationGroup> {
+    return (
+      manager?.getRepository(ShiftRotationGroup) ?? this.rotationGroupRepository
+    );
+  }
+
+  private async ensureShift(
+    companyId: number,
+    shiftId: number,
+    manager?: EntityManager,
+  ): Promise<void> {
     await ensureCompanyOwnedEntity(
-      this.shiftRepository,
+      this.getShiftRepository(manager),
       { id: shiftId, companyId },
       'shift_id does not belong to the active company',
     );
@@ -47,9 +75,10 @@ export class ShiftAssignmentsService {
   private async ensureEmployee(
     companyId: number,
     employeeId: number,
+    manager?: EntityManager,
   ): Promise<void> {
     await ensureEmployeeBelongsToCompany(
-      this.employeeRepository,
+      this.getEmployeeRepository(manager),
       companyId,
       employeeId,
     );
@@ -58,10 +87,11 @@ export class ShiftAssignmentsService {
   private async ensureRotationGroup(
     companyId: number,
     rotationGroupId?: number | null,
+    manager?: EntityManager,
   ): Promise<void> {
     if (!rotationGroupId) return;
     await ensureCompanyOwnedEntity(
-      this.rotationGroupRepository,
+      this.getRotationGroupRepository(manager),
       { id: rotationGroupId, companyId },
       'rotation_group_id does not belong to the active company',
     );
@@ -78,10 +108,16 @@ export class ShiftAssignmentsService {
     return item;
   }
 
-  async create(companyId: number, dto: CreateShiftAssignmentDto) {
-    await this.ensureEmployee(companyId, dto.employee_id);
-    await this.ensureShift(companyId, dto.shift_id);
-    await this.ensureRotationGroup(companyId, dto.rotation_group_id);
+  async create(
+    companyId: number,
+    dto: CreateShiftAssignmentDto,
+    manager?: EntityManager,
+  ) {
+    const repository = this.getShiftAssignmentRepository(manager);
+
+    await this.ensureEmployee(companyId, dto.employee_id, manager);
+    await this.ensureShift(companyId, dto.shift_id, manager);
+    await this.ensureRotationGroup(companyId, dto.rotation_group_id, manager);
     ensureDateRangeOrder(dto.effective_from, dto.effective_to ?? null);
     await this.attendanceAssignmentDomainService.ensureNoOverlappingShiftAssignment(
       {
@@ -90,6 +126,7 @@ export class ShiftAssignmentsService {
         effectiveFrom: dto.effective_from,
         effectiveTo: dto.effective_to ?? null,
         status: dto.status ?? ShiftAssignmentStatusEnum.ACTIVE,
+        manager,
       },
     );
     await this.attendanceAssignmentDomainService.ensureNoConflictingAssignmentType(
@@ -103,7 +140,7 @@ export class ShiftAssignmentsService {
       },
     );
 
-    const duplicate = await this.shiftAssignmentRepository.findOne({
+    const duplicate = await repository.findOne({
       where: {
         companyId,
         employeeId: dto.employee_id,
@@ -116,8 +153,8 @@ export class ShiftAssignmentsService {
         'Shift assignment already exists for this effective_from',
       );
 
-    return this.shiftAssignmentRepository.save(
-      this.shiftAssignmentRepository.create({
+    return repository.save(
+      repository.create({
         companyId,
         employeeId: dto.employee_id,
         shiftId: dto.shift_id,
