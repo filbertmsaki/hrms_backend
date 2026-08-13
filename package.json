@@ -19,7 +19,7 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "cross-env NODE_ENV=test jest --config ./test/jest-e2e.json",
+    "test:e2e": "cross-env NODE_ENV=test DEBUG=false jest --config ./test/jest-e2e.json",
     "typeorm": "ts-node --transpile-only -r tsconfig-paths/register ./node_modules/typeorm/cli.js --dataSource src/database/data-source.ts",
     "migration:generate": "npm run typeorm migration:generate src/database/migrations/Migration && npx ts-node -r tsconfig-paths/register src/database/fix-generated-migration.ts",
     "migration:create": "npm run typeorm migration:create src/database/migrations/EmptyMigration",
