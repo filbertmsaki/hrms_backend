@@ -478,7 +478,7 @@ describe('AttendanceDailySummaryService', () => {
     );
   });
 
-  it('keeps off-day status while counting worked minutes as overtime', async () => {
+  it('marks worked off days distinctly while counting worked minutes as overtime', async () => {
     employeeRepository.findOne.mockResolvedValue({ id: 1, exit_date: null });
     dailySummaryRepository.findOne.mockResolvedValue(null);
     timezoneBuilder.getRawOne.mockResolvedValue(null);
@@ -516,8 +516,37 @@ describe('AttendanceDailySummaryService', () => {
 
     expect(dailySummaryRepository.save).toHaveBeenCalledWith(
       expect.objectContaining({
-        attendanceStatus: AttendanceDailyStatusEnum.OFF_DAY,
+        attendanceStatus: AttendanceDailyStatusEnum.OFF_DAY_PRESENT,
         overtimeMinutes: 240,
+      }),
+    );
+  });
+
+  it('keeps off days without punches as off days', async () => {
+    employeeRepository.findOne.mockResolvedValue({ id: 1, exit_date: null });
+    dailySummaryRepository.findOne.mockResolvedValue(null);
+    timezoneBuilder.getRawOne.mockResolvedValue(null);
+    scheduleResolver.resolveForDate.mockResolvedValue(
+      buildSchedule({
+        isOffDay: true,
+      }),
+    );
+    processedEventBuilder.getMany.mockResolvedValue([]);
+    mobilePunchBuilder.getMany.mockResolvedValue([]);
+    leaveBuilder.getOne.mockResolvedValue(null);
+    tripBuilder.getOne.mockResolvedValue(null);
+    shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
+    shiftExpectationBuilder.getOne.mockResolvedValue(null);
+    timetableExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
+    adjustmentRepository.findOne.mockResolvedValue(null);
+    shiftBreakRepository.find.mockResolvedValue([]);
+
+    await service.recomputeForEmployeeDate(10, 1, '2026-06-12');
+
+    expect(dailySummaryRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attendanceStatus: AttendanceDailyStatusEnum.OFF_DAY,
+        overtimeMinutes: 0,
       }),
     );
   });

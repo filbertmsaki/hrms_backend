@@ -119,7 +119,21 @@ export class AttendanceScheduleResolverService {
       branchId,
       globalConfig,
     );
-    if (fromShiftAssignment) return fromShiftAssignment;
+    if (fromShiftAssignment) {
+      const timetableOffDayOverride = await this.resolveTimetableOffDayConflict(
+        companyId,
+        employeeId,
+        scheduleDate,
+        fallbackTimezone,
+        branchId,
+        globalConfig,
+      );
+      if (timetableOffDayOverride) {
+        return timetableOffDayOverride;
+      }
+
+      return fromShiftAssignment;
+    }
 
     const fromEmployeeTimetable =
       await this.resolveFromEmployeeTimetableDefinition(
@@ -360,6 +374,55 @@ export class AttendanceScheduleResolverService {
       return null;
     }
 
+    return this.resolveResolvedTimetableDefinition(
+      companyId,
+      employeeId,
+      scheduleDate,
+      fallbackTimezone,
+      definition,
+      globalConfig,
+    );
+  }
+
+  private async resolveTimetableOffDayConflict(
+    companyId: number,
+    employeeId: number,
+    scheduleDate: string,
+    fallbackTimezone: string,
+    branchId: number | null,
+    globalConfig: GlobalAttendanceConfiguration,
+  ): Promise<ResolvedAttendanceSchedule | null> {
+    const definition =
+      await this.timetableScheduleGenerationService.buildScheduleDefinition(
+        companyId,
+        employeeId,
+        scheduleDate,
+      );
+
+    if (!definition?.isOffDay) {
+      return null;
+    }
+
+    return this.resolveResolvedTimetableDefinition(
+      companyId,
+      employeeId,
+      scheduleDate,
+      fallbackTimezone,
+      definition,
+      globalConfig,
+      branchId,
+    );
+  }
+
+  private async resolveResolvedTimetableDefinition(
+    companyId: number,
+    employeeId: number,
+    scheduleDate: string,
+    fallbackTimezone: string,
+    definition: TimetableScheduleDefinition,
+    globalConfig: GlobalAttendanceConfiguration,
+    branchIdFallback?: number | null,
+  ): Promise<ResolvedAttendanceSchedule> {
     const timezone = definition.timezone || fallbackTimezone;
     const timetable = await this.timetableRepository.findOne({
       where: { id: definition.timetableId, companyId },
@@ -383,7 +446,7 @@ export class AttendanceScheduleResolverService {
       definition.shiftId,
       timezone,
       definition.assignmentSource,
-      definition.branchId,
+      definition.branchId ?? branchIdFallback ?? null,
       globalConfig,
     );
 

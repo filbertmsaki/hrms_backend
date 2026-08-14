@@ -11,6 +11,7 @@ export enum AttendanceDailyStatusEnum {
   ABSENT = 'ABSENT',
 
   OFF_DAY = 'OFF_DAY',
+  OFF_DAY_PRESENT = 'OFF_DAY_PRESENT',
   HOLIDAY = 'HOLIDAY',
   NO_SHIFT_SCHEDULE = 'NO_SHIFT_SCHEDULE',
 

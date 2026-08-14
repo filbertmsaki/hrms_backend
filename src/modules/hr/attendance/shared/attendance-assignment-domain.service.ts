@@ -99,56 +99,70 @@ export class AttendanceAssignmentDomainService {
     status: ShiftAssignmentStatusEnum | EmployeeTimetableStatusEnum;
     assignmentType: 'SHIFT' | 'TIMETABLE';
     ignoreId?: number;
+    manager?: EntityManager;
   }): Promise<void> {
-    void input;
-    /**
-     * Phase 2 rule:
-     *
-     * Timetable is the employee's normal/default working plan.
-     * Shift assignment is allowed to exist in the same period because it has
-     * higher resolver priority and can override the timetable.
-     *
-     * We still prevent overlaps inside the same assignment type using:
-     * - ensureNoOverlappingShiftAssignment()
-     * - ensureNoOverlappingEmployeeTimetable()
-     *
-     * So this method is kept only for backward compatibility with existing
-     * service calls.
-     */
-    return Promise.resolve();
+    if (
+      input.assignmentType === 'SHIFT' &&
+      input.status !== ShiftAssignmentStatusEnum.ACTIVE
+    ) {
+      return Promise.resolve();
+    }
+
+    if (
+      input.assignmentType === 'TIMETABLE' &&
+      input.status !== EmployeeTimetableStatusEnum.ACTIVE
+    ) {
+      return Promise.resolve();
+    }
+
+    return input.assignmentType === 'SHIFT'
+      ? this.ensureNoConflictingEmployeeTimetable(input)
+      : this.ensureNoConflictingShiftAssignment(input);
   }
 
-  private async findConflictingEmployeeTimetable(input: {
+  private async ensureNoConflictingEmployeeTimetable(input: {
     companyId: number;
     employeeId: number;
     effectiveFrom: string;
     effectiveTo: string | null;
     ignoreId?: number;
-  }): Promise<EmployeeTimetable | null> {
-    const qb = this.employeeTimetableRepository
+    manager?: EntityManager;
+  }): Promise<void> {
+    const qb = this.getEmployeeTimetableRepository(input.manager)
       .createQueryBuilder('employeeTimetable')
       .andWhere('employeeTimetable.status = :status', {
         status: EmployeeTimetableStatusEnum.ACTIVE,
       });
 
     applyActiveAssignmentOverlapFilter(qb, 'employeeTimetable', input);
-    return qb.getOne();
+    const existing = await qb.getOne();
+    if (existing) {
+      throw new ConflictException(
+        'Active employee timetable overlaps this shift assignment period',
+      );
+    }
   }
 
-  private async findConflictingShiftAssignment(input: {
+  private async ensureNoConflictingShiftAssignment(input: {
     companyId: number;
     employeeId: number;
     effectiveFrom: string;
     effectiveTo: string | null;
     ignoreId?: number;
-  }): Promise<ShiftAssignment | null> {
-    const qb = this.shiftAssignmentRepository
+    manager?: EntityManager;
+  }): Promise<void> {
+    const qb = this.getShiftAssignmentRepository(input.manager)
       .createQueryBuilder('assignment')
       .andWhere('assignment.status = :status', {
         status: ShiftAssignmentStatusEnum.ACTIVE,
       });
 
     applyActiveAssignmentOverlapFilter(qb, 'assignment', input);
-    return qb.getOne();
+    const existing = await qb.getOne();
+    if (existing) {
+      throw new ConflictException(
+        'Active shift assignment overlaps this employee timetable period',
+      );
+    }
   }
 }

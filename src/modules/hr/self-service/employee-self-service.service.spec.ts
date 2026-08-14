@@ -65,6 +65,9 @@ describe('EmployeeSelfServiceService', () => {
   let attendanceMobilePunchesService: {
     findAll: jest.Mock;
   };
+  let attendanceMobilePunchRepository: {
+    find: jest.Mock;
+  };
   let attendanceScheduleResolverService: {
     resolveForDate: jest.Mock;
   };
@@ -132,6 +135,9 @@ describe('EmployeeSelfServiceService', () => {
     attendanceMobilePunchesService = {
       findAll: jest.fn(),
     };
+    attendanceMobilePunchRepository = {
+      find: jest.fn().mockResolvedValue([]),
+    };
     attendanceScheduleResolverService = {
       resolveForDate: jest.fn(),
     };
@@ -187,7 +193,7 @@ describe('EmployeeSelfServiceService', () => {
       attendanceMobilePunchesService as unknown as AttendanceMobilePunchesService,
       attendanceScheduleResolverService as unknown as AttendanceScheduleResolverService,
       {} as Repository<AttendanceDailySummary>,
-      {} as Repository<AttendanceMobilePunch>,
+      attendanceMobilePunchRepository as unknown as Repository<AttendanceMobilePunch>,
       leaveRequestRepository as unknown as Repository<LeaveRequest>,
       shiftScheduleRepository as unknown as Repository<ShiftSchedule>,
       shiftAssignmentRepository as unknown as Repository<ShiftAssignment>,
@@ -402,6 +408,36 @@ describe('EmployeeSelfServiceService', () => {
 
     expect(result.links.profile).toBe('/me/profile');
     expect((result.links as Record<string, unknown>).links).toBeUndefined();
+  });
+
+  it('allows check-in on an off day when no active punch exists', async () => {
+    attendanceDailySummaryService.findDailySummaries.mockResolvedValue({
+      data: [
+        {
+          id: 91,
+          attendanceStatus: 'OFF_DAY',
+          scheduleStartAt: null,
+          scheduleEndAt: null,
+          checkInAt: null,
+          checkOutAt: null,
+          workMinutes: 0,
+          lateMinutes: 0,
+          earlyDepartureMinutes: 0,
+          overtimeMinutes: 0,
+          timezone: 'Africa/Dar_es_Salaam',
+          flags: { isOffDay: true },
+        },
+      ],
+      meta: {},
+    });
+
+    const result = await service.getTodayAttendance(actor);
+
+    expect(result.action_flags).toEqual({
+      can_check_in: true,
+      can_check_out: false,
+    });
+    expect(result.summary?.attendance_status).toBe('OFF_DAY');
   });
 
   it('falls back to employee profile update requests when the legacy profile change table is unavailable', async () => {

@@ -1902,6 +1902,14 @@ export class AttendanceDailySummaryService {
       }
     }
 
+    if (
+      schedule.isOffDay &&
+      eventCount > 0 &&
+      attendanceStatus === AttendanceDailyStatusEnum.OFF_DAY
+    ) {
+      attendanceStatus = AttendanceDailyStatusEnum.OFF_DAY_PRESENT;
+    }
+
     // OVERTIME overrides PRESENT only (other statuses have higher priority)
     if (
       overtimeMinutes > 0 &&
@@ -1934,6 +1942,7 @@ export class AttendanceDailySummaryService {
       attendanceStatus !== AttendanceDailyStatusEnum.ABSENT &&
       attendanceStatus !== AttendanceDailyStatusEnum.HOLIDAY &&
       attendanceStatus !== AttendanceDailyStatusEnum.OFF_DAY &&
+      attendanceStatus !== AttendanceDailyStatusEnum.OFF_DAY_PRESENT &&
       !hasApprovedLeave &&
       !hasApprovedBusinessTrip
     ) {

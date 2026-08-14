@@ -712,7 +712,6 @@ export class EmployeeSelfServiceService {
               AttendanceDailyStatusEnum.ANNUAL_LEAVE,
               AttendanceDailyStatusEnum.UNPAID_LEAVE,
               AttendanceDailyStatusEnum.HOLIDAY,
-              AttendanceDailyStatusEnum.OFF_DAY,
             ].includes(summary.attendanceStatus as AttendanceDailyStatusEnum)),
         can_check_out: punchState === 'checked_in',
       },
