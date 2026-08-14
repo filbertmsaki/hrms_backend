@@ -11,6 +11,8 @@ on:
       - 'deploy/hrms-backend/**'
       - 'package.json'
       - 'package-lock.json'
+      - 'scripts/**'
+      - '.husky/**'
       - 'nest-cli.json'
       - 'tsconfig.json'
       - 'tsconfig.build.json'
@@ -47,6 +49,26 @@ jobs:
     env:
       CI: true
       NODE_ENV: test
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: hrms_test_db
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hrms_test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d hrms_test_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
 
@@ -144,6 +166,24 @@ jobs:
             --no-fund
 
 
+      - name: Wait for PostgreSQL
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          for attempt in {1..30}; do
+            if pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USERNAME" -d "$DB_NAME"; then
+              echo "PostgreSQL is ready."
+              exit 0
+            fi
+
+            sleep 2
+          done
+
+          echo "PostgreSQL did not become ready in time."
+          exit 1
+
+
       - name: Validate package scripts
         shell: bash
         run: |
@@ -204,6 +244,10 @@ jobs:
 
       - name: Build backend
         run: npm run build
+
+
+      - name: E2E tests
+        run: npm run test:e2e
 
 
       - name: Validate compiled backend

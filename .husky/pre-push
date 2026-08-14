@@ -1,7 +1,7 @@
 echo ""
 echo "========================================"
 echo " PRE-PUSH QUALITY CHECK"
-echo " (lint, build, unit tests)"
+echo " (changed files on branches, full on main)"
 echo "========================================"
 echo ""
 
@@ -19,8 +19,7 @@ echo ""
 echo "========================================"
 echo " ALL CHECKS PASSED"
 echo " PUSH ALLOWED"
-echo " (Note: e2e tests are NOT run here - run"
-echo " 'npm run test:e2e' manually or rely on CI)"
+echo " (E2E tests now run in GitHub Actions CI)"
 echo "========================================"
 
 exit 0
