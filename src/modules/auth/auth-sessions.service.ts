@@ -9,6 +9,14 @@ import {
 } from '../../common/interfaces/authenticated-user.interface';
 import { AuthSession } from './entities/auth-session.entity';
 
+/**
+ * Revocation reason set when a fresh login replaces the account's prior
+ * active session (single-concurrent-session policy). Kept as a named
+ * constant so JwtStrategy can recognize this specific case and surface a
+ * SESSION_REPLACED code instead of a generic "revoked" error.
+ */
+export const SESSION_REPLACED_REASON = 'SESSION_REPLACED';
+
 type BuildSessionDescriptorInput = {
   userAgent?: string | null;
 };
@@ -143,6 +151,59 @@ export class AuthSessionsService {
     });
 
     return repository.save(entity);
+  }
+
+  /**
+   * Atomically enforces "at most one active session per account": revokes
+   * every other active session for this user and creates the new one in a
+   * single transaction, so two near-simultaneous logins can't both end up
+   * active (Postgres serializes the second transaction's UPDATE behind the
+   * first's row locks on the same user_id). A partial unique index on
+   * auth_sessions(user_id) WHERE revoked_at IS NULL is the DB-level backstop
+   * in case application logic ever regresses to a non-atomic replace.
+   *
+   * Returns the new session plus how many prior sessions were replaced, so
+   * callers can skip audit logging when there was nothing to replace (e.g.
+   * a user's very first login).
+   */
+  async replaceActiveSession(
+    input: CreateAuthSessionInput,
+  ): Promise<{ session: AuthSession; replacedCount: number }> {
+    return this.authSessionRepository.manager.transaction(async (manager) => {
+      const repository = manager.getRepository(AuthSession);
+
+      const result = await repository
+        .createQueryBuilder()
+        .update(AuthSession)
+        .set({
+          revoked_at: () => 'CURRENT_TIMESTAMP',
+          revocation_reason: SESSION_REPLACED_REASON,
+        })
+        .where('user_id = :userId', { userId: input.userId })
+        .andWhere('revoked_at IS NULL')
+        .execute();
+
+      const session = await this.createSession(input, manager);
+
+      return { session, replacedCount: result.affected ?? 0 };
+    });
+  }
+
+  /**
+   * True when this specific session was revoked because a later login
+   * replaced it (as opposed to an explicit logout, admin action, or the
+   * session simply never having existed) - lets the auth guard surface a
+   * SESSION_REPLACED code instead of a generic "revoked" error.
+   */
+  async wasSessionReplaced(
+    userId: number,
+    sessionId: string,
+  ): Promise<boolean> {
+    const session = await this.authSessionRepository.findOne({
+      where: { id: sessionId, user_id: userId },
+    });
+
+    return session?.revocation_reason === SESSION_REPLACED_REASON;
   }
 
   async findActiveSession(

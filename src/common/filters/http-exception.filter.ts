@@ -20,7 +20,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
     const correlationId = (request as CorrelatedRequest).correlationId ?? null;
 
-    const { status, message, errors } = this.extractError(exception);
+    const { status, message, errors, code } = this.extractError(exception);
 
     if (status >= 500) {
       this.logger.error(
@@ -41,6 +41,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       statusCode: status,
       message,
       ...(errors ? { errors } : {}),
+      ...(code ? { code } : {}),
       path: request.url,
       requestId: correlationId,
       timestamp: new Date().toISOString(),
@@ -51,6 +52,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     status: number;
     message: string;
     errors?: Record<string, string[]>;
+    code?: string;
   } {
     if (!(exception instanceof HttpException)) {
       const isProduction = process.env.APP_ENV === 'production';
@@ -84,6 +86,17 @@ export class HttpExceptionFilter implements ExceptionFilter {
       };
     }
 
+    // Lets a thrown exception opt into a stable, machine-readable `code`
+    // (e.g. new UnauthorizedException({ message, code: 'SESSION_REPLACED' }))
+    // that a client can key off without parsing the human-readable message.
+    const code =
+      typeof raw === 'object' &&
+      raw !== null &&
+      'code' in raw &&
+      typeof (raw as { code: unknown }).code === 'string'
+        ? (raw as { code: string }).code
+        : undefined;
+
     const message =
       typeof raw === 'string'
         ? raw
@@ -91,6 +104,6 @@ export class HttpExceptionFilter implements ExceptionFilter {
           ? String((raw as { message: unknown }).message)
           : exception.message;
 
-    return { status, message };
+    return { status, message, code };
   }
 }

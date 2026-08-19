@@ -55,6 +55,8 @@ describe('AuthService', () => {
     listSessionsForUser: jest.Mock;
     revokeSession: jest.Mock;
     revokeAllSessionsForUser: jest.Mock;
+    replaceActiveSession: jest.Mock;
+    wasSessionReplaced: jest.Mock;
     findActiveSession: jest.Mock;
   };
 
@@ -102,6 +104,11 @@ describe('AuthService', () => {
       listSessionsForUser: jest.fn().mockResolvedValue([]),
       revokeSession: jest.fn().mockResolvedValue(true),
       revokeAllSessionsForUser: jest.fn().mockResolvedValue(0),
+      replaceActiveSession: jest.fn().mockResolvedValue({
+        session: { id: 'session-1' },
+        replacedCount: 0,
+      }),
+      wasSessionReplaced: jest.fn().mockResolvedValue(false),
       findActiveSession: jest.fn().mockResolvedValue({
         id: 'session-1',
       }),
@@ -218,7 +225,7 @@ describe('AuthService', () => {
     );
     expect(result.access_token).toBe('access-token');
     expect(result.refresh_token).toBe('refresh-token');
-    expect(authSessionsService.createSession).toHaveBeenCalled();
+    expect(authSessionsService.replaceActiveSession).toHaveBeenCalled();
     expect(result.user).toEqual({
       id: 9,
       email: 'staff@example.com',

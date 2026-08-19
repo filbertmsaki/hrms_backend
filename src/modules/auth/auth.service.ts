@@ -41,7 +41,10 @@ import { LogoutDto } from './dtos/logout.dto';
 import { RefreshTokenDto } from './dtos/refresh-token.dto';
 import { ResetPasswordDto } from './dtos/reset-password.dto';
 import { TokenBlacklistService } from './token-blacklist.service';
-import { AuthSessionsService } from './auth-sessions.service';
+import {
+  AuthSessionsService,
+  SESSION_REPLACED_REASON,
+} from './auth-sessions.service';
 
 /**
  * Deliberately excludes roles/permissions: JwtStrategy.validate() always
@@ -300,8 +303,7 @@ export class AuthService {
         platformContext,
         sessionContext,
       );
-      await this.revokeOtherSessionsOnLogin(user as User, null, context);
-      await this.persistNewSession(
+      await this.persistLoginSession(
         user as User,
         sessionContext,
         'platform',
@@ -414,12 +416,7 @@ export class AuthService {
       availableCompanies,
       sessionContext,
     );
-    await this.revokeOtherSessionsOnLogin(
-      user as User,
-      activeCompanyContext.companyId,
-      context,
-    );
-    await this.persistNewSession(
+    await this.persistLoginSession(
       user as User,
       sessionContext,
       'company',
@@ -566,8 +563,7 @@ export class AuthService {
           this.buildPlatformAccessContext(user),
           sessionContext,
         );
-        await this.revokeOtherSessionsOnLogin(user, null, context);
-        await this.persistNewSession(
+        await this.persistLoginSession(
           user,
           sessionContext,
           'platform',
@@ -616,12 +612,7 @@ export class AuthService {
         companies,
         sessionContext,
       );
-      await this.revokeOtherSessionsOnLogin(
-        user,
-        companyContext.companyId,
-        context,
-      );
-      await this.persistNewSession(
+      await this.persistLoginSession(
         user,
         sessionContext,
         'company',
@@ -821,6 +812,21 @@ export class AuthService {
             );
 
           if (!activeSession) {
+            const wasReplaced =
+              await this.authSessionsService.wasSessionReplaced(
+                user.id,
+                payload.sessionId,
+              );
+
+            if (wasReplaced) {
+              throw new UnauthorizedException({
+                statusCode: 401,
+                message:
+                  'This refresh token is no longer valid because the account was signed in on another device.',
+                code: 'SESSION_REPLACED',
+              });
+            }
+
             throw new UnauthorizedException(
               'Refresh token session has been revoked',
             );
@@ -907,6 +913,20 @@ export class AuthService {
         );
 
         if (!activeSession) {
+          const wasReplaced = await this.authSessionsService.wasSessionReplaced(
+            user.id,
+            payload.sessionId,
+          );
+
+          if (wasReplaced) {
+            throw new UnauthorizedException({
+              statusCode: 401,
+              message:
+                'This refresh token is no longer valid because the account was signed in on another device.',
+              code: 'SESSION_REPLACED',
+            });
+          }
+
           throw new UnauthorizedException(
             'Refresh token session has been revoked',
           );
@@ -1614,39 +1634,51 @@ export class AuthService {
    * Enforces a single active session per account: called only from genuine
    * login entry points (password login, 2FA-completed login) - never from
    * token refresh or switchCompany's legacy sessionId-less fallback, both
-   * of which also call persistNewSession but are reusing/extending access
-   * rather than starting a fresh login, and must not surprise a user by
-   * logging out their other devices on a mere refresh.
+   * of which also create a session via persistNewSession but are
+   * reusing/extending access rather than starting a fresh login, and must
+   * not surprise a user by logging out their other devices on a mere
+   * refresh.
    *
-   * Must run BEFORE the new session is created (and therefore before the
-   * tokens embedding its sessionId are handed back), so the brand-new
-   * session/token issued by this same login is never itself revoked.
-   * Does not touch auth_token_version - JwtStrategy independently checks
-   * each access token's sessionId against an active AuthSession row on
-   * every request, so revoking the session rows alone blocks prior tokens
-   * on their very next request.
+   * Revoking the prior active session(s) and creating the new one happen in
+   * one DB transaction (AuthSessionsService.replaceActiveSession), so two
+   * near-simultaneous logins can't both end up active - see the partial
+   * unique index on auth_sessions(user_id) WHERE revoked_at IS NULL for the
+   * DB-level backstop. Does not touch auth_token_version - JwtStrategy
+   * independently checks each access token's sessionId against an active
+   * AuthSession row on every request, so revoking the session rows alone
+   * blocks prior tokens on their very next request, without invalidating
+   * the brand-new token being issued in this same call.
    */
-  private async revokeOtherSessionsOnLogin(
+  private async persistLoginSession(
     user: User,
-    companyId: number | null,
+    sessionContext: SessionTokenContext,
+    scope: AuthScope,
+    userType: UserType,
+    refreshExpiresAt: number,
     context?: AuditRequestContext | null,
+    companyId?: number | null,
   ): Promise<void> {
-    const revokedCount =
-      await this.authSessionsService.revokeAllSessionsForUser(
-        user.id,
-        'NEW_LOGIN',
-      );
+    const { replacedCount } =
+      await this.authSessionsService.replaceActiveSession({
+        sessionId: sessionContext.sessionId,
+        userId: user.id,
+        companyId: companyId ?? null,
+        scope,
+        userType,
+        refreshExpiresAt: new Date(refreshExpiresAt),
+        context,
+      });
 
-    if (revokedCount > 0) {
+    if (replacedCount > 0) {
       await this.logSecurityEvent(
         SecurityEventType.SESSIONS_REVOKED,
         SecurityEventOutcome.SUCCESS,
         {
           authenticatedUser: user,
-          companyId,
+          companyId: companyId ?? null,
           context,
-          reason: 'new_login',
-          metadata: { revokedCount },
+          reason: SESSION_REPLACED_REASON,
+          metadata: { replacedCount },
         },
       );
     }

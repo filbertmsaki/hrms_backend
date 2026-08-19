@@ -199,6 +199,20 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       );
 
       if (!activeSession) {
+        const wasReplaced = await this.authSessionsService.wasSessionReplaced(
+          user.id,
+          payload.sessionId,
+        );
+
+        if (wasReplaced) {
+          throw new UnauthorizedException({
+            statusCode: 401,
+            message:
+              'Your session ended because this account was signed in on another device.',
+            code: 'SESSION_REPLACED',
+          });
+        }
+
         throw new UnauthorizedException('Session has been revoked');
       }
     }
