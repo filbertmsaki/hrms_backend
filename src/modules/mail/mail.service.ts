@@ -590,6 +590,109 @@ export class MailService {
   }
 
   /**
+   * Verifies the system-wide SMTP transport configured via MAIL_* env vars,
+   * used as a fallback for companies that have not configured their own
+   * scheduled-reporting SMTP profile.
+   */
+  async verifySystemSmtpConnection(): Promise<boolean> {
+    return this.mailerService.verifyAllTransporters();
+  }
+
+  async sendSystemSmtpTestEmail(
+    to: string,
+    testedByLabel: string,
+  ): Promise<MailSendResult & { accepted: string[]; rejected: string[] }> {
+    const testedAt = new Date();
+    const textBody = [
+      'System SMTP Configuration Test Successful',
+      '',
+      `Application: ${this.configService.get<string>('APP_NAME') ?? 'HRMS'}`,
+      `Environment: ${this.configService.get<string>('APP_ENV') ?? this.configService.get<string>('NODE_ENV') ?? 'unknown'}`,
+      `Tested By: ${testedByLabel}`,
+      `Tested At: ${testedAt.toISOString()}`,
+      `SMTP Host: ${this.configService.get<string>('MAIL_HOST') ?? 'unknown'}`,
+    ].join('\n');
+    const safeOptions: SafeSendMailOptions = {
+      to,
+      subject: 'System SMTP Test',
+      text: textBody,
+      // MailerService's template-compile plugin only skips itself when
+      // `html` is present; without it, it tries (and fails) to resolve a Pug
+      // template for a mail with no `template` option.
+      html: textBody.replace(/\n/g, '<br/>'),
+      mailSafetyContext: {
+        sourceModule: 'MailService.sendSystemSmtpTestEmail',
+      },
+    };
+
+    const result = (await this.mailerService.sendMail(
+      safeOptions as ISendMailOptions,
+    )) as
+      | {
+          messageId?: string;
+          response?: string;
+          accepted?: string[];
+          rejected?: string[];
+        }
+      | undefined;
+
+    return {
+      messageId: result?.messageId ?? null,
+      response: result?.response ?? null,
+      accepted: result?.accepted ?? [],
+      rejected: result?.rejected ?? [],
+    };
+  }
+
+  /**
+   * Sends a scheduled-report attachment through the system-wide SMTP
+   * transport. Used when a company has not configured its own SMTP profile
+   * for scheduled reporting.
+   */
+  async sendScheduledReportEmailViaSystemSmtp(options: {
+    to: string;
+    subject: string;
+    html: string;
+    attachmentFilename: string;
+    attachmentBuffer: Buffer;
+    attachmentMimeType: string;
+  }): Promise<MailSendResult & { accepted: string[]; rejected: string[] }> {
+    const safeOptions: SafeSendMailOptions = {
+      to: options.to,
+      subject: options.subject,
+      html: options.html,
+      attachments: [
+        {
+          filename: options.attachmentFilename,
+          content: options.attachmentBuffer,
+          contentType: options.attachmentMimeType,
+        },
+      ],
+      mailSafetyContext: {
+        sourceModule: 'ReportExecutionWorkerService.deliverByEmail.systemSmtp',
+      },
+    };
+
+    const result = (await this.mailerService.sendMail(
+      safeOptions as ISendMailOptions,
+    )) as
+      | {
+          messageId?: string;
+          response?: string;
+          accepted?: string[];
+          rejected?: string[];
+        }
+      | undefined;
+
+    return {
+      messageId: result?.messageId ?? null,
+      response: result?.response ?? null,
+      accepted: result?.accepted ?? [],
+      rejected: result?.rejected ?? [],
+    };
+  }
+
+  /**
    * Generic email channel for the notification-delivery pipeline. Unlike the
    * templated senders above, this has no fixed HR event shape — callers
    * supply their own subject/message/action link.

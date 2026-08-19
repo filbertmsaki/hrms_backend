@@ -19,6 +19,7 @@ import {
   resolveMailRecipientSafetyConfigFromConfigService,
   type SafeSendMailOptions,
 } from '../mail/mail-recipient-safety.util';
+import { MailService } from '../mail/mail.service';
 import { Role } from '../roles/entities/role.entity';
 import { buildPaginationMeta } from '../hr/shared/hr.utils';
 import {
@@ -95,6 +96,7 @@ export class ScheduledReportingService {
     private readonly configService: ConfigService,
     private readonly reportRegistryService: ReportRegistryService,
     private readonly reportSmtpService: ReportSmtpService,
+    private readonly mailService: MailService,
   ) {}
 
   assertCompanyActor(user: AuthenticatedUser) {
@@ -197,6 +199,46 @@ export class ScheduledReportingService {
     };
   }
 
+  /**
+   * Tests the system-wide SMTP transport (MAIL_* env vars) that scheduled
+   * reports fall back to when a company has not configured its own SMTP
+   * profile.
+   */
+  async testSystemSmtpConfiguration(
+    actor: AuthenticatedUser,
+    testRecipientEmail?: string,
+  ) {
+    try {
+      const verified = await this.mailService.verifySystemSmtpConnection();
+      if (!verified) {
+        throw new Error('System SMTP connection could not be verified.');
+      }
+
+      const testedAt = new Date();
+      const recipient =
+        testRecipientEmail?.trim() ||
+        this.configService.get<string>('MAIL_FROM') ||
+        actor.email;
+
+      const result = await this.mailService.sendSystemSmtpTestEmail(
+        recipient,
+        actor.email,
+      );
+
+      return {
+        status: 'success',
+        testedAt,
+        accepted: result.accepted,
+        rejected: result.rejected,
+        messageId: result.messageId,
+      };
+    } catch (error) {
+      const safeMessage = this.reportSmtpService.toSafeErrorMessage(error);
+      this.logger.warn(`System SMTP test failed: ${safeMessage}`);
+      throw new BadRequestException(safeMessage);
+    }
+  }
+
   async findSmtpConfigurations(
     companyId: number,
     query: QueryReportSmtpConfigurationsDto,
@@ -235,7 +277,8 @@ export class ScheduledReportingService {
     const safeSortBy =
       sortFieldMap[query.sortBy ?? 'created_at'] ?? 'createdAt';
     const [items, total] = await qb
-      .orderBy(`smtp.${safeSortBy}`, direction)
+      .orderBy('smtp.is_default', 'DESC')
+      .addOrderBy(`smtp.${safeSortBy}`, direction)
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();

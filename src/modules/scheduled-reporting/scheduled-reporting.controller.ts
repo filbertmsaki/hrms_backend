@@ -30,6 +30,7 @@ import {
   QueryReportTemplatesDto,
   TestDraftReportSmtpConfigurationDto,
   TestReportSmtpConfigurationDto,
+  TestSystemSmtpConfigurationDto,
   UpdateReportScheduleDto,
   UpdateReportSmtpConfigurationDto,
   UpdateReportTemplateDto,
@@ -174,6 +175,21 @@ export class ScheduledReportingController {
       req.user,
       id,
       dto,
+    );
+  }
+
+  @Post('smtp-configurations/test-system')
+  @UseGuards(PermissionsGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Permissions('scheduled_reports:test_smtp')
+  testSystemSmtpConfiguration(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: TestSystemSmtpConfigurationDto,
+  ) {
+    this.scheduledReportingService.assertCompanyActor(req.user);
+    return this.scheduledReportingService.testSystemSmtpConfiguration(
+      req.user,
+      dto.testRecipientEmail,
     );
   }
 

@@ -148,6 +148,12 @@ export class TestDraftReportSmtpConfigurationDto extends ReportSmtpConfiguration
   sendTestEmail?: boolean;
 }
 
+export class TestSystemSmtpConfigurationDto {
+  @IsEmail()
+  @IsOptional()
+  testRecipientEmail?: string;
+}
+
 export class CreateReportSmtpConfigurationDto extends ReportSmtpConfigurationFieldsDto {
   @IsString()
   @MaxLength(2000)

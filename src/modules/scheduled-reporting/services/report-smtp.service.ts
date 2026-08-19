@@ -312,7 +312,7 @@ export class ReportSmtpService {
     return `${first.slice(0, 2)}***.${rest.join('.')}`;
   }
 
-  private toSafeErrorMessage(error: unknown): string {
+  toSafeErrorMessage(error: unknown): string {
     if (!(error instanceof Error)) {
       return 'SMTP validation failed.';
     }

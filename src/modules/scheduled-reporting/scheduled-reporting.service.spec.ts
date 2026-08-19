@@ -110,6 +110,10 @@ describe('ScheduledReportingService', () => {
         {} as never,
       ),
       reportSmtpService as unknown as ReportSmtpService,
+      {
+        verifySystemSmtpConnection: jest.fn(),
+        sendSystemSmtpTestEmail: jest.fn(),
+      } as never,
     );
   });
 

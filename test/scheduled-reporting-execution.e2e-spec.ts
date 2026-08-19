@@ -10,6 +10,7 @@ import { DataSource } from 'typeorm';
 import { AppDataSource } from '../src/database/data-source';
 import { PostgresAdvisoryLockService } from '../src/common/database/postgres-advisory-lock.service';
 import { FilesService } from '../src/modules/files/files.service';
+import { MailService } from '../src/modules/mail/mail.service';
 import { Company } from '../src/modules/companies/entities/company.entity';
 import { CompanyUser } from '../src/modules/companies/entities/company-user.entity';
 import { User } from '../src/modules/users/entities/user.entity';
@@ -296,6 +297,14 @@ describe('Scheduled reporting dispatcher + worker (e2e, real Postgres)', () => {
       new PostgresAdvisoryLockService(dataSource),
       registry,
       filesService,
+      {
+        sendScheduledReportEmailViaSystemSmtp: async () => ({
+          messageId: null,
+          response: null,
+          accepted: [],
+          rejected: [],
+        }),
+      } as unknown as MailService,
     );
 
     // The execution worker guards its work with a Postgres session-level

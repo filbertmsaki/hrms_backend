@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { PostgresAdvisoryLockService } from '../../common/database/postgres-advisory-lock.service';
 import { CompanyUser } from '../companies/entities/company-user.entity';
 import { FilesModule } from '../files/files.module';
+import { MailModule } from '../mail/mail.module';
 import { AttendanceDailySummary } from '../hr/attendance/processing/entities/attendance-daily-summary.entity';
 import { AttendanceProcessingException } from '../hr/attendance/processing/entities/attendance-processing-exception.entity';
 import { AttendanceProcessingModule } from '../hr/attendance/processing/attendance-processing.module';
@@ -62,6 +63,7 @@ import { PerformanceSummaryReportRunner } from './services/runners/performance-s
     ]),
     FilesModule,
     AttendanceProcessingModule,
+    MailModule,
   ],
   controllers: [ScheduledReportingController],
   providers: [
