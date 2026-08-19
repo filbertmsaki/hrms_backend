@@ -6,7 +6,13 @@ describe('ReportRegistryService', () => {
   let service: ReportRegistryService;
 
   beforeEach(() => {
-    service = new ReportRegistryService({} as never, {} as never);
+    service = new ReportRegistryService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
   });
 
   it('returns the registered attendance summary definition', () => {

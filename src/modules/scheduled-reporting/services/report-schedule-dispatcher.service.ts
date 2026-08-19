@@ -9,7 +9,7 @@ import { ReportTemplate } from '../entities/report-template.entity';
 import { ReportEmailDeliveryStatusEnum } from '../enums/report-email-delivery-status.enum';
 import { ReportExecutionSourceEnum } from '../enums/report-execution-source.enum';
 import { ReportExecutionStatusEnum } from '../enums/report-execution-status.enum';
-import { ReportScheduleTypeEnum } from '../enums/report-schedule-type.enum';
+import { computeNextScheduleRunAt } from '../utils/report-schedule-next-run.util';
 
 export const REPORT_SCHEDULE_DISPATCH_LOCK_KEY =
   'scheduled-reporting:schedule-dispatch';
@@ -43,6 +43,7 @@ export class ReportScheduleDispatcherService {
         isActive: true,
         nextRunAt: LessThanOrEqual(now),
       },
+      relations: ['weekdays'],
       order: { nextRunAt: 'ASC' },
       take: 20,
     });
@@ -112,27 +113,15 @@ export class ReportScheduleDispatcherService {
   }
 
   private computeNextRunAt(schedule: ReportSchedule, from: Date): Date | null {
-    if (schedule.scheduleType === ReportScheduleTypeEnum.ONE_TIME) {
-      return null;
-    }
-
-    const next = new Date(from);
-
-    if (schedule.scheduleType === ReportScheduleTypeEnum.WEEKLY) {
-      next.setUTCDate(next.getUTCDate() + 7);
-      return next;
-    }
-
-    if (schedule.scheduleType === ReportScheduleTypeEnum.MONTHLY) {
-      next.setUTCMonth(next.getUTCMonth() + 1);
-      return next;
-    }
-
-    if (schedule.scheduleType === ReportScheduleTypeEnum.MANUAL) {
-      return null;
-    }
-
-    next.setUTCDate(next.getUTCDate() + 1);
-    return next;
+    return computeNextScheduleRunAt(
+      {
+        scheduleType: schedule.scheduleType,
+        executionTime: schedule.executionTime,
+        timezone: schedule.timezone,
+        dayOfMonth: schedule.dayOfMonth,
+        weekdays: schedule.weekdays?.map((weekday) => weekday.weekday) ?? [],
+      },
+      from,
+    );
   }
 }

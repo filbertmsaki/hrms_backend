@@ -185,6 +185,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'scheduled_reports:manage_smtp',
       'scheduled_reports:test_smtp',
       'scheduled_reports:view_history',
+      'scheduled_reports:download',
       // Org structure
       'branches:read',
       'branches:create',

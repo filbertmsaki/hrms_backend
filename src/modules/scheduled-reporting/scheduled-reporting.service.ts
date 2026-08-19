@@ -55,6 +55,7 @@ import { ReportTemplateRecipient } from './entities/report-template-recipient.en
 import { ReportTemplate } from './entities/report-template.entity';
 import { ReportRegistryService } from './services/report-registry.service';
 import { ReportSmtpService } from './services/report-smtp.service';
+import { computeNextScheduleRunAt } from './utils/report-schedule-next-run.util';
 import {
   decryptReportSmtpSecret,
   encryptReportSmtpSecret,
@@ -653,7 +654,18 @@ export class ScheduledReportingService {
       maxRetryAttempts: dto.maxRetryAttempts ?? 3,
       isActive: dto.isActive ?? true,
       pausedAt: null,
-      nextRunAt: dto.oneTimeRunAt ? new Date(dto.oneTimeRunAt) : null,
+      nextRunAt: dto.oneTimeRunAt
+        ? new Date(dto.oneTimeRunAt)
+        : computeNextScheduleRunAt(
+            {
+              scheduleType: dto.scheduleType,
+              executionTime: dto.executionTime?.trim() || null,
+              timezone: normalizedTimezone,
+              dayOfMonth: dto.dayOfMonth ?? null,
+              weekdays: dto.weekdays ?? [],
+            },
+            new Date(),
+          ),
       createdByCompanyUserId: actor.companyMembershipId ?? null,
       updatedByCompanyUserId: actor.companyMembershipId ?? null,
     });
@@ -802,6 +814,31 @@ export class ScheduledReportingService {
       item.maxRetryAttempts = dto.maxRetryAttempts;
     if (dto.isActive !== undefined) item.isActive = dto.isActive;
     item.updatedByCompanyUserId = actor.companyMembershipId ?? null;
+
+    const recurrenceFieldsChanged =
+      dto.scheduleType !== undefined ||
+      dto.executionTime !== undefined ||
+      dto.dayOfMonth !== undefined ||
+      dto.timezone !== undefined ||
+      dto.weekdays !== undefined;
+
+    if (
+      dto.oneTimeRunAt === undefined &&
+      recurrenceFieldsChanged &&
+      item.scheduleType !== ReportScheduleTypeEnum.ONE_TIME &&
+      item.scheduleType !== ReportScheduleTypeEnum.MANUAL
+    ) {
+      item.nextRunAt = computeNextScheduleRunAt(
+        {
+          scheduleType: item.scheduleType,
+          executionTime: item.executionTime,
+          timezone: item.timezone,
+          dayOfMonth: item.dayOfMonth,
+          weekdays: candidate.weekdays,
+        },
+        new Date(),
+      );
+    }
 
     const saved = await this.reportScheduleRepository.save(item);
 
@@ -1123,7 +1160,11 @@ export class ScheduledReportingService {
       scheduleId,
     });
 
-    if (scheduleType !== ReportScheduleTypeEnum.WEEKLY || !weekdays.length) {
+    const allowsWeekdays =
+      scheduleType === ReportScheduleTypeEnum.WEEKLY ||
+      scheduleType === ReportScheduleTypeEnum.DAILY;
+
+    if (!allowsWeekdays || !weekdays.length) {
       return;
     }
 

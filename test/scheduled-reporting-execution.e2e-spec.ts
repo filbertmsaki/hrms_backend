@@ -32,6 +32,11 @@ import { ReportRegistryService } from '../src/modules/scheduled-reporting/servic
 import { AttendanceSummaryReportRunner } from '../src/modules/scheduled-reporting/services/runners/attendance-summary-report-runner.service';
 import { EmployeeMasterReportRunner } from '../src/modules/scheduled-reporting/services/runners/employee-master-report-runner.service';
 import { PerformanceSummaryReportRunner } from '../src/modules/scheduled-reporting/services/runners/performance-summary-report-runner.service';
+import { MorningAttendanceReportRunner } from '../src/modules/scheduled-reporting/services/runners/morning-attendance-report-runner.service';
+import { EndOfDayAttendanceReportRunner } from '../src/modules/scheduled-reporting/services/runners/end-of-day-attendance-report-runner.service';
+import { AttendanceReportSnapshotService } from '../src/modules/hr/attendance/processing/reports/attendance-report-snapshot.service';
+import { AttendanceProcessingException } from '../src/modules/hr/attendance/processing/entities/attendance-processing-exception.entity';
+import { AttendanceReportPreflightService } from '../src/modules/hr/attendance/processing/reports/attendance-report-preflight.service';
 import { ReportSmtpConfiguration } from '../src/modules/scheduled-reporting/entities/report-smtp-configuration.entity';
 import { ReportTemplateRecipient } from '../src/modules/scheduled-reporting/entities/report-template-recipient.entity';
 import { ReportExecutionRecipient } from '../src/modules/scheduled-reporting/entities/report-execution-recipient.entity';
@@ -260,6 +265,24 @@ describe('Scheduled reporting dispatcher + worker (e2e, real Postgres)', () => {
         dataSource.getRepository(PerformanceReview),
         dataSource.getRepository(PerformanceAggregate),
       ),
+      new MorningAttendanceReportRunner(
+        new AttendanceReportSnapshotService(
+          dataSource.getRepository(Employee),
+          dataSource.getRepository(AttendanceProcessingException),
+        ),
+        {
+          ensureFullyProcessed: async () => undefined,
+        } as unknown as AttendanceReportPreflightService,
+      ),
+      new EndOfDayAttendanceReportRunner(
+        new AttendanceReportSnapshotService(
+          dataSource.getRepository(Employee),
+          dataSource.getRepository(AttendanceProcessingException),
+        ),
+        {
+          ensureFullyProcessed: async () => undefined,
+        } as unknown as AttendanceReportPreflightService,
+      ),
     );
 
     const worker = new ReportExecutionWorkerService(
@@ -275,12 +298,34 @@ describe('Scheduled reporting dispatcher + worker (e2e, real Postgres)', () => {
       filesService,
     );
 
-    await worker.dispatch();
+    // The execution worker guards its work with a Postgres session-level
+    // advisory lock (see REPORT_EXECUTION_WORKER_LOCK_KEY) so multiple app
+    // instances never process the same execution twice. When e2e files run
+    // in parallel, another file's fully-booted app can legitimately hold
+    // that same lock for a moment - the real worker just retries on its own
+    // next interval tick when that happens, so this test retries the same
+    // way rather than asserting a single dispatch() call always wins.
+    let executionRow!: {
+      status: ReportExecutionStatusEnum;
+      generated_file_path: string | null;
+      generated_filename: string | null;
+      record_count: string;
+      email_delivery_status: ReportEmailDeliveryStatusEnum;
+    };
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await worker.dispatch();
 
-    const [executionRow] = await dataSource.query(
-      'SELECT status, generated_file_path, generated_filename, record_count, email_delivery_status FROM report_executions WHERE id = $1',
-      [execution.id],
-    );
+      [executionRow] = await dataSource.query(
+        'SELECT status, generated_file_path, generated_filename, record_count, email_delivery_status FROM report_executions WHERE id = $1',
+        [execution.id],
+      );
+
+      if (executionRow.status !== ReportExecutionStatusEnum.PENDING) {
+        break;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
 
     expect(executionRow.status).toBe(ReportExecutionStatusEnum.GENERATED);
     expect(executionRow.email_delivery_status).toBe(

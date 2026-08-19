@@ -42,6 +42,7 @@ import { SecurityEventsService } from '../security/security-events.service';
 import { SecurityEventType } from '../security/enums/security-event-type.enum';
 import { SecurityEventOutcome } from '../security/enums/security-event-outcome.enum';
 import { COMPANY_ROLE_SEEDS } from '../../database/seeds/005-company-roles.seed';
+import { AttendanceDefaultReportsProvisioningService } from '../scheduled-reporting/services/attendance-default-reports-provisioning.service';
 
 @Injectable()
 export class CompaniesService {
@@ -86,6 +87,7 @@ export class CompaniesService {
     @InjectRepository(AttendanceDevice)
     private readonly attendanceDeviceRepository: Repository<AttendanceDevice>,
     private readonly securityEventsService: SecurityEventsService,
+    private readonly attendanceDefaultReportsProvisioningService: AttendanceDefaultReportsProvisioningService,
   ) {}
 
   private getCompanyRepository(manager?: EntityManager): Repository<Company> {
@@ -461,6 +463,10 @@ export class CompaniesService {
       }
 
       const company = await this.createCompany(company_name, manager);
+      await this.attendanceDefaultReportsProvisioningService.provisionForCompany(
+        company.id,
+        manager,
+      );
       const hashedPassword = await hashPassword(admin_password);
       const userNo = await this.generateUserNo(manager);
 

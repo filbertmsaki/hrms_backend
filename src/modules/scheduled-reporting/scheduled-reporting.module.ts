@@ -4,10 +4,15 @@ import { PostgresAdvisoryLockService } from '../../common/database/postgres-advi
 import { CompanyUser } from '../companies/entities/company-user.entity';
 import { FilesModule } from '../files/files.module';
 import { AttendanceDailySummary } from '../hr/attendance/processing/entities/attendance-daily-summary.entity';
+import { AttendanceProcessingException } from '../hr/attendance/processing/entities/attendance-processing-exception.entity';
+import { AttendanceProcessingModule } from '../hr/attendance/processing/attendance-processing.module';
+import { AttendanceReportSnapshotService } from '../hr/attendance/processing/reports/attendance-report-snapshot.service';
+import { Branch } from '../hr/branches/entities/branch.entity';
 import { Department } from '../hr/departments/entities/department.entity';
 import { Employee } from '../hr/employees/entities/employee.entity';
 import { PerformanceAggregate } from '../hr/performance/entities/performance-aggregate.entity';
 import { PerformanceReview } from '../hr/performance/entities/performance-review.entity';
+import { Position } from '../hr/positions/entities/position.entity';
 import { Role } from '../roles/entities/role.entity';
 import { ReportDefinition } from './entities/report-definition.entity';
 import { ReportExecution } from './entities/report-execution.entity';
@@ -25,8 +30,11 @@ import { ReportExecutionWorkerService } from './services/report-execution-worker
 import { ReportRegistryService } from './services/report-registry.service';
 import { ReportScheduleDispatcherService } from './services/report-schedule-dispatcher.service';
 import { ReportSmtpService } from './services/report-smtp.service';
+import { AttendanceDefaultReportsProvisioningService } from './services/attendance-default-reports-provisioning.service';
 import { AttendanceSummaryReportRunner } from './services/runners/attendance-summary-report-runner.service';
 import { EmployeeMasterReportRunner } from './services/runners/employee-master-report-runner.service';
+import { EndOfDayAttendanceReportRunner } from './services/runners/end-of-day-attendance-report-runner.service';
+import { MorningAttendanceReportRunner } from './services/runners/morning-attendance-report-runner.service';
 import { PerformanceSummaryReportRunner } from './services/runners/performance-summary-report-runner.service';
 
 @Module({
@@ -46,10 +54,14 @@ import { PerformanceSummaryReportRunner } from './services/runners/performance-s
       Department,
       Role,
       AttendanceDailySummary,
+      AttendanceProcessingException,
+      Branch,
+      Position,
       PerformanceReview,
       PerformanceAggregate,
     ]),
     FilesModule,
+    AttendanceProcessingModule,
   ],
   controllers: [ScheduledReportingController],
   providers: [
@@ -62,8 +74,16 @@ import { PerformanceSummaryReportRunner } from './services/runners/performance-s
     AttendanceSummaryReportRunner,
     EmployeeMasterReportRunner,
     PerformanceSummaryReportRunner,
+    MorningAttendanceReportRunner,
+    EndOfDayAttendanceReportRunner,
+    AttendanceReportSnapshotService,
+    AttendanceDefaultReportsProvisioningService,
     PostgresAdvisoryLockService,
   ],
-  exports: [TypeOrmModule, ScheduledReportingService],
+  exports: [
+    TypeOrmModule,
+    ScheduledReportingService,
+    AttendanceDefaultReportsProvisioningService,
+  ],
 })
 export class ScheduledReportingModule {}

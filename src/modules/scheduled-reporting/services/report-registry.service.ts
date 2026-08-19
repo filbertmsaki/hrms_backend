@@ -3,6 +3,8 @@ import { ReportOutputFormatEnum } from '../enums/report-output-format.enum';
 import { ReportRunner } from '../interfaces/report-runner.interface';
 import { AttendanceSummaryReportRunner } from './runners/attendance-summary-report-runner.service';
 import { EmployeeMasterReportRunner } from './runners/employee-master-report-runner.service';
+import { EndOfDayAttendanceReportRunner } from './runners/end-of-day-attendance-report-runner.service';
+import { MorningAttendanceReportRunner } from './runners/morning-attendance-report-runner.service';
 import { PerformanceSummaryReportRunner } from './runners/performance-summary-report-runner.service';
 
 export type RegisteredReportDefinition = {
@@ -88,6 +90,30 @@ export const REGISTERED_REPORT_DEFINITIONS: RegisteredReportDefinition[] = [
     backgroundGenerationSupported: false,
     generatorService: 'PerformanceSummaryReportRunner',
   },
+  {
+    reportCode: 'MORNING_ATTENDANCE',
+    name: 'Morning Attendance Report',
+    description:
+      'Morning snapshot of who has checked in, who is late, and who has not yet checked in for the day.',
+    supportedFormats: [ReportOutputFormatEnum.XLSX, ReportOutputFormatEnum.CSV],
+    supportedFilterFields: ['branch_id', 'department_id'],
+    requiredPermissions: ['attendance_summaries:read'],
+    emailDeliverySupported: true,
+    backgroundGenerationSupported: false,
+    generatorService: 'MorningAttendanceReportRunner',
+  },
+  {
+    reportCode: 'END_OF_DAY_ATTENDANCE',
+    name: 'End of Day Attendance Report',
+    description:
+      'End-of-day attendance snapshot summarizing check-ins, check-outs, absences, and exceptions for the day.',
+    supportedFormats: [ReportOutputFormatEnum.XLSX, ReportOutputFormatEnum.CSV],
+    supportedFilterFields: ['branch_id', 'department_id'],
+    requiredPermissions: ['attendance_summaries:read'],
+    emailDeliverySupported: true,
+    backgroundGenerationSupported: false,
+    generatorService: 'EndOfDayAttendanceReportRunner',
+  },
 ];
 
 @Injectable()
@@ -103,6 +129,8 @@ export class ReportRegistryService {
     private readonly attendanceSummaryReportRunner: AttendanceSummaryReportRunner,
     private readonly employeeMasterReportRunner: EmployeeMasterReportRunner,
     private readonly performanceSummaryReportRunner: PerformanceSummaryReportRunner,
+    private readonly morningAttendanceReportRunner: MorningAttendanceReportRunner,
+    private readonly endOfDayAttendanceReportRunner: EndOfDayAttendanceReportRunner,
   ) {}
 
   private readonly runners = new Map<string, ReportRunner>();
@@ -123,6 +151,14 @@ export class ReportRegistryService {
     this.runners.set(
       this.performanceSummaryReportRunner.reportCode,
       this.performanceSummaryReportRunner,
+    );
+    this.runners.set(
+      this.morningAttendanceReportRunner.reportCode,
+      this.morningAttendanceReportRunner,
+    );
+    this.runners.set(
+      this.endOfDayAttendanceReportRunner.reportCode,
+      this.endOfDayAttendanceReportRunner,
     );
   }
 

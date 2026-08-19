@@ -47,6 +47,7 @@ import { TimetableScheduleGenerationService } from './timetable-schedule-generat
 import { AttendanceCompanyConfigService } from '../shared/attendance-company-config.service';
 import { AttendanceReportCsvService } from './reports/attendance-report-csv.service';
 import { AttendanceReportPdfService } from './reports/attendance-report-pdf.service';
+import { AttendanceReportPreflightService } from './reports/attendance-report-preflight.service';
 import { AttendanceReportService } from './reports/attendance-report.service';
 import { AttendanceReportXlsxService } from './reports/attendance-report-xlsx.service';
 import { HikvisionModule } from '../../../hikvision/hikvision.module';
@@ -110,6 +111,7 @@ import { PostgresAdvisoryLockService } from '../../../../common/database/postgre
     AttendanceReportPdfService,
     AttendanceReportService,
     AttendanceReportXlsxService,
+    AttendanceReportPreflightService,
     PostgresAdvisoryLockService,
   ],
   exports: [
@@ -121,6 +123,7 @@ import { PostgresAdvisoryLockService } from '../../../../common/database/postgre
     AttendanceProcessingService,
     AttendanceDailySummaryService,
     AttendanceRecalculationService,
+    AttendanceReportPreflightService,
     TypeOrmModule,
   ],
 })
