@@ -43,6 +43,16 @@ import { ResetPasswordDto } from './dtos/reset-password.dto';
 import { TokenBlacklistService } from './token-blacklist.service';
 import { AuthSessionsService } from './auth-sessions.service';
 
+/**
+ * Deliberately excludes roles/permissions: JwtStrategy.validate() always
+ * re-resolves them live from the database on every request (see
+ * getMembershipContext / user.roles relations there) and never reads them
+ * off the decoded token, so embedding them here only bloats the token -
+ * every permission granted to the account's roles would otherwise make the
+ * access token grow, with no corresponding benefit since the values are
+ * never trusted. Clients get roles/permissions from the login response
+ * body (generateCompanyAuthResponse/generatePlatformAuthResponse) instead.
+ */
 type AccessTokenPayload = {
   sub: number;
   email: string;
@@ -55,8 +65,6 @@ type AccessTokenPayload = {
   membershipId?: number;
   employeeId?: number;
   employeeNo?: string;
-  roles: string[];
-  permissions: string[];
   type: 'access';
   iss: string;
   aud: string;
@@ -1461,8 +1469,6 @@ export class AuthService {
       membershipId: companyContext.membershipId,
       employeeId: companyContext.employeeId ?? undefined,
       employeeNo: companyContext.employeeNo ?? undefined,
-      roles: companyContext.roles,
-      permissions: companyContext.permissions,
       type: 'access',
       iss: this.configService.get<string>('JWT_ISSUER') ?? 'alliance-hrms',
       aud:
@@ -1484,8 +1490,6 @@ export class AuthService {
       scope: platformContext.scope,
       userType: platformContext.userType,
       dashboardType: 'admin',
-      roles: platformContext.roles,
-      permissions: platformContext.permissions,
       type: 'access',
       iss: this.configService.get<string>('JWT_ISSUER') ?? 'alliance-hrms',
       aud:

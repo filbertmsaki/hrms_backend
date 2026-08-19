@@ -32,8 +32,6 @@ type JwtAccessPayload = {
   membershipId?: number;
   employeeId?: number;
   employeeNo?: string;
-  roles?: string[];
-  permissions?: string[];
   type?: string;
   iat?: number;
   tokenVersion?: number;
