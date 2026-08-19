@@ -145,4 +145,25 @@ describe('Auth sessions (e2e, real Postgres)', () => {
       .set('Authorization', `Bearer ${token}`)
       .expect(401);
   });
+
+  it('enforces a single active session: a fresh login immediately invalidates the previous one', async () => {
+    const firstToken = await login();
+
+    await request(app.getHttpServer() as App)
+      .get('/api/users/me')
+      .set('Authorization', `Bearer ${firstToken}`)
+      .expect(200);
+
+    const secondToken = await login();
+
+    await request(app.getHttpServer() as App)
+      .get('/api/users/me')
+      .set('Authorization', `Bearer ${firstToken}`)
+      .expect(401);
+
+    await request(app.getHttpServer() as App)
+      .get('/api/users/me')
+      .set('Authorization', `Bearer ${secondToken}`)
+      .expect(200);
+  });
 });

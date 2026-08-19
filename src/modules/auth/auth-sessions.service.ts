@@ -261,13 +261,18 @@ export class AuthSessionsService {
     return (result.affected ?? 0) > 0;
   }
 
+  /**
+   * Returns the number of sessions actually revoked, so callers (e.g. a
+   * fresh login enforcing single-session-per-account) can tell whether
+   * there was anything to revoke before logging/auditing it.
+   */
   async revokeAllSessionsForUser(
     userId: number,
     reason: string,
     manager?: EntityManager,
-  ): Promise<void> {
+  ): Promise<number> {
     const repository = this.getRepository(manager);
-    await repository
+    const result = await repository
       .createQueryBuilder()
       .update(AuthSession)
       .set({
@@ -277,5 +282,7 @@ export class AuthSessionsService {
       .where('user_id = :userId', { userId })
       .andWhere('revoked_at IS NULL')
       .execute();
+
+    return result.affected ?? 0;
   }
 }

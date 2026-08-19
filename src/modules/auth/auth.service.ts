@@ -300,6 +300,7 @@ export class AuthService {
         platformContext,
         sessionContext,
       );
+      await this.revokeOtherSessionsOnLogin(user as User, null, context);
       await this.persistNewSession(
         user as User,
         sessionContext,
@@ -412,6 +413,11 @@ export class AuthService {
       activeCompanyContext,
       availableCompanies,
       sessionContext,
+    );
+    await this.revokeOtherSessionsOnLogin(
+      user as User,
+      activeCompanyContext.companyId,
+      context,
     );
     await this.persistNewSession(
       user as User,
@@ -560,6 +566,7 @@ export class AuthService {
           this.buildPlatformAccessContext(user),
           sessionContext,
         );
+        await this.revokeOtherSessionsOnLogin(user, null, context);
         await this.persistNewSession(
           user,
           sessionContext,
@@ -608,6 +615,11 @@ export class AuthService {
         companyContext,
         companies,
         sessionContext,
+      );
+      await this.revokeOtherSessionsOnLogin(
+        user,
+        companyContext.companyId,
+        context,
       );
       await this.persistNewSession(
         user,
@@ -1596,6 +1608,48 @@ export class AuthService {
       refreshExpiresAt: new Date(refreshExpiresAt),
       context,
     });
+  }
+
+  /**
+   * Enforces a single active session per account: called only from genuine
+   * login entry points (password login, 2FA-completed login) - never from
+   * token refresh or switchCompany's legacy sessionId-less fallback, both
+   * of which also call persistNewSession but are reusing/extending access
+   * rather than starting a fresh login, and must not surprise a user by
+   * logging out their other devices on a mere refresh.
+   *
+   * Must run BEFORE the new session is created (and therefore before the
+   * tokens embedding its sessionId are handed back), so the brand-new
+   * session/token issued by this same login is never itself revoked.
+   * Does not touch auth_token_version - JwtStrategy independently checks
+   * each access token's sessionId against an active AuthSession row on
+   * every request, so revoking the session rows alone blocks prior tokens
+   * on their very next request.
+   */
+  private async revokeOtherSessionsOnLogin(
+    user: User,
+    companyId: number | null,
+    context?: AuditRequestContext | null,
+  ): Promise<void> {
+    const revokedCount =
+      await this.authSessionsService.revokeAllSessionsForUser(
+        user.id,
+        'NEW_LOGIN',
+      );
+
+    if (revokedCount > 0) {
+      await this.logSecurityEvent(
+        SecurityEventType.SESSIONS_REVOKED,
+        SecurityEventOutcome.SUCCESS,
+        {
+          authenticatedUser: user,
+          companyId,
+          context,
+          reason: 'new_login',
+          metadata: { revokedCount },
+        },
+      );
+    }
   }
 
   private async refreshExistingSession(

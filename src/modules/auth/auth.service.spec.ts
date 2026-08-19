@@ -54,6 +54,7 @@ describe('AuthService', () => {
     touchSession: jest.Mock;
     listSessionsForUser: jest.Mock;
     revokeSession: jest.Mock;
+    revokeAllSessionsForUser: jest.Mock;
     findActiveSession: jest.Mock;
   };
 
@@ -100,6 +101,7 @@ describe('AuthService', () => {
       touchSession: jest.fn(),
       listSessionsForUser: jest.fn().mockResolvedValue([]),
       revokeSession: jest.fn().mockResolvedValue(true),
+      revokeAllSessionsForUser: jest.fn().mockResolvedValue(0),
       findActiveSession: jest.fn().mockResolvedValue({
         id: 'session-1',
       }),
