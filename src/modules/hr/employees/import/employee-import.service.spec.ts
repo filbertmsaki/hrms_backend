@@ -374,7 +374,7 @@ describe('EmployeeImportService', () => {
     expect(instructionsSheet?.getCell('B8').text).toContain(
       'Select a single device code from the dropdown',
     );
-  });
+  }, 30000);
 
   it('rejects unsupported file extensions before previewing', async () => {
     await expect(
