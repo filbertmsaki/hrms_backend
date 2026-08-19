@@ -1017,6 +1017,73 @@ export class LeaveService {
     };
   }
 
+  private mapLeaveBalanceForEmployeeGroup(entity: LeaveBalance) {
+    const remainingDays = this.leaveBalanceService
+      .calculateAvailableDays(entity)
+      .toFixed(2);
+
+    return {
+      id: entity.id,
+      leave_type_id: entity.leave_type_id,
+      leave_type: entity.leave_type
+        ? {
+            id: entity.leave_type.id,
+            name: entity.leave_type.name,
+            code: entity.leave_type.code,
+          }
+        : null,
+      leave_type_name: entity.leave_type?.name ?? null,
+      fiscal_year: entity.fiscal_year,
+      allocated_days: entity.allocated_days,
+      opening_balance_days: entity.opening_balance_days,
+      entitlement_days: entity.entitlement_days,
+      accrued_days: entity.accrued_days,
+      used_days: entity.used_days,
+      pending_days: entity.pending_days,
+      approved_future_days: entity.approved_future_days,
+      carried_forward_days: entity.carried_forward_days,
+      expired_days: entity.expired_days,
+      adjusted_days: entity.adjusted_days,
+      attendance_deduction_days: entity.attendance_deduction_days,
+      available_days: remainingDays,
+      remaining_days: remainingDays,
+      generated_at: entity.generated_at,
+      leave_year_start_date: entity.leave_year_start_date,
+      leave_year_end_date: entity.leave_year_end_date,
+      last_transaction_id: entity.last_transaction_id,
+      version: entity.version,
+      updated_at: entity.updated_at,
+    };
+  }
+
+  private mapEmployeeSummaryForLeaveBalances(employee: Employee) {
+    return {
+      id: employee.id,
+      employee_number: employee.employee_no,
+      first_name: employee.first_name,
+      middle_name: employee.middle_name,
+      last_name: employee.last_name,
+      full_name: [employee.first_name, employee.middle_name, employee.last_name]
+        .filter(Boolean)
+        .join(' '),
+      department: employee.primary_department
+        ? {
+            id: employee.primary_department.id,
+            name: employee.primary_department.name,
+          }
+        : null,
+      position: employee.primary_position
+        ? {
+            id: employee.primary_position.id,
+            name: employee.primary_position.name,
+          }
+        : null,
+      branch: employee.primary_branch
+        ? { id: employee.primary_branch.id, name: employee.primary_branch.name }
+        : null,
+    };
+  }
+
   private mapLeaveBalanceAdjustment(entity: LeaveBalanceAdjustment) {
     return {
       id: entity.id,
@@ -2696,6 +2763,9 @@ export class LeaveService {
       employee_id,
       leave_type_id,
       fiscal_year,
+      department_id,
+      branch_id,
+      search,
     } = query;
     const scopedEmployeeIds = await this.resolveLeaveBalanceEmployeeIds(
       companyId,
@@ -2703,29 +2773,49 @@ export class LeaveService {
       actor,
     );
     const normalizedFiscalYear = fiscal_year?.trim() || null;
+    const normalizedSearch = search?.trim() || null;
 
-    const qb = this.leaveBalanceRepository
-      .createQueryBuilder('leaveBalance')
-      .innerJoinAndSelect('leaveBalance.employee', 'employee')
-      .innerJoinAndSelect('employee.company_user', 'membership')
-      .innerJoinAndSelect('leaveBalance.leave_type', 'leaveType')
-      .where('membership.company_id = :companyId', { companyId });
+    const buildFilteredQb = () => {
+      const qb = this.leaveBalanceRepository
+        .createQueryBuilder('leaveBalance')
+        .innerJoin('leaveBalance.employee', 'employee')
+        .innerJoin('employee.company_user', 'membership')
+        .where('membership.company_id = :companyId', { companyId });
 
-    if (scopedEmployeeIds && scopedEmployeeIds.length) {
-      qb.andWhere('leaveBalance.employee_id IN (:...employeeIds)', {
-        employeeIds: scopedEmployeeIds,
-      });
-    }
-    if (typeof leave_type_id === 'number') {
-      qb.andWhere('leaveBalance.leave_type_id = :leaveTypeId', {
-        leaveTypeId: leave_type_id,
-      });
-    }
-    if (normalizedFiscalYear) {
-      qb.andWhere('leaveBalance.fiscal_year = :fiscalYear', {
-        fiscalYear: normalizedFiscalYear,
-      });
-    }
+      if (scopedEmployeeIds && scopedEmployeeIds.length) {
+        qb.andWhere('leaveBalance.employee_id IN (:...employeeIds)', {
+          employeeIds: scopedEmployeeIds,
+        });
+      }
+      if (typeof leave_type_id === 'number') {
+        qb.andWhere('leaveBalance.leave_type_id = :leaveTypeId', {
+          leaveTypeId: leave_type_id,
+        });
+      }
+      if (normalizedFiscalYear) {
+        qb.andWhere('leaveBalance.fiscal_year = :fiscalYear', {
+          fiscalYear: normalizedFiscalYear,
+        });
+      }
+      if (typeof department_id === 'number') {
+        qb.andWhere('employee.primary_department_id = :departmentId', {
+          departmentId: department_id,
+        });
+      }
+      if (typeof branch_id === 'number') {
+        qb.andWhere('employee.primary_branch_id = :branchId', {
+          branchId: branch_id,
+        });
+      }
+      if (normalizedSearch) {
+        qb.andWhere(
+          '(employee.employee_no ILIKE :search OR employee.first_name ILIKE :search OR employee.last_name ILIKE :search)',
+          { search: `%${normalizedSearch}%` },
+        );
+      }
+
+      return qb;
+    };
 
     const allowedSortFields = ['id', 'fiscal_year', 'updated_at', 'created_at'];
     const safeSortBy = allowedSortFields.includes(sortBy)
@@ -2734,19 +2824,77 @@ export class LeaveService {
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
     const skip = (page - 1) * limit;
 
-    const [items, total] = await qb
-      .orderBy(`leaveBalance.${safeSortBy}`, direction)
-      .skip(skip)
-      .take(limit)
-      .getManyAndCount();
+    const totalEmployeesRow = await buildFilteredQb()
+      .select('COUNT(DISTINCT leaveBalance.employee_id)', 'count')
+      .getRawOne<{ count: string }>();
+    const totalEmployees = Number(totalEmployeesRow?.count ?? 0);
+
+    const employeeIdRows = await buildFilteredQb()
+      .select('leaveBalance.employee_id', 'employeeId')
+      .addSelect(`MAX(leaveBalance.${safeSortBy})`, 'sortValue')
+      .groupBy('leaveBalance.employee_id')
+      .orderBy('sortValue', direction)
+      .offset(skip)
+      .limit(limit)
+      .getRawMany<{ employeeId: string; sortValue: string }>();
+
+    const orderedEmployeeIds = employeeIdRows.map((row) =>
+      Number(row.employeeId),
+    );
 
     if (typeof employee_id === 'number') {
       await this.assertCanAccessEmployeeById(companyId, employee_id, actor);
     }
 
+    if (!orderedEmployeeIds.length) {
+      return {
+        data: [],
+        meta: buildPaginationMeta(totalEmployees, 0, limit, page),
+      };
+    }
+
+    const [employees, balances] = await Promise.all([
+      this.employeeRepository.find({
+        where: { id: In(orderedEmployeeIds) },
+        relations: {
+          primary_department: true,
+          primary_position: true,
+          primary_branch: true,
+        },
+      }),
+      this.leaveBalanceRepository.find({
+        where: {
+          employee_id: In(orderedEmployeeIds),
+          ...(typeof leave_type_id === 'number' ? { leave_type_id } : {}),
+          ...(normalizedFiscalYear
+            ? { fiscal_year: normalizedFiscalYear }
+            : {}),
+        },
+        relations: { leave_type: true },
+      }),
+    ]);
+
+    const employeesById = new Map(employees.map((item) => [item.id, item]));
+    const balancesByEmployeeId = new Map<number, LeaveBalance[]>();
+    balances.forEach((balance) => {
+      const list = balancesByEmployeeId.get(balance.employee_id) ?? [];
+      list.push(balance);
+      balancesByEmployeeId.set(balance.employee_id, list);
+    });
+
+    const data = orderedEmployeeIds
+      .map((id) => employeesById.get(id))
+      .filter((employee): employee is Employee => Boolean(employee))
+      .map((employee) => ({
+        employee: this.mapEmployeeSummaryForLeaveBalances(employee),
+        leave_balances: (balancesByEmployeeId.get(employee.id) ?? []).map(
+          (balance) => this.mapLeaveBalanceForEmployeeGroup(balance),
+        ),
+      }));
+
     return {
-      data: items.map((item) => this.mapLeaveBalance(item)),
-      meta: buildPaginationMeta(total, items.length, limit, page),
+      data,
+      meta: buildPaginationMeta(totalEmployees, data.length, limit, page),
     };
   }
 

@@ -726,4 +726,118 @@ describe('LeaveService', () => {
       }),
     );
   });
+
+  it('returns leave balances grouped by employee with employee-based pagination', async () => {
+    employeeRepository.findOne.mockResolvedValue({
+      id: 501,
+      company_user_id: 33,
+      company_user: { company_id: 10 },
+    });
+
+    const countQb = {
+      innerJoin: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      getRawOne: jest.fn().mockResolvedValue({ count: '1' }),
+    };
+    const idsQb = {
+      innerJoin: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
+      groupBy: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      offset: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      getRawMany: jest
+        .fn()
+        .mockResolvedValue([{ employeeId: '501', sortValue: '2026-01-01' }]),
+    };
+    leaveBalanceRepository.createQueryBuilder
+      .mockImplementationOnce(() => countQb)
+      .mockImplementationOnce(() => idsQb);
+
+    employeeRepository.find.mockResolvedValue([
+      {
+        id: 501,
+        employee_no: 'AICL/501',
+        first_name: 'John',
+        middle_name: null,
+        last_name: 'Doe',
+        primary_department: { id: 1, name: 'IT' },
+        primary_position: { id: 2, name: 'Developer' },
+        primary_branch: null,
+      },
+    ]);
+    leaveBalanceRepository.find.mockResolvedValue([
+      {
+        id: 1429,
+        employee_id: 501,
+        leave_type_id: 1,
+        leave_type: { id: 1, name: 'Annual Leave', code: 'ANNUAL' },
+        fiscal_year: '2026',
+        allocated_days: '28.00',
+        opening_balance_days: '0.00',
+        entitlement_days: '28.00',
+        accrued_days: '28.00',
+        used_days: '0.00',
+        pending_days: '0.00',
+        approved_future_days: '0.00',
+        carried_forward_days: '0.00',
+        expired_days: '0.00',
+        adjusted_days: '0.00',
+        attendance_deduction_days: '16.00',
+        generated_at: new Date('2026-01-01T00:00:00Z'),
+        leave_year_start_date: '2026-01-01',
+        leave_year_end_date: '2026-12-31',
+        last_transaction_id: null,
+        version: 1,
+        updated_at: new Date('2026-01-01T00:00:00Z'),
+      },
+    ]);
+
+    const localActor: AuthenticatedUser = {
+      ...actor,
+      companyMembershipId: 33,
+    };
+
+    const result = await service.findAllLeaveBalances(
+      10,
+      { employee_id: 501, page: 1, limit: 20 },
+      localActor,
+    );
+
+    expect(result.data).toHaveLength(1);
+    expect(result.data[0].employee).toEqual(
+      expect.objectContaining({
+        id: 501,
+        employee_number: 'AICL/501',
+        full_name: 'John Doe',
+        department: { id: 1, name: 'IT' },
+        position: { id: 2, name: 'Developer' },
+      }),
+    );
+    expect(result.data[0].leave_balances).toHaveLength(1);
+    expect(result.data[0].leave_balances[0]).toEqual(
+      expect.objectContaining({
+        id: 1429,
+        leave_type_id: 1,
+        leave_type: { id: 1, name: 'Annual Leave', code: 'ANNUAL' },
+        allocated_days: '28.00',
+        attendance_deduction_days: '16.00',
+        available_days: '10.00',
+        remaining_days: '10.00',
+      }),
+    );
+    expect(result.meta).toEqual(
+      expect.objectContaining({
+        totalItems: 1,
+        itemCount: 1,
+        itemsPerPage: 20,
+        currentPage: 1,
+      }),
+    );
+  });
 });

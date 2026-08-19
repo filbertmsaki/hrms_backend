@@ -9,6 +9,7 @@ import { AttendanceDailySummary } from '../../attendance/processing/entities/att
 import { LeaveBalanceAdjustment } from '../entities/leave-balance-adjustment.entity';
 import { LeaveRecordStatusEnum } from '../enums/leave-record-status.enum';
 import { LeaveBalanceAdjustmentModeEnum } from '../enums/leave-balance-adjustment-mode.enum';
+import { LeaveAccrualMethodEnum } from '../enums/leave-accrual-method.enum';
 import { LeaveAuditService } from './leave-audit.service';
 
 type MockRepo = Record<string, jest.Mock>;
@@ -271,5 +272,58 @@ describe('LeaveBalanceService', () => {
         adjusted_by_company_user_id: 44,
       }),
     );
+  });
+
+  it('prorates monthly-accrual leave types by elapsed months', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2027-04-15T00:00:00Z'));
+
+    leaveTypeRepository.findOne.mockResolvedValue({
+      id: 7,
+      company_id: 10,
+      code: 'ANNUAL',
+      max_days_per_year: '24.00',
+      is_carry_forward_allowed: false,
+      max_carry_forward_days: '0.00',
+    });
+    leavePolicyRepository.find.mockResolvedValue([
+      {
+        company_id: 10,
+        status: LeaveRecordStatusEnum.ACTIVE,
+        applicable_department_id: null,
+        applicable_position_id: null,
+        accrual_method: LeaveAccrualMethodEnum.MONTHLY,
+        accrual_rate: null,
+        leave_types: [
+          {
+            leave_type_id: 7,
+            annual_quota_days: '24.00',
+          },
+        ],
+      },
+    ]);
+    balanceRepository.findOne.mockResolvedValue(null);
+    leaveRequestRepository.find.mockResolvedValue([]);
+    attendanceDailySummaryRepository.createQueryBuilder.mockReturnValue(
+      createAttendanceSummaryBuilder([]),
+    );
+
+    const result = await service.ensureBalanceForEmployee(
+      10,
+      {
+        id: 501,
+        primary_department_id: 2,
+        primary_position_id: 3,
+        primary_branch_id: 1,
+      },
+      7,
+      '2027',
+    );
+
+    expect(result.entitlement_days).toBe('24.00');
+    // 24 days / 12 months * 4 elapsed months (Jan-Apr) = 8 days accrued.
+    expect(result.accrued_days).toBe('8.00');
+    expect(service.calculateAvailableDays(result)).toBe(8);
+
+    jest.useRealTimers();
   });
 });

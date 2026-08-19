@@ -10,6 +10,7 @@ import { Employee } from '../../employees/entities/employee.entity';
 import { EmploymentStatusEnum } from '../../employees/enums/employment-status.enum';
 import { AttendanceDailySummary } from '../../attendance/processing/entities/attendance-daily-summary.entity';
 import { AttendanceDailyStatusEnum } from '../../attendance/processing/enums/attendance-daily-status.enum';
+import { LeaveAccrualMethodEnum } from '../enums/leave-accrual-method.enum';
 import { LeaveBalanceAdjustmentModeEnum } from '../enums/leave-balance-adjustment-mode.enum';
 import { LeaveBalanceAdjustmentSourceEnum } from '../enums/leave-balance-adjustment-source.enum';
 import { LeaveRecordStatusEnum } from '../enums/leave-record-status.enum';
@@ -27,7 +28,10 @@ type EmployeeScope = Pick<
   'id' | 'primary_department_id' | 'primary_position_id' | 'primary_branch_id'
 > &
   Partial<
-    Pick<Employee, 'grade_id' | 'employment_type' | 'confirmation_status'>
+    Pick<
+      Employee,
+      'grade_id' | 'employment_type' | 'confirmation_status' | 'hire_date'
+    >
   >;
 
 type PolicyAssignment = {
@@ -299,6 +303,68 @@ export class LeaveBalanceService {
     return Math.min(remaining, maxCarryForward);
   }
 
+  private calculateAccruedDays(
+    entitlementDays: number,
+    assignment: PolicyAssignment | null,
+    fiscalYear: string,
+    employee: EmployeeScope,
+    existingAccruedDays: number,
+  ): number {
+    const accrualMethod =
+      assignment?.policy.accrual_method ?? LeaveAccrualMethodEnum.YEARLY;
+
+    if (accrualMethod === LeaveAccrualMethodEnum.MANUAL) {
+      // Manual accrual is only ever moved by explicit adjustments, never
+      // auto-populated from the policy quota.
+      return existingAccruedDays;
+    }
+
+    if (accrualMethod === LeaveAccrualMethodEnum.MONTHLY) {
+      return this.calculateMonthlyAccrualDays(
+        entitlementDays,
+        assignment?.policy.accrual_rate ?? null,
+        fiscalYear,
+        employee,
+      );
+    }
+
+    return entitlementDays;
+  }
+
+  private calculateMonthlyAccrualDays(
+    entitlementDays: number,
+    accrualRate: string | null,
+    fiscalYear: string,
+    employee: EmployeeScope,
+  ): number {
+    const yearStart = new Date(`${fiscalYear}-01-01T00:00:00.000Z`);
+    const yearEnd = new Date(`${fiscalYear}-12-31T00:00:00.000Z`);
+    const today = new Date();
+
+    const effectiveEnd = today < yearEnd ? today : yearEnd;
+
+    const hireDate = employee.hire_date ? new Date(employee.hire_date) : null;
+    const effectiveStart =
+      hireDate && hireDate > yearStart ? hireDate : yearStart;
+
+    if (effectiveEnd < effectiveStart) {
+      return 0;
+    }
+
+    const monthsElapsed =
+      (effectiveEnd.getUTCFullYear() - effectiveStart.getUTCFullYear()) * 12 +
+      (effectiveEnd.getUTCMonth() - effectiveStart.getUTCMonth()) +
+      1;
+    const cappedMonths = Math.min(Math.max(monthsElapsed, 0), 12);
+
+    const monthlyRate =
+      this.toNumber(accrualRate) > 0
+        ? this.toNumber(accrualRate)
+        : entitlementDays / 12;
+
+    return Math.min(monthlyRate * cappedMonths, entitlementDays);
+  }
+
   private async summarizeLeaveUsage(
     employeeId: number,
     leaveTypeId: number,
@@ -464,12 +530,19 @@ export class LeaveBalanceService {
       assignment,
       manager,
     );
+    const accruedDays = this.calculateAccruedDays(
+      entitlementDays,
+      assignment,
+      normalizedFiscalYear,
+      employee,
+      this.toNumber(balance.accrued_days),
+    );
 
     balance.allocated_days = this.toDecimal(entitlementDays);
     balance.company_id = companyId;
     balance.opening_balance_days = this.toDecimal(carriedForwardDays);
     balance.entitlement_days = this.toDecimal(entitlementDays);
-    balance.accrued_days = this.toDecimal(entitlementDays);
+    balance.accrued_days = this.toDecimal(accruedDays);
     balance.used_days = this.toDecimal(usage.usedDays);
     balance.pending_days = this.toDecimal(usage.pendingDays);
     balance.approved_future_days =
@@ -622,13 +695,14 @@ export class LeaveBalanceService {
     const openingBalance = this.toNumber(balance.opening_balance_days)
       ? this.toNumber(balance.opening_balance_days)
       : this.toNumber(balance.carried_forward_days);
-    const entitlementDays = this.toNumber(balance.entitlement_days)
-      ? this.toNumber(balance.entitlement_days)
-      : this.toNumber(balance.allocated_days);
+    const accruedDays = this.toNumber(balance.accrued_days)
+      ? this.toNumber(balance.accrued_days)
+      : this.toNumber(balance.entitlement_days) ||
+        this.toNumber(balance.allocated_days);
 
     return (
       openingBalance +
-      entitlementDays +
+      accruedDays +
       this.toNumber(balance.adjusted_days) -
       this.toNumber(balance.used_days) -
       this.toNumber(balance.pending_days) -

@@ -916,41 +916,42 @@ export class EmployeeSelfServiceService {
       actor,
     );
 
-    const totals = Array.isArray(response.data)
-      ? response.data.reduce(
-          (acc, item: Record<string, unknown>) => {
-            acc.allocated_days += this.toNumber(item.allocated_days);
-            acc.opening_balance_days += this.toNumber(
-              item.opening_balance_days,
-            );
-            acc.entitlement_days += this.toNumber(item.entitlement_days);
-            acc.used_days += this.toNumber(item.used_days);
-            acc.pending_days += this.toNumber(item.pending_days);
-            acc.carried_forward_days += this.toNumber(
-              item.carried_forward_days,
-            );
-            acc.expired_days += this.toNumber(item.expired_days);
-            acc.adjusted_days += this.toNumber(item.adjusted_days);
-            acc.attendance_deduction_days += this.toNumber(
-              item.attendance_deduction_days,
-            );
-            acc.available_days += this.toNumber(item.available_days);
-            return acc;
-          },
-          {
-            allocated_days: 0,
-            opening_balance_days: 0,
-            entitlement_days: 0,
-            used_days: 0,
-            pending_days: 0,
-            carried_forward_days: 0,
-            expired_days: 0,
-            adjusted_days: 0,
-            attendance_deduction_days: 0,
-            available_days: 0,
-          },
-        )
-      : null;
+    const leaveBalances: Array<Record<string, unknown>> = Array.isArray(
+      response.data,
+    )
+      ? (((response.data[0] as { leave_balances?: unknown[] } | undefined)
+          ?.leave_balances as Array<Record<string, unknown>> | undefined) ?? [])
+      : [];
+
+    const totals = leaveBalances.reduce(
+      (acc: Record<string, number>, item) => {
+        acc.allocated_days += this.toNumber(item.allocated_days);
+        acc.opening_balance_days += this.toNumber(item.opening_balance_days);
+        acc.entitlement_days += this.toNumber(item.entitlement_days);
+        acc.used_days += this.toNumber(item.used_days);
+        acc.pending_days += this.toNumber(item.pending_days);
+        acc.carried_forward_days += this.toNumber(item.carried_forward_days);
+        acc.expired_days += this.toNumber(item.expired_days);
+        acc.adjusted_days += this.toNumber(item.adjusted_days);
+        acc.attendance_deduction_days += this.toNumber(
+          item.attendance_deduction_days,
+        );
+        acc.available_days += this.toNumber(item.available_days);
+        return acc;
+      },
+      {
+        allocated_days: 0,
+        opening_balance_days: 0,
+        entitlement_days: 0,
+        used_days: 0,
+        pending_days: 0,
+        carried_forward_days: 0,
+        expired_days: 0,
+        adjusted_days: 0,
+        attendance_deduction_days: 0,
+        available_days: 0,
+      },
+    );
 
     return {
       ...response,

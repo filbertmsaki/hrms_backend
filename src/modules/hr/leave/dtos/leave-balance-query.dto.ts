@@ -17,4 +17,14 @@ export class LeaveBalanceQueryDto extends PaginationDto {
   @IsString()
   @IsOptional()
   fiscal_year?: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  department_id?: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  branch_id?: number;
 }
