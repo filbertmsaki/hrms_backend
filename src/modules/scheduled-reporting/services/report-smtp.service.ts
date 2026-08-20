@@ -59,6 +59,7 @@ type ReportMailTransportOptions = {
   host: string;
   port: number;
   secure: boolean;
+  ignoreTLS: boolean;
   requireTLS: boolean;
   connectionTimeout: number;
   greetingTimeout: number;
@@ -119,6 +120,7 @@ export class ReportSmtpService {
       host: normalized.host,
       port: normalized.port,
       secure: normalized.securityType === ReportSmtpSecurityTypeEnum.SSL_TLS,
+      ignoreTLS: normalized.securityType === ReportSmtpSecurityTypeEnum.NONE,
       requireTLS:
         normalized.securityType === ReportSmtpSecurityTypeEnum.STARTTLS,
       connectionTimeout: normalized.connectionTimeoutMs,
@@ -183,8 +185,9 @@ export class ReportSmtpService {
       };
     } catch (error) {
       const safeMessage = this.toSafeErrorMessage(error);
+      const diagnostics = this.formatErrorDiagnostics(error);
       this.logger.warn(
-        `SMTP draft test failed for company ${companyId}: ${safeMessage}`,
+        `SMTP draft test failed for company ${companyId}: ${safeMessage}${diagnostics ? ` (${diagnostics})` : ''}`,
       );
       throw new BadRequestException(safeMessage);
     }
@@ -313,6 +316,11 @@ export class ReportSmtpService {
   }
 
   toSafeErrorMessage(error: unknown): string {
+    const nestedMessage = this.extractExceptionMessage(error);
+    if (nestedMessage) {
+      return nestedMessage;
+    }
+
     if (!(error instanceof Error)) {
       return 'SMTP validation failed.';
     }
@@ -353,5 +361,74 @@ export class ReportSmtpService {
     }
 
     return 'SMTP validation failed. Please review the SMTP host, port, security, sender, and authentication settings.';
+  }
+
+  private extractExceptionMessage(error: unknown): string | null {
+    if (
+      typeof error !== 'object' ||
+      error === null ||
+      !('getResponse' in error) ||
+      typeof error.getResponse !== 'function'
+    ) {
+      return null;
+    }
+
+    const getResponse = error.getResponse as () =>
+      | string
+      | { message?: string | string[] }
+      | undefined;
+    const response = getResponse();
+
+    if (typeof response === 'string' && response.trim()) {
+      return response.trim();
+    }
+
+    if (
+      response &&
+      typeof response === 'object' &&
+      Array.isArray(response.message)
+    ) {
+      const firstMessage = response.message.find(
+        (message) => typeof message === 'string' && message.trim(),
+      );
+      return firstMessage?.trim() || null;
+    }
+
+    if (
+      response &&
+      typeof response === 'object' &&
+      typeof response.message === 'string' &&
+      response.message.trim()
+    ) {
+      return response.message.trim();
+    }
+
+    return null;
+  }
+
+  private formatErrorDiagnostics(error: unknown): string | null {
+    if (!(error instanceof Error)) {
+      return null;
+    }
+
+    const details = [
+      ['name', error.name],
+      ['code', String((error as Error & { code?: string }).code ?? '')],
+      [
+        'command',
+        String((error as Error & { command?: string }).command ?? ''),
+      ],
+      [
+        'response',
+        String((error as Error & { response?: string }).response ?? ''),
+      ],
+      ['message', error.message],
+    ].filter(([, value]) => value.trim());
+
+    if (!details.length) {
+      return null;
+    }
+
+    return details.map(([key, value]) => `${key}=${value}`).join(', ');
   }
 }

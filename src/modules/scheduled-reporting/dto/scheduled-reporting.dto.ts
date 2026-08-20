@@ -142,6 +142,10 @@ export class TestDraftReportSmtpConfigurationDto extends ReportSmtpConfiguration
   @IsOptional()
   testRecipientEmail?: string;
 
+  @IsEmail()
+  @IsOptional()
+  toEmail?: string;
+
   @Transform(({ value }: { value: unknown }) => toBoolean(value))
   @IsBoolean()
   @IsOptional()
@@ -163,6 +167,10 @@ export class CreateReportSmtpConfigurationDto extends ReportSmtpConfigurationFie
   @IsEmail()
   @IsOptional()
   testRecipientEmail?: string;
+
+  @IsEmail()
+  @IsOptional()
+  toEmail?: string;
 }
 
 export class UpdateReportSmtpConfigurationDto extends PartialType(
@@ -176,12 +184,20 @@ export class UpdateReportSmtpConfigurationDto extends PartialType(
   @IsEmail()
   @IsOptional()
   testRecipientEmail?: string;
+
+  @IsEmail()
+  @IsOptional()
+  toEmail?: string;
 }
 
 export class TestReportSmtpConfigurationDto {
   @IsEmail()
   @IsOptional()
   toEmail?: string;
+
+  @IsEmail()
+  @IsOptional()
+  testRecipientEmail?: string;
 
   @Transform(({ value }: { value: unknown }) => toBoolean(value))
   @IsBoolean()

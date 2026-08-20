@@ -95,6 +95,13 @@ describe('ReportSmtpService', () => {
     );
 
     expect(mockCreateTransport).toHaveBeenCalled();
+    expect(mockCreateTransport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        secure: false,
+        ignoreTLS: false,
+        requireTLS: true,
+      }),
+    );
     const [sentMessage] = mockSendMail.mock.calls[0] ?? [];
 
     expect(sentMessage).toEqual(
@@ -108,6 +115,30 @@ describe('ReportSmtpService', () => {
     );
     expect(result.smtpTestToken).toContain('.');
     expect(result.messageId).toBe('message-1');
+  });
+
+  it('disables opportunistic tls when security type is NONE', async () => {
+    await service.testDraftConfiguration(
+      10,
+      'admin@example.com',
+      {
+        name: 'Plain SMTP',
+        host: 'smtp.example.com',
+        port: 25,
+        securityType: ReportSmtpSecurityTypeEnum.NONE,
+        senderEmail: 'sender@example.com',
+      },
+      'real.user@example.com',
+      false,
+    );
+
+    expect(mockCreateTransport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        secure: false,
+        ignoreTLS: true,
+        requireTLS: false,
+      }),
+    );
   });
 
   it('rejects changed smtp payloads against the original proof token', async () => {

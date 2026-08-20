@@ -64,6 +64,7 @@ describe('ScheduledReportingService', () => {
   let reportSmtpService: {
     testDraftConfiguration: jest.Mock;
     verifyProofOrThrow: jest.Mock;
+    toSafeErrorMessage: jest.Mock;
   };
 
   beforeEach(() => {
@@ -85,6 +86,26 @@ describe('ScheduledReportingService', () => {
         testedAt: new Date('2026-07-31T08:00:00.000Z'),
       }),
       verifyProofOrThrow: jest.fn(),
+      toSafeErrorMessage: jest.fn((error: unknown) => {
+        if (error instanceof BadRequestException) {
+          const response = error.getResponse();
+          if (typeof response === 'string') {
+            return response;
+          }
+          if (
+            response &&
+            typeof response === 'object' &&
+            'message' in response &&
+            typeof response.message === 'string'
+          ) {
+            return response.message;
+          }
+        }
+
+        return error instanceof Error
+          ? error.message
+          : 'Unknown SMTP test failure';
+      }),
     };
 
     service = new ScheduledReportingService(
@@ -161,6 +182,154 @@ describe('ScheduledReportingService', () => {
     );
     expect(savedConfiguration?.encryptedPassword).toEqual(
       expect.stringContaining('enc:rpt:v1:'),
+    );
+  });
+
+  it('allows unauthenticated smtp configurations without a password', async () => {
+    reportSmtpConfigurationRepository.findOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 2,
+        companyId: 10,
+        name: 'Relay SMTP',
+      });
+
+    await expect(
+      service.createSmtpConfiguration(
+        10,
+        {
+          email: 'admin@example.com',
+          companyMembershipId: 22,
+        } as never,
+        {
+          name: 'Relay SMTP',
+          host: 'smtp.relay.example.com',
+          port: 25,
+          securityType: ReportSmtpSecurityTypeEnum.NONE,
+          senderEmail: 'sender@example.com',
+          isActive: true,
+          isDefault: false,
+        } as never,
+      ),
+    ).resolves.toEqual(expect.objectContaining({ id: 2 }));
+
+    const [savedConfiguration] =
+      reportSmtpConfigurationRepository.save.mock.calls.at(-1) ?? [];
+    expect(savedConfiguration).toEqual(
+      expect.objectContaining({
+        username: null,
+        encryptedPassword: null,
+      }),
+    );
+  });
+
+  it('uses the toEmail alias when testing a draft smtp configuration', async () => {
+    await service.testDraftSmtpConfiguration(
+      10,
+      {
+        email: 'admin@example.com',
+      } as never,
+      {
+        name: 'Primary SMTP',
+        host: 'smtp.example.com',
+        port: 587,
+        securityType: ReportSmtpSecurityTypeEnum.STARTTLS,
+        username: 'mailer@example.com',
+        password: 'secret',
+        senderEmail: 'sender@example.com',
+        toEmail: 'recipient@example.com',
+      } as never,
+    );
+
+    expect(reportSmtpService.testDraftConfiguration).toHaveBeenCalledWith(
+      10,
+      'admin@example.com',
+      expect.any(Object),
+      'recipient@example.com',
+      true,
+    );
+  });
+
+  it('uses the testRecipientEmail alias when testing a saved smtp configuration', async () => {
+    reportSmtpConfigurationRepository.findOne.mockResolvedValue({
+      id: 4,
+      companyId: 10,
+      name: 'Primary SMTP',
+      host: 'smtp.example.com',
+      port: 587,
+      securityType: ReportSmtpSecurityTypeEnum.STARTTLS,
+      username: 'mailer@example.com',
+      encryptedPassword: 'secret',
+      senderName: 'Alliance HRMS',
+      senderEmail: 'sender@example.com',
+      replyToEmail: 'reply@example.com',
+      connectionTimeoutMs: 5000,
+    });
+
+    await service.testSmtpConfiguration(
+      10,
+      {
+        email: 'admin@example.com',
+        companyMembershipId: 22,
+      } as never,
+      4,
+      {
+        testRecipientEmail: 'recipient@example.com',
+      } as never,
+    );
+
+    expect(reportSmtpService.testDraftConfiguration).toHaveBeenCalledWith(
+      10,
+      'admin@example.com',
+      expect.any(Object),
+      'recipient@example.com',
+      true,
+    );
+  });
+
+  it('stores a safe smtp error message when a saved smtp test fails', async () => {
+    reportSmtpConfigurationRepository.findOne.mockResolvedValue({
+      id: 5,
+      companyId: 10,
+      name: 'Primary SMTP',
+      host: 'smtp.example.com',
+      port: 587,
+      securityType: ReportSmtpSecurityTypeEnum.STARTTLS,
+      username: 'mailer@example.com',
+      encryptedPassword: 'secret',
+      senderName: 'Alliance HRMS',
+      senderEmail: 'sender@example.com',
+      replyToEmail: 'reply@example.com',
+      connectionTimeoutMs: 5000,
+    });
+    reportSmtpService.testDraftConfiguration.mockRejectedValue(
+      new BadRequestException('SMTP authentication failed.'),
+    );
+    reportSmtpService.toSafeErrorMessage.mockReturnValue(
+      'SMTP authentication failed.',
+    );
+
+    await expect(
+      service.testSmtpConfiguration(
+        10,
+        {
+          email: 'admin@example.com',
+          companyMembershipId: 22,
+        } as never,
+        5,
+        {
+          toEmail: 'recipient@example.com',
+        } as never,
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    const [savedConfiguration] =
+      reportSmtpConfigurationRepository.save.mock.calls.at(-1) ?? [];
+    expect(savedConfiguration).toEqual(
+      expect.objectContaining({
+        lastTestStatus: ReportSmtpTestStatusEnum.FAILED,
+        lastTestError: 'SMTP authentication failed.',
+      }),
     );
   });
 

@@ -128,8 +128,10 @@ export class ScheduledReportingService {
   ) {
     await this.ensureUniqueSmtpConfigurationName(companyId, dto.name);
 
-    if (!dto.password?.trim()) {
-      throw new BadRequestException('password is required');
+    if (dto.username?.trim() && !dto.password?.trim()) {
+      throw new BadRequestException(
+        'password is required when username is provided',
+      );
     }
 
     const smtpDraft = this.buildSmtpDraftInput({
@@ -141,7 +143,7 @@ export class ScheduledReportingService {
       actor,
       smtpDraft,
       dto.smtpTestToken,
-      dto.testRecipientEmail,
+      this.resolveSmtpTestRecipient(dto),
     );
 
     const entity = this.reportSmtpConfigurationRepository.create({
@@ -151,7 +153,9 @@ export class ScheduledReportingService {
       port: dto.port,
       securityType: dto.securityType ?? ReportSmtpSecurityTypeEnum.STARTTLS,
       username: dto.username?.trim() || null,
-      encryptedPassword: encryptReportSmtpSecret(dto.password),
+      encryptedPassword: dto.password?.trim()
+        ? encryptReportSmtpSecret(dto.password)
+        : null,
       senderName: dto.senderName?.trim() || null,
       senderEmail: dto.senderEmail.trim().toLowerCase(),
       replyToEmail: dto.replyToEmail?.trim().toLowerCase() || null,
@@ -184,7 +188,7 @@ export class ScheduledReportingService {
       companyId,
       actor.email,
       this.buildSmtpDraftInput(dto),
-      dto.testRecipientEmail,
+      this.resolveSmtpTestRecipient(dto),
       dto.sendTestEmail ?? true,
     );
 
@@ -361,7 +365,7 @@ export class ScheduledReportingService {
         actor,
         smtpDraft,
         dto.smtpTestToken,
-        dto.testRecipientEmail,
+        this.resolveSmtpTestRecipient(dto),
       );
       item.lastTestStatus = ReportSmtpTestStatusEnum.SUCCESS;
       item.lastTestedAt = testedAt;
@@ -415,7 +419,7 @@ export class ScheduledReportingService {
           replyToEmail: item.replyToEmail,
           connectionTimeoutMs: item.connectionTimeoutMs,
         }),
-        dto.toEmail,
+        this.resolveSmtpTestRecipient(dto),
         dto.sendTestEmail ?? true,
       );
 
@@ -434,10 +438,10 @@ export class ScheduledReportingService {
         messageId: result.messageId,
       };
     } catch (error) {
+      const safeMessage = this.reportSmtpService.toSafeErrorMessage(error);
       item.lastTestStatus = ReportSmtpTestStatusEnum.FAILED;
       item.lastTestedAt = new Date();
-      item.lastTestError =
-        error instanceof Error ? error.message : 'Unknown SMTP test failure';
+      item.lastTestError = safeMessage;
       item.updatedByCompanyUserId = actor.companyMembershipId ?? null;
       await this.reportSmtpConfigurationRepository.save(item);
       throw error;
@@ -1304,6 +1308,13 @@ export class ScheduledReportingService {
       replyToEmail: input.replyToEmail,
       connectionTimeoutMs: input.connectionTimeoutMs,
     };
+  }
+
+  private resolveSmtpTestRecipient(input: {
+    testRecipientEmail?: string | null;
+    toEmail?: string | null;
+  }) {
+    return input.testRecipientEmail?.trim() || input.toEmail?.trim() || null;
   }
 
   private async ensureSmtpConfigurationTested(
