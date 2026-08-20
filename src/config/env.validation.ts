@@ -10,6 +10,7 @@ import {
   resolveMailRecipientSafetyConfig,
 } from '../modules/mail/mail-recipient-safety.util';
 import { normalizeAllowedOriginPattern } from '../common/utils/allowed-origin.util';
+import { resolveDebugMode } from '../common/utils/debug-mode.util';
 
 type Env = Record<string, string | undefined>;
 
@@ -194,7 +195,7 @@ export function validateEnv(env: Env) {
     'APP_TRUST_PROXY',
     APP_ENV === 'production',
   );
-  const DEBUG = optionalBool(env, 'DEBUG', false);
+  const DEBUG = resolveDebugMode(env.DEBUG);
   const APP_PUBLIC_STORAGE_PATH = optionalString(
     env,
     'APP_PUBLIC_STORAGE_PATH',
