@@ -69,10 +69,11 @@ export default class LeaveWorkflowsSeeder implements Seeder {
         );
       }
 
-      // Upsert the workflow (leave_type_id = null means default)
+      // Create the workflow only if it does not already exist (leave_type_id = null means default)
       let workflow = await workflowRepo.findOne({
         where: { company_id: company.id, name: WORKFLOW_NAME },
       });
+      const workflowAlreadyExisted = !!workflow;
       if (!workflow) {
         workflow = workflowRepo.create({
           company_id: company.id,
@@ -81,42 +82,40 @@ export default class LeaveWorkflowsSeeder implements Seeder {
           is_default: true,
           status: LeaveRecordStatusEnum.ACTIVE,
         });
-      } else {
-        workflow.is_default = true;
-        workflow.status = LeaveRecordStatusEnum.ACTIVE;
+        await workflowRepo.save(workflow);
       }
-      await workflowRepo.save(workflow);
 
-      // Upsert steps
+      // Create steps only if missing
+      let createdStepCount = 0;
       for (const seed of WORKFLOW_STEP_SEEDS) {
         const role = await roleRepo.findOne({
           where: { name: seed.roleName, company_id: company.id },
         });
 
-        let step = await stepRepo.findOne({
+        const step = await stepRepo.findOne({
           where: {
             workflow_id: workflow.id,
             approval_level: seed.approvalLevel,
           },
         });
         if (!step) {
-          step = stepRepo.create({
-            workflow_id: workflow.id,
-            approval_level: seed.approvalLevel,
-          });
+          await stepRepo.save(
+            stepRepo.create({
+              workflow_id: workflow.id,
+              approval_level: seed.approvalLevel,
+              approver_type: seed.approverType,
+              role_id: role?.id ?? null,
+              action_type: seed.actionType,
+              is_required: seed.isRequired,
+            }),
+          );
+          createdStepCount += 1;
         }
-
-        step.approver_type = seed.approverType;
-        step.role_id = role?.id ?? null;
-        step.action_type = seed.actionType;
-        step.is_required = seed.isRequired;
-
-        await stepRepo.save(step);
       }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][LeaveWorkflows] Upserted "${WORKFLOW_NAME}" with ${WORKFLOW_STEP_SEEDS.length} steps`,
+        `[Seeder][LeaveWorkflows] ${workflowAlreadyExisted ? `Workflow "${WORKFLOW_NAME}" already existed, left unchanged` : `Created workflow "${WORKFLOW_NAME}"`}; created ${createdStepCount} new steps (${WORKFLOW_STEP_SEEDS.length - createdStepCount} already existed, left unchanged)`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

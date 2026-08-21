@@ -124,10 +124,11 @@ export default class OnboardingWorkflowSeeder implements Seeder {
         );
       }
 
-      // Upsert workflow
+      // Create workflow only if it does not already exist
       let workflow = await workflowRepo.findOne({
         where: { company_id: company.id, name: WORKFLOW_NAME },
       });
+      const workflowAlreadyExisted = !!workflow;
       if (!workflow) {
         workflow = workflowRepo.create({
           company_id: company.id,
@@ -137,16 +138,19 @@ export default class OnboardingWorkflowSeeder implements Seeder {
           is_default: true,
           status: OnboardingRecordStatusEnum.ACTIVE,
         });
-      } else {
-        workflow.is_default = true;
-        workflow.status = OnboardingRecordStatusEnum.ACTIVE;
+        await workflowRepo.save(workflow);
       }
-      await workflowRepo.save(workflow);
 
-      // Delete existing steps and re-seed (idempotent)
-      await stepRepo.delete({ workflow_id: workflow.id });
-
+      // Create steps only if missing for this step_order (existing steps are left unchanged)
+      let createdStepCount = 0;
       for (const seed of STEP_SEEDS) {
+        const existingStep = await stepRepo.findOne({
+          where: { workflow_id: workflow.id, step_order: seed.stepOrder },
+        });
+        if (existingStep) {
+          continue;
+        }
+
         const role = await roleRepo.findOne({
           where: { name: seed.roleName, company_id: company.id },
         });
@@ -164,11 +168,12 @@ export default class OnboardingWorkflowSeeder implements Seeder {
             due_days: seed.dueDays,
           }),
         );
+        createdStepCount += 1;
       }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][OnboardingWorkflow] Seeded "${WORKFLOW_NAME}" with ${STEP_SEEDS.length} steps`,
+        `[Seeder][OnboardingWorkflow] ${workflowAlreadyExisted ? `Workflow "${WORKFLOW_NAME}" already existed, left unchanged` : `Created workflow "${WORKFLOW_NAME}"`}; created ${createdStepCount} new steps (${STEP_SEEDS.length - createdStepCount} already existed, left unchanged)`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

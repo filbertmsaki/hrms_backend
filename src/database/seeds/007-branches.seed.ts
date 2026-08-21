@@ -34,32 +34,30 @@ export default class BranchesSeeder implements Seeder {
         );
       }
 
+      let createdCount = 0;
       for (const seed of ALLIANCE_BRANCHES) {
-        let branch = await branchRepo.findOne({
+        const branch = await branchRepo.findOne({
           where: { company_id: company.id, code: seed.code },
         });
 
         if (!branch) {
-          branch = branchRepo.create({
-            company_id: company.id,
-            name: seed.name,
-            code: seed.code,
-            city: seed.city ?? null,
-            country: 'Tanzania',
-            status: 'active',
-          });
-        } else {
-          branch.name = seed.name;
-          branch.city = seed.city ?? null;
-          branch.status = 'active';
+          await branchRepo.save(
+            branchRepo.create({
+              company_id: company.id,
+              name: seed.name,
+              code: seed.code,
+              city: seed.city ?? null,
+              country: 'Tanzania',
+              status: 'active',
+            }),
+          );
+          createdCount += 1;
         }
-
-        await branchRepo.save(branch);
       }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][Branches] Upserted ${ALLIANCE_BRANCHES.length} branches for company "${company.name}"`,
+        `[Seeder][Branches] Created ${createdCount} new branches (${ALLIANCE_BRANCHES.length - createdCount} already existed, left unchanged) for company "${company.name}"`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

@@ -100,48 +100,55 @@ export default class ProbationBaselineSeeder implements Seeder {
       let policy = await policyRepo.findOne({
         where: { companyId: company.id, code: POLICY_CODE },
       });
+      const policyAlreadyExisted = !!policy;
 
       if (!policy) {
         policy = policyRepo.create({
           companyId: company.id,
           code: POLICY_CODE,
+          name: 'Default probation policy',
+          description:
+            'Baseline company-wide probation policy used when no branch, department, position, or grade-specific rule is configured.',
+          employmentType: null,
+          branchId: null,
+          departmentId: null,
+          positionId: null,
+          gradeId: null,
+          probationPeriodDays: 180,
+          selfAssessmentRequired: true,
+          objectivesRequired: true,
+          minimumConfirmationScore: '60.00',
+          maximumExtensions: 2,
+          defaultExtensionDays: 90,
+          maximumExtensionDays: 180,
+          reminderDays: [30, 14, 7, 1],
+          managerReviewRequired: true,
+          hrApprovalRequired: true,
+          confirmationLetterRequired: true,
+          priority: 0,
+          status: 'ACTIVE',
+          effectiveFrom: BASELINE_EFFECTIVE_FROM,
+          effectiveTo: null,
+          isDefault: true,
+          metadata: {
+            seeded: true,
+            source: '040-probation-baseline',
+          },
         });
+        policy = await policyRepo.save(policy);
       }
 
-      policy.name = 'Default probation policy';
-      policy.description =
-        'Baseline company-wide probation policy used when no branch, department, position, or grade-specific rule is configured.';
-      policy.employmentType = null;
-      policy.branchId = null;
-      policy.departmentId = null;
-      policy.positionId = null;
-      policy.gradeId = null;
-      policy.probationPeriodDays = 180;
-      policy.selfAssessmentRequired = true;
-      policy.objectivesRequired = true;
-      policy.minimumConfirmationScore = '60.00';
-      policy.maximumExtensions = 2;
-      policy.defaultExtensionDays = 90;
-      policy.maximumExtensionDays = 180;
-      policy.reminderDays = [30, 14, 7, 1];
-      policy.managerReviewRequired = true;
-      policy.hrApprovalRequired = true;
-      policy.confirmationLetterRequired = true;
-      policy.priority = 0;
-      policy.status = 'ACTIVE';
-      policy.effectiveFrom = BASELINE_EFFECTIVE_FROM;
-      policy.effectiveTo = null;
-      policy.isDefault = true;
-      policy.metadata = {
-        seeded: true,
-        source: '040-probation-baseline',
-      };
-
-      policy = await policyRepo.save(policy);
-
-      await criterionRepo.delete({ policyId: policy.id });
-
+      // Create criteria only if missing; existing criteria (including any
+      // manually adjusted weights) are left completely unchanged.
+      let createdCriterionCount = 0;
       for (const seed of CRITERION_SEEDS) {
+        const existingCriterion = await criterionRepo.findOne({
+          where: { policyId: policy.id, code: seed.code },
+        });
+        if (existingCriterion) {
+          continue;
+        }
+
         await criterionRepo.save(
           criterionRepo.create({
             policyId: policy.id,
@@ -155,11 +162,12 @@ export default class ProbationBaselineSeeder implements Seeder {
             sortOrder: seed.sortOrder,
           }),
         );
+        createdCriterionCount += 1;
       }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][ProbationBaseline] Seeded default probation policy for company "${company.name}"`,
+        `[Seeder][ProbationBaseline] ${policyAlreadyExisted ? 'Default probation policy already existed, left unchanged' : 'Created default probation policy'}; created ${createdCriterionCount} new criteria (${CRITERION_SEEDS.length - createdCriterionCount} already existed, left unchanged) for company "${company.name}"`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

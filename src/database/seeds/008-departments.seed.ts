@@ -41,35 +41,32 @@ export default class DepartmentsSeeder implements Seeder {
       });
       const branchMap = new Map(branches.map((b) => [b.code!, b]));
 
+      let createdCount = 0;
       for (const seed of ALLIANCE_DEPARTMENTS) {
         const branch = branchMap.get(seed.branchCode) ?? null;
 
-        let dept = await deptRepo.findOne({
+        const dept = await deptRepo.findOne({
           where: { company_id: company.id, code: seed.code },
         });
 
         if (!dept) {
-          dept = deptRepo.create({
-            company_id: company.id,
-            branch_id: branch?.id ?? null,
-            name: seed.name,
-            code: seed.code,
-            description: seed.description ?? null,
-            status: 'active',
-          });
-        } else {
-          dept.name = seed.name;
-          dept.branch_id = branch?.id ?? null;
-          dept.description = seed.description ?? null;
-          dept.status = 'active';
+          await deptRepo.save(
+            deptRepo.create({
+              company_id: company.id,
+              branch_id: branch?.id ?? null,
+              name: seed.name,
+              code: seed.code,
+              description: seed.description ?? null,
+              status: 'active',
+            }),
+          );
+          createdCount += 1;
         }
-
-        await deptRepo.save(dept);
       }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][Departments] Upserted ${ALLIANCE_DEPARTMENTS.length} departments for company "${company.name}"`,
+        `[Seeder][Departments] Created ${createdCount} new departments (${ALLIANCE_DEPARTMENTS.length - createdCount} already existed, left unchanged) for company "${company.name}"`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

@@ -68,28 +68,27 @@ export default class AccessGroupsSeeder implements Seeder {
       let group = await groupRepo.findOne({
         where: { companyId: company.id, groupingKey },
       });
+      const groupAlreadyExisted = !!group;
 
       if (!group) {
         group = groupRepo.create({
           companyId: company.id,
           groupingKey,
+          name: groupName,
+          groupCode: 'ALL-ACCESS',
+          description:
+            'Virtual group granting all-access to all enrolled employees',
+          organizationId: org.id,
+          source: AccessGroupSourceEnum.BACKEND,
+          status: AccessGroupStatusEnum.ACTIVE,
+          isVirtual: true,
+          isActive: true,
+          metadata: { seeded: true, source: '023-access-groups' },
         });
+        await groupRepo.save(group);
       }
 
-      group.name = groupName;
-      group.groupCode = 'ALL-ACCESS';
-      group.description =
-        'Virtual group granting all-access to all enrolled employees';
-      group.organizationId = org.id;
-      group.source = AccessGroupSourceEnum.BACKEND;
-      group.status = AccessGroupStatusEnum.ACTIVE;
-      group.isVirtual = true;
-      group.isActive = true;
-      group.metadata = { seeded: true, source: '023-access-groups' };
-
-      await groupRepo.save(group);
-
-      // Upsert AccessGroupDevice join
+      // Create AccessGroupDevice join only if missing
       const existingGroupDevice = await groupDeviceRepo.findOne({
         where: { accessGroupId: group.id, deviceId: device.id },
       });
@@ -106,7 +105,9 @@ export default class AccessGroupsSeeder implements Seeder {
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][AccessGroups] Upserted group "${groupName}" linked to device "${DEFAULT_DEVICE_CODE}"`,
+        groupAlreadyExisted
+          ? `[Seeder][AccessGroups] Group "${groupName}" already existed; left unchanged`
+          : `[Seeder][AccessGroups] Created group "${groupName}" linked to device "${DEFAULT_DEVICE_CODE}"`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

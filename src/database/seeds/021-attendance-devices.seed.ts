@@ -76,6 +76,7 @@ export default class AttendanceDevicesSeeder implements Seeder {
       });
       const branchMap = new Map(branches.map((b) => [b.code!, b]));
 
+      let createdCount = 0;
       for (const seed of DEVICE_SEEDS) {
         const branch = branchMap.get(seed.branchCode) ?? null;
 
@@ -96,35 +97,36 @@ export default class AttendanceDevicesSeeder implements Seeder {
         }
 
         if (!device) {
-          device = deviceRepo.create();
+          await deviceRepo.save(
+            deviceRepo.create({
+              deviceCode: seed.deviceCode,
+              companyId: company.id,
+              branchId: branch?.id ?? null,
+              deviceName: seed.deviceName,
+              deviceModel: seed.deviceModel,
+              deviceSerialNumber: seed.deviceSerialNumber,
+              ipAddress: seed.ipAddress,
+              port: seed.port,
+              protocol: 'http',
+              vendorName: seed.vendorName,
+              integrationType: seed.integrationType,
+              authType: 'basic',
+              apiUsername: seed.apiUsername,
+              apiPassword: seed.apiPassword,
+              syncMode: AttendanceDeviceSyncModeEnum.PULL,
+              status: AttendanceDeviceStatusEnum.ACTIVE,
+              timezone: 'Africa/Dar_es_Salaam',
+              locationDescription: seed.locationDescription,
+              metadata: { seeded: true, source: '021-attendance-devices' },
+            }),
+          );
+          createdCount += 1;
         }
-
-        device.deviceCode = seed.deviceCode;
-        device.companyId = company.id;
-        device.branchId = branch?.id ?? null;
-        device.deviceName = seed.deviceName;
-        device.deviceModel = seed.deviceModel;
-        device.deviceSerialNumber = seed.deviceSerialNumber;
-        device.ipAddress = seed.ipAddress;
-        device.port = seed.port;
-        device.protocol = 'http';
-        device.vendorName = seed.vendorName;
-        device.integrationType = seed.integrationType;
-        device.authType = 'basic';
-        device.apiUsername = seed.apiUsername;
-        device.apiPassword = seed.apiPassword;
-        device.syncMode = AttendanceDeviceSyncModeEnum.PULL;
-        device.status = AttendanceDeviceStatusEnum.ACTIVE;
-        device.timezone = 'Africa/Dar_es_Salaam';
-        device.locationDescription = seed.locationDescription;
-        device.metadata = { seeded: true, source: '021-attendance-devices' };
-
-        await deviceRepo.save(device);
       }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][AttendanceDevices] Upserted ${DEVICE_SEEDS.length} device(s) for company "${company.name}"`,
+        `[Seeder][AttendanceDevices] Created ${createdCount} new device(s) (${DEVICE_SEEDS.length - createdCount} already existed, left unchanged) for company "${company.name}"`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

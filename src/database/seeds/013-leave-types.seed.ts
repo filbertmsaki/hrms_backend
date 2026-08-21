@@ -194,34 +194,35 @@ export default class LeaveTypesSeeder implements Seeder {
         );
       }
 
+      let createdCount = 0;
       for (const seed of LEAVE_TYPE_SEEDS) {
-        let leaveType = await leaveTypeRepo.findOne({
+        const leaveType = await leaveTypeRepo.findOne({
           where: { company_id: company.id, code: seed.code },
         });
 
         if (!leaveType) {
-          leaveType = leaveTypeRepo.create({
-            company_id: company.id,
-            code: seed.code,
-          });
+          await leaveTypeRepo.save(
+            leaveTypeRepo.create({
+              company_id: company.id,
+              code: seed.code,
+              name: seed.name,
+              description: seed.description,
+              is_paid: seed.isPaid,
+              requires_attachment: seed.requiresAttachment,
+              is_carry_forward_allowed: seed.isCarryForwardAllowed,
+              max_carry_forward_days: String(seed.maxCarryForwardDays),
+              max_days_per_year: String(seed.maxDaysPerYear),
+              gender_restriction: seed.genderRestriction,
+              status: LeaveRecordStatusEnum.ACTIVE,
+            }),
+          );
+          createdCount += 1;
         }
-
-        leaveType.name = seed.name;
-        leaveType.description = seed.description;
-        leaveType.is_paid = seed.isPaid;
-        leaveType.requires_attachment = seed.requiresAttachment;
-        leaveType.is_carry_forward_allowed = seed.isCarryForwardAllowed;
-        leaveType.max_carry_forward_days = String(seed.maxCarryForwardDays);
-        leaveType.max_days_per_year = String(seed.maxDaysPerYear);
-        leaveType.gender_restriction = seed.genderRestriction;
-        leaveType.status = LeaveRecordStatusEnum.ACTIVE;
-
-        await leaveTypeRepo.save(leaveType);
       }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][LeaveTypes] Upserted ${LEAVE_TYPE_SEEDS.length} leave types for company "${company.name}"`,
+        `[Seeder][LeaveTypes] Created ${createdCount} new leave types (${LEAVE_TYPE_SEEDS.length - createdCount} already existed, left unchanged) for company "${company.name}"`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

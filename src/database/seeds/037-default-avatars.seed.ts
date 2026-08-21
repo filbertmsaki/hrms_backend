@@ -113,26 +113,33 @@ export default class DefaultAvatarsSeeder implements Seeder {
       });
       const uploadsRoot = resolve(process.cwd(), 'uploads', 'default-avatars');
 
+      let createdCount = 0;
+      let existingCount = 0;
       for (const company of companies) {
         const companyDirectory = join(uploadsRoot, `company-${company.id}`);
         await fs.mkdir(companyDirectory, { recursive: true });
 
         for (const avatarSeed of DEFAULT_AVATAR_LIBRARY) {
-          const fileName = `${avatarSeed.key}.svg`;
-          const absolutePath = join(companyDirectory, fileName);
-          const publicPath = `/uploads/default-avatars/company-${company.id}/${fileName}`;
-
-          await fs.writeFile(absolutePath, buildAvatarSvg(avatarSeed), 'utf8');
-
-          let avatar = await avatarRepository.findOne({
+          const avatar = await avatarRepository.findOne({
             where: {
               company_id: company.id,
               avatar_name: avatarSeed.avatarName,
             },
           });
 
-          if (!avatar) {
-            avatar = avatarRepository.create({
+          if (avatar) {
+            existingCount += 1;
+            continue;
+          }
+
+          const fileName = `${avatarSeed.key}.svg`;
+          const absolutePath = join(companyDirectory, fileName);
+          const publicPath = `/uploads/default-avatars/company-${company.id}/${fileName}`;
+
+          await fs.writeFile(absolutePath, buildAvatarSvg(avatarSeed), 'utf8');
+
+          await avatarRepository.save(
+            avatarRepository.create({
               company_id: company.id,
               avatar_name: avatarSeed.avatarName,
               image_path: publicPath,
@@ -149,32 +156,16 @@ export default class DefaultAvatarsSeeder implements Seeder {
               status: DefaultAvatarStatusEnum.ACTIVE,
               display_order: avatarSeed.displayOrder,
               is_default: avatarSeed.isDefault,
-            });
-          } else {
-            avatar.image_path = publicPath;
-            avatar.original_file_name = fileName;
-            avatar.stored_file_name = fileName;
-            avatar.file_extension = 'svg';
-            avatar.mime_type = 'image/svg+xml';
-            avatar.file_size = String(
-              Buffer.byteLength(buildAvatarSvg(avatarSeed)),
-            );
-            avatar.file_path = publicPath;
-            avatar.file_url = publicPath;
-            avatar.width = 256;
-            avatar.height = 256;
-            avatar.gender_category = avatarSeed.genderCategory;
-            avatar.status = DefaultAvatarStatusEnum.ACTIVE;
-            avatar.display_order = avatarSeed.displayOrder;
-            avatar.is_default = avatarSeed.isDefault;
-          }
-
-          await avatarRepository.save(avatar);
+            }),
+          );
+          createdCount += 1;
         }
       }
 
       await qr.commitTransaction();
-      console.log('[Seeder][DefaultAvatars] Seeded default avatar library');
+      console.log(
+        `[Seeder][DefaultAvatars] Created ${createdCount} new default avatars (${existingCount} already existed, left unchanged)`,
+      );
     } catch (error) {
       await qr.rollbackTransaction();
       console.error('[Seeder][DefaultAvatars] Failed:', error);

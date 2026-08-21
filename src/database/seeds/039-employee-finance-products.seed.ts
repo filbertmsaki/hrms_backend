@@ -138,62 +138,62 @@ export default class EmployeeFinanceProductsSeeder implements Seeder {
         );
       }
 
+      let createdCount = 0;
       for (const seed of PRODUCT_SEEDS) {
-        let product = await productRepo.findOne({
+        const product = await productRepo.findOne({
           where: { companyId: company.id, code: seed.code },
         });
 
         if (!product) {
-          product = productRepo.create({
-            companyId: company.id,
-            code: seed.code,
-          });
+          await productRepo.save(
+            productRepo.create({
+              companyId: company.id,
+              code: seed.code,
+              productType: seed.productType,
+              name: seed.name,
+              description: seed.description,
+              interestMethod: seed.interestMethod,
+              annualInterestRate: seed.annualInterestRate,
+              processingFeeMethod: 'NONE',
+              processingFeeValue: '0.0000',
+              minimumAmount: seed.minimumAmount,
+              maximumAmount: seed.maximumAmount,
+              maximumSalaryMultiple: seed.maximumSalaryMultiple,
+              minimumTermMonths: seed.minimumTermMonths,
+              maximumTermMonths: seed.maximumTermMonths,
+              minimumServiceMonths: seed.minimumServiceMonths,
+              maximumInstallmentPercentage: seed.maximumInstallmentPercentage,
+              maximumActiveAccounts: seed.maximumActiveAccounts,
+              requiresConfirmation: seed.requiresConfirmation,
+              allowDuringProbation: seed.allowDuringProbation,
+              allowRescheduling: seed.allowRescheduling,
+              allowDeferment: seed.allowDeferment,
+              allowEarlySettlement: seed.allowEarlySettlement,
+              allowAdditionalRepayment: seed.allowAdditionalRepayment,
+              requiredDocumentTypes: seed.requiredDocumentTypes,
+              eligibilityConfiguration: {
+                ...seed.eligibilityConfiguration,
+                seeded: true,
+                source: '039-employee-finance-products',
+              },
+              approvalConfiguration: {
+                ...seed.approvalConfiguration,
+                seeded: true,
+                source: '039-employee-finance-products',
+              },
+              effectiveFrom: BASELINE_EFFECTIVE_FROM,
+              effectiveTo: null,
+              isLocked: false,
+              status: 'ACTIVE',
+            }),
+          );
+          createdCount += 1;
         }
-
-        product.productType = seed.productType;
-        product.name = seed.name;
-        product.description = seed.description;
-        product.interestMethod = seed.interestMethod;
-        product.annualInterestRate = seed.annualInterestRate;
-        product.processingFeeMethod = 'NONE';
-        product.processingFeeValue = '0.0000';
-        product.minimumAmount = seed.minimumAmount;
-        product.maximumAmount = seed.maximumAmount;
-        product.maximumSalaryMultiple = seed.maximumSalaryMultiple;
-        product.minimumTermMonths = seed.minimumTermMonths;
-        product.maximumTermMonths = seed.maximumTermMonths;
-        product.minimumServiceMonths = seed.minimumServiceMonths;
-        product.maximumInstallmentPercentage =
-          seed.maximumInstallmentPercentage;
-        product.maximumActiveAccounts = seed.maximumActiveAccounts;
-        product.requiresConfirmation = seed.requiresConfirmation;
-        product.allowDuringProbation = seed.allowDuringProbation;
-        product.allowRescheduling = seed.allowRescheduling;
-        product.allowDeferment = seed.allowDeferment;
-        product.allowEarlySettlement = seed.allowEarlySettlement;
-        product.allowAdditionalRepayment = seed.allowAdditionalRepayment;
-        product.requiredDocumentTypes = seed.requiredDocumentTypes;
-        product.eligibilityConfiguration = {
-          ...seed.eligibilityConfiguration,
-          seeded: true,
-          source: '039-employee-finance-products',
-        };
-        product.approvalConfiguration = {
-          ...seed.approvalConfiguration,
-          seeded: true,
-          source: '039-employee-finance-products',
-        };
-        product.effectiveFrom = BASELINE_EFFECTIVE_FROM;
-        product.effectiveTo = null;
-        product.isLocked = false;
-        product.status = 'ACTIVE';
-
-        await productRepo.save(product);
       }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][EmployeeFinanceProducts] Seeded ${PRODUCT_SEEDS.length} starter products for company "${company.name}"`,
+        `[Seeder][EmployeeFinanceProducts] Created ${createdCount} new products (${PRODUCT_SEEDS.length - createdCount} already existed, left unchanged) for company "${company.name}"`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

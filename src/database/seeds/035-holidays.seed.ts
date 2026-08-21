@@ -196,6 +196,7 @@ export default class HolidaysSeeder implements Seeder {
       let holidayGroup = await holidayGroupRepo.findOne({
         where: { companyId: company.id, name: HOLIDAY_GROUP_NAME },
       });
+      const groupAlreadyExisted = !!holidayGroup;
 
       if (!holidayGroup) {
         holidayGroup = holidayGroupRepo.create({
@@ -203,13 +204,12 @@ export default class HolidaysSeeder implements Seeder {
           name: HOLIDAY_GROUP_NAME,
           description: HOLIDAY_GROUP_DESCRIPTION,
         });
-      } else {
-        holidayGroup.description = HOLIDAY_GROUP_DESCRIPTION;
+        holidayGroup = await holidayGroupRepo.save(holidayGroup);
       }
-      holidayGroup = await holidayGroupRepo.save(holidayGroup);
 
+      let createdCount = 0;
       for (const seed of HOLIDAY_SEEDS) {
-        let holiday = await holidayRepo.findOne({
+        const holiday = await holidayRepo.findOne({
           where: {
             holidayGroupId: holidayGroup.id,
             name: seed.name,
@@ -218,27 +218,27 @@ export default class HolidaysSeeder implements Seeder {
         });
 
         if (!holiday) {
-          holiday = holidayRepo.create({
-            companyId: company.id,
-            holidayGroupId: holidayGroup.id,
-            name: seed.name,
-            date: seed.date,
-          });
+          await holidayRepo.save(
+            holidayRepo.create({
+              companyId: company.id,
+              holidayGroupId: holidayGroup.id,
+              name: seed.name,
+              date: seed.date,
+              isRecurring: seed.isRecurring,
+              type: seed.type,
+              isPaid: seed.isPaid,
+              affectsOvertime: seed.affectsOvertime,
+              countsAsWorkingDay: seed.countsAsWorkingDay,
+              branchId: null,
+            }),
+          );
+          createdCount += 1;
         }
-
-        holiday.isRecurring = seed.isRecurring;
-        holiday.type = seed.type;
-        holiday.isPaid = seed.isPaid;
-        holiday.affectsOvertime = seed.affectsOvertime;
-        holiday.countsAsWorkingDay = seed.countsAsWorkingDay;
-        holiday.branchId = null;
-
-        await holidayRepo.save(holiday);
       }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][Holidays] Upserted holiday group "${holidayGroup.name}" with ${HOLIDAY_SEEDS.length} holidays for company "${company.name}"`,
+        `[Seeder][Holidays] ${groupAlreadyExisted ? `Holiday group "${holidayGroup.name}" already existed, left unchanged` : `Created holiday group "${holidayGroup.name}"`}; created ${createdCount} new holidays (${HOLIDAY_SEEDS.length - createdCount} already existed, left unchanged) for company "${company.name}"`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

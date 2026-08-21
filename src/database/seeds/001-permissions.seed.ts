@@ -2671,7 +2671,15 @@ export default class PermissionsSeeder implements Seeder {
 
     try {
       const repo: Repository<Permission> = qr.manager.getRepository(Permission);
-      const permissions = PERMISSION_SEEDS.map((seed) => ({
+
+      const existingPermissions = await repo.find({
+        select: ['name'],
+      });
+      const existingNames = new Set(existingPermissions.map((p) => p.name));
+
+      const newPermissions = PERMISSION_SEEDS.filter(
+        (seed) => !existingNames.has(seed.name),
+      ).map((seed) => ({
         name: seed.name,
         display_name: seed.displayName,
         description: seed.description,
@@ -2679,7 +2687,9 @@ export default class PermissionsSeeder implements Seeder {
         is_system_generated: true,
       }));
 
-      await repo.upsert(permissions, ['name']);
+      if (newPermissions.length > 0) {
+        await repo.insert(newPermissions);
+      }
 
       await qr.commitTransaction();
       const totals = PERMISSION_SEEDS.reduce(
@@ -2694,7 +2704,8 @@ export default class PermissionsSeeder implements Seeder {
         },
       );
       console.log(
-        `[Seeder][Permissions] Upserted ${PERMISSION_SEEDS.length} permissions ` +
+        `[Seeder][Permissions] Created ${newPermissions.length} new permissions ` +
+          `(${PERMISSION_SEEDS.length - newPermissions.length} already existed, left unchanged) ` +
           `(platform=${totals[PermissionScope.PLATFORM]}, ` +
           `company=${totals[PermissionScope.COMPANY]}, ` +
           `shared=${totals[PermissionScope.SHARED]})`,

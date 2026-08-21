@@ -1058,32 +1058,32 @@ export default class CompanyRolesSeeder implements Seeder {
       });
       const permissionMap = new Map(permissions.map((p) => [p.name, p]));
 
+      let createdCount = 0;
       for (const seed of COMPANY_ROLE_SEEDS) {
-        let role = await roleRepo.findOne({
+        const role = await roleRepo.findOne({
           where: { name: seed.name, company_id: company.id },
           relations: ['permissions'],
         });
 
         if (!role) {
-          role = roleRepo.create({
+          const newRole = roleRepo.create({
             name: seed.name,
             company_id: company.id,
+            display_name: seed.displayName,
+            description: seed.description,
+            is_system_generated: true,
+            permissions: Array.from(new Set(seed.permissionNames))
+              .map((n) => permissionMap.get(n))
+              .filter((p): p is Permission => p !== undefined),
           });
+          await roleRepo.save(newRole);
+          createdCount += 1;
         }
-
-        role.display_name = seed.displayName;
-        role.description = seed.description;
-        role.is_system_generated = true;
-        role.permissions = Array.from(new Set(seed.permissionNames))
-          .map((n) => permissionMap.get(n))
-          .filter((p): p is Permission => p !== undefined);
-
-        await roleRepo.save(role);
       }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][CompanyRoles] Upserted ${COMPANY_ROLE_SEEDS.length} roles for company "${company.name}"`,
+        `[Seeder][CompanyRoles] Created ${createdCount} new roles (${COMPANY_ROLE_SEEDS.length - createdCount} already existed, left unchanged) for company "${company.name}"`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

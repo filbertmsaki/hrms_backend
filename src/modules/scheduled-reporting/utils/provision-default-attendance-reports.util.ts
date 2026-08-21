@@ -31,9 +31,12 @@ export type ProvisionDefaultAttendanceReportsConfig = {
  * these two reports are always present out of the box rather than something
  * an admin has to remember to set up.
  *
- * Idempotent: upserts by natural key (companyId + name / templateId +
- * targetKey), safe to call repeatedly (e.g. re-running the seeder, or if a
- * company signup retries).
+ * Idempotent: looked up by natural key (companyId + name / templateId +
+ * targetKey) and created only if missing; if a template, schedule, or
+ * recipient already exists it is left completely unchanged. Safe to call
+ * repeatedly (e.g. re-running the seeder, or if a company signup retries) —
+ * repeated calls will never duplicate rows, but they also will not
+ * re-apply configuration to rows an admin has since customized.
  *
  * Does NOT assign an smtpConfigurationId - SMTP is per-company and must be
  * configured by an admin via POST /scheduled-reporting/smtp-configurations
@@ -164,24 +167,29 @@ async function upsertTemplate(
     where: { companyId: input.companyId, name: input.name },
   });
 
-  const entity = existing ?? repository.create();
-  entity.companyId = input.companyId;
-  entity.reportDefinitionId = input.reportDefinitionId;
-  entity.smtpConfigurationId = entity.smtpConfigurationId ?? null;
-  entity.name = input.name;
-  entity.description = `${input.name} (auto-provisioned default system report).`;
-  entity.outputFormat = ReportOutputFormatEnum.XLSX;
-  entity.filenamePattern = input.filenamePattern;
-  entity.emailSubjectTemplate = input.emailSubjectTemplate;
-  entity.emailBodyTemplate = input.emailBodyTemplate;
-  entity.dateRangeStrategy = ReportTemplateDateRangeStrategyEnum.CURRENT_DAY;
-  entity.dateRangeConfig = {
-    relativeTo: 'schedule_run_date',
-    offsetDays: 0,
-  };
-  entity.reportFilters = entity.reportFilters ?? {};
-  entity.attachReport = true;
-  entity.isActive = input.isActive;
+  if (existing) {
+    return existing;
+  }
+
+  const entity = repository.create({
+    companyId: input.companyId,
+    reportDefinitionId: input.reportDefinitionId,
+    smtpConfigurationId: null,
+    name: input.name,
+    description: `${input.name} (auto-provisioned default system report).`,
+    outputFormat: ReportOutputFormatEnum.XLSX,
+    filenamePattern: input.filenamePattern,
+    emailSubjectTemplate: input.emailSubjectTemplate,
+    emailBodyTemplate: input.emailBodyTemplate,
+    dateRangeStrategy: ReportTemplateDateRangeStrategyEnum.CURRENT_DAY,
+    dateRangeConfig: {
+      relativeTo: 'schedule_run_date',
+      offsetDays: 0,
+    },
+    reportFilters: {},
+    attachReport: true,
+    isActive: input.isActive,
+  });
 
   return repository.save(entity);
 }
@@ -205,16 +213,21 @@ async function upsertRecipients(
         where: { templateId, targetKey },
       });
 
-      const entity = existing ?? repository.create();
-      entity.companyId = companyId;
-      entity.templateId = templateId;
-      entity.channel = channel;
-      entity.recipientType = ReportRecipientTypeEnum.EMAIL;
-      entity.targetKey = targetKey;
-      entity.emailAddress = email;
-      entity.displayName = entity.displayName ?? null;
+      if (existing) {
+        continue;
+      }
 
-      await repository.save(entity);
+      await repository.save(
+        repository.create({
+          companyId,
+          templateId,
+          channel,
+          recipientType: ReportRecipientTypeEnum.EMAIL,
+          targetKey,
+          emailAddress: email,
+          displayName: null,
+        }),
+      );
     }
   }
 }
@@ -233,26 +246,31 @@ async function upsertSchedule(
     where: { companyId: input.companyId, name: input.name },
   });
 
-  const entity = existing ?? repository.create();
-  entity.companyId = input.companyId;
-  entity.templateId = input.templateId;
-  entity.name = input.name;
-  entity.scheduleType = ReportScheduleTypeEnum.DAILY;
-  entity.executionTime = input.executionTime;
-  entity.timezone = DEFAULT_ATTENDANCE_REPORT_TIMEZONE;
-  entity.misfireHandling = ReportScheduleMisfireHandlingEnum.SKIP;
-  entity.maxRetryAttempts = 3;
-  entity.isActive = input.isActive;
-  entity.pausedAt = null;
-  entity.nextRunAt = computeNextScheduleRunAt(
-    {
-      scheduleType: ReportScheduleTypeEnum.DAILY,
-      executionTime: input.executionTime,
-      timezone: DEFAULT_ATTENDANCE_REPORT_TIMEZONE,
-      weekdays: [],
-    },
-    new Date(),
-  );
+  if (existing) {
+    return existing;
+  }
+
+  const entity = repository.create({
+    companyId: input.companyId,
+    templateId: input.templateId,
+    name: input.name,
+    scheduleType: ReportScheduleTypeEnum.DAILY,
+    executionTime: input.executionTime,
+    timezone: DEFAULT_ATTENDANCE_REPORT_TIMEZONE,
+    misfireHandling: ReportScheduleMisfireHandlingEnum.SKIP,
+    maxRetryAttempts: 3,
+    isActive: input.isActive,
+    pausedAt: null,
+    nextRunAt: computeNextScheduleRunAt(
+      {
+        scheduleType: ReportScheduleTypeEnum.DAILY,
+        executionTime: input.executionTime,
+        timezone: DEFAULT_ATTENDANCE_REPORT_TIMEZONE,
+        weekdays: [],
+      },
+      new Date(),
+    ),
+  });
 
   return repository.save(entity);
 }

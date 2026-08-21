@@ -158,14 +158,13 @@ export default class PerformanceKpiBaselineSeeder implements Seeder {
           definition = definitionRepo.create({
             companyId: company.id,
             code: seed.code,
+            name: seed.name,
+            category: seed.category,
+            status: 'ACTIVE',
+            createdByCompanyUserId: null,
           });
+          definition = await definitionRepo.save(definition);
         }
-
-        definition.name = seed.name;
-        definition.category = seed.category;
-        definition.status = 'ACTIVE';
-        definition.createdByCompanyUserId = null;
-        definition = await definitionRepo.save(definition);
 
         let version = await versionRepo.findOne({
           where: {
@@ -178,27 +177,28 @@ export default class PerformanceKpiBaselineSeeder implements Seeder {
           version = versionRepo.create({
             kpiDefinitionId: definition.id,
             versionNumber: 1,
+            description: seed.description,
+            measurementUnit: seed.measurementUnit,
+            measurementDirection: seed.measurementDirection,
+            scoringFormula: seed.scoringFormula,
+            formulaConfiguration: seed.formulaConfiguration,
+            dataSourceType: seed.dataSourceType,
+            dataSourceConfiguration: seed.dataSourceConfiguration,
+            defaultTargetValue: seed.defaultTargetValue,
+            frequency: seed.frequency,
+            approvalAuthority: seed.approvalAuthority,
+            manualEntryAllowed: seed.manualEntryAllowed,
+            evidenceRequired: seed.evidenceRequired,
+            applicabilitySnapshot: seed.applicabilitySnapshot,
+            publishedAt: null,
           });
+          version = await versionRepo.save(version);
+
+          if (!definition.currentVersionId) {
+            definition.currentVersionId = version.id;
+            await definitionRepo.save(definition);
+          }
         }
-
-        version.description = seed.description;
-        version.measurementUnit = seed.measurementUnit;
-        version.measurementDirection = seed.measurementDirection;
-        version.scoringFormula = seed.scoringFormula;
-        version.formulaConfiguration = seed.formulaConfiguration;
-        version.dataSourceType = seed.dataSourceType;
-        version.dataSourceConfiguration = seed.dataSourceConfiguration;
-        version.defaultTargetValue = seed.defaultTargetValue;
-        version.frequency = seed.frequency;
-        version.approvalAuthority = seed.approvalAuthority;
-        version.manualEntryAllowed = seed.manualEntryAllowed;
-        version.evidenceRequired = seed.evidenceRequired;
-        version.applicabilitySnapshot = seed.applicabilitySnapshot;
-        version.publishedAt = null;
-        version = await versionRepo.save(version);
-
-        definition.currentVersionId = version.id;
-        await definitionRepo.save(definition);
 
         versionByCode.set(seed.code, version);
       }
@@ -211,19 +211,18 @@ export default class PerformanceKpiBaselineSeeder implements Seeder {
         template = templateRepo.create({
           companyId: company.id,
           code: KPI_TEMPLATE_CODE,
+          name: 'Monthly core KPI template',
+          description:
+            'Baseline monthly KPI template for company-wide performance plan generation.',
+          status: KpiTemplateStatusEnum.ACTIVE,
+          reviewCycle: 'MONTHLY',
+          metadata: {
+            seeded: true,
+            source: '042-performance-kpi-baseline',
+          },
         });
+        template = await templateRepo.save(template);
       }
-
-      template.name = 'Monthly core KPI template';
-      template.description =
-        'Baseline monthly KPI template for company-wide performance plan generation.';
-      template.status = KpiTemplateStatusEnum.ACTIVE;
-      template.reviewCycle = 'MONTHLY';
-      template.metadata = {
-        seeded: true,
-        source: '042-performance-kpi-baseline',
-      };
-      template = await templateRepo.save(template);
 
       for (const seed of KPI_SEEDS) {
         const version = versionByCode.get(seed.code);
@@ -231,7 +230,7 @@ export default class PerformanceKpiBaselineSeeder implements Seeder {
           throw new Error(`KPI version missing for code "${seed.code}".`);
         }
 
-        let item = await templateItemRepo.findOne({
+        const item = await templateItemRepo.findOne({
           where: {
             templateId: template.id,
             kpiDefinitionVersionId: version.id,
@@ -239,18 +238,18 @@ export default class PerformanceKpiBaselineSeeder implements Seeder {
         });
 
         if (!item) {
-          item = templateItemRepo.create({
-            templateId: template.id,
-            kpiDefinitionVersionId: version.id,
-          });
+          await templateItemRepo.save(
+            templateItemRepo.create({
+              templateId: template.id,
+              kpiDefinitionVersionId: version.id,
+              weight: seed.templateWeight,
+              targetValue: seed.templateTargetValue,
+              manualEntryAllowed: seed.templateManualEntryAllowed,
+              evidenceRequired: seed.templateEvidenceRequired,
+              notes: seed.templateNotes,
+            }),
+          );
         }
-
-        item.weight = seed.templateWeight;
-        item.targetValue = seed.templateTargetValue;
-        item.manualEntryAllowed = seed.templateManualEntryAllowed;
-        item.evidenceRequired = seed.templateEvidenceRequired;
-        item.notes = seed.templateNotes;
-        await templateItemRepo.save(item);
       }
 
       for (const [index, seed] of KPI_SEEDS.entries()) {
@@ -259,7 +258,7 @@ export default class PerformanceKpiBaselineSeeder implements Seeder {
           continue;
         }
 
-        let rule = await ruleRepo.findOne({
+        const rule = await ruleRepo.findOne({
           where: {
             companyId: company.id,
             kpiDefinitionVersionId: version.id,
@@ -268,36 +267,36 @@ export default class PerformanceKpiBaselineSeeder implements Seeder {
         });
 
         if (!rule) {
-          rule = ruleRepo.create({
-            companyId: company.id,
-            kpiDefinitionVersionId: version.id,
-            priority: 10 + index,
-          });
+          await ruleRepo.save(
+            ruleRepo.create({
+              companyId: company.id,
+              kpiDefinitionVersionId: version.id,
+              priority: 10 + index,
+              name: `${seed.name} baseline applicability`,
+              status: KpiApplicabilityRuleStatusEnum.ACTIVE,
+              financialYearId: financialYear.id,
+              branchId: null,
+              departmentId: null,
+              positionId: null,
+              gradeId: null,
+              employmentType: null,
+              employeeId: null,
+              reviewCycle: 'MONTHLY',
+              templateCode: KPI_TEMPLATE_CODE,
+              weightOverride: null,
+              targetOverride: null,
+              metadata: {
+                seeded: true,
+                source: '042-performance-kpi-baseline',
+              },
+            }),
+          );
         }
-
-        rule.name = `${seed.name} baseline applicability`;
-        rule.status = KpiApplicabilityRuleStatusEnum.ACTIVE;
-        rule.financialYearId = financialYear.id;
-        rule.branchId = null;
-        rule.departmentId = null;
-        rule.positionId = null;
-        rule.gradeId = null;
-        rule.employmentType = null;
-        rule.employeeId = null;
-        rule.reviewCycle = 'MONTHLY';
-        rule.templateCode = KPI_TEMPLATE_CODE;
-        rule.weightOverride = null;
-        rule.targetOverride = null;
-        rule.metadata = {
-          seeded: true,
-          source: '042-performance-kpi-baseline',
-        };
-        await ruleRepo.save(rule);
       }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][PerformanceKpiBaseline] Seeded ${KPI_SEEDS.length} KPI definitions, a template, and applicability rules for company "${company.name}"`,
+        `[Seeder][PerformanceKpiBaseline] Ensured ${KPI_SEEDS.length} KPI definitions, a template, and applicability rules for company "${company.name}" (created if missing, left unchanged if already existed)`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

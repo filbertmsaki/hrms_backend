@@ -123,10 +123,11 @@ export default class LeavePoliciesSeeder implements Seeder {
         );
       }
 
-      // Upsert the policy
+      // Create the policy only if it does not already exist
       let policy = await policyRepo.findOne({
         where: { company_id: company.id, name: POLICY_NAME },
       });
+      const policyAlreadyExisted = !!policy;
       if (!policy) {
         policy = policyRepo.create({
           company_id: company.id,
@@ -142,48 +143,40 @@ export default class LeavePoliciesSeeder implements Seeder {
           half_day_deduction_days: '0.50',
           status: LeaveRecordStatusEnum.ACTIVE,
         });
-      } else {
-        policy.accrual_method = LeaveAccrualMethodEnum.YEARLY;
-        policy.max_consecutive_days = null;
-        policy.status = LeaveRecordStatusEnum.ACTIVE;
-        policy.applicable_department_id = null;
-        policy.applicable_position_id = null;
-        policy.attendance_balance_deduction_enabled = true;
-        policy.absent_day_deduction_days = '1.00';
-        policy.unpaid_leave_day_deduction_days = '1.00';
-        policy.half_day_deduction_days = '0.50';
+        await policyRepo.save(policy);
       }
-      await policyRepo.save(policy);
 
-      // Upsert policy-type joins
+      // Create policy-type joins only if missing
+      let createdTypeCount = 0;
       for (const seed of POLICY_TYPE_SEEDS) {
         const leaveType = await leaveTypeRepo.findOne({
           where: { company_id: company.id, code: seed.leaveTypeCode },
         });
         if (!leaveType) continue;
 
-        let policyType = await policyTypeRepo.findOne({
+        const policyType = await policyTypeRepo.findOne({
           where: { policy_id: policy.id, leave_type_id: leaveType.id },
         });
         if (!policyType) {
-          policyType = policyTypeRepo.create({
-            policy_id: policy.id,
-            leave_type_id: leaveType.id,
-          });
+          await policyTypeRepo.save(
+            policyTypeRepo.create({
+              policy_id: policy.id,
+              leave_type_id: leaveType.id,
+              annual_quota_days: String(seed.annualQuotaDays),
+              max_per_request_days:
+                seed.maxPerRequestDays !== null
+                  ? String(seed.maxPerRequestDays)
+                  : null,
+              requires_approval: seed.requiresApproval,
+            }),
+          );
+          createdTypeCount += 1;
         }
-        policyType.annual_quota_days = String(seed.annualQuotaDays);
-        policyType.max_per_request_days =
-          seed.maxPerRequestDays !== null
-            ? String(seed.maxPerRequestDays)
-            : null;
-        policyType.requires_approval = seed.requiresApproval;
-
-        await policyTypeRepo.save(policyType);
       }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][LeavePolicies] Upserted policy "${POLICY_NAME}" with ${POLICY_TYPE_SEEDS.length} leave-type entries`,
+        `[Seeder][LeavePolicies] ${policyAlreadyExisted ? 'Policy already existed, left unchanged' : `Created policy "${POLICY_NAME}"`}; created ${createdTypeCount} new leave-type entries (${POLICY_TYPE_SEEDS.length - createdTypeCount} already existed, left unchanged)`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

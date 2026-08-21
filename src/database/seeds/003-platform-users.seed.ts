@@ -46,6 +46,7 @@ export default class PlatformUsersSeeder implements Seeder {
       let user =
         (await userRepo.findOne({ where: { email }, relations: ['roles'] })) ??
         (await userRepo.findOne({ where: { phone }, relations: ['roles'] }));
+      const alreadyExisted = !!user;
 
       const ownerRole = await roleRepo.findOne({
         where: { name: 'SUPER_ADMIN', company_id: IsNull() },
@@ -69,23 +70,19 @@ export default class PlatformUsersSeeder implements Seeder {
           status: 'active',
           is_email_verified: true,
         });
-      } else {
-        user.first_name = firstName;
-        user.last_name = lastName;
-        user.user_type = 'OWNER';
-        user.status = 'active';
-        user.is_email_verified = true;
-      }
 
-      if (ownerRole) {
-        user.roles = [ownerRole];
-      }
+        if (ownerRole) {
+          user.roles = [ownerRole];
+        }
 
-      await userRepo.save(user);
+        await userRepo.save(user);
+      }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][PlatformUsers] Upserted platform user: ${email} with role SUPER_ADMIN`,
+        alreadyExisted
+          ? `[Seeder][PlatformUsers] Platform user ${email} already existed; left unchanged`
+          : `[Seeder][PlatformUsers] Created platform user: ${email} with role SUPER_ADMIN`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

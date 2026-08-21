@@ -77,14 +77,6 @@ export default class CompanyAdminSeeder implements Seeder {
           is_email_verified: true,
         });
         await userRepo.save(user);
-      } else {
-        user.first_name = firstName;
-        user.last_name = lastName;
-        user.user_type = 'COMPANY_USER';
-        user.status = 'active';
-        user.is_email_verified = true;
-        user.roles = [];
-        await userRepo.save(user);
       }
 
       let companyUser = await companyUserRepo.findOne({
@@ -117,7 +109,7 @@ export default class CompanyAdminSeeder implements Seeder {
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][CompanyAdmin] Upserted company admin: ${email} for company "${company.name}"`,
+        `[Seeder][CompanyAdmin] Ensured company admin: ${email} for company "${company.name}" (created if missing, left unchanged if already existed)`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

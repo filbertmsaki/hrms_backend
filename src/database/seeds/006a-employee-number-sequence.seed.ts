@@ -53,32 +53,29 @@ export default class EmployeeNumberSequenceSeeder implements Seeder {
         1,
       );
 
-      let sequence = await sequenceRepository.findOne({
+      const existingSequence = await sequenceRepository.findOne({
         where: { company_id: company.id },
       });
 
-      if (!sequence) {
-        sequence = sequenceRepository.create({
+      if (!existingSequence) {
+        const sequence = sequenceRepository.create({
           company_id: company.id,
           prefix,
           padding,
           next_number: nextNumber,
           updated_by_company_user_id: null,
         });
-      } else {
-        sequence.prefix = prefix;
-        sequence.padding = padding;
-        sequence.next_number = nextNumber;
+        await sequenceRepository.save(sequence);
       }
-
-      await sequenceRepository.save(sequence);
 
       await qr.commitTransaction();
       const formatPreview = prefix
         ? `${prefix}/${'0'.repeat(padding)}`
         : '0'.repeat(padding);
       console.log(
-        `[Seeder][EmployeeNumberSequence] Upserted ${formatPreview} for company ${company.slug} (next=${nextNumber})`,
+        existingSequence
+          ? `[Seeder][EmployeeNumberSequence] Sequence already exists for company ${company.slug}; left unchanged`
+          : `[Seeder][EmployeeNumberSequence] Created ${formatPreview} for company ${company.slug} (next=${nextNumber})`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

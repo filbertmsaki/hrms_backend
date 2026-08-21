@@ -24,8 +24,10 @@ import {
  * configured by an admin via POST /scheduled-reporting/smtp-configurations
  * before email delivery for these reports will actually fire).
  *
- * Safe to run multiple times: templates/schedules/recipients are upserted by
- * natural key (companyId + name / templateId + targetKey), never duplicated.
+ * Safe to run multiple times: templates/schedules/recipients are looked up by
+ * natural key (companyId + name / templateId + targetKey) and created only
+ * if missing. Existing rows (including any subsequently customized by an
+ * admin) are left completely unchanged.
  */
 export default class AttendanceScheduledReportsSeeder implements Seeder {
   public async run(

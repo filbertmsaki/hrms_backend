@@ -149,36 +149,32 @@ export default class GlobalRolesSeeder implements Seeder {
         await roleRepo.delete(legacyOwner.id);
       }
 
+      let createdCount = 0;
       for (const seed of PLATFORM_ROLE_SEEDS) {
-        let role = await roleRepo.findOne({
+        const role = await roleRepo.findOne({
           where: { name: seed.name, company_id: IsNull() },
           relations: ['permissions'],
         });
 
         if (!role) {
-          role = roleRepo.create({
+          const newRole = roleRepo.create({
             name: seed.name,
             display_name: seed.displayName,
             description: seed.description,
             company_id: null,
             is_system_generated: true,
+            permissions: seed.permissionNames
+              .map((name) => permissionMap.get(name))
+              .filter((p): p is Permission => p !== undefined),
           });
-        } else {
-          role.display_name = seed.displayName;
-          role.description = seed.description;
-          role.is_system_generated = true;
+          await roleRepo.save(newRole);
+          createdCount += 1;
         }
-
-        role.permissions = seed.permissionNames
-          .map((name) => permissionMap.get(name))
-          .filter((p): p is Permission => p !== undefined);
-
-        await roleRepo.save(role);
       }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][GlobalRoles] Upserted ${PLATFORM_ROLE_SEEDS.length} platform role(s)`,
+        `[Seeder][GlobalRoles] Created ${createdCount} new platform role(s) (${PLATFORM_ROLE_SEEDS.length - createdCount} already existed, left unchanged)`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

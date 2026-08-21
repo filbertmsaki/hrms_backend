@@ -17,24 +17,34 @@ export default class ScheduledReportDefinitionsSeeder implements Seeder {
     try {
       const repository = qr.manager.getRepository(ReportDefinition);
 
-      await repository.upsert(
-        REGISTERED_REPORT_DEFINITIONS.map((definition) => ({
-          reportCode: definition.reportCode,
-          name: definition.name,
-          description: definition.description,
-          supportedFilters: {
-            fields: definition.supportedFilterFields,
-          },
-          supportedFormats: definition.supportedFormats,
-          generatorService: definition.generatorService,
-          isActive: true,
-        })),
-        ['reportCode'],
+      const existingDefinitions = await repository.find({
+        select: ['reportCode'],
+      });
+      const existingCodes = new Set(
+        existingDefinitions.map((d) => d.reportCode),
       );
+
+      const newDefinitions = REGISTERED_REPORT_DEFINITIONS.filter(
+        (definition) => !existingCodes.has(definition.reportCode),
+      ).map((definition) => ({
+        reportCode: definition.reportCode,
+        name: definition.name,
+        description: definition.description,
+        supportedFilters: {
+          fields: definition.supportedFilterFields,
+        },
+        supportedFormats: definition.supportedFormats,
+        generatorService: definition.generatorService,
+        isActive: true,
+      }));
+
+      if (newDefinitions.length > 0) {
+        await repository.insert(newDefinitions);
+      }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][ScheduledReportDefinitions] Upserted ${REGISTERED_REPORT_DEFINITIONS.length} scheduled report definition(s)`,
+        `[Seeder][ScheduledReportDefinitions] Created ${newDefinitions.length} new scheduled report definition(s) (${REGISTERED_REPORT_DEFINITIONS.length - newDefinitions.length} already existed, left unchanged)`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

@@ -464,19 +464,20 @@ export default class PayrollBaselineSeeder implements Seeder {
         calendar = calendarRepo.create({
           companyId: company.id,
           code: PAYROLL_CALENDAR_CODE,
+          name: PAYROLL_CALENDAR_NAME,
+          frequency: 'MONTHLY',
+          cutoffDay: 20,
+          paymentDay: 28,
+          timezone: 'Africa/Dar_es_Salaam',
+          currency: 'TZS',
+          isDefault: true,
+          status: 'ACTIVE',
         });
+        await calendarRepo.save(calendar);
       }
-      calendar.name = PAYROLL_CALENDAR_NAME;
-      calendar.frequency = 'MONTHLY';
-      calendar.cutoffDay = 20;
-      calendar.paymentDay = 28;
-      calendar.timezone = 'Africa/Dar_es_Salaam';
-      calendar.currency = 'TZS';
-      calendar.isDefault = true;
-      calendar.status = 'ACTIVE';
-      await calendarRepo.save(calendar);
 
       const componentByCode = new Map<string, PayrollComponent>();
+      let createdComponentCount = 0;
       for (const seed of COMPONENT_SEEDS) {
         let component = await componentRepo.findOne({
           where: { companyId: company.id, code: seed.code },
@@ -486,58 +487,59 @@ export default class PayrollBaselineSeeder implements Seeder {
           component = componentRepo.create({
             companyId: company.id,
             code: seed.code,
+            name: seed.name,
+            componentType: seed.componentType,
+            frequency: seed.frequency,
+            calculationMethod: seed.calculationMethod,
+            taxTreatment: seed.taxTreatment,
+            taxablePercentage: seed.taxablePercentage,
+            pensionable: seed.pensionable,
+            healthInsuranceApplicable: seed.healthInsuranceApplicable,
+            includedInGross: seed.includedInGross,
+            includedInNet: seed.includedInNet,
+            includedInEmployerCost: seed.includedInEmployerCost,
+            subjectToProration: seed.subjectToProration,
+            allowManualInput: seed.allowManualInput,
+            allowNegativeAmount: seed.allowNegativeAmount,
+            calculationOrder: seed.calculationOrder,
+            calculationConfiguration: seed.calculationConfiguration ?? null,
+            generalLedgerAccountCode: seed.generalLedgerAccountCode ?? null,
+            liabilityAccountCode: seed.liabilityAccountCode ?? null,
+            expenseAccountCode: seed.expenseAccountCode ?? null,
+            isSystemComponent: seed.isSystemComponent,
+            status: 'ACTIVE',
           });
+          component = await componentRepo.save(component);
+          createdComponentCount += 1;
         }
-
-        component.name = seed.name;
-        component.componentType = seed.componentType;
-        component.frequency = seed.frequency;
-        component.calculationMethod = seed.calculationMethod;
-        component.taxTreatment = seed.taxTreatment;
-        component.taxablePercentage = seed.taxablePercentage;
-        component.pensionable = seed.pensionable;
-        component.healthInsuranceApplicable = seed.healthInsuranceApplicable;
-        component.includedInGross = seed.includedInGross;
-        component.includedInNet = seed.includedInNet;
-        component.includedInEmployerCost = seed.includedInEmployerCost;
-        component.subjectToProration = seed.subjectToProration;
-        component.allowManualInput = seed.allowManualInput;
-        component.allowNegativeAmount = seed.allowNegativeAmount;
-        component.calculationOrder = seed.calculationOrder;
-        component.calculationConfiguration =
-          seed.calculationConfiguration ?? null;
-        component.generalLedgerAccountCode =
-          seed.generalLedgerAccountCode ?? null;
-        component.liabilityAccountCode = seed.liabilityAccountCode ?? null;
-        component.expenseAccountCode = seed.expenseAccountCode ?? null;
-        component.isSystemComponent = seed.isSystemComponent;
-        component.status = 'ACTIVE';
-
-        const savedComponent = await componentRepo.save(component);
-        componentByCode.set(savedComponent.code, savedComponent);
+        componentByCode.set(component.code, component);
 
         if (
-          savedComponent.generalLedgerAccountCode &&
-          savedComponent.liabilityAccountCode
+          component.generalLedgerAccountCode &&
+          component.liabilityAccountCode
         ) {
-          let mapping = await accountingRepo.findOne({
+          const mapping = await accountingRepo.findOne({
             where: {
               companyId: company.id,
-              componentCode: savedComponent.code,
+              componentCode: component.code,
             },
           });
           if (!mapping) {
-            mapping = accountingRepo.create({
-              companyId: company.id,
-              componentCode: savedComponent.code,
-            });
+            await accountingRepo.save(
+              accountingRepo.create({
+                companyId: company.id,
+                componentCode: component.code,
+                debitAccountCode:
+                  component.expenseAccountCode ??
+                  component.generalLedgerAccountCode,
+                creditAccountCode: component.liabilityAccountCode,
+                dimensions: {
+                  seeded: true,
+                  source: '038-payroll-baseline',
+                },
+              }),
+            );
           }
-          mapping.debitAccountCode =
-            savedComponent.expenseAccountCode ??
-            savedComponent.generalLedgerAccountCode;
-          mapping.creditAccountCode = savedComponent.liabilityAccountCode;
-          mapping.dimensions = { seeded: true, source: '038-payroll-baseline' };
-          await accountingRepo.save(mapping);
         }
       }
 
@@ -548,48 +550,49 @@ export default class PayrollBaselineSeeder implements Seeder {
           versionNumber: 1,
         },
       });
+      const structureAlreadyExisted = !!structure;
       if (!structure) {
         structure = structureRepo.create({
           companyId: company.id,
           code: SALARY_STRUCTURE_CODE,
           versionNumber: 1,
+          name: SALARY_STRUCTURE_NAME,
+          currency: 'TZS',
+          effectiveFrom: BASELINE_EFFECTIVE_FROM,
+          effectiveTo: null,
+          isLocked: false,
+          status: 'ACTIVE',
+          metadata: { seeded: true, source: '038-payroll-baseline' },
+          createdByCompanyUserId: null,
         });
-      }
-      structure.name = SALARY_STRUCTURE_NAME;
-      structure.currency = 'TZS';
-      structure.effectiveFrom = BASELINE_EFFECTIVE_FROM;
-      structure.effectiveTo = null;
-      structure.isLocked = false;
-      structure.status = 'ACTIVE';
-      structure.metadata = { seeded: true, source: '038-payroll-baseline' };
-      structure.createdByCompanyUserId = null;
-      await structureRepo.save(structure);
+        await structureRepo.save(structure);
 
-      await structureComponentRepo.delete({
-        companyId: company.id,
-        salaryStructureId: structure.id,
-      });
-      for (const seed of SALARY_STRUCTURE_COMPONENT_SEEDS) {
-        const component = componentByCode.get(seed.componentCode);
-        if (!component) {
-          throw new Error(
-            `Payroll component "${seed.componentCode}" must exist before salary structure seeding.`,
+        // Only seed structure components for a newly created structure —
+        // existing structures (and any user-modified components on them)
+        // are left completely unchanged.
+        for (const seed of SALARY_STRUCTURE_COMPONENT_SEEDS) {
+          const component = componentByCode.get(seed.componentCode);
+          if (!component) {
+            throw new Error(
+              `Payroll component "${seed.componentCode}" must exist before salary structure seeding.`,
+            );
+          }
+
+          await structureComponentRepo.save(
+            structureComponentRepo.create({
+              companyId: company.id,
+              salaryStructureId: structure.id,
+              componentId: component.id,
+              defaultAmount: seed.defaultAmount,
+              defaultRate: seed.defaultRate,
+              calculationOrder: seed.calculationOrder,
+              configuration: seed.configuration ?? null,
+            }),
           );
         }
-
-        await structureComponentRepo.save(
-          structureComponentRepo.create({
-            companyId: company.id,
-            salaryStructureId: structure.id,
-            componentId: component.id,
-            defaultAmount: seed.defaultAmount,
-            defaultRate: seed.defaultRate,
-            calculationOrder: seed.calculationOrder,
-            configuration: seed.configuration ?? null,
-          }),
-        );
       }
 
+      let createdSchemeCount = 0;
       for (const seed of STATUTORY_SCHEME_SEEDS) {
         let scheme = await schemeRepo.findOne({
           where: { companyId: company.id, code: seed.code },
@@ -598,14 +601,14 @@ export default class PayrollBaselineSeeder implements Seeder {
           scheme = schemeRepo.create({
             companyId: company.id,
             code: seed.code,
+            name: seed.name,
+            schemeType: seed.schemeType,
+            jurisdiction: seed.jurisdiction,
+            status: 'ACTIVE',
           });
+          scheme = await schemeRepo.save(scheme);
+          createdSchemeCount += 1;
         }
-
-        scheme.name = seed.name;
-        scheme.schemeType = seed.schemeType;
-        scheme.jurisdiction = seed.jurisdiction;
-        scheme.status = 'ACTIVE';
-        scheme = await schemeRepo.save(scheme);
 
         let rule = await ruleRepo.findOne({
           where: {
@@ -619,43 +622,45 @@ export default class PayrollBaselineSeeder implements Seeder {
             companyId: company.id,
             schemeId: scheme.id,
             versionNumber: 1,
+            calculationMethod: seed.rule.calculationMethod,
+            employeeRate: seed.rule.employeeRate,
+            employerRate: seed.rule.employerRate,
+            maximumBasis: seed.rule.maximumBasis,
+            minimumBasis: seed.rule.minimumBasis,
+            deductEmployeeBeforeTax: seed.rule.deductEmployeeBeforeTax,
+            effectiveFrom: BASELINE_EFFECTIVE_FROM,
+            effectiveTo: null,
+            status: 'APPROVED',
+            approvedByCompanyUserId: null,
+            approvedAt: new Date(`${BASELINE_EFFECTIVE_FROM}T00:00:00.000Z`),
+            configuration: seed.rule.configuration ?? null,
           });
-        }
+          rule = await ruleRepo.save(rule);
 
-        rule.calculationMethod = seed.rule.calculationMethod;
-        rule.employeeRate = seed.rule.employeeRate;
-        rule.employerRate = seed.rule.employerRate;
-        rule.maximumBasis = seed.rule.maximumBasis;
-        rule.minimumBasis = seed.rule.minimumBasis;
-        rule.deductEmployeeBeforeTax = seed.rule.deductEmployeeBeforeTax;
-        rule.effectiveFrom = BASELINE_EFFECTIVE_FROM;
-        rule.effectiveTo = null;
-        rule.status = 'APPROVED';
-        rule.approvedByCompanyUserId = null;
-        rule.approvedAt = new Date(`${BASELINE_EFFECTIVE_FROM}T00:00:00.000Z`);
-        rule.configuration = seed.rule.configuration ?? null;
-        rule = await ruleRepo.save(rule);
-
-        if (seed.bands) {
-          await bandRepo.delete({ ruleVersionId: rule.id });
-          for (const bandSeed of seed.bands) {
-            await bandRepo.save(
-              bandRepo.create({
-                ruleVersionId: rule.id,
-                lowerLimit: bandSeed.lowerLimit,
-                upperLimit: bandSeed.upperLimit,
-                baseTax: bandSeed.baseTax,
-                ratePercent: bandSeed.ratePercent,
-                sortOrder: bandSeed.sortOrder,
-              }),
-            );
+          // Only seed bands for a newly created rule version; existing
+          // rule versions (and any manually adjusted bands) are left unchanged.
+          if (seed.bands) {
+            for (const bandSeed of seed.bands) {
+              await bandRepo.save(
+                bandRepo.create({
+                  ruleVersionId: rule.id,
+                  lowerLimit: bandSeed.lowerLimit,
+                  upperLimit: bandSeed.upperLimit,
+                  baseTax: bandSeed.baseTax,
+                  ratePercent: bandSeed.ratePercent,
+                  sortOrder: bandSeed.sortOrder,
+                }),
+              );
+            }
           }
         }
       }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][PayrollBaseline] Seeded payroll baseline for company "${company.name}"`,
+        `[Seeder][PayrollBaseline] Created ${createdComponentCount} new payroll components, ` +
+          `${structureAlreadyExisted ? 'salary structure already existed (left unchanged)' : 'created salary structure'}, ` +
+          `and ${createdSchemeCount} new statutory schemes for company "${company.name}" (existing records left unchanged)`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

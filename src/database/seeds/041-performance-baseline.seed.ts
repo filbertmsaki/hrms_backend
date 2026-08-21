@@ -176,34 +176,33 @@ export default class PerformanceBaselineSeeder implements Seeder {
         ratingScale = ratingScaleRepo.create({
           companyId: company.id,
           code: RATING_SCALE_CODE,
+          name: 'Standard 5-point performance rating scale',
+          minimumScore: '0.00',
+          maximumScore: '100.00',
+          isDefault: true,
+          status: 'ACTIVE',
         });
+        ratingScale = await ratingScaleRepo.save(ratingScale);
       }
 
-      ratingScale.name = 'Standard 5-point performance rating scale';
-      ratingScale.minimumScore = '0.00';
-      ratingScale.maximumScore = '100.00';
-      ratingScale.isDefault = true;
-      ratingScale.status = 'ACTIVE';
-      ratingScale = await ratingScaleRepo.save(ratingScale);
-
       for (const seed of RATING_BAND_SEEDS) {
-        let band = await ratingBandRepo.findOne({
+        const band = await ratingBandRepo.findOne({
           where: { ratingScaleId: ratingScale.id, code: seed.code },
         });
 
         if (!band) {
-          band = ratingBandRepo.create({
-            ratingScaleId: ratingScale.id,
-            code: seed.code,
-          });
+          await ratingBandRepo.save(
+            ratingBandRepo.create({
+              ratingScaleId: ratingScale.id,
+              code: seed.code,
+              label: seed.label,
+              minimumScore: seed.minimumScore,
+              maximumScore: seed.maximumScore,
+              displayOrder: seed.displayOrder,
+              requiresImprovementPlan: seed.requiresImprovementPlan,
+            }),
+          );
         }
-
-        band.label = seed.label;
-        band.minimumScore = seed.minimumScore;
-        band.maximumScore = seed.maximumScore;
-        band.displayOrder = seed.displayOrder;
-        band.requiresImprovementPlan = seed.requiresImprovementPlan;
-        await ratingBandRepo.save(band);
       }
 
       let competencyTemplate = await competencyTemplateRepo.findOne({
@@ -214,35 +213,34 @@ export default class PerformanceBaselineSeeder implements Seeder {
         competencyTemplate = competencyTemplateRepo.create({
           companyId: company.id,
           code: COMPETENCY_TEMPLATE_CODE,
+          name: 'Core competency template',
+          description:
+            'Baseline competency framework for company-wide performance reviews.',
+          status: 'ACTIVE',
         });
+        competencyTemplate =
+          await competencyTemplateRepo.save(competencyTemplate);
       }
 
-      competencyTemplate.name = 'Core competency template';
-      competencyTemplate.description =
-        'Baseline competency framework for company-wide performance reviews.';
-      competencyTemplate.status = 'ACTIVE';
-      competencyTemplate =
-        await competencyTemplateRepo.save(competencyTemplate);
-
       for (const seed of COMPETENCY_ITEM_SEEDS) {
-        let item = await competencyItemRepo.findOne({
+        const item = await competencyItemRepo.findOne({
           where: { templateId: competencyTemplate.id, code: seed.code },
         });
 
         if (!item) {
-          item = competencyItemRepo.create({
-            templateId: competencyTemplate.id,
-            code: seed.code,
-          });
+          await competencyItemRepo.save(
+            competencyItemRepo.create({
+              templateId: competencyTemplate.id,
+              code: seed.code,
+              name: seed.name,
+              description: seed.description,
+              category: seed.category,
+              weight: seed.weight,
+              maximumRating: seed.maximumRating,
+              sortOrder: seed.sortOrder,
+            }),
+          );
         }
-
-        item.name = seed.name;
-        item.description = seed.description;
-        item.category = seed.category;
-        item.weight = seed.weight;
-        item.maximumRating = seed.maximumRating;
-        item.sortOrder = seed.sortOrder;
-        await competencyItemRepo.save(item);
       }
 
       let financialYear = await financialYearRepo.findOne({
@@ -253,23 +251,22 @@ export default class PerformanceBaselineSeeder implements Seeder {
         financialYear = financialYearRepo.create({
           companyId: company.id,
           code: FINANCIAL_YEAR_CODE,
+          name: 'Performance Financial Year 2026',
+          startDate: FINANCIAL_YEAR_START,
+          endDate: FINANCIAL_YEAR_END,
+          status: 'DRAFT',
+          annualAggregationMethod:
+            PerformanceAggregationMethodEnum.SIMPLE_MONTHLY_AVERAGE,
+          aggregationConfiguration: {
+            seeded: true,
+            source: '041-performance-baseline',
+          },
+          isLocked: false,
+          lockedAt: null,
+          lockedByCompanyUserId: null,
         });
+        financialYear = await financialYearRepo.save(financialYear);
       }
-
-      financialYear.name = 'Performance Financial Year 2026';
-      financialYear.startDate = FINANCIAL_YEAR_START;
-      financialYear.endDate = FINANCIAL_YEAR_END;
-      financialYear.status = 'DRAFT';
-      financialYear.annualAggregationMethod =
-        PerformanceAggregationMethodEnum.SIMPLE_MONTHLY_AVERAGE;
-      financialYear.aggregationConfiguration = {
-        seeded: true,
-        source: '041-performance-baseline',
-      };
-      financialYear.isLocked = false;
-      financialYear.lockedAt = null;
-      financialYear.lockedByCompanyUserId = null;
-      financialYear = await financialYearRepo.save(financialYear);
 
       const periodFactory = new PerformancePeriodFactory();
       const monthlyPeriods = periodFactory.buildMonthlyPeriods(
@@ -280,7 +277,7 @@ export default class PerformanceBaselineSeeder implements Seeder {
         periodFactory.buildQuarterlyPeriods(monthlyPeriods);
 
       for (const template of [...monthlyPeriods, ...quarterlyPeriods]) {
-        let period = await periodRepo.findOne({
+        const period = await periodRepo.findOne({
           where: {
             financialYearId: financialYear.id,
             periodType: template.periodType,
@@ -289,56 +286,55 @@ export default class PerformanceBaselineSeeder implements Seeder {
         });
 
         if (!period) {
-          period = periodRepo.create({
-            companyId: company.id,
-            financialYearId: financialYear.id,
-            periodType: template.periodType,
-            sequenceNumber: template.sequenceNumber,
-          });
+          const end = new Date(`${template.endDate}T00:00:00.000Z`);
+          const openAt = new Date(end);
+          openAt.setUTCDate(openAt.getUTCDate() + 1);
+
+          const achievementEntryClosesAt = new Date(openAt);
+          achievementEntryClosesAt.setUTCDate(
+            achievementEntryClosesAt.getUTCDate() + DEFAULT_SELF_REVIEW_DAYS,
+          );
+
+          const managerReviewDueAt = new Date(achievementEntryClosesAt);
+          managerReviewDueAt.setUTCDate(
+            managerReviewDueAt.getUTCDate() + DEFAULT_MANAGER_REVIEW_DAYS,
+          );
+
+          const hrReviewDueAt = new Date(managerReviewDueAt);
+          hrReviewDueAt.setUTCDate(
+            hrReviewDueAt.getUTCDate() + DEFAULT_HR_REVIEW_DAYS,
+          );
+
+          await periodRepo.save(
+            periodRepo.create({
+              companyId: company.id,
+              financialYearId: financialYear.id,
+              periodType: template.periodType,
+              sequenceNumber: template.sequenceNumber,
+              name: template.name,
+              startDate: template.startDate,
+              endDate: template.endDate,
+              status: PerformancePeriodStatusEnum.DRAFT,
+              achievementEntryOpensAt: openAt,
+              achievementEntryClosesAt: achievementEntryClosesAt,
+              selfReviewDueAt: achievementEntryClosesAt,
+              managerReviewDueAt: managerReviewDueAt,
+              hrReviewDueAt: hrReviewDueAt,
+              publishedAt: null,
+              lockedAt: null,
+              generationSnapshot: {
+                ...template.generationSnapshot,
+                seeded: true,
+                source: '041-performance-baseline',
+              },
+            }),
+          );
         }
-
-        const end = new Date(`${template.endDate}T00:00:00.000Z`);
-        const openAt = new Date(end);
-        openAt.setUTCDate(openAt.getUTCDate() + 1);
-
-        const achievementEntryClosesAt = new Date(openAt);
-        achievementEntryClosesAt.setUTCDate(
-          achievementEntryClosesAt.getUTCDate() + DEFAULT_SELF_REVIEW_DAYS,
-        );
-
-        const managerReviewDueAt = new Date(achievementEntryClosesAt);
-        managerReviewDueAt.setUTCDate(
-          managerReviewDueAt.getUTCDate() + DEFAULT_MANAGER_REVIEW_DAYS,
-        );
-
-        const hrReviewDueAt = new Date(managerReviewDueAt);
-        hrReviewDueAt.setUTCDate(
-          hrReviewDueAt.getUTCDate() + DEFAULT_HR_REVIEW_DAYS,
-        );
-
-        period.name = template.name;
-        period.startDate = template.startDate;
-        period.endDate = template.endDate;
-        period.status = PerformancePeriodStatusEnum.DRAFT;
-        period.achievementEntryOpensAt = openAt;
-        period.achievementEntryClosesAt = achievementEntryClosesAt;
-        period.selfReviewDueAt = achievementEntryClosesAt;
-        period.managerReviewDueAt = managerReviewDueAt;
-        period.hrReviewDueAt = hrReviewDueAt;
-        period.publishedAt = null;
-        period.lockedAt = null;
-        period.generationSnapshot = {
-          ...template.generationSnapshot,
-          seeded: true,
-          source: '041-performance-baseline',
-        };
-
-        await periodRepo.save(period);
       }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][PerformanceBaseline] Seeded rating scale, competency template, and FY2026 baseline for company "${company.name}"`,
+        `[Seeder][PerformanceBaseline] Ensured rating scale, competency template, and FY2026 baseline for company "${company.name}" (created if missing, left unchanged if already existed)`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

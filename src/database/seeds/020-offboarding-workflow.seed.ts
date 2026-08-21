@@ -111,10 +111,11 @@ export default class OffboardingWorkflowSeeder implements Seeder {
         );
       }
 
-      // Upsert workflow
+      // Create workflow only if it does not already exist
       let workflow = await workflowRepo.findOne({
         where: { company_id: company.id, name: WORKFLOW_NAME },
       });
+      const workflowAlreadyExisted = !!workflow;
       if (!workflow) {
         workflow = workflowRepo.create({
           company_id: company.id,
@@ -124,47 +125,45 @@ export default class OffboardingWorkflowSeeder implements Seeder {
           is_default: true,
           status: OffboardingRecordStatusEnum.ACTIVE,
         });
-      } else {
-        workflow.is_default = true;
-        workflow.status = OffboardingRecordStatusEnum.ACTIVE;
+        await workflowRepo.save(workflow);
       }
-      await workflowRepo.save(workflow);
 
-      // Upsert steps
+      // Create steps only if missing
+      let createdStepCount = 0;
       for (const seed of STEP_SEEDS) {
         const role = await roleRepo.findOne({
           where: { name: seed.roleName, company_id: company.id },
         });
 
-        let step = await stepRepo.findOne({
+        const step = await stepRepo.findOne({
           where: {
             workflow_id: workflow.id,
             approval_level: seed.approvalLevel,
           },
         });
         if (!step) {
-          step = stepRepo.create({
-            workflow_id: workflow.id,
-            approval_level: seed.approvalLevel,
-          });
+          await stepRepo.save(
+            stepRepo.create({
+              workflow_id: workflow.id,
+              approval_level: seed.approvalLevel,
+              step_name: seed.stepName,
+              task_title: seed.taskTitle,
+              task_description: seed.taskDescription,
+              task_type: seed.taskType,
+              approver_type: seed.approverType,
+              role_id: role?.id ?? null,
+              action_type: seed.actionType,
+              is_required: seed.isRequired,
+              expected_duration_days: seed.expectedDurationDays,
+            }),
+          );
+          createdStepCount += 1;
         }
-
-        step.step_name = seed.stepName;
-        step.task_title = seed.taskTitle;
-        step.task_description = seed.taskDescription;
-        step.task_type = seed.taskType;
-        step.approver_type = seed.approverType;
-        step.role_id = role?.id ?? null;
-        step.action_type = seed.actionType;
-        step.is_required = seed.isRequired;
-        step.expected_duration_days = seed.expectedDurationDays;
-
-        await stepRepo.save(step);
       }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][OffboardingWorkflow] Upserted "${WORKFLOW_NAME}" with ${STEP_SEEDS.length} steps`,
+        `[Seeder][OffboardingWorkflow] ${workflowAlreadyExisted ? `Workflow "${WORKFLOW_NAME}" already existed, left unchanged` : `Created workflow "${WORKFLOW_NAME}"`}; created ${createdStepCount} new steps (${STEP_SEEDS.length - createdStepCount} already existed, left unchanged)`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

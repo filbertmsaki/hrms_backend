@@ -147,70 +147,70 @@ export default class TimetablesSeeder implements Seeder {
       const shifts = await shiftRepo.find({ where: { companyId: company.id } });
       const shiftMap = new Map(shifts.map((s) => [s.code, s]));
 
-      // Upsert timetable
+      // Create timetable only if it does not already exist
       let timetable = await timetableRepo.findOne({
         where: { companyId: company.id, code: DEFAULT_TIMETABLE_CODE },
       });
+      const timetableAlreadyExisted = !!timetable;
       if (!timetable) {
         timetable = timetableRepo.create({
           companyId: company.id,
           code: DEFAULT_TIMETABLE_CODE,
+          name: DEFAULT_TIMETABLE_NAME,
+          description:
+            'Standard Alliance Company schedule: Mon–Fri 08:15–17:15, Saturday 09:00–13:00, Sunday off.',
+          timetableType: TimetableTypeEnum.FIXED,
+          timezone: 'Africa/Dar_es_Salaam',
+          isDefault: true,
+          // Timetable-level late threshold (used by timetable-only resolution path)
+          lateAfterMinutes: 30,
+          halfDayAfterMinutes: 240,
+          absentAfterMinutes: 360,
+          allowEarlyCheckin: true,
+          allowLateCheckout: false,
+          autoAbsentIfNoCheckin: true,
+          // Overtime disabled for Alliance Company
+          maxOvertimeMinutes: 0,
+          status: TimetableStatusEnum.ACTIVE,
         });
+        await timetableRepo.save(timetable);
       }
 
-      timetable.name = DEFAULT_TIMETABLE_NAME;
-      timetable.description =
-        'Standard Alliance Company schedule: Mon–Fri 08:15–17:15, Saturday 09:00–13:00, Sunday off.';
-      timetable.timetableType = TimetableTypeEnum.FIXED;
-      timetable.timezone = 'Africa/Dar_es_Salaam';
-      timetable.isDefault = true;
-      // Timetable-level late threshold (used by timetable-only resolution path)
-      timetable.lateAfterMinutes = 30;
-      timetable.halfDayAfterMinutes = 240;
-      timetable.absentAfterMinutes = 360;
-      timetable.allowEarlyCheckin = true;
-      timetable.allowLateCheckout = false;
-      timetable.autoAbsentIfNoCheckin = true;
-      // Overtime disabled for Alliance Company
-      timetable.maxOvertimeMinutes = 0;
-      timetable.status = TimetableStatusEnum.ACTIVE;
-
-      await timetableRepo.save(timetable);
-
-      // Upsert timetable days
+      // Create timetable days only if missing
+      let createdDayCount = 0;
       for (const daySeed of TIMETABLE_DAY_SEEDS) {
         const shift = daySeed.shiftCode
           ? (shiftMap.get(daySeed.shiftCode) ?? null)
           : null;
 
-        let day = await timetableDayRepo.findOne({
+        const day = await timetableDayRepo.findOne({
           where: { timetableId: timetable.id, dayOfWeek: daySeed.dayOfWeek },
         });
         if (!day) {
-          day = timetableDayRepo.create({
-            timetableId: timetable.id,
-            dayOfWeek: daySeed.dayOfWeek,
-          });
+          await timetableDayRepo.save(
+            timetableDayRepo.create({
+              timetableId: timetable.id,
+              dayOfWeek: daySeed.dayOfWeek,
+              isWorkingDay: daySeed.isWorkingDay,
+              defaultShiftId: shift?.id ?? null,
+              expectedCheckInTime: daySeed.expectedCheckIn,
+              expectedCheckOutTime: daySeed.expectedCheckOut,
+              minimumWorkMinutes: daySeed.minimumWorkMinutes,
+              breakRequired: daySeed.breakRequired,
+              breakMinutes: daySeed.breakMinutes,
+              overtimeAllowed: daySeed.overtimeAllowed,
+              allowFlexibleTime: false,
+              flexibleStartFrom: null,
+              flexibleStartTo: null,
+            }),
+          );
+          createdDayCount += 1;
         }
-
-        day.isWorkingDay = daySeed.isWorkingDay;
-        day.defaultShiftId = shift?.id ?? null;
-        day.expectedCheckInTime = daySeed.expectedCheckIn;
-        day.expectedCheckOutTime = daySeed.expectedCheckOut;
-        day.minimumWorkMinutes = daySeed.minimumWorkMinutes;
-        day.breakRequired = daySeed.breakRequired;
-        day.breakMinutes = daySeed.breakMinutes;
-        day.overtimeAllowed = daySeed.overtimeAllowed;
-        day.allowFlexibleTime = false;
-        day.flexibleStartFrom = null;
-        day.flexibleStartTo = null;
-
-        await timetableDayRepo.save(day);
       }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][Timetables] Upserted "${DEFAULT_TIMETABLE_NAME}" (${TIMETABLE_DAY_SEEDS.length} day entries) for company "${company.name}"`,
+        `[Seeder][Timetables] ${timetableAlreadyExisted ? `Timetable "${DEFAULT_TIMETABLE_NAME}" already existed, left unchanged` : `Created timetable "${DEFAULT_TIMETABLE_NAME}"`}; created ${createdDayCount} new day entries (${TIMETABLE_DAY_SEEDS.length - createdDayCount} already existed, left unchanged) for company "${company.name}"`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

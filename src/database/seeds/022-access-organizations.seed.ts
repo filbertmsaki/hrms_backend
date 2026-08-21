@@ -40,29 +40,30 @@ export default class AccessOrganizationsSeeder implements Seeder {
       let org = await orgRepo.findOne({
         where: { companyId: company.id, orgName: ROOT_ORG_NAME },
       });
+      const alreadyExisted = !!org;
 
       if (!org) {
         org = orgRepo.create({
           companyId: company.id,
           orgName: ROOT_ORG_NAME,
+          orgCode: 'ROOT',
+          description: 'Root access organization for all company staff',
+          source: AccessOrganizationSourceEnum.MANUAL,
+          syncStatus: AccessOrganizationSyncStatusEnum.PENDING,
+          isActive: true,
+          branchId: null,
+          departmentId: null,
+          parentId: null,
+          metadata: { seeded: true, source: '022-access-organizations' },
         });
+        await orgRepo.save(org);
       }
-
-      org.orgCode = 'ROOT';
-      org.description = 'Root access organization for all company staff';
-      org.source = AccessOrganizationSourceEnum.MANUAL;
-      org.syncStatus = AccessOrganizationSyncStatusEnum.PENDING;
-      org.isActive = true;
-      org.branchId = null;
-      org.departmentId = null;
-      org.parentId = null;
-      org.metadata = { seeded: true, source: '022-access-organizations' };
-
-      await orgRepo.save(org);
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][AccessOrganizations] Upserted root org "${ROOT_ORG_NAME}" for company "${company.name}"`,
+        alreadyExisted
+          ? `[Seeder][AccessOrganizations] Root org "${ROOT_ORG_NAME}" already existed for company "${company.name}"; left unchanged`
+          : `[Seeder][AccessOrganizations] Created root org "${ROOT_ORG_NAME}" for company "${company.name}"`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

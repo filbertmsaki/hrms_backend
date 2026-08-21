@@ -34,68 +34,67 @@ export default class PositionsSeeder implements Seeder {
         );
       }
 
+      let createdCount = 0;
+      const newlyCreatedCodes = new Set<string>();
       for (const seed of ALLIANCE_POSITIONS) {
-        let position = await positionRepo.findOne({
+        const position = await positionRepo.findOne({
           where: { company_id: company.id, code: seed.code },
         });
 
         if (!position) {
-          position = positionRepo.create({
-            company_id: company.id,
-            branch_id: null,
-            department_id: null,
-            name: seed.name,
-            code: seed.code,
-            level: seed.level,
-            is_manager: seed.isManager,
-            description: seed.description ?? null,
-            status: 'active',
-            is_active: true,
-            headcount: seed.headcount ?? 1,
-          });
-        } else {
-          position.branch_id = null;
-          position.department_id = null;
-          position.name = seed.name;
-          position.level = seed.level;
-          position.is_manager = seed.isManager;
-          position.description = seed.description ?? null;
-          position.status = 'active';
-          position.is_active = true;
-          if (seed.headcount !== undefined) {
-            position.headcount = seed.headcount;
-          }
+          await positionRepo.save(
+            positionRepo.create({
+              company_id: company.id,
+              branch_id: null,
+              department_id: null,
+              name: seed.name,
+              code: seed.code,
+              level: seed.level,
+              is_manager: seed.isManager,
+              description: seed.description ?? null,
+              status: 'active',
+              is_active: true,
+              headcount: seed.headcount ?? 1,
+            }),
+          );
+          createdCount += 1;
+          newlyCreatedCodes.add(seed.code);
         }
-
-        await positionRepo.save(position);
       }
 
-      const allPositions = await positionRepo.find({
-        where: { company_id: company.id },
-      });
-      const positionByCode = new Map(
-        allPositions.map((position) => [position.code!, position]),
-      );
+      // Set reports-to relationships only for positions created just now;
+      // existing positions are left completely unchanged.
+      if (newlyCreatedCodes.size > 0) {
+        const allPositions = await positionRepo.find({
+          where: { company_id: company.id },
+        });
+        const positionByCode = new Map(
+          allPositions.map((position) => [position.code!, position]),
+        );
 
-      for (const seed of ALLIANCE_POSITIONS) {
-        const position = positionByCode.get(seed.code);
-        if (!position) {
-          continue;
-        }
+        for (const seed of ALLIANCE_POSITIONS) {
+          if (!newlyCreatedCodes.has(seed.code)) {
+            continue;
+          }
+          const position = positionByCode.get(seed.code);
+          if (!position) {
+            continue;
+          }
 
-        const reportsTo = seed.reportsToPositionCode
-          ? (positionByCode.get(seed.reportsToPositionCode) ?? null)
-          : null;
+          const reportsTo = seed.reportsToPositionCode
+            ? (positionByCode.get(seed.reportsToPositionCode) ?? null)
+            : null;
 
-        if (position.reports_to_position_id !== (reportsTo?.id ?? null)) {
-          position.reports_to_position_id = reportsTo?.id ?? null;
-          await positionRepo.save(position);
+          if (position.reports_to_position_id !== (reportsTo?.id ?? null)) {
+            position.reports_to_position_id = reportsTo?.id ?? null;
+            await positionRepo.save(position);
+          }
         }
       }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][Positions] Upserted ${ALLIANCE_POSITIONS.length} reusable positions for company "${company.name}"`,
+        `[Seeder][Positions] Created ${createdCount} new positions (${ALLIANCE_POSITIONS.length - createdCount} already existed, left unchanged) for company "${company.name}"`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

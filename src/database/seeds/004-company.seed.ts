@@ -25,6 +25,7 @@ export default class CompanySeeder implements Seeder {
       const slug = ALLIANCE_COMPANY_SLUG;
 
       let company = await repo.findOne({ where: { slug } });
+      const alreadyExisted = !!company;
 
       if (!company) {
         company = repo.create({
@@ -33,16 +34,14 @@ export default class CompanySeeder implements Seeder {
           status: 'active',
           metadata: { seeded: true, source: '004-company' },
         });
-      } else {
-        company.name = companyName;
-        company.status = 'active';
+        await repo.save(company);
       }
-
-      await repo.save(company);
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][Company] Upserted company: ${company.name} (${company.slug})`,
+        alreadyExisted
+          ? `[Seeder][Company] Company already exists: ${company.name} (${company.slug}); left unchanged`
+          : `[Seeder][Company] Created company: ${company.name} (${company.slug})`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

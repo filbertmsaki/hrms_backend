@@ -245,64 +245,69 @@ export default class ShiftsSeeder implements Seeder {
         );
       }
 
+      let createdShiftCount = 0;
+      let createdBreakCount = 0;
       for (const seed of SHIFT_SEEDS) {
         let shift = await shiftRepo.findOne({
           where: { companyId: company.id, code: seed.code },
         });
 
         if (!shift) {
-          shift = shiftRepo.create({ companyId: company.id, code: seed.code });
+          shift = shiftRepo.create({
+            companyId: company.id,
+            code: seed.code,
+            name: seed.name,
+            description: seed.description,
+            shiftType: seed.shiftType,
+            startTime: seed.startTime,
+            endTime: seed.endTime,
+            expectedWorkMinutes: seed.expectedWorkMinutes,
+            minimumWorkMinutes: seed.minimumWorkMinutes,
+            halfDayMinutes: seed.halfDayMinutes,
+            graceInMinutes: seed.graceInMinutes,
+            graceOutMinutes: seed.graceOutMinutes,
+            lateAfterMinutes: seed.lateAfterMinutes,
+            halfDayAfterMinutes: seed.halfDayAfterMinutes,
+            absentAfterMinutes: seed.absentAfterMinutes,
+            earlyLeaveAfterMinutes: seed.earlyLeaveAfterMinutes,
+            isNightShift: seed.isNightShift,
+            crossesMidnight: seed.crossesMidnight,
+            allowOvertime: seed.allowOvertime,
+            maxOvertimeMinutes: seed.maxOvertimeMinutes,
+            overtimeStartAfterMinutes: seed.overtimeStartAfterMinutes,
+            overtimeRequiresApproval: false,
+            overtimeAutoCalculate: false,
+            status: ShiftStatusEnum.ACTIVE,
+          });
+          await shiftRepo.save(shift);
+          createdShiftCount += 1;
         }
 
-        shift.name = seed.name;
-        shift.description = seed.description;
-        shift.shiftType = seed.shiftType;
-        shift.startTime = seed.startTime;
-        shift.endTime = seed.endTime;
-        shift.expectedWorkMinutes = seed.expectedWorkMinutes;
-        shift.minimumWorkMinutes = seed.minimumWorkMinutes;
-        shift.halfDayMinutes = seed.halfDayMinutes;
-        shift.graceInMinutes = seed.graceInMinutes;
-        shift.graceOutMinutes = seed.graceOutMinutes;
-        shift.lateAfterMinutes = seed.lateAfterMinutes;
-        shift.halfDayAfterMinutes = seed.halfDayAfterMinutes;
-        shift.absentAfterMinutes = seed.absentAfterMinutes;
-        shift.earlyLeaveAfterMinutes = seed.earlyLeaveAfterMinutes;
-        shift.isNightShift = seed.isNightShift;
-        shift.crossesMidnight = seed.crossesMidnight;
-        shift.allowOvertime = seed.allowOvertime;
-        shift.maxOvertimeMinutes = seed.maxOvertimeMinutes;
-        shift.overtimeStartAfterMinutes = seed.overtimeStartAfterMinutes;
-        shift.overtimeRequiresApproval = false;
-        shift.overtimeAutoCalculate = false;
-        shift.status = ShiftStatusEnum.ACTIVE;
-
-        await shiftRepo.save(shift);
-
-        // Upsert breaks (keyed by shiftId + name)
+        // Create breaks only if missing (keyed by shiftId + name)
         for (const breakSeed of seed.breaks) {
-          let shiftBreak = await breakRepo.findOne({
+          const shiftBreak = await breakRepo.findOne({
             where: { shiftId: shift.id, name: breakSeed.name },
           });
           if (!shiftBreak) {
-            shiftBreak = breakRepo.create({
-              shiftId: shift.id,
-              name: breakSeed.name,
-            });
+            await breakRepo.save(
+              breakRepo.create({
+                shiftId: shift.id,
+                name: breakSeed.name,
+                breakType: breakSeed.breakType,
+                startTime: breakSeed.startTime,
+                endTime: breakSeed.endTime,
+                durationMinutes: breakSeed.durationMinutes,
+                isPaid: breakSeed.isPaid,
+              }),
+            );
+            createdBreakCount += 1;
           }
-          shiftBreak.breakType = breakSeed.breakType;
-          shiftBreak.startTime = breakSeed.startTime;
-          shiftBreak.endTime = breakSeed.endTime;
-          shiftBreak.durationMinutes = breakSeed.durationMinutes;
-          shiftBreak.isPaid = breakSeed.isPaid;
-
-          await breakRepo.save(shiftBreak);
         }
       }
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][Shifts] Upserted ${SHIFT_SEEDS.length} shifts for company "${company.name}"`,
+        `[Seeder][Shifts] Created ${createdShiftCount} new shifts (${SHIFT_SEEDS.length - createdShiftCount} already existed, left unchanged) and ${createdBreakCount} new breaks for company "${company.name}"`,
       );
     } catch (error) {
       await qr.rollbackTransaction();
