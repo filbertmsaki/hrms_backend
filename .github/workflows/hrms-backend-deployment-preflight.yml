@@ -1,0 +1,97 @@
+name: HRMS Backend Deployment Preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Server environment to validate
+        required: true
+        type: choice
+        options:
+          - uat
+          - production
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Validate ${{ inputs.environment }} deployment server
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: ${{ inputs.environment == 'uat' && 'hrms-backend-uat' || 'hrms-backend-production' }}
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER || 'alliance' }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+      TARGET_ENV: ${{ inputs.environment }}
+
+    steps:
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for value in DEPLOY_HOST DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS; do
+            [[ -n "${!value}" ]] || { echo "Missing $value."; exit 1; }
+          done
+          [[ "$DEPLOY_PORT" =~ ^[0-9]+$ ]]
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/id_ed25519" >/dev/null
+
+      - name: Validate server runtime and directory layout
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ "$TARGET_ENV" == 'uat' ]]; then
+            BASE_DIR='/opt/apps/hrms-v1/uat/backend'
+            APP_ENV='uat'
+            APP_PORT='9999'
+            PM2_APP_NAME='hrms-uat-api'
+          else
+            BASE_DIR='/opt/apps/hrms-v1/prod/backend'
+            APP_ENV='production'
+            APP_PORT='8888'
+            PM2_APP_NAME='hrms-prod-api'
+          fi
+
+          ssh -i "$HOME/.ssh/id_ed25519" -p "$DEPLOY_PORT" \
+            -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "DEPLOY_USER='$DEPLOY_USER' BASE_DIR='$BASE_DIR' APP_ENV='$APP_ENV' APP_PORT='$APP_PORT' PM2_APP_NAME='$PM2_APP_NAME' bash -s" <<'REMOTE'
+          set -Eeuo pipefail
+
+          [[ "$(whoami)" == "$DEPLOY_USER" ]]
+          node_major="$(node -p "process.versions.node.split('.')[0]")"
+          (( node_major >= 22 ))
+          command -v npm >/dev/null
+          command -v pm2 >/dev/null
+
+          for command in curl tar gzip flock find sort sha256sum install mktemp stat; do
+            command -v "$command" >/dev/null
+          done
+
+          for directory in "$BASE_DIR" "$BASE_DIR/releases" "$BASE_DIR/shared" "$BASE_DIR/shared/logs" "$BASE_DIR/tmp"; do
+            [[ -d "$directory" && -w "$directory" ]]
+          done
+
+          env_file="$BASE_DIR/shared/.env"
+          [[ -f "$env_file" && -r "$env_file" ]]
+          [[ "$(stat -c '%a' "$env_file")" == '600' ]]
+          grep -qx "APP_ENV=$APP_ENV" "$env_file"
+          grep -qx "APP_PORT=$APP_PORT" "$env_file"
+
+          if [[ -L "$BASE_DIR/current" ]]; then
+            pm2 describe "$PM2_APP_NAME" >/dev/null
+            curl --fail --silent --show-error "http://127.0.0.1:$APP_PORT/api/health/ready" >/dev/null
+          fi
+          REMOTE
+
+      - name: Clean deployment SSH key
+        if: always()
+        run: rm -f "$HOME/.ssh/id_ed25519"

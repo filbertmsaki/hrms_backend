@@ -1,4 +1,4 @@
-name: HRMS Backend CI
+name: HRMS Backend CI/CD
 
 on:
   push:
@@ -19,8 +19,7 @@ on:
       - 'eslint.config.mjs'
       - '.gitattributes'
       - '.github/workflows/hrms-backend-ci.yml'
-      - '.github/workflows/hrms-backend-deploy-uat.yml'
-      - '.github/workflows/hrms-backend-deploy-production.yml'
+      - '.github/workflows/hrms-backend-deployment-preflight.yml'
 
   pull_request:
     branches:
@@ -28,21 +27,27 @@ on:
       - main
 
   workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to deploy after a successful manual build
+        required: true
+        type: choice
+        options:
+          - uat
+          - production
 
 permissions:
   contents: read
 
-concurrency:
-  group: hrms-backend-ci-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-
   validate-and-package:
-
     name: Validate and package HRMS backend
 
     runs-on: ubuntu-latest
+
+    concurrency:
+      group: hrms-backend-ci-${{ github.ref }}
+      cancel-in-progress: true
 
     timeout-minutes: 30
 
@@ -71,19 +76,16 @@ jobs:
           --health-retries 5
 
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
-
 
       - name: Validate required files
         shell: bash
@@ -97,6 +99,8 @@ jobs:
             tsconfig.json
             tsconfig.build.json
             deploy/hrms-backend/deploy.sh
+            deploy/hrms-backend/stage-release.sh
+            deploy/hrms-backend/rollback.sh
             deploy/hrms-backend/ecosystem.config.js
           )
 
@@ -108,7 +112,6 @@ jobs:
             }
 
           done
-
 
       - name: Validate Linux line endings
         shell: bash
@@ -124,26 +127,21 @@ jobs:
 
           echo "deploy.sh uses LF line endings."
 
-
       - name: Validate deployment script
         shell: bash
         run: |
           set -Eeuo pipefail
 
           bash -n deploy/hrms-backend/deploy.sh
-
+          bash -n deploy/hrms-backend/stage-release.sh
+          bash -n deploy/hrms-backend/rollback.sh
 
       - name: Validate deploy executable mode
         shell: bash
         run: |
           set -Eeuo pipefail
 
-          MODE="$(
-            git ls-files \
-              --stage \
-              deploy/hrms-backend/deploy.sh \
-              | awk '{print $1}'
-          )"
+          MODE="$(git ls-files --stage deploy/hrms-backend/deploy.sh | awk '{print $1}')"
 
           echo "deploy.sh mode: $MODE"
 
@@ -152,19 +150,16 @@ jobs:
             exit 1
           }
 
-
       - name: Validate PM2 configuration
         run: |
           node --check \
             deploy/hrms-backend/ecosystem.config.js
-
 
       - name: Install dependencies
         run: |
           npm ci \
             --no-audit \
             --no-fund
-
 
       - name: Wait for PostgreSQL
         shell: bash
@@ -182,7 +177,6 @@ jobs:
 
           echo "PostgreSQL did not become ready in time."
           exit 1
-
 
       - name: Validate package scripts
         shell: bash
@@ -230,10 +224,8 @@ jobs:
 
           NODE
 
-
       - name: Lint
         run: npm run lint:check
-
 
       - name: Unit tests
         run: |
@@ -241,14 +233,11 @@ jobs:
             --runInBand \
             --passWithNoTests
 
-
       - name: Build backend
         run: npm run build
 
-
       - name: E2E tests
         run: npm run test:e2e
-
 
       - name: Validate compiled backend
         shell: bash
@@ -294,7 +283,6 @@ jobs:
             exit 1
           }
 
-
       - name: Validate compiled TypeORM paths
         shell: bash
         run: |
@@ -310,7 +298,6 @@ jobs:
           fi
 
           echo "Compiled datasource is release-safe."
-
 
       - name: Build release artifact
         if: github.event_name != 'pull_request'
@@ -353,12 +340,18 @@ jobs:
 
 
           cp \
+            deploy/hrms-backend/stage-release.sh \
+            "$RELEASE_DIR/deploy/hrms-backend/stage-release.sh"
+
+
+          cp \
             deploy/hrms-backend/ecosystem.config.js \
             "$RELEASE_DIR/deploy/hrms-backend/ecosystem.config.js"
 
 
           chmod 750 \
-            "$RELEASE_DIR/deploy/hrms-backend/deploy.sh"
+            "$RELEASE_DIR/deploy/hrms-backend/deploy.sh" \
+            "$RELEASE_DIR/deploy/hrms-backend/stage-release.sh"
 
 
           printf '%s\n' \
@@ -397,12 +390,10 @@ jobs:
             "$ARCHIVE" \
             "$CHECKSUM"
 
-
       - name: Upload backend artifact
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-
           name: hrms-backend-release-${{ github.sha }}
 
           path: |
@@ -414,3 +405,147 @@ jobs:
           retention-days: 14
 
           compression-level: 0
+
+  deploy:
+    name: Deploy HRMS backend
+
+    needs: validate-and-package
+
+    if: >-
+      needs.validate-and-package.result == 'success' &&
+      (
+        (github.event_name == 'push' && github.ref == 'refs/heads/uat') ||
+        (github.event_name == 'workflow_dispatch' &&
+         ((github.ref == 'refs/heads/uat' && inputs.environment == 'uat') ||
+          (github.ref == 'refs/heads/main' && inputs.environment == 'production')))
+      )
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 30
+
+    environment:
+      name: ${{ github.ref_name == 'uat' && 'hrms-backend-uat' || 'hrms-backend-production' }}
+
+    concurrency:
+      group: hrms-backend-${{ github.ref_name }}-deploy
+      cancel-in-progress: false
+
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER || 'alliance' }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+      KEEP_RELEASES: ${{ vars.KEEP_RELEASES || '3' }}
+
+    steps:
+      - name: Checkout deployment scripts
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Configure environment-specific deployment values
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          case "$GITHUB_REF_NAME" in
+            uat)
+              echo 'BASE_DIR=/opt/apps/hrms-v1/uat/backend' >> "$GITHUB_ENV"
+              echo 'PM2_APP_NAME=hrms-uat-api' >> "$GITHUB_ENV"
+              echo 'APP_ENV=uat' >> "$GITHUB_ENV"
+              echo 'APP_PORT=9999' >> "$GITHUB_ENV"
+              echo 'HEALTH_URL=http://127.0.0.1:9999/api/health/ready' >> "$GITHUB_ENV"
+              echo 'KEEP_RELEASES=3' >> "$GITHUB_ENV"
+              ;;
+            main)
+              echo 'BASE_DIR=/opt/apps/hrms-v1/prod/backend' >> "$GITHUB_ENV"
+              echo 'PM2_APP_NAME=hrms-prod-api' >> "$GITHUB_ENV"
+              echo 'APP_ENV=production' >> "$GITHUB_ENV"
+              echo 'APP_PORT=8888' >> "$GITHUB_ENV"
+              echo 'HEALTH_URL=http://127.0.0.1:8888/api/health/ready' >> "$GITHUB_ENV"
+              echo 'KEEP_RELEASES=5' >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "Unsupported deployment branch: $GITHUB_REF_NAME" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Download release artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: hrms-backend-release-${{ github.sha }}
+          path: ${{ runner.temp }}/hrms-backend-artifact
+
+      - name: Validate deployment configuration and artifact
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          for value in DEPLOY_HOST DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS; do
+            [[ -n "${!value}" ]] || { echo "Missing $value."; exit 1; }
+          done
+
+          [[ "$DEPLOY_PORT" =~ ^[0-9]+$ ]]
+          [[ "$KEEP_RELEASES" =~ ^[0-9]+$ ]]
+
+          cd "$RUNNER_TEMP/hrms-backend-artifact"
+          sha256sum --check hrms-backend-release.tar.gz.sha256
+
+      - name: Configure deployment SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/id_ed25519" >/dev/null
+
+      - name: Upload and deploy release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          RELEASE_ID="$GITHUB_SHA"
+          ARCHIVE="$RUNNER_TEMP/hrms-backend-artifact/hrms-backend-release.tar.gz"
+          REMOTE_ARCHIVE="$BASE_DIR/tmp/hrms-backend-$RELEASE_ID.tar.gz"
+          REMOTE_STAGE="$BASE_DIR/tmp/stage-hrms-backend-$RELEASE_ID.sh"
+
+          ssh -i "$HOME/.ssh/id_ed25519" -p "$DEPLOY_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "test \"\$(whoami)\" = '$DEPLOY_USER' && test -d '$BASE_DIR' && test -d '$BASE_DIR/releases' && test -d '$BASE_DIR/shared' && test -d '$BASE_DIR/tmp' && test -w '$BASE_DIR/tmp'"
+
+          scp -i "$HOME/.ssh/id_ed25519" -P "$DEPLOY_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$ARCHIVE" "$DEPLOY_USER@$DEPLOY_HOST:$REMOTE_ARCHIVE"
+
+          scp -i "$HOME/.ssh/id_ed25519" -P "$DEPLOY_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            deploy/hrms-backend/stage-release.sh "$DEPLOY_USER@$DEPLOY_HOST:$REMOTE_STAGE"
+
+          LOCAL_SHA="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
+          REMOTE_SHA="$(ssh -i "$HOME/.ssh/id_ed25519" -p "$DEPLOY_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" "sha256sum '$REMOTE_ARCHIVE' | awk '{print \$1}'")"
+          [[ "$LOCAL_SHA" == "$REMOTE_SHA" ]]
+
+          ssh -i "$HOME/.ssh/id_ed25519" -p "$DEPLOY_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "BASE_DIR='$BASE_DIR' PM2_APP_NAME='$PM2_APP_NAME' APP_ENV='$APP_ENV' APP_PORT='$APP_PORT' HEALTH_URL='$HEALTH_URL' KEEP_RELEASES='$KEEP_RELEASES' bash '$REMOTE_STAGE' '$RELEASE_ID' '$REMOTE_ARCHIVE'"
+
+      - name: Verify deployment
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i "$HOME/.ssh/id_ed25519" -p "$DEPLOY_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "curl --fail --silent --show-error '$HEALTH_URL' >/dev/null && pm2 status '$PM2_APP_NAME' && test \"\$(readlink -f '$BASE_DIR/current')\" = '$BASE_DIR/releases/$GITHUB_SHA'"
+
+      - name: Clean deployment SSH key
+        if: always()
+        run: rm -f "$HOME/.ssh/id_ed25519"

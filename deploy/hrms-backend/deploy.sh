@@ -51,9 +51,8 @@ rollback() {
   if [[ -n "$PREVIOUS_RELEASE" && -d "$PREVIOUS_RELEASE" ]]; then
     log "Rolling back to previous release: $PREVIOUS_RELEASE"
 
-    ln -sfn \
-      "$PREVIOUS_RELEASE" \
-      "$CURRENT_LINK"
+    ln -sfn "$PREVIOUS_RELEASE" "$CURRENT_LINK.next"
+    mv -Tf "$CURRENT_LINK.next" "$CURRENT_LINK"
 
     export BASE_DIR
     export PM2_APP_NAME
@@ -103,6 +102,9 @@ required_commands=(
   pm2
   curl
   flock
+  find
+  sort
+  awk
 )
 
 for command in "${required_commands[@]}"; do
@@ -212,11 +214,15 @@ APP_ENV="$APP_ENV" \
 npm run migration:run:built
 
 
+if [[ -n "$PREVIOUS_RELEASE" ]]; then
+  printf '%s\n' "$PREVIOUS_RELEASE" > "$SHARED_DIR/previous-release"
+fi
+
+
 log "Switching current release."
 
-ln -sfn \
-  "$RELEASE_DIR" \
-  "$CURRENT_LINK"
+ln -sfn "$RELEASE_DIR" "$CURRENT_LINK.next"
+mv -Tf "$CURRENT_LINK.next" "$CURRENT_LINK"
 
 CURRENT_SWITCHED=1
 

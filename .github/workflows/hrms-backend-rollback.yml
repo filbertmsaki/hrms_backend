@@ -1,0 +1,113 @@
+name: HRMS Backend Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to roll back
+        required: true
+        type: choice
+        options:
+          - uat
+          - production
+      release_id:
+        description: Optional full Git SHA. Leave blank to use the recorded previous release.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  rollback:
+    name: Roll back HRMS ${{ inputs.environment }}
+    if: >-
+      (inputs.environment == 'uat' && github.ref == 'refs/heads/uat') ||
+      (inputs.environment == 'production' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: ${{ inputs.environment == 'uat' && 'hrms-backend-uat' || 'hrms-backend-production' }}
+    concurrency:
+      group: hrms-backend-${{ inputs.environment }}-deploy
+      cancel-in-progress: false
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER || 'alliance' }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+      TARGET_ENV: ${{ inputs.environment }}
+      TARGET_RELEASE: ${{ inputs.release_id }}
+
+    steps:
+      - name: Checkout rollback script
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Configure environment-specific rollback values
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          case "$TARGET_ENV" in
+            uat)
+              echo 'BASE_DIR=/opt/apps/hrms-v1/uat/backend' >> "$GITHUB_ENV"
+              echo 'PM2_APP_NAME=hrms-uat-api' >> "$GITHUB_ENV"
+              echo 'APP_ENV=uat' >> "$GITHUB_ENV"
+              echo 'APP_PORT=9999' >> "$GITHUB_ENV"
+              echo 'HEALTH_URL=http://127.0.0.1:9999/api/health/ready' >> "$GITHUB_ENV"
+              ;;
+            production)
+              echo 'BASE_DIR=/opt/apps/hrms-v1/prod/backend' >> "$GITHUB_ENV"
+              echo 'PM2_APP_NAME=hrms-prod-api' >> "$GITHUB_ENV"
+              echo 'APP_ENV=production' >> "$GITHUB_ENV"
+              echo 'APP_PORT=8888' >> "$GITHUB_ENV"
+              echo 'HEALTH_URL=http://127.0.0.1:8888/api/health/ready' >> "$GITHUB_ENV"
+              ;;
+          esac
+
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for value in DEPLOY_HOST DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS; do
+            [[ -n "${!value}" ]] || { echo "Missing $value."; exit 1; }
+          done
+          [[ "$DEPLOY_PORT" =~ ^[0-9]+$ ]]
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
+
+      - name: Roll back release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          REMOTE_SCRIPT="$BASE_DIR/tmp/hrms-rollback-$GITHUB_RUN_ID.sh"
+
+          echo "REMOTE_SCRIPT=$REMOTE_SCRIPT" >> "$GITHUB_ENV"
+
+          scp -i "$HOME/.ssh/id_ed25519" -P "$DEPLOY_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            deploy/hrms-backend/rollback.sh "$DEPLOY_USER@$DEPLOY_HOST:$REMOTE_SCRIPT"
+
+          ssh -i "$HOME/.ssh/id_ed25519" -p "$DEPLOY_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "BASE_DIR='$BASE_DIR' PM2_APP_NAME='$PM2_APP_NAME' APP_ENV='$APP_ENV' APP_PORT='$APP_PORT' HEALTH_URL='$HEALTH_URL' bash '$REMOTE_SCRIPT' '$TARGET_RELEASE'"
+
+      - name: Clean remote rollback script
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          ssh -i "$HOME/.ssh/id_ed25519" -p "$DEPLOY_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "rm -f '$REMOTE_SCRIPT'"
+
+      - name: Clean rollback SSH key
+        if: always()
+        run: rm -f "$HOME/.ssh/id_ed25519"
