@@ -260,10 +260,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     const requiresPasswordChange =
-      await this.usersService.hasPendingImportedPasswordChange(
+      user.must_set_password ||
+      (await this.usersService.hasPendingImportedPasswordChange(
         user.id,
         payload.companyId,
-      );
+      ));
     if (requiresPasswordChange && !this.isPasswordChangeAllowedRoute(req)) {
       throw new UnauthorizedException(
         'You must change your temporary password before continuing.',

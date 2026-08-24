@@ -405,3 +405,54 @@ describe('UsersService employee import provisioning', () => {
     expect(result.membership.user_id).toBe(81);
   });
 });
+
+describe('UsersService administrator password resets', () => {
+  it('resets a company user password, requires a change, and revokes sessions', async () => {
+    const userRepository = {
+      update: jest.fn().mockResolvedValue(undefined),
+      createQueryBuilder: jest.fn().mockReturnValue({
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue(undefined),
+      }),
+      manager: { getRepository: jest.fn() },
+    } as unknown as Repository<User>;
+    const companiesService = {
+      findCompanyUserContext: jest.fn().mockResolvedValue({}),
+    } as unknown as CompaniesService;
+    const authSessionsService = {
+      revokeAllSessionsForUser: jest.fn().mockResolvedValue(undefined),
+    } as unknown as AuthSessionsService;
+    const service = new UsersService(
+      userRepository,
+      {} as Repository<Employee>,
+      {} as Repository<Role>,
+      {} as Repository<Permission>,
+      companiesService,
+      {} as DefaultAvatarsService,
+      authSessionsService,
+      {} as ConfigService,
+    );
+
+    const result = await service.resetPasswordInCompany(
+      7,
+      12,
+      'N3wP@ssw0rd#2026',
+    );
+
+    expect(companiesService.findCompanyUserContext).toHaveBeenCalledWith(7, 12);
+    expect(userRepository.update).toHaveBeenCalledWith(
+      12,
+      expect.objectContaining({
+        password: expect.any(String),
+        must_set_password: true,
+      }),
+    );
+    expect(authSessionsService.revokeAllSessionsForUser).toHaveBeenCalledWith(
+      12,
+      'all_sessions_revoked',
+    );
+    expect(result.message).toContain('must change');
+  });
+});

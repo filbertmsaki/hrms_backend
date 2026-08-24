@@ -1111,6 +1111,25 @@ export class UsersService {
     };
   }
 
+  async resetPasswordInCompany(
+    companyId: number,
+    userId: number,
+    newPassword: string,
+  ): Promise<{ message: string }> {
+    await this.companiesService.findCompanyUserContext(companyId, userId);
+
+    await this.userRepository.update(userId, {
+      password: await hashPassword(newPassword),
+      must_set_password: true,
+    });
+    await this.revokeAllSessions(userId);
+
+    return {
+      message:
+        'Password reset successfully. The user must change their temporary password after logging in.',
+    };
+  }
+
   async updateVerificationToken(
     userId: number,
     token: string,

@@ -36,6 +36,7 @@ import { TwoFaService } from '../auth/2fa/2fa.service';
 import { Verify2FaDto } from '../auth/2fa/dto/verify-2fa.dto';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { ChangePasswordDto } from './dtos/change-password.dto';
+import { AdminResetUserPasswordDto } from './dtos/admin-reset-user-password.dto';
 import { CreateUserDto } from './dtos/create-user.dto';
 import { UpdateUserDto } from './dtos/update-user.dto';
 import { UsersService } from './users.service';
@@ -255,6 +256,30 @@ export class UsersController {
     return this.usersService.findAllPaginatedInCompany(
       req.user.companyId!,
       query,
+    );
+  }
+
+  @Post(':id/reset-password')
+  @UseGuards(PermissionsGuard)
+  @Permissions('users:update')
+  @ApiOperationSummary(
+    'Reset a user password',
+    'Sets a temporary password for a user in the active company, revokes active sessions, and requires a password change after the next login.',
+    'Users_adminResetPassword',
+  )
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiNotFoundResponse('User')
+  @ApiSuccessResponse(200, 'User password reset successfully')
+  async resetPassword(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AdminResetUserPasswordDto,
+  ) {
+    return this.usersService.resetPasswordInCompany(
+      req.user.companyId!,
+      id,
+      dto.new_password,
     );
   }
 
