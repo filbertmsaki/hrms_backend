@@ -63,7 +63,7 @@ export class NotificationsGateway
     OnModuleDestroy
 {
   private readonly logger = new Logger(NotificationsGateway.name);
-  private readonly redisChannel = 'hrms:notifications:realtime';
+  private readonly redisChannel: string;
   private publisher: RedisClientType | null = null;
   private subscriber: RedisClientType | null = null;
   private readonly redisEnabled: boolean;
@@ -80,6 +80,11 @@ export class NotificationsGateway
     private readonly usersService: UsersService,
   ) {
     this.redisEnabled = this.getBooleanConfig('USE_REDIS', false);
+    const appEnv =
+      this.configService.get<string>('APP_ENV')?.trim() || 'production';
+    this.redisChannel =
+      this.configService.get<string>('REDIS_NOTIFICATION_CHANNEL')?.trim() ||
+      `hrms:${appEnv}:notifications:realtime`;
   }
 
   private getBooleanConfig(key: string, defaultValue: boolean): boolean {
