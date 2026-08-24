@@ -1631,23 +1631,9 @@ export class AuthService {
   }
 
   /**
-   * Enforces a single active session per account: called only from genuine
-   * login entry points (password login, 2FA-completed login) - never from
-   * token refresh or switchCompany's legacy sessionId-less fallback, both
-   * of which also create a session via persistNewSession but are
-   * reusing/extending access rather than starting a fresh login, and must
-   * not surprise a user by logging out their other devices on a mere
-   * refresh.
-   *
-   * Revoking the prior active session(s) and creating the new one happen in
-   * one DB transaction (AuthSessionsService.replaceActiveSession), so two
-   * near-simultaneous logins can't both end up active - see the partial
-   * unique index on auth_sessions(user_id) WHERE revoked_at IS NULL for the
-   * DB-level backstop. Does not touch auth_token_version - JwtStrategy
-   * independently checks each access token's sessionId against an active
-   * AuthSession row on every request, so revoking the session rows alone
-   * blocks prior tokens on their very next request, without invalidating
-   * the brand-new token being issued in this same call.
+   * Each login receives its own session so a user can stay signed in on
+   * multiple devices. Session-wide revocation remains reserved for explicit
+   * logout-all and password/security events.
    */
   private async persistLoginSession(
     user: User,
@@ -1658,30 +1644,15 @@ export class AuthService {
     context?: AuditRequestContext | null,
     companyId?: number | null,
   ): Promise<void> {
-    const { replacedCount } =
-      await this.authSessionsService.replaceActiveSession({
-        sessionId: sessionContext.sessionId,
-        userId: user.id,
-        companyId: companyId ?? null,
-        scope,
-        userType,
-        refreshExpiresAt: new Date(refreshExpiresAt),
-        context,
-      });
-
-    if (replacedCount > 0) {
-      await this.logSecurityEvent(
-        SecurityEventType.SESSIONS_REVOKED,
-        SecurityEventOutcome.SUCCESS,
-        {
-          authenticatedUser: user,
-          companyId: companyId ?? null,
-          context,
-          reason: SESSION_REPLACED_REASON,
-          metadata: { replacedCount },
-        },
-      );
-    }
+    await this.authSessionsService.createSession({
+      sessionId: sessionContext.sessionId,
+      userId: user.id,
+      companyId: companyId ?? null,
+      scope,
+      userType,
+      refreshExpiresAt: new Date(refreshExpiresAt),
+      context,
+    });
   }
 
   private async refreshExistingSession(

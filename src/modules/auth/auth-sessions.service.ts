@@ -10,10 +10,8 @@ import {
 import { AuthSession } from './entities/auth-session.entity';
 
 /**
- * Revocation reason set when a fresh login replaces the account's prior
- * active session (single-concurrent-session policy). Kept as a named
- * constant so JwtStrategy can recognize this specific case and surface a
- * SESSION_REPLACED code instead of a generic "revoked" error.
+ * Retained for sessions created before multi-device login was enabled, so
+ * JwtStrategy can still report their specific revocation reason.
  */
 export const SESSION_REPLACED_REASON = 'SESSION_REPLACED';
 
@@ -154,17 +152,8 @@ export class AuthSessionsService {
   }
 
   /**
-   * Atomically enforces "at most one active session per account": revokes
-   * every other active session for this user and creates the new one in a
-   * single transaction, so two near-simultaneous logins can't both end up
-   * active (Postgres serializes the second transaction's UPDATE behind the
-   * first's row locks on the same user_id). A partial unique index on
-   * auth_sessions(user_id) WHERE revoked_at IS NULL is the DB-level backstop
-   * in case application logic ever regresses to a non-atomic replace.
-   *
-   * Returns the new session plus how many prior sessions were replaced, so
-   * callers can skip audit logging when there was nothing to replace (e.g.
-   * a user's very first login).
+   * Legacy helper for an explicit single-session policy. Normal logins now
+   * call createSession so users can stay signed in on multiple devices.
    */
   async replaceActiveSession(
     input: CreateAuthSessionInput,

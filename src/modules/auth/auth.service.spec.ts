@@ -225,7 +225,8 @@ describe('AuthService', () => {
     );
     expect(result.access_token).toBe('access-token');
     expect(result.refresh_token).toBe('refresh-token');
-    expect(authSessionsService.replaceActiveSession).toHaveBeenCalled();
+    expect(authSessionsService.createSession).toHaveBeenCalled();
+    expect(authSessionsService.replaceActiveSession).not.toHaveBeenCalled();
     expect(result.user).toEqual({
       id: 9,
       email: 'staff@example.com',
