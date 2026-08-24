@@ -3222,6 +3222,7 @@ export class EmployeesService {
       .addSelect('employee.profile_photo_url', 'uploadedProfilePhotoUrl')
       .addSelect('employee.profile_image_source', 'storedProfileImageSource')
       .addSelect('employee.default_avatar_id', 'defaultAvatarId')
+      .addSelect('user.id', 'userId')
       .addSelect('user.email', 'email')
       .addSelect('user.phone', 'phone')
       .addSelect('branch.name', 'branchName')
