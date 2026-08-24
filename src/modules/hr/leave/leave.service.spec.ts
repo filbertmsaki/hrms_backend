@@ -809,6 +809,8 @@ describe('LeaveService', () => {
       localActor,
     );
 
+    expect(idsQb.orderBy).toHaveBeenCalledWith('"sortValue"', 'DESC');
+
     expect(result.data).toHaveLength(1);
     expect(result.data[0].employee).toEqual(
       expect.objectContaining({

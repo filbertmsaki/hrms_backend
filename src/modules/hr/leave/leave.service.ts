@@ -2833,7 +2833,7 @@ export class LeaveService {
       .select('leaveBalance.employee_id', 'employeeId')
       .addSelect(`MAX(leaveBalance.${safeSortBy})`, 'sortValue')
       .groupBy('leaveBalance.employee_id')
-      .orderBy('sortValue', direction)
+      .orderBy('"sortValue"', direction)
       .offset(skip)
       .limit(limit)
       .getRawMany<{ employeeId: string; sortValue: string }>();
