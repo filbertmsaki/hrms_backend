@@ -12,7 +12,6 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'scripts/**'
-      - '.husky/**'
       - 'nest-cli.json'
       - 'tsconfig.json'
       - 'tsconfig.build.json'
