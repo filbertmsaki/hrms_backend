@@ -1,15 +1,12 @@
 #!/usr/bin/env bash
-
 set -Eeuo pipefail
+umask 027
 
-# Run once per environment as root. Normal CI/CD deployments use no sudo.
-
-DEPLOY_USER="${DEPLOY_USER:-alliance}"
-BASE_DIR="${BASE_DIR:?Set BASE_DIR, for example /opt/apps/hrms-v1/uat/backend}"
-REQUIRED_NODE_MAJOR="${REQUIRED_NODE_MAJOR:-22}"
+DEPLOY_USER="${DEPLOY_USER:-hrms-deploy}"
+APP_ROOT="${APP_ROOT:-/opt/apps/hrms-v2}"
 
 [[ "$EUID" -eq 0 ]] || {
-  echo 'Run this server setup script as root or through sudo.' >&2
+  echo 'Run once with sudo/root.' >&2
   exit 1
 }
 
@@ -18,17 +15,29 @@ id "$DEPLOY_USER" >/dev/null 2>&1 || {
   exit 1
 }
 
+if id -nG "$DEPLOY_USER" \
+  | tr ' ' '\n' \
+  | grep -qxE 'sudo|wheel'; then
+  echo "$DEPLOY_USER must not belong to sudo/wheel." >&2
+  exit 1
+fi
+
 apt-get update
-apt-get install -y ca-certificates curl gzip make g++ postgresql-client python3 tar util-linux
+
+apt-get install -y \
+  ca-certificates \
+  curl \
+  git \
+  gzip \
+  make \
+  g++ \
+  postgresql-client \
+  python3 \
+  tar \
+  util-linux
 
 command -v node >/dev/null || {
-  echo "Install Node.js $REQUIRED_NODE_MAJOR or later before continuing." >&2
-  exit 1
-}
-
-NODE_MAJOR="$(node -p "process.versions.node.split('.')[0]")"
-(( NODE_MAJOR >= REQUIRED_NODE_MAJOR )) || {
-  echo "Node.js $REQUIRED_NODE_MAJOR or later is required." >&2
+  echo 'Node.js is required.' >&2
   exit 1
 }
 
@@ -37,43 +46,106 @@ command -v npm >/dev/null || {
   exit 1
 }
 
-command -v pm2 >/dev/null || npm install -g pm2
-
-DEPLOY_HOME="$(getent passwd "$DEPLOY_USER" | cut -d: -f6)"
-
-[[ -n "$DEPLOY_HOME" && -d "$DEPLOY_HOME" ]] || {
-  echo "Could not determine home directory for $DEPLOY_USER." >&2
+command -v pm2 >/dev/null || {
+  echo 'PM2 is required.' >&2
   exit 1
 }
 
-for directory in \
-  "$BASE_DIR" \
-  "$BASE_DIR/releases" \
-  "$BASE_DIR/shared" \
-  "$BASE_DIR/shared/backups" \
-  "$BASE_DIR/shared/logs" \
-  "$BASE_DIR/tmp"; do
-  install -d -o "$DEPLOY_USER" -g "$DEPLOY_USER" -m 0755 "$directory"
+NODE_MAJOR="$(
+  node -p "process.versions.node.split('.')[0]"
+)"
+
+(( NODE_MAJOR >= 22 )) || {
+  echo 'Node.js 22+ is required.' >&2
+  exit 1
+}
+
+install \
+  -d \
+  -o "$DEPLOY_USER" \
+  -g "$DEPLOY_USER" \
+  -m 0750 \
+  "$APP_ROOT"
+
+for env_name in prod uat; do
+  base="$APP_ROOT/$env_name/backend"
+
+  install \
+    -d \
+    -o "$DEPLOY_USER" \
+    -g "$DEPLOY_USER" \
+    -m 0750 \
+    "$APP_ROOT/$env_name" \
+    "$base" \
+    "$base/releases" \
+    "$base/shared" \
+    "$base/shared/logs" \
+    "$base/shared/storage" \
+    "$base/shared/storage/public"
+
+  install \
+    -d \
+    -o "$DEPLOY_USER" \
+    -g "$DEPLOY_USER" \
+    -m 0700 \
+    "$base/shared/storage/private" \
+    "$base/shared/backups" \
+    "$base/shared/backups/database" \
+    "$base/tmp"
+
+  if [[ ! -f "$base/shared/.env" ]]; then
+    install \
+      -o "$DEPLOY_USER" \
+      -g "$DEPLOY_USER" \
+      -m 0600 \
+      /dev/null \
+      "$base/shared/.env"
+  else
+    chown \
+      "$DEPLOY_USER:$DEPLOY_USER" \
+      "$base/shared/.env"
+
+    chmod 0600 \
+      "$base/shared/.env"
+  fi
 done
 
-ENV_FILE="$BASE_DIR/shared/.env"
+DEPLOY_HOME="$(
+  getent passwd "$DEPLOY_USER" |
+  cut -d: -f6
+)"
 
-if [[ ! -f "$ENV_FILE" ]]; then
-  install -o "$DEPLOY_USER" -g "$DEPLOY_USER" -m 0600 /dev/null "$ENV_FILE"
-else
-  chown "$DEPLOY_USER:$DEPLOY_USER" "$ENV_FILE"
-  chmod 0600 "$ENV_FILE"
-fi
+[[ -n "$DEPLOY_HOME" &&
+  -d "$DEPLOY_HOME" ]] || {
+  echo 'Could not determine deploy home.' >&2
+  exit 1
+}
 
-chown -R "$DEPLOY_USER:$DEPLOY_USER" "$BASE_DIR"
-chmod 0600 "$ENV_FILE"
+install \
+  -d \
+  -o "$DEPLOY_USER" \
+  -g "$DEPLOY_USER" \
+  -m 0700 \
+  "$DEPLOY_HOME/.ssh"
 
-runuser -u "$DEPLOY_USER" -- node --version
-runuser -u "$DEPLOY_USER" -- npm --version
-runuser -u "$DEPLOY_USER" -- pm2 --version
+touch \
+  "$DEPLOY_HOME/.ssh/authorized_keys"
 
-# PM2 uses this systemd unit to restore the process list saved by deploy.sh.
-pm2 startup systemd -u "$DEPLOY_USER" --hp "$DEPLOY_HOME"
-runuser -u "$DEPLOY_USER" -- pm2 install pm2-logrotate
+chown \
+  "$DEPLOY_USER:$DEPLOY_USER" \
+  "$DEPLOY_HOME/.ssh/authorized_keys"
 
-echo "Server setup complete for $BASE_DIR"
+chmod 0600 \
+  "$DEPLOY_HOME/.ssh/authorized_keys"
+
+chown \
+  -R \
+  "$DEPLOY_USER:$DEPLOY_USER" \
+  "$APP_ROOT"
+
+echo 'Server directory setup complete.'
+echo "Deployment user: $DEPLOY_USER"
+echo "Application root: $APP_ROOT"
+echo
+echo 'Do not configure PM2 systemd startup until at least one'
+echo 'application has been started and saved by PM2.'
