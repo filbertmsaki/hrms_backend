@@ -1840,7 +1840,7 @@ export class AnalyticsDashboardService {
       this.dataSource,
       `SELECT COUNT(*) AS published_reviews, COALESCE(AVG(final_score), 0) AS average_score
        FROM performance_reviews review
-       WHERE review.company_id = $1 AND review.status = 'PUBLISHED' AND review.updated_at::date BETWEEN $2 AND $3${scopedWhere}`,
+       WHERE review.company_id = $1 AND review.status = 'PUBLISHED' AND review.published_at::date BETWEEN $2 AND $3${scopedWhere}`,
       params,
     );
     return {

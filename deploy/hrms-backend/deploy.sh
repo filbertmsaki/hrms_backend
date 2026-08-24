@@ -7,10 +7,12 @@ RELEASE_ID="${1:?usage: deploy.sh <release-id>}"
 BASE_DIR="${BASE_DIR:?Set BASE_DIR}"
 PM2_APP_NAME="${PM2_APP_NAME:?Set PM2_APP_NAME}"
 APP_ENV="${APP_ENV:?Set APP_ENV}"
+APP_HOST="${APP_HOST:?Set APP_HOST}"
 APP_PORT="${APP_PORT:?Set APP_PORT}"
 HEALTH_URL="${HEALTH_URL:?Set HEALTH_URL}"
 
 KEEP_RELEASES="${KEEP_RELEASES:-3}"
+BACKUP_BEFORE_MIGRATION="${BACKUP_BEFORE_MIGRATION:-false}"
 
 RELEASES_DIR="$BASE_DIR/releases"
 RELEASE_DIR="$RELEASES_DIR/$RELEASE_ID"
@@ -31,6 +33,19 @@ log() {
   printf '[%s] %s\n' \
     "$(date '+%F %T')" \
     "$*"
+}
+
+
+require_package_script() {
+  local script_name="${1:?Set script_name}"
+
+  if ! node -e "
+const pkg = require('./package.json');
+process.exit(pkg.scripts?.['$script_name'] ? 0 : 1);
+"; then
+    log "Missing required package script: $script_name"
+    exit 1
+  fi
 }
 
 
@@ -57,6 +72,7 @@ rollback() {
     export BASE_DIR
     export PM2_APP_NAME
     export APP_ENV
+    export APP_HOST
     export APP_PORT
 
     pm2 startOrReload \
@@ -94,6 +110,15 @@ if [[ ! "$RELEASE_ID" =~ ^[0-9a-fA-F]{40}$ ]]; then
   log "Expected full 40-character Git SHA."
   exit 1
 fi
+
+case "$BACKUP_BEFORE_MIGRATION" in
+  true|false)
+    ;;
+  *)
+    log "BACKUP_BEFORE_MIGRATION must be 'true' or 'false'."
+    exit 1
+    ;;
+esac
 
 
 required_commands=(
@@ -195,15 +220,16 @@ npm ci \
   --no-fund
 
 
-if ! node -e "
-const pkg = require('./package.json');
+require_package_script 'migration:run:built'
 
-if (!pkg.scripts?.['migration:run:built']) {
-  process.exit(1);
-}
-"; then
-  log "migration:run:built is missing."
-  exit 1
+if [[ "$BACKUP_BEFORE_MIGRATION" == "true" ]]; then
+  require_package_script 'db:backup:built'
+
+  log "Creating database backup before migrations."
+
+  NODE_ENV=production \
+  APP_ENV="$APP_ENV" \
+  npm run db:backup:built
 fi
 
 
@@ -230,6 +256,7 @@ CURRENT_SWITCHED=1
 export BASE_DIR
 export PM2_APP_NAME
 export APP_ENV
+export APP_HOST
 export APP_PORT
 
 

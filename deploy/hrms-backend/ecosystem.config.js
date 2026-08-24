@@ -15,6 +15,7 @@ function requiredEnv(name) {
 const baseDir = requiredEnv('BASE_DIR');
 const appName = requiredEnv('PM2_APP_NAME');
 const appEnv = requiredEnv('APP_ENV');
+const appHost = requiredEnv('APP_HOST');
 const appPort = requiredEnv('APP_PORT');
 
 const maxMemory =
@@ -39,6 +40,12 @@ module.exports = {
       cwd: `${baseDir}/current`,
       script: 'dist/main.js',
 
+      /*
+       * Keep one instance because HRMS contains scheduled/background jobs.
+       *
+       * Do not switch to cluster mode until scheduled jobs have proper
+       * distributed locking or are moved to a dedicated worker.
+       */
       instances: 1,
       exec_mode: 'fork',
 
@@ -58,12 +65,13 @@ module.exports = {
         NODE_ENV: 'production',
         APP_ENV: appEnv,
 
+        APP_HOST: appHost,
         APP_PORT: appPort,
         PORT: appPort,
 
         NODE_OPTIONS: nodeOptions,
 
-        TZ: 'Africa/Dar_es_Salaam',
+        TZ: process.env.TZ || 'Africa/Dar_es_Salaam',
       },
 
       out_file: `${logDir}/${appName}-out.log`,

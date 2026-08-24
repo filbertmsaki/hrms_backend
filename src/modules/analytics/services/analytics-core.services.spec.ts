@@ -1,4 +1,5 @@
 import {
+  AnalyticsDashboardService,
   AnalyticsReconciliationService,
   AnalyticsSnapshotService,
 } from './analytics-core.services';
@@ -112,5 +113,34 @@ describe('AnalyticsSnapshotService.loadEmployeeFinance', () => {
     );
     expect(financeRepository.upsert).toHaveBeenCalled();
     expect(result).toEqual({ source_count: 1, upserted: 1 });
+  });
+});
+
+describe('AnalyticsDashboardService performance aggregation', () => {
+  it('filters published reviews by their published timestamp', async () => {
+    const dataSource = {
+      query: jest
+        .fn()
+        .mockResolvedValue([{ published_reviews: '2', average_score: '82.5' }]),
+    };
+    const service = { dataSource };
+
+    await AnalyticsDashboardService.prototype['performance'].call(
+      service,
+      {
+        companyId: 1,
+        employeeIds: null,
+        branchId: null,
+        departmentId: null,
+        employeeId: null,
+        scopeHash: 'company:1',
+      },
+      { dateFrom: '2026-08-01', dateTo: '2026-08-31' },
+    );
+
+    expect(dataSource.query).toHaveBeenCalledWith(
+      expect.stringContaining('review.published_at::date BETWEEN $2 AND $3'),
+      [1, '2026-08-01', '2026-08-31'],
+    );
   });
 });

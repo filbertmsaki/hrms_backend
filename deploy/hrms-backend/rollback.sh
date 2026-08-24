@@ -7,6 +7,7 @@ TARGET_ID="${1:-}"
 BASE_DIR="${BASE_DIR:?Set BASE_DIR}"
 PM2_APP_NAME="${PM2_APP_NAME:?Set PM2_APP_NAME}"
 APP_ENV="${APP_ENV:?Set APP_ENV}"
+APP_HOST="${APP_HOST:?Set APP_HOST}"
 APP_PORT="${APP_PORT:?Set APP_PORT}"
 HEALTH_URL="${HEALTH_URL:?Set HEALTH_URL}"
 
@@ -91,7 +92,7 @@ log "Rolling back from $CURRENT_RELEASE to $TARGET_RELEASE"
 ln -sfn "$TARGET_RELEASE" "$CURRENT_LINK.next"
 mv -Tf "$CURRENT_LINK.next" "$CURRENT_LINK"
 
-export BASE_DIR PM2_APP_NAME APP_ENV APP_PORT
+export BASE_DIR PM2_APP_NAME APP_ENV APP_HOST APP_PORT
 pm2 startOrReload "$SHARED_DIR/ecosystem.config.js" --only "$PM2_APP_NAME" --update-env
 
 if ! health_check; then

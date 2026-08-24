@@ -24,7 +24,13 @@ jobs:
     if: >-
       (inputs.environment == 'uat' && github.ref == 'refs/heads/uat') ||
       (inputs.environment == 'production' && github.ref == 'refs/heads/main')
-    runs-on: ubuntu-latest
+    runs-on:
+      - self-hosted
+      - Linux
+      - X64
+      - hrms
+      - backend
+      - deployment
     timeout-minutes: 20
     environment:
       name: ${{ inputs.environment == 'uat' && 'hrms-backend-uat' || 'hrms-backend-production' }}
@@ -35,10 +41,16 @@ jobs:
       DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
       DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
       DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-      DEPLOY_USER: ${{ vars.DEPLOY_USER || 'alliance' }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
       DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
       TARGET_ENV: ${{ inputs.environment }}
       TARGET_RELEASE: ${{ inputs.release_id }}
+      BASE_DIR: ${{ vars.BASE_DIR }}
+      PM2_APP_NAME: ${{ vars.PM2_APP_NAME }}
+      APP_ENV: ${{ vars.APP_ENV }}
+      APP_HOST: ${{ vars.APP_HOST }}
+      APP_PORT: ${{ vars.APP_PORT }}
+      HEALTH_PATH: ${{ vars.HEALTH_PATH || '/api/health/ready' }}
 
     steps:
       - name: Checkout rollback script
@@ -47,39 +59,45 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Configure environment-specific rollback values
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          case "$TARGET_ENV" in
-            uat)
-              echo 'BASE_DIR=/opt/apps/hrms-v1/uat/backend' >> "$GITHUB_ENV"
-              echo 'PM2_APP_NAME=hrms-uat-api' >> "$GITHUB_ENV"
-              echo 'APP_ENV=uat' >> "$GITHUB_ENV"
-              echo 'APP_PORT=9999' >> "$GITHUB_ENV"
-              echo 'HEALTH_URL=http://127.0.0.1:9999/api/health/ready' >> "$GITHUB_ENV"
-              ;;
-            production)
-              echo 'BASE_DIR=/opt/apps/hrms-v1/prod/backend' >> "$GITHUB_ENV"
-              echo 'PM2_APP_NAME=hrms-prod-api' >> "$GITHUB_ENV"
-              echo 'APP_ENV=production' >> "$GITHUB_ENV"
-              echo 'APP_PORT=8888' >> "$GITHUB_ENV"
-              echo 'HEALTH_URL=http://127.0.0.1:8888/api/health/ready' >> "$GITHUB_ENV"
-              ;;
-          esac
-
       - name: Configure SSH
         shell: bash
         run: |
           set -Eeuo pipefail
-          for value in DEPLOY_HOST DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS; do
+          for value in \
+            DEPLOY_HOST \
+            DEPLOY_SSH_KEY \
+            DEPLOY_KNOWN_HOSTS \
+            DEPLOY_USER \
+            BASE_DIR \
+            PM2_APP_NAME \
+            APP_ENV \
+            APP_HOST \
+            APP_PORT \
+            HEALTH_PATH; do
             [[ -n "${!value}" ]] || { echo "Missing $value."; exit 1; }
           done
           [[ "$DEPLOY_PORT" =~ ^[0-9]+$ ]]
+          [[ "$APP_PORT" =~ ^[0-9]+$ ]]
+
+          case "$TARGET_ENV" in
+            uat)
+              [[ "$APP_ENV" == 'uat' ]]
+              ;;
+            production)
+              [[ "$APP_ENV" == 'production' ]]
+              ;;
+            *)
+              echo "Unsupported target environment: $TARGET_ENV" >&2
+              exit 1
+              ;;
+          esac
+
           install -d -m 700 "$HOME/.ssh"
           printf '%s\n' "$DEPLOY_SSH_KEY" > "$HOME/.ssh/id_ed25519"
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
+
+          echo "HEALTH_URL=http://127.0.0.1:${APP_PORT}${HEALTH_PATH}" >> "$GITHUB_ENV"
 
       - name: Roll back release
         shell: bash
@@ -96,7 +114,7 @@ jobs:
           ssh -i "$HOME/.ssh/id_ed25519" -p "$DEPLOY_PORT" \
             -o BatchMode=yes -o StrictHostKeyChecking=yes \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            "BASE_DIR='$BASE_DIR' PM2_APP_NAME='$PM2_APP_NAME' APP_ENV='$APP_ENV' APP_PORT='$APP_PORT' HEALTH_URL='$HEALTH_URL' bash '$REMOTE_SCRIPT' '$TARGET_RELEASE'"
+            "BASE_DIR='$BASE_DIR' PM2_APP_NAME='$PM2_APP_NAME' APP_ENV='$APP_ENV' APP_HOST='$APP_HOST' APP_PORT='$APP_PORT' HEALTH_URL='$HEALTH_URL' bash '$REMOTE_SCRIPT' '$TARGET_RELEASE'"
 
       - name: Clean remote rollback script
         if: always()
