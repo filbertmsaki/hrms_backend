@@ -13,6 +13,12 @@ import { UsersService } from './users.service';
 
 describe('UsersService avatar management', () => {
   let service: UsersService;
+  let userRepository: {
+    findOne: jest.Mock;
+    manager: {
+      getRepository: jest.Mock;
+    };
+  };
   let employeeRepository: {
     findOne: jest.Mock;
     save: jest.Mock;
@@ -22,6 +28,12 @@ describe('UsersService avatar management', () => {
   };
 
   beforeEach(() => {
+    userRepository = {
+      findOne: jest.fn(),
+      manager: {
+        getRepository: jest.fn(),
+      },
+    };
     employeeRepository = {
       findOne: jest.fn(),
       save: jest.fn().mockResolvedValue(undefined),
@@ -31,11 +43,7 @@ describe('UsersService avatar management', () => {
     };
 
     service = new UsersService(
-      {
-        manager: {
-          getRepository: jest.fn(),
-        },
-      } as unknown as Repository<User>,
+      userRepository as unknown as Repository<User>,
       employeeRepository as unknown as Repository<Employee>,
       {} as Repository<Role>,
       {} as Repository<Permission>,
@@ -44,6 +52,17 @@ describe('UsersService avatar management', () => {
       {} as AuthSessionsService,
       {} as ConfigService,
     );
+  });
+
+  it('loads role permissions when resolving a user for request authorization', async () => {
+    userRepository.findOne.mockResolvedValue({ id: 1 } as User);
+
+    await service.findById(1);
+
+    expect(userRepository.findOne).toHaveBeenCalledWith({
+      where: { id: 1 },
+      relations: ['roles', 'roles.permissions', 'permissions'],
+    });
   });
 
   it('lets a user select an avatar for themselves without changing the uploaded profile picture', async () => {

@@ -92,7 +92,8 @@ export class UsersService {
   private async findOrFail(id: number): Promise<User> {
     const user = await this.userRepository.findOne({
       where: { id },
-      relations: ['roles', 'permissions'],
+      // Guards evaluate inherited permissions on every authenticated request.
+      relations: ['roles', 'roles.permissions', 'permissions'],
     });
 
     if (!user) {
