@@ -55,7 +55,6 @@ export class CompaniesController {
     return this.companiesService.findAllCompanies();
   }
 
-  @UseGuards(TenantGuard)
   @Get('my')
   @ApiOperationSummary(
     'List my accessible companies',

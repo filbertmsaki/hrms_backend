@@ -420,7 +420,7 @@ export class AuthService {
       user as User,
       sessionContext,
       'company',
-      'COMPANY_USER',
+      this.resolveAuthUserType(user as User),
       response.refresh_expires_at,
       context,
       activeCompanyContext.companyId,
@@ -575,7 +575,10 @@ export class AuthService {
         return response;
       }
 
-      if (this.isOwnerUser(user) || payload.userType !== 'COMPANY_USER') {
+      if (
+        payload.userType !== this.resolveAuthUserType(user) ||
+        payload.userType !== 'COMPANY_USER'
+      ) {
         throw new UnauthorizedException('Invalid company login context');
       }
 
@@ -616,7 +619,7 @@ export class AuthService {
         user,
         sessionContext,
         'company',
-        'COMPANY_USER',
+        this.resolveAuthUserType(user),
         response.refresh_expires_at,
         context,
         companyContext.companyId,
@@ -670,10 +673,6 @@ export class AuthService {
       throw new ForbiddenException(
         'Your account is inactive. Please contact an administrator.',
       );
-    }
-
-    if (this.isOwnerUser(user)) {
-      throw new ForbiddenException('OWNER users do not use company context');
     }
 
     let companyContext: CompanyMembershipContext;
@@ -732,7 +731,7 @@ export class AuthService {
         user,
         sessionContext,
         'company',
-        'COMPANY_USER',
+        this.resolveAuthUserType(user),
         response.refresh_expires_at,
         context,
         companyContext.companyId,
@@ -882,8 +881,7 @@ export class AuthService {
       }
 
       if (
-        this.isOwnerUser(user) ||
-        payload.userType !== 'COMPANY_USER' ||
+        payload.userType !== this.resolveAuthUserType(user) ||
         !payload.companyId
       ) {
         throw new UnauthorizedException(
@@ -976,7 +974,7 @@ export class AuthService {
           user,
           sessionContext,
           'company',
-          'COMPANY_USER',
+          this.resolveAuthUserType(user),
           response.refresh_expires_at,
           context,
           companyContext.companyId,
@@ -1312,6 +1310,10 @@ export class AuthService {
     return user.user_type === 'OWNER';
   }
 
+  private resolveAuthUserType(user: Pick<User, 'user_type'>): UserType {
+    return this.isOwnerUser(user) ? 'OWNER' : 'COMPANY_USER';
+  }
+
   private getDirectPermissions(user: User): string[] {
     const permissions = new Set<string>();
 
@@ -1493,7 +1495,7 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       scope: 'company',
-      userType: 'COMPANY_USER',
+      userType: this.resolveAuthUserType(user),
       dashboardType,
       companyId: companyContext.companyId,
       companySlug: companyContext.companySlug,
@@ -1551,7 +1553,7 @@ export class AuthService {
       {
         sub: user.id,
         scope: 'company',
-        userType: 'COMPANY_USER',
+        userType: this.resolveAuthUserType(user),
         companyId: companyContext.companyId,
         membershipId: companyContext.membershipId,
         sessionId: sessionContext.sessionId,

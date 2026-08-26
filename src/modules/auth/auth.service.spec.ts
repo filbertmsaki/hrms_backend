@@ -486,6 +486,98 @@ describe('AuthService', () => {
     expect(companiesService.setActiveMembership).not.toHaveBeenCalled();
   });
 
+  it('allows a platform owner with company membership to switch into company scope', async () => {
+    usersService.findById.mockResolvedValue({
+      id: 1,
+      email: 'info@alliance.co.tz',
+      first_name: 'Alliance',
+      last_name: 'Insurance',
+      status: 'active',
+      user_type: 'OWNER',
+      is_two_factor_enabled: false,
+      two_factor_setup_required: false,
+    });
+    companiesService.setActiveMembership.mockResolvedValue({
+      companyId: 12,
+      companyName: 'Acme HR',
+      companySlug: 'acme-hr',
+      membershipId: 44,
+      employeeId: null,
+      employeeNo: null,
+      isDefault: true,
+      roles: ['COMPANY_ADMIN'],
+      permissions: ['company_users:update', 'users:create'],
+      status: 'active',
+    });
+    companiesService.listUserCompanies.mockResolvedValue([
+      {
+        companyId: 12,
+        companyName: 'Acme HR',
+        companySlug: 'acme-hr',
+        membershipId: 44,
+        employeeId: null,
+        employeeNo: null,
+        isDefault: true,
+        roles: ['COMPANY_ADMIN'],
+        permissions: ['company_users:update', 'users:create'],
+      },
+    ]);
+    authSessionsService.touchSession.mockResolvedValue({
+      id: 'session-1',
+    });
+
+    const rawResult = await service.switchCompany(
+      1,
+      12,
+      {
+        id: 1,
+        email: 'info@alliance.co.tz',
+        scope: 'platform',
+        userType: 'OWNER',
+        sessionId: 'session-1',
+        roles: ['SUPER_ADMIN'],
+        permissions: ['companies:read'],
+      },
+      {
+        ipAddress: '197.250.10.22',
+        userAgent: 'Chrome',
+        requestId: 'req-1',
+      },
+    );
+    const result = rawResult as {
+      scope: string;
+      company: { id: number; name: string; slug: string };
+      user: {
+        user_type: string;
+        roles: string[];
+        permissions: string[];
+      };
+      access_token: string;
+      refresh_token: string;
+    };
+
+    expect(result.scope).toBe('company');
+    expect(result.company).toEqual({
+      id: 12,
+      name: 'Acme HR',
+      slug: 'acme-hr',
+    });
+    expect(result.user).toMatchObject({
+      user_type: 'OWNER',
+      roles: ['COMPANY_ADMIN'],
+      permissions: ['company_users:update', 'users:create'],
+    });
+    expect(result.access_token).toBe('access-token');
+    expect(result.refresh_token).toBe('refresh-token');
+    expect(authSessionsService.touchSession).toHaveBeenCalledWith(
+      1,
+      'session-1',
+      expect.objectContaining({
+        companyId: 12,
+      }),
+    );
+  });
+
   it('rejects a revoked temporary 2FA login token before code verification', async () => {
     jwtService.verify.mockReturnValue({
       sub: 9,

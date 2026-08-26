@@ -57,6 +57,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       : 'employee';
   }
 
+  private resolveAuthenticatedUserType(
+    user: Pick<User, 'user_type'>,
+  ): AuthenticatedUser['userType'] {
+    return user.user_type === 'OWNER' ? 'OWNER' : 'COMPANY_USER';
+  }
+
   private isPasswordChangeAllowedRoute(req: Request): boolean {
     const method = req.method.toUpperCase();
     const path = (
@@ -250,10 +256,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       };
     }
 
+    const resolvedUserType = this.resolveAuthenticatedUserType(user);
+
     if (
       payload.scope !== 'company' ||
-      payload.userType !== 'COMPANY_USER' ||
-      user.user_type === 'OWNER' ||
+      payload.userType !== resolvedUserType ||
       !payload.companyId
     ) {
       throw new UnauthorizedException('Invalid company access token');
@@ -291,7 +298,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         id: user.id,
         email: user.email,
         scope: 'company',
-        userType: 'COMPANY_USER',
+        userType: resolvedUserType,
         sessionId: payload.sessionId,
         dashboardType: this.resolveDashboardType(companyContext.permissions),
         companyId: companyContext.companyId,

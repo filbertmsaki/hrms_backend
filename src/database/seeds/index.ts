@@ -11,6 +11,7 @@ import CompanySeeder from './004-company.seed';
 import CompanyRolesSeeder from './005-company-roles.seed';
 import CompanyAdminSeeder from './006-company-admin.seed';
 import EmployeeNumberSequenceSeeder from './006a-employee-number-sequence.seed';
+import PlatformOwnerCompanyAccessSeeder from './006b-platform-owner-company-access.seed';
 
 // Phase 3 - Organizational Structure
 import BranchesSeeder from './007-branches.seed';
@@ -56,6 +57,7 @@ const seeders = [
   CompanyRolesSeeder,
   CompanyAdminSeeder,
   EmployeeNumberSequenceSeeder,
+  PlatformOwnerCompanyAccessSeeder,
   BranchesSeeder,
   DepartmentsSeeder,
   PositionsSeeder,
