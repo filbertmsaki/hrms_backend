@@ -1,6 +1,7 @@
 import {
   isTanzaniaPhone,
   normalizeTanzaniaPhone,
+  normalizeTanzaniaOrUgandaPhone,
   toSmsGatewayMsisdn,
 } from './tanzania-phone.util';
 
@@ -16,6 +17,18 @@ describe('tanzania phone util', () => {
     expect(normalizeTanzaniaPhone('+254712345678')).toBeNull();
     expect(normalizeTanzaniaPhone('762650393')).toBeNull();
     expect(isTanzaniaPhone('123')).toBe(false);
+  });
+
+  it('normalizes supported Tanzania and Uganda inputs for company administrators', () => {
+    expect(normalizeTanzaniaOrUgandaPhone('0762650393')).toBe('+255762650393');
+    expect(normalizeTanzaniaOrUgandaPhone('+256772123456')).toBe(
+      '+256772123456',
+    );
+    expect(normalizeTanzaniaOrUgandaPhone('256772123456')).toBe(
+      '+256772123456',
+    );
+    expect(normalizeTanzaniaOrUgandaPhone('0772123456')).toBe('+255772123456');
+    expect(normalizeTanzaniaOrUgandaPhone('+254712345678')).toBeNull();
   });
 
   it('converts canonical Tanzania numbers to SMS gateway msisdn format', () => {

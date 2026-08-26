@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { hashPassword } from '../../common/utils/hash.util';
-import { normalizeTanzaniaPhone } from '../../common/utils/tanzania-phone.util';
+import { normalizeTanzaniaOrUgandaPhone } from '../../common/utils/tanzania-phone.util';
 import { Role } from '../roles/entities/role.entity';
 import { PaginationDto, SortDirection } from '../../common/dto/pagination.dto';
 import { User } from '../users/entities/user.entity';
@@ -442,11 +442,11 @@ export class CompaniesService {
 
     return this.companyRepository.manager.transaction(async (manager) => {
       const userRepository = this.getUserRepository(manager);
-      const normalizedAdminPhone = normalizeTanzaniaPhone(admin_phone);
+      const normalizedAdminPhone = normalizeTanzaniaOrUgandaPhone(admin_phone);
 
       if (!normalizedAdminPhone) {
         throw new BadRequestException(
-          'Administrator phone number must be a valid Tanzanian number in +255 format',
+          'Administrator phone number must be a valid Tanzanian (+255) or Ugandan (+256) number',
         );
       }
 
