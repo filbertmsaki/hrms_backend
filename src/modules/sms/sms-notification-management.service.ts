@@ -16,6 +16,8 @@ import { SecurityEventOutcome } from '../security/enums/security-event-outcome.e
 import { SecurityEventType } from '../security/enums/security-event-type.enum';
 import { CompanyUser } from '../companies/entities/company-user.entity';
 import { Employee } from '../hr/employees/entities/employee.entity';
+import { EmployeeContact } from '../hr/employees/entities/employee-contact.entity';
+import { ContactTypeEnum } from '../hr/employees/enums/contact-type.enum';
 import { SmsLogStatusEnum } from './enums/sms-log-status.enum';
 import { SmsGlobalSetting } from './entities/sms-global-setting.entity';
 import { SmsNotificationLog } from './entities/sms-notification-log.entity';
@@ -26,6 +28,9 @@ import { SmsLogQueryDto } from './dto/sms-log-query.dto';
 import { SmsService } from './sms.service';
 
 const GLOBAL_SMS_SETTING_KEY = 'GLOBAL_SMS_NOTIFICATIONS_ENABLED';
+// Employee contact verification is not enforced yet because the backend does
+// not have a complete phone-verification workflow.
+const REQUIRE_VERIFIED_EMPLOYEE_SMS_CONTACTS = false;
 
 type SmsRegistrySeed = {
   code: string;
@@ -200,6 +205,21 @@ export type SendConfiguredSmsInput = {
   actor?: AuthenticatedUser | null;
   context?: AuditRequestContext | null;
   bypassGlobal?: boolean;
+};
+
+type ResolvedRecipient = {
+  companyUserId: number | null;
+  employeeId: number | null;
+  phone: string | null;
+  logRecipientPhone: string | null;
+  error: string | null;
+};
+
+type ResolvedPhoneCandidate = {
+  rawPhone: string;
+  logRecipientPhone: string;
+  fromEmployeeContact: boolean;
+  isVerified: boolean | null;
 };
 
 @Injectable()
@@ -444,28 +464,55 @@ export class SmsNotificationManagementService implements OnModuleInit {
       await this.assertEnabledForCode(existing.notificationCode);
     }
 
+    const recipient = await this.resolveRecipient({
+      recipientCompanyUserId: existing.recipientCompanyUserId,
+      recipientEmployeeId: existing.recipientEmployeeId,
+      recipientPhone:
+        existing.recipientCompanyUserId || existing.recipientEmployeeId
+          ? null
+          : existing.recipientPhone,
+    });
+
     const retry = await this.logRepository.save(
       this.logRepository.create({
         registryId: existing.registryId,
         notificationCode: existing.notificationCode,
         notificationName: existing.notificationName,
         module: existing.module,
-        recipientPhone: existing.recipientPhone,
-        recipientCompanyUserId: existing.recipientCompanyUserId,
-        recipientEmployeeId: existing.recipientEmployeeId,
+        recipientPhone:
+          recipient.phone ?? recipient.logRecipientPhone ?? 'UNKNOWN',
+        recipientCompanyUserId: recipient.companyUserId,
+        recipientEmployeeId: recipient.employeeId,
         message: existing.message,
         templateSnapshot: existing.templateSnapshot,
         relatedEntityType: existing.relatedEntityType,
         relatedEntityId: existing.relatedEntityId,
-        status: SmsLogStatusEnum.PENDING,
+        status: recipient.phone
+          ? SmsLogStatusEnum.PENDING
+          : SmsLogStatusEnum.SKIPPED,
+        errorMessage: recipient.phone ? null : recipient.error,
         retryOfLogId: existing.id,
         createdByCompanyUserId: actor.companyMembershipId ?? null,
       }),
     );
 
+    if (!recipient.phone) {
+      await this.securityEventsService.logBestEffort({
+        eventType: SecurityEventType.CONFIGURATION_CHANGED,
+        outcome: SecurityEventOutcome.FAILURE,
+        actor,
+        resourceType: 'sms_retry',
+        resourceId: retry.id,
+        metadata: { retry_of_log_id: existing.id },
+        context,
+      });
+
+      return retry;
+    }
+
     try {
       const providerResult = await this.smsService.sendTextSms(
-        retry.recipientPhone,
+        recipient.phone,
         retry.message,
       );
       retry.status = SmsLogStatusEnum.SENT;
@@ -514,15 +561,12 @@ export class SmsNotificationManagementService implements OnModuleInit {
 
     const recipient = await this.resolveRecipient(input);
     if (!recipient.phone) {
-      await this.writeSkippedLog(
-        registry,
-        input,
-        recipient,
-        'Recipient has no valid Tanzania phone number',
-      );
+      const reason =
+        recipient.error ?? 'Recipient has no valid Tanzania phone number';
+      await this.writeSkippedLog(registry, input, recipient, reason);
       return {
         status: SmsLogStatusEnum.SKIPPED,
-        reason: 'Recipient has no valid Tanzania phone number',
+        reason,
       };
     }
 
@@ -632,6 +676,7 @@ export class SmsNotificationManagementService implements OnModuleInit {
     input: SendConfiguredSmsInput,
     recipient: {
       phone: string | null;
+      logRecipientPhone: string | null;
       companyUserId: number | null;
       employeeId: number | null;
     },
@@ -643,7 +688,8 @@ export class SmsNotificationManagementService implements OnModuleInit {
         notificationCode: registry.code,
         notificationName: registry.name,
         module: input.module ?? registry.module,
-        recipientPhone: recipient.phone ?? 'UNKNOWN',
+        recipientPhone:
+          recipient.phone ?? recipient.logRecipientPhone ?? 'UNKNOWN',
         recipientCompanyUserId: recipient.companyUserId,
         recipientEmployeeId: recipient.employeeId,
         message: this.renderTemplate(
@@ -690,49 +736,250 @@ export class SmsNotificationManagementService implements OnModuleInit {
     );
   }
 
-  private async resolveRecipient(input: SendConfiguredSmsInput) {
+  private async resolveRecipient(
+    input: SendConfiguredSmsInput,
+  ): Promise<ResolvedRecipient> {
     if (input.recipientCompanyUserId) {
       const membership = await this.companyUserRepository.findOne({
-        where: { id: input.recipientCompanyUserId },
-        relations: { user: true, employee: true },
+        where: {
+          id: input.recipientCompanyUserId,
+          status: 'active',
+        },
+        relations: { user: true, employee: { contacts: true } },
       });
 
+      if (!membership) {
+        return {
+          companyUserId: input.recipientCompanyUserId,
+          employeeId: null,
+          phone: null,
+          logRecipientPhone: null,
+          error:
+            'Recipient could not be resolved in the active company context',
+        };
+      }
+
+      const employee =
+        membership.employee &&
+        membership.employee.company_id === membership.company_id
+          ? membership.employee
+          : null;
+      const candidate = this.selectRecipientPhoneCandidate(
+        employee?.contacts ?? [],
+        membership.user?.phone ?? null,
+      );
+
       return {
-        companyUserId: membership?.id ?? null,
-        employeeId: membership?.employee?.id ?? null,
-        phone: normalizeTanzaniaPhone(membership?.user?.phone ?? null),
+        companyUserId: membership.id,
+        employeeId: employee?.id ?? null,
+        ...this.resolveCandidatePhone(candidate),
       };
     }
 
     if (input.recipientEmployeeId) {
       const employee = await this.employeeRepository.findOne({
         where: { id: input.recipientEmployeeId },
+        relations: { contacts: true, company_user: { user: true } },
       });
       if (!employee) {
         return {
           companyUserId: null,
           employeeId: input.recipientEmployeeId,
           phone: null,
+          logRecipientPhone: null,
+          error:
+            'Recipient could not be resolved in the active company context',
         };
       }
 
-      const membership = await this.companyUserRepository.findOne({
-        where: { id: employee.company_user_id },
-        relations: { user: true },
-      });
+      const membership =
+        employee.company_user &&
+        employee.company_user.status === 'active' &&
+        employee.company_user.company_id === employee.company_id
+          ? employee.company_user
+          : null;
+
+      if (!membership) {
+        return {
+          companyUserId: employee.company_user_id ?? null,
+          employeeId: employee.id,
+          phone: null,
+          logRecipientPhone: null,
+          error:
+            'Recipient could not be resolved in the active company context',
+        };
+      }
+
+      const candidate = this.selectRecipientPhoneCandidate(
+        employee.contacts ?? [],
+        membership.user?.phone ?? null,
+      );
 
       return {
-        companyUserId: employee.company_user_id,
+        companyUserId: membership.id,
         employeeId: employee.id,
-        phone: normalizeTanzaniaPhone(membership?.user?.phone ?? null),
+        ...this.resolveCandidatePhone(candidate),
+      };
+    }
+
+    const directPhone = this.normalizeLogRecipientPhone(input.recipientPhone);
+    if (!directPhone) {
+      return {
+        companyUserId: null,
+        employeeId: null,
+        phone: null,
+        logRecipientPhone: null,
+        error: 'Recipient has no phone number',
+      };
+    }
+
+    const normalizedDirectPhone = normalizeTanzaniaPhone(directPhone);
+    if (!normalizedDirectPhone) {
+      return {
+        companyUserId: null,
+        employeeId: null,
+        phone: null,
+        logRecipientPhone: directPhone,
+        error: 'Recipient has no valid Tanzania phone number',
       };
     }
 
     return {
       companyUserId: null,
       employeeId: null,
-      phone: normalizeTanzaniaPhone(input.recipientPhone ?? null),
+      phone: normalizedDirectPhone,
+      logRecipientPhone: normalizedDirectPhone,
+      error: null,
     };
+  }
+
+  private selectRecipientPhoneCandidate(
+    contacts: EmployeeContact[],
+    fallbackUserPhone: string | null | undefined,
+  ): ResolvedPhoneCandidate | null {
+    const sortedContacts = [...contacts].sort((left, right) => {
+      if (left.is_primary !== right.is_primary) {
+        return Number(right.is_primary) - Number(left.is_primary);
+      }
+
+      return left.id - right.id;
+    });
+
+    const primaryContact = sortedContacts.find(
+      (contact) =>
+        contact.is_primary && this.hasPhoneValue(contact.phone_number),
+    );
+    if (primaryContact) {
+      return this.buildContactCandidate(primaryContact);
+    }
+
+    const secondaryTypePriority = [
+      ContactTypeEnum.MOBILE,
+      ContactTypeEnum.WORK,
+      ContactTypeEnum.WHATSAPP,
+    ] as const;
+
+    for (const contactType of secondaryTypePriority) {
+      const contact = sortedContacts.find(
+        (item) =>
+          String(item.contact_type).toLowerCase() === contactType &&
+          this.hasPhoneValue(item.phone_number),
+      );
+      if (contact) {
+        return this.buildContactCandidate(contact);
+      }
+    }
+
+    const anyContact = sortedContacts.find((contact) =>
+      this.hasPhoneValue(contact.phone_number),
+    );
+    if (anyContact) {
+      return this.buildContactCandidate(anyContact);
+    }
+
+    if (this.hasPhoneValue(fallbackUserPhone)) {
+      const logRecipientPhone =
+        this.normalizeLogRecipientPhone(fallbackUserPhone);
+      if (!logRecipientPhone) {
+        return null;
+      }
+
+      return {
+        rawPhone: fallbackUserPhone.trim(),
+        logRecipientPhone,
+        fromEmployeeContact: false,
+        isVerified: null,
+      };
+    }
+
+    return null;
+  }
+
+  private buildContactCandidate(
+    contact: EmployeeContact,
+  ): ResolvedPhoneCandidate {
+    return {
+      rawPhone: contact.phone_number!.trim(),
+      logRecipientPhone:
+        this.normalizeLogRecipientPhone(contact.phone_number) ??
+        contact.phone_number!.trim(),
+      fromEmployeeContact: true,
+      isVerified: contact.is_verified,
+    };
+  }
+
+  private resolveCandidatePhone(
+    candidate: ResolvedPhoneCandidate | null,
+  ): Pick<ResolvedRecipient, 'phone' | 'logRecipientPhone' | 'error'> {
+    if (!candidate) {
+      return {
+        phone: null,
+        logRecipientPhone: null,
+        error: 'Recipient has no phone number',
+      };
+    }
+
+    if (
+      candidate.fromEmployeeContact &&
+      REQUIRE_VERIFIED_EMPLOYEE_SMS_CONTACTS &&
+      candidate.isVerified === false
+    ) {
+      return {
+        phone: null,
+        logRecipientPhone: candidate.logRecipientPhone,
+        error: 'Recipient phone number is not verified',
+      };
+    }
+
+    const normalizedPhone = normalizeTanzaniaPhone(candidate.rawPhone);
+    if (!normalizedPhone) {
+      return {
+        phone: null,
+        logRecipientPhone: candidate.logRecipientPhone,
+        error: 'Recipient has no valid Tanzania phone number',
+      };
+    }
+
+    return {
+      phone: normalizedPhone,
+      logRecipientPhone: normalizedPhone,
+      error: null,
+    };
+  }
+
+  private hasPhoneValue(value: string | null | undefined): value is string {
+    return typeof value === 'string' && value.trim().length > 0;
+  }
+
+  private normalizeLogRecipientPhone(
+    value: string | null | undefined,
+  ): string | null {
+    if (!this.hasPhoneValue(value)) {
+      return null;
+    }
+
+    const compact = value.replace(/[\s()-]/g, '').trim();
+    return compact || null;
   }
 
   async listLogs(
