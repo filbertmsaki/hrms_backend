@@ -207,6 +207,11 @@ export type SendConfiguredSmsInput = {
   bypassGlobal?: boolean;
 };
 
+type RecipientResolutionInput = Pick<
+  SendConfiguredSmsInput,
+  'recipientCompanyUserId' | 'recipientEmployeeId' | 'recipientPhone'
+>;
+
 type ResolvedRecipient = {
   companyUserId: number | null;
   employeeId: number | null;
@@ -737,7 +742,7 @@ export class SmsNotificationManagementService implements OnModuleInit {
   }
 
   private async resolveRecipient(
-    input: SendConfiguredSmsInput,
+    input: RecipientResolutionInput,
   ): Promise<ResolvedRecipient> {
     if (input.recipientCompanyUserId) {
       const membership = await this.companyUserRepository.findOne({
