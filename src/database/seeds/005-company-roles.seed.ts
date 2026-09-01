@@ -517,8 +517,11 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'leave-balances.adjust',
       'leave-balances.generate',
       'leave-balances.carry-forward',
+      'leave_requests:read',
+      'leave_requests:create',
       'leave_requests:update',
       'leave_requests:approve',
+      'leave_requests:cancel',
       // Attendance (full management except hardware sync)
       'attendance_policies:read',
       'attendance_policies:create',
@@ -724,6 +727,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'leave-balances.view',
       'leave-balances.manage',
       'leave-balances.adjust',
+      'leave_requests:read',
       'leave_requests:update',
       'leave_requests:approve',
       // Attendance
@@ -1078,6 +1082,23 @@ export default class CompanyRolesSeeder implements Seeder {
           });
           await roleRepo.save(newRole);
           createdCount += 1;
+        } else if (seed.name === 'HR_MANAGER' || seed.name === 'HR_OFFICER') {
+          const have = new Set(
+            (role.permissions ?? []).map((permission) => permission.name),
+          );
+          const missing = [
+            'leave_requests:read',
+            'leave_requests:update',
+            'leave_requests:approve',
+          ]
+            .map((name) => permissionMap.get(name))
+            .filter((permission): permission is Permission =>
+              Boolean(permission && !have.has(permission.name)),
+            );
+          if (missing.length > 0) {
+            role.permissions = [...(role.permissions ?? []), ...missing];
+            await roleRepo.save(role);
+          }
         }
       }
 
