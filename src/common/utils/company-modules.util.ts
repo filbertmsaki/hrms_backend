@@ -85,10 +85,10 @@ export function mergeCompanyMetadata(
     incomingMetadataRecord.modules,
   );
 
-  const { modules: _currentModules, ...currentWithoutModules } =
-    normalizedCurrentMetadata;
-  const { modules: _incomingModules, ...incomingWithoutModules } =
-    incomingMetadataRecord;
+  const currentWithoutModules = { ...normalizedCurrentMetadata };
+  delete currentWithoutModules.modules;
+  const incomingWithoutModules = { ...incomingMetadataRecord };
+  delete incomingWithoutModules.modules;
 
   const currentModules = resolveCompanyModules(normalizedCurrentMetadata);
   const mergedLegacyAccessGovernance =

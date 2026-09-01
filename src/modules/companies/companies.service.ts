@@ -567,7 +567,7 @@ export class CompaniesService {
       const company = await this.createCompany(
         company_name,
         company_slug,
-        metadata as Record<string, unknown> | undefined,
+        metadata,
         manager,
       );
       await this.attendanceDefaultReportsProvisioningService.provisionForCompany(
