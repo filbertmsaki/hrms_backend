@@ -20,7 +20,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
     const correlationId = (request as CorrelatedRequest).correlationId ?? null;
 
-    const { status, message, errors, code } = this.extractError(exception);
+    const { status, message, errors, code, body } =
+      this.extractError(exception);
 
     if (status >= 500) {
       this.logger.error(
@@ -37,11 +38,17 @@ export class HttpExceptionFilter implements ExceptionFilter {
       );
     }
 
+    if (body && typeof body.success === 'boolean') {
+      response.status(status).json(body);
+      return;
+    }
+
     response.status(status).json({
       statusCode: status,
       message,
       ...(errors ? { errors } : {}),
       ...(code ? { code } : {}),
+      ...(body ?? {}),
       path: request.url,
       requestId: correlationId,
       timestamp: new Date().toISOString(),
@@ -53,6 +60,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     message: string;
     errors?: Record<string, string[]>;
     code?: string;
+    body?: Record<string, unknown>;
   } {
     if (!(exception instanceof HttpException)) {
       const isProduction = process.env.APP_ENV === 'production';
@@ -86,6 +94,15 @@ export class HttpExceptionFilter implements ExceptionFilter {
       };
     }
 
+    const body =
+      typeof raw === 'object' && raw !== null
+        ? Object.fromEntries(
+            Object.entries(raw).filter(
+              ([key]) => !['statusCode', 'error'].includes(key),
+            ),
+          )
+        : undefined;
+
     // Lets a thrown exception opt into a stable, machine-readable `code`
     // (e.g. new UnauthorizedException({ message, code: 'SESSION_REPLACED' }))
     // that a client can key off without parsing the human-readable message.
@@ -104,6 +121,6 @@ export class HttpExceptionFilter implements ExceptionFilter {
           ? String((raw as { message: unknown }).message)
           : exception.message;
 
-    return { status, message, code };
+    return { status, message, code, body };
   }
 }

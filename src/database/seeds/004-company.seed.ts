@@ -1,5 +1,6 @@
 import { DataSource } from 'typeorm';
 import { Seeder, SeederFactoryManager } from 'typeorm-extension';
+import { normalizeCompanyMetadata } from '../../common/utils/company-modules.util';
 import { Company } from '../../modules/companies/entities/company.entity';
 import {
   ALLIANCE_COMPANY_NAME,
@@ -32,7 +33,10 @@ export default class CompanySeeder implements Seeder {
           name: companyName,
           slug,
           status: 'active',
-          metadata: { seeded: true, source: '004-company' },
+          metadata: normalizeCompanyMetadata({
+            seeded: true,
+            source: '004-company',
+          }),
         });
         await repo.save(company);
       }

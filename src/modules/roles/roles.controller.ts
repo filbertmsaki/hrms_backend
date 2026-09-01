@@ -16,7 +16,9 @@ import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { CurrentAuditContext } from '../../common/decorators/audit-request-context.decorator';
+import { CompanyModule } from '../../common/decorators/company-module.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
+import { CompanyModuleGuard } from '../../common/guards/company-module.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import type { AuditRequestContext } from '../../common/interfaces/audit-request-context.interface';
@@ -39,6 +41,8 @@ import {
 @ApiBearerAuth('access-token')
 @Controller('roles')
 @UseGuards(AuthGuard('jwt'))
+@UseGuards(CompanyModuleGuard)
+@CompanyModule('roles')
 export class RolesController {
   constructor(private readonly rolesService: RolesService) {}
 

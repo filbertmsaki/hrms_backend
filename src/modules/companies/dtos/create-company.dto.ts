@@ -1,8 +1,9 @@
 import { Transform, TransformFnParams } from 'class-transformer';
 import {
   IsEmail,
-  IsNotEmpty,
+  IsObject,
   IsOptional,
+  IsNotEmpty,
   IsString,
   IsStrongPassword,
   Matches,
@@ -95,4 +96,8 @@ export class CreateCompanyDto {
     },
   )
   admin_password: string;
+
+  @IsObject()
+  @IsOptional()
+  metadata?: Record<string, unknown>;
 }

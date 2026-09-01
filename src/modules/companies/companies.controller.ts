@@ -26,6 +26,7 @@ import { AddCompanyUserDto } from './dtos/add-company-user.dto';
 import { AssignCompanyUserPermissionDto } from './dtos/assign-company-user-permission.dto';
 import { AssignCompanyUserRoleDto } from './dtos/assign-company-user-role.dto';
 import { CreateCompanyDto } from './dtos/create-company.dto';
+import { UpdateCompanyModulesDto } from './dtos/update-company-modules.dto';
 import { UpdateCompanyDto } from './dtos/update-company.dto';
 import { CompaniesService } from './companies.service';
 import {
@@ -56,16 +57,15 @@ export class CompaniesController {
   }
 
   @Get('my')
-  @ApiOperationSummary(
-    'List my accessible companies',
-    'Returns all companies the currently authenticated user has access to.',
-  )
+  @UseGuards(TenantGuard)
+  @ApiOperationSummary('Get my active company', 'Returns the current company.')
   @ApiAuthRequired()
-  @ApiSuccessResponse(200, 'User companies retrieved')
-  async listMyCompanies(
-    @Req() req: ExpressRequest & { user: AuthenticatedUser },
-  ) {
-    return this.companiesService.listUserCompanies(req.user.id);
+  @ApiSuccessResponse(200, 'Current company retrieved')
+  async getMyCompany(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.companiesService.findCurrentCompany(
+      req.user.id,
+      req.user.companyId!,
+    );
   }
 
   // ─── Current company endpoints (must be before /:id) ─────────────────────
@@ -223,6 +223,14 @@ export class CompaniesController {
 
   // ─── Platform owner routes (/:id must come after /current and /my) ────────
 
+  @Get(':id/modules')
+  @UseGuards(PlatformGuard, PermissionsGuard)
+  @Permissions('companies:read')
+  @ApiGetOneOperation('Company Modules', 'Get company module entitlements')
+  async findCompanyModules(@Param('id', ParseIntPipe) id: number) {
+    return this.companiesService.findCompanyModules(id);
+  }
+
   @Get(':id')
   @UseGuards(PlatformGuard, PermissionsGuard)
   @Permissions('companies:read')
@@ -240,6 +248,20 @@ export class CompaniesController {
     @Body() dto: UpdateCompanyDto,
   ) {
     return this.companiesService.updateCompany(id, dto);
+  }
+
+  @Patch(':id/modules')
+  @UseGuards(PlatformGuard, PermissionsGuard)
+  @Permissions('companies:update')
+  @ApiUpdateOperation(
+    'Company Modules',
+    'Update company role and permission entitlements in platform scope',
+  )
+  async updateCompanyModules(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateCompanyModulesDto,
+  ) {
+    return this.companiesService.updateCompanyModules(id, dto);
   }
 
   @Post(':id/activate')

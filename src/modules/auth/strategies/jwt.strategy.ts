@@ -305,6 +305,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         companyName: companyContext.companyName,
         companySlug: companyContext.companySlug,
         companyMembershipId: companyContext.membershipId,
+        companyModules: companyContext.modules,
         employeeId: companyContext.employeeId ?? undefined,
         employeeNo: companyContext.employeeNo ?? undefined,
         requiresPasswordChange,

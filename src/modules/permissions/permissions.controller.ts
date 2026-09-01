@@ -14,7 +14,9 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
 import { CurrentAuditContext } from '../../common/decorators/audit-request-context.decorator';
+import { CompanyModule } from '../../common/decorators/company-module.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
+import { CompanyModuleGuard } from '../../common/guards/company-module.guard';
 import { PlatformGuard } from '../../common/guards/platform.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import type { AuditRequestContext } from '../../common/interfaces/audit-request-context.interface';
@@ -34,6 +36,8 @@ import {
 @ApiBearerAuth('access-token')
 @Controller('permissions')
 @UseGuards(AuthGuard('jwt'))
+@UseGuards(CompanyModuleGuard)
+@CompanyModule('permissions')
 export class PermissionsController {
   constructor(private readonly permissionsService: PermissionsService) {}
 

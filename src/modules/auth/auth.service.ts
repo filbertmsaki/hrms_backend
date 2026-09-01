@@ -1425,6 +1425,7 @@ export class AuthService {
         id: companyContext.companyId,
         name: companyContext.companyName,
         slug: companyContext.companySlug,
+        modules: companyContext.modules,
       },
       companies,
       user: {

@@ -27,6 +27,7 @@ import { CompanyUserPermission } from './entities/company-user-permission.entity
 import { AddCompanyUserDto } from './dtos/add-company-user.dto';
 import { UpdateCompanyDto } from './dtos/update-company.dto';
 import { CreateCompanyDto } from './dtos/create-company.dto';
+import { UpdateCompanyModulesDto } from './dtos/update-company-modules.dto';
 import {
   assertCompanyScopedPermissionAssignment,
   assertCompanyScopedRoleAssignment,
@@ -43,6 +44,12 @@ import { SecurityEventType } from '../security/enums/security-event-type.enum';
 import { SecurityEventOutcome } from '../security/enums/security-event-outcome.enum';
 import { COMPANY_ROLE_SEEDS } from '../../database/seeds/005-company-roles.seed';
 import { AttendanceDefaultReportsProvisioningService } from '../scheduled-reporting/services/attendance-default-reports-provisioning.service';
+import {
+  CompanyModules,
+  mergeCompanyMetadata,
+  normalizeCompanyMetadata,
+  resolveCompanyModules,
+} from '../../common/utils/company-modules.util';
 
 @Injectable()
 export class CompaniesService {
@@ -116,6 +123,51 @@ export class CompaniesService {
     manager?: EntityManager,
   ): Repository<Permission> {
     return manager?.getRepository(Permission) ?? this.permissionRepository;
+  }
+
+  private buildCompanyModules(
+    metadata: Record<string, unknown> | null | undefined,
+  ): CompanyModules {
+    return resolveCompanyModules(metadata);
+  }
+
+  private buildNormalizedCompanyMetadata(
+    metadata: Record<string, unknown> | null | undefined,
+  ): Record<string, unknown> {
+    return normalizeCompanyMetadata(metadata);
+  }
+
+  private buildCompanyResponse(
+    company: Company,
+    options?: {
+      activeUsersCount?: number;
+    },
+  ) {
+    const metadata = this.buildNormalizedCompanyMetadata(company.metadata);
+    const modules = this.buildCompanyModules(metadata);
+
+    return {
+      id: company.id,
+      company_name: company.name,
+      company_slug: company.slug,
+      name: company.name,
+      slug: company.slug,
+      status: company.status,
+      metadata,
+      modules,
+      ...(options?.activeUsersCount !== undefined
+        ? { active_users_count: options.activeUsersCount }
+        : {}),
+      created_at: company.created_at,
+      updated_at: company.updated_at,
+    };
+  }
+
+  private mergeCompanyMetadataForWrite(
+    currentMetadata: Record<string, unknown> | null | undefined,
+    incomingMetadata: Record<string, unknown> | null | undefined,
+  ): Record<string, unknown> {
+    return mergeCompanyMetadata(currentMetadata, incomingMetadata);
   }
 
   private async ensureDefaultCompanyRoles(
@@ -329,6 +381,29 @@ export class CompaniesService {
     }
   }
 
+  private async ensureUniqueProvidedCompanySlug(
+    requestedSlug: string,
+    manager?: EntityManager,
+  ): Promise<string> {
+    const companyRepository = this.getCompanyRepository(manager);
+    const normalizedSlug = this.slugify(requestedSlug);
+
+    if (!normalizedSlug) {
+      throw new BadRequestException('Company slug could not be generated');
+    }
+
+    const existing = await companyRepository.findOne({
+      where: { slug: normalizedSlug },
+      select: ['id'],
+    });
+
+    if (existing) {
+      throw new ConflictException('Company slug already exists');
+    }
+
+    return normalizedSlug;
+  }
+
   private isDuplicateEntryError(error: unknown): boolean {
     if (!(error instanceof QueryFailedError)) {
       return false;
@@ -367,6 +442,8 @@ export class CompaniesService {
   }
 
   private mapMembershipSummary(membership: CompanyUser): CompanySummary {
+    const modules = this.buildCompanyModules(membership.company.metadata);
+
     return {
       companyId: membership.company_id,
       companyName: membership.company.name,
@@ -375,6 +452,7 @@ export class CompaniesService {
       employeeId: membership.employee?.id ?? null,
       employeeNo: membership.employee?.employee_no ?? null,
       isDefault: membership.is_default,
+      modules,
       roles:
         membership.role_assignments?.map(
           (assignment) => assignment.role.name,
@@ -402,9 +480,30 @@ export class CompaniesService {
     return `${prefix}${String(nextNumber || 1).padStart(5, '0')}`;
   }
 
-  async createCompany(name: string, manager?: EntityManager): Promise<Company> {
+  async createCompany(
+    name: string,
+    requestedSlug?: string,
+    metadata?: Record<string, unknown> | null,
+    manager?: EntityManager,
+  ): Promise<Company> {
     const companyRepository = this.getCompanyRepository(manager);
     const normalizedName = name.trim();
+    const normalizedMetadata = this.buildNormalizedCompanyMetadata(metadata);
+
+    if (requestedSlug?.trim()) {
+      const uniqueSlug = await this.ensureUniqueProvidedCompanySlug(
+        requestedSlug,
+        manager,
+      );
+      const company = companyRepository.create({
+        name: normalizedName,
+        slug: uniqueSlug,
+        status: 'active',
+        metadata: normalizedMetadata,
+      });
+
+      return companyRepository.save(company);
+    }
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const uniqueSlug = await this.generateUniqueCompanySlug(
@@ -415,6 +514,7 @@ export class CompaniesService {
         name: normalizedName,
         slug: uniqueSlug,
         status: 'active',
+        metadata: normalizedMetadata,
       });
 
       try {
@@ -433,11 +533,13 @@ export class CompaniesService {
   async createCompanyWithAdministrator(createCompanyDto: CreateCompanyDto) {
     const {
       company_name,
+      company_slug,
       admin_first_name,
       admin_last_name,
       admin_email,
       admin_phone,
       admin_password,
+      metadata,
     } = createCompanyDto;
 
     return this.companyRepository.manager.transaction(async (manager) => {
@@ -462,7 +564,12 @@ export class CompaniesService {
         );
       }
 
-      const company = await this.createCompany(company_name, manager);
+      const company = await this.createCompany(
+        company_name,
+        company_slug,
+        metadata as Record<string, unknown> | undefined,
+        manager,
+      );
       await this.attendanceDefaultReportsProvisioningService.provisionForCompany(
         company.id,
         manager,
@@ -496,24 +603,20 @@ export class CompaniesService {
 
       return {
         message: 'Company and first administrator created successfully',
-        company: {
-          id: company.id,
-          name: company.name,
-          slug: company.slug,
-          status: company.status,
-          created_at: company.created_at,
-        },
-        administrator: {
-          id: administrator.id,
-          user_no: administrator.user_no,
-          first_name: administrator.first_name,
-          last_name: administrator.last_name,
-          phone: administrator.phone,
-          email: administrator.email,
-          status: administrator.status,
-          user_type: administrator.user_type,
-          roles: companyContext.roles,
-          permissions: companyContext.permissions,
+        data: {
+          company: this.buildCompanyResponse(company),
+          administrator: {
+            id: administrator.id,
+            user_no: administrator.user_no,
+            first_name: administrator.first_name,
+            last_name: administrator.last_name,
+            phone: administrator.phone,
+            email: administrator.email,
+            status: administrator.status,
+            user_type: administrator.user_type,
+            roles: companyContext.roles,
+            permissions: companyContext.permissions,
+          },
         },
       };
     });
@@ -534,44 +637,36 @@ export class CompaniesService {
   }
 
   async findAllCompanies() {
-    const companies = await this.companyRepository
-      .createQueryBuilder('company')
-      .leftJoin(
-        'company.memberships',
-        'membership',
-        "membership.status = 'active'",
-      )
-      .select([
-        'company.id AS id',
-        'company.name AS name',
-        'company.slug AS slug',
-        'company.status AS status',
-        'company.created_at AS created_at',
-        'COUNT(membership.id) AS active_users_count',
-      ])
-      .groupBy('company.id')
-      .addGroupBy('company.name')
-      .addGroupBy('company.slug')
-      .addGroupBy('company.status')
-      .addGroupBy('company.created_at')
-      .orderBy('company.name', 'ASC')
+    const companies = await this.companyRepository.find({
+      order: {
+        name: 'ASC',
+      },
+    });
+
+    const activeUsersByCompany = new Map<number, number>();
+    const activeMemberships = await this.companyUserRepository
+      .createQueryBuilder('membership')
+      .select('membership.company_id', 'company_id')
+      .addSelect('COUNT(membership.id)', 'active_users_count')
+      .where('membership.status = :status', { status: 'active' })
+      .groupBy('membership.company_id')
       .getRawMany<{
-        id: number;
-        name: string;
-        slug: string;
-        status: string;
-        created_at: Date;
+        company_id: string;
         active_users_count: string;
       }>();
 
-    return companies.map((company) => ({
-      id: Number(company.id),
-      name: company.name,
-      slug: company.slug,
-      status: company.status,
-      created_at: company.created_at,
-      active_users_count: Number(company.active_users_count ?? 0),
-    }));
+    activeMemberships.forEach((item) => {
+      activeUsersByCompany.set(
+        Number(item.company_id),
+        Number(item.active_users_count ?? 0),
+      );
+    });
+
+    return companies.map((company) =>
+      this.buildCompanyResponse(company, {
+        activeUsersCount: activeUsersByCompany.get(company.id) ?? 0,
+      }),
+    );
   }
 
   async listUserCompanies(
@@ -1003,6 +1098,11 @@ export class CompaniesService {
     return this.getMembershipContext(userId, companyId);
   }
 
+  async findCurrentCompany(userId: number, companyId: number) {
+    await this.getMembershipContext(userId, companyId);
+    return this.findOneCompany(companyId);
+  }
+
   async findOneCompany(companyId: number) {
     const company = await this.companyRepository.findOne({
       where: { id: companyId },
@@ -1017,14 +1117,9 @@ export class CompaniesService {
     });
 
     return {
-      id: company.id,
-      name: company.name,
-      slug: company.slug,
-      status: company.status,
-      metadata: company.metadata ?? null,
-      active_users_count: activeUsersCount,
-      created_at: company.created_at,
-      updated_at: company.updated_at,
+      data: this.buildCompanyResponse(company, {
+        activeUsersCount,
+      }),
     };
   }
 
@@ -1037,8 +1132,10 @@ export class CompaniesService {
       throw new NotFoundException('Company not found');
     }
 
-    if (dto.name !== undefined) {
-      const name = dto.name.trim();
+    const requestedName = dto.company_name ?? dto.name;
+
+    if (requestedName !== undefined) {
+      const name = requestedName.trim();
 
       if (!name) {
         throw new BadRequestException('Company name cannot be empty');
@@ -1048,22 +1145,52 @@ export class CompaniesService {
     }
 
     if (dto.metadata !== undefined) {
-      company.metadata = dto.metadata;
+      company.metadata = this.mergeCompanyMetadataForWrite(
+        company.metadata,
+        dto.metadata as Record<string, unknown> | undefined,
+      );
     }
 
     const saved = await this.companyRepository.save(company);
 
     return {
       message: 'Company updated successfully',
-      data: {
-        id: saved.id,
-        name: saved.name,
-        slug: saved.slug,
-        status: saved.status,
-        metadata: saved.metadata ?? null,
-        created_at: saved.created_at,
-        updated_at: saved.updated_at,
-      },
+      data: this.buildCompanyResponse(saved),
+    };
+  }
+
+  async findCompanyModules(companyId: number) {
+    const company = await this.companyRepository.findOne({
+      where: { id: companyId },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Company not found');
+    }
+
+    return {
+      data: this.buildCompanyModules(company.metadata),
+    };
+  }
+
+  async updateCompanyModules(companyId: number, dto: UpdateCompanyModulesDto) {
+    const company = await this.companyRepository.findOne({
+      where: { id: companyId },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Company not found');
+    }
+
+    company.metadata = this.mergeCompanyMetadataForWrite(company.metadata, {
+      modules: dto,
+    });
+
+    const saved = await this.companyRepository.save(company);
+
+    return {
+      message: 'Company modules updated successfully',
+      data: this.buildCompanyResponse(saved),
     };
   }
 
@@ -1358,15 +1485,7 @@ export class CompaniesService {
 
     return {
       message: `Company ${status} successfully`,
-      data: {
-        id: saved.id,
-        name: saved.name,
-        slug: saved.slug,
-        status: saved.status,
-        metadata: saved.metadata ?? null,
-        created_at: saved.created_at,
-        updated_at: saved.updated_at,
-      },
+      data: this.buildCompanyResponse(saved),
     };
   }
 

@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Company } from '../companies/entities/company.entity';
 import { CompanyUser } from '../companies/entities/company-user.entity';
 import { CompanyUserRole } from '../companies/entities/company-user-role.entity';
+import { CompanyModuleGuard } from '../../common/guards/company-module.guard';
 import { Permission } from '../permissions/entities/permission.entity';
 import { Role } from './entities/role.entity';
 import { RoleAuditLog } from './entities/role-audit-log.entity';
@@ -24,7 +25,7 @@ import { DefaultAvatarsModule } from '../hr/default-avatars/default-avatars.modu
     DefaultAvatarsModule,
   ],
   controllers: [RolesController],
-  providers: [RolesService, RoleAuditService],
+  providers: [RolesService, RoleAuditService, CompanyModuleGuard],
   exports: [RolesService, TypeOrmModule],
 })
 export class RolesModule {}

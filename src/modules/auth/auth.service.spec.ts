@@ -173,6 +173,7 @@ describe('AuthService', () => {
         employeeId: 81,
         employeeNo: 'EMP-0081',
         isDefault: true,
+        modules: { roles: true, permissions: true },
         roles: ['COMPANY_ADMIN'],
         permissions: ['users:manage-2fa'],
       },
@@ -185,6 +186,7 @@ describe('AuthService', () => {
       employeeId: 81,
       employeeNo: 'EMP-0081',
       isDefault: true,
+      modules: { roles: true, permissions: true },
       roles: ['COMPANY_ADMIN'],
       permissions: ['users:manage-2fa'],
       status: 'active',
@@ -267,6 +269,7 @@ describe('AuthService', () => {
         employeeId: 81,
         employeeNo: 'EMP-0081',
         isDefault: true,
+        modules: { roles: true, permissions: true },
         roles: ['EMPLOYEE'],
         permissions: [],
       },
@@ -279,6 +282,7 @@ describe('AuthService', () => {
       employeeId: 81,
       employeeNo: 'EMP-0081',
       isDefault: true,
+      modules: { roles: true, permissions: true },
       roles: ['EMPLOYEE'],
       permissions: [],
       status: 'active',
@@ -335,6 +339,7 @@ describe('AuthService', () => {
         employeeId: 91,
         employeeNo: '00091',
         isDefault: true,
+        modules: { roles: true, permissions: true },
         roles: ['EMPLOYEE'],
         permissions: [
           'data_scope:self',
@@ -351,6 +356,7 @@ describe('AuthService', () => {
       employeeId: 91,
       employeeNo: '00091',
       isDefault: true,
+      modules: { roles: true, permissions: true },
       roles: ['EMPLOYEE'],
       permissions: [
         'data_scope:self',
@@ -410,6 +416,7 @@ describe('AuthService', () => {
         employeeId: 81,
         employeeNo: 'EMP-0081',
         isDefault: true,
+        modules: { roles: true, permissions: true },
         roles: ['COMPANY_ADMIN'],
         permissions: ['users:manage-2fa'],
       },
@@ -436,6 +443,7 @@ describe('AuthService', () => {
         employeeId: number;
         employeeNo: string;
         isDefault: boolean;
+        modules: { roles: boolean; permissions: boolean };
         roles: string[];
         permissions: string[];
       };
@@ -447,6 +455,7 @@ describe('AuthService', () => {
         employeeId: number;
         employeeNo: string;
         isDefault: boolean;
+        modules: { roles: boolean; permissions: boolean };
         roles: string[];
         permissions: string[];
       }>;
@@ -464,6 +473,7 @@ describe('AuthService', () => {
         employeeId: 81,
         employeeNo: 'EMP-0081',
         isDefault: true,
+        modules: { roles: true, permissions: true },
         roles: ['COMPANY_ADMIN'],
         permissions: ['users:manage-2fa'],
       },
@@ -476,6 +486,7 @@ describe('AuthService', () => {
           employeeId: 81,
           employeeNo: 'EMP-0081',
           isDefault: true,
+          modules: { roles: true, permissions: true },
           roles: ['COMPANY_ADMIN'],
           permissions: ['users:manage-2fa'],
         },
@@ -505,6 +516,7 @@ describe('AuthService', () => {
       employeeId: null,
       employeeNo: null,
       isDefault: true,
+      modules: { roles: true, permissions: true },
       roles: ['COMPANY_ADMIN'],
       permissions: ['company_users:update', 'users:create'],
       status: 'active',
@@ -518,6 +530,7 @@ describe('AuthService', () => {
         employeeId: null,
         employeeNo: null,
         isDefault: true,
+        modules: { roles: true, permissions: true },
         roles: ['COMPANY_ADMIN'],
         permissions: ['company_users:update', 'users:create'],
       },
@@ -561,6 +574,7 @@ describe('AuthService', () => {
       id: 12,
       name: 'Acme HR',
       slug: 'acme-hr',
+      modules: { roles: true, permissions: true },
     });
     expect(result.user).toMatchObject({
       user_type: 'OWNER',

@@ -1,3 +1,5 @@
+import { CompanyModules } from '../../../common/utils/company-modules.util';
+
 export interface CompanySummary {
   companyId: number;
   companyName: string;
@@ -6,6 +8,7 @@ export interface CompanySummary {
   employeeId: number | null;
   employeeNo: string | null;
   isDefault: boolean;
+  modules: CompanyModules;
   roles: string[];
   permissions: string[];
 }

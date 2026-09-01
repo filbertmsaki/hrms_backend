@@ -20,6 +20,7 @@ import { AuthSessionsService } from '../auth/auth-sessions.service';
 import { Permission } from '../permissions/entities/permission.entity';
 import { Role } from '../roles/entities/role.entity';
 import { encryptTwoFactorSecret } from '../auth/2fa/utils/two-factor-secret.util';
+import { normalizeCompanyMetadata } from '../../common/utils/company-modules.util';
 import { CreateUserDto } from './dtos/create-user.dto';
 import { UpdateUserDto } from './dtos/update-user.dto';
 import { UserProfileDto } from './dtos/user-profile-dto';
@@ -746,7 +747,7 @@ export class UsersService {
             name: membership.company.name,
             slug: membership.company.slug,
             status: membership.company.status,
-            metadata: membership.company.metadata,
+            metadata: normalizeCompanyMetadata(membership.company.metadata),
             created_at: membership.company.created_at,
             updated_at: membership.company.updated_at,
           }
@@ -833,7 +834,7 @@ export class UsersService {
             name: membership.company.name,
             slug: membership.company.slug,
             status: membership.company.status,
-            metadata: membership.company.metadata,
+            metadata: normalizeCompanyMetadata(membership.company.metadata),
             created_at: membership.company.created_at,
             updated_at: membership.company.updated_at,
           }
