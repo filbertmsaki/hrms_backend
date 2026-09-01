@@ -697,6 +697,45 @@ export class MailService {
    * templated senders above, this has no fixed HR event shape — callers
    * supply their own subject/message/action link.
    */
+  async sendSupportEscalationEmail(options: {
+    to: string[];
+    ticketId: string;
+    summary: string;
+    transcript: string;
+    requesterEmail?: string | null;
+    requesterName?: string | null;
+  }): Promise<MailSendResult> {
+    const requester =
+      options.requesterName || options.requesterEmail || 'An HRMS user';
+    const subject = `HRMS support ticket ${options.ticketId}`;
+    const text = [
+      `Ticket: ${options.ticketId}`,
+      `From: ${requester}${options.requesterEmail ? ` <${options.requesterEmail}>` : ''}`,
+      '',
+      'Summary',
+      options.summary || '(no extra note)',
+      '',
+      'Chat',
+      options.transcript || '(empty)',
+    ].join('\n');
+    const html = [
+      `<p><strong>Ticket:</strong> ${options.ticketId}</p>`,
+      `<p><strong>From:</strong> ${requester}${options.requesterEmail ? ` (${options.requesterEmail})` : ''}</p>`,
+      `<p><strong>Summary</strong></p><p>${options.summary || '(no extra note)'}</p>`,
+      `<p><strong>Chat</strong></p><pre style="white-space:pre-wrap;font-family:inherit">${options.transcript || '(empty)'}</pre>`,
+    ].join('');
+
+    return this.sendMail(
+      {
+        to: options.to.join(', '),
+        subject,
+        text,
+        html,
+      },
+      'Support.escalate',
+    );
+  }
+
   async sendGenericNotificationEmail(
     to: string,
     subject: string,

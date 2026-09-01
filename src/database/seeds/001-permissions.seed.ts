@@ -45,9 +45,25 @@ const SHARED_PERMISSION_NAMES = new Set<string>([
   'sms:test',
 ]);
 
+const COMPANY_PERMISSION_NAMES = new Set<string>([
+  'scheduled_reports:read',
+  'scheduled_reports:create',
+  'scheduled_reports:update',
+  'scheduled_reports:delete',
+  'scheduled_reports:run',
+  'scheduled_reports:manage_smtp',
+  'scheduled_reports:test_smtp',
+  'scheduled_reports:view_history',
+  'scheduled_reports:download',
+]);
+
 function resolvePermissionScope(name: string): PermissionScope {
   if (PLATFORM_PERMISSION_NAMES.has(name)) {
     return PermissionScope.PLATFORM;
+  }
+
+  if (COMPANY_PERMISSION_NAMES.has(name)) {
+    return PermissionScope.COMPANY;
   }
 
   if (SHARED_PERMISSION_NAMES.has(name)) {
@@ -2689,6 +2705,19 @@ export default class PermissionsSeeder implements Seeder {
 
       if (newPermissions.length > 0) {
         await repo.insert(newPermissions);
+      }
+
+      const companyScopedNames = [...COMPANY_PERMISSION_NAMES];
+      if (companyScopedNames.length > 0) {
+        await repo
+          .createQueryBuilder()
+          .update(Permission)
+          .set({ scope: PermissionScope.COMPANY })
+          .where('name IN (:...names)', { names: companyScopedNames })
+          .andWhere('scope <> :companyScope', {
+            companyScope: PermissionScope.COMPANY,
+          })
+          .execute();
       }
 
       await qr.commitTransaction();

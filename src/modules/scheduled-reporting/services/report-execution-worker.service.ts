@@ -9,7 +9,6 @@ import {
   type SafeSendMailOptions,
 } from '../../mail/mail-recipient-safety.util';
 import { FilesService } from '../../files/files.service';
-import { MailService } from '../../mail/mail.service';
 import { ReportDefinition } from '../entities/report-definition.entity';
 import { ReportExecution } from '../entities/report-execution.entity';
 import { ReportExecutionAttempt } from '../entities/report-execution-attempt.entity';
@@ -83,7 +82,6 @@ export class ReportExecutionWorkerService {
     private readonly advisoryLockService: PostgresAdvisoryLockService,
     private readonly reportRegistryService: ReportRegistryService,
     private readonly filesService: FilesService,
-    private readonly mailService: MailService,
   ) {}
 
   @Interval(15000)
@@ -245,19 +243,40 @@ export class ReportExecutionWorkerService {
 
     const smtpConfiguration = template.smtpConfigurationId
       ? await this.smtpConfigurationRepository.findOne({
-          where: { id: template.smtpConfigurationId, isActive: true },
+          where: {
+            id: template.smtpConfigurationId,
+            companyId: execution.companyId,
+            isActive: true,
+          },
         })
       : null;
 
     if (!smtpConfiguration) {
-      this.logger.log(
-        `Report execution ${execution.id}: no company SMTP configuration available, falling back to system SMTP.`,
+      const errorMessage =
+        'Scheduled reports require an active SMTP configuration for this company. Shared system SMTP is not used.';
+      this.logger.warn(`Report execution ${execution.id}: ${errorMessage}`);
+      execution.status = ReportExecutionStatusEnum.FAILED;
+      execution.emailDeliveryStatus = ReportEmailDeliveryStatusEnum.FAILED;
+      execution.errorMessage = errorMessage;
+      execution.completedAt = new Date();
+      await this.executionAttemptRepository.save(
+        this.executionAttemptRepository.create({
+          executionId: execution.id,
+          attemptNumber: execution.retryCount + 1,
+          phase: ReportExecutionAttemptPhaseEnum.EMAIL_DELIVERY,
+          status: ReportAttemptStatusEnum.FAILED,
+          startedAt: new Date(),
+          completedAt: new Date(),
+          errorMessage,
+        }),
       );
+      await this.executionRepository.save(execution);
+      return;
     }
 
-    const smtpPassword = smtpConfiguration
-      ? decryptReportSmtpSecret(smtpConfiguration.encryptedPassword)
-      : null;
+    const smtpPassword = decryptReportSmtpSecret(
+      smtpConfiguration.encryptedPassword,
+    );
 
     const subject = this.renderTemplateString(
       template.emailSubjectTemplate ?? 'Scheduled Report - {{reportDate}}',
@@ -274,65 +293,45 @@ export class ReportExecutionWorkerService {
 
     for (const recipient of recipients) {
       try {
-        let mailResult: { accepted: string[]; messageId: string | null };
-        let usedSystemSmtp = false;
+        const nodemailerModule = await loadNodemailer();
+        const transporter = nodemailerModule.createTransport({
+          host: smtpConfiguration.host,
+          port: smtpConfiguration.port,
+          secure:
+            smtpConfiguration.securityType ===
+            ReportSmtpSecurityTypeEnum.SSL_TLS,
+          requireTLS:
+            smtpConfiguration.securityType ===
+            ReportSmtpSecurityTypeEnum.STARTTLS,
+          auth:
+            smtpConfiguration.username && smtpPassword
+              ? { user: smtpConfiguration.username, pass: smtpPassword }
+              : undefined,
+        });
 
-        if (smtpConfiguration) {
-          const nodemailerModule = await loadNodemailer();
-          const transporter = nodemailerModule.createTransport({
-            host: smtpConfiguration.host,
-            port: smtpConfiguration.port,
-            secure:
-              smtpConfiguration.securityType ===
-              ReportSmtpSecurityTypeEnum.SSL_TLS,
-            requireTLS:
-              smtpConfiguration.securityType ===
-              ReportSmtpSecurityTypeEnum.STARTTLS,
-            auth:
-              smtpConfiguration.username && smtpPassword
-                ? { user: smtpConfiguration.username, pass: smtpPassword }
-                : undefined,
-          });
-
-          const mailOptions: SafeSendMailOptions = {
-            from: `"${smtpConfiguration.senderName || 'HRMS Reports'}" <${smtpConfiguration.senderEmail}>`,
-            to: recipient.email,
-            subject,
-            html,
-            attachments: [
-              {
-                filename: execution.generatedFilename ?? 'report',
-                content: attachmentBuffer,
-                contentType: attachmentMimeType,
-              },
-            ],
-            mailSafetyContext: {
-              sourceModule: 'ReportExecutionWorkerService.deliverByEmail',
+        const mailOptions: SafeSendMailOptions = {
+          from: `"${smtpConfiguration.senderName || 'HRMS Reports'}" <${smtpConfiguration.senderEmail}>`,
+          to: recipient.email,
+          subject,
+          html,
+          attachments: [
+            {
+              filename: execution.generatedFilename ?? 'report',
+              content: attachmentBuffer,
+              contentType: attachmentMimeType,
             },
-          };
-          applyMailRecipientSafety(
-            mailOptions,
-            resolveMailRecipientSafetyConfigFromEnv(process.env),
-            this.logger,
-          );
+          ],
+          mailSafetyContext: {
+            sourceModule: 'ReportExecutionWorkerService.deliverByEmail',
+          },
+        };
+        applyMailRecipientSafety(
+          mailOptions,
+          resolveMailRecipientSafetyConfigFromEnv(process.env),
+          this.logger,
+        );
 
-          mailResult = await transporter.sendMail(mailOptions);
-        } else {
-          usedSystemSmtp = true;
-          const result =
-            await this.mailService.sendScheduledReportEmailViaSystemSmtp({
-              to: recipient.email,
-              subject,
-              html,
-              attachmentFilename: execution.generatedFilename ?? 'report',
-              attachmentBuffer,
-              attachmentMimeType,
-            });
-          mailResult = {
-            accepted: result.accepted,
-            messageId: result.messageId,
-          };
-        }
+        const mailResult = await transporter.sendMail(mailOptions);
 
         await this.executionRecipientRepository.save(
           this.executionRecipientRepository.create({
@@ -358,7 +357,9 @@ export class ReportExecutionWorkerService {
               recipient: recipient.email,
               accepted: mailResult.accepted,
               messageId: mailResult.messageId,
-              usedSystemSmtp,
+              usedSystemSmtp: false,
+              companyId: execution.companyId,
+              smtpConfigurationId: smtpConfiguration.id,
             },
           }),
         );

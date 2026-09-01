@@ -887,7 +887,8 @@ export class SmsNotificationManagementService implements OnModuleInit {
     for (const contactType of secondaryTypePriority) {
       const contact = sortedContacts.find(
         (item) =>
-          String(item.contact_type).toLowerCase() === contactType &&
+          String(item.contact_type).toLowerCase() ===
+            String(contactType).toLowerCase() &&
           this.hasPhoneValue(item.phone_number),
       );
       if (contact) {

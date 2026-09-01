@@ -35,6 +35,27 @@ describe('MailService', () => {
     );
   });
 
+  it('sends support escalations to Alliance IT mailboxes', async () => {
+    await service.sendSupportEscalationEmail({
+      to: ['filbert@alliance.co.tz', 'inocent@alliance.co.tz'],
+      ticketId: 'IT-TEST',
+      summary: 'Cannot find payroll',
+      transcript: 'User: payroll\nAssistant: Open Payroll',
+      requesterEmail: 'kelvin@alliance.co.tz',
+      requesterName: 'kelvin@alliance.co.tz',
+    });
+
+    expect(mailerService.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'filbert@alliance.co.tz, inocent@alliance.co.tz',
+        subject: 'HRMS support ticket IT-TEST',
+        mailSafetyContext: {
+          sourceModule: 'Support.escalate',
+        },
+      }),
+    );
+  });
+
   it('sends the leave-approved template with the event payload', async () => {
     const event = new LeaveApprovedEvent(
       'Amina John',

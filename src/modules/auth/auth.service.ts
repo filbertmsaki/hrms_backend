@@ -41,10 +41,7 @@ import { LogoutDto } from './dtos/logout.dto';
 import { RefreshTokenDto } from './dtos/refresh-token.dto';
 import { ResetPasswordDto } from './dtos/reset-password.dto';
 import { TokenBlacklistService } from './token-blacklist.service';
-import {
-  AuthSessionsService,
-  SESSION_REPLACED_REASON,
-} from './auth-sessions.service';
+import { AuthSessionsService } from './auth-sessions.service';
 
 /**
  * Deliberately excludes roles/permissions: JwtStrategy.validate() always

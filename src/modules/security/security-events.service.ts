@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository, SelectQueryBuilder } from 'typeorm';
+import { EntityManager, In, Repository, SelectQueryBuilder } from 'typeorm';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { AuditRequestContext } from '../../common/interfaces/audit-request-context.interface';
+import { User } from '../users/entities/user.entity';
 import { QuerySecurityEventsDto } from './dto/query-security-events.dto';
 import { SecurityEvent } from './entities/security-event.entity';
 import { SecurityEventOutcome } from './enums/security-event-outcome.enum';
@@ -49,6 +50,8 @@ export class SecurityEventsService {
   constructor(
     @InjectRepository(SecurityEvent)
     private readonly repository: Repository<SecurityEvent>,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
   ) {}
 
   private getRepository(manager?: EntityManager): Repository<SecurityEvent> {
@@ -115,7 +118,10 @@ export class SecurityEventsService {
       reason: entry.reason ?? null,
       old_values: this.sanitizeRecord(entry.oldValues),
       new_values: this.sanitizeRecord(entry.newValues),
-      metadata: this.sanitizeRecord(entry.metadata),
+      metadata: this.sanitizeRecord({
+        ...(entry.metadata ?? {}),
+        ...(entry.actor?.email ? { actor_email: entry.actor.email } : {}),
+      }),
     });
 
     return repository.save(event);
@@ -208,8 +214,36 @@ export class SecurityEventsService {
       .take(limit)
       .getManyAndCount();
 
+    const actorUserIds = [
+      ...new Set(
+        data
+          .map((event) => event.actor_user_id)
+          .filter((id): id is number => typeof id === 'number' && id > 0),
+      ),
+    ];
+    const actors = actorUserIds.length
+      ? await this.userRepository.find({
+          where: { id: In(actorUserIds) },
+          select: ['id', 'first_name', 'last_name', 'email'],
+        })
+      : [];
+    const actorById = new Map(actors.map((user) => [user.id, user]));
+
     return {
-      data,
+      data: data.map((event) => {
+        const actor = event.actor_user_id
+          ? actorById.get(event.actor_user_id)
+          : undefined;
+        const actorName = [actor?.first_name, actor?.last_name]
+          .filter((part) => typeof part === 'string' && part.trim())
+          .join(' ')
+          .trim();
+        return {
+          ...event,
+          actor_name: actorName || actor?.email || null,
+          actor_email: actor?.email ?? null,
+        };
+      }),
       meta: {
         totalItems: total,
         itemCount: data.length,

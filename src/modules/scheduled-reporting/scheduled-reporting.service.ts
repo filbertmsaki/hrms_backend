@@ -204,9 +204,8 @@ export class ScheduledReportingService {
   }
 
   /**
-   * Tests the system-wide SMTP transport (MAIL_* env vars) that scheduled
-   * reports fall back to when a company has not configured its own SMTP
-   * profile.
+   * Tests the platform MAIL_* transport. Scheduled report delivery does not
+   * use this — each company must configure its own SMTP profile.
    */
   async testSystemSmtpConfiguration(
     actor: AuthenticatedUser,

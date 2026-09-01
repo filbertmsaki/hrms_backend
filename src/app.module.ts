@@ -23,6 +23,7 @@ import { ScheduledReportingModule } from './modules/scheduled-reporting/schedule
 import { SystemHealthModule } from './modules/system-health/system-health.module';
 import { TenantGuard } from './common/guards/tenant.guard';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { SupportModule } from './modules/support/support.module';
 import { createAppTypeOrmModuleOptions } from './database/typeorm-options';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { ConditionalBullModule } from './infrastructure/queues/conditional-bull.module';
@@ -74,6 +75,7 @@ import { ConditionalBullModule } from './infrastructure/queues/conditional-bull.
     ScheduledReportingModule,
     SystemHealthModule,
     AnalyticsModule,
+    SupportModule,
   ],
   controllers: [AppController],
   providers: [
