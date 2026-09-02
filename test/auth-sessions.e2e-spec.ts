@@ -146,7 +146,7 @@ describe('Auth sessions (e2e, real Postgres)', () => {
       .expect(401);
   });
 
-  it('enforces a single active session: a fresh login immediately invalidates the previous one with a SESSION_REPLACED code', async () => {
+  it('keeps both access tokens valid after a second login', async () => {
     const firstToken = await login();
 
     await request(app.getHttpServer() as App)
@@ -156,12 +156,10 @@ describe('Auth sessions (e2e, real Postgres)', () => {
 
     const secondToken = await login();
 
-    const replacedResponse = await request(app.getHttpServer() as App)
+    await request(app.getHttpServer() as App)
       .get('/api/users/me')
       .set('Authorization', `Bearer ${firstToken}`)
-      .expect(401);
-
-    expect(replacedResponse.body).toMatchObject({ code: 'SESSION_REPLACED' });
+      .expect(200);
 
     await request(app.getHttpServer() as App)
       .get('/api/users/me')
@@ -169,7 +167,7 @@ describe('Auth sessions (e2e, real Postgres)', () => {
       .expect(200);
   });
 
-  it('rejects a refresh attempt from a device whose session was replaced by a later login', async () => {
+  it('keeps an earlier refresh token valid after a later login', async () => {
     const loginResponse = await request(app.getHttpServer() as App)
       .post('/api/auth/login')
       .send({ email, password })
@@ -181,8 +179,13 @@ describe('Auth sessions (e2e, real Postgres)', () => {
     const refreshResponse = await request(app.getHttpServer() as App)
       .post('/api/auth/refresh')
       .send({ refresh_token: firstRefreshToken })
-      .expect(401);
+      .expect(201);
 
-    expect(refreshResponse.body).toMatchObject({ code: 'SESSION_REPLACED' });
+    expect(refreshResponse.body).toEqual(
+      expect.objectContaining({
+        access_token: expect.any(String),
+        refresh_token: expect.any(String),
+      }),
+    );
   });
 });

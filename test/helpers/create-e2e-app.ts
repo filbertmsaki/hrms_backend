@@ -16,6 +16,7 @@ export async function createE2eApp(): Promise<INestApplication> {
   }).compile();
 
   const app: INestApplication = moduleRef.createNestApplication();
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
   const correlationIdMiddleware = new CorrelationIdMiddleware();
 
   app.setGlobalPrefix('api');

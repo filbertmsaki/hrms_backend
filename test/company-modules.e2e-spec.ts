@@ -21,6 +21,11 @@ describe('Company role and permission modules (e2e)', () => {
 
   const createdCompanyIds: number[] = [];
   const createdUserIds: number[] = [];
+  let loginIpCounter = 1;
+
+  function nextLoginIp(): string {
+    return `10.0.0.${loginIpCounter++}`;
+  }
 
   beforeAll(async () => {
     app = await createE2eApp();
@@ -43,12 +48,13 @@ describe('Company role and permission modules (e2e)', () => {
       await dataSource.query('DELETE FROM auth_sessions WHERE user_id = $1', [
         userId,
       ]);
-      await dataSource.query('DELETE FROM role_user WHERE user_id = $1', [
+      await dataSource.query('DELETE FROM role_user WHERE "usersId" = $1', [
         userId,
       ]);
-      await dataSource.query('DELETE FROM permission_user WHERE user_id = $1', [
-        userId,
-      ]);
+      await dataSource.query(
+        'DELETE FROM permission_user WHERE "usersId" = $1',
+        [userId],
+      );
       await dataSource.query(
         'DELETE FROM company_user_permissions WHERE company_user_id IN (SELECT id FROM company_users WHERE user_id = $1)',
         [userId],
@@ -102,6 +108,7 @@ describe('Company role and permission modules (e2e)', () => {
 
     const loginResponse = await request(app.getHttpServer() as App)
       .post('/api/auth/login')
+      .set('X-Forwarded-For', nextLoginIp())
       .send({
         email: user.email,
         password,
@@ -157,6 +164,7 @@ describe('Company role and permission modules (e2e)', () => {
   async function loginCompanyAdmin(email: string, password: string) {
     const response = await request(app.getHttpServer() as App)
       .post('/api/auth/login')
+      .set('X-Forwarded-For', nextLoginIp())
       .send({ email, password })
       .expect(201);
 

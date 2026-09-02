@@ -58,6 +58,13 @@ jobs:
       DB_USERNAME: postgres
       DB_PASSWORD: postgres
       DB_NAME: hrms_test_db
+      JWT_ACCESS_SECRET: ci-only-access-secret-not-used-outside-automated-tests
+      JWT_REFRESH_SECRET: ci-only-refresh-secret-not-used-outside-automated-tests
+      JWT_RESET_SECRET: ci-only-reset-secret-not-used-outside-automated-tests
+      PLATFORM_ADMIN_PASSWORD: CI-Test-Owner-Password-2026!
+      COMPANY_ADMIN_PASSWORD: CI-Test-Admin-Password-2026!
+      EMPLOYEE_IMPORT_DEFAULT_PASSWORD: CI-Test-Employee-Password-2026!
+      USE_REDIS: false
 
     services:
       postgres:
@@ -200,6 +207,7 @@ jobs:
             'migration:run:built',
             'migration:show:built',
             'migration:revert:built',
+            'seed:run:built',
           ];
 
           for (const script of scripts) {
@@ -246,6 +254,12 @@ jobs:
 
       - name: Build backend
         run: npm run build
+
+      - name: Run test database migrations
+        run: npm run migration:run:built
+
+      - name: Seed test database
+        run: npm run seed:run:built
 
       - name: E2E tests
         run: npm run test:e2e
