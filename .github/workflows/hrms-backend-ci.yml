@@ -65,6 +65,11 @@ jobs:
       COMPANY_ADMIN_PASSWORD: CI-Test-Admin-Password-2026!
       EMPLOYEE_IMPORT_DEFAULT_PASSWORD: CI-Test-Employee-Password-2026!
       USE_REDIS: false
+      MAIL_HOST: ci-only-mail-host.invalid
+      MAIL_PORT: 587
+      MAIL_USER: ci-only-mail-user@example.invalid
+      MAIL_PASS: ci-only-mail-password-not-used-outside-automated-tests
+      MAIL_FROM: ci-only-mail-user@example.invalid
 
     services:
       postgres:
