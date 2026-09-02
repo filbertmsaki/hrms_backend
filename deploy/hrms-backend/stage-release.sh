@@ -18,6 +18,7 @@ RELEASES_DIR="$BASE_DIR/releases"
 SHARED_DIR="$BASE_DIR/shared"
 RELEASE_DIR="$RELEASES_DIR/$RELEASE_ID"
 STAGING_DIR=""
+RELEASE_CONTENT_DIR=""
 
 cleanup() {
   local status=$?
@@ -49,34 +50,39 @@ trap cleanup EXIT
   exit 1
 }
 
-[[ ! -e "$RELEASE_DIR" ]] || {
-  echo "Release already exists: $RELEASE_DIR" >&2
-  exit 1
-}
-
 command -v tar >/dev/null
 command -v install >/dev/null
 
-while IFS= read -r archive_path; do
-  case "$archive_path" in
-    /*|../*|*/../*|*/..)
-      echo "Unsafe archive path: $archive_path" >&2
-      exit 1
-      ;;
-  esac
-done < <(tar -tzf "$ARCHIVE_FILE")
+if [[ -e "$RELEASE_DIR" ]]; then
+  [[ -d "$RELEASE_DIR" ]] || {
+    echo "Existing release path is not a directory: $RELEASE_DIR" >&2
+    exit 1
+  }
+  echo "Reusing existing release for deployment retry: $RELEASE_DIR"
+  RELEASE_CONTENT_DIR="$RELEASE_DIR"
+else
+  while IFS= read -r archive_path; do
+    case "$archive_path" in
+      /*|../*|*/../*|*/..)
+        echo "Unsafe archive path: $archive_path" >&2
+        exit 1
+        ;;
+    esac
+  done < <(tar -tzf "$ARCHIVE_FILE")
 
-STAGING_DIR="$(mktemp -d "$RELEASES_DIR/.staging-$RELEASE_ID.XXXXXX")"
-tar -xzf "$ARCHIVE_FILE" -C "$STAGING_DIR"
+  STAGING_DIR="$(mktemp -d "$RELEASES_DIR/.staging-$RELEASE_ID.XXXXXX")"
+  tar -xzf "$ARCHIVE_FILE" -C "$STAGING_DIR"
+  RELEASE_CONTENT_DIR="$STAGING_DIR"
+fi
 
 required_files=(
-  "$STAGING_DIR/package.json"
-  "$STAGING_DIR/package-lock.json"
-  "$STAGING_DIR/REVISION"
-  "$STAGING_DIR/dist/main.js"
-  "$STAGING_DIR/dist/database/data-source.js"
-  "$STAGING_DIR/deploy/hrms-backend/deploy.sh"
-  "$STAGING_DIR/deploy/hrms-backend/ecosystem.config.js"
+  "$RELEASE_CONTENT_DIR/package.json"
+  "$RELEASE_CONTENT_DIR/package-lock.json"
+  "$RELEASE_CONTENT_DIR/REVISION"
+  "$RELEASE_CONTENT_DIR/dist/main.js"
+  "$RELEASE_CONTENT_DIR/dist/database/data-source.js"
+  "$RELEASE_CONTENT_DIR/deploy/hrms-backend/deploy.sh"
+  "$RELEASE_CONTENT_DIR/deploy/hrms-backend/ecosystem.config.js"
 )
 
 for required_file in "${required_files[@]}"; do
@@ -86,13 +92,15 @@ for required_file in "${required_files[@]}"; do
   }
 done
 
-[[ "$(tr -d '[:space:]' < "$STAGING_DIR/REVISION")" == "$RELEASE_ID" ]] || {
+[[ "$(tr -d '[:space:]' < "$RELEASE_CONTENT_DIR/REVISION")" == "$RELEASE_ID" ]] || {
   echo 'Artifact revision does not match the requested release.' >&2
   exit 1
 }
 
-mv "$STAGING_DIR" "$RELEASE_DIR"
-STAGING_DIR=""
+if [[ -n "$STAGING_DIR" ]]; then
+  mv "$STAGING_DIR" "$RELEASE_DIR"
+  STAGING_DIR=""
+fi
 
 install -m 0640 \
   "$RELEASE_DIR/deploy/hrms-backend/ecosystem.config.js" \
