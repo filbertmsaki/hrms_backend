@@ -28,45 +28,27 @@ jobs:
     environment:
       name: ${{ inputs.environment == 'uat' && 'hrms-backend-uat' || 'hrms-backend-production' }}
     env:
-      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
-      DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
       TARGET_ENV: ${{ inputs.environment }}
       BASE_DIR: ${{ vars.BASE_DIR }}
       APP_ENV: ${{ vars.APP_ENV }}
       APP_HOST: ${{ vars.APP_HOST }}
       APP_PORT: ${{ vars.APP_PORT }}
       PM2_APP_NAME: ${{ vars.PM2_APP_NAME }}
+      HEALTH_PATH: ${{ vars.HEALTH_PATH || '/api/health/ready' }}
 
     steps:
-      - name: Configure SSH
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          for value in DEPLOY_HOST DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS; do
-            [[ -n "${!value}" ]] || { echo "Missing $value."; exit 1; }
-          done
-          [[ "$DEPLOY_PORT" =~ ^[0-9]+$ ]]
-          install -d -m 700 "$HOME/.ssh"
-          printf '%s\n' "$DEPLOY_SSH_KEY" > "$HOME/.ssh/id_ed25519"
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
-          chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
-          ssh-keygen -y -f "$HOME/.ssh/id_ed25519" >/dev/null
-
       - name: Validate server runtime and directory layout
         shell: bash
         run: |
           set -Eeuo pipefail
 
           for value in \
-            DEPLOY_USER \
             BASE_DIR \
             APP_ENV \
             APP_HOST \
             APP_PORT \
-            PM2_APP_NAME; do
+            PM2_APP_NAME \
+            HEALTH_PATH; do
             [[ -n "${!value}" ]] || { echo "Missing $value."; exit 1; }
           done
 
@@ -85,13 +67,6 @@ jobs:
               ;;
           esac
 
-          ssh -i "$HOME/.ssh/id_ed25519" -p "$DEPLOY_PORT" \
-            -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=yes \
-            "$DEPLOY_USER@$DEPLOY_HOST" \
-            "DEPLOY_USER='$DEPLOY_USER' BASE_DIR='$BASE_DIR' APP_ENV='$APP_ENV' APP_HOST='$APP_HOST' APP_PORT='$APP_PORT' PM2_APP_NAME='$PM2_APP_NAME' bash -s" <<'REMOTE'
-          set -Eeuo pipefail
-
-          [[ "$(whoami)" == "$DEPLOY_USER" ]]
           [[ "$(id -u)" -ne 0 ]]
           node_major="$(node -p "process.versions.node.split('.')[0]")"
           (( node_major >= 22 ))
@@ -115,10 +90,5 @@ jobs:
 
           if [[ -L "$BASE_DIR/current" ]]; then
             pm2 describe "$PM2_APP_NAME" >/dev/null
-            curl --fail --silent --show-error "http://127.0.0.1:$APP_PORT/api/health/ready" >/dev/null
+            curl --fail --silent --show-error "http://127.0.0.1:${APP_PORT}${HEALTH_PATH}" >/dev/null
           fi
-          REMOTE
-
-      - name: Clean deployment SSH key
-        if: always()
-        run: rm -f "$HOME/.ssh/id_ed25519"
