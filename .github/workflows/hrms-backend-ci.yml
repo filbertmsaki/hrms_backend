@@ -469,11 +469,6 @@ jobs:
 
     env:
       TARGET_ENV: ${{ github.event_name == 'push' && 'uat' || inputs.environment }}
-      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
-      DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
       BASE_DIR: ${{ vars.BASE_DIR }}
       PM2_APP_NAME: ${{ vars.PM2_APP_NAME }}
       APP_ENV: ${{ vars.APP_ENV }}
@@ -502,10 +497,6 @@ jobs:
           set -Eeuo pipefail
 
           for value in \
-            DEPLOY_HOST \
-            DEPLOY_SSH_KEY \
-            DEPLOY_KNOWN_HOSTS \
-            DEPLOY_USER \
             BASE_DIR \
             PM2_APP_NAME \
             APP_ENV \
@@ -515,7 +506,6 @@ jobs:
             [[ -n "${!value}" ]] || { echo "Missing $value."; exit 1; }
           done
 
-          [[ "$DEPLOY_PORT" =~ ^[0-9]+$ ]]
           [[ "$APP_PORT" =~ ^[0-9]+$ ]]
           [[ "$KEEP_RELEASES" =~ ^[0-9]+$ ]]
           [[ "$BACKUP_BEFORE_MIGRATION" =~ ^(true|false)$ ]]
@@ -538,57 +528,27 @@ jobs:
           cd "$RUNNER_TEMP/hrms-backend-artifact"
           sha256sum --check hrms-backend-release.tar.gz.sha256
 
-      - name: Configure deployment SSH
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          install -d -m 700 "$HOME/.ssh"
-          printf '%s\n' "$DEPLOY_SSH_KEY" > "$HOME/.ssh/id_ed25519"
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
-          chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
-          ssh-keygen -y -f "$HOME/.ssh/id_ed25519" >/dev/null
-
-      - name: Upload and deploy release
+      - name: Deploy release locally
         shell: bash
         run: |
           set -Eeuo pipefail
 
           RELEASE_ID="$GITHUB_SHA"
           ARCHIVE="$RUNNER_TEMP/hrms-backend-artifact/hrms-backend-release.tar.gz"
-          REMOTE_ARCHIVE="$BASE_DIR/tmp/hrms-backend-$RELEASE_ID.tar.gz"
-          REMOTE_STAGE="$BASE_DIR/tmp/stage-hrms-backend-$RELEASE_ID.sh"
+          STAGE_SCRIPT="$RUNNER_TEMP/stage-hrms-backend-$RELEASE_ID.sh"
 
-          ssh -i "$HOME/.ssh/id_ed25519" -p "$DEPLOY_PORT" \
-            -o BatchMode=yes -o StrictHostKeyChecking=yes \
-            "$DEPLOY_USER@$DEPLOY_HOST" \
-            "test \"\$(id -un)\" = '$DEPLOY_USER' && test \"\$(id -u)\" -ne 0 && test -w '$BASE_DIR/releases' && test -w '$BASE_DIR/shared' && test -w '$BASE_DIR/tmp'"
+          [[ "$(id -u)" -ne 0 ]]
+          [[ -w "$BASE_DIR/releases" ]]
+          [[ -w "$BASE_DIR/shared" ]]
+          [[ -w "$BASE_DIR/tmp" ]]
 
-          scp -i "$HOME/.ssh/id_ed25519" -P "$DEPLOY_PORT" \
-            -o BatchMode=yes -o StrictHostKeyChecking=yes \
-            "$ARCHIVE" "$DEPLOY_USER@$DEPLOY_HOST:$REMOTE_ARCHIVE"
-
-          scp -i "$HOME/.ssh/id_ed25519" -P "$DEPLOY_PORT" \
-            -o BatchMode=yes -o StrictHostKeyChecking=yes \
-            deploy/hrms-backend/stage-release.sh "$DEPLOY_USER@$DEPLOY_HOST:$REMOTE_STAGE"
-
-          LOCAL_SHA="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
-          REMOTE_SHA="$(ssh -i "$HOME/.ssh/id_ed25519" -p "$DEPLOY_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" "sha256sum '$REMOTE_ARCHIVE' | awk '{print \$1}'")"
-          [[ "$LOCAL_SHA" == "$REMOTE_SHA" ]]
-
-          ssh -i "$HOME/.ssh/id_ed25519" -p "$DEPLOY_PORT" \
-            -o BatchMode=yes -o StrictHostKeyChecking=yes \
-            "$DEPLOY_USER@$DEPLOY_HOST" \
-            "BASE_DIR='$BASE_DIR' PM2_APP_NAME='$PM2_APP_NAME' APP_ENV='$APP_ENV' APP_HOST='$APP_HOST' APP_PORT='$APP_PORT' HEALTH_URL='$HEALTH_URL' KEEP_RELEASES='$KEEP_RELEASES' BACKUP_BEFORE_MIGRATION='$BACKUP_BEFORE_MIGRATION' bash '$REMOTE_STAGE' '$RELEASE_ID' '$REMOTE_ARCHIVE'"
+          install -m 0750 deploy/hrms-backend/stage-release.sh "$STAGE_SCRIPT"
+          bash "$STAGE_SCRIPT" "$RELEASE_ID" "$ARCHIVE"
 
       - name: Verify deployment
         shell: bash
         run: |
           set -Eeuo pipefail
-          ssh -i "$HOME/.ssh/id_ed25519" -p "$DEPLOY_PORT" \
-            -o BatchMode=yes -o StrictHostKeyChecking=yes \
-            "$DEPLOY_USER@$DEPLOY_HOST" \
-            "curl --fail --silent --show-error '$HEALTH_URL' >/dev/null && pm2 status '$PM2_APP_NAME' && test \"\$(readlink -f '$BASE_DIR/current')\" = '$BASE_DIR/releases/$GITHUB_SHA'"
-
-      - name: Clean deployment SSH key
-        if: always()
-        run: rm -f "$HOME/.ssh/id_ed25519"
+          curl --fail --silent --show-error "$HEALTH_URL" >/dev/null
+          pm2 status "$PM2_APP_NAME"
+          [[ "$(readlink -f "$BASE_DIR/current")" == "$BASE_DIR/releases/$GITHUB_SHA" ]]
