@@ -13,7 +13,7 @@ import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user
 import type { AuditRequestContext } from '../../../common/interfaces/audit-request-context.interface';
 import { hashPassword } from '../../../common/utils/hash.util';
 import { hasPermission } from '../../../common/utils/permission.util';
-import { normalizeTanzaniaPhone } from '../../../common/utils/tanzania-phone.util';
+import { normalizeTanzaniaOrUgandaPhone } from '../../../common/utils/tanzania-phone.util';
 import { CompaniesService } from '../../companies/companies.service';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { FilesService } from '../../files/files.service';
@@ -1171,13 +1171,13 @@ export class EmployeesService {
       createEmployeeDto.contacts,
       'email',
     );
-    const phone = normalizeTanzaniaPhone(
+    const phone = normalizeTanzaniaOrUgandaPhone(
       this.getPrimaryContactValue(createEmployeeDto.contacts, 'phone_number'),
     );
 
     if (!email || !phone) {
       throw new BadRequestException(
-        'Employee contact details must include an email and a valid Tanzanian phone number in +255 format',
+        'Employee contact details must include an email and a valid Tanzanian (+255) or Ugandan (+256) phone number',
       );
     }
 

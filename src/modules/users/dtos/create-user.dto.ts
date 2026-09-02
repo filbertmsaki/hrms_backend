@@ -11,8 +11,8 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, TransformFnParams } from 'class-transformer';
 import { Role } from 'src/modules/roles/entities/role.entity';
 import {
-  TANZANIA_PHONE_CANONICAL_REGEX,
-  normalizeTanzaniaPhone,
+  TANZANIA_OR_UGANDA_PHONE_CANONICAL_REGEX,
+  normalizeTanzaniaOrUgandaPhone,
 } from '../../../common/utils/tanzania-phone.util';
 
 export class CreateUserDto {
@@ -33,17 +33,18 @@ export class CreateUserDto {
   last_name: string;
 
   @ApiProperty({
-    description: 'Tanzania phone number in +255 international format.',
+    description:
+      'Tanzanian (+255) or Ugandan (+256) phone number in E.164 format.',
     example: '+255712345678',
   })
   @IsNotEmpty()
   @Transform(({ value }: TransformFnParams): unknown => {
     if (typeof value !== 'string') return value as unknown;
-    return normalizeTanzaniaPhone(value) ?? value.trim();
+    return normalizeTanzaniaOrUgandaPhone(value) ?? value.trim();
   })
-  @Matches(TANZANIA_PHONE_CANONICAL_REGEX, {
+  @Matches(TANZANIA_OR_UGANDA_PHONE_CANONICAL_REGEX, {
     message:
-      'Phone number must be a valid Tanzanian number in +255 format, for example +255762650393',
+      'Phone number must be a valid Tanzanian (+255) or Ugandan (+256) number, for example +255762650393 or +256772123456',
   })
   phone: string;
 

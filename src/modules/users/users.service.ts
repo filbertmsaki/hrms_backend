@@ -13,7 +13,7 @@ import { EntityManager, In, MoreThan, Repository } from 'typeorm';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { comparePasswords, hashPassword } from 'src/common/utils/hash.util';
 import { hasPermission } from 'src/common/utils/permission.util';
-import { normalizeTanzaniaPhone } from 'src/common/utils/tanzania-phone.util';
+import { normalizeTanzaniaOrUgandaPhone } from 'src/common/utils/tanzania-phone.util';
 import { CompaniesService } from '../companies/companies.service';
 import { CompanyUser } from '../companies/entities/company-user.entity';
 import { AuthSessionsService } from '../auth/auth-sessions.service';
@@ -520,11 +520,11 @@ export class UsersService {
     createUserDto: CreateUserDto,
   ): Promise<UserProfileDto | { message: string; user: UserProfileDto }> {
     const { roles, password, ...userData } = createUserDto;
-    const normalizedPhone = normalizeTanzaniaPhone(userData.phone);
+    const normalizedPhone = normalizeTanzaniaOrUgandaPhone(userData.phone);
 
     if (!normalizedPhone) {
       throw new BadRequestException(
-        'Phone number must be a valid Tanzanian number in +255 format',
+        'Phone number must be a valid Tanzanian (+255) or Ugandan (+256) number',
       );
     }
 
@@ -964,7 +964,7 @@ export class UsersService {
   }
 
   async findByPhone(phone: string): Promise<User | null> {
-    const normalizedPhone = normalizeTanzaniaPhone(phone);
+    const normalizedPhone = normalizeTanzaniaOrUgandaPhone(phone);
     if (!normalizedPhone) {
       return null;
     }
@@ -1056,10 +1056,10 @@ export class UsersService {
     };
     void roles;
     if (typeof safeUpdate.phone === 'string') {
-      const normalizedPhone = normalizeTanzaniaPhone(safeUpdate.phone);
+      const normalizedPhone = normalizeTanzaniaOrUgandaPhone(safeUpdate.phone);
       if (!normalizedPhone) {
         throw new BadRequestException(
-          'Phone number must be a valid Tanzanian number in +255 format',
+          'Phone number must be a valid Tanzanian (+255) or Ugandan (+256) number',
         );
       }
 
