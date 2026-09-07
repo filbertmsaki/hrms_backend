@@ -261,6 +261,11 @@ export class CreateEmployeeDto {
 
   @ValidateNested()
   @Type(() => EmployeeOnboardingInputDto)
+  @ApiPropertyOptional({
+    type: EmployeeOnboardingInputDto,
+    description:
+      'Omit to skip onboarding. When supplied, auto_start and submit default to true. Submission with missing approvers saves a draft and returns a warning.',
+  })
   @IsOptional()
   onboarding?: EmployeeOnboardingInputDto;
 }

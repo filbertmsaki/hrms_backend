@@ -68,7 +68,10 @@ import { OnboardingTask } from './entities/onboarding-task.entity';
 import { OnboardingWorkflowStep } from './entities/onboarding-workflow-step.entity';
 import { OnboardingWorkflow } from './entities/onboarding-workflow.entity';
 import { OnboardingAuditService } from './services/onboarding-audit.service';
-import { OnboardingWorkflowService } from './services/onboarding-workflow.service';
+import {
+  OnboardingApproverFailure,
+  OnboardingWorkflowService,
+} from './services/onboarding-workflow.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -132,6 +135,11 @@ const EMPTY_AUDIT_CONTEXT: AuditRequestContext = {
   ipAddress: null,
   userAgent: null,
   requestId: null,
+};
+
+export type OnboardingCreationResult = OnboardingRequest & {
+  warning: string | null;
+  warning_details: OnboardingApproverFailure[];
 };
 
 @Injectable()
@@ -337,9 +345,13 @@ export class OnboardingService {
   private validateWorkflowStepRules(
     step: OnboardingWorkflowStepInputDto,
   ): void {
-    if (!step.assigned_role_id && !step.assigned_user_id) {
+    if (
+      !step.assigned_role_id &&
+      !step.assigned_user_id &&
+      !step.assigned_department_id
+    ) {
       throw new BadRequestException(
-        `Step "${step.name}" must have either assigned_role_id or assigned_user_id`,
+        `Step "${step.name}" must have assigned_role_id, assigned_user_id or assigned_department_id`,
       );
     }
 
@@ -512,9 +524,16 @@ export class OnboardingService {
 
     const existing = await qb.getOne();
     if (existing) {
-      throw new ConflictException(
-        `Employee already has active onboarding request ${existing.onboarding_no}`,
-      );
+      throw new ConflictException({
+        message: `Employee already has active onboarding request ${existing.onboarding_no}`,
+        onboarding_request_id: existing.id,
+        onboarding_request: {
+          id: existing.id,
+          employee_id: existing.employee_id,
+          onboarding_no: existing.onboarding_no,
+          status: existing.status,
+        },
+      });
     }
   }
 
@@ -2411,12 +2430,14 @@ export class OnboardingService {
     dto: CreateOnboardingRequestDto,
     actor: AuthenticatedUser,
     manager?: EntityManager,
-  ): Promise<OnboardingRequest> {
+  ): Promise<OnboardingCreationResult> {
     const employee = await this.findEmployeeOrFail(
       companyId,
       dto.employee_id,
       manager,
     );
+
+    await this.ensureNoActiveOnboarding(companyId, dto.employee_id, manager);
 
     if (employee.employment_status === EmploymentStatusEnum.ACTIVE) {
       throw new ConflictException(
@@ -2432,9 +2453,6 @@ export class OnboardingService {
       );
     }
 
-    await this.ensureNoActiveOnboarding(companyId, dto.employee_id, manager);
-
-    const shouldSubmit = dto.submit ?? true;
     const run = async (transactionManager: EntityManager) => {
       const requestRepository =
         this.getOnboardingRequestRepository(transactionManager);
@@ -2453,6 +2471,26 @@ export class OnboardingService {
         companyId,
         transactionManager,
       );
+
+      // Resolve every step before writing approvals; drafts never need approvers.
+      const approvers =
+        (dto.submit ?? true)
+          ? await this.onboardingWorkflowService.prepareApprovers(
+              companyId,
+              workflow.steps,
+              transactionManager,
+            )
+          : null;
+      const failures = approvers?.failures ?? [];
+      const shouldSubmit =
+        !!approvers &&
+        !failures.length &&
+        approvers.assignments.some(({ membershipIds }) => membershipIds.length);
+      const warning = failures.length
+        ? `Required workflow step at order ${failures[0].step_order} has no eligible approver. Onboarding saved as draft.`
+        : approvers && !shouldSubmit
+          ? 'Workflow has no eligible approvers. Onboarding saved as draft.'
+          : null;
 
       const created = await requestRepository.save(
         requestRepository.create({
@@ -2489,6 +2527,7 @@ export class OnboardingService {
             created,
             workflow.id,
             transactionManager,
+            approvers,
           );
         await this.createTasksFromWorkflowSteps(
           created,
@@ -2496,11 +2535,28 @@ export class OnboardingService {
           actor,
           transactionManager,
         );
+        created.status = OnboardingRequestStatusEnum.SUBMITTED;
       }
 
       await this.updateRequestProgress(created, transactionManager);
 
-      return requestRepository.findOneOrFail({
+      await this.onboardingAuditService.log(
+        {
+          company_id: companyId,
+          onboarding_request_id: created.id,
+          action: 'onboarding_request.created',
+          entity_name: 'onboarding_request',
+          entity_id: created.id,
+          actor,
+          payload: {
+            onboarding_no: created.onboarding_no,
+            status: created.status,
+          },
+        },
+        transactionManager,
+      );
+
+      const request = await requestRepository.findOneOrFail({
         where: { id: created.id },
         relations: {
           employee: {
@@ -2513,6 +2569,7 @@ export class OnboardingService {
           approvals: { approver: { user: true }, workflow_step: true },
         },
       });
+      return Object.assign(request, { warning, warning_details: failures });
     };
 
     if (manager) {
@@ -2537,26 +2594,15 @@ export class OnboardingService {
       actor,
     );
 
-    await this.onboardingAuditService.log({
-      company_id: companyId,
-      onboarding_request_id: request.id,
-      action: 'onboarding_request.created',
-      entity_name: 'onboarding_request',
-      entity_id: request.id,
-      actor,
-      payload: {
-        onboarding_no: request.onboarding_no,
-        status: request.status,
-      },
-    });
-
     if (request.submitted_at) {
       this.emitOnboardingSubmitted(companyId, request, actor).catch(() => {});
     }
 
-    const documents = await this.loadOnboardingDocuments(companyId, request.id);
-
-    return this.mapRequest(request, documents);
+    return {
+      ...this.mapRequest(request),
+      warning: request.warning,
+      warning_details: request.warning_details,
+    };
   }
 
   async updateOnboardingRequest(

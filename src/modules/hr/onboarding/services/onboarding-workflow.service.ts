@@ -22,6 +22,9 @@ import {
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { CompanyUserRole } from '../../../companies/entities/company-user-role.entity';
 import { Role } from '../../../roles/entities/role.entity';
+import { Department } from '../../departments/entities/department.entity';
+import { Employee } from '../../employees/entities/employee.entity';
+import { EmploymentStatusEnum } from '../../employees/enums/employment-status.enum';
 import { OnboardingApprovalStatusEnum } from '../enums/onboarding-approval-status.enum';
 import { OnboardingRecordStatusEnum } from '../enums/onboarding-record-status.enum';
 import { OnboardingRequestStatusEnum } from '../enums/onboarding-request-status.enum';
@@ -34,6 +37,21 @@ type WorkflowInitResult = {
   workflow: OnboardingWorkflow;
   initialLevel: number;
   steps: OnboardingWorkflowStep[];
+};
+
+export type OnboardingApproverFailure = Pick<
+  OnboardingWorkflowStep,
+  | 'id'
+  | 'step_order'
+  | 'name'
+  | 'assigned_user_id'
+  | 'assigned_role_id'
+  | 'assigned_department_id'
+>;
+
+type WorkflowApproverPlan = {
+  assignments: { step: OnboardingWorkflowStep; membershipIds: number[] }[];
+  failures: OnboardingApproverFailure[];
 };
 
 @Injectable()
@@ -169,7 +187,7 @@ export class OnboardingWorkflowService {
         },
         select: ['id'],
       });
-      return membership ? [membership.id] : [];
+      if (membership) return [membership.id];
     }
 
     if (step.assigned_role_id) {
@@ -188,10 +206,71 @@ export class OnboardingWorkflowService {
         .groupBy('assignment.company_user_id')
         .getRawMany<{ company_user_id: number }>();
 
-      return assignments.map((a) => Number(a.company_user_id));
+      if (assignments.length) {
+        return assignments.map((a) => Number(a.company_user_id));
+      }
+    }
+
+    if (step.assigned_department_id) {
+      const membership = await this.repo(CompanyUser, manager)
+        .createQueryBuilder('membership')
+        .innerJoin(
+          Employee,
+          'employee',
+          'employee.company_user_id = membership.id',
+        )
+        .innerJoin(
+          Department,
+          'department',
+          'department.manager_employee_id = employee.id',
+        )
+        .where('membership.company_id = :companyId', { companyId })
+        .andWhere('membership.status = :status', { status: 'active' })
+        .andWhere('employee.company_id = :companyId', { companyId })
+        .andWhere('employee.employment_status = :employmentStatus', {
+          employmentStatus: EmploymentStatusEnum.ACTIVE,
+        })
+        .andWhere('department.company_id = :companyId', { companyId })
+        .andWhere('department.id = :departmentId', {
+          departmentId: step.assigned_department_id,
+        })
+        .andWhere('department.status = :status', { status: 'active' })
+        .getOne();
+      return membership ? [membership.id] : [];
     }
 
     return [];
+  }
+
+  async prepareApprovers(
+    companyId: number,
+    steps: OnboardingWorkflowStep[],
+    manager?: EntityManager,
+  ): Promise<WorkflowApproverPlan> {
+    if (!steps.length) {
+      throw new BadRequestException('Configured workflow has no steps');
+    }
+    const assignments: WorkflowApproverPlan['assignments'] = [];
+    const failures: OnboardingApproverFailure[] = [];
+    for (const step of steps) {
+      const membershipIds = await this.resolveApproverMembershipIds(
+        companyId,
+        step,
+        manager,
+      );
+      assignments.push({ step, membershipIds });
+      if (step.is_required && !membershipIds.length) {
+        failures.push({
+          id: step.id,
+          step_order: step.step_order,
+          name: step.name,
+          assigned_user_id: step.assigned_user_id,
+          assigned_role_id: step.assigned_role_id,
+          assigned_department_id: step.assigned_department_id,
+        });
+      }
+    }
+    return { assignments, failures };
   }
 
   async initializeApprovalsForRequest(
@@ -199,37 +278,39 @@ export class OnboardingWorkflowService {
     onboardingRequest: OnboardingRequest,
     workflowId?: number | null,
     manager?: EntityManager,
+    preparedApprovers?: WorkflowApproverPlan,
   ): Promise<WorkflowInitResult> {
     const workflow = await this.resolveWorkflow(companyId, workflowId, manager);
-    const steps = await this.repo(OnboardingWorkflowStep, manager).find({
-      where: { workflow_id: workflow.id },
-      order: { step_order: 'ASC', id: 'ASC' },
-    });
+    const steps =
+      preparedApprovers?.assignments.map(({ step }) => step) ??
+      (await this.repo(OnboardingWorkflowStep, manager).find({
+        where: { workflow_id: workflow.id },
+        order: { step_order: 'ASC', id: 'ASC' },
+      }));
 
-    if (!steps.length) {
-      throw new BadRequestException('Configured workflow has no steps');
+    const plan =
+      preparedApprovers ??
+      (await this.prepareApprovers(companyId, steps, manager));
+    if (plan.failures.length) {
+      throw new BadRequestException({
+        message: `Required workflow step at order ${plan.failures[0].step_order} has no eligible approver`,
+        warning_details: plan.failures,
+      });
+    }
+    if (!plan.assignments.some(({ membershipIds }) => membershipIds.length)) {
+      throw new BadRequestException(
+        'Workflow initialization produced no pending approvals',
+      );
     }
 
     const approvalRepository = this.repo(OnboardingApproval, manager);
 
     let initialLevel = 0;
-    for (const step of steps) {
+    for (const { step, membershipIds } of plan.assignments) {
       const dueAt = step.due_days
         ? new Date(Date.now() + step.due_days * 86400000)
         : null;
-      const membershipIds = await this.resolveApproverMembershipIds(
-        companyId,
-        step,
-        manager,
-      );
-
       if (!membershipIds.length) {
-        if (step.is_required) {
-          throw new BadRequestException(
-            `Required workflow step at order ${step.step_order} has no eligible approver`,
-          );
-        }
-
         await approvalRepository.save(
           approvalRepository.create({
             onboarding_request_id: onboardingRequest.id,

@@ -13,7 +13,6 @@ import { OnboardingProvisioningDto } from './onboarding-provisioning.dto';
 
 export class EmployeeOnboardingInputDto {
   @ApiPropertyOptional({ default: true })
-  @Type(() => Boolean)
   @IsBoolean()
   @IsOptional()
   auto_start?: boolean;
@@ -42,7 +41,6 @@ export class EmployeeOnboardingInputDto {
   planned_completion_date?: string;
 
   @ApiPropertyOptional({ default: true })
-  @Type(() => Boolean)
   @IsBoolean()
   @IsOptional()
   submit?: boolean;

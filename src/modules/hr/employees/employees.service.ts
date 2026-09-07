@@ -3,6 +3,8 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  HttpException,
+  Logger,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -33,7 +35,10 @@ import { DefaultAvatarsService } from '../default-avatars/default-avatars.servic
 import { Department } from '../departments/entities/department.entity';
 import { EmployeeAttendanceReadinessService } from '../launch-readiness/employee-attendance-readiness.service';
 import { LeaveBalanceService } from '../leave/services/leave-balance.service';
-import { OnboardingService } from '../onboarding/onboarding.service';
+import {
+  OnboardingCreationResult,
+  OnboardingService,
+} from '../onboarding/onboarding.service';
 import { Position } from '../positions/entities/position.entity';
 import { EmployeeGrade } from '../grades/entities/employee-grade.entity';
 import { HrAccessService } from '../shared/hr-access.service';
@@ -115,6 +120,7 @@ const ARCHIVED_EXPERIENCE_PREFIX = '[ARCHIVED_EXPERIENCE]';
 
 @Injectable()
 export class EmployeesService {
+  private readonly logger = new Logger(EmployeesService.name);
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
@@ -2864,29 +2870,70 @@ export class EmployeesService {
       return this.createForCompanyUserMembership(
         companyId,
         membership,
-        createEmployeeDto,
+        { ...createEmployeeDto, onboarding: { auto_start: false } },
         actor,
         context,
         manager,
       );
     });
 
-    const employee = await this.findOne(companyId, creation.employeeId, actor);
-
-    if (!creation.onboardingRequestId) {
-      return employee;
+    // Employee creation has committed. Optional onboarding must not hide it.
+    let onboardingRequest: OnboardingCreationResult | null = null;
+    const warnings: string[] = [];
+    if (
+      createEmployeeDto.onboarding &&
+      createEmployeeDto.onboarding.auto_start !== false
+    ) {
+      try {
+        onboardingRequest =
+          await this.onboardingService.startOnboardingForEmployee(
+            companyId,
+            {
+              ...createEmployeeDto.onboarding,
+              employee_id: creation.employeeId,
+            },
+            actor,
+          );
+        if (onboardingRequest.warning) {
+          warnings.push(
+            onboardingRequest.warning.replace(
+              'Onboarding saved',
+              'Employee created; onboarding saved',
+            ),
+          );
+        }
+      } catch (error) {
+        this.logger.warn(
+          `Onboarding could not start for employee ${creation.employeeId}`,
+        );
+        const reason =
+          error instanceof HttpException && error.getStatus() < 500
+            ? error.message
+            : 'Onboarding could not start';
+        warnings.push(`${reason}. Employee created.`);
+      }
     }
 
-    const onboardingRequest =
-      await this.onboardingService.findOneOnboardingRequest(
-        companyId,
-        creation.onboardingRequestId,
-        actor,
-      );
+    const employee = await this.findOne(
+      companyId,
+      creation.employeeId,
+      actor,
+    ).catch(() => {
+      warnings.push('Employee created; full profile could not be loaded.');
+      return creation.employee;
+    });
 
     return {
       ...employee,
-      onboarding_request: onboardingRequest,
+      onboarding_request: onboardingRequest
+        ? {
+            id: onboardingRequest.id,
+            status: onboardingRequest.status,
+            onboarding_no: onboardingRequest.onboarding_no,
+          }
+        : null,
+      warning: warnings.length ? warnings.join(' ') : null,
+      warning_details: onboardingRequest?.warning_details ?? [],
     };
   }
 
@@ -2955,15 +3002,29 @@ export class EmployeesService {
     actor: AuthenticatedUser,
     context: AuditRequestContext,
     manager: EntityManager,
-  ): Promise<{ employeeId: number; onboardingRequestId: number | null }> {
+  ): Promise<{
+    employeeId: number;
+    onboardingRequestId: number | null;
+    employee: Pick<
+      Employee,
+      'id' | 'employee_no' | 'company_user_id' | 'first_name' | 'last_name'
+    >;
+  }> {
     const existingEmployee = await this.getEmployeeRepository(manager).findOne({
       where: { company_user_id: membership.id },
     });
 
     if (existingEmployee) {
-      throw new ConflictException(
-        'This company user already has an employee profile',
-      );
+      throw new ConflictException({
+        message: 'This company user already has an employee profile',
+        employee_id: existingEmployee.id,
+        employee: {
+          id: existingEmployee.id,
+          employee_no: existingEmployee.employee_no,
+          first_name: existingEmployee.first_name,
+          last_name: existingEmployee.last_name,
+        },
+      });
     }
 
     const requestedEmployeeNo = this.normalizeOptionalEmployeeNumber(
@@ -3019,7 +3080,10 @@ export class EmployeesService {
     );
 
     let onboardingRequestId: number | null = null;
-    if (createEmployeeDto.onboarding?.auto_start !== false) {
+    if (
+      createEmployeeDto.onboarding &&
+      createEmployeeDto.onboarding.auto_start !== false
+    ) {
       const onboardingRequest =
         await this.onboardingService.startOnboardingForEmployee(
           companyId,
@@ -3062,6 +3126,13 @@ export class EmployeesService {
     return {
       employeeId: savedEmployee.id,
       onboardingRequestId,
+      employee: {
+        id: savedEmployee.id,
+        employee_no: savedEmployee.employee_no,
+        company_user_id: savedEmployee.company_user_id,
+        first_name: savedEmployee.first_name,
+        last_name: savedEmployee.last_name,
+      },
     };
   }
 

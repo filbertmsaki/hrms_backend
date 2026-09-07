@@ -40,7 +40,6 @@ export class CreateOnboardingRequestDto {
   planned_completion_date?: string;
 
   @ApiPropertyOptional({ default: true })
-  @Type(() => Boolean)
   @IsBoolean()
   @IsOptional()
   submit?: boolean;
