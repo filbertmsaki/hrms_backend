@@ -105,6 +105,56 @@ describe('EmployeesService.remove', () => {
   });
 });
 
+describe('EmployeesService attendance activation readiness', () => {
+  it('accepts a direct active shift assignment without requiring a timetable', async () => {
+    const service = {
+      attendanceReadinessService: {
+        checkOne: jest.fn().mockResolvedValue({
+          readinessScore: 57,
+          checks: {
+            hasShift: true,
+            hasTimetable: false,
+          },
+        }),
+      },
+    };
+
+    await expect(
+      EmployeesService.prototype['assertAttendanceReady'].call(
+        service,
+        12,
+        140,
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it('blocks activation when neither a shift nor timetable is active', async () => {
+    const service = {
+      attendanceReadinessService: {
+        checkOne: jest.fn().mockResolvedValue({
+          readinessScore: 43,
+          checks: {
+            hasShift: false,
+            hasTimetable: false,
+          },
+        }),
+      },
+    };
+
+    await expect(
+      EmployeesService.prototype['assertAttendanceReady'].call(
+        service,
+        12,
+        140,
+      ),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        issues: ['No active shift or timetable assignment'],
+      }),
+    });
+  });
+});
+
 describe('EmployeesService.removeDocument', () => {
   it('archives employee documents instead of deleting the record and file', async () => {
     const employee = { id: 15 };

@@ -3690,18 +3690,17 @@ export class EmployeesService {
 
     if (!readiness) return;
 
-    // Skip the isActiveEmployee check — the employee is being activated now.
-    const blockingIssues = readiness.issues.filter(
-      (issue) => issue !== 'Employee is not active',
-    );
-
-    if (blockingIssues.length > 0) {
+    // Employee activation only requires a usable attendance schedule. Device,
+    // credential, and biometric readiness remain visible in launch-readiness
+    // reports, but they must not prevent HR from activating an employee who
+    // has a direct shift or timetable assignment.
+    if (!readiness.checks.hasShift && !readiness.checks.hasTimetable) {
       throw new UnprocessableEntityException({
         message:
           'Employee cannot be activated: attendance setup is incomplete.',
-        issues: blockingIssues,
+        issues: ['No active shift or timetable assignment'],
         readinessScore: readiness.readinessScore,
-        hint: 'Complete the listed setup items before activating this employee.',
+        hint: 'Assign an active shift or timetable before activating this employee.',
       });
     }
   }
