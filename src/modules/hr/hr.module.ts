@@ -26,6 +26,7 @@ import { PerformanceModule } from './performance/performance.module';
 import { WorkActivitiesModule } from './work-activities/work-activities.module';
 import { PayrollModule } from './payroll/payroll.module';
 import { EmployeeFinanceModule } from './employee-finance/employee-finance.module';
+import { EmployeeInvitationsModule } from './employee-invitations/employee-invitations.module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { EmployeeFinanceModule } from './employee-finance/employee-finance.modul
     WorkActivitiesModule,
     PayrollModule,
     EmployeeFinanceModule,
+    EmployeeInvitationsModule,
     EmployeeMovementsModule,
     OnboardingModule,
     OffboardingModule,

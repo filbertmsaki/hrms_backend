@@ -299,6 +299,11 @@ export function validateEnv(env: Env) {
     'SMS_GATEWAY_TIMEOUT_MS',
     10000,
   );
+  const EMPLOYEE_INVITATION_TTL_HOURS = optionalInt(
+    env,
+    'EMPLOYEE_INVITATION_TTL_HOURS',
+    72,
+  );
 
   const mailSafetyConfig = resolveMailRecipientSafetyConfig({
     appEnv: APP_ENV,
@@ -1797,6 +1802,7 @@ export function validateEnv(env: Env) {
     SMS_GATEWAY_SHORTCODE,
     SMS_GATEWAY_CHANNEL,
     SMS_GATEWAY_TIMEOUT_MS,
+    EMPLOYEE_INVITATION_TTL_HOURS,
     USE_REDIS,
     REDIS_URL,
     HEALTH_DISK_PATH,
