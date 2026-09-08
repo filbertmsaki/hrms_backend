@@ -26,8 +26,14 @@ import { ShiftSchedule } from '../../shift-schedules/entities/shift-schedule.ent
 @Index('IDX_shifts_branch_id', ['branchId'])
 @Index('IDX_shifts_department_id', ['departmentId'])
 @Index('IDX_shifts_status', ['status'])
-@Index('UQ_shifts_company_code', ['companyId', 'code'], { unique: true })
-@Index('UQ_shifts_company_name', ['companyId', 'name'], { unique: true })
+@Index('UQ_shifts_company_code', ['companyId', 'code'], {
+  unique: true,
+  where: '"deleted_at" IS NULL',
+})
+@Index('UQ_shifts_company_name', ['companyId', 'name'], {
+  unique: true,
+  where: '"deleted_at" IS NULL',
+})
 export class Shift {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;
