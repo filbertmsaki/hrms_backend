@@ -41,6 +41,7 @@ import type { App } from 'supertest/types';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { LeaveController } from '../src/modules/hr/leave/leave.controller';
 import { LeaveService } from '../src/modules/hr/leave/leave.service';
+import { LeaveImportService } from '../src/modules/hr/leave/services/leave-import.service';
 import { LeaveType } from '../src/modules/hr/leave/entities/leave-type.entity';
 import { LeaveRequest } from '../src/modules/hr/leave/entities/leave-request.entity';
 import { LeavePolicy } from '../src/modules/hr/leave/entities/leave-policy.entity';
@@ -339,6 +340,13 @@ describe('Leave Flow (e2e)', () => {
         },
         { provide: LeaveWorkflowService, useValue: leaveWorkflowService },
         { provide: LeavePdfService, useValue: {} },
+        {
+          provide: LeaveImportService,
+          useValue: {
+            downloadTemplate: jest.fn(),
+            import: jest.fn(),
+          },
+        },
         { provide: EventEmitter2, useValue: eventEmitter },
         { provide: ConfigService, useValue: configService },
         { provide: FilesService, useValue: filesService },
