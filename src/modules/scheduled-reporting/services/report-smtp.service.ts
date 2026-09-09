@@ -152,10 +152,8 @@ export class ReportSmtpService {
     const transporter = typedNodemailer.createTransport({
       host: configuration.host,
       port: configuration.port,
-      secure:
-        configuration.securityType === ReportSmtpSecurityTypeEnum.SSL_TLS,
-      ignoreTLS:
-        configuration.securityType === ReportSmtpSecurityTypeEnum.NONE,
+      secure: configuration.securityType === ReportSmtpSecurityTypeEnum.SSL_TLS,
+      ignoreTLS: configuration.securityType === ReportSmtpSecurityTypeEnum.NONE,
       requireTLS:
         configuration.securityType === ReportSmtpSecurityTypeEnum.STARTTLS,
       connectionTimeout: configuration.connectionTimeoutMs,
