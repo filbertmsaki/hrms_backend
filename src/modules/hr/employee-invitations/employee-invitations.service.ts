@@ -10,7 +10,7 @@ import { createHash, randomBytes } from 'crypto';
 import { Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { hashPassword } from '../../../common/utils/hash.util';
-import { MailService } from '../../mail/mail.service';
+import { ReportSmtpService } from '../../scheduled-reporting/services/report-smtp.service';
 import { SmsService } from '../../sms/sms.service';
 import { Company } from '../../companies/entities/company.entity';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
@@ -54,7 +54,7 @@ export class EmployeeInvitationsService {
     private readonly employeeRepository: Repository<Employee>,
     @InjectRepository(OnboardingWorkflow)
     private readonly workflowRepository: Repository<OnboardingWorkflow>,
-    private readonly mailService: MailService,
+    private readonly reportSmtpService: ReportSmtpService,
     private readonly smsService: SmsService,
     private readonly employeesService: EmployeesService,
     private readonly usersService: UsersService,
@@ -74,7 +74,7 @@ export class EmployeeInvitationsService {
       throw new NotFoundException('Company not found');
     }
 
-    const rawToken = randomBytes(32).toString('base64url');
+    const rawToken = randomBytes(32).toString('hex');
     const invitation = this.invitationRepository.create({
       companyId,
       tokenHash: this.hashToken(rawToken),
@@ -137,7 +137,7 @@ export class EmployeeInvitationsService {
       throw new NotFoundException('Company not found');
     }
 
-    const rawToken = randomBytes(32).toString('base64url');
+    const rawToken = randomBytes(32).toString('hex');
     invitation.tokenHash = this.hashToken(rawToken);
     invitation.expiresAt = this.createExpiry();
     invitation.emailDeliveryStatus = EmployeeInvitationDeliveryStatus.QUEUED;
@@ -377,11 +377,15 @@ export class EmployeeInvitationsService {
 
     if (channels.includes(EmployeeInvitationChannel.EMAIL)) {
       try {
-        const result = await this.mailService.sendGenericNotificationEmail(
-          invitation.email,
-          `Employee invitation from ${companyName}`,
-          message,
-          actionUrl,
+        const result = await this.reportSmtpService.sendCompanyEmail(
+          invitation.companyId,
+          {
+            to: invitation.email,
+            subject: `Employee invitation from ${companyName}`,
+            text: `${name}, ${companyName} has invited you to complete your employee registration. This invitation expires on ${invitation.expiresAt.toISOString()}.\n\n${actionUrl}`,
+            html: `<p>${message}</p><p><a href="${this.escapeHtml(actionUrl)}">Complete employee registration</a></p>`,
+            sourceModule: 'EmployeeInvitationsService.deliver',
+          },
         );
         invitation.emailDeliveryStatus = EmployeeInvitationDeliveryStatus.SENT;
         invitation.emailMessageId = result.messageId;
@@ -426,7 +430,7 @@ export class EmployeeInvitationsService {
   }
 
   private buildInvitationUrl(rawToken: string): string {
-    return `${this.frontendBaseUrl()}/register?invitation_token=${encodeURIComponent(rawToken)}`;
+    return `${this.frontendBaseUrl()}/register?token=${encodeURIComponent(rawToken)}`;
   }
 
   private frontendBaseUrl(): string {
@@ -529,6 +533,14 @@ export class EmployeeInvitationsService {
       last_name: invitation.lastName,
       email: invitation.email,
       phone: invitation.phone,
+      gender: invitation.gender,
+      primary_branch_id: invitation.primaryBranchId,
+      primary_department_id: invitation.primaryDepartmentId,
+      primary_position_id: invitation.primaryPositionId,
+      employment_type: invitation.employmentType,
+      reports_to: invitation.reportsTo,
+      hire_date: invitation.hireDate,
+      onboarding_workflow_id: invitation.onboardingWorkflowId,
       expires_at: invitation.expiresAt.toISOString(),
       created_at: invitation.createdAt?.toISOString() ?? null,
       updated_at: invitation.updatedAt?.toISOString() ?? null,
@@ -536,10 +548,14 @@ export class EmployeeInvitationsService {
         email: {
           status: invitation.emailDeliveryStatus,
           message_id: invitation.emailMessageId,
+          last_error: invitation.emailLastError,
+          transport: 'company_smtp',
         },
         sms: {
           status: invitation.smsDeliveryStatus,
           message_id: invitation.smsMessageId,
+          last_error: invitation.smsLastError,
+          transport: 'sms_gateway',
         },
       },
     };

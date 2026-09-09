@@ -66,8 +66,8 @@ describe('EmployeeInvitationsService', () => {
     const workflowRepository = {
       findOneBy: jest.fn().mockResolvedValue({ id: 3, company_id: 1 }),
     };
-    const mailService = {
-      sendGenericNotificationEmail: options?.mailFailure
+    const reportSmtpService = {
+      sendCompanyEmail: options?.mailFailure
         ? jest.fn().mockRejectedValue(options.mailFailure)
         : jest.fn().mockResolvedValue({ messageId: 'mail-123' }),
     };
@@ -94,14 +94,14 @@ describe('EmployeeInvitationsService', () => {
       positionRepository as never,
       employeeRepository as never,
       workflowRepository as never,
-      mailService as never,
+      reportSmtpService as never,
       smsService as never,
       {} as never,
       {} as never,
       configService as never,
     );
 
-    return { service, invitationRepository, mailService, smsService };
+    return { service, invitationRepository, reportSmtpService, smsService };
   }
 
   const actor = {
@@ -128,8 +128,10 @@ describe('EmployeeInvitationsService', () => {
         expiresAt: new Date('2026-09-12T10:00:00.000Z'),
         emailDeliveryStatus: EmployeeInvitationDeliveryStatus.SENT,
         emailMessageId: 'mail-123',
+        emailLastError: null,
         smsDeliveryStatus: EmployeeInvitationDeliveryStatus.SENT,
         smsMessageId: 'sms-123',
+        smsLastError: null,
       },
     ]);
 
@@ -150,20 +152,32 @@ describe('EmployeeInvitationsService', () => {
   });
 
   it('sends through email and SMS without returning the token', async () => {
-    const { service, mailService, smsService } = createHarness();
+    const { service, reportSmtpService, smsService } = createHarness();
 
     const result = await service.create(1, dto, actor);
 
-    expect(mailService.sendGenericNotificationEmail).toHaveBeenCalledTimes(1);
+    expect(reportSmtpService.sendCompanyEmail).toHaveBeenCalledTimes(1);
     expect(smsService.sendGenericNotificationSms).toHaveBeenCalledTimes(1);
+    expect(smsService.sendGenericNotificationSms).toHaveBeenCalledWith(
+      dto.phone,
+      'Employee invitation',
+      expect.stringContaining('Alliance has invited you'),
+      expect.stringMatching(
+        /^http:\/\/localhost:3000\/register\?token=[a-f0-9]{64}$/,
+      ),
+    );
     expect(result.delivery).toEqual({
       email: {
         status: EmployeeInvitationDeliveryStatus.SENT,
         message_id: 'mail-123',
+        last_error: null,
+        transport: 'company_smtp',
       },
       sms: {
         status: EmployeeInvitationDeliveryStatus.SENT,
         message_id: 'sms-123',
+        last_error: null,
+        transport: 'sms_gateway',
       },
     });
     expect(result).not.toHaveProperty('token');
@@ -180,6 +194,8 @@ describe('EmployeeInvitationsService', () => {
     expect(result.delivery.email.status).toBe(
       EmployeeInvitationDeliveryStatus.FAILED,
     );
+    expect(result.delivery.email.last_error).toBe('mail provider unavailable');
+    expect(result.delivery.email.transport).toBe('company_smtp');
     expect(result.delivery.sms.status).toBe(
       EmployeeInvitationDeliveryStatus.SENT,
     );

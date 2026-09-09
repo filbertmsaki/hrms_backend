@@ -11,12 +11,15 @@ import {
   Req,
   Res,
   StreamableFile,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Response } from 'express';
 import type { Request as ExpressRequest } from 'express';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Permissions } from '../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../common/guards/tenant.guard';
@@ -47,6 +50,7 @@ import { UpdateLeaveWorkflowDto } from './dtos/update-leave-workflow.dto';
 import { UpdateLeaveWorkflowStepDto } from './dtos/update-leave-workflow-step.dto';
 import { UpsertLeaveMedicalDetailDto } from './dtos/upsert-leave-medical-detail.dto';
 import { LeaveService } from './leave.service';
+import { LeaveImportService } from './services/leave-import.service';
 import { createDownloadStream } from '../../files/file-download.util';
 
 @ApiTags('Leave')
@@ -54,7 +58,10 @@ import { createDownloadStream } from '../../files/file-download.util';
 @Controller('leave')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class LeaveController {
-  constructor(private readonly leaveService: LeaveService) {}
+  constructor(
+    private readonly leaveService: LeaveService,
+    private readonly leaveImportService: LeaveImportService,
+  ) {}
 
   @Post('types')
   @UseGuards(PermissionsGuard)
@@ -495,6 +502,48 @@ export class LeaveController {
       dto,
       req.user,
     );
+  }
+
+  @Get('requests/import/template')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_requests:create')
+  @ApiOperation({ summary: 'Download company-specific leave import template' })
+  async downloadLeaveImportTemplate(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Res() res: Response,
+  ): Promise<void> {
+    const result = await this.leaveImportService.downloadTemplate(
+      req.user.companyId!,
+    );
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=${result.fileName}`,
+    );
+    res.send(result.buffer);
+  }
+
+  @Post('requests/import')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_requests:create')
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }),
+  )
+  @ApiOperation({ summary: 'Bulk import leave requests from Excel' })
+  importLeaveRequests(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @UploadedFile()
+    file: {
+      originalname: string;
+      mimetype: string;
+      size: number;
+      buffer: Buffer;
+    },
+  ) {
+    return this.leaveImportService.import(req.user.companyId!, file, req.user);
   }
 
   @Get('requests')

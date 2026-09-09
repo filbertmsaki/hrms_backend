@@ -5,14 +5,19 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
 import { createHmac, timingSafeEqual } from 'crypto';
 import nodemailer from 'nodemailer';
+import { Repository } from 'typeorm';
 import {
   applyMailRecipientSafety,
   resolveMailRecipientSafetyConfigFromConfigService,
   type SafeSendMailOptions,
 } from '../../mail/mail-recipient-safety.util';
 import { ReportSmtpSecurityTypeEnum } from '../enums/report-smtp-security-type.enum';
+import { ReportSmtpTestStatusEnum } from '../enums/report-smtp-test-status.enum';
+import { ReportSmtpConfiguration } from '../entities/report-smtp-configuration.entity';
+import { decryptReportSmtpSecret } from '../utils/report-smtp-secret.util';
 
 type SmtpDraftInput = {
   name: string;
@@ -82,6 +87,7 @@ type ReportMailSendOptions = SafeSendMailOptions & {
   to: string;
   subject: string;
   text: string;
+  html?: string;
   replyTo?: string;
 };
 
@@ -100,7 +106,91 @@ const typedNodemailer = nodemailer as unknown as NodemailerModule;
 export class ReportSmtpService {
   private readonly logger = new Logger(ReportSmtpService.name);
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    @InjectRepository(ReportSmtpConfiguration)
+    private readonly smtpConfigurationRepository: Repository<ReportSmtpConfiguration>,
+  ) {}
+
+  async sendCompanyEmail(
+    companyId: number,
+    input: {
+      to: string;
+      subject: string;
+      text: string;
+      html?: string;
+      sourceModule: string;
+    },
+  ): Promise<{
+    messageId: string | null;
+    configurationId: number;
+    configurationName: string;
+  }> {
+    const configuration = await this.smtpConfigurationRepository.findOne({
+      where: {
+        companyId,
+        isDefault: true,
+        isActive: true,
+        lastTestStatus: ReportSmtpTestStatusEnum.SUCCESS,
+      },
+      order: { updatedAt: 'DESC' },
+    });
+
+    if (!configuration) {
+      throw new BadRequestException(
+        'No active, tested default SMTP configuration is available. Configure and test one on the SMTP page first.',
+      );
+    }
+
+    const password = decryptReportSmtpSecret(configuration.encryptedPassword);
+    if (configuration.username && !password) {
+      throw new BadRequestException(
+        'The default SMTP configuration has no usable password. Update and test it on the SMTP page.',
+      );
+    }
+
+    const transporter = typedNodemailer.createTransport({
+      host: configuration.host,
+      port: configuration.port,
+      secure:
+        configuration.securityType === ReportSmtpSecurityTypeEnum.SSL_TLS,
+      ignoreTLS:
+        configuration.securityType === ReportSmtpSecurityTypeEnum.NONE,
+      requireTLS:
+        configuration.securityType === ReportSmtpSecurityTypeEnum.STARTTLS,
+      connectionTimeout: configuration.connectionTimeoutMs,
+      greetingTimeout: configuration.connectionTimeoutMs,
+      socketTimeout: configuration.connectionTimeoutMs,
+      auth: configuration.username
+        ? { user: configuration.username, pass: password ?? '' }
+        : undefined,
+    });
+    const mailOptions: ReportMailSendOptions = {
+      from: `"${configuration.senderName || configuration.name}" <${configuration.senderEmail}>`,
+      to: input.to,
+      subject: input.subject,
+      text: input.text,
+      html: input.html,
+      replyTo: configuration.replyToEmail ?? undefined,
+      mailSafetyContext: { sourceModule: input.sourceModule },
+    };
+    applyMailRecipientSafety(
+      mailOptions,
+      resolveMailRecipientSafetyConfigFromConfigService(this.configService),
+      this.logger,
+    );
+
+    try {
+      const result = await transporter.sendMail(mailOptions);
+      return {
+        messageId: result.messageId ?? null,
+        configurationId: configuration.id,
+        configurationName: configuration.name,
+      };
+    } catch (error) {
+      throw new BadRequestException(this.toSafeErrorMessage(error));
+    }
+  }
 
   async testDraftConfiguration(
     companyId: number,
