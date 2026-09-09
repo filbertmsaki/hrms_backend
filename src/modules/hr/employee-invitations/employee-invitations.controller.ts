@@ -29,6 +29,13 @@ export class EmployeeInvitationsController {
     private readonly employeeInvitationsService: EmployeeInvitationsService,
   ) {}
 
+  @Get()
+  @UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
+  @Permissions('employees:create')
+  findPending(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.employeeInvitationsService.findPending(req.user.companyId!);
+  }
+
   @Post()
   @UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
   @Permissions('employees:create')

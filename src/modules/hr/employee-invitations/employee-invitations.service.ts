@@ -108,6 +108,18 @@ export class EmployeeInvitationsService {
     return this.toResponse(saved);
   }
 
+  async findPending(companyId: number) {
+    const invitations = await this.invitationRepository.find({
+      where: {
+        companyId,
+        status: EmployeeInvitationStatus.PENDING,
+      },
+      order: { createdAt: 'DESC' },
+    });
+
+    return invitations.map((invitation) => this.toResponse(invitation));
+  }
+
   async resend(companyId: number, invitationId: number) {
     const invitation = await this.invitationRepository.findOneBy({
       id: invitationId,
@@ -518,6 +530,8 @@ export class EmployeeInvitationsService {
       email: invitation.email,
       phone: invitation.phone,
       expires_at: invitation.expiresAt.toISOString(),
+      created_at: invitation.createdAt?.toISOString() ?? null,
+      updated_at: invitation.updatedAt?.toISOString() ?? null,
       delivery: {
         email: {
           status: invitation.emailDeliveryStatus,

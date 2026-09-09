@@ -36,6 +36,7 @@ describe('EmployeeInvitationsService', () => {
         return value;
       }),
       createQueryBuilder: jest.fn(() => duplicateQuery),
+      find: jest.fn().mockResolvedValue([]),
       findOneBy: jest.fn(),
       update: jest.fn(),
     };
@@ -100,7 +101,7 @@ describe('EmployeeInvitationsService', () => {
       configService as never,
     );
 
-    return { service, mailService, smsService };
+    return { service, invitationRepository, mailService, smsService };
   }
 
   const actor = {
@@ -113,6 +114,40 @@ describe('EmployeeInvitationsService', () => {
     roles: [],
     permissions: ['employees:create'],
   };
+
+  it('lists only pending invitations for the current company', async () => {
+    const { service, invitationRepository } = createHarness();
+    invitationRepository.find.mockResolvedValue([
+      {
+        id: 44,
+        status: EmployeeInvitationStatus.PENDING,
+        firstName: 'Amina',
+        lastName: 'Moshi',
+        email: 'amina@example.com',
+        phone: '+255712345678',
+        expiresAt: new Date('2026-09-12T10:00:00.000Z'),
+        emailDeliveryStatus: EmployeeInvitationDeliveryStatus.SENT,
+        emailMessageId: 'mail-123',
+        smsDeliveryStatus: EmployeeInvitationDeliveryStatus.SENT,
+        smsMessageId: 'sms-123',
+      },
+    ]);
+
+    const result = await service.findPending(1);
+
+    expect(invitationRepository.find).toHaveBeenCalledWith({
+      where: { companyId: 1, status: EmployeeInvitationStatus.PENDING },
+      order: { createdAt: 'DESC' },
+    });
+    expect(result).toEqual([
+      expect.objectContaining({
+        id: 44,
+        status: EmployeeInvitationStatus.PENDING,
+        email: 'amina@example.com',
+        phone: '+255712345678',
+      }),
+    ]);
+  });
 
   it('sends through email and SMS without returning the token', async () => {
     const { service, mailService, smsService } = createHarness();
