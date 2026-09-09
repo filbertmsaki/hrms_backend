@@ -67,18 +67,46 @@ export class LeaveImportService {
       { key: 'guidance', width: 92 },
     ];
     instructions.addRows([
-      ['Leave bulk import', 'Complete the Leave Requests sheet, then upload this .xlsx file from Leave Management.'],
-      ['Required fields', 'employee_no, leave_type_code, duration_type, start_date, end_date, and reason.'],
+      [
+        'Leave bulk import',
+        'Complete the Leave Requests sheet, then upload this .xlsx file from Leave Management.',
+      ],
+      [
+        'Required fields',
+        'employee_no, leave_type_code, duration_type, start_date, end_date, and reason.',
+      ],
       ['Dates', 'Use YYYY-MM-DD. Start date cannot be after end date.'],
-      ['Full day', 'Use FULL_DAY. Leave half_day_session, start_time, and end_time blank.'],
-      ['Half day', 'Use HALF_DAY and set half_day_session to FIRST_HALF or SECOND_HALF.'],
-      ['Short leave', 'Use SHORT_LEAVE and provide start_time and end_time in 24-hour HH:MM format.'],
-      ['Submit', 'Use Yes to enter the normal approval workflow immediately, or No to create a draft.'],
-      ['Leave types', 'Use a code exactly as listed on the Leave Types sheet. That sheet reflects the active leave types configured for this company when downloaded.'],
-      ['Import result', 'Valid rows are created. Invalid rows are skipped and returned with a specific error so they can be corrected and re-uploaded.'],
+      [
+        'Full day',
+        'Use FULL_DAY. Leave half_day_session, start_time, and end_time blank.',
+      ],
+      [
+        'Half day',
+        'Use HALF_DAY and set half_day_session to FIRST_HALF or SECOND_HALF.',
+      ],
+      [
+        'Short leave',
+        'Use SHORT_LEAVE and provide start_time and end_time in 24-hour HH:MM format.',
+      ],
+      [
+        'Submit',
+        'Use Yes to enter the normal approval workflow immediately, or No to create a draft.',
+      ],
+      [
+        'Leave types',
+        'Use a code exactly as listed on the Leave Types sheet. That sheet reflects the active leave types configured for this company when downloaded.',
+      ],
+      [
+        'Import result',
+        'Valid rows are created. Invalid rows are skipped and returned with a specific error so they can be corrected and re-uploaded.',
+      ],
     ]);
     instructions.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    instructions.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+    instructions.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF1F4E78' },
+    };
     instructions.getRow(1).height = 24;
     instructions.getColumn(2).alignment = { wrapText: true, vertical: 'top' };
 
@@ -98,7 +126,11 @@ export class LeaveImportService {
       { header: 'submit', key: 'submit', width: 12 },
     ];
     requests.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    requests.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+    requests.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF1F4E78' },
+    };
     requests.getRow(1).height = 26;
     requests.addRow({
       employee_no: 'EMP-0001',
@@ -110,7 +142,11 @@ export class LeaveImportService {
       submit: 'Yes',
     });
     requests.getRow(2).font = { italic: true, color: { argb: 'FF64748B' } };
-    requests.getRow(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF7D6' } };
+    requests.getRow(2).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFFFF7D6' },
+    };
     for (let row = 2; row <= 501; row += 1) {
       requests.getCell(`C${row}`).dataValidation = {
         type: 'list',
@@ -149,7 +185,11 @@ export class LeaveImportService {
       { header: 'gender_restriction', key: 'gender', width: 22 },
     ];
     types.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    types.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+    types.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF1F4E78' },
+    };
     leaveTypes.forEach((leaveType) => {
       types.addRow({
         code: leaveType.code,
@@ -176,7 +216,9 @@ export class LeaveImportService {
       throw new BadRequestException('Select an .xlsx leave import file.');
     }
     if (!file.originalname.toLowerCase().endsWith('.xlsx')) {
-      throw new BadRequestException('Only .xlsx leave import files are supported.');
+      throw new BadRequestException(
+        'Only .xlsx leave import files are supported.',
+      );
     }
 
     const workbook = new ExcelJS.Workbook();
@@ -185,8 +227,10 @@ export class LeaveImportService {
     } catch {
       throw new BadRequestException('The uploaded workbook could not be read.');
     }
-    const sheet = workbook.getWorksheet('Leave Requests') ?? workbook.worksheets[0];
-    if (!sheet) throw new BadRequestException('The workbook has no worksheets.');
+    const sheet =
+      workbook.getWorksheet('Leave Requests') ?? workbook.worksheets[0];
+    if (!sheet)
+      throw new BadRequestException('The workbook has no worksheets.');
 
     const headerByColumn = new Map<number, string>();
     sheet.getRow(1).eachCell((cell, column) => {
@@ -196,7 +240,9 @@ export class LeaveImportService {
       (header) => ![...headerByColumn.values()].includes(header),
     );
     if (missing.length) {
-      throw new BadRequestException(`Missing required template columns: ${missing.join(', ')}`);
+      throw new BadRequestException(
+        `Missing required template columns: ${missing.join(', ')}`,
+      );
     }
 
     const employeeNumbers = new Set<string>();
@@ -209,7 +255,9 @@ export class LeaveImportService {
       }
     }
     if (sheet.actualRowCount - 1 > 1000) {
-      throw new BadRequestException('A leave import can contain at most 1,000 rows.');
+      throw new BadRequestException(
+        'A leave import can contain at most 1,000 rows.',
+      );
     }
 
     const employees = employeeNumbers.size
@@ -225,14 +273,20 @@ export class LeaveImportService {
       ? await this.leaveTypeRepository
           .createQueryBuilder('leaveType')
           .where('leaveType.company_id = :companyId', { companyId })
-          .andWhere('leaveType.status = :status', { status: LeaveRecordStatusEnum.ACTIVE })
+          .andWhere('leaveType.status = :status', {
+            status: LeaveRecordStatusEnum.ACTIVE,
+          })
           .andWhere('LOWER(leaveType.code) IN (:...leaveTypeCodes)', {
             leaveTypeCodes: [...leaveTypeCodes],
           })
           .getMany()
       : [];
-    const employeeByNumber = new Map(employees.map((item) => [item.employee_no.toLowerCase(), item]));
-    const typeByCode = new Map(leaveTypes.map((item) => [item.code.toLowerCase(), item]));
+    const employeeByNumber = new Map(
+      employees.map((item) => [item.employee_no.toLowerCase(), item]),
+    );
+    const typeByCode = new Map(
+      leaveTypes.map((item) => [item.code.toLowerCase(), item]),
+    );
     const results: ImportRowResult[] = [];
 
     for (let rowNumber = 2; rowNumber <= sheet.actualRowCount; rowNumber += 1) {
@@ -240,14 +294,24 @@ export class LeaveImportService {
       if (!Object.values(row).some((value) => value)) continue;
       try {
         const employee = employeeByNumber.get(row.employee_no.toLowerCase());
-        if (!employee) throw new Error(`Employee ${row.employee_no || '(blank)'} was not found.`);
+        if (!employee)
+          throw new Error(
+            `Employee ${row.employee_no || '(blank)'} was not found.`,
+          );
         const leaveType = typeByCode.get(row.leave_type_code.toLowerCase());
-        if (!leaveType) throw new Error(`Active leave type ${row.leave_type_code || '(blank)'} was not found.`);
-        const durationType = row.duration_type.toUpperCase() as LeaveDurationTypeEnum;
+        if (!leaveType)
+          throw new Error(
+            `Active leave type ${row.leave_type_code || '(blank)'} was not found.`,
+          );
+        const durationType =
+          row.duration_type.toUpperCase() as LeaveDurationTypeEnum;
         if (!Object.values(LeaveDurationTypeEnum).includes(durationType)) {
-          throw new Error('duration_type must be FULL_DAY, HALF_DAY, or SHORT_LEAVE.');
+          throw new Error(
+            'duration_type must be FULL_DAY, HALF_DAY, or SHORT_LEAVE.',
+          );
         }
-        const halfDaySession = row.half_day_session.toUpperCase() as LeaveHalfDaySessionEnum;
+        const halfDaySession =
+          row.half_day_session.toUpperCase() as LeaveHalfDaySessionEnum;
         const dto: CreateLeaveRequestDto = {
           employee_id: employee.id,
           leave_type_id: leaveType.id,
@@ -268,16 +332,24 @@ export class LeaveImportService {
           durationType === LeaveDurationTypeEnum.HALF_DAY &&
           !Object.values(LeaveHalfDaySessionEnum).includes(halfDaySession)
         ) {
-          throw new Error('half_day_session must be FIRST_HALF or SECOND_HALF.');
+          throw new Error(
+            'half_day_session must be FIRST_HALF or SECOND_HALF.',
+          );
         }
         if (
           durationType === LeaveDurationTypeEnum.SHORT_LEAVE &&
           (!/^([01]\d|2[0-3]):[0-5]\d$/.test(row.start_time) ||
             !/^([01]\d|2[0-3]):[0-5]\d$/.test(row.end_time))
         ) {
-          throw new Error('Short leave start_time and end_time must use HH:MM.');
+          throw new Error(
+            'Short leave start_time and end_time must use HH:MM.',
+          );
         }
-        const created = (await this.leaveService.createLeaveRequest(companyId, dto, actor)) as {
+        const created = (await this.leaveService.createLeaveRequest(
+          companyId,
+          dto,
+          actor,
+        )) as {
           id?: number;
           leave_no?: string;
         };
@@ -300,7 +372,10 @@ export class LeaveImportService {
       }
     }
 
-    if (!results.length) throw new BadRequestException('The workbook has no leave rows to import.');
+    if (!results.length)
+      throw new BadRequestException(
+        'The workbook has no leave rows to import.',
+      );
     return {
       total: results.length,
       created: results.filter((row) => row.status === 'created').length,
@@ -309,7 +384,10 @@ export class LeaveImportService {
     };
   }
 
-  private readRow(row: ExcelJS.Row, headerByColumn: Map<number, string>): Record<string, string> {
+  private readRow(
+    row: ExcelJS.Row,
+    headerByColumn: Map<number, string>,
+  ): Record<string, string> {
     const record: Record<string, string> = {};
     headerByColumn.forEach((header, column) => {
       record[header] = this.cellText(row.getCell(column)).trim();
@@ -318,7 +396,8 @@ export class LeaveImportService {
   }
 
   private cellText(cell: ExcelJS.Cell): string {
-    if (cell.value instanceof Date) return cell.value.toISOString().slice(0, 10);
+    if (cell.value instanceof Date)
+      return cell.value.toISOString().slice(0, 10);
     return cell.text ?? '';
   }
 
