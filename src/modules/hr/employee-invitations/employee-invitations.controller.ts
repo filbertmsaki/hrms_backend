@@ -12,7 +12,10 @@ import { Throttle } from '@nestjs/throttler';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request as ExpressRequest } from 'express';
-import { Permissions } from '../../../common/decorators/permissions.decorator';
+import {
+  Permissions,
+  PermissionsAny,
+} from '../../../common/decorators/permissions.decorator';
 import { Public } from '../../../common/decorators/public.decorator';
 import { PermissionsGuard } from '../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../common/guards/tenant.guard';
@@ -31,7 +34,11 @@ export class EmployeeInvitationsController {
 
   @Get()
   @UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
-  @Permissions('employees:create')
+  @PermissionsAny(
+    'employees:create',
+    'onboarding_requests:read',
+    'onboarding_workflows:read',
+  )
   findPending(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
     return this.employeeInvitationsService.findPending(req.user.companyId!);
   }
