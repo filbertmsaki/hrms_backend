@@ -541,7 +541,7 @@ export class OnboardingWorkflowService {
 
     const employee = loaded.employee;
     const employeeName = `${employee.first_name} ${employee.last_name}`;
-    const employeeEmail = employee.company_user.user.email;
+    const employeeEmail = employee.company_user!.user.email;
     const frontendUrl =
       this.configService.get<string>('APP_FRONTEND_URL') ??
       'http://localhost:5173';
@@ -558,7 +558,7 @@ export class OnboardingWorkflowService {
           loaded.id,
           loaded.company_id,
           senderCompanyUserId,
-          employee.company_user.id,
+          employee.company_user!.id,
           loaded.onboarding_no,
         ),
       );
@@ -580,7 +580,7 @@ export class OnboardingWorkflowService {
           loaded.id,
           loaded.company_id,
           senderCompanyUserId,
-          employee.company_user.id,
+          employee.company_user!.id,
           loaded.onboarding_no,
         ),
       );

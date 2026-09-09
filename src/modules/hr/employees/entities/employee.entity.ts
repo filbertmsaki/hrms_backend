@@ -58,8 +58,8 @@ export class Employee {
   @Column()
   company_id: number;
 
-  @Column()
-  company_user_id: number;
+  @Column({ type: 'int', nullable: true })
+  company_user_id: number | null;
 
   @Column({ length: 50 })
   employee_no: string;
@@ -189,10 +189,11 @@ export class Employee {
   updated_at: Date;
 
   @OneToOne(() => CompanyUser, (companyUser) => companyUser.employee, {
-    onDelete: 'CASCADE',
+    nullable: true,
+    onDelete: 'SET NULL',
   })
   @JoinColumn({ name: 'company_user_id' })
-  company_user: CompanyUser;
+  company_user: CompanyUser | null;
 
   @ManyToOne(() => Company, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'company_id' })

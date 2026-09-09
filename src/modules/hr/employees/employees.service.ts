@@ -117,6 +117,13 @@ const ARCHIVED_BANK_ACCOUNT_STATUS = 'ARCHIVED';
 const ARCHIVED_ACADEMIC_QUALIFICATION_PREFIX = '[ARCHIVED_ACADEMIC]';
 const ARCHIVED_PROFESSIONAL_QUALIFICATION_PREFIX = '[ARCHIVED_PROFESSIONAL]';
 const ARCHIVED_EXPERIENCE_PREFIX = '[ARCHIVED_EXPERIENCE]';
+const HISTORICAL_EMPLOYMENT_STATUSES = new Set<EmploymentStatusEnum>([
+  EmploymentStatusEnum.INACTIVE,
+  EmploymentStatusEnum.RESIGNED,
+  EmploymentStatusEnum.TERMINATED,
+  EmploymentStatusEnum.RETIRED,
+  EmploymentStatusEnum.EXITED,
+]);
 
 @Injectable()
 export class EmployeesService {
@@ -855,19 +862,18 @@ export class EmployeesService {
   }
 
   private async mapEmployee(employee: Employee, includeDocuments = false) {
-    const companyId = employee.company_user?.company_id;
+    const companyId = employee.company_id;
     const resolvedAvatar =
       await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
         companyId ?? 0,
         employee,
       );
-    const managerAvatar =
-      employee.manager && companyId
-        ? await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
-            companyId,
-            employee.manager,
-          )
-        : null;
+    const managerAvatar = employee.manager
+      ? await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
+          companyId,
+          employee.manager,
+        )
+      : null;
 
     return {
       id: employee.id,
@@ -1267,9 +1273,7 @@ export class EmployeesService {
     const employee = await this.employeeRepository.findOne({
       where: {
         id: employeeId,
-        company_user: {
-          company_id: companyId,
-        },
+        company_id: companyId,
       },
       relations: this.buildEmployeeRelations(true),
     });
@@ -3278,8 +3282,8 @@ export class EmployeesService {
 
     const qb = this.employeeRepository
       .createQueryBuilder('employee')
-      .innerJoin('employee.company_user', 'membership')
-      .innerJoin('membership.user', 'user')
+      .leftJoin('employee.company_user', 'membership')
+      .leftJoin('membership.user', 'user')
       .leftJoin('employee.primary_branch', 'branch')
       .leftJoin('employee.primary_department', 'department')
       .leftJoin('employee.primary_position', 'position')
@@ -3305,7 +3309,7 @@ export class EmployeesService {
       .addSelect('employee.employment_status', 'employmentStatus')
       .addSelect('employee.employment_type', 'employmentType')
       .addSelect('employee.hire_date', 'hireDate')
-      .where('membership.company_id = :companyId', { companyId });
+      .where('employee.company_id = :companyId', { companyId });
 
     if (employment_status) {
       qb.andWhere('employee.employment_status = :employmentStatus', {
@@ -5028,15 +5032,7 @@ export class EmployeesService {
     const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
-    if (
-      [
-        EmploymentStatusEnum.INACTIVE,
-        EmploymentStatusEnum.RESIGNED,
-        EmploymentStatusEnum.TERMINATED,
-        EmploymentStatusEnum.RETIRED,
-        EmploymentStatusEnum.EXITED,
-      ].includes(employee.employment_status)
-    ) {
+    if (HISTORICAL_EMPLOYMENT_STATUSES.has(employee.employment_status)) {
       return {
         message:
           'Employee retained in historical records. Hard delete is disabled.',
@@ -5055,5 +5051,85 @@ export class EmployeesService {
     );
 
     return { message: 'Employee archived successfully' };
+  }
+
+  async unlinkCompanyUser(
+    companyId: number,
+    employeeId: number,
+    actor: AuthenticatedUser,
+    context: AuditRequestContext = EMPTY_AUDIT_CONTEXT,
+    deactivateAccount = false,
+  ): Promise<{
+    message: string;
+    unlinked_company_user_id: number | null;
+    account_deactivated: boolean;
+  }> {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+    if (!HISTORICAL_EMPLOYMENT_STATUSES.has(employee.employment_status)) {
+      throw new BadRequestException(
+        'Only inactive or historical employees can have their user account unlinked',
+      );
+    }
+
+    const membership = employee.company_user;
+    const companyUserId = employee.company_user_id;
+    if (!membership || companyUserId === null) {
+      return {
+        message: 'Employee does not have a linked user account',
+        unlinked_company_user_id: null,
+        account_deactivated: false,
+      };
+    }
+
+    employee.company_user_id = null;
+    employee.company_user = null;
+    await this.employeeRepository.save(employee);
+
+    let accountDeactivated = membership.status !== 'active';
+    if (deactivateAccount && !accountDeactivated) {
+      try {
+        await this.companiesService.removeUserFromCompany(
+          companyId,
+          membership.user_id,
+          actor,
+          context,
+        );
+        accountDeactivated = true;
+      } catch (error) {
+        employee.company_user_id = companyUserId;
+        employee.company_user = membership;
+        await this.employeeRepository.save(employee);
+        throw error;
+      }
+    }
+
+    await this.securityEventsService.logBestEffort({
+      eventType: SecurityEventType.EMPLOYEE_UPDATED,
+      outcome: SecurityEventOutcome.SUCCESS,
+      actor,
+      companyId,
+      targetUserId: membership.user_id,
+      targetCompanyUserId: companyUserId,
+      resourceType: 'employee',
+      resourceId: employee.id,
+      oldValues: { company_user_id: companyUserId },
+      newValues: { company_user_id: null },
+      context,
+      metadata: {
+        action: deactivateAccount
+          ? 'employee_account_unlinked_and_deactivated'
+          : 'employee_account_unlinked',
+      },
+    });
+
+    return {
+      message: deactivateAccount
+        ? 'Linked account access removed successfully'
+        : 'User account unlinked from employee successfully',
+      unlinked_company_user_id: companyUserId,
+      account_deactivated: accountDeactivated,
+    };
   }
 }

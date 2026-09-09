@@ -678,7 +678,7 @@ export class OffboardingWorkflowService {
 
     const employee = loaded.employee;
     const employeeName = `${employee.first_name} ${employee.last_name}`;
-    const employeeEmail = employee.company_user.user.email;
+    const employeeEmail = employee.company_user!.user.email;
     const frontendUrl =
       this.configService.get<string>('APP_FRONTEND_URL') ??
       'http://localhost:5173';

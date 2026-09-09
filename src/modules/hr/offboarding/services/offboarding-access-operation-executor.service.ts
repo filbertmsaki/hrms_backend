@@ -145,6 +145,12 @@ export class OffboardingAccessOperationExecutorService {
     request: OffboardingRequest,
     manager: EntityManager,
   ): Promise<AccessOperationExecutionResult> {
+    if (request.employee.company_user_id === null) {
+      return {
+        skipped: true,
+        detail: { note: 'Employee does not have a linked company account' },
+      };
+    }
     const membership = await manager.getRepository(CompanyUser).findOne({
       where: {
         id: request.employee.company_user_id,
@@ -184,6 +190,12 @@ export class OffboardingAccessOperationExecutorService {
     request: OffboardingRequest,
     manager: EntityManager,
   ): Promise<AccessOperationExecutionResult> {
+    if (request.employee.company_user_id === null) {
+      return {
+        skipped: true,
+        detail: { note: 'Employee does not have a linked company account' },
+      };
+    }
     const membership = await manager.getRepository(CompanyUser).findOne({
       where: {
         id: request.employee.company_user_id,

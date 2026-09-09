@@ -105,6 +105,110 @@ describe('EmployeesService.remove', () => {
   });
 });
 
+describe('EmployeesService.unlinkCompanyUser', () => {
+  function buildService(employee: Record<string, unknown>) {
+    return {
+      findEmployeeByIdOrFail: jest.fn().mockResolvedValue(employee),
+      hrAccessService: {
+        assertCanAccessEmployee: jest.fn().mockResolvedValue(undefined),
+      },
+      employeeRepository: {
+        save: jest.fn().mockImplementation((value) => Promise.resolve(value)),
+      },
+      companiesService: {
+        removeUserFromCompany: jest.fn().mockResolvedValue({
+          message: 'User removed from company successfully',
+        }),
+      },
+      securityEventsService: {
+        logBestEffort: jest.fn().mockResolvedValue(undefined),
+      },
+    };
+  }
+
+  it('unlinks an inactive employee while preserving the company account', async () => {
+    const employee = {
+      id: 15,
+      company_user_id: 55,
+      company_user: { id: 55, user_id: 77, status: 'active' },
+      employment_status: EmploymentStatusEnum.INACTIVE,
+    };
+    const service = buildService(employee);
+
+    const result = await EmployeesService.prototype.unlinkCompanyUser.call(
+      service,
+      actor.companyId,
+      employee.id,
+      actor,
+      context,
+      false,
+    );
+
+    expect(employee.company_user_id).toBeNull();
+    expect(employee.company_user).toBeNull();
+    expect(service.employeeRepository.save).toHaveBeenCalledWith(employee);
+    expect(
+      service.companiesService.removeUserFromCompany,
+    ).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      message: 'User account unlinked from employee successfully',
+      unlinked_company_user_id: 55,
+      account_deactivated: false,
+    });
+  });
+
+  it('deactivates account access when removing a linked account', async () => {
+    const employee = {
+      id: 21,
+      company_user_id: 66,
+      company_user: { id: 66, user_id: 88, status: 'active' },
+      employment_status: EmploymentStatusEnum.TERMINATED,
+    };
+    const service = buildService(employee);
+
+    const result = await EmployeesService.prototype.unlinkCompanyUser.call(
+      service,
+      actor.companyId,
+      employee.id,
+      actor,
+      context,
+      true,
+    );
+
+    expect(service.companiesService.removeUserFromCompany).toHaveBeenCalledWith(
+      actor.companyId,
+      88,
+      actor,
+      context,
+    );
+    expect(result.account_deactivated).toBe(true);
+    expect(result.unlinked_company_user_id).toBe(66);
+  });
+
+  it('refuses to unlink a current employee account', async () => {
+    const employee = {
+      id: 31,
+      company_user_id: 77,
+      company_user: { id: 77, user_id: 99, status: 'active' },
+      employment_status: EmploymentStatusEnum.ACTIVE,
+    };
+    const service = buildService(employee);
+
+    await expect(
+      EmployeesService.prototype.unlinkCompanyUser.call(
+        service,
+        actor.companyId,
+        employee.id,
+        actor,
+        context,
+      ),
+    ).rejects.toThrow(
+      'Only inactive or historical employees can have their user account unlinked',
+    );
+    expect(service.employeeRepository.save).not.toHaveBeenCalled();
+  });
+});
+
 describe('EmployeesService attendance activation readiness', () => {
   it('accepts a direct active shift assignment without requiring a timetable', async () => {
     const service = {

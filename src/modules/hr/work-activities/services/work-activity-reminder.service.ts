@@ -50,6 +50,9 @@ export class WorkActivityReminderService {
     let created = 0;
 
     for (const employee of activeEmployees) {
+      if (employee.company_user_id === null) {
+        continue;
+      }
       const approvedCount = await this.reportRepository.count({
         where: {
           companyId: employee.company_id,
@@ -171,7 +174,7 @@ export class WorkActivityReminderService {
         },
         select: ['id', 'company_id', 'company_user_id'],
       });
-      if (!employee) {
+      if (!employee || employee.company_user_id === null) {
         continue;
       }
       await this.actionItemsService.upsertOpen({

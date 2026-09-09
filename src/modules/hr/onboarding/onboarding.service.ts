@@ -454,7 +454,10 @@ export class OnboardingService {
       },
     });
 
-    if (!employee || employee.company_user.company_id !== companyId) {
+    if (
+      !employee ||
+      (employee.company_id ?? employee.company_user?.company_id) !== companyId
+    ) {
       throw new NotFoundException('Employee not found');
     }
 
@@ -756,6 +759,11 @@ export class OnboardingService {
     if (!provisioning.role_ids?.length) {
       return;
     }
+    if (employee.company_user_id === null) {
+      throw new BadRequestException(
+        'Employee must have a linked company account before assigning roles',
+      );
+    }
 
     const roleRepository = this.getRoleRepository(manager);
     const roles = await roleRepository.find({
@@ -804,6 +812,11 @@ export class OnboardingService {
   ): Promise<void> {
     if (!provisioning.branch_access_ids?.length) {
       return;
+    }
+    if (employee.company_user_id === null) {
+      throw new BadRequestException(
+        'Employee must have a linked company account before assigning branch access',
+      );
     }
 
     const branchIds = provisioning.branch_access_ids;
@@ -4113,7 +4126,7 @@ export class OnboardingService {
 
       const employee = loaded.employee;
       const employeeName = `${employee.first_name} ${employee.last_name}`;
-      const employeeEmail = employee.company_user.user.email;
+      const employeeEmail = employee.company_user!.user.email;
       const managerEmail = employee.manager?.company_user?.user?.email ?? null;
       const managerName = employee.manager
         ? `${employee.manager.first_name} ${employee.manager.last_name}`
@@ -4135,7 +4148,7 @@ export class OnboardingService {
           actor.companyMembershipId ??
             loaded.finalized_by_company_user_id ??
             null,
-          employee.company_user.id,
+          employee.company_user!.id,
           employee.manager?.company_user?.id ?? null,
           loaded.onboarding_no,
         ),

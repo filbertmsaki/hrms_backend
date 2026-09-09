@@ -932,7 +932,10 @@ export class OffboardingService {
       },
     });
 
-    if (!employee || employee.company_user.company_id !== companyId) {
+    if (
+      !employee ||
+      (employee.company_id ?? employee.company_user?.company_id) !== companyId
+    ) {
       throw new NotFoundException('Employee not found');
     }
 
@@ -6065,7 +6068,7 @@ export class OffboardingService {
 
       const employee = request.employee;
       const employeeName = `${employee.first_name} ${employee.last_name}`;
-      const employeeEmail = employee.company_user.user.email;
+      const employeeEmail = employee.company_user!.user.email;
       const frontendUrl =
         this.configService.get<string>('APP_FRONTEND_URL') ??
         'http://localhost:5173';
@@ -6123,7 +6126,7 @@ export class OffboardingService {
 
       const employee = loaded.employee;
       const employeeName = `${employee.first_name} ${employee.last_name}`;
-      const employeeEmail = employee.company_user.user.email;
+      const employeeEmail = employee.company_user!.user.email;
       const managerEmail = employee.manager?.company_user?.user?.email ?? null;
       const managerName = employee.manager
         ? `${employee.manager.first_name} ${employee.manager.last_name}`
@@ -6144,7 +6147,7 @@ export class OffboardingService {
           loaded.id,
           companyId,
           actor.companyMembershipId ?? null,
-          employee.company_user.id,
+          employee.company_user!.id,
           employee.manager?.company_user?.id ?? null,
         ),
       );

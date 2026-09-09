@@ -17,7 +17,7 @@ export type EmployeeListRow = {
   profilePhotoSource?: string | null;
   storedProfileImageSource?: ProfileImageSourceEnum | null;
   defaultAvatarId?: number | string | null;
-  userId: number | string;
+  userId: number | string | null;
   branchName: string | null;
   departmentName: string | null;
   positionName: string | null;
@@ -54,8 +54,8 @@ export class EmployeeListResponseDto {
   @ApiProperty()
   id: number;
 
-  @ApiProperty()
-  userId: number;
+  @ApiProperty({ nullable: true })
+  userId: number | null;
 
   @ApiProperty()
   employeeNo: string;
@@ -103,7 +103,7 @@ export class EmployeeListResponseDto {
     const rawRow = row as RawEmployeeListRow;
     const dto = new EmployeeListResponseDto();
     const id = getRowValue<number | string>(rawRow, 'id');
-    const userId = getRowValue<number | string>(rawRow, 'userId');
+    const userId = getRowValue<number | string | null>(rawRow, 'userId');
     const employeeNo = getRowValue<string>(rawRow, 'employeeNo') ?? '';
     const firstName = getRowValue<string | null>(rawRow, 'firstName');
     const middleName = getRowValue<string | null>(rawRow, 'middleName');
@@ -122,7 +122,12 @@ export class EmployeeListResponseDto {
     );
 
     dto.id = typeof id === 'string' ? Number(id) : (id ?? 0);
-    dto.userId = typeof userId === 'string' ? Number(userId) : (userId ?? 0);
+    dto.userId =
+      userId === null || userId === undefined
+        ? null
+        : typeof userId === 'string'
+          ? Number(userId)
+          : userId;
     dto.employeeNo = employeeNo;
     dto.fullName = buildFullName(firstName, middleName, lastName) ?? employeeNo;
     dto.profilePhotoUrl =

@@ -390,6 +390,54 @@ export class EmployeesController {
     );
   }
 
+  @Delete(':id/company-user')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:update')
+  @ApiOperationSummary(
+    'Unlink an employee user account',
+    'Detaches the company-user login from an inactive or historical employee while preserving both records.',
+  )
+  @ApiAuthRequired()
+  @ApiNotFoundResponse('Employee')
+  @ApiSuccessResponse(200, 'Employee user account unlinked')
+  unlinkCompanyUser(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentAuditContext() context: AuditRequestContext,
+  ) {
+    return this.employeesService.unlinkCompanyUser(
+      req.user.companyId!,
+      id,
+      req.user,
+      context,
+      false,
+    );
+  }
+
+  @Delete(':id/company-user/account')
+  @UseGuards(PermissionsGuard)
+  @Permissions('users:delete')
+  @ApiOperationSummary(
+    'Remove an employee linked account',
+    'Detaches the login from an inactive or historical employee and deactivates that company membership while retaining audit history.',
+  )
+  @ApiAuthRequired()
+  @ApiNotFoundResponse('Employee')
+  @ApiSuccessResponse(200, 'Employee linked account access removed')
+  removeLinkedAccount(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentAuditContext() context: AuditRequestContext,
+  ) {
+    return this.employeesService.unlinkCompanyUser(
+      req.user.companyId!,
+      id,
+      req.user,
+      context,
+      true,
+    );
+  }
+
   // ════════════════════════════════════════════
   //  DOCUMENTS
   // ════════════════════════════════════════════

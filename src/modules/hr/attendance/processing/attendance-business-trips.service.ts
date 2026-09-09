@@ -63,7 +63,10 @@ export class AttendanceBusinessTripsService {
       },
     });
 
-    if (!employee || employee.company_user.company_id !== companyId) {
+    if (
+      !employee ||
+      (employee.company_id ?? employee.company_user?.company_id) !== companyId
+    ) {
       throw new NotFoundException('Employee not found');
     }
 

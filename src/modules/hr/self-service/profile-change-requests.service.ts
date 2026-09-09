@@ -971,10 +971,16 @@ export class ProfileChangeRequestsService {
       const user = await manager.getRepository(User).findOneOrFail({
         where: { id: request.requested_by_user_id },
       });
-      request.employee.company_user.user = user;
+      const companyUser = request.employee.company_user;
+      if (!companyUser) {
+        throw new BadRequestException(
+          'The employee no longer has a linked company account.',
+        );
+      }
+      companyUser.user = user;
       const snapshot = this.buildSnapshotFromLoadedEmployee(
         request.employee,
-        request.employee.company_user,
+        companyUser,
         user,
       );
 
