@@ -72,6 +72,11 @@ const ORG_STRUCTURE_READ_PERMISSIONS = [
 
 /** Team approval permissions shared by all manager-level roles */
 const TEAM_APPROVAL_PERMISSIONS = [
+  'manager_self_service:read',
+  'manager_team:read',
+  'manager:read',
+  'work_activities:manager:read',
+  'work_activities:manager:review',
   'leave_requests:approve',
   'shift_change_requests:update',
   'shift_change_requests:delete',

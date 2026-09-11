@@ -29,7 +29,6 @@ import { EmployeeRelative } from '../employees/entities/employee-relative.entity
 import { Employee } from '../employees/entities/employee.entity';
 import { ProfileImageSourceEnum } from '../employees/enums/profile-image-source.enum';
 import { HrAccessService } from '../shared/hr-access.service';
-import { ApproveProfileChangeRequestDto } from './dtos/approve-profile-change-request.dto';
 import { CreateProfileChangeRequestDto } from './dtos/create-profile-change-request.dto';
 import { ProfileChangeRequestQueryDto } from './dtos/profile-change-request-query.dto';
 import { RejectProfileChangeRequestDto } from './dtos/reject-profile-change-request.dto';
@@ -176,6 +175,7 @@ export class ProfileChangeRequestsService {
       .createQueryBuilder('request')
       .leftJoinAndSelect('request.items', 'items')
       .leftJoinAndSelect('request.files', 'files')
+      .leftJoinAndSelect('request.requested_by_user', 'requestedByUser')
       .where('request.company_id = :companyId', {
         companyId: snapshot.membership.company_id,
       })
@@ -757,6 +757,7 @@ export class ProfileChangeRequestsService {
       .createQueryBuilder('request')
       .leftJoinAndSelect('request.items', 'items')
       .leftJoinAndSelect('request.files', 'files')
+      .leftJoinAndSelect('request.requested_by_user', 'requestedByUser')
       .innerJoinAndSelect('request.employee', 'employee')
       .leftJoinAndSelect('employee.company_user', 'membership')
       .leftJoinAndSelect('membership.user', 'user')
@@ -911,38 +912,41 @@ export class ProfileChangeRequestsService {
   async approve(
     actor: AuthenticatedUser,
     id: number,
-    dto: ApproveProfileChangeRequestDto,
     context?: RequestActorContext,
   ) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const notificationPayloads: Array<() => Promise<void>> = [];
 
     const result = await this.dataSource.transaction(async (manager) => {
-      const request = await manager
+      // Lock the request root before loading nullable relations. PostgreSQL
+      // rejects FOR UPDATE when TypeORM includes the nullable outer joins.
+      const lockedRequest = await manager
         .getRepository(ProfileChangeRequest)
         .findOne({
-          where: {
-            id,
-            company_id: companyId,
-          },
-          relations: {
-            items: true,
-            files: true,
-            employee: {
-              company_user: { user: true },
-              default_avatar: true,
-              contacts: true,
-              addresses: true,
-              relatives: true,
-              primary_branch: true,
-              primary_department: true,
-            },
-            audits: true,
-          },
-          lock: {
-            mode: 'pessimistic_write',
-          },
+          where: { id, company_id: companyId },
+          lock: { mode: 'pessimistic_write' },
         });
+
+      const request = lockedRequest
+        ? await manager.getRepository(ProfileChangeRequest).findOne({
+            where: { id: lockedRequest.id, company_id: companyId },
+            relations: {
+              items: true,
+              files: true,
+              employee: {
+                company_user: { user: true },
+                default_avatar: true,
+                contacts: true,
+                addresses: true,
+                relatives: true,
+                primary_branch: true,
+                primary_department: true,
+              },
+              requested_by_user: true,
+              audits: true,
+            },
+          })
+        : null;
 
       if (!request || request.deleted_at) {
         throw new NotFoundException('Profile change request not found.');
@@ -1065,7 +1069,7 @@ export class ProfileChangeRequestsService {
           ProfileChangeRequestItemValidationStatusEnum.VALID;
         item.reviewed_by_user_id = actor.id;
         item.reviewed_at = new Date();
-        item.review_comment = dto.comment?.trim() || null;
+        item.review_comment = null;
         await manager.getRepository(ProfileChangeRequestItem).save(item);
       }
 
@@ -1074,7 +1078,7 @@ export class ProfileChangeRequestsService {
       request.reviewed_by_user_id = actor.id;
       request.reviewed_at = new Date();
       request.approved_at = new Date();
-      request.review_comment = dto.comment?.trim() || null;
+      request.review_comment = null;
       await manager.getRepository(ProfileChangeRequest).save(request);
 
       await this.createAuditWithManager(
@@ -1083,10 +1087,7 @@ export class ProfileChangeRequestsService {
         ProfileChangeRequestAuditActionEnum.REQUEST_APPROVED,
         actor,
         context,
-        {
-          comment: dto.comment?.trim() || null,
-          field_names: request.items?.map((item) => item.field_name) ?? [],
-        },
+        { field_names: request.items?.map((item) => item.field_name) ?? [] },
         previousStatus,
         request.status,
       );
@@ -2389,6 +2390,7 @@ export class ProfileChangeRequestsService {
         items: true,
         files: true,
         audits: true,
+        requested_by_user: true,
         employee: {
           company_user: { user: true },
           contacts: true,
@@ -2658,6 +2660,15 @@ export class ProfileChangeRequestsService {
       company_id: request.company_id,
       employee_id: request.employee_id,
       requested_by_user_id: request.requested_by_user_id,
+      requested_by_user: request.requested_by_user
+        ? {
+            id: request.requested_by_user.id,
+            user_no: request.requested_by_user.user_no,
+            first_name: request.requested_by_user.first_name,
+            last_name: request.requested_by_user.last_name,
+            email: request.requested_by_user.email,
+          }
+        : null,
       request_type: request.request_type,
       status: request.status,
       reason: request.reason,
