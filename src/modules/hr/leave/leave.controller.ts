@@ -10,6 +10,8 @@ import {
   Query,
   Req,
   Res,
+  Optional,
+  ServiceUnavailableException,
   StreamableFile,
   UploadedFile,
   UseGuards,
@@ -62,8 +64,18 @@ export class LeaveController {
   constructor(
     private readonly leaveService: LeaveService,
     private readonly leaveImportService: LeaveImportService,
-    private readonly leaveBalanceImportService: LeaveBalanceImportService,
+    @Optional()
+    private readonly leaveBalanceImportService?: LeaveBalanceImportService,
   ) {}
+
+  private getLeaveBalanceImportService(): LeaveBalanceImportService {
+    if (!this.leaveBalanceImportService) {
+      throw new ServiceUnavailableException(
+        'Leave balance import service is unavailable.',
+      );
+    }
+    return this.leaveBalanceImportService;
+  }
 
   @Post('types')
   @UseGuards(PermissionsGuard)
@@ -499,7 +511,7 @@ export class LeaveController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Res() res: Response,
   ): Promise<void> {
-    const result = await this.leaveBalanceImportService.downloadTemplate(
+    const result = await this.getLeaveBalanceImportService().downloadTemplate(
       req.user.companyId!,
     );
     res.setHeader(
@@ -530,7 +542,7 @@ export class LeaveController {
       buffer: Buffer;
     },
   ) {
-    return this.leaveBalanceImportService.import(
+    return this.getLeaveBalanceImportService().import(
       req.user.companyId!,
       file,
       req.user,
