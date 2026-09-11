@@ -2776,6 +2776,18 @@ export class OnboardingService {
       .leftJoinAndSelect('approvals.workflow_step', 'workflowStep')
       .where('request.company_id = :companyId', { companyId });
 
+    const accessibleEmployeeIds =
+      await this.hrAccessService.getAccessibleEmployeeIds(actor);
+    if (accessibleEmployeeIds !== null) {
+      if (accessibleEmployeeIds.length === 0) {
+        qb.andWhere('1 = 0');
+      } else {
+        qb.andWhere('request.employee_id IN (:...accessibleEmployeeIds)', {
+          accessibleEmployeeIds,
+        });
+      }
+    }
+
     if (typeof employee_id === 'number') {
       qb.andWhere('request.employee_id = :employeeId', {
         employeeId: employee_id,

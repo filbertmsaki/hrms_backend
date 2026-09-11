@@ -131,8 +131,9 @@ export class ProfileChangeRequest {
   })
   files: ProfileChangeRequestFile[];
 
-  @OneToMany(() => ProfileChangeRequestAudit, (audit) => audit.request, {
-    cascade: true,
-  })
+  // Audit rows are append-only and are always written explicitly by the
+  // service. Cascading them from a request save risks detaching existing
+  // history rows and nulling their required request_id foreign key.
+  @OneToMany(() => ProfileChangeRequestAudit, (audit) => audit.request)
   audits: ProfileChangeRequestAudit[];
 }

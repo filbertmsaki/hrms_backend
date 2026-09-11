@@ -67,7 +67,10 @@ describe('OnboardingService', () => {
     getFiscalYearFromDate: jest.Mock;
     ensureBalanceForEmployee: jest.Mock;
   };
-  let hrAccessService: { assertCanAccessEmployee: jest.Mock };
+  let hrAccessService: {
+    assertCanAccessEmployee: jest.Mock;
+    getAccessibleEmployeeIds: jest.Mock;
+  };
   let onboardingAuditService: { log: jest.Mock };
   let onboardingWorkflowService: {
     resolveWorkflow: jest.Mock;
@@ -114,6 +117,7 @@ describe('OnboardingService', () => {
     };
     hrAccessService = {
       assertCanAccessEmployee: jest.fn(),
+      getAccessibleEmployeeIds: jest.fn().mockResolvedValue(null),
     };
     onboardingAuditService = {
       log: jest.fn(),
@@ -183,6 +187,30 @@ describe('OnboardingService', () => {
       { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService,
       filesService as unknown as FilesService,
       probationService as unknown as ProbationService,
+    );
+  });
+
+  it('limits onboarding request lists to employees in the manager data scope', async () => {
+    const queryBuilder = {
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
+    };
+    onboardingRequestRepository.createQueryBuilder = jest
+      .fn()
+      .mockReturnValue(queryBuilder);
+    hrAccessService.getAccessibleEmployeeIds.mockResolvedValue([41, 42]);
+    documentRepository.find.mockResolvedValue([]);
+
+    await service.findAllOnboardingRequests(10, {}, actor);
+
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+      'request.employee_id IN (:...accessibleEmployeeIds)',
+      { accessibleEmployeeIds: [41, 42] },
     );
   });
 

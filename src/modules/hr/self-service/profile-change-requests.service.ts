@@ -943,7 +943,6 @@ export class ProfileChangeRequestsService {
                 primary_department: true,
               },
               requested_by_user: true,
-              audits: true,
             },
           })
         : null;
@@ -1079,7 +1078,19 @@ export class ProfileChangeRequestsService {
       request.reviewed_at = new Date();
       request.approved_at = new Date();
       request.review_comment = null;
-      await manager.getRepository(ProfileChangeRequest).save(request);
+      // Persist only the request columns. Saving the fully hydrated entity here
+      // cascades its previously loaded audit-history relation and can make
+      // TypeORM attempt to detach those audit rows by nulling request_id.
+      await manager.getRepository(ProfileChangeRequest).update(
+        { id: request.id, company_id: companyId },
+        {
+          status: request.status,
+          reviewed_by_user_id: request.reviewed_by_user_id,
+          reviewed_at: request.reviewed_at,
+          approved_at: request.approved_at,
+          review_comment: request.review_comment,
+        },
+      );
 
       await this.createAuditWithManager(
         manager,
