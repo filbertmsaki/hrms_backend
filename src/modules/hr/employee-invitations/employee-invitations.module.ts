@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { MailModule } from '../../mail/mail.module';
 import { SmsModule } from '../../sms/sms.module';
 import { Company } from '../../companies/entities/company.entity';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
@@ -12,6 +11,7 @@ import { Employee } from '../employees/entities/employee.entity';
 import { EmployeesModule } from '../employees/employees.module';
 import { Position } from '../positions/entities/position.entity';
 import { OnboardingWorkflow } from '../onboarding/entities/onboarding-workflow.entity';
+import { ScheduledReportingModule } from '../../scheduled-reporting/scheduled-reporting.module';
 import { EmployeeInvitationsController } from './employee-invitations.controller';
 import { EmployeeInvitationsService } from './employee-invitations.service';
 import { EmployeeInvitation } from './entities/employee-invitation.entity';
@@ -29,7 +29,7 @@ import { EmployeeInvitation } from './entities/employee-invitation.entity';
       Employee,
       OnboardingWorkflow,
     ]),
-    MailModule,
+    ScheduledReportingModule,
     SmsModule,
     EmployeesModule,
     UsersModule,

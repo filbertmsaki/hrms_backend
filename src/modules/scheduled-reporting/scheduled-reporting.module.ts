@@ -85,6 +85,7 @@ import { PerformanceSummaryReportRunner } from './services/runners/performance-s
   exports: [
     TypeOrmModule,
     ScheduledReportingService,
+    ReportSmtpService,
     AttendanceDefaultReportsProvisioningService,
   ],
 })

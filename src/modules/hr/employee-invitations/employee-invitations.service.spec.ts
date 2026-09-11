@@ -43,6 +43,7 @@ describe('EmployeeInvitationsService', () => {
     const companyRepository = {
       findOneBy: jest.fn().mockResolvedValue({ id: 1, name: 'Alliance' }),
     };
+    const companyUserRepository = { findOne: jest.fn() };
     const userRepository = { findOne: jest.fn().mockResolvedValue(null) };
     const branchRepository = {
       findOneBy: jest.fn().mockResolvedValue({ id: 2, company_id: 1 }),
@@ -66,8 +67,8 @@ describe('EmployeeInvitationsService', () => {
     const workflowRepository = {
       findOneBy: jest.fn().mockResolvedValue({ id: 3, company_id: 1 }),
     };
-    const mailService = {
-      sendGenericNotificationEmail: options?.mailFailure
+    const reportSmtpService = {
+      sendCompanyEmail: options?.mailFailure
         ? jest.fn().mockRejectedValue(options.mailFailure)
         : jest.fn().mockResolvedValue({ messageId: 'mail-123' }),
     };
@@ -88,20 +89,26 @@ describe('EmployeeInvitationsService', () => {
       invitationRepository as never,
       companyRepository as never,
       userRepository as never,
-      {} as never,
+      companyUserRepository as never,
       branchRepository as never,
       departmentRepository as never,
       positionRepository as never,
       employeeRepository as never,
       workflowRepository as never,
-      mailService as never,
+      reportSmtpService as never,
       smsService as never,
       {} as never,
       {} as never,
       configService as never,
     );
 
-    return { service, invitationRepository, mailService, smsService };
+    return {
+      service,
+      invitationRepository,
+      companyUserRepository,
+      reportSmtpService,
+      smsService,
+    };
   }
 
   const actor = {
@@ -128,8 +135,10 @@ describe('EmployeeInvitationsService', () => {
         expiresAt: new Date('2026-09-12T10:00:00.000Z'),
         emailDeliveryStatus: EmployeeInvitationDeliveryStatus.SENT,
         emailMessageId: 'mail-123',
+        emailLastError: null,
         smsDeliveryStatus: EmployeeInvitationDeliveryStatus.SENT,
         smsMessageId: 'sms-123',
+        smsLastError: null,
       },
     ]);
 
@@ -150,20 +159,32 @@ describe('EmployeeInvitationsService', () => {
   });
 
   it('sends through email and SMS without returning the token', async () => {
-    const { service, mailService, smsService } = createHarness();
+    const { service, reportSmtpService, smsService } = createHarness();
 
     const result = await service.create(1, dto, actor);
 
-    expect(mailService.sendGenericNotificationEmail).toHaveBeenCalledTimes(1);
+    expect(reportSmtpService.sendCompanyEmail).toHaveBeenCalledTimes(1);
     expect(smsService.sendGenericNotificationSms).toHaveBeenCalledTimes(1);
+    expect(smsService.sendGenericNotificationSms).toHaveBeenCalledWith(
+      dto.phone,
+      'Employee invitation',
+      expect.stringContaining('Alliance has invited you'),
+      expect.stringMatching(
+        /^http:\/\/localhost:3000\/register\?token=[a-f0-9]{64}$/,
+      ),
+    );
     expect(result.delivery).toEqual({
       email: {
         status: EmployeeInvitationDeliveryStatus.SENT,
         message_id: 'mail-123',
+        last_error: null,
+        transport: 'company_smtp',
       },
       sms: {
         status: EmployeeInvitationDeliveryStatus.SENT,
         message_id: 'sms-123',
+        last_error: null,
+        transport: 'sms_gateway',
       },
     });
     expect(result).not.toHaveProperty('token');
@@ -180,8 +201,66 @@ describe('EmployeeInvitationsService', () => {
     expect(result.delivery.email.status).toBe(
       EmployeeInvitationDeliveryStatus.FAILED,
     );
+    expect(result.delivery.email.last_error).toBe('mail provider unavailable');
+    expect(result.delivery.email.transport).toBe('company_smtp');
     expect(result.delivery.sms.status).toBe(
       EmployeeInvitationDeliveryStatus.SENT,
+    );
+  });
+
+  it('restores the invitation owner data scope for employee creation', async () => {
+    const { service, companyUserRepository } = createHarness();
+    companyUserRepository.findOne.mockResolvedValue({
+      id: 20,
+      user: { id: 10, email: 'hr@example.com' },
+      employee: { id: 30 },
+      role_assignments: [
+        {
+          role: {
+            name: 'HR Manager',
+            permissions: [
+              { name: 'employees:create' },
+              { name: 'data_scope:company' },
+            ],
+          },
+        },
+      ],
+      permission_assignments: [{ permission: { name: 'employees:read' } }],
+    });
+
+    const resolvedActor = await (
+      service as unknown as {
+        resolveInvitationActor(invitation: {
+          companyId: number;
+          createdByCompanyUserId: number;
+        }): Promise<{
+          employeeId?: number;
+          roles: string[];
+          permissions: string[];
+        }>;
+      }
+    ).resolveInvitationActor({
+      companyId: 1,
+      createdByCompanyUserId: 20,
+    });
+
+    expect(resolvedActor.employeeId).toBe(30);
+    expect(resolvedActor.roles).toEqual(['HR Manager']);
+    expect(resolvedActor.permissions).toEqual(
+      expect.arrayContaining([
+        'employees:create',
+        'employees:read',
+        'data_scope:company',
+      ]),
+    );
+    expect(companyUserRepository.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        relations: expect.objectContaining({
+          employee: true,
+          role_assignments: expect.any(Object),
+          permission_assignments: expect.any(Object),
+        }),
+      }),
     );
   });
 });

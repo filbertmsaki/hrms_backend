@@ -40,6 +40,7 @@ import { LeaveBalanceService } from './services/leave-balance.service';
 import { LeaveDurationCalculatorService } from './services/leave-duration-calculator.service';
 import { LeavePdfService } from './services/leave-pdf.service';
 import { LeaveWorkflowService } from './services/leave-workflow.service';
+import { LeaveImportService } from './services/leave-import.service';
 
 @Module({
   imports: [
@@ -87,6 +88,7 @@ import { LeaveWorkflowService } from './services/leave-workflow.service';
     LeaveDurationCalculatorService,
     LeaveWorkflowService,
     LeavePdfService,
+    LeaveImportService,
   ],
   exports: [
     LeaveService,
