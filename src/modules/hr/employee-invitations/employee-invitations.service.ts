@@ -486,7 +486,18 @@ export class EmployeeInvitationsService {
             company_id: invitation.companyId,
           }
         : { company_id: invitation.companyId, status: 'active' },
-      relations: ['user'],
+      relations: {
+        user: true,
+        employee: true,
+        role_assignments: {
+          role: {
+            permissions: true,
+          },
+        },
+        permission_assignments: {
+          permission: true,
+        },
+      },
       order: { id: 'ASC' },
     });
     if (!membership?.user) {
@@ -494,6 +505,21 @@ export class EmployeeInvitationsService {
         'The invitation owner is no longer available. Ask HR to resend it.',
       );
     }
+    const permissions = new Set<string>(['employees:create', 'employees:read']);
+
+    membership.permission_assignments?.forEach((assignment) => {
+      if (assignment.permission?.name) {
+        permissions.add(assignment.permission.name);
+      }
+    });
+    membership.role_assignments?.forEach((assignment) => {
+      assignment.role?.permissions?.forEach((permission) => {
+        if (permission?.name) {
+          permissions.add(permission.name);
+        }
+      });
+    });
+
     return {
       id: membership.user.id,
       email: membership.user.email,
@@ -501,8 +527,12 @@ export class EmployeeInvitationsService {
       userType: 'COMPANY_USER',
       companyId: invitation.companyId,
       companyMembershipId: membership.id,
-      roles: [],
-      permissions: ['employees:create', 'employees:read'],
+      employeeId: membership.employee?.id,
+      roles:
+        membership.role_assignments
+          ?.map((assignment) => assignment.role?.name)
+          .filter((role): role is string => Boolean(role)) ?? [],
+      permissions: Array.from(permissions),
     };
   }
 

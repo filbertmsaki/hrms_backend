@@ -43,6 +43,7 @@ describe('EmployeeInvitationsService', () => {
     const companyRepository = {
       findOneBy: jest.fn().mockResolvedValue({ id: 1, name: 'Alliance' }),
     };
+    const companyUserRepository = { findOne: jest.fn() };
     const userRepository = { findOne: jest.fn().mockResolvedValue(null) };
     const branchRepository = {
       findOneBy: jest.fn().mockResolvedValue({ id: 2, company_id: 1 }),
@@ -88,7 +89,7 @@ describe('EmployeeInvitationsService', () => {
       invitationRepository as never,
       companyRepository as never,
       userRepository as never,
-      {} as never,
+      companyUserRepository as never,
       branchRepository as never,
       departmentRepository as never,
       positionRepository as never,
@@ -101,7 +102,13 @@ describe('EmployeeInvitationsService', () => {
       configService as never,
     );
 
-    return { service, invitationRepository, reportSmtpService, smsService };
+    return {
+      service,
+      invitationRepository,
+      companyUserRepository,
+      reportSmtpService,
+      smsService,
+    };
   }
 
   const actor = {
@@ -198,6 +205,62 @@ describe('EmployeeInvitationsService', () => {
     expect(result.delivery.email.transport).toBe('company_smtp');
     expect(result.delivery.sms.status).toBe(
       EmployeeInvitationDeliveryStatus.SENT,
+    );
+  });
+
+  it('restores the invitation owner data scope for employee creation', async () => {
+    const { service, companyUserRepository } = createHarness();
+    companyUserRepository.findOne.mockResolvedValue({
+      id: 20,
+      user: { id: 10, email: 'hr@example.com' },
+      employee: { id: 30 },
+      role_assignments: [
+        {
+          role: {
+            name: 'HR Manager',
+            permissions: [
+              { name: 'employees:create' },
+              { name: 'data_scope:company' },
+            ],
+          },
+        },
+      ],
+      permission_assignments: [{ permission: { name: 'employees:read' } }],
+    });
+
+    const resolvedActor = await (
+      service as unknown as {
+        resolveInvitationActor(invitation: {
+          companyId: number;
+          createdByCompanyUserId: number;
+        }): Promise<{
+          employeeId?: number;
+          roles: string[];
+          permissions: string[];
+        }>;
+      }
+    ).resolveInvitationActor({
+      companyId: 1,
+      createdByCompanyUserId: 20,
+    });
+
+    expect(resolvedActor.employeeId).toBe(30);
+    expect(resolvedActor.roles).toEqual(['HR Manager']);
+    expect(resolvedActor.permissions).toEqual(
+      expect.arrayContaining([
+        'employees:create',
+        'employees:read',
+        'data_scope:company',
+      ]),
+    );
+    expect(companyUserRepository.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        relations: expect.objectContaining({
+          employee: true,
+          role_assignments: expect.any(Object),
+          permission_assignments: expect.any(Object),
+        }),
+      }),
     );
   });
 });
