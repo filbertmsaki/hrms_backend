@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { NotificationChannelEnum } from './enums/notification-channel.enum';
 import { NotificationTypeEnum } from './enums/notification-type.enum';
@@ -22,7 +21,7 @@ describe('NotificationPreferencesService', () => {
     );
   });
 
-  it('rejects unsupported notification channels when saving preferences', async () => {
+  it('stores push preferences even when push delivery is not configured yet', async () => {
     await expect(
       service.setPreference(
         7,
@@ -30,10 +29,13 @@ describe('NotificationPreferencesService', () => {
         NotificationChannelEnum.PUSH,
         true,
       ),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).resolves.toMatchObject({
+      channel: NotificationChannelEnum.PUSH,
+      isEnabled: true,
+    });
   });
 
-  it('returns only supported channels from stored preferences', async () => {
+  it('returns every stored channel preference', async () => {
     repository.find!.mockResolvedValue([
       {
         channel: NotificationChannelEnum.IN_APP,
@@ -55,11 +57,12 @@ describe('NotificationPreferencesService', () => {
 
     const preferences = await service.findMine(7);
 
-    expect(preferences).toHaveLength(3);
+    expect(preferences).toHaveLength(4);
     expect(preferences.map((preference) => preference.channel)).toEqual([
       NotificationChannelEnum.IN_APP,
       NotificationChannelEnum.EMAIL,
       NotificationChannelEnum.SMS,
+      NotificationChannelEnum.PUSH,
     ]);
   });
 });

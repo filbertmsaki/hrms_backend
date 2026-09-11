@@ -198,6 +198,35 @@ export class CreateDailyActivityReportDto {
   source?: DailyActivitySourceEnum;
 }
 
+export class CreateManagerActivityTaskDto {
+  @Type(() => Number)
+  @IsInt()
+  employee_id: number;
+
+  @Type(() => Number)
+  @IsInt()
+  activity_category_id: number;
+
+  @IsDateString()
+  activity_date: string;
+
+  @IsString()
+  @MaxLength(250)
+  title: string;
+
+  @IsString()
+  @MaxLength(4000)
+  description: string;
+
+  @IsOptional()
+  @IsDateString()
+  planned_start_time?: string;
+
+  @IsOptional()
+  @IsDateString()
+  planned_end_time?: string;
+}
+
 export class CreateDailyActivityEntryDto {
   @Type(() => Number)
   @IsInt()

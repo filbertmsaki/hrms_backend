@@ -10,6 +10,8 @@ import {
   Query,
   Req,
   Res,
+  Optional,
+  ServiceUnavailableException,
   StreamableFile,
   UploadedFile,
   UseGuards,
@@ -51,6 +53,7 @@ import { UpdateLeaveWorkflowStepDto } from './dtos/update-leave-workflow-step.dt
 import { UpsertLeaveMedicalDetailDto } from './dtos/upsert-leave-medical-detail.dto';
 import { LeaveService } from './leave.service';
 import { LeaveImportService } from './services/leave-import.service';
+import { LeaveBalanceImportService } from './services/leave-balance-import.service';
 import { createDownloadStream } from '../../files/file-download.util';
 
 @ApiTags('Leave')
@@ -61,7 +64,18 @@ export class LeaveController {
   constructor(
     private readonly leaveService: LeaveService,
     private readonly leaveImportService: LeaveImportService,
+    @Optional()
+    private readonly leaveBalanceImportService?: LeaveBalanceImportService,
   ) {}
+
+  private getLeaveBalanceImportService(): LeaveBalanceImportService {
+    if (!this.leaveBalanceImportService) {
+      throw new ServiceUnavailableException(
+        'Leave balance import service is unavailable.',
+      );
+    }
+    return this.leaveBalanceImportService;
+  }
 
   @Post('types')
   @UseGuards(PermissionsGuard)
@@ -485,6 +499,52 @@ export class LeaveController {
     return this.leaveService.adjustLeaveBalance(
       req.user.companyId!,
       dto,
+      req.user,
+    );
+  }
+
+  @Get('balances/import/template')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave-balances.adjust')
+  @ApiOperation({ summary: 'Download leave balance import template' })
+  async downloadLeaveBalanceImportTemplate(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Res() res: Response,
+  ): Promise<void> {
+    const result = await this.getLeaveBalanceImportService().downloadTemplate(
+      req.user.companyId!,
+    );
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=${result.fileName}`,
+    );
+    res.send(result.buffer);
+  }
+
+  @Post('balances/import')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave-balances.adjust')
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }),
+  )
+  @ApiOperation({ summary: 'Bulk import leave balance adjustments from Excel' })
+  importLeaveBalances(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @UploadedFile()
+    file: {
+      originalname: string;
+      mimetype: string;
+      size: number;
+      buffer: Buffer;
+    },
+  ) {
+    return this.getLeaveBalanceImportService().import(
+      req.user.companyId!,
+      file,
       req.user,
     );
   }

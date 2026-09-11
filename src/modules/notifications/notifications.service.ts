@@ -43,6 +43,7 @@ export type CreateNotificationInput = {
   action_url?: string | null;
   metadata?: Record<string, unknown> | null;
   delivery_channel?: NotificationChannelEnum;
+  channels?: NotificationChannelEnum[];
   delivery_status?: NotificationDeliveryStatusEnum;
   dedupe_key?: string | null;
   expires_at?: Date | null;
@@ -67,7 +68,9 @@ export class NotificationsService {
   async createAndPush(input: CreateNotificationInput) {
     return this.orchestrator.create({
       ...input,
-      channels: [input.delivery_channel ?? NotificationChannelEnum.IN_APP],
+      channels: input.channels?.length
+        ? input.channels
+        : [input.delivery_channel ?? NotificationChannelEnum.IN_APP],
     });
   }
 

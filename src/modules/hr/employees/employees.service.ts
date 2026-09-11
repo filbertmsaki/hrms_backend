@@ -1235,7 +1235,7 @@ export class EmployeesService {
           password: await hashPassword('Employee123!'),
           status: 'active',
           user_type: 'COMPANY_USER',
-          is_email_verified: true,
+          is_email_verified: false,
         }),
       ));
 

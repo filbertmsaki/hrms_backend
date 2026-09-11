@@ -12,12 +12,19 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request as ExpressRequest } from 'express';
-import { Permissions } from '../../../../common/decorators/permissions.decorator';
+import {
+  Permissions,
+  PermissionsAny,
+} from '../../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
-import { ReviewDailyActivityReportDto } from '../dto/activity.dto';
+import {
+  CreateManagerActivityTaskDto,
+  ReviewDailyActivityReportDto,
+} from '../dto/activity.dto';
 import { WorkActivityQueryDto } from '../dto/queries.dto';
+import { ActivityPolicyService } from '../services/activity-policy.service';
 import { DailyActivityService } from '../services/daily-activity.service';
 import { WorkActivityInsightsService } from '../services/work-activity-insights.service';
 
@@ -31,6 +38,7 @@ export class ManagerActivitiesController {
   constructor(
     private readonly dailyActivityService: DailyActivityService,
     private readonly insightsService: WorkActivityInsightsService,
+    private readonly policyService: ActivityPolicyService,
   ) {}
 
   @Get('dashboard')
@@ -62,6 +70,25 @@ export class ManagerActivitiesController {
     @Query() query: WorkActivityQueryDto,
   ) {
     return this.dailyActivityService.listPendingReviews(req.user, query);
+  }
+
+  @Get('categories')
+  @PermissionsAny(
+    'work_activities:manager:read',
+    'work_activities:manager:review',
+    'work_activities:config',
+  )
+  listCategories(@Req() req: AuthedRequest) {
+    return this.policyService.listCategories(req.user);
+  }
+
+  @Post('tasks')
+  @Permissions('work_activities:manager:review')
+  createTask(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreateManagerActivityTaskDto,
+  ) {
+    return this.dailyActivityService.createManagerTask(req.user, dto);
   }
 
   @Get('reports/:id')

@@ -1,6 +1,7 @@
 import type { AuditRequestContext } from '../../../common/interfaces/audit-request-context.interface';
 import type { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { EmploymentStatusEnum } from './enums/employment-status.enum';
+import { ContactTypeEnum } from './enums/contact-type.enum';
 import { EmployeesService } from './employees.service';
 
 const actor: AuthenticatedUser = {
@@ -256,6 +257,66 @@ describe('EmployeesService attendance activation readiness', () => {
         issues: ['No active shift or timetable assignment'],
       }),
     });
+  });
+});
+
+describe('EmployeesService employee account verification', () => {
+  it('creates an invited employee account with email verification pending', async () => {
+    const userRepository = {
+      findOne: jest.fn().mockResolvedValue(null),
+      create: jest.fn((value) => value),
+      save: jest.fn(async (value) => ({ ...value, id: 77 })),
+    };
+    const membership = {
+      id: 88,
+      company_id: 12,
+      user_id: 77,
+      status: 'active',
+    };
+    const service = {
+      getUserRepository: jest.fn(() => userRepository),
+      getPrimaryContactValue:
+        EmployeesService.prototype['getPrimaryContactValue'],
+      usersService: {
+        generateUserNo: jest.fn().mockResolvedValue('USR-000077'),
+      },
+      findMembershipByUserId: jest
+        .fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(membership),
+      companiesService: {
+        addUserToCompany: jest.fn().mockResolvedValue(undefined),
+      },
+    };
+
+    const result = await EmployeesService.prototype[
+      'resolveCompanyMembershipForEmployeeCreation'
+    ].call(service, 12, {
+      first_name: 'Amina',
+      last_name: 'Moshi',
+      gender: 'female',
+      contacts: [
+        {
+          contact_type: ContactTypeEnum.WORK,
+          email: 'amina@example.com',
+          is_primary: true,
+        },
+        {
+          contact_type: ContactTypeEnum.MOBILE,
+          phone_number: '+255712345678',
+          is_primary: true,
+        },
+      ],
+    });
+
+    expect(userRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: 'amina@example.com',
+        phone: '+255712345678',
+        is_email_verified: false,
+      }),
+    );
+    expect(result).toBe(membership);
   });
 });
 

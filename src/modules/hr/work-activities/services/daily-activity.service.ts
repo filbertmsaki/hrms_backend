@@ -16,6 +16,7 @@ import { HrAccessService } from '../../shared/hr-access.service';
 import {
   AddDailyActivityEvidenceDto,
   CreateDailyActivityEntryDto,
+  CreateManagerActivityTaskDto,
   UpdateDailyActivityEntryDto,
   SubmitDailyActivityReportDto,
   ReviewDailyActivityReportDto,
@@ -145,6 +146,112 @@ export class DailyActivityService {
 
   async listForManager(actor: AuthenticatedUser, query: WorkActivityQueryDto) {
     return this.listScoped(actor, query, false);
+  }
+
+  async createManagerTask(
+    actor: AuthenticatedUser,
+    dto: CreateManagerActivityTaskDto,
+  ) {
+    const companyId = this.getCompanyId(actor);
+    const employee = await this.getEmployee(companyId, dto.employee_id);
+    await this.assertManagerCanReview(
+      actor,
+      employee.id,
+      employee.reports_to ?? null,
+    );
+    const category = await this.policyService.getCategoryOrFail(
+      companyId,
+      dto.activity_category_id,
+    );
+    const entryDto: CreateDailyActivityEntryDto = {
+      activity_category_id: dto.activity_category_id,
+      title: dto.title,
+      description: dto.description,
+      planned_start_time: dto.planned_start_time,
+      planned_end_time: dto.planned_end_time,
+      task_reference: 'MANAGER_ASSIGNED',
+      status: DailyActivityStatusEnum.PLANNED,
+    };
+    this.validateEntry(entryDto, category);
+
+    return this.dataSource.transaction(async (manager) => {
+      let report = await manager.getRepository(DailyActivityReport).findOne({
+        where: {
+          companyId,
+          employeeId: employee.id,
+          activityDate: dto.activity_date,
+        },
+      });
+      if (!report) {
+        const policy = await this.policyService.resolveForEmployee(
+          companyId,
+          employee,
+          dto.activity_date,
+        );
+        report = await manager.getRepository(DailyActivityReport).save(
+          manager.getRepository(DailyActivityReport).create({
+            companyId,
+            employeeId: employee.id,
+            activityDate: dto.activity_date,
+            status: DailyActivityReportStatusEnum.DRAFT,
+            managerEmployeeId: employee.reports_to ?? null,
+            managerCompanyUserId: await this.resolveManagerCompanyUserId(
+              employee.reports_to,
+            ),
+            employeeSnapshot: this.buildEmployeeSnapshot(employee),
+            policySnapshot: this.normalizePolicySnapshot(policy),
+            attendanceSnapshot: null,
+            clientRequestId: null,
+            source: DailyActivitySourceEnum.SYSTEM,
+            metadata: { manager_assigned_task: true },
+          }),
+        );
+      }
+      if (
+        ![
+          DailyActivityReportStatusEnum.DRAFT,
+          DailyActivityReportStatusEnum.RETURNED_FOR_CORRECTION,
+        ].includes(report.status)
+      ) {
+        throw new ConflictException(
+          'The selected employee report is already submitted and cannot receive a new task for this date.',
+        );
+      }
+      await manager.getRepository(DailyActivityEntry).save(
+        manager.getRepository(DailyActivityEntry).create({
+          companyId,
+          dailyActivityReportId: report.id,
+          activityCategoryId: dto.activity_category_id,
+          kpiDefinitionId: null,
+          projectReference: null,
+          taskReference: 'MANAGER_ASSIGNED',
+          fieldPartyId: null,
+          externalReferenceType: 'MANAGER_TASK',
+          externalReferenceId: String(actor.id),
+          title: dto.title.trim(),
+          description: dto.description.trim(),
+          plannedStartTime: dto.planned_start_time
+            ? new Date(dto.planned_start_time)
+            : null,
+          plannedEndTime: dto.planned_end_time
+            ? new Date(dto.planned_end_time)
+            : null,
+          actualStartTime: null,
+          actualEndTime: null,
+          status: DailyActivityStatusEnum.PLANNED,
+          outcome: null,
+          remarks: null,
+          deferReason: null,
+          followUpDate: null,
+          completionPercentage: '0',
+          managerComment: null,
+          managerValidated: false,
+          linkedFieldVisitId: null,
+          clientRequestId: null,
+        }),
+      );
+      return this.getReportResponse(report, manager);
+    });
   }
 
   async listForHr(actor: AuthenticatedUser, query: WorkActivityQueryDto) {

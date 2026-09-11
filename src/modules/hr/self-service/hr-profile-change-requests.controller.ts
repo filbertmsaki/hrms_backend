@@ -17,7 +17,6 @@ import { Permissions } from '../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
-import { ApproveProfileChangeRequestDto } from './dtos/approve-profile-change-request.dto';
 import { ProfileChangeRequestQueryDto } from './dtos/profile-change-request-query.dto';
 import { RejectProfileChangeRequestDto } from './dtos/reject-profile-change-request.dto';
 import { RequestProfileChangeCorrectionDto } from './dtos/request-profile-change-correction.dto';
@@ -75,12 +74,10 @@ export class HrProfileChangeRequestsController {
   approve(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
-    @Body() dto: ApproveProfileChangeRequestDto,
   ) {
     return this.profileChangeRequestsService.approve(
       req.user,
       id,
-      dto,
       this.buildContext(req),
     );
   }

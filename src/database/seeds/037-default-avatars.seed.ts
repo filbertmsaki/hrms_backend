@@ -111,7 +111,11 @@ export default class DefaultAvatarsSeeder implements Seeder {
       const companies = await companyRepository.find({
         where: { status: 'active' },
       });
-      const uploadsRoot = resolve(process.cwd(), 'uploads', 'default-avatars');
+      const publicStorageRoot = resolve(
+        process.cwd(),
+        process.env.APP_PUBLIC_STORAGE_PATH ?? 'uploads',
+      );
+      const uploadsRoot = join(publicStorageRoot, 'default-avatars');
 
       let createdCount = 0;
       let existingCount = 0;
@@ -120,6 +124,9 @@ export default class DefaultAvatarsSeeder implements Seeder {
         await fs.mkdir(companyDirectory, { recursive: true });
 
         for (const avatarSeed of DEFAULT_AVATAR_LIBRARY) {
+          const fileName = `${avatarSeed.key}.svg`;
+          const absolutePath = join(companyDirectory, fileName);
+          const publicPath = `/uploads/default-avatars/company-${company.id}/${fileName}`;
           const avatar = await avatarRepository.findOne({
             where: {
               company_id: company.id,
@@ -128,15 +135,42 @@ export default class DefaultAvatarsSeeder implements Seeder {
           });
 
           if (avatar) {
+            let storedFileExists = false;
+            if (avatar.image_path?.startsWith('/uploads/default-avatars/')) {
+              try {
+                await fs.access(
+                  resolve(
+                    publicStorageRoot,
+                    avatar.image_path.replace(/^\/uploads\//, ''),
+                  ),
+                );
+                storedFileExists = true;
+              } catch {
+                storedFileExists = false;
+              }
+            }
+
+            if (!storedFileExists) {
+              const svg = buildAvatarSvg(avatarSeed);
+              await fs.writeFile(absolutePath, svg, 'utf8');
+              avatar.image_path = publicPath;
+              avatar.original_file_name = fileName;
+              avatar.stored_file_name = fileName;
+              avatar.file_extension = 'svg';
+              avatar.mime_type = 'image/svg+xml';
+              avatar.file_size = String(Buffer.byteLength(svg));
+              avatar.file_path = publicPath;
+              avatar.file_url = publicPath;
+              avatar.width = 256;
+              avatar.height = 256;
+              await avatarRepository.save(avatar);
+            }
             existingCount += 1;
             continue;
           }
 
-          const fileName = `${avatarSeed.key}.svg`;
-          const absolutePath = join(companyDirectory, fileName);
-          const publicPath = `/uploads/default-avatars/company-${company.id}/${fileName}`;
-
-          await fs.writeFile(absolutePath, buildAvatarSvg(avatarSeed), 'utf8');
+          const svg = buildAvatarSvg(avatarSeed);
+          await fs.writeFile(absolutePath, svg, 'utf8');
 
           await avatarRepository.save(
             avatarRepository.create({
@@ -147,7 +181,7 @@ export default class DefaultAvatarsSeeder implements Seeder {
               stored_file_name: fileName,
               file_extension: 'svg',
               mime_type: 'image/svg+xml',
-              file_size: String(Buffer.byteLength(buildAvatarSvg(avatarSeed))),
+              file_size: String(Buffer.byteLength(svg)),
               file_path: publicPath,
               file_url: publicPath,
               width: 256,
