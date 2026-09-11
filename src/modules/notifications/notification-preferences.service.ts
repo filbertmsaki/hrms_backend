@@ -4,10 +4,7 @@ import { Repository } from 'typeorm';
 import { NotificationChannelEnum } from './enums/notification-channel.enum';
 import { NotificationTypeEnum } from './enums/notification-type.enum';
 import { NotificationPreference } from './entities/notification-preference.entity';
-import {
-  isNotificationChannelSupported,
-  unsupportedNotificationChannelMessage,
-} from './notification-channel-policy';
+import { isNotificationChannelSupported } from './notification-channel-policy';
 
 export const MANDATORY_NOTIFICATION_TYPES: ReadonlySet<NotificationTypeEnum> =
   new Set<NotificationTypeEnum>([
@@ -29,9 +26,7 @@ export class NotificationPreferencesService {
       order: { notificationType: 'ASC', channel: 'ASC' },
     });
 
-    return preferences.filter((preference) =>
-      isNotificationChannelSupported(preference.channel),
-    );
+    return preferences;
   }
 
   async setPreference(
@@ -40,12 +35,6 @@ export class NotificationPreferencesService {
     channel: NotificationChannelEnum,
     isEnabled: boolean,
   ) {
-    if (!isNotificationChannelSupported(channel)) {
-      throw new BadRequestException(
-        unsupportedNotificationChannelMessage(channel),
-      );
-    }
-
     if (
       !isEnabled &&
       MANDATORY_NOTIFICATION_TYPES.has(notificationType) &&

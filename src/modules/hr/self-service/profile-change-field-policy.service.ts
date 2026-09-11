@@ -305,6 +305,18 @@ const PROFILE_FIELD_POLICIES: ProfileFieldPolicy[] = [
     value_type: 'string',
   },
   {
+    field_name: 'profile_photo_file',
+    source_entity: ProfileChangeFieldSourceEntityEnum.EMPLOYEE,
+    editable_by_employee: true,
+    requires_approval: true,
+    editable_by_hr: true,
+    sensitive: false,
+    validation_rules: ['required', 'string', 'max:2048'],
+    display_label: 'Profile Picture',
+    request_types: [ProfileChangeRequestTypeEnum.PROFILE_PHOTO],
+    value_type: 'string',
+  },
+  {
     field_name: 'default_avatar_id',
     source_entity: ProfileChangeFieldSourceEntityEnum.EMPLOYEE,
     editable_by_employee: true,

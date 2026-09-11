@@ -16,6 +16,7 @@ import { FilesService } from '../../files/files.service';
 import { ImageProcessingService } from '../../files/image-processing.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { NotificationCategoryEnum } from '../../notifications/enums/notification-category.enum';
+import { NotificationChannelEnum } from '../../notifications/enums/notification-channel.enum';
 import { NotificationPriorityEnum } from '../../notifications/enums/notification-priority.enum';
 import { NotificationTypeEnum } from '../../notifications/enums/notification-type.enum';
 import { User } from '../../users/entities/user.entity';
@@ -1677,6 +1678,8 @@ export class ProfileChangeRequestsService {
         return snapshot.primaryEmergencyContact?.occupation ?? null;
       case 'default_avatar_id':
         return snapshot.employee.default_avatar_id;
+      case 'profile_photo_file':
+        return snapshot.employee.profile_photo_url;
       default:
         return null;
     }
@@ -1917,6 +1920,10 @@ export class ProfileChangeRequestsService {
           }
           break;
         }
+        case 'profile_photo_file':
+          // The approved file is promoted and applied by
+          // promoteApprovedPendingFiles after the field transaction succeeds.
+          break;
       }
     }
 
@@ -2049,7 +2056,7 @@ export class ProfileChangeRequestsService {
           entity_id: request.id,
           branch_id: request.employee?.primary_branch_id ?? null,
           department_id: request.employee?.primary_department_id ?? null,
-          action_url: `/hr/profile-change-requests/${request.id}`,
+          action_url: `/dashboard/employees/profile-change-requests?highlight=${request.id}`,
           metadata: {
             reference_number: request.reference_number,
             request_type: request.request_type,
@@ -2060,6 +2067,11 @@ export class ProfileChangeRequestsService {
             submitted_at: request.submitted_at ?? request.created_at,
             pending_profile_photo_file_id: pendingPhotoFile?.id ?? null,
           },
+          channels: [
+            NotificationChannelEnum.IN_APP,
+            NotificationChannelEnum.EMAIL,
+            NotificationChannelEnum.SMS,
+          ],
           dedupe_key: `profile-change-review:${request.id}:${reviewer.id}`,
         });
         await this.createAudit(
@@ -2138,7 +2150,7 @@ export class ProfileChangeRequestsService {
         related_module: 'profile_change_requests',
         entity_type: 'PROFILE_CHANGE_REQUEST',
         entity_id: request.id,
-        action_url: `/me/profile-change-requests/${request.id}`,
+        action_url: `/dashboard/me/profile?tab=updates&highlight=${request.id}`,
         metadata: {
           reference_number: request.reference_number,
           request_type: request.request_type,

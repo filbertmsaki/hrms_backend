@@ -4,6 +4,7 @@ import { CompanyUser } from '../companies/entities/company-user.entity';
 import { AppNotification } from './entities/app-notification.entity';
 import { NotificationDelivery } from './entities/notification-delivery.entity';
 import { NotificationMailLog } from './entities/notification-mail-log.entity';
+import { NotificationChannelEnum } from './enums/notification-channel.enum';
 import { NotificationOrchestratorService } from './notification-orchestrator.service';
 import { NotificationQueueService } from './notification-queue.service';
 import { NotificationsGateway } from './notifications.gateway';
@@ -88,6 +89,28 @@ describe('NotificationsService', () => {
       }),
     );
     expect(result).toEqual({ id: 12 });
+  });
+
+  it('preserves explicitly requested delivery channels', async () => {
+    orchestrator.create.mockResolvedValue({ id: 13 });
+
+    await service.createAndPush({
+      company_id: 4,
+      receiver_company_user_id: 8,
+      title: 'Approval required',
+      message: 'A profile update needs review',
+      channels: [
+        NotificationChannelEnum.IN_APP,
+        NotificationChannelEnum.EMAIL,
+        NotificationChannelEnum.SMS,
+      ],
+    });
+
+    expect(orchestrator.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channels: ['IN_APP', 'EMAIL', 'SMS'],
+      }),
+    );
   });
 
   it('rejects markAsRead when the notification does not belong to the active tenant membership', async () => {
