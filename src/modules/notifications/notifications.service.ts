@@ -47,6 +47,7 @@ export type CreateNotificationInput = {
   delivery_status?: NotificationDeliveryStatusEnum;
   dedupe_key?: string | null;
   expires_at?: Date | null;
+  is_mandatory?: boolean;
 };
 
 @Injectable()
