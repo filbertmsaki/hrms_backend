@@ -7,6 +7,7 @@ import { AttendanceBusinessTrip } from '../attendance/processing/entities/attend
 import { Employee } from '../employees/entities/employee.entity';
 import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { HrSharedModule } from '../shared/hr-shared.module';
+import { NotificationsModule } from '../../notifications/notifications.module';
 import {
   ActivityCategory,
   ActivityPolicy,
@@ -85,6 +86,7 @@ import { WorkActivityReminderService } from './services/work-activity-reminder.s
     ]),
     HrSharedModule,
     ActionInboxModule,
+    NotificationsModule,
   ],
   controllers: [
     MyDailyActivitiesController,

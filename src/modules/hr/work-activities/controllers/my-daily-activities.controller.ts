@@ -23,6 +23,7 @@ import {
   CreateDailyActivityEntryDto,
   CreateDailyActivityCommentDto,
   CreateDailyActivityReportDto,
+  CreateSelfActivityTaskDto,
   SubmitDailyActivityReportDto,
   UpdateDailyActivityEntryDto,
 } from '../dto/activity.dto';
@@ -57,6 +58,15 @@ export class MyDailyActivitiesController {
   @Permissions('work_activities:self-service:read')
   listTasks(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
     return this.service.listMineTasks(req.user, query);
+  }
+
+  @Post('tasks')
+  @Permissions('work_activities:self-service:update')
+  createTask(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreateSelfActivityTaskDto,
+  ) {
+    return this.service.createMyTask(req.user, dto);
   }
 
   @Post('reports')

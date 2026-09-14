@@ -1,4 +1,4 @@
-import { PartialType } from '@nestjs/swagger';
+import { OmitType, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
@@ -253,6 +253,11 @@ export class CreateManagerActivityTaskDto {
   @Type(() => ActivityChecklistItemDto)
   checklist?: ActivityChecklistItemDto[];
 }
+
+export class CreateSelfActivityTaskDto extends OmitType(
+  CreateManagerActivityTaskDto,
+  ['employee_id'] as const,
+) {}
 
 export class CreateDailyActivityEntryDto {
   @Type(() => Number)

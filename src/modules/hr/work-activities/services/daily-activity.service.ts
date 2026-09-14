@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -18,6 +19,7 @@ import {
   CreateDailyActivityCommentDto,
   CreateDailyActivityEntryDto,
   CreateManagerActivityTaskDto,
+  CreateSelfActivityTaskDto,
   UpdateDailyActivityEntryDto,
   SubmitDailyActivityReportDto,
   ReviewDailyActivityReportDto,
@@ -41,15 +43,23 @@ import { ActivityPolicyService } from './activity-policy.service';
 import { WorkActivityAuditService } from './work-activity-audit.service';
 import { WorkActivityExceptionService } from './work-activity-exception.service';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
+import { NotificationsService } from '../../../notifications/notifications.service';
+import { NotificationCategoryEnum } from '../../../notifications/enums/notification-category.enum';
+import { NotificationChannelEnum } from '../../../notifications/enums/notification-channel.enum';
+import { NotificationPriorityEnum } from '../../../notifications/enums/notification-priority.enum';
+import { NotificationTypeEnum } from '../../../notifications/enums/notification-type.enum';
 
 @Injectable()
 export class DailyActivityService {
+  private readonly logger = new Logger(DailyActivityService.name);
+
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
     private readonly hrAccessService: HrAccessService,
     private readonly actionItemsService: ActionItemsService,
+    private readonly notificationsService: NotificationsService,
     private readonly policyService: ActivityPolicyService,
     private readonly auditService: WorkActivityAuditService,
     private readonly exceptionService: WorkActivityExceptionService,
@@ -342,6 +352,32 @@ export class DailyActivityService {
     });
   }
 
+  async createMyTask(actor: AuthenticatedUser, dto: CreateSelfActivityTaskDto) {
+    const companyId = this.getCompanyId(actor);
+    const category = await this.resolveManagerTaskCategory(
+      companyId,
+      dto.activity_category_id,
+    );
+    const report = await this.getOrCreateMyDailyReport(
+      actor,
+      dto.activity_date,
+      undefined,
+      DailyActivitySourceEnum.WEB,
+    );
+
+    return this.addMyEntry(actor, report.id, {
+      activity_category_id: category.id,
+      title: dto.title,
+      description: dto.description,
+      planned_start_time: dto.planned_start_time,
+      planned_end_time: dto.planned_end_time,
+      task_reference: 'SELF_CREATED',
+      status: DailyActivityStatusEnum.PLANNED,
+      priority: dto.priority ?? DailyActivityPriorityEnum.MEDIUM,
+      checklist: dto.checklist,
+    });
+  }
+
   private async resolveManagerTaskCategory(
     companyId: number,
     categoryId?: number,
@@ -574,6 +610,10 @@ export class DailyActivityService {
       throw new NotFoundException('Daily activity entry not found.');
     }
 
+    const previousChecklist = Array.isArray(entry.checklist)
+      ? entry.checklist.map((item) => ({ ...item }))
+      : [];
+
     const category = await this.policyService.getCategoryOrFail(
       report.companyId,
       dto.activity_category_id ?? entry.activityCategoryId,
@@ -673,7 +713,69 @@ export class DailyActivityService {
     }
 
     await this.entryRepository.save(entry);
+
+    if (
+      dto.checklist !== undefined &&
+      entry.taskReference === 'MANAGER_ASSIGNED' &&
+      JSON.stringify(previousChecklist) !== JSON.stringify(entry.checklist)
+    ) {
+      await this.notifyManagerOfChecklistUpdate(actor, report, entry);
+    }
+
     return this.getReportResponse(report);
+  }
+
+  private async notifyManagerOfChecklistUpdate(
+    actor: AuthenticatedUser,
+    report: DailyActivityReport,
+    entry: DailyActivityEntry,
+  ): Promise<void> {
+    const receiverCompanyUserId = entry.assignedByCompanyUserId;
+    if (!receiverCompanyUserId) return;
+
+    const employeeSnapshot: Record<string, unknown> =
+      report.employeeSnapshot ?? {};
+    const employeeName = this.toText(employeeSnapshot.full_name, 'An employee');
+    const checklist = Array.isArray(entry.checklist) ? entry.checklist : [];
+    const completedCount = checklist.filter(
+      (item) => item.completed === true,
+    ).length;
+    const checklistSummary = checklist.length
+      ? `${completedCount}/${checklist.length} checklist items complete`
+      : 'the checklist';
+
+    try {
+      await this.notificationsService.createAndPush({
+        company_id: report.companyId,
+        sender_company_user_id: actor.companyMembershipId ?? null,
+        receiver_company_user_id: receiverCompanyUserId,
+        type: NotificationTypeEnum.GENERAL,
+        category: NotificationCategoryEnum.GENERAL,
+        priority: NotificationPriorityEnum.MEDIUM,
+        title: 'Task checklist updated',
+        message: `${employeeName} updated the checklist for “${entry.title}” — ${checklistSummary}.`,
+        related_module: 'activities',
+        entity_type: 'DAILY_ACTIVITY_ENTRY',
+        entity_id: entry.id,
+        action_url: `/dashboard/activities/team?task=${entry.id}`,
+        is_mandatory: true,
+        metadata: {
+          task_title: entry.title,
+          employee_name: employeeName,
+          task_id: entry.id,
+          report_id: report.id,
+          checklist,
+          completed_count: completedCount,
+          checklist_count: checklist.length,
+        },
+        channels: [NotificationChannelEnum.IN_APP],
+        dedupe_key: `activities:task-checklist:${entry.id}:${entry.updatedAt?.getTime() ?? Date.now()}`,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Could not create in-app checklist notification for task ${entry.id}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   async removeMyEntry(
