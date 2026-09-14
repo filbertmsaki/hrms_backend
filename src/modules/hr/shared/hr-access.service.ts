@@ -41,6 +41,15 @@ export class HrAccessService {
     return hasPermission(actor.permissions, 'data_scope:team');
   }
 
+  hasManagerTeamAccess(actor: AuthenticatedUser): boolean {
+    return (
+      this.hasTeamScope(actor) ||
+      hasPermission(actor.permissions, 'manager_team:read') ||
+      hasPermission(actor.permissions, 'manager_self_service:read') ||
+      hasPermission(actor.permissions, 'manager:read')
+    );
+  }
+
   hasSelfScope(actor: AuthenticatedUser): boolean {
     return hasPermission(actor.permissions, 'data_scope:self');
   }
@@ -223,7 +232,7 @@ export class HrAccessService {
       }
     }
 
-    if (this.hasTeamScope(actor)) {
+    if (this.hasManagerTeamAccess(actor)) {
       const reportingEmployeeIds = await this.getReportingEmployeeIds(actor);
       reportingEmployeeIds.forEach((employeeId) => employeeIds.add(employeeId));
     }

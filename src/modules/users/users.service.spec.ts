@@ -374,6 +374,7 @@ describe('UsersService employee import provisioning', () => {
         user_no: 'USER-2026-00001',
         email: 'new.import@example.com',
         status: 'active',
+        is_email_verified: false,
         must_set_password: true,
         account_provisioning_status: 'active',
       }),

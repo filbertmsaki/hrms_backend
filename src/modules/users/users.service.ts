@@ -446,7 +446,7 @@ export class UsersService {
           password: hashedPassword,
           status: 'active',
           user_type: 'COMPANY_USER',
-          is_email_verified: true,
+          is_email_verified: false,
           must_set_password: true,
           activated_at: new Date(),
           account_provisioning_status: 'active',
@@ -588,7 +588,7 @@ export class UsersService {
       user_no: userData.user_no ?? (await this.generateUserNo()),
       status: userData.status ?? 'active',
       user_type: 'COMPANY_USER',
-      is_email_verified: true,
+      is_email_verified: false,
       must_set_password: mustSetPassword,
     });
 
