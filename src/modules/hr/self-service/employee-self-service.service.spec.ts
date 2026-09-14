@@ -51,6 +51,7 @@ import { ActionItemsService } from '../action-inbox/action-items.service';
 import { HrDocumentsService } from '../documents/hr-documents.service';
 import { OffboardingService } from '../offboarding/offboarding.service';
 import { HrAccessService } from '../shared/hr-access.service';
+import { DefaultAvatarsService } from '../default-avatars/default-avatars.service';
 
 describe('EmployeeSelfServiceService', () => {
   let service: EmployeeSelfServiceService;
@@ -213,6 +214,14 @@ describe('EmployeeSelfServiceService', () => {
       {
         getAccessibleEmployeeIds: jest.fn().mockResolvedValue(null),
       } as unknown as HrAccessService,
+      {
+        resolveEmployeeProfileAvatar: jest.fn().mockResolvedValue({
+          profile_photo_url: null,
+          uploaded_profile_photo_url: null,
+          profile_photo_source: 'none',
+          default_avatar_id: null,
+        }),
+      } as unknown as DefaultAvatarsService,
     );
   });
 

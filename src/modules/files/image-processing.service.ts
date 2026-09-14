@@ -108,20 +108,28 @@ export class ImageProcessingService {
     );
     const normalizedMimeType = file.mimeType.trim().toLowerCase();
 
-    this.assertAllowedExtension(fileExtension, options.allowedExtensions);
+    const resolvedExtension =
+      fileExtension ||
+      (normalizedMimeType === 'image/jpeg'
+        ? '.jpg'
+        : normalizedMimeType === 'image/png'
+          ? '.png'
+          : normalizedMimeType === 'image/webp'
+            ? '.webp'
+            : normalizedMimeType === 'image/svg+xml'
+              ? '.svg'
+              : fileExtension);
+    this.assertAllowedExtension(resolvedExtension, options.allowedExtensions);
     this.assertAllowedMimeType(normalizedMimeType, options.allowedMimeTypes);
-    this.assertExtensionMimeMatch(fileExtension, normalizedMimeType);
-    this.assertMaxFileSize(file.fileSize, options.maxFileSizeBytes);
-
-    if (file.buffer.length !== file.fileSize) {
-      throw new BadRequestException(
-        'fileSize does not match the uploaded file content.',
-      );
+    if (fileExtension) {
+      this.assertExtensionMimeMatch(fileExtension, normalizedMimeType);
     }
+    const actualSize = file.buffer.length;
+    this.assertMaxFileSize(actualSize, options.maxFileSizeBytes);
 
     const processed = this.processImageBuffer(
       file.buffer,
-      fileExtension,
+      resolvedExtension,
       normalizedMimeType,
     );
 
@@ -131,7 +139,7 @@ export class ImageProcessingService {
       buffer: processed.buffer,
       originalFileName,
       mimeType: processed.mimeType,
-      fileExtension,
+      fileExtension: resolvedExtension,
       fileSize: processed.buffer.length,
       width: processed.width,
       height: processed.height,

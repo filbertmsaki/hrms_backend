@@ -66,6 +66,8 @@ import { OffboardingRequest } from '../offboarding/entities/offboarding-request.
 import { OffboardingService } from '../offboarding/offboarding.service';
 import { OffboardingTypeEnum } from '../offboarding/enums/offboarding-type.enum';
 import { HrAccessService } from '../shared/hr-access.service';
+import { DefaultAvatarsService } from '../default-avatars/default-avatars.service';
+import { ProfileImageSourceEnum } from '../employees/enums/profile-image-source.enum';
 import { WorkActivityInsightsService } from '../work-activities/services/work-activity-insights.service';
 
 type EmployeeProfileShape = {
@@ -146,6 +148,7 @@ export class EmployeeSelfServiceService {
     private readonly hrDocumentsService: HrDocumentsService,
     private readonly offboardingService: OffboardingService,
     private readonly hrAccessService: HrAccessService,
+    private readonly defaultAvatarsService: DefaultAvatarsService,
     @Optional()
     @Inject(WorkActivityInsightsService)
     private readonly workActivityInsightsService: WorkActivityInsightsPort = {
@@ -434,13 +437,35 @@ export class EmployeeSelfServiceService {
 
   async getProfilePhoto(actor: AuthenticatedUser) {
     const employee = await this.requireMyEmployeeProfile(actor);
+    const resolved =
+      await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
+        this.ensureCompanyId(actor),
+        {
+          id: employee.id!,
+          profile_photo_url:
+            (typeof employee.uploaded_profile_photo_url === 'string'
+              ? employee.uploaded_profile_photo_url
+              : null) ??
+            (typeof employee.profile_photo_url === 'string'
+              ? employee.profile_photo_url
+              : null),
+          profile_image_source:
+            (employee.profile_photo_source as ProfileImageSourceEnum | null) ??
+            null,
+          default_avatar_id:
+            typeof employee.default_avatar_id === 'number'
+              ? employee.default_avatar_id
+              : null,
+          gender: typeof employee.gender === 'string' ? employee.gender : null,
+        },
+      );
 
     return {
       employee_id: employee.id ?? null,
-      profile_photo_path: employee.uploaded_profile_photo_url ?? null,
-      profile_photo_url: employee.profile_photo_url ?? null,
-      profile_photo_source: employee.profile_photo_source ?? null,
-      default_avatar_id: employee.default_avatar_id ?? null,
+      profile_photo_path: resolved.uploaded_profile_photo_url,
+      profile_photo_url: resolved.profile_photo_url,
+      profile_photo_source: resolved.profile_photo_source,
+      default_avatar_id: resolved.default_avatar_id,
     };
   }
 

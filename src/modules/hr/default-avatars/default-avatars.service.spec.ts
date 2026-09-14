@@ -4,6 +4,7 @@ import { Employee } from '../employees/entities/employee.entity';
 import { ProfileImageSourceEnum } from '../employees/enums/profile-image-source.enum';
 import { FilesService } from '../../files/files.service';
 import { ImageProcessingService } from '../../files/image-processing.service';
+import { ConfigService } from '@nestjs/config';
 import { DefaultAvatarsService } from './default-avatars.service';
 import { DefaultAvatar } from './entities/default-avatar.entity';
 import { DefaultAvatarGenderEnum } from './enums/default-avatar-gender.enum';
@@ -95,6 +96,7 @@ describe('DefaultAvatarsService', () => {
       employeeRepository as unknown as Repository<Employee>,
       filesService as unknown as FilesService,
       imageProcessingService as unknown as ImageProcessingService,
+      { get: () => 'uploads' } as unknown as ConfigService,
     );
 
     jest

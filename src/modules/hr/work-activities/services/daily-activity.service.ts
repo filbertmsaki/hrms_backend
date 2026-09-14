@@ -42,6 +42,7 @@ import {
 import { ActivityPolicyService } from './activity-policy.service';
 import { WorkActivityAuditService } from './work-activity-audit.service';
 import { WorkActivityExceptionService } from './work-activity-exception.service';
+import { DefaultAvatarsService } from '../../default-avatars/default-avatars.service';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { NotificationsService } from '../../../notifications/notifications.service';
 import { NotificationCategoryEnum } from '../../../notifications/enums/notification-category.enum';
@@ -63,6 +64,7 @@ export class DailyActivityService {
     private readonly policyService: ActivityPolicyService,
     private readonly auditService: WorkActivityAuditService,
     private readonly exceptionService: WorkActivityExceptionService,
+    private readonly defaultAvatarsService: DefaultAvatarsService,
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
     @InjectRepository(ActivityCategory)
@@ -109,6 +111,7 @@ export class DailyActivityService {
   private async getEmployee(companyId: number, employeeId: number) {
     const employee = await this.employeeRepository.findOne({
       where: { id: employeeId, company_id: companyId },
+      relations: { default_avatar: true },
     });
 
     if (!employee) {
@@ -185,6 +188,7 @@ export class DailyActivityService {
       .createQueryBuilder('employee')
       .leftJoinAndSelect('employee.primary_department', 'department')
       .leftJoinAndSelect('employee.primary_position', 'position')
+      .leftJoinAndSelect('employee.default_avatar', 'defaultAvatar')
       .where('employee.company_id = :companyId', { companyId })
       .andWhere('employee.id != :actorEmployeeId', {
         actorEmployeeId: actor.employeeId ?? -1,
@@ -195,16 +199,25 @@ export class DailyActivityService {
       .orderBy('employee.first_name', 'ASC')
       .addOrderBy('employee.last_name', 'ASC')
       .getMany();
-    return employees.map((employee) => ({
-      id: employee.id,
-      employee_no: employee.employee_no,
-      full_name: [employee.first_name, employee.middle_name, employee.last_name]
-        .filter(Boolean)
-        .join(' '),
-      profile_photo_url: employee.profile_photo_url,
-      department: employee.primary_department,
-      position: employee.primary_position,
-    }));
+    return Promise.all(
+      employees.map(async (employee) => {
+        const photo = await this.employeePhotoUrl(employee);
+        return {
+          id: employee.id,
+          employee_no: employee.employee_no,
+          full_name: [
+            employee.first_name,
+            employee.middle_name,
+            employee.last_name,
+          ]
+            .filter(Boolean)
+            .join(' '),
+          profile_photo_url: photo,
+          department: employee.primary_department,
+          position: employee.primary_position,
+        };
+      }),
+    );
   }
 
   private flattenTaskRows(reports: Array<Record<string, unknown>>) {
@@ -370,7 +383,7 @@ export class DailyActivityService {
             managerCompanyUserId: await this.resolveManagerCompanyUserId(
               employee.reports_to,
             ),
-            employeeSnapshot: this.buildEmployeeSnapshot(employee),
+            employeeSnapshot: await this.buildEmployeeSnapshot(employee),
             policySnapshot: this.normalizePolicySnapshot(policy),
             attendanceSnapshot: null,
             clientRequestId: null,
@@ -449,7 +462,7 @@ export class DailyActivityService {
         assignedByCompanyUserId: actor.companyMembershipId ?? actor.id ?? null,
         assignedByEmployeeId: actor.employeeId ?? null,
         assignedBySnapshot: actor.employeeId
-          ? this.buildEmployeeSnapshot(
+          ? await this.buildEmployeeSnapshot(
               await this.getEmployee(companyId, actor.employeeId),
             )
           : null,
@@ -564,7 +577,7 @@ export class DailyActivityService {
           status: DailyActivityReportStatusEnum.DRAFT,
           managerEmployeeId: employee.reports_to ?? null,
           managerCompanyUserId,
-          employeeSnapshot: this.buildEmployeeSnapshot(employee),
+          employeeSnapshot: await this.buildEmployeeSnapshot(employee),
           policySnapshot: this.normalizePolicySnapshot(policy),
           attendanceSnapshot: null,
           clientRequestId: clientRequestId ?? null,
@@ -955,7 +968,7 @@ export class DailyActivityService {
         authorCompanyUserId: actor.companyMembershipId ?? actor.id ?? null,
         authorEmployeeId: actor.employeeId ?? null,
         authorSnapshot: actor.employeeId
-          ? this.buildEmployeeSnapshot(
+          ? await this.buildEmployeeSnapshot(
               await this.getEmployee(companyId, actor.employeeId),
             )
           : null,
@@ -986,7 +999,7 @@ export class DailyActivityService {
         authorCompanyUserId: actor.companyMembershipId ?? actor.id ?? null,
         authorEmployeeId: actor.employeeId ?? null,
         authorSnapshot: actor.employeeId
-          ? this.buildEmployeeSnapshot(
+          ? await this.buildEmployeeSnapshot(
               await this.getEmployee(companyId, actor.employeeId),
             )
           : null,
@@ -1496,14 +1509,23 @@ export class DailyActivityService {
     return new Date(`${activityDate}T${cutoffTime}:00.000Z`);
   }
 
-  private buildEmployeeSnapshot(employee: Employee) {
+  private async employeePhotoUrl(employee: Employee) {
+    const resolved =
+      await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
+        employee.company_id,
+        employee,
+      );
+    return resolved.profile_photo_url;
+  }
+
+  private async buildEmployeeSnapshot(employee: Employee) {
     return {
       employee_id: employee.id,
       employee_no: employee.employee_no,
       full_name: [employee.first_name, employee.middle_name, employee.last_name]
         .filter(Boolean)
         .join(' '),
-      profile_photo_url: employee.profile_photo_url,
+      profile_photo_url: await this.employeePhotoUrl(employee),
       branch_id: employee.primary_branch_id,
       department_id: employee.primary_department_id,
       position_id: employee.primary_position_id,
