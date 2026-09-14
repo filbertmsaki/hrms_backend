@@ -201,6 +201,7 @@ export class DailyActivityService {
       full_name: [employee.first_name, employee.middle_name, employee.last_name]
         .filter(Boolean)
         .join(' '),
+      profile_photo_url: employee.profile_photo_url,
       department: employee.primary_department,
       position: employee.primary_position,
     }));
@@ -1502,6 +1503,7 @@ export class DailyActivityService {
       full_name: [employee.first_name, employee.middle_name, employee.last_name]
         .filter(Boolean)
         .join(' '),
+      profile_photo_url: employee.profile_photo_url,
       branch_id: employee.primary_branch_id,
       department_id: employee.primary_department_id,
       position_id: employee.primary_position_id,
