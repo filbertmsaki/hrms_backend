@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import {
   DailyActivityReportStatusEnum,
+  DailyActivityPriorityEnum,
   DailyActivitySourceEnum,
   DailyActivityStatusEnum,
 } from '../enums/work-activity.enums';
@@ -199,6 +200,25 @@ export class DailyActivityEntry {
   @Column({ type: 'text', nullable: true })
   remarks: string | null;
 
+  @Column({
+    type: 'varchar',
+    length: 20,
+    default: DailyActivityPriorityEnum.MEDIUM,
+  })
+  priority: DailyActivityPriorityEnum;
+
+  @Column({ name: 'assigned_by_company_user_id', type: 'int', nullable: true })
+  assignedByCompanyUserId: number | null;
+
+  @Column({ name: 'assigned_by_employee_id', type: 'int', nullable: true })
+  assignedByEmployeeId: number | null;
+
+  @Column({ name: 'assigned_by_snapshot', type: 'jsonb', nullable: true })
+  assignedBySnapshot: Record<string, unknown> | null;
+
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  checklist: Array<Record<string, unknown>>;
+
   @Column({ name: 'defer_reason', type: 'text', nullable: true })
   deferReason: string | null;
 
@@ -228,6 +248,40 @@ export class DailyActivityEntry {
 
   @VersionColumn()
   version: number;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
+}
+
+@Entity('daily_activity_comments')
+@Index('IDX_daily_activity_comment_entry', [
+  'companyId',
+  'dailyActivityEntryId',
+])
+export class DailyActivityComment {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ name: 'company_id', type: 'int' })
+  companyId: number;
+
+  @Column({ name: 'daily_activity_entry_id', type: 'int' })
+  dailyActivityEntryId: number;
+
+  @Column({ name: 'author_company_user_id', type: 'int', nullable: true })
+  authorCompanyUserId: number | null;
+
+  @Column({ name: 'author_employee_id', type: 'int', nullable: true })
+  authorEmployeeId: number | null;
+
+  @Column({ name: 'author_snapshot', type: 'jsonb', nullable: true })
+  authorSnapshot: Record<string, unknown> | null;
+
+  @Column({ type: 'text' })
+  body: string;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
