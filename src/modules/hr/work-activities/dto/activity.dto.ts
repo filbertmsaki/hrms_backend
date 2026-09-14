@@ -19,6 +19,7 @@ import {
 } from 'class-validator';
 import {
   DailyActivityReviewDecisionEnum,
+  DailyActivityPriorityEnum,
   DailyActivitySourceEnum,
   DailyActivityStatusEnum,
   FieldPartyTypeEnum,
@@ -198,14 +199,30 @@ export class CreateDailyActivityReportDto {
   source?: DailyActivitySourceEnum;
 }
 
+export class ActivityChecklistItemDto {
+  @IsString()
+  @MaxLength(80)
+  id: string;
+
+  @IsString()
+  @MaxLength(250)
+  title: string;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  completed?: boolean;
+}
+
 export class CreateManagerActivityTaskDto {
   @Type(() => Number)
   @IsInt()
   employee_id: number;
 
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
-  activity_category_id: number;
+  activity_category_id?: number;
 
   @IsDateString()
   activity_date: string;
@@ -225,6 +242,16 @@ export class CreateManagerActivityTaskDto {
   @IsOptional()
   @IsDateString()
   planned_end_time?: string;
+
+  @IsOptional()
+  @IsEnum(DailyActivityPriorityEnum)
+  priority?: DailyActivityPriorityEnum;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ActivityChecklistItemDto)
+  checklist?: ActivityChecklistItemDto[];
 }
 
 export class CreateDailyActivityEntryDto {
@@ -314,6 +341,16 @@ export class CreateDailyActivityEntryDto {
   @IsOptional()
   @IsUUID()
   client_request_id?: string;
+
+  @IsOptional()
+  @IsEnum(DailyActivityPriorityEnum)
+  priority?: DailyActivityPriorityEnum;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ActivityChecklistItemDto)
+  checklist?: ActivityChecklistItemDto[];
 }
 
 export class UpdateDailyActivityEntryDto extends PartialType(
@@ -377,6 +414,12 @@ export class ReviewDailyActivityReportDto {
   @ValidateNested({ each: true })
   @Type(() => DailyActivityEntryReviewDto)
   entry_reviews?: DailyActivityEntryReviewDto[];
+}
+
+export class CreateDailyActivityCommentDto {
+  @IsString()
+  @MaxLength(3000)
+  body: string;
 }
 
 export class CreateFieldPartyDto {

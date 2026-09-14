@@ -21,6 +21,7 @@ import { TenantGuard } from '../../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import {
   CreateManagerActivityTaskDto,
+  CreateDailyActivityCommentDto,
   ReviewDailyActivityReportDto,
 } from '../dto/activity.dto';
 import { WorkActivityQueryDto } from '../dto/queries.dto';
@@ -63,6 +64,21 @@ export class ManagerActivitiesController {
     return this.dailyActivityService.listForManager(req.user, query);
   }
 
+  @Get('tasks')
+  @Permissions('work_activities:manager:read')
+  listTasks(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
+    return this.dailyActivityService.listManagerTasks(req.user, query);
+  }
+
+  @Get('assignees')
+  @PermissionsAny(
+    'work_activities:manager:read',
+    'work_activities:manager:review',
+  )
+  listAssignees(@Req() req: AuthedRequest) {
+    return this.dailyActivityService.listManagerAssignees(req.user);
+  }
+
   @Get('pending-reviews')
   @Permissions('work_activities:manager:read')
   pendingReviews(
@@ -89,6 +105,19 @@ export class ManagerActivitiesController {
     @Body() dto: CreateManagerActivityTaskDto,
   ) {
     return this.dailyActivityService.createManagerTask(req.user, dto);
+  }
+
+  @Post('entries/:entryId/comments')
+  @PermissionsAny(
+    'work_activities:manager:read',
+    'work_activities:manager:review',
+  )
+  addComment(
+    @Req() req: AuthedRequest,
+    @Param('entryId', ParseIntPipe) entryId: number,
+    @Body() dto: CreateDailyActivityCommentDto,
+  ) {
+    return this.dailyActivityService.addManagerComment(req.user, entryId, dto);
   }
 
   @Get('reports/:id')

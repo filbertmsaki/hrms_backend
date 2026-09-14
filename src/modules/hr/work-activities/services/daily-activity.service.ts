@@ -15,6 +15,7 @@ import { Employee } from '../../employees/entities/employee.entity';
 import { HrAccessService } from '../../shared/hr-access.service';
 import {
   AddDailyActivityEvidenceDto,
+  CreateDailyActivityCommentDto,
   CreateDailyActivityEntryDto,
   CreateManagerActivityTaskDto,
   UpdateDailyActivityEntryDto,
@@ -26,10 +27,12 @@ import { ActivityCategory } from '../entities/activity-config.entities';
 import {
   DailyActivityEntry,
   DailyActivityEvidence,
+  DailyActivityComment,
   DailyActivityReport,
 } from '../entities/daily-activity.entities';
 import {
   DailyActivityReportStatusEnum,
+  DailyActivityPriorityEnum,
   DailyActivityReviewDecisionEnum,
   DailyActivitySourceEnum,
   DailyActivityStatusEnum,
@@ -60,6 +63,8 @@ export class DailyActivityService {
     private readonly entryRepository: Repository<DailyActivityEntry>,
     @InjectRepository(DailyActivityEvidence)
     private readonly evidenceRepository: Repository<DailyActivityEvidence>,
+    @InjectRepository(DailyActivityComment)
+    private readonly commentRepository: Repository<DailyActivityComment>,
     @InjectRepository(AttendanceDailySummary)
     private readonly attendanceRepository: Repository<AttendanceDailySummary>,
   ) {}
@@ -148,6 +153,73 @@ export class DailyActivityService {
     return this.listScoped(actor, query, false);
   }
 
+  async listMineTasks(actor: AuthenticatedUser, query: WorkActivityQueryDto) {
+    const reports = await this.listMine(actor, { ...query, limit: 100 });
+    return this.flattenTaskRows(reports.data);
+  }
+
+  async listManagerTasks(
+    actor: AuthenticatedUser,
+    query: WorkActivityQueryDto,
+  ) {
+    const reports = await this.listForManager(actor, { ...query, limit: 100 });
+    return this.flattenTaskRows(reports.data);
+  }
+
+  async listManagerAssignees(actor: AuthenticatedUser) {
+    const companyId = this.getCompanyId(actor);
+    const employeeIds =
+      await this.hrAccessService.getAccessibleEmployeeIds(actor);
+    if (employeeIds !== null && employeeIds.length === 0) return [];
+    const qb = this.employeeRepository
+      .createQueryBuilder('employee')
+      .leftJoinAndSelect('employee.primary_department', 'department')
+      .leftJoinAndSelect('employee.primary_position', 'position')
+      .where('employee.company_id = :companyId', { companyId })
+      .andWhere('employee.id != :actorEmployeeId', {
+        actorEmployeeId: actor.employeeId ?? -1,
+      });
+    if (employeeIds !== null)
+      qb.andWhere('employee.id IN (:...employeeIds)', { employeeIds });
+    const employees = await qb
+      .orderBy('employee.first_name', 'ASC')
+      .addOrderBy('employee.last_name', 'ASC')
+      .getMany();
+    return employees.map((employee) => ({
+      id: employee.id,
+      employee_no: employee.employee_no,
+      full_name: [employee.first_name, employee.middle_name, employee.last_name]
+        .filter(Boolean)
+        .join(' '),
+      department: employee.primary_department,
+      position: employee.primary_position,
+    }));
+  }
+
+  private flattenTaskRows(reports: Array<Record<string, unknown>>) {
+    const data: Array<Record<string, unknown>> = [];
+    for (const report of reports) {
+      const entries = Array.isArray(report.entries) ? report.entries : [];
+      for (const value of entries) {
+        if (!value || typeof value !== 'object' || Array.isArray(value))
+          continue;
+        data.push({
+          ...(value as Record<string, unknown>),
+          report_id: report.id,
+          activity_date: report.activityDate,
+          report_status: report.status,
+          employee_id: report.employeeId,
+          employee: report.employeeSnapshot,
+        });
+      }
+    }
+
+    return {
+      data,
+      meta: { total: data.length },
+    };
+  }
+
   async createManagerTask(
     actor: AuthenticatedUser,
     dto: CreateManagerActivityTaskDto,
@@ -159,18 +231,20 @@ export class DailyActivityService {
       employee.id,
       employee.reports_to ?? null,
     );
-    const category = await this.policyService.getCategoryOrFail(
+    const category = await this.resolveManagerTaskCategory(
       companyId,
       dto.activity_category_id,
     );
     const entryDto: CreateDailyActivityEntryDto = {
-      activity_category_id: dto.activity_category_id,
+      activity_category_id: category.id,
       title: dto.title,
       description: dto.description,
       planned_start_time: dto.planned_start_time,
       planned_end_time: dto.planned_end_time,
       task_reference: 'MANAGER_ASSIGNED',
       status: DailyActivityStatusEnum.PLANNED,
+      priority: dto.priority ?? DailyActivityPriorityEnum.MEDIUM,
+      checklist: dto.checklist,
     };
     this.validateEntry(entryDto, category);
 
@@ -221,7 +295,7 @@ export class DailyActivityService {
         manager.getRepository(DailyActivityEntry).create({
           companyId,
           dailyActivityReportId: report.id,
-          activityCategoryId: dto.activity_category_id,
+          activityCategoryId: category.id,
           kpiDefinitionId: null,
           projectReference: null,
           taskReference: 'MANAGER_ASSIGNED',
@@ -246,12 +320,66 @@ export class DailyActivityService {
           completionPercentage: '0',
           managerComment: null,
           managerValidated: false,
+          priority: dto.priority ?? DailyActivityPriorityEnum.MEDIUM,
+          assignedByCompanyUserId:
+            actor.companyMembershipId ?? actor.id ?? null,
+          assignedByEmployeeId: actor.employeeId ?? null,
+          assignedBySnapshot: actor.employeeId
+            ? this.buildEmployeeSnapshot(
+                await this.getEmployee(companyId, actor.employeeId),
+              )
+            : null,
+          checklist: (dto.checklist ?? []).map((item) => ({
+            id: item.id,
+            title: item.title.trim(),
+            completed: item.completed === true,
+          })),
           linkedFieldVisitId: null,
           clientRequestId: null,
         }),
       );
       return this.getReportResponse(report, manager);
     });
+  }
+
+  private async resolveManagerTaskCategory(
+    companyId: number,
+    categoryId?: number,
+  ) {
+    if (categoryId !== undefined) {
+      return this.policyService.getCategoryOrFail(companyId, categoryId);
+    }
+
+    const existing = await this.categoryRepository.findOne({
+      where: { companyId, code: 'MANAGER_ASSIGNED' },
+    });
+    if (existing) {
+      if (existing.status !== 'ACTIVE') {
+        existing.status = 'ACTIVE';
+        return this.categoryRepository.save(existing);
+      }
+      return existing;
+    }
+
+    return this.categoryRepository.save(
+      this.categoryRepository.create({
+        companyId,
+        code: 'MANAGER_ASSIGNED',
+        name: 'Assigned task',
+        description: 'Work assigned by a manager or team lead.',
+        departmentId: null,
+        positionId: null,
+        gradeId: null,
+        requiresTime: false,
+        requiresOutcome: false,
+        requiresEvidence: false,
+        requiresLocation: false,
+        isFieldActivity: false,
+        defaultKpiCode: null,
+        displayOrder: 999,
+        status: 'ACTIVE',
+      }),
+    );
   }
 
   async listForHr(actor: AuthenticatedUser, query: WorkActivityQueryDto) {
@@ -410,6 +538,15 @@ export class DailyActivityService {
         completionPercentage: String(dto.completion_percentage ?? 0),
         managerComment: null,
         managerValidated: false,
+        priority: dto.priority ?? DailyActivityPriorityEnum.MEDIUM,
+        assignedByCompanyUserId: null,
+        assignedByEmployeeId: null,
+        assignedBySnapshot: null,
+        checklist: (dto.checklist ?? []).map((item) => ({
+          id: item.id,
+          title: item.title.trim(),
+          completed: item.completed === true,
+        })),
         linkedFieldVisitId: null,
         clientRequestId: dto.client_request_id ?? null,
       }),
@@ -455,7 +592,7 @@ export class DailyActivityService {
         outcome: dto.outcome ?? entry.outcome,
         defer_reason: dto.defer_reason ?? entry.deferReason,
       },
-    } as CreateDailyActivityEntryDto;
+    } as unknown as CreateDailyActivityEntryDto;
 
     this.validateEntry(merged, category);
 
@@ -523,6 +660,16 @@ export class DailyActivityService {
     }
     if (dto.completion_percentage !== undefined) {
       entry.completionPercentage = String(dto.completion_percentage);
+    }
+    if (dto.priority !== undefined) {
+      entry.priority = dto.priority;
+    }
+    if (dto.checklist !== undefined) {
+      entry.checklist = dto.checklist.map((item) => ({
+        id: item.id,
+        title: item.title.trim(),
+        completed: item.completed === true,
+      }));
     }
 
     await this.entryRepository.save(entry);
@@ -594,6 +741,70 @@ export class DailyActivityService {
       }),
     );
 
+    return this.getReportResponse(report);
+  }
+
+  async addMyComment(
+    actor: AuthenticatedUser,
+    entryId: number,
+    dto: CreateDailyActivityCommentDto,
+  ) {
+    const companyId = this.getCompanyId(actor);
+    const employeeId = this.getEmployeeId(actor);
+    const entry = await this.entryRepository.findOne({
+      where: { id: entryId, companyId },
+    });
+    if (!entry) throw new NotFoundException('Daily activity entry not found.');
+    const report = await this.reportRepository.findOne({
+      where: { id: entry.dailyActivityReportId, companyId, employeeId },
+    });
+    if (!report)
+      throw new ForbiddenException('You cannot comment on this activity.');
+    await this.commentRepository.save(
+      this.commentRepository.create({
+        companyId,
+        dailyActivityEntryId: entry.id,
+        authorCompanyUserId: actor.companyMembershipId ?? actor.id ?? null,
+        authorEmployeeId: actor.employeeId ?? null,
+        authorSnapshot: actor.employeeId
+          ? this.buildEmployeeSnapshot(
+              await this.getEmployee(companyId, actor.employeeId),
+            )
+          : null,
+        body: dto.body.trim(),
+      }),
+    );
+    return this.getReportResponse(report);
+  }
+
+  async addManagerComment(
+    actor: AuthenticatedUser,
+    entryId: number,
+    dto: CreateDailyActivityCommentDto,
+  ) {
+    const companyId = this.getCompanyId(actor);
+    const entry = await this.entryRepository.findOne({
+      where: { id: entryId, companyId },
+    });
+    if (!entry) throw new NotFoundException('Daily activity entry not found.');
+    const report = await this.getManagerAccessibleReport(
+      actor,
+      entry.dailyActivityReportId,
+    );
+    await this.commentRepository.save(
+      this.commentRepository.create({
+        companyId,
+        dailyActivityEntryId: entry.id,
+        authorCompanyUserId: actor.companyMembershipId ?? actor.id ?? null,
+        authorEmployeeId: actor.employeeId ?? null,
+        authorSnapshot: actor.employeeId
+          ? this.buildEmployeeSnapshot(
+              await this.getEmployee(companyId, actor.employeeId),
+            )
+          : null,
+        body: dto.body.trim(),
+      }),
+    );
     return this.getReportResponse(report);
   }
 
@@ -1178,6 +1389,7 @@ export class DailyActivityService {
   ) {
     const entryRepository = manager.getRepository(DailyActivityEntry);
     const evidenceRepository = manager.getRepository(DailyActivityEvidence);
+    const commentRepository = manager.getRepository(DailyActivityComment);
 
     const entries = await entryRepository.find({
       where: { companyId: report.companyId, dailyActivityReportId: report.id },
@@ -1200,11 +1412,28 @@ export class DailyActivityService {
       evidenceByEntryId.set(item.dailyActivityEntryId, bucket);
     }
 
+    const comments = entries.length
+      ? await commentRepository.find({
+          where: entries.map((entry) => ({
+            companyId: report.companyId,
+            dailyActivityEntryId: entry.id,
+          })),
+          order: { createdAt: 'ASC' },
+        })
+      : [];
+    const commentsByEntryId = new Map<number, DailyActivityComment[]>();
+    for (const item of comments) {
+      const bucket = commentsByEntryId.get(item.dailyActivityEntryId) ?? [];
+      bucket.push(item);
+      commentsByEntryId.set(item.dailyActivityEntryId, bucket);
+    }
+
     return {
       ...report,
       entries: entries.map((entry) => ({
         ...entry,
         evidence: evidenceByEntryId.get(entry.id) ?? [],
+        comments: commentsByEntryId.get(entry.id) ?? [],
       })),
     };
   }

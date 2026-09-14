@@ -22,6 +22,7 @@ import {
   DailyActivityEntry,
   DailyActivityEvidence,
   DailyActivityReport,
+  DailyActivityComment,
 } from './entities/daily-activity.entities';
 import {
   FieldFollowUp,
@@ -67,6 +68,7 @@ import { WorkActivityReminderService } from './services/work-activity-reminder.s
       DailyActivityReport,
       DailyActivityEntry,
       DailyActivityEvidence,
+      DailyActivityComment,
       FieldVisitPlan,
       FieldVisitPlanItem,
       FieldVisit,

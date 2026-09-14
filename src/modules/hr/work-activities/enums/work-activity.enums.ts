@@ -6,6 +6,13 @@ export enum DailyActivityStatusEnum {
   CANCELLED = 'CANCELLED',
 }
 
+export enum DailyActivityPriorityEnum {
+  LOW = 'LOW',
+  MEDIUM = 'MEDIUM',
+  HIGH = 'HIGH',
+  URGENT = 'URGENT',
+}
+
 export enum DailyActivityReportStatusEnum {
   DRAFT = 'DRAFT',
   SUBMITTED = 'SUBMITTED',

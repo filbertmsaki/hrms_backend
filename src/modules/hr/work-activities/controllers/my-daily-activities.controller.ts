@@ -21,6 +21,7 @@ import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-u
 import {
   AddDailyActivityEvidenceDto,
   CreateDailyActivityEntryDto,
+  CreateDailyActivityCommentDto,
   CreateDailyActivityReportDto,
   SubmitDailyActivityReportDto,
   UpdateDailyActivityEntryDto,
@@ -50,6 +51,12 @@ export class MyDailyActivitiesController {
       req.user,
       new Date().toISOString().slice(0, 10),
     );
+  }
+
+  @Get('tasks')
+  @Permissions('work_activities:self-service:read')
+  listTasks(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
+    return this.service.listMineTasks(req.user, query);
   }
 
   @Post('reports')
@@ -111,6 +118,16 @@ export class MyDailyActivitiesController {
     @Body() dto: AddDailyActivityEvidenceDto,
   ) {
     return this.service.addMyEvidence(req.user, entryId, dto);
+  }
+
+  @Post('entries/:entryId/comments')
+  @Permissions('work_activities:self-service:update')
+  addComment(
+    @Req() req: AuthedRequest,
+    @Param('entryId', ParseIntPipe) entryId: number,
+    @Body() dto: CreateDailyActivityCommentDto,
+  ) {
+    return this.service.addMyComment(req.user, entryId, dto);
   }
 
   @Post('reports/:id/submit')
