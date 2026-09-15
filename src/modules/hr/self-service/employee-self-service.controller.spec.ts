@@ -130,6 +130,33 @@ describe('EmployeeSelfServiceController', () => {
     );
   });
 
+  it('reports a resolved default avatar as an available profile photo', async () => {
+    employeeSelfServiceService.getProfilePhoto.mockResolvedValue({
+      employee_id: 15,
+      profile_photo_path: null,
+      profile_photo_url:
+        '/uploads/default-avatars/company-7/neutral-default.svg',
+      profile_photo_source: 'neutral_default',
+      default_avatar_id: null,
+    });
+
+    const result = await controller.getProfilePhoto({
+      user,
+      protocol: 'http',
+      headers: {},
+      get: jest.fn().mockReturnValue('localhost:3000'),
+    } as unknown as ExpressRequest & { user: AuthenticatedUser });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        has_profile_photo: true,
+        profile_photo_path: null,
+        profile_photo_url:
+          'http://localhost:3000/uploads/default-avatars/company-7/neutral-default.svg',
+      }),
+    );
+  });
+
   it('adds an absolute profile photo url to the profile response', async () => {
     employeeSelfServiceService.getProfile.mockResolvedValue({
       user: {

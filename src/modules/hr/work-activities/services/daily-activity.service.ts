@@ -42,6 +42,7 @@ import {
 import { ActivityPolicyService } from './activity-policy.service';
 import { WorkActivityAuditService } from './work-activity-audit.service';
 import { WorkActivityExceptionService } from './work-activity-exception.service';
+import { DefaultAvatarsService } from '../../default-avatars/default-avatars.service';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { NotificationsService } from '../../../notifications/notifications.service';
 import { NotificationCategoryEnum } from '../../../notifications/enums/notification-category.enum';
@@ -63,6 +64,7 @@ export class DailyActivityService {
     private readonly policyService: ActivityPolicyService,
     private readonly auditService: WorkActivityAuditService,
     private readonly exceptionService: WorkActivityExceptionService,
+    private readonly defaultAvatarsService: DefaultAvatarsService,
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
     @InjectRepository(ActivityCategory)
@@ -109,6 +111,7 @@ export class DailyActivityService {
   private async getEmployee(companyId: number, employeeId: number) {
     const employee = await this.employeeRepository.findOne({
       where: { id: employeeId, company_id: companyId },
+      relations: { default_avatar: true },
     });
 
     if (!employee) {
@@ -185,6 +188,7 @@ export class DailyActivityService {
       .createQueryBuilder('employee')
       .leftJoinAndSelect('employee.primary_department', 'department')
       .leftJoinAndSelect('employee.primary_position', 'position')
+      .leftJoinAndSelect('employee.default_avatar', 'defaultAvatar')
       .where('employee.company_id = :companyId', { companyId })
       .andWhere('employee.id != :actorEmployeeId', {
         actorEmployeeId: actor.employeeId ?? -1,
@@ -195,15 +199,25 @@ export class DailyActivityService {
       .orderBy('employee.first_name', 'ASC')
       .addOrderBy('employee.last_name', 'ASC')
       .getMany();
-    return employees.map((employee) => ({
-      id: employee.id,
-      employee_no: employee.employee_no,
-      full_name: [employee.first_name, employee.middle_name, employee.last_name]
-        .filter(Boolean)
-        .join(' '),
-      department: employee.primary_department,
-      position: employee.primary_position,
-    }));
+    return Promise.all(
+      employees.map(async (employee) => {
+        const photo = await this.employeePhotoUrl(employee);
+        return {
+          id: employee.id,
+          employee_no: employee.employee_no,
+          full_name: [
+            employee.first_name,
+            employee.middle_name,
+            employee.last_name,
+          ]
+            .filter(Boolean)
+            .join(' '),
+          profile_photo_url: photo,
+          department: employee.primary_department,
+          position: employee.primary_position,
+        };
+      }),
+    );
   }
 
   private flattenTaskRows(reports: Array<Record<string, unknown>>) {
@@ -259,113 +273,37 @@ export class DailyActivityService {
     this.validateEntry(entryDto, category);
 
     return this.dataSource.transaction(async (manager) => {
-      let report = await manager.getRepository(DailyActivityReport).findOne({
-        where: {
-          companyId,
-          employeeId: employee.id,
-          activityDate: dto.activity_date,
-        },
+      const report = await this.resolveEditableReport(manager, {
+        companyId,
+        employee,
+        preferredDate: dto.activity_date,
+        source: DailyActivitySourceEnum.SYSTEM,
+        metadata: { manager_assigned_task: true },
       });
-      if (!report) {
-        const policy = await this.policyService.resolveForEmployee(
-          companyId,
-          employee,
-          dto.activity_date,
-        );
-        report = await manager.getRepository(DailyActivityReport).save(
-          manager.getRepository(DailyActivityReport).create({
-            companyId,
-            employeeId: employee.id,
-            activityDate: dto.activity_date,
-            status: DailyActivityReportStatusEnum.DRAFT,
-            managerEmployeeId: employee.reports_to ?? null,
-            managerCompanyUserId: await this.resolveManagerCompanyUserId(
-              employee.reports_to,
-            ),
-            employeeSnapshot: this.buildEmployeeSnapshot(employee),
-            policySnapshot: this.normalizePolicySnapshot(policy),
-            attendanceSnapshot: null,
-            clientRequestId: null,
-            source: DailyActivitySourceEnum.SYSTEM,
-            metadata: { manager_assigned_task: true },
-          }),
-        );
-      }
-      if (
-        ![
-          DailyActivityReportStatusEnum.DRAFT,
-          DailyActivityReportStatusEnum.RETURNED_FOR_CORRECTION,
-        ].includes(report.status)
-      ) {
-        throw new ConflictException(
-          'The selected employee report is already submitted and cannot receive a new task for this date.',
-        );
-      }
-      await manager.getRepository(DailyActivityEntry).save(
-        manager.getRepository(DailyActivityEntry).create({
-          companyId,
-          dailyActivityReportId: report.id,
-          activityCategoryId: category.id,
-          kpiDefinitionId: null,
-          projectReference: null,
-          taskReference: 'MANAGER_ASSIGNED',
-          fieldPartyId: null,
-          externalReferenceType: 'MANAGER_TASK',
-          externalReferenceId: String(actor.id),
-          title: dto.title.trim(),
-          description: dto.description.trim(),
-          plannedStartTime: dto.planned_start_time
-            ? new Date(dto.planned_start_time)
-            : null,
-          plannedEndTime: dto.planned_end_time
-            ? new Date(dto.planned_end_time)
-            : null,
-          actualStartTime: null,
-          actualEndTime: null,
-          status: DailyActivityStatusEnum.PLANNED,
-          outcome: null,
-          remarks: null,
-          deferReason: null,
-          followUpDate: null,
-          completionPercentage: '0',
-          managerComment: null,
-          managerValidated: false,
-          priority: dto.priority ?? DailyActivityPriorityEnum.MEDIUM,
-          assignedByCompanyUserId:
-            actor.companyMembershipId ?? actor.id ?? null,
-          assignedByEmployeeId: actor.employeeId ?? null,
-          assignedBySnapshot: actor.employeeId
-            ? this.buildEmployeeSnapshot(
-                await this.getEmployee(companyId, actor.employeeId),
-              )
-            : null,
-          checklist: (dto.checklist ?? []).map((item) => ({
-            id: item.id,
-            title: item.title.trim(),
-            completed: item.completed === true,
-          })),
-          linkedFieldVisitId: null,
-          clientRequestId: null,
-        }),
-      );
+      await this.saveTaskEntry(manager, {
+        actor,
+        companyId,
+        report,
+        categoryId: category.id,
+        dto,
+        taskReference: 'MANAGER_ASSIGNED',
+        externalReferenceType: 'MANAGER_TASK',
+      });
       return this.getReportResponse(report, manager);
     });
   }
 
   async createMyTask(actor: AuthenticatedUser, dto: CreateSelfActivityTaskDto) {
     const companyId = this.getCompanyId(actor);
+    const employee = await this.getEmployee(
+      companyId,
+      this.getEmployeeId(actor),
+    );
     const category = await this.resolveManagerTaskCategory(
       companyId,
       dto.activity_category_id,
     );
-    const report = await this.getOrCreateMyDailyReport(
-      actor,
-      dto.activity_date,
-      undefined,
-      DailyActivitySourceEnum.WEB,
-    );
-
-    return this.addMyEntry(actor, report.id, {
+    const entryDto: CreateDailyActivityEntryDto = {
       activity_category_id: category.id,
       title: dto.title,
       description: dto.description,
@@ -375,7 +313,168 @@ export class DailyActivityService {
       status: DailyActivityStatusEnum.PLANNED,
       priority: dto.priority ?? DailyActivityPriorityEnum.MEDIUM,
       checklist: dto.checklist,
+    };
+    this.validateEntry(entryDto, category);
+
+    return this.dataSource.transaction(async (manager) => {
+      const report = await this.resolveEditableReport(manager, {
+        companyId,
+        employee,
+        preferredDate: dto.activity_date,
+        source: DailyActivitySourceEnum.WEB,
+        metadata: { self_created_task: true },
+      });
+      await this.saveTaskEntry(manager, {
+        actor,
+        companyId,
+        report,
+        categoryId: category.id,
+        dto,
+        taskReference: 'SELF_CREATED',
+        externalReferenceType: 'SELF_TASK',
+      });
+      return this.getReportResponse(report, manager);
     });
+  }
+
+  private isEditableReportStatus(status: DailyActivityReportStatusEnum) {
+    return [
+      DailyActivityReportStatusEnum.DRAFT,
+      DailyActivityReportStatusEnum.RETURNED_FOR_CORRECTION,
+    ].includes(status);
+  }
+
+  private addDays(date: string, days: number) {
+    const value = new Date(`${date}T12:00:00.000Z`);
+    value.setUTCDate(value.getUTCDate() + days);
+    return value.toISOString().slice(0, 10);
+  }
+
+  private async resolveEditableReport(
+    manager: EntityManager,
+    params: {
+      companyId: number;
+      employee: Employee;
+      preferredDate: string;
+      source: DailyActivitySourceEnum;
+      metadata?: Record<string, unknown> | null;
+    },
+  ) {
+    const { companyId, employee, preferredDate, source, metadata } = params;
+    const repo = manager.getRepository(DailyActivityReport);
+
+    const tryDate = async (activityDate: string) => {
+      const existing = await repo.findOne({
+        where: { companyId, employeeId: employee.id, activityDate },
+      });
+      if (!existing) {
+        const policy = await this.policyService.resolveForEmployee(
+          companyId,
+          employee,
+          activityDate,
+        );
+        return repo.save(
+          repo.create({
+            companyId,
+            employeeId: employee.id,
+            activityDate,
+            status: DailyActivityReportStatusEnum.DRAFT,
+            managerEmployeeId: employee.reports_to ?? null,
+            managerCompanyUserId: await this.resolveManagerCompanyUserId(
+              employee.reports_to,
+            ),
+            employeeSnapshot: await this.buildEmployeeSnapshot(employee),
+            policySnapshot: this.normalizePolicySnapshot(policy),
+            attendanceSnapshot: null,
+            clientRequestId: null,
+            source,
+            metadata: metadata ?? null,
+          }),
+        );
+      }
+      return this.isEditableReportStatus(existing.status) ? existing : null;
+    };
+
+    const preferred = await tryDate(preferredDate);
+    if (preferred) return preferred;
+
+    for (let offset = 1; offset <= 14; offset += 1) {
+      const next = await tryDate(this.addDays(preferredDate, offset));
+      if (next) return next;
+    }
+
+    throw new ConflictException(
+      'The report for this date is already submitted. Choose another start date.',
+    );
+  }
+
+  private async saveTaskEntry(
+    manager: EntityManager,
+    params: {
+      actor: AuthenticatedUser;
+      companyId: number;
+      report: DailyActivityReport;
+      categoryId: number;
+      dto: CreateManagerActivityTaskDto | CreateSelfActivityTaskDto;
+      taskReference: string;
+      externalReferenceType: string;
+    },
+  ) {
+    const {
+      actor,
+      companyId,
+      report,
+      categoryId,
+      dto,
+      taskReference,
+      externalReferenceType,
+    } = params;
+    await manager.getRepository(DailyActivityEntry).save(
+      manager.getRepository(DailyActivityEntry).create({
+        companyId,
+        dailyActivityReportId: report.id,
+        activityCategoryId: categoryId,
+        kpiDefinitionId: null,
+        projectReference: null,
+        taskReference,
+        fieldPartyId: null,
+        externalReferenceType,
+        externalReferenceId: String(actor.id),
+        title: dto.title.trim(),
+        description: dto.description.trim(),
+        plannedStartTime: dto.planned_start_time
+          ? new Date(dto.planned_start_time)
+          : null,
+        plannedEndTime: dto.planned_end_time
+          ? new Date(dto.planned_end_time)
+          : null,
+        actualStartTime: null,
+        actualEndTime: null,
+        status: DailyActivityStatusEnum.PLANNED,
+        outcome: null,
+        remarks: null,
+        deferReason: null,
+        followUpDate: null,
+        completionPercentage: '0',
+        managerComment: null,
+        managerValidated: false,
+        priority: dto.priority ?? DailyActivityPriorityEnum.MEDIUM,
+        assignedByCompanyUserId: actor.companyMembershipId ?? actor.id ?? null,
+        assignedByEmployeeId: actor.employeeId ?? null,
+        assignedBySnapshot: actor.employeeId
+          ? await this.buildEmployeeSnapshot(
+              await this.getEmployee(companyId, actor.employeeId),
+            )
+          : null,
+        checklist: (dto.checklist ?? []).map((item) => ({
+          id: item.id,
+          title: item.title.trim(),
+          completed: item.completed === true,
+        })),
+        linkedFieldVisitId: null,
+        clientRequestId: null,
+      }),
+    );
   }
 
   private async resolveManagerTaskCategory(
@@ -478,7 +577,7 @@ export class DailyActivityService {
           status: DailyActivityReportStatusEnum.DRAFT,
           managerEmployeeId: employee.reports_to ?? null,
           managerCompanyUserId,
-          employeeSnapshot: this.buildEmployeeSnapshot(employee),
+          employeeSnapshot: await this.buildEmployeeSnapshot(employee),
           policySnapshot: this.normalizePolicySnapshot(policy),
           attendanceSnapshot: null,
           clientRequestId: clientRequestId ?? null,
@@ -869,7 +968,7 @@ export class DailyActivityService {
         authorCompanyUserId: actor.companyMembershipId ?? actor.id ?? null,
         authorEmployeeId: actor.employeeId ?? null,
         authorSnapshot: actor.employeeId
-          ? this.buildEmployeeSnapshot(
+          ? await this.buildEmployeeSnapshot(
               await this.getEmployee(companyId, actor.employeeId),
             )
           : null,
@@ -900,7 +999,7 @@ export class DailyActivityService {
         authorCompanyUserId: actor.companyMembershipId ?? actor.id ?? null,
         authorEmployeeId: actor.employeeId ?? null,
         authorSnapshot: actor.employeeId
-          ? this.buildEmployeeSnapshot(
+          ? await this.buildEmployeeSnapshot(
               await this.getEmployee(companyId, actor.employeeId),
             )
           : null,
@@ -1410,13 +1509,23 @@ export class DailyActivityService {
     return new Date(`${activityDate}T${cutoffTime}:00.000Z`);
   }
 
-  private buildEmployeeSnapshot(employee: Employee) {
+  private async employeePhotoUrl(employee: Employee) {
+    const resolved =
+      await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
+        employee.company_id,
+        employee,
+      );
+    return resolved.profile_photo_url;
+  }
+
+  private async buildEmployeeSnapshot(employee: Employee) {
     return {
       employee_id: employee.id,
       employee_no: employee.employee_no,
       full_name: [employee.first_name, employee.middle_name, employee.last_name]
         .filter(Boolean)
         .join(' '),
+      profile_photo_url: await this.employeePhotoUrl(employee),
       branch_id: employee.primary_branch_id,
       department_id: employee.primary_department_id,
       position_id: employee.primary_position_id,

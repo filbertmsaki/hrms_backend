@@ -133,4 +133,28 @@ describe('HrAccessService', () => {
       [],
     );
   });
+
+  it('includes direct reports for an actor with manager team access', async () => {
+    const actor: AuthenticatedUser = {
+      id: 14,
+      email: 'team.manager@example.com',
+      scope: 'company',
+      userType: 'COMPANY_USER',
+      companyId: 6,
+      companyMembershipId: 53,
+      employeeId: 301,
+      roles: ['DEPARTMENT_MANAGER'],
+      permissions: ['manager_team:read', 'onboarding_requests:read'],
+    };
+
+    employeeRepository
+      .find!.mockResolvedValueOnce([{ id: 302 }, { id: 303 }])
+      .mockResolvedValueOnce([{ id: 304 }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    await expect(service.getAccessibleEmployeeIds(actor)).resolves.toEqual([
+      301, 302, 303, 304,
+    ]);
+  });
 });

@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as fs from 'fs/promises';
 import { resolve } from 'path';
@@ -69,7 +70,7 @@ export class DefaultAvatarsService {
     '.png',
   ];
   private readonly defaultAvatarMaxFileSizeBytes = 5 * 1024 * 1024;
-  private readonly uploadsRoot = resolve(process.cwd(), 'uploads');
+  private readonly uploadsRoot: string;
   private readonly filePresenceCache = new Map<
     string,
     { expiresAt: number; exists: boolean }
@@ -83,7 +84,13 @@ export class DefaultAvatarsService {
     private readonly employeeRepository: Repository<Employee>,
     private readonly filesService: FilesService,
     private readonly imageProcessingService: ImageProcessingService,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    this.uploadsRoot = resolve(
+      process.cwd(),
+      this.configService.get<string>('APP_PUBLIC_STORAGE_PATH') ?? 'uploads',
+    );
+  }
 
   async findAll(companyId: number, query: DefaultAvatarQueryDto = {}) {
     const qb = this.defaultAvatarRepository
@@ -319,7 +326,16 @@ export class DefaultAvatarsService {
       },
     });
 
-    return avatars.map((avatar) => this.mapAvatar(avatar));
+    const availableAvatars = await Promise.all(
+      avatars.map(async (avatar) => ({
+        avatar,
+        available: await this.pathExists(avatar.image_path),
+      })),
+    );
+
+    return availableAvatars
+      .filter(({ available }) => available)
+      .map(({ avatar }) => this.mapAvatar(avatar));
   }
 
   async assertAvatarAvailableForEmployee(
@@ -377,7 +393,11 @@ export class DefaultAvatarsService {
       selectedAvatar.status === DefaultAvatarStatusEnum.ACTIVE &&
       (await this.pathExists(selectedAvatar.image_path));
 
-    if (uploadAvailable) {
+    if (
+      employee.profile_image_source === ProfileImageSourceEnum.UPLOADED &&
+      uploadedProfilePhotoUrl &&
+      uploadAvailable
+    ) {
       return {
         profile_photo_url: uploadedProfilePhotoUrl,
         uploaded_profile_photo_url: uploadedProfilePhotoUrl,
@@ -396,6 +416,18 @@ export class DefaultAvatarsService {
         profile_photo_source: ProfileImageSourceEnum.DEFAULT_AVATAR,
         default_avatar_id: selectedAvatar.id,
         selected_default_avatar: this.mapAvatar(selectedAvatar),
+      };
+    }
+
+    if (uploadedProfilePhotoUrl && uploadAvailable) {
+      return {
+        profile_photo_url: uploadedProfilePhotoUrl,
+        uploaded_profile_photo_url: uploadedProfilePhotoUrl,
+        profile_photo_source: ProfileImageSourceEnum.UPLOADED,
+        default_avatar_id: selectedAvatar?.id ?? null,
+        selected_default_avatar: selectedAvatar
+          ? this.mapAvatar(selectedAvatar)
+          : null,
       };
     }
 

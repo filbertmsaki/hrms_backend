@@ -143,7 +143,10 @@ async function bootstrap(): Promise<void> {
     dotfiles: 'deny' as const,
     index: false,
     redirect: false,
-    fallthrough: false,
+    // Let Nest return a normal 404 when a media file is missing. Passing the
+    // express-static ENOENT into the global exception filter surfaced missing
+    // avatars as misleading 500 responses.
+    fallthrough: true,
     maxAge: appEnv === 'production' ? '1d' : 0,
   };
 

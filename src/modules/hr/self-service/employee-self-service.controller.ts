@@ -181,7 +181,7 @@ export class EmployeeSelfServiceController {
 
     return {
       ...profilePhoto,
-      has_profile_photo: Boolean(profilePhotoPath),
+      has_profile_photo: Boolean(profilePhotoUrl),
       profile_photo_path: this.buildAbsoluteUrl(req, profilePhotoPath),
       profile_photo_url: this.buildAbsoluteUrl(req, profilePhotoUrl),
     };
