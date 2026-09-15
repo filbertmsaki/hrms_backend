@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
@@ -20,6 +21,8 @@ import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-u
 import {
   AddFieldVisitEvidenceDto,
   CompleteFieldFollowUpDto,
+  CreateFieldFollowUpDto,
+  UpdateFieldFollowUpDto,
   CreateFieldOpportunityDto,
   CreateFieldVisitExpenseDto,
   CreateFieldVisitPlanDto,
@@ -162,6 +165,34 @@ export class MyFieldVisitsController {
     @Query() query: WorkActivityQueryDto,
   ) {
     return this.visitService.listMyFollowUps(req.user, query);
+  }
+
+  @Post('/follow-ups')
+  @Permissions('field_visits:self-service:update')
+  createFollowUp(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreateFieldFollowUpDto,
+  ) {
+    return this.visitService.createMyFollowUp(req.user, dto);
+  }
+
+  @Patch('/follow-ups/:id')
+  @Permissions('field_visits:self-service:update')
+  updateFollowUp(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateFieldFollowUpDto,
+  ) {
+    return this.visitService.updateMyFollowUp(req.user, id, dto);
+  }
+
+  @Delete('/follow-ups/:id')
+  @Permissions('field_visits:self-service:update')
+  cancelFollowUp(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.visitService.cancelMyFollowUp(req.user, id);
   }
 
   @Post('/follow-ups/:id/complete')

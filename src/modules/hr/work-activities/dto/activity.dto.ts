@@ -15,6 +15,7 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import {
@@ -215,9 +216,19 @@ export class ActivityChecklistItemDto {
 }
 
 export class CreateManagerActivityTaskDto {
+  @ValidateIf(
+    (dto: CreateManagerActivityTaskDto) =>
+      !Array.isArray(dto.employee_ids) || dto.employee_ids.length === 0,
+  )
   @Type(() => Number)
   @IsInt()
-  employee_id: number;
+  employee_id?: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  @Type(() => Number)
+  employee_ids?: number[];
 
   @IsOptional()
   @Type(() => Number)
@@ -256,7 +267,7 @@ export class CreateManagerActivityTaskDto {
 
 export class CreateSelfActivityTaskDto extends OmitType(
   CreateManagerActivityTaskDto,
-  ['employee_id'] as const,
+  ['employee_id', 'employee_ids'] as const,
 ) {}
 
 export class CreateDailyActivityEntryDto {
@@ -384,6 +395,12 @@ export class SubmitDailyActivityReportDto {
 
   @IsUUID()
   client_request_id: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  @Type(() => Number)
+  entry_ids?: number[];
 }
 
 export class DailyActivityEntryReviewDto {

@@ -320,3 +320,32 @@ export class CompleteFieldFollowUpDto {
   @MaxLength(3000)
   completion_note?: string;
 }
+
+export class CreateFieldFollowUpDto {
+  @Type(() => Number)
+  @IsInt()
+  field_visit_id: number;
+
+  @IsDateString()
+  due_date: string;
+
+  @IsString()
+  @MaxLength(500)
+  action: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  field_opportunity_id?: number;
+}
+
+export class UpdateFieldFollowUpDto {
+  @IsOptional()
+  @IsDateString()
+  due_date?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  action?: string;
+}
