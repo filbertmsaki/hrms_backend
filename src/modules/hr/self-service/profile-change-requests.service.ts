@@ -759,6 +759,7 @@ export class ProfileChangeRequestsService {
       .leftJoinAndSelect('request.files', 'files')
       .leftJoinAndSelect('request.requested_by_user', 'requestedByUser')
       .innerJoinAndSelect('request.employee', 'employee')
+      .leftJoinAndSelect('employee.default_avatar', 'defaultAvatar')
       .leftJoinAndSelect('employee.company_user', 'membership')
       .leftJoinAndSelect('membership.user', 'user')
       .leftJoinAndSelect('employee.primary_branch', 'branch')
@@ -821,7 +822,9 @@ export class ProfileChangeRequestsService {
       .getManyAndCount();
 
     return {
-      data: items.map((request) => this.mapRequest(request, true)),
+      data: await Promise.all(
+        items.map((request) => this.mapRequestWithPhoto(request, true)),
+      ),
       meta: this.buildPaginationMeta(page, limit, total),
     };
   }
@@ -830,7 +833,7 @@ export class ProfileChangeRequestsService {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const request = await this.findRequestOrFail(id, companyId);
     await this.assertReviewerCanAccessRequest(actor, request);
-    return this.mapRequest(request, true);
+    return this.mapRequestWithPhoto(request, true);
   }
 
   async getHistoryForEmployee(actor: AuthenticatedUser, id: number) {
@@ -2406,6 +2409,7 @@ export class ProfileChangeRequestsService {
         audits: true,
         requested_by_user: true,
         employee: {
+          default_avatar: true,
           company_user: { user: true },
           contacts: true,
           addresses: true,
@@ -2664,6 +2668,41 @@ export class ProfileChangeRequestsService {
     );
   }
 
+  private employeeDisplayPhotoUrl(employee: Employee | null | undefined) {
+    if (!employee) return null;
+    const uploaded = employee.profile_photo_url?.trim() || null;
+    const avatar = employee.default_avatar;
+    const fromAvatar =
+      avatar?.file_url?.trim() ||
+      avatar?.image_path?.trim() ||
+      avatar?.file_path?.trim() ||
+      null;
+    if (
+      employee.profile_image_source === ProfileImageSourceEnum.UPLOADED &&
+      uploaded
+    ) {
+      return uploaded;
+    }
+    return fromAvatar ?? uploaded;
+  }
+
+  private async mapRequestWithPhoto(
+    request: ProfileChangeRequest,
+    includeReviewerView = false,
+  ) {
+    const mapped = this.mapRequest(request, includeReviewerView);
+    if (!mapped.employee) return mapped;
+    const resolved =
+      await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
+        request.company_id,
+        request.employee,
+      );
+    mapped.employee.profile_photo_url =
+      resolved.profile_photo_url ??
+      this.employeeDisplayPhotoUrl(request.employee);
+    return mapped;
+  }
+
   private mapRequest(
     request: ProfileChangeRequest,
     includeReviewerView = false,
@@ -2707,6 +2746,7 @@ export class ProfileChangeRequestsService {
             employee_no: request.employee.employee_no,
             first_name: request.employee.first_name,
             last_name: request.employee.last_name,
+            profile_photo_url: this.employeeDisplayPhotoUrl(request.employee),
             primary_branch_id: request.employee.primary_branch_id,
             primary_department_id: request.employee.primary_department_id,
             branch: request.employee.primary_branch

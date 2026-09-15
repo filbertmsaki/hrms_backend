@@ -16,6 +16,8 @@ import { HrAccessService } from '../../shared/hr-access.service';
 import {
   AddFieldVisitEvidenceDto,
   CompleteFieldFollowUpDto,
+  CreateFieldFollowUpDto,
+  UpdateFieldFollowUpDto,
   CreateFieldOpportunityDto,
   CreateFieldVisitExpenseDto,
   CreateFieldVisitPlanDto,
@@ -829,6 +831,67 @@ export class FieldVisitService {
     id: number,
     dto: CompleteFieldFollowUpDto,
   ) {
+    const followUp = await this.findMyFollowUp(actor, id);
+    if (followUp.status === FieldFollowUpStatusEnum.COMPLETED) {
+      throw new ConflictException('This follow-up is already completed.');
+    }
+    if (followUp.status === FieldFollowUpStatusEnum.CANCELLED) {
+      throw new ConflictException('This follow-up was cancelled.');
+    }
+
+    followUp.status = FieldFollowUpStatusEnum.COMPLETED;
+    followUp.completedAt = new Date();
+    followUp.completionNote = dto.completion_note?.trim() ?? null;
+    return this.followUpRepository.save(followUp);
+  }
+
+  async createMyFollowUp(
+    actor: AuthenticatedUser,
+    dto: CreateFieldFollowUpDto,
+  ) {
+    const companyId = this.getCompanyId(actor);
+    const employeeId = this.getEmployeeId(actor);
+    const visit = await this.findMyVisitEntity(actor, dto.field_visit_id);
+    return this.followUpRepository.save(
+      this.followUpRepository.create({
+        companyId,
+        fieldVisitId: visit.id,
+        fieldOpportunityId: dto.field_opportunity_id ?? null,
+        employeeId,
+        assignedToEmployeeId: employeeId,
+        dueDate: dto.due_date,
+        action: dto.action.trim(),
+        status: FieldFollowUpStatusEnum.OPEN,
+        completedAt: null,
+        completionNote: null,
+      }),
+    );
+  }
+
+  async updateMyFollowUp(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: UpdateFieldFollowUpDto,
+  ) {
+    const followUp = await this.findMyFollowUp(actor, id);
+    if (followUp.status !== FieldFollowUpStatusEnum.OPEN) {
+      throw new ConflictException('Only open follow-ups can be edited.');
+    }
+    if (dto.due_date) followUp.dueDate = dto.due_date;
+    if (dto.action !== undefined) followUp.action = dto.action.trim();
+    return this.followUpRepository.save(followUp);
+  }
+
+  async cancelMyFollowUp(actor: AuthenticatedUser, id: number) {
+    const followUp = await this.findMyFollowUp(actor, id);
+    if (followUp.status !== FieldFollowUpStatusEnum.OPEN) {
+      throw new ConflictException('Only open follow-ups can be cancelled.');
+    }
+    followUp.status = FieldFollowUpStatusEnum.CANCELLED;
+    return this.followUpRepository.save(followUp);
+  }
+
+  private async findMyFollowUp(actor: AuthenticatedUser, id: number) {
     const followUp = await this.followUpRepository.findOne({
       where: {
         id,
@@ -839,11 +902,7 @@ export class FieldVisitService {
     if (!followUp) {
       throw new NotFoundException('Follow-up not found.');
     }
-
-    followUp.status = FieldFollowUpStatusEnum.COMPLETED;
-    followUp.completedAt = new Date();
-    followUp.completionNote = dto.completion_note?.trim() ?? null;
-    return this.followUpRepository.save(followUp);
+    return followUp;
   }
 
   async listManagerPlans(

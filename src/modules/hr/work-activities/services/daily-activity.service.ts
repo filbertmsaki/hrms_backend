@@ -13,6 +13,7 @@ import { ActionItemTypeEnum } from '../../action-inbox/enums/action-item-type.en
 import { ActionItemsService } from '../../action-inbox/action-items.service';
 import { AttendanceDailySummary } from '../../attendance/processing/entities/attendance-daily-summary.entity';
 import { Employee } from '../../employees/entities/employee.entity';
+import { EmploymentStatusEnum } from '../../employees/enums/employment-status.enum';
 import { HrAccessService } from '../../shared/hr-access.service';
 import {
   AddDailyActivityEvidenceDto,
@@ -176,25 +177,35 @@ export class DailyActivityService {
     query: WorkActivityQueryDto,
   ) {
     const reports = await this.listForManager(actor, { ...query, limit: 100 });
-    return this.flattenTaskRows(reports.data);
+    const flattened = this.flattenTaskRows(reports.data);
+    const actorEmployeeId = actor.employeeId ?? null;
+    const data = flattened.data.filter((row) => {
+      const employeeId = Number(row.employee_id ?? row.employeeId);
+      if (actorEmployeeId != null && employeeId === actorEmployeeId) {
+        return false;
+      }
+      return this.isManagerAssignedTaskRow(row);
+    });
+    return {
+      data,
+      meta: { total: data.length },
+    };
   }
 
   async listManagerAssignees(actor: AuthenticatedUser) {
     const companyId = this.getCompanyId(actor);
-    const employeeIds =
-      await this.hrAccessService.getAccessibleEmployeeIds(actor);
-    if (employeeIds !== null && employeeIds.length === 0) return [];
     const qb = this.employeeRepository
       .createQueryBuilder('employee')
       .leftJoinAndSelect('employee.primary_department', 'department')
       .leftJoinAndSelect('employee.primary_position', 'position')
       .leftJoinAndSelect('employee.default_avatar', 'defaultAvatar')
       .where('employee.company_id = :companyId', { companyId })
+      .andWhere('employee.employment_status = :employmentStatus', {
+        employmentStatus: EmploymentStatusEnum.ACTIVE,
+      })
       .andWhere('employee.id != :actorEmployeeId', {
         actorEmployeeId: actor.employeeId ?? -1,
       });
-    if (employeeIds !== null)
-      qb.andWhere('employee.id IN (:...employeeIds)', { employeeIds });
     const employees = await qb
       .orderBy('employee.first_name', 'ASC')
       .addOrderBy('employee.last_name', 'ASC')
@@ -218,6 +229,20 @@ export class DailyActivityService {
         };
       }),
     );
+  }
+
+  private isManagerAssignedTaskRow(row: Record<string, unknown>) {
+    const candidates = [
+      row.taskReference,
+      row.task_reference,
+      row.externalReferenceType,
+      row.external_reference_type,
+    ];
+    const reference = (
+      candidates.find((value): value is string => typeof value === 'string') ??
+      ''
+    ).toUpperCase();
+    return reference.includes('MANAGER') && !reference.includes('SELF');
   }
 
   private flattenTaskRows(reports: Array<Record<string, unknown>>) {
@@ -244,17 +269,58 @@ export class DailyActivityService {
     };
   }
 
+  private assigneeIdsFromDto(dto: CreateManagerActivityTaskDto) {
+    return [
+      ...new Set(
+        [
+          ...(Array.isArray(dto.employee_ids) ? dto.employee_ids : []),
+          ...(dto.employee_id != null ? [dto.employee_id] : []),
+        ]
+          .map((value) => Number(value))
+          .filter((value) => Number.isInteger(value) && value > 0),
+      ),
+    ];
+  }
+
   async createManagerTask(
     actor: AuthenticatedUser,
     dto: CreateManagerActivityTaskDto,
   ) {
+    const assigneeIds = this.assigneeIdsFromDto(dto);
+    if (assigneeIds.length === 0) {
+      throw new BadRequestException('Choose at least one employee.');
+    }
+    if (assigneeIds.length === 1) {
+      return this.createManagerTaskForEmployee(actor, {
+        ...dto,
+        employee_id: assigneeIds[0],
+      });
+    }
+
+    const data: Array<
+      Awaited<ReturnType<DailyActivityService['createManagerTaskForEmployee']>>
+    > = [];
+    for (const employeeId of assigneeIds) {
+      data.push(
+        await this.createManagerTaskForEmployee(actor, {
+          ...dto,
+          employee_id: employeeId,
+        }),
+      );
+    }
+    return {
+      assigned: data.length,
+      data,
+    };
+  }
+
+  private async createManagerTaskForEmployee(
+    actor: AuthenticatedUser,
+    dto: CreateManagerActivityTaskDto & { employee_id: number },
+  ) {
     const companyId = this.getCompanyId(actor);
     const employee = await this.getEmployee(companyId, dto.employee_id);
-    await this.assertManagerCanReview(
-      actor,
-      employee.id,
-      employee.reports_to ?? null,
-    );
+    this.assertManagerCanAssign(actor, employee);
     const category = await this.resolveManagerTaskCategory(
       companyId,
       dto.activity_category_id,
@@ -348,6 +414,84 @@ export class DailyActivityService {
     const value = new Date(`${date}T12:00:00.000Z`);
     value.setUTCDate(value.getUTCDate() + days);
     return value.toISOString().slice(0, 10);
+  }
+
+  private dateOnly(value: Date | string | null | undefined) {
+    if (!value) return '';
+    if (value instanceof Date) {
+      return Number.isNaN(value.getTime())
+        ? ''
+        : value.toISOString().slice(0, 10);
+    }
+    const match = String(value).match(/^(\d{4}-\d{2}-\d{2})/);
+    return match?.[1] ?? '';
+  }
+
+  private deferDateForEntry(entry: DailyActivityEntry, reportDate: string) {
+    const due = this.dateOnly(entry.plannedEndTime);
+    if (due && due > reportDate) return due;
+    const start = this.dateOnly(entry.plannedStartTime);
+    if (start && start > reportDate) return start;
+    return this.addDays(reportDate, 1);
+  }
+
+  private async keepSelectedEntries(
+    manager: EntityManager,
+    report: DailyActivityReport,
+    entries: DailyActivityEntry[],
+    selectedIds: number[],
+  ) {
+    const selected = new Set(selectedIds.map((id) => Number(id)));
+    const keep = entries.filter((entry) => selected.has(entry.id));
+    const defer = entries.filter((entry) => !selected.has(entry.id));
+
+    if (keep.length !== selected.size) {
+      throw new BadRequestException(
+        'One or more selected work items are not on this day.',
+      );
+    }
+    if (keep.length === 0) {
+      throw new BadRequestException(
+        'Select at least one completed work item to close this day.',
+      );
+    }
+    const incomplete = keep.filter(
+      (entry) => entry.status !== DailyActivityStatusEnum.COMPLETED,
+    );
+    if (incomplete.length > 0) {
+      throw new BadRequestException(
+        'In-progress work cannot be submitted. Leave it unchecked so it stays open.',
+      );
+    }
+    if (defer.length === 0) return keep;
+
+    const employee = await this.getEmployee(
+      report.companyId,
+      report.employeeId,
+    );
+    const byDate = new Map<string, DailyActivityEntry[]>();
+    for (const entry of defer) {
+      const nextDate = this.deferDateForEntry(entry, report.activityDate);
+      const bucket = byDate.get(nextDate) ?? [];
+      bucket.push(entry);
+      byDate.set(nextDate, bucket);
+    }
+
+    for (const [activityDate, moving] of byDate) {
+      const target = await this.resolveEditableReport(manager, {
+        companyId: report.companyId,
+        employee,
+        preferredDate: activityDate,
+        source: DailyActivitySourceEnum.WEB,
+        metadata: { deferred_from_report_id: report.id },
+      });
+      for (const entry of moving) {
+        entry.dailyActivityReportId = target.id;
+      }
+      await manager.getRepository(DailyActivityEntry).save(moving);
+    }
+
+    return keep;
   }
 
   private async resolveEditableReport(
@@ -444,7 +588,7 @@ export class DailyActivityService {
         description: dto.description.trim(),
         plannedStartTime: dto.planned_start_time
           ? new Date(dto.planned_start_time)
-          : null,
+          : new Date(`${report.activityDate}T09:00:00.000Z`),
         plannedEndTime: dto.planned_end_time
           ? new Date(dto.planned_end_time)
           : null,
@@ -655,7 +799,7 @@ export class DailyActivityService {
         description: dto.description.trim(),
         plannedStartTime: dto.planned_start_time
           ? new Date(dto.planned_start_time)
-          : null,
+          : new Date(`${report.activityDate}T09:00:00.000Z`),
         plannedEndTime: dto.planned_end_time
           ? new Date(dto.planned_end_time)
           : null,
@@ -1037,9 +1181,18 @@ export class DailyActivityService {
         );
       }
 
-      const entries = await manager.getRepository(DailyActivityEntry).find({
+      let entries = await manager.getRepository(DailyActivityEntry).find({
         where: { companyId, dailyActivityReportId: report.id },
       });
+
+      if (dto.entry_ids !== undefined) {
+        entries = await this.keepSelectedEntries(
+          manager,
+          report,
+          entries,
+          dto.entry_ids,
+        );
+      }
 
       const policy = report.policySnapshot;
       const minimumCount = Number(policy.minimum_activity_count ?? 1);
@@ -1371,6 +1524,19 @@ export class DailyActivityService {
       report.managerEmployeeId,
     );
     return report;
+  }
+
+  private assertManagerCanAssign(actor: AuthenticatedUser, employee: Employee) {
+    if (employee.company_id !== this.getCompanyId(actor)) {
+      throw new ForbiddenException(
+        'You can only assign work to employees in your company.',
+      );
+    }
+    if (employee.employment_status !== EmploymentStatusEnum.ACTIVE) {
+      throw new BadRequestException(
+        'Only active employees can be assigned work.',
+      );
+    }
   }
 
   private async assertManagerCanReview(
