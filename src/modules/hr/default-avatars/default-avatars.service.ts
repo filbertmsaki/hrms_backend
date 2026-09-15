@@ -326,7 +326,16 @@ export class DefaultAvatarsService {
       },
     });
 
-    return avatars.map((avatar) => this.mapAvatar(avatar));
+    const availableAvatars = await Promise.all(
+      avatars.map(async (avatar) => ({
+        avatar,
+        available: await this.pathExists(avatar.image_path),
+      })),
+    );
+
+    return availableAvatars
+      .filter(({ available }) => available)
+      .map(({ avatar }) => this.mapAvatar(avatar));
   }
 
   async assertAvatarAvailableForEmployee(
@@ -346,6 +355,10 @@ export class DefaultAvatarsService {
       throw new BadRequestException(
         'The selected avatar is not available for this employee.',
       );
+    }
+
+    if (!(await this.pathExists(avatar.image_path))) {
+      throw new NotFoundException('The selected avatar file is unavailable.');
     }
 
     return avatar;
@@ -375,14 +388,15 @@ export class DefaultAvatarsService {
         : null);
 
     const uploadAvailable = await this.pathExists(uploadedProfilePhotoUrl);
-    const selectedAvatarActive =
+    const selectedAvatarAvailable =
       selectedAvatar &&
-      selectedAvatar.status === DefaultAvatarStatusEnum.ACTIVE;
+      selectedAvatar.status === DefaultAvatarStatusEnum.ACTIVE &&
+      (await this.pathExists(selectedAvatar.image_path));
 
     if (
       employee.profile_image_source === ProfileImageSourceEnum.UPLOADED &&
       uploadedProfilePhotoUrl &&
-      (uploadAvailable || uploadedProfilePhotoUrl.startsWith('/uploads/'))
+      uploadAvailable
     ) {
       return {
         profile_photo_url: uploadedProfilePhotoUrl,
@@ -395,7 +409,7 @@ export class DefaultAvatarsService {
       };
     }
 
-    if (selectedAvatarActive) {
+    if (selectedAvatarAvailable) {
       return {
         profile_photo_url: selectedAvatar.file_url ?? selectedAvatar.image_path,
         uploaded_profile_photo_url: uploadedProfilePhotoUrl,
@@ -405,7 +419,7 @@ export class DefaultAvatarsService {
       };
     }
 
-    if (uploadedProfilePhotoUrl) {
+    if (uploadedProfilePhotoUrl && uploadAvailable) {
       return {
         profile_photo_url: uploadedProfilePhotoUrl,
         uploaded_profile_photo_url: uploadedProfilePhotoUrl,
@@ -595,8 +609,10 @@ export class DefaultAvatarsService {
         },
       });
 
-      if (avatars[0]) {
-        return avatars[0];
+      for (const avatar of avatars) {
+        if (await this.pathExists(avatar.image_path)) {
+          return avatar;
+        }
       }
     }
 

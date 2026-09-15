@@ -1997,10 +1997,13 @@ export class ProfileChangeRequestsService {
       });
 
       snapshot.employee.profile_photo_url = storedPublicFile.publicPath;
-      snapshot.employee.profile_image_source = snapshot.employee
-        .default_avatar_id
-        ? ProfileImageSourceEnum.DEFAULT_AVATAR
-        : ProfileImageSourceEnum.UPLOADED;
+      // An approved custom photo becomes the employee's active picture.
+      // Keeping a previously selected default avatar here made the new upload
+      // appear to succeed while every profile surface continued showing the
+      // old avatar.
+      snapshot.employee.default_avatar_id = null;
+      snapshot.employee.default_avatar = null;
+      snapshot.employee.profile_image_source = ProfileImageSourceEnum.UPLOADED;
       await manager.getRepository(Employee).save(snapshot.employee);
 
       await this.filesService.removeManagedFile(file.file_path);

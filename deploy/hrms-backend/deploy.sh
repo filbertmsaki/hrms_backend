@@ -240,6 +240,15 @@ APP_ENV="$APP_ENV" \
 npm run migration:run:built
 
 
+require_package_script 'seed:avatars:built'
+
+log "Ensuring built-in default avatar files exist in persistent storage."
+
+NODE_ENV=production \
+APP_ENV="$APP_ENV" \
+npm run seed:avatars:built
+
+
 if [[ -n "$PREVIOUS_RELEASE" ]]; then
   printf '%s\n' "$PREVIOUS_RELEASE" > "$SHARED_DIR/previous-release"
 fi

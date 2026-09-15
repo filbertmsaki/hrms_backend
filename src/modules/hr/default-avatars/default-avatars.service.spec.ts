@@ -192,6 +192,21 @@ describe('DefaultAvatarsService', () => {
     expect(result.map((avatar) => avatar.id)).toEqual([8, 9, 10]);
   });
 
+  it('does not offer avatar records whose files are missing', async () => {
+    defaultAvatarRepository.find.mockResolvedValue([maleAvatar, neutralAvatar]);
+    (
+      service as unknown as {
+        pathExists: jest.Mock<Promise<boolean>, [string | null | undefined]>;
+      }
+    ).pathExists.mockImplementation((path) =>
+      Promise.resolve(path !== maleAvatar.image_path),
+    );
+
+    const result = await service.listAvailableForGender(7, 'male');
+
+    expect(result.map((avatar) => avatar.id)).toEqual([neutralAvatar.id]);
+  });
+
   it('rejects an invalid avatar id', async () => {
     defaultAvatarRepository.findOne.mockResolvedValue(null);
 
@@ -258,6 +273,35 @@ describe('DefaultAvatarsService', () => {
       has_custom_profile_picture: false,
       is_automatic_fallback: true,
     });
+  });
+
+  it('falls back when an uploaded profile-photo file is missing', async () => {
+    defaultAvatarRepository.find.mockImplementation(
+      ({ where }: { where: { gender_category: DefaultAvatarGenderEnum } }) =>
+        Promise.resolve(
+          where.gender_category === DefaultAvatarGenderEnum.MALE
+            ? [maleAvatar]
+            : [],
+        ),
+    );
+    (
+      service as unknown as {
+        pathExists: jest.Mock<Promise<boolean>, [string | null | undefined]>;
+      }
+    ).pathExists.mockImplementation((path) =>
+      Promise.resolve(path === maleAvatar.image_path),
+    );
+
+    const resolved = await service.resolveEmployeeProfileAvatar(7, {
+      id: 15,
+      gender: 'male',
+      profile_photo_url: '/uploads/profile-photos/company-7/missing-photo.webp',
+      profile_image_source: ProfileImageSourceEnum.UPLOADED,
+      default_avatar_id: null,
+    } as Employee & { gender: string });
+
+    expect(resolved.profile_photo_url).toBe(maleAvatar.image_path);
+    expect(resolved.profile_photo_source).toBe('gender_default');
   });
 
   it('returns a system placeholder payload when nothing can be resolved', async () => {
