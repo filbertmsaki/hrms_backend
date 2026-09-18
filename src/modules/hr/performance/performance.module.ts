@@ -47,6 +47,13 @@ import { PerformancePlanService } from './services/performance-plan.service';
 import { PerformanceRatingScaleService } from './services/performance-rating-scale.service';
 import { PerformanceReviewService } from './services/performance-review.service';
 import { PerformanceScoringService } from './services/performance-scoring.service';
+import {
+  EmployeeKpi,
+  EmployeeKpiReviewHistory,
+} from './entities/employee-kpi.entity';
+import { EmployeeKpiService } from './services/employee-kpi.service';
+import { EmployeeKpiProgressService } from './services/employee-kpi-progress.service';
+import { NotificationsModule } from '../../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -78,9 +85,12 @@ import { PerformanceScoringService } from './services/performance-scoring.servic
       PerformanceAppeal,
       PerformanceAggregate,
       PerformanceAuditLog,
+      EmployeeKpi,
+      EmployeeKpiReviewHistory,
     ]),
     HrSharedModule,
     WorkActivitiesModule,
+    NotificationsModule,
   ],
   controllers: [
     PerformanceController,
@@ -103,12 +113,16 @@ import { PerformanceScoringService } from './services/performance-scoring.servic
     PerformanceImprovementPlanService,
     PerformanceAggregationService,
     PerformanceInsightsService,
+    EmployeeKpiProgressService,
+    EmployeeKpiService,
   ],
   exports: [
     PerformanceInsightsService,
     PerformanceReviewService,
     PerformanceAggregationService,
     KpiDataSourceRegistryService,
+    EmployeeKpiService,
+    EmployeeKpiProgressService,
   ],
 })
 export class PerformanceModule {}

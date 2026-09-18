@@ -6,6 +6,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -24,6 +25,13 @@ import { PerformanceImprovementPlanService } from '../services/performance-impro
 import { PerformanceInsightsService } from '../services/performance-insights.service';
 import { PerformancePlanService } from '../services/performance-plan.service';
 import { PerformanceReviewService } from '../services/performance-review.service';
+import {
+  CreateEmployeeKpiDto,
+  EmployeeKpiQueryDto,
+  UpdateEmployeeKpiActualDto,
+  UpdateEmployeeKpiDto,
+} from '../dto/employee-kpi.dto';
+import { EmployeeKpiService } from '../services/employee-kpi.service';
 
 type AuthedRequest = ExpressRequest & { user: AuthenticatedUser };
 
@@ -38,7 +46,61 @@ export class PerformanceSelfServiceController {
     private readonly planService: PerformancePlanService,
     private readonly reviewService: PerformanceReviewService,
     private readonly improvementPlanService: PerformanceImprovementPlanService,
+    private readonly employeeKpiService: EmployeeKpiService,
   ) {}
+
+  @Get('kpis')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpis:self:read')
+  listKpis(@Req() req: AuthedRequest, @Query() query: EmployeeKpiQueryDto) {
+    return this.employeeKpiService.listOwn(req.user, query);
+  }
+
+  @Post('kpis')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpis:self:create')
+  createKpi(@Req() req: AuthedRequest, @Body() dto: CreateEmployeeKpiDto) {
+    return this.employeeKpiService.create(req.user, dto);
+  }
+
+  @Get('kpis/:id')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpis:self:read')
+  getKpi(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.employeeKpiService.getOwn(req.user, id);
+  }
+
+  @Patch('kpis/:id')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpis:self:update')
+  updateKpi(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateEmployeeKpiDto,
+  ) {
+    return this.employeeKpiService.update(req.user, id, dto);
+  }
+
+  @Post('kpis/periods/:periodId/submit')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpis:self:submit')
+  submitKpis(
+    @Req() req: AuthedRequest,
+    @Param('periodId', ParseIntPipe) periodId: number,
+  ) {
+    return this.employeeKpiService.submitPeriod(req.user, periodId);
+  }
+
+  @Patch('kpis/:id/actual')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpis:self:update')
+  updateKpiActual(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateEmployeeKpiActualDto,
+  ) {
+    return this.employeeKpiService.updateActual(req.user, id, dto);
+  }
 
   @Get('summary')
   @UseGuards(PermissionsGuard)

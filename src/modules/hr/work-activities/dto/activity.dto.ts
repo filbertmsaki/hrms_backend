@@ -235,6 +235,11 @@ export class CreateManagerActivityTaskDto {
   @IsInt()
   activity_category_id?: number;
 
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  employee_kpi_id?: number;
+
   @IsDateString()
   activity_date: string;
 
@@ -245,6 +250,15 @@ export class CreateManagerActivityTaskDto {
   @IsString()
   @MaxLength(4000)
   description: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  expected_result?: string;
+
+  @IsOptional()
+  @IsDateString()
+  due_date?: string;
 
   @IsOptional()
   @IsDateString()
@@ -281,6 +295,11 @@ export class CreateDailyActivityEntryDto {
   kpi_definition_id?: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  employee_kpi_id?: number;
+
+  @IsOptional()
   @IsString()
   @MaxLength(150)
   project_reference?: string;
@@ -311,6 +330,15 @@ export class CreateDailyActivityEntryDto {
 
   @IsString()
   description: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  expected_result?: string;
+
+  @IsOptional()
+  @IsDateString()
+  due_date?: string;
 
   @IsOptional()
   @IsDateString()

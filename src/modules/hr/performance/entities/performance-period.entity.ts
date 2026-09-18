@@ -1,10 +1,12 @@
 import {
   Column,
+  CreateDateColumn,
   Entity,
   Index,
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
+  UpdateDateColumn,
   Unique,
   VersionColumn,
 } from 'typeorm';
@@ -43,6 +45,12 @@ export class PerformancePeriod {
 
   @Column({ type: 'varchar', length: 100 })
   name: string;
+
+  @Column({ type: 'text', nullable: true })
+  description: string | null;
+
+  @Column({ name: 'created_by_company_user_id', type: 'int', nullable: true })
+  createdByCompanyUserId: number | null;
 
   @Column({ name: 'start_date', type: 'date' })
   startDate: string;
@@ -96,6 +104,12 @@ export class PerformancePeriod {
 
   @VersionColumn()
   version: number;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 
   @ManyToOne(() => PerformanceFinancialYear, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'financial_year_id' })

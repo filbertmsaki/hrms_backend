@@ -34,12 +34,17 @@ import {
   DailyActivityReport,
 } from '../entities/daily-activity.entities';
 import {
+  DailyActivityEntryReviewStatusEnum,
+  DailyActivityOriginEnum,
   DailyActivityReportStatusEnum,
   DailyActivityPriorityEnum,
   DailyActivityReviewDecisionEnum,
   DailyActivitySourceEnum,
   DailyActivityStatusEnum,
 } from '../enums/work-activity.enums';
+import { EmployeeKpi } from '../../performance/entities/employee-kpi.entity';
+import { EmployeeKpiStatusEnum } from '../../performance/enums/employee-kpi-status.enum';
+import { PerformancePeriodStatusEnum } from '../../performance/enums/performance-period-status.enum';
 import { ActivityPolicyService } from './activity-policy.service';
 import { WorkActivityAuditService } from './work-activity-audit.service';
 import { WorkActivityExceptionService } from './work-activity-exception.service';
@@ -80,6 +85,8 @@ export class DailyActivityService {
     private readonly commentRepository: Repository<DailyActivityComment>,
     @InjectRepository(AttendanceDailySummary)
     private readonly attendanceRepository: Repository<AttendanceDailySummary>,
+    @InjectRepository(EmployeeKpi)
+    private readonly employeeKpiRepository: Repository<EmployeeKpi>,
   ) {}
 
   private getCompanyId(actor: AuthenticatedUser): number {
@@ -169,7 +176,7 @@ export class DailyActivityService {
 
   async listMineTasks(actor: AuthenticatedUser, query: WorkActivityQueryDto) {
     const reports = await this.listMine(actor, { ...query, limit: 100 });
-    return this.flattenTaskRows(reports.data);
+    return this.filterTaskRows(this.flattenTaskRows(reports.data), query);
   }
 
   async listManagerTasks(
@@ -187,8 +194,7 @@ export class DailyActivityService {
       return this.isManagerAssignedTaskRow(row);
     });
     return {
-      data,
-      meta: { total: data.length },
+      ...this.filterTaskRows({ data, meta: { total: data.length } }, query),
     };
   }
 
@@ -206,6 +212,14 @@ export class DailyActivityService {
       .andWhere('employee.id != :actorEmployeeId', {
         actorEmployeeId: actor.employeeId ?? -1,
       });
+    const accessibleEmployeeIds =
+      await this.hrAccessService.getAccessibleEmployeeIds(actor);
+    if (accessibleEmployeeIds !== null) {
+      if (accessibleEmployeeIds.length === 0) return [];
+      qb.andWhere('employee.id IN (:...accessibleEmployeeIds)', {
+        accessibleEmployeeIds,
+      });
+    }
     const employees = await qb
       .orderBy('employee.first_name', 'ASC')
       .addOrderBy('employee.last_name', 'ASC')
@@ -269,6 +283,61 @@ export class DailyActivityService {
     };
   }
 
+  private filterTaskRows(
+    result: {
+      data: Array<Record<string, unknown>>;
+      meta: Record<string, unknown>;
+    },
+    query: WorkActivityQueryDto,
+  ) {
+    const now = new Date();
+    const data = result.data.filter((row) => {
+      if (
+        query.employee_kpi_id !== undefined &&
+        Number(row.employeeKpiId ?? row.employee_kpi_id) !==
+          query.employee_kpi_id
+      ) {
+        return false;
+      }
+      if (
+        query.assigned_by_employee_id !== undefined &&
+        Number(row.assignedByEmployeeId ?? row.assigned_by_employee_id) !==
+          query.assigned_by_employee_id
+      ) {
+        return false;
+      }
+      if (query.origin && row.origin !== query.origin) return false;
+      if (query.work_status && row.status !== query.work_status) return false;
+      if (
+        query.review_status &&
+        (row.reviewStatus ?? row.review_status) !== query.review_status
+      ) {
+        return false;
+      }
+      if (query.priority && row.priority !== query.priority) return false;
+      if (query.overdue !== undefined) {
+        const rawDueDate = row.dueDate ?? row.due_date ?? row.plannedEndTime;
+        const dueDate =
+          rawDueDate instanceof Date
+            ? rawDueDate
+            : typeof rawDueDate === 'string' || typeof rawDueDate === 'number'
+              ? new Date(rawDueDate)
+              : null;
+        const overdue =
+          dueDate !== null &&
+          !Number.isNaN(dueDate.getTime()) &&
+          dueDate < now &&
+          ![
+            DailyActivityStatusEnum.COMPLETED,
+            DailyActivityStatusEnum.CANCELLED,
+          ].includes(row.status as DailyActivityStatusEnum);
+        if (overdue !== query.overdue) return false;
+      }
+      return true;
+    });
+    return { data, meta: { ...result.meta, total: data.length } };
+  }
+
   private assigneeIdsFromDto(dto: CreateManagerActivityTaskDto) {
     return [
       ...new Set(
@@ -320,7 +389,8 @@ export class DailyActivityService {
   ) {
     const companyId = this.getCompanyId(actor);
     const employee = await this.getEmployee(companyId, dto.employee_id);
-    this.assertManagerCanAssign(actor, employee);
+    await this.assertManagerCanAssign(actor, employee);
+    await this.assertKpiLink(companyId, employee.id, dto.employee_kpi_id);
     const category = await this.resolveManagerTaskCategory(
       companyId,
       dto.activity_category_id,
@@ -335,10 +405,13 @@ export class DailyActivityService {
       status: DailyActivityStatusEnum.PLANNED,
       priority: dto.priority ?? DailyActivityPriorityEnum.MEDIUM,
       checklist: dto.checklist,
+      employee_kpi_id: dto.employee_kpi_id,
+      expected_result: dto.expected_result,
+      due_date: dto.due_date,
     };
     this.validateEntry(entryDto, category);
 
-    return this.dataSource.transaction(async (manager) => {
+    const created = await this.dataSource.transaction(async (manager) => {
       const report = await this.resolveEditableReport(manager, {
         companyId,
         employee,
@@ -346,7 +419,7 @@ export class DailyActivityService {
         source: DailyActivitySourceEnum.SYSTEM,
         metadata: { manager_assigned_task: true },
       });
-      await this.saveTaskEntry(manager, {
+      const entry = await this.saveTaskEntry(manager, {
         actor,
         companyId,
         report,
@@ -354,9 +427,27 @@ export class DailyActivityService {
         dto,
         taskReference: 'MANAGER_ASSIGNED',
         externalReferenceType: 'MANAGER_TASK',
+        origin: DailyActivityOriginEnum.ASSIGNED,
       });
-      return this.getReportResponse(report, manager);
+      return {
+        entry,
+        response: await this.getReportResponse(report, manager),
+      };
     });
+    await this.auditService.log({
+      action: 'DAILY_ACTIVITY_ASSIGNED',
+      actor,
+      employeeId: employee.id,
+      entityType: 'DAILY_ACTIVITY_ENTRY',
+      entityId: created.entry.id,
+      afterValues: {
+        title: created.entry.title,
+        due_date: created.entry.dueDate,
+        employee_kpi_id: created.entry.employeeKpiId,
+      },
+    });
+    void this.notifyActivityAssigned(actor, employee, created.entry);
+    return created.response;
   }
 
   async createMyTask(actor: AuthenticatedUser, dto: CreateSelfActivityTaskDto) {
@@ -369,6 +460,7 @@ export class DailyActivityService {
       companyId,
       dto.activity_category_id,
     );
+    await this.assertKpiLink(companyId, employee.id, dto.employee_kpi_id);
     const entryDto: CreateDailyActivityEntryDto = {
       activity_category_id: category.id,
       title: dto.title,
@@ -379,10 +471,13 @@ export class DailyActivityService {
       status: DailyActivityStatusEnum.PLANNED,
       priority: dto.priority ?? DailyActivityPriorityEnum.MEDIUM,
       checklist: dto.checklist,
+      employee_kpi_id: dto.employee_kpi_id,
+      expected_result: dto.expected_result,
+      due_date: dto.due_date,
     };
     this.validateEntry(entryDto, category);
 
-    return this.dataSource.transaction(async (manager) => {
+    const created = await this.dataSource.transaction(async (manager) => {
       const report = await this.resolveEditableReport(manager, {
         companyId,
         employee,
@@ -390,7 +485,7 @@ export class DailyActivityService {
         source: DailyActivitySourceEnum.WEB,
         metadata: { self_created_task: true },
       });
-      await this.saveTaskEntry(manager, {
+      const entry = await this.saveTaskEntry(manager, {
         actor,
         companyId,
         report,
@@ -398,9 +493,26 @@ export class DailyActivityService {
         dto,
         taskReference: 'SELF_CREATED',
         externalReferenceType: 'SELF_TASK',
+        origin: DailyActivityOriginEnum.SELF_CREATED,
       });
-      return this.getReportResponse(report, manager);
+      return {
+        entry,
+        response: await this.getReportResponse(report, manager),
+      };
     });
+    await this.auditService.log({
+      action: 'DAILY_ACTIVITY_CREATED',
+      actor,
+      employeeId: employee.id,
+      entityType: 'DAILY_ACTIVITY_ENTRY',
+      entityId: created.entry.id,
+      afterValues: {
+        title: created.entry.title,
+        due_date: created.entry.dueDate,
+        employee_kpi_id: created.entry.employeeKpiId,
+      },
+    });
+    return created.response;
   }
 
   private isEditableReportStatus(status: DailyActivityReportStatusEnum) {
@@ -562,6 +674,7 @@ export class DailyActivityService {
       dto: CreateManagerActivityTaskDto | CreateSelfActivityTaskDto;
       taskReference: string;
       externalReferenceType: string;
+      origin: DailyActivityOriginEnum;
     },
   ) {
     const {
@@ -572,13 +685,15 @@ export class DailyActivityService {
       dto,
       taskReference,
       externalReferenceType,
+      origin,
     } = params;
-    await manager.getRepository(DailyActivityEntry).save(
+    return manager.getRepository(DailyActivityEntry).save(
       manager.getRepository(DailyActivityEntry).create({
         companyId,
         dailyActivityReportId: report.id,
         activityCategoryId: categoryId,
         kpiDefinitionId: null,
+        employeeKpiId: dto.employee_kpi_id ?? null,
         projectReference: null,
         taskReference,
         fieldPartyId: null,
@@ -586,6 +701,9 @@ export class DailyActivityService {
         externalReferenceId: String(actor.id),
         title: dto.title.trim(),
         description: dto.description.trim(),
+        expectedResult: dto.expected_result?.trim() ?? null,
+        dueDate: dto.due_date ? new Date(dto.due_date) : null,
+        completionDate: null,
         plannedStartTime: dto.planned_start_time
           ? new Date(dto.planned_start_time)
           : new Date(`${report.activityDate}T09:00:00.000Z`),
@@ -595,6 +713,10 @@ export class DailyActivityService {
         actualStartTime: null,
         actualEndTime: null,
         status: DailyActivityStatusEnum.PLANNED,
+        origin,
+        reviewStatus: DailyActivityEntryReviewStatusEnum.NOT_REQUIRED,
+        reviewedAt: null,
+        reviewedByCompanyUserId: null,
         outcome: null,
         remarks: null,
         deferReason: null,
@@ -619,6 +741,37 @@ export class DailyActivityService {
         clientRequestId: null,
       }),
     );
+  }
+
+  private async notifyActivityAssigned(
+    actor: AuthenticatedUser,
+    employee: Employee,
+    entry: DailyActivityEntry,
+  ): Promise<void> {
+    if (!employee.company_user_id) return;
+    try {
+      await this.notificationsService.createAndPush({
+        company_id: employee.company_id,
+        sender_company_user_id: actor.companyMembershipId ?? null,
+        receiver_company_user_id: employee.company_user_id,
+        category: NotificationCategoryEnum.HR,
+        priority:
+          entry.priority === DailyActivityPriorityEnum.URGENT
+            ? NotificationPriorityEnum.URGENT
+            : NotificationPriorityEnum.MEDIUM,
+        title: 'Activity assigned',
+        message: entry.title,
+        related_module: 'WORK_ACTIVITIES',
+        entity_type: 'DAILY_ACTIVITY_ENTRY',
+        entity_id: entry.id,
+        action_url: `/dashboard/me/activities/today?task=${entry.id}`,
+        dedupe_key: `activity-assigned:${entry.id}`,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Activity ${entry.id} was assigned, but notification failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   private async resolveManagerTaskCategory(
@@ -769,6 +922,11 @@ export class DailyActivityService {
     );
 
     this.validateEntry(dto, category);
+    await this.assertKpiLink(
+      report.companyId,
+      report.employeeId,
+      dto.employee_kpi_id,
+    );
 
     const existingByRequest =
       dto.client_request_id &&
@@ -790,6 +948,7 @@ export class DailyActivityService {
         dailyActivityReportId: report.id,
         activityCategoryId: dto.activity_category_id,
         kpiDefinitionId: dto.kpi_definition_id ?? null,
+        employeeKpiId: dto.employee_kpi_id ?? null,
         projectReference: dto.project_reference?.trim() ?? null,
         taskReference: dto.task_reference?.trim() ?? null,
         fieldPartyId: dto.field_party_id ?? null,
@@ -797,6 +956,10 @@ export class DailyActivityService {
         externalReferenceId: dto.external_reference_id?.trim() ?? null,
         title: dto.title.trim(),
         description: dto.description.trim(),
+        expectedResult: dto.expected_result?.trim() ?? null,
+        dueDate: dto.due_date ? new Date(dto.due_date) : null,
+        completionDate:
+          dto.status === DailyActivityStatusEnum.COMPLETED ? new Date() : null,
         plannedStartTime: dto.planned_start_time
           ? new Date(dto.planned_start_time)
           : new Date(`${report.activityDate}T09:00:00.000Z`),
@@ -810,6 +973,10 @@ export class DailyActivityService {
           ? new Date(dto.actual_end_time)
           : null,
         status: dto.status ?? DailyActivityStatusEnum.PLANNED,
+        origin: DailyActivityOriginEnum.SELF_CREATED,
+        reviewStatus: DailyActivityEntryReviewStatusEnum.NOT_REQUIRED,
+        reviewedAt: null,
+        reviewedByCompanyUserId: null,
         outcome: dto.outcome?.trim() ?? null,
         remarks: dto.remarks?.trim() ?? null,
         deferReason: dto.defer_reason?.trim() ?? null,
@@ -852,6 +1019,7 @@ export class DailyActivityService {
     if (!entry) {
       throw new NotFoundException('Daily activity entry not found.');
     }
+    const previousStatus = entry.status;
 
     const previousChecklist = Array.isArray(entry.checklist)
       ? entry.checklist.map((item) => ({ ...item }))
@@ -878,12 +1046,22 @@ export class DailyActivityService {
     } as unknown as CreateDailyActivityEntryDto;
 
     this.validateEntry(merged, category);
+    if (dto.employee_kpi_id !== undefined) {
+      await this.assertKpiLink(
+        report.companyId,
+        report.employeeId,
+        dto.employee_kpi_id,
+      );
+    }
 
     if (dto.activity_category_id !== undefined) {
       entry.activityCategoryId = dto.activity_category_id;
     }
     if (dto.kpi_definition_id !== undefined) {
       entry.kpiDefinitionId = dto.kpi_definition_id ?? null;
+    }
+    if (dto.employee_kpi_id !== undefined) {
+      entry.employeeKpiId = dto.employee_kpi_id ?? null;
     }
     if (dto.project_reference !== undefined) {
       entry.projectReference = dto.project_reference?.trim() ?? null;
@@ -905,6 +1083,12 @@ export class DailyActivityService {
     }
     if (dto.description !== undefined) {
       entry.description = dto.description.trim();
+    }
+    if (dto.expected_result !== undefined) {
+      entry.expectedResult = dto.expected_result?.trim() ?? null;
+    }
+    if (dto.due_date !== undefined) {
+      entry.dueDate = dto.due_date ? new Date(dto.due_date) : null;
     }
     if (dto.planned_start_time !== undefined) {
       entry.plannedStartTime = dto.planned_start_time
@@ -928,6 +1112,13 @@ export class DailyActivityService {
     }
     if (dto.status !== undefined) {
       entry.status = dto.status;
+      if (dto.status === DailyActivityStatusEnum.COMPLETED) {
+        entry.completionDate ??= new Date();
+      } else {
+        entry.completionDate = null;
+        entry.reviewStatus = DailyActivityEntryReviewStatusEnum.NOT_REQUIRED;
+        entry.managerValidated = false;
+      }
     }
     if (dto.outcome !== undefined) {
       entry.outcome = dto.outcome?.trim() ?? null;
@@ -956,6 +1147,25 @@ export class DailyActivityService {
     }
 
     await this.entryRepository.save(entry);
+
+    if (
+      previousStatus !== DailyActivityStatusEnum.COMPLETED &&
+      entry.status === DailyActivityStatusEnum.COMPLETED
+    ) {
+      await this.auditService.log({
+        action: 'DAILY_ACTIVITY_COMPLETED',
+        actor,
+        employeeId: report.employeeId,
+        entityType: 'DAILY_ACTIVITY_ENTRY',
+        entityId: entry.id,
+        beforeValues: { status: previousStatus },
+        afterValues: {
+          status: entry.status,
+          completion_date: entry.completionDate,
+          outcome: entry.outcome,
+        },
+      });
+    }
 
     if (
       dto.checklist !== undefined &&
@@ -1164,6 +1374,7 @@ export class DailyActivityService {
     return this.dataSource.transaction(async (manager) => {
       const report = await manager.getRepository(DailyActivityReport).findOne({
         where: { id: reportId, companyId, employeeId },
+        lock: { mode: 'pessimistic_write' },
       });
 
       if (!report) {
@@ -1262,6 +1473,15 @@ export class DailyActivityService {
           : DailyActivityReportStatusEnum.MANAGER_REVIEW_PENDING;
       report.clientRequestId = dto.client_request_id;
 
+      for (const entry of completed) {
+        entry.completionDate ??= now;
+        entry.reviewStatus =
+          policy.manager_review_required === false
+            ? DailyActivityEntryReviewStatusEnum.NOT_REQUIRED
+            : DailyActivityEntryReviewStatusEnum.PENDING;
+      }
+      await manager.getRepository(DailyActivityEntry).save(completed);
+
       const saved = await manager
         .getRepository(DailyActivityReport)
         .save(report);
@@ -1273,6 +1493,11 @@ export class DailyActivityService {
       }
 
       const employee = await this.getEmployee(companyId, employeeId);
+      if (
+        saved.status === DailyActivityReportStatusEnum.MANAGER_REVIEW_PENDING
+      ) {
+        void this.notifyManagerActivityCompleted(saved, employee, actor);
+      }
       await this.exceptionService.reconcileForEmployeeDate(
         employee,
         saved.activityDate,
@@ -1404,6 +1629,36 @@ export class DailyActivityService {
     return this.getReportResponse(report);
   }
 
+  private async assertKpiLink(
+    companyId: number,
+    employeeId: number,
+    employeeKpiId?: number,
+  ): Promise<void> {
+    if (employeeKpiId === undefined) return;
+    const kpi = await this.employeeKpiRepository.findOne({
+      where: {
+        id: employeeKpiId,
+        companyId,
+        employeeId,
+        status: EmployeeKpiStatusEnum.APPROVED,
+      },
+      relations: { performancePeriod: true },
+    });
+    if (!kpi) {
+      throw new BadRequestException(
+        'Activities can only be linked to an approved KPI owned by the assignee.',
+      );
+    }
+    if (
+      [
+        PerformancePeriodStatusEnum.LOCKED,
+        PerformancePeriodStatusEnum.CANCELLED,
+      ].includes(kpi.performancePeriod.status)
+    ) {
+      throw new ConflictException('The KPI performance period is closed.');
+    }
+  }
+
   async reviewDailyActivity(
     actor: AuthenticatedUser,
     reportId: number,
@@ -1412,6 +1667,7 @@ export class DailyActivityService {
     return this.dataSource.transaction(async (manager) => {
       const report = await manager.getRepository(DailyActivityReport).findOne({
         where: { id: reportId, companyId: this.getCompanyId(actor) },
+        lock: { mode: 'pessimistic_write' },
       });
 
       if (!report) {
@@ -1465,6 +1721,35 @@ export class DailyActivityService {
           break;
       }
 
+      const reportEntries = await manager
+        .getRepository(DailyActivityEntry)
+        .find({
+          where: {
+            companyId: report.companyId,
+            dailyActivityReportId: report.id,
+          },
+        });
+      for (const entry of reportEntries) {
+        if (entry.status !== DailyActivityStatusEnum.COMPLETED) continue;
+        entry.reviewedAt = report.reviewedAt;
+        entry.reviewedByCompanyUserId = actor.companyMembershipId ?? null;
+        switch (dto.decision) {
+          case DailyActivityReviewDecisionEnum.APPROVE:
+            entry.reviewStatus = DailyActivityEntryReviewStatusEnum.APPROVED;
+            entry.managerValidated = true;
+            break;
+          case DailyActivityReviewDecisionEnum.RETURN:
+            entry.reviewStatus = DailyActivityEntryReviewStatusEnum.RETURNED;
+            entry.managerValidated = false;
+            break;
+          case DailyActivityReviewDecisionEnum.REJECT:
+            entry.reviewStatus = DailyActivityEntryReviewStatusEnum.REJECTED;
+            entry.managerValidated = false;
+            break;
+        }
+      }
+      await manager.getRepository(DailyActivityEntry).save(reportEntries);
+
       const saved = await manager
         .getRepository(DailyActivityReport)
         .save(report);
@@ -1502,6 +1787,8 @@ export class DailyActivityService {
         },
       });
 
+      void this.notifyEmployeeActivityReviewed(saved, employee, actor);
+
       return this.getReportResponse(saved, manager);
     });
   }
@@ -1526,7 +1813,10 @@ export class DailyActivityService {
     return report;
   }
 
-  private assertManagerCanAssign(actor: AuthenticatedUser, employee: Employee) {
+  private async assertManagerCanAssign(
+    actor: AuthenticatedUser,
+    employee: Employee,
+  ) {
     if (employee.company_id !== this.getCompanyId(actor)) {
       throw new ForbiddenException(
         'You can only assign work to employees in your company.',
@@ -1535,6 +1825,17 @@ export class DailyActivityService {
     if (employee.employment_status !== EmploymentStatusEnum.ACTIVE) {
       throw new BadRequestException(
         'Only active employees can be assigned work.',
+      );
+    }
+
+    const accessibleEmployeeIds =
+      await this.hrAccessService.getAccessibleEmployeeIds(actor);
+    if (
+      accessibleEmployeeIds !== null &&
+      !accessibleEmployeeIds.includes(employee.id)
+    ) {
+      throw new ForbiddenException(
+        'You can only assign work within your reporting scope.',
       );
     }
   }
@@ -1758,6 +2059,67 @@ export class DailyActivityService {
         activity_date: report.activityDate,
       },
     });
+  }
+
+  private async notifyManagerActivityCompleted(
+    report: DailyActivityReport,
+    employee: Employee,
+    actor: AuthenticatedUser,
+  ): Promise<void> {
+    if (!report.managerCompanyUserId) return;
+    try {
+      await this.notificationsService.createAndPush({
+        company_id: report.companyId,
+        sender_company_user_id: actor.companyMembershipId ?? null,
+        receiver_company_user_id: report.managerCompanyUserId,
+        category: NotificationCategoryEnum.HR,
+        priority: NotificationPriorityEnum.MEDIUM,
+        title: 'Activities awaiting review',
+        message: `${employee.first_name} ${employee.last_name} submitted activities for ${report.activityDate}.`,
+        related_module: 'WORK_ACTIVITIES',
+        entity_type: 'DAILY_ACTIVITY_REPORT',
+        entity_id: report.id,
+        action_url: `/dashboard/activities/reviews?report=${report.id}`,
+        dedupe_key: `daily-activity-submitted:${report.id}:${report.version}`,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Activity report ${report.id} was submitted, but notification failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  private async notifyEmployeeActivityReviewed(
+    report: DailyActivityReport,
+    employee: Employee,
+    actor: AuthenticatedUser,
+  ): Promise<void> {
+    if (!employee.company_user_id) return;
+    try {
+      await this.notificationsService.createAndPush({
+        company_id: report.companyId,
+        sender_company_user_id: actor.companyMembershipId ?? null,
+        receiver_company_user_id: employee.company_user_id,
+        category: NotificationCategoryEnum.HR,
+        priority:
+          report.status === DailyActivityReportStatusEnum.APPROVED
+            ? NotificationPriorityEnum.MEDIUM
+            : NotificationPriorityEnum.HIGH,
+        title: `Activity report ${report.status.toLowerCase().replaceAll('_', ' ')}`,
+        message:
+          report.managerComments ??
+          `Your activities for ${report.activityDate} were reviewed.`,
+        related_module: 'WORK_ACTIVITIES',
+        entity_type: 'DAILY_ACTIVITY_REPORT',
+        entity_id: report.id,
+        action_url: `/dashboard/me/activities/reports?report=${report.id}`,
+        dedupe_key: `daily-activity-reviewed:${report.id}:${report.version}`,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Activity report ${report.id} was reviewed, but notification failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   private async getReportResponse(

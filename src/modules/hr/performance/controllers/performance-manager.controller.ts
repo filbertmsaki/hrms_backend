@@ -5,6 +5,7 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -20,6 +21,11 @@ import { ValidateKpiAchievementDto } from '../dto/validate-kpi-achievement.dto';
 import { KpiAchievementService } from '../services/kpi-achievement.service';
 import { PerformanceInsightsService } from '../services/performance-insights.service';
 import { PerformanceReviewService } from '../services/performance-review.service';
+import {
+  EmployeeKpiQueryDto,
+  ReviewEmployeeKpiDto,
+} from '../dto/employee-kpi.dto';
+import { EmployeeKpiService } from '../services/employee-kpi.service';
 
 type AuthedRequest = ExpressRequest & { user: AuthenticatedUser };
 
@@ -32,7 +38,43 @@ export class PerformanceManagerController {
     private readonly insightsService: PerformanceInsightsService,
     private readonly achievementService: KpiAchievementService,
     private readonly reviewService: PerformanceReviewService,
+    private readonly employeeKpiService: EmployeeKpiService,
   ) {}
+
+  @Get('kpis')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpis:team:read')
+  listTeamKpis(@Req() req: AuthedRequest, @Query() query: EmployeeKpiQueryDto) {
+    return this.employeeKpiService.listTeam(req.user, query);
+  }
+
+  @Get('kpis/:id')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpis:team:read')
+  getTeamKpi(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.employeeKpiService.getTeamOne(req.user, id);
+  }
+
+  @Post('kpis/:id/begin-review')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpis:review')
+  beginKpiReview(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.employeeKpiService.markPendingReview(req.user, id);
+  }
+
+  @Post('kpis/:id/review')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpis:review')
+  reviewKpi(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ReviewEmployeeKpiDto,
+  ) {
+    return this.employeeKpiService.review(req.user, id, dto);
+  }
 
   @Get('summary')
   @UseGuards(PermissionsGuard)

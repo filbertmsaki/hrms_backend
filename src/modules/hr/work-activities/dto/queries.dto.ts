@@ -1,6 +1,19 @@
 import { Type } from 'class-transformer';
-import { IsDateString, IsOptional, IsString } from 'class-validator';
+import {
+  IsBoolean,
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 import { PaginationDto } from '../../../../common/dto/pagination.dto';
+import {
+  DailyActivityEntryReviewStatusEnum,
+  DailyActivityOriginEnum,
+  DailyActivityPriorityEnum,
+  DailyActivityStatusEnum,
+} from '../enums/work-activity.enums';
 
 export class WorkActivityQueryDto extends PaginationDto {
   @IsOptional()
@@ -17,7 +30,39 @@ export class WorkActivityQueryDto extends PaginationDto {
 
   @IsOptional()
   @Type(() => Number)
+  @IsInt()
   employee_id?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  employee_kpi_id?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  assigned_by_employee_id?: number;
+
+  @IsOptional()
+  @IsEnum(DailyActivityOriginEnum)
+  origin?: DailyActivityOriginEnum;
+
+  @IsOptional()
+  @IsEnum(DailyActivityStatusEnum)
+  work_status?: DailyActivityStatusEnum;
+
+  @IsOptional()
+  @IsEnum(DailyActivityEntryReviewStatusEnum)
+  review_status?: DailyActivityEntryReviewStatusEnum;
+
+  @IsOptional()
+  @IsEnum(DailyActivityPriorityEnum)
+  priority?: DailyActivityPriorityEnum;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  overdue?: boolean;
 }
 
 export class FieldLocationMapQueryDto extends WorkActivityQueryDto {

@@ -55,6 +55,7 @@ import { WorkActivityExceptionService } from './services/work-activity-exception
 import { WorkActivityInsightsService } from './services/work-activity-insights.service';
 import { WorkActivityKpiProviderService } from './services/work-activity-kpi-provider.service';
 import { WorkActivityReminderService } from './services/work-activity-reminder.service';
+import { EmployeeKpi } from '../performance/entities/employee-kpi.entity';
 
 @Module({
   imports: [
@@ -84,6 +85,7 @@ import { WorkActivityReminderService } from './services/work-activity-reminder.s
       FieldLocationAccessLog,
       WorkActivityAuditLog,
       WorkActivityException,
+      EmployeeKpi,
     ]),
     HrSharedModule,
     ActionInboxModule,

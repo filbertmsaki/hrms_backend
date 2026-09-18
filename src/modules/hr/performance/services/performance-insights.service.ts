@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { HrAccessService } from '../../shared/hr-access.service';
 import { KpiAchievement } from '../entities/kpi-achievement.entity';
@@ -9,6 +9,8 @@ import { PerformanceReview } from '../entities/performance-review.entity';
 import { KpiAchievementStatusEnum } from '../enums/kpi-achievement-status.enum';
 import { PerformancePeriodStatusEnum } from '../enums/performance-period-status.enum';
 import { PerformanceReviewStatusEnum } from '../enums/performance-review-status.enum';
+import { EmployeeKpi } from '../entities/employee-kpi.entity';
+import { EmployeeKpiStatusEnum } from '../enums/employee-kpi-status.enum';
 
 @Injectable()
 export class PerformanceInsightsService {
@@ -20,6 +22,8 @@ export class PerformanceInsightsService {
     private readonly achievementRepository: Repository<KpiAchievement>,
     @InjectRepository(PerformanceReview)
     private readonly reviewRepository: Repository<PerformanceReview>,
+    @InjectRepository(EmployeeKpi)
+    private readonly employeeKpiRepository: Repository<EmployeeKpi>,
   ) {}
 
   async getCompanySummary(actor: AuthenticatedUser) {
@@ -29,6 +33,8 @@ export class PerformanceInsightsService {
       pendingManagerValidation,
       pendingHrApproval,
       publishedReviews,
+      pendingKpiProposals,
+      approvedKpiProposals,
     ] = await Promise.all([
       this.periodRepository.count({
         where: {
@@ -54,6 +60,19 @@ export class PerformanceInsightsService {
           status: PerformanceReviewStatusEnum.PUBLISHED,
         },
       }),
+      this.employeeKpiRepository.count({
+        where: {
+          companyId,
+          status: In([
+            EmployeeKpiStatusEnum.SUBMITTED,
+            EmployeeKpiStatusEnum.RESUBMITTED,
+            EmployeeKpiStatusEnum.PENDING_REVIEW,
+          ]),
+        },
+      }),
+      this.employeeKpiRepository.count({
+        where: { companyId, status: EmployeeKpiStatusEnum.APPROVED },
+      }),
     ]);
 
     const finalScoreRow = await this.reviewRepository
@@ -70,6 +89,8 @@ export class PerformanceInsightsService {
       pending_manager_validation: pendingManagerValidation,
       pending_hr_approval: pendingHrApproval,
       published_reviews: publishedReviews,
+      pending_kpi_proposals: pendingKpiProposals,
+      approved_kpi_proposals: approvedKpiProposals,
       average_published_score: Number(
         Number(finalScoreRow?.average_score ?? 0).toFixed(2),
       ),
@@ -86,37 +107,63 @@ export class PerformanceInsightsService {
       };
     }
 
-    const [publishedReviews, pendingKpis, latestPublishedReview] =
-      await Promise.all([
-        this.reviewRepository.count({
-          where: {
-            companyId,
-            employeeId: actor.employeeId,
-            status: PerformanceReviewStatusEnum.PUBLISHED,
-          },
-        }),
-        this.achievementRepository.count({
-          where: {
-            companyId,
-            employeeId: actor.employeeId,
-            status: KpiAchievementStatusEnum.NOT_STARTED,
-          },
-        }),
-        this.reviewRepository.findOne({
-          where: {
-            companyId,
-            employeeId: actor.employeeId,
-            status: PerformanceReviewStatusEnum.PUBLISHED,
-          },
-          order: { publishedAt: 'DESC', id: 'DESC' },
-        }),
-      ]);
+    const [
+      publishedReviews,
+      pendingKpis,
+      latestPublishedReview,
+      employeeKpis,
+      approvedEmployeeKpis,
+      returnedEmployeeKpis,
+    ] = await Promise.all([
+      this.reviewRepository.count({
+        where: {
+          companyId,
+          employeeId: actor.employeeId,
+          status: PerformanceReviewStatusEnum.PUBLISHED,
+        },
+      }),
+      this.achievementRepository.count({
+        where: {
+          companyId,
+          employeeId: actor.employeeId,
+          status: KpiAchievementStatusEnum.NOT_STARTED,
+        },
+      }),
+      this.reviewRepository.findOne({
+        where: {
+          companyId,
+          employeeId: actor.employeeId,
+          status: PerformanceReviewStatusEnum.PUBLISHED,
+        },
+        order: { publishedAt: 'DESC', id: 'DESC' },
+      }),
+      this.employeeKpiRepository.count({
+        where: { companyId, employeeId: actor.employeeId },
+      }),
+      this.employeeKpiRepository.count({
+        where: {
+          companyId,
+          employeeId: actor.employeeId,
+          status: EmployeeKpiStatusEnum.APPROVED,
+        },
+      }),
+      this.employeeKpiRepository.count({
+        where: {
+          companyId,
+          employeeId: actor.employeeId,
+          status: EmployeeKpiStatusEnum.RETURNED,
+        },
+      }),
+    ]);
 
     return {
       latest_published_score: latestPublishedReview?.finalScore ?? null,
       latest_rating_code: latestPublishedReview?.ratingCode ?? null,
       published_reviews: publishedReviews,
       pending_kpis: pendingKpis,
+      employee_kpis: employeeKpis,
+      approved_employee_kpis: approvedEmployeeKpis,
+      returned_employee_kpis: returnedEmployeeKpis,
     };
   }
 
@@ -129,7 +176,12 @@ export class PerformanceInsightsService {
       };
     }
 
-    const [pendingTeamValidations, publishedTeamReviews] = await Promise.all([
+    const [
+      pendingTeamValidations,
+      publishedTeamReviews,
+      pendingKpiReviews,
+      approvedTeamKpis,
+    ] = await Promise.all([
       this.achievementRepository
         .createQueryBuilder('achievement')
         .innerJoin(
@@ -152,11 +204,31 @@ export class PerformanceInsightsService {
           status: PerformanceReviewStatusEnum.PUBLISHED,
         },
       }),
+      this.employeeKpiRepository.count({
+        where: {
+          companyId,
+          reviewerEmployeeId: actor.employeeId,
+          status: In([
+            EmployeeKpiStatusEnum.SUBMITTED,
+            EmployeeKpiStatusEnum.RESUBMITTED,
+            EmployeeKpiStatusEnum.PENDING_REVIEW,
+          ]),
+        },
+      }),
+      this.employeeKpiRepository.count({
+        where: {
+          companyId,
+          reviewerEmployeeId: actor.employeeId,
+          status: EmployeeKpiStatusEnum.APPROVED,
+        },
+      }),
     ]);
 
     return {
       pending_team_validations: pendingTeamValidations,
       published_team_reviews: publishedTeamReviews,
+      pending_kpi_reviews: pendingKpiReviews,
+      approved_team_kpis: approvedTeamKpis,
     };
   }
 }

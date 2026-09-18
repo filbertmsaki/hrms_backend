@@ -57,6 +57,15 @@ const SELF_SERVICE_PERMISSIONS = [
   'shift_change_requests:read',
   'shift_change_requests:create',
   ...SELF_SERVICE_OFFBOARDING_REQUEST_PERMISSIONS,
+  'performance_periods:read',
+  'performance_kpis:self:read',
+  'performance_kpis:self:create',
+  'performance_kpis:self:update',
+  'performance_kpis:self:submit',
+  'performance_self_service:read',
+  'performance_self_service:update',
+  'work_activities:self-service:read',
+  'work_activities:self-service:update',
 ];
 
 /** Read-only structural lookups needed by managers and HR */
@@ -77,6 +86,15 @@ const TEAM_APPROVAL_PERMISSIONS = [
   'manager:read',
   'work_activities:manager:read',
   'work_activities:manager:review',
+  'performance_kpis:team:read',
+  'performance_kpis:review',
+  'performance_manager:read',
+  'performance_manager:review',
+  'performance_manager:validate',
+  'performance_periods:create',
+  'performance_periods:update',
+  'performance_periods:activate',
+  'performance_periods:close',
   'leave_requests:approve',
   'shift_change_requests:update',
   'shift_change_requests:delete',
@@ -91,6 +109,20 @@ const TEAM_APPROVAL_PERMISSIONS = [
   'offboarding_tasks:complete',
   'offboarding_tasks:reject',
   'offboarding_clearances:complete',
+];
+
+const PERFORMANCE_ADMIN_PERMISSIONS = [
+  'performance_financial_years:read',
+  'performance_financial_years:create',
+  'performance_periods:read',
+  'performance_periods:create',
+  'performance_periods:update',
+  'performance_periods:activate',
+  'performance_periods:close',
+  'performance_kpis:all:read',
+  'performance_kpis:team:read',
+  'performance_kpis:review',
+  'performance_dashboards:read',
 ];
 
 const COMPANY_USER_ADMIN_PERMISSIONS = [
@@ -475,6 +507,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'data_scope:company',
       // Self-service (HR Manager is also an employee)
       ...SELF_SERVICE_PERMISSIONS,
+      ...PERFORMANCE_ADMIN_PERMISSIONS,
       // Org structure read
       ...ORG_STRUCTURE_READ_PERMISSIONS,
       // Users (read only — cannot delete/create system users)
@@ -714,6 +747,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'data_scope:company',
       // Self-service (HR Officer is also an employee)
       ...SELF_SERVICE_PERMISSIONS,
+      ...PERFORMANCE_ADMIN_PERMISSIONS,
       ...ORG_STRUCTURE_READ_PERMISSIONS,
       'users:read',
       // Employees (no delete, no status change)

@@ -6,6 +6,19 @@ export enum DailyActivityStatusEnum {
   CANCELLED = 'CANCELLED',
 }
 
+export enum DailyActivityOriginEnum {
+  SELF_CREATED = 'SELF_CREATED',
+  ASSIGNED = 'ASSIGNED',
+}
+
+export enum DailyActivityEntryReviewStatusEnum {
+  NOT_REQUIRED = 'NOT_REQUIRED',
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  RETURNED = 'RETURNED',
+  REJECTED = 'REJECTED',
+}
+
 export enum DailyActivityPriorityEnum {
   LOW = 'LOW',
   MEDIUM = 'MEDIUM',

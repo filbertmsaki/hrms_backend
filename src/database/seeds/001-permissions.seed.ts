@@ -2125,8 +2125,23 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
   },
   {
     name: 'performance_periods:create',
-    displayName: 'Generate performance periods',
-    description: 'Allow generating monthly and quarterly performance periods',
+    displayName: 'Create performance periods',
+    description: 'Allow creating or generating performance periods',
+  },
+  {
+    name: 'performance_periods:update',
+    displayName: 'Update performance periods',
+    description: 'Allow updating draft performance periods',
+  },
+  {
+    name: 'performance_periods:activate',
+    displayName: 'Activate performance periods',
+    description: 'Allow opening draft performance periods for KPI proposals',
+  },
+  {
+    name: 'performance_periods:close',
+    displayName: 'Close performance periods',
+    description: 'Allow locking performance periods against further changes',
   },
   {
     name: 'performance_rating_scales:read',
@@ -2238,6 +2253,43 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     displayName: 'Sync system KPI achievements',
     description:
       'Allow recalculating attendance and leave derived KPI achievements',
+  },
+  {
+    name: 'performance_kpis:self:read',
+    displayName: 'Read own KPI proposals',
+    description: 'Allow employees to view their own KPI proposals',
+  },
+  {
+    name: 'performance_kpis:self:create',
+    displayName: 'Create own KPI proposals',
+    description: 'Allow employees to create KPI proposals for open periods',
+  },
+  {
+    name: 'performance_kpis:self:update',
+    displayName: 'Update own KPI proposals',
+    description: 'Allow employees to update draft or returned KPI proposals',
+  },
+  {
+    name: 'performance_kpis:self:submit',
+    displayName: 'Submit own KPI proposals',
+    description: 'Allow employees to submit a complete weighted KPI set',
+  },
+  {
+    name: 'performance_kpis:team:read',
+    displayName: 'Read team KPI proposals',
+    description:
+      'Allow managers to view KPI proposals in their reporting scope',
+  },
+  {
+    name: 'performance_kpis:all:read',
+    displayName: 'Read all KPI proposals',
+    description: 'Allow HR users to view all company KPI proposals',
+  },
+  {
+    name: 'performance_kpis:review',
+    displayName: 'Review KPI proposals',
+    description:
+      'Allow authorized reviewers to approve, return, or reject KPI proposals',
   },
   {
     name: 'performance_aggregates:read',

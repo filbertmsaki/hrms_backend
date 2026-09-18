@@ -4,7 +4,9 @@ import {
   Get,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -42,6 +44,11 @@ import { PerformancePeriodService } from '../services/performance-period.service
 import { PerformancePlanService } from '../services/performance-plan.service';
 import { PerformanceRatingScaleService } from '../services/performance-rating-scale.service';
 import { PerformanceReviewService } from '../services/performance-review.service';
+import {
+  CreatePerformancePeriodDto,
+  PerformancePeriodQueryDto,
+  UpdatePerformancePeriodDto,
+} from '../dto/performance-period.dto';
 
 type AuthedRequest = ExpressRequest & { user: AuthenticatedUser };
 
@@ -85,8 +92,59 @@ export class PerformanceController {
   @Get('periods')
   @UseGuards(PermissionsGuard)
   @Permissions('performance_periods:read')
-  listPeriods(@Req() req: AuthedRequest) {
-    return this.periodService.list(req.user);
+  listPeriods(
+    @Req() req: AuthedRequest,
+    @Query() query: PerformancePeriodQueryDto,
+  ) {
+    return this.periodService.list(req.user, query);
+  }
+
+  @Get('periods/:id')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_periods:read')
+  getPeriod(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.periodService.get(req.user, id);
+  }
+
+  @Post('periods')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_periods:create')
+  createPeriod(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreatePerformancePeriodDto,
+  ) {
+    return this.periodService.create(req.user, dto);
+  }
+
+  @Patch('periods/:id')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_periods:update')
+  updatePeriod(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdatePerformancePeriodDto,
+  ) {
+    return this.periodService.update(req.user, id, dto);
+  }
+
+  @Post('periods/:id/activate')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_periods:activate')
+  activatePeriod(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.periodService.activate(req.user, id);
+  }
+
+  @Post('periods/:id/close')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_periods:close')
+  closePeriod(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.periodService.close(req.user, id);
   }
 
   @Post('financial-years/:id/generate-periods')

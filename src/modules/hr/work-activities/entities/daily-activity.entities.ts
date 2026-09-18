@@ -13,6 +13,8 @@ import {
   DailyActivityPriorityEnum,
   DailyActivitySourceEnum,
   DailyActivityStatusEnum,
+  DailyActivityOriginEnum,
+  DailyActivityEntryReviewStatusEnum,
 } from '../enums/work-activity.enums';
 
 @Entity('daily_activity_reports')
@@ -134,6 +136,9 @@ export class DailyActivityEntry {
   @Column({ name: 'kpi_definition_id', type: 'int', nullable: true })
   kpiDefinitionId: number | null;
 
+  @Column({ name: 'employee_kpi_id', type: 'int', nullable: true })
+  employeeKpiId: number | null;
+
   @Column({
     name: 'project_reference',
     type: 'varchar',
@@ -175,6 +180,15 @@ export class DailyActivityEntry {
   @Column({ type: 'text' })
   description: string;
 
+  @Column({ name: 'expected_result', type: 'text', nullable: true })
+  expectedResult: string | null;
+
+  @Column({ name: 'due_date', type: 'timestamptz', nullable: true })
+  dueDate: Date | null;
+
+  @Column({ name: 'completion_date', type: 'timestamptz', nullable: true })
+  completionDate: Date | null;
+
   @Column({ name: 'planned_start_time', type: 'timestamptz', nullable: true })
   plannedStartTime: Date | null;
 
@@ -193,6 +207,27 @@ export class DailyActivityEntry {
     default: DailyActivityStatusEnum.PLANNED,
   })
   status: DailyActivityStatusEnum;
+
+  @Column({
+    type: 'varchar',
+    length: 30,
+    default: DailyActivityOriginEnum.SELF_CREATED,
+  })
+  origin: DailyActivityOriginEnum;
+
+  @Column({
+    name: 'review_status',
+    type: 'varchar',
+    length: 30,
+    default: DailyActivityEntryReviewStatusEnum.NOT_REQUIRED,
+  })
+  reviewStatus: DailyActivityEntryReviewStatusEnum;
+
+  @Column({ name: 'reviewed_at', type: 'timestamptz', nullable: true })
+  reviewedAt: Date | null;
+
+  @Column({ name: 'reviewed_by_company_user_id', type: 'int', nullable: true })
+  reviewedByCompanyUserId: number | null;
 
   @Column({ type: 'text', nullable: true })
   outcome: string | null;
