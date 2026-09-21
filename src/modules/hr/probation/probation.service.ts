@@ -7,7 +7,13 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  FindOptionsWhere,
+  In,
+  Repository,
+} from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { Employee } from '../employees/entities/employee.entity';
 import { EmploymentTypeEnum } from '../employees/enums/employment-type.enum';
@@ -39,6 +45,8 @@ import { ProbationAuditService } from './services/probation-audit.service';
 import { ProbationLetterService } from './services/probation-letter.service';
 import { ProbationLetterTypeEnum } from './enums/probation-letter-type.enum';
 import { ProbationAuditActionEnum } from './enums/probation-audit-action.enum';
+import { CreateProbationCaseDto } from './dtos/create-probation-case.dto';
+import { UpdateProbationCaseDto } from './dtos/update-probation-case.dto';
 import { SubmitProbationSelfAssessmentDto } from './dtos/submit-probation-self-assessment.dto';
 import { SubmitProbationManagerReviewDto } from './dtos/submit-probation-manager-review.dto';
 import { SubmitProbationHrDecisionDto } from './dtos/submit-probation-hr-decision.dto';
@@ -351,6 +359,28 @@ export class ProbationService {
       startDate,
     );
 
+    return this.buildAndPersistCase(
+      companyId,
+      employee,
+      policy,
+      startDate,
+      actor,
+      manager,
+      `Probation case created`,
+    );
+  }
+
+  private async buildAndPersistCase(
+    companyId: number,
+    employee: Employee,
+    policy: ProbationPolicy | null,
+    startDate: string,
+    actor: AuthenticatedUser,
+    manager: EntityManager,
+    auditDescription: string,
+  ): Promise<ProbationCase> {
+    const caseRepository = manager.getRepository(ProbationCase);
+
     const periodDays =
       policy?.probationPeriodDays ??
       this.configService.get<number>('PROBATION_DEFAULT_PERIOD_DAYS') ??
@@ -406,12 +436,179 @@ export class ProbationService {
         action: ProbationAuditActionEnum.CASE_CREATED,
         probationCaseId: probationCase.id,
         actor,
-        description: `Probation case ${probationCase.caseNo} created`,
+        description: `${auditDescription} (${probationCase.caseNo})`,
       },
       manager,
     );
 
     return probationCase;
+  }
+
+  async createCaseManually(
+    actor: AuthenticatedUser,
+    dto: CreateProbationCaseDto,
+  ): Promise<ProbationCase> {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+
+    return this.dataSource.transaction(async (manager) => {
+      const employee = await manager.getRepository(Employee).findOne({
+        where: { id: dto.employee_id, company_id: companyId },
+      });
+
+      if (!employee) {
+        throw new NotFoundException('Employee not found.');
+      }
+
+      await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+      const existing = await manager
+        .getRepository(ProbationCase)
+        .createQueryBuilder('probationCase')
+        .setLock('pessimistic_write')
+        .where('probationCase.company_id = :companyId', { companyId })
+        .andWhere('probationCase.employee_id = :employeeId', {
+          employeeId: employee.id,
+        })
+        .andWhere('probationCase.status IN (:...statuses)', {
+          statuses: OPEN_PROBATION_CASE_STATUSES,
+        })
+        .getOne();
+
+      if (existing) {
+        throw new ConflictException(
+          `Employee already has an open probation case (${existing.caseNo}).`,
+        );
+      }
+
+      const policy = dto.policy_id
+        ? await manager.getRepository(ProbationPolicy).findOne({
+            where: { id: dto.policy_id, companyId },
+            relations: { criteria: true },
+          })
+        : await this.policyResolver.resolve(
+            companyId,
+            employee,
+            dto.start_date,
+          );
+
+      if (dto.policy_id && !policy) {
+        throw new NotFoundException('Probation policy not found.');
+      }
+
+      return this.buildAndPersistCase(
+        companyId,
+        employee,
+        policy,
+        dto.start_date,
+        actor,
+        manager,
+        'Probation case created manually',
+      );
+    });
+  }
+
+  async updateCaseManually(
+    actor: AuthenticatedUser,
+    caseId: number,
+    dto: UpdateProbationCaseDto,
+  ): Promise<ProbationCase> {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+
+    return this.dataSource.transaction(async (manager) => {
+      const probationCase = await this.lockCase(companyId, caseId, manager);
+
+      await this.hrAccessService.assertCanAccessEmployee(
+        actor,
+        probationCase.employee,
+      );
+
+      const editableStatuses = [
+        ProbationCaseStatusEnum.OBJECTIVES_PENDING,
+        ProbationCaseStatusEnum.ACTIVE,
+      ];
+
+      if (!editableStatuses.includes(probationCase.status)) {
+        throw new ConflictException(
+          `Probation case ${probationCase.caseNo} can no longer be edited (status: ${probationCase.status}).`,
+        );
+      }
+
+      const cycle = await this.getCurrentCycle(probationCase, manager);
+
+      if (cycle.managerReviewedAt) {
+        throw new ConflictException(
+          'Probation case cannot be edited after the manager review has been submitted.',
+        );
+      }
+
+      const oldValues = {
+        current_start_date: probationCase.currentStartDate,
+        current_due_date: probationCase.currentDueDate,
+        policy_id: probationCase.policyId,
+      };
+
+      let policy: ProbationPolicy | null = null;
+      let policyChanged = false;
+
+      if (dto.policy_id !== undefined) {
+        policy = await manager.getRepository(ProbationPolicy).findOne({
+          where: { id: dto.policy_id, companyId },
+          relations: { criteria: true },
+        });
+
+        if (!policy) {
+          throw new NotFoundException('Probation policy not found.');
+        }
+
+        policyChanged = true;
+      }
+
+      if (dto.start_date !== undefined) {
+        probationCase.originalStartDate = dto.start_date;
+        probationCase.currentStartDate = dto.start_date;
+      }
+
+      if (dto.current_due_date !== undefined) {
+        probationCase.originalDueDate = dto.current_due_date;
+        probationCase.currentDueDate = dto.current_due_date;
+      }
+
+      if (policyChanged && policy) {
+        probationCase.policyId = policy.id;
+        probationCase.policySnapshot = this.buildPolicySnapshot(policy);
+      }
+
+      await manager.getRepository(ProbationCase).save(probationCase);
+
+      cycle.periodStartDate = probationCase.currentStartDate;
+      cycle.periodEndDate = probationCase.currentDueDate;
+      await manager.getRepository(ProbationReviewCycle).save(cycle);
+
+      await manager.getRepository(Employee).update(probationCase.employeeId, {
+        probation_start_date: probationCase.currentStartDate,
+        probation_end_date: probationCase.currentDueDate,
+        confirmation_due_date: probationCase.currentDueDate,
+      });
+
+      await this.auditService.log(
+        {
+          action: ProbationAuditActionEnum.CASE_UPDATED,
+          probationCaseId: probationCase.id,
+          reviewCycleId: cycle.id,
+          actor,
+          description: `Probation case ${probationCase.caseNo} updated manually`,
+          oldValues,
+          newValues: {
+            current_start_date: probationCase.currentStartDate,
+            current_due_date: probationCase.currentDueDate,
+            policy_id: probationCase.policyId,
+          },
+        },
+        manager,
+      );
+
+      return probationCase;
+    });
   }
 
   private buildPolicySnapshot(
@@ -602,12 +799,21 @@ export class ProbationService {
     query: { status?: string },
   ): Promise<ProbationCase[]> {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const accessibleEmployeeIds =
+      await this.hrAccessService.getAccessibleEmployeeIds(actor);
+
+    if (accessibleEmployeeIds !== null && accessibleEmployeeIds.length === 0) {
+      return [];
+    }
 
     return this.caseRepository.find({
       where: {
         companyId,
         ...(query.status
           ? { status: query.status as ProbationCaseStatusEnum }
+          : {}),
+        ...(accessibleEmployeeIds
+          ? { employeeId: In(accessibleEmployeeIds) }
           : {}),
       },
       relations: { employee: true, policy: true },
@@ -620,15 +826,38 @@ export class ProbationService {
     query: { status?: string },
   ): Promise<ProbationCase[]> {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const accessibleEmployeeIds =
+      await this.hrAccessService.getAccessibleEmployeeIds(actor);
+    const teamEmployeeIds = (accessibleEmployeeIds ?? []).filter(
+      (employeeId) => employeeId !== actor.employeeId,
+    );
+    const statusWhere = query.status
+      ? { status: query.status as ProbationCaseStatusEnum }
+      : {};
+    const where: Array<FindOptionsWhere<ProbationCase>> = [];
 
-    return this.caseRepository.find({
-      where: {
+    if (actor.companyMembershipId) {
+      where.push({
         companyId,
         managerCompanyUserId: actor.companyMembershipId,
-        ...(query.status
-          ? { status: query.status as ProbationCaseStatusEnum }
-          : {}),
-      },
+        ...statusWhere,
+      });
+    }
+
+    if (teamEmployeeIds.length > 0) {
+      where.push({
+        companyId,
+        employeeId: In(teamEmployeeIds),
+        ...statusWhere,
+      });
+    }
+
+    if (where.length === 0) {
+      return [];
+    }
+
+    return this.caseRepository.find({
+      where,
       relations: { employee: true, policy: true },
       order: { createdAt: 'DESC' },
     });
@@ -1083,6 +1312,11 @@ export class ProbationService {
         );
       }
 
+      await this.hrAccessService.assertCanAccessEmployee(
+        actor,
+        probationCase.employee,
+      );
+
       const requireManagerRecommendation =
         (probationCase.policySnapshot as { hr_approval_required?: boolean })
           ?.hr_approval_required !== false;
@@ -1293,11 +1527,17 @@ export class ProbationService {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const probationCase = await this.caseRepository.findOne({
       where: { id: caseId, companyId },
+      relations: { employee: true },
     });
 
     if (!probationCase) {
       throw new NotFoundException('Probation case not found.');
     }
+
+    await this.hrAccessService.assertCanAccessEmployee(
+      actor,
+      probationCase.employee,
+    );
 
     const document = await this.letterService.generateAndStore(
       companyId,
@@ -1527,13 +1767,37 @@ export class ProbationService {
     extended_cases: number;
   }> {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const accessibleEmployeeIds =
+      await this.hrAccessService.getAccessibleEmployeeIds(actor);
+
+    if (accessibleEmployeeIds !== null && accessibleEmployeeIds.length === 0) {
+      return {
+        total_on_probation: 0,
+        confirmation_due_30_days: 0,
+        overdue: 0,
+        pending_manager_review: 0,
+        pending_hr_review: 0,
+        extended_cases: 0,
+      };
+    }
+
     const today = formatDateOnly(new Date());
     const nextThirtyDays = addDaysToDateOnly(today, 30);
 
-    const baseQuery = () =>
-      this.caseRepository
+    const baseQuery = () => {
+      const queryBuilder = this.caseRepository
         .createQueryBuilder('probationCase')
         .where('probationCase.company_id = :companyId', { companyId });
+
+      if (accessibleEmployeeIds !== null) {
+        queryBuilder.andWhere(
+          'probationCase.employee_id IN (:...accessibleEmployeeIds)',
+          { accessibleEmployeeIds },
+        );
+      }
+
+      return queryBuilder;
+    };
 
     const [
       totalOnProbation,

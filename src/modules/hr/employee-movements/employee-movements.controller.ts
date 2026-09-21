@@ -16,7 +16,10 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request as ExpressRequest } from 'express';
 import { TenantGuard } from '../../../common/guards/tenant.guard';
 import { PermissionsGuard } from '../../../common/guards/permissions.guard';
-import { Permissions } from '../../../common/decorators/permissions.decorator';
+import {
+  Permissions,
+  PermissionsAny,
+} from '../../../common/decorators/permissions.decorator';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { EmployeeMovementsService } from './employee-movements.service';
 import { CreateEmployeeMovementDto } from './dtos/create-employee-movement.dto';
@@ -27,6 +30,7 @@ import {
   RejectEmployeeMovementDto,
   ReturnEmployeeMovementDto,
 } from './dtos/approve-employee-movement.dto';
+import { EmployeeMovementLetterTypeEnum } from './enums/employee-movement-letter-type.enum';
 
 type AuthedRequest = ExpressRequest & { user: AuthenticatedUser };
 
@@ -46,14 +50,24 @@ export class EmployeeMovementsController {
 
   @Get()
   @UseGuards(PermissionsGuard)
-  @Permissions('employee_movements:read')
+  @PermissionsAny(
+    'employee_movements:read',
+    'manager_team:read',
+    'manager_self_service:read',
+    'manager:read',
+  )
   findAll(@Req() req: AuthedRequest, @Query() query: EmployeeMovementQueryDto) {
     return this.service.findAll(req.user, query);
   }
 
   @Get(':id')
   @UseGuards(PermissionsGuard)
-  @Permissions('employee_movements:read')
+  @PermissionsAny(
+    'employee_movements:read',
+    'manager_team:read',
+    'manager_self_service:read',
+    'manager:read',
+  )
   findOne(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.service.findOne(req.user, id);
   }
@@ -130,9 +144,25 @@ export class EmployeeMovementsController {
     return this.service.apply(req.user, id);
   }
 
+  @Post(':id/generate-letter')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_movements:generate-letter')
+  generateLetter(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body('letter_type') letterType: EmployeeMovementLetterTypeEnum,
+  ) {
+    return this.service.generateLetter(req.user, id, letterType);
+  }
+
   @Get(':id/operations')
   @UseGuards(PermissionsGuard)
-  @Permissions('employee_movements:read')
+  @PermissionsAny(
+    'employee_movements:read',
+    'manager_team:read',
+    'manager_self_service:read',
+    'manager:read',
+  )
   findOperations(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,

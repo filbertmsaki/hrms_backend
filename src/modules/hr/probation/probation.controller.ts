@@ -18,13 +18,18 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request as ExpressRequest } from 'express';
 import { TenantGuard } from '../../../common/guards/tenant.guard';
 import { PermissionsGuard } from '../../../common/guards/permissions.guard';
-import { Permissions } from '../../../common/decorators/permissions.decorator';
+import {
+  Permissions,
+  PermissionsAny,
+} from '../../../common/decorators/permissions.decorator';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { ProbationService } from './probation.service';
 import { CreateProbationPolicyDto } from './dtos/create-probation-policy.dto';
 import { UpdateProbationPolicyDto } from './dtos/update-probation-policy.dto';
 import { ProbationPolicyQueryDto } from './dtos/probation-policy-query.dto';
 import { ProbationCaseQueryDto } from './dtos/probation-case-query.dto';
+import { CreateProbationCaseDto } from './dtos/create-probation-case.dto';
+import { UpdateProbationCaseDto } from './dtos/update-probation-case.dto';
 import { SubmitProbationManagerReviewDto } from './dtos/submit-probation-manager-review.dto';
 import { SubmitProbationHrDecisionDto } from './dtos/submit-probation-hr-decision.dto';
 import { ProbationLetterTypeEnum } from './enums/probation-letter-type.enum';
@@ -82,21 +87,57 @@ export class ProbationController {
 
   @Get('dashboard/summary')
   @UseGuards(PermissionsGuard)
-  @Permissions('probation_cases:read')
+  @PermissionsAny(
+    'probation_cases:read',
+    'probation_cases:read-team',
+    'manager_team:read',
+    'manager_self_service:read',
+    'manager:read',
+  )
   getDashboardSummary(@Req() req: AuthedRequest) {
     return this.service.getDashboardSummary(req.user);
   }
 
   @Get('cases')
   @UseGuards(PermissionsGuard)
-  @Permissions('probation_cases:read')
+  @PermissionsAny(
+    'probation_cases:read',
+    'probation_cases:read-team',
+    'manager_team:read',
+    'manager_self_service:read',
+    'manager:read',
+  )
   listCases(@Req() req: AuthedRequest, @Query() query: ProbationCaseQueryDto) {
     return this.service.listCases(req.user, query);
   }
 
+  @Post('cases')
+  @UseGuards(PermissionsGuard)
+  @Permissions('probation_cases:create')
+  createCase(@Req() req: AuthedRequest, @Body() dto: CreateProbationCaseDto) {
+    return this.service.createCaseManually(req.user, dto);
+  }
+
+  @Patch('cases/:id')
+  @UseGuards(PermissionsGuard)
+  @Permissions('probation_cases:update')
+  updateCase(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateProbationCaseDto,
+  ) {
+    return this.service.updateCaseManually(req.user, id, dto);
+  }
+
   @Get('cases/my-team')
   @UseGuards(PermissionsGuard)
-  @Permissions('probation_cases:read-team')
+  @PermissionsAny(
+    'probation_cases:read-team',
+    'probation_reviews:manager-review',
+    'manager_team:read',
+    'manager_self_service:read',
+    'manager:read',
+  )
   listMyTeamCases(
     @Req() req: AuthedRequest,
     @Query() query: ProbationCaseQueryDto,
@@ -106,7 +147,13 @@ export class ProbationController {
 
   @Get('cases/:id')
   @UseGuards(PermissionsGuard)
-  @Permissions('probation_cases:read')
+  @PermissionsAny(
+    'probation_cases:read',
+    'probation_cases:read-team',
+    'manager_team:read',
+    'manager_self_service:read',
+    'manager:read',
+  )
   getCase(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.service.getCase(req.user, id);
   }
@@ -121,7 +168,10 @@ export class ProbationController {
 
   @Post('cases/:id/manager-review')
   @UseGuards(PermissionsGuard)
-  @Permissions('probation_reviews:manager-review')
+  @PermissionsAny(
+    'probation_reviews:manager-review',
+    'probation_reviews:manager-review-any',
+  )
   managerReview(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,

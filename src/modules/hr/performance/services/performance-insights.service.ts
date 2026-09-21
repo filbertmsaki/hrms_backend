@@ -5,12 +5,16 @@ import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-u
 import { HrAccessService } from '../../shared/hr-access.service';
 import { KpiAchievement } from '../entities/kpi-achievement.entity';
 import { PerformancePeriod } from '../entities/performance-period.entity';
+import { PerformanceDevelopmentPlan } from '../entities/performance-development-plan.entity';
+import { PerformanceFeedback360Request } from '../entities/performance-feedback-360-request.entity';
+import { PerformanceImprovementPlan } from '../entities/performance-improvement-plan.entity';
 import { PerformanceReview } from '../entities/performance-review.entity';
 import { KpiAchievementStatusEnum } from '../enums/kpi-achievement-status.enum';
 import { PerformancePeriodStatusEnum } from '../enums/performance-period-status.enum';
 import { PerformanceReviewStatusEnum } from '../enums/performance-review-status.enum';
 import { EmployeeKpi } from '../entities/employee-kpi.entity';
 import { EmployeeKpiStatusEnum } from '../enums/employee-kpi-status.enum';
+import { PerformanceFeedback360StatusEnum } from '../enums/performance-feedback-360-status.enum';
 
 @Injectable()
 export class PerformanceInsightsService {
@@ -24,6 +28,12 @@ export class PerformanceInsightsService {
     private readonly reviewRepository: Repository<PerformanceReview>,
     @InjectRepository(EmployeeKpi)
     private readonly employeeKpiRepository: Repository<EmployeeKpi>,
+    @InjectRepository(PerformanceDevelopmentPlan)
+    private readonly developmentPlanRepository: Repository<PerformanceDevelopmentPlan>,
+    @InjectRepository(PerformanceImprovementPlan)
+    private readonly pipRepository: Repository<PerformanceImprovementPlan>,
+    @InjectRepository(PerformanceFeedback360Request)
+    private readonly feedback360Repository: Repository<PerformanceFeedback360Request>,
   ) {}
 
   async getCompanySummary(actor: AuthenticatedUser) {
@@ -35,6 +45,9 @@ export class PerformanceInsightsService {
       publishedReviews,
       pendingKpiProposals,
       approvedKpiProposals,
+      activeDevelopmentPlans,
+      activePips,
+      pendingFeedback360,
     ] = await Promise.all([
       this.periodRepository.count({
         where: {
@@ -73,6 +86,15 @@ export class PerformanceInsightsService {
       this.employeeKpiRepository.count({
         where: { companyId, status: EmployeeKpiStatusEnum.APPROVED },
       }),
+      this.developmentPlanRepository.count({
+        where: { companyId, status: 'ACTIVE' },
+      }),
+      this.pipRepository.count({
+        where: { companyId, status: In(['ACTIVE', 'DRAFT']) },
+      }),
+      this.feedback360Repository.count({
+        where: { companyId, status: PerformanceFeedback360StatusEnum.PENDING },
+      }),
     ]);
 
     const finalScoreRow = await this.reviewRepository
@@ -91,6 +113,9 @@ export class PerformanceInsightsService {
       published_reviews: publishedReviews,
       pending_kpi_proposals: pendingKpiProposals,
       approved_kpi_proposals: approvedKpiProposals,
+      active_development_plans: activeDevelopmentPlans,
+      active_improvement_plans: activePips,
+      pending_feedback_360: pendingFeedback360,
       average_published_score: Number(
         Number(finalScoreRow?.average_score ?? 0).toFixed(2),
       ),
@@ -114,6 +139,8 @@ export class PerformanceInsightsService {
       employeeKpis,
       approvedEmployeeKpis,
       returnedEmployeeKpis,
+      developmentPlans,
+      pendingFeedback360,
     ] = await Promise.all([
       this.reviewRepository.count({
         where: {
@@ -154,6 +181,16 @@ export class PerformanceInsightsService {
           status: EmployeeKpiStatusEnum.RETURNED,
         },
       }),
+      this.developmentPlanRepository.count({
+        where: { companyId, employeeId: actor.employeeId, status: 'ACTIVE' },
+      }),
+      this.feedback360Repository.count({
+        where: {
+          companyId,
+          raterEmployeeId: actor.employeeId,
+          status: PerformanceFeedback360StatusEnum.PENDING,
+        },
+      }),
     ]);
 
     return {
@@ -164,6 +201,8 @@ export class PerformanceInsightsService {
       employee_kpis: employeeKpis,
       approved_employee_kpis: approvedEmployeeKpis,
       returned_employee_kpis: returnedEmployeeKpis,
+      development_plans: developmentPlans,
+      pending_feedback_360: pendingFeedback360,
     };
   }
 
@@ -181,6 +220,8 @@ export class PerformanceInsightsService {
       publishedTeamReviews,
       pendingKpiReviews,
       approvedTeamKpis,
+      activeTeamDevelopmentPlans,
+      pendingTeamFeedback360,
     ] = await Promise.all([
       this.achievementRepository
         .createQueryBuilder('achievement')
@@ -222,6 +263,28 @@ export class PerformanceInsightsService {
           status: EmployeeKpiStatusEnum.APPROVED,
         },
       }),
+      this.developmentPlanRepository.count({
+        where: {
+          companyId,
+          managerEmployeeId: actor.employeeId,
+          status: 'ACTIVE',
+        },
+      }),
+      this.feedback360Repository
+        .createQueryBuilder('feedback')
+        .innerJoin(
+          'employees',
+          'employee',
+          'employee.id = feedback.subject_employee_id',
+        )
+        .where('feedback.company_id = :companyId', { companyId })
+        .andWhere('employee.reports_to = :managerEmployeeId', {
+          managerEmployeeId: actor.employeeId,
+        })
+        .andWhere('feedback.status = :status', {
+          status: PerformanceFeedback360StatusEnum.PENDING,
+        })
+        .getCount(),
     ]);
 
     return {
@@ -229,6 +292,8 @@ export class PerformanceInsightsService {
       published_team_reviews: publishedTeamReviews,
       pending_kpi_reviews: pendingKpiReviews,
       approved_team_kpis: approvedTeamKpis,
+      active_team_development_plans: activeTeamDevelopmentPlans,
+      pending_team_feedback_360: pendingTeamFeedback360,
     };
   }
 }

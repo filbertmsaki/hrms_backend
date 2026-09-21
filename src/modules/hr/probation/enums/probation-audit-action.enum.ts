@@ -1,5 +1,6 @@
 export enum ProbationAuditActionEnum {
   CASE_CREATED = 'probation.case.created',
+  CASE_UPDATED = 'probation.case.updated',
   OBJECTIVE_CREATED = 'probation.objective.created',
   OBJECTIVE_UPDATED = 'probation.objective.updated',
   SELF_ASSESSMENT_SUBMITTED = 'probation.self_assessment.submitted',

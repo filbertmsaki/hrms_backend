@@ -31,6 +31,8 @@ import { PerformanceReviewStatusEnum } from '../enums/performance-review-status.
 import { PerformanceAuditService } from './performance-audit.service';
 import { PerformanceCompetencyService } from './performance-competency.service';
 import { PerformanceImprovementPlanService } from './performance-improvement-plan.service';
+import { PerformanceScorecardService } from './performance-scorecard.service';
+import { PerformanceWorkflowService } from './performance-workflow.service';
 
 @Injectable()
 export class PerformanceReviewService {
@@ -40,6 +42,8 @@ export class PerformanceReviewService {
     private readonly auditService: PerformanceAuditService,
     private readonly competencyService: PerformanceCompetencyService,
     private readonly improvementPlanService: PerformanceImprovementPlanService,
+    private readonly scorecardService: PerformanceScorecardService,
+    private readonly workflowService: PerformanceWorkflowService,
     @InjectRepository(KpiAchievement)
     private readonly achievementRepository: Repository<KpiAchievement>,
     @InjectRepository(PerformancePeriodAssignment)
@@ -141,6 +145,8 @@ export class PerformanceReviewService {
       },
     });
 
+    await this.workflowService.initializeForReview(actor, saved, assignment);
+
     return saved;
   }
 
@@ -170,28 +176,32 @@ export class PerformanceReviewService {
     }
 
     const review = await this.getOrCreateReview(assignment);
-    const kpiScore = achievements.reduce(
-      (sum, achievement) => sum + Number(achievement.weightedScore ?? 0),
-      0,
-    );
     const adjustmentScore =
       dto.adjustment_score ?? Number(review.adjustmentScore ?? 0);
+    const scorecardCalculation =
+      await this.scorecardService.calculateReviewScore({
+        companyId,
+        assignment,
+        review,
+        achievements,
+        adjustmentScore,
+      });
 
-    review.kpiScore = kpiScore.toFixed(4);
-    review.adjustmentScore = adjustmentScore.toFixed(4);
-    const competencyScore = Number(review.competencyScore ?? 0);
-    const blendedFinalScore = Number(
-      (kpiScore + competencyScore + adjustmentScore).toFixed(4),
-    );
-    review.finalScore = blendedFinalScore.toFixed(4);
+    review.kpiScore = scorecardCalculation.kpiScore;
+    review.adjustmentScore = scorecardCalculation.adjustmentScore;
+    review.competencyScore = scorecardCalculation.competencyScore;
+    review.finalScore = scorecardCalculation.finalScore;
     review.hrReview = dto.hr_review ?? null;
     review.status = dto.publish
       ? PerformanceReviewStatusEnum.PUBLISHED
       : PerformanceReviewStatusEnum.APPROVED;
     review.calculationSnapshot = {
+      ...scorecardCalculation.snapshot,
       achievement_ids: achievements.map((item) => item.id),
       achievement_scores: achievements.map((item) => ({
         id: item.id,
+        raw_score: item.rawScore,
+        capped_score: item.cappedScore,
         weighted_score: item.weightedScore,
       })),
       kpi_score: review.kpiScore,
@@ -209,10 +219,11 @@ export class PerformanceReviewService {
     });
 
     if (ratingScale) {
+      const finalScoreNumber = Number(review.finalScore);
       const matchingBand = ratingScale.bands.find(
         (band) =>
-          blendedFinalScore >= Number(band.minimumScore) &&
-          blendedFinalScore <= Number(band.maximumScore),
+          finalScoreNumber >= Number(band.minimumScore) &&
+          finalScoreNumber <= Number(band.maximumScore),
       );
 
       review.ratingScaleId = ratingScale.id;

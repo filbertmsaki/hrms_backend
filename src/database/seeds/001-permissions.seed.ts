@@ -2002,6 +2002,16 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow viewing probation and confirmation cases',
   },
   {
+    name: 'probation_cases:create',
+    displayName: 'Create probation cases',
+    description: 'Allow manually creating probation cases',
+  },
+  {
+    name: 'probation_cases:update',
+    displayName: 'Update probation cases',
+    description: 'Allow manually editing probation cases',
+  },
+  {
     name: 'probation_cases:delete',
     displayName: 'Delete probation cases',
     description: 'Allow cancelling or deleting probation cases',
@@ -2097,6 +2107,11 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow creating an employee movement with an effective date in the past',
   },
   {
+    name: 'employee_movements:generate-letter',
+    displayName: 'Generate employee movement letters',
+    description: 'Allow generating letters/documents for an employee movement',
+  },
+  {
     name: 'employee_compensation:read',
     displayName: 'Read employee compensation history',
     description: 'Allow viewing employee compensation version history',
@@ -2162,6 +2177,30 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     name: 'performance_rating_scales:create',
     displayName: 'Create performance rating scales',
     description: 'Allow creating performance rating scales',
+  },
+  {
+    name: 'performance_scorecards:read',
+    displayName: 'Read performance scorecards',
+    description:
+      'Allow viewing configurable appraisal scorecard components and weights',
+  },
+  {
+    name: 'performance_scorecards:create',
+    displayName: 'Create performance scorecards',
+    description:
+      'Allow creating configurable appraisal scorecard components and weights',
+  },
+  {
+    name: 'performance_workflows:read',
+    displayName: 'Read performance workflows',
+    description:
+      'Allow viewing configurable appraisal workflow approval chains',
+  },
+  {
+    name: 'performance_workflows:create',
+    displayName: 'Create performance workflows',
+    description:
+      'Allow creating configurable appraisal workflow approval chains',
   },
   {
     name: 'performance_competencies:read',
@@ -2236,6 +2275,17 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow HR to approve and publish performance reviews',
   },
   {
+    name: 'performance_reviews:workflow-read',
+    displayName: 'Read performance review workflow',
+    description: 'Allow viewing approval progress for appraisal workflows',
+  },
+  {
+    name: 'performance_reviews:workflow-action',
+    displayName: 'Action performance review workflow',
+    description:
+      'Allow assigned approvers to approve, return, or reject appraisal workflow steps',
+  },
+  {
     name: 'performance_reviews:moderate',
     displayName: 'Moderate performance reviews',
     description: 'Allow moderated score adjustments for performance reviews',
@@ -2257,6 +2307,39 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     displayName: 'Review performance appeals',
     description:
       'Allow HR or management to view and handle performance appeals',
+  },
+  {
+    name: 'performance_development_plans:read',
+    displayName: 'Read development plans',
+    description: 'Allow viewing employee performance development plans',
+  },
+  {
+    name: 'performance_development_plans:create',
+    displayName: 'Create development plans',
+    description:
+      'Allow creating employee development plans and carry-forward goals',
+  },
+  {
+    name: 'performance_development_plans:update',
+    displayName: 'Update development plans',
+    description: 'Allow updating employee development goal progress',
+  },
+  {
+    name: 'performance_reports:read',
+    displayName: 'Read performance reports',
+    description: 'Allow viewing the performance report catalog',
+  },
+  {
+    name: 'performance_reports:export',
+    displayName: 'Export performance reports',
+    description:
+      'Allow exporting performance reports as CSV, Excel, PDF, or JSON',
+  },
+  {
+    name: 'performance_calibration:read',
+    displayName: 'Read performance calibration',
+    description:
+      'Allow viewing department and cross-department appraisal calibration comparisons',
   },
   {
     name: 'performance_kpis:sync',
@@ -2362,6 +2445,30 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     name: 'performance_pip:close',
     displayName: 'Close performance improvement plans',
     description: 'Allow closing completed performance improvement plans',
+  },
+  {
+    name: 'performance_feedback_360:invite',
+    displayName: 'Invite 360 feedback raters',
+    description:
+      'Allow inviting peers, subordinates, managers, and stakeholders to give 360 feedback on a review',
+  },
+  {
+    name: 'performance_feedback_360:read',
+    displayName: 'Read 360 feedback',
+    description:
+      'Allow viewing 360 feedback requests and summaries for a performance review',
+  },
+  {
+    name: 'performance_feedback_360:self:read',
+    displayName: 'Read own 360 feedback assignments',
+    description:
+      'Allow employees to view 360 feedback requests assigned to them as a rater',
+  },
+  {
+    name: 'performance_feedback_360:self:submit',
+    displayName: 'Submit own 360 feedback',
+    description:
+      'Allow employees to submit or decline 360 feedback requests assigned to them as a rater',
   },
   {
     name: 'work_activities:self-service:read',

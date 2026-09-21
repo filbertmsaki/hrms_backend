@@ -8,11 +8,13 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request as ExpressRequest } from 'express';
+import type { Response as ExpressResponse } from 'express';
 import { Permissions } from '../../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../../common/guards/tenant.guard';
@@ -22,10 +24,21 @@ import { CreateKpiApplicabilityRuleDto } from '../dto/create-kpi-applicability-r
 import { ApprovePerformanceReviewDto } from '../dto/approve-performance-review.dto';
 import { CreateCompetencyTemplateDto } from '../dto/create-competency-template.dto';
 import { CreateKpiDefinitionDto } from '../dto/create-kpi-definition.dto';
+import { CreatePerformanceFeedback360RequestDto } from '../dto/create-performance-feedback-360-request.dto';
 import { CreatePerformanceFinancialYearDto } from '../dto/create-performance-financial-year.dto';
 import { CreatePerformanceImprovementPlanDto } from '../dto/create-performance-improvement-plan.dto';
+import {
+  CarryForwardPerformanceDevelopmentGoalsDto,
+  CreatePerformanceDevelopmentPlanDto,
+  UpdatePerformanceDevelopmentGoalDto,
+} from '../dto/performance-development-plan.dto';
 import { CreatePerformancePlanDto } from '../dto/create-performance-plan.dto';
 import { CreatePerformanceRatingScaleDto } from '../dto/create-performance-rating-scale.dto';
+import { CreatePerformanceScorecardConfigDto } from '../dto/performance-scorecard-config.dto';
+import {
+  CreatePerformanceWorkflowConfigDto,
+  PerformanceWorkflowActionDto,
+} from '../dto/performance-workflow.dto';
 import { CreateKpiTemplateDto } from '../dto/create-kpi-template.dto';
 import { GeneratePerformancePlanFromRulesDto } from '../dto/generate-performance-plan-from-rules.dto';
 import { ModeratePerformanceReviewDto } from '../dto/moderate-performance-review.dto';
@@ -36,14 +49,21 @@ import { KpiApplicabilityService } from '../services/kpi-applicability.service';
 import { KpiDefinitionService } from '../services/kpi-definition.service';
 import { KpiDataSourceRegistryService } from '../services/kpi-data-source-registry.service';
 import { PerformanceAggregationService } from '../services/performance-aggregation.service';
+import { PerformanceCalibrationService } from '../services/performance-calibration.service';
+import { PerformanceFeedback360Service } from '../services/performance-feedback-360.service';
 import { PerformanceCompetencyService } from '../services/performance-competency.service';
+import { PerformanceDevelopmentPlanService } from '../services/performance-development-plan.service';
 import { PerformanceFinancialYearService } from '../services/performance-financial-year.service';
 import { PerformanceImprovementPlanService } from '../services/performance-improvement-plan.service';
 import { PerformanceInsightsService } from '../services/performance-insights.service';
 import { PerformancePeriodService } from '../services/performance-period.service';
 import { PerformancePlanService } from '../services/performance-plan.service';
 import { PerformanceRatingScaleService } from '../services/performance-rating-scale.service';
+import { PerformanceReportService } from '../services/performance-report.service';
+import type { PerformanceReportFormat } from '../services/performance-report.service';
 import { PerformanceReviewService } from '../services/performance-review.service';
+import { PerformanceScorecardService } from '../services/performance-scorecard.service';
+import { PerformanceWorkflowService } from '../services/performance-workflow.service';
 import {
   CreatePerformancePeriodDto,
   PerformancePeriodQueryDto,
@@ -61,6 +81,8 @@ export class PerformanceController {
     private readonly financialYearService: PerformanceFinancialYearService,
     private readonly periodService: PerformancePeriodService,
     private readonly ratingScaleService: PerformanceRatingScaleService,
+    private readonly scorecardService: PerformanceScorecardService,
+    private readonly workflowService: PerformanceWorkflowService,
     private readonly competencyService: PerformanceCompetencyService,
     private readonly kpiDefinitionService: KpiDefinitionService,
     private readonly applicabilityService: KpiApplicabilityService,
@@ -68,8 +90,12 @@ export class PerformanceController {
     private readonly dataSourceRegistryService: KpiDataSourceRegistryService,
     private readonly reviewService: PerformanceReviewService,
     private readonly improvementPlanService: PerformanceImprovementPlanService,
+    private readonly developmentPlanService: PerformanceDevelopmentPlanService,
+    private readonly reportService: PerformanceReportService,
     private readonly aggregationService: PerformanceAggregationService,
+    private readonly calibrationService: PerformanceCalibrationService,
     private readonly insightsService: PerformanceInsightsService,
+    private readonly feedback360Service: PerformanceFeedback360Service,
   ) {}
 
   @Post('financial-years')
@@ -172,6 +198,40 @@ export class PerformanceController {
   @Permissions('performance_rating_scales:read')
   listRatingScales(@Req() req: AuthedRequest) {
     return this.ratingScaleService.list(req.user);
+  }
+
+  @Post('scorecards')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_scorecards:create')
+  createScorecard(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreatePerformanceScorecardConfigDto,
+  ) {
+    return this.scorecardService.create(req.user, dto);
+  }
+
+  @Get('scorecards')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_scorecards:read')
+  listScorecards(@Req() req: AuthedRequest) {
+    return this.scorecardService.list(req.user);
+  }
+
+  @Post('workflows')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_workflows:create')
+  createWorkflow(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreatePerformanceWorkflowConfigDto,
+  ) {
+    return this.workflowService.create(req.user, dto);
+  }
+
+  @Get('workflows')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_workflows:read')
+  listWorkflows(@Req() req: AuthedRequest) {
+    return this.workflowService.list(req.user);
   }
 
   @Post('competency-templates')
@@ -307,6 +367,35 @@ export class PerformanceController {
     return this.reviewService.approve(req.user, periodAssignmentId, dto);
   }
 
+  @Get('reviews/:id/workflow')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_reviews:workflow-read')
+  getReviewWorkflow(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.workflowService.getReviewWorkflow(req.user, id);
+  }
+
+  @Post('reviews/:id/workflow/action')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_reviews:workflow-action')
+  async actionReviewWorkflow(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: PerformanceWorkflowActionDto,
+  ) {
+    const result = await this.workflowService.actOnCurrentStep(
+      req.user,
+      id,
+      dto,
+    );
+    if (!result.completed) {
+      return result;
+    }
+    return this.reviewService.approve(req.user, result.periodAssignmentId, dto);
+  }
+
   @Post('reviews/:id/moderate')
   @UseGuards(PermissionsGuard)
   @Permissions('performance_reviews:moderate')
@@ -354,6 +443,80 @@ export class PerformanceController {
     return this.improvementPlanService.list(req.user);
   }
 
+  @Post('development-plans')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_development_plans:create')
+  createDevelopmentPlan(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreatePerformanceDevelopmentPlanDto,
+  ) {
+    return this.developmentPlanService.create(req.user, dto);
+  }
+
+  @Get('development-plans')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_development_plans:read')
+  listDevelopmentPlans(@Req() req: AuthedRequest) {
+    return this.developmentPlanService.list(req.user);
+  }
+
+  @Get('reports/catalog')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_reports:read')
+  listReportCatalog() {
+    return this.reportService.catalog();
+  }
+
+  @Get('reports/:code/export')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_reports:export')
+  async exportReport(
+    @Req() req: AuthedRequest,
+    @Param('code') code: string,
+    @Query('format') format = 'csv',
+    @Res() res: ExpressResponse,
+  ) {
+    const normalizedFormat = format.toLowerCase() as PerformanceReportFormat;
+    const buffer = await this.reportService.export(
+      req.user,
+      code,
+      normalizedFormat,
+    );
+    const contentTypes: Record<PerformanceReportFormat, string> = {
+      json: 'application/json',
+      csv: 'text/csv',
+      xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      pdf: 'application/pdf',
+    };
+    res.setHeader('Content-Type', contentTypes[normalizedFormat]);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${code.toLowerCase()}.${normalizedFormat}"`,
+    );
+    return res.send(buffer);
+  }
+
+  @Patch('development-goals/:id')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_development_plans:update')
+  updateDevelopmentGoal(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdatePerformanceDevelopmentGoalDto,
+  ) {
+    return this.developmentPlanService.updateGoal(req.user, id, dto);
+  }
+
+  @Post('development-plans/carry-forward')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_development_plans:create')
+  carryForwardDevelopmentGoals(
+    @Req() req: AuthedRequest,
+    @Body() dto: CarryForwardPerformanceDevelopmentGoalsDto,
+  ) {
+    return this.developmentPlanService.carryForward(req.user, dto);
+  }
+
   @Post('improvement-milestones/:id/review')
   @UseGuards(PermissionsGuard)
   @Permissions('performance_pip:review')
@@ -373,6 +536,51 @@ export class PerformanceController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.improvementPlanService.close(req.user, id);
+  }
+
+  @Post('reviews/:id/feedback-360/invitations')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_feedback_360:invite')
+  inviteFeedback360(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreatePerformanceFeedback360RequestDto,
+  ) {
+    return this.feedback360Service.invite(req.user, id, dto);
+  }
+
+  @Get('reviews/:id/feedback-360')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_feedback_360:read')
+  listFeedback360(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.feedback360Service.listForReview(req.user, id);
+  }
+
+  @Get('reviews/:id/feedback-360/summary')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_feedback_360:read')
+  getFeedback360Summary(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.feedback360Service.getSummaryForReview(req.user, id);
+  }
+
+  @Get('calibration/departments')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_calibration:read')
+  getCalibrationDepartmentSummary(@Req() req: AuthedRequest) {
+    return this.calibrationService.departmentSummary(req.user);
+  }
+
+  @Get('calibration/comparison')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_calibration:read')
+  getCalibrationComparison(@Req() req: AuthedRequest) {
+    return this.calibrationService.comparison(req.user);
   }
 
   @Get('dashboard/summary')

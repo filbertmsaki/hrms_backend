@@ -17,10 +17,15 @@ import { Permissions } from '../../../../common/decorators/permissions.decorator
 import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
+import { DeclinePerformanceFeedback360Dto } from '../dto/decline-performance-feedback-360.dto';
+import { UpdatePerformanceDevelopmentGoalDto } from '../dto/performance-development-plan.dto';
+import { SubmitPerformanceFeedback360Dto } from '../dto/submit-performance-feedback-360.dto';
 import { SubmitSelfReviewDto } from '../dto/submit-self-review.dto';
 import { SubmitPerformanceAppealDto } from '../dto/submit-performance-appeal.dto';
 import { UpsertKpiAchievementDto } from '../dto/upsert-kpi-achievement.dto';
 import { KpiAchievementService } from '../services/kpi-achievement.service';
+import { PerformanceDevelopmentPlanService } from '../services/performance-development-plan.service';
+import { PerformanceFeedback360Service } from '../services/performance-feedback-360.service';
 import { PerformanceImprovementPlanService } from '../services/performance-improvement-plan.service';
 import { PerformanceInsightsService } from '../services/performance-insights.service';
 import { PerformancePlanService } from '../services/performance-plan.service';
@@ -46,7 +51,9 @@ export class PerformanceSelfServiceController {
     private readonly planService: PerformancePlanService,
     private readonly reviewService: PerformanceReviewService,
     private readonly improvementPlanService: PerformanceImprovementPlanService,
+    private readonly developmentPlanService: PerformanceDevelopmentPlanService,
     private readonly employeeKpiService: EmployeeKpiService,
+    private readonly feedback360Service: PerformanceFeedback360Service,
   ) {}
 
   @Get('kpis')
@@ -188,5 +195,52 @@ export class PerformanceSelfServiceController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.improvementPlanService.acknowledge(req.user, id);
+  }
+
+  @Get('development-plans')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_self_service:read')
+  listDevelopmentPlans(@Req() req: AuthedRequest) {
+    return this.developmentPlanService.list(req.user);
+  }
+
+  @Patch('development-goals/:id')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_self_service:update')
+  updateDevelopmentGoal(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdatePerformanceDevelopmentGoalDto,
+  ) {
+    return this.developmentPlanService.updateGoal(req.user, id, dto);
+  }
+
+  @Get('feedback-360')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_feedback_360:self:read')
+  listAssignedFeedback360(@Req() req: AuthedRequest) {
+    return this.feedback360Service.listAssignedToMe(req.user);
+  }
+
+  @Post('feedback-360/:id/submit')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_feedback_360:self:submit')
+  submitFeedback360(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SubmitPerformanceFeedback360Dto,
+  ) {
+    return this.feedback360Service.submit(req.user, id, dto);
+  }
+
+  @Post('feedback-360/:id/decline')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_feedback_360:self:submit')
+  declineFeedback360(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: DeclinePerformanceFeedback360Dto,
+  ) {
+    return this.feedback360Service.decline(req.user, id, dto);
   }
 }

@@ -9,7 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { createHash } from 'crypto';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { AttendanceRecalculationJob } from '../attendance/processing/entities/attendance-recalculation-job.entity';
 import { AttendanceProcessingJobStatusEnum } from '../attendance/processing/enums/attendance-processing-job-status.enum';
@@ -32,6 +32,7 @@ import { Department } from '../departments/entities/department.entity';
 import { Position } from '../positions/entities/position.entity';
 import { EmployeeGrade } from '../grades/entities/employee-grade.entity';
 import { CostCenter } from '../cost-centers/entities/cost-center.entity';
+import { Document } from '../documents/entities/document.entity';
 import { HrAccessService } from '../shared/hr-access.service';
 import { PositionAvailabilityService } from '../shared/position-availability.service';
 import { addDaysToDateOnly, formatDateOnly } from '../shared/hr.utils';
@@ -48,6 +49,8 @@ import {
   OPEN_EMPLOYEE_MOVEMENT_STATUSES,
 } from './enums/employee-movement-status.enum';
 import { EmployeeMovementFieldEnum } from './enums/employee-movement-field.enum';
+import { EmployeeMovementLetterTypeEnum } from './enums/employee-movement-letter-type.enum';
+import { EmployeeMovementLetterService } from './services/employee-movement-letter.service';
 import { CreateEmployeeMovementDto } from './dtos/create-employee-movement.dto';
 import { UpdateEmployeeMovementDto } from './dtos/update-employee-movement.dto';
 import { ApproveEmployeeMovementDto } from './dtos/approve-employee-movement.dto';
@@ -102,6 +105,7 @@ export class EmployeeMovementsService {
     private readonly hrAccessService: HrAccessService,
     private readonly positionAvailabilityService: PositionAvailabilityService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly letterService: EmployeeMovementLetterService,
     @InjectRepository(EmployeeMovement)
     private readonly movementRepository: Repository<EmployeeMovement>,
   ) {}
@@ -848,6 +852,18 @@ export class EmployeeMovementsService {
     query: { employee_id?: number; status?: string; movement_type?: string },
   ): Promise<EmployeeMovement[]> {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const accessibleEmployeeIds =
+      await this.hrAccessService.getAccessibleEmployeeIds(actor);
+
+    if (accessibleEmployeeIds !== null) {
+      if (query.employee_id) {
+        if (!accessibleEmployeeIds.includes(query.employee_id)) {
+          return [];
+        }
+      } else if (accessibleEmployeeIds.length === 0) {
+        return [];
+      }
+    }
 
     return this.movementRepository.find({
       where: {
@@ -858,7 +874,11 @@ export class EmployeeMovementsService {
         ...(query.movement_type
           ? { movementType: query.movement_type as EmployeeMovementTypeEnum }
           : {}),
-        ...(query.employee_id ? { employeeId: query.employee_id } : {}),
+        ...(query.employee_id
+          ? { employeeId: query.employee_id }
+          : accessibleEmployeeIds !== null
+            ? { employeeId: In(accessibleEmployeeIds) }
+            : {}),
       },
       relations: { employee: true },
       order: { createdAt: 'DESC' },
@@ -886,6 +906,46 @@ export class EmployeeMovementsService {
     );
 
     return movement;
+  }
+
+  async generateLetter(
+    actor: AuthenticatedUser,
+    movementId: number,
+    letterType: EmployeeMovementLetterTypeEnum,
+  ): Promise<Document> {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+
+    const movement = await this.movementRepository.findOne({
+      where: { id: movementId, companyId },
+      relations: { employee: true },
+    });
+
+    if (!movement) {
+      throw new NotFoundException('Employee movement not found.');
+    }
+
+    await this.hrAccessService.assertCanAccessEmployee(
+      actor,
+      movement.employee,
+    );
+
+    if (
+      ![
+        EmployeeMovementStatusEnum.APPROVED,
+        EmployeeMovementStatusEnum.SCHEDULED,
+        EmployeeMovementStatusEnum.APPLIED,
+      ].includes(movement.status)
+    ) {
+      throw new ConflictException(
+        'Letters can only be generated for approved, scheduled, or applied movements.',
+      );
+    }
+
+    return this.letterService.generateAndStore(
+      companyId,
+      movementId,
+      letterType,
+    );
   }
 
   async update(
@@ -1933,6 +1993,20 @@ export class EmployeeMovementsService {
   ): Promise<EmployeeMovement> {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
 
+    return this.applyMovementById(companyId, movementId);
+  }
+
+  async applyScheduled(
+    companyId: number,
+    movementId: number,
+  ): Promise<EmployeeMovement> {
+    return this.applyMovementById(companyId, movementId);
+  }
+
+  private async applyMovementById(
+    companyId: number,
+    movementId: number,
+  ): Promise<EmployeeMovement> {
     try {
       return await this.dataSource.transaction(
         'SERIALIZABLE',
@@ -2461,6 +2535,10 @@ export class EmployeeMovementsService {
 
       if (!operation) {
         throw new NotFoundException('Movement operation not found.');
+      }
+
+      if (operation.status !== EmployeeMovementOperationStatusEnum.FAILED) {
+        throw new ConflictException('Only failed operations can be retried.');
       }
 
       operation.attemptCount += 1;

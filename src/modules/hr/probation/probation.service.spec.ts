@@ -1,4 +1,9 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { ProbationService } from './probation.service';
 import { ProbationCase } from './entities/probation-case.entity';
 import { ProbationPolicy } from './entities/probation-policy.entity';
@@ -55,6 +60,7 @@ describe('ProbationService', () => {
   let policyResolver: { resolve: jest.Mock };
   let hrAccessService: {
     ensureActorCompanyId: jest.Mock;
+    getAccessibleEmployeeIds: jest.Mock;
     assertCanAccessEmployee: jest.Mock;
     assertCompanyScopedActor: jest.Mock;
   };
@@ -117,6 +123,7 @@ describe('ProbationService', () => {
     policyResolver = { resolve: jest.fn().mockResolvedValue(null) };
     hrAccessService = {
       ensureActorCompanyId: jest.fn(() => 10),
+      getAccessibleEmployeeIds: jest.fn().mockResolvedValue(null),
       assertCanAccessEmployee: jest.fn(),
       assertCompanyScopedActor: jest.fn(),
     };
@@ -145,6 +152,58 @@ describe('ProbationService', () => {
       caseRepository as never,
       policyRepository as never,
     );
+  });
+
+  describe('case retrieval scoping', () => {
+    it('limits listCases to employees in the actor access scope', async () => {
+      hrAccessService.getAccessibleEmployeeIds.mockResolvedValue([2, 3]);
+      caseRepository.find.mockResolvedValue([]);
+
+      await service.listCases(actor, { status: 'ACTIVE' });
+
+      expect(caseRepository.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            companyId: 10,
+            status: ProbationCaseStatusEnum.ACTIVE,
+            employeeId: expect.any(Object),
+          }),
+        }),
+      );
+    });
+
+    it('returns no listCases rows when the actor has no accessible employees', async () => {
+      hrAccessService.getAccessibleEmployeeIds.mockResolvedValue([]);
+
+      await expect(service.listCases(actor, {})).resolves.toEqual([]);
+      expect(caseRepository.find).not.toHaveBeenCalled();
+    });
+
+    it('combines assigned and accessible employees for team probation cases', async () => {
+      hrAccessService.getAccessibleEmployeeIds.mockResolvedValue([5, 8, 9]);
+      caseRepository.find.mockResolvedValue([]);
+
+      await service.listMyTeamCases(actor, {
+        status: 'MANAGER_REVIEW_PENDING',
+      });
+
+      expect(caseRepository.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: [
+            expect.objectContaining({
+              companyId: 10,
+              managerCompanyUserId: 90,
+              status: ProbationCaseStatusEnum.MANAGER_REVIEW_PENDING,
+            }),
+            expect.objectContaining({
+              companyId: 10,
+              employeeId: expect.any(Object),
+              status: ProbationCaseStatusEnum.MANAGER_REVIEW_PENDING,
+            }),
+          ],
+        }),
+      );
+    });
   });
 
   const buildManagerFor = (repos: Partial<Record<string, MockRepo>>) => ({
@@ -412,6 +471,203 @@ describe('ProbationService', () => {
           comments: 'Needs more time',
         }),
       ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('createCaseManually', () => {
+    it('creates a new case for an employee without an open case', async () => {
+      const employee = buildEmployee();
+      const employeeRepo = createRepositoryMock();
+      employeeRepo.findOne.mockResolvedValue(employee);
+
+      const probationCaseRepo = createRepositoryMock();
+      probationCaseRepo.createQueryBuilder.mockReturnValue(
+        createQueryBuilderMock({ getOne: jest.fn().mockResolvedValue(null) }),
+      );
+
+      const numberSequenceRepo = createRepositoryMock();
+      numberSequenceRepo.createQueryBuilder.mockReturnValue(
+        createQueryBuilderMock({ getOne: jest.fn().mockResolvedValue(null) }),
+      );
+      numberSequenceRepo.save.mockImplementation((value: unknown) =>
+        Promise.resolve({ ...(value as object), nextNumber: 1 }),
+      );
+
+      dataSource.transaction.mockImplementation(async (cb) =>
+        cb(
+          buildManagerFor({
+            probationCase: probationCaseRepo,
+            numberSequence: numberSequenceRepo,
+            employee: employeeRepo,
+          }),
+        ),
+      );
+
+      const result = await service.createCaseManually(actor, {
+        employee_id: employee.id,
+        start_date: '2026-02-01',
+      });
+
+      expect(result).toBeTruthy();
+      expect(probationCaseRepo.save).toHaveBeenCalled();
+      expect(auditService.log).toHaveBeenCalled();
+    });
+
+    it('rejects creating a case when the employee already has an open case', async () => {
+      const employee = buildEmployee();
+      const employeeRepo = createRepositoryMock();
+      employeeRepo.findOne.mockResolvedValue(employee);
+
+      const probationCaseRepo = createRepositoryMock();
+      probationCaseRepo.createQueryBuilder.mockReturnValue(
+        createQueryBuilderMock({
+          getOne: jest
+            .fn()
+            .mockResolvedValue({ id: 99, caseNo: 'PRB-2026-000001' }),
+        }),
+      );
+
+      dataSource.transaction.mockImplementation(async (cb) =>
+        cb(
+          buildManagerFor({
+            probationCase: probationCaseRepo,
+            employee: employeeRepo,
+          }),
+        ),
+      );
+
+      await expect(
+        service.createCaseManually(actor, {
+          employee_id: employee.id,
+          start_date: '2026-02-01',
+        }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('rejects creating a case for an employee outside the company', async () => {
+      const employeeRepo = createRepositoryMock();
+      employeeRepo.findOne.mockResolvedValue(null);
+
+      dataSource.transaction.mockImplementation(async (cb) =>
+        cb(buildManagerFor({ employee: employeeRepo })),
+      );
+
+      await expect(
+        service.createCaseManually(actor, {
+          employee_id: 404,
+          start_date: '2026-02-01',
+        }),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('updateCaseManually', () => {
+    const buildEditableCase = (
+      overrides: Partial<ProbationCase> = {},
+    ): ProbationCase =>
+      ({
+        id: 1,
+        companyId: 10,
+        employeeId: 2,
+        caseNo: 'PRB-2026-000001',
+        employee: buildEmployee({ id: 2 }),
+        status: ProbationCaseStatusEnum.ACTIVE,
+        currentCycleNumber: 1,
+        currentStartDate: '2026-01-01',
+        currentDueDate: '2026-06-30',
+        policyId: null,
+        policySnapshot: null,
+        ...overrides,
+      }) as ProbationCase;
+
+    it('updates the start and due date on an editable case', async () => {
+      const probationCase = buildEditableCase();
+      const probationCaseRepo = createRepositoryMock();
+      probationCaseRepo.createQueryBuilder.mockReturnValue(
+        createQueryBuilderMock({
+          getOne: jest.fn().mockResolvedValue(probationCase),
+        }),
+      );
+
+      const reviewCycleRepo = createRepositoryMock();
+      reviewCycleRepo.findOne.mockResolvedValue({
+        id: 5,
+        probationCaseId: 1,
+        cycleNumber: 1,
+        managerReviewedAt: null,
+      });
+
+      const employeeRepo = createRepositoryMock();
+
+      dataSource.transaction.mockImplementation(async (cb) =>
+        cb(
+          buildManagerFor({
+            probationCase: probationCaseRepo,
+            reviewCycle: reviewCycleRepo,
+            employee: employeeRepo,
+          }),
+        ),
+      );
+
+      const result = await service.updateCaseManually(actor, 1, {
+        start_date: '2026-01-15',
+        current_due_date: '2026-07-15',
+      });
+
+      expect(result.currentStartDate).toBe('2026-01-15');
+      expect(result.currentDueDate).toBe('2026-07-15');
+      expect(auditService.log).toHaveBeenCalled();
+    });
+
+    it('rejects editing a case once the manager review has been submitted', async () => {
+      const probationCase = buildEditableCase();
+      const probationCaseRepo = createRepositoryMock();
+      probationCaseRepo.createQueryBuilder.mockReturnValue(
+        createQueryBuilderMock({
+          getOne: jest.fn().mockResolvedValue(probationCase),
+        }),
+      );
+
+      const reviewCycleRepo = createRepositoryMock();
+      reviewCycleRepo.findOne.mockResolvedValue({
+        id: 5,
+        probationCaseId: 1,
+        cycleNumber: 1,
+        managerReviewedAt: new Date('2026-02-01'),
+      });
+
+      dataSource.transaction.mockImplementation(async (cb) =>
+        cb(
+          buildManagerFor({
+            probationCase: probationCaseRepo,
+            reviewCycle: reviewCycleRepo,
+          }),
+        ),
+      );
+
+      await expect(
+        service.updateCaseManually(actor, 1, { start_date: '2026-01-15' }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('rejects editing a case that is no longer in an editable status', async () => {
+      const probationCase = buildEditableCase({
+        status: ProbationCaseStatusEnum.HR_REVIEW_PENDING,
+      });
+      const probationCaseRepo = createRepositoryMock();
+      probationCaseRepo.createQueryBuilder.mockReturnValue(
+        createQueryBuilderMock({
+          getOne: jest.fn().mockResolvedValue(probationCase),
+        }),
+      );
+
+      dataSource.transaction.mockImplementation(async (cb) =>
+        cb(buildManagerFor({ probationCase: probationCaseRepo })),
+      );
+
+      await expect(
+        service.updateCaseManually(actor, 1, { start_date: '2026-01-15' }),
+      ).rejects.toThrow(ConflictException);
     });
   });
 });

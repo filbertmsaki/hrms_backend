@@ -5,5 +5,6 @@ export enum DocumentEntityTypeEnum {
   LEAVE = 'LEAVE',
   CONTRACT = 'CONTRACT',
   PROBATION_CASE = 'PROBATION_CASE',
+  EMPLOYEE_MOVEMENT = 'EMPLOYEE_MOVEMENT',
   OTHER = 'OTHER',
 }

@@ -14,6 +14,10 @@ import { Position } from '../positions/entities/position.entity';
 import { EmployeeGrade } from '../grades/entities/employee-grade.entity';
 import { CostCenter } from '../cost-centers/entities/cost-center.entity';
 import { HrSharedModule } from '../shared/hr-shared.module';
+import { FilesModule } from '../../files/files.module';
+import { ActionInboxModule } from '../action-inbox/action-inbox.module';
+import { Document } from '../documents/entities/document.entity';
+import { PostgresAdvisoryLockService } from '../../../common/database/postgres-advisory-lock.service';
 import { EmployeeMovement } from './entities/employee-movement.entity';
 import { EmployeeMovementChange } from './entities/employee-movement-change.entity';
 import { EmployeeMovementNumberSequence } from './entities/employee-movement-number-sequence.entity';
@@ -22,6 +26,8 @@ import { EmployeeMovementOperation } from './entities/employee-movement-operatio
 import { ProbationCase } from '../probation/entities/probation-case.entity';
 import { EmployeeMovementsController } from './employee-movements.controller';
 import { EmployeeMovementsService } from './employee-movements.service';
+import { EmployeeMovementLetterService } from './services/employee-movement-letter.service';
+import { EmployeeMovementSchedulerService } from './services/employee-movement-scheduler.service';
 
 @Module({
   imports: [
@@ -32,6 +38,7 @@ import { EmployeeMovementsService } from './employee-movements.service';
       EmployeeCompensationVersion,
       EmployeeMovementOperation,
       ProbationCase,
+      Document,
       Employee,
       EmployeeBranchAssignment,
       EmployeeDepartmentAssignmentHistory,
@@ -47,9 +54,16 @@ import { EmployeeMovementsService } from './employee-movements.service';
       CostCenter,
     ]),
     HrSharedModule,
+    FilesModule,
+    ActionInboxModule,
   ],
   controllers: [EmployeeMovementsController],
-  providers: [EmployeeMovementsService],
+  providers: [
+    EmployeeMovementsService,
+    EmployeeMovementLetterService,
+    EmployeeMovementSchedulerService,
+    PostgresAdvisoryLockService,
+  ],
   exports: [EmployeeMovementsService, TypeOrmModule],
 })
 export class EmployeeMovementsModule {}
