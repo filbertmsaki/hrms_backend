@@ -49,6 +49,7 @@ import {
 } from './enums/employee-movement-status.enum';
 import { EmployeeMovementFieldEnum } from './enums/employee-movement-field.enum';
 import { CreateEmployeeMovementDto } from './dtos/create-employee-movement.dto';
+import { UpdateEmployeeMovementDto } from './dtos/update-employee-movement.dto';
 import { ApproveEmployeeMovementDto } from './dtos/approve-employee-movement.dto';
 import { EmployeeMovementOperation } from './entities/employee-movement-operation.entity';
 import { EmployeeMovementOperationTypeEnum } from './enums/employee-movement-operation-type.enum';
@@ -132,6 +133,13 @@ export class EmployeeMovementsService {
         if (!dto.new_department_id) {
           throw new BadRequestException(
             'new_department_id is required for a department transfer.',
+          );
+        }
+        break;
+      case EmployeeMovementTypeEnum.POSITION_CHANGE:
+        if (!dto.new_position_id) {
+          throw new BadRequestException(
+            'new_position_id is required for a position change.',
           );
         }
         break;
@@ -574,6 +582,101 @@ export class EmployeeMovementsService {
     );
   }
 
+  private dtoFromMovement(
+    movement: EmployeeMovement,
+  ): CreateEmployeeMovementDto {
+    const dto: CreateEmployeeMovementDto = {
+      employee_id: movement.employeeId,
+      movement_type: movement.movementType,
+      title: movement.title,
+      reason: movement.reason,
+      effective_date: movement.effectiveDate,
+      metadata: movement.metadata ?? undefined,
+    };
+
+    for (const change of movement.changes ?? []) {
+      switch (change.field) {
+        case EmployeeMovementFieldEnum.BRANCH:
+          dto.new_branch_id = change.newReferenceId ?? undefined;
+          break;
+        case EmployeeMovementFieldEnum.DEPARTMENT:
+          dto.new_department_id = change.newReferenceId ?? undefined;
+          break;
+        case EmployeeMovementFieldEnum.POSITION:
+          dto.new_position_id = change.newReferenceId ?? undefined;
+          break;
+        case EmployeeMovementFieldEnum.GRADE:
+          dto.new_grade_id = change.newReferenceId ?? undefined;
+          break;
+        case EmployeeMovementFieldEnum.COST_CENTER:
+          dto.new_cost_center_id = change.newReferenceId ?? undefined;
+          break;
+        case EmployeeMovementFieldEnum.REPORTING_MANAGER:
+          dto.new_manager_employee_id = change.newReferenceId ?? undefined;
+          break;
+        case EmployeeMovementFieldEnum.EMPLOYMENT_TYPE:
+          dto.new_employment_type = change.newValue?.value as
+            | EmploymentTypeEnum
+            | undefined;
+          break;
+        case EmployeeMovementFieldEnum.BASE_SALARY:
+          dto.salary_revision = {
+            base_salary: this.stringFromMovementValue(change.newValue?.amount),
+            currency: this.stringFromMovementValue(change.newValue?.currency),
+            salary_structure_code:
+              typeof change.newValue?.salary_structure_code === 'string'
+                ? change.newValue.salary_structure_code
+                : undefined,
+            revision_reference:
+              typeof change.newValue?.revision_reference === 'string'
+                ? change.newValue.revision_reference
+                : undefined,
+            justification: this.stringFromMovementValue(
+              change.newValue?.justification,
+            ),
+          };
+          break;
+      }
+    }
+
+    return dto;
+  }
+
+  private stringFromMovementValue(value: unknown): string {
+    if (typeof value === 'string') {
+      return value;
+    }
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return String(value);
+    }
+
+    return '';
+  }
+
+  private mergeUpdateDto(
+    movement: EmployeeMovement,
+    dto: UpdateEmployeeMovementDto,
+  ): CreateEmployeeMovementDto {
+    return {
+      ...this.dtoFromMovement(movement),
+      ...dto,
+    };
+  }
+
+  private assertMovementCanBeEdited(movement: EmployeeMovement): void {
+    if (
+      ![
+        EmployeeMovementStatusEnum.DRAFT,
+        EmployeeMovementStatusEnum.RETURNED_FOR_CORRECTION,
+      ].includes(movement.status)
+    ) {
+      throw new ConflictException(
+        'Only draft or returned movements can be edited.',
+      );
+    }
+  }
+
   private movementHasSalaryChange(
     changes: EmployeeMovementChange[] | undefined,
   ): boolean {
@@ -742,7 +845,7 @@ export class EmployeeMovementsService {
 
   async findAll(
     actor: AuthenticatedUser,
-    query: { status?: string; movement_type?: string },
+    query: { employee_id?: number; status?: string; movement_type?: string },
   ): Promise<EmployeeMovement[]> {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
 
@@ -755,6 +858,7 @@ export class EmployeeMovementsService {
         ...(query.movement_type
           ? { movementType: query.movement_type as EmployeeMovementTypeEnum }
           : {}),
+        ...(query.employee_id ? { employeeId: query.employee_id } : {}),
       },
       relations: { employee: true },
       order: { createdAt: 'DESC' },
@@ -782,6 +886,145 @@ export class EmployeeMovementsService {
     );
 
     return movement;
+  }
+
+  async update(
+    actor: AuthenticatedUser,
+    movementId: number,
+    dto: UpdateEmployeeMovementDto,
+  ): Promise<EmployeeMovement> {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+
+    return this.dataSource.transaction(async (manager) => {
+      const movement = await this.lockMovement(companyId, movementId, manager);
+      this.assertMovementCanBeEdited(movement);
+
+      const mergedDto = this.mergeUpdateDto(movement, dto);
+      this.validateFieldsForType(mergedDto);
+
+      const employee = await manager
+        .getRepository(Employee)
+        .createQueryBuilder('employee')
+        .setLock('pessimistic_read')
+        .where('employee.id = :employeeId', {
+          employeeId: mergedDto.employee_id,
+        })
+        .andWhere('employee.company_id = :companyId', { companyId })
+        .getOne();
+
+      if (!employee) {
+        throw new NotFoundException('Employee not found.');
+      }
+
+      await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+
+      if (employee.employment_status !== EmploymentStatusEnum.ACTIVE) {
+        throw new BadRequestException(
+          'Only active employees can have an organizational movement.',
+        );
+      }
+
+      this.validateEffectiveDate(employee, mergedDto.effective_date, actor);
+
+      const branchId = mergedDto.new_branch_id ?? employee.primary_branch_id;
+      const departmentId =
+        mergedDto.new_department_id ?? employee.primary_department_id;
+      const positionId =
+        mergedDto.new_position_id ?? employee.primary_position_id;
+
+      await this.validateMovementReferences(
+        companyId,
+        employee,
+        branchId,
+        departmentId,
+        positionId,
+        mergedDto,
+        manager,
+      );
+
+      const activeConflict = await manager
+        .getRepository(EmployeeMovement)
+        .createQueryBuilder('movement')
+        .where('movement.company_id = :companyId', { companyId })
+        .andWhere('movement.id != :movementId', { movementId })
+        .andWhere('movement.employee_id = :employeeId', {
+          employeeId: employee.id,
+        })
+        .andWhere('movement.status IN (:...statuses)', {
+          statuses: OPEN_EMPLOYEE_MOVEMENT_STATUSES,
+        })
+        .andWhere('movement.effective_date = :effectiveDate', {
+          effectiveDate: mergedDto.effective_date,
+        })
+        .getOne();
+
+      if (activeConflict) {
+        throw new ConflictException(
+          `An active movement already exists for this employee on ${mergedDto.effective_date}.`,
+        );
+      }
+
+      const currentCompensation = await this.getCurrentCompensation(
+        companyId,
+        employee.id,
+        manager,
+      );
+      const currentSnapshot = this.buildCurrentSnapshot(
+        employee,
+        currentCompensation,
+      );
+      const proposedSnapshot = this.buildProposedSnapshot(
+        currentSnapshot,
+        mergedDto,
+      );
+
+      movement.employeeId = employee.id;
+      movement.movementType = mergedDto.movement_type;
+      movement.title = mergedDto.title.trim();
+      movement.reason = mergedDto.reason.trim();
+      movement.effectiveDate = mergedDto.effective_date;
+      movement.currentSnapshot = currentSnapshot;
+      movement.proposedSnapshot = proposedSnapshot;
+      movement.employeeVersionAtCreation = employee.version ?? null;
+      movement.snapshotHash = this.hashSnapshot(currentSnapshot);
+      movement.metadata = mergedDto.metadata ?? null;
+
+      const repository = manager.getRepository(EmployeeMovement);
+      await repository.save(movement);
+      await manager
+        .getRepository(EmployeeMovementChange)
+        .delete({ movementId });
+      await this.createMovementChanges(
+        movement,
+        mergedDto,
+        currentSnapshot,
+        manager,
+      );
+
+      return repository.findOneOrFail({
+        where: { id: movement.id, companyId },
+        relations: { employee: true, changes: true },
+      });
+    });
+  }
+
+  async remove(
+    actor: AuthenticatedUser,
+    movementId: number,
+  ): Promise<{ message: string }> {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+
+    await this.dataSource.transaction(async (manager) => {
+      const movement = await this.lockMovement(companyId, movementId, manager);
+      this.assertMovementCanBeEdited(movement);
+      await this.hrAccessService.assertCanAccessEmployee(
+        actor,
+        movement.employee,
+      );
+      await manager.getRepository(EmployeeMovement).remove(movement);
+    });
+
+    return { message: 'Employee movement deleted.' };
   }
 
   private async lockMovement(

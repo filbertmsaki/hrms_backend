@@ -1,9 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Query,
   Req,
@@ -18,6 +20,7 @@ import { Permissions } from '../../../common/decorators/permissions.decorator';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { EmployeeMovementsService } from './employee-movements.service';
 import { CreateEmployeeMovementDto } from './dtos/create-employee-movement.dto';
+import { UpdateEmployeeMovementDto } from './dtos/update-employee-movement.dto';
 import { EmployeeMovementQueryDto } from './dtos/employee-movement-query.dto';
 import {
   ApproveEmployeeMovementDto,
@@ -53,6 +56,24 @@ export class EmployeeMovementsController {
   @Permissions('employee_movements:read')
   findOne(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.service.findOne(req.user, id);
+  }
+
+  @Patch(':id')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_movements:create')
+  update(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateEmployeeMovementDto,
+  ) {
+    return this.service.update(req.user, id, dto);
+  }
+
+  @Delete(':id')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_movements:cancel')
+  remove(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.service.remove(req.user, id);
   }
 
   @Post(':id/submit')
