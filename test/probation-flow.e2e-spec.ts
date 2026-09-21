@@ -74,6 +74,7 @@ describe('Probation Flow (e2e)', () => {
     assertCanAccessEmployee: jest.Mock;
     assertCompanyScopedActor: jest.Mock;
     ensureActorCompanyId: jest.Mock;
+    getAccessibleEmployeeIds: jest.Mock;
   };
   let auditService: { log: jest.Mock };
 
@@ -85,6 +86,7 @@ describe('Probation Flow (e2e)', () => {
       assertCanAccessEmployee: jest.fn(),
       assertCompanyScopedActor: jest.fn(),
       ensureActorCompanyId: jest.fn().mockReturnValue(10),
+      getAccessibleEmployeeIds: jest.fn().mockResolvedValue(null),
     };
     auditService = { log: jest.fn() };
 
