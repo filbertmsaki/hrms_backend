@@ -44,6 +44,10 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+      actions: write
+
     concurrency:
       group: hrms-backend-ci-${{ github.ref }}
       cancel-in-progress: true
@@ -435,6 +439,29 @@ jobs:
           retention-days: 14
 
           compression-level: 0
+
+      - name: Prune old release artifacts
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          keep=10
+          repo="${{ github.repository }}"
+          mapfile -t ids < <(
+            gh api "repos/${repo}/actions/artifacts" --paginate -q \
+              '.artifacts[] | select(.name | startswith("hrms-backend-release-")) | [.created_at, .id] | @tsv' \
+              | sort -r | tail -n +$((keep + 1)) | cut -f2
+          )
+          if [[ ${#ids[@]} -eq 0 ]]; then
+            echo "Nothing to prune, ${keep} or fewer artifacts exist."
+            exit 0
+          fi
+          echo "Deleting ${#ids[@]} artifact(s) beyond the newest ${keep}."
+          for id in "${ids[@]}"; do
+            gh api -X DELETE "repos/${repo}/actions/artifacts/${id}" && echo "Deleted artifact $id" || echo "Failed to delete artifact $id" >&2
+          done
 
   deploy:
     name: Deploy HRMS backend
