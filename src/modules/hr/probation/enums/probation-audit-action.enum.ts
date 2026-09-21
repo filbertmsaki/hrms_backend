@@ -12,4 +12,6 @@ export enum ProbationAuditActionEnum {
   LETTER_GENERATED = 'probation.letter.generated',
   REVIEWER_REASSIGNED = 'probation.reviewer.reassigned',
   CASE_CANCELLED = 'probation.case.cancelled',
+  CASE_DELETED = 'probation.case.deleted',
+  POLICY_DELETED = 'probation.policy.deleted',
 }

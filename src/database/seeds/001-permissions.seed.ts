@@ -1992,9 +1992,19 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow updating probation policies',
   },
   {
+    name: 'probation_policies:delete',
+    displayName: 'Delete probation policies',
+    description: 'Allow deleting probation policies',
+  },
+  {
     name: 'probation_cases:read',
     displayName: 'Read probation cases',
     description: 'Allow viewing probation and confirmation cases',
+  },
+  {
+    name: 'probation_cases:delete',
+    displayName: 'Delete probation cases',
+    description: 'Allow cancelling or deleting probation cases',
   },
   {
     name: 'probation_cases:read-team',

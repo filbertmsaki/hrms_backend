@@ -142,6 +142,7 @@ export class ProbationPolicy {
 
   @OneToMany(() => ProbationPolicyCriterion, (criterion) => criterion.policy, {
     cascade: true,
+    orphanedRowAction: 'delete',
   })
   criteria: ProbationPolicyCriterion[];
 }

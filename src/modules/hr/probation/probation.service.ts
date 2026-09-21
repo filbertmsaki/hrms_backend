@@ -173,6 +173,11 @@ export class ProbationService {
       name: string;
       description: string;
       status: string;
+      employment_type: EmploymentTypeEnum;
+      branch_id: number | null;
+      department_id: number | null;
+      position_id: number | null;
+      grade_id: number | null;
       probation_period_days: number;
       self_assessment_required: boolean;
       objectives_required: boolean;
@@ -186,6 +191,15 @@ export class ProbationService {
       priority: number;
       effective_to: string;
       is_default: boolean;
+      criteria: Array<{
+        code: string;
+        name: string;
+        description?: string;
+        weight: number;
+        maximum_rating?: number;
+        self_rating_enabled?: boolean;
+        is_required?: boolean;
+      }>;
     }>,
     actor: AuthenticatedUser,
   ): Promise<ProbationPolicy> {
@@ -193,6 +207,7 @@ export class ProbationService {
 
     const policy = await this.policyRepository.findOne({
       where: { id, companyId },
+      relations: { criteria: true },
     });
 
     if (!policy) {
@@ -202,6 +217,13 @@ export class ProbationService {
     if (dto.name !== undefined) policy.name = dto.name;
     if (dto.description !== undefined) policy.description = dto.description;
     if (dto.status !== undefined) policy.status = dto.status;
+    if (dto.employment_type !== undefined)
+      policy.employmentType = dto.employment_type;
+    if (dto.branch_id !== undefined) policy.branchId = dto.branch_id;
+    if (dto.department_id !== undefined)
+      policy.departmentId = dto.department_id;
+    if (dto.position_id !== undefined) policy.positionId = dto.position_id;
+    if (dto.grade_id !== undefined) policy.gradeId = dto.grade_id;
     if (dto.probation_period_days !== undefined)
       policy.probationPeriodDays = dto.probation_period_days;
     if (dto.self_assessment_required !== undefined)
@@ -226,7 +248,45 @@ export class ProbationService {
     if (dto.effective_to !== undefined) policy.effectiveTo = dto.effective_to;
     if (dto.is_default !== undefined) policy.isDefault = dto.is_default;
 
+    if (dto.criteria !== undefined) {
+      if (dto.criteria.length > 0) {
+        this.validateCriterionWeight(dto.criteria);
+      }
+      policy.criteria = dto.criteria.map((criterion, index) => ({
+        ...(policy.criteria.find(
+          (existing) => existing.code === criterion.code,
+        ) ?? {}),
+        policyId: policy.id,
+        code: criterion.code,
+        name: criterion.name,
+        description: criterion.description ?? null,
+        weight: String(criterion.weight),
+        maximumRating: String(criterion.maximum_rating ?? 5),
+        selfRatingEnabled: criterion.self_rating_enabled ?? false,
+        isRequired: criterion.is_required ?? true,
+        sortOrder: index,
+      })) as ProbationPolicy['criteria'];
+    }
+
     return this.policyRepository.save(policy);
+  }
+
+  async deletePolicy(
+    companyId: number,
+    id: number,
+    actor: AuthenticatedUser,
+  ): Promise<void> {
+    this.hrAccessService.assertCompanyScopedActor(actor);
+
+    const policy = await this.policyRepository.findOne({
+      where: { id, companyId },
+    });
+
+    if (!policy) {
+      throw new NotFoundException('Probation policy not found.');
+    }
+
+    await this.policyRepository.remove(policy);
   }
 
   private validateCriterionWeight(criteria: Array<{ weight: number }>): void {
@@ -507,6 +567,34 @@ export class ProbationService {
     );
 
     return probationCase;
+  }
+
+  async deleteCase(actor: AuthenticatedUser, id: number): Promise<void> {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+
+    const probationCase = await this.caseRepository.findOne({
+      where: { id, companyId },
+      relations: { employee: true },
+    });
+
+    if (!probationCase) {
+      throw new NotFoundException('Probation case not found.');
+    }
+
+    await this.hrAccessService.assertCanAccessEmployee(
+      actor,
+      probationCase.employee,
+    );
+
+    await this.auditService.log({
+      action: ProbationAuditActionEnum.CASE_DELETED,
+      probationCaseId: probationCase.id,
+      actor,
+      description: `Probation case ${probationCase.caseNo} deleted.`,
+      oldValues: { status: probationCase.status },
+    });
+
+    await this.caseRepository.remove(probationCase);
   }
 
   async listCases(

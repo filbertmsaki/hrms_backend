@@ -1,7 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseIntPipe,
   Patch,
@@ -66,6 +69,17 @@ export class ProbationController {
     return this.service.updatePolicy(req.user.companyId!, id, dto, req.user);
   }
 
+  @Delete('policies/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(PermissionsGuard)
+  @Permissions('probation_policies:delete')
+  deletePolicy(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.service.deletePolicy(req.user.companyId!, id, req.user);
+  }
+
   @Get('dashboard/summary')
   @UseGuards(PermissionsGuard)
   @Permissions('probation_cases:read')
@@ -95,6 +109,14 @@ export class ProbationController {
   @Permissions('probation_cases:read')
   getCase(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.service.getCase(req.user, id);
+  }
+
+  @Delete('cases/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(PermissionsGuard)
+  @Permissions('probation_cases:delete')
+  deleteCase(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.service.deleteCase(req.user, id);
   }
 
   @Post('cases/:id/manager-review')
