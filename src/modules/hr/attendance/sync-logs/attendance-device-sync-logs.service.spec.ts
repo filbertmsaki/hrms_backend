@@ -132,7 +132,9 @@ describe('AttendanceDeviceSyncLogsService', () => {
         status: AttendanceDeviceSyncLogStatusEnum.SUCCESS,
       }),
     ).rejects.toThrow(
-      new BadRequestException('device_id does not belong to the active company'),
+      new BadRequestException(
+        'device_id does not belong to the active company',
+      ),
     );
   });
 
@@ -144,7 +146,9 @@ describe('AttendanceDeviceSyncLogsService', () => {
         status: AttendanceDeviceSyncLogStatusEnum.SUCCESS,
         started_at: 'not-a-date',
       }),
-    ).rejects.toThrow(new BadRequestException('started_at must be a valid datetime'));
+    ).rejects.toThrow(
+      new BadRequestException('started_at must be a valid datetime'),
+    );
 
     await expect(
       service.create(1, {
@@ -173,9 +177,12 @@ describe('AttendanceDeviceSyncLogsService', () => {
       to_date: '2026-08-31',
     });
 
-    expect(builder.where).toHaveBeenCalledWith('syncLog.company_id = :companyId', {
-      companyId: 1,
-    });
+    expect(builder.where).toHaveBeenCalledWith(
+      'syncLog.company_id = :companyId',
+      {
+        companyId: 1,
+      },
+    );
     expect(builder.andWhere).toHaveBeenCalledWith(
       'syncLog.device_id = :deviceId',
       { deviceId: 5 },

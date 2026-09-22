@@ -18,7 +18,7 @@ describe('EmployeeAttendanceReadinessService', () => {
   function createService(options: {
     hasCompanyDefaultTimetable: boolean;
     employees?: unknown[];
-    oneEmployee?: unknown | null;
+    oneEmployee?: unknown;
     activeTimetableIds?: number[];
     activeShiftIds?: number[];
     deviceAssignedIds?: number[];
@@ -103,7 +103,9 @@ describe('EmployeeAttendanceReadinessService', () => {
       notReady: [],
     });
     expect(timetableRepo.count).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ companyId: 17 }) }),
+      expect.objectContaining({
+        where: expect.objectContaining({ companyId: 17 }),
+      }),
     );
     expect(employeeRepo.createQueryBuilder).toHaveBeenCalledWith('emp');
   });

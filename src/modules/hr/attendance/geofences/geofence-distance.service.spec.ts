@@ -9,7 +9,12 @@ describe('GeofenceDistanceService', () => {
 
   it('calculates zero meters for the same coordinate', () => {
     expect(
-      service.calculateDistanceMeters(-6.792354, 39.208328, -6.792354, 39.208328),
+      service.calculateDistanceMeters(
+        -6.792354,
+        39.208328,
+        -6.792354,
+        39.208328,
+      ),
     ).toBe(0);
   });
 
@@ -42,7 +47,9 @@ describe('GeofenceDistanceService', () => {
 
     expect(result.valid).toBe(false);
     expect(result.distanceMeters).toBeGreaterThan(180);
-    expect(result.message).toBe('Location is outside the allowed geofence. Distance 212m, allowed 85m.');
+    expect(result.message).toBe(
+      'Location is outside the allowed geofence. Distance 212m, allowed 85m.',
+    );
   });
 
   it('rejects low GPS accuracy before accepting an in-radius coordinate in strict mode', () => {
@@ -60,7 +67,8 @@ describe('GeofenceDistanceService', () => {
     expect(result).toEqual({
       valid: false,
       distanceMeters: 0,
-      message: 'GPS accuracy is too low. Accuracy 80m is greater than allowed 25m.',
+      message:
+        'GPS accuracy is too low. Accuracy 80m is greater than allowed 25m.',
     });
   });
 });

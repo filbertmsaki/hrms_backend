@@ -263,7 +263,9 @@ describe('Employee movement endpoints (e2e)', () => {
     expect(movementsService.approve).toHaveBeenCalledWith(
       expect.objectContaining({ companyId: 10, companyMembershipId: 44 }),
       88,
-      expect.objectContaining({ comments: 'Approved after compensation review.' }),
+      expect.objectContaining({
+        comments: 'Approved after compensation review.',
+      }),
     );
 
     await request(app.getHttpServer() as App)

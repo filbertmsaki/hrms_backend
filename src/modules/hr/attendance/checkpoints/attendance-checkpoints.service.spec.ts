@@ -68,7 +68,10 @@ describe('AttendanceCheckpointsService', () => {
     geofenceRepo.findOne!.mockResolvedValue({ id: 17 });
     wifiNetworkRepo.findOne!.mockResolvedValue({ id: 9 });
     checkpointRepo.findOne!.mockImplementation(
-      async (options?: { where?: Record<string, unknown>; select?: string[] }) => {
+      async (options?: {
+        where?: Record<string, unknown>;
+        select?: string[];
+      }) => {
         const where = options?.where ?? {};
         if (where.id) {
           return savedCheckpoint({
@@ -79,10 +82,12 @@ describe('AttendanceCheckpointsService', () => {
         return null;
       },
     );
-    checkpointRepo.save!.mockImplementation(async (value: Partial<AttendanceCheckpoint>) => ({
-      ...value,
-      id: value.id ?? nextId++,
-    }));
+    checkpointRepo.save!.mockImplementation(
+      async (value: Partial<AttendanceCheckpoint>) => ({
+        ...value,
+        id: value.id ?? nextId++,
+      }),
+    );
 
     service = new AttendanceCheckpointsService(
       checkpointRepo as Repository<AttendanceCheckpoint>,
@@ -246,12 +251,15 @@ describe('AttendanceCheckpointsService', () => {
       },
       'max_distance_meters is only supported for GPS checkpoints',
     ],
-  ])('rejects invalid checkpoint config: %s', async (_caseName, dto, message) => {
-    await expect(service.create(1, dto)).rejects.toThrow(
-      new BadRequestException(message),
-    );
-    expect(checkpointRepo.save).not.toHaveBeenCalled();
-  });
+  ])(
+    'rejects invalid checkpoint config: %s',
+    async (_caseName, dto, message) => {
+      await expect(service.create(1, dto)).rejects.toThrow(
+        new BadRequestException(message),
+      );
+      expect(checkpointRepo.save).not.toHaveBeenCalled();
+    },
+  );
 
   it('rejects policy, device, geofence, and WiFi resources outside the company', async () => {
     policyRepo.findOne!.mockResolvedValueOnce(null);
@@ -263,7 +271,9 @@ describe('AttendanceCheckpointsService', () => {
         geofence_id: 17,
       }),
     ).rejects.toThrow(
-      new BadRequestException('policy_set_id does not belong to the active company'),
+      new BadRequestException(
+        'policy_set_id does not belong to the active company',
+      ),
     );
 
     deviceRepo.findOne!.mockResolvedValueOnce(null);
@@ -275,7 +285,9 @@ describe('AttendanceCheckpointsService', () => {
         device_id: 5,
       }),
     ).rejects.toThrow(
-      new BadRequestException('device_id does not belong to the active company'),
+      new BadRequestException(
+        'device_id does not belong to the active company',
+      ),
     );
 
     geofenceRepo.findOne!.mockResolvedValueOnce(null);
@@ -287,7 +299,9 @@ describe('AttendanceCheckpointsService', () => {
         geofence_id: 17,
       }),
     ).rejects.toThrow(
-      new BadRequestException('geofence_id does not belong to the active company'),
+      new BadRequestException(
+        'geofence_id does not belong to the active company',
+      ),
     );
 
     wifiNetworkRepo.findOne!.mockResolvedValueOnce(null);
@@ -299,7 +313,9 @@ describe('AttendanceCheckpointsService', () => {
         wifi_network_id: 9,
       }),
     ).rejects.toThrow(
-      new BadRequestException('wifi_network_id does not belong to the active company'),
+      new BadRequestException(
+        'wifi_network_id does not belong to the active company',
+      ),
     );
   });
 
@@ -314,7 +330,9 @@ describe('AttendanceCheckpointsService', () => {
         geofence_id: 17,
       }),
     ).rejects.toThrow(
-      new ConflictException('Checkpoint name already exists under this policy set'),
+      new ConflictException(
+        'Checkpoint name already exists under this policy set',
+      ),
     );
   });
 

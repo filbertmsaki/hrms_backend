@@ -128,11 +128,11 @@ describe('Work activity endpoints (e2e)', () => {
       reviewPlan: jest.fn().mockResolvedValue({ id: 301, status: 'APPROVED' }),
       listManagerVisits: jest.fn().mockResolvedValue([{ id: 401 }]),
       getForManager: jest.fn().mockResolvedValue({ id: 401 }),
-      reviewVisit: jest
-        .fn()
-        .mockResolvedValue({ id: 401, status: 'REVIEWED' }),
+      reviewVisit: jest.fn().mockResolvedValue({ id: 401, status: 'REVIEWED' }),
       getMapPoints: jest.fn().mockResolvedValue([{ id: 1, latitude: -6.8 }]),
-      getPlannedVsActual: jest.fn().mockResolvedValue({ planned: 1, actual: 1 }),
+      getPlannedVsActual: jest
+        .fn()
+        .mockResolvedValue({ planned: 1, actual: 1 }),
       listManagerFollowUps: jest.fn().mockResolvedValue([{ id: 801 }]),
       listExceptions: jest.fn().mockResolvedValue([]),
     };
@@ -186,7 +186,9 @@ describe('Work activity endpoints (e2e)', () => {
   });
 
   it('protects my daily activities behind the self-service read permission', async () => {
-    await request(app.getHttpServer() as App).get('/me/activities').expect(403);
+    await request(app.getHttpServer() as App)
+      .get('/me/activities')
+      .expect(403);
 
     expect(dailyActivityService.listMine).not.toHaveBeenCalled();
     expect(securityEventsService.logBestEffort).toHaveBeenCalledWith(

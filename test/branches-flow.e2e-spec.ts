@@ -159,7 +159,9 @@ describe('Branch endpoints (e2e)', () => {
       expect.objectContaining({ companyMembershipId: 231 }),
     );
 
-    await request(app.getHttpServer() as App).get('/branches/11').expect(200);
+    await request(app.getHttpServer() as App)
+      .get('/branches/11')
+      .expect(200);
     expect(branchesService.findOne).toHaveBeenCalledWith(
       10,
       11,

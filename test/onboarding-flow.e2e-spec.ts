@@ -103,7 +103,9 @@ describe('Onboarding flow endpoints (e2e)', () => {
         id: 55,
         status: 'cancelled',
       }),
-      addDocument: jest.fn().mockResolvedValue({ id: 14, title: 'Offer Letter' }),
+      addDocument: jest
+        .fn()
+        .mockResolvedValue({ id: 14, title: 'Offer Letter' }),
       listDocuments: jest.fn().mockResolvedValue([{ id: 14 }]),
       updateDocument: jest.fn().mockResolvedValue({ id: 14 }),
       verifyDocument: jest.fn().mockResolvedValue({
@@ -239,7 +241,9 @@ describe('Onboarding flow endpoints (e2e)', () => {
     );
 
     await request(app.getHttpServer() as App)
-      .get('/onboarding/requests?employee_id=501&status=submitted&page=1&limit=20')
+      .get(
+        '/onboarding/requests?employee_id=501&status=submitted&page=1&limit=20',
+      )
       .expect(200);
 
     expect(onboardingService.findAllOnboardingRequests).toHaveBeenCalledWith(
@@ -380,7 +384,10 @@ describe('Onboarding flow endpoints (e2e)', () => {
   it('routes approval rejection and cancellation through audited request actions', async () => {
     currentUser = {
       ...currentUser,
-      permissions: ['onboarding_requests:approve', 'onboarding_requests:cancel'],
+      permissions: [
+        'onboarding_requests:approve',
+        'onboarding_requests:cancel',
+      ],
     };
 
     await request(app.getHttpServer() as App)

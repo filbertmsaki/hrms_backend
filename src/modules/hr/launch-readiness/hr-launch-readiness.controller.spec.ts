@@ -41,9 +41,9 @@ describe('HrLaunchReadinessController', () => {
   });
 
   it('uses the authenticated tenant for per-employee readiness', async () => {
-    await expect(controller.employeeReadiness({ user } as never)).resolves.toEqual(
-      { summary: { totalEmployees: 2 } },
-    );
+    await expect(
+      controller.employeeReadiness({ user } as never),
+    ).resolves.toEqual({ summary: { totalEmployees: 2 } });
 
     expect(employeeReadinessService.check).toHaveBeenCalledWith(17);
   });
