@@ -515,3 +515,333 @@ export class PayrollAccountingMapping {
   @Column({ type: 'jsonb', nullable: true })
   dimensions: Record<string, unknown> | null;
 }
+
+@Entity('payroll_groups')
+@Unique('UQ_payroll_group_company_code', ['companyId', 'code'])
+@Index('IDX_payroll_group_company_status', ['companyId', 'status'])
+export class PayrollGroup {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ name: 'company_id' })
+  companyId: number;
+
+  @Column({ type: 'varchar', length: 80 })
+  code: string;
+
+  @Column({ type: 'varchar', length: 180 })
+  name: string;
+
+  @Column({ type: 'varchar', length: 60, default: 'MONTHLY' })
+  frequency: string;
+
+  @Column({ name: 'payroll_calendar_id', type: 'int', nullable: true })
+  payrollCalendarId: number | null;
+
+  @Column({ name: 'branch_id', type: 'int', nullable: true })
+  branchId: number | null;
+
+  @Column({ name: 'department_id', type: 'int', nullable: true })
+  departmentId: number | null;
+
+  @Column({
+    name: 'employee_category',
+    type: 'varchar',
+    length: 80,
+    nullable: true,
+  })
+  employeeCategory: string | null;
+
+  @Column({
+    name: 'employment_type',
+    type: 'varchar',
+    length: 80,
+    nullable: true,
+  })
+  employmentType: string | null;
+
+  @Column({ type: 'varchar', length: 3, default: 'TZS' })
+  currency: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  policy: Record<string, unknown> | null;
+
+  @Column({ type: 'varchar', length: 30, default: 'ACTIVE' })
+  status: string;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
+}
+
+@Entity('payroll_group_assignments')
+@Unique('UQ_payroll_group_assignment_effective', [
+  'companyId',
+  'payrollGroupId',
+  'employeeId',
+  'effectiveFrom',
+])
+@Index('IDX_payroll_group_assignment_group_status', [
+  'companyId',
+  'payrollGroupId',
+  'status',
+])
+export class PayrollGroupAssignment {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ name: 'company_id' })
+  companyId: number;
+
+  @Column({ name: 'payroll_group_id' })
+  payrollGroupId: number;
+
+  @Column({ name: 'employee_id' })
+  employeeId: number;
+
+  @Column({ name: 'effective_from', type: 'date' })
+  effectiveFrom: string;
+
+  @Column({ name: 'effective_to', type: 'date', nullable: true })
+  effectiveTo: string | null;
+
+  @Column({ type: 'varchar', length: 30, default: 'ACTIVE' })
+  status: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  metadata: Record<string, unknown> | null;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
+}
+
+@Entity('payroll_overtime_policies')
+@Unique('UQ_payroll_overtime_policy_company_code', ['companyId', 'code'])
+@Index('IDX_payroll_overtime_policy_company_status', ['companyId', 'status'])
+export class PayrollOvertimePolicy {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ name: 'company_id' })
+  companyId: number;
+
+  @Column({ type: 'varchar', length: 80 })
+  code: string;
+
+  @Column({ type: 'varchar', length: 180 })
+  name: string;
+
+  @Column({
+    name: 'component_code',
+    type: 'varchar',
+    length: 80,
+    default: 'OVERTIME',
+  })
+  componentCode: string;
+
+  @Column({
+    name: 'regular_multiplier',
+    type: 'decimal',
+    precision: 8,
+    scale: 4,
+    default: '1.5000',
+  })
+  regularMultiplier: string;
+
+  @Column({
+    name: 'weekend_multiplier',
+    type: 'decimal',
+    precision: 8,
+    scale: 4,
+    default: '2.0000',
+  })
+  weekendMultiplier: string;
+
+  @Column({
+    name: 'holiday_multiplier',
+    type: 'decimal',
+    precision: 8,
+    scale: 4,
+    default: '2.0000',
+  })
+  holidayMultiplier: string;
+
+  @Column({ name: 'minimum_minutes', type: 'int', default: 0 })
+  minimumMinutes: number;
+
+  @Column({ name: 'approval_required', default: true })
+  approvalRequired: boolean;
+
+  @Column({ name: 'effective_from', type: 'date' })
+  effectiveFrom: string;
+
+  @Column({ name: 'effective_to', type: 'date', nullable: true })
+  effectiveTo: string | null;
+
+  @Column({ type: 'varchar', length: 30, default: 'ACTIVE' })
+  status: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  configuration: Record<string, unknown> | null;
+}
+
+@Entity('payroll_leave_rules')
+@Unique('UQ_payroll_leave_rule_company_code', ['companyId', 'code'])
+@Index('IDX_payroll_leave_rule_type_status', [
+  'companyId',
+  'leaveTypeCode',
+  'status',
+])
+export class PayrollLeaveRule {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ name: 'company_id' })
+  companyId: number;
+
+  @Column({ type: 'varchar', length: 80 })
+  code: string;
+
+  @Column({ type: 'varchar', length: 180 })
+  name: string;
+
+  @Column({ name: 'leave_type_code', type: 'varchar', length: 80 })
+  leaveTypeCode: string;
+
+  @Column({
+    name: 'paid_percentage',
+    type: 'decimal',
+    precision: 7,
+    scale: 4,
+    default: '100',
+  })
+  paidPercentage: string;
+
+  @Column({
+    name: 'paid_days_cap',
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
+  paidDaysCap: string | null;
+
+  @Column({
+    name: 'half_pay_after_days',
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
+  halfPayAfterDays: string | null;
+
+  @Column({
+    name: 'unpaid_after_days',
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
+  unpaidAfterDays: string | null;
+
+  @Column({
+    name: 'carry_forward_cap_days',
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
+  carryForwardCapDays: string | null;
+
+  @Column({ name: 'effective_from', type: 'date' })
+  effectiveFrom: string;
+
+  @Column({ name: 'effective_to', type: 'date', nullable: true })
+  effectiveTo: string | null;
+
+  @Column({ type: 'varchar', length: 30, default: 'ACTIVE' })
+  status: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  configuration: Record<string, unknown> | null;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
+}
+
+@Entity('payroll_bonus_schemes')
+@Unique('UQ_payroll_bonus_scheme_company_code', ['companyId', 'code'])
+@Index('IDX_payroll_bonus_scheme_company_status', ['companyId', 'status'])
+export class PayrollBonusScheme {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ name: 'company_id' })
+  companyId: number;
+
+  @Column({ type: 'varchar', length: 80 })
+  code: string;
+
+  @Column({ type: 'varchar', length: 180 })
+  name: string;
+
+  @Column({
+    name: 'scheme_type',
+    type: 'varchar',
+    length: 60,
+    default: 'BONUS',
+  })
+  schemeType: string;
+
+  @Column({ name: 'component_code', type: 'varchar', length: 80 })
+  componentCode: string;
+
+  @Column({
+    name: 'calculation_method',
+    type: 'varchar',
+    length: 60,
+    default: 'FIXED_AMOUNT',
+  })
+  calculationMethod: string;
+
+  @Column({
+    name: 'default_amount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
+  defaultAmount: string | null;
+
+  @Column({
+    name: 'default_rate',
+    type: 'decimal',
+    precision: 12,
+    scale: 6,
+    nullable: true,
+  })
+  defaultRate: string | null;
+
+  @Column({ name: 'approval_required', default: true })
+  approvalRequired: boolean;
+
+  @Column({ name: 'effective_from', type: 'date' })
+  effectiveFrom: string;
+
+  @Column({ name: 'effective_to', type: 'date', nullable: true })
+  effectiveTo: string | null;
+
+  @Column({ type: 'varchar', length: 30, default: 'ACTIVE' })
+  status: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  configuration: Record<string, unknown> | null;
+}

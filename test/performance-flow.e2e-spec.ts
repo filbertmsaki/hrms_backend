@@ -166,9 +166,15 @@ describe('Performance workflow endpoints (e2e)', () => {
         { provide: PerformanceDevelopmentPlanService, useValue: noopService },
         { provide: PerformanceReportService, useValue: noopService },
         { provide: PerformanceAggregationService, useValue: noopService },
-        { provide: PerformanceCalibrationService, useValue: calibrationService },
+        {
+          provide: PerformanceCalibrationService,
+          useValue: calibrationService,
+        },
         { provide: PerformanceInsightsService, useValue: noopService },
-        { provide: PerformanceFeedback360Service, useValue: feedback360Service },
+        {
+          provide: PerformanceFeedback360Service,
+          useValue: feedback360Service,
+        },
         { provide: KpiAchievementService, useValue: noopService },
         { provide: EmployeeKpiService, useValue: noopService },
         { provide: SecurityEventsService, useValue: securityEventsService },

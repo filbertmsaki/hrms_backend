@@ -19,15 +19,28 @@ import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-u
 import {
   ApprovePayrollRunDto,
   CreatePayrollAccountingMappingDto,
+  CreatePayrollAdjustmentDto,
+  CreatePayrollBonusSchemeDto,
   CreatePayrollCalendarDto,
   CreatePayrollComponentDto,
+  CreatePayrollGroupDto,
+  CreatePayrollGroupAssignmentDto,
   CreatePayrollInputDto,
+  CreatePayrollLeaveRuleDto,
+  CreatePayrollOvertimePolicyDto,
   CreatePayrollRunDto,
+  CreatePayrollSourceRecordBatchDto,
+  CreatePayrollSourceRecordDto,
+  DecidePayrollOvertimeDto,
   CreateSalaryStructureDto,
   CreateStatutoryRuleDto,
   CreateStatutorySchemeDto,
   GeneratePayrollPeriodDto,
+  GeneratePayrollSourceRecordsDto,
+  PayrollOvertimeApprovalQueryDto,
+  PayrollReportQueryDto,
   PayrollQueryDto,
+  ReconcilePayrollPaymentDto,
   UpsertEmployeePayrollProfileDto,
 } from '../dto/payroll.dto';
 import {
@@ -37,9 +50,11 @@ import {
   PayrollConfigurationService,
   PayrollFinalSettlementService,
   PayrollInputService,
+  PayrollOvertimeApprovalService,
   PayrollReportsService,
   PayrollReconciliationService,
   PayrollRunService,
+  PayrollSourceService,
   PayslipService,
 } from '../services/payroll-core.services';
 
@@ -156,6 +171,84 @@ export class PayrollConfigurationController {
   listAccountingMappings(@Req() req: AuthedRequest) {
     return this.service.listAccountingMappings(req.user);
   }
+
+  @Post('groups')
+  @Permissions('payroll:config')
+  createGroup(@Req() req: AuthedRequest, @Body() dto: CreatePayrollGroupDto) {
+    return this.service.createGroup(req.user, dto);
+  }
+
+  @Get('groups')
+  @Permissions('payroll:config:read')
+  listGroups(@Req() req: AuthedRequest) {
+    return this.service.listGroups(req.user);
+  }
+
+  @Post('group-assignments')
+  @Permissions('payroll:config')
+  createGroupAssignment(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreatePayrollGroupAssignmentDto,
+  ) {
+    return this.service.createGroupAssignment(req.user, dto);
+  }
+
+  @Get('group-assignments')
+  @Permissions('payroll:config:read')
+  listGroupAssignments(
+    @Req() req: AuthedRequest,
+    @Query('payroll_group_id') payrollGroupId?: string,
+  ) {
+    return this.service.listGroupAssignments(
+      req.user,
+      payrollGroupId ? Number(payrollGroupId) : undefined,
+    );
+  }
+
+  @Post('overtime-policies')
+  @Permissions('payroll:config')
+  createOvertimePolicy(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreatePayrollOvertimePolicyDto,
+  ) {
+    return this.service.createOvertimePolicy(req.user, dto);
+  }
+
+  @Get('overtime-policies')
+  @Permissions('payroll:config:read')
+  listOvertimePolicies(@Req() req: AuthedRequest) {
+    return this.service.listOvertimePolicies(req.user);
+  }
+
+  @Post('bonus-schemes')
+  @Permissions('payroll:config')
+  createBonusScheme(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreatePayrollBonusSchemeDto,
+  ) {
+    return this.service.createBonusScheme(req.user, dto);
+  }
+
+  @Get('bonus-schemes')
+  @Permissions('payroll:config:read')
+  listBonusSchemes(@Req() req: AuthedRequest) {
+    return this.service.listBonusSchemes(req.user);
+  }
+
+  @Post('leave-rules')
+  @Permissions('payroll:config')
+  createLeaveRule(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreatePayrollLeaveRuleDto,
+  ) {
+    return this.service.createLeaveRule(req.user, dto);
+  }
+
+  @Get('leave-rules')
+  @Permissions('payroll:config:read')
+  listLeaveRules(@Req() req: AuthedRequest) {
+    return this.service.listLeaveRules(req.user);
+  }
 }
 
 @ApiTags('Employee Payroll')
@@ -205,6 +298,108 @@ export class PayrollInputsController {
   approve(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.service.approve(req.user, id);
   }
+
+  @Post('adjustments')
+  @Permissions('payroll:inputs')
+  createAdjustment(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreatePayrollAdjustmentDto,
+  ) {
+    return this.service.createAdjustment(req.user, dto);
+  }
+}
+
+@ApiTags('Payroll Sources')
+@ApiBearerAuth('access-token')
+@Controller('payroll/sources')
+@UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
+export class PayrollSourcesController {
+  constructor(private readonly service: PayrollSourceService) {}
+
+  @Post()
+  @Permissions('payroll:inputs')
+  create(@Req() req: AuthedRequest, @Body() dto: CreatePayrollSourceRecordDto) {
+    return this.service.create(req.user, dto);
+  }
+
+  @Post('batch')
+  @Permissions('payroll:inputs')
+  createBatch(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreatePayrollSourceRecordBatchDto,
+  ) {
+    return this.service.createBatch(req.user, dto);
+  }
+
+  @Post('generate')
+  @Permissions('payroll:inputs')
+  generate(
+    @Req() req: AuthedRequest,
+    @Body() dto: GeneratePayrollSourceRecordsDto,
+  ) {
+    return this.service.generate(req.user, dto);
+  }
+
+  @Get()
+  @Permissions('payroll:inputs:read')
+  list(@Req() req: AuthedRequest, @Query() query: PayrollQueryDto) {
+    return this.service.list(req.user, query);
+  }
+
+  @Post(':id/approve')
+  @Permissions('payroll:inputs:approve')
+  approve(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.service.approve(req.user, id);
+  }
+
+  @Post(':id/reject')
+  @Permissions('payroll:inputs:approve')
+  reject(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.service.reject(req.user, id);
+  }
+
+  @Post(':id/post')
+  @Permissions('payroll:inputs')
+  post(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.service.post(req.user, id);
+  }
+}
+
+@ApiTags('Payroll Overtime Approvals')
+@ApiBearerAuth('access-token')
+@Controller('payroll/overtime-approvals')
+@UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
+export class PayrollOvertimeApprovalsController {
+  constructor(private readonly service: PayrollOvertimeApprovalService) {}
+
+  @Get()
+  @Permissions('payroll:inputs:read')
+  list(
+    @Req() req: AuthedRequest,
+    @Query() query: PayrollOvertimeApprovalQueryDto,
+  ) {
+    return this.service.list(req.user, query);
+  }
+
+  @Post(':id/approve')
+  @Permissions('payroll:inputs:approve')
+  approve(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: DecidePayrollOvertimeDto,
+  ) {
+    return this.service.approve(req.user, id, dto);
+  }
+
+  @Post(':id/reject')
+  @Permissions('payroll:inputs:approve')
+  reject(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: DecidePayrollOvertimeDto,
+  ) {
+    return this.service.reject(req.user, id, dto);
+  }
 }
 
 @ApiTags('Payroll Runs')
@@ -238,6 +433,12 @@ export class PayrollRunsController {
     return this.service.process(req.user, id);
   }
 
+  @Get(':id/validation')
+  @Permissions('payroll:runs:read')
+  validate(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.service.validate(req.user, id);
+  }
+
   @Post(':id/approve')
   @Permissions('payroll:runs:approve')
   approve(
@@ -252,6 +453,18 @@ export class PayrollRunsController {
   @Permissions('payroll:runs:lock')
   lock(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.service.lock(req.user, id);
+  }
+
+  @Post(':id/mark-paid')
+  @Permissions('payroll:runs:lock')
+  markPaid(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.service.markPaid(req.user, id);
+  }
+
+  @Post(':id/close')
+  @Permissions('payroll:runs:lock')
+  close(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.service.close(req.user, id);
   }
 }
 
@@ -294,6 +507,12 @@ export class MyPayslipsController {
     return this.service.listMine(req.user);
   }
 
+  @Get('summary/current')
+  @Permissions('payroll:payslips:self')
+  summaryMine(@Req() req: AuthedRequest, @Query('year') year?: string) {
+    return this.service.summaryMine(req.user, year ? Number(year) : undefined);
+  }
+
   @Get(':id')
   @Permissions('payroll:payslips:self')
   getMine(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
@@ -333,6 +552,16 @@ export class PayrollBankingController {
     @Param('batchId', ParseIntPipe) batchId: number,
   ) {
     return this.service.download(req.user, batchId);
+  }
+
+  @Post('runs/:runId/reconcile')
+  @Permissions('payroll:banking')
+  reconcile(
+    @Req() req: AuthedRequest,
+    @Param('runId', ParseIntPipe) runId: number,
+    @Body() dto: ReconcilePayrollPaymentDto,
+  ) {
+    return this.service.reconcile(req.user, runId, dto);
   }
 }
 
@@ -382,6 +611,22 @@ export class PayrollReportsController {
       runId,
       comparisonRunId ? Number(comparisonRunId) : undefined,
     );
+  }
+
+  @Get('catalog')
+  @Permissions('payroll:reports')
+  catalog() {
+    return this.reportsService.catalog();
+  }
+
+  @Get(':code')
+  @Permissions('payroll:reports')
+  report(
+    @Req() req: AuthedRequest,
+    @Param('code') code: string,
+    @Query() query: PayrollReportQueryDto,
+  ) {
+    return this.reportsService.report(req.user, code, query);
   }
 
   @Post('reconciliation/run')

@@ -171,7 +171,9 @@ describe('Offboarding flow endpoints (e2e)', () => {
       .get('/offboarding/requests?page=1&limit=20')
       .expect(403);
 
-    expect(offboardingService.findAllOffboardingRequests).not.toHaveBeenCalled();
+    expect(
+      offboardingService.findAllOffboardingRequests,
+    ).not.toHaveBeenCalled();
     expect(securityEventsService.logBestEffort).toHaveBeenCalledWith(
       expect.objectContaining({
         reason: 'Required permission check failed',

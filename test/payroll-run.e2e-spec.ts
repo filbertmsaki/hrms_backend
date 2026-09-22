@@ -21,6 +21,7 @@ import { User } from '../src/modules/users/entities/user.entity';
 import { Employee } from '../src/modules/hr/employees/entities/employee.entity';
 import { EmployeeBankAccount } from '../src/modules/hr/employees/entities/employee-bank-account.entity';
 import { EmploymentStatusEnum } from '../src/modules/hr/employees/enums/employment-status.enum';
+import { CostCenter } from '../src/modules/hr/cost-centers/entities/cost-center.entity';
 import {
   PayrollCalendar,
   PayrollPeriod,
@@ -29,6 +30,7 @@ import {
   EmployeePayrollLineItem,
   EmployeePayrollResult,
   PayrollAuditLog,
+  PayrollDeductionShortfall,
   PayrollInput,
   PayrollRun,
   PayrollRunApproval,
@@ -94,6 +96,7 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
   let employeeUserId: number;
   let employeeCompanyUserId: number;
   let employeeId: number;
+  let costCenterId: number;
   let bankAccountId: number;
   let compensationId: number;
   let profileId: number;
@@ -101,6 +104,7 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
   let inputId: number;
   let runId: number;
   let payslipId: number;
+  let attendanceSummaryId: number;
 
   let payrollCalendarRepository: Repository<PayrollCalendar>;
   let payrollPeriodRepository: Repository<PayrollPeriod>;
@@ -240,6 +244,18 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
         require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
           .PayrollAccountingMapping,
       ),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollGroup,
+      ),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollOvertimePolicy,
+      ),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollBonusScheme,
+      ),
     );
     inputService = new PayrollInputService(
       hrAccessService,
@@ -280,6 +296,22 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
       payrollInputRepository,
       dataSource.getRepository(AttendanceDailySummary),
       dataSource.getRepository(LeaveRequest),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollOvertimePolicy,
+      ),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollBonusScheme,
+      ),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollGroup,
+      ),
+      dataSource.getRepository(
+        require('../src/modules/hr/attendance/holidays/entities/holiday.entity')
+          .AttendanceHoliday,
+      ),
     );
     runService = new PayrollRunService(
       configService,
@@ -292,6 +324,11 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
       payrollResultRepository,
       payrollLineItemRepository,
       dataSource.getRepository(PayrollRunApproval),
+      dataSource.getRepository(PayrollDeductionShortfall),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollGroup,
+      ),
     );
     payslipService = new PayslipService(
       hrAccessService,
@@ -302,6 +339,10 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
       payrollResultRepository,
       payrollLineItemRepository,
       payslipRepository,
+      dataSource.getRepository(EmployeePayrollProfile),
+      dataSource.getRepository(EmployeeBankAccount),
+      dataSource.getRepository(EmployeeCompensationVersion),
+      payrollPeriodRepository,
     );
   });
 
@@ -358,6 +399,16 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     );
     employeeCompanyUserId = employeeMembership.id;
 
+    const costCenter = await dataSource.getRepository(CostCenter).save(
+      dataSource.getRepository(CostCenter).create({
+        company_id: company.id,
+        code: `PAY-${suffix}`.slice(0, 50),
+        name: 'Payroll E2E Cost Center',
+        status: 'active',
+      }),
+    );
+    costCenterId = costCenter.id;
+
     const employee = await dataSource.getRepository(Employee).save(
       dataSource.getRepository(Employee).create({
         company_id: company.id,
@@ -368,6 +419,7 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
         gender: 'female',
         employment_status: EmploymentStatusEnum.ACTIVE,
         hire_date: '2026-01-01',
+        cost_center_id: costCenterId,
       }),
     );
     employeeId = employee.id;
@@ -393,6 +445,9 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     const profile = (await profileService.upsert(adminActor(), {
       employee_id: employeeId,
       payroll_number: `PAY-${suffix}`.slice(0, 60),
+      taxpayer_identification_number: `TIN-${suffix}`.slice(0, 60),
+      social_security_scheme_code: 'NSSF',
+      social_security_number: `NSSF-${suffix}`.slice(0, 60),
       primary_bank_account_id: bankAccountId,
       currency: 'TZS',
       pay_frequency: 'MONTHLY',
@@ -451,6 +506,12 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
       await payrollPeriodRepository.delete({ id: periodId });
       periodId = 0;
     }
+    if (attendanceSummaryId) {
+      await dataSource
+        .getRepository(AttendanceDailySummary)
+        .delete({ id: attendanceSummaryId });
+      attendanceSummaryId = 0;
+    }
     if (profileId) {
       await dataSource
         .getRepository(EmployeePayrollProfile)
@@ -472,6 +533,10 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     if (employeeId) {
       await dataSource.getRepository(Employee).delete({ id: employeeId });
       employeeId = 0;
+    }
+    if (costCenterId) {
+      await dataSource.getRepository(CostCenter).delete({ id: costCenterId });
+      costCenterId = 0;
     }
     if (employeeCompanyUserId) {
       await dataSource
@@ -529,6 +594,41 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
       month: periodMonth,
     });
     periodId = period.id;
+
+    const attendanceSummary = await dataSource
+      .getRepository(AttendanceDailySummary)
+      .save(
+        dataSource.getRepository(AttendanceDailySummary).create({
+          companyId: company.id,
+          branchId: null,
+          employeeId,
+          attendanceDate: period.startDate,
+          scheduleSource: 'E2E',
+          shiftId: null,
+          timetableId: null,
+          timezone: 'Africa/Dar_es_Salaam',
+          scheduleStartAt: new Date(`${period.startDate}T06:00:00.000Z`),
+          scheduleEndAt: new Date(`${period.startDate}T14:00:00.000Z`),
+          checkInAt: new Date(`${period.startDate}T06:00:00.000Z`),
+          checkOutAt: new Date(`${period.startDate}T14:00:00.000Z`),
+          lateMinutes: 0,
+          earlyDepartureMinutes: 0,
+          workMinutes: 480,
+          breakMinutes: 0,
+          overtimeMinutes: 0,
+          attendanceStatus: 'PRESENT',
+          remarks: null,
+          flags: null,
+          sourceFirstRawLogId: null,
+          sourceLastRawLogId: null,
+          calculationVersion: 1,
+          isAdjusted: false,
+          adjustedByCompanyUserId: null,
+          adjustedAt: null,
+          finalizedAt: new Date(`${period.startDate}T15:00:00.000Z`),
+        }),
+      );
+    attendanceSummaryId = attendanceSummary.id;
 
     const input = await inputService.create(adminActor(), {
       payroll_period_id: period.id,

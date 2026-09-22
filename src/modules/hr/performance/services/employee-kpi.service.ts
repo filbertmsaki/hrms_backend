@@ -180,7 +180,9 @@ export class EmployeeKpiService {
     });
     if (!kpi) throw new NotFoundException('Employee KPI not found.');
     if (!EDITABLE_STATUSES.includes(kpi.status)) {
-      throw new ConflictException('Only draft or returned KPIs can be deleted.');
+      throw new ConflictException(
+        'Only draft or returned KPIs can be deleted.',
+      );
     }
     if (kpi.performancePeriod.status !== PerformancePeriodStatusEnum.OPEN) {
       throw new ConflictException('The performance period is not open.');

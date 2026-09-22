@@ -206,9 +206,9 @@ describe('Attendance endpoints (e2e)', () => {
       }),
       findOne: jest.fn().mockResolvedValue({ id: 41, name: 'HQ GPS' }),
       update: jest.fn().mockResolvedValue({ id: 41, status: 'INACTIVE' }),
-      remove: jest
-        .fn()
-        .mockResolvedValue({ message: 'Attendance checkpoint deleted successfully' }),
+      remove: jest.fn().mockResolvedValue({
+        message: 'Attendance checkpoint deleted successfully',
+      }),
     };
     deviceSyncLogsService = {
       create: jest.fn().mockResolvedValue({
@@ -237,9 +237,9 @@ describe('Attendance endpoints (e2e)', () => {
       }),
       findOne: jest.fn().mockResolvedValue({ id: 71, employee_id: 101 }),
       update: jest.fn().mockResolvedValue({ id: 71, status: 'INACTIVE' }),
-      remove: jest
-        .fn()
-        .mockResolvedValue({ message: 'Shift assignment deleted successfully' }),
+      remove: jest.fn().mockResolvedValue({
+        message: 'Shift assignment deleted successfully',
+      }),
     };
     shiftSchedulesService = {
       create: jest.fn().mockResolvedValue({
@@ -812,7 +812,9 @@ describe('Attendance endpoints (e2e)', () => {
     );
 
     await request(app.getHttpServer() as App)
-      .get('/attendance/assignments/shifts?employee_id=101&shift_id=12&status=ACTIVE&page=1&limit=20')
+      .get(
+        '/attendance/assignments/shifts?employee_id=101&shift_id=12&status=ACTIVE&page=1&limit=20',
+      )
       .expect(200);
 
     expect(shiftAssignmentsService.findAll).toHaveBeenCalledWith(
@@ -909,7 +911,9 @@ describe('Attendance endpoints (e2e)', () => {
     );
 
     await request(app.getHttpServer() as App)
-      .get('/attendance/schedules/manual-overrides?employee_id=101&shift_id=12&from_date=2026-08-01&to_date=2026-08-31&page=1&limit=20')
+      .get(
+        '/attendance/schedules/manual-overrides?employee_id=101&shift_id=12&from_date=2026-08-01&to_date=2026-08-31&page=1&limit=20',
+      )
       .expect(200);
 
     expect(shiftSchedulesService.findAll).toHaveBeenCalledWith(
