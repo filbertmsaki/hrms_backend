@@ -183,9 +183,39 @@ export class KpiDefinitionService {
   async list(actor: AuthenticatedUser): Promise<KpiDefinition[]> {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     return this.definitionRepository.find({
-      where: { companyId },
+      where: { companyId, status: 'ACTIVE' },
       relations: { versions: true },
       order: { id: 'DESC', versions: { versionNumber: 'DESC' } },
     });
+  }
+
+  /**
+   * KPI definitions are referenced by templates and performance plans, so a
+   * hard delete would break historical records. DELETE therefore archives the
+   * definition and leaves its versions intact for audit/history purposes.
+   */
+  async archive(actor: AuthenticatedUser, id: number): Promise<KpiDefinition> {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const definition = await this.definitionRepository.findOne({
+      where: { id, companyId },
+      relations: { versions: true },
+    });
+
+    if (!definition) {
+      throw new NotFoundException('KPI definition not found.');
+    }
+    if (definition.status !== 'ACTIVE') {
+      return definition;
+    }
+
+    definition.status = 'INACTIVE';
+    const saved = await this.definitionRepository.save(definition);
+    await this.auditService.log({
+      action: PerformanceAuditActionEnum.KPI_ARCHIVED,
+      actor,
+      beforeValues: { kpi_definition_id: definition.id, status: 'ACTIVE' },
+      afterValues: { kpi_definition_id: saved.id, status: saved.status },
+    });
+    return saved;
   }
 }
