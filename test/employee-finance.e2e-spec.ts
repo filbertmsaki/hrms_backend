@@ -30,6 +30,7 @@ import {
   EmployeePayrollLineItem,
   EmployeePayrollResult,
   PayrollAuditLog,
+  PayrollDeductionShortfall,
   PayrollInput,
   PayrollRun,
   PayrollRunApproval,
@@ -325,6 +326,18 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
         require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
           .PayrollAccountingMapping,
       ),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollGroup,
+      ),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollOvertimePolicy,
+      ),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollBonusScheme,
+      ),
     );
     new PayrollInputService(
       hrAccessService,
@@ -440,6 +453,22 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       payrollInputRepository,
       dataSource.getRepository(AttendanceDailySummary),
       dataSource.getRepository(LeaveRequest),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollOvertimePolicy,
+      ),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollBonusScheme,
+      ),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollGroup,
+      ),
+      dataSource.getRepository(
+        require('../src/modules/hr/attendance/holidays/entities/holiday.entity')
+          .AttendanceHoliday,
+      ),
     );
     runService = new PayrollRunService(
       configService,
@@ -452,6 +481,11 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       payrollResultRepository,
       payrollLineItemRepository,
       dataSource.getRepository(PayrollRunApproval),
+      dataSource.getRepository(PayrollDeductionShortfall),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollGroup,
+      ),
     );
   });
 

@@ -1194,6 +1194,26 @@ export class EmployeeFinanceApprovalService {
       if (!employee) throw new NotFoundException('Employee not found.');
       await this.hrAccessService.assertCanAccessEmployee(actor, employee);
     }
+    const actorMembershipId = actor.companyMembershipId ?? actor.id;
+    if (
+      this.configService.get<boolean>(
+        'EMPLOYEE_FINANCE_REQUIRE_DISTINCT_APPROVERS',
+        true,
+      )
+    ) {
+      const priorApproval = await this.approvalRepository.findOne({
+        where: {
+          companyId: application.companyId,
+          applicationId: application.id,
+          createdByCompanyUserId: actorMembershipId,
+        },
+      });
+      if (priorApproval) {
+        throw new ForbiddenException(
+          'Finance approver cannot approve multiple stages for the same application.',
+        );
+      }
+    }
     if (dto.approved_amount) application.approvedAmount = dto.approved_amount;
     if (dto.approved_term_months)
       application.approvedTermMonths = dto.approved_term_months;
@@ -1221,7 +1241,7 @@ export class EmployeeFinanceApprovalService {
         snapshotHash: dto.snapshot_hash,
         approvedAmount: application.approvedAmount,
         approvedTermMonths: application.approvedTermMonths,
-        createdByCompanyUserId: actor.companyMembershipId ?? actor.id,
+        createdByCompanyUserId: actorMembershipId,
         comments: dto.comments ?? null,
       }),
     );
@@ -1557,6 +1577,26 @@ export class EmployeeFinancePayrollInstructionService {
     return instructions;
   }
 
+  async setReservedAmount(
+    instruction: EmployeeFinancePayrollInstruction,
+    reservedAmount: string,
+  ) {
+    const deferredAmount = EmployeeFinanceMoney.subtract(
+      instruction.amount,
+      reservedAmount,
+    );
+    instruction.reservedAmount = reservedAmount;
+    instruction.status = EmployeeFinancePayrollInstructionStatusEnum.RESERVED;
+    instruction.snapshot = {
+      ...(instruction.snapshot ?? {}),
+      requested_amount: instruction.amount,
+      reserved_amount: reservedAmount,
+      deferred_amount: deferredAmount,
+      deduction_shortfall: EmployeeFinanceMoney.toCents(deferredAmount) > 0n,
+    };
+    return this.instructionRepository.save(instruction);
+  }
+
   async lockForPayrollRun(companyId: number, payrollRunId: number) {
     const instructions = await this.instructionRepository.find({
       where: {
@@ -1567,6 +1607,12 @@ export class EmployeeFinancePayrollInstructionService {
       order: { id: 'ASC' },
     });
     for (const instruction of instructions) {
+      if (EmployeeFinanceMoney.toCents(instruction.reservedAmount) <= 0n) {
+        instruction.status =
+          EmployeeFinancePayrollInstructionStatusEnum.SHORTFALL;
+        await this.instructionRepository.save(instruction);
+        continue;
+      }
       await this.postPayrollInstruction(instruction);
     }
   }

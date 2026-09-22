@@ -384,6 +384,10 @@ export class CreatePayrollRunDto {
   payroll_period_id: number;
 
   @IsOptional()
+  @Type(() => Number)
+  payroll_group_id?: number;
+
+  @IsOptional()
   @IsEnum(PayrollRunTypeEnum)
   run_type?: PayrollRunTypeEnum;
 
@@ -420,4 +424,381 @@ export class CreatePayrollAccountingMappingDto {
 
   @IsOptional()
   dimensions?: Record<string, unknown>;
+}
+
+export class CreatePayrollGroupDto {
+  @IsString()
+  code: string;
+
+  @IsString()
+  name: string;
+
+  @IsOptional()
+  @IsString()
+  frequency?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  payroll_calendar_id?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  branch_id?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  department_id?: number;
+
+  @IsOptional()
+  @IsString()
+  employee_category?: string;
+
+  @IsOptional()
+  @IsString()
+  employment_type?: string;
+
+  @IsOptional()
+  @IsString()
+  currency?: string;
+
+  @IsOptional()
+  policy?: Record<string, unknown>;
+}
+
+export class CreatePayrollGroupAssignmentDto {
+  @Type(() => Number)
+  @IsNumber()
+  payroll_group_id: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  employee_id: number;
+
+  @IsDateString()
+  effective_from: string;
+
+  @IsOptional()
+  @IsDateString()
+  effective_to?: string;
+
+  @IsOptional()
+  metadata?: Record<string, unknown>;
+}
+
+export class CreatePayrollOvertimePolicyDto {
+  @IsString()
+  code: string;
+
+  @IsString()
+  name: string;
+
+  @IsOptional()
+  @IsString()
+  component_code?: string;
+
+  @IsOptional()
+  @IsString()
+  regular_multiplier?: string;
+
+  @IsOptional()
+  @IsString()
+  weekend_multiplier?: string;
+
+  @IsOptional()
+  @IsString()
+  holiday_multiplier?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  minimum_minutes?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  approval_required?: boolean;
+
+  @IsDateString()
+  effective_from: string;
+
+  @IsOptional()
+  @IsDateString()
+  effective_to?: string;
+
+  @IsOptional()
+  configuration?: Record<string, unknown>;
+}
+
+export class CreatePayrollLeaveRuleDto {
+  @IsString()
+  code: string;
+
+  @IsString()
+  name: string;
+
+  @IsString()
+  leave_type_code: string;
+
+  @IsOptional()
+  @IsString()
+  paid_percentage?: string;
+
+  @IsOptional()
+  @IsString()
+  paid_days_cap?: string;
+
+  @IsOptional()
+  @IsString()
+  half_pay_after_days?: string;
+
+  @IsOptional()
+  @IsString()
+  unpaid_after_days?: string;
+
+  @IsOptional()
+  @IsString()
+  carry_forward_cap_days?: string;
+
+  @IsDateString()
+  effective_from: string;
+
+  @IsOptional()
+  @IsDateString()
+  effective_to?: string;
+
+  @IsOptional()
+  configuration?: Record<string, unknown>;
+}
+
+export class CreatePayrollBonusSchemeDto {
+  @IsString()
+  code: string;
+
+  @IsString()
+  name: string;
+
+  @IsOptional()
+  @IsString()
+  scheme_type?: string;
+
+  @IsString()
+  component_code: string;
+
+  @IsOptional()
+  @IsString()
+  calculation_method?: string;
+
+  @IsOptional()
+  @IsString()
+  default_amount?: string;
+
+  @IsOptional()
+  @IsString()
+  default_rate?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  approval_required?: boolean;
+
+  @IsDateString()
+  effective_from: string;
+
+  @IsOptional()
+  @IsDateString()
+  effective_to?: string;
+
+  @IsOptional()
+  configuration?: Record<string, unknown>;
+}
+
+export class CreatePayrollAdjustmentDto {
+  @Type(() => Number)
+  @IsNumber()
+  payroll_period_id: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  employee_id: number;
+
+  @IsString()
+  component_code: string;
+
+  @IsString()
+  amount: string;
+
+  @IsString()
+  reason: string;
+
+  @IsOptional()
+  @IsString()
+  adjustment_type?: string;
+
+  @IsOptional()
+  @IsString()
+  effective_period_code?: string;
+}
+
+export class CreatePayrollSourceRecordDto {
+  @Type(() => Number)
+  @IsNumber()
+  payroll_period_id: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  employee_id?: number;
+
+  @IsString()
+  source_type: string;
+
+  @IsOptional()
+  @IsString()
+  source_reference?: string;
+
+  @IsOptional()
+  @IsString()
+  scheme_code?: string;
+
+  @IsString()
+  component_code: string;
+
+  @IsOptional()
+  @IsString()
+  source_amount?: string;
+
+  @IsOptional()
+  @IsString()
+  quantity?: string;
+
+  @IsOptional()
+  @IsString()
+  rate?: string;
+
+  @IsOptional()
+  @IsString()
+  calculated_amount?: string;
+
+  @IsOptional()
+  @IsString()
+  currency?: string;
+
+  @IsOptional()
+  payload?: Record<string, unknown>;
+}
+
+export class CreatePayrollSourceRecordBatchDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreatePayrollSourceRecordDto)
+  records: CreatePayrollSourceRecordDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  auto_approve?: boolean;
+}
+
+export class GeneratePayrollSourceRecordsDto {
+  @Type(() => Number)
+  @IsNumber()
+  payroll_period_id: number;
+
+  @IsEnum(['KPI', 'PERFORMANCE'] as const)
+  source_type: 'KPI' | 'PERFORMANCE';
+
+  @IsOptional()
+  @Type(() => Number)
+  performance_period_id?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  financial_year_id?: number;
+
+  @IsOptional()
+  @IsString()
+  period_type?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  sequence_number?: number;
+
+  @IsOptional()
+  @IsString()
+  scheme_code?: string;
+
+  @IsOptional()
+  @IsString()
+  component_code?: string;
+
+  @IsOptional()
+  @IsString()
+  amount_per_score_point?: string;
+
+  @IsOptional()
+  @IsString()
+  minimum_score?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  auto_approve?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  replace_existing?: boolean;
+}
+
+export class PayrollOvertimeApprovalQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  employee_id?: number;
+
+  @IsOptional()
+  @IsDateString()
+  start_date?: string;
+
+  @IsOptional()
+  @IsDateString()
+  end_date?: string;
+
+  @IsOptional()
+  @IsString()
+  status?: string;
+}
+
+export class DecidePayrollOvertimeDto {
+  @IsOptional()
+  @IsString()
+  comments?: string;
+}
+
+export class PayrollReportQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  payroll_run_id?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  payroll_period_id?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  year?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  employee_id?: number;
+}
+
+export class ReconcilePayrollPaymentDto {
+  @IsString()
+  payment_reference: string;
+
+  @IsDateString()
+  payment_date: string;
+
+  @IsString()
+  paid_amount: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  bank_batch_id?: number;
+
+  @IsOptional()
+  snapshot?: Record<string, unknown>;
 }

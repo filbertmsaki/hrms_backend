@@ -4,6 +4,7 @@ import {
   PayrollRunStatusEnum,
 } from '../payroll.enums';
 import {
+  EmployeePayrollCalculationService,
   PayrollProrationService,
   PayrollRunService,
   ProgressiveTaxService,
@@ -91,6 +92,105 @@ describe('PayrollRunService approval flow', () => {
         PayrollApprovalStageEnum.HR,
       ),
     ).toThrow('Payroll run is not waiting for this approval stage.');
+  });
+});
+
+describe('EmployeePayrollCalculationService finance deduction capacity', () => {
+  it('reserves salary advances first and records loan shortfalls', async () => {
+    const instructionService = {
+      setReservedAmount: jest.fn(async (instruction, reservedAmount) => ({
+        ...instruction,
+        reservedAmount,
+        snapshot: {
+          ...(instruction.snapshot ?? {}),
+          reserved_amount: reservedAmount,
+        },
+      })),
+    };
+    const service = Object.create(EmployeePayrollCalculationService.prototype);
+    service.configService = {
+      get: jest.fn((key: string, fallback: unknown) => {
+        if (key === 'PAYROLL_MINIMUM_NET_PAY_AMOUNT') return '300.00';
+        return fallback;
+      }),
+    };
+    service.employeeFinancePayrollInstructionService = instructionService;
+
+    const result = await service.applyFinanceDeductionCapacity({
+      gross: '1000.00',
+      deductionsBeforeFinance: '200.00',
+      financeInstructions: [
+        {
+          id: 20,
+          componentCode: 'STAFF_LOAN',
+          amount: '600.00',
+          snapshot: {},
+        },
+        {
+          id: 10,
+          componentCode: 'SALARY_ADVANCE',
+          amount: '250.00',
+          snapshot: {},
+        },
+      ],
+    });
+
+    expect(result.minimumNetPay).toBe('300.00');
+    expect(result.applied).toEqual([
+      expect.objectContaining({ appliedAmount: '250.00' }),
+      expect.objectContaining({ appliedAmount: '250.00' }),
+    ]);
+    expect(result.shortfalls).toEqual([
+      expect.objectContaining({
+        componentCode: 'STAFF_LOAN',
+        requestedAmount: '600.00',
+        appliedAmount: '250.00',
+        deferredAmount: '350.00',
+      }),
+    ]);
+    expect(instructionService.setReservedAmount).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ componentCode: 'SALARY_ADVANCE' }),
+      '250.00',
+    );
+  });
+
+  it('records a full shortfall when minimum net pay consumes capacity', async () => {
+    const service = Object.create(EmployeePayrollCalculationService.prototype);
+    service.configService = {
+      get: jest.fn((key: string, fallback: unknown) => {
+        if (key === 'PAYROLL_MINIMUM_NET_PAY_PERCENTAGE') return '100';
+        return fallback;
+      }),
+    };
+    service.employeeFinancePayrollInstructionService = {
+      setReservedAmount: jest.fn(async (instruction, reservedAmount) => ({
+        ...instruction,
+        reservedAmount,
+      })),
+    };
+
+    const result = await service.applyFinanceDeductionCapacity({
+      gross: '1000.00',
+      deductionsBeforeFinance: '0.00',
+      financeInstructions: [
+        {
+          id: 1,
+          componentCode: 'STAFF_LOAN',
+          amount: '100.00',
+          snapshot: {},
+        },
+      ],
+    });
+
+    expect(result.applied).toEqual([]);
+    expect(result.shortfalls).toEqual([
+      expect.objectContaining({
+        requestedAmount: '100.00',
+        appliedAmount: '0.00',
+        deferredAmount: '100.00',
+      }),
+    ]);
   });
 });
 

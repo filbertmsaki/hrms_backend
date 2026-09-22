@@ -12,6 +12,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'crypto';
 import { In, IsNull, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
+import { AttendanceHoliday } from '../../attendance/holidays/entities/holiday.entity';
 import { AttendanceDailySummary } from '../../attendance/processing/entities/attendance-daily-summary.entity';
 import { EmployeeCompensationVersion } from '../../employee-movements/entities/employee-compensation-version.entity';
 import { EmployeeBankAccount } from '../../employees/entities/employee-bank-account.entity';
@@ -23,7 +24,17 @@ import { OffboardingRequest } from '../../offboarding/entities/offboarding-reque
 import { OffboardingSettlementItem } from '../../offboarding/entities/offboarding-settlement-item.entity';
 import { OffboardingRequestStatusEnum } from '../../offboarding/enums/offboarding-request-status.enum';
 import { OffboardingSettlementItemTypeEnum } from '../../offboarding/enums/offboarding-settlement-item-type.enum';
+import { EmployeeKpi } from '../../performance/entities/employee-kpi.entity';
+import { KpiAchievement } from '../../performance/entities/kpi-achievement.entity';
+import { PerformanceAggregate } from '../../performance/entities/performance-aggregate.entity';
+import { EmployeeKpiStatusEnum } from '../../performance/enums/employee-kpi-status.enum';
+import { KpiAchievementStatusEnum } from '../../performance/enums/kpi-achievement-status.enum';
 import { HrAccessService } from '../../shared/hr-access.service';
+import {
+  EmployeeFinanceLedgerEntry,
+  EmployeeFinancePayrollInstruction,
+} from '../../employee-finance/entities/employee-finance-account.entities';
+import { EmployeeFinancePayrollInstructionStatusEnum } from '../../employee-finance/employee-finance.enums';
 import { EmployeeFinancePayrollInstructionService } from '../../employee-finance/services/employee-finance-core.services';
 import { NotificationQueueService } from '../../../notifications/notification-queue.service';
 import { SmsNotificationManagementService } from '../../../sms/sms-notification-management.service';
@@ -31,21 +42,39 @@ import {
   ApprovePayrollRunDto,
   CreatePayrollCalendarDto,
   CreatePayrollAccountingMappingDto,
+  CreatePayrollAdjustmentDto,
+  CreatePayrollBonusSchemeDto,
   CreatePayrollComponentDto,
+  CreatePayrollGroupDto,
+  CreatePayrollGroupAssignmentDto,
   CreatePayrollInputDto,
+  CreatePayrollLeaveRuleDto,
+  CreatePayrollOvertimePolicyDto,
   CreatePayrollRunDto,
+  CreatePayrollSourceRecordBatchDto,
+  CreatePayrollSourceRecordDto,
+  DecidePayrollOvertimeDto,
+  GeneratePayrollSourceRecordsDto,
   CreateSalaryStructureDto,
   CreateStatutoryRuleDto,
   CreateStatutorySchemeDto,
   GeneratePayrollPeriodDto,
+  PayrollOvertimeApprovalQueryDto,
+  PayrollReportQueryDto,
   PayrollQueryDto,
+  ReconcilePayrollPaymentDto,
   UpsertEmployeePayrollProfileDto,
 } from '../dto/payroll.dto';
 import { EmployeePayrollProfile } from '../entities/employee-payroll-profile.entity';
 import {
   PayrollAccountingMapping,
+  PayrollBonusScheme,
   PayrollCalendar,
   PayrollComponent,
+  PayrollGroup,
+  PayrollGroupAssignment,
+  PayrollLeaveRule,
+  PayrollOvertimePolicy,
   PayrollPeriod,
   SalaryStructure,
   SalaryStructureComponent,
@@ -58,11 +87,14 @@ import {
   EmployeePayrollResult,
   PayrollAuditLog,
   PayrollBankBatch,
+  PayrollDeductionShortfall,
   PayrollFinalSettlement,
   PayrollInput,
   PayrollJournalBatch,
+  PayrollPaymentReconciliation,
   PayrollRun,
   PayrollRunApproval,
+  PayrollSourceRecord,
   PayrollVarianceResult,
   Payslip,
 } from '../entities/payroll-run.entities';
@@ -88,6 +120,13 @@ type CalculatedPayrollEmployee = {
   bank: EmployeeBankAccount | null;
   lineItems: Array<Partial<EmployeePayrollLineItem>>;
   result: Partial<EmployeePayrollResult>;
+  deductionShortfalls: Array<{
+    componentCode: string;
+    requestedAmount: string;
+    appliedAmount: string;
+    deferredAmount: string;
+    sourceReference: string | null;
+  }>;
 };
 
 function clean(value: string | undefined | null) {
@@ -269,6 +308,16 @@ export class PayrollConfigurationService {
     private readonly taxBandRepository: Repository<StatutoryTaxBand>,
     @InjectRepository(PayrollAccountingMapping)
     private readonly accountingMappingRepository: Repository<PayrollAccountingMapping>,
+    @InjectRepository(PayrollGroup)
+    private readonly groupRepository: Repository<PayrollGroup>,
+    @InjectRepository(PayrollGroupAssignment)
+    private readonly groupAssignmentRepository: Repository<PayrollGroupAssignment>,
+    @InjectRepository(PayrollOvertimePolicy)
+    private readonly overtimePolicyRepository: Repository<PayrollOvertimePolicy>,
+    @InjectRepository(PayrollBonusScheme)
+    private readonly bonusSchemeRepository: Repository<PayrollBonusScheme>,
+    @InjectRepository(PayrollLeaveRule)
+    private readonly leaveRuleRepository: Repository<PayrollLeaveRule>,
   ) {}
 
   async createComponent(
@@ -539,6 +588,196 @@ export class PayrollConfigurationService {
       order: { componentCode: 'ASC' },
     });
   }
+
+  async createGroup(actor: AuthenticatedUser, dto: CreatePayrollGroupDto) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const group = await this.groupRepository.save(
+      this.groupRepository.create({
+        companyId,
+        code: dto.code.trim().toUpperCase(),
+        name: dto.name.trim(),
+        frequency: dto.frequency?.trim().toUpperCase() ?? 'MONTHLY',
+        payrollCalendarId: dto.payroll_calendar_id ?? null,
+        branchId: dto.branch_id ?? null,
+        departmentId: dto.department_id ?? null,
+        employeeCategory: clean(dto.employee_category),
+        employmentType: clean(dto.employment_type),
+        currency: (dto.currency ?? 'TZS').trim().toUpperCase(),
+        policy: dto.policy ?? null,
+      }),
+    );
+    await this.auditService.log({
+      actor,
+      action: 'payroll.group.created',
+      entityType: 'PAYROLL_GROUP',
+      entityId: group.id,
+      summary: { code: group.code },
+    });
+    return group;
+  }
+
+  listGroups(actor: AuthenticatedUser) {
+    return this.groupRepository.find({
+      where: { companyId: this.hrAccessService.ensureActorCompanyId(actor) },
+      order: { code: 'ASC' },
+    });
+  }
+
+  async createGroupAssignment(
+    actor: AuthenticatedUser,
+    dto: CreatePayrollGroupAssignmentDto,
+  ) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const group = await this.groupRepository.findOne({
+      where: { id: dto.payroll_group_id, companyId, status: 'ACTIVE' },
+    });
+    if (!group) throw new NotFoundException('Payroll group not found.');
+    const assignment = await this.groupAssignmentRepository.save(
+      this.groupAssignmentRepository.create({
+        companyId,
+        payrollGroupId: group.id,
+        employeeId: dto.employee_id,
+        effectiveFrom: dto.effective_from,
+        effectiveTo: dto.effective_to ?? null,
+        metadata: dto.metadata ?? null,
+      }),
+    );
+    await this.auditService.log({
+      actor,
+      action: 'payroll.group_assignment.created',
+      entityType: 'PAYROLL_GROUP_ASSIGNMENT',
+      entityId: assignment.id,
+      summary: { group_id: group.id, employee_id: assignment.employeeId },
+    });
+    return assignment;
+  }
+
+  listGroupAssignments(actor: AuthenticatedUser, payrollGroupId?: number) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    return this.groupAssignmentRepository.find({
+      where: payrollGroupId ? { companyId, payrollGroupId } : { companyId },
+      order: {
+        payrollGroupId: 'ASC',
+        employeeId: 'ASC',
+        effectiveFrom: 'DESC',
+      },
+    });
+  }
+
+  async createOvertimePolicy(
+    actor: AuthenticatedUser,
+    dto: CreatePayrollOvertimePolicyDto,
+  ) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const policy = await this.overtimePolicyRepository.save(
+      this.overtimePolicyRepository.create({
+        companyId,
+        code: dto.code.trim().toUpperCase(),
+        name: dto.name.trim(),
+        componentCode: (dto.component_code ?? 'OVERTIME').trim().toUpperCase(),
+        regularMultiplier: dto.regular_multiplier ?? '1.5000',
+        weekendMultiplier: dto.weekend_multiplier ?? '2.0000',
+        holidayMultiplier: dto.holiday_multiplier ?? '2.0000',
+        minimumMinutes: dto.minimum_minutes ?? 0,
+        approvalRequired: dto.approval_required ?? true,
+        effectiveFrom: dto.effective_from,
+        effectiveTo: dto.effective_to ?? null,
+        configuration: dto.configuration ?? null,
+      }),
+    );
+    await this.auditService.log({
+      actor,
+      action: 'payroll.overtime_policy.created',
+      entityType: 'PAYROLL_OVERTIME_POLICY',
+      entityId: policy.id,
+      summary: { code: policy.code },
+    });
+    return policy;
+  }
+
+  listOvertimePolicies(actor: AuthenticatedUser) {
+    return this.overtimePolicyRepository.find({
+      where: { companyId: this.hrAccessService.ensureActorCompanyId(actor) },
+      order: { code: 'ASC' },
+    });
+  }
+
+  async createBonusScheme(
+    actor: AuthenticatedUser,
+    dto: CreatePayrollBonusSchemeDto,
+  ) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const scheme = await this.bonusSchemeRepository.save(
+      this.bonusSchemeRepository.create({
+        companyId,
+        code: dto.code.trim().toUpperCase(),
+        name: dto.name.trim(),
+        schemeType: dto.scheme_type?.trim().toUpperCase() ?? 'BONUS',
+        componentCode: dto.component_code.trim().toUpperCase(),
+        calculationMethod:
+          dto.calculation_method?.trim().toUpperCase() ?? 'FIXED_AMOUNT',
+        defaultAmount: dto.default_amount ?? null,
+        defaultRate: dto.default_rate ?? null,
+        approvalRequired: dto.approval_required ?? true,
+        effectiveFrom: dto.effective_from,
+        effectiveTo: dto.effective_to ?? null,
+        configuration: dto.configuration ?? null,
+      }),
+    );
+    await this.auditService.log({
+      actor,
+      action: 'payroll.bonus_scheme.created',
+      entityType: 'PAYROLL_BONUS_SCHEME',
+      entityId: scheme.id,
+      summary: { code: scheme.code, type: scheme.schemeType },
+    });
+    return scheme;
+  }
+
+  listBonusSchemes(actor: AuthenticatedUser) {
+    return this.bonusSchemeRepository.find({
+      where: { companyId: this.hrAccessService.ensureActorCompanyId(actor) },
+      order: { schemeType: 'ASC', code: 'ASC' },
+    });
+  }
+
+  async createLeaveRule(
+    actor: AuthenticatedUser,
+    dto: CreatePayrollLeaveRuleDto,
+  ) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const rule = await this.leaveRuleRepository.save(
+      this.leaveRuleRepository.create({
+        companyId,
+        code: dto.code.trim().toUpperCase(),
+        name: dto.name.trim(),
+        leaveTypeCode: dto.leave_type_code.trim().toUpperCase(),
+        paidPercentage: dto.paid_percentage ?? '100',
+        paidDaysCap: dto.paid_days_cap ?? null,
+        halfPayAfterDays: dto.half_pay_after_days ?? null,
+        unpaidAfterDays: dto.unpaid_after_days ?? null,
+        carryForwardCapDays: dto.carry_forward_cap_days ?? null,
+        effectiveFrom: dto.effective_from,
+        effectiveTo: dto.effective_to ?? null,
+        configuration: dto.configuration ?? null,
+      }),
+    );
+    await this.auditService.log({
+      actor,
+      action: 'payroll.leave_rule.created',
+      entityType: 'PAYROLL_LEAVE_RULE',
+      entityId: rule.id,
+      summary: { code: rule.code, leave_type_code: rule.leaveTypeCode },
+    });
+    return rule;
+  }
+
+  listLeaveRules(actor: AuthenticatedUser) {
+    return this.leaveRuleRepository.find({
+      where: { companyId: this.hrAccessService.ensureActorCompanyId(actor) },
+      order: { leaveTypeCode: 'ASC', effectiveFrom: 'DESC' },
+    });
+  }
 }
 
 @Injectable()
@@ -603,6 +842,634 @@ export class PayrollInputService {
     input.approvedByCompanyUserId = actor.companyMembershipId ?? null;
     input.approvedAt = new Date();
     return this.repository.save(input);
+  }
+
+  async createAdjustment(
+    actor: AuthenticatedUser,
+    dto: CreatePayrollAdjustmentDto,
+  ) {
+    return this.create(actor, {
+      payroll_period_id: dto.payroll_period_id,
+      employee_id: dto.employee_id,
+      component_code: dto.component_code,
+      source_module: dto.adjustment_type?.trim().toUpperCase() ?? 'ADJUSTMENT',
+      source_reference: dto.effective_period_code ?? undefined,
+      amount: dto.amount,
+      currency: 'TZS',
+      status: PayrollInputStatusEnum.APPROVED,
+      payload: {
+        reason: dto.reason,
+        adjustment_type: dto.adjustment_type ?? 'ADJUSTMENT',
+        effective_period_code: dto.effective_period_code ?? null,
+        created_from: 'payroll.adjustments',
+      },
+    });
+  }
+}
+
+@Injectable()
+export class PayrollSourceService {
+  constructor(
+    private readonly hrAccessService: HrAccessService,
+    private readonly inputService: PayrollInputService,
+    private readonly auditService: PayrollAuditService,
+    @InjectRepository(PayrollSourceRecord)
+    private readonly repository: Repository<PayrollSourceRecord>,
+    @InjectRepository(PayrollPeriod)
+    private readonly periodRepository: Repository<PayrollPeriod>,
+    @InjectRepository(PayrollBonusScheme)
+    private readonly bonusSchemeRepository: Repository<PayrollBonusScheme>,
+    @InjectRepository(EmployeeKpi)
+    private readonly employeeKpiRepository: Repository<EmployeeKpi>,
+    @InjectRepository(KpiAchievement)
+    private readonly kpiAchievementRepository: Repository<KpiAchievement>,
+    @InjectRepository(PerformanceAggregate)
+    private readonly performanceAggregateRepository: Repository<PerformanceAggregate>,
+  ) {}
+
+  async create(actor: AuthenticatedUser, dto: CreatePayrollSourceRecordDto) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const period = await this.periodRepository.findOne({
+      where: { id: dto.payroll_period_id, companyId },
+    });
+    if (!period) throw new NotFoundException('Payroll period not found.');
+    const sourceType = dto.source_type.trim().toUpperCase();
+    if (!['SALES', 'KPI', 'PERFORMANCE', 'COMMISSION'].includes(sourceType)) {
+      throw new BadRequestException('Unsupported payroll source type.');
+    }
+    const calculatedAmount = this.calculateSourceAmount(dto);
+    const source = await this.repository.save(
+      this.repository.create({
+        companyId,
+        payrollPeriodId: period.id,
+        employeeId: dto.employee_id ?? null,
+        sourceType,
+        sourceReference:
+          dto.source_reference?.trim() ??
+          `${sourceType}-${period.id}-${dto.employee_id ?? 'ALL'}-${Date.now()}`,
+        schemeCode: clean(dto.scheme_code)?.toUpperCase() ?? null,
+        componentCode: dto.component_code.trim().toUpperCase(),
+        sourceAmount: dto.source_amount ?? calculatedAmount,
+        quantity: dto.quantity ?? null,
+        rate: dto.rate ?? null,
+        calculatedAmount,
+        currency: (dto.currency ?? 'TZS').trim().toUpperCase(),
+        payload: dto.payload ?? null,
+      }),
+    );
+    await this.auditService.log({
+      actor,
+      action: 'payroll.source.created',
+      entityType: 'PAYROLL_SOURCE_RECORD',
+      entityId: source.id,
+      summary: {
+        source_type: source.sourceType,
+        amount: source.calculatedAmount,
+      },
+    });
+    return source;
+  }
+
+  async createBatch(
+    actor: AuthenticatedUser,
+    dto: CreatePayrollSourceRecordBatchDto,
+  ) {
+    if (!dto.records.length) {
+      throw new BadRequestException('At least one source record is required.');
+    }
+    const created: PayrollSourceRecord[] = [];
+    for (const record of dto.records) {
+      const source = await this.create(actor, record);
+      if (dto.auto_approve) {
+        created.push(await this.approve(actor, source.id));
+      } else {
+        created.push(source);
+      }
+    }
+    return {
+      count: created.length,
+      records: created,
+    };
+  }
+
+  list(actor: AuthenticatedUser, query: PayrollQueryDto) {
+    const where: Record<string, unknown> = {
+      companyId: this.hrAccessService.ensureActorCompanyId(actor),
+    };
+    if (query.payroll_period_id) {
+      where.payrollPeriodId = query.payroll_period_id;
+    }
+    if (query.employee_id) where.employeeId = query.employee_id;
+    if (query.status) where.status = query.status;
+    return this.repository.find({ where, order: { id: 'DESC' } });
+  }
+
+  async approve(actor: AuthenticatedUser, id: number) {
+    const source = await this.findOwned(actor, id);
+    if (!['DRAFT', 'REJECTED'].includes(source.status)) {
+      throw new ConflictException(
+        'Only draft or rejected source records can be approved.',
+      );
+    }
+    source.status = 'APPROVED';
+    source.approvedByCompanyUserId = actor.companyMembershipId ?? null;
+    source.approvedAt = new Date();
+    return this.repository.save(source);
+  }
+
+  async reject(actor: AuthenticatedUser, id: number) {
+    const source = await this.findOwned(actor, id);
+    if (source.status === 'POSTED') {
+      throw new ConflictException('Posted source records cannot be rejected.');
+    }
+    source.status = 'REJECTED';
+    source.payload = {
+      ...(source.payload ?? {}),
+      rejected_by_company_user_id: actor.companyMembershipId ?? null,
+      rejected_at: new Date().toISOString(),
+    };
+    return this.repository.save(source);
+  }
+
+  async post(actor: AuthenticatedUser, id: number) {
+    const source = await this.findOwned(actor, id);
+    if (source.status !== 'APPROVED') {
+      throw new ConflictException(
+        'Only approved source records can be posted.',
+      );
+    }
+    if (source.generatedPayrollInputId) return source;
+    const input = await this.inputService.create(actor, {
+      payroll_period_id: source.payrollPeriodId,
+      employee_id: source.employeeId ?? undefined,
+      component_code: source.componentCode,
+      source_module: source.sourceType,
+      source_reference: source.sourceReference,
+      amount: source.calculatedAmount,
+      quantity: source.quantity ?? undefined,
+      rate: source.rate ?? undefined,
+      currency: source.currency,
+      status: PayrollInputStatusEnum.APPROVED,
+      payload: {
+        ...(source.payload ?? {}),
+        source_record_id: source.id,
+        scheme_code: source.schemeCode,
+      },
+    });
+    source.status = 'POSTED';
+    source.generatedPayrollInputId = input.id;
+    source.postedByCompanyUserId = actor.companyMembershipId ?? null;
+    source.postedAt = new Date();
+    await this.auditService.log({
+      actor,
+      action: 'payroll.source.posted',
+      entityType: 'PAYROLL_SOURCE_RECORD',
+      entityId: source.id,
+      summary: { payroll_input_id: input.id },
+    });
+    return this.repository.save(source);
+  }
+
+  async generate(
+    actor: AuthenticatedUser,
+    dto: GeneratePayrollSourceRecordsDto,
+  ) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const period = await this.periodRepository.findOne({
+      where: { id: dto.payroll_period_id, companyId },
+    });
+    if (!period) throw new NotFoundException('Payroll period not found.');
+
+    const sourceType = dto.source_type.trim().toUpperCase();
+    const scheme = await this.resolveSourceScheme(companyId, sourceType, dto);
+    const componentCode =
+      dto.component_code?.trim().toUpperCase() ??
+      scheme?.componentCode ??
+      (sourceType === 'KPI' ? 'KPI_BONUS' : 'PERFORMANCE_BONUS');
+    const configuredScoreRate =
+      scheme?.configuration?.amount_per_score_point;
+    const scoreRate =
+      dto.amount_per_score_point ??
+      scheme?.defaultRate ??
+      (typeof configuredScoreRate === 'string' ||
+      typeof configuredScoreRate === 'number'
+        ? String(configuredScoreRate)
+        : '0');
+    const minimumScore = Number(
+      dto.minimum_score ?? scheme?.configuration?.minimum_score ?? '0',
+    );
+
+    if (dto.replace_existing) {
+      await this.repository.delete({
+        companyId,
+        payrollPeriodId: period.id,
+        sourceType,
+        status: In(['DRAFT', 'REJECTED']),
+      });
+    }
+
+    const rows =
+      sourceType === 'KPI'
+        ? await this.generateKpiSources({
+            actor,
+            companyId,
+            period,
+            performancePeriodId: dto.performance_period_id,
+            componentCode,
+            scheme,
+            scoreRate,
+            minimumScore,
+            autoApprove: dto.auto_approve === true,
+          })
+        : await this.generatePerformanceSources({
+            actor,
+            companyId,
+            period,
+            dto,
+            componentCode,
+            scheme,
+            scoreRate,
+            minimumScore,
+            autoApprove: dto.auto_approve === true,
+          });
+
+    return {
+      count: rows.length,
+      records: rows,
+      source_type: sourceType,
+      component_code: componentCode,
+    };
+  }
+
+  private async findOwned(actor: AuthenticatedUser, id: number) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const source = await this.repository.findOne({ where: { id, companyId } });
+    if (!source)
+      throw new NotFoundException('Payroll source record not found.');
+    return source;
+  }
+
+  private calculateSourceAmount(dto: CreatePayrollSourceRecordDto) {
+    if (dto.calculated_amount) return dto.calculated_amount;
+    if (dto.source_amount) return dto.source_amount;
+    if (dto.quantity && dto.rate) {
+      return PayrollMoney.multiplyFactor(dto.rate, dto.quantity);
+    }
+    return '0.00';
+  }
+
+  private async resolveSourceScheme(
+    companyId: number,
+    sourceType: string,
+    dto: GeneratePayrollSourceRecordsDto,
+  ) {
+    const qb = this.bonusSchemeRepository
+      .createQueryBuilder('scheme')
+      .where('scheme.companyId = :companyId', { companyId })
+      .andWhere('scheme.status = :status', { status: 'ACTIVE' });
+    if (dto.scheme_code) {
+      qb.andWhere('scheme.code = :code', {
+        code: dto.scheme_code.trim().toUpperCase(),
+      });
+    } else {
+      qb.andWhere('scheme.schemeType IN (:...types)', {
+        types:
+          sourceType === 'KPI'
+            ? ['KPI', 'BONUS', 'PERFORMANCE']
+            : ['PERFORMANCE', 'BONUS'],
+      });
+    }
+    return qb.orderBy('scheme.id', 'ASC').getOne();
+  }
+
+  private sourceAmountFromScore(score: string | null, scoreRate: string) {
+    if (!score) return '0.00';
+    return PayrollMoney.multiplyFactor(score, scoreRate);
+  }
+
+  private async upsertGeneratedSource(
+    actor: AuthenticatedUser,
+    data: {
+      companyId: number;
+      payrollPeriodId: number;
+      employeeId: number;
+      sourceType: string;
+      sourceReference: string;
+      schemeCode: string | null;
+      componentCode: string;
+      sourceAmount: string;
+      calculatedAmount: string;
+      payload: Record<string, unknown>;
+      autoApprove: boolean;
+    },
+  ) {
+    const existing = await this.repository.findOne({
+      where: {
+        companyId: data.companyId,
+        sourceType: data.sourceType,
+        sourceReference: data.sourceReference,
+      },
+    });
+    if (existing?.status === 'POSTED') return existing;
+    const source =
+      existing ??
+      this.repository.create({
+        companyId: data.companyId,
+        payrollPeriodId: data.payrollPeriodId,
+        employeeId: data.employeeId,
+        sourceType: data.sourceType,
+        sourceReference: data.sourceReference,
+      });
+    source.schemeCode = data.schemeCode;
+    source.componentCode = data.componentCode;
+    source.sourceAmount = data.sourceAmount;
+    source.calculatedAmount = data.calculatedAmount;
+    source.currency = 'TZS';
+    source.payload = data.payload;
+    source.status = data.autoApprove ? 'APPROVED' : 'DRAFT';
+    source.approvedByCompanyUserId = data.autoApprove
+      ? (actor.companyMembershipId ?? null)
+      : null;
+    source.approvedAt = data.autoApprove ? new Date() : null;
+    return this.repository.save(source);
+  }
+
+  private async generateKpiSources(args: {
+    actor: AuthenticatedUser;
+    companyId: number;
+    period: PayrollPeriod;
+    performancePeriodId?: number;
+    componentCode: string;
+    scheme: PayrollBonusScheme | null;
+    scoreRate: string;
+    minimumScore: number;
+    autoApprove: boolean;
+  }) {
+    const achievements = await this.kpiAchievementRepository
+      .createQueryBuilder('achievement')
+      .where('achievement.companyId = :companyId', {
+        companyId: args.companyId,
+      })
+      .andWhere('achievement.status IN (:...statuses)', {
+        statuses: [
+          KpiAchievementStatusEnum.HR_APPROVED,
+          KpiAchievementStatusEnum.PUBLISHED,
+          KpiAchievementStatusEnum.LOCKED,
+        ],
+      })
+      .andWhere(
+        args.performancePeriodId
+          ? 'achievement.periodAssignmentId IN (SELECT id FROM performance_period_assignments WHERE performance_period_id = :performancePeriodId)'
+          : '1=1',
+        { performancePeriodId: args.performancePeriodId },
+      )
+      .getMany();
+
+    const rows: PayrollSourceRecord[] = [];
+    for (const achievement of achievements) {
+      const score =
+        achievement.weightedScore ??
+        achievement.cappedScore ??
+        achievement.rawScore;
+      if (!score || Number(score) < args.minimumScore) continue;
+      const amount = this.sourceAmountFromScore(score, args.scoreRate);
+      if (PayrollMoney.toCents(amount) <= 0n) continue;
+      rows.push(
+        await this.upsertGeneratedSource(args.actor, {
+          companyId: args.companyId,
+          payrollPeriodId: args.period.id,
+          employeeId: achievement.employeeId,
+          sourceType: 'KPI',
+          sourceReference: `KPI_ACHIEVEMENT:${achievement.id}`,
+          schemeCode: args.scheme?.code ?? null,
+          componentCode: args.componentCode,
+          sourceAmount: score,
+          calculatedAmount: amount,
+          autoApprove: args.autoApprove,
+          payload: {
+            achievement_id: achievement.id,
+            score,
+            score_rate: args.scoreRate,
+            target_value: achievement.targetValue,
+            achievement_value: achievement.achievementValue,
+          },
+        }),
+      );
+    }
+
+    const approvedKpis = await this.employeeKpiRepository.find({
+      where: {
+        companyId: args.companyId,
+        status: EmployeeKpiStatusEnum.APPROVED,
+      },
+    });
+    for (const kpi of approvedKpis.filter((item) =>
+      args.performancePeriodId
+        ? item.performancePeriodId === args.performancePeriodId
+        : item.dueDate >= args.period.startDate &&
+          item.dueDate <= args.period.endDate,
+    )) {
+      const actual = kpi.actualValue ?? kpi.targetValue;
+      if (!actual) continue;
+      const target = Number(kpi.targetValue ?? actual);
+      const score =
+        target > 0 ? String((Number(actual) / target) * 100) : actual;
+      if (Number(score) < args.minimumScore) continue;
+      const amount = this.sourceAmountFromScore(score, args.scoreRate);
+      if (PayrollMoney.toCents(amount) <= 0n) continue;
+      rows.push(
+        await this.upsertGeneratedSource(args.actor, {
+          companyId: args.companyId,
+          payrollPeriodId: args.period.id,
+          employeeId: kpi.employeeId,
+          sourceType: 'KPI',
+          sourceReference: `EMPLOYEE_KPI:${kpi.id}`,
+          schemeCode: args.scheme?.code ?? null,
+          componentCode: args.componentCode,
+          sourceAmount: score,
+          calculatedAmount: amount,
+          autoApprove: args.autoApprove,
+          payload: {
+            employee_kpi_id: kpi.id,
+            title: kpi.title,
+            target_value: kpi.targetValue,
+            actual_value: kpi.actualValue,
+            score,
+            score_rate: args.scoreRate,
+          },
+        }),
+      );
+    }
+    return rows;
+  }
+
+  private async generatePerformanceSources(args: {
+    actor: AuthenticatedUser;
+    companyId: number;
+    period: PayrollPeriod;
+    dto: GeneratePayrollSourceRecordsDto;
+    componentCode: string;
+    scheme: PayrollBonusScheme | null;
+    scoreRate: string;
+    minimumScore: number;
+    autoApprove: boolean;
+  }) {
+    const qb = this.performanceAggregateRepository
+      .createQueryBuilder('aggregate')
+      .where('aggregate.companyId = :companyId', { companyId: args.companyId })
+      .andWhere('aggregate.publishedAt IS NOT NULL');
+    if (args.dto.financial_year_id) {
+      qb.andWhere('aggregate.financialYearId = :financialYearId', {
+        financialYearId: args.dto.financial_year_id,
+      });
+    }
+    if (args.dto.period_type) {
+      qb.andWhere('aggregate.periodType = :periodType', {
+        periodType: args.dto.period_type,
+      });
+    }
+    if (args.dto.sequence_number) {
+      qb.andWhere('aggregate.sequenceNumber = :sequenceNumber', {
+        sequenceNumber: args.dto.sequence_number,
+      });
+    }
+    const aggregates = await qb.getMany();
+    const rows: PayrollSourceRecord[] = [];
+    for (const aggregate of aggregates) {
+      if (Number(aggregate.aggregateScore) < args.minimumScore) continue;
+      const amount = this.sourceAmountFromScore(
+        aggregate.aggregateScore,
+        args.scoreRate,
+      );
+      if (PayrollMoney.toCents(amount) <= 0n) continue;
+      rows.push(
+        await this.upsertGeneratedSource(args.actor, {
+          companyId: args.companyId,
+          payrollPeriodId: args.period.id,
+          employeeId: aggregate.employeeId,
+          sourceType: 'PERFORMANCE',
+          sourceReference: `PERFORMANCE_AGGREGATE:${aggregate.id}`,
+          schemeCode: args.scheme?.code ?? null,
+          componentCode: args.componentCode,
+          sourceAmount: aggregate.aggregateScore,
+          calculatedAmount: amount,
+          autoApprove: args.autoApprove,
+          payload: {
+            performance_aggregate_id: aggregate.id,
+            aggregate_score: aggregate.aggregateScore,
+            rating_code: aggregate.ratingCode,
+            score_rate: args.scoreRate,
+            period_type: aggregate.periodType,
+            sequence_number: aggregate.sequenceNumber,
+          },
+        }),
+      );
+    }
+    return rows;
+  }
+}
+
+@Injectable()
+export class PayrollOvertimeApprovalService {
+  constructor(
+    private readonly hrAccessService: HrAccessService,
+    private readonly auditService: PayrollAuditService,
+    @InjectRepository(AttendanceDailySummary)
+    private readonly attendanceRepository: Repository<AttendanceDailySummary>,
+  ) {}
+
+  list(actor: AuthenticatedUser, query: PayrollOvertimeApprovalQueryDto) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const qb = this.attendanceRepository
+      .createQueryBuilder('summary')
+      .where('summary.companyId = :companyId', { companyId })
+      .andWhere('summary.overtimeMinutes > 0')
+      .orderBy('summary.attendanceDate', 'DESC')
+      .addOrderBy('summary.employeeId', 'ASC');
+    if (query.employee_id) {
+      qb.andWhere('summary.employeeId = :employeeId', {
+        employeeId: query.employee_id,
+      });
+    }
+    if (query.start_date) {
+      qb.andWhere('summary.attendanceDate >= :startDate', {
+        startDate: query.start_date,
+      });
+    }
+    if (query.end_date) {
+      qb.andWhere('summary.attendanceDate <= :endDate', {
+        endDate: query.end_date,
+      });
+    }
+    const status = String(query.status ?? 'PENDING').toUpperCase();
+    if (status === 'APPROVED') {
+      qb.andWhere(
+        "(summary.flags ->> 'otApprovalStatus' = 'APPROVED' OR summary.flags ->> 'overtimeApproved' = 'true')",
+      );
+    } else if (status === 'REJECTED') {
+      qb.andWhere("summary.flags ->> 'otApprovalStatus' = 'REJECTED'");
+    } else if (status !== 'ALL') {
+      qb.andWhere(
+        "(summary.flags IS NULL OR COALESCE(summary.flags ->> 'otApprovalStatus', 'PENDING') = 'PENDING')",
+      );
+    }
+    return qb.getMany();
+  }
+
+  async approve(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: DecidePayrollOvertimeDto,
+  ) {
+    return this.decide(actor, id, 'APPROVED', dto);
+  }
+
+  async reject(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: DecidePayrollOvertimeDto,
+  ) {
+    return this.decide(actor, id, 'REJECTED', dto);
+  }
+
+  private async decide(
+    actor: AuthenticatedUser,
+    id: number,
+    status: 'APPROVED' | 'REJECTED',
+    dto: DecidePayrollOvertimeDto,
+  ) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const summary = await this.attendanceRepository.findOne({
+      where: { id, companyId },
+    });
+    if (!summary) throw new NotFoundException('Overtime record not found.');
+    const approved = status === 'APPROVED';
+    summary.flags = {
+      ...(summary.flags ?? {}),
+      overtimeApproved: approved,
+      otApproved: approved,
+      payrollApproved: approved,
+      otApprovalStatus: status,
+      otApprovalComments: dto.comments ?? null,
+      otApprovedByCompanyUserId: actor.companyMembershipId ?? null,
+      otApprovedAt: new Date().toISOString(),
+    };
+    const saved = await this.attendanceRepository.save(summary);
+    await this.auditService.log({
+      actor,
+      action:
+        status === 'APPROVED'
+          ? 'payroll.overtime.approved'
+          : 'payroll.overtime.rejected',
+      entityType: 'ATTENDANCE_DAILY_SUMMARY',
+      entityId: summary.id,
+      summary: {
+        employee_id: summary.employeeId,
+        attendance_date: summary.attendanceDate,
+        overtime_minutes: summary.overtimeMinutes,
+      },
+    });
+    return saved;
   }
 }
 
@@ -768,6 +1635,18 @@ export class EmployeePayrollCalculationService {
     private readonly attendanceRepository: Repository<AttendanceDailySummary>,
     @InjectRepository(LeaveRequest)
     private readonly leaveRepository: Repository<LeaveRequest>,
+    @InjectRepository(PayrollOvertimePolicy)
+    private readonly overtimePolicyRepository: Repository<PayrollOvertimePolicy>,
+    @InjectRepository(PayrollBonusScheme)
+    private readonly bonusSchemeRepository: Repository<PayrollBonusScheme>,
+    @InjectRepository(PayrollGroup)
+    private readonly groupRepository: Repository<PayrollGroup>,
+    @InjectRepository(PayrollGroupAssignment)
+    private readonly groupAssignmentRepository: Repository<PayrollGroupAssignment>,
+    @InjectRepository(AttendanceHoliday)
+    private readonly holidayRepository: Repository<AttendanceHoliday>,
+    @InjectRepository(PayrollLeaveRule)
+    private readonly leaveRuleRepository: Repository<PayrollLeaveRule>,
   ) {}
 
   async calculateRun(
@@ -775,6 +1654,32 @@ export class EmployeePayrollCalculationService {
     period: PayrollPeriod,
     run: PayrollRun,
   ) {
+    const payrollGroup = run.payrollGroupId
+      ? await this.groupRepository.findOne({
+          where: { id: run.payrollGroupId, companyId, status: 'ACTIVE' },
+        })
+      : null;
+    const assignedEmployeeIds = payrollGroup
+      ? new Set(
+          (
+            await this.groupAssignmentRepository
+              .createQueryBuilder('assignment')
+              .where('assignment.companyId = :companyId', { companyId })
+              .andWhere('assignment.payrollGroupId = :payrollGroupId', {
+                payrollGroupId: payrollGroup.id,
+              })
+              .andWhere('assignment.status = :status', { status: 'ACTIVE' })
+              .andWhere('assignment.effectiveFrom <= :periodEnd', {
+                periodEnd: period.endDate,
+              })
+              .andWhere(
+                '(assignment.effectiveTo IS NULL OR assignment.effectiveTo >= :periodStart)',
+                { periodStart: period.startDate },
+              )
+              .getMany()
+          ).map((assignment) => assignment.employeeId),
+        )
+      : new Set<number>();
     const profiles = await this.profileRepository.find({
       where: { companyId, payrollEnabled: true, payrollHold: false },
       order: { employeeId: 'ASC' },
@@ -795,6 +1700,17 @@ export class EmployeePayrollCalculationService {
         where: { id: profile.employeeId, company_id: companyId },
       });
       if (!employee) continue;
+      if (
+        payrollGroup &&
+        !this.employeeMatchesPayrollGroup(
+          employee,
+          profile,
+          payrollGroup,
+          assignedEmployeeIds,
+        )
+      ) {
+        continue;
+      }
       const compensation = await this.findCompensation(
         companyId,
         employee.id,
@@ -816,6 +1732,53 @@ export class EmployeePayrollCalculationService {
       outputs.push(result);
     }
     return outputs;
+  }
+
+  private employeeMatchesPayrollGroup(
+    employee: Employee,
+    profile: EmployeePayrollProfile,
+    group: PayrollGroup,
+    assignedEmployeeIds: Set<number>,
+  ) {
+    if (assignedEmployeeIds.has(employee.id)) return true;
+    if (group.branchId && employee.primary_branch_id !== group.branchId) {
+      return false;
+    }
+    if (
+      group.departmentId &&
+      employee.primary_department_id !== group.departmentId
+    ) {
+      return false;
+    }
+    if (
+      group.employmentType &&
+      String(employee.employment_type ?? '').toUpperCase() !==
+        group.employmentType.toUpperCase()
+    ) {
+      return false;
+    }
+    if (
+      group.employeeCategory &&
+      ![
+        employee.employment_type,
+        employee.employment_status,
+        profile.employmentTaxCategory,
+        profile.taxResidencyCode,
+      ]
+        .filter(Boolean)
+        .map((value) => String(value).toUpperCase())
+        .includes(group.employeeCategory.toUpperCase())
+    ) {
+      return false;
+    }
+    if (
+      group.frequency &&
+      profile.payFrequency &&
+      group.frequency.toUpperCase() !== profile.payFrequency.toUpperCase()
+    ) {
+      return false;
+    }
+    return true;
   }
 
   private async calculateEmployee(args: {
@@ -883,11 +1846,17 @@ export class EmployeePayrollCalculationService {
         employee.id,
       );
 
-    const leaveWithoutPayDays = await this.calculateLwpDays(
+    const attendanceSummary = await this.summarizeAttendance(
       companyId,
       employee.id,
       period,
     );
+    const leaveSummary = await this.summarizeLeave(
+      companyId,
+      employee.id,
+      period,
+    );
+    const leaveWithoutPayDays = leaveSummary.unpaidEquivalentDays;
     const lwpDeduction =
       leaveWithoutPayDays > 0
         ? PayrollMoney.multiplyRatio(
@@ -926,6 +1895,130 @@ export class EmployeePayrollCalculationService {
         calculationSnapshot: { leave_without_pay_days: leaveWithoutPayDays },
       });
     }
+
+    const overtimePolicy = await this.activeOvertimePolicy(
+      companyId,
+      period.endDate,
+    );
+    if (
+      overtimePolicy &&
+      (overtimePolicy.approvalRequired === false
+        ? attendanceSummary.overtimeMinutes
+        : attendanceSummary.payableOvertimeMinutes) >=
+        overtimePolicy.minimumMinutes
+    ) {
+      const payableOvertime =
+        overtimePolicy.approvalRequired === false
+          ? {
+              regular:
+                attendanceSummary.regularOvertimeMinutes +
+                attendanceSummary.pendingOvertimeApprovalMinutes,
+              weekend: attendanceSummary.weekendOvertimeMinutes,
+              holiday: attendanceSummary.holidayOvertimeMinutes,
+              total: attendanceSummary.overtimeMinutes,
+              pending: 0,
+            }
+          : {
+              regular: attendanceSummary.regularOvertimeMinutes,
+              weekend: attendanceSummary.weekendOvertimeMinutes,
+              holiday: attendanceSummary.holidayOvertimeMinutes,
+              total: attendanceSummary.payableOvertimeMinutes,
+              pending: attendanceSummary.pendingOvertimeApprovalMinutes,
+            };
+      const configuredWorkDays = Number(
+        overtimePolicy.configuration?.working_days_per_month ??
+          this.configService.get<number>('PAYROLL_DEFAULT_WORKING_DAYS', 26),
+      );
+      const configuredWorkHours = Number(
+        overtimePolicy.configuration?.working_hours_per_day ??
+          this.configService.get<number>('PAYROLL_DEFAULT_WORKING_HOURS', 8),
+      );
+      const hourlyRate = PayrollMoney.multiplyRatio(
+        compensation.baseSalary,
+        1,
+        Math.max(1, configuredWorkDays * configuredWorkHours),
+      );
+      const regularBase = PayrollMoney.multiplyRatio(
+        hourlyRate,
+        payableOvertime.regular,
+        60,
+      );
+      const weekendBase = PayrollMoney.multiplyRatio(
+        hourlyRate,
+        payableOvertime.weekend,
+        60,
+      );
+      const holidayBase = PayrollMoney.multiplyRatio(
+        hourlyRate,
+        payableOvertime.holiday,
+        60,
+      );
+      const overtimeAmount = PayrollMoney.add(
+        PayrollMoney.multiplyFactor(
+          regularBase,
+          overtimePolicy.regularMultiplier,
+        ),
+        PayrollMoney.multiplyFactor(
+          weekendBase,
+          overtimePolicy.weekendMultiplier,
+        ),
+        PayrollMoney.multiplyFactor(
+          holidayBase,
+          overtimePolicy.holidayMultiplier,
+        ),
+      );
+      if (PayrollMoney.toCents(overtimeAmount) > 0n) {
+        lineItems.push({
+          componentCode: overtimePolicy.componentCode,
+          componentName: overtimePolicy.name,
+          componentType: PayrollComponentTypeEnum.EARNING,
+          amount: overtimeAmount,
+          taxableAmount: overtimeAmount,
+          employerAmount: '0.00',
+          calculationOrder: 30,
+          sourceType: 'ATTENDANCE_OVERTIME',
+          sourceReference: `${employee.id}:${period.id}`,
+          calculationSnapshot: {
+            overtime_minutes: payableOvertime.total,
+            regular_minutes: payableOvertime.regular,
+            weekend_minutes: payableOvertime.weekend,
+            holiday_minutes: payableOvertime.holiday,
+            pending_approval_minutes: payableOvertime.pending,
+            hourly_rate: hourlyRate,
+            multipliers: {
+              regular: overtimePolicy.regularMultiplier,
+              weekend: overtimePolicy.weekendMultiplier,
+              holiday: overtimePolicy.holidayMultiplier,
+            },
+            policy_id: overtimePolicy.id,
+          },
+        });
+      }
+    }
+
+    const bonusLines = await this.calculateBonusSchemeLines({
+      companyId,
+      period,
+      run: args.run,
+      employee,
+      compensation,
+      inputs,
+      componentMap: args.componentMap,
+      basicPay,
+      existingComponentCodes: new Set(
+        lineItems.map((line) => line.componentCode).filter(Boolean) as string[],
+      ),
+    });
+    lineItems.push(...bonusLines);
+
+    const arrearsLine = await this.calculateArrearsLine({
+      companyId,
+      period,
+      run: args.run,
+      employee,
+      compensation,
+    });
+    if (arrearsLine) lineItems.push(arrearsLine);
 
     for (const input of inputs) {
       const component = args.componentMap.get(input.componentCode);
@@ -1057,24 +2150,6 @@ export class EmployeePayrollCalculationService {
       }
     }
 
-    for (const instruction of financeInstructions) {
-      lineItems.push({
-        componentCode: instruction.componentCode,
-        componentName:
-          instruction.componentCode === 'SALARY_ADVANCE'
-            ? 'Salary advance repayment'
-            : 'Staff loan repayment',
-        componentType: PayrollComponentTypeEnum.DEDUCTION,
-        amount: instruction.reservedAmount,
-        taxableAmount: '0.00',
-        employerAmount: '0.00',
-        calculationOrder: 950,
-        sourceType: 'EMPLOYEE_FINANCE',
-        sourceReference: String(instruction.id),
-        calculationSnapshot: instruction.snapshot,
-      });
-    }
-
     const gross = this.sumLines(lineItems, (item) =>
       [
         PayrollComponentTypeEnum.EARNING,
@@ -1082,6 +2157,33 @@ export class EmployeePayrollCalculationService {
         PayrollComponentTypeEnum.TAXABLE_BENEFIT,
       ].includes(item.componentType as PayrollComponentTypeEnum),
     );
+    const statutoryAndInputDeductions = this.sumLines(
+      lineItems,
+      (item) => item.componentType === PayrollComponentTypeEnum.DEDUCTION,
+    );
+    const financeAllocation = await this.applyFinanceDeductionCapacity({
+      gross,
+      deductionsBeforeFinance: statutoryAndInputDeductions,
+      financeInstructions,
+    });
+    for (const allocation of financeAllocation.applied) {
+      lineItems.push({
+        componentCode: allocation.instruction.componentCode,
+        componentName:
+          allocation.instruction.componentCode === 'SALARY_ADVANCE'
+            ? 'Salary advance repayment'
+            : 'Staff loan repayment',
+        componentType: PayrollComponentTypeEnum.DEDUCTION,
+        amount: allocation.appliedAmount,
+        taxableAmount: '0.00',
+        employerAmount: '0.00',
+        calculationOrder:
+          allocation.instruction.componentCode === 'SALARY_ADVANCE' ? 940 : 950,
+        sourceType: 'EMPLOYEE_FINANCE',
+        sourceReference: String(allocation.instruction.id),
+        calculationSnapshot: allocation.instruction.snapshot,
+      });
+    }
     const taxable = this.sumLines(
       lineItems,
       (item) => PayrollMoney.toCents(item.taxableAmount ?? '0') > 0n,
@@ -1110,12 +2212,33 @@ export class EmployeePayrollCalculationService {
       period,
       bank,
     );
+    for (const shortfall of financeAllocation.shortfalls) {
+      warnings.push({
+        code: 'EMPLOYEE_FINANCE_DEDUCTION_SHORTFALL',
+        component_code: shortfall.componentCode,
+        requested_amount: shortfall.requestedAmount,
+        applied_amount: shortfall.appliedAmount,
+        deferred_amount: shortfall.deferredAmount,
+        source_reference: shortfall.sourceReference,
+      });
+    }
+    const errors = this.buildCriticalErrors({
+      employee,
+      profile,
+      bank,
+      attendanceSummary,
+      netPay,
+    });
     const calculationSnapshot = {
       period: period.periodCode,
       proration_factor: factor,
+      attendance: attendanceSummary,
+      leave: leaveSummary,
       leave_without_pay_days: leaveWithoutPayDays,
       line_count: lineItems.length,
       statutory_rule_ids: args.rules.map((item) => item.rule.id),
+      minimum_net_pay: financeAllocation.minimumNetPay,
+      finance_deduction_capacity: financeAllocation.capacity,
     };
     const inputSnapshot = {
       input_ids: inputs.map((item) => item.id),
@@ -1142,11 +2265,14 @@ export class EmployeePayrollCalculationService {
       compensation,
       bank,
       lineItems,
+      deductionShortfalls: financeAllocation.shortfalls,
       result: {
         status:
-          warnings.length > 0
-            ? EmployeePayrollResultStatusEnum.WARNING
-            : EmployeePayrollResultStatusEnum.CALCULATED,
+          errors.length > 0
+            ? EmployeePayrollResultStatusEnum.ERROR
+            : warnings.length > 0
+              ? EmployeePayrollResultStatusEnum.WARNING
+              : EmployeePayrollResultStatusEnum.CALCULATED,
         employeeSnapshot: this.employeeSnapshot(employee),
         compensationSnapshot: { ...compensation },
         bankAccountSnapshot: bank ? this.bankSnapshot(bank) : null,
@@ -1161,6 +2287,181 @@ export class EmployeePayrollCalculationService {
         employerCost,
         calculationHash,
         warnings,
+        errors,
+      },
+    };
+  }
+
+  private async calculateBonusSchemeLines(args: {
+    companyId: number;
+    period: PayrollPeriod;
+    run: PayrollRun;
+    employee: Employee;
+    compensation: EmployeeCompensationVersion;
+    inputs: PayrollInput[];
+    componentMap: Map<string, PayrollComponent>;
+    basicPay: string;
+    existingComponentCodes: Set<string>;
+  }): Promise<Array<Partial<EmployeePayrollLineItem>>> {
+    const schemes = await this.bonusSchemeRepository
+      .createQueryBuilder('scheme')
+      .where('scheme.companyId = :companyId', { companyId: args.companyId })
+      .andWhere('scheme.status = :status', { status: 'ACTIVE' })
+      .andWhere('scheme.effectiveFrom <= :date', { date: args.period.endDate })
+      .andWhere('(scheme.effectiveTo IS NULL OR scheme.effectiveTo >= :date)', {
+        date: args.period.startDate,
+      })
+      .orderBy('scheme.id', 'ASC')
+      .getMany();
+
+    const lines: Array<Partial<EmployeePayrollLineItem>> = [];
+    for (const scheme of schemes) {
+      if (args.existingComponentCodes.has(scheme.componentCode)) continue;
+      const configuration = scheme.configuration ?? {};
+      const autoApply =
+        args.run.runType === PayrollRunTypeEnum.BONUS ||
+        args.run.runType === PayrollRunTypeEnum.SUPPLEMENTARY ||
+        configuration.auto_apply === true;
+      const sourceInput = args.inputs.find((input) => {
+        const module = input.sourceModule.toUpperCase();
+        return (
+          input.componentCode === scheme.componentCode ||
+          input.sourceReference === scheme.code ||
+          (['SALES', 'KPI', 'PERFORMANCE', 'COMMISSION'].includes(module) &&
+            (input.employeeId === args.employee.id ||
+              input.employeeId === null))
+        );
+      });
+      if (!autoApply && !sourceInput) continue;
+
+      const basis = sourceInput?.amount ?? args.basicPay;
+      let amount = scheme.defaultAmount ?? '0.00';
+      const method = scheme.calculationMethod.toUpperCase();
+      const configuredDefaultRate = configuration.default_rate;
+      if (sourceInput && !scheme.defaultAmount && !scheme.defaultRate) {
+        amount = sourceInput.amount;
+      } else if (
+        [
+          'PERCENTAGE_OF_BASE',
+          'PERCENTAGE_OF_GROSS',
+          'PERCENTAGE_OF_SALES',
+          'FORMULA',
+        ].includes(method)
+      ) {
+        amount = PayrollMoney.multiplyPercent(
+          method === 'PERCENTAGE_OF_BASE'
+            ? args.compensation.baseSalary
+            : basis,
+          scheme.defaultRate ??
+            (typeof configuredDefaultRate === 'string' ||
+            typeof configuredDefaultRate === 'number'
+              ? String(configuredDefaultRate)
+              : '0'),
+        );
+      }
+
+      if (PayrollMoney.toCents(amount) <= 0n) continue;
+      const component = args.componentMap.get(scheme.componentCode);
+      lines.push({
+        componentCode: scheme.componentCode,
+        componentName: scheme.name,
+        componentType: PayrollComponentTypeEnum.EARNING,
+        amount,
+        taxableAmount: this.taxableAmount(amount, component),
+        employerAmount: '0.00',
+        calculationOrder: component?.calculationOrder ?? 80,
+        sourceType: scheme.schemeType.toUpperCase(),
+        sourceReference: sourceInput
+          ? String(sourceInput.id)
+          : `BONUS_SCHEME:${scheme.id}`,
+        calculationSnapshot: {
+          scheme_id: scheme.id,
+          scheme_code: scheme.code,
+          calculation_method: scheme.calculationMethod,
+          source_input_id: sourceInput?.id ?? null,
+          basis,
+          default_rate: scheme.defaultRate,
+        },
+      });
+    }
+    return lines;
+  }
+
+  private async calculateArrearsLine(args: {
+    companyId: number;
+    period: PayrollPeriod;
+    run: PayrollRun;
+    employee: Employee;
+    compensation: EmployeeCompensationVersion;
+  }): Promise<Partial<EmployeePayrollLineItem> | null> {
+    const shouldEvaluate =
+      [PayrollRunTypeEnum.ARREARS, PayrollRunTypeEnum.ADJUSTMENT].includes(
+        args.run.runType,
+      ) ||
+      (args.compensation.effectiveFrom < args.period.startDate &&
+        args.compensation.createdAt >=
+          new Date(`${args.period.startDate}T00:00:00.000Z`));
+    if (!shouldEvaluate) return null;
+
+    const previous = await this.compensationRepository
+      .createQueryBuilder('compensation')
+      .where('compensation.companyId = :companyId', {
+        companyId: args.companyId,
+      })
+      .andWhere('compensation.employeeId = :employeeId', {
+        employeeId: args.employee.id,
+      })
+      .andWhere('compensation.id != :id', { id: args.compensation.id })
+      .andWhere('compensation.effectiveFrom < :effectiveFrom', {
+        effectiveFrom: args.compensation.effectiveFrom,
+      })
+      .orderBy('compensation.effectiveFrom', 'DESC')
+      .getOne();
+    if (!previous) return null;
+
+    const delta = PayrollMoney.add(
+      args.compensation.baseSalary,
+      PayrollMoney.fromCents(-PayrollMoney.toCents(previous.baseSalary)),
+    );
+    if (PayrollMoney.toCents(delta) === 0n) return null;
+    const retroEnd =
+      args.compensation.effectiveFrom < args.period.startDate
+        ? new Date(
+            new Date(`${args.period.startDate}T00:00:00.000Z`).getTime() -
+              24 * 60 * 60 * 1000,
+          )
+            .toISOString()
+            .slice(0, 10)
+        : args.period.endDate;
+    const retroDays = Math.max(
+      0,
+      daysInclusive(args.compensation.effectiveFrom, retroEnd),
+    );
+    if (retroDays <= 0) return null;
+    const amount = PayrollMoney.multiplyRatio(delta, retroDays, 30);
+    if (PayrollMoney.toCents(amount) === 0n) return null;
+    return {
+      componentCode: 'ARREARS',
+      componentName: 'Retroactive salary arrears',
+      componentType:
+        PayrollMoney.toCents(amount) > 0n
+          ? PayrollComponentTypeEnum.EARNING
+          : PayrollComponentTypeEnum.DEDUCTION,
+      amount:
+        PayrollMoney.toCents(amount) > 0n
+          ? amount
+          : PayrollMoney.fromCents(-PayrollMoney.toCents(amount)),
+      taxableAmount: PayrollMoney.toCents(amount) > 0n ? amount : '0.00',
+      employerAmount: '0.00',
+      calculationOrder: 85,
+      sourceType: 'RETROACTIVE_COMPENSATION',
+      sourceReference: String(args.compensation.id),
+      calculationSnapshot: {
+        current_compensation_id: args.compensation.id,
+        previous_compensation_id: previous.id,
+        current_base_salary: args.compensation.baseSalary,
+        previous_base_salary: previous.baseSalary,
+        retro_days: retroDays,
       },
     };
   }
@@ -1188,7 +2489,7 @@ export class EmployeePayrollCalculationService {
       .getOne();
   }
 
-  private async calculateLwpDays(
+  private async summarizeLeave(
     companyId: number,
     employeeId: number,
     period: PayrollPeriod,
@@ -1208,20 +2509,279 @@ export class EmployeePayrollCalculationService {
         periodStart: period.startDate,
       })
       .getMany();
-    return leaves.reduce((sum, leave) => {
-      const type = leave.leave_type as unknown as {
-        is_paid?: boolean;
-        paid_percentage?: string;
+    const rules = await this.leaveRuleRepository
+      .createQueryBuilder('rule')
+      .where('rule.companyId = :companyId', { companyId })
+      .andWhere('rule.status = :status', { status: 'ACTIVE' })
+      .andWhere('rule.effectiveFrom <= :periodEnd', {
+        periodEnd: period.endDate,
+      })
+      .andWhere(
+        '(rule.effectiveTo IS NULL OR rule.effectiveTo >= :periodStart)',
+        {
+          periodStart: period.startDate,
+        },
+      )
+      .orderBy('rule.effectiveFrom', 'DESC')
+      .getMany();
+    const rulesByType = new Map(
+      rules.map((rule) => [rule.leaveTypeCode.toUpperCase(), rule]),
+    );
+    return leaves.reduce(
+      (summary, leave) => {
+        const type = leave.leave_type as unknown as {
+          code?: string;
+          name?: string;
+          is_paid?: boolean;
+          paid_percentage?: string;
+          payroll_paid_percentage?: string;
+          payroll_behavior?: string;
+        };
+        const start =
+          leave.start_date > period.startDate
+            ? leave.start_date
+            : period.startDate;
+        const end =
+          leave.end_date < period.endDate ? leave.end_date : period.endDate;
+        const days = daysInclusive(start, end);
+        const rule = type?.code
+          ? rulesByType.get(String(type.code).toUpperCase())
+          : undefined;
+        const split = this.leavePayrollSplit(days, type, rule);
+        const paidPercentage =
+          days > 0 ? (split.paidEquivalentDays / days) * 100 : 0;
+        const paidEquivalent = split.paidEquivalentDays;
+        const unpaidEquivalent = split.unpaidEquivalentDays;
+        summary.paidDays += paidPercentage > 0 ? days : 0;
+        summary.unpaidDays += paidPercentage <= 0 ? days : 0;
+        summary.paidEquivalentDays += paidEquivalent;
+        summary.unpaidEquivalentDays += unpaidEquivalent;
+        summary.leaveRequestIds.push(leave.id);
+        if (type?.code) {
+          summary.byType[type.code] = (summary.byType[type.code] ?? 0) + days;
+          summary.policyBreakdown[type.code] = {
+            code: type.code,
+            name: type.name ?? type.code,
+            days: (summary.policyBreakdown[type.code]?.days ?? 0) + days,
+            paid_percentage: paidPercentage,
+            rule_id: rule?.id ?? null,
+            paid_equivalent_days:
+              (summary.policyBreakdown[type.code]?.paid_equivalent_days ?? 0) +
+              paidEquivalent,
+            unpaid_equivalent_days:
+              (summary.policyBreakdown[type.code]?.unpaid_equivalent_days ??
+                0) + unpaidEquivalent,
+          };
+        }
+        return summary;
+      },
+      {
+        paidDays: 0,
+        unpaidDays: 0,
+        paidEquivalentDays: 0,
+        unpaidEquivalentDays: 0,
+        leaveRequestIds: [] as number[],
+        byType: {} as Record<string, number>,
+        policyBreakdown: {} as Record<
+          string,
+          {
+            code: string;
+            name: string;
+            days: number;
+            paid_percentage: number;
+            rule_id: number | null;
+            paid_equivalent_days: number;
+            unpaid_equivalent_days: number;
+          }
+        >,
+      },
+    );
+  }
+
+  private leavePayrollSplit(
+    days: number,
+    type:
+      | {
+          code?: string;
+          is_paid?: boolean;
+          paid_percentage?: string;
+          payroll_paid_percentage?: string;
+          payroll_behavior?: string;
+        }
+      | undefined,
+    rule?: PayrollLeaveRule,
+  ) {
+    if (!rule) {
+      const paidPercentage = this.leavePaidPercentage(type);
+      const paidEquivalentDays = (days * paidPercentage) / 100;
+      return {
+        paidEquivalentDays,
+        unpaidEquivalentDays: days - paidEquivalentDays,
       };
-      if (type?.is_paid !== false) return sum;
-      const start =
-        leave.start_date > period.startDate
-          ? leave.start_date
-          : period.startDate;
-      const end =
-        leave.end_date < period.endDate ? leave.end_date : period.endDate;
-      return sum + daysInclusive(start, end);
-    }, 0);
+    }
+
+    let remaining = days;
+    let paidEquivalentDays = 0;
+    const paidCap = Number(rule.paidDaysCap ?? '');
+    const halfAfter = Number(rule.halfPayAfterDays ?? '');
+    const unpaidAfter = Number(rule.unpaidAfterDays ?? '');
+    const defaultPaidPercentage = Number(rule.paidPercentage ?? '100');
+
+    if (
+      Number.isFinite(unpaidAfter) &&
+      unpaidAfter >= 0 &&
+      days > unpaidAfter
+    ) {
+      remaining = unpaidAfter;
+    }
+    if (Number.isFinite(paidCap) && paidCap >= 0) {
+      const fullPaidDays = Math.min(remaining, paidCap);
+      paidEquivalentDays +=
+        (fullPaidDays * Math.min(100, Math.max(0, defaultPaidPercentage))) /
+        100;
+      remaining -= fullPaidDays;
+    }
+    if (remaining > 0 && Number.isFinite(halfAfter) && halfAfter >= 0) {
+      const fullBeforeHalfPay = Math.max(0, Math.min(remaining, halfAfter));
+      paidEquivalentDays +=
+        (fullBeforeHalfPay *
+          Math.min(100, Math.max(0, defaultPaidPercentage))) /
+        100;
+      remaining -= fullBeforeHalfPay;
+      paidEquivalentDays += remaining * 0.5;
+      remaining = 0;
+    }
+    if (remaining > 0) {
+      paidEquivalentDays +=
+        (remaining * Math.min(100, Math.max(0, defaultPaidPercentage))) / 100;
+    }
+
+    return {
+      paidEquivalentDays,
+      unpaidEquivalentDays: days - paidEquivalentDays,
+    };
+  }
+
+  private leavePaidPercentage(type?: {
+    code?: string;
+    is_paid?: boolean;
+    paid_percentage?: string;
+    payroll_paid_percentage?: string;
+    payroll_behavior?: string;
+  }) {
+    if (!type) return 100;
+    const configured = Number(
+      type.payroll_paid_percentage ?? type.paid_percentage ?? '',
+    );
+    if (Number.isFinite(configured)) {
+      return Math.min(100, Math.max(0, configured));
+    }
+    const behavior = String(type.payroll_behavior ?? '').toUpperCase();
+    const code = String(type.code ?? '').toUpperCase();
+    if (behavior.includes('UNPAID') || code.includes('LWP')) return 0;
+    if (behavior.includes('HALF') || code.includes('HALF')) return 50;
+    if (type.is_paid === false) return 0;
+    return 100;
+  }
+
+  private async summarizeAttendance(
+    companyId: number,
+    employeeId: number,
+    period: PayrollPeriod,
+  ) {
+    const summaries = await this.attendanceRepository
+      .createQueryBuilder('summary')
+      .where('summary.companyId = :companyId', { companyId })
+      .andWhere('summary.employeeId = :employeeId', { employeeId })
+      .andWhere('summary.attendanceDate >= :periodStart', {
+        periodStart: period.startDate,
+      })
+      .andWhere('summary.attendanceDate <= :periodEnd', {
+        periodEnd: period.endDate,
+      })
+      .getMany();
+    const holidays = await this.holidayRepository
+      .createQueryBuilder('holiday')
+      .where('holiday.companyId = :companyId', { companyId })
+      .andWhere('holiday.date >= :periodStart', {
+        periodStart: period.startDate,
+      })
+      .andWhere('holiday.date <= :periodEnd', { periodEnd: period.endDate })
+      .getMany();
+    const holidayDates = new Set(holidays.map((holiday) => holiday.date));
+    return summaries.reduce(
+      (acc, summary) => {
+        const status = String(summary.attendanceStatus ?? '').toUpperCase();
+        const flags = summary.flags ?? {};
+        const isHoliday =
+          Boolean(flags.isHoliday ?? flags.holiday) ||
+          holidayDates.has(summary.attendanceDate);
+        const day = new Date(
+          `${summary.attendanceDate}T00:00:00.000Z`,
+        ).getUTCDay();
+        const isWeekend = day === 0 || day === 6 || Boolean(flags.isWeekend);
+        const overtimeMinutes = summary.overtimeMinutes ?? 0;
+        const overtimeApproved =
+          flags.overtimeApproved === true ||
+          flags.otApproved === true ||
+          flags.payrollApproved === true;
+        if (status.includes('ABSENT')) acc.absentDays += 1;
+        if (
+          summary.workMinutes > 0 ||
+          ['PRESENT', 'LATE', 'HALF_DAY'].some((value) =>
+            status.includes(value),
+          )
+        ) {
+          acc.daysWorked += 1;
+        }
+        acc.lateMinutes += summary.lateMinutes ?? 0;
+        acc.earlyDepartureMinutes += summary.earlyDepartureMinutes ?? 0;
+        acc.workMinutes += summary.workMinutes ?? 0;
+        acc.overtimeMinutes += overtimeMinutes;
+        if (overtimeMinutes > 0 && !overtimeApproved) {
+          acc.pendingOvertimeApprovalMinutes += overtimeMinutes;
+        } else if (isHoliday) {
+          acc.holidayOvertimeMinutes += overtimeMinutes;
+          acc.payableOvertimeMinutes += overtimeMinutes;
+        } else if (isWeekend) {
+          acc.weekendOvertimeMinutes += overtimeMinutes;
+          acc.payableOvertimeMinutes += overtimeMinutes;
+        } else {
+          acc.regularOvertimeMinutes += overtimeMinutes;
+          acc.payableOvertimeMinutes += overtimeMinutes;
+        }
+        if (!summary.finalizedAt) acc.unfinalizedCount += 1;
+        return acc;
+      },
+      {
+        summaryCount: summaries.length,
+        daysWorked: 0,
+        absentDays: 0,
+        lateMinutes: 0,
+        earlyDepartureMinutes: 0,
+        workMinutes: 0,
+        overtimeMinutes: 0,
+        payableOvertimeMinutes: 0,
+        regularOvertimeMinutes: 0,
+        weekendOvertimeMinutes: 0,
+        holidayOvertimeMinutes: 0,
+        pendingOvertimeApprovalMinutes: 0,
+        unfinalizedCount: 0,
+      },
+    );
+  }
+
+  private activeOvertimePolicy(companyId: number, date: string) {
+    return this.overtimePolicyRepository
+      .createQueryBuilder('policy')
+      .where('policy.companyId = :companyId', { companyId })
+      .andWhere('policy.status = :status', { status: 'ACTIVE' })
+      .andWhere('policy.effectiveFrom <= :date', { date })
+      .andWhere('(policy.effectiveTo IS NULL OR policy.effectiveTo >= :date)', {
+        date,
+      })
+      .orderBy('policy.effectiveFrom', 'DESC')
+      .getOne();
   }
 
   private taxableAmount(amount: string, component?: PayrollComponent) {
@@ -1255,6 +2815,103 @@ export class EmployeePayrollCalculationService {
     );
   }
 
+  private async applyFinanceDeductionCapacity(args: {
+    gross: string;
+    deductionsBeforeFinance: string;
+    financeInstructions: Awaited<
+      ReturnType<
+        EmployeeFinancePayrollInstructionService['reserveForPayrollRun']
+      >
+    >;
+  }) {
+    const minimumNetPay = this.minimumNetPay(args.gross);
+    let remainingCapacity = PayrollMoney.toCents(
+      PayrollMoney.add(
+        args.gross,
+        PayrollMoney.fromCents(
+          -PayrollMoney.toCents(args.deductionsBeforeFinance) -
+            PayrollMoney.toCents(minimumNetPay),
+        ),
+      ),
+    );
+    if (remainingCapacity < 0n) remainingCapacity = 0n;
+
+    const applied: Array<{
+      instruction: (typeof args.financeInstructions)[number];
+      appliedAmount: string;
+    }> = [];
+    const shortfalls: CalculatedPayrollEmployee['deductionShortfalls'] = [];
+    const orderedInstructions = [...args.financeInstructions].sort((a, b) => {
+      const priority = (code: string) => (code === 'SALARY_ADVANCE' ? 0 : 1);
+      const priorityDiff =
+        priority(a.componentCode) - priority(b.componentCode);
+      return priorityDiff || a.id - b.id;
+    });
+
+    for (const instruction of orderedInstructions) {
+      const requestedCents = PayrollMoney.toCents(instruction.amount);
+      const appliedCents =
+        remainingCapacity > requestedCents ? requestedCents : remainingCapacity;
+      remainingCapacity -= appliedCents;
+
+      const appliedAmount = PayrollMoney.fromCents(appliedCents);
+      const deferredAmount = PayrollMoney.fromCents(
+        requestedCents - appliedCents,
+      );
+      const updatedInstruction =
+        await this.employeeFinancePayrollInstructionService.setReservedAmount(
+          instruction,
+          appliedAmount,
+        );
+
+      if (appliedCents > 0n) {
+        applied.push({ instruction: updatedInstruction, appliedAmount });
+      }
+      if (requestedCents > appliedCents) {
+        shortfalls.push({
+          componentCode: instruction.componentCode,
+          requestedAmount: instruction.amount,
+          appliedAmount,
+          deferredAmount,
+          sourceReference: String(instruction.id),
+        });
+      }
+    }
+
+    return {
+      applied,
+      shortfalls,
+      minimumNetPay,
+      capacity: PayrollMoney.fromCents(
+        PayrollMoney.toCents(args.gross) -
+          PayrollMoney.toCents(args.deductionsBeforeFinance) -
+          PayrollMoney.toCents(minimumNetPay),
+      ),
+    };
+  }
+
+  private minimumNetPay(gross: string) {
+    const configuredAmount = String(
+      this.configService.get<string | number>(
+        'PAYROLL_MINIMUM_NET_PAY_AMOUNT',
+        '0',
+      ),
+    );
+    const configuredPercentage = String(
+      this.configService.get<string | number>(
+        'PAYROLL_MINIMUM_NET_PAY_PERCENTAGE',
+        '0',
+      ),
+    );
+    const amountFloor = PayrollMoney.toCents(configuredAmount);
+    const percentageFloor = PayrollMoney.toCents(
+      PayrollMoney.multiplyPercent(gross, configuredPercentage),
+    );
+    return PayrollMoney.fromCents(
+      amountFloor > percentageFloor ? amountFloor : percentageFloor,
+    );
+  }
+
   private async buildWarnings(
     companyId: number,
     employeeId: number,
@@ -1276,6 +2933,61 @@ export class EmployeePayrollCalculationService {
       });
     }
     return warnings;
+  }
+
+  private buildCriticalErrors(args: {
+    employee: Employee;
+    profile: EmployeePayrollProfile;
+    bank: EmployeeBankAccount | null;
+    attendanceSummary: { summaryCount: number; unfinalizedCount: number };
+    netPay: string;
+  }) {
+    const errors: Record<string, unknown>[] = [];
+    if (!args.profile.taxpayerIdentificationNumber) {
+      errors.push({
+        code: 'MISSING_TAX_IDENTIFICATION_NUMBER',
+        severity: 'BLOCKER',
+      });
+    }
+    if (!args.profile.socialSecurityNumber) {
+      errors.push({
+        code: 'MISSING_PENSION_MEMBERSHIP_NUMBER',
+        severity: 'BLOCKER',
+      });
+    }
+    if (!args.bank) {
+      errors.push({ code: 'MISSING_BANK_ACCOUNT', severity: 'BLOCKER' });
+    } else if (args.bank.verification_status !== 'VERIFIED') {
+      errors.push({ code: 'BANK_ACCOUNT_NOT_VERIFIED', severity: 'BLOCKER' });
+    }
+    if (PayrollMoney.toCents(args.netPay) < 0n) {
+      errors.push({
+        code: 'NEGATIVE_NET_PAY',
+        severity: 'BLOCKER',
+        net_pay: args.netPay,
+      });
+    }
+    if (args.employee.exit_date) {
+      errors.push({
+        code: 'TERMINATED_EMPLOYEE_INCLUDED',
+        severity: 'BLOCKER',
+        exit_date: args.employee.exit_date,
+      });
+    }
+    if (args.attendanceSummary.summaryCount === 0) {
+      errors.push({ code: 'MISSING_ATTENDANCE', severity: 'BLOCKER' });
+    }
+    if (args.attendanceSummary.unfinalizedCount > 0) {
+      errors.push({
+        code: 'UNFINALIZED_ATTENDANCE',
+        severity: 'BLOCKER',
+        count: args.attendanceSummary.unfinalizedCount,
+      });
+    }
+    if (!args.employee.cost_center_id) {
+      errors.push({ code: 'MISSING_COST_CENTER', severity: 'BLOCKER' });
+    }
+    return errors;
   }
 
   private employeeSnapshot(employee: Employee) {
@@ -1330,6 +3042,10 @@ export class PayrollRunService {
     private readonly lineItemRepository: Repository<EmployeePayrollLineItem>,
     @InjectRepository(PayrollRunApproval)
     private readonly approvalRepository: Repository<PayrollRunApproval>,
+    @InjectRepository(PayrollDeductionShortfall)
+    private readonly shortfallRepository: Repository<PayrollDeductionShortfall>,
+    @InjectRepository(PayrollGroup)
+    private readonly groupRepository: Repository<PayrollGroup>,
   ) {}
 
   async create(actor: AuthenticatedUser, dto: CreatePayrollRunDto) {
@@ -1338,15 +3054,39 @@ export class PayrollRunService {
       where: { id: dto.payroll_period_id, companyId },
     });
     if (!period) throw new NotFoundException('Payroll period not found.');
+    const group = dto.payroll_group_id
+      ? await this.groupRepository.findOne({
+          where: { id: dto.payroll_group_id, companyId, status: 'ACTIVE' },
+        })
+      : null;
+    if (dto.payroll_group_id && !group) {
+      throw new NotFoundException('Payroll group not found.');
+    }
     const count = await this.runRepository.count({ where: { companyId } });
     const run = await this.runRepository.save(
       this.runRepository.create({
         companyId,
         payrollPeriodId: period.id,
+        payrollGroupId: group?.id ?? null,
         runNo: `PR-${companyId}-${String(count + 1).padStart(6, '0')}`,
         runType: dto.run_type ?? PayrollRunTypeEnum.REGULAR,
         parentRunId: dto.parent_run_id ?? null,
         offboardingRequestId: dto.offboarding_request_id ?? null,
+        configurationSnapshot: group
+          ? {
+              payroll_group: {
+                id: group.id,
+                code: group.code,
+                name: group.name,
+                frequency: group.frequency,
+                branch_id: group.branchId,
+                department_id: group.departmentId,
+                employee_category: group.employeeCategory,
+                employment_type: group.employmentType,
+                currency: group.currency,
+              },
+            }
+          : null,
         createdByCompanyUserId: actor.companyMembershipId ?? actor.id,
       }),
     );
@@ -1403,6 +3143,16 @@ export class PayrollRunService {
     run.startedAt = new Date();
     await this.runRepository.save(run);
 
+    const previousResults = await this.resultRepository.find({
+      where: { payrollRunId: run.id, companyId },
+      select: ['id'],
+    });
+    if (previousResults.length > 0) {
+      await this.shortfallRepository.delete({
+        companyId,
+        employeePayrollResultId: In(previousResults.map((item) => item.id)),
+      });
+    }
     await this.lineItemRepository.delete({ payrollRunId: run.id, companyId });
     await this.resultRepository.delete({ payrollRunId: run.id, companyId });
 
@@ -1418,6 +3168,7 @@ export class PayrollRunService {
     let net = '0.00';
     let employerCost = '0.00';
     const resultHashes: string[] = [];
+    let validationErrorCount = 0;
 
     for (const item of calculated) {
       const savedResult = await this.resultRepository.save(
@@ -1449,6 +3200,24 @@ export class PayrollRunService {
           }),
         ),
       );
+      if (item.deductionShortfalls.length > 0) {
+        await this.shortfallRepository.save(
+          item.deductionShortfalls.map((shortfall) =>
+            this.shortfallRepository.create({
+              companyId,
+              employeePayrollResultId: savedResult.id,
+              componentCode: shortfall.componentCode,
+              requestedAmount: shortfall.requestedAmount,
+              appliedAmount: shortfall.appliedAmount,
+              deferredAmount: shortfall.deferredAmount,
+              status: 'OPEN',
+            }),
+          ),
+        );
+      }
+      if (savedResult.status === EmployeePayrollResultStatusEnum.ERROR) {
+        validationErrorCount += 1;
+      }
       gross = PayrollMoney.add(gross, savedResult.grossPay);
       taxable = PayrollMoney.add(taxable, savedResult.taxablePay);
       deductions = PayrollMoney.add(deductions, savedResult.employeeDeductions);
@@ -1482,12 +3251,12 @@ export class PayrollRunService {
     run.totalEmployerCost = employerCost;
     run.calculationHash = hashSnapshot(resultHashes);
     run.calculatedAt = new Date();
-    run.status = this.configService.get<boolean>(
-      'PAYROLL_REQUIRE_HR_APPROVAL',
-      true,
-    )
-      ? PayrollRunStatusEnum.PENDING_HR_APPROVAL
-      : PayrollRunStatusEnum.APPROVED;
+    run.status =
+      validationErrorCount > 0
+        ? PayrollRunStatusEnum.VALIDATION_FAILED
+        : this.configService.get<boolean>('PAYROLL_REQUIRE_HR_APPROVAL', true)
+          ? PayrollRunStatusEnum.PENDING_HR_APPROVAL
+          : PayrollRunStatusEnum.APPROVED;
     await this.auditService.log({
       actor,
       action: 'payroll.run.calculated',
@@ -1496,6 +3265,7 @@ export class PayrollRunService {
       summary: {
         employee_count: run.employeeCount,
         net_pay_total: run.netPayTotal,
+        validation_error_count: validationErrorCount,
       },
     });
     return this.runRepository.save(run);
@@ -1523,6 +3293,26 @@ export class PayrollRunService {
       );
     }
     this.assertApprovalStage(run, dto.stage);
+    const actorMembershipId = actor.companyMembershipId ?? actor.id;
+    if (
+      this.configService.get<boolean>(
+        'PAYROLL_REQUIRE_DISTINCT_APPROVERS',
+        true,
+      )
+    ) {
+      const priorApproval = await this.approvalRepository.findOne({
+        where: {
+          companyId,
+          payrollRunId: run.id,
+          approvedByCompanyUserId: actorMembershipId,
+        },
+      });
+      if (priorApproval) {
+        throw new ForbiddenException(
+          'Payroll approver cannot approve multiple stages for the same run.',
+        );
+      }
+    }
 
     await this.approvalRepository.save(
       this.approvalRepository.create({
@@ -1531,7 +3321,7 @@ export class PayrollRunService {
         stage: dto.stage,
         decision: PayrollApprovalDecisionEnum.APPROVED,
         calculationHash: dto.calculation_hash,
-        approvedByCompanyUserId: actor.companyMembershipId ?? actor.id,
+        approvedByCompanyUserId: actorMembershipId,
         comments: dto.comments ?? null,
       }),
     );
@@ -1579,6 +3369,91 @@ export class PayrollRunService {
     return this.runRepository.save(run);
   }
 
+  async validate(actor: AuthenticatedUser, id: number) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const run = await this.runRepository.findOne({ where: { id, companyId } });
+    if (!run) throw new NotFoundException('Payroll run not found.');
+    const results = await this.resultRepository.find({
+      where: { companyId, payrollRunId: run.id },
+      order: { employeeId: 'ASC' },
+    });
+    const issues = results.flatMap((result) => [
+      ...((result.errors ?? []).map((issue) => ({
+        employee_id: result.employeeId,
+        payroll_result_id: result.id,
+        severity: issue.severity ?? 'BLOCKER',
+        ...issue,
+      })) as Record<string, unknown>[]),
+      ...((result.warnings ?? []).map((issue) => ({
+        employee_id: result.employeeId,
+        payroll_result_id: result.id,
+        severity: issue.severity ?? 'WARNING',
+        ...issue,
+      })) as Record<string, unknown>[]),
+    ]);
+    return {
+      payroll_run_id: run.id,
+      status: run.status,
+      blocker_count: issues.filter((issue) => issue.severity === 'BLOCKER')
+        .length,
+      warning_count: issues.filter((issue) => issue.severity === 'WARNING')
+        .length,
+      info_count: issues.filter((issue) => issue.severity === 'INFO').length,
+      issues,
+    };
+  }
+
+  async markPaid(actor: AuthenticatedUser, id: number) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const run = await this.runRepository.findOne({ where: { id, companyId } });
+    if (!run) throw new NotFoundException('Payroll run not found.');
+    if (
+      ![
+        PayrollRunStatusEnum.LOCKED,
+        PayrollRunStatusEnum.PAYMENT_FILE_GENERATED,
+      ].includes(run.status)
+    ) {
+      throw new ConflictException('Only locked payroll can be marked paid.');
+    }
+    run.status = PayrollRunStatusEnum.PAID;
+    await this.resultRepository.update(
+      { payrollRunId: run.id, companyId },
+      { status: EmployeePayrollResultStatusEnum.PAID },
+    );
+    await this.periodRepository.update(
+      { id: run.payrollPeriodId, companyId },
+      { status: PayrollPeriodStatusEnum.PAID },
+    );
+    await this.auditService.log({
+      actor,
+      action: 'payroll.run.paid',
+      entityType: 'PAYROLL_RUN',
+      entityId: run.id,
+    });
+    return this.runRepository.save(run);
+  }
+
+  async close(actor: AuthenticatedUser, id: number) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const run = await this.runRepository.findOne({ where: { id, companyId } });
+    if (!run) throw new NotFoundException('Payroll run not found.');
+    if (run.status !== PayrollRunStatusEnum.PAID) {
+      throw new ConflictException('Only paid payroll can be closed.');
+    }
+    run.status = PayrollRunStatusEnum.CLOSED;
+    await this.periodRepository.update(
+      { id: run.payrollPeriodId, companyId },
+      { status: PayrollPeriodStatusEnum.CLOSED },
+    );
+    await this.auditService.log({
+      actor,
+      action: 'payroll.run.closed',
+      entityType: 'PAYROLL_RUN',
+      entityId: run.id,
+    });
+    return this.runRepository.save(run);
+  }
+
   private assertApprovalStage(
     run: PayrollRun,
     stage: PayrollApprovalStageEnum,
@@ -1600,11 +3475,19 @@ export class PayrollRunService {
 
   private nextApprovalStatus(stage: PayrollApprovalStageEnum) {
     if (stage === PayrollApprovalStageEnum.HR) {
+      if (
+        this.configService.get<boolean>(
+          'PAYROLL_REQUIRE_FINANCE_APPROVAL',
+          true,
+        )
+      ) {
+        return PayrollRunStatusEnum.PENDING_FINANCE_APPROVAL;
+      }
       return this.configService.get<boolean>(
-        'PAYROLL_REQUIRE_FINANCE_APPROVAL',
+        'PAYROLL_REQUIRE_MANAGEMENT_APPROVAL',
         true,
       )
-        ? PayrollRunStatusEnum.PENDING_FINANCE_APPROVAL
+        ? PayrollRunStatusEnum.PENDING_MANAGEMENT_APPROVAL
         : PayrollRunStatusEnum.APPROVED;
     }
     if (stage === PayrollApprovalStageEnum.FINANCE) {
@@ -1636,6 +3519,14 @@ export class PayslipService {
     private readonly lineRepository: Repository<EmployeePayrollLineItem>,
     @InjectRepository(Payslip)
     private readonly payslipRepository: Repository<Payslip>,
+    @InjectRepository(EmployeePayrollProfile)
+    private readonly profileRepository: Repository<EmployeePayrollProfile>,
+    @InjectRepository(EmployeeBankAccount)
+    private readonly bankRepository: Repository<EmployeeBankAccount>,
+    @InjectRepository(EmployeeCompensationVersion)
+    private readonly compensationRepository: Repository<EmployeeCompensationVersion>,
+    @InjectRepository(PayrollPeriod)
+    private readonly periodRepository: Repository<PayrollPeriod>,
   ) {}
 
   async generateForRun(actor: AuthenticatedUser, payrollRunId: number) {
@@ -1644,9 +3535,15 @@ export class PayslipService {
       where: { id: payrollRunId, companyId },
     });
     if (!run) throw new NotFoundException('Payroll run not found.');
-    if (run.status !== PayrollRunStatusEnum.LOCKED) {
+    if (
+      ![
+        PayrollRunStatusEnum.LOCKED,
+        PayrollRunStatusEnum.PAYMENT_FILE_GENERATED,
+        PayrollRunStatusEnum.PAID,
+      ].includes(run.status)
+    ) {
       throw new ConflictException(
-        'Payslips can be generated only from locked payroll.',
+        'Payslips can be generated only from locked, bank-file generated, or paid payroll.',
       );
     }
     const results = await this.resultRepository.find({
@@ -1744,6 +3641,151 @@ export class PayslipService {
     };
   }
 
+  async summaryMine(actor: AuthenticatedUser, year?: number) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    if (!actor.employeeId)
+      throw new ForbiddenException('Employee profile is required.');
+    const targetYear = year ?? new Date().getUTCFullYear();
+    const periods = await this.periodRepository.find({
+      where: { companyId, periodYear: targetYear },
+      select: { id: true },
+    });
+    const periodIds = periods.map((period) => period.id);
+    const [payslips, profile, compensations, results] = await Promise.all([
+      this.listMine(actor),
+      this.profileRepository.findOne({
+        where: { companyId, employeeId: actor.employeeId },
+      }),
+      this.compensationRepository.find({
+        where: { companyId, employeeId: actor.employeeId },
+        order: { effectiveFrom: 'DESC' },
+      }),
+      periodIds.length
+        ? this.resultRepository.find({
+            where: {
+              companyId,
+              employeeId: actor.employeeId,
+              payrollPeriodId: In(periodIds),
+            },
+            order: { payrollPeriodId: 'ASC' },
+          })
+        : Promise.resolve([]),
+    ]);
+    const resultIds = results.map((result) => result.id);
+    const lines = resultIds.length
+      ? await this.lineRepository.find({
+          where: { companyId, employeePayrollResultId: In(resultIds) },
+          order: { payrollRunId: 'ASC', calculationOrder: 'ASC' },
+        })
+      : [];
+    const bank = profile?.primaryBankAccountId
+      ? await this.bankRepository.findOne({
+          where: { id: profile.primaryBankAccountId },
+        })
+      : null;
+    const ytd = results.reduce(
+      (summary, result) => ({
+        gross_pay: PayrollMoney.add(summary.gross_pay, result.grossPay),
+        taxable_pay: PayrollMoney.add(summary.taxable_pay, result.taxablePay),
+        deductions: PayrollMoney.add(
+          summary.deductions,
+          result.employeeDeductions,
+        ),
+        employer_contributions: PayrollMoney.add(
+          summary.employer_contributions,
+          result.employerContributions,
+        ),
+        net_pay: PayrollMoney.add(summary.net_pay, result.netPay),
+      }),
+      {
+        gross_pay: '0.00',
+        taxable_pay: '0.00',
+        deductions: '0.00',
+        employer_contributions: '0.00',
+        net_pay: '0.00',
+      },
+    );
+    const componentTotals = lines.reduce<Record<string, string>>(
+      (acc, line) => {
+        const amount =
+          PayrollMoney.toCents(line.employerAmount) > 0n
+            ? line.employerAmount
+            : line.amount;
+        acc[line.componentCode] = PayrollMoney.add(
+          acc[line.componentCode] ?? '0.00',
+          amount,
+        );
+        return acc;
+      },
+      {},
+    );
+    return {
+      year: targetYear,
+      payslips,
+      salary_history: compensations.map((item) => ({
+        id: item.id,
+        base_salary: item.baseSalary,
+        currency: item.currency,
+        salary_structure_code: item.salaryStructureCode,
+        pay_frequency: item.payFrequency,
+        effective_from: item.effectiveFrom,
+        effective_to: item.effectiveTo,
+        status: item.status,
+        revision_reference: item.revisionReference,
+      })),
+      ytd,
+      tax_summary: this.pickComponentTotals(componentTotals, ['PAYE', 'TAX']),
+      pension_summary: this.pickComponentTotals(componentTotals, [
+        'PENSION',
+        'NSSF',
+        'PSSSF',
+      ]),
+      earnings: lines.filter((line) =>
+        [
+          PayrollComponentTypeEnum.EARNING,
+          PayrollComponentTypeEnum.REIMBURSEMENT,
+          PayrollComponentTypeEnum.TAXABLE_BENEFIT,
+        ].includes(String(line.componentType) as PayrollComponentTypeEnum),
+      ),
+      deductions: lines.filter(
+        (line) =>
+          String(line.componentType) === PayrollComponentTypeEnum.DEDUCTION,
+      ),
+      bank_details: bank ? this.maskBank(bank) : null,
+      payroll_documents: payslips.map((payslip) => ({
+        id: payslip.id,
+        payslip_no: payslip.payslipNo,
+        status: payslip.status,
+        created_at: payslip.createdAt,
+      })),
+    };
+  }
+
+  private pickComponentTotals(
+    totals: Record<string, string>,
+    markers: string[],
+  ) {
+    return Object.entries(totals)
+      .filter(([code]) =>
+        markers.some((marker) => code.toUpperCase().includes(marker)),
+      )
+      .map(([component_code, amount]) => ({ component_code, amount }));
+  }
+
+  private maskBank(bank: EmployeeBankAccount) {
+    return {
+      id: bank.id,
+      bank_name: bank.bank_name,
+      bank_code: bank.bank_code,
+      bank_branch_code: bank.bank_branch_code,
+      account_name: bank.account_name,
+      account_number_masked: bank.account_number
+        ? `${'*'.repeat(Math.max(bank.account_number.length - 4, 0))}${bank.account_number.slice(-4)}`
+        : null,
+      verification_status: bank.verification_status,
+    };
+  }
+
   listForRun(actor: AuthenticatedUser, payrollRunId: number) {
     return this.payslipRepository.find({
       where: {
@@ -1766,6 +3808,8 @@ export class PayrollBankService {
     private readonly resultRepository: Repository<EmployeePayrollResult>,
     @InjectRepository(PayrollBankBatch)
     private readonly batchRepository: Repository<PayrollBankBatch>,
+    @InjectRepository(PayrollPaymentReconciliation)
+    private readonly reconciliationRepository: Repository<PayrollPaymentReconciliation>,
   ) {}
 
   async generate(actor: AuthenticatedUser, payrollRunId: number) {
@@ -1850,6 +3894,10 @@ export class PayrollBankService {
         total_amount: batch.totalAmount,
       },
     });
+    if (run.status === PayrollRunStatusEnum.LOCKED) {
+      run.status = PayrollRunStatusEnum.PAYMENT_FILE_GENERATED;
+      await this.runRepository.save(run);
+    }
     return batch;
   }
 
@@ -1876,6 +3924,53 @@ export class PayrollBankService {
       file_hash: batch.fileHash,
     };
   }
+
+  async reconcile(
+    actor: AuthenticatedUser,
+    payrollRunId: number,
+    dto: ReconcilePayrollPaymentDto,
+  ) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const run = await this.runRepository.findOne({
+      where: { id: payrollRunId, companyId },
+    });
+    if (!run) throw new NotFoundException('Payroll run not found.');
+    const expectedAmount = run.netPayTotal;
+    const varianceAmount = PayrollMoney.add(
+      dto.paid_amount,
+      PayrollMoney.fromCents(-PayrollMoney.toCents(expectedAmount)),
+    );
+    const status =
+      PayrollMoney.toCents(varianceAmount) === 0n ? 'MATCHED' : 'VARIANCE';
+    const reconciliation = await this.reconciliationRepository.save(
+      this.reconciliationRepository.create({
+        companyId,
+        payrollRunId: run.id,
+        bankBatchId: dto.bank_batch_id ?? null,
+        paymentReference: dto.payment_reference.trim(),
+        paymentDate: dto.payment_date,
+        expectedAmount,
+        paidAmount: dto.paid_amount,
+        varianceAmount,
+        status,
+        snapshot: dto.snapshot ?? null,
+        reconciledByCompanyUserId: actor.companyMembershipId ?? actor.id,
+      }),
+    );
+    await this.auditService.log({
+      actor,
+      action: 'payroll.payment.reconciled',
+      entityType: 'PAYROLL_PAYMENT_RECONCILIATION',
+      entityId: reconciliation.id,
+      summary: {
+        payroll_run_id: run.id,
+        status,
+        paid_amount: dto.paid_amount,
+        variance_amount: varianceAmount,
+      },
+    });
+    return reconciliation;
+  }
 }
 
 @Injectable()
@@ -1884,6 +3979,8 @@ export class PayrollAccountingService {
     private readonly hrAccessService: HrAccessService,
     @InjectRepository(PayrollRun)
     private readonly runRepository: Repository<PayrollRun>,
+    @InjectRepository(EmployeePayrollResult)
+    private readonly resultRepository: Repository<EmployeePayrollResult>,
     @InjectRepository(EmployeePayrollLineItem)
     private readonly lineRepository: Repository<EmployeePayrollLineItem>,
     @InjectRepository(PayrollAccountingMapping)
@@ -1910,6 +4007,12 @@ export class PayrollAccountingService {
     const lines = await this.lineRepository.find({
       where: { companyId, payrollRunId },
     });
+    const results = await this.resultRepository.find({
+      where: { companyId, payrollRunId },
+    });
+    const resultMap = new Map(
+      results.map((result) => [result.employeeId, result]),
+    );
     const mappings = await this.mappingRepository.find({
       where: { companyId },
     });
@@ -1931,14 +4034,21 @@ export class PayrollAccountingService {
           `Missing payroll accounting mapping for component ${line.componentCode}.`,
         );
       }
-      const debitAccount = mapping.debitAccountCode;
-      const creditAccount = mapping.creditAccountCode;
+      const result = resultMap.get(line.employeeId);
+      const context = this.accountingContext(run, line, result);
+      const debitAccount = this.resolveMappedAccount(mapping, 'debit', context);
+      const creditAccount = this.resolveMappedAccount(
+        mapping,
+        'credit',
+        context,
+      );
       entries.push({
         employee_id: line.employeeId,
         component_code: line.componentCode,
         debit_account: debitAccount,
         credit_account: creditAccount,
         amount,
+        dimensions: context,
       });
       debit = PayrollMoney.add(debit, amount);
       credit = PayrollMoney.add(credit, amount);
@@ -1959,6 +4069,70 @@ export class PayrollAccountingService {
       }),
     );
   }
+
+  private accountingContext(
+    run: PayrollRun,
+    line: EmployeePayrollLineItem,
+    result?: EmployeePayrollResult,
+  ) {
+    const employeeSnapshot = result?.employeeSnapshot ?? {};
+    const calculationSnapshot = line.calculationSnapshot ?? {};
+    return {
+      payroll_group_id: run.payrollGroupId,
+      branch_id: employeeSnapshot.branch_id ?? null,
+      department_id: employeeSnapshot.department_id ?? null,
+      cost_center_id: employeeSnapshot.cost_center_id ?? null,
+      employee_category:
+        employeeSnapshot.employee_category ??
+        employeeSnapshot.employment_type ??
+        null,
+      project_id:
+        calculationSnapshot.project_id ?? calculationSnapshot.projectId ?? null,
+      source_type: line.sourceType,
+    };
+  }
+
+  private resolveMappedAccount(
+    mapping: PayrollAccountingMapping,
+    side: 'debit' | 'credit',
+    context: Record<string, unknown>,
+  ) {
+    const dimensions = mapping.dimensions ?? {};
+    const base =
+      side === 'debit' ? mapping.debitAccountCode : mapping.creditAccountCode;
+    const mapKeys = [
+      `${side}_accounts_by_project`,
+      `${side}_accounts_by_cost_center`,
+      `${side}_accounts_by_employee_category`,
+      `${side}_accounts_by_branch`,
+      `${side}_accounts_by_department`,
+      `${side}_accounts_by_payroll_group`,
+    ];
+    const contextKeys = [
+      'project_id',
+      'cost_center_id',
+      'employee_category',
+      'branch_id',
+      'department_id',
+      'payroll_group_id',
+    ];
+    for (let index = 0; index < mapKeys.length; index += 1) {
+      const value = dimensions[mapKeys[index]];
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        continue;
+      }
+      const rawLookupKey = context[contextKeys[index]];
+      const lookupKey =
+        typeof rawLookupKey === 'string' || typeof rawLookupKey === 'number'
+          ? String(rawLookupKey)
+          : '';
+      const account = (value as Record<string, unknown>)[lookupKey];
+      if (typeof account === 'string' && account.trim()) {
+        return account.trim();
+      }
+    }
+    return base;
+  }
 }
 
 @Injectable()
@@ -1969,6 +4143,12 @@ export class PayrollReportsService {
     private readonly runRepository: Repository<PayrollRun>,
     @InjectRepository(EmployeePayrollResult)
     private readonly resultRepository: Repository<EmployeePayrollResult>,
+    @InjectRepository(EmployeePayrollLineItem)
+    private readonly lineRepository: Repository<EmployeePayrollLineItem>,
+    @InjectRepository(PayrollPeriod)
+    private readonly periodRepository: Repository<PayrollPeriod>,
+    @InjectRepository(PayrollDeductionShortfall)
+    private readonly shortfallRepository: Repository<PayrollDeductionShortfall>,
     @InjectRepository(PayrollVarianceResult)
     private readonly varianceRepository: Repository<PayrollVarianceResult>,
   ) {}
@@ -2043,6 +4223,345 @@ export class PayrollReportsService {
       }),
     );
   }
+
+  catalog() {
+    return [
+      'payroll-register',
+      'payroll-summary',
+      'employee-payroll-history',
+      'department-payroll',
+      'branch-payroll',
+      'cost-centre-payroll',
+      'gross-to-net',
+      'allowances',
+      'deductions',
+      'deduction-shortfalls',
+      'overtime',
+      'loan',
+      'advance',
+      'employer-contributions',
+      'tax',
+      'pension',
+      'wcf',
+      'bank-payment',
+      'payroll-journal',
+      'payroll-cost',
+      'headcount-vs-payroll',
+      'ytd-earnings',
+      'ytd-tax',
+      'ytd-contributions',
+    ].map((code) => ({ code, name: code.replace(/-/g, ' ') }));
+  }
+
+  async report(
+    actor: AuthenticatedUser,
+    code: string,
+    query: PayrollReportQueryDto,
+  ) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const runIds = await this.resolveReportRunIds(companyId, query);
+    const results = runIds.length
+      ? await this.resultRepository.find({
+          where: { companyId, payrollRunId: In(runIds) },
+          order: { employeeId: 'ASC' },
+        })
+      : [];
+    const lines = runIds.length
+      ? await this.lineRepository.find({
+          where: { companyId, payrollRunId: In(runIds) },
+          order: { employeeId: 'ASC', calculationOrder: 'ASC' },
+        })
+      : [];
+    const normalizedCode = code.trim().toLowerCase();
+    if (normalizedCode === 'deduction-shortfalls') {
+      return {
+        code: normalizedCode,
+        run_ids: runIds,
+        row_count: runIds.length,
+        rows: await this.buildShortfallRows(companyId, results),
+      };
+    }
+    const rows =
+      normalizedCode.includes('ytd') || query.year
+        ? await this.buildYtdRows(companyId, normalizedCode, query)
+        : this.buildReportRows(normalizedCode, results, lines);
+    return {
+      code: normalizedCode,
+      run_ids: runIds,
+      row_count: rows.length,
+      rows,
+    };
+  }
+
+  private buildReportRows(
+    code: string,
+    results: EmployeePayrollResult[],
+    lines: EmployeePayrollLineItem[],
+  ) {
+    if (code === 'payroll-register' || code === 'gross-to-net') {
+      return results.map((result) => ({
+        employee_id: result.employeeId,
+        gross_pay: result.grossPay,
+        taxable_pay: result.taxablePay,
+        deductions: result.employeeDeductions,
+        employer_contributions: result.employerContributions,
+        net_pay: result.netPay,
+        employer_cost: result.employerCost,
+        status: result.status,
+      }));
+    }
+    if (code === 'payroll-summary' || code === 'payroll-cost') {
+      return [
+        results.reduce(
+          (summary, result) => ({
+            employees: summary.employees + 1,
+            gross_pay: PayrollMoney.add(summary.gross_pay, result.grossPay),
+            deductions: PayrollMoney.add(
+              summary.deductions,
+              result.employeeDeductions,
+            ),
+            employer_contributions: PayrollMoney.add(
+              summary.employer_contributions,
+              result.employerContributions,
+            ),
+            net_pay: PayrollMoney.add(summary.net_pay, result.netPay),
+            employer_cost: PayrollMoney.add(
+              summary.employer_cost,
+              result.employerCost,
+            ),
+          }),
+          {
+            employees: 0,
+            gross_pay: '0.00',
+            deductions: '0.00',
+            employer_contributions: '0.00',
+            net_pay: '0.00',
+            employer_cost: '0.00',
+          },
+        ),
+      ];
+    }
+    if (
+      [
+        'department-payroll',
+        'branch-payroll',
+        'cost-centre-payroll',
+        'headcount-vs-payroll',
+      ].includes(code)
+    ) {
+      const dimension =
+        code === 'department-payroll'
+          ? 'department_id'
+          : code === 'branch-payroll'
+            ? 'branch_id'
+            : 'cost_center_id';
+      const grouped = new Map<string, Record<string, unknown>>();
+      for (const result of results) {
+        const snapshot = result.employeeSnapshot ?? {};
+        const rawKey = snapshot[dimension];
+        const key =
+          typeof rawKey === 'string' || typeof rawKey === 'number'
+            ? String(rawKey)
+            : 'unassigned';
+        const current =
+          grouped.get(key) ??
+          ({
+            dimension,
+            dimension_value: key,
+            employees: 0,
+            gross_pay: '0.00',
+            deductions: '0.00',
+            employer_contributions: '0.00',
+            net_pay: '0.00',
+            employer_cost: '0.00',
+          } as Record<string, unknown>);
+        current.employees = Number(current.employees) + 1;
+        current.gross_pay = PayrollMoney.add(
+          current.gross_pay as string,
+          result.grossPay,
+        );
+        current.deductions = PayrollMoney.add(
+          current.deductions as string,
+          result.employeeDeductions,
+        );
+        current.employer_contributions = PayrollMoney.add(
+          current.employer_contributions as string,
+          result.employerContributions,
+        );
+        current.net_pay = PayrollMoney.add(
+          current.net_pay as string,
+          result.netPay,
+        );
+        current.employer_cost = PayrollMoney.add(
+          current.employer_cost as string,
+          result.employerCost,
+        );
+        grouped.set(key, current);
+      }
+      return [...grouped.values()];
+    }
+    if (code === 'bank-payment') {
+      return results.map((result) => {
+        const bank = result.bankAccountSnapshot ?? {};
+        return {
+          employee_id: result.employeeId,
+          bank_name: bank.bank_name ?? null,
+          bank_code: bank.bank_code ?? null,
+          branch_code: bank.bank_branch_code ?? null,
+          account_name: bank.account_name ?? null,
+          account_number: bank.account_number_masked ?? null,
+          net_pay: result.netPay,
+          status: result.status,
+        };
+      });
+    }
+    const matchers: Record<string, (line: EmployeePayrollLineItem) => boolean> =
+      {
+        allowances: (line) =>
+          String(line.componentType) === PayrollComponentTypeEnum.EARNING,
+        deductions: (line) =>
+          String(line.componentType) === PayrollComponentTypeEnum.DEDUCTION,
+        overtime: (line) => line.sourceType === 'ATTENDANCE_OVERTIME',
+        loan: (line) => line.componentCode === 'STAFF_LOAN',
+        advance: (line) => line.componentCode === 'SALARY_ADVANCE',
+        'employer-contributions': (line) =>
+          [
+            PayrollComponentTypeEnum.EMPLOYER_CONTRIBUTION,
+            PayrollComponentTypeEnum.EMPLOYER_LEVY,
+          ].includes(String(line.componentType) as PayrollComponentTypeEnum),
+        tax: (line) => line.componentCode.includes('PAYE'),
+        pension: (line) =>
+          line.componentCode.includes('PENSION') ||
+          line.componentCode.includes('NSSF') ||
+          line.componentCode.includes('PSSSF'),
+        wcf: (line) => line.componentCode.includes('WCF'),
+        'bank-payment': () => false,
+        'payroll-journal': () => true,
+        'headcount-vs-payroll': () => false,
+      };
+    const matcher = matchers[code] ?? (() => true);
+    return lines.filter(matcher).map((line) => ({
+      employee_id: line.employeeId,
+      component_code: line.componentCode,
+      component_name: line.componentName,
+      component_type: line.componentType,
+      amount: line.amount,
+      employer_amount: line.employerAmount,
+      source_type: line.sourceType,
+      source_reference: line.sourceReference,
+    }));
+  }
+
+  private async buildShortfallRows(
+    companyId: number,
+    results: EmployeePayrollResult[],
+  ) {
+    if (results.length === 0) return [];
+    const resultMap = new Map(results.map((result) => [result.id, result]));
+    const rows = await this.shortfallRepository.find({
+      where: {
+        companyId,
+        employeePayrollResultId: In(results.map((result) => result.id)),
+      },
+      order: { employeePayrollResultId: 'ASC', id: 'ASC' },
+    });
+    return rows.map((row) => ({
+      employee_id:
+        resultMap.get(row.employeePayrollResultId)?.employeeId ?? null,
+      payroll_run_id:
+        resultMap.get(row.employeePayrollResultId)?.payrollRunId ?? null,
+      payroll_result_id: row.employeePayrollResultId,
+      component_code: row.componentCode,
+      requested_amount: row.requestedAmount,
+      applied_amount: row.appliedAmount,
+      deferred_amount: row.deferredAmount,
+      status: row.status,
+    }));
+  }
+
+  private async buildYtdRows(
+    companyId: number,
+    code: string,
+    query: PayrollReportQueryDto,
+  ) {
+    const year = query.year ?? new Date().getUTCFullYear();
+    const periods = await this.periodRepository.find({
+      where: { companyId, periodYear: year },
+      select: ['id'],
+    });
+    const periodIds = periods.map((period) => period.id);
+    if (periodIds.length === 0) return [];
+    const results = await this.resultRepository.find({
+      where: {
+        companyId,
+        payrollPeriodId: In(periodIds),
+        ...(query.employee_id ? { employeeId: query.employee_id } : {}),
+      },
+      order: { employeeId: 'ASC' },
+    });
+    const grouped = new Map<number, Record<string, unknown>>();
+    for (const result of results) {
+      const current =
+        grouped.get(result.employeeId) ??
+        ({
+          employee_id: result.employeeId,
+          gross_pay: '0.00',
+          taxable_pay: '0.00',
+          deductions: '0.00',
+          employer_contributions: '0.00',
+          net_pay: '0.00',
+          employer_cost: '0.00',
+        } as Record<string, unknown>);
+      current.gross_pay = PayrollMoney.add(
+        current.gross_pay as string,
+        result.grossPay,
+      );
+      current.taxable_pay = PayrollMoney.add(
+        current.taxable_pay as string,
+        result.taxablePay,
+      );
+      current.deductions = PayrollMoney.add(
+        current.deductions as string,
+        result.employeeDeductions,
+      );
+      current.employer_contributions = PayrollMoney.add(
+        current.employer_contributions as string,
+        result.employerContributions,
+      );
+      current.net_pay = PayrollMoney.add(
+        current.net_pay as string,
+        result.netPay,
+      );
+      current.employer_cost = PayrollMoney.add(
+        current.employer_cost as string,
+        result.employerCost,
+      );
+      grouped.set(result.employeeId, current);
+    }
+    return [...grouped.values()].map((row) => ({
+      ...row,
+      report_code: code,
+      year,
+    }));
+  }
+
+  private async resolveReportRunIds(
+    companyId: number,
+    query: PayrollReportQueryDto,
+  ) {
+    if (query.payroll_run_id) return [query.payroll_run_id];
+    const runs = await this.runRepository.find({
+      where: {
+        companyId,
+        ...(query.payroll_period_id
+          ? { payrollPeriodId: query.payroll_period_id }
+          : {}),
+      },
+      order: { id: 'DESC' },
+      take: query.payroll_period_id ? 20 : 1,
+    });
+    return runs.map((run) => run.id);
+  }
 }
 
 @Injectable()
@@ -2068,6 +4587,10 @@ export class PayrollReconciliationService {
     private readonly resultRepository: Repository<EmployeePayrollResult>,
     @InjectRepository(EmployeePayrollLineItem)
     private readonly lineRepository: Repository<EmployeePayrollLineItem>,
+    @InjectRepository(EmployeeFinancePayrollInstruction)
+    private readonly financeInstructionRepository: Repository<EmployeeFinancePayrollInstruction>,
+    @InjectRepository(EmployeeFinanceLedgerEntry)
+    private readonly financeLedgerRepository: Repository<EmployeeFinanceLedgerEntry>,
   ) {}
 
   @Cron(process.env.PAYROLL_RECONCILIATION_CRON || '0 30 2 * * *')
@@ -2201,6 +4724,9 @@ export class PayrollReconciliationService {
         companyId,
         status: In([
           PayrollRunStatusEnum.CALCULATED,
+          PayrollRunStatusEnum.PENDING_HR_APPROVAL,
+          PayrollRunStatusEnum.PENDING_FINANCE_APPROVAL,
+          PayrollRunStatusEnum.PENDING_MANAGEMENT_APPROVAL,
           PayrollRunStatusEnum.APPROVED,
           PayrollRunStatusEnum.LOCKED,
         ]),
@@ -2246,7 +4772,44 @@ export class PayrollReconciliationService {
             payroll_result_id: result.id,
           });
         }
+        const deductions = lines
+          .filter(
+            (line) =>
+              String(line.componentType) === PayrollComponentTypeEnum.DEDUCTION,
+          )
+          .reduce((sum, line) => PayrollMoney.add(sum, line.amount), '0.00');
+        if (
+          PayrollMoney.toCents(deductions) !==
+          PayrollMoney.toCents(result.employeeDeductions)
+        ) {
+          issues.push({
+            code: 'EMPLOYEE_DEDUCTIONS_DIFFER_FROM_LINE_ITEMS',
+            payroll_result_id: result.id,
+          });
+        }
+        const net = PayrollMoney.add(
+          gross,
+          PayrollMoney.fromCents(-PayrollMoney.toCents(deductions)),
+        );
+        if (PayrollMoney.toCents(net) !== PayrollMoney.toCents(result.netPay)) {
+          issues.push({
+            code: 'EMPLOYEE_NET_DIFFERS_FROM_LINE_ITEMS',
+            payroll_result_id: result.id,
+          });
+        }
+        await this.reconcileEmployeeFinanceDeductions({
+          companyId,
+          run,
+          result,
+          lines,
+          issues,
+        });
       }
+      await this.reconcileFinanceInstructionsHavePayrollLines({
+        companyId,
+        run,
+        issues,
+      });
     }
 
     await this.auditService.log({
@@ -2263,6 +4826,128 @@ export class PayrollReconciliationService {
       issue_count: issues.length,
       issues,
     };
+  }
+
+  private async reconcileEmployeeFinanceDeductions(args: {
+    companyId: number;
+    run: PayrollRun;
+    result: EmployeePayrollResult;
+    lines: EmployeePayrollLineItem[];
+    issues: Record<string, unknown>[];
+  }) {
+    const financeLines = args.lines.filter(
+      (line) => line.sourceType === 'EMPLOYEE_FINANCE',
+    );
+    for (const line of financeLines) {
+      const instructionId = Number(line.sourceReference);
+      if (!Number.isFinite(instructionId)) {
+        args.issues.push({
+          code: 'EMPLOYEE_FINANCE_LINE_MISSING_INSTRUCTION',
+          payroll_result_id: args.result.id,
+          line_item_id: line.id,
+        });
+        continue;
+      }
+      const instruction = await this.financeInstructionRepository.findOne({
+        where: {
+          id: instructionId,
+          companyId: args.companyId,
+          payrollRunId: args.run.id,
+        },
+      });
+      if (!instruction) {
+        args.issues.push({
+          code: 'EMPLOYEE_FINANCE_INSTRUCTION_NOT_FOUND',
+          payroll_result_id: args.result.id,
+          line_item_id: line.id,
+          instruction_id: instructionId,
+        });
+        continue;
+      }
+      if (
+        PayrollMoney.toCents(instruction.reservedAmount) !==
+        PayrollMoney.toCents(line.amount)
+      ) {
+        args.issues.push({
+          code: 'EMPLOYEE_FINANCE_LINE_DIFFERS_FROM_RESERVED_AMOUNT',
+          payroll_result_id: args.result.id,
+          instruction_id: instruction.id,
+          line_amount: line.amount,
+          reserved_amount: instruction.reservedAmount,
+        });
+      }
+      if (args.run.status === PayrollRunStatusEnum.LOCKED) {
+        if (
+          instruction.status !==
+          EmployeeFinancePayrollInstructionStatusEnum.POSTED
+        ) {
+          args.issues.push({
+            code: 'LOCKED_PAYROLL_FINANCE_INSTRUCTION_NOT_POSTED',
+            payroll_run_id: args.run.id,
+            instruction_id: instruction.id,
+            instruction_status: instruction.status,
+          });
+        }
+        const ledger = await this.financeLedgerRepository.findOne({
+          where: {
+            companyId: args.companyId,
+            accountId: instruction.accountId,
+            idempotencyKey: `payroll:${args.run.id}:${instruction.id}`,
+          },
+        });
+        if (!ledger) {
+          args.issues.push({
+            code: 'LOCKED_PAYROLL_FINANCE_LEDGER_ENTRY_MISSING',
+            payroll_run_id: args.run.id,
+            instruction_id: instruction.id,
+          });
+        } else if (
+          PayrollMoney.toCents(ledger.totalAmount) !==
+          PayrollMoney.toCents(line.amount)
+        ) {
+          args.issues.push({
+            code: 'LOCKED_PAYROLL_FINANCE_LEDGER_AMOUNT_MISMATCH',
+            payroll_run_id: args.run.id,
+            instruction_id: instruction.id,
+            line_amount: line.amount,
+            ledger_amount: ledger.totalAmount,
+          });
+        }
+      }
+    }
+  }
+
+  private async reconcileFinanceInstructionsHavePayrollLines(args: {
+    companyId: number;
+    run: PayrollRun;
+    issues: Record<string, unknown>[];
+  }) {
+    const instructions = await this.financeInstructionRepository.find({
+      where: { companyId: args.companyId, payrollRunId: args.run.id },
+      order: { id: 'ASC' },
+    });
+    if (instructions.length === 0) return;
+    const financeLines = await this.lineRepository.find({
+      where: {
+        companyId: args.companyId,
+        payrollRunId: args.run.id,
+        sourceType: 'EMPLOYEE_FINANCE',
+      },
+    });
+    const lineByInstructionId = new Map(
+      financeLines.map((line) => [Number(line.sourceReference), line]),
+    );
+    for (const instruction of instructions) {
+      if (PayrollMoney.toCents(instruction.reservedAmount) <= 0n) continue;
+      if (!lineByInstructionId.has(instruction.id)) {
+        args.issues.push({
+          code: 'EMPLOYEE_FINANCE_INSTRUCTION_MISSING_PAYROLL_LINE',
+          payroll_run_id: args.run.id,
+          instruction_id: instruction.id,
+          reserved_amount: instruction.reservedAmount,
+        });
+      }
+    }
   }
 }
 

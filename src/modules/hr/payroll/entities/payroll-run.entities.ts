@@ -31,6 +31,9 @@ export class PayrollRun {
   @Column({ name: 'payroll_period_id' })
   payrollPeriodId: number;
 
+  @Column({ name: 'payroll_group_id', type: 'int', nullable: true })
+  payrollGroupId: number | null;
+
   @Column({ name: 'run_no', type: 'varchar', length: 60 })
   runNo: string;
 
@@ -258,6 +261,97 @@ export class PayrollInput {
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
+}
+
+@Entity('payroll_source_records')
+@Index('IDX_payroll_source_company_period_status', [
+  'companyId',
+  'payrollPeriodId',
+  'status',
+])
+@Unique('UQ_payroll_source_company_reference', [
+  'companyId',
+  'sourceType',
+  'sourceReference',
+])
+export class PayrollSourceRecord {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ name: 'company_id' })
+  companyId: number;
+
+  @Column({ name: 'payroll_period_id' })
+  payrollPeriodId: number;
+
+  @Column({ name: 'employee_id', type: 'int', nullable: true })
+  employeeId: number | null;
+
+  @Column({ name: 'source_type', type: 'varchar', length: 60 })
+  sourceType: string;
+
+  @Column({ name: 'source_reference', type: 'varchar', length: 150 })
+  sourceReference: string;
+
+  @Column({ name: 'scheme_code', type: 'varchar', length: 80, nullable: true })
+  schemeCode: string | null;
+
+  @Column({ name: 'component_code', type: 'varchar', length: 80 })
+  componentCode: string;
+
+  @Column({
+    name: 'source_amount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    default: '0',
+  })
+  sourceAmount: string;
+
+  @Column({ type: 'decimal', precision: 18, scale: 6, nullable: true })
+  quantity: string | null;
+
+  @Column({ type: 'decimal', precision: 18, scale: 6, nullable: true })
+  rate: string | null;
+
+  @Column({
+    name: 'calculated_amount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    default: '0',
+  })
+  calculatedAmount: string;
+
+  @Column({ type: 'varchar', length: 3, default: 'TZS' })
+  currency: string;
+
+  @Column({ type: 'varchar', length: 30, default: 'DRAFT' })
+  status: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  payload: Record<string, unknown> | null;
+
+  @Column({ name: 'generated_payroll_input_id', type: 'int', nullable: true })
+  generatedPayrollInputId: number | null;
+
+  @Column({ name: 'approved_by_company_user_id', type: 'int', nullable: true })
+  approvedByCompanyUserId: number | null;
+
+  @Column({ name: 'approved_at', type: 'timestamptz', nullable: true })
+  approvedAt: Date | null;
+
+  @Column({ name: 'posted_by_company_user_id', type: 'int', nullable: true })
+  postedByCompanyUserId: number | null;
+
+  @Column({ name: 'posted_at', type: 'timestamptz', nullable: true })
+  postedAt: Date | null;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 }
 
 @Entity('employee_payroll_results')
@@ -654,6 +748,75 @@ export class PayrollJournalBatch {
     default: PayrollOutputStatusEnum.GENERATED,
   })
   status: PayrollOutputStatusEnum;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+}
+
+@Entity('payroll_payment_reconciliations')
+@Unique('UQ_payroll_payment_reconciliation_run_ref', [
+  'companyId',
+  'payrollRunId',
+  'paymentReference',
+])
+export class PayrollPaymentReconciliation {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ name: 'company_id' })
+  companyId: number;
+
+  @Column({ name: 'payroll_run_id' })
+  payrollRunId: number;
+
+  @Column({ name: 'bank_batch_id', type: 'int', nullable: true })
+  bankBatchId: number | null;
+
+  @Column({ name: 'payment_reference', type: 'varchar', length: 150 })
+  paymentReference: string;
+
+  @Column({ name: 'payment_date', type: 'date' })
+  paymentDate: string;
+
+  @Column({
+    name: 'expected_amount',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
+  expectedAmount: string;
+
+  @Column({
+    name: 'paid_amount',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
+  paidAmount: string;
+
+  @Column({
+    name: 'variance_amount',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
+  varianceAmount: string;
+
+  @Column({ type: 'varchar', length: 30, default: 'MATCHED' })
+  status: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  snapshot: Record<string, unknown> | null;
+
+  @Column({
+    name: 'reconciled_by_company_user_id',
+    type: 'int',
+    nullable: true,
+  })
+  reconciledByCompanyUserId: number | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
