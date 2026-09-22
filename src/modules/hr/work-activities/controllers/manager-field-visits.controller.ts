@@ -71,27 +71,19 @@ export class ManagerFieldVisitsController {
     return this.visitService.listManagerVisits(req.user, query);
   }
 
-  @Get(':id')
-  @Permissions('field_visits:manager:read')
-  getVisit(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
-    return this.visitService.getForManager(req.user, id);
-  }
-
-  @Post(':id/review')
-  @Permissions('field_visits:manager:review')
-  reviewVisit(
-    @Req() req: AuthedRequest,
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: ReviewFieldVisitDto,
-  ) {
-    return this.visitService.reviewVisit(req.user, id, dto);
-  }
-
-  @Get('map/view')
   @Get('map')
   @Permissions('field_locations:read')
   getMap(@Req() req: AuthedRequest, @Query() query: FieldLocationMapQueryDto) {
     return this.visitService.getMapPoints(req.user, query);
+  }
+
+  @Get('map/view')
+  @Permissions('field_locations:read')
+  getMapView(
+    @Req() req: AuthedRequest,
+    @Query() query: FieldLocationMapQueryDto,
+  ) {
+    return this.getMap(req, query);
   }
 
   @Get('planned-vs-actual')
@@ -109,10 +101,31 @@ export class ManagerFieldVisitsController {
     return this.visitService.listManagerFollowUps(req.user, query);
   }
 
-  @Get('exceptions/summary')
   @Get('exceptions')
   @Permissions('field_visits:manager:read')
   exceptions(@Req() req: AuthedRequest) {
     return this.visitService.listExceptions(req.user);
+  }
+
+  @Get('exceptions/summary')
+  @Permissions('field_visits:manager:read')
+  exceptionsSummary(@Req() req: AuthedRequest) {
+    return this.exceptions(req);
+  }
+
+  @Get(':id')
+  @Permissions('field_visits:manager:read')
+  getVisit(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.visitService.getForManager(req.user, id);
+  }
+
+  @Post(':id/review')
+  @Permissions('field_visits:manager:review')
+  reviewVisit(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ReviewFieldVisitDto,
+  ) {
+    return this.visitService.reviewVisit(req.user, id, dto);
   }
 }

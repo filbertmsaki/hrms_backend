@@ -51,6 +51,16 @@ export class ManagerSelfServiceController {
     return this.service.getTeamMembers(req.user, query);
   }
 
+  @Get('team/attendance')
+  @Permissions('team_attendance:read')
+  @ApiOperation({ summary: "Get my authorized team's attendance" })
+  getTeamAttendance(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: TeamAttendanceQueryDto,
+  ) {
+    return this.service.getTeamAttendance(req.user, query);
+  }
+
   @Get('team/:employeeId')
   @Permissions('manager_team:read')
   @ApiOperation({ summary: 'Get one team member summary' })
@@ -69,15 +79,5 @@ export class ManagerSelfServiceController {
     @Query() query: ActionItemQueryDto,
   ) {
     return this.actionItemsService.findMine(req.user, query);
-  }
-
-  @Get('team/attendance')
-  @Permissions('team_attendance:read')
-  @ApiOperation({ summary: "Get my authorized team's attendance" })
-  getTeamAttendance(
-    @Req() req: ExpressRequest & { user: AuthenticatedUser },
-    @Query() query: TeamAttendanceQueryDto,
-  ) {
-    return this.service.getTeamAttendance(req.user, query);
   }
 }

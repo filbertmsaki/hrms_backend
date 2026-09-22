@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
@@ -267,6 +268,26 @@ export class PerformanceController {
     @Body() dto: CreateKpiDefinitionDto,
   ) {
     return this.kpiDefinitionService.createVersion(req.user, id, dto);
+  }
+
+  @Patch('kpis/:id')
+  @UseGuards(PermissionsGuard)
+  @Permissions('kpi_definitions:update')
+  updateKpi(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateKpiDefinitionDto,
+  ) {
+    // KPI definitions are versioned: an edit creates the next definition
+    // version while keeping historical plan/template references immutable.
+    return this.kpiDefinitionService.createVersion(req.user, id, dto);
+  }
+
+  @Delete('kpis/:id')
+  @UseGuards(PermissionsGuard)
+  @Permissions('kpi_definitions:update')
+  archiveKpi(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.kpiDefinitionService.archive(req.user, id);
   }
 
   @Get('kpis')

@@ -171,6 +171,33 @@ export class EmployeeKpiService {
     return this.getOwn(actor, saved.id);
   }
 
+  async remove(actor: AuthenticatedUser, id: number) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const employeeId = this.requireEmployee(actor);
+    const kpi = await this.kpiRepository.findOne({
+      where: { id, companyId, employeeId },
+      relations: { performancePeriod: true },
+    });
+    if (!kpi) throw new NotFoundException('Employee KPI not found.');
+    if (!EDITABLE_STATUSES.includes(kpi.status)) {
+      throw new ConflictException('Only draft or returned KPIs can be deleted.');
+    }
+    if (kpi.performancePeriod.status !== PerformancePeriodStatusEnum.OPEN) {
+      throw new ConflictException('The performance period is not open.');
+    }
+
+    const snapshot = this.snapshot(kpi);
+    await this.kpiRepository.remove(kpi);
+    await this.auditService.log({
+      action: PerformanceAuditActionEnum.EMPLOYEE_KPI_DELETED,
+      actor,
+      employeeId,
+      beforeValues: snapshot,
+      afterValues: { deleted: true, employee_kpi_id: id },
+    });
+    return { id, deleted: true };
+  }
+
   async submitPeriod(actor: AuthenticatedUser, performancePeriodId: number) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const employeeId = this.requireEmployee(actor);

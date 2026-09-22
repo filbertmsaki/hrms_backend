@@ -323,4 +323,52 @@ describe('EmployeeSelfServiceController', () => {
       { default_avatar_id: 8 },
     );
   });
+
+  it('routes self-service movement list and detail through employee-scoped calls', async () => {
+    employeeMovementsService.findMyMovements.mockResolvedValue([{ id: 22 }]);
+    employeeMovementsService.findMyMovement.mockResolvedValue({ id: 22 });
+
+    await expect(
+      controller.getMyMovements({
+        user,
+      } as unknown as ExpressRequest & { user: AuthenticatedUser }),
+    ).resolves.toEqual([{ id: 22 }]);
+    expect(employeeMovementsService.findMyMovements).toHaveBeenCalledWith(user);
+
+    await expect(
+      controller.getMyMovement(
+        {
+          user,
+        } as unknown as ExpressRequest & { user: AuthenticatedUser },
+        22,
+      ),
+    ).resolves.toEqual({ id: 22 });
+    expect(employeeMovementsService.findMyMovement).toHaveBeenCalledWith(
+      user,
+      22,
+    );
+  });
+
+  it('routes movement acknowledgement through the employee movement service', async () => {
+    employeeMovementsService.acknowledgeMyMovement.mockResolvedValue({
+      id: 22,
+      acknowledged_at: '2026-09-22T06:00:00.000Z',
+    });
+
+    await expect(
+      controller.acknowledgeMyMovement(
+        {
+          user,
+        } as unknown as ExpressRequest & { user: AuthenticatedUser },
+        22,
+      ),
+    ).resolves.toEqual({
+      id: 22,
+      acknowledged_at: '2026-09-22T06:00:00.000Z',
+    });
+    expect(employeeMovementsService.acknowledgeMyMovement).toHaveBeenCalledWith(
+      user,
+      22,
+    );
+  });
 });

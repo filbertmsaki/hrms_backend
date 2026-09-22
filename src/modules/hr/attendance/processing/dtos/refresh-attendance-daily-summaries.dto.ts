@@ -1,6 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
-import { IsDateString, IsEnum, IsInt, IsOptional, Min } from 'class-validator';
+import {
+  Allow,
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  Min,
+  ValidateIf,
+} from 'class-validator';
 
 type RefreshTransformInput = {
   value: unknown;
@@ -113,7 +121,26 @@ export enum AttendanceRefreshExecutionModeEnum {
 }
 
 export class RefreshAttendanceDailySummariesDto {
+  @Allow()
+  startDate?: string;
+
+  @Allow()
+  endDate?: string;
+
+  @Allow()
+  processingSource?: AttendanceRefreshProcessingSourceEnum;
+
+  @Allow()
+  executionMode?: AttendanceRefreshExecutionModeEnum;
+
+  @Allow()
+  deviceId?: number | string;
+
+  @Allow()
+  employeeId?: number | string;
+
   @ApiProperty({ example: '2026-07-01' })
+  @ValidateIf((value: RefreshAttendanceDailySummariesDto) => !value.startDate)
   @Transform(
     ({ value, obj }: RefreshTransformInput) => {
       const source = readRefreshTransformSource(obj);
@@ -127,6 +154,7 @@ export class RefreshAttendanceDailySummariesDto {
   start_date: string;
 
   @ApiProperty({ example: '2026-07-31' })
+  @ValidateIf((value: RefreshAttendanceDailySummariesDto) => !value.endDate)
   @Transform(
     ({ value, obj }: RefreshTransformInput) => {
       const source = readRefreshTransformSource(obj);

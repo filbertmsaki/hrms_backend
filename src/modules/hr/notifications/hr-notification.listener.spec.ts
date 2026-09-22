@@ -7,6 +7,10 @@ import {
   OffboardingAssetOverdueEvent,
   OnboardingTaskAssignedEvent,
   OffboardingSettlementOverdueEvent,
+  EmployeeMovementApprovalRequiredEvent,
+  EmployeeMovementApprovedEvent,
+  EmployeeMovementRejectedEvent,
+  EmployeeMovementAppliedEvent,
 } from './events';
 
 describe('HrNotificationListener', () => {
@@ -89,6 +93,89 @@ describe('HrNotificationListener', () => {
     expect(notificationQueueService.enqueueMailMethod).toHaveBeenCalledWith(
       'sendOnboardingTaskAssignedNotification',
       ['neema@example.com', event],
+    );
+  });
+
+  it('fans out employee movement approval requests to all approvers', async () => {
+    const event = new EmployeeMovementApprovalRequiredEvent(
+      1,
+      88,
+      'MOV-00088',
+      'PROMOTION',
+      'Amina John',
+      '2026-10-01',
+      'http://localhost:5173/movements/88/review',
+      [
+        { name: 'Manager One', email: 'manager1@example.com' },
+        { name: 'HR Two', email: 'hr2@example.com' },
+      ],
+    );
+
+    await listener.onEmployeeMovementApprovalRequired(event);
+
+    expect(notificationQueueService.enqueueMailMethod).toHaveBeenCalledTimes(2);
+    expect(notificationQueueService.enqueueMailMethod).toHaveBeenNthCalledWith(
+      1,
+      'sendEmployeeMovementApprovalRequiredNotification',
+      ['manager1@example.com', 'Manager One', event],
+    );
+    expect(notificationQueueService.enqueueMailMethod).toHaveBeenNthCalledWith(
+      2,
+      'sendEmployeeMovementApprovalRequiredNotification',
+      ['hr2@example.com', 'HR Two', event],
+    );
+  });
+
+  it('sends employee movement decision and applied emails to the employee', async () => {
+    const approved = new EmployeeMovementApprovedEvent(
+      1,
+      88,
+      'MOV-00088',
+      'PROMOTION',
+      'Amina John',
+      'amina@example.com',
+      '2026-10-01',
+      'http://localhost:5173/me/movements/88',
+    );
+    const rejected = new EmployeeMovementRejectedEvent(
+      1,
+      89,
+      'MOV-00089',
+      'BRANCH_TRANSFER',
+      'Amina John',
+      'amina@example.com',
+      'Position backfill not approved.',
+      'http://localhost:5173/me/movements/89',
+    );
+    const applied = new EmployeeMovementAppliedEvent(
+      1,
+      90,
+      'MOV-00090',
+      'SALARY_REVISION',
+      'Amina John',
+      'amina@example.com',
+      '2026-11-01',
+      'http://localhost:5173/me/movements/90',
+    );
+
+    await listener.onEmployeeMovementApproved(approved);
+    await listener.onEmployeeMovementRejected(rejected);
+    await listener.onEmployeeMovementApplied(applied);
+
+    expect(notificationQueueService.enqueueMailMethod).toHaveBeenNthCalledWith(
+      1,
+      'sendEmployeeMovementApprovedNotification',
+      ['amina@example.com', approved],
+    );
+    expect(notificationQueueService.enqueueMailMethod).toHaveBeenNthCalledWith(
+      2,
+      'sendEmployeeMovementRejectedNotification',
+      ['amina@example.com', rejected],
+    );
+    expect(notificationQueueService.enqueueMailMethod).toHaveBeenNthCalledWith(
+      3,
+      'sendEmployeeMovementAppliedNotification',
+      ['amina@example.com', applied],
     );
   });
 

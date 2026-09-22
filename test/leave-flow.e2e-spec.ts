@@ -618,6 +618,195 @@ describe('Leave Flow (e2e)', () => {
     );
   });
 
+  it('resubmits a returned leave request through HTTP with a new approval cycle', async () => {
+    const returnedRequest = {
+      id: 89,
+      company_id: 10,
+      employee_id: 501,
+      leave_type_id: 7,
+      leave_no: 'LV-2026-000003',
+      start_date: '2026-06-13',
+      end_date: '2026-06-13',
+      duration_type: null,
+      half_day_session: null,
+      start_time: null,
+      end_time: null,
+      total_days: '1.00',
+      requested_minutes: null,
+      reason: 'Updated reason',
+      current_approval_level: 1,
+      approval_cycle: 1,
+      calculation_version: 1,
+      status: LeaveStatusEnum.RETURNED_FOR_CORRECTION,
+      rejection_reason: null,
+      return_reason: 'Clarify handover',
+      returned_at: new Date('2026-06-10T08:00:00Z'),
+      applied_at: new Date('2026-06-09T01:00:00Z'),
+      approved_at: null,
+      cancelled_at: null,
+      created_at: new Date('2026-06-09T00:00:00Z'),
+      updated_at: new Date('2026-06-10T08:00:00Z'),
+      employee: {
+        id: 501,
+        company_user_id: 44,
+        employee_no: 'EMP-501',
+        first_name: 'Alice',
+        last_name: 'Jones',
+        middle_name: null,
+        gender: 'female',
+        employment_status: EmploymentStatusEnum.ACTIVE,
+        hire_date: '2025-01-01',
+        primary_branch_id: 1,
+        primary_department_id: 2,
+        primary_position_id: 3,
+        primary_department: { id: 2, name: 'Operations' },
+        primary_position: { id: 3, name: 'Analyst' },
+        company_user: { id: 44 },
+      },
+    };
+    const finalRequest = {
+      ...returnedRequest,
+      status: LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
+      approval_cycle: 2,
+      current_approval_level: 1,
+      returned_at: null,
+      return_reason: null,
+      leave_type: {
+        id: 7,
+        name: 'Emergency Leave',
+        code: 'EL',
+      },
+      approvals: [],
+      documents: [],
+      medical_detail: null,
+    };
+    const attendanceHolidayBuilder = createQueryBuilderMock() as ReturnType<
+      typeof createQueryBuilderMock
+    > & { getMany: jest.Mock };
+    attendanceHolidayBuilder.getMany = jest.fn().mockResolvedValue([]);
+    attendanceHolidayRepository.createQueryBuilder.mockReturnValue(
+      attendanceHolidayBuilder,
+    );
+    const overlapBuilder = createQueryBuilderMock();
+    overlapBuilder.getOne.mockResolvedValue(null);
+    const managerLeaveRequestRepository = {
+      findOne: jest.fn().mockResolvedValue({ ...returnedRequest }),
+      save: jest.fn((value: unknown) => value),
+      findOneOrFail: jest.fn().mockResolvedValue(finalRequest),
+    };
+    const manager = {
+      getRepository: jest.fn((entity: unknown) => {
+        if (entity === LeaveRequest) {
+          return managerLeaveRequestRepository;
+        }
+        throw new Error('Unexpected repository request');
+      }),
+    };
+
+    leaveRequestRepository.findOne.mockResolvedValue(returnedRequest);
+    leaveRequestRepository.createQueryBuilder.mockReturnValue(overlapBuilder);
+    leaveTypeRepository.findOne.mockResolvedValue({
+      id: 7,
+      company_id: 10,
+      name: 'Emergency Leave',
+      code: 'EL',
+      status: LeaveRecordStatusEnum.ACTIVE,
+      gender_restriction: LeaveGenderRestrictionEnum.ANY,
+      max_days_per_year: '10.00',
+      is_carry_forward_allowed: false,
+      max_carry_forward_days: '0.00',
+      is_paid: true,
+      requires_attachment: false,
+      description: null,
+    });
+    holidayRepository.find.mockResolvedValue([]);
+    leavePolicyRepository.find.mockResolvedValue([
+      {
+        company_id: 10,
+        status: LeaveRecordStatusEnum.ACTIVE,
+        applicable_department_id: null,
+        applicable_position_id: null,
+        allow_negative_balance: false,
+        allow_during_probation: true,
+        max_consecutive_days: null,
+        min_service_months: 0,
+        leave_types: [
+          {
+            leave_type_id: 7,
+            max_per_request_days: null,
+            requires_approval: true,
+          },
+        ],
+      },
+    ]);
+    leaveBalanceService.resolvePolicyAssignment.mockResolvedValue({
+      policy: {
+        allow_negative_balance: false,
+        allow_during_probation: true,
+        max_consecutive_days: null,
+        min_service_months: 0,
+      },
+      policyType: {
+        requires_approval: true,
+        max_per_request_days: null,
+      },
+    });
+    leaveBalanceService.ensureBalanceForEmployee.mockResolvedValue({
+      id: 1,
+      used_days: '0.00',
+      pending_days: '1.00',
+      allocated_days: '10.00',
+      carried_forward_days: '0.00',
+      expired_days: '0.00',
+    });
+    leaveBalanceLedgerService.reserveLeave.mockResolvedValue({
+      balance: { id: 1 },
+    });
+    leaveWorkflowService.initializeWorkflowForRequest.mockImplementation(
+      async (_companyId, leaveRequest) => {
+        leaveRequest.status = LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER;
+        leaveRequest.current_approval_level = 1;
+      },
+    );
+    dataSource.transaction.mockImplementation(
+      (callback: (manager: unknown) => unknown) => callback(manager),
+    );
+
+    const response = await request(app.getHttpServer() as App)
+      .post('/leave/requests/89/resubmit')
+      .expect(201);
+
+    const body = response.body as { status: string; approval_cycle: number };
+    expect(body.status).toBe(LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER);
+    expect(body.approval_cycle).toBe(2);
+    expect(managerLeaveRequestRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        approval_cycle: 2,
+        calculation_version: 2,
+        return_reason: null,
+        returned_at: null,
+      }),
+    );
+    expect(leaveBalanceLedgerService.reserveLeave).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        leaveRequestId: 89,
+        idempotencyKey: 'leave-request:89:cycle:2:reserve',
+      }),
+      expect.anything(),
+    );
+    expect(leaveAuditService.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'leave_request.resubmitted',
+        leave_request_id: 89,
+        payload: expect.objectContaining({
+          status: LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
+          approval_cycle: 2,
+        }),
+      }),
+    );
+  });
+
   it('queues attendance recalculation after cancellation through HTTP', async () => {
     leaveRequestRepository.findOne.mockResolvedValue({
       id: 99,

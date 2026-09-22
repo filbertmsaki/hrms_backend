@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
@@ -86,6 +87,13 @@ export class PerformanceSelfServiceController {
     @Body() dto: UpdateEmployeeKpiDto,
   ) {
     return this.employeeKpiService.update(req.user, id, dto);
+  }
+
+  @Delete('kpis/:id')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpis:self:update')
+  deleteKpi(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.employeeKpiService.remove(req.user, id);
   }
 
   @Post('kpis/periods/:periodId/submit')
