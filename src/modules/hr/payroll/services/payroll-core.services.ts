@@ -47,6 +47,10 @@ import {
   CreatePayrollComponentDto,
   CreatePayrollGroupDto,
   CreatePayrollGroupAssignmentDto,
+  ImportPayrollBankStatementDto,
+  ImportPayrollBankStatementRowDto,
+  ImportPayrollSourceFileDto,
+  ImportPayrollSourceRowDto,
   CreatePayrollInputDto,
   CreatePayrollLeaveRuleDto,
   CreatePayrollOvertimePolicyDto,
@@ -62,6 +66,7 @@ import {
   PayrollOvertimeApprovalQueryDto,
   PayrollReportQueryDto,
   PayrollQueryDto,
+  PostPayrollJournalDto,
   ReconcilePayrollPaymentDto,
   UpsertEmployeePayrollProfileDto,
 } from '../dto/payroll.dto';
@@ -90,7 +95,11 @@ import {
   PayrollDeductionShortfall,
   PayrollFinalSettlement,
   PayrollInput,
+  PayrollIntegrationSyncJob,
+  PayrollIntegrationSyncLog,
   PayrollJournalBatch,
+  PayrollPaymentImport,
+  PayrollPaymentImportLine,
   PayrollPaymentReconciliation,
   PayrollRun,
   PayrollRunApproval,
@@ -105,6 +114,7 @@ import {
   PayrollCalculationMethodEnum,
   PayrollComponentTypeEnum,
   PayrollInputStatusEnum,
+  PayrollOutputStatusEnum,
   PayrollPeriodStatusEnum,
   PayrollRunStatusEnum,
   PayrollRunTypeEnum,
@@ -140,6 +150,74 @@ function hashSnapshot(value: unknown) {
 
 function dateString(date: Date) {
   return date.toISOString().slice(0, 10);
+}
+
+function parseDelimitedRecords(text: string, delimiter?: string) {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+  const firstLine = trimmed.split(/\r?\n/, 1)[0] ?? '';
+  const separator =
+    delimiter === '\\t'
+      ? '\t'
+      : delimiter && delimiter.length === 1
+        ? delimiter
+        : firstLine.includes('\t')
+          ? '\t'
+          : ',';
+  const lines = trimmed.split(/\r?\n/).filter((line) => line.trim());
+  if (lines.length < 2) return [];
+  const headers = splitDelimitedLine(lines[0], separator).map((header) =>
+    header
+      .trim()
+      .replace(/^\uFEFF/, '')
+      .toLowerCase(),
+  );
+  return lines.slice(1).map((line) => {
+    const values = splitDelimitedLine(line, separator);
+    const row: Record<string, string> = {};
+    headers.forEach((header, index) => {
+      row[header] = values[index]?.trim() ?? '';
+    });
+    return row;
+  });
+}
+
+function splitDelimitedLine(line: string, separator: string) {
+  const values: string[] = [];
+  let current = '';
+  let quoted = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+    if (char === '"' && quoted && next === '"') {
+      current += '"';
+      index += 1;
+      continue;
+    }
+    if (char === '"') {
+      quoted = !quoted;
+      continue;
+    }
+    if (char === separator && !quoted) {
+      values.push(current);
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  values.push(current);
+  return values;
+}
+
+function rowText(row: Record<string, unknown>, keys: string[], fallback = '') {
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return String(value);
+    }
+  }
+  return fallback;
 }
 
 function daysInclusive(from: string, to: string) {
@@ -870,6 +948,7 @@ export class PayrollInputService {
 @Injectable()
 export class PayrollSourceService {
   constructor(
+    private readonly configService: ConfigService,
     private readonly hrAccessService: HrAccessService,
     private readonly inputService: PayrollInputService,
     private readonly auditService: PayrollAuditService,
@@ -885,6 +964,12 @@ export class PayrollSourceService {
     private readonly kpiAchievementRepository: Repository<KpiAchievement>,
     @InjectRepository(PerformanceAggregate)
     private readonly performanceAggregateRepository: Repository<PerformanceAggregate>,
+    @InjectRepository(Employee)
+    private readonly employeeRepository: Repository<Employee>,
+    @InjectRepository(PayrollIntegrationSyncJob)
+    private readonly syncJobRepository: Repository<PayrollIntegrationSyncJob>,
+    @InjectRepository(PayrollIntegrationSyncLog)
+    private readonly syncLogRepository: Repository<PayrollIntegrationSyncLog>,
   ) {}
 
   async create(actor: AuthenticatedUser, dto: CreatePayrollSourceRecordDto) {
@@ -948,6 +1033,180 @@ export class PayrollSourceService {
     }
     return {
       count: created.length,
+      records: created,
+    };
+  }
+
+  async importFile(actor: AuthenticatedUser, dto: ImportPayrollSourceFileDto) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const period = await this.periodRepository.findOne({
+      where: { id: dto.payroll_period_id, companyId },
+    });
+    if (!period) throw new NotFoundException('Payroll period not found.');
+    const parsedRows = dto.file_text
+      ? parseDelimitedRecords(dto.file_text, dto.delimiter)
+      : [];
+    const rows = [
+      ...(dto.rows ?? []),
+      ...(parsedRows as ImportPayrollSourceRowDto[]),
+    ];
+    if (rows.length === 0) {
+      throw new BadRequestException('No source rows were supplied.');
+    }
+
+    const job = await this.syncJobRepository.save(
+      this.syncJobRepository.create({
+        companyId,
+        jobType: 'PAYROLL_SOURCE_IMPORT',
+        status: 'RUNNING',
+        direction: 'IMPORT',
+        recordCount: rows.length,
+        successCount: 0,
+        failureCount: 0,
+        startedAt: new Date(),
+        createdByCompanyUserId: actor.companyMembershipId ?? null,
+        snapshot: {
+          provider_key: dto.provider_key ?? 'MANUAL_IMPORT',
+          payroll_period_id: period.id,
+        },
+      }),
+    );
+
+    const created: PayrollSourceRecord[] = [];
+    const issues: Array<Record<string, unknown>> = [];
+    const columnMap = this.sourceColumnMap();
+    for (let index = 0; index < rows.length; index += 1) {
+      const rawRow = rows[index] as Record<string, unknown>;
+      try {
+        const employeeId =
+          this.mappedNumber(rawRow, columnMap.employee_id) ??
+          (await this.resolveEmployeeId(companyId, rawRow));
+        const sourceType =
+          this.mappedText(rawRow, columnMap.source_type) ||
+          dto.source_type ||
+          'SALES';
+        const componentCode =
+          this.mappedText(rawRow, columnMap.component_code) ||
+          dto.component_code;
+        if (!componentCode) {
+          throw new BadRequestException('Component code is required.');
+        }
+        const sourceReference =
+          this.mappedText(rawRow, columnMap.source_reference) ||
+          `${sourceType}-${period.id}-${employeeId ?? 'ALL'}-${index + 1}`;
+        const existing = await this.repository.findOne({
+          where: {
+            companyId,
+            sourceType: sourceType.trim().toUpperCase(),
+            sourceReference,
+          },
+        });
+        if (existing?.status === 'POSTED') {
+          created.push(existing);
+          continue;
+        }
+        const source =
+          existing ??
+          this.repository.create({
+            companyId,
+            payrollPeriodId: period.id,
+            sourceType: sourceType.trim().toUpperCase(),
+            sourceReference,
+          });
+        source.employeeId = employeeId ?? null;
+        source.schemeCode =
+          clean(
+            this.mappedText(rawRow, columnMap.scheme_code),
+          )?.toUpperCase() ?? null;
+        source.componentCode = componentCode.trim().toUpperCase();
+        source.sourceAmount = this.mappedText(
+          rawRow,
+          columnMap.source_amount,
+          '0.00',
+        );
+        source.quantity =
+          clean(this.mappedText(rawRow, columnMap.quantity)) ?? null;
+        source.rate = clean(this.mappedText(rawRow, columnMap.rate)) ?? null;
+        source.calculatedAmount =
+          this.mappedText(rawRow, columnMap.calculated_amount) ||
+          this.calculateSourceAmount({
+            payroll_period_id: period.id,
+            employee_id: employeeId,
+            source_type: source.sourceType,
+            source_reference: sourceReference,
+            component_code: source.componentCode,
+            source_amount: source.sourceAmount,
+            quantity: source.quantity ?? undefined,
+            rate: source.rate ?? undefined,
+          });
+        source.currency = (dto.currency ?? 'TZS').trim().toUpperCase();
+        source.status = dto.auto_approve ? 'APPROVED' : 'DRAFT';
+        source.approvedByCompanyUserId = dto.auto_approve
+          ? (actor.companyMembershipId ?? null)
+          : null;
+        source.approvedAt = dto.auto_approve ? new Date() : null;
+        source.payload = {
+          ...(typeof rawRow.payload === 'object' &&
+          rawRow.payload !== null &&
+          !Array.isArray(rawRow.payload)
+            ? (rawRow.payload as Record<string, unknown>)
+            : {}),
+          import_job_id: job.id,
+          import_row_number: index + 1,
+          provider_key: dto.provider_key ?? 'MANUAL_IMPORT',
+          raw: rawRow,
+        };
+        const saved = await this.repository.save(source);
+        created.push(dto.auto_post ? await this.post(actor, saved.id) : saved);
+      } catch (errorObject) {
+        const message =
+          errorObject instanceof Error
+            ? errorObject.message
+            : 'Could not import row.';
+        issues.push({ row: index + 1, message });
+        await this.syncLogRepository.save(
+          this.syncLogRepository.create({
+            companyId,
+            jobId: job.id,
+            level: 'ERROR',
+            message,
+            snapshot: { row_number: index + 1, row: rawRow },
+          }),
+        );
+      }
+    }
+
+    job.status =
+      issues.length > 0
+        ? created.length > 0
+          ? 'PARTIAL'
+          : 'FAILED'
+        : 'COMPLETED';
+    job.successCount = created.length;
+    job.failureCount = issues.length;
+    job.completedAt = new Date();
+    job.snapshot = {
+      ...(job.snapshot ?? {}),
+      imported_source_ids: created.map((source) => source.id),
+      issues,
+    };
+    await this.syncJobRepository.save(job);
+    await this.auditService.log({
+      actor,
+      action: 'payroll.source.imported',
+      entityType: 'PAYROLL_INTEGRATION_SYNC_JOB',
+      entityId: job.id,
+      summary: {
+        count: created.length,
+        failures: issues.length,
+        provider_key: dto.provider_key ?? 'MANUAL_IMPORT',
+      },
+    });
+    return {
+      job,
+      count: created.length,
+      failures: issues.length,
+      issues,
       records: created,
     };
   }
@@ -1046,8 +1305,7 @@ export class PayrollSourceService {
       dto.component_code?.trim().toUpperCase() ??
       scheme?.componentCode ??
       (sourceType === 'KPI' ? 'KPI_BONUS' : 'PERFORMANCE_BONUS');
-    const configuredScoreRate =
-      scheme?.configuration?.amount_per_score_point;
+    const configuredScoreRate = scheme?.configuration?.amount_per_score_point;
     const scoreRate =
       dto.amount_per_score_point ??
       scheme?.defaultRate ??
@@ -1101,6 +1359,22 @@ export class PayrollSourceService {
     };
   }
 
+  private async resolveEmployeeId(
+    companyId: number,
+    row: Record<string, unknown>,
+  ) {
+    const employeeNo = this.mappedText(row, this.sourceColumnMap().employee_no);
+    if (!employeeNo) return undefined;
+    const employee = await this.employeeRepository.findOne({
+      where: { company_id: companyId, employee_no: employeeNo },
+      select: ['id'],
+    });
+    if (!employee) {
+      throw new BadRequestException(`Employee ${employeeNo} was not found.`);
+    }
+    return employee.id;
+  }
+
   private async findOwned(actor: AuthenticatedUser, id: number) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const source = await this.repository.findOne({ where: { id, companyId } });
@@ -1145,6 +1419,81 @@ export class PayrollSourceService {
   private sourceAmountFromScore(score: string | null, scoreRate: string) {
     if (!score) return '0.00';
     return PayrollMoney.multiplyFactor(score, scoreRate);
+  }
+
+  private sourceColumnMap() {
+    const fallback = {
+      employee_id: ['employee_id', 'employeeId'],
+      employee_no: ['employee_no', 'employeeNo', 'employee_number', 'staff_no'],
+      source_type: ['source_type', 'sourceType', 'type'],
+      source_reference: ['source_reference', 'sourceReference', 'reference'],
+      scheme_code: ['scheme_code', 'schemeCode', 'scheme'],
+      component_code: ['component_code', 'componentCode', 'component'],
+      source_amount: [
+        'source_amount',
+        'sourceAmount',
+        'amount',
+        'sales_amount',
+      ],
+      quantity: ['quantity', 'units', 'count'],
+      rate: ['rate', 'commission_rate', 'commissionRate'],
+      calculated_amount: [
+        'calculated_amount',
+        'calculatedAmount',
+        'commission_amount',
+        'bonus_amount',
+      ],
+    };
+    const raw = this.configService.get<string>(
+      'PAYROLL_SOURCE_IMPORT_COLUMN_MAP',
+    );
+    if (!raw) return fallback;
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      return Object.fromEntries(
+        Object.entries(fallback).map(([key, aliases]) => [
+          key,
+          this.stringArray(parsed[key], aliases),
+        ]),
+      ) as typeof fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private stringArray(value: unknown, fallback: string[]) {
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string')
+      : fallback;
+  }
+
+  private mappedText(
+    row: Record<string, unknown>,
+    keys: string[],
+    fallback = '',
+  ) {
+    const lookup = new Map(
+      Object.entries(row).map(([key, value]) => [
+        key.trim().toLowerCase(),
+        value,
+      ]),
+    );
+    for (const key of keys) {
+      const direct = row[key];
+      const value =
+        direct !== undefined ? direct : lookup.get(key.trim().toLowerCase());
+      if (typeof value === 'string' && value.trim()) return value.trim();
+      if (typeof value === 'number' && Number.isFinite(value))
+        return String(value);
+    }
+    return rowText(row, keys, fallback);
+  }
+
+  private mappedNumber(row: Record<string, unknown>, keys: string[]) {
+    const value = this.mappedText(row, keys);
+    if (!value) return undefined;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
   }
 
   private async upsertGeneratedSource(
@@ -3741,15 +4090,12 @@ export class PayslipService {
         'PSSSF',
       ]),
       earnings: lines.filter((line) =>
-        [
-          PayrollComponentTypeEnum.EARNING,
-          PayrollComponentTypeEnum.REIMBURSEMENT,
-          PayrollComponentTypeEnum.TAXABLE_BENEFIT,
-        ].includes(String(line.componentType) as PayrollComponentTypeEnum),
+        ['EARNING', 'REIMBURSEMENT', 'TAXABLE_BENEFIT'].includes(
+          String(line.componentType),
+        ),
       ),
       deductions: lines.filter(
-        (line) =>
-          String(line.componentType) === PayrollComponentTypeEnum.DEDUCTION,
+        (line) => String(line.componentType) === 'DEDUCTION',
       ),
       bank_details: bank ? this.maskBank(bank) : null,
       payroll_documents: payslips.map((payslip) => ({
@@ -3800,6 +4146,7 @@ export class PayslipService {
 @Injectable()
 export class PayrollBankService {
   constructor(
+    private readonly configService: ConfigService,
     private readonly hrAccessService: HrAccessService,
     private readonly auditService: PayrollAuditService,
     @InjectRepository(PayrollRun)
@@ -3808,6 +4155,10 @@ export class PayrollBankService {
     private readonly resultRepository: Repository<EmployeePayrollResult>,
     @InjectRepository(PayrollBankBatch)
     private readonly batchRepository: Repository<PayrollBankBatch>,
+    @InjectRepository(PayrollPaymentImport)
+    private readonly paymentImportRepository: Repository<PayrollPaymentImport>,
+    @InjectRepository(PayrollPaymentImportLine)
+    private readonly paymentImportLineRepository: Repository<PayrollPaymentImportLine>,
     @InjectRepository(PayrollPaymentReconciliation)
     private readonly reconciliationRepository: Repository<PayrollPaymentReconciliation>,
   ) {}
@@ -3971,12 +4322,284 @@ export class PayrollBankService {
     });
     return reconciliation;
   }
+
+  async importStatement(
+    actor: AuthenticatedUser,
+    dto: ImportPayrollBankStatementDto,
+  ) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const run = await this.runRepository.findOne({
+      where: { id: dto.payroll_run_id, companyId },
+    });
+    if (!run) throw new NotFoundException('Payroll run not found.');
+    const parsedRows = dto.file_text
+      ? parseDelimitedRecords(dto.file_text, dto.delimiter)
+      : [];
+    const rows = [
+      ...(dto.rows ?? []),
+      ...(parsedRows as ImportPayrollBankStatementRowDto[]),
+    ];
+    if (rows.length === 0) {
+      throw new BadRequestException('No bank statement rows were supplied.');
+    }
+
+    const results = await this.resultRepository.find({
+      where: { companyId, payrollRunId: run.id },
+      order: { employeeId: 'ASC' },
+    });
+    const matchPool = new Map(
+      results.map((result) => [String(result.employeeId), result]),
+    );
+    const byEmployeeNo = new Map<string, EmployeePayrollResult>();
+    const byMaskedAccount = new Map<string, EmployeePayrollResult>();
+    for (const result of results) {
+      const employeeSnapshot = result.employeeSnapshot ?? {};
+      const bankSnapshot = result.bankAccountSnapshot ?? {};
+      const employeeNo = rowText(employeeSnapshot, [
+        'employee_no',
+        'employeeNo',
+        'employee_number',
+      ]);
+      const masked = rowText(bankSnapshot, [
+        'account_number_masked',
+        'accountNumberMasked',
+      ]);
+      if (employeeNo) byEmployeeNo.set(employeeNo, result);
+      if (masked) byMaskedAccount.set(masked, result);
+    }
+
+    let paidAmount = '0.00';
+    let matchedCount = 0;
+    let partialCount = 0;
+    let failedCount = 0;
+    let unmatchedCount = 0;
+    const seenEmployees = new Set<number>();
+    const lineDrafts: Array<Partial<PayrollPaymentImportLine>> = [];
+    const columnMap = this.bankColumnMap();
+
+    for (const raw of rows) {
+      const row = raw as Record<string, unknown>;
+      const employeeId = this.mappedNumber(row, columnMap.employee_id);
+      const employeeNo = this.mappedText(row, columnMap.employee_no);
+      const accountMasked = this.mappedText(
+        row,
+        columnMap.account_number_masked,
+      );
+      const amount = this.mappedText(row, columnMap.amount, '0');
+      const statementStatus = this.mappedText(row, columnMap.status);
+      const normalizedStatus = statementStatus.toUpperCase();
+      const result =
+        (employeeId ? matchPool.get(String(employeeId)) : undefined) ??
+        (employeeNo ? byEmployeeNo.get(employeeNo) : undefined) ??
+        (accountMasked ? byMaskedAccount.get(accountMasked) : undefined);
+      const expected = result?.netPay ?? '0.00';
+      const variance = PayrollMoney.add(
+        amount,
+        PayrollMoney.fromCents(-PayrollMoney.toCents(expected)),
+      );
+      let matchStatus = 'UNMATCHED';
+      if (
+        normalizedStatus.includes('FAIL') ||
+        normalizedStatus.includes('RETURN') ||
+        normalizedStatus.includes('REJECT')
+      ) {
+        matchStatus = normalizedStatus.includes('RETURN')
+          ? 'RETURNED'
+          : 'FAILED';
+      } else if (result && seenEmployees.has(result.employeeId)) {
+        matchStatus = 'DUPLICATE';
+      } else if (result && PayrollMoney.toCents(variance) === 0n) {
+        matchStatus = 'MATCHED';
+      } else if (result) {
+        matchStatus = 'PARTIAL';
+      }
+      if (result) seenEmployees.add(result.employeeId);
+      if (matchStatus === 'MATCHED') matchedCount += 1;
+      else if (matchStatus === 'PARTIAL') partialCount += 1;
+      else if (['FAILED', 'RETURNED', 'DUPLICATE'].includes(matchStatus)) {
+        failedCount += 1;
+      } else {
+        unmatchedCount += 1;
+      }
+      paidAmount = PayrollMoney.add(paidAmount, amount);
+      lineDrafts.push({
+        companyId,
+        payrollRunId: run.id,
+        employeeId: result?.employeeId ?? employeeId ?? null,
+        employeeNo: employeeNo || null,
+        accountNumber:
+          clean(this.mappedText(row, columnMap.account_number)) ?? null,
+        accountNumberMasked: accountMasked || null,
+        reference: clean(this.mappedText(row, columnMap.reference)) ?? null,
+        amount,
+        expectedAmount: expected,
+        varianceAmount: variance,
+        matchStatus,
+        payload: {
+          row,
+          statement_status: statementStatus || null,
+          result_id: result?.id ?? null,
+        },
+      });
+    }
+
+    const varianceAmount = PayrollMoney.add(
+      paidAmount,
+      PayrollMoney.fromCents(-PayrollMoney.toCents(run.netPayTotal)),
+    );
+    const status =
+      failedCount > 0 || unmatchedCount > 0
+        ? 'EXCEPTIONS'
+        : partialCount > 0 || PayrollMoney.toCents(varianceAmount) !== 0n
+          ? 'VARIANCE'
+          : 'MATCHED';
+    const paymentImport = await this.paymentImportRepository.save(
+      this.paymentImportRepository.create({
+        companyId,
+        payrollRunId: run.id,
+        bankBatchId: dto.bank_batch_id ?? null,
+        providerKey: clean(dto.provider_key ?? 'BANK_FILE') ?? null,
+        paymentReference:
+          clean(dto.payment_reference) ?? `BANK-IMPORT-${run.id}-${Date.now()}`,
+        paymentDate: dto.payment_date ?? dateString(new Date()),
+        recordCount: rows.length,
+        matchedCount,
+        partialCount,
+        failedCount,
+        unmatchedCount,
+        expectedAmount: run.netPayTotal,
+        paidAmount,
+        varianceAmount,
+        status,
+        snapshot: {
+          provider_key: dto.provider_key ?? 'BANK_FILE',
+          source_hash: dto.file_text ? hashSnapshot(dto.file_text) : null,
+        },
+        createdByCompanyUserId: actor.companyMembershipId ?? null,
+      }),
+    );
+    const lines = await this.paymentImportLineRepository.save(
+      lineDrafts.map((line) =>
+        this.paymentImportLineRepository.create({
+          ...line,
+          paymentImportId: paymentImport.id,
+        }),
+      ),
+    );
+
+    const reconciliation = await this.reconciliationRepository.save(
+      this.reconciliationRepository.create({
+        companyId,
+        payrollRunId: run.id,
+        bankBatchId: dto.bank_batch_id ?? null,
+        paymentReference: paymentImport.paymentReference,
+        paymentDate: paymentImport.paymentDate,
+        expectedAmount: paymentImport.expectedAmount,
+        paidAmount: paymentImport.paidAmount,
+        varianceAmount: paymentImport.varianceAmount,
+        status,
+        snapshot: {
+          payment_import_id: paymentImport.id,
+          matched_count: matchedCount,
+          partial_count: partialCount,
+          failed_count: failedCount,
+          unmatched_count: unmatchedCount,
+        },
+        reconciledByCompanyUserId: actor.companyMembershipId ?? actor.id,
+      }),
+    );
+    await this.auditService.log({
+      actor,
+      action: 'payroll.payment_statement.imported',
+      entityType: 'PAYROLL_PAYMENT_IMPORT',
+      entityId: paymentImport.id,
+      summary: {
+        payroll_run_id: run.id,
+        status,
+        paid_amount: paidAmount,
+        variance_amount: varianceAmount,
+      },
+    });
+    return {
+      import: paymentImport,
+      reconciliation,
+      lines,
+    };
+  }
+
+  private bankColumnMap() {
+    const fallback = {
+      employee_id: ['employee_id', 'employeeId'],
+      employee_no: ['employee_no', 'employeeNo', 'employee_number', 'staff_no'],
+      account_number: ['account_number', 'accountNumber'],
+      account_number_masked: [
+        'account_number_masked',
+        'accountNumberMasked',
+        'masked_account',
+      ],
+      reference: ['reference', 'payment_reference', 'transaction_reference'],
+      amount: ['amount', 'paid_amount', 'paidAmount', 'transaction_amount'],
+      status: ['status', 'payment_status', 'result'],
+    };
+    const raw = this.configService.get<string>(
+      'PAYROLL_BANK_IMPORT_COLUMN_MAP',
+    );
+    if (!raw) return fallback;
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      return Object.fromEntries(
+        Object.entries(fallback).map(([key, aliases]) => [
+          key,
+          this.stringArray(parsed[key], aliases),
+        ]),
+      ) as typeof fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private stringArray(value: unknown, fallback: string[]) {
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string')
+      : fallback;
+  }
+
+  private mappedText(
+    row: Record<string, unknown>,
+    keys: string[],
+    fallback = '',
+  ) {
+    const lookup = new Map(
+      Object.entries(row).map(([key, value]) => [
+        key.trim().toLowerCase(),
+        value,
+      ]),
+    );
+    for (const key of keys) {
+      const direct = row[key];
+      const value =
+        direct !== undefined ? direct : lookup.get(key.trim().toLowerCase());
+      if (typeof value === 'string' && value.trim()) return value.trim();
+      if (typeof value === 'number' && Number.isFinite(value))
+        return String(value);
+    }
+    return rowText(row, keys, fallback);
+  }
+
+  private mappedNumber(row: Record<string, unknown>, keys: string[]) {
+    const value = this.mappedText(row, keys);
+    if (!value) return undefined;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
 }
 
 @Injectable()
 export class PayrollAccountingService {
   constructor(
+    private readonly configService: ConfigService,
     private readonly hrAccessService: HrAccessService,
+    private readonly auditService: PayrollAuditService,
     @InjectRepository(PayrollRun)
     private readonly runRepository: Repository<PayrollRun>,
     @InjectRepository(EmployeePayrollResult)
@@ -4070,6 +4693,226 @@ export class PayrollAccountingService {
     );
   }
 
+  async exportJournal(
+    actor: AuthenticatedUser,
+    batchId: number,
+    format = 'csv',
+  ) {
+    const journal = await this.findJournal(actor, batchId);
+    const normalizedFormat = format.trim().toLowerCase();
+    if (normalizedFormat === 'json') {
+      return {
+        file_name: `${journal.batchNo}.json`,
+        mime_type: 'application/json',
+        content: JSON.stringify(
+          {
+            batch_no: journal.batchNo,
+            payroll_run_id: journal.payrollRunId,
+            debit_total: journal.debitTotal,
+            credit_total: journal.creditTotal,
+            entries: journal.entries,
+          },
+          null,
+          2,
+        ),
+      };
+    }
+    const entries = journal.entries ?? [];
+    const headers = [
+      'employee_id',
+      'component_code',
+      'debit_account',
+      'credit_account',
+      'amount',
+      'dimensions',
+    ];
+    const rows = [
+      headers.join(','),
+      ...entries.map((entry) =>
+        headers
+          .map((key) =>
+            this.csvCell(key === 'dimensions' ? entry[key] : entry[key]),
+          )
+          .join(','),
+      ),
+    ];
+    await this.auditService.log({
+      actor,
+      action: 'payroll.journal.exported',
+      entityType: 'PAYROLL_JOURNAL_BATCH',
+      entityId: journal.id,
+      summary: { format: normalizedFormat },
+    });
+    return {
+      file_name: `${journal.batchNo}.csv`,
+      mime_type: 'text/csv',
+      content: rows.join('\n'),
+    };
+  }
+
+  async post(
+    actor: AuthenticatedUser,
+    batchId: number,
+    dto: PostPayrollJournalDto,
+  ) {
+    const journal = await this.findJournal(actor, batchId);
+    if (journal.status === PayrollOutputStatusEnum.POSTED) return journal;
+    if (
+      PayrollMoney.toCents(journal.debitTotal) !==
+      PayrollMoney.toCents(journal.creditTotal)
+    ) {
+      throw new ConflictException(
+        'Only balanced payroll journals can be posted.',
+      );
+    }
+    journal.status = PayrollOutputStatusEnum.POSTED;
+    journal.externalReference =
+      clean(dto.external_reference) ??
+      `${clean(dto.provider_key) ?? 'ERP'}-${journal.batchNo}`;
+    const provider = clean(dto.provider_key) ?? 'WEBHOOK_ERP';
+    const endpoint = this.configService.get<string>('PAYROLL_ERP_POST_URL');
+    const postingPayload = {
+      provider,
+      company_id: journal.companyId,
+      payroll_run_id: journal.payrollRunId,
+      batch_no: journal.batchNo,
+      external_reference: journal.externalReference,
+      debit_total: journal.debitTotal,
+      credit_total: journal.creditTotal,
+      entries: journal.entries ?? [],
+      metadata: dto.payload ?? {},
+    };
+    const dryRun =
+      !endpoint ||
+      (dto.payload &&
+        typeof dto.payload === 'object' &&
+        !Array.isArray(dto.payload) &&
+        dto.payload.dry_run === true);
+    let providerResponse: Record<string, unknown> | null = null;
+    if (!dryRun && endpoint) {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: this.erpHeaders(),
+        body: JSON.stringify(postingPayload),
+      });
+      providerResponse = {
+        status: response.status,
+        ok: response.ok,
+        body: await response.text(),
+      };
+      if (!response.ok) {
+        throw new BadRequestException({
+          message: 'Payroll ERP posting endpoint rejected the journal batch.',
+          providerResponse,
+        });
+      }
+    }
+    journal.entries = (journal.entries ?? []).map((entry) => ({
+      ...entry,
+      posting_provider: provider,
+      posting_reference: journal.externalReference,
+      posting_dry_run: dryRun,
+      posting_endpoint_configured: Boolean(endpoint),
+      provider_response: providerResponse,
+    }));
+    await this.auditService.log({
+      actor,
+      action: 'payroll.journal.posted',
+      entityType: 'PAYROLL_JOURNAL_BATCH',
+      entityId: journal.id,
+      summary: {
+        provider_key: provider,
+        external_reference: journal.externalReference,
+        dry_run: dryRun,
+        endpoint_configured: Boolean(endpoint),
+      },
+    });
+    return this.journalRepository.save(journal);
+  }
+
+  async reverse(
+    actor: AuthenticatedUser,
+    batchId: number,
+    dto: PostPayrollJournalDto,
+  ) {
+    const journal = await this.findJournal(actor, batchId);
+    if (journal.status === PayrollOutputStatusEnum.CANCELLED) return journal;
+    journal.status = PayrollOutputStatusEnum.CANCELLED;
+    journal.externalReference =
+      clean(dto.external_reference) ??
+      journal.externalReference ??
+      `REV-${journal.batchNo}`;
+    journal.entries = (journal.entries ?? []).map((entry) => ({
+      ...entry,
+      reversal_reference: journal.externalReference,
+      reversal_provider: dto.provider_key ?? 'MANUAL_ERP',
+      reversed_at: new Date().toISOString(),
+    }));
+    await this.auditService.log({
+      actor,
+      action: 'payroll.journal.reversed',
+      entityType: 'PAYROLL_JOURNAL_BATCH',
+      entityId: journal.id,
+      summary: {
+        provider_key: dto.provider_key ?? 'MANUAL_ERP',
+        external_reference: journal.externalReference,
+      },
+    });
+    return this.journalRepository.save(journal);
+  }
+
+  private async findJournal(actor: AuthenticatedUser, batchId: number) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const journal = await this.journalRepository.findOne({
+      where: { id: batchId, companyId },
+    });
+    if (!journal)
+      throw new NotFoundException('Payroll journal batch not found.');
+    return journal;
+  }
+
+  private erpHeaders() {
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+    };
+    const authType = (
+      this.configService.get<string>('PAYROLL_ERP_AUTH_TYPE') ?? 'none'
+    )
+      .trim()
+      .toLowerCase();
+    if (authType === 'bearer') {
+      const token = this.configService.get<string>('PAYROLL_ERP_AUTH_TOKEN');
+      if (token) headers.authorization = `Bearer ${token}`;
+    } else if (authType === 'api-key') {
+      const header =
+        this.configService.get<string>('PAYROLL_ERP_API_KEY_HEADER') ??
+        'x-api-key';
+      const value = this.configService.get<string>('PAYROLL_ERP_API_KEY');
+      if (value) headers[header] = value;
+    } else if (authType === 'basic') {
+      const username = this.configService.get<string>(
+        'PAYROLL_ERP_BASIC_USERNAME',
+      );
+      const password = this.configService.get<string>(
+        'PAYROLL_ERP_BASIC_PASSWORD',
+      );
+      if (username && password) {
+        headers.authorization = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+      }
+    }
+    return headers;
+  }
+
+  private csvCell(value: unknown) {
+    const text =
+      typeof value === 'string'
+        ? value
+        : value === null || value === undefined
+          ? ''
+          : JSON.stringify(value);
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+
   private accountingContext(
     run: PayrollRun,
     line: EmployeePayrollLineItem,
@@ -4138,6 +4981,7 @@ export class PayrollAccountingService {
 @Injectable()
 export class PayrollReportsService {
   constructor(
+    private readonly configService: ConfigService,
     private readonly hrAccessService: HrAccessService,
     @InjectRepository(PayrollRun)
     private readonly runRepository: Repository<PayrollRun>,
@@ -4226,31 +5070,247 @@ export class PayrollReportsService {
 
   catalog() {
     return [
-      'payroll-register',
-      'payroll-summary',
-      'employee-payroll-history',
-      'department-payroll',
-      'branch-payroll',
-      'cost-centre-payroll',
-      'gross-to-net',
-      'allowances',
-      'deductions',
-      'deduction-shortfalls',
-      'overtime',
-      'loan',
-      'advance',
-      'employer-contributions',
-      'tax',
-      'pension',
-      'wcf',
-      'bank-payment',
-      'payroll-journal',
-      'payroll-cost',
-      'headcount-vs-payroll',
-      'ytd-earnings',
-      'ytd-tax',
-      'ytd-contributions',
-    ].map((code) => ({ code, name: code.replace(/-/g, ' ') }));
+      ['payroll-register', 'register'],
+      ['payroll-summary', 'summary'],
+      ['employee-payroll-history', 'employee-history'],
+      ['department-payroll', 'dimension-cost'],
+      ['branch-payroll', 'dimension-cost'],
+      ['cost-centre-payroll', 'dimension-cost'],
+      ['gross-to-net', 'register'],
+      ['allowances', 'component-ledger'],
+      ['deductions', 'component-ledger'],
+      ['deduction-shortfalls', 'exception-drilldown'],
+      ['overtime', 'time-earnings'],
+      ['loan', 'liability-drilldown'],
+      ['advance', 'liability-drilldown'],
+      ['employer-contributions', 'statutory'],
+      ['tax', 'statutory'],
+      ['pension', 'statutory'],
+      ['wcf', 'statutory'],
+      ['bank-payment', 'banking'],
+      ['payroll-journal', 'accounting'],
+      ['payroll-cost', 'cost-summary'],
+      ['headcount-vs-payroll', 'headcount-cost'],
+      ['ytd-earnings', 'ytd'],
+      ['ytd-tax', 'ytd'],
+      ['ytd-contributions', 'ytd'],
+    ].map(([code, layout]) => ({
+      code,
+      layout,
+      name: code.replace(/-/g, ' '),
+      export_formats: ['csv', 'json'],
+    }));
+  }
+
+  integrationCatalog() {
+    const providers = [
+      {
+        code: 'crm-sales',
+        label: 'CRM sales import',
+        source_types: ['SALES', 'COMMISSION'],
+        modes: ['csv', 'tsv', 'api/webhook'],
+        env: ['PAYROLL_SOURCE_IMPORT_COLUMN_MAP'],
+        configured: Boolean(
+          this.configService.get<string>('PAYROLL_SOURCE_IMPORT_COLUMN_MAP'),
+        ),
+      },
+      {
+        code: 'pos-orders',
+        label: 'POS/order import',
+        source_types: ['SALES', 'COMMISSION'],
+        modes: ['csv', 'tsv', 'api/webhook'],
+        env: ['PAYROLL_SOURCE_IMPORT_COLUMN_MAP'],
+        configured: Boolean(
+          this.configService.get<string>('PAYROLL_SOURCE_IMPORT_COLUMN_MAP'),
+        ),
+      },
+      {
+        code: 'performance-kpi',
+        label: 'Performance/KPI source generation',
+        source_types: ['KPI', 'PERFORMANCE'],
+        modes: ['native', 'csv', 'api/webhook'],
+        env: ['PAYROLL_SOURCE_IMPORT_COLUMN_MAP'],
+        configured: true,
+      },
+      {
+        code: 'bank-confirmation',
+        label: 'Bank confirmation import',
+        source_types: ['PAYMENT_CONFIRMATION'],
+        modes: ['csv', 'tsv'],
+        env: ['PAYROLL_BANK_IMPORT_COLUMN_MAP'],
+        configured: Boolean(
+          this.configService.get<string>('PAYROLL_BANK_IMPORT_COLUMN_MAP'),
+        ),
+      },
+      {
+        code: 'erp-accounting',
+        label: 'ERP/accounting journal posting',
+        source_types: ['JOURNAL'],
+        modes: ['webhook'],
+        env: [
+          'PAYROLL_ERP_POST_URL',
+          'PAYROLL_ERP_AUTH_TYPE',
+          'PAYROLL_ERP_AUTH_TOKEN',
+          'PAYROLL_ERP_API_KEY',
+          'PAYROLL_ERP_BASIC_USERNAME',
+          'PAYROLL_ERP_BASIC_PASSWORD',
+        ],
+        configured: Boolean(
+          this.configService.get<string>('PAYROLL_ERP_POST_URL'),
+        ),
+      },
+    ];
+    return {
+      module: 'payroll',
+      strategy:
+        'External applications are optional. Configure the relevant env values or keep manual/import-only workflows.',
+      providers,
+    };
+  }
+
+  notificationCatalog() {
+    return [
+      {
+        code: 'payroll.run.created',
+        channel: 'in-app/sms/email',
+        required: true,
+      },
+      {
+        code: 'payroll.run.validation_failed',
+        channel: 'in-app/email',
+        required: true,
+      },
+      {
+        code: 'payroll.run.approved',
+        channel: 'in-app/sms',
+        required: true,
+      },
+      {
+        code: 'payroll.run.locked',
+        channel: 'in-app/email',
+        required: true,
+      },
+      {
+        code: 'payroll.payslip.published',
+        channel: 'in-app/sms/email',
+        required: true,
+      },
+      {
+        code: 'payroll.payment.reconciled',
+        channel: 'in-app/email',
+        required: true,
+      },
+      {
+        code: 'payroll.source.imported',
+        channel: 'in-app',
+        required: true,
+      },
+      {
+        code: 'payroll.journal.posted',
+        channel: 'in-app/email',
+        required: true,
+      },
+    ];
+  }
+
+  deploymentReadiness() {
+    const sourceMap = this.configService.get<string>(
+      'PAYROLL_SOURCE_IMPORT_COLUMN_MAP',
+    );
+    const bankMap = this.configService.get<string>(
+      'PAYROLL_BANK_IMPORT_COLUMN_MAP',
+    );
+    const erpUrl = this.configService.get<string>('PAYROLL_ERP_POST_URL');
+    const requiredApprovals = [
+      'PAYROLL_REQUIRE_HR_APPROVAL',
+      'PAYROLL_REQUIRE_FINANCE_APPROVAL',
+      'PAYROLL_REQUIRE_MANAGEMENT_APPROVAL',
+    ].filter(
+      (key) =>
+        (this.configService.get<string>(key) ?? 'false').toLowerCase() ===
+        'true',
+    );
+    const checks = [
+      {
+        code: 'SOURCE_IMPORT_MAPPING',
+        status: sourceMap ? 'CONFIGURED' : 'DEFAULT',
+        detail:
+          sourceMap ??
+          'Using default aliases for employee, source type, reference, component, amount, quantity, and rate.',
+      },
+      {
+        code: 'BANK_IMPORT_MAPPING',
+        status: bankMap ? 'CONFIGURED' : 'DEFAULT',
+        detail:
+          bankMap ??
+          'Using default aliases: employee_id/employee_no/account_number_masked/reference/amount/status.',
+      },
+      {
+        code: 'ERP_POSTING',
+        status: erpUrl ? 'CONFIGURED' : 'DRY_RUN_ONLY',
+        detail: erpUrl
+          ? 'Posting endpoint configured.'
+          : 'Set PAYROLL_ERP_POST_URL.',
+      },
+      {
+        code: 'ERP_AUTH',
+        status: (
+          this.configService.get<string>('PAYROLL_ERP_AUTH_TYPE') ?? 'none'
+        ).toUpperCase(),
+        detail: 'none, bearer, api-key, or basic',
+      },
+      {
+        code: 'PAYROLL_APPROVAL_POLICY',
+        status: requiredApprovals.length > 0 ? 'CONFIGURED' : 'REVIEW',
+        detail:
+          requiredApprovals.length > 0
+            ? requiredApprovals.join(', ')
+            : 'Review maker-checker and approval stage settings.',
+      },
+      {
+        code: 'LEAVE_OVERTIME_POLICY',
+        status: 'CONFIGURABLE',
+        detail:
+          'Use payroll leave rules and overtime policies for company-specific paid, unpaid, partial-pay, weekend, and holiday behavior.',
+      },
+      {
+        code: 'TAX_PENSION_WCF_MAPPINGS',
+        status: 'COMPANY_DATA_REQUIRED',
+        detail:
+          'Enter statutory rules, component mappings, and accounting dimensions for the live company.',
+      },
+      {
+        code: 'NOTIFICATION_CATALOG',
+        status: 'CONFIGURED',
+        detail: `${this.notificationCatalog().length} payroll notification events registered.`,
+      },
+      {
+        code: 'PLAYWRIGHT_E2E_USERS',
+        status:
+          this.configService.get<string>('HRMS_E2E_ADMIN_EMAIL') &&
+          this.configService.get<string>('HRMS_E2E_ADMIN_PASSWORD')
+            ? 'CONFIGURED'
+            : 'PENDING_ENV',
+        detail:
+          'Set HRMS_E2E_* users and run Playwright against live frontend/backend.',
+      },
+    ];
+    return {
+      module: 'payroll',
+      ready: checks.every((check) =>
+        [
+          'CONFIGURED',
+          'DEFAULT',
+          'NONE',
+          'BEARER',
+          'API-KEY',
+          'BASIC',
+          'CONFIGURABLE',
+        ].includes(String(check.status)),
+      ),
+      checks,
+      integrations: this.integrationCatalog().providers,
+    };
   }
 
   async report(
@@ -4274,11 +5334,14 @@ export class PayrollReportsService {
       : [];
     const normalizedCode = code.trim().toLowerCase();
     if (normalizedCode === 'deduction-shortfalls') {
+      const rows = await this.buildShortfallRows(companyId, results);
       return {
         code: normalizedCode,
+        layout: this.reportLayout(normalizedCode),
         run_ids: runIds,
-        row_count: runIds.length,
-        rows: await this.buildShortfallRows(companyId, results),
+        row_count: rows.length,
+        summary: this.summarizeReportRows(normalizedCode, rows),
+        rows,
       };
     }
     const rows =
@@ -4287,10 +5350,52 @@ export class PayrollReportsService {
         : this.buildReportRows(normalizedCode, results, lines);
     return {
       code: normalizedCode,
+      layout: this.reportLayout(normalizedCode),
       run_ids: runIds,
       row_count: rows.length,
+      summary: this.summarizeReportRows(normalizedCode, rows),
       rows,
     };
+  }
+
+  private reportLayout(code: string) {
+    const match = this.catalog().find((item) => item.code === code);
+    return match?.layout ?? 'table';
+  }
+
+  private summarizeReportRows(code: string, rows: Record<string, unknown>[]) {
+    const amountKeys =
+      code === 'tax' || code === 'ytd-tax'
+        ? ['amount']
+        : code === 'pension' || code === 'wcf' || code === 'ytd-contributions'
+          ? ['amount', 'employer_amount', 'employer_contributions']
+          : ['gross_pay', 'deductions', 'net_pay', 'employer_cost', 'amount'];
+    const summary: Record<string, unknown> = {
+      rows: rows.length,
+      unique_employees: new Set(
+        rows
+          .map((row) => row.employee_id)
+          .filter(
+            (value) =>
+              typeof value === 'number' ||
+              (typeof value === 'string' && value.trim()),
+          )
+          .map((value) => String(value)),
+      ).size,
+    };
+    for (const key of amountKeys) {
+      let total = '0.00';
+      let found = false;
+      for (const row of rows) {
+        const value = row[key];
+        if (typeof value === 'string' || typeof value === 'number') {
+          total = PayrollMoney.add(total, String(value));
+          found = true;
+        }
+      }
+      if (found) summary[`total_${key}`] = total;
+    }
+    return summary;
   }
 
   private buildReportRows(
@@ -4417,18 +5522,15 @@ export class PayrollReportsService {
     }
     const matchers: Record<string, (line: EmployeePayrollLineItem) => boolean> =
       {
-        allowances: (line) =>
-          String(line.componentType) === PayrollComponentTypeEnum.EARNING,
-        deductions: (line) =>
-          String(line.componentType) === PayrollComponentTypeEnum.DEDUCTION,
+        allowances: (line) => String(line.componentType) === 'EARNING',
+        deductions: (line) => String(line.componentType) === 'DEDUCTION',
         overtime: (line) => line.sourceType === 'ATTENDANCE_OVERTIME',
         loan: (line) => line.componentCode === 'STAFF_LOAN',
         advance: (line) => line.componentCode === 'SALARY_ADVANCE',
         'employer-contributions': (line) =>
-          [
-            PayrollComponentTypeEnum.EMPLOYER_CONTRIBUTION,
-            PayrollComponentTypeEnum.EMPLOYER_LEVY,
-          ].includes(String(line.componentType) as PayrollComponentTypeEnum),
+          ['EMPLOYER_CONTRIBUTION', 'EMPLOYER_LEVY'].includes(
+            String(line.componentType),
+          ),
         tax: (line) => line.componentCode.includes('PAYE'),
         pension: (line) =>
           line.componentCode.includes('PENSION') ||
@@ -4773,10 +5875,7 @@ export class PayrollReconciliationService {
           });
         }
         const deductions = lines
-          .filter(
-            (line) =>
-              String(line.componentType) === PayrollComponentTypeEnum.DEDUCTION,
-          )
+          .filter((line) => String(line.componentType) === 'DEDUCTION')
           .reduce((sum, line) => PayrollMoney.add(sum, line.amount), '0.00');
         if (
           PayrollMoney.toCents(deductions) !==

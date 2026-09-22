@@ -822,6 +822,294 @@ export class PayrollPaymentReconciliation {
   createdAt: Date;
 }
 
+@Entity('payroll_integration_connections')
+@Unique('UQ_payroll_integration_connection_key', [
+  'companyId',
+  'providerType',
+  'providerKey',
+])
+export class PayrollIntegrationConnection {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ name: 'company_id' })
+  companyId: number;
+
+  @Column({ name: 'provider_type', type: 'varchar', length: 40 })
+  providerType: string;
+
+  @Column({ name: 'provider_key', type: 'varchar', length: 80 })
+  providerKey: string;
+
+  @Column({ type: 'varchar', length: 150 })
+  name: string;
+
+  @Column({ type: 'varchar', length: 30, default: 'ACTIVE' })
+  status: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  configuration: Record<string, unknown> | null;
+
+  @Column({
+    name: 'credentials_ref',
+    type: 'varchar',
+    length: 180,
+    nullable: true,
+  })
+  credentialsRef: string | null;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
+}
+
+@Entity('payroll_integration_sync_jobs')
+@Index('IDX_payroll_integration_sync_job_company_type', [
+  'companyId',
+  'jobType',
+  'status',
+])
+export class PayrollIntegrationSyncJob {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ name: 'company_id' })
+  companyId: number;
+
+  @Column({ name: 'connection_id', type: 'int', nullable: true })
+  connectionId: number | null;
+
+  @Column({ name: 'job_type', type: 'varchar', length: 60 })
+  jobType: string;
+
+  @Column({ type: 'varchar', length: 30, default: 'COMPLETED' })
+  status: string;
+
+  @Column({ type: 'varchar', length: 20, default: 'IMPORT' })
+  direction: string;
+
+  @Column({ name: 'record_count', type: 'int', default: 0 })
+  recordCount: number;
+
+  @Column({ name: 'success_count', type: 'int', default: 0 })
+  successCount: number;
+
+  @Column({ name: 'failure_count', type: 'int', default: 0 })
+  failureCount: number;
+
+  @Column({ type: 'jsonb', nullable: true })
+  snapshot: Record<string, unknown> | null;
+
+  @Column({ name: 'started_at', type: 'timestamptz', nullable: true })
+  startedAt: Date | null;
+
+  @Column({ name: 'completed_at', type: 'timestamptz', nullable: true })
+  completedAt: Date | null;
+
+  @Column({
+    name: 'created_by_company_user_id',
+    type: 'int',
+    nullable: true,
+  })
+  createdByCompanyUserId: number | null;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+}
+
+@Entity('payroll_integration_sync_logs')
+@Index('IDX_payroll_integration_sync_log_job', ['jobId', 'level'])
+export class PayrollIntegrationSyncLog {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ name: 'company_id' })
+  companyId: number;
+
+  @Column({ name: 'job_id' })
+  jobId: number;
+
+  @Column({ type: 'varchar', length: 20, default: 'INFO' })
+  level: string;
+
+  @Column({ type: 'text' })
+  message: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  snapshot: Record<string, unknown> | null;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+}
+
+@Entity('payroll_payment_imports')
+@Index('IDX_payroll_payment_import_run_status', [
+  'companyId',
+  'payrollRunId',
+  'status',
+])
+export class PayrollPaymentImport {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ name: 'company_id' })
+  companyId: number;
+
+  @Column({ name: 'payroll_run_id' })
+  payrollRunId: number;
+
+  @Column({ name: 'bank_batch_id', type: 'int', nullable: true })
+  bankBatchId: number | null;
+
+  @Column({ name: 'provider_key', type: 'varchar', length: 80, nullable: true })
+  providerKey: string | null;
+
+  @Column({ name: 'payment_reference', type: 'varchar', length: 150 })
+  paymentReference: string;
+
+  @Column({ name: 'payment_date', type: 'date' })
+  paymentDate: string;
+
+  @Column({ name: 'record_count', type: 'int', default: 0 })
+  recordCount: number;
+
+  @Column({ name: 'matched_count', type: 'int', default: 0 })
+  matchedCount: number;
+
+  @Column({ name: 'partial_count', type: 'int', default: 0 })
+  partialCount: number;
+
+  @Column({ name: 'failed_count', type: 'int', default: 0 })
+  failedCount: number;
+
+  @Column({ name: 'unmatched_count', type: 'int', default: 0 })
+  unmatchedCount: number;
+
+  @Column({
+    name: 'expected_amount',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
+  expectedAmount: string;
+
+  @Column({
+    name: 'paid_amount',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
+  paidAmount: string;
+
+  @Column({
+    name: 'variance_amount',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
+  varianceAmount: string;
+
+  @Column({ type: 'varchar', length: 30, default: 'IMPORTED' })
+  status: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  snapshot: Record<string, unknown> | null;
+
+  @Column({
+    name: 'created_by_company_user_id',
+    type: 'int',
+    nullable: true,
+  })
+  createdByCompanyUserId: number | null;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+}
+
+@Entity('payroll_payment_import_lines')
+@Index('IDX_payroll_payment_import_line_import_status', [
+  'paymentImportId',
+  'matchStatus',
+])
+export class PayrollPaymentImportLine {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ name: 'company_id' })
+  companyId: number;
+
+  @Column({ name: 'payment_import_id' })
+  paymentImportId: number;
+
+  @Column({ name: 'payroll_run_id' })
+  payrollRunId: number;
+
+  @Column({ name: 'employee_id', type: 'int', nullable: true })
+  employeeId: number | null;
+
+  @Column({ name: 'employee_no', type: 'varchar', length: 80, nullable: true })
+  employeeNo: string | null;
+
+  @Column({
+    name: 'account_number',
+    type: 'varchar',
+    length: 80,
+    nullable: true,
+  })
+  accountNumber: string | null;
+
+  @Column({
+    name: 'account_number_masked',
+    type: 'varchar',
+    length: 80,
+    nullable: true,
+  })
+  accountNumberMasked: string | null;
+
+  @Column({ name: 'reference', type: 'varchar', length: 180, nullable: true })
+  reference: string | null;
+
+  @Column({
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
+  amount: string;
+
+  @Column({
+    name: 'expected_amount',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
+  expectedAmount: string;
+
+  @Column({
+    name: 'variance_amount',
+    type: 'decimal',
+    precision: 20,
+    scale: 2,
+    default: '0',
+  })
+  varianceAmount: string;
+
+  @Column({ name: 'match_status', type: 'varchar', length: 30 })
+  matchStatus: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  payload: Record<string, unknown> | null;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+}
+
 @Entity('payroll_variance_results')
 export class PayrollVarianceResult {
   @PrimaryGeneratedColumn()

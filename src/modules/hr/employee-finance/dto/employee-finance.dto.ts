@@ -9,6 +9,7 @@ import {
   IsString,
 } from 'class-validator';
 import { PaginationDto } from '../../../../common/dto/pagination.dto';
+import { Base64FileDto } from '../../../files/dtos/base64-file.dto';
 import {
   EmployeeFinanceApprovalStageEnum,
   EmployeeFinanceInterestMethodEnum,
@@ -27,6 +28,22 @@ export class EmployeeFinanceQueryDto extends PaginationDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  @IsOptional()
+  @IsDateString()
+  date_from?: string;
+
+  @IsOptional()
+  @IsDateString()
+  date_to?: string;
+
+  @IsOptional()
+  @IsString()
+  entity_type?: string;
+
+  @IsOptional()
+  @IsString()
+  entity_id?: string;
 }
 
 export class CreateEmployeeFinanceProductDto {
@@ -142,6 +159,20 @@ export class EvaluateEmployeeFinanceEligibilityDto {
   requested_term_months?: number;
 }
 
+export class EvaluateMyEmployeeFinanceEligibilityDto {
+  @Type(() => Number)
+  @IsNumber()
+  product_id: number;
+
+  @IsOptional()
+  @IsString()
+  requested_amount?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  requested_term_months?: number;
+}
+
 export class CreateEmployeeFinanceApplicationDto {
   @Type(() => Number)
   @IsNumber()
@@ -156,6 +187,61 @@ export class CreateEmployeeFinanceApplicationDto {
 
   @IsString()
   purpose: string;
+}
+
+export class CreateEmployeeFinanceApplicationDocumentDto {
+  @IsString()
+  document_type: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  document_id?: number;
+
+  @IsOptional()
+  @IsString()
+  file_url?: string;
+
+  @IsOptional()
+  metadata?: Record<string, unknown>;
+}
+
+export class UploadEmployeeFinanceApplicationDocumentDto {
+  @IsString()
+  document_type: string;
+
+  @Type(() => Base64FileDto)
+  file: Base64FileDto;
+
+  @IsOptional()
+  @IsDateString()
+  expires_on?: string;
+
+  @IsOptional()
+  metadata?: Record<string, unknown>;
+}
+
+export class VerifyEmployeeFinanceApplicationDocumentDto {
+  @IsOptional()
+  @IsString()
+  status?: string;
+
+  @IsOptional()
+  metadata?: Record<string, unknown>;
+}
+
+export class CreateEmployeeFinanceGuarantorDto {
+  @Type(() => Number)
+  @IsNumber()
+  guarantor_employee_id: number;
+}
+
+export class DecideEmployeeFinanceGuarantorDto {
+  @IsString()
+  decision: string;
+
+  @IsOptional()
+  @IsString()
+  comments?: string;
 }
 
 export class ApproveEmployeeFinanceApplicationDto {
@@ -229,4 +315,31 @@ export class RequestEmployeeFinanceRescheduleDto {
 
   @IsString()
   reason: string;
+}
+
+export class ImportEmployeeFinancePaymentFileDto {
+  @Type(() => Base64FileDto)
+  file: Base64FileDto;
+
+  @IsOptional()
+  @IsBoolean()
+  dry_run?: boolean;
+}
+
+export class PostEmployeeFinanceAccountingDto {
+  @IsOptional()
+  @IsDateString()
+  date_from?: string;
+
+  @IsOptional()
+  @IsDateString()
+  date_to?: string;
+
+  @IsOptional()
+  @IsString()
+  provider?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  dry_run?: boolean;
 }
