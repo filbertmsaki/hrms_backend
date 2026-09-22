@@ -37,7 +37,13 @@ import { QueryAttendanceExceptionsDto } from './dtos/query-attendance-exceptions
 import { QueryAttendanceDailySummariesDto } from './dtos/query-attendance-daily-summaries.dto';
 import { QueryAttendanceProcessingJobsDto } from './dtos/query-attendance-processing-jobs.dto';
 import { QueryUnmatchedAttendanceLogsDto } from './dtos/query-unmatched-attendance-logs.dto';
-import { RefreshAttendanceDailySummariesDto } from './dtos/refresh-attendance-daily-summaries.dto';
+import {
+  AttendanceRefreshExecutionEnum,
+  AttendanceRefreshExecutionModeEnum,
+  AttendanceRefreshModeEnum,
+  AttendanceRefreshProcessingSourceEnum,
+  RefreshAttendanceDailySummariesDto,
+} from './dtos/refresh-attendance-daily-summaries.dto';
 import { UpdateAttendanceExceptionStatusDto } from './dtos/update-attendance-exception-status.dto';
 import { UpsertAttendanceDailySummaryAdjustmentDto } from './dtos/upsert-attendance-daily-summary-adjustment.dto';
 
@@ -107,7 +113,7 @@ export class AttendanceProcessingController {
     return this.recalculationService.refreshSummaries(
       req.user.companyId!,
       req.user.companyMembershipId ?? null,
-      dto,
+      this.normalizeRefreshDailySummariesDto(dto),
     );
   }
 
@@ -257,5 +263,39 @@ export class AttendanceProcessingController {
       employeeId,
       date,
     );
+  }
+
+  private normalizeRefreshDailySummariesDto(
+    dto: RefreshAttendanceDailySummariesDto,
+  ): RefreshAttendanceDailySummariesDto {
+    return {
+      ...dto,
+      start_date: dto.start_date ?? dto.startDate,
+      end_date: dto.end_date ?? dto.endDate,
+      processing_source:
+        dto.processing_source ??
+        dto.processingSource ??
+        (dto.mode === AttendanceRefreshModeEnum.FROM_RAW_LOGS
+          ? AttendanceRefreshProcessingSourceEnum.DATABASE_ONLY
+          : undefined),
+      execution_mode:
+        dto.execution_mode ??
+        dto.executionMode ??
+        (dto.execution === AttendanceRefreshExecutionEnum.SYNC
+          ? AttendanceRefreshExecutionModeEnum.IMMEDIATE
+          : dto.execution === AttendanceRefreshExecutionEnum.ASYNC
+            ? AttendanceRefreshExecutionModeEnum.BACKGROUND
+            : undefined),
+      device_id: dto.device_id ?? this.toPositiveInteger(dto.deviceId),
+      employee_id: dto.employee_id ?? this.toPositiveInteger(dto.employeeId),
+    } as RefreshAttendanceDailySummariesDto;
+  }
+
+  private toPositiveInteger(value: number | string | undefined) {
+    if (value === undefined || value === null || value === '') {
+      return undefined;
+    }
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
   }
 }
