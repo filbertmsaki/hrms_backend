@@ -694,6 +694,95 @@ export class CreatePayrollSourceRecordBatchDto {
   auto_approve?: boolean;
 }
 
+export class ImportPayrollSourceRowDto {
+  @IsOptional()
+  @Type(() => Number)
+  employee_id?: number;
+
+  @IsOptional()
+  @IsString()
+  employee_no?: string;
+
+  @IsOptional()
+  @IsString()
+  source_type?: string;
+
+  @IsOptional()
+  @IsString()
+  source_reference?: string;
+
+  @IsOptional()
+  @IsString()
+  scheme_code?: string;
+
+  @IsOptional()
+  @IsString()
+  component_code?: string;
+
+  @IsOptional()
+  @IsString()
+  source_amount?: string;
+
+  @IsOptional()
+  @IsString()
+  quantity?: string;
+
+  @IsOptional()
+  @IsString()
+  rate?: string;
+
+  @IsOptional()
+  @IsString()
+  calculated_amount?: string;
+
+  @IsOptional()
+  payload?: Record<string, unknown>;
+}
+
+export class ImportPayrollSourceFileDto {
+  @Type(() => Number)
+  @IsNumber()
+  payroll_period_id: number;
+
+  @IsOptional()
+  @IsString()
+  provider_key?: string;
+
+  @IsOptional()
+  @IsString()
+  source_type?: string;
+
+  @IsOptional()
+  @IsString()
+  component_code?: string;
+
+  @IsOptional()
+  @IsString()
+  currency?: string;
+
+  @IsOptional()
+  @IsString()
+  file_text?: string;
+
+  @IsOptional()
+  @IsString()
+  delimiter?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ImportPayrollSourceRowDto)
+  rows?: ImportPayrollSourceRowDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  auto_approve?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  auto_post?: boolean;
+}
+
 export class GeneratePayrollSourceRecordsDto {
   @Type(() => Number)
   @IsNumber()
@@ -801,4 +890,94 @@ export class ReconcilePayrollPaymentDto {
 
   @IsOptional()
   snapshot?: Record<string, unknown>;
+}
+
+export class ImportPayrollBankStatementRowDto {
+  @IsOptional()
+  @Type(() => Number)
+  employee_id?: number;
+
+  @IsOptional()
+  @IsString()
+  employee_no?: string;
+
+  @IsOptional()
+  @IsString()
+  account_number?: string;
+
+  @IsOptional()
+  @IsString()
+  account_number_masked?: string;
+
+  @IsOptional()
+  @IsString()
+  reference?: string;
+
+  @IsOptional()
+  @IsString()
+  amount?: string;
+
+  @IsOptional()
+  @IsString()
+  status?: string;
+
+  @IsOptional()
+  @IsDateString()
+  payment_date?: string;
+
+  @IsOptional()
+  payload?: Record<string, unknown>;
+}
+
+export class ImportPayrollBankStatementDto {
+  @Type(() => Number)
+  @IsNumber()
+  payroll_run_id: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  bank_batch_id?: number;
+
+  @IsOptional()
+  @IsString()
+  provider_key?: string;
+
+  @IsOptional()
+  @IsString()
+  payment_reference?: string;
+
+  @IsOptional()
+  @IsDateString()
+  payment_date?: string;
+
+  @IsOptional()
+  @IsString()
+  file_text?: string;
+
+  @IsOptional()
+  @IsString()
+  delimiter?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ImportPayrollBankStatementRowDto)
+  rows?: ImportPayrollBankStatementRowDto[];
+}
+
+export class PostPayrollJournalDto {
+  @IsOptional()
+  @IsString()
+  provider_key?: string;
+
+  @IsOptional()
+  @IsString()
+  external_reference?: string;
+
+  @IsOptional()
+  @IsString()
+  format?: string;
+
+  @IsOptional()
+  payload?: Record<string, unknown>;
 }

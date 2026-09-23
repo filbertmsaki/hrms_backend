@@ -81,6 +81,7 @@ export class ManagementDashboardService {
       workActivitySummary,
       payrollSummary,
       employeeFinanceSummary,
+      topPerformers,
     ] = await Promise.all([
       employeeIds.length
         ? this.employeeRepository.count({
@@ -121,6 +122,7 @@ export class ManagementDashboardService {
       ),
       this.payrollReportsService.dashboard(actor),
       this.employeeFinanceReportsService.dashboard(actor),
+      this.performanceInsightsService.getTopPerformers(actor, employeeIds),
     ]);
 
     const attritionRate =
@@ -151,14 +153,10 @@ export class ManagementDashboardService {
       },
       performance: performanceSummary,
       work_activities: workActivitySummary,
+      top_performers: topPerformers,
       payroll: payrollSummary,
       employee_finance: employeeFinanceSummary,
       unavailable_widgets: [
-        {
-          code: 'TOP_PERFORMERS',
-          available: false,
-          reason: 'Performance scoring is not implemented.',
-        },
         {
           code: 'FIELD_PRODUCTIVITY',
           available: true,

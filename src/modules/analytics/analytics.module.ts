@@ -1,6 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AttendanceProcessingModule } from '../hr/attendance/processing/attendance-processing.module';
+import { EmployeeFinanceModule } from '../hr/employee-finance/employee-finance.module';
+import { LeaveModule } from '../hr/leave/leave.module';
+import { PerformanceModule } from '../hr/performance/performance.module';
 import { HrSharedModule } from '../hr/shared/hr-shared.module';
 import { AnalyticsController } from './controllers/analytics.controller';
 import {
@@ -20,6 +24,7 @@ import {
   AnalyticsPayrollEmployeePeriodFact,
   AnalyticsRefreshCheckpoint,
   AnalyticsReportDefinition,
+  AnalyticsSavedReport,
   AnalyticsSnapshotRun,
   AnalyticsWorkforceDailyFact,
   StatutoryReportDefinition,
@@ -36,9 +41,11 @@ import {
   AnalyticsExportService,
   AnalyticsFreshnessService,
   AnalyticsMetricService,
+  AnalyticsOperationalReportService,
   AnalyticsPrivacyService,
   AnalyticsReconciliationService,
   AnalyticsReportService,
+  AnalyticsSavedReportService,
   AnalyticsScopeService,
   AnalyticsSnapshotService,
   AnalyticsSourceRegistryService,
@@ -62,6 +69,7 @@ const analyticsEntities = [
   AnalyticsPayrollEmployeePeriodFact,
   AnalyticsRefreshCheckpoint,
   AnalyticsReportDefinition,
+  AnalyticsSavedReport,
   AnalyticsSnapshotRun,
   AnalyticsWorkforceDailyFact,
   StatutoryReportDefinition,
@@ -72,6 +80,10 @@ const analyticsEntities = [
   imports: [
     ConfigModule,
     HrSharedModule,
+    AttendanceProcessingModule,
+    EmployeeFinanceModule,
+    LeaveModule,
+    PerformanceModule,
     TypeOrmModule.forFeature(analyticsEntities),
   ],
   controllers: [AnalyticsController],
@@ -86,9 +98,11 @@ const analyticsEntities = [
     AnalyticsExportService,
     AnalyticsFreshnessService,
     AnalyticsMetricService,
+    AnalyticsOperationalReportService,
     AnalyticsPrivacyService,
     AnalyticsReconciliationService,
     AnalyticsReportService,
+    AnalyticsSavedReportService,
     AnalyticsScopeService,
     AnalyticsSnapshotService,
     AnalyticsSourceRegistryService,
@@ -98,6 +112,7 @@ const analyticsEntities = [
     AnalyticsDashboardService,
     AnalyticsDatasetService,
     AnalyticsMetricService,
+    AnalyticsOperationalReportService,
     AnalyticsSnapshotService,
     AnalyticsSourceRegistryService,
   ],

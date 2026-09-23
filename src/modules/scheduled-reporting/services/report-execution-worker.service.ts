@@ -150,6 +150,7 @@ export class ReportExecutionWorkerService {
         ReportOutputFormatEnum.CSV;
 
       const result = await runner.generate({
+        reportCode: reportDefinition.reportCode,
         companyId: execution.companyId,
         outputFormat,
         filenamePattern:

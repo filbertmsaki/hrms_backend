@@ -37,9 +37,12 @@ import {
   CreateStatutorySchemeDto,
   GeneratePayrollPeriodDto,
   GeneratePayrollSourceRecordsDto,
+  ImportPayrollBankStatementDto,
+  ImportPayrollSourceFileDto,
   PayrollOvertimeApprovalQueryDto,
   PayrollReportQueryDto,
   PayrollQueryDto,
+  PostPayrollJournalDto,
   ReconcilePayrollPaymentDto,
   UpsertEmployeePayrollProfileDto,
 } from '../dto/payroll.dto';
@@ -340,6 +343,15 @@ export class PayrollSourcesController {
     return this.service.generate(req.user, dto);
   }
 
+  @Post('import')
+  @Permissions('payroll:inputs')
+  importFile(
+    @Req() req: AuthedRequest,
+    @Body() dto: ImportPayrollSourceFileDto,
+  ) {
+    return this.service.importFile(req.user, dto);
+  }
+
   @Get()
   @Permissions('payroll:inputs:read')
   list(@Req() req: AuthedRequest, @Query() query: PayrollQueryDto) {
@@ -563,6 +575,15 @@ export class PayrollBankingController {
   ) {
     return this.service.reconcile(req.user, runId, dto);
   }
+
+  @Post('imports')
+  @Permissions('payroll:banking')
+  importStatement(
+    @Req() req: AuthedRequest,
+    @Body() dto: ImportPayrollBankStatementDto,
+  ) {
+    return this.service.importStatement(req.user, dto);
+  }
 }
 
 @ApiTags('Payroll Accounting')
@@ -579,6 +600,36 @@ export class PayrollAccountingController {
     @Param('runId', ParseIntPipe) runId: number,
   ) {
     return this.service.generate(req.user, runId);
+  }
+
+  @Get('journals/:batchId/export')
+  @Permissions('payroll:accounting')
+  exportJournal(
+    @Req() req: AuthedRequest,
+    @Param('batchId', ParseIntPipe) batchId: number,
+    @Query('format') format?: string,
+  ) {
+    return this.service.exportJournal(req.user, batchId, format ?? 'csv');
+  }
+
+  @Post('journals/:batchId/post')
+  @Permissions('payroll:accounting')
+  postJournal(
+    @Req() req: AuthedRequest,
+    @Param('batchId', ParseIntPipe) batchId: number,
+    @Body() dto: PostPayrollJournalDto,
+  ) {
+    return this.service.post(req.user, batchId, dto);
+  }
+
+  @Post('journals/:batchId/reverse')
+  @Permissions('payroll:accounting')
+  reverseJournal(
+    @Req() req: AuthedRequest,
+    @Param('batchId', ParseIntPipe) batchId: number,
+    @Body() dto: PostPayrollJournalDto,
+  ) {
+    return this.service.reverse(req.user, batchId, dto);
   }
 }
 
@@ -617,6 +668,24 @@ export class PayrollReportsController {
   @Permissions('payroll:reports')
   catalog() {
     return this.reportsService.catalog();
+  }
+
+  @Get('integrations/catalog')
+  @Permissions('payroll:reports')
+  integrationsCatalog() {
+    return this.reportsService.integrationCatalog();
+  }
+
+  @Get('notifications/catalog')
+  @Permissions('payroll:reports')
+  notificationCatalog() {
+    return this.reportsService.notificationCatalog();
+  }
+
+  @Get('readiness')
+  @Permissions('payroll:reports')
+  readiness() {
+    return this.reportsService.deploymentReadiness();
   }
 
   @Get(':code')

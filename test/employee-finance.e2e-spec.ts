@@ -22,6 +22,7 @@ import { User } from '../src/modules/users/entities/user.entity';
 import { Employee } from '../src/modules/hr/employees/entities/employee.entity';
 import { EmployeeBankAccount } from '../src/modules/hr/employees/entities/employee-bank-account.entity';
 import { EmploymentStatusEnum } from '../src/modules/hr/employees/enums/employment-status.enum';
+import { CostCenter } from '../src/modules/hr/cost-centers/entities/cost-center.entity';
 import {
   PayrollCalendar,
   PayrollPeriod,
@@ -61,6 +62,8 @@ import {
   EmployeeFinanceApplication,
   EmployeeFinanceApplicationApproval,
   EmployeeFinanceApplicationDocument,
+  EmployeeFinanceApplicationGuarantor,
+  EmployeeFinanceSanctionLetter,
 } from '../src/modules/hr/employee-finance/entities/employee-finance-application.entities';
 import {
   EmployeeFinanceAccount,
@@ -136,11 +139,16 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
   let employeeUserId: number;
   let employeeCompanyUserId: number;
   let employeeId: number;
+  let guarantorUserId: number;
+  let guarantorCompanyUserId: number;
+  let guarantorEmployeeId: number;
+  let costCenterId: number;
   let bankAccountId: number;
   let compensationId: number;
   let profileId: number;
   let calendarId: number;
   let periodId: number;
+  let attendanceSummaryId: number;
   let runId: number;
   let applicationId: number;
   let accountId: number;
@@ -215,6 +223,18 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     companyId: company.id,
     companyMembershipId: employeeCompanyUserId,
     employeeId,
+    permissions: [],
+    roles: [],
+  });
+
+  const guarantorActor = (): AuthenticatedUser => ({
+    id: guarantorUserId,
+    email: 'finance.guarantor@example.com',
+    scope: 'company',
+    userType: 'COMPANY_USER',
+    companyId: company.id,
+    companyMembershipId: guarantorCompanyUserId,
+    employeeId: guarantorEmployeeId,
     permissions: [],
     roles: [],
   });
@@ -409,6 +429,9 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       dataSource.getRepository(Employee),
       financeApplicationRepository,
       dataSource.getRepository(EmployeeFinanceApplicationDocument),
+      dataSource.getRepository(EmployeeFinanceApplicationGuarantor),
+      dataSource.getRepository(EmployeeFinanceSanctionLetter),
+      {} as any,
     );
     approvalService = new EmployeeFinanceApprovalService(
       configService,
@@ -419,6 +442,9 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       dataSource.getRepository(Employee),
       financeApplicationRepository,
       financeApprovalRepository,
+      dataSource.getRepository(EmployeeFinanceApplicationDocument),
+      dataSource.getRepository(EmployeeFinanceApplicationGuarantor),
+      dataSource.getRepository(EmployeeFinanceSanctionLetter),
     );
     disbursementService = new EmployeeFinanceDisbursementService(
       financeLedgerService,
@@ -466,8 +492,16 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
           .PayrollGroup,
       ),
       dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollGroupAssignment,
+      ),
+      dataSource.getRepository(
         require('../src/modules/hr/attendance/holidays/entities/holiday.entity')
           .AttendanceHoliday,
+      ),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollLeaveRule,
       ),
     );
     runService = new PayrollRunService(
@@ -564,6 +598,16 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     );
     employeeCompanyUserId = employeeMembership.id;
 
+    const costCenter = await dataSource.getRepository(CostCenter).save(
+      dataSource.getRepository(CostCenter).create({
+        company_id: company.id,
+        code: `EF-${suffix}`.slice(0, 50),
+        name: 'Employee Finance E2E Cost Center',
+        status: 'active',
+      }),
+    );
+    costCenterId = costCenter.id;
+
     const employee = await dataSource.getRepository(Employee).save(
       dataSource.getRepository(Employee).create({
         company_id: company.id,
@@ -574,9 +618,50 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
         gender: 'female',
         employment_status: EmploymentStatusEnum.ACTIVE,
         hire_date: '2026-01-01',
+        cost_center_id: costCenterId,
       }),
     );
     employeeId = employee.id;
+
+    const guarantorUser = await dataSource.getRepository(User).save(
+      dataSource.getRepository(User).create({
+        user_no: `FG-${suffix}`.slice(0, 20),
+        first_name: 'Finance',
+        last_name: 'Guarantor',
+        phone: `+2553${suffix}`.slice(0, 20),
+        email: `finance.guarantor.${suffix}@example.com`,
+        password: 'not-a-real-hash',
+        status: 'active',
+        user_type: 'COMPANY_USER',
+        auth_token_version: 1,
+      }),
+    );
+    guarantorUserId = guarantorUser.id;
+    const guarantorMembership = await dataSource
+      .getRepository(CompanyUser)
+      .save(
+        dataSource.getRepository(CompanyUser).create({
+          company_id: company.id,
+          user_id: guarantorUserId,
+          status: 'active',
+          is_default: true,
+        }),
+      );
+    guarantorCompanyUserId = guarantorMembership.id;
+
+    const guarantorEmployee = await dataSource.getRepository(Employee).save(
+      dataSource.getRepository(Employee).create({
+        company_id: company.id,
+        company_user_id: guarantorCompanyUserId,
+        employee_no: `EMP-FG-${suffix}`.slice(0, 50),
+        first_name: 'Finance',
+        last_name: 'Guarantor',
+        gender: 'male',
+        employment_status: EmploymentStatusEnum.ACTIVE,
+        hire_date: '2025-01-01',
+      }),
+    );
+    guarantorEmployeeId = guarantorEmployee.id;
 
     const bankAccount = await dataSource
       .getRepository(EmployeeBankAccount)
@@ -602,6 +687,9 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     const profile = (await profileService.upsert(adminActor(), {
       employee_id: employeeId,
       payroll_number: `PAY-EF-${suffix}`.slice(0, 60),
+      taxpayer_identification_number: `TIN-EF-${suffix}`.slice(0, 60),
+      social_security_scheme_code: 'NSSF',
+      social_security_number: `NSSF-EF-${suffix}`.slice(0, 60),
       primary_bank_account_id: bankAccountId,
       currency: 'TZS',
       pay_frequency: 'MONTHLY',
@@ -652,6 +740,7 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       adminCompanyUserId,
       financeCompanyUserId,
       employeeCompanyUserId,
+      guarantorCompanyUserId,
     ].filter((value): value is number => Boolean(value));
 
     if (runId) {
@@ -677,6 +766,15 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       accountId = 0;
     }
     if (applicationId) {
+      await dataSource
+        .getRepository(EmployeeFinanceApplicationDocument)
+        .delete({ applicationId });
+      await dataSource
+        .getRepository(EmployeeFinanceApplicationGuarantor)
+        .delete({ applicationId });
+      await dataSource
+        .getRepository(EmployeeFinanceSanctionLetter)
+        .delete({ applicationId });
       await financeApprovalRepository.delete({ applicationId });
       await financeApplicationRepository.delete({ id: applicationId });
       applicationId = 0;
@@ -684,6 +782,12 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     if (periodId) {
       await payrollPeriodRepository.delete({ id: periodId });
       periodId = 0;
+    }
+    if (attendanceSummaryId) {
+      await dataSource
+        .getRepository(AttendanceDailySummary)
+        .delete({ id: attendanceSummaryId });
+      attendanceSummaryId = 0;
     }
     if (calendarId) {
       await dataSource
@@ -713,6 +817,10 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       await dataSource.getRepository(Employee).delete({ id: employeeId });
       employeeId = 0;
     }
+    if (costCenterId) {
+      await dataSource.getRepository(CostCenter).delete({ id: costCenterId });
+      costCenterId = 0;
+    }
     if (employeeCompanyUserId) {
       await dataSource
         .getRepository(CompanyUser)
@@ -722,6 +830,22 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     if (employeeUserId) {
       await dataSource.getRepository(User).delete({ id: employeeUserId });
       employeeUserId = 0;
+    }
+    if (guarantorEmployeeId) {
+      await dataSource
+        .getRepository(Employee)
+        .delete({ id: guarantorEmployeeId });
+      guarantorEmployeeId = 0;
+    }
+    if (guarantorCompanyUserId) {
+      await dataSource
+        .getRepository(CompanyUser)
+        .delete({ id: guarantorCompanyUserId });
+      guarantorCompanyUserId = 0;
+    }
+    if (guarantorUserId) {
+      await dataSource.getRepository(User).delete({ id: guarantorUserId });
+      guarantorUserId = 0;
     }
     if (financeCompanyUserId) {
       await dataSource
@@ -789,6 +913,38 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     applicationId = application.id;
     expect(application.status).toBe(EmployeeFinanceApplicationStatusEnum.DRAFT);
 
+    const requestLetter = await applicationService.addDocument(
+      employeeActor(),
+      application.id,
+      {
+        document_type: 'REQUEST_LETTER',
+        file_url: `test://request-letter/${application.id}`,
+        metadata: { source: 'employee-finance-e2e' },
+      },
+    );
+    const verifiedLetter = await applicationService.verifyDocument(
+      adminActor(),
+      application.id,
+      requestLetter.id,
+      { status: 'VERIFIED' },
+    );
+    expect(verifiedLetter.status).toBe('VERIFIED');
+
+    const guarantor = await applicationService.addGuarantor(
+      employeeActor(),
+      application.id,
+      { guarantor_employee_id: guarantorEmployeeId },
+    );
+    const approvedGuarantor = await applicationService.decideGuarantor(
+      guarantorActor(),
+      guarantor.id,
+      {
+        decision: 'APPROVED',
+        comments: 'Able to guarantee this advance',
+      },
+    );
+    expect(approvedGuarantor.status).toBe('APPROVED');
+
     application = await applicationService.submitMine(
       employeeActor(),
       application.id,
@@ -808,20 +964,28 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       EmployeeFinanceApplicationStatusEnum.PENDING_HR_APPROVAL,
     );
 
-    application = await approvalService.approve(adminActor(), application.id, {
-      stage: EmployeeFinanceApprovalStageEnum.HR,
-      snapshot_hash: snapshotHash,
-      comments: 'HR approves',
-    });
+    application = await approvalService.approve(
+      guarantorActor(),
+      application.id,
+      {
+        stage: EmployeeFinanceApprovalStageEnum.HR,
+        snapshot_hash: snapshotHash,
+        comments: 'HR approves',
+      },
+    );
     expect(application.status).toBe(
       EmployeeFinanceApplicationStatusEnum.PENDING_FINANCE_APPROVAL,
     );
 
-    application = await approvalService.approve(adminActor(), application.id, {
-      stage: EmployeeFinanceApprovalStageEnum.FINANCE,
-      snapshot_hash: snapshotHash,
-      comments: 'Finance approves',
-    });
+    application = await approvalService.approve(
+      financeActor(),
+      application.id,
+      {
+        stage: EmployeeFinanceApprovalStageEnum.FINANCE,
+        snapshot_hash: snapshotHash,
+        comments: 'Finance approves',
+      },
+    );
     expect(application.status).toBe(
       EmployeeFinanceApplicationStatusEnum.PENDING_EMPLOYEE_ACCEPTANCE,
     );
@@ -851,6 +1015,41 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       month: dueDate.getUTCMonth() + 1,
     });
     periodId = period.id;
+
+    const attendanceSummary = await dataSource
+      .getRepository(AttendanceDailySummary)
+      .save(
+        dataSource.getRepository(AttendanceDailySummary).create({
+          companyId: company.id,
+          branchId: null,
+          employeeId,
+          attendanceDate: period.startDate,
+          scheduleSource: 'E2E',
+          shiftId: null,
+          timetableId: null,
+          timezone: 'Africa/Dar_es_Salaam',
+          scheduleStartAt: new Date(`${period.startDate}T06:00:00.000Z`),
+          scheduleEndAt: new Date(`${period.startDate}T14:00:00.000Z`),
+          checkInAt: new Date(`${period.startDate}T06:00:00.000Z`),
+          checkOutAt: new Date(`${period.startDate}T14:00:00.000Z`),
+          lateMinutes: 0,
+          earlyDepartureMinutes: 0,
+          workMinutes: 480,
+          breakMinutes: 0,
+          overtimeMinutes: 0,
+          attendanceStatus: 'PRESENT',
+          remarks: null,
+          flags: null,
+          sourceFirstRawLogId: null,
+          sourceLastRawLogId: null,
+          calculationVersion: 1,
+          isAdjusted: false,
+          adjustedByCompanyUserId: null,
+          adjustedAt: null,
+          finalizedAt: new Date(`${period.startDate}T15:00:00.000Z`),
+        }),
+      );
+    attendanceSummaryId = attendanceSummary.id;
 
     const disbursement = await disbursementService.create(adminActor(), {
       account_id: account.id,

@@ -11,8 +11,11 @@ import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'crypto';
 import Decimal from 'decimal.js';
+import ExcelJS from 'exceljs';
+import { basename } from 'path';
 import { In, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
+import { FilesService } from '../../../files/files.service';
 import { EmployeeCompensationVersion } from '../../employee-movements/entities/employee-compensation-version.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { EmploymentStatusEnum } from '../../employees/enums/employment-status.enum';
@@ -27,19 +30,29 @@ import { OffboardingSettlementStatusEnum } from '../../offboarding/enums/offboar
 import { EmployeePayrollResultStatusEnum } from '../../payroll/payroll.enums';
 import {
   ApproveEmployeeFinanceApplicationDto,
+  CreateEmployeeFinanceApplicationDocumentDto,
   CreateEmployeeFinanceApplicationDto,
+  CreateEmployeeFinanceGuarantorDto,
   CreateEmployeeFinanceDisbursementDto,
   CreateEmployeeFinanceProductDto,
   CreateEmployeeFinanceRepaymentDto,
+  DecideEmployeeFinanceGuarantorDto,
   EmployeeFinanceQueryDto,
   EvaluateEmployeeFinanceEligibilityDto,
+  EvaluateMyEmployeeFinanceEligibilityDto,
+  ImportEmployeeFinancePaymentFileDto,
+  PostEmployeeFinanceAccountingDto,
   RequestEmployeeFinanceDefermentDto,
   RequestEmployeeFinanceRescheduleDto,
+  UploadEmployeeFinanceApplicationDocumentDto,
+  VerifyEmployeeFinanceApplicationDocumentDto,
 } from '../dto/employee-finance.dto';
 import {
   EmployeeFinanceApplication,
   EmployeeFinanceApplicationApproval,
   EmployeeFinanceApplicationDocument,
+  EmployeeFinanceApplicationGuarantor,
+  EmployeeFinanceSanctionLetter,
 } from '../entities/employee-finance-application.entities';
 import {
   EmployeeFinanceAccount,
@@ -76,6 +89,18 @@ import {
 } from '../employee-finance.enums';
 import { EmployeeFinanceMoney } from './employee-finance-money.util';
 
+const EMPLOYEE_FINANCE_DOCUMENT_MIME_TYPES = [
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'text/csv',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+];
+
+const EMPLOYEE_FINANCE_DOCUMENT_MAX_BYTES = 10 * 1024 * 1024;
+
 function hash(value: unknown) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
@@ -102,6 +127,12 @@ function addDaysString(date: string, days: number) {
   return source.toISOString().slice(0, 10);
 }
 
+function daysBetweenDates(from: string, to = todayString()) {
+  const start = new Date(`${from}T00:00:00.000Z`);
+  const end = new Date(`${to}T00:00:00.000Z`);
+  return Math.floor((end.getTime() - start.getTime()) / 86_400_000);
+}
+
 function monthsBetween(from: string | null, to = new Date()) {
   if (!from) return 0;
   const start = new Date(`${from}T00:00:00.000Z`);
@@ -120,6 +151,101 @@ function activeAccountStatuses() {
     EmployeeFinanceAccountStatusEnum.RESTRUCTURED,
     EmployeeFinanceAccountStatusEnum.PENDING_DISBURSEMENT,
   ];
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function numberFromPolicy(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
+function requiredGuarantorCount(productSnapshotValue: unknown) {
+  const productSnapshot = recordValue(productSnapshotValue);
+  const approval = recordValue(productSnapshot.approvalConfiguration);
+  const eligibility = recordValue(productSnapshot.eligibilityConfiguration);
+  return Math.max(
+    numberFromPolicy(productSnapshot.requiredGuarantors),
+    numberFromPolicy(productSnapshot.required_guarantors),
+    numberFromPolicy(approval.required_guarantors),
+    numberFromPolicy(approval.guarantor_count),
+    numberFromPolicy(eligibility.required_guarantors),
+    numberFromPolicy(eligibility.guarantor_count),
+  );
+}
+
+function requiredDocumentTypes(
+  productSnapshot: Record<string, unknown>,
+  requestedAmount?: string | null,
+) {
+  const raw =
+    productSnapshot.requiredDocumentTypes ??
+    productSnapshot.required_document_types;
+  const base = Array.isArray(raw)
+    ? raw
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim().toUpperCase())
+        .filter(Boolean)
+    : [];
+  const policy = recordValue(
+    productSnapshot.policyConfiguration ?? productSnapshot.policy_configuration,
+  );
+  const collateralThreshold = numberFromPolicy(
+    policy.collateral_required_above,
+  );
+  if (
+    requestedAmount &&
+    collateralThreshold > 0 &&
+    Number(requestedAmount) > collateralThreshold
+  ) {
+    base.push('COLLATERAL');
+  }
+  const byAmount = Array.isArray(policy.required_documents_by_amount)
+    ? policy.required_documents_by_amount
+    : [];
+  for (const item of byAmount) {
+    const rule = recordValue(item);
+    const minimumAmount = numberFromPolicy(rule.minimum_amount);
+    const documents = Array.isArray(rule.documents) ? rule.documents : [];
+    if (!requestedAmount || Number(requestedAmount) < minimumAmount) continue;
+    for (const document of documents) {
+      if (typeof document === 'string' && document.trim()) {
+        base.push(document.trim().toUpperCase());
+      }
+    }
+  }
+  return Array.from(new Set(base));
+}
+
+function financePolicyConfiguration(product: EmployeeFinanceProduct) {
+  return recordValue(
+    (product.eligibilityConfiguration ?? {}).policy_configuration ??
+      (product.eligibilityConfiguration ?? {}).policyConfiguration,
+  );
+}
+
+function normalizeImportStatus(value: unknown) {
+  const status =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value).trim().toUpperCase()
+      : 'SUCCESS';
+  if (
+    ['PAID', 'SUCCESS', 'SUCCESSFUL', 'CONFIRMED', 'SETTLED'].includes(status)
+  )
+    return 'SUCCESS';
+  if (['FAILED', 'REJECTED', 'RETURNED', 'REVERSAL'].includes(status))
+    return 'FAILED';
+  if (['PARTIAL', 'PARTIALLY_PAID', 'SHORT_PAID'].includes(status))
+    return 'PARTIAL';
+  return status || 'SUCCESS';
 }
 
 export type EmployeeFinanceScheduleItem = {
@@ -322,6 +448,27 @@ export class EmployeeFinanceEligibilityService {
     );
   }
 
+  async evaluateMine(
+    actor: AuthenticatedUser,
+    dto: EvaluateMyEmployeeFinanceEligibilityDto,
+  ) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    if (!actor.employeeId) {
+      throw new ForbiddenException('Employee profile required.');
+    }
+    const product = await this.productService.getActive(
+      companyId,
+      dto.product_id,
+    );
+    return this.evaluateEligibility(
+      companyId,
+      actor.employeeId,
+      product,
+      dto.requested_amount,
+      dto.requested_term_months,
+    );
+  }
+
   async evaluateEligibility(
     companyId: number,
     employeeId: number,
@@ -373,6 +520,20 @@ export class EmployeeFinanceEligibilityService {
       maximumAffordableInstallment,
       existingInstallments,
     );
+    const estimatedInstallment = this.estimateInstallment(
+      product,
+      requestedAmount,
+      requestedTermMonths,
+    );
+    const estimatedNetPayAfterDeduction = estimatedInstallment
+      ? EmployeeFinanceMoney.subtract(netPay, estimatedInstallment)
+      : null;
+    const installmentCapacityAfterRequest = estimatedInstallment
+      ? EmployeeFinanceMoney.subtract(
+          availableInstallment,
+          estimatedInstallment,
+        )
+      : availableInstallment;
     const salaryMultipleLimit = product.maximumSalaryMultiple
       ? EmployeeFinanceMoney.multiply(baseSalary, product.maximumSalaryMultiple)
       : null;
@@ -387,6 +548,13 @@ export class EmployeeFinanceEligibilityService {
         ) ?? '0.00';
     const allowedGradeIds = product.eligibilityConfiguration
       .allowed_grade_ids as number[] | undefined;
+    const policy = financePolicyConfiguration(product);
+    const blockedEmployeeIds = Array.isArray(policy.blocked_employee_ids)
+      ? policy.blocked_employee_ids.map((item) => Number(item))
+      : [];
+    const minimumNetPayAfterDeduction = numberFromPolicy(
+      policy.minimum_net_pay_after_deduction,
+    );
     const applicable = await this.isProductApplicable(
       companyId,
       employee,
@@ -465,10 +633,35 @@ export class EmployeeFinanceEligibilityService {
       },
       {
         code: 'PAYROLL_CAPACITY',
-        passed: EmployeeFinanceMoney.toCents(availableInstallment) > 0n,
-        value: availableInstallment,
+        passed:
+          EmployeeFinanceMoney.toCents(installmentCapacityAfterRequest) >= 0n &&
+          EmployeeFinanceMoney.toCents(availableInstallment) > 0n,
+        value: {
+          available_installment: availableInstallment,
+          estimated_installment: estimatedInstallment,
+          capacity_after_request: installmentCapacityAfterRequest,
+        },
         required: '> 0',
-        message: 'Employee must have available payroll deduction capacity.',
+        message:
+          'Employee must have available payroll deduction capacity for the request.',
+      },
+      {
+        code: 'POLICY_NOT_BLOCKED',
+        passed: !blockedEmployeeIds.includes(employee.id),
+        value: employee.id,
+        required: 'not in blocked_employee_ids',
+        message: 'Employee must not be blocked by loan policy.',
+      },
+      {
+        code: 'MINIMUM_NET_PAY_AFTER_DEDUCTION',
+        passed:
+          minimumNetPayAfterDeduction <= 0 ||
+          !estimatedNetPayAfterDeduction ||
+          Number(estimatedNetPayAfterDeduction) >= minimumNetPayAfterDeduction,
+        value: estimatedNetPayAfterDeduction,
+        required: minimumNetPayAfterDeduction || null,
+        message:
+          'Employee must retain the minimum configured net pay after deduction.',
       },
     ];
     const snapshot = {
@@ -476,6 +669,11 @@ export class EmployeeFinanceEligibilityService {
       product_id: product.id,
       base_salary: baseSalary,
       latest_net_pay: latestPayroll?.netPay ?? null,
+      existing_finance_installments: existingInstallments,
+      maximum_affordable_installment: maximumAffordableInstallment,
+      available_installment: availableInstallment,
+      estimated_installment: estimatedInstallment,
+      estimated_net_pay_after_deduction: estimatedNetPayAfterDeduction,
       active_account_ids: activeAccounts.map((account) => account.id),
       service_months: serviceMonths,
       evaluated_at: new Date().toISOString(),
@@ -485,6 +683,24 @@ export class EmployeeFinanceEligibilityService {
       maximumEligibleAmount,
       maximumAffordableInstallment,
       maximumTermMonths: product.maximumTermMonths,
+      minimumAmount: product.minimumAmount,
+      maximumAmount: product.maximumAmount,
+      minimumTermMonths: product.minimumTermMonths,
+      minimumServiceMonths: product.minimumServiceMonths,
+      requiredDocumentTypes: requiredDocumentTypes(
+        {
+          requiredDocumentTypes: product.requiredDocumentTypes ?? [],
+          policyConfiguration: policy,
+        },
+        requestedAmount,
+      ),
+      requiredGuarantorCount: requiredGuarantorCount(product),
+      interestMethod: product.interestMethod,
+      annualInterestRate: product.annualInterestRate,
+      estimatedInstallment,
+      estimatedNetPayAfterDeduction,
+      availableInstallment,
+      existingInstallments,
       currentExposure: activeAccounts.reduce(
         (sum, account) =>
           EmployeeFinanceMoney.add(sum, account.outstandingTotal),
@@ -495,6 +711,50 @@ export class EmployeeFinanceEligibilityService {
       snapshot,
       snapshotHash: hash(snapshot),
     };
+  }
+
+  private estimateInstallment(
+    product: EmployeeFinanceProduct,
+    requestedAmount?: string,
+    requestedTermMonths?: number,
+  ) {
+    if (
+      !requestedAmount ||
+      !requestedTermMonths ||
+      requestedTermMonths <= 0 ||
+      EmployeeFinanceMoney.toCents(requestedAmount) <= 0n
+    ) {
+      return null;
+    }
+
+    const principal = new Decimal(requestedAmount);
+    const annualRate = new Decimal(product.annualInterestRate || '0');
+
+    if (
+      annualRate.isZero() ||
+      product.interestMethod === EmployeeFinanceInterestMethodEnum.ZERO_INTEREST
+    ) {
+      return EmployeeFinanceMoney.divide(requestedAmount, requestedTermMonths);
+    }
+
+    const monthlyRate = annualRate.div(100).div(12);
+
+    if (
+      product.interestMethod === EmployeeFinanceInterestMethodEnum.FLAT_RATE
+    ) {
+      const interest = principal.times(monthlyRate).times(requestedTermMonths);
+      return EmployeeFinanceMoney.divide(
+        principal.plus(interest).toString(),
+        requestedTermMonths,
+      );
+    }
+
+    const factor = new Decimal(1).plus(monthlyRate).pow(-requestedTermMonths);
+    const denominator = new Decimal(1).minus(factor);
+    if (denominator.isZero()) {
+      return EmployeeFinanceMoney.divide(requestedAmount, requestedTermMonths);
+    }
+    return principal.times(monthlyRate).div(denominator).toFixed(2);
   }
 
   private async isProductApplicable(
@@ -747,6 +1007,16 @@ export class EmployeeFinanceAccountService {
     private readonly installmentRepository: Repository<EmployeeFinanceInstallment>,
     @InjectRepository(EmployeeFinanceLedgerEntry)
     private readonly ledgerRepository: Repository<EmployeeFinanceLedgerEntry>,
+    @InjectRepository(EmployeeFinanceDisbursement)
+    private readonly disbursementRepository: Repository<EmployeeFinanceDisbursement>,
+    @InjectRepository(EmployeeFinanceRepayment)
+    private readonly repaymentRepository: Repository<EmployeeFinanceRepayment>,
+    @InjectRepository(EmployeeFinanceDefermentRequest)
+    private readonly defermentRepository: Repository<EmployeeFinanceDefermentRequest>,
+    @InjectRepository(EmployeeFinanceReschedule)
+    private readonly rescheduleRepository: Repository<EmployeeFinanceReschedule>,
+    @InjectRepository(EmployeeFinanceSettlementQuote)
+    private readonly settlementQuoteRepository: Repository<EmployeeFinanceSettlementQuote>,
   ) {}
 
   async createFromApplication(actor: AuthenticatedUser, applicationId: number) {
@@ -884,7 +1154,15 @@ export class EmployeeFinanceAccountService {
         company_id: account.companyId,
       } as Employee);
     }
-    const [installments, ledger] = await Promise.all([
+    const [
+      installments,
+      ledger,
+      disbursements,
+      repayments,
+      deferments,
+      reschedules,
+      settlementQuotes,
+    ] = await Promise.all([
       this.installmentRepository.find({
         where: { companyId: account.companyId, accountId: account.id },
         order: { installmentNumber: 'ASC' },
@@ -893,8 +1171,37 @@ export class EmployeeFinanceAccountService {
         where: { companyId: account.companyId, accountId: account.id },
         order: { effectiveDate: 'ASC', id: 'ASC' },
       }),
+      this.disbursementRepository.find({
+        where: { companyId: account.companyId, accountId: account.id },
+        order: { id: 'DESC' },
+      }),
+      this.repaymentRepository.find({
+        where: { companyId: account.companyId, accountId: account.id },
+        order: { paymentDate: 'DESC', id: 'DESC' },
+      }),
+      this.defermentRepository.find({
+        where: { companyId: account.companyId, accountId: account.id },
+        order: { id: 'DESC' },
+      }),
+      this.rescheduleRepository.find({
+        where: { companyId: account.companyId, accountId: account.id },
+        order: { id: 'DESC' },
+      }),
+      this.settlementQuoteRepository.find({
+        where: { companyId: account.companyId, accountId: account.id },
+        order: { id: 'DESC' },
+      }),
     ]);
-    return { account, installments, ledger };
+    return {
+      account,
+      installments,
+      ledger,
+      disbursements,
+      repayments,
+      deferments,
+      reschedules,
+      settlementQuotes,
+    };
   }
 }
 
@@ -913,6 +1220,11 @@ export class EmployeeFinanceApplicationService {
     private readonly applicationRepository: Repository<EmployeeFinanceApplication>,
     @InjectRepository(EmployeeFinanceApplicationDocument)
     private readonly documentRepository: Repository<EmployeeFinanceApplicationDocument>,
+    @InjectRepository(EmployeeFinanceApplicationGuarantor)
+    private readonly guarantorRepository: Repository<EmployeeFinanceApplicationGuarantor>,
+    @InjectRepository(EmployeeFinanceSanctionLetter)
+    private readonly sanctionLetterRepository: Repository<EmployeeFinanceSanctionLetter>,
+    private readonly filesService: FilesService,
   ) {}
 
   async createMine(
@@ -982,7 +1294,17 @@ export class EmployeeFinanceApplicationService {
     const count = await this.applicationRepository.count({
       where: { companyId },
     });
-    const productSnapshot = { ...product };
+    const productSnapshot = {
+      ...product,
+      requiredDocumentTypes: requiredDocumentTypes(
+        {
+          requiredDocumentTypes: product.requiredDocumentTypes ?? [],
+          policyConfiguration: financePolicyConfiguration(product),
+        },
+        dto.requested_amount,
+      ),
+      policyConfiguration: financePolicyConfiguration(product),
+    };
     const employeeSnapshot = {
       id: employee.id,
       employee_no: employee.employee_no,
@@ -1028,11 +1350,329 @@ export class EmployeeFinanceApplicationService {
     return application;
   }
 
+  async addDocument(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: CreateEmployeeFinanceApplicationDocumentDto,
+  ) {
+    const application = await this.getOwnedApplication(actor, id);
+    if (
+      ![
+        EmployeeFinanceApplicationStatusEnum.DRAFT,
+        EmployeeFinanceApplicationStatusEnum.RETURNED_FOR_CORRECTION,
+      ].includes(application.status)
+    ) {
+      throw new ConflictException(
+        'Documents can be added only before submission.',
+      );
+    }
+    const document = await this.documentRepository.save(
+      this.documentRepository.create({
+        companyId: application.companyId,
+        applicationId: application.id,
+        documentType: dto.document_type.trim().toUpperCase(),
+        documentId: dto.document_id ?? null,
+        fileUrl: dto.file_url?.trim() ?? null,
+        uploadedByCompanyUserId: actor.companyMembershipId ?? actor.id,
+        status: 'UPLOADED',
+        metadata: dto.metadata ?? null,
+      }),
+    );
+    await this.auditService.log({
+      actor,
+      action: 'finance.application.document_added',
+      entityType: 'EMPLOYEE_FINANCE_APPLICATION_DOCUMENT',
+      entityId: document.id,
+      summary: { application_id: application.id },
+    });
+    return document;
+  }
+
+  async uploadDocument(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: UploadEmployeeFinanceApplicationDocumentDto,
+  ) {
+    const application = await this.getOwnedApplication(actor, id);
+    if (
+      ![
+        EmployeeFinanceApplicationStatusEnum.DRAFT,
+        EmployeeFinanceApplicationStatusEnum.RETURNED_FOR_CORRECTION,
+      ].includes(application.status)
+    ) {
+      throw new ConflictException(
+        'Documents can be uploaded only before submission.',
+      );
+    }
+    const storedFile = await this.filesService.savePrivateBase64File(dto.file, {
+      directorySegments: [
+        'documents',
+        'employee-finance',
+        `company-${application.companyId}`,
+        `application-${application.id}`,
+      ],
+      fileNamePrefix: `finance-${application.id}-${dto.document_type.trim().toLowerCase()}`,
+      allowedMimeTypes: EMPLOYEE_FINANCE_DOCUMENT_MIME_TYPES,
+      maxFileSizeBytes: EMPLOYEE_FINANCE_DOCUMENT_MAX_BYTES,
+      validateFileSignature: true,
+    });
+    const document = await this.addDocument(actor, id, {
+      document_type: dto.document_type,
+      file_url: storedFile.publicPath,
+      metadata: {
+        ...(dto.metadata ?? {}),
+        file_name: storedFile.originalFileName,
+        file_type: storedFile.mimeType,
+        file_size: storedFile.fileSize,
+        expires_on: dto.expires_on ?? null,
+        storage: 'managed-private',
+      },
+    });
+    return {
+      ...document,
+      fileUrl: this.documentDownloadUrl(application.id, document.id),
+      file_url: this.documentDownloadUrl(application.id, document.id),
+    };
+  }
+
+  async downloadDocument(
+    actor: AuthenticatedUser,
+    applicationId: number,
+    documentId: number,
+  ) {
+    const application = await this.getAccessibleApplication(
+      actor,
+      applicationId,
+    );
+    const document = await this.documentRepository.findOne({
+      where: {
+        id: documentId,
+        companyId: application.companyId,
+        applicationId: application.id,
+      },
+    });
+    if (!document) throw new NotFoundException('Finance document not found.');
+    const buffer = await this.filesService.readManagedFile(document.fileUrl);
+    if (!buffer) {
+      throw new NotFoundException('Finance document file was not found.');
+    }
+    const metadata = recordValue(document.metadata);
+    await this.auditService.log({
+      actor,
+      action: 'finance.application.document_downloaded',
+      entityType: 'EMPLOYEE_FINANCE_APPLICATION_DOCUMENT',
+      entityId: document.id,
+      summary: { application_id: application.id },
+    });
+    return {
+      buffer,
+      fileName:
+        typeof metadata.file_name === 'string' && metadata.file_name.trim()
+          ? metadata.file_name
+          : document.fileUrl
+            ? basename(document.fileUrl)
+            : `finance-document-${document.id}`,
+      mimeType:
+        typeof metadata.file_type === 'string' && metadata.file_type.trim()
+          ? metadata.file_type
+          : 'application/octet-stream',
+    };
+  }
+
+  async listDocuments(actor: AuthenticatedUser, id: number) {
+    const application = await this.getAccessibleApplication(actor, id);
+    const documents = await this.documentRepository.find({
+      where: {
+        companyId: application.companyId,
+        applicationId: application.id,
+      },
+      order: { id: 'ASC' },
+    });
+    return documents.map((document) => ({
+      ...document,
+      fileUrl: document.fileUrl
+        ? this.documentDownloadUrl(application.id, document.id)
+        : null,
+      file_url: document.fileUrl
+        ? this.documentDownloadUrl(application.id, document.id)
+        : null,
+    }));
+  }
+
+  async verifyDocument(
+    actor: AuthenticatedUser,
+    applicationId: number,
+    documentId: number,
+    dto: VerifyEmployeeFinanceApplicationDocumentDto,
+  ) {
+    const application = await this.getAccessibleApplication(
+      actor,
+      applicationId,
+    );
+    const document = await this.documentRepository.findOne({
+      where: {
+        id: documentId,
+        companyId: application.companyId,
+        applicationId: application.id,
+      },
+    });
+    if (!document) throw new NotFoundException('Finance document not found.');
+    const status = (dto.status ?? 'VERIFIED').trim().toUpperCase();
+    if (!['VERIFIED', 'REJECTED'].includes(status)) {
+      throw new BadRequestException(
+        'Document status must be VERIFIED or REJECTED.',
+      );
+    }
+    document.status = status;
+    document.verifiedByCompanyUserId = actor.companyMembershipId ?? actor.id;
+    document.verifiedAt = new Date();
+    document.metadata = {
+      ...(document.metadata ?? {}),
+      ...(dto.metadata ?? {}),
+    };
+    await this.auditService.log({
+      actor,
+      action: 'finance.application.document_verified',
+      entityType: 'EMPLOYEE_FINANCE_APPLICATION_DOCUMENT',
+      entityId: document.id,
+      summary: { status, application_id: application.id },
+    });
+    return this.documentRepository.save(document);
+  }
+
+  async addGuarantor(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: CreateEmployeeFinanceGuarantorDto,
+  ) {
+    const application = await this.getOwnedApplication(actor, id);
+    if (dto.guarantor_employee_id === application.employeeId) {
+      throw new BadRequestException(
+        'Applicant cannot guarantee their own loan.',
+      );
+    }
+    if (
+      ![
+        EmployeeFinanceApplicationStatusEnum.DRAFT,
+        EmployeeFinanceApplicationStatusEnum.RETURNED_FOR_CORRECTION,
+      ].includes(application.status)
+    ) {
+      throw new ConflictException(
+        'Guarantors can be added only before submission.',
+      );
+    }
+    const guarantor = await this.employeeRepository.findOne({
+      where: {
+        id: dto.guarantor_employee_id,
+        company_id: application.companyId,
+      },
+    });
+    if (!guarantor)
+      throw new NotFoundException('Guarantor employee not found.');
+    const record = await this.guarantorRepository.save(
+      this.guarantorRepository.create({
+        companyId: application.companyId,
+        applicationId: application.id,
+        employeeId: application.employeeId,
+        guarantorEmployeeId: guarantor.id,
+        status: 'PENDING',
+        snapshot: {
+          employee_no: guarantor.employee_no,
+          full_name: [
+            guarantor.first_name,
+            guarantor.middle_name,
+            guarantor.last_name,
+          ]
+            .filter(Boolean)
+            .join(' '),
+        },
+      }),
+    );
+    await this.auditService.log({
+      actor,
+      action: 'finance.application.guarantor_added',
+      entityType: 'EMPLOYEE_FINANCE_APPLICATION_GUARANTOR',
+      entityId: record.id,
+      summary: { application_id: application.id },
+    });
+    return record;
+  }
+
+  async listGuarantors(actor: AuthenticatedUser, id: number) {
+    const application = await this.getAccessibleApplication(actor, id);
+    return this.guarantorRepository.find({
+      where: {
+        companyId: application.companyId,
+        applicationId: application.id,
+      },
+      order: { id: 'ASC' },
+    });
+  }
+
+  async listMyGuarantorRequests(actor: AuthenticatedUser) {
+    if (!actor.employeeId) {
+      throw new ForbiddenException('Employee profile is required.');
+    }
+    return this.guarantorRepository.find({
+      where: {
+        companyId: actor.companyId!,
+        guarantorEmployeeId: actor.employeeId,
+      },
+      order: { id: 'DESC' },
+    });
+  }
+
+  async decideGuarantor(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: DecideEmployeeFinanceGuarantorDto,
+  ) {
+    const guarantor = await this.guarantorRepository.findOne({
+      where: { id, companyId: actor.companyId! },
+    });
+    if (!guarantor) throw new NotFoundException('Guarantor request not found.');
+    if (
+      actor.employeeId &&
+      actor.employeeId !== guarantor.guarantorEmployeeId
+    ) {
+      throw new ForbiddenException(
+        'Only the guarantor can decide this request.',
+      );
+    }
+    const decision = dto.decision.trim().toUpperCase();
+    if (!['APPROVED', 'REJECTED'].includes(decision)) {
+      throw new BadRequestException('Decision must be APPROVED or REJECTED.');
+    }
+    guarantor.status = decision;
+    guarantor.comments = dto.comments?.trim() ?? null;
+    guarantor.decidedByCompanyUserId = actor.companyMembershipId ?? actor.id;
+    guarantor.decidedAt = new Date();
+    await this.auditService.log({
+      actor,
+      action: 'finance.application.guarantor_decided',
+      entityType: 'EMPLOYEE_FINANCE_APPLICATION_GUARANTOR',
+      entityId: guarantor.id,
+      summary: { decision, application_id: guarantor.applicationId },
+    });
+    return this.guarantorRepository.save(guarantor);
+  }
+
+  async getSanctionLetter(actor: AuthenticatedUser, id: number) {
+    const application = await this.getAccessibleApplication(actor, id);
+    return this.sanctionLetterRepository.findOne({
+      where: {
+        companyId: application.companyId,
+        applicationId: application.id,
+      },
+    });
+  }
+
   async submitMine(actor: AuthenticatedUser, id: number) {
     const application = await this.getOwnedApplication(actor, id);
     if (application.status !== EmployeeFinanceApplicationStatusEnum.DRAFT) {
       throw new ConflictException('Only draft applications can be submitted.');
     }
+    await this.assertApplicationReadyForSubmit(application);
     application.status = this.configService.get<boolean>(
       'EMPLOYEE_FINANCE_REQUIRE_MANAGER_RECOMMENDATION',
       true,
@@ -1111,11 +1751,21 @@ export class EmployeeFinanceApplicationService {
   }
 
   async getApplication(actor: AuthenticatedUser, id: number) {
+    return this.getAccessibleApplication(actor, id);
+  }
+
+  private async getAccessibleApplication(actor: AuthenticatedUser, id: number) {
     const application = await this.applicationRepository.findOne({
       where: { id, companyId: actor.companyId! },
     });
     if (!application)
       throw new NotFoundException('Finance application not found.');
+    if (actor.employeeId && actor.employeeId !== application.employeeId) {
+      await this.hrAccessService.assertCanAccessEmployee(actor, {
+        id: application.employeeId,
+        company_id: application.companyId,
+      } as Employee);
+    }
     return application;
   }
 
@@ -1128,6 +1778,57 @@ export class EmployeeFinanceApplicationService {
     if (!application)
       throw new NotFoundException('Finance application not found.');
     return application;
+  }
+
+  private async assertApplicationReadyForSubmit(
+    application: EmployeeFinanceApplication,
+  ) {
+    const productSnapshot = recordValue(application.productSnapshot);
+    const requiredDocuments = requiredDocumentTypes(
+      productSnapshot,
+      application.requestedAmount,
+    );
+    const requiredGuarantors = requiredGuarantorCount(productSnapshot);
+    const [documents, guarantors] = await Promise.all([
+      this.documentRepository.find({
+        where: {
+          companyId: application.companyId,
+          applicationId: application.id,
+        },
+      }),
+      this.guarantorRepository.find({
+        where: {
+          companyId: application.companyId,
+          applicationId: application.id,
+        },
+      }),
+    ]);
+    const uploadedTypes = new Set(
+      documents
+        .filter((document) => document.status !== 'REJECTED')
+        .map((document) => document.documentType.trim().toUpperCase()),
+    );
+    const missingDocuments = requiredDocuments.filter(
+      (documentType) => !uploadedTypes.has(documentType),
+    );
+    const activeGuarantors = guarantors.filter(
+      (guarantor) => guarantor.status !== 'REJECTED',
+    );
+    const missingGuarantors = Math.max(
+      0,
+      requiredGuarantors - activeGuarantors.length,
+    );
+    if (missingDocuments.length > 0 || missingGuarantors > 0) {
+      throw new BadRequestException({
+        message: 'Finance application is missing required supporting records.',
+        missing_documents: missingDocuments,
+        missing_guarantors: missingGuarantors,
+      });
+    }
+  }
+
+  private documentDownloadUrl(applicationId: number, documentId: number) {
+    return `/api/employee-finance/applications/${applicationId}/documents/${documentId}/download`;
   }
 }
 
@@ -1147,6 +1848,12 @@ export class EmployeeFinanceApprovalService {
     private readonly applicationRepository: Repository<EmployeeFinanceApplication>,
     @InjectRepository(EmployeeFinanceApplicationApproval)
     private readonly approvalRepository: Repository<EmployeeFinanceApplicationApproval>,
+    @InjectRepository(EmployeeFinanceApplicationDocument)
+    private readonly documentRepository: Repository<EmployeeFinanceApplicationDocument>,
+    @InjectRepository(EmployeeFinanceApplicationGuarantor)
+    private readonly guarantorRepository: Repository<EmployeeFinanceApplicationGuarantor>,
+    @InjectRepository(EmployeeFinanceSanctionLetter)
+    private readonly sanctionLetterRepository: Repository<EmployeeFinanceSanctionLetter>,
   ) {}
 
   async approve(
@@ -1217,6 +1924,9 @@ export class EmployeeFinanceApprovalService {
     if (dto.approved_amount) application.approvedAmount = dto.approved_amount;
     if (dto.approved_term_months)
       application.approvedTermMonths = dto.approved_term_months;
+    if (dto.stage === EmployeeFinanceApprovalStageEnum.FINANCE) {
+      await this.assertFinalApprovalSupportReady(application);
+    }
     const annualInterestRate =
       application.productSnapshot.annualInterestRate ?? '0';
     application.approvedInterestRate =
@@ -1271,6 +1981,7 @@ export class EmployeeFinanceApprovalService {
       saved.status ===
       EmployeeFinanceApplicationStatusEnum.PENDING_EMPLOYEE_ACCEPTANCE
     ) {
+      await this.generateSanctionLetter(actor, saved);
       void this.notificationQueueService.enqueueSmsConfiguredNotification({
         code: 'employee_finance.application.approved',
         module: 'employee-finance',
@@ -1286,6 +1997,133 @@ export class EmployeeFinanceApprovalService {
     }
 
     return saved;
+  }
+
+  private async assertFinalApprovalSupportReady(
+    application: EmployeeFinanceApplication,
+  ) {
+    const productSnapshot = recordValue(application.productSnapshot);
+    const requiredDocuments = requiredDocumentTypes(
+      productSnapshot,
+      application.requestedAmount,
+    );
+    const requiredGuarantors = requiredGuarantorCount(productSnapshot);
+    const [documents, guarantors] = await Promise.all([
+      this.documentRepository.find({
+        where: {
+          companyId: application.companyId,
+          applicationId: application.id,
+        },
+      }),
+      this.guarantorRepository.find({
+        where: {
+          companyId: application.companyId,
+          applicationId: application.id,
+        },
+      }),
+    ]);
+    const verifiedTypes = new Set(
+      documents
+        .filter((document) => document.status === 'VERIFIED')
+        .map((document) => document.documentType.trim().toUpperCase()),
+    );
+    const missingVerifiedDocuments = requiredDocuments.filter(
+      (documentType) => !verifiedTypes.has(documentType),
+    );
+    const approvedGuarantors = guarantors.filter(
+      (guarantor) => guarantor.status === 'APPROVED',
+    );
+    const missingApprovedGuarantors = Math.max(
+      0,
+      requiredGuarantors - approvedGuarantors.length,
+    );
+    if (missingVerifiedDocuments.length > 0 || missingApprovedGuarantors > 0) {
+      throw new BadRequestException({
+        message: 'Required loan documents or guarantors are not complete.',
+        missing_verified_documents: missingVerifiedDocuments,
+        missing_approved_guarantors: missingApprovedGuarantors,
+      });
+    }
+  }
+
+  private async generateSanctionLetter(
+    actor: AuthenticatedUser,
+    application: EmployeeFinanceApplication,
+  ) {
+    const existing = await this.sanctionLetterRepository.findOne({
+      where: {
+        companyId: application.companyId,
+        applicationId: application.id,
+      },
+    });
+    if (existing) {
+      application.sanctionDocumentId = existing.id;
+      await this.applicationRepository.save(application);
+      return existing;
+    }
+    const amount = application.approvedAmount ?? application.requestedAmount;
+    const term =
+      application.approvedTermMonths ?? application.requestedTermMonths;
+    const rate = application.approvedInterestRate ?? '0';
+    const product = recordValue(application.productSnapshot);
+    const employee = recordValue(application.employeeSnapshot);
+    const employeeName =
+      typeof employee.full_name === 'string' && employee.full_name.trim()
+        ? employee.full_name
+        : String(application.employeeId);
+    const employeeNo =
+      typeof employee.employee_no === 'string' && employee.employee_no.trim()
+        ? employee.employee_no
+        : String(application.employeeId);
+    const productName =
+      typeof product.name === 'string' && product.name.trim()
+        ? product.name
+        : application.productType;
+    const snapshot = {
+      application_id: application.id,
+      application_no: application.applicationNo,
+      employee,
+      product_type: application.productType,
+      product_name: productName,
+      approved_amount: amount,
+      approved_term_months: term,
+      approved_interest_rate: rate,
+      estimated_installment: application.estimatedInstallment,
+      generated_at: new Date().toISOString(),
+    };
+    const content = [
+      `Sanction Letter: ${application.applicationNo}`,
+      `Employee: ${employeeName}`,
+      `Employee No: ${employeeNo}`,
+      `Loan Type: ${productName}`,
+      `Approved Amount: ${amount}`,
+      `Interest Rate: ${rate}`,
+      `Repayment Period: ${term} months`,
+      `Estimated Monthly Installment: ${application.estimatedInstallment ?? '0.00'}`,
+      'Status: Approved subject to employee acceptance and disbursement confirmation.',
+    ].join('\n');
+    const letter = await this.sanctionLetterRepository.save(
+      this.sanctionLetterRepository.create({
+        companyId: application.companyId,
+        applicationId: application.id,
+        accountId: null,
+        letterNo: `EFS-${application.companyId}-${String(application.id).padStart(6, '0')}`,
+        content,
+        snapshot,
+        snapshotHash: hash(snapshot),
+        generatedByCompanyUserId: actor.companyMembershipId ?? actor.id,
+      }),
+    );
+    application.sanctionDocumentId = letter.id;
+    await this.applicationRepository.save(application);
+    await this.auditService.log({
+      actor,
+      action: 'finance.application.sanction_letter_generated',
+      entityType: 'EMPLOYEE_FINANCE_SANCTION_LETTER',
+      entityId: letter.id,
+      summary: { application_id: application.id },
+    });
+    return letter;
   }
 
   private expectedStage(status: EmployeeFinanceApplicationStatusEnum) {
@@ -1480,9 +2318,6 @@ export class EmployeeFinancePayrollInstructionService {
         'account.id = installment.accountId',
       )
       .where('installment.companyId = :companyId', { companyId })
-      .andWhere('installment.dueDate >= :startDate', {
-        startDate: period.startDate,
-      })
       .andWhere('installment.dueDate <= :endDate', { endDate: period.endDate })
       .andWhere('installment.status IN (:...statuses)', {
         statuses: [
@@ -1620,6 +2455,18 @@ export class EmployeeFinancePayrollInstructionService {
   private async postPayrollInstruction(
     instruction: EmployeeFinancePayrollInstruction,
   ) {
+    const currentInstruction = await this.instructionRepository.findOne({
+      where: {
+        id: instruction.id,
+        companyId: instruction.companyId,
+      },
+    });
+    if (
+      currentInstruction?.status ===
+      EmployeeFinancePayrollInstructionStatusEnum.POSTED
+    ) {
+      return currentInstruction;
+    }
     const installment = await this.installmentRepository.findOne({
       where: {
         id: instruction.installmentId,
@@ -2030,17 +2877,497 @@ export class EmployeeFinanceExitRecoveryService {
 }
 
 @Injectable()
+export class EmployeeFinancePaymentImportService {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly filesService: FilesService,
+    private readonly disbursementService: EmployeeFinanceDisbursementService,
+    private readonly repaymentService: EmployeeFinanceRepaymentService,
+    private readonly auditService: EmployeeFinanceAuditService,
+    @InjectRepository(EmployeeFinanceDisbursement)
+    private readonly disbursementRepository: Repository<EmployeeFinanceDisbursement>,
+    @InjectRepository(EmployeeFinanceRepayment)
+    private readonly repaymentRepository: Repository<EmployeeFinanceRepayment>,
+  ) {}
+
+  async importFile(
+    actor: AuthenticatedUser,
+    dto: ImportEmployeeFinancePaymentFileDto,
+  ) {
+    const storedFile = await this.filesService.savePrivateBase64File(dto.file, {
+      directorySegments: [
+        'imports',
+        'employee-finance',
+        `company-${actor.companyId!}`,
+      ],
+      fileNamePrefix: 'finance-payments',
+      allowedMimeTypes: [
+        'text/csv',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ],
+      maxFileSizeBytes: 5 * 1024 * 1024,
+    });
+    const buffer = await this.filesService.readManagedFile(
+      storedFile.publicPath,
+    );
+    const rows = await this.parsePaymentRows(
+      buffer ?? Buffer.alloc(0),
+      storedFile.mimeType,
+      storedFile.originalFileName,
+    );
+    const results: Record<string, unknown>[] = [];
+    for (const row of rows) {
+      results.push(await this.matchRow(actor, row, dto.dry_run !== false));
+    }
+    const summary = {
+      imported_rows: rows.length,
+      matched_rows: results.filter((row) => row.matched).length,
+      posted_rows: results.filter((row) => row.action === 'POSTED').length,
+      issue_rows: results.filter((row) => row.issue).length,
+      dry_run: dto.dry_run !== false,
+      file_path: storedFile.publicPath,
+    };
+    await this.auditService.log({
+      actor,
+      action: 'finance.payment_file.imported',
+      entityType: 'EMPLOYEE_FINANCE_PAYMENT_IMPORT',
+      entityId: storedFile.storedFileName,
+      summary,
+    });
+    return { summary, rows: results };
+  }
+
+  private async matchRow(
+    actor: AuthenticatedUser,
+    row: Record<string, string>,
+    dryRun: boolean,
+  ) {
+    const mapping = this.bankColumnMap();
+    const reference = this.firstMappedValue(row, mapping.reference).trim();
+    const amount = this.firstMappedValue(row, mapping.amount).trim();
+    const status = normalizeImportStatus(
+      this.firstMappedValue(row, mapping.status),
+    );
+    if (!reference) {
+      return { row, matched: false, issue: 'MISSING_REFERENCE' };
+    }
+    const disbursement = await this.disbursementRepository.findOne({
+      where: { companyId: actor.companyId!, paymentReference: reference },
+    });
+    if (disbursement) {
+      return this.matchDisbursement(
+        actor,
+        disbursement,
+        amount,
+        status,
+        dryRun,
+      );
+    }
+    const repayment = await this.repaymentRepository.findOne({
+      where: { companyId: actor.companyId!, paymentReference: reference },
+    });
+    if (repayment) {
+      return this.matchRepayment(actor, repayment, amount, status, dryRun);
+    }
+    return { row, reference, matched: false, issue: 'NO_MATCH' };
+  }
+
+  private async matchDisbursement(
+    actor: AuthenticatedUser,
+    disbursement: EmployeeFinanceDisbursement,
+    amount: string,
+    status: string,
+    dryRun: boolean,
+  ) {
+    const issue =
+      amount && amount !== disbursement.amount
+        ? 'AMOUNT_MISMATCH'
+        : status === 'FAILED'
+          ? 'BANK_REPORTED_FAILED'
+          : status === 'PARTIAL'
+            ? 'BANK_REPORTED_PARTIAL'
+            : null;
+    if (issue || dryRun) {
+      return {
+        matched: true,
+        entity_type: 'DISBURSEMENT',
+        entity_id: disbursement.id,
+        reference: disbursement.paymentReference,
+        issue,
+        action: dryRun ? 'DRY_RUN' : 'REVIEW_REQUIRED',
+      };
+    }
+    if (
+      disbursement.status === EmployeeFinanceDisbursementStatusEnum.APPROVED
+    ) {
+      try {
+        await this.disbursementService.confirm(actor, disbursement.id);
+        return {
+          matched: true,
+          entity_type: 'DISBURSEMENT',
+          entity_id: disbursement.id,
+          reference: disbursement.paymentReference,
+          action: 'POSTED',
+        };
+      } catch (error) {
+        return {
+          matched: true,
+          entity_type: 'DISBURSEMENT',
+          entity_id: disbursement.id,
+          reference: disbursement.paymentReference,
+          issue: error instanceof Error ? error.message : 'POST_FAILED',
+          action: 'REVIEW_REQUIRED',
+        };
+      }
+    }
+    return {
+      matched: true,
+      entity_type: 'DISBURSEMENT',
+      entity_id: disbursement.id,
+      reference: disbursement.paymentReference,
+      issue: `UNPOSTABLE_STATUS_${disbursement.status}`,
+      action: 'REVIEW_REQUIRED',
+    };
+  }
+
+  private async matchRepayment(
+    actor: AuthenticatedUser,
+    repayment: EmployeeFinanceRepayment,
+    amount: string,
+    status: string,
+    dryRun: boolean,
+  ) {
+    const issue =
+      amount && amount !== repayment.amount
+        ? 'AMOUNT_MISMATCH'
+        : status === 'FAILED'
+          ? 'BANK_REPORTED_FAILED'
+          : status === 'PARTIAL'
+            ? 'BANK_REPORTED_PARTIAL'
+            : null;
+    if (issue || dryRun) {
+      return {
+        matched: true,
+        entity_type: 'REPAYMENT',
+        entity_id: repayment.id,
+        reference: repayment.paymentReference,
+        issue,
+        action: dryRun ? 'DRY_RUN' : 'REVIEW_REQUIRED',
+      };
+    }
+    if (
+      repayment.status === EmployeeFinanceRepaymentStatusEnum.DRAFT ||
+      repayment.status === EmployeeFinanceRepaymentStatusEnum.APPROVED
+    ) {
+      try {
+        await this.repaymentService.approve(actor, repayment.id);
+        return {
+          matched: true,
+          entity_type: 'REPAYMENT',
+          entity_id: repayment.id,
+          reference: repayment.paymentReference,
+          action: 'POSTED',
+        };
+      } catch (error) {
+        return {
+          matched: true,
+          entity_type: 'REPAYMENT',
+          entity_id: repayment.id,
+          reference: repayment.paymentReference,
+          issue: error instanceof Error ? error.message : 'POST_FAILED',
+          action: 'REVIEW_REQUIRED',
+        };
+      }
+    }
+    return {
+      matched: true,
+      entity_type: 'REPAYMENT',
+      entity_id: repayment.id,
+      reference: repayment.paymentReference,
+      issue: `UNPOSTABLE_STATUS_${repayment.status}`,
+      action: 'REVIEW_REQUIRED',
+    };
+  }
+
+  private async parsePaymentRows(
+    buffer: Buffer,
+    mimeType: string,
+    fileName: string,
+  ) {
+    const lowerName = fileName.toLowerCase();
+    if (
+      mimeType ===
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+      lowerName.endsWith('.xlsx')
+    ) {
+      return this.parseXlsx(buffer);
+    }
+    return this.parseCsv(buffer.toString('utf8'));
+  }
+
+  private parseCsv(content: string) {
+    const lines = content
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (lines.length < 2) return [];
+    const headers = this.splitCsvLine(lines[0]).map((header) =>
+      header.trim().toLowerCase(),
+    );
+    return lines.slice(1).map((line) => {
+      const values = this.splitCsvLine(line);
+      return Object.fromEntries(
+        headers.map((header, index) => [header, values[index]?.trim() ?? '']),
+      );
+    });
+  }
+
+  private splitCsvLine(line: string) {
+    const values: string[] = [];
+    let current = '';
+    let quoted = false;
+    for (let index = 0; index < line.length; index += 1) {
+      const char = line[index];
+      if (char === '"') {
+        if (quoted && line[index + 1] === '"') {
+          current += '"';
+          index += 1;
+        } else {
+          quoted = !quoted;
+        }
+      } else if (char === ',' && !quoted) {
+        values.push(current);
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    values.push(current);
+    return values;
+  }
+
+  private async parseXlsx(buffer: Buffer) {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const worksheet = workbook.worksheets[0];
+    if (!worksheet || worksheet.rowCount < 2) return [];
+    const headers = this.excelRowValues(worksheet.getRow(1)).map((header) =>
+      header.trim().toLowerCase(),
+    );
+    const rows: Record<string, string>[] = [];
+    worksheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+      const values = this.excelRowValues(row);
+      if (values.every((value) => !value.trim())) return;
+      rows.push(
+        Object.fromEntries(
+          headers.map((header, index) => [header, values[index]?.trim() ?? '']),
+        ),
+      );
+    });
+    return rows;
+  }
+
+  private excelRowValues(row: ExcelJS.Row) {
+    const values = Array.isArray(row.values) ? row.values.slice(1) : [];
+    return values.map((value) => this.excelCellValueToString(value));
+  }
+
+  private excelCellValueToString(value: unknown): string {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean')
+      return String(value);
+    if (value instanceof Date) return value.toISOString().slice(0, 10);
+    if (typeof value === 'object') {
+      const record = value as Record<string, unknown>;
+      if ('text' in record) return this.excelCellValueToString(record.text);
+      if ('result' in record) return this.excelCellValueToString(record.result);
+      if (Array.isArray(record.richText)) {
+        return record.richText
+          .map((entry) =>
+            this.excelCellValueToString(
+              (entry as Record<string, unknown>).text,
+            ),
+          )
+          .join('');
+      }
+    }
+    return '';
+  }
+
+  private bankColumnMap() {
+    const fallback = {
+      reference: ['payment_reference', 'reference', 'transaction_reference'],
+      amount: ['amount', 'paid_amount', 'transaction_amount'],
+      status: ['status', 'result', 'payment_status'],
+    };
+    const raw = this.configService.get<string>(
+      'EMPLOYEE_FINANCE_BANK_IMPORT_COLUMN_MAP',
+    );
+    if (!raw) return fallback;
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      return {
+        reference: this.stringArray(parsed.reference, fallback.reference),
+        amount: this.stringArray(parsed.amount, fallback.amount),
+        status: this.stringArray(parsed.status, fallback.status),
+      };
+    } catch {
+      return fallback;
+    }
+  }
+
+  private stringArray(value: unknown, fallback: string[]) {
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string')
+      : fallback;
+  }
+
+  private firstMappedValue(row: Record<string, string>, keys: string[]) {
+    for (const key of keys) {
+      const value = row[key.trim().toLowerCase()];
+      if (value !== undefined) return value;
+    }
+    return '';
+  }
+}
+
+@Injectable()
+export class EmployeeFinanceAccountingPostingService {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly auditService: EmployeeFinanceAuditService,
+    @InjectRepository(EmployeeFinanceLedgerEntry)
+    private readonly ledgerRepository: Repository<EmployeeFinanceLedgerEntry>,
+  ) {}
+
+  async post(actor: AuthenticatedUser, dto: PostEmployeeFinanceAccountingDto) {
+    const companyId = actor.companyId!;
+    let entries = await this.ledgerRepository.find({
+      where: { companyId },
+      order: { effectiveDate: 'ASC', id: 'ASC' },
+    });
+    entries = entries.filter((entry) => {
+      if (dto.date_from && entry.effectiveDate < dto.date_from) return false;
+      if (dto.date_to && entry.effectiveDate > dto.date_to) return false;
+      return true;
+    });
+    const journals = entries.map((entry) => ({
+      external_id: `employee-finance-ledger-${entry.id}`,
+      account_id: entry.accountId,
+      entry_type: entry.entryType,
+      direction: entry.direction,
+      amount: entry.totalAmount,
+      principal_amount: entry.principalAmount,
+      interest_amount: entry.interestAmount,
+      fee_amount: entry.feeAmount,
+      effective_date: entry.effectiveDate,
+      source_type: entry.sourceType,
+      source_id: entry.sourceId,
+      idempotency_key: entry.idempotencyKey,
+    }));
+    const provider = dto.provider ?? 'webhook';
+    const endpoint = this.configService.get<string>(
+      'EMPLOYEE_FINANCE_ERP_POST_URL',
+    );
+    const dryRun = dto.dry_run !== false || !endpoint;
+    let providerResponse: unknown = null;
+    if (!dryRun && endpoint) {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: this.erpHeaders(),
+        body: JSON.stringify({ provider, company_id: companyId, journals }),
+      });
+      providerResponse = {
+        status: response.status,
+        ok: response.ok,
+        body: await response.text(),
+      };
+      if (!response.ok) {
+        throw new BadRequestException({
+          message: 'ERP posting endpoint rejected the journal batch.',
+          providerResponse,
+        });
+      }
+    }
+    const summary = {
+      provider,
+      dry_run: dryRun,
+      journal_count: journals.length,
+      endpoint_configured: Boolean(endpoint),
+    };
+    await this.auditService.log({
+      actor,
+      action: 'finance.accounting.posted',
+      entityType: 'EMPLOYEE_FINANCE_ACCOUNTING_POST',
+      entityId: `${companyId}-${Date.now()}`,
+      summary,
+    });
+    return { summary, journals, providerResponse };
+  }
+
+  private erpHeaders() {
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+    };
+    const authType = (
+      this.configService.get<string>('EMPLOYEE_FINANCE_ERP_AUTH_TYPE') ?? 'none'
+    )
+      .trim()
+      .toLowerCase();
+    if (authType === 'bearer') {
+      const token = this.configService.get<string>(
+        'EMPLOYEE_FINANCE_ERP_AUTH_TOKEN',
+      );
+      if (token) headers.authorization = `Bearer ${token}`;
+    } else if (authType === 'api-key') {
+      const header =
+        this.configService.get<string>('EMPLOYEE_FINANCE_ERP_API_KEY_HEADER') ??
+        'x-api-key';
+      const value = this.configService.get<string>(
+        'EMPLOYEE_FINANCE_ERP_API_KEY',
+      );
+      if (value) headers[header] = value;
+    } else if (authType === 'basic') {
+      const username = this.configService.get<string>(
+        'EMPLOYEE_FINANCE_ERP_BASIC_USERNAME',
+      );
+      const password = this.configService.get<string>(
+        'EMPLOYEE_FINANCE_ERP_BASIC_PASSWORD',
+      );
+      if (username && password) {
+        headers.authorization = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+      }
+    }
+    return headers;
+  }
+}
+
+@Injectable()
 export class EmployeeFinanceReportsService {
   constructor(
+    private readonly configService: ConfigService,
     @InjectRepository(EmployeeFinanceApplication)
     private readonly applicationRepository: Repository<EmployeeFinanceApplication>,
     @InjectRepository(EmployeeFinanceAccount)
     private readonly accountRepository: Repository<EmployeeFinanceAccount>,
+    @InjectRepository(EmployeeFinanceInstallment)
+    private readonly installmentRepository: Repository<EmployeeFinanceInstallment>,
+    @InjectRepository(EmployeeFinanceDisbursement)
+    private readonly disbursementRepository: Repository<EmployeeFinanceDisbursement>,
+    @InjectRepository(EmployeeFinanceRepayment)
+    private readonly repaymentRepository: Repository<EmployeeFinanceRepayment>,
+    @InjectRepository(EmployeeFinanceSettlementQuote)
+    private readonly settlementQuoteRepository: Repository<EmployeeFinanceSettlementQuote>,
+    @InjectRepository(EmployeeFinanceAuditLog)
+    private readonly auditRepository: Repository<EmployeeFinanceAuditLog>,
   ) {}
 
   async dashboard(actor: AuthenticatedUser) {
     const companyId = actor.companyId!;
-    const [pendingApplications, activeAccounts, arrearsAccounts] =
+    const [pendingApplications, activeAccounts, arrearsAccounts, accounts] =
       await Promise.all([
         this.applicationRepository.count({
           where: {
@@ -2062,8 +3389,613 @@ export class EmployeeFinanceReportsService {
             status: EmployeeFinanceAccountStatusEnum.IN_ARREARS,
           },
         }),
+        this.accountRepository.find({ where: { companyId } }),
       ]);
-    return { pendingApplications, activeAccounts, arrearsAccounts };
+    return {
+      pendingApplications,
+      activeAccounts,
+      arrearsAccounts,
+      outstanding: accounts.reduce(
+        (sum, account) =>
+          EmployeeFinanceMoney.add(sum, account.outstandingTotal),
+        '0.00',
+      ),
+    };
+  }
+
+  catalog() {
+    return [
+      {
+        type: 'aging',
+        label: 'Aging',
+        description: 'Outstanding balances grouped by overdue age bucket.',
+        chart: 'bucket-bar',
+      },
+      {
+        type: 'exposure',
+        label: 'Outstanding exposure',
+        description: 'Loan exposure by product and account status.',
+        chart: 'status-product',
+      },
+      {
+        type: 'repayment-performance',
+        label: 'Repayment performance',
+        description: 'Collections, repayment rows, and collection rate.',
+        chart: 'collection-rate',
+      },
+      {
+        type: 'disbursements',
+        label: 'Disbursements',
+        description: 'Disbursement volume and bank reference status.',
+        chart: 'amount-summary',
+      },
+      {
+        type: 'settlements',
+        label: 'Settlements',
+        description: 'Settlement quote totals and validity status.',
+        chart: 'amount-summary',
+      },
+      {
+        type: 'default-risk',
+        label: 'Default risk',
+        description: 'Accounts with overdue schedule and risk buckets.',
+        chart: 'risk-bucket',
+      },
+      {
+        type: 'support-compliance',
+        label: 'Support compliance',
+        description: 'Document and guarantor completion by application.',
+        chart: 'completion',
+      },
+    ];
+  }
+
+  notificationCatalog() {
+    return [
+      {
+        code: 'employee_finance.application.submitted',
+        channel: 'in-app/sms',
+        required: true,
+      },
+      {
+        code: 'employee_finance.application.recommended',
+        channel: 'in-app/sms',
+        required: true,
+      },
+      {
+        code: 'employee_finance.application.hr_approved',
+        channel: 'in-app/sms',
+        required: true,
+      },
+      {
+        code: 'employee_finance.application.approved',
+        channel: 'in-app/sms',
+        required: true,
+      },
+      {
+        code: 'employee_finance.application.document_added',
+        channel: 'in-app',
+        required: true,
+      },
+      {
+        code: 'employee_finance.application.guarantor_added',
+        channel: 'in-app',
+        required: true,
+      },
+      {
+        code: 'employee_finance.application.guarantor_decided',
+        channel: 'in-app/sms',
+        required: true,
+      },
+      {
+        code: 'employee_finance.disbursement.confirmed',
+        channel: 'in-app/sms',
+        required: true,
+      },
+      {
+        code: 'employee_finance.repayment.posted',
+        channel: 'in-app/sms',
+        required: true,
+      },
+    ];
+  }
+
+  deploymentReadiness() {
+    const erpUrl = this.configService.get<string>(
+      'EMPLOYEE_FINANCE_ERP_POST_URL',
+    );
+    const bankMap = this.configService.get<string>(
+      'EMPLOYEE_FINANCE_BANK_IMPORT_COLUMN_MAP',
+    );
+    const privateStorage =
+      this.configService.get<string>('APP_PRIVATE_STORAGE_PATH') ??
+      'private-uploads';
+    const maxFileSize =
+      this.configService.get<number>(
+        'EMPLOYEE_FINANCE_DOCUMENT_MAX_FILE_SIZE_BYTES',
+      ) ??
+      this.configService.get<number>('MAX_UPLOAD_FILE_SIZE_BYTES') ??
+      EMPLOYEE_FINANCE_DOCUMENT_MAX_BYTES;
+    const checks = [
+      {
+        code: 'PRIVATE_STORAGE',
+        status: privateStorage ? 'CONFIGURED' : 'MISSING',
+        detail: privateStorage,
+      },
+      {
+        code: 'DOCUMENT_FILE_SIZE',
+        status: maxFileSize > 0 ? 'CONFIGURED' : 'MISSING',
+        detail: maxFileSize,
+      },
+      {
+        code: 'BANK_IMPORT_MAPPING',
+        status: bankMap ? 'CONFIGURED' : 'DEFAULT',
+        detail:
+          bankMap ??
+          'Using default aliases: payment_reference/reference, amount, status.',
+      },
+      {
+        code: 'ERP_POSTING',
+        status: erpUrl ? 'CONFIGURED' : 'DRY_RUN_ONLY',
+        detail: erpUrl
+          ? 'Posting endpoint configured.'
+          : 'Set EMPLOYEE_FINANCE_ERP_POST_URL.',
+      },
+      {
+        code: 'ERP_AUTH',
+        status: (
+          this.configService.get<string>('EMPLOYEE_FINANCE_ERP_AUTH_TYPE') ??
+          'none'
+        ).toUpperCase(),
+        detail: 'none, bearer, api-key, or basic',
+      },
+      {
+        code: 'NOTIFICATION_CATALOG',
+        status: 'CONFIGURED',
+        detail: `${this.notificationCatalog().length} loan notification events registered.`,
+      },
+    ];
+    return {
+      module: 'employee-finance',
+      ready: checks.every((check) =>
+        [
+          'CONFIGURED',
+          'DEFAULT',
+          'NONE',
+          'BEARER',
+          'API-KEY',
+          'BASIC',
+        ].includes(String(check.status)),
+      ),
+      checks,
+    };
+  }
+
+  async report(
+    actor: AuthenticatedUser,
+    reportType: string,
+    query: EmployeeFinanceQueryDto,
+  ) {
+    const companyId = actor.companyId!;
+    const type = reportType.trim().toLowerCase();
+    if (type === 'aging') return this.agingReport(companyId);
+    if (type === 'exposure') return this.exposureReport(companyId, query);
+    if (type === 'repayment-performance')
+      return this.repaymentPerformanceReport(companyId, query);
+    if (type === 'disbursements')
+      return this.disbursementReport(companyId, query);
+    if (type === 'settlements') return this.settlementReport(companyId, query);
+    if (type === 'default-risk') return this.defaultRiskReport(companyId);
+    if (type === 'support-compliance')
+      return this.supportComplianceReport(companyId, query);
+    throw new BadRequestException('Unknown employee finance report type.');
+  }
+
+  async auditTimeline(
+    actor: AuthenticatedUser,
+    query: EmployeeFinanceQueryDto,
+  ) {
+    const where: Record<string, unknown> = { companyId: actor.companyId! };
+    if (query.entity_type) where.entityType = query.entity_type;
+    if (query.entity_id) where.entityId = String(query.entity_id);
+    return this.auditRepository.find({
+      where,
+      order: { createdAt: 'DESC', id: 'DESC' },
+      take: Math.min(query.limit ?? 100, 500),
+    });
+  }
+
+  private filterByDate<T>(
+    rows: T[],
+    query: EmployeeFinanceQueryDto,
+    dateReader: (row: T) => string | Date | null | undefined,
+  ) {
+    return rows.filter((row) => {
+      const raw = dateReader(row);
+      if (!raw) return true;
+      const value = raw instanceof Date ? raw.toISOString().slice(0, 10) : raw;
+      if (query.date_from && value < query.date_from) return false;
+      if (query.date_to && value > query.date_to) return false;
+      return true;
+    });
+  }
+
+  private async agingReport(companyId: number) {
+    const accounts = await this.accountRepository.find({
+      where: { companyId, status: In(activeAccountStatuses()) },
+      order: { id: 'ASC' },
+    });
+    const accountIds = accounts.map((account) => account.id);
+    const installments = accountIds.length
+      ? await this.installmentRepository.find({
+          where: {
+            companyId,
+            accountId: In(accountIds),
+            status: In([
+              EmployeeFinanceInstallmentStatusEnum.SCHEDULED,
+              EmployeeFinanceInstallmentStatusEnum.PARTIALLY_PAID,
+              EmployeeFinanceInstallmentStatusEnum.OVERDUE,
+              EmployeeFinanceInstallmentStatusEnum.DEFERRED,
+            ]),
+          },
+          order: { dueDate: 'ASC', id: 'ASC' },
+        })
+      : [];
+    const buckets = {
+      current: '0.00',
+      days_1_30: '0.00',
+      days_31_60: '0.00',
+      days_61_90: '0.00',
+      days_over_90: '0.00',
+    };
+    const rows = accounts.map((account) => {
+      const accountInstallments = installments.filter(
+        (installment) => installment.accountId === account.id,
+      );
+      let overdueAmount = '0.00';
+      let bucket = 'current';
+      for (const installment of accountInstallments) {
+        const unpaid = EmployeeFinanceMoney.subtract(
+          installment.totalDue,
+          installment.paidAmount,
+        );
+        if (EmployeeFinanceMoney.toCents(unpaid) <= 0n) continue;
+        const age = daysBetweenDates(installment.dueDate);
+        let currentBucket: keyof typeof buckets = 'current';
+        if (age > 90) currentBucket = 'days_over_90';
+        else if (age > 60) currentBucket = 'days_61_90';
+        else if (age > 30) currentBucket = 'days_31_60';
+        else if (age > 0) currentBucket = 'days_1_30';
+        buckets[currentBucket] = EmployeeFinanceMoney.add(
+          buckets[currentBucket],
+          unpaid,
+        );
+        if (currentBucket !== 'current')
+          overdueAmount = EmployeeFinanceMoney.add(overdueAmount, unpaid);
+        if (currentBucket !== 'current' && bucket === 'current')
+          bucket = currentBucket;
+      }
+      return {
+        account_id: account.id,
+        account_no: account.accountNo,
+        employee_id: account.employeeId,
+        product_type: account.productType,
+        status: account.status,
+        outstanding_total: account.outstandingTotal,
+        overdue_amount: overdueAmount,
+        aging_bucket: bucket,
+        next_due_date: accountInstallments[0]?.dueDate ?? null,
+      };
+    });
+    return {
+      reportType: 'aging',
+      generatedAt: new Date().toISOString(),
+      buckets,
+      rows,
+    };
+  }
+
+  private async exposureReport(
+    companyId: number,
+    query: EmployeeFinanceQueryDto,
+  ) {
+    let accounts = await this.accountRepository.find({
+      where: { companyId },
+      order: { id: 'ASC' },
+    });
+    if (query.status) {
+      accounts = accounts.filter((account) => account.status === query.status);
+    }
+    if (query.employee_id) {
+      accounts = accounts.filter(
+        (account) => account.employeeId === query.employee_id,
+      );
+    }
+    const byProduct: Record<
+      string,
+      { count: number; outstanding_total: string }
+    > = {};
+    const byStatus: Record<
+      string,
+      { count: number; outstanding_total: string }
+    > = {};
+    for (const account of accounts) {
+      byProduct[account.productType] ??= {
+        count: 0,
+        outstanding_total: '0.00',
+      };
+      byStatus[account.status] ??= { count: 0, outstanding_total: '0.00' };
+      byProduct[account.productType].count += 1;
+      byProduct[account.productType].outstanding_total =
+        EmployeeFinanceMoney.add(
+          byProduct[account.productType].outstanding_total,
+          account.outstandingTotal,
+        );
+      byStatus[account.status].count += 1;
+      byStatus[account.status].outstanding_total = EmployeeFinanceMoney.add(
+        byStatus[account.status].outstanding_total,
+        account.outstandingTotal,
+      );
+    }
+    return {
+      reportType: 'exposure',
+      generatedAt: new Date().toISOString(),
+      totals: {
+        account_count: accounts.length,
+        outstanding_total: accounts.reduce(
+          (sum, account) =>
+            EmployeeFinanceMoney.add(sum, account.outstandingTotal),
+          '0.00',
+        ),
+      },
+      byProduct,
+      byStatus,
+      rows: accounts.map((account) => ({
+        account_id: account.id,
+        account_no: account.accountNo,
+        employee_id: account.employeeId,
+        product_type: account.productType,
+        status: account.status,
+        principal_amount: account.principalAmount,
+        outstanding_total: account.outstandingTotal,
+        scheduled_monthly_installment: account.scheduledMonthlyInstallment,
+      })),
+    };
+  }
+
+  private async repaymentPerformanceReport(
+    companyId: number,
+    query: EmployeeFinanceQueryDto,
+  ) {
+    const repayments = this.filterByDate(
+      await this.repaymentRepository.find({
+        where: { companyId },
+        order: { paymentDate: 'DESC', id: 'DESC' },
+      }),
+      query,
+      (repayment) => repayment.paymentDate,
+    );
+    const installments = await this.installmentRepository.find({
+      where: { companyId },
+    });
+    const dueTotal = installments.reduce(
+      (sum, installment) => EmployeeFinanceMoney.add(sum, installment.totalDue),
+      '0.00',
+    );
+    const paidTotal = installments.reduce(
+      (sum, installment) =>
+        EmployeeFinanceMoney.add(sum, installment.paidAmount),
+      '0.00',
+    );
+    return {
+      reportType: 'repayment-performance',
+      generatedAt: new Date().toISOString(),
+      totals: {
+        due_total: dueTotal,
+        paid_total: paidTotal,
+        collection_rate:
+          EmployeeFinanceMoney.toCents(dueTotal) > 0n
+            ? Number(
+                (Number(EmployeeFinanceMoney.toCents(paidTotal)) /
+                  Number(EmployeeFinanceMoney.toCents(dueTotal))) *
+                  100,
+              ).toFixed(2)
+            : '0.00',
+        repayment_total: repayments.reduce(
+          (sum, repayment) => EmployeeFinanceMoney.add(sum, repayment.amount),
+          '0.00',
+        ),
+      },
+      rows: repayments.map((repayment) => ({
+        repayment_id: repayment.id,
+        account_id: repayment.accountId,
+        repayment_type: repayment.repaymentType,
+        amount: repayment.amount,
+        payment_date: repayment.paymentDate,
+        status: repayment.status,
+        payment_reference: repayment.paymentReference,
+      })),
+    };
+  }
+
+  private async disbursementReport(
+    companyId: number,
+    query: EmployeeFinanceQueryDto,
+  ) {
+    const disbursements = this.filterByDate(
+      await this.disbursementRepository.find({
+        where: { companyId },
+        order: { paymentDate: 'DESC', id: 'DESC' },
+      }),
+      query,
+      (disbursement) => disbursement.paymentDate,
+    );
+    return {
+      reportType: 'disbursements',
+      generatedAt: new Date().toISOString(),
+      totals: {
+        count: disbursements.length,
+        amount: disbursements.reduce(
+          (sum, disbursement) =>
+            EmployeeFinanceMoney.add(sum, disbursement.amount),
+          '0.00',
+        ),
+      },
+      rows: disbursements.map((disbursement) => ({
+        disbursement_id: disbursement.id,
+        account_id: disbursement.accountId,
+        amount: disbursement.amount,
+        payment_reference: disbursement.paymentReference,
+        payment_date: disbursement.paymentDate,
+        status: disbursement.status,
+      })),
+    };
+  }
+
+  private async settlementReport(
+    companyId: number,
+    query: EmployeeFinanceQueryDto,
+  ) {
+    const quotes = this.filterByDate(
+      await this.settlementQuoteRepository.find({
+        where: { companyId },
+        order: { validUntil: 'DESC', id: 'DESC' },
+      }),
+      query,
+      (quote) => quote.validUntil,
+    );
+    return {
+      reportType: 'settlements',
+      generatedAt: new Date().toISOString(),
+      totals: {
+        count: quotes.length,
+        settlement_amount: quotes.reduce(
+          (sum, quote) => EmployeeFinanceMoney.add(sum, quote.settlementAmount),
+          '0.00',
+        ),
+      },
+      rows: quotes.map((quote) => ({
+        quote_id: quote.id,
+        quote_no: quote.quoteNo,
+        account_id: quote.accountId,
+        settlement_amount: quote.settlementAmount,
+        valid_until: quote.validUntil,
+        status: quote.status,
+      })),
+    };
+  }
+
+  private async defaultRiskReport(companyId: number) {
+    const aging = await this.agingReport(companyId);
+    const rows = aging.rows.map((row) => {
+      const overdue = EmployeeFinanceMoney.toCents(row.overdue_amount);
+      const outstanding = EmployeeFinanceMoney.toCents(row.outstanding_total);
+      const risk_score =
+        row.aging_bucket === 'days_over_90'
+          ? 100
+          : row.aging_bucket === 'days_61_90'
+            ? 75
+            : row.aging_bucket === 'days_31_60'
+              ? 50
+              : row.aging_bucket === 'days_1_30'
+                ? 25
+                : 0;
+      return {
+        ...row,
+        risk_score,
+        overdue_ratio:
+          outstanding > 0n
+            ? ((Number(overdue) / Number(outstanding)) * 100).toFixed(2)
+            : '0.00',
+      };
+    });
+    return {
+      reportType: 'default-risk',
+      generatedAt: new Date().toISOString(),
+      totals: {
+        account_count: rows.length,
+        high_risk_count: rows.filter((row) => row.risk_score >= 75).length,
+        watchlist_count: rows.filter((row) => row.risk_score > 0).length,
+      },
+      rows,
+    };
+  }
+
+  private async supportComplianceReport(
+    companyId: number,
+    query: EmployeeFinanceQueryDto,
+  ) {
+    let applications = await this.applicationRepository.find({
+      where: { companyId },
+      order: { id: 'DESC' },
+    });
+    if (query.status) {
+      applications = applications.filter(
+        (application) => application.status === query.status,
+      );
+    }
+    const rows = await Promise.all(
+      applications.map(async (application) => {
+        const product = recordValue(application.productSnapshot);
+        const requiredDocuments = requiredDocumentTypes(
+          product,
+          application.requestedAmount,
+        );
+        const requiredGuarantors = requiredGuarantorCount(product);
+        const [documents, guarantors] = await Promise.all([
+          this.auditRepository.manager
+            .getRepository(EmployeeFinanceApplicationDocument)
+            .find({
+              where: {
+                companyId,
+                applicationId: application.id,
+              },
+            }),
+          this.auditRepository.manager
+            .getRepository(EmployeeFinanceApplicationGuarantor)
+            .find({
+              where: {
+                companyId,
+                applicationId: application.id,
+              },
+            }),
+        ]);
+        const verifiedDocuments = new Set(
+          documents
+            .filter((document) => document.status === 'VERIFIED')
+            .map((document) => document.documentType),
+        );
+        const approvedGuarantors = guarantors.filter(
+          (guarantor) => guarantor.status === 'APPROVED',
+        ).length;
+        return {
+          application_id: application.id,
+          application_no: application.applicationNo,
+          employee_id: application.employeeId,
+          status: application.status,
+          required_documents: requiredDocuments.length,
+          verified_documents: requiredDocuments.filter((documentType) =>
+            verifiedDocuments.has(documentType),
+          ).length,
+          required_guarantors: requiredGuarantors,
+          approved_guarantors: approvedGuarantors,
+          complete:
+            requiredDocuments.every((documentType) =>
+              verifiedDocuments.has(documentType),
+            ) && approvedGuarantors >= requiredGuarantors,
+        };
+      }),
+    );
+    return {
+      reportType: 'support-compliance',
+      generatedAt: new Date().toISOString(),
+      totals: {
+        application_count: rows.length,
+        complete_count: rows.filter((row) => row.complete).length,
+        incomplete_count: rows.filter((row) => !row.complete).length,
+      },
+      rows,
+    };
   }
 }
 

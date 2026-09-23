@@ -1,5 +1,6 @@
 import {
   AnalyticsDashboardService,
+  AnalyticsOperationalReportService,
   AnalyticsReconciliationService,
   AnalyticsSnapshotService,
 } from './analytics-core.services';
@@ -142,5 +143,100 @@ describe('AnalyticsDashboardService performance aggregation', () => {
       expect.stringContaining('review.published_at::date BETWEEN $2 AND $3'),
       [1, '2026-08-01', '2026-08-31'],
     );
+  });
+});
+
+describe('AnalyticsOperationalReportService', () => {
+  function service() {
+    return new AnalyticsOperationalReportService(
+      {} as never,
+      {} as never,
+      {
+        calculateAvailableDays: jest.fn(() => 8),
+      } as never,
+      {
+        calculateBalance: jest.fn().mockResolvedValue({
+          principal: '70.00',
+          interest: '5.00',
+          fees: '0.00',
+          total: '75.00',
+        }),
+      } as never,
+      {
+        score: jest.fn(() => ({
+          rawScore: '120.0000',
+          cappedScore: '110.0000',
+          weightedScore: '55.0000',
+        })),
+      } as never,
+      {} as never,
+    );
+  }
+
+  it('registers KPI and attendance operational runners', () => {
+    const definitions = service().listDefinitions();
+    const codes = definitions.map((definition) => definition.code);
+
+    expect(codes).toEqual(
+      expect.arrayContaining([
+        'KPI_ASSIGNMENTS',
+        'KPI_TARGET_VS_ACHIEVEMENT',
+        'MONTHLY_KPI_SCORE',
+        'QUARTERLY_KPI_AVERAGE',
+        'ANNUAL_KPI_AVERAGE',
+        'KPI_SCORE_HISTORY',
+        'ATTENDANCE_EXCEPTIONS',
+        'ATTENDANCE_CORRECTIONS',
+      ]),
+    );
+  });
+
+  it('recalculates KPI report rows with the performance scoring service', async () => {
+    const scoringService = {
+      score: jest.fn(() => ({
+        rawScore: '80.0000',
+        cappedScore: '80.0000',
+        weightedScore: '32.0000',
+      })),
+    };
+    const sut = new AnalyticsOperationalReportService(
+      {} as never,
+      {} as never,
+      { calculateAvailableDays: jest.fn() } as never,
+      { calculateBalance: jest.fn() } as never,
+      scoringService as never,
+      {} as never,
+    );
+
+    const rows = await AnalyticsOperationalReportService.prototype[
+      'enrichRows'
+    ].call(
+      sut,
+      'KPI_TARGET_VS_ACHIEVEMENT',
+      [
+        {
+          scoring_formula: 'PERCENT_TO_TARGET',
+          target_value: '100',
+          achievement_value: '80',
+          weight: '40',
+          formula_configuration: null,
+        },
+      ],
+      1,
+    );
+
+    expect(scoringService.score).toHaveBeenCalledWith(
+      expect.objectContaining({
+        formula: 'PERCENT_TO_TARGET',
+        targetValue: '100',
+        achievementValue: '80',
+        weight: '40',
+      }),
+    );
+    expect(rows[0]).toMatchObject({
+      raw_score: '80.0000',
+      weighted_score: '32.0000',
+      calculation_source: 'PerformanceScoringService.score',
+    });
   });
 });

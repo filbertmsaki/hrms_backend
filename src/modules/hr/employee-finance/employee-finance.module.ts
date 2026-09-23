@@ -8,6 +8,7 @@ import { OffboardingSettlementItem } from '../offboarding/entities/offboarding-s
 import { PayrollPeriod } from '../payroll/entities/payroll-configuration.entities';
 import { EmployeePayrollResult } from '../payroll/entities/payroll-run.entities';
 import { HrSharedModule } from '../shared/hr-shared.module';
+import { FilesModule } from '../../files/files.module';
 import {
   EmployeeFinanceApplicationsController,
   EmployeeFinanceProductsController,
@@ -36,6 +37,8 @@ import {
   EmployeeFinanceApplication,
   EmployeeFinanceApplicationApproval,
   EmployeeFinanceApplicationDocument,
+  EmployeeFinanceApplicationGuarantor,
+  EmployeeFinanceSanctionLetter,
 } from './entities/employee-finance-application.entities';
 import {
   EmployeeFinanceProduct,
@@ -43,6 +46,7 @@ import {
 } from './entities/employee-finance-product.entities';
 import {
   EmployeeFinanceAccountService,
+  EmployeeFinanceAccountingPostingService,
   EmployeeFinanceApplicationService,
   EmployeeFinanceApprovalService,
   EmployeeFinanceAuditService,
@@ -52,6 +56,7 @@ import {
   EmployeeFinanceExitRecoveryService,
   EmployeeFinanceInterestService,
   EmployeeFinanceLedgerService,
+  EmployeeFinancePaymentImportService,
   EmployeeFinancePayrollInstructionService,
   EmployeeFinanceProductService,
   EmployeeFinanceReconciliationService,
@@ -66,7 +71,9 @@ const employeeFinanceEntities = [
   EmployeeFinanceProductApplicability,
   EmployeeFinanceApplication,
   EmployeeFinanceApplicationDocument,
+  EmployeeFinanceApplicationGuarantor,
   EmployeeFinanceApplicationApproval,
+  EmployeeFinanceSanctionLetter,
   EmployeeFinanceAccount,
   EmployeeFinanceDisbursement,
   EmployeeFinanceInstallment,
@@ -103,6 +110,8 @@ const employeeFinanceProviders = [
   EmployeeFinanceDefermentService,
   EmployeeFinanceRescheduleService,
   EmployeeFinanceExitRecoveryService,
+  EmployeeFinancePaymentImportService,
+  EmployeeFinanceAccountingPostingService,
   EmployeeFinanceReportsService,
   EmployeeFinanceReconciliationService,
 ];
@@ -112,6 +121,7 @@ const employeeFinanceProviders = [
     ConfigModule,
     TypeOrmModule.forFeature(employeeFinanceEntities),
     HrSharedModule,
+    FilesModule,
   ],
   controllers: [
     EmployeeFinanceProductsController,
@@ -127,6 +137,7 @@ const employeeFinanceProviders = [
   exports: [
     TypeOrmModule,
     EmployeeFinancePayrollInstructionService,
+    EmployeeFinanceLedgerService,
     EmployeeFinanceReportsService,
     EmployeeFinanceReconciliationService,
   ],

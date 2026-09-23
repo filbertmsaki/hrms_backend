@@ -4,6 +4,7 @@ import { PostgresAdvisoryLockService } from '../../common/database/postgres-advi
 import { CompanyUser } from '../companies/entities/company-user.entity';
 import { FilesModule } from '../files/files.module';
 import { MailModule } from '../mail/mail.module';
+import { AnalyticsModule } from '../analytics/analytics.module';
 import { AttendanceDailySummary } from '../hr/attendance/processing/entities/attendance-daily-summary.entity';
 import { AttendanceProcessingException } from '../hr/attendance/processing/entities/attendance-processing-exception.entity';
 import { AttendanceProcessingModule } from '../hr/attendance/processing/attendance-processing.module';
@@ -36,6 +37,7 @@ import { AttendanceSummaryReportRunner } from './services/runners/attendance-sum
 import { EmployeeMasterReportRunner } from './services/runners/employee-master-report-runner.service';
 import { EndOfDayAttendanceReportRunner } from './services/runners/end-of-day-attendance-report-runner.service';
 import { MorningAttendanceReportRunner } from './services/runners/morning-attendance-report-runner.service';
+import { OperationalAnalyticsReportRunner } from './services/runners/operational-analytics-report-runner.service';
 import { PerformanceSummaryReportRunner } from './services/runners/performance-summary-report-runner.service';
 
 @Module({
@@ -62,6 +64,7 @@ import { PerformanceSummaryReportRunner } from './services/runners/performance-s
       PerformanceAggregate,
     ]),
     FilesModule,
+    AnalyticsModule,
     AttendanceProcessingModule,
     MailModule,
   ],
@@ -78,6 +81,7 @@ import { PerformanceSummaryReportRunner } from './services/runners/performance-s
     PerformanceSummaryReportRunner,
     MorningAttendanceReportRunner,
     EndOfDayAttendanceReportRunner,
+    OperationalAnalyticsReportRunner,
     AttendanceReportSnapshotService,
     AttendanceDefaultReportsProvisioningService,
     PostgresAdvisoryLockService,
