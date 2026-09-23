@@ -1,6 +1,7 @@
 import { ReportOutputFormatEnum } from '../enums/report-output-format.enum';
 
 export type ReportRunnerContext = {
+  reportCode: string;
   companyId: number;
   outputFormat: ReportOutputFormatEnum;
   filenamePattern: string;

@@ -8,13 +8,20 @@ import { Cron } from '@nestjs/schedule';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'crypto';
 import Decimal from 'decimal.js';
+import ExcelJS from 'exceljs';
+import PDFDocument from 'pdfkit';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { DataSource, IsNull, Repository, type DeepPartial } from 'typeorm';
 import type { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import { hasPermission } from '../../../common/utils/permission.util';
 import { EmployeeFinanceMoney } from '../../hr/employee-finance/services/employee-finance-money.util';
+import { EmployeeFinanceLedgerService } from '../../hr/employee-finance/services/employee-finance-core.services';
+import { LeaveBalanceService } from '../../hr/leave/services/leave-balance.service';
 import { PayrollMoney } from '../../hr/payroll/services/payroll-money.util';
+import { KpiScoringFormulaEnum } from '../../hr/performance/enums/kpi-scoring-formula.enum';
+import { PerformanceScoringService } from '../../hr/performance/services/performance-scoring.service';
 import { HrAccessService } from '../../hr/shared/hr-access.service';
 import {
   AnalyticsAggregationEnum,
@@ -38,6 +45,7 @@ import {
   AnalyticsMetricDefinition,
   AnalyticsPayrollEmployeePeriodFact,
   AnalyticsRefreshCheckpoint,
+  AnalyticsSavedReport,
   AnalyticsSnapshotRun,
   AnalyticsWorkforceDailyFact,
   StatutoryReportRun,
@@ -45,9 +53,13 @@ import {
 import {
   AnalyticsCustomReportDto,
   AnalyticsExportDto,
+  AnalyticsOperationalReportQueryDto,
   AnalyticsQueryDto,
   AnalyticsRefreshDto,
+  QuerySavedAnalyticsReportsDto,
+  SaveAnalyticsReportDto,
   StatutoryReportRunDto,
+  UpdateSavedAnalyticsReportDto,
 } from '../dto/analytics.dto';
 
 export type AnalyticsSourceDefinition = {
@@ -402,6 +414,144 @@ function serializeCsv(rows: Record<string, unknown>[]) {
       columns.map((column) => csvEscape(row[column])).join(','),
     ),
   ].join('\n');
+}
+
+function reportColumns(rows: Record<string, unknown>[]) {
+  return Array.from(
+    rows.reduce((set, row) => {
+      Object.keys(row).forEach((key) => set.add(key));
+      return set;
+    }, new Set<string>()),
+  );
+}
+
+function reportCellText(value: unknown) {
+  if (value === null || value === undefined) return '';
+  if (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+  ) {
+    return String(value);
+  }
+  return JSON.stringify(value) ?? '';
+}
+
+async function serializeXlsx(rows: Record<string, unknown>[]) {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'HRMS Reports & Analytics';
+  workbook.created = new Date();
+  const worksheet = workbook.addWorksheet('Report');
+  const columns = reportColumns(rows);
+  worksheet.columns = columns.map((column) => ({
+    header: column.replace(/_/g, ' '),
+    key: column,
+    width: Math.min(Math.max(column.length + 4, 14), 42),
+  }));
+  rows.forEach((row) => worksheet.addRow(row));
+  worksheet.getRow(1).font = { bold: true };
+  worksheet.views = [{ state: 'frozen', ySplit: 1 }];
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+}
+
+function serializePdf(rows: Record<string, unknown>[], title: string) {
+  return new Promise<Buffer>((resolve, reject) => {
+    const document = new PDFDocument({ margin: 36, size: 'A4' });
+    const chunks: Buffer[] = [];
+    document.on('data', (chunk: Buffer) => chunks.push(chunk));
+    document.on('end', () => resolve(Buffer.concat(chunks)));
+    document.on('error', reject);
+
+    document.fontSize(15).text(title, { align: 'left' });
+    document.moveDown(0.5);
+    document
+      .fontSize(9)
+      .fillColor('#666666')
+      .text(`Generated ${new Date().toISOString()}`);
+    document.moveDown();
+    document.fillColor('#000000');
+
+    const columns = reportColumns(rows).slice(0, 8);
+    if (!rows.length || !columns.length) {
+      document.fontSize(10).text('No records matched the selected filters.');
+      document.end();
+      return;
+    }
+
+    document.fontSize(8).font('Helvetica-Bold');
+    document.text(columns.map((column) => column.replace(/_/g, ' ')).join(' | '));
+    document.font('Helvetica').moveDown(0.3);
+
+    rows.slice(0, 1000).forEach((row) => {
+      if (document.y > 760) {
+        document.addPage();
+      }
+      document
+        .fontSize(7)
+        .text(
+          columns
+            .map((column) =>
+              reportCellText(row[column]).replace(/\s+/g, ' ').slice(0, 60),
+            )
+            .join(' | '),
+          { lineGap: 2 },
+        );
+    });
+
+    if (rows.length > 1000) {
+      document.moveDown();
+      document
+        .fontSize(8)
+        .fillColor('#666666')
+        .text(`Output truncated to first 1000 rows in PDF. Total rows: ${rows.length}.`);
+    }
+
+    document.end();
+  });
+}
+
+function sanitizeFilenamePart(value: string) {
+  return value
+    .trim()
+    .replace(/[^a-z0-9_.-]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
+
+function catalogReport(
+  code: string,
+  name: string,
+  dataSource: string | null,
+  requiredPermissions: string[],
+) {
+  const hasOperationalRunner =
+    typeof OPERATIONAL_REPORTS !== 'undefined' &&
+    OPERATIONAL_REPORTS.some((definition) => definition.code === code);
+  return {
+    code,
+    name,
+    data_source: dataSource,
+    required_permissions: requiredPermissions,
+    filters: [
+      'date_from',
+      'date_to',
+      'branch_id',
+      'department_id',
+      'employee_id',
+    ],
+    exports: ['CSV', 'XLSX', 'PDF'],
+    implementation_status: hasOperationalRunner
+      ? 'DEDICATED_OPERATIONAL_RUNNER'
+      : dataSource
+        ? 'AVAILABLE_VIA_ANALYTICS_DATASET'
+        : 'REQUIRES_MODULE_SPECIFIC_RUNNER',
+  };
+}
+
+function catalogCategory(name: string, reports: ReturnType<typeof catalogReport>[]) {
+  return { name, reports };
 }
 
 @Injectable()
@@ -2002,6 +2152,257 @@ export class AnalyticsReportService {
     };
   }
 
+  reportCatalog() {
+    return {
+      module: 'Reports & Analytics',
+      generated_at: new Date().toISOString(),
+      categories: [
+        catalogCategory('Dashboard', [
+          catalogReport('REPORTS_DASHBOARD', 'Reports dashboard', 'ANALYTICS_DASHBOARD', [
+            'analytics:dashboards:hr',
+          ]),
+        ]),
+        catalogCategory('Employee Reports', [
+          catalogReport('EMPLOYEE_MASTER', 'Employee Master Report', 'EMPLOYEES', [
+            'employees:read',
+          ]),
+          catalogReport('NEW_JOINERS', 'New Joiner Report', 'EMPLOYEES', [
+            'employees:read',
+          ]),
+          catalogReport('CONFIRMATION_DUE', 'Confirmation Due Report', 'PROBATION_CASES', [
+            'probation_cases:read',
+          ]),
+          catalogReport('PROBATION', 'Probation Report', 'PROBATION_CASES', [
+            'probation_cases:read',
+          ]),
+          catalogReport('TRANSFERS', 'Transfer Report', 'EMPLOYEE_MOVEMENTS', [
+            'employee_movements:read',
+          ]),
+          catalogReport('PROMOTIONS', 'Promotion Report', 'EMPLOYEE_MOVEMENTS', [
+            'employee_movements:read',
+          ]),
+          catalogReport('RESIGNATIONS', 'Resignation Report', 'OFFBOARDING_REQUESTS', [
+            'offboarding:read',
+          ]),
+          catalogReport('EXITS', 'Exit Report', 'OFFBOARDING_REQUESTS', [
+            'offboarding:read',
+          ]),
+          catalogReport('EMPLOYEE_DOCUMENTS', 'Employee Document Report', null, [
+            'hr_documents:read',
+          ]),
+          catalogReport('EMPLOYEE_HISTORY', 'Employee History Report', 'EMPLOYEE_ASSIGNMENT_HISTORY', [
+            'employee_assignments:read',
+          ]),
+        ]),
+        catalogCategory('Attendance Reports', [
+          catalogReport('DAILY_ATTENDANCE', 'Daily Attendance', 'ATTENDANCE_DAILY_SUMMARIES', [
+            'attendance_summaries:read',
+          ]),
+          catalogReport('MONTHLY_ATTENDANCE', 'Monthly Attendance', 'ATTENDANCE_DAILY_SUMMARIES', [
+            'attendance_summaries:read',
+          ]),
+          catalogReport('LATE_COMING', 'Late Coming Report', 'ATTENDANCE_DAILY_SUMMARIES', [
+            'attendance_summaries:read',
+          ]),
+          catalogReport('EARLY_GOING', 'Early Going Report', 'ATTENDANCE_DAILY_SUMMARIES', [
+            'attendance_summaries:read',
+          ]),
+          catalogReport('ABSENTEEISM', 'Absenteeism Report', 'ATTENDANCE_DAILY_SUMMARIES', [
+            'attendance_summaries:read',
+          ]),
+          catalogReport('MISSING_PUNCH', 'Missing Punch Report', 'ATTENDANCE_DAILY_SUMMARIES', [
+            'attendance_summaries:read',
+          ]),
+          catalogReport('ATTENDANCE_CORRECTIONS', 'Attendance Correction Report', null, [
+            'attendance_corrections:read',
+          ]),
+          catalogReport('OVERTIME', 'Overtime Report', 'ATTENDANCE_DAILY_SUMMARIES', [
+            'attendance_summaries:read',
+          ]),
+          catalogReport('OFFICE_ATTENDANCE', 'Office Attendance Report', 'ATTENDANCE_DAILY_SUMMARIES', [
+            'attendance_summaries:read',
+          ]),
+          catalogReport('FIELD_ATTENDANCE_GEOLOCATION', 'Field Attendance with Geolocation', 'FIELD_VISITS', [
+            'field_locations:read',
+          ]),
+        ]),
+        catalogCategory('Leave Reports', [
+          catalogReport('LEAVE_BALANCE', 'Leave Balance Report', 'LEAVE_LEDGER', [
+            'leave_balances:read',
+          ]),
+          catalogReport('LEAVE_AVAILED', 'Leave Availed Report', 'LEAVE_REQUESTS', [
+            'leave_requests:read',
+          ]),
+          catalogReport('LEAVE_PENDING_APPROVAL', 'Leave Pending Approval Report', 'LEAVE_REQUESTS', [
+            'leave_requests:read',
+          ]),
+          catalogReport('LEAVE_WITHOUT_PAY', 'Leave Without Pay Report', 'LEAVE_REQUESTS', [
+            'leave_requests:read',
+          ]),
+          catalogReport('DEPARTMENT_LEAVE', 'Department-wise Leave Report', 'LEAVE_REQUESTS', [
+            'leave_requests:read',
+          ]),
+          catalogReport('EMPLOYEE_LEAVE_HISTORY', 'Employee-wise Leave History', 'LEAVE_REQUESTS', [
+            'leave_requests:read',
+          ]),
+        ]),
+        catalogCategory('Field Staff Reports', [
+          catalogReport('GEOLOCATION_ATTENDANCE', 'Geolocation Attendance Report', 'FIELD_VISITS', [
+            'field_locations:read',
+          ]),
+          catalogReport('VISIT_PLAN', 'Visit Plan Report', 'FIELD_OPPORTUNITIES', [
+            'field_visits:hr:read',
+          ]),
+          catalogReport('ACTUAL_VISIT', 'Actual Visit Report', 'FIELD_VISITS', [
+            'field_visits:hr:read',
+          ]),
+          catalogReport('PLANNED_VS_ACTUAL_VISIT', 'Planned vs Actual Visit Report', 'FIELD_VISITS', [
+            'field_visits:hr:read',
+          ]),
+          catalogReport('CLIENT_VISIT', 'Client Visit Report', 'FIELD_VISITS', [
+            'field_visits:hr:read',
+          ]),
+          catalogReport('FIELD_PRODUCTIVITY', 'Field Productivity Report', 'FIELD_VISITS', [
+            'field_visits:hr:read',
+          ]),
+          catalogReport('MAP_VISITS', 'Map-Based Movement / Visit Report', 'FIELD_VISITS', [
+            'field_locations:read',
+          ]),
+          catalogReport('ATTENDANCE_WITHOUT_ACTIVITY', 'Attendance Without Activity Exception Report', 'ACTION_ITEMS', [
+            'work_activities:hr:read',
+          ]),
+          catalogReport('FIELD_MONTHLY_PRODUCTIVITY', 'Field Staff Monthly Productivity Report', 'FIELD_VISITS', [
+            'field_visits:hr:read',
+          ]),
+        ]),
+        catalogCategory('Activity Reports', [
+          catalogReport('DAILY_ACTIVITY', 'Daily Activity Report', 'DAILY_ACTIVITY_REPORTS', [
+            'work_activities:hr:read',
+          ]),
+          catalogReport('WEEKLY_ACTIVITY', 'Weekly Activity Report', 'DAILY_ACTIVITY_REPORTS', [
+            'work_activities:hr:read',
+          ]),
+          catalogReport('MONTHLY_ACTIVITY', 'Monthly Activity Report', 'DAILY_ACTIVITY_REPORTS', [
+            'work_activities:hr:read',
+          ]),
+          catalogReport('QUARTERLY_ACTIVITY', 'Quarterly Activity Report', 'DAILY_ACTIVITY_REPORTS', [
+            'work_activities:hr:read',
+          ]),
+          catalogReport('PENDING_ACTIVITY', 'Pending Activity Report', 'ACTION_ITEMS', [
+            'work_activities:manager:read',
+          ]),
+          catalogReport('MANAGER_REVIEW', 'Manager Review Report', 'DAILY_ACTIVITY_REPORTS', [
+            'work_activities:manager:review',
+          ]),
+          catalogReport('ACTIVITY_VS_KPI', 'Activity vs KPI Report', 'DAILY_ACTIVITY_REPORTS', [
+            'performance_kpis:read',
+          ]),
+        ]),
+        catalogCategory('KPI & Performance Reports', [
+          catalogReport('KPI_ASSIGNMENTS', 'Employee KPI Assignment Report', 'PERFORMANCE_REVIEWS', [
+            'performance_kpis:read',
+          ]),
+          catalogReport('KPI_TARGET_VS_ACHIEVEMENT', 'Monthly KPI Target vs Achievement', 'PERFORMANCE_REVIEWS', [
+            'performance_reports:read',
+          ]),
+          catalogReport('MONTHLY_KPI_SCORE', 'Monthly KPI Score', 'PERFORMANCE_REVIEWS', [
+            'performance_reports:read',
+          ]),
+          catalogReport('QUARTERLY_KPI_AVERAGE', 'Quarterly KPI Average', 'PERFORMANCE_AGGREGATES', [
+            'performance_aggregates:read',
+          ]),
+          catalogReport('ANNUAL_KPI_AVERAGE', 'Annual KPI Average', 'PERFORMANCE_AGGREGATES', [
+            'performance_aggregates:read',
+          ]),
+          catalogReport('DEPARTMENT_PERFORMANCE', 'Department-wise Performance', 'PERFORMANCE_AGGREGATES', [
+            'performance_dashboards:read',
+          ]),
+          catalogReport('BRANCH_PERFORMANCE', 'Branch-wise Performance', 'PERFORMANCE_AGGREGATES', [
+            'performance_dashboards:read',
+          ]),
+          catalogReport('TOP_PERFORMERS', 'Top Performer Report', 'PERFORMANCE_AGGREGATES', [
+            'performance_reports:read',
+          ]),
+          catalogReport('LOW_PERFORMERS', 'Low Performer Report', 'PERFORMANCE_AGGREGATES', [
+            'performance_reports:read',
+          ]),
+          catalogReport('PERFORMANCE_TREND', 'Performance Trend Report', 'PERFORMANCE_AGGREGATES', [
+            'performance_reports:read',
+          ]),
+          catalogReport('KPI_SCORE_HISTORY', 'KPI Score History', 'PERFORMANCE_AGGREGATES', [
+            'performance_reports:read',
+          ]),
+          catalogReport('EMPLOYEE_PERFORMANCE_DASHBOARD', 'Employee Performance Dashboard', 'PERFORMANCE_REVIEWS', [
+            'performance_self_service:read',
+          ]),
+        ]),
+        catalogCategory('Payroll Reports', [
+          catalogReport('PAYROLL_REGISTER', 'Payroll Register', 'EMPLOYEE_PAYROLL_RESULTS', [
+            'payroll:reports',
+          ]),
+          catalogReport('SALARY_SHEET', 'Salary Sheet', 'EMPLOYEE_PAYROLL_RESULTS', [
+            'payroll:reports',
+          ]),
+          catalogReport('PAYSLIP', 'Payslip Report', 'EMPLOYEE_PAYROLL_RESULTS', [
+            'payroll:payslips:read',
+          ]),
+          catalogReport('BANK_TRANSFER', 'Bank Transfer Report', null, [
+            'payroll:banking',
+          ]),
+          catalogReport('PAYROLL_VARIANCE', 'Payroll Variance Report', 'EMPLOYEE_PAYROLL_RESULTS', [
+            'payroll:reports',
+          ]),
+          catalogReport('SALARY_COST_DEPARTMENT', 'Salary Cost by Department', 'EMPLOYEE_PAYROLL_RESULTS', [
+            'payroll:reports',
+          ]),
+          catalogReport('SALARY_COST_BRANCH', 'Salary Cost by Branch', 'EMPLOYEE_PAYROLL_RESULTS', [
+            'payroll:reports',
+          ]),
+          catalogReport('LOAN_DEDUCTION', 'Loan Deduction Report', 'EMPLOYEE_PAYROLL_LINE_ITEMS', [
+            'payroll:reports',
+          ]),
+          catalogReport('LWP_DEDUCTION', 'Leave Without Pay Deduction Report', 'EMPLOYEE_PAYROLL_LINE_ITEMS', [
+            'payroll:reports',
+          ]),
+          catalogReport('STATUTORY_DEDUCTION', 'Statutory Deduction Report', 'EMPLOYEE_PAYROLL_LINE_ITEMS', [
+            'analytics:statutory-reports',
+          ]),
+          catalogReport('FINAL_SETTLEMENT', 'Full and Final Settlement Report', 'EMPLOYEE_PAYROLL_RESULTS', [
+            'payroll:final-settlements',
+          ]),
+        ]),
+        catalogCategory('Staff Loan Reports', [
+          catalogReport('LOAN_APPLICATION', 'Loan Application Report', 'EMPLOYEE_FINANCE_ACCOUNTS', [
+            'employee_finance:applications:read',
+          ]),
+          catalogReport('LOAN_APPROVAL', 'Loan Approval Report', 'EMPLOYEE_FINANCE_ACCOUNTS', [
+            'employee_finance:applications:read',
+          ]),
+          catalogReport('ACTIVE_LOAN', 'Active Loan Report', 'EMPLOYEE_FINANCE_ACCOUNTS', [
+            'employee_finance:accounts:read',
+          ]),
+          catalogReport('MONTHLY_LOAN_DEDUCTION', 'Monthly Deduction Report', 'EMPLOYEE_FINANCE_INSTALLMENTS', [
+            'employee_finance:reports',
+          ]),
+          catalogReport('LOAN_OUTSTANDING', 'Loan Outstanding Report', 'EMPLOYEE_FINANCE_ACCOUNTS', [
+            'employee_finance:reports',
+          ]),
+          catalogReport('LOAN_SETTLEMENT', 'Loan Settlement Report', 'EMPLOYEE_FINANCE_LEDGER_ENTRIES', [
+            'employee_finance:settlements',
+          ]),
+        ]),
+        catalogCategory('Custom Reports', [
+          catalogReport('CUSTOM_REPORT_BUILDER', 'Custom Report Builder', 'ANY_ANALYTICS_DATASET', [
+            'analytics:reports',
+          ]),
+          catalogReport('SAVED_REPORTS', 'Saved Reports', 'ANALYTICS_SAVED_REPORTS', [
+            'analytics:reports',
+          ]),
+        ]),
+      ],
+    };
+  }
+
   private queryDataset(
     datasetCode: string,
     scope: AnalyticsResolvedScope,
@@ -2119,7 +2520,14 @@ export class AnalyticsExportService {
           3600000,
     );
     const outputFormat = (dto.output_format ?? 'CSV').toUpperCase();
-    const extension = outputFormat === 'JSON' ? 'json' : 'csv';
+    const extension =
+      outputFormat === 'JSON'
+        ? 'json'
+        : outputFormat === 'XLSX'
+          ? 'xlsx'
+          : outputFormat === 'PDF'
+            ? 'pdf'
+            : 'csv';
     const filePath = `private-uploads/analytics/${companyId}/${idempotencyKey}.${extension}`;
     const absolutePath = join(process.cwd(), filePath);
     await fs.mkdir(
@@ -2128,13 +2536,16 @@ export class AnalyticsExportService {
         recursive: true,
       },
     );
-    await fs.writeFile(
-      absolutePath,
+    const rows = result.rows as Record<string, unknown>[];
+    const fileBuffer =
       outputFormat === 'JSON'
-        ? JSON.stringify(result.rows, null, 2)
-        : serializeCsv(result.rows as Record<string, unknown>[]),
-      'utf8',
-    );
+        ? Buffer.from(JSON.stringify(rows, null, 2), 'utf8')
+        : outputFormat === 'XLSX'
+          ? await serializeXlsx(rows)
+          : outputFormat === 'PDF'
+            ? await serializePdf(rows, dto.dataset_code)
+            : Buffer.from(serializeCsv(rows), 'utf8');
+    await fs.writeFile(absolutePath, fileBuffer);
     return this.repository.save(
       this.repository.create({
         companyId,
@@ -2149,6 +2560,1501 @@ export class AnalyticsExportService {
         idempotencyKey,
       }),
     );
+  }
+
+  async download(actor: AuthenticatedUser, id: string) {
+    const companyId = actor.companyId!;
+    const exportJob = await this.repository.findOne({
+      where: { id, companyId },
+    });
+    if (!exportJob?.filePath) {
+      throw new NotFoundException('Analytics export was not found');
+    }
+    const absolutePath = join(process.cwd(), exportJob.filePath);
+    const buffer = await fs.readFile(absolutePath);
+    const extension =
+      exportJob.outputFormat === 'XLSX'
+        ? 'xlsx'
+        : exportJob.outputFormat === 'PDF'
+          ? 'pdf'
+          : exportJob.outputFormat === 'JSON'
+            ? 'json'
+            : 'csv';
+    const base = sanitizeFilenamePart(exportJob.reportCode || 'analytics-report');
+    return {
+      filename: `${base}-${exportJob.id}.${extension}`,
+      mimeType:
+        exportJob.outputFormat === 'XLSX'
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : exportJob.outputFormat === 'PDF'
+            ? 'application/pdf'
+            : exportJob.outputFormat === 'JSON'
+              ? 'application/json'
+              : 'text/csv',
+      buffer,
+    };
+  }
+}
+
+@Injectable()
+export class AnalyticsSavedReportService {
+  constructor(
+    private readonly reportService: AnalyticsReportService,
+    private readonly auditService: AnalyticsAuditService,
+    private readonly datasetService: AnalyticsDatasetService,
+    private readonly scopeService: AnalyticsScopeService,
+    @InjectRepository(AnalyticsSavedReport)
+    private readonly repository: Repository<AnalyticsSavedReport>,
+  ) {}
+
+  async list(actor: AuthenticatedUser, query: QuerySavedAnalyticsReportsDto) {
+    const companyId = actor.companyId!;
+    const scope = await this.scopeService.resolve(actor, {});
+    const canManageSavedReports = hasPermission(
+      actor.permissions,
+      'reports.custom.manage',
+    );
+    const qb = this.repository
+      .createQueryBuilder('report')
+      .where('report.company_id = :companyId', { companyId })
+      .andWhere('report.status = :status', { status: 'ACTIVE' })
+      .andWhere(
+        `(
+          report.owner_company_user_id = :ownerId
+          OR report.visibility = :shared
+          OR (:canManageSavedReports = true AND report.visibility = :adminOnly)
+          OR (
+            report.visibility = :department
+            AND report.department_scope_id IS NOT NULL
+            AND report.department_scope_id = :departmentScopeId
+          )
+        )`,
+        {
+          ownerId: actor.companyMembershipId,
+          shared: 'SHARED',
+          department: 'DEPARTMENT',
+          adminOnly: 'ADMIN_ONLY',
+          departmentScopeId: scope.departmentId,
+          canManageSavedReports,
+        },
+      )
+      .orderBy('report.created_at', 'DESC');
+
+    if (query.dataset_code?.trim()) {
+      qb.andWhere('report.dataset_code = :datasetCode', {
+        datasetCode: query.dataset_code.trim().toUpperCase(),
+      });
+    }
+
+    if (query.visibility?.trim()) {
+      qb.andWhere('report.visibility = :visibility', {
+        visibility: query.visibility.trim().toUpperCase(),
+      });
+    }
+
+    if (query.department_scope_id) {
+      qb.andWhere('report.department_scope_id = :departmentScopeIdFilter', {
+        departmentScopeIdFilter: query.department_scope_id,
+      });
+    }
+
+    const rows = await qb.getMany();
+    await this.auditService.log({
+      actor,
+      action: 'analytics.saved_report.list',
+      resourceType: 'SAVED_REPORT',
+      resourceCode: query.dataset_code ?? 'ALL',
+      metadata: { row_count: rows.length },
+    });
+    return rows;
+  }
+
+  async create(actor: AuthenticatedUser, dto: SaveAnalyticsReportDto) {
+    await this.validateReportShape(dto.dataset_code, dto.dimensions, dto.measures);
+    const visibility = (dto.visibility ?? 'PRIVATE').toUpperCase();
+    const entity = this.repository.create({
+      companyId: actor.companyId!,
+      ownerCompanyUserId: actor.companyMembershipId!,
+      ownerEmployeeId: actor.employeeId ?? null,
+      departmentScopeId: await this.resolveSavedReportDepartmentScope(
+        actor,
+        visibility,
+        dto.department_scope_id,
+      ),
+      name: dto.name.trim(),
+      description: dto.description?.trim() || null,
+      datasetCode: dto.dataset_code.trim().toUpperCase(),
+      selectedDimensions: dto.dimensions.map((item) => item.trim()),
+      selectedMeasures: dto.measures.map((item) => item.trim()),
+      filters: dto.filters ?? null,
+      sorting: dto.sorting ?? null,
+      grouping: dto.grouping ?? null,
+      visibility,
+    });
+    const saved = await this.repository.save(entity);
+    await this.auditService.log({
+      actor,
+      action: 'analytics.saved_report.create',
+      resourceType: 'SAVED_REPORT',
+      resourceCode: saved.datasetCode,
+      metadata: { saved_report_id: saved.id, visibility: saved.visibility },
+    });
+    return saved;
+  }
+
+  async update(
+    actor: AuthenticatedUser,
+    id: string,
+    dto: UpdateSavedAnalyticsReportDto,
+  ) {
+    const saved = await this.requireOwned(actor, id);
+    const datasetCode = dto.dataset_code?.trim().toUpperCase() ?? saved.datasetCode;
+    const dimensions = dto.dimensions ?? saved.selectedDimensions;
+    const measures = dto.measures ?? saved.selectedMeasures;
+    await this.validateReportShape(datasetCode, dimensions, measures);
+
+    if (dto.name !== undefined) saved.name = dto.name.trim();
+    if (dto.description !== undefined) {
+      saved.description = dto.description?.trim() || null;
+    }
+    saved.datasetCode = datasetCode;
+    saved.selectedDimensions = dimensions.map((item) => item.trim());
+    saved.selectedMeasures = measures.map((item) => item.trim());
+    if (dto.filters !== undefined) saved.filters = dto.filters;
+    if (dto.sorting !== undefined) saved.sorting = dto.sorting;
+    if (dto.grouping !== undefined) saved.grouping = dto.grouping;
+    if (dto.visibility !== undefined) {
+      saved.visibility = dto.visibility.trim().toUpperCase();
+    }
+    if (dto.visibility !== undefined || dto.department_scope_id !== undefined) {
+      saved.departmentScopeId = await this.resolveSavedReportDepartmentScope(
+        actor,
+        saved.visibility,
+        dto.department_scope_id,
+      );
+    }
+    const updated = await this.repository.save(saved);
+    await this.auditService.log({
+      actor,
+      action: 'analytics.saved_report.update',
+      resourceType: 'SAVED_REPORT',
+      resourceCode: updated.datasetCode,
+      metadata: { saved_report_id: updated.id, visibility: updated.visibility },
+    });
+    return updated;
+  }
+
+  async remove(actor: AuthenticatedUser, id: string) {
+    const saved = await this.requireOwned(actor, id);
+    saved.status = 'ARCHIVED';
+    const updated = await this.repository.save(saved);
+    await this.auditService.log({
+      actor,
+      action: 'analytics.saved_report.archive',
+      resourceType: 'SAVED_REPORT',
+      resourceCode: updated.datasetCode,
+      metadata: { saved_report_id: updated.id },
+    });
+    return updated;
+  }
+
+  async run(actor: AuthenticatedUser, id: string, query: AnalyticsQueryDto) {
+    const saved = await this.requireAccessible(actor, id);
+    return this.reportService.runCustomReport(actor, {
+      dataset_code: saved.datasetCode,
+      dimensions: saved.selectedDimensions,
+      measures: saved.selectedMeasures,
+      filters: saved.filters ?? undefined,
+      date_from: query.date_from,
+      date_to: query.date_to,
+      branch_id: query.branch_id,
+      department_id: query.department_id,
+      employee_id: query.employee_id,
+      purpose: query.purpose ?? `Saved report: ${saved.name}`,
+    });
+  }
+
+  private async validateReportShape(
+    datasetCode: string,
+    dimensions: string[],
+    measures: string[],
+  ) {
+    const dataset = await this.datasetService.requireDataset(datasetCode);
+    const unknownDimensions = dimensions.filter(
+      (item) => !dataset.allowedDimensions.includes(item.trim()),
+    );
+    const unknownMeasures = measures.filter(
+      (item) => !dataset.allowedMeasures.includes(item.trim()),
+    );
+    if (unknownDimensions.length) {
+      throw new BadRequestException(
+        `Unknown dimensions: ${unknownDimensions.join(', ')}`,
+      );
+    }
+    if (unknownMeasures.length) {
+      throw new BadRequestException(
+        `Unknown measures: ${unknownMeasures.join(', ')}`,
+      );
+    }
+  }
+
+  private async requireOwned(actor: AuthenticatedUser, id: string) {
+    const saved = await this.repository.findOne({
+      where: { id, companyId: actor.companyId!, status: 'ACTIVE' },
+    });
+    if (!saved) {
+      throw new NotFoundException('Saved report was not found');
+    }
+    if (saved.ownerCompanyUserId !== actor.companyMembershipId) {
+      throw new BadRequestException('Only the owner can change this saved report.');
+    }
+    return saved;
+  }
+
+  private async requireAccessible(actor: AuthenticatedUser, id: string) {
+    const saved = await this.repository.findOne({
+      where: { id, companyId: actor.companyId!, status: 'ACTIVE' },
+    });
+    if (!saved) {
+      throw new NotFoundException('Saved report was not found');
+    }
+    if (!(await this.canAccessSavedReport(actor, saved))) {
+      throw new NotFoundException('Saved report was not found');
+    }
+    return saved;
+  }
+
+  private async resolveSavedReportDepartmentScope(
+    actor: AuthenticatedUser,
+    visibility: string,
+    requestedDepartmentId?: number | null,
+  ) {
+    if (visibility !== 'DEPARTMENT') {
+      return null;
+    }
+    if (requestedDepartmentId) {
+      return requestedDepartmentId;
+    }
+    const scope = await this.scopeService.resolve(actor, {});
+    return scope.departmentId;
+  }
+
+  private async canAccessSavedReport(
+    actor: AuthenticatedUser,
+    saved: AnalyticsSavedReport,
+  ) {
+    if (saved.ownerCompanyUserId === actor.companyMembershipId) return true;
+    if (saved.visibility === 'SHARED') return true;
+    if (
+      saved.visibility === 'ADMIN_ONLY' &&
+      hasPermission(actor.permissions, 'reports.custom.manage')
+    ) {
+      return true;
+    }
+    if (saved.visibility === 'DEPARTMENT' && saved.departmentScopeId) {
+      const scope = await this.scopeService.resolve(actor, {});
+      return scope.departmentId === saved.departmentScopeId;
+    }
+    return false;
+  }
+}
+
+type OperationalReportDefinition = {
+  code: string;
+  name: string;
+  category: string;
+  permissions: string[];
+  sensitivity: AnalyticsSensitivityEnum;
+  build: (
+    args: OperationalReportQueryArgs,
+  ) => { sql: string; params: unknown[] };
+};
+
+type OperationalReportQueryArgs = {
+  companyId: number;
+  scope: AnalyticsResolvedScope;
+  query: AnalyticsOperationalReportQueryDto;
+};
+
+function compactSql(value: string) {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function fullNameSql(alias: string) {
+  return `concat_ws(' ', ${alias}.first_name, ${alias}.middle_name, ${alias}.last_name)`;
+}
+
+function maskAccountSql(expression: string) {
+  return `CASE
+    WHEN ${expression} IS NULL OR length(${expression}) <= 4 THEN ${expression}
+    ELSE concat(repeat('*', greatest(length(${expression}) - 4, 0)), right(${expression}, 4))
+  END`;
+}
+
+function addParam(params: unknown[], value: unknown) {
+  params.push(value);
+  return `$${params.length}`;
+}
+
+function appendScopedEmployeeFilters(
+  conditions: string[],
+  params: unknown[],
+  scope: AnalyticsResolvedScope,
+  options: {
+    employeeColumn: string;
+    branchColumn?: string;
+    departmentColumn?: string;
+  },
+) {
+  if (scope.employeeIds !== null) {
+    conditions.push(
+      `${options.employeeColumn} = ANY(${addParam(params, scope.employeeIds)}::int[])`,
+    );
+  }
+  if (scope.employeeId) {
+    conditions.push(
+      `${options.employeeColumn} = ${addParam(params, scope.employeeId)}`,
+    );
+  }
+  if (scope.branchId) {
+    conditions.push(
+      `${options.branchColumn ?? 'e.primary_branch_id'} = ${addParam(params, scope.branchId)}`,
+    );
+  }
+  if (scope.departmentId) {
+    conditions.push(
+      `${options.departmentColumn ?? 'e.primary_department_id'} = ${addParam(params, scope.departmentId)}`,
+    );
+  }
+}
+
+function appendDateRange(
+  conditions: string[],
+  params: unknown[],
+  column: string,
+  query: AnalyticsOperationalReportQueryDto,
+) {
+  const range = defaultRange(query);
+  conditions.push(`${column} BETWEEN ${addParam(params, range.dateFrom)} AND ${addParam(params, range.dateTo)}`);
+}
+
+function appendOptionalStringFilter(
+  conditions: string[],
+  params: unknown[],
+  column: string,
+  value?: string,
+) {
+  if (value?.trim()) {
+    conditions.push(`${column} = ${addParam(params, value.trim())}`);
+  }
+}
+
+function employeeJoinSelect(prefix = 'employee') {
+  return `
+    e.employee_no AS ${prefix}_number,
+    ${fullNameSql('e')} AS ${prefix}_name,
+    department.name AS department,
+    branch.name AS branch,
+    position.name AS position,
+    grade.name AS grade,
+    manager.employee_no AS manager_number,
+    ${fullNameSql('manager')} AS manager_name
+  `;
+}
+
+function employeeJoins() {
+  return `
+    LEFT JOIN branches branch ON branch.id = e.primary_branch_id
+    LEFT JOIN departments department ON department.id = e.primary_department_id
+    LEFT JOIN positions position ON position.id = e.primary_position_id
+    LEFT JOIN employee_grades grade ON grade.id = e.grade_id
+    LEFT JOIN employees manager ON manager.id = e.reports_to
+  `;
+}
+
+function buildBaseEmployeeReport(
+  args: OperationalReportQueryArgs,
+  dateColumn: string | null,
+  extraCondition?: string,
+) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ['e.company_id = $1'];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'e.id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  if (dateColumn) appendDateRange(conditions, params, dateColumn, args.query);
+  appendOptionalStringFilter(
+    conditions,
+    params,
+    'e.employment_status',
+    args.query.employment_status,
+  );
+  if (extraCondition) conditions.push(extraCondition);
+  return { params, conditions };
+}
+
+function buildEmployeeMaster(args: OperationalReportQueryArgs) {
+  const { params, conditions } = buildBaseEmployeeReport(args, null);
+  return {
+    params,
+    sql: compactSql(`
+      SELECT ${employeeJoinSelect()},
+        e.employment_type,
+        e.hire_date AS joining_date,
+        e.employment_status,
+        e.confirmation_due_date,
+        e.confirmation_status
+      FROM employees e
+      ${employeeJoins()}
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY e.employee_no ASC
+    `),
+  };
+}
+
+function buildNewJoiners(args: OperationalReportQueryArgs) {
+  const { params, conditions } = buildBaseEmployeeReport(args, 'e.hire_date');
+  return {
+    params,
+    sql: compactSql(`
+      SELECT ${employeeJoinSelect()}, e.hire_date AS joining_date,
+        e.employment_type, e.employment_status AS onboarding_status
+      FROM employees e
+      ${employeeJoins()}
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY e.hire_date DESC, e.employee_no ASC
+    `),
+  };
+}
+
+function buildConfirmationDue(args: OperationalReportQueryArgs) {
+  const { params, conditions } = buildBaseEmployeeReport(
+    args,
+    'COALESCE(e.confirmation_due_date, e.probation_end_date)',
+    'COALESCE(e.confirmation_due_date, e.probation_end_date) IS NOT NULL',
+  );
+  return {
+    params,
+    sql: compactSql(`
+      SELECT ${employeeJoinSelect()}, e.hire_date AS joining_date,
+        e.probation_start_date,
+        e.probation_end_date,
+        COALESCE(e.confirmation_due_date, e.probation_end_date) AS confirmation_due_date,
+        e.confirmation_status AS status,
+        (COALESCE(e.confirmation_due_date, e.probation_end_date)::date - CURRENT_DATE)::int AS days_remaining_or_overdue
+      FROM employees e
+      ${employeeJoins()}
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY confirmation_due_date ASC
+    `),
+  };
+}
+
+function buildProbation(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ['pc.company_id = $1'];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'pc.employee_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  appendDateRange(conditions, params, 'pc.current_due_date', args.query);
+  appendOptionalStringFilter(conditions, params, 'pc.status', args.query.status);
+  return {
+    params,
+    sql: compactSql(`
+      SELECT pc.case_no, ${employeeJoinSelect()}, pc.current_start_date AS probation_start_date,
+        pc.current_due_date AS probation_end_date, pc.status AS review_status,
+        pc.final_decision AS recommendation, e.confirmation_status AS confirmation_status
+      FROM probation_cases pc
+      JOIN employees e ON e.id = pc.employee_id
+      ${employeeJoins()}
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY pc.current_due_date ASC
+    `),
+  };
+}
+
+function movementReport(types: string[]) {
+  return (args: OperationalReportQueryArgs) => {
+    const params: unknown[] = [args.companyId, types];
+    const conditions = ['movement.company_id = $1', 'movement.movement_type = ANY($2::text[])'];
+    appendScopedEmployeeFilters(conditions, params, args.scope, {
+      employeeColumn: 'movement.employee_id',
+      branchColumn: 'e.primary_branch_id',
+      departmentColumn: 'e.primary_department_id',
+    });
+    appendDateRange(conditions, params, 'movement.effective_date', args.query);
+    appendOptionalStringFilter(conditions, params, 'movement.status', args.query.status);
+    return {
+      params,
+      sql: compactSql(`
+        SELECT movement.movement_no, movement.movement_type, ${employeeJoinSelect()},
+          movement.current_snapshot ->> 'departmentName' AS previous_department,
+          movement.proposed_snapshot ->> 'departmentName' AS new_department,
+          movement.current_snapshot ->> 'branchName' AS previous_branch,
+          movement.proposed_snapshot ->> 'branchName' AS new_branch,
+          movement.current_snapshot ->> 'positionName' AS previous_position,
+          movement.proposed_snapshot ->> 'positionName' AS new_position,
+          movement.current_snapshot ->> 'gradeName' AS previous_grade,
+          movement.proposed_snapshot ->> 'gradeName' AS new_grade,
+          movement.effective_date, movement.status,
+          movement.approved_by_company_user_id AS approved_by,
+          movement.approved_at
+        FROM employee_movements movement
+        JOIN employees e ON e.id = movement.employee_id
+        ${employeeJoins()}
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY movement.effective_date DESC, movement.id DESC
+      `),
+    };
+  };
+}
+
+function offboardingReport(onlyResignation: boolean) {
+  return (args: OperationalReportQueryArgs) => {
+    const params: unknown[] = [args.companyId];
+    const conditions = ['request.company_id = $1', 'request.deleted_at IS NULL'];
+    if (onlyResignation) conditions.push(`request.offboarding_type = 'resignation'`);
+    appendScopedEmployeeFilters(conditions, params, args.scope, {
+      employeeColumn: 'request.employee_id',
+      branchColumn: 'request.branch_id',
+      departmentColumn: 'request.department_id',
+    });
+    appendDateRange(conditions, params, 'request.last_working_date', args.query);
+    appendOptionalStringFilter(conditions, params, 'request.status', args.query.status);
+    return {
+      params,
+      sql: compactSql(`
+        SELECT request.offboarding_code, request.offboarding_type AS exit_type,
+          ${employeeJoinSelect()}, request.submitted_at AS submission_date,
+          request.last_working_date, request.status AS approval_status,
+          request.progress_percentage AS clearance_progress,
+          request.completed_at,
+          COALESCE(exit_interview.status::text, 'NOT_STARTED') AS exit_interview_status,
+          COALESCE(settlement.status, 'NOT_STARTED') AS final_settlement_status
+        FROM offboarding_requests request
+        JOIN employees e ON e.id = request.employee_id
+        ${employeeJoins()}
+        LEFT JOIN offboarding_exit_interviews exit_interview
+          ON exit_interview.offboarding_request_id = request.id
+        LEFT JOIN payroll_final_settlements settlement
+          ON settlement.offboarding_request_id = request.id
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY request.last_working_date DESC, request.id DESC
+      `),
+    };
+  };
+}
+
+function buildEmployeeDocuments(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ["doc.company_id = $1", "doc.entity_type = 'EMPLOYEE'"];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'doc.entity_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  appendDateRange(conditions, params, 'doc.created_at::date', args.query);
+  return {
+    params,
+    sql: compactSql(`
+      SELECT ${employeeJoinSelect()}, doc.document_type, doc.title,
+        CASE WHEN doc.id IS NULL THEN false ELSE true END AS submitted,
+        doc.is_verified AS verified, doc.expiry_date,
+        CASE
+          WHEN doc.expiry_date IS NULL THEN 'NO_EXPIRY'
+          WHEN doc.expiry_date < now() THEN 'EXPIRED'
+          WHEN doc.expiry_date <= now() + interval '30 days' THEN 'EXPIRING'
+          ELSE 'VALID'
+        END AS expiry_status
+      FROM documents doc
+      JOIN employees e ON e.id = doc.entity_id
+      ${employeeJoins()}
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY doc.expiry_date ASC NULLS LAST, e.employee_no ASC
+    `),
+  };
+}
+
+function buildLeaveBalances(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ['balance.company_id = $1'];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'balance.employee_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  if (args.query.year) {
+    conditions.push(`balance.fiscal_year = ${addParam(params, String(args.query.year))}`);
+  }
+  return {
+    params,
+    sql: compactSql(`
+      SELECT balance.id AS balance_id, ${employeeJoinSelect()}, leave_type.name AS leave_type,
+        balance.opening_balance_days AS opening_balance,
+        COALESCE(NULLIF(balance.accrued_days, '0'), balance.entitlement_days, balance.allocated_days) AS accrued,
+        balance.used_days AS used,
+        balance.pending_days AS pending,
+        (
+          COALESCE(NULLIF(balance.opening_balance_days, '0'), balance.carried_forward_days, '0')::numeric
+          + COALESCE(NULLIF(balance.accrued_days, '0'), balance.entitlement_days, balance.allocated_days, '0')::numeric
+          + balance.adjusted_days::numeric
+          - balance.used_days::numeric
+          - balance.pending_days::numeric
+          - balance.approved_future_days::numeric
+          - balance.expired_days::numeric
+          - balance.attendance_deduction_days::numeric
+        )::numeric(12,2) AS remaining_balance,
+        balance.opening_balance_days, balance.carried_forward_days, balance.accrued_days,
+        balance.entitlement_days, balance.allocated_days, balance.adjusted_days,
+        balance.approved_future_days, balance.expired_days, balance.attendance_deduction_days,
+        balance.fiscal_year
+      FROM leave_balances balance
+      JOIN employees e ON e.id = balance.employee_id
+      ${employeeJoins()}
+      JOIN leave_types leave_type ON leave_type.id = balance.leave_type_id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY e.employee_no ASC, leave_type.name ASC
+    `),
+  };
+}
+
+function buildLeavePending(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ["request.company_id = $1", "request.status IN ('SUBMITTED','PENDING_APPROVAL','RETURNED')"];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'request.employee_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  appendDateRange(conditions, params, 'request.created_at::date', args.query);
+  return {
+    params,
+    sql: compactSql(`
+      SELECT ${employeeJoinSelect()}, leave_type.name AS leave_type,
+        request.total_days AS requested_days, request.created_at AS request_date,
+        request.current_approval_level, request.status AS approval_status,
+        EXTRACT(day FROM (now() - request.created_at))::int AS days_pending
+      FROM leave_requests request
+      JOIN employees e ON e.id = request.employee_id
+      ${employeeJoins()}
+      JOIN leave_types leave_type ON leave_type.id = request.leave_type_id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY request.created_at ASC
+    `),
+  };
+}
+
+function buildPayrollRegister(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ["result.company_id = $1", "run.status IN ('LOCKED','PAID','CLOSED')"];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'result.employee_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  if (args.query.payroll_period_id) {
+    conditions.push(`result.payroll_period_id = ${addParam(params, args.query.payroll_period_id)}`);
+  }
+  if (args.query.payroll_run_id) {
+    conditions.push(`result.payroll_run_id = ${addParam(params, args.query.payroll_run_id)}`);
+  }
+  return {
+    params,
+    sql: compactSql(`
+      SELECT run.run_no, result.payroll_period_id, ${employeeJoinSelect()},
+        (result.compensation_snapshot ->> 'basicSalary') AS basic_salary,
+        result.gross_pay AS gross_pay,
+        result.employee_deductions AS deductions,
+        result.net_pay AS net_pay,
+        result.employer_cost AS employer_cost,
+        result.status
+      FROM employee_payroll_results result
+      JOIN payroll_runs run ON run.id = result.payroll_run_id
+      JOIN employees e ON e.id = result.employee_id
+      ${employeeJoins()}
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY result.payroll_period_id DESC, e.employee_no ASC
+    `),
+  };
+}
+
+function buildBankTransfer(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ["result.company_id = $1", "run.status IN ('LOCKED','PAID','CLOSED')"];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'result.employee_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  if (args.query.payroll_period_id) {
+    conditions.push(`result.payroll_period_id = ${addParam(params, args.query.payroll_period_id)}`);
+  }
+  const accountExpr = "result.bank_account_snapshot ->> 'accountNumber'";
+  return {
+    params,
+    sql: compactSql(`
+      SELECT run.run_no, result.payroll_period_id, ${employeeJoinSelect()},
+        COALESCE(result.bank_account_snapshot ->> 'bankName', result.bank_account_snapshot ->> 'bank_name') AS bank,
+        ${maskAccountSql(accountExpr)} AS account_number,
+        result.net_pay AS payment_amount,
+        result.status
+      FROM employee_payroll_results result
+      JOIN payroll_runs run ON run.id = result.payroll_run_id
+      JOIN employees e ON e.id = result.employee_id
+      ${employeeJoins()}
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY result.payroll_period_id DESC, e.employee_no ASC
+    `),
+  };
+}
+
+function buildLoanOutstanding(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ["account.company_id = $1", "account.product_type = 'STAFF_LOAN'"];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'account.employee_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  appendOptionalStringFilter(conditions, params, 'account.status', args.query.status);
+  return {
+    params,
+    sql: compactSql(`
+      SELECT account.id AS account_id, account.account_no AS loan_reference, ${employeeJoinSelect()},
+        account.principal_amount AS original_loan_amount,
+        (account.total_payable::numeric - account.outstanding_total::numeric)::numeric(18,2) AS amount_paid,
+        account.outstanding_total AS outstanding_amount,
+        account.outstanding_principal, account.outstanding_interest, account.outstanding_fees,
+        COUNT(installment.id) FILTER (WHERE installment.status NOT IN ('PAID','CANCELLED'))::int AS remaining_installments,
+        account.status, account.maturity_date
+      FROM employee_finance_accounts account
+      JOIN employees e ON e.id = account.employee_id
+      ${employeeJoins()}
+      LEFT JOIN employee_finance_installments installment ON installment.account_id = account.id
+      WHERE ${conditions.join(' AND ')}
+      GROUP BY account.id, e.id, branch.name, department.name, position.name, grade.name, manager.employee_no, manager.first_name, manager.middle_name, manager.last_name
+      ORDER BY account.maturity_date ASC, e.employee_no ASC
+    `),
+  };
+}
+
+function buildFieldVisitMap(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ['event.company_id = $1'];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'event.employee_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  appendDateRange(conditions, params, 'event.captured_at::date', args.query);
+  return {
+    params,
+    sql: compactSql(`
+      SELECT visit.visit_no, visit.visit_date, visit.status AS visit_status,
+        event.event_type, event.captured_at, event.latitude, event.longitude,
+        event.address AS location, event.location_validation_status,
+        ${employeeJoinSelect()}
+      FROM field_visit_location_events event
+      JOIN field_visits visit ON visit.id = event.field_visit_id
+      JOIN employees e ON e.id = event.employee_id
+      ${employeeJoins()}
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY event.captured_at DESC
+    `),
+  };
+}
+
+function appendPerformancePeriodFilters(
+  conditions: string[],
+  params: unknown[],
+  query: AnalyticsOperationalReportQueryDto,
+  periodAlias = 'period',
+) {
+  appendDateRange(conditions, params, `${periodAlias}.end_date`, query);
+  if (query.year) {
+    conditions.push(`${periodAlias}.financial_year_id = ${addParam(params, query.year)}`);
+  }
+  if (query.quarter) {
+    conditions.push(`${periodAlias}.period_type = 'QUARTERLY'`);
+    conditions.push(`${periodAlias}.sequence_number = ${addParam(params, query.quarter)}`);
+  }
+  if (query.month?.trim()) {
+    conditions.push(`${periodAlias}.period_type = 'MONTHLY'`);
+    conditions.push(`${periodAlias}.name ILIKE ${addParam(params, `%${query.month.trim()}%`)}`);
+  }
+}
+
+function buildKpiAssignments(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ['plan.company_id = $1'];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'plan.employee_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  appendDateRange(conditions, params, 'plan.effective_from', args.query);
+  appendOptionalStringFilter(conditions, params, 'plan.status', args.query.status);
+  return {
+    params,
+    sql: compactSql(`
+      SELECT plan.id AS performance_plan_id, item.id AS plan_item_id,
+        ${employeeJoinSelect()}, plan.status AS assignment_status,
+        plan.effective_from, plan.effective_to,
+        definition.code AS kpi_code, definition.name AS kpi_name,
+        definition.category AS kpi_category,
+        version.frequency, version.scoring_formula,
+        item.target_value, item.weight, item.manual_entry_allowed,
+        item.evidence_required, item.notes
+      FROM employee_performance_plans plan
+      JOIN employee_performance_plan_items item ON item.plan_id = plan.id
+      JOIN employees e ON e.id = plan.employee_id
+      ${employeeJoins()}
+      JOIN kpi_definition_versions version ON version.id = item.kpi_definition_version_id
+      JOIN kpi_definitions definition ON definition.id = version.kpi_definition_id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY plan.effective_from DESC, e.employee_no ASC, definition.name ASC
+    `),
+  };
+}
+
+function buildKpiTargetAchievement(args: OperationalReportQueryArgs, monthlyOnly = false) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ['achievement.company_id = $1'];
+  if (monthlyOnly) conditions.push(`period.period_type = 'MONTHLY'`);
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'achievement.employee_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  appendPerformancePeriodFilters(conditions, params, args.query);
+  appendOptionalStringFilter(conditions, params, 'achievement.status', args.query.status);
+  return {
+    params,
+    sql: compactSql(`
+      SELECT achievement.id AS achievement_id,
+        ${employeeJoinSelect()}, period.name AS period_name,
+        period.period_type, period.sequence_number, period.start_date, period.end_date,
+        definition.code AS kpi_code, definition.name AS kpi_name,
+        definition.category AS kpi_category, version.scoring_formula,
+        version.formula_configuration, item.weight,
+        achievement.target_value, achievement.achievement_value,
+        achievement.raw_score, achievement.capped_score, achievement.weighted_score,
+        achievement.status, achievement.submitted_at, achievement.manager_validated_at,
+        achievement.hr_approved_at, achievement.published_at
+      FROM kpi_achievements achievement
+      JOIN performance_period_assignments assignment ON assignment.id = achievement.period_assignment_id
+      JOIN performance_periods period ON period.id = assignment.performance_period_id
+      JOIN employee_performance_plan_items item ON item.id = achievement.plan_item_id
+      JOIN kpi_definition_versions version ON version.id = item.kpi_definition_version_id
+      JOIN kpi_definitions definition ON definition.id = version.kpi_definition_id
+      JOIN employees e ON e.id = achievement.employee_id
+      ${employeeJoins()}
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY period.end_date DESC, e.employee_no ASC, definition.name ASC
+    `),
+  };
+}
+
+function buildPerformanceAggregate(args: OperationalReportQueryArgs, periodType: 'QUARTERLY' | 'ANNUAL') {
+  const params: unknown[] = [args.companyId];
+  const conditions = ['aggregate.company_id = $1', `aggregate.period_type = '${periodType}'`];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'aggregate.employee_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  if (args.query.year) {
+    conditions.push(`aggregate.financial_year_id = ${addParam(params, args.query.year)}`);
+  }
+  if (args.query.quarter && periodType === 'QUARTERLY') {
+    conditions.push(`aggregate.sequence_number = ${addParam(params, args.query.quarter)}`);
+  }
+  return {
+    params,
+    sql: compactSql(`
+      SELECT aggregate.id AS aggregate_id, ${employeeJoinSelect()},
+        aggregate.name AS period_name, aggregate.period_type, aggregate.sequence_number,
+        aggregate.aggregation_method, aggregate.aggregate_score AS score,
+        aggregate.rating_code, aggregate.published_at, aggregate.locked_at
+      FROM performance_aggregates aggregate
+      JOIN employees e ON e.id = aggregate.employee_id
+      ${employeeJoins()}
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY aggregate.sequence_number DESC, e.employee_no ASC
+    `),
+  };
+}
+
+function buildKpiScoreHistory(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ['review.company_id = $1'];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'review.employee_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  appendPerformancePeriodFilters(conditions, params, args.query);
+  appendOptionalStringFilter(conditions, params, 'review.status', args.query.status);
+  return {
+    params,
+    sql: compactSql(`
+      SELECT review.id AS review_id, ${employeeJoinSelect()},
+        period.name AS period_name, period.period_type, period.sequence_number,
+        review.kpi_score, review.competency_score, review.adjustment_score,
+        review.final_score, review.rating_code, review.status,
+        review.published_at, review.locked_at, review.revision_number
+      FROM performance_reviews review
+      JOIN performance_periods period ON period.id = review.performance_period_id
+      JOIN employees e ON e.id = review.employee_id
+      ${employeeJoins()}
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY period.end_date DESC, review.revision_number DESC, e.employee_no ASC
+    `),
+  };
+}
+
+function buildAttendanceExceptions(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ['exception.company_id = $1'];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'exception.employee_id',
+    branchColumn: 'exception.branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  appendDateRange(conditions, params, 'exception.attendance_date', args.query);
+  appendOptionalStringFilter(conditions, params, 'exception.status', args.query.status);
+  return {
+    params,
+    sql: compactSql(`
+      SELECT exception.id AS exception_id, exception.attendance_date,
+        ${employeeJoinSelect()}, exception.exception_type, exception.status,
+        exception.message, exception.is_system_generated,
+        exception.resolved_at, exception.resolution_note, exception.created_at
+      FROM attendance_processing_exceptions exception
+      LEFT JOIN employees e ON e.id = exception.employee_id
+      ${employeeJoins()}
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY exception.attendance_date DESC NULLS LAST, exception.created_at DESC
+    `),
+  };
+}
+
+function buildAttendanceCorrections(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ['adjustment.company_id = $1'];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'adjustment.employee_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  appendDateRange(conditions, params, 'adjustment.attendance_date', args.query);
+  return {
+    params,
+    sql: compactSql(`
+      SELECT adjustment.id AS correction_id, adjustment.attendance_date,
+        ${employeeJoinSelect()}, summary.attendance_status AS original_status,
+        adjustment.status_override, adjustment.check_in_at_override,
+        adjustment.check_out_at_override, adjustment.work_minutes_override,
+        adjustment.late_minutes_override, adjustment.early_departure_minutes_override,
+        adjustment.overtime_minutes_override, adjustment.notes,
+        adjustment.is_active, adjustment.applied_at
+      FROM attendance_daily_summary_adjustments adjustment
+      JOIN employees e ON e.id = adjustment.employee_id
+      ${employeeJoins()}
+      LEFT JOIN attendance_daily_summaries summary ON summary.id = adjustment.summary_id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY adjustment.attendance_date DESC, adjustment.applied_at DESC
+    `),
+  };
+}
+
+const OPERATIONAL_REPORTS: OperationalReportDefinition[] = [
+  {
+    code: 'EMPLOYEE_MASTER',
+    name: 'Employee Master Report',
+    category: 'Employee Reports',
+    permissions: ['employee_reports.view', 'employees:read', 'reports.view'],
+    sensitivity: AnalyticsSensitivityEnum.INTERNAL,
+    build: buildEmployeeMaster,
+  },
+  {
+    code: 'NEW_JOINERS',
+    name: 'New Joiner Report',
+    category: 'Employee Reports',
+    permissions: ['employee_reports.view', 'employees:read', 'reports.view'],
+    sensitivity: AnalyticsSensitivityEnum.INTERNAL,
+    build: buildNewJoiners,
+  },
+  {
+    code: 'CONFIRMATION_DUE',
+    name: 'Confirmation Due Report',
+    category: 'Employee Reports',
+    permissions: ['employee_reports.view', 'probation_cases:read', 'reports.view'],
+    sensitivity: AnalyticsSensitivityEnum.INTERNAL,
+    build: buildConfirmationDue,
+  },
+  {
+    code: 'PROBATION',
+    name: 'Probation Report',
+    category: 'Employee Reports',
+    permissions: ['employee_reports.view', 'probation_cases:read', 'reports.view'],
+    sensitivity: AnalyticsSensitivityEnum.INTERNAL,
+    build: buildProbation,
+  },
+  {
+    code: 'TRANSFERS',
+    name: 'Transfer Report',
+    category: 'Employee Reports',
+    permissions: ['employee_reports.view', 'employee_movements:read', 'reports.view'],
+    sensitivity: AnalyticsSensitivityEnum.INTERNAL,
+    build: movementReport(['DEPARTMENT_TRANSFER', 'BRANCH_TRANSFER']),
+  },
+  {
+    code: 'PROMOTIONS',
+    name: 'Promotion Report',
+    category: 'Employee Reports',
+    permissions: ['employee_reports.view', 'employee_movements:read', 'reports.view'],
+    sensitivity: AnalyticsSensitivityEnum.INTERNAL,
+    build: movementReport(['PROMOTION']),
+  },
+  {
+    code: 'RESIGNATIONS',
+    name: 'Resignation Report',
+    category: 'Employee Reports',
+    permissions: ['employee_reports.view', 'offboarding:read', 'reports.view'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: offboardingReport(true),
+  },
+  {
+    code: 'EXITS',
+    name: 'Exit Report',
+    category: 'Employee Reports',
+    permissions: ['employee_reports.view', 'offboarding:read', 'reports.view'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: offboardingReport(false),
+  },
+  {
+    code: 'EMPLOYEE_DOCUMENTS',
+    name: 'Employee Document Report',
+    category: 'Employee Reports',
+    permissions: ['employee_reports.view', 'hr_documents:read', 'reports.view'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildEmployeeDocuments,
+  },
+  {
+    code: 'LEAVE_BALANCE',
+    name: 'Leave Balance Report',
+    category: 'Leave Reports',
+    permissions: ['leave_reports.view', 'leave-balances.view', 'leave_balances:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildLeaveBalances,
+  },
+  {
+    code: 'LEAVE_PENDING_APPROVAL',
+    name: 'Leave Pending Approval Report',
+    category: 'Leave Reports',
+    permissions: ['leave_reports.view', 'leave_requests:read'],
+    sensitivity: AnalyticsSensitivityEnum.INTERNAL,
+    build: buildLeavePending,
+  },
+  {
+    code: 'PAYROLL_REGISTER',
+    name: 'Payroll Register',
+    category: 'Payroll Reports',
+    permissions: ['payroll_reports.view', 'payroll:reports'],
+    sensitivity: AnalyticsSensitivityEnum.HIGHLY_RESTRICTED,
+    build: buildPayrollRegister,
+  },
+  {
+    code: 'BANK_TRANSFER',
+    name: 'Bank Transfer Report',
+    category: 'Payroll Reports',
+    permissions: ['payroll_reports.view', 'payroll:banking'],
+    sensitivity: AnalyticsSensitivityEnum.HIGHLY_RESTRICTED,
+    build: buildBankTransfer,
+  },
+  {
+    code: 'LOAN_OUTSTANDING',
+    name: 'Loan Outstanding Report',
+    category: 'Staff Loan Reports',
+    permissions: ['loan_reports.view', 'employee_finance:reports'],
+    sensitivity: AnalyticsSensitivityEnum.HIGHLY_RESTRICTED,
+    build: buildLoanOutstanding,
+  },
+  {
+    code: 'FIELD_VISIT_MAP',
+    name: 'Map-Based Movement / Visit Report',
+    category: 'Field Staff Reports',
+    permissions: ['field_reports.view', 'field_locations:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildFieldVisitMap,
+  },
+  {
+    code: 'KPI_ASSIGNMENTS',
+    name: 'Employee KPI Assignment Report',
+    category: 'KPI & Performance Reports',
+    permissions: ['performance_reports.view', 'performance_kpis:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildKpiAssignments,
+  },
+  {
+    code: 'KPI_TARGET_VS_ACHIEVEMENT',
+    name: 'Monthly KPI Target vs Achievement',
+    category: 'KPI & Performance Reports',
+    permissions: ['performance_reports.view', 'performance_kpis:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: (args) => buildKpiTargetAchievement(args, false),
+  },
+  {
+    code: 'MONTHLY_KPI_SCORE',
+    name: 'Monthly KPI Score',
+    category: 'KPI & Performance Reports',
+    permissions: ['performance_reports.view', 'performance_reports:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: (args) => buildKpiTargetAchievement(args, true),
+  },
+  {
+    code: 'QUARTERLY_KPI_AVERAGE',
+    name: 'Quarterly KPI Average',
+    category: 'KPI & Performance Reports',
+    permissions: ['performance_reports.view', 'performance_aggregates:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: (args) => buildPerformanceAggregate(args, 'QUARTERLY'),
+  },
+  {
+    code: 'ANNUAL_KPI_AVERAGE',
+    name: 'Annual KPI Average',
+    category: 'KPI & Performance Reports',
+    permissions: ['performance_reports.view', 'performance_aggregates:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: (args) => buildPerformanceAggregate(args, 'ANNUAL'),
+  },
+  {
+    code: 'KPI_SCORE_HISTORY',
+    name: 'KPI Score History',
+    category: 'KPI & Performance Reports',
+    permissions: ['performance_reports.view', 'performance_reports:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildKpiScoreHistory,
+  },
+  {
+    code: 'ATTENDANCE_EXCEPTIONS',
+    name: 'Attendance Exception Report',
+    category: 'Attendance Reports',
+    permissions: ['attendance_reports.view', 'attendance_summaries:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildAttendanceExceptions,
+  },
+  {
+    code: 'ATTENDANCE_CORRECTIONS',
+    name: 'Attendance Correction Report',
+    category: 'Attendance Reports',
+    permissions: ['attendance_reports.view', 'attendance_summaries:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildAttendanceCorrections,
+  },
+];
+
+@Injectable()
+export class AnalyticsOperationalReportService {
+  private readonly definitions = new Map(
+    OPERATIONAL_REPORTS.map((definition) => [definition.code, definition]),
+  );
+
+  constructor(
+    private readonly auditService: AnalyticsAuditService,
+    private readonly scopeService: AnalyticsScopeService,
+    private readonly leaveBalanceService: LeaveBalanceService,
+    private readonly employeeFinanceLedgerService: EmployeeFinanceLedgerService,
+    private readonly performanceScoringService: PerformanceScoringService,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
+  ) {}
+
+  listDefinitions() {
+    return OPERATIONAL_REPORTS.map((definition) => ({
+      code: definition.code,
+      name: definition.name,
+      category: definition.category,
+      required_permissions: definition.permissions,
+      sensitivity: definition.sensitivity,
+      exports: ['CSV', 'XLSX', 'PDF', 'JSON'],
+      implementation_status: 'DEDICATED_OPERATIONAL_RUNNER',
+    }));
+  }
+
+  async run(
+    actor: AuthenticatedUser,
+    code: string,
+    query: AnalyticsOperationalReportQueryDto,
+  ) {
+    const definition = this.requireDefinition(actor, code);
+    const scope = await this.scopeService.resolve(actor, query);
+    const page = Math.max(1, Number(query.page ?? 1));
+    const limit = Math.min(Math.max(1, Number(query.limit ?? 50)), 5000);
+    const built = definition.build({
+      companyId: actor.companyId!,
+      scope,
+      query,
+    });
+    const countRows = await queryRows<{ total: unknown }>(
+      this.dataSource,
+      `SELECT COUNT(*) AS total FROM (${built.sql}) report_rows`,
+      built.params,
+    );
+    const rawRows = await queryRows<AnalyticsQueryRow>(
+      this.dataSource,
+      `${built.sql} LIMIT ${addParam(built.params, limit)} OFFSET ${addParam(
+        built.params,
+        (page - 1) * limit,
+      )}`,
+      built.params,
+    );
+    const rows = await this.enrichRows(definition.code, rawRows, actor.companyId!);
+    await this.auditService.log({
+      actor,
+      action: 'analytics.operational_report.run',
+      resourceType: 'OPERATIONAL_REPORT',
+      resourceCode: definition.code,
+      scopeHash: scope.scopeHash,
+      sensitivity: definition.sensitivity,
+      metadata: {
+        filters: query,
+        row_count: rows.length,
+        total: numberFrom(countRows[0]?.total),
+      },
+    });
+    return {
+      report_code: definition.code,
+      report_name: definition.name,
+      rows,
+      row_count: rows.length,
+      total: numberFrom(countRows[0]?.total),
+      page,
+      limit,
+      source_policy:
+        definition.sensitivity === AnalyticsSensitivityEnum.HIGHLY_RESTRICTED
+          ? 'FINALIZED_OR_POSTED_SOURCE_RECORDS_ONLY'
+          : 'LIVE_OPERATIONAL_SOURCE_RECORDS',
+    };
+  }
+
+  async export(
+    actor: AuthenticatedUser,
+    code: string,
+    query: AnalyticsOperationalReportQueryDto,
+  ) {
+    const definition = this.requireDefinition(actor, code);
+    const scope = await this.scopeService.resolve(actor, query);
+    const file = await this.createExportFile(
+      definition,
+      actor.companyId!,
+      scope,
+      query,
+    );
+    await this.auditService.log({
+      actor,
+      action: 'analytics.operational_report.export',
+      resourceType: 'OPERATIONAL_REPORT',
+      resourceCode: definition.code,
+      scopeHash: scope.scopeHash,
+      sensitivity: definition.sensitivity,
+      metadata: {
+        filters: query,
+        row_count: file.recordCount,
+        output_format: query.output_format ?? 'XLSX',
+      },
+    });
+    return file;
+  }
+
+  async exportForCompany(
+    companyId: number,
+    code: string,
+    query: AnalyticsOperationalReportQueryDto,
+  ) {
+    const definition = this.getDefinition(code);
+    const scope = this.fullCompanyScope(companyId, query);
+    return this.createExportFile(definition, companyId, scope, query);
+  }
+
+  private async createExportFile(
+    definition: OperationalReportDefinition,
+    companyId: number,
+    scope: AnalyticsResolvedScope,
+    query: AnalyticsOperationalReportQueryDto,
+  ) {
+    const built = definition.build({
+      companyId,
+      scope,
+      query: { ...query, page: 1, limit: 50000 },
+    });
+    const rawRows = await queryRows<AnalyticsQueryRow>(
+      this.dataSource,
+      `${built.sql} LIMIT ${addParam(built.params, 50000)}`,
+      built.params,
+    );
+    const rows = await this.enrichRows(definition.code, rawRows, companyId);
+    const format = (query.output_format ?? 'XLSX').toUpperCase();
+    const typedRows = rows as Record<string, unknown>[];
+    const buffer =
+      format === 'JSON'
+        ? Buffer.from(JSON.stringify(typedRows, null, 2), 'utf8')
+        : format === 'CSV'
+          ? Buffer.from(serializeCsv(typedRows), 'utf8')
+          : format === 'PDF'
+            ? await serializePdf(typedRows, definition.name)
+            : await serializeXlsx(typedRows);
+    const extension =
+      format === 'JSON'
+        ? 'json'
+        : format === 'CSV'
+          ? 'csv'
+          : format === 'PDF'
+            ? 'pdf'
+            : 'xlsx';
+    return {
+      filename: `${sanitizeFilenamePart(definition.code.toLowerCase())}-${new Date()
+        .toISOString()
+        .slice(0, 10)}.${extension}`,
+      mimeType:
+        format === 'JSON'
+          ? 'application/json'
+          : format === 'CSV'
+            ? 'text/csv'
+            : format === 'PDF'
+              ? 'application/pdf'
+              : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      buffer,
+      recordCount: rows.length,
+    };
+  }
+
+  private getDefinition(code: string) {
+    const definition = this.definitions.get(code.trim().toUpperCase());
+    if (!definition) {
+      throw new NotFoundException(`Report "${code}" is not implemented.`);
+    }
+    return definition;
+  }
+
+  private async enrichRows(
+    code: string,
+    rows: AnalyticsQueryRow[],
+    companyId: number,
+  ) {
+    if (code === 'LEAVE_BALANCE') {
+      return rows.map((row) => {
+        const balanceLike = {
+          opening_balance_days: row.opening_balance_days,
+          carried_forward_days: row.carried_forward_days,
+          accrued_days: row.accrued_days,
+          entitlement_days: row.entitlement_days,
+          allocated_days: row.allocated_days,
+          adjusted_days: row.adjusted_days,
+          used_days: row.used,
+          pending_days: row.pending,
+          approved_future_days: row.approved_future_days,
+          expired_days: row.expired_days,
+          attendance_deduction_days: row.attendance_deduction_days,
+        };
+        return {
+          ...row,
+          remaining_balance:
+            this.leaveBalanceService.calculateAvailableDays(balanceLike as never),
+          calculation_source: 'LeaveBalanceService.calculateAvailableDays',
+        };
+      });
+    }
+
+    if (code === 'LOAN_OUTSTANDING') {
+      const enriched: AnalyticsQueryRow[] = [];
+      for (const row of rows) {
+        const accountId = Number(row.account_id);
+        if (!Number.isFinite(accountId)) {
+          enriched.push(row);
+          continue;
+        }
+        const balance = await this.employeeFinanceLedgerService.calculateBalance(
+          companyId,
+          accountId,
+        ).catch(() => null);
+        enriched.push({
+          ...row,
+          ledger_principal: balance?.principal ?? row.outstanding_principal,
+          ledger_interest: balance?.interest ?? row.outstanding_interest,
+          ledger_fees: balance?.fees ?? row.outstanding_fees,
+          outstanding_amount: balance?.total ?? row.outstanding_amount,
+          calculation_source: balance
+            ? 'EmployeeFinanceLedgerService.calculateBalance'
+            : 'employee_finance_accounts.outstanding_total',
+        });
+      }
+      return enriched;
+    }
+
+    if (
+      code === 'KPI_TARGET_VS_ACHIEVEMENT' ||
+      code === 'MONTHLY_KPI_SCORE'
+    ) {
+      return rows.map((row) => {
+        const formula = String(
+          row.scoring_formula ?? KpiScoringFormulaEnum.PERCENT_TO_TARGET,
+        ) as KpiScoringFormulaEnum;
+        const scoring = this.performanceScoringService.score({
+          formula,
+          targetValue: row.target_value as string | number | null,
+          achievementValue: row.achievement_value as string | number | null,
+          weight: (row.weight as string | number | null) ?? 100,
+          formulaConfiguration:
+            (row.formula_configuration as Record<string, unknown> | null) ??
+            null,
+        });
+        return {
+          ...row,
+          raw_score: scoring.rawScore,
+          capped_score: scoring.cappedScore,
+          weighted_score: scoring.weightedScore,
+          calculation_source: 'PerformanceScoringService.score',
+        };
+      });
+    }
+
+    return rows;
+  }
+
+  private fullCompanyScope(
+    companyId: number,
+    query: AnalyticsOperationalReportQueryDto,
+  ): AnalyticsResolvedScope {
+    const scope = {
+      companyId,
+      employeeIds: null,
+      branchId: query.branch_id ?? null,
+      departmentId: query.department_id ?? null,
+      employeeId: query.employee_id ?? null,
+    };
+    return {
+      ...scope,
+      scopeHash: createHash('sha256').update(JSON.stringify(scope)).digest('hex'),
+    };
+  }
+
+  private requireDefinition(actor: AuthenticatedUser, code: string) {
+    const definition = this.getDefinition(code);
+    const allowed = definition.permissions.some((permission) =>
+      hasPermission(actor.permissions, permission),
+    );
+    if (!allowed) {
+      throw new BadRequestException(
+        'You do not have permission to run this report.',
+      );
+    }
+    return definition;
   }
 }
 

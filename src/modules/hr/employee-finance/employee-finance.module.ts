@@ -137,6 +137,7 @@ const employeeFinanceProviders = [
   exports: [
     TypeOrmModule,
     EmployeeFinancePayrollInstructionService,
+    EmployeeFinanceLedgerService,
     EmployeeFinanceReportsService,
     EmployeeFinanceReconciliationService,
   ],

@@ -157,6 +157,7 @@ import { NotificationsModule } from '../../notifications/notifications.module';
     KpiDataSourceRegistryService,
     EmployeeKpiService,
     EmployeeKpiProgressService,
+    PerformanceScoringService,
     PerformanceScorecardService,
     PerformanceWorkflowService,
     PerformanceDevelopmentPlanService,

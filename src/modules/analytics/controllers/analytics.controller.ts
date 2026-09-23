@@ -1,15 +1,19 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  Param,
   Post,
+  Put,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { Request as ExpressRequest } from 'express';
+import type { Request as ExpressRequest, Response } from 'express';
 import { Permissions } from '../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../common/guards/tenant.guard';
@@ -17,9 +21,13 @@ import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user
 import {
   AnalyticsCustomReportDto,
   AnalyticsExportDto,
+  AnalyticsOperationalReportQueryDto,
   AnalyticsQueryDto,
   AnalyticsRefreshDto,
+  QuerySavedAnalyticsReportsDto,
+  SaveAnalyticsReportDto,
   StatutoryReportRunDto,
+  UpdateSavedAnalyticsReportDto,
 } from '../dto/analytics.dto';
 import {
   AnalyticsDatasetService,
@@ -27,8 +35,10 @@ import {
   AnalyticsExportService,
   AnalyticsFreshnessService,
   AnalyticsMetricService,
+  AnalyticsOperationalReportService,
   AnalyticsReconciliationService,
   AnalyticsReportService,
+  AnalyticsSavedReportService,
   AnalyticsSnapshotService,
   AnalyticsSourceRegistryService,
   AnalyticsStatutoryReportService,
@@ -49,6 +59,8 @@ export class AnalyticsController {
     private readonly freshnessService: AnalyticsFreshnessService,
     private readonly dashboardService: AnalyticsDashboardService,
     private readonly reportService: AnalyticsReportService,
+    private readonly savedReportService: AnalyticsSavedReportService,
+    private readonly operationalReportService: AnalyticsOperationalReportService,
     private readonly exportService: AnalyticsExportService,
     private readonly reconciliationService: AnalyticsReconciliationService,
     private readonly statutoryReportService: AnalyticsStatutoryReportService,
@@ -129,10 +141,110 @@ export class AnalyticsController {
     return this.reportService.runCustomReport(req.user, dto);
   }
 
+  @Get('reports/catalog')
+  @Permissions('analytics:reports')
+  reportCatalog() {
+    return this.reportService.reportCatalog();
+  }
+
+  @Get('reports/operational')
+  @Permissions('analytics:reports')
+  operationalReports() {
+    return this.operationalReportService.listDefinitions();
+  }
+
+  @Get('reports/operational/:code')
+  @Permissions('analytics:reports')
+  runOperationalReport(
+    @Req() req: AuthedRequest,
+    @Param('code') code: string,
+    @Query() query: AnalyticsOperationalReportQueryDto,
+  ) {
+    return this.operationalReportService.run(req.user, code, query);
+  }
+
+  @Get('reports/operational/:code/export')
+  @Permissions('analytics:reports')
+  async exportOperationalReport(
+    @Req() req: AuthedRequest,
+    @Param('code') code: string,
+    @Query() query: AnalyticsOperationalReportQueryDto,
+    @Res() res: Response,
+  ) {
+    const file = await this.operationalReportService.export(
+      req.user,
+      code,
+      query,
+    );
+    res.setHeader('Content-Type', file.mimeType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${file.filename.replace(/"/g, '')}"`,
+    );
+    res.send(file.buffer);
+  }
+
+  @Get('reports/saved')
+  @Permissions('analytics:reports')
+  savedReports(
+    @Req() req: AuthedRequest,
+    @Query() query: QuerySavedAnalyticsReportsDto,
+  ) {
+    return this.savedReportService.list(req.user, query);
+  }
+
+  @Post('reports/saved')
+  @Permissions('analytics:reports')
+  saveReport(@Req() req: AuthedRequest, @Body() dto: SaveAnalyticsReportDto) {
+    return this.savedReportService.create(req.user, dto);
+  }
+
+  @Put('reports/saved/:id')
+  @Permissions('analytics:reports')
+  updateSavedReport(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Body() dto: UpdateSavedAnalyticsReportDto,
+  ) {
+    return this.savedReportService.update(req.user, id, dto);
+  }
+
+  @Delete('reports/saved/:id')
+  @Permissions('analytics:reports')
+  deleteSavedReport(@Req() req: AuthedRequest, @Param('id') id: string) {
+    return this.savedReportService.remove(req.user, id);
+  }
+
+  @Post('reports/saved/:id/run')
+  @Permissions('analytics:reports')
+  runSavedReport(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Body() query: AnalyticsQueryDto,
+  ) {
+    return this.savedReportService.run(req.user, id, query);
+  }
+
   @Post('exports')
   @Permissions('analytics:exports')
   exportReport(@Req() req: AuthedRequest, @Body() dto: AnalyticsExportDto) {
     return this.exportService.create(req.user, dto);
+  }
+
+  @Get('exports/:id/download')
+  @Permissions('analytics:exports')
+  async downloadExport(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const file = await this.exportService.download(req.user, id);
+    res.setHeader('Content-Type', file.mimeType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${file.filename.replace(/"/g, '')}"`,
+    );
+    res.send(file.buffer);
   }
 
   @Post('statutory-reports/run')

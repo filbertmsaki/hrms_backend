@@ -6,6 +6,7 @@ import {
   PrimaryColumn,
   PrimaryGeneratedColumn,
   Unique,
+  UpdateDateColumn,
   VersionColumn,
 } from 'typeorm';
 import {
@@ -748,6 +749,69 @@ export class AnalyticsReportDefinition {
 
   @Column({ type: 'varchar', length: 30, default: 'ACTIVE' })
   status: string;
+}
+
+@Entity({ schema: ANALYTICS_SCHEMA, name: 'analytics_saved_reports' })
+@Unique('UQ_analytics_saved_report_company_owner_name', [
+  'companyId',
+  'ownerCompanyUserId',
+  'name',
+])
+@Index('IDX_analytics_saved_reports_company_visibility', [
+  'companyId',
+  'visibility',
+])
+export class AnalyticsSavedReport {
+  @PrimaryGeneratedColumn({ type: 'bigint' })
+  id: string;
+
+  @Column({ name: 'company_id', type: 'int' })
+  companyId: number;
+
+  @Column({ name: 'owner_company_user_id', type: 'int' })
+  ownerCompanyUserId: number;
+
+  @Column({ name: 'owner_employee_id', type: 'int', nullable: true })
+  ownerEmployeeId: number | null;
+
+  @Column({ name: 'department_scope_id', type: 'int', nullable: true })
+  departmentScopeId: number | null;
+
+  @Column({ type: 'varchar', length: 180 })
+  name: string;
+
+  @Column({ type: 'text', nullable: true })
+  description: string | null;
+
+  @Column({ name: 'dataset_code', type: 'varchar', length: 100 })
+  datasetCode: string;
+
+  @Column({ name: 'selected_dimensions', type: 'jsonb' })
+  selectedDimensions: string[];
+
+  @Column({ name: 'selected_measures', type: 'jsonb' })
+  selectedMeasures: string[];
+
+  @Column({ type: 'jsonb', nullable: true })
+  filters: Record<string, unknown> | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  sorting: Record<string, unknown> | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  grouping: Record<string, unknown> | null;
+
+  @Column({ type: 'varchar', length: 30, default: 'PRIVATE' })
+  visibility: string;
+
+  @Column({ type: 'varchar', length: 30, default: 'ACTIVE' })
+  status: string;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 }
 
 @Entity({ schema: ANALYTICS_SCHEMA, name: 'analytics_refresh_checkpoints' })
