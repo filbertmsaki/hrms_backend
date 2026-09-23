@@ -8,11 +8,22 @@ import { AttendanceCorrectionRequest } from '../self-service/entities/attendance
 import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { ActionItemsService } from '../action-inbox/action-items.service';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import { PerformanceInsightsService } from '../performance/services/performance-insights.service';
+import { WorkActivityInsightsService } from '../work-activities/services/work-activity-insights.service';
+import { ProbationCase } from '../probation/entities/probation-case.entity';
+import { ProbationCaseStatusEnum } from '../probation/enums/probation-case-status.enum';
 
 describe('ManagerSelfServiceService', () => {
   let service: ManagerSelfServiceService;
   let hrAccessService: { getAccessibleEmployeeIds: jest.Mock };
   let employeeRepository: { createQueryBuilder: jest.Mock };
+  let attendanceDailySummaryRepository: { createQueryBuilder: jest.Mock };
+  let correctionRequestRepository: { createQueryBuilder: jest.Mock };
+  let leaveRequestRepository: { createQueryBuilder: jest.Mock };
+  let probationCaseRepository: { count: jest.Mock };
+  let actionItemsService: { countOpen: jest.Mock };
+  let performanceInsightsService: { getManagerSummary: jest.Mock };
+  let workActivityInsightsService: { getManagerSummary: jest.Mock };
 
   const actor: AuthenticatedUser = {
     id: 1,
@@ -51,17 +62,63 @@ describe('ManagerSelfServiceService', () => {
     return qb;
   };
 
+  const buildCountQueryBuilder = (count = 0) => {
+    const qb: Record<string, jest.Mock> = {
+      select: jest.fn(),
+      addSelect: jest.fn(),
+      where: jest.fn(),
+      andWhere: jest.fn(),
+      getCount: jest.fn().mockResolvedValue(count),
+      getRawOne: jest.fn().mockResolvedValue({
+        total_records: '0',
+        present: '0',
+        absent: '0',
+        late: '0',
+        early_departure: '0',
+      }),
+    };
+    for (const key of ['select', 'addSelect', 'where', 'andWhere']) {
+      qb[key].mockReturnValue(qb);
+    }
+    return qb;
+  };
+
   beforeEach(() => {
     hrAccessService = { getAccessibleEmployeeIds: jest.fn() };
     employeeRepository = { createQueryBuilder: jest.fn() };
+    attendanceDailySummaryRepository = {
+      createQueryBuilder: jest.fn().mockReturnValue(buildCountQueryBuilder()),
+    };
+    correctionRequestRepository = {
+      createQueryBuilder: jest.fn().mockReturnValue(buildCountQueryBuilder()),
+    };
+    leaveRequestRepository = {
+      createQueryBuilder: jest.fn().mockReturnValue(buildCountQueryBuilder()),
+    };
+    probationCaseRepository = { count: jest.fn().mockResolvedValue(0) };
+    actionItemsService = { countOpen: jest.fn().mockResolvedValue(0) };
+    performanceInsightsService = {
+      getManagerSummary: jest.fn().mockResolvedValue({
+        pending_team_validations: 0,
+        published_team_reviews: 0,
+      }),
+    };
+    workActivityInsightsService = {
+      getManagerSummary: jest.fn().mockResolvedValue({
+        pending_activity_reviews: 0,
+      }),
+    };
 
     service = new ManagerSelfServiceService(
       hrAccessService as unknown as HrAccessService,
       employeeRepository as unknown as Repository<Employee>,
-      {} as Repository<AttendanceDailySummary>,
-      {} as Repository<AttendanceCorrectionRequest>,
-      {} as Repository<LeaveRequest>,
-      {} as unknown as ActionItemsService,
+      attendanceDailySummaryRepository as unknown as Repository<AttendanceDailySummary>,
+      correctionRequestRepository as unknown as Repository<AttendanceCorrectionRequest>,
+      leaveRequestRepository as unknown as Repository<LeaveRequest>,
+      probationCaseRepository as unknown as Repository<ProbationCase>,
+      actionItemsService as unknown as ActionItemsService,
+      performanceInsightsService as unknown as PerformanceInsightsService,
+      workActivityInsightsService as unknown as WorkActivityInsightsService,
     );
   });
 
@@ -105,5 +162,27 @@ describe('ManagerSelfServiceService', () => {
       (call) => call[0] === 'employee.id IN (:...employeeIds)',
     );
     expect(scopeCalls).toHaveLength(0);
+  });
+
+  it('exposes probation recommendation capability from pending manager review cases', async () => {
+    hrAccessService.getAccessibleEmployeeIds.mockResolvedValue([30, 31]);
+    probationCaseRepository.count.mockResolvedValue(2);
+
+    const result = await service.getDashboard(actor, {
+      date_from: '2026-09-01',
+      date_to: '2026-09-30',
+    });
+
+    expect(probationCaseRepository.count).toHaveBeenCalledWith({
+      where: {
+        companyId: 10,
+        managerEmployeeId: 30,
+        status: ProbationCaseStatusEnum.MANAGER_REVIEW_PENDING,
+      },
+    });
+    expect(result.capabilities.probation_recommendation).toEqual({
+      available: true,
+      pending_recommendations: 2,
+    });
   });
 });
