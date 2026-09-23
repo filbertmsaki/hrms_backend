@@ -20,6 +20,7 @@ import {
 } from './notification-channel-policy';
 import { NotificationQueueService } from './notification-queue.service';
 import { NotificationChannelManagementService } from './notification-channel-management.service';
+import { NotificationConfigurationService } from './notification-configuration.service';
 
 export type CreateNotificationInput = {
   company_id: number;
@@ -65,6 +66,7 @@ export class NotificationOrchestratorService {
     private readonly preferencesService: NotificationPreferencesService,
     private readonly notificationChannelManagementService: NotificationChannelManagementService,
     private readonly notificationQueueService: NotificationQueueService,
+    private readonly notificationConfigurationService: NotificationConfigurationService,
   ) {}
 
   async create(input: CreateNotificationInput) {
@@ -105,6 +107,14 @@ export class NotificationOrchestratorService {
 
     const type = (input.type ??
       NotificationTypeEnum.GENERAL) as NotificationTypeEnum;
+    const payload = input.payload ?? input.metadata ?? {};
+    const renderedTemplate = input.template_code
+      ? await this.notificationConfigurationService.renderTemplate(
+          input.company_id,
+          input.template_code,
+          payload,
+        )
+      : null;
     const requestedChannels = input.channels?.length
       ? input.channels
       : [input.delivery_channel ?? NotificationChannelEnum.IN_APP];
@@ -141,8 +151,8 @@ export class NotificationOrchestratorService {
           type,
           category: input.category ?? NotificationCategoryEnum.GENERAL,
           priority: input.priority ?? NotificationPriorityEnum.MEDIUM,
-          title: input.title,
-          message: input.message,
+          title: renderedTemplate?.title ?? input.title,
+          message: renderedTemplate?.systemMessage ?? input.message,
           related_module: input.related_module ?? null,
           entity_type: input.entity_type ?? null,
           entity_id:
@@ -152,7 +162,18 @@ export class NotificationOrchestratorService {
           branch_id: input.branch_id ?? null,
           department_id: input.department_id ?? null,
           action_url: input.action_url ?? null,
-          metadata: input.metadata ?? null,
+          metadata: {
+            ...(input.metadata ?? {}),
+            ...(renderedTemplate?.emailSubject
+              ? { email_subject: renderedTemplate.emailSubject }
+              : {}),
+            ...(renderedTemplate?.emailBody
+              ? { email_body: renderedTemplate.emailBody }
+              : {}),
+            ...(renderedTemplate?.mobileMessage
+              ? { mobile_message: renderedTemplate.mobileMessage }
+              : {}),
+          },
           status: NotificationStatusEnum.UNREAD,
           seen_at: null,
           read_at: null,

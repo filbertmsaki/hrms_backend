@@ -207,6 +207,9 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
     const notificationQueueService = {
       enqueueOutboxEvent: jest.fn().mockResolvedValue(undefined),
     } as unknown as NotificationQueueService;
+    const notificationConfigurationService = {
+      renderTemplate: jest.fn().mockResolvedValue(null),
+    };
 
     const orchestrator = new NotificationOrchestratorService(
       notificationRepository as unknown as Repository<AppNotification>,
@@ -217,6 +220,7 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
       preferencesService,
       notificationChannelManagementService,
       notificationQueueService,
+      notificationConfigurationService as never,
     );
 
     const created = await orchestrator.create({
@@ -460,6 +464,9 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
     const notificationQueueService = {
       enqueueOutboxEvent: jest.fn().mockResolvedValue(undefined),
     } as unknown as NotificationQueueService;
+    const notificationConfigurationService = {
+      renderTemplate: jest.fn().mockResolvedValue(null),
+    };
 
     const orchestrator = new NotificationOrchestratorService(
       notificationRepository as unknown as Repository<AppNotification>,
@@ -470,6 +477,7 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
       preferencesService,
       notificationChannelManagementService,
       notificationQueueService,
+      notificationConfigurationService as never,
     );
 
     await orchestrator.create({
@@ -657,6 +665,9 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
     const notificationQueueService = {
       enqueueOutboxEvent: jest.fn().mockResolvedValue(undefined),
     } as unknown as NotificationQueueService;
+    const notificationConfigurationService = {
+      renderTemplate: jest.fn().mockResolvedValue(null),
+    };
 
     const orchestrator = new NotificationOrchestratorService(
       notificationRepository as unknown as Repository<AppNotification>,
@@ -667,6 +678,7 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
       preferencesService,
       notificationChannelManagementService,
       notificationQueueService,
+      notificationConfigurationService as never,
     );
 
     await orchestrator.create({

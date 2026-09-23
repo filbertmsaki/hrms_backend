@@ -16,6 +16,9 @@ import { NotificationChannelRegistry } from './entities/notification-channel-reg
 import { NotificationMailLog } from './entities/notification-mail-log.entity';
 import { NotificationOutboxEvent } from './entities/notification-outbox-event.entity';
 import { NotificationPreference } from './entities/notification-preference.entity';
+import { NotificationRule } from './entities/notification-rule.entity';
+import { NotificationTemplate } from './entities/notification-template.entity';
+import { NotificationConfigurationService } from './notification-configuration.service';
 import { NotificationDeliveryDispatcherService } from './notification-delivery-dispatcher.service';
 import { NotificationProcessor } from './notification.processor';
 import { NotificationQueueService } from './notification-queue.service';
@@ -41,6 +44,8 @@ import { ConditionalBullModule } from '../../infrastructure/queues/conditional-b
       NotificationMailLog,
       NotificationOutboxEvent,
       NotificationPreference,
+      NotificationRule,
+      NotificationTemplate,
     ]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -64,6 +69,7 @@ import { ConditionalBullModule } from '../../infrastructure/queues/conditional-b
     NotificationsGateway,
     NotificationsService,
     NotificationOrchestratorService,
+    NotificationConfigurationService,
     NotificationChannelManagementService,
     NotificationPreferencesService,
     NotificationDeliveryDispatcherService,
@@ -75,6 +81,7 @@ import { ConditionalBullModule } from '../../infrastructure/queues/conditional-b
   exports: [
     NotificationsService,
     NotificationOrchestratorService,
+    NotificationConfigurationService,
     NotificationChannelManagementService,
     NotificationPreferencesService,
     NotificationQueueService,

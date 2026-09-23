@@ -27,10 +27,21 @@ import { NotificationChannelRegistryQueryDto } from './dto/notification-channel-
 import { NotificationDeliveryLogQueryDto } from './dto/notification-delivery-log-query.dto';
 import { NotificationMailLogQueryDto } from './dto/notification-mail-log-query.dto';
 import { NotificationQueryDto } from './dto/notification-query.dto';
+import { NotificationRuleQueryDto } from './dto/notification-rule-query.dto';
+import { NotificationTemplateQueryDto } from './dto/notification-template-query.dto';
+import {
+  UpdateNotificationRuleDto,
+  UpsertNotificationRuleDto,
+} from './dto/upsert-notification-rule.dto';
+import {
+  UpdateNotificationTemplateDto,
+  UpsertNotificationTemplateDto,
+} from './dto/upsert-notification-template.dto';
 import { UpdateNotificationChannelGlobalSettingDto } from './dto/update-notification-channel-global-setting.dto';
 import { UpdateNotificationChannelRegistryDto } from './dto/update-notification-channel-registry.dto';
 import { NotificationChannelEnum } from './enums/notification-channel.enum';
 import { NotificationChannelManagementService } from './notification-channel-management.service';
+import { NotificationConfigurationService } from './notification-configuration.service';
 import { NotificationsService } from './notifications.service';
 
 @ApiTags('Notifications')
@@ -41,6 +52,7 @@ export class NotificationsController {
   constructor(
     private readonly notificationsService: NotificationsService,
     private readonly notificationChannelManagementService: NotificationChannelManagementService,
+    private readonly notificationConfigurationService: NotificationConfigurationService,
   ) {}
 
   @Get()
@@ -69,6 +81,33 @@ export class NotificationsController {
       companyId,
       companyMembershipId,
     );
+  }
+
+  @Get('unread')
+  @UseGuards(TenantGuard)
+  unread(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: NotificationQueryDto,
+  ) {
+    const { companyId, companyMembershipId } =
+      this.notificationsService.assertCompanyActor(req.user);
+
+    return this.notificationsService.findUnread(
+      companyId,
+      companyMembershipId,
+      query,
+    );
+  }
+
+  @Get('dashboard')
+  @UseGuards(TenantGuard, PermissionsGuard)
+  @Permissions('notifications:delivery-logs:read')
+  dashboard(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    const { companyId } = this.notificationsService.assertCompanyActor(
+      req.user,
+    );
+
+    return this.notificationsService.getDashboardStats(companyId);
   }
 
   @Post('test')
@@ -112,6 +151,119 @@ export class NotificationsController {
       req.user,
     );
     return this.notificationsService.listDeliveryLogs(companyId, query);
+  }
+
+  @Get('templates')
+  @UseGuards(TenantGuard, PermissionsGuard)
+  @Permissions('notifications:settings:read')
+  listTemplates(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: NotificationTemplateQueryDto,
+  ) {
+    const { companyId } = this.notificationsService.assertCompanyActor(
+      req.user,
+    );
+    return this.notificationConfigurationService.listTemplates(
+      companyId,
+      query,
+    );
+  }
+
+  @Get('templates/:id')
+  @UseGuards(TenantGuard, PermissionsGuard)
+  @Permissions('notifications:settings:read')
+  getTemplate(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    const { companyId } = this.notificationsService.assertCompanyActor(
+      req.user,
+    );
+    return this.notificationConfigurationService.getTemplate(companyId, id);
+  }
+
+  @Post('templates')
+  @UseGuards(TenantGuard, PermissionsGuard)
+  @Permissions('notifications:settings:update')
+  createTemplate(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: UpsertNotificationTemplateDto,
+  ) {
+    const { companyId } = this.notificationsService.assertCompanyActor(
+      req.user,
+    );
+    return this.notificationConfigurationService.createTemplate(companyId, dto);
+  }
+
+  @Patch('templates/:id')
+  @UseGuards(TenantGuard, PermissionsGuard)
+  @Permissions('notifications:settings:update')
+  updateTemplate(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateNotificationTemplateDto,
+  ) {
+    const { companyId } = this.notificationsService.assertCompanyActor(
+      req.user,
+    );
+    return this.notificationConfigurationService.updateTemplate(
+      companyId,
+      id,
+      dto,
+    );
+  }
+
+  @Get('rules')
+  @UseGuards(TenantGuard, PermissionsGuard)
+  @Permissions('notifications:settings:read')
+  listRules(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: NotificationRuleQueryDto,
+  ) {
+    const { companyId } = this.notificationsService.assertCompanyActor(
+      req.user,
+    );
+    return this.notificationConfigurationService.listRules(companyId, query);
+  }
+
+  @Get('rules/:id')
+  @UseGuards(TenantGuard, PermissionsGuard)
+  @Permissions('notifications:settings:read')
+  getRule(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    const { companyId } = this.notificationsService.assertCompanyActor(
+      req.user,
+    );
+    return this.notificationConfigurationService.getRule(companyId, id);
+  }
+
+  @Post('rules')
+  @UseGuards(TenantGuard, PermissionsGuard)
+  @Permissions('notifications:settings:update')
+  createRule(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: UpsertNotificationRuleDto,
+  ) {
+    const { companyId } = this.notificationsService.assertCompanyActor(
+      req.user,
+    );
+    return this.notificationConfigurationService.createRule(companyId, dto);
+  }
+
+  @Patch('rules/:id')
+  @UseGuards(TenantGuard, PermissionsGuard)
+  @Permissions('notifications:settings:update')
+  updateRule(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateNotificationRuleDto,
+  ) {
+    const { companyId } = this.notificationsService.assertCompanyActor(
+      req.user,
+    );
+    return this.notificationConfigurationService.updateRule(companyId, id, dto);
   }
 
   @Get('deliveries/:id')
@@ -319,6 +471,22 @@ export class NotificationsController {
       this.notificationsService.assertCompanyActor(req.user);
 
     return this.notificationsService.markAsSeen(
+      companyId,
+      companyMembershipId,
+      id,
+    );
+  }
+
+  @Get(':id')
+  @UseGuards(TenantGuard)
+  findOneMine(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    const { companyId, companyMembershipId } =
+      this.notificationsService.assertCompanyActor(req.user);
+
+    return this.notificationsService.findOneMine(
       companyId,
       companyMembershipId,
       id,
