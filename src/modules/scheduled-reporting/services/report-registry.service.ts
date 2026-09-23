@@ -193,10 +193,11 @@ export const REGISTERED_REPORT_DEFINITIONS: RegisteredReportDefinition[] = [
     'leave_reports.view',
     'leave-balances.view',
   ]),
-  operationalDefinition('LEAVE_PENDING_APPROVAL', 'Leave Pending Approval Report', [
-    'leave_reports.view',
-    'leave_requests:read',
-  ]),
+  operationalDefinition(
+    'LEAVE_PENDING_APPROVAL',
+    'Leave Pending Approval Report',
+    ['leave_reports.view', 'leave_requests:read'],
+  ),
   operationalDefinition('PAYROLL_REGISTER', 'Payroll Register', [
     'payroll_reports.view',
     'payroll:reports',
@@ -209,18 +210,20 @@ export const REGISTERED_REPORT_DEFINITIONS: RegisteredReportDefinition[] = [
     'loan_reports.view',
     'employee_finance:reports',
   ]),
-  operationalDefinition('FIELD_VISIT_MAP', 'Map-Based Movement / Visit Report', [
-    'field_reports.view',
-    'field_locations:read',
-  ]),
+  operationalDefinition(
+    'FIELD_VISIT_MAP',
+    'Map-Based Movement / Visit Report',
+    ['field_reports.view', 'field_locations:read'],
+  ),
   operationalDefinition('KPI_ASSIGNMENTS', 'Employee KPI Assignment Report', [
     'performance_reports.view',
     'performance_kpis:read',
   ]),
-  operationalDefinition('KPI_TARGET_VS_ACHIEVEMENT', 'Monthly KPI Target vs Achievement', [
-    'performance_reports.view',
-    'performance_kpis:read',
-  ]),
+  operationalDefinition(
+    'KPI_TARGET_VS_ACHIEVEMENT',
+    'Monthly KPI Target vs Achievement',
+    ['performance_reports.view', 'performance_kpis:read'],
+  ),
   operationalDefinition('MONTHLY_KPI_SCORE', 'Monthly KPI Score', [
     'performance_reports.view',
     'performance_reports:read',
@@ -237,14 +240,16 @@ export const REGISTERED_REPORT_DEFINITIONS: RegisteredReportDefinition[] = [
     'performance_reports.view',
     'performance_reports:read',
   ]),
-  operationalDefinition('ATTENDANCE_EXCEPTIONS', 'Attendance Exception Report', [
-    'attendance_reports.view',
-    'attendance_summaries:read',
-  ]),
-  operationalDefinition('ATTENDANCE_CORRECTIONS', 'Attendance Correction Report', [
-    'attendance_reports.view',
-    'attendance_summaries:read',
-  ]),
+  operationalDefinition(
+    'ATTENDANCE_EXCEPTIONS',
+    'Attendance Exception Report',
+    ['attendance_reports.view', 'attendance_summaries:read'],
+  ),
+  operationalDefinition(
+    'ATTENDANCE_CORRECTIONS',
+    'Attendance Correction Report',
+    ['attendance_reports.view', 'attendance_summaries:read'],
+  ),
 ];
 
 @Injectable()
@@ -293,9 +298,7 @@ export class ReportRegistryService {
       this.endOfDayAttendanceReportRunner,
     );
     for (const definition of REGISTERED_REPORT_DEFINITIONS) {
-      if (
-        definition.generatorService === 'OperationalAnalyticsReportRunner'
-      ) {
+      if (definition.generatorService === 'OperationalAnalyticsReportRunner') {
         this.runners.set(
           definition.reportCode,
           this.operationalAnalyticsReportRunner,

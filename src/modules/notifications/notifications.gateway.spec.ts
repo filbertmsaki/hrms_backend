@@ -3,7 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Repository } from 'typeorm';
 import { TokenBlacklistService } from '../auth/token-blacklist.service';
 import { CompanyUser } from '../companies/entities/company-user.entity';
-import { UsersService } from '../users/users.service';
+import { User } from '../users/entities/user.entity';
 import { NotificationsGateway } from './notifications.gateway';
 
 describe('NotificationsGateway', () => {
@@ -17,7 +17,7 @@ describe('NotificationsGateway', () => {
       configService,
       {} as Repository<CompanyUser>,
       {} as TokenBlacklistService,
-      {} as UsersService,
+      {} as Repository<User>,
     );
   };
 

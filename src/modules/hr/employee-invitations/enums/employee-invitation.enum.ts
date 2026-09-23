@@ -8,6 +8,7 @@ export enum EmployeeInvitationStatus {
 
 export enum EmployeeInvitationDeliveryStatus {
   QUEUED = 'queued',
+  ACCEPTED = 'accepted',
   SENT = 'sent',
   FAILED = 'failed',
 }

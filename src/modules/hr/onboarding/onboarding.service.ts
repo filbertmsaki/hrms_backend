@@ -46,6 +46,8 @@ import { DelegateOnboardingApprovalDto } from './dtos/delegate-onboarding-approv
 import { OnboardingProvisioningDto } from './dtos/onboarding-provisioning.dto';
 import { OnboardingApprovalActionDto } from './dtos/onboarding-approval-action.dto';
 import { OnboardingRequestQueryDto } from './dtos/onboarding-request-query.dto';
+import { ReviewOnboardingEmployeeDetailsDto } from './dtos/review-onboarding-employee-details.dto';
+import { StartOnboardingWorkflowDto } from './dtos/start-onboarding-workflow.dto';
 import { OnboardingWorkflowQueryDto } from './dtos/onboarding-workflow-query.dto';
 import { OnboardingWorkflowStepInputDto } from './dtos/onboarding-workflow-step-input.dto';
 import { UpdateOnboardingRequestDto } from './dtos/update-onboarding-request.dto';
@@ -77,8 +79,11 @@ import { ConfigService } from '@nestjs/config';
 import {
   NotificationRecipient,
   OnboardingCompletedEvent,
+  OnboardingEmployeeDetailsReturnedEvent,
+  OnboardingEmployeeDetailsSubmittedEvent,
   OnboardingSubmittedEvent,
   OnboardingTaskAssignedEvent,
+  OnboardingTaskCompletedEvent,
 } from '../notifications/events';
 import { buildNotificationRecipient } from '../notifications/notification-recipient.util';
 import { FilesService } from '../../files/files.service';
@@ -95,6 +100,30 @@ type ProgressSummary = {
   approved_approvals: number;
   progress_percentage: string;
 };
+
+type EmployeeDetailReviewDecision = {
+  status: 'pending' | 'approved' | 'changes_requested';
+  comment: string | null;
+  reviewed_at: string | null;
+  reviewed_by_company_user_id: number | null;
+};
+
+const EMPLOYEE_DETAIL_SECTIONS = [
+  ['personal', 'Personal details'],
+  ['assignment', 'Employment assignment'],
+  ['contacts', 'Contacts and addresses'],
+  ['family', 'Emergency contacts and relatives'],
+  ['identification', 'Identification'],
+  ['banking', 'Banking details'],
+  ['education', 'Education and qualifications'],
+  ['experience', 'Work experience'],
+] as const;
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
 
 type OnboardingProvisioningPayload = {
   role_ids?: number[];
@@ -342,6 +371,35 @@ export class OnboardingService {
     }
   }
 
+  private readWorkflowChecklistItems(
+    metadata: Record<string, unknown> | null | undefined,
+  ): Array<{ name: string; description: string }> {
+    const raw = metadata?.checklist_items ?? metadata?.checklistItems;
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+    return raw
+      .map((item) => {
+        if (typeof item === 'string') {
+          const name = item.trim();
+          return name ? { name, description: '' } : null;
+        }
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+          return null;
+        }
+        const record = item as Record<string, unknown>;
+        const name = typeof record.name === 'string' ? record.name.trim() : '';
+        const description =
+          typeof record.description === 'string'
+            ? record.description.trim()
+            : '';
+        return name ? { name, description } : null;
+      })
+      .filter(
+        (item): item is { name: string; description: string } => item !== null,
+      );
+  }
+
   private validateWorkflowStepRules(
     step: OnboardingWorkflowStepInputDto,
   ): void {
@@ -351,8 +409,27 @@ export class OnboardingService {
       !step.assigned_department_id
     ) {
       throw new BadRequestException(
-        `Step "${step.name}" must have assigned_role_id, assigned_user_id or assigned_department_id`,
+        `Step "${step.name}" must have assigned_role_id, assigned_user_id, or assigned_department_id`,
       );
+    }
+
+    const rawChecklist =
+      step.metadata?.checklist_items ?? step.metadata?.checklistItems;
+    if (rawChecklist !== undefined) {
+      const checklistItems = this.readWorkflowChecklistItems(step.metadata);
+      if (
+        !Array.isArray(rawChecklist) ||
+        rawChecklist.length === 0 ||
+        rawChecklist.length > 50 ||
+        checklistItems.length !== rawChecklist.length ||
+        checklistItems.some(
+          (item) => item.name.length > 120 || item.description.length > 1000,
+        )
+      ) {
+        throw new BadRequestException(
+          `Step "${step.name}" checklist must contain 1 to 50 named items; names may be at most 120 characters and descriptions at most 1000 characters`,
+        );
+      }
     }
 
     if (
@@ -1411,6 +1488,228 @@ export class OnboardingService {
     };
   }
 
+  private reviewDisplayValue(value: unknown): string {
+    if (value === null || value === undefined || value === '') return '-';
+    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+    if (value instanceof Date) return value.toISOString();
+    if (typeof value === 'string' || typeof value === 'number') {
+      return String(value);
+    }
+    return JSON.stringify(value);
+  }
+
+  private reviewList(values: string[]): string {
+    return values.filter((value) => value.trim()).join('; ') || '-';
+  }
+
+  private buildEmployeeDetailReview(entity: OnboardingRequest) {
+    const employee = entity.employee;
+    const metadata = recordValue(entity.metadata);
+    const review = recordValue(metadata.employee_details_review);
+    const decisions = recordValue(review.sections);
+    const field = (label: string, value: unknown) => ({
+      label,
+      value: this.reviewDisplayValue(value),
+    });
+    const fieldsBySection: Record<
+      (typeof EMPLOYEE_DETAIL_SECTIONS)[number][0],
+      Array<{ label: string; value: string }>
+    > = {
+      personal: [
+        field('First name', employee?.first_name),
+        field('Middle name', employee?.middle_name),
+        field('Last name', employee?.last_name),
+        field('Preferred name', employee?.preferred_name),
+        field('Gender', employee?.gender),
+        field('Date of birth', employee?.date_of_birth),
+        field('Marital status', employee?.marital_status),
+        field('Nationality', employee?.nationality),
+      ],
+      assignment: [
+        field('Employee number', employee?.employee_no),
+        field('Branch', employee?.primary_branch?.name),
+        field('Department', employee?.primary_department?.name),
+        field('Position', employee?.primary_position?.name),
+        field('Employment type', employee?.employment_type),
+        field('Hire date', employee?.hire_date),
+        field(
+          'Reports to',
+          employee?.manager
+            ? `${employee.manager.first_name} ${employee.manager.last_name}`.trim()
+            : null,
+        ),
+      ],
+      contacts: [
+        field(
+          'Contacts',
+          this.reviewList(
+            employee?.contacts?.map((contact) =>
+              [
+                contact.contact_type,
+                contact.email,
+                contact.phone_number,
+                contact.is_primary ? 'primary' : '',
+              ]
+                .filter(Boolean)
+                .join(' · '),
+            ) ?? [],
+          ),
+        ),
+        field(
+          'Addresses',
+          this.reviewList(
+            employee?.addresses?.map((address) =>
+              [
+                address.address_type,
+                address.address_line_1,
+                address.address_line_2,
+                address.city,
+                address.state,
+                address.country,
+                address.postal_code,
+              ]
+                .filter(Boolean)
+                .join(', '),
+            ) ?? [],
+          ),
+        ),
+      ],
+      family: [
+        field(
+          'Relatives and emergency contacts',
+          this.reviewList(
+            employee?.relatives?.map((relative) =>
+              [
+                relative.full_name,
+                relative.relationship,
+                relative.phone,
+                relative.email,
+                relative.is_emergency_contact ? 'emergency contact' : '',
+              ]
+                .filter(Boolean)
+                .join(' · '),
+            ) ?? [],
+          ),
+        ),
+      ],
+      identification: [
+        field(
+          'Identification documents',
+          this.reviewList(
+            employee?.identifications?.map((identification) =>
+              [
+                identification.identification_type,
+                identification.identification_number,
+                identification.issued_country,
+                identification.expiry_date
+                  ? `expires ${identification.expiry_date}`
+                  : '',
+              ]
+                .filter(Boolean)
+                .join(' · '),
+            ) ?? [],
+          ),
+        ),
+      ],
+      banking: [
+        field(
+          'Bank and mobile money accounts',
+          this.reviewList(
+            employee?.bank_accounts?.map((account) =>
+              [
+                account.bank_name ?? account.mobile_money_provider,
+                account.account_name,
+                account.account_number,
+                account.branch_name,
+                account.account_currency,
+              ]
+                .filter(Boolean)
+                .join(' · '),
+            ) ?? [],
+          ),
+        ),
+      ],
+      education: [
+        field(
+          'Academic qualifications',
+          this.reviewList(
+            employee?.academic_qualifications?.map((qualification) =>
+              [
+                qualification.education_level,
+                qualification.degree_or_certificate,
+                qualification.field_of_study,
+                qualification.institution_name,
+              ]
+                .filter(Boolean)
+                .join(' · '),
+            ) ?? [],
+          ),
+        ),
+        field(
+          'Professional qualifications',
+          this.reviewList(
+            employee?.professional_qualifications?.map((qualification) =>
+              [
+                qualification.programme_name,
+                qualification.issuing_organization,
+                qualification.institution_name,
+                qualification.issue_date,
+              ]
+                .filter(Boolean)
+                .join(' · '),
+            ) ?? [],
+          ),
+        ),
+      ],
+      experience: [
+        field(
+          'Previous employment',
+          this.reviewList(
+            employee?.experience_details?.map((experience) =>
+              [
+                experience.company_name,
+                experience.job_title,
+                experience.start_date,
+                experience.currently_working ? 'current' : experience.end_date,
+                experience.responsibilities_description,
+              ]
+                .filter(Boolean)
+                .join(' · '),
+            ) ?? [],
+          ),
+        ),
+      ],
+    };
+
+    return {
+      status:
+        typeof review.status === 'string' ? review.status : 'not_submitted',
+      submitted_at:
+        typeof review.submitted_at === 'string' ? review.submitted_at : null,
+      reviewed_at:
+        typeof review.reviewed_at === 'string' ? review.reviewed_at : null,
+      workflow_started_before_approval:
+        recordValue(metadata.workflow_start).incomplete_details_override ===
+        true,
+      sections: EMPLOYEE_DETAIL_SECTIONS.map(([key, label]) => {
+        const decision = recordValue(decisions[key]);
+        return {
+          key,
+          label,
+          status:
+            typeof decision.status === 'string' ? decision.status : 'pending',
+          comment:
+            typeof decision.comment === 'string' ? decision.comment : null,
+          reviewed_at:
+            typeof decision.reviewed_at === 'string'
+              ? decision.reviewed_at
+              : null,
+          fields: fieldsBySection[key],
+        };
+      }),
+    };
+  }
+
   private mapRequest(entity: OnboardingRequest, documents: Document[] = []) {
     return {
       id: entity.id,
@@ -1448,6 +1747,7 @@ export class OnboardingService {
       activation_worker_id: entity.activation_worker_id,
       metadata: entity.metadata,
       provisioning: this.readProvisioningMetadata(entity),
+      employee_details_review: this.buildEmployeeDetailReview(entity),
       version: entity.version,
       created_at: entity.created_at,
       updated_at: entity.updated_at,
@@ -1581,8 +1881,27 @@ export class OnboardingService {
       return;
     }
 
-    if (this.hrAccessService.hasCompanyScope(actor)) {
+    if (
+      this.hrAccessService.hasCompanyScope(actor) &&
+      hasPermission(actor.permissions, 'onboarding_tasks:complete')
+    ) {
       return;
+    }
+
+    if (assignedDepartmentId && actor.employeeId) {
+      const belongsToDepartment = await this.employeeRepository
+        .createQueryBuilder('employee')
+        .leftJoin('employee.department_assignments', 'departmentAssignment')
+        .where('employee.id = :employeeId', { employeeId: actor.employeeId })
+        .andWhere(
+          '(employee.primary_department_id = :departmentId OR departmentAssignment.department_id = :departmentId)',
+          { departmentId: assignedDepartmentId },
+        )
+        .getExists();
+
+      if (belongsToDepartment) {
+        return;
+      }
     }
 
     if (
@@ -1594,9 +1913,26 @@ export class OnboardingService {
       return;
     }
 
+    const assignedRoleId =
+      task.assigned_company_user_id || task.assigned_department_id
+        ? null
+        : (task.workflow_step?.assigned_role_id ?? null);
+    if (assignedRoleId && actor.companyMembershipId) {
+      const hasAssignedRole = await this.companyUserRoleRepository.exists({
+        where: {
+          company_user_id: actor.companyMembershipId,
+          role_id: assignedRoleId,
+        },
+      });
+      if (hasAssignedRole) {
+        return;
+      }
+    }
+
     if (
       !task.assigned_company_user_id &&
       !task.assigned_department_id &&
+      !assignedRoleId &&
       hasPermission(actor.permissions, 'onboarding_tasks:complete')
     ) {
       return;
@@ -1605,6 +1941,92 @@ export class OnboardingService {
     throw new ForbiddenException(
       'You are not allowed to complete this onboarding task',
     );
+  }
+
+  private async resolveTaskRecipients(
+    companyId: number,
+    assignment: {
+      assigned_user_id?: number | null;
+      assigned_role_id?: number | null;
+      assigned_department_id?: number | null;
+    },
+    manager?: EntityManager,
+  ): Promise<CompanyUser[]> {
+    const conditions: string[] = [];
+    const parameters: Record<string, number> = { companyId };
+    const repository =
+      manager?.getRepository(CompanyUser) ?? this.companyUserRepository;
+    const query = repository
+      .createQueryBuilder('companyUser')
+      .innerJoinAndSelect('companyUser.user', 'user')
+      .where('companyUser.company_id = :companyId', { companyId })
+      .andWhere("LOWER(companyUser.status) = 'active'")
+      .distinct(true);
+
+    if (assignment.assigned_user_id) {
+      conditions.push('companyUser.id = :assignedUserId');
+      parameters.assignedUserId = assignment.assigned_user_id;
+    } else if (assignment.assigned_department_id) {
+      query
+        .leftJoin('companyUser.employee', 'employee')
+        .leftJoin('employee.department_assignments', 'departmentAssignment');
+      conditions.push('employee.primary_department_id = :assignedDepartmentId');
+      conditions.push(
+        'departmentAssignment.department_id = :assignedDepartmentId',
+      );
+      parameters.assignedDepartmentId = assignment.assigned_department_id;
+    } else if (assignment.assigned_role_id) {
+      query.leftJoin('companyUser.role_assignments', 'roleAssignment');
+      conditions.push('roleAssignment.role_id = :assignedRoleId');
+      parameters.assignedRoleId = assignment.assigned_role_id;
+    }
+
+    if (!conditions.length) {
+      return [];
+    }
+
+    return query.andWhere(`(${conditions.join(' OR ')})`, parameters).getMany();
+  }
+
+  private emitTaskAssignedToRecipients(input: {
+    recipients: CompanyUser[];
+    employeeName: string;
+    task: OnboardingTask;
+    companyId: number;
+    onboardingRequestId: number;
+    senderCompanyUserId: number | null;
+  }): void {
+    const frontendUrl =
+      this.configService.get<string>('APP_FRONTEND_URL') ??
+      'http://localhost:5173';
+    const taskUrl = `${frontendUrl.replace(/\/$/, '')}/dashboard/me/requests/actions`;
+
+    for (const companyUser of input.recipients) {
+      const assignee = companyUser.user;
+      const assigneeName =
+        `${assignee.first_name ?? ''} ${assignee.last_name ?? ''}`.trim() ||
+        assignee.email ||
+        'Team member';
+
+      this.eventEmitter.emit(
+        OnboardingTaskAssignedEvent.EVENT,
+        new OnboardingTaskAssignedEvent(
+          assigneeName,
+          assignee.email?.trim() ?? '',
+          input.employeeName,
+          input.task.title,
+          input.task.description,
+          input.task.due_date,
+          taskUrl,
+          input.companyId,
+          input.onboardingRequestId,
+          input.task.id,
+          companyUser.id,
+          input.senderCompanyUserId,
+          input.task.task_no,
+        ),
+      );
+    }
   }
 
   private async synchronizeDocumentTasks(
@@ -1687,74 +2109,65 @@ export class OnboardingService {
     const taskRepository = this.getOnboardingTaskRepository(manager);
     const employeeName =
       `${onboardingRequest.employee?.first_name ?? ''} ${onboardingRequest.employee?.last_name ?? ''}`.trim();
-    const frontendUrl =
-      this.configService.get<string>('APP_FRONTEND_URL') ??
-      'http://localhost:5173';
-
     for (const step of steps) {
       if (step.step_type === OnboardingStepTypeEnum.SIGN_OFF) {
         continue;
       }
 
-      const taskNo = await this.generateTaskNo(onboardingRequest.id, manager);
       const dueDate = step.due_days
         ? new Date(Date.now() + step.due_days * 86400000)
         : null;
-
-      const savedTask = await taskRepository.save(
-        taskRepository.create({
-          onboarding_request_id: onboardingRequest.id,
-          workflow_step_id: step.id,
-          task_no: taskNo,
-          title: step.name,
-          description: step.description,
-          task_type: this.resolveWorkflowTaskType(
-            step.step_type,
-            step.task_type,
-          ),
-          status: OnboardingTaskStatusEnum.PENDING,
-          is_required: step.is_required,
-          assigned_department_id: step.assigned_department_id ?? null,
-          assigned_company_user_id: step.assigned_user_id ?? null,
-          required_document_type_code: step.required_document_type_code ?? null,
-          requires_verified_document: step.requires_verified_document,
-          completion_evidence_required: step.completion_evidence_required,
-          due_date: dueDate,
-          created_by_company_user_id: actor.companyMembershipId ?? null,
-        }),
+      const recipients = await this.resolveTaskRecipients(
+        onboardingRequest.company_id,
+        step,
+        manager,
       );
+      const checklistItems = this.readWorkflowChecklistItems(step.metadata);
+      const taskDefinitions = checklistItems.length
+        ? checklistItems.map((item, index) => ({
+            title: `${step.name} — ${index + 1}. ${item.name}`,
+            description:
+              [step.description, item.description]
+                .filter((value): value is string => Boolean(value?.trim()))
+                .join('\n\n') || null,
+          }))
+        : [{ title: step.name, description: step.description }];
 
-      if (step.assigned_user_id) {
-        const companyUser =
-          step.assigned_user ??
-          (await this.companyUserRepository.findOne({
-            where: { id: step.assigned_user_id },
-            relations: { user: true },
-          }));
-        if (companyUser?.user?.email) {
-          const assignee = companyUser.user;
-          const assigneeName =
-            `${assignee.first_name ?? ''} ${assignee.last_name ?? ''}`.trim() ||
-            assignee.email;
-          this.eventEmitter.emit(
-            OnboardingTaskAssignedEvent.EVENT,
-            new OnboardingTaskAssignedEvent(
-              assigneeName,
-              assignee.email,
-              employeeName,
-              step.name,
-              step.description ?? null,
-              dueDate,
-              `${frontendUrl}/onboarding/${onboardingRequest.id}/tasks`,
-              onboardingRequest.company_id,
-              onboardingRequest.id,
-              savedTask.id,
-              companyUser.id,
-              onboardingRequest.created_by_company_user_id ?? null,
-              savedTask.task_no ?? taskNo,
+      for (const taskDefinition of taskDefinitions) {
+        const taskNo = await this.generateTaskNo(onboardingRequest.id, manager);
+        const savedTask = await taskRepository.save(
+          taskRepository.create({
+            onboarding_request_id: onboardingRequest.id,
+            workflow_step_id: step.id,
+            task_no: taskNo,
+            title: taskDefinition.title,
+            description: taskDefinition.description,
+            task_type: this.resolveWorkflowTaskType(
+              step.step_type,
+              step.task_type,
             ),
-          );
-        }
+            status: OnboardingTaskStatusEnum.PENDING,
+            is_required: step.is_required,
+            assigned_department_id: step.assigned_department_id ?? null,
+            assigned_company_user_id: step.assigned_user_id ?? null,
+            required_document_type_code:
+              step.required_document_type_code ?? null,
+            requires_verified_document: step.requires_verified_document,
+            completion_evidence_required: step.completion_evidence_required,
+            due_date: dueDate,
+            created_by_company_user_id: actor.companyMembershipId ?? null,
+          }),
+        );
+
+        this.emitTaskAssignedToRecipients({
+          recipients,
+          employeeName: employeeName || 'Employee',
+          task: savedTask,
+          companyId: onboardingRequest.company_id,
+          onboardingRequestId: onboardingRequest.id,
+          senderCompanyUserId:
+            onboardingRequest.created_by_company_user_id ?? null,
+        });
       }
     }
 
@@ -1779,8 +2192,18 @@ export class OnboardingService {
       relations: {
         employee: {
           company_user: true,
+          primary_branch: true,
           primary_department: true,
           primary_position: true,
+          manager: true,
+          contacts: true,
+          addresses: true,
+          relatives: true,
+          identifications: true,
+          bank_accounts: true,
+          academic_qualifications: true,
+          professional_qualifications: true,
+          experience_details: true,
         },
         workflow: true,
         tasks: true,
@@ -2679,6 +3102,11 @@ export class OnboardingService {
         dto.workflow_id !== undefined &&
         dto.workflow_id !== current.workflow_id;
       if (workflowChanged) {
+        if (current.status !== OnboardingRequestStatusEnum.DRAFT) {
+          throw new ConflictException(
+            'The workflow can only be changed before onboarding starts',
+          );
+        }
         const workflow = await this.findOnboardingWorkflowOrFail(
           companyId,
           (
@@ -2696,20 +3124,6 @@ export class OnboardingService {
         await approvalRepository.delete({ onboarding_request_id: current.id });
         await taskRepository.delete({ onboarding_request_id: current.id });
         await this.lockWorkflowIfNeeded(workflow, manager);
-
-        const init =
-          await this.onboardingWorkflowService.initializeApprovalsForRequest(
-            companyId,
-            current,
-            workflow.id,
-            manager,
-          );
-        await this.createTasksFromWorkflowSteps(
-          current,
-          init.steps,
-          actor,
-          manager,
-        );
       }
 
       await repository.save(current);
@@ -2745,6 +3159,351 @@ export class OnboardingService {
     const documents = await this.loadOnboardingDocuments(companyId, updated.id);
 
     return this.mapRequest(updated, documents);
+  }
+
+  async submitEmployeeDetailsForReview(
+    companyId: number,
+    onboardingRequestId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
+    if (
+      actor.employeeId !== request.employee_id &&
+      actor.companyMembershipId !== request.employee.company_user_id
+    ) {
+      throw new ForbiddenException(
+        'Only the employee on this onboarding request can submit these details',
+      );
+    }
+    if (
+      [
+        OnboardingRequestStatusEnum.CANCELLED,
+        OnboardingRequestStatusEnum.COMPLETED,
+        OnboardingRequestStatusEnum.ACTIVATING,
+      ].includes(request.status)
+    ) {
+      throw new ConflictException(
+        'Employee details cannot be submitted after onboarding is closed',
+      );
+    }
+
+    const submittedAt = new Date();
+    const metadata = { ...(request.metadata ?? {}) };
+    const previousReview = recordValue(metadata.employee_details_review);
+    const previousSections = recordValue(previousReview.sections);
+    const sections = Object.fromEntries(
+      EMPLOYEE_DETAIL_SECTIONS.map(([key]) => {
+        const previous = recordValue(previousSections[key]);
+        return [
+          key,
+          {
+            status: 'pending',
+            comment:
+              typeof previous.comment === 'string' ? previous.comment : null,
+            reviewed_at: null,
+            reviewed_by_company_user_id: null,
+          } satisfies EmployeeDetailReviewDecision,
+        ];
+      }),
+    );
+    metadata.employee_details_review = {
+      status: 'submitted',
+      submitted_at: submittedAt.toISOString(),
+      submitted_by_user_id: actor.id,
+      reviewed_at: null,
+      sections,
+    };
+    request.metadata = metadata;
+    await this.onboardingRequestRepository.save(request);
+
+    await this.onboardingAuditService.log({
+      company_id: companyId,
+      onboarding_request_id: request.id,
+      action: 'onboarding_employee_details.submitted',
+      entity_name: 'onboarding_request',
+      entity_id: request.id,
+      actor,
+      payload: { submitted_at: submittedAt.toISOString() },
+    });
+
+    if (
+      request.created_by_company_user_id &&
+      request.employee.company_user_id
+    ) {
+      const frontendUrl =
+        this.configService.get<string>('APP_FRONTEND_URL') ??
+        'http://localhost:5173';
+      this.eventEmitter.emit(
+        OnboardingEmployeeDetailsSubmittedEvent.EVENT,
+        new OnboardingEmployeeDetailsSubmittedEvent(
+          companyId,
+          request.id,
+          request.onboarding_no,
+          `${request.employee.first_name} ${request.employee.last_name}`.trim(),
+          request.created_by_company_user_id,
+          request.employee.company_user_id,
+          `${frontendUrl}/dashboard/employees/onboarding?tab=requests&request_id=${request.id}`,
+        ),
+      );
+    }
+
+    return this.findOneOnboardingRequest(companyId, request.id, actor);
+  }
+
+  async reviewEmployeeDetails(
+    companyId: number,
+    onboardingRequestId: number,
+    dto: ReviewOnboardingEmployeeDetailsDto,
+    actor: AuthenticatedUser,
+  ) {
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
+    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    if (
+      [
+        OnboardingRequestStatusEnum.CANCELLED,
+        OnboardingRequestStatusEnum.COMPLETED,
+        OnboardingRequestStatusEnum.ACTIVATING,
+      ].includes(request.status)
+    ) {
+      throw new ConflictException(
+        'Employee details cannot be reviewed after onboarding is closed',
+      );
+    }
+
+    const validKeys = new Set(EMPLOYEE_DETAIL_SECTIONS.map(([key]) => key));
+    const metadata = { ...(request.metadata ?? {}) };
+    const previousReview = recordValue(metadata.employee_details_review);
+    if (
+      previousReview.status !== 'submitted' &&
+      previousReview.status !== 'in_review' &&
+      previousReview.status !== 'changes_requested'
+    ) {
+      throw new ConflictException(
+        'The employee has not submitted details for review',
+      );
+    }
+    const previousSections = recordValue(previousReview.sections);
+    const reviewedAt = new Date();
+
+    for (const section of dto.sections) {
+      if (
+        !validKeys.has(
+          section.section_key as (typeof EMPLOYEE_DETAIL_SECTIONS)[number][0],
+        )
+      ) {
+        throw new BadRequestException(
+          `Unknown employee detail section: ${section.section_key}`,
+        );
+      }
+      const comment = section.comment?.trim() || null;
+      if (section.status === 'changes_requested' && !comment) {
+        throw new BadRequestException(
+          `A reason is required when returning ${section.section_key} for changes`,
+        );
+      }
+      previousSections[section.section_key] = {
+        status: section.status,
+        comment,
+        reviewed_at: reviewedAt.toISOString(),
+        reviewed_by_company_user_id: actor.companyMembershipId ?? null,
+      } satisfies EmployeeDetailReviewDecision;
+    }
+
+    const decisions = EMPLOYEE_DETAIL_SECTIONS.map(([key]) =>
+      recordValue(previousSections[key]),
+    );
+    const hasChangesRequested = decisions.some(
+      (section) => section.status === 'changes_requested',
+    );
+    const allApproved = decisions.every(
+      (section) => section.status === 'approved',
+    );
+    const reviewStatus = hasChangesRequested
+      ? 'changes_requested'
+      : allApproved
+        ? 'approved'
+        : 'in_review';
+    metadata.employee_details_review = {
+      ...previousReview,
+      status: reviewStatus,
+      reviewed_at: reviewedAt.toISOString(),
+      sections: previousSections,
+    };
+    request.metadata = metadata;
+    await this.onboardingRequestRepository.save(request);
+
+    await this.onboardingAuditService.log({
+      company_id: companyId,
+      onboarding_request_id: request.id,
+      action: hasChangesRequested
+        ? 'onboarding_employee_details.changes_requested'
+        : 'onboarding_employee_details.reviewed',
+      entity_name: 'onboarding_request',
+      entity_id: request.id,
+      actor,
+      payload: { status: reviewStatus, sections: dto.sections },
+    });
+
+    if (hasChangesRequested && request.employee.company_user_id) {
+      const returnedLabels = EMPLOYEE_DETAIL_SECTIONS.filter(([key]) => {
+        const decision = recordValue(previousSections[key]);
+        return decision.status === 'changes_requested';
+      }).map(([, label]) => label);
+      const frontendUrl =
+        this.configService.get<string>('APP_FRONTEND_URL') ??
+        'http://localhost:5173';
+      this.eventEmitter.emit(
+        OnboardingEmployeeDetailsReturnedEvent.EVENT,
+        new OnboardingEmployeeDetailsReturnedEvent(
+          companyId,
+          request.id,
+          request.onboarding_no,
+          `${request.employee.first_name} ${request.employee.last_name}`.trim(),
+          request.employee.company_user_id,
+          actor.companyMembershipId ?? null,
+          returnedLabels,
+          `${frontendUrl}/dashboard/me/onboarding`,
+        ),
+      );
+    }
+
+    return this.findOneOnboardingRequest(companyId, request.id, actor);
+  }
+
+  async submitDraftOnboardingRequest(
+    companyId: number,
+    onboardingRequestId: number,
+    dto: StartOnboardingWorkflowDto,
+    actor: AuthenticatedUser,
+  ) {
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
+    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    if (request.status !== OnboardingRequestStatusEnum.DRAFT) {
+      throw new ConflictException(
+        'Only a draft onboarding request can be started',
+      );
+    }
+
+    const review = recordValue(request.metadata?.employee_details_review);
+    const detailsApproved = review.status === 'approved';
+    if (!detailsApproved && !dto.allow_incomplete_employee_details) {
+      throw new BadRequestException(
+        'Employee details must be submitted and approved before starting the workflow. Enable the incomplete-details override to start it early.',
+      );
+    }
+
+    const submitted = await this.dataSource.transaction(async (manager) => {
+      const repository = this.getOnboardingRequestRepository(manager);
+      const current = await repository.findOneOrFail({
+        where: { id: onboardingRequestId, company_id: companyId },
+      });
+      if (current.status !== OnboardingRequestStatusEnum.DRAFT) {
+        throw new ConflictException(
+          'This onboarding request has already been started',
+        );
+      }
+      if (!current.workflow_id) {
+        throw new BadRequestException(
+          'Select an onboarding workflow before starting this request',
+        );
+      }
+
+      const workflow = await this.findOnboardingWorkflowOrFail(
+        companyId,
+        current.workflow_id,
+        manager,
+      );
+      const approvers = await this.onboardingWorkflowService.prepareApprovers(
+        companyId,
+        workflow.steps,
+        manager,
+      );
+      if (approvers.failures.length) {
+        throw new BadRequestException(
+          `Required workflow step at order ${approvers.failures[0].step_order} has no eligible assignee`,
+        );
+      }
+      if (
+        !approvers.assignments.some(({ membershipIds }) => membershipIds.length)
+      ) {
+        throw new BadRequestException('Workflow has no eligible assignees');
+      }
+
+      await this.getOnboardingApprovalRepository(manager).delete({
+        onboarding_request_id: current.id,
+      });
+      await this.getOnboardingTaskRepository(manager).delete({
+        onboarding_request_id: current.id,
+      });
+      const initialized =
+        await this.onboardingWorkflowService.initializeApprovalsForRequest(
+          companyId,
+          current,
+          workflow.id,
+          manager,
+          approvers,
+        );
+      await this.createTasksFromWorkflowSteps(
+        current,
+        initialized.steps,
+        actor,
+        manager,
+      );
+
+      current.status = OnboardingRequestStatusEnum.SUBMITTED;
+      current.submitted_at = new Date();
+      current.started_at = current.submitted_at;
+      current.metadata = {
+        ...(current.metadata ?? {}),
+        workflow_start: {
+          started_at: current.submitted_at.toISOString(),
+          started_by_company_user_id: actor.companyMembershipId ?? null,
+          employee_details_approved: detailsApproved,
+          incomplete_details_override: !detailsApproved,
+        },
+      };
+      await repository.save(current);
+      await this.updateRequestProgress(current, manager);
+
+      return repository.findOneOrFail({
+        where: { id: current.id },
+        relations: {
+          employee: {
+            company_user: true,
+            primary_department: true,
+            primary_position: true,
+          },
+          workflow: true,
+          tasks: true,
+          approvals: { approver: { user: true }, workflow_step: true },
+        },
+      });
+    });
+
+    await this.onboardingAuditService.log({
+      company_id: companyId,
+      onboarding_request_id: submitted.id,
+      action: 'onboarding_request.submitted',
+      entity_name: 'onboarding_request',
+      entity_id: submitted.id,
+      actor,
+      payload: {
+        employee_details_approved: detailsApproved,
+        incomplete_details_override: !detailsApproved,
+      },
+    });
+    this.emitOnboardingSubmitted(companyId, submitted, actor).catch(() => {});
+
+    return this.mapRequest(submitted);
   }
 
   async findAllOnboardingRequests(
@@ -3173,13 +3932,13 @@ export class OnboardingService {
       companyId,
       onboardingRequestId,
     );
-    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
 
     const task = await this.onboardingTaskRepository.findOne({
       where: {
         id: taskId,
         onboarding_request_id: onboardingRequestId,
       },
+      relations: { workflow_step: true },
     });
     if (!task) {
       throw new NotFoundException('Onboarding task not found');
@@ -3282,6 +4041,11 @@ export class OnboardingService {
       entity_id: updated.id,
       actor,
     });
+
+    await this.eventEmitter.emitAsync(
+      OnboardingTaskCompletedEvent.EVENT,
+      new OnboardingTaskCompletedEvent(companyId, request.id, updated.id),
+    );
 
     return this.mapTask(updated);
   }
@@ -3558,7 +4322,14 @@ export class OnboardingService {
       companyId,
       onboardingRequestId,
     );
-    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    if (
+      actor.employeeId !== request.employee_id &&
+      actor.companyMembershipId !== request.employee.company_user_id
+    ) {
+      throw new ForbiddenException(
+        'Only the employee on this onboarding request can acknowledge it',
+      );
+    }
 
     if (!dto.accepted) {
       throw new BadRequestException(
@@ -4183,13 +4954,14 @@ export class OnboardingService {
       },
       relations: {
         assigned_company_user: { user: true },
+        workflow_step: true,
         onboarding_request: {
           employee: true,
         },
       },
     });
 
-    if (!loadedTask?.assigned_company_user_id) {
+    if (!loadedTask) {
       return;
     }
 
@@ -4198,35 +4970,18 @@ export class OnboardingService {
       `${employee?.first_name ?? ''} ${employee?.last_name ?? ''}`.trim() ||
       'Employee';
 
-    const assignee = loadedTask.assigned_company_user?.user;
-    if (!assignee?.email) {
-      return;
-    }
-
-    const assigneeName =
-      `${assignee.first_name ?? ''} ${assignee.last_name ?? ''}`.trim() ||
-      assignee.email;
-
-    this.eventEmitter.emit(
-      OnboardingTaskAssignedEvent.EVENT,
-      new OnboardingTaskAssignedEvent(
-        assigneeName,
-        assignee.email,
-        employeeName,
-        loadedTask.title,
-        loadedTask.description,
-        loadedTask.due_date,
-        `${
-          this.configService.get<string>('APP_FRONTEND_URL') ??
-          'http://localhost:5173'
-        }/onboarding/${onboardingRequestId}/tasks`,
-        companyId,
-        onboardingRequestId,
-        loadedTask.id,
-        loadedTask.assigned_company_user_id,
-        actor.companyMembershipId ?? null,
-        loadedTask.task_no ?? null,
-      ),
-    );
+    const recipients = await this.resolveTaskRecipients(companyId, {
+      assigned_user_id: loadedTask.assigned_company_user_id,
+      assigned_department_id: loadedTask.assigned_department_id,
+      assigned_role_id: loadedTask.workflow_step?.assigned_role_id,
+    });
+    this.emitTaskAssignedToRecipients({
+      recipients,
+      employeeName,
+      task: loadedTask,
+      companyId,
+      onboardingRequestId,
+      senderCompanyUserId: actor.companyMembershipId ?? null,
+    });
   }
 }

@@ -1,5 +1,32 @@
 import { NotificationRecipient } from './leave.events';
 
+export class OnboardingEmployeeDetailsSubmittedEvent {
+  static readonly EVENT = 'hr.onboarding.employee_details_submitted';
+  constructor(
+    public readonly companyId: number,
+    public readonly onboardingRequestId: number,
+    public readonly onboardingNo: string,
+    public readonly employeeName: string,
+    public readonly reviewerCompanyUserId: number,
+    public readonly employeeCompanyUserId: number,
+    public readonly reviewUrl: string,
+  ) {}
+}
+
+export class OnboardingEmployeeDetailsReturnedEvent {
+  static readonly EVENT = 'hr.onboarding.employee_details_returned';
+  constructor(
+    public readonly companyId: number,
+    public readonly onboardingRequestId: number,
+    public readonly onboardingNo: string,
+    public readonly employeeName: string,
+    public readonly employeeCompanyUserId: number,
+    public readonly reviewerCompanyUserId: number | null,
+    public readonly sectionLabels: string[],
+    public readonly employeeUrl: string,
+  ) {}
+}
+
 export class OnboardingSubmittedEvent {
   static readonly EVENT = 'hr.onboarding.submitted';
   constructor(
@@ -104,6 +131,15 @@ export class OnboardingTaskOverdueEvent {
     public readonly employeeName: string,
     public readonly assignedCompanyUserId: number | null,
     public readonly dueDate: Date,
+  ) {}
+}
+
+export class OnboardingTaskCompletedEvent {
+  static readonly EVENT = 'hr.onboarding.task_completed';
+  constructor(
+    public readonly companyId: number,
+    public readonly onboardingRequestId: number,
+    public readonly taskId: number,
   ) {}
 }
 

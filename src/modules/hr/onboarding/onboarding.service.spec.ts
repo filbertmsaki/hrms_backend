@@ -39,6 +39,7 @@ import { ShiftSchedulesService } from '../attendance/shift/shift-schedules/shift
 import { EmployeeTimetablesService } from '../attendance/timetable/employee-timetables/employee-timetables.service';
 import { EmployeeDeviceAssignmentsService } from '../../access-control/employee-device-assignments/service/employee-device-assignments.service';
 import { OnboardingAttendanceModeEnum } from './enums/onboarding-attendance-mode.enum';
+import { OnboardingStepTypeEnum } from './enums/onboarding-step-type.enum';
 import { FilesService } from '../../files/files.service';
 import { ProbationService } from '../probation/probation.service';
 
@@ -212,6 +213,101 @@ describe('OnboardingService', () => {
       'request.employee_id IN (:...accessibleEmployeeIds)',
       { accessibleEmployeeIds: [41, 42] },
     );
+  });
+
+  it('accepts a workflow step assigned only to a department', () => {
+    const validateWorkflowStepRules = (
+      service as unknown as {
+        validateWorkflowStepRules: (step: {
+          name: string;
+          step_type: OnboardingStepTypeEnum;
+          assigned_department_id?: number;
+        }) => void;
+      }
+    ).validateWorkflowStepRules.bind(service);
+
+    expect(() =>
+      validateWorkflowStepRules({
+        name: 'Prepare equipment',
+        step_type: OnboardingStepTypeEnum.TASK,
+        assigned_department_id: 12,
+      }),
+    ).not.toThrow();
+  });
+
+  it('accepts a workflow checklist with separately trackable items', () => {
+    const validateWorkflowStepRules = (
+      service as unknown as {
+        validateWorkflowStepRules: (step: {
+          name: string;
+          step_type: OnboardingStepTypeEnum;
+          assigned_department_id: number;
+          metadata: {
+            checklist_items: Array<{ name: string; description: string }>;
+          };
+        }) => void;
+      }
+    ).validateWorkflowStepRules.bind(service);
+
+    expect(() =>
+      validateWorkflowStepRules({
+        name: 'Prepare workstation',
+        step_type: OnboardingStepTypeEnum.TASK,
+        assigned_department_id: 12,
+        metadata: {
+          checklist_items: [
+            {
+              name: 'Provide laptop',
+              description: 'Install the approved software image.',
+            },
+            {
+              name: 'Create email account',
+              description: '',
+            },
+          ],
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects empty workflow checklist items', () => {
+    const validateWorkflowStepRules = (
+      service as unknown as {
+        validateWorkflowStepRules: (step: {
+          name: string;
+          step_type: OnboardingStepTypeEnum;
+          assigned_department_id: number;
+          metadata: { checklist_items: string[] };
+        }) => void;
+      }
+    ).validateWorkflowStepRules.bind(service);
+
+    expect(() =>
+      validateWorkflowStepRules({
+        name: 'Prepare workstation',
+        step_type: OnboardingStepTypeEnum.TASK,
+        assigned_department_id: 12,
+        metadata: { checklist_items: ['Provide laptop', ''] },
+      }),
+    ).toThrow('checklist must contain 1 to 50 named items');
+  });
+
+  it('rejects a workflow step without a role, user, or department', () => {
+    const validateWorkflowStepRules = (
+      service as unknown as {
+        validateWorkflowStepRules: (step: {
+          name: string;
+          step_type: OnboardingStepTypeEnum;
+        }) => void;
+      }
+    ).validateWorkflowStepRules.bind(service);
+
+    expect(() =>
+      validateWorkflowStepRules({
+        name: 'Prepare equipment',
+        step_type: OnboardingStepTypeEnum.TASK,
+      }),
+    ).toThrow('assigned_role_id, assigned_user_id, or assigned_department_id');
   });
 
   it('activates the employee and initializes active leave balances on completion', async () => {

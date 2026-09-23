@@ -4,11 +4,11 @@ import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import type { StringValue } from 'ms';
 import { PostgresAdvisoryLockService } from '../../common/database/postgres-advisory-lock.service';
-import { AuthModule } from '../auth/auth.module';
+import { TokenBlacklistModule } from '../auth/token-blacklist.module';
 import { CompanyUser } from '../companies/entities/company-user.entity';
 import { MailModule } from '../mail/mail.module';
 import { SmsModule } from '../sms/sms.module';
-import { UsersModule } from '../users/users.module';
+import { User } from '../users/entities/user.entity';
 import { AppNotification } from './entities/app-notification.entity';
 import { NotificationDelivery } from './entities/notification-delivery.entity';
 import { NotificationChannelGlobalSetting } from './entities/notification-channel-global-setting.entity';
@@ -38,6 +38,7 @@ import { ConditionalBullModule } from '../../infrastructure/queues/conditional-b
     TypeOrmModule.forFeature([
       AppNotification,
       CompanyUser,
+      User,
       NotificationChannelGlobalSetting,
       NotificationChannelRegistry,
       NotificationDelivery,
@@ -59,8 +60,7 @@ import { ConditionalBullModule } from '../../infrastructure/queues/conditional-b
       }),
     }),
     ConditionalBullModule.registerQueue(NOTIFICATION_QUEUE),
-    AuthModule,
-    UsersModule,
+    TokenBlacklistModule,
     MailModule,
     SmsModule,
   ],

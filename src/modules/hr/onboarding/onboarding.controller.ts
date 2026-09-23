@@ -35,6 +35,8 @@ import { OnboardingRequestQueryDto } from './dtos/onboarding-request-query.dto';
 import { OnboardingWorkflowQueryDto } from './dtos/onboarding-workflow-query.dto';
 import { ReassignOnboardingTaskDto } from './dtos/reassign-onboarding-task.dto';
 import { RejectOnboardingDto } from './dtos/reject-onboarding.dto';
+import { ReviewOnboardingEmployeeDetailsDto } from './dtos/review-onboarding-employee-details.dto';
+import { StartOnboardingWorkflowDto } from './dtos/start-onboarding-workflow.dto';
 import { UpdateOnboardingRequestDto } from './dtos/update-onboarding-request.dto';
 import { UpdateOnboardingWorkflowStepDto } from './dtos/update-onboarding-workflow-step.dto';
 import { UpdateOnboardingWorkflowDto } from './dtos/update-onboarding-workflow.dto';
@@ -204,6 +206,55 @@ export class OnboardingController {
     @Body() dto: UpdateOnboardingRequestDto,
   ) {
     return this.onboardingService.updateOnboardingRequest(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
+  }
+
+  @Post('requests/:id/employee-details/submit')
+  @ApiOperation({ summary: 'Submit my employee details for HR review' })
+  submitEmployeeDetails(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.onboardingService.submitEmployeeDetailsForReview(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
+  }
+
+  @Post('requests/:id/employee-details/review')
+  @UseGuards(PermissionsGuard)
+  @Permissions('onboarding_requests:update')
+  @ApiOperation({ summary: 'Review submitted employee onboarding details' })
+  reviewEmployeeDetails(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ReviewOnboardingEmployeeDetailsDto,
+  ) {
+    return this.onboardingService.reviewEmployeeDetails(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
+  }
+
+  @Post('requests/:id/submit')
+  @UseGuards(PermissionsGuard)
+  @Permissions('onboarding_requests:update')
+  @ApiOperation({
+    summary: 'Start the workflow for a draft onboarding request',
+  })
+  submitDraftOnboardingRequest(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: StartOnboardingWorkflowDto,
+  ) {
+    return this.onboardingService.submitDraftOnboardingRequest(
       req.user.companyId!,
       id,
       dto,
@@ -488,8 +539,6 @@ export class OnboardingController {
   }
 
   @Post('requests/:id/tasks/:taskId/complete')
-  @UseGuards(PermissionsGuard)
-  @Permissions('onboarding_tasks:complete')
   @ApiOperation({ summary: 'Complete onboarding task' })
   completeTask(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },

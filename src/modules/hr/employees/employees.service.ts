@@ -3164,6 +3164,39 @@ export class EmployeesService {
     return this.mapEmployee(employee, true);
   }
 
+  async updateMyProfile(
+    companyId: number,
+    userId: number,
+    updateEmployeeDto: UpdateEmployeeDto,
+    actor: AuthenticatedUser,
+    context: AuditRequestContext = EMPTY_AUDIT_CONTEXT,
+  ) {
+    const membership = await this.findMembershipByUserId(companyId, userId);
+    if (!membership) {
+      throw new NotFoundException('Active company membership not found');
+    }
+    const employee = await this.employeeRepository.findOne({
+      where: { company_user_id: membership.id, company_id: companyId },
+      select: ['id', 'employment_status'],
+    });
+    if (!employee) {
+      throw new NotFoundException('Employee not found');
+    }
+    if (employee.employment_status !== EmploymentStatusEnum.ONBOARDING) {
+      throw new ForbiddenException(
+        'Self-registration details can only be changed during onboarding',
+      );
+    }
+
+    return this.update(
+      companyId,
+      employee.id,
+      updateEmployeeDto,
+      actor,
+      context,
+    );
+  }
+
   async updateMyProfilePhoto(
     companyId: number,
     userId: number,

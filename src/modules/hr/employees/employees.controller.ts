@@ -288,6 +288,25 @@ export class EmployeesController {
     );
   }
 
+  @Patch('me')
+  @ApiOperationSummary(
+    'Update my onboarding profile',
+    'Allows an onboarding employee to save their own mutable profile details.',
+  )
+  updateMe(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
+    @Body() updateEmployeeDto: UpdateEmployeeDto,
+  ) {
+    return this.employeesService.updateMyProfile(
+      req.user.companyId!,
+      req.user.id,
+      updateEmployeeDto,
+      req.user,
+      context,
+    );
+  }
+
   @Get(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:read')

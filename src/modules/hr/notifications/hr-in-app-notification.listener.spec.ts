@@ -7,6 +7,7 @@ import {
   OffboardingAssetOverdueEvent,
   OffboardingSettlementOverdueEvent,
   OnboardingApprovalReminderEvent,
+  OnboardingTaskAssignedEvent,
 } from './events';
 import type { ActionItemsService } from '../action-inbox/action-items.service';
 
@@ -178,6 +179,43 @@ describe('HrInAppNotificationListener', () => {
         entity_type: 'OFFBOARDING_SETTLEMENT_ITEM',
         entity_id: 601,
         action_url: '/offboarding/99/settlements',
+      }),
+    );
+  });
+
+  it('creates an action item and sends onboarding assignments through every supported channel', async () => {
+    const event = new OnboardingTaskAssignedEvent(
+      'Neema Manager',
+      'neema@example.com',
+      'Amina John',
+      'Prepare laptop',
+      'Install required tools',
+      new Date('2026-06-25T09:00:00.000Z'),
+      'http://localhost:5173/dashboard/me/requests/actions',
+      1,
+      15,
+      20,
+      30,
+      40,
+      'ONB-TASK-001',
+    );
+
+    await listener.onOnboardingTaskAssigned(event);
+
+    expect(actionItemsService.upsertOpen).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assigneeCompanyUserId: 30,
+        sourceEntityType: 'ONBOARDING_TASK',
+        sourceEntityId: 20,
+        title: 'Prepare laptop',
+      }),
+    );
+    expect(notificationsService.createAndPush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        receiver_company_user_id: 30,
+        type: 'ONBOARDING_TASK_ASSIGNED',
+        action_url: 'http://localhost:5173/dashboard/me/requests/actions',
+        channels: ['IN_APP', 'EMAIL', 'SMS'],
       }),
     );
   });

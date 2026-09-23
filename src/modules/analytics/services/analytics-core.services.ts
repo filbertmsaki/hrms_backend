@@ -481,7 +481,9 @@ function serializePdf(rows: Record<string, unknown>[], title: string) {
     }
 
     document.fontSize(8).font('Helvetica-Bold');
-    document.text(columns.map((column) => column.replace(/_/g, ' ')).join(' | '));
+    document.text(
+      columns.map((column) => column.replace(/_/g, ' ')).join(' | '),
+    );
     document.font('Helvetica').moveDown(0.3);
 
     rows.slice(0, 1000).forEach((row) => {
@@ -505,7 +507,9 @@ function serializePdf(rows: Record<string, unknown>[], title: string) {
       document
         .fontSize(8)
         .fillColor('#666666')
-        .text(`Output truncated to first 1000 rows in PDF. Total rows: ${rows.length}.`);
+        .text(
+          `Output truncated to first 1000 rows in PDF. Total rows: ${rows.length}.`,
+        );
     }
 
     document.end();
@@ -550,7 +554,10 @@ function catalogReport(
   };
 }
 
-function catalogCategory(name: string, reports: ReturnType<typeof catalogReport>[]) {
+function catalogCategory(
+  name: string,
+  reports: ReturnType<typeof catalogReport>[],
+) {
   return { name, reports };
 }
 
@@ -2158,246 +2165,447 @@ export class AnalyticsReportService {
       generated_at: new Date().toISOString(),
       categories: [
         catalogCategory('Dashboard', [
-          catalogReport('REPORTS_DASHBOARD', 'Reports dashboard', 'ANALYTICS_DASHBOARD', [
-            'analytics:dashboards:hr',
-          ]),
+          catalogReport(
+            'REPORTS_DASHBOARD',
+            'Reports dashboard',
+            'ANALYTICS_DASHBOARD',
+            ['analytics:dashboards:hr'],
+          ),
         ]),
         catalogCategory('Employee Reports', [
-          catalogReport('EMPLOYEE_MASTER', 'Employee Master Report', 'EMPLOYEES', [
-            'employees:read',
-          ]),
+          catalogReport(
+            'EMPLOYEE_MASTER',
+            'Employee Master Report',
+            'EMPLOYEES',
+            ['employees:read'],
+          ),
           catalogReport('NEW_JOINERS', 'New Joiner Report', 'EMPLOYEES', [
             'employees:read',
           ]),
-          catalogReport('CONFIRMATION_DUE', 'Confirmation Due Report', 'PROBATION_CASES', [
-            'probation_cases:read',
-          ]),
+          catalogReport(
+            'CONFIRMATION_DUE',
+            'Confirmation Due Report',
+            'PROBATION_CASES',
+            ['probation_cases:read'],
+          ),
           catalogReport('PROBATION', 'Probation Report', 'PROBATION_CASES', [
             'probation_cases:read',
           ]),
           catalogReport('TRANSFERS', 'Transfer Report', 'EMPLOYEE_MOVEMENTS', [
             'employee_movements:read',
           ]),
-          catalogReport('PROMOTIONS', 'Promotion Report', 'EMPLOYEE_MOVEMENTS', [
-            'employee_movements:read',
-          ]),
-          catalogReport('RESIGNATIONS', 'Resignation Report', 'OFFBOARDING_REQUESTS', [
-            'offboarding:read',
-          ]),
+          catalogReport(
+            'PROMOTIONS',
+            'Promotion Report',
+            'EMPLOYEE_MOVEMENTS',
+            ['employee_movements:read'],
+          ),
+          catalogReport(
+            'RESIGNATIONS',
+            'Resignation Report',
+            'OFFBOARDING_REQUESTS',
+            ['offboarding:read'],
+          ),
           catalogReport('EXITS', 'Exit Report', 'OFFBOARDING_REQUESTS', [
             'offboarding:read',
           ]),
-          catalogReport('EMPLOYEE_DOCUMENTS', 'Employee Document Report', null, [
-            'hr_documents:read',
-          ]),
-          catalogReport('EMPLOYEE_HISTORY', 'Employee History Report', 'EMPLOYEE_ASSIGNMENT_HISTORY', [
-            'employee_assignments:read',
-          ]),
+          catalogReport(
+            'EMPLOYEE_DOCUMENTS',
+            'Employee Document Report',
+            null,
+            ['hr_documents:read'],
+          ),
+          catalogReport(
+            'EMPLOYEE_HISTORY',
+            'Employee History Report',
+            'EMPLOYEE_ASSIGNMENT_HISTORY',
+            ['employee_assignments:read'],
+          ),
         ]),
         catalogCategory('Attendance Reports', [
-          catalogReport('DAILY_ATTENDANCE', 'Daily Attendance', 'ATTENDANCE_DAILY_SUMMARIES', [
-            'attendance_summaries:read',
-          ]),
-          catalogReport('MONTHLY_ATTENDANCE', 'Monthly Attendance', 'ATTENDANCE_DAILY_SUMMARIES', [
-            'attendance_summaries:read',
-          ]),
-          catalogReport('LATE_COMING', 'Late Coming Report', 'ATTENDANCE_DAILY_SUMMARIES', [
-            'attendance_summaries:read',
-          ]),
-          catalogReport('EARLY_GOING', 'Early Going Report', 'ATTENDANCE_DAILY_SUMMARIES', [
-            'attendance_summaries:read',
-          ]),
-          catalogReport('ABSENTEEISM', 'Absenteeism Report', 'ATTENDANCE_DAILY_SUMMARIES', [
-            'attendance_summaries:read',
-          ]),
-          catalogReport('MISSING_PUNCH', 'Missing Punch Report', 'ATTENDANCE_DAILY_SUMMARIES', [
-            'attendance_summaries:read',
-          ]),
-          catalogReport('ATTENDANCE_CORRECTIONS', 'Attendance Correction Report', null, [
-            'attendance_corrections:read',
-          ]),
-          catalogReport('OVERTIME', 'Overtime Report', 'ATTENDANCE_DAILY_SUMMARIES', [
-            'attendance_summaries:read',
-          ]),
-          catalogReport('OFFICE_ATTENDANCE', 'Office Attendance Report', 'ATTENDANCE_DAILY_SUMMARIES', [
-            'attendance_summaries:read',
-          ]),
-          catalogReport('FIELD_ATTENDANCE_GEOLOCATION', 'Field Attendance with Geolocation', 'FIELD_VISITS', [
-            'field_locations:read',
-          ]),
+          catalogReport(
+            'DAILY_ATTENDANCE',
+            'Daily Attendance',
+            'ATTENDANCE_DAILY_SUMMARIES',
+            ['attendance_summaries:read'],
+          ),
+          catalogReport(
+            'MONTHLY_ATTENDANCE',
+            'Monthly Attendance',
+            'ATTENDANCE_DAILY_SUMMARIES',
+            ['attendance_summaries:read'],
+          ),
+          catalogReport(
+            'LATE_COMING',
+            'Late Coming Report',
+            'ATTENDANCE_DAILY_SUMMARIES',
+            ['attendance_summaries:read'],
+          ),
+          catalogReport(
+            'EARLY_GOING',
+            'Early Going Report',
+            'ATTENDANCE_DAILY_SUMMARIES',
+            ['attendance_summaries:read'],
+          ),
+          catalogReport(
+            'ABSENTEEISM',
+            'Absenteeism Report',
+            'ATTENDANCE_DAILY_SUMMARIES',
+            ['attendance_summaries:read'],
+          ),
+          catalogReport(
+            'MISSING_PUNCH',
+            'Missing Punch Report',
+            'ATTENDANCE_DAILY_SUMMARIES',
+            ['attendance_summaries:read'],
+          ),
+          catalogReport(
+            'ATTENDANCE_CORRECTIONS',
+            'Attendance Correction Report',
+            null,
+            ['attendance_corrections:read'],
+          ),
+          catalogReport(
+            'OVERTIME',
+            'Overtime Report',
+            'ATTENDANCE_DAILY_SUMMARIES',
+            ['attendance_summaries:read'],
+          ),
+          catalogReport(
+            'OFFICE_ATTENDANCE',
+            'Office Attendance Report',
+            'ATTENDANCE_DAILY_SUMMARIES',
+            ['attendance_summaries:read'],
+          ),
+          catalogReport(
+            'FIELD_ATTENDANCE_GEOLOCATION',
+            'Field Attendance with Geolocation',
+            'FIELD_VISITS',
+            ['field_locations:read'],
+          ),
         ]),
         catalogCategory('Leave Reports', [
-          catalogReport('LEAVE_BALANCE', 'Leave Balance Report', 'LEAVE_LEDGER', [
-            'leave_balances:read',
-          ]),
-          catalogReport('LEAVE_AVAILED', 'Leave Availed Report', 'LEAVE_REQUESTS', [
-            'leave_requests:read',
-          ]),
-          catalogReport('LEAVE_PENDING_APPROVAL', 'Leave Pending Approval Report', 'LEAVE_REQUESTS', [
-            'leave_requests:read',
-          ]),
-          catalogReport('LEAVE_WITHOUT_PAY', 'Leave Without Pay Report', 'LEAVE_REQUESTS', [
-            'leave_requests:read',
-          ]),
-          catalogReport('DEPARTMENT_LEAVE', 'Department-wise Leave Report', 'LEAVE_REQUESTS', [
-            'leave_requests:read',
-          ]),
-          catalogReport('EMPLOYEE_LEAVE_HISTORY', 'Employee-wise Leave History', 'LEAVE_REQUESTS', [
-            'leave_requests:read',
-          ]),
+          catalogReport(
+            'LEAVE_BALANCE',
+            'Leave Balance Report',
+            'LEAVE_LEDGER',
+            ['leave_balances:read'],
+          ),
+          catalogReport(
+            'LEAVE_AVAILED',
+            'Leave Availed Report',
+            'LEAVE_REQUESTS',
+            ['leave_requests:read'],
+          ),
+          catalogReport(
+            'LEAVE_PENDING_APPROVAL',
+            'Leave Pending Approval Report',
+            'LEAVE_REQUESTS',
+            ['leave_requests:read'],
+          ),
+          catalogReport(
+            'LEAVE_WITHOUT_PAY',
+            'Leave Without Pay Report',
+            'LEAVE_REQUESTS',
+            ['leave_requests:read'],
+          ),
+          catalogReport(
+            'DEPARTMENT_LEAVE',
+            'Department-wise Leave Report',
+            'LEAVE_REQUESTS',
+            ['leave_requests:read'],
+          ),
+          catalogReport(
+            'EMPLOYEE_LEAVE_HISTORY',
+            'Employee-wise Leave History',
+            'LEAVE_REQUESTS',
+            ['leave_requests:read'],
+          ),
         ]),
         catalogCategory('Field Staff Reports', [
-          catalogReport('GEOLOCATION_ATTENDANCE', 'Geolocation Attendance Report', 'FIELD_VISITS', [
-            'field_locations:read',
-          ]),
-          catalogReport('VISIT_PLAN', 'Visit Plan Report', 'FIELD_OPPORTUNITIES', [
-            'field_visits:hr:read',
-          ]),
+          catalogReport(
+            'GEOLOCATION_ATTENDANCE',
+            'Geolocation Attendance Report',
+            'FIELD_VISITS',
+            ['field_locations:read'],
+          ),
+          catalogReport(
+            'VISIT_PLAN',
+            'Visit Plan Report',
+            'FIELD_OPPORTUNITIES',
+            ['field_visits:hr:read'],
+          ),
           catalogReport('ACTUAL_VISIT', 'Actual Visit Report', 'FIELD_VISITS', [
             'field_visits:hr:read',
           ]),
-          catalogReport('PLANNED_VS_ACTUAL_VISIT', 'Planned vs Actual Visit Report', 'FIELD_VISITS', [
-            'field_visits:hr:read',
-          ]),
+          catalogReport(
+            'PLANNED_VS_ACTUAL_VISIT',
+            'Planned vs Actual Visit Report',
+            'FIELD_VISITS',
+            ['field_visits:hr:read'],
+          ),
           catalogReport('CLIENT_VISIT', 'Client Visit Report', 'FIELD_VISITS', [
             'field_visits:hr:read',
           ]),
-          catalogReport('FIELD_PRODUCTIVITY', 'Field Productivity Report', 'FIELD_VISITS', [
-            'field_visits:hr:read',
-          ]),
-          catalogReport('MAP_VISITS', 'Map-Based Movement / Visit Report', 'FIELD_VISITS', [
-            'field_locations:read',
-          ]),
-          catalogReport('ATTENDANCE_WITHOUT_ACTIVITY', 'Attendance Without Activity Exception Report', 'ACTION_ITEMS', [
-            'work_activities:hr:read',
-          ]),
-          catalogReport('FIELD_MONTHLY_PRODUCTIVITY', 'Field Staff Monthly Productivity Report', 'FIELD_VISITS', [
-            'field_visits:hr:read',
-          ]),
+          catalogReport(
+            'FIELD_PRODUCTIVITY',
+            'Field Productivity Report',
+            'FIELD_VISITS',
+            ['field_visits:hr:read'],
+          ),
+          catalogReport(
+            'MAP_VISITS',
+            'Map-Based Movement / Visit Report',
+            'FIELD_VISITS',
+            ['field_locations:read'],
+          ),
+          catalogReport(
+            'ATTENDANCE_WITHOUT_ACTIVITY',
+            'Attendance Without Activity Exception Report',
+            'ACTION_ITEMS',
+            ['work_activities:hr:read'],
+          ),
+          catalogReport(
+            'FIELD_MONTHLY_PRODUCTIVITY',
+            'Field Staff Monthly Productivity Report',
+            'FIELD_VISITS',
+            ['field_visits:hr:read'],
+          ),
         ]),
         catalogCategory('Activity Reports', [
-          catalogReport('DAILY_ACTIVITY', 'Daily Activity Report', 'DAILY_ACTIVITY_REPORTS', [
-            'work_activities:hr:read',
-          ]),
-          catalogReport('WEEKLY_ACTIVITY', 'Weekly Activity Report', 'DAILY_ACTIVITY_REPORTS', [
-            'work_activities:hr:read',
-          ]),
-          catalogReport('MONTHLY_ACTIVITY', 'Monthly Activity Report', 'DAILY_ACTIVITY_REPORTS', [
-            'work_activities:hr:read',
-          ]),
-          catalogReport('QUARTERLY_ACTIVITY', 'Quarterly Activity Report', 'DAILY_ACTIVITY_REPORTS', [
-            'work_activities:hr:read',
-          ]),
-          catalogReport('PENDING_ACTIVITY', 'Pending Activity Report', 'ACTION_ITEMS', [
-            'work_activities:manager:read',
-          ]),
-          catalogReport('MANAGER_REVIEW', 'Manager Review Report', 'DAILY_ACTIVITY_REPORTS', [
-            'work_activities:manager:review',
-          ]),
-          catalogReport('ACTIVITY_VS_KPI', 'Activity vs KPI Report', 'DAILY_ACTIVITY_REPORTS', [
-            'performance_kpis:read',
-          ]),
+          catalogReport(
+            'DAILY_ACTIVITY',
+            'Daily Activity Report',
+            'DAILY_ACTIVITY_REPORTS',
+            ['work_activities:hr:read'],
+          ),
+          catalogReport(
+            'WEEKLY_ACTIVITY',
+            'Weekly Activity Report',
+            'DAILY_ACTIVITY_REPORTS',
+            ['work_activities:hr:read'],
+          ),
+          catalogReport(
+            'MONTHLY_ACTIVITY',
+            'Monthly Activity Report',
+            'DAILY_ACTIVITY_REPORTS',
+            ['work_activities:hr:read'],
+          ),
+          catalogReport(
+            'QUARTERLY_ACTIVITY',
+            'Quarterly Activity Report',
+            'DAILY_ACTIVITY_REPORTS',
+            ['work_activities:hr:read'],
+          ),
+          catalogReport(
+            'PENDING_ACTIVITY',
+            'Pending Activity Report',
+            'ACTION_ITEMS',
+            ['work_activities:manager:read'],
+          ),
+          catalogReport(
+            'MANAGER_REVIEW',
+            'Manager Review Report',
+            'DAILY_ACTIVITY_REPORTS',
+            ['work_activities:manager:review'],
+          ),
+          catalogReport(
+            'ACTIVITY_VS_KPI',
+            'Activity vs KPI Report',
+            'DAILY_ACTIVITY_REPORTS',
+            ['performance_kpis:read'],
+          ),
         ]),
         catalogCategory('KPI & Performance Reports', [
-          catalogReport('KPI_ASSIGNMENTS', 'Employee KPI Assignment Report', 'PERFORMANCE_REVIEWS', [
-            'performance_kpis:read',
-          ]),
-          catalogReport('KPI_TARGET_VS_ACHIEVEMENT', 'Monthly KPI Target vs Achievement', 'PERFORMANCE_REVIEWS', [
-            'performance_reports:read',
-          ]),
-          catalogReport('MONTHLY_KPI_SCORE', 'Monthly KPI Score', 'PERFORMANCE_REVIEWS', [
-            'performance_reports:read',
-          ]),
-          catalogReport('QUARTERLY_KPI_AVERAGE', 'Quarterly KPI Average', 'PERFORMANCE_AGGREGATES', [
-            'performance_aggregates:read',
-          ]),
-          catalogReport('ANNUAL_KPI_AVERAGE', 'Annual KPI Average', 'PERFORMANCE_AGGREGATES', [
-            'performance_aggregates:read',
-          ]),
-          catalogReport('DEPARTMENT_PERFORMANCE', 'Department-wise Performance', 'PERFORMANCE_AGGREGATES', [
-            'performance_dashboards:read',
-          ]),
-          catalogReport('BRANCH_PERFORMANCE', 'Branch-wise Performance', 'PERFORMANCE_AGGREGATES', [
-            'performance_dashboards:read',
-          ]),
-          catalogReport('TOP_PERFORMERS', 'Top Performer Report', 'PERFORMANCE_AGGREGATES', [
-            'performance_reports:read',
-          ]),
-          catalogReport('LOW_PERFORMERS', 'Low Performer Report', 'PERFORMANCE_AGGREGATES', [
-            'performance_reports:read',
-          ]),
-          catalogReport('PERFORMANCE_TREND', 'Performance Trend Report', 'PERFORMANCE_AGGREGATES', [
-            'performance_reports:read',
-          ]),
-          catalogReport('KPI_SCORE_HISTORY', 'KPI Score History', 'PERFORMANCE_AGGREGATES', [
-            'performance_reports:read',
-          ]),
-          catalogReport('EMPLOYEE_PERFORMANCE_DASHBOARD', 'Employee Performance Dashboard', 'PERFORMANCE_REVIEWS', [
-            'performance_self_service:read',
-          ]),
+          catalogReport(
+            'KPI_ASSIGNMENTS',
+            'Employee KPI Assignment Report',
+            'PERFORMANCE_REVIEWS',
+            ['performance_kpis:read'],
+          ),
+          catalogReport(
+            'KPI_TARGET_VS_ACHIEVEMENT',
+            'Monthly KPI Target vs Achievement',
+            'PERFORMANCE_REVIEWS',
+            ['performance_reports:read'],
+          ),
+          catalogReport(
+            'MONTHLY_KPI_SCORE',
+            'Monthly KPI Score',
+            'PERFORMANCE_REVIEWS',
+            ['performance_reports:read'],
+          ),
+          catalogReport(
+            'QUARTERLY_KPI_AVERAGE',
+            'Quarterly KPI Average',
+            'PERFORMANCE_AGGREGATES',
+            ['performance_aggregates:read'],
+          ),
+          catalogReport(
+            'ANNUAL_KPI_AVERAGE',
+            'Annual KPI Average',
+            'PERFORMANCE_AGGREGATES',
+            ['performance_aggregates:read'],
+          ),
+          catalogReport(
+            'DEPARTMENT_PERFORMANCE',
+            'Department-wise Performance',
+            'PERFORMANCE_AGGREGATES',
+            ['performance_dashboards:read'],
+          ),
+          catalogReport(
+            'BRANCH_PERFORMANCE',
+            'Branch-wise Performance',
+            'PERFORMANCE_AGGREGATES',
+            ['performance_dashboards:read'],
+          ),
+          catalogReport(
+            'TOP_PERFORMERS',
+            'Top Performer Report',
+            'PERFORMANCE_AGGREGATES',
+            ['performance_reports:read'],
+          ),
+          catalogReport(
+            'LOW_PERFORMERS',
+            'Low Performer Report',
+            'PERFORMANCE_AGGREGATES',
+            ['performance_reports:read'],
+          ),
+          catalogReport(
+            'PERFORMANCE_TREND',
+            'Performance Trend Report',
+            'PERFORMANCE_AGGREGATES',
+            ['performance_reports:read'],
+          ),
+          catalogReport(
+            'KPI_SCORE_HISTORY',
+            'KPI Score History',
+            'PERFORMANCE_AGGREGATES',
+            ['performance_reports:read'],
+          ),
+          catalogReport(
+            'EMPLOYEE_PERFORMANCE_DASHBOARD',
+            'Employee Performance Dashboard',
+            'PERFORMANCE_REVIEWS',
+            ['performance_self_service:read'],
+          ),
         ]),
         catalogCategory('Payroll Reports', [
-          catalogReport('PAYROLL_REGISTER', 'Payroll Register', 'EMPLOYEE_PAYROLL_RESULTS', [
-            'payroll:reports',
-          ]),
-          catalogReport('SALARY_SHEET', 'Salary Sheet', 'EMPLOYEE_PAYROLL_RESULTS', [
-            'payroll:reports',
-          ]),
-          catalogReport('PAYSLIP', 'Payslip Report', 'EMPLOYEE_PAYROLL_RESULTS', [
-            'payroll:payslips:read',
-          ]),
+          catalogReport(
+            'PAYROLL_REGISTER',
+            'Payroll Register',
+            'EMPLOYEE_PAYROLL_RESULTS',
+            ['payroll:reports'],
+          ),
+          catalogReport(
+            'SALARY_SHEET',
+            'Salary Sheet',
+            'EMPLOYEE_PAYROLL_RESULTS',
+            ['payroll:reports'],
+          ),
+          catalogReport(
+            'PAYSLIP',
+            'Payslip Report',
+            'EMPLOYEE_PAYROLL_RESULTS',
+            ['payroll:payslips:read'],
+          ),
           catalogReport('BANK_TRANSFER', 'Bank Transfer Report', null, [
             'payroll:banking',
           ]),
-          catalogReport('PAYROLL_VARIANCE', 'Payroll Variance Report', 'EMPLOYEE_PAYROLL_RESULTS', [
-            'payroll:reports',
-          ]),
-          catalogReport('SALARY_COST_DEPARTMENT', 'Salary Cost by Department', 'EMPLOYEE_PAYROLL_RESULTS', [
-            'payroll:reports',
-          ]),
-          catalogReport('SALARY_COST_BRANCH', 'Salary Cost by Branch', 'EMPLOYEE_PAYROLL_RESULTS', [
-            'payroll:reports',
-          ]),
-          catalogReport('LOAN_DEDUCTION', 'Loan Deduction Report', 'EMPLOYEE_PAYROLL_LINE_ITEMS', [
-            'payroll:reports',
-          ]),
-          catalogReport('LWP_DEDUCTION', 'Leave Without Pay Deduction Report', 'EMPLOYEE_PAYROLL_LINE_ITEMS', [
-            'payroll:reports',
-          ]),
-          catalogReport('STATUTORY_DEDUCTION', 'Statutory Deduction Report', 'EMPLOYEE_PAYROLL_LINE_ITEMS', [
-            'analytics:statutory-reports',
-          ]),
-          catalogReport('FINAL_SETTLEMENT', 'Full and Final Settlement Report', 'EMPLOYEE_PAYROLL_RESULTS', [
-            'payroll:final-settlements',
-          ]),
+          catalogReport(
+            'PAYROLL_VARIANCE',
+            'Payroll Variance Report',
+            'EMPLOYEE_PAYROLL_RESULTS',
+            ['payroll:reports'],
+          ),
+          catalogReport(
+            'SALARY_COST_DEPARTMENT',
+            'Salary Cost by Department',
+            'EMPLOYEE_PAYROLL_RESULTS',
+            ['payroll:reports'],
+          ),
+          catalogReport(
+            'SALARY_COST_BRANCH',
+            'Salary Cost by Branch',
+            'EMPLOYEE_PAYROLL_RESULTS',
+            ['payroll:reports'],
+          ),
+          catalogReport(
+            'LOAN_DEDUCTION',
+            'Loan Deduction Report',
+            'EMPLOYEE_PAYROLL_LINE_ITEMS',
+            ['payroll:reports'],
+          ),
+          catalogReport(
+            'LWP_DEDUCTION',
+            'Leave Without Pay Deduction Report',
+            'EMPLOYEE_PAYROLL_LINE_ITEMS',
+            ['payroll:reports'],
+          ),
+          catalogReport(
+            'STATUTORY_DEDUCTION',
+            'Statutory Deduction Report',
+            'EMPLOYEE_PAYROLL_LINE_ITEMS',
+            ['analytics:statutory-reports'],
+          ),
+          catalogReport(
+            'FINAL_SETTLEMENT',
+            'Full and Final Settlement Report',
+            'EMPLOYEE_PAYROLL_RESULTS',
+            ['payroll:final-settlements'],
+          ),
         ]),
         catalogCategory('Staff Loan Reports', [
-          catalogReport('LOAN_APPLICATION', 'Loan Application Report', 'EMPLOYEE_FINANCE_ACCOUNTS', [
-            'employee_finance:applications:read',
-          ]),
-          catalogReport('LOAN_APPROVAL', 'Loan Approval Report', 'EMPLOYEE_FINANCE_ACCOUNTS', [
-            'employee_finance:applications:read',
-          ]),
-          catalogReport('ACTIVE_LOAN', 'Active Loan Report', 'EMPLOYEE_FINANCE_ACCOUNTS', [
-            'employee_finance:accounts:read',
-          ]),
-          catalogReport('MONTHLY_LOAN_DEDUCTION', 'Monthly Deduction Report', 'EMPLOYEE_FINANCE_INSTALLMENTS', [
-            'employee_finance:reports',
-          ]),
-          catalogReport('LOAN_OUTSTANDING', 'Loan Outstanding Report', 'EMPLOYEE_FINANCE_ACCOUNTS', [
-            'employee_finance:reports',
-          ]),
-          catalogReport('LOAN_SETTLEMENT', 'Loan Settlement Report', 'EMPLOYEE_FINANCE_LEDGER_ENTRIES', [
-            'employee_finance:settlements',
-          ]),
+          catalogReport(
+            'LOAN_APPLICATION',
+            'Loan Application Report',
+            'EMPLOYEE_FINANCE_ACCOUNTS',
+            ['employee_finance:applications:read'],
+          ),
+          catalogReport(
+            'LOAN_APPROVAL',
+            'Loan Approval Report',
+            'EMPLOYEE_FINANCE_ACCOUNTS',
+            ['employee_finance:applications:read'],
+          ),
+          catalogReport(
+            'ACTIVE_LOAN',
+            'Active Loan Report',
+            'EMPLOYEE_FINANCE_ACCOUNTS',
+            ['employee_finance:accounts:read'],
+          ),
+          catalogReport(
+            'MONTHLY_LOAN_DEDUCTION',
+            'Monthly Deduction Report',
+            'EMPLOYEE_FINANCE_INSTALLMENTS',
+            ['employee_finance:reports'],
+          ),
+          catalogReport(
+            'LOAN_OUTSTANDING',
+            'Loan Outstanding Report',
+            'EMPLOYEE_FINANCE_ACCOUNTS',
+            ['employee_finance:reports'],
+          ),
+          catalogReport(
+            'LOAN_SETTLEMENT',
+            'Loan Settlement Report',
+            'EMPLOYEE_FINANCE_LEDGER_ENTRIES',
+            ['employee_finance:settlements'],
+          ),
         ]),
         catalogCategory('Custom Reports', [
-          catalogReport('CUSTOM_REPORT_BUILDER', 'Custom Report Builder', 'ANY_ANALYTICS_DATASET', [
-            'analytics:reports',
-          ]),
-          catalogReport('SAVED_REPORTS', 'Saved Reports', 'ANALYTICS_SAVED_REPORTS', [
-            'analytics:reports',
-          ]),
+          catalogReport(
+            'CUSTOM_REPORT_BUILDER',
+            'Custom Report Builder',
+            'ANY_ANALYTICS_DATASET',
+            ['analytics:reports'],
+          ),
+          catalogReport(
+            'SAVED_REPORTS',
+            'Saved Reports',
+            'ANALYTICS_SAVED_REPORTS',
+            ['analytics:reports'],
+          ),
         ]),
       ],
     };
@@ -2580,7 +2788,9 @@ export class AnalyticsExportService {
           : exportJob.outputFormat === 'JSON'
             ? 'json'
             : 'csv';
-    const base = sanitizeFilenamePart(exportJob.reportCode || 'analytics-report');
+    const base = sanitizeFilenamePart(
+      exportJob.reportCode || 'analytics-report',
+    );
     return {
       filename: `${base}-${exportJob.id}.${extension}`,
       mimeType:
@@ -2670,7 +2880,11 @@ export class AnalyticsSavedReportService {
   }
 
   async create(actor: AuthenticatedUser, dto: SaveAnalyticsReportDto) {
-    await this.validateReportShape(dto.dataset_code, dto.dimensions, dto.measures);
+    await this.validateReportShape(
+      dto.dataset_code,
+      dto.dimensions,
+      dto.measures,
+    );
     const visibility = (dto.visibility ?? 'PRIVATE').toUpperCase();
     const entity = this.repository.create({
       companyId: actor.companyId!,
@@ -2708,7 +2922,8 @@ export class AnalyticsSavedReportService {
     dto: UpdateSavedAnalyticsReportDto,
   ) {
     const saved = await this.requireOwned(actor, id);
-    const datasetCode = dto.dataset_code?.trim().toUpperCase() ?? saved.datasetCode;
+    const datasetCode =
+      dto.dataset_code?.trim().toUpperCase() ?? saved.datasetCode;
     const dimensions = dto.dimensions ?? saved.selectedDimensions;
     const measures = dto.measures ?? saved.selectedMeasures;
     await this.validateReportShape(datasetCode, dimensions, measures);
@@ -2806,7 +3021,9 @@ export class AnalyticsSavedReportService {
       throw new NotFoundException('Saved report was not found');
     }
     if (saved.ownerCompanyUserId !== actor.companyMembershipId) {
-      throw new BadRequestException('Only the owner can change this saved report.');
+      throw new BadRequestException(
+        'Only the owner can change this saved report.',
+      );
     }
     return saved;
   }
@@ -2865,9 +3082,10 @@ type OperationalReportDefinition = {
   category: string;
   permissions: string[];
   sensitivity: AnalyticsSensitivityEnum;
-  build: (
-    args: OperationalReportQueryArgs,
-  ) => { sql: string; params: unknown[] };
+  build: (args: OperationalReportQueryArgs) => {
+    sql: string;
+    params: unknown[];
+  };
 };
 
 type OperationalReportQueryArgs = {
@@ -2935,7 +3153,9 @@ function appendDateRange(
   query: AnalyticsOperationalReportQueryDto,
 ) {
   const range = defaultRange(query);
-  conditions.push(`${column} BETWEEN ${addParam(params, range.dateFrom)} AND ${addParam(params, range.dateTo)}`);
+  conditions.push(
+    `${column} BETWEEN ${addParam(params, range.dateFrom)} AND ${addParam(params, range.dateTo)}`,
+  );
 }
 
 function appendOptionalStringFilter(
@@ -3061,7 +3281,12 @@ function buildProbation(args: OperationalReportQueryArgs) {
     departmentColumn: 'e.primary_department_id',
   });
   appendDateRange(conditions, params, 'pc.current_due_date', args.query);
-  appendOptionalStringFilter(conditions, params, 'pc.status', args.query.status);
+  appendOptionalStringFilter(
+    conditions,
+    params,
+    'pc.status',
+    args.query.status,
+  );
   return {
     params,
     sql: compactSql(`
@@ -3080,14 +3305,22 @@ function buildProbation(args: OperationalReportQueryArgs) {
 function movementReport(types: string[]) {
   return (args: OperationalReportQueryArgs) => {
     const params: unknown[] = [args.companyId, types];
-    const conditions = ['movement.company_id = $1', 'movement.movement_type = ANY($2::text[])'];
+    const conditions = [
+      'movement.company_id = $1',
+      'movement.movement_type = ANY($2::text[])',
+    ];
     appendScopedEmployeeFilters(conditions, params, args.scope, {
       employeeColumn: 'movement.employee_id',
       branchColumn: 'e.primary_branch_id',
       departmentColumn: 'e.primary_department_id',
     });
     appendDateRange(conditions, params, 'movement.effective_date', args.query);
-    appendOptionalStringFilter(conditions, params, 'movement.status', args.query.status);
+    appendOptionalStringFilter(
+      conditions,
+      params,
+      'movement.status',
+      args.query.status,
+    );
     return {
       params,
       sql: compactSql(`
@@ -3116,15 +3349,29 @@ function movementReport(types: string[]) {
 function offboardingReport(onlyResignation: boolean) {
   return (args: OperationalReportQueryArgs) => {
     const params: unknown[] = [args.companyId];
-    const conditions = ['request.company_id = $1', 'request.deleted_at IS NULL'];
-    if (onlyResignation) conditions.push(`request.offboarding_type = 'resignation'`);
+    const conditions = [
+      'request.company_id = $1',
+      'request.deleted_at IS NULL',
+    ];
+    if (onlyResignation)
+      conditions.push(`request.offboarding_type = 'resignation'`);
     appendScopedEmployeeFilters(conditions, params, args.scope, {
       employeeColumn: 'request.employee_id',
       branchColumn: 'request.branch_id',
       departmentColumn: 'request.department_id',
     });
-    appendDateRange(conditions, params, 'request.last_working_date', args.query);
-    appendOptionalStringFilter(conditions, params, 'request.status', args.query.status);
+    appendDateRange(
+      conditions,
+      params,
+      'request.last_working_date',
+      args.query,
+    );
+    appendOptionalStringFilter(
+      conditions,
+      params,
+      'request.status',
+      args.query.status,
+    );
     return {
       params,
       sql: compactSql(`
@@ -3151,7 +3398,7 @@ function offboardingReport(onlyResignation: boolean) {
 
 function buildEmployeeDocuments(args: OperationalReportQueryArgs) {
   const params: unknown[] = [args.companyId];
-  const conditions = ["doc.company_id = $1", "doc.entity_type = 'EMPLOYEE'"];
+  const conditions = ['doc.company_id = $1', "doc.entity_type = 'EMPLOYEE'"];
   appendScopedEmployeeFilters(conditions, params, args.scope, {
     employeeColumn: 'doc.entity_id',
     branchColumn: 'e.primary_branch_id',
@@ -3188,7 +3435,9 @@ function buildLeaveBalances(args: OperationalReportQueryArgs) {
     departmentColumn: 'e.primary_department_id',
   });
   if (args.query.year) {
-    conditions.push(`balance.fiscal_year = ${addParam(params, String(args.query.year))}`);
+    conditions.push(
+      `balance.fiscal_year = ${addParam(params, String(args.query.year))}`,
+    );
   }
   return {
     params,
@@ -3224,7 +3473,10 @@ function buildLeaveBalances(args: OperationalReportQueryArgs) {
 
 function buildLeavePending(args: OperationalReportQueryArgs) {
   const params: unknown[] = [args.companyId];
-  const conditions = ["request.company_id = $1", "request.status IN ('SUBMITTED','PENDING_APPROVAL','RETURNED')"];
+  const conditions = [
+    'request.company_id = $1',
+    "request.status IN ('SUBMITTED','PENDING_APPROVAL','RETURNED')",
+  ];
   appendScopedEmployeeFilters(conditions, params, args.scope, {
     employeeColumn: 'request.employee_id',
     branchColumn: 'e.primary_branch_id',
@@ -3250,17 +3502,24 @@ function buildLeavePending(args: OperationalReportQueryArgs) {
 
 function buildPayrollRegister(args: OperationalReportQueryArgs) {
   const params: unknown[] = [args.companyId];
-  const conditions = ["result.company_id = $1", "run.status IN ('LOCKED','PAID','CLOSED')"];
+  const conditions = [
+    'result.company_id = $1',
+    "run.status IN ('LOCKED','PAID','CLOSED')",
+  ];
   appendScopedEmployeeFilters(conditions, params, args.scope, {
     employeeColumn: 'result.employee_id',
     branchColumn: 'e.primary_branch_id',
     departmentColumn: 'e.primary_department_id',
   });
   if (args.query.payroll_period_id) {
-    conditions.push(`result.payroll_period_id = ${addParam(params, args.query.payroll_period_id)}`);
+    conditions.push(
+      `result.payroll_period_id = ${addParam(params, args.query.payroll_period_id)}`,
+    );
   }
   if (args.query.payroll_run_id) {
-    conditions.push(`result.payroll_run_id = ${addParam(params, args.query.payroll_run_id)}`);
+    conditions.push(
+      `result.payroll_run_id = ${addParam(params, args.query.payroll_run_id)}`,
+    );
   }
   return {
     params,
@@ -3284,14 +3543,19 @@ function buildPayrollRegister(args: OperationalReportQueryArgs) {
 
 function buildBankTransfer(args: OperationalReportQueryArgs) {
   const params: unknown[] = [args.companyId];
-  const conditions = ["result.company_id = $1", "run.status IN ('LOCKED','PAID','CLOSED')"];
+  const conditions = [
+    'result.company_id = $1',
+    "run.status IN ('LOCKED','PAID','CLOSED')",
+  ];
   appendScopedEmployeeFilters(conditions, params, args.scope, {
     employeeColumn: 'result.employee_id',
     branchColumn: 'e.primary_branch_id',
     departmentColumn: 'e.primary_department_id',
   });
   if (args.query.payroll_period_id) {
-    conditions.push(`result.payroll_period_id = ${addParam(params, args.query.payroll_period_id)}`);
+    conditions.push(
+      `result.payroll_period_id = ${addParam(params, args.query.payroll_period_id)}`,
+    );
   }
   const accountExpr = "result.bank_account_snapshot ->> 'accountNumber'";
   return {
@@ -3314,13 +3578,21 @@ function buildBankTransfer(args: OperationalReportQueryArgs) {
 
 function buildLoanOutstanding(args: OperationalReportQueryArgs) {
   const params: unknown[] = [args.companyId];
-  const conditions = ["account.company_id = $1", "account.product_type = 'STAFF_LOAN'"];
+  const conditions = [
+    'account.company_id = $1',
+    "account.product_type = 'STAFF_LOAN'",
+  ];
   appendScopedEmployeeFilters(conditions, params, args.scope, {
     employeeColumn: 'account.employee_id',
     branchColumn: 'e.primary_branch_id',
     departmentColumn: 'e.primary_department_id',
   });
-  appendOptionalStringFilter(conditions, params, 'account.status', args.query.status);
+  appendOptionalStringFilter(
+    conditions,
+    params,
+    'account.status',
+    args.query.status,
+  );
   return {
     params,
     sql: compactSql(`
@@ -3376,15 +3648,21 @@ function appendPerformancePeriodFilters(
 ) {
   appendDateRange(conditions, params, `${periodAlias}.end_date`, query);
   if (query.year) {
-    conditions.push(`${periodAlias}.financial_year_id = ${addParam(params, query.year)}`);
+    conditions.push(
+      `${periodAlias}.financial_year_id = ${addParam(params, query.year)}`,
+    );
   }
   if (query.quarter) {
     conditions.push(`${periodAlias}.period_type = 'QUARTERLY'`);
-    conditions.push(`${periodAlias}.sequence_number = ${addParam(params, query.quarter)}`);
+    conditions.push(
+      `${periodAlias}.sequence_number = ${addParam(params, query.quarter)}`,
+    );
   }
   if (query.month?.trim()) {
     conditions.push(`${periodAlias}.period_type = 'MONTHLY'`);
-    conditions.push(`${periodAlias}.name ILIKE ${addParam(params, `%${query.month.trim()}%`)}`);
+    conditions.push(
+      `${periodAlias}.name ILIKE ${addParam(params, `%${query.month.trim()}%`)}`,
+    );
   }
 }
 
@@ -3397,7 +3675,12 @@ function buildKpiAssignments(args: OperationalReportQueryArgs) {
     departmentColumn: 'e.primary_department_id',
   });
   appendDateRange(conditions, params, 'plan.effective_from', args.query);
-  appendOptionalStringFilter(conditions, params, 'plan.status', args.query.status);
+  appendOptionalStringFilter(
+    conditions,
+    params,
+    'plan.status',
+    args.query.status,
+  );
   return {
     params,
     sql: compactSql(`
@@ -3421,7 +3704,10 @@ function buildKpiAssignments(args: OperationalReportQueryArgs) {
   };
 }
 
-function buildKpiTargetAchievement(args: OperationalReportQueryArgs, monthlyOnly = false) {
+function buildKpiTargetAchievement(
+  args: OperationalReportQueryArgs,
+  monthlyOnly = false,
+) {
   const params: unknown[] = [args.companyId];
   const conditions = ['achievement.company_id = $1'];
   if (monthlyOnly) conditions.push(`period.period_type = 'MONTHLY'`);
@@ -3431,7 +3717,12 @@ function buildKpiTargetAchievement(args: OperationalReportQueryArgs, monthlyOnly
     departmentColumn: 'e.primary_department_id',
   });
   appendPerformancePeriodFilters(conditions, params, args.query);
-  appendOptionalStringFilter(conditions, params, 'achievement.status', args.query.status);
+  appendOptionalStringFilter(
+    conditions,
+    params,
+    'achievement.status',
+    args.query.status,
+  );
   return {
     params,
     sql: compactSql(`
@@ -3459,19 +3750,29 @@ function buildKpiTargetAchievement(args: OperationalReportQueryArgs, monthlyOnly
   };
 }
 
-function buildPerformanceAggregate(args: OperationalReportQueryArgs, periodType: 'QUARTERLY' | 'ANNUAL') {
+function buildPerformanceAggregate(
+  args: OperationalReportQueryArgs,
+  periodType: 'QUARTERLY' | 'ANNUAL',
+) {
   const params: unknown[] = [args.companyId];
-  const conditions = ['aggregate.company_id = $1', `aggregate.period_type = '${periodType}'`];
+  const conditions = [
+    'aggregate.company_id = $1',
+    `aggregate.period_type = '${periodType}'`,
+  ];
   appendScopedEmployeeFilters(conditions, params, args.scope, {
     employeeColumn: 'aggregate.employee_id',
     branchColumn: 'e.primary_branch_id',
     departmentColumn: 'e.primary_department_id',
   });
   if (args.query.year) {
-    conditions.push(`aggregate.financial_year_id = ${addParam(params, args.query.year)}`);
+    conditions.push(
+      `aggregate.financial_year_id = ${addParam(params, args.query.year)}`,
+    );
   }
   if (args.query.quarter && periodType === 'QUARTERLY') {
-    conditions.push(`aggregate.sequence_number = ${addParam(params, args.query.quarter)}`);
+    conditions.push(
+      `aggregate.sequence_number = ${addParam(params, args.query.quarter)}`,
+    );
   }
   return {
     params,
@@ -3498,7 +3799,12 @@ function buildKpiScoreHistory(args: OperationalReportQueryArgs) {
     departmentColumn: 'e.primary_department_id',
   });
   appendPerformancePeriodFilters(conditions, params, args.query);
-  appendOptionalStringFilter(conditions, params, 'review.status', args.query.status);
+  appendOptionalStringFilter(
+    conditions,
+    params,
+    'review.status',
+    args.query.status,
+  );
   return {
     params,
     sql: compactSql(`
@@ -3526,7 +3832,12 @@ function buildAttendanceExceptions(args: OperationalReportQueryArgs) {
     departmentColumn: 'e.primary_department_id',
   });
   appendDateRange(conditions, params, 'exception.attendance_date', args.query);
-  appendOptionalStringFilter(conditions, params, 'exception.status', args.query.status);
+  appendOptionalStringFilter(
+    conditions,
+    params,
+    'exception.status',
+    args.query.status,
+  );
   return {
     params,
     sql: compactSql(`
@@ -3593,7 +3904,11 @@ const OPERATIONAL_REPORTS: OperationalReportDefinition[] = [
     code: 'CONFIRMATION_DUE',
     name: 'Confirmation Due Report',
     category: 'Employee Reports',
-    permissions: ['employee_reports.view', 'probation_cases:read', 'reports.view'],
+    permissions: [
+      'employee_reports.view',
+      'probation_cases:read',
+      'reports.view',
+    ],
     sensitivity: AnalyticsSensitivityEnum.INTERNAL,
     build: buildConfirmationDue,
   },
@@ -3601,7 +3916,11 @@ const OPERATIONAL_REPORTS: OperationalReportDefinition[] = [
     code: 'PROBATION',
     name: 'Probation Report',
     category: 'Employee Reports',
-    permissions: ['employee_reports.view', 'probation_cases:read', 'reports.view'],
+    permissions: [
+      'employee_reports.view',
+      'probation_cases:read',
+      'reports.view',
+    ],
     sensitivity: AnalyticsSensitivityEnum.INTERNAL,
     build: buildProbation,
   },
@@ -3609,7 +3928,11 @@ const OPERATIONAL_REPORTS: OperationalReportDefinition[] = [
     code: 'TRANSFERS',
     name: 'Transfer Report',
     category: 'Employee Reports',
-    permissions: ['employee_reports.view', 'employee_movements:read', 'reports.view'],
+    permissions: [
+      'employee_reports.view',
+      'employee_movements:read',
+      'reports.view',
+    ],
     sensitivity: AnalyticsSensitivityEnum.INTERNAL,
     build: movementReport(['DEPARTMENT_TRANSFER', 'BRANCH_TRANSFER']),
   },
@@ -3617,7 +3940,11 @@ const OPERATIONAL_REPORTS: OperationalReportDefinition[] = [
     code: 'PROMOTIONS',
     name: 'Promotion Report',
     category: 'Employee Reports',
-    permissions: ['employee_reports.view', 'employee_movements:read', 'reports.view'],
+    permissions: [
+      'employee_reports.view',
+      'employee_movements:read',
+      'reports.view',
+    ],
     sensitivity: AnalyticsSensitivityEnum.INTERNAL,
     build: movementReport(['PROMOTION']),
   },
@@ -3649,7 +3976,11 @@ const OPERATIONAL_REPORTS: OperationalReportDefinition[] = [
     code: 'LEAVE_BALANCE',
     name: 'Leave Balance Report',
     category: 'Leave Reports',
-    permissions: ['leave_reports.view', 'leave-balances.view', 'leave_balances:read'],
+    permissions: [
+      'leave_reports.view',
+      'leave-balances.view',
+      'leave_balances:read',
+    ],
     sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
     build: buildLeaveBalances,
   },
@@ -3814,7 +4145,11 @@ export class AnalyticsOperationalReportService {
       )}`,
       built.params,
     );
-    const rows = await this.enrichRows(definition.code, rawRows, actor.companyId!);
+    const rows = await this.enrichRows(
+      definition.code,
+      rawRows,
+      actor.companyId!,
+    );
     await this.auditService.log({
       actor,
       action: 'analytics.operational_report.run',
@@ -3964,8 +4299,9 @@ export class AnalyticsOperationalReportService {
         };
         return {
           ...row,
-          remaining_balance:
-            this.leaveBalanceService.calculateAvailableDays(balanceLike as never),
+          remaining_balance: this.leaveBalanceService.calculateAvailableDays(
+            balanceLike as never,
+          ),
           calculation_source: 'LeaveBalanceService.calculateAvailableDays',
         };
       });
@@ -3979,10 +4315,9 @@ export class AnalyticsOperationalReportService {
           enriched.push(row);
           continue;
         }
-        const balance = await this.employeeFinanceLedgerService.calculateBalance(
-          companyId,
-          accountId,
-        ).catch(() => null);
+        const balance = await this.employeeFinanceLedgerService
+          .calculateBalance(companyId, accountId)
+          .catch(() => null);
         enriched.push({
           ...row,
           ledger_principal: balance?.principal ?? row.outstanding_principal,
@@ -3997,14 +4332,12 @@ export class AnalyticsOperationalReportService {
       return enriched;
     }
 
-    if (
-      code === 'KPI_TARGET_VS_ACHIEVEMENT' ||
-      code === 'MONTHLY_KPI_SCORE'
-    ) {
+    if (code === 'KPI_TARGET_VS_ACHIEVEMENT' || code === 'MONTHLY_KPI_SCORE') {
       return rows.map((row) => {
-        const formula = String(
-          row.scoring_formula ?? KpiScoringFormulaEnum.PERCENT_TO_TARGET,
-        ) as KpiScoringFormulaEnum;
+        const formula =
+          typeof row.scoring_formula === 'string'
+            ? (row.scoring_formula as KpiScoringFormulaEnum)
+            : KpiScoringFormulaEnum.PERCENT_TO_TARGET;
         const scoring = this.performanceScoringService.score({
           formula,
           targetValue: row.target_value as string | number | null,
@@ -4040,7 +4373,9 @@ export class AnalyticsOperationalReportService {
     };
     return {
       ...scope,
-      scopeHash: createHash('sha256').update(JSON.stringify(scope)).digest('hex'),
+      scopeHash: createHash('sha256')
+        .update(JSON.stringify(scope))
+        .digest('hex'),
     };
   }
 

@@ -26,6 +26,7 @@ import { OnboardingWorkflow } from './onboarding-workflow.entity';
 @Index('IDX_onboarding_workflow_step_workflow', ['workflow_id'])
 @Index('IDX_onboarding_workflow_step_role', ['assigned_role_id'])
 @Index('IDX_onboarding_workflow_step_user', ['assigned_user_id'])
+@Index('IDX_onboarding_workflow_step_department', ['assigned_department_id'])
 export class OnboardingWorkflowStep {
   @PrimaryGeneratedColumn()
   id: number;

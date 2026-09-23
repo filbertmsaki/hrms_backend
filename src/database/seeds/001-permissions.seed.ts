@@ -2791,7 +2791,8 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
   {
     name: 'field_reports.view',
     displayName: 'View field staff reports',
-    description: 'Allow viewing field visit, location, and productivity reports',
+    description:
+      'Allow viewing field visit, location, and productivity reports',
   },
   {
     name: 'activity_reports.view',

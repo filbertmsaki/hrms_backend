@@ -56,6 +56,8 @@ const SELF_SERVICE_PERMISSIONS = [
   'attendance_mobile_punches:create',
   'shift_change_requests:read',
   'shift_change_requests:create',
+  'performance_self_service:read',
+  'performance_self_service:update',
   ...SELF_SERVICE_OFFBOARDING_REQUEST_PERMISSIONS,
   'performance_periods:read',
   'performance_kpis:self:read',
@@ -66,6 +68,43 @@ const SELF_SERVICE_PERMISSIONS = [
   'performance_self_service:update',
   'work_activities:self-service:read',
   'work_activities:self-service:update',
+];
+
+/** HR Performance management (`/dashboard/performance/*`). */
+const PERFORMANCE_MANAGEMENT_PERMISSIONS = [
+  'performance_financial_years:read',
+  'performance_financial_years:create',
+  'performance_periods:read',
+  'performance_periods:create',
+  'performance_rating_scales:read',
+  'performance_rating_scales:create',
+  'performance_competencies:read',
+  'performance_competencies:create',
+  'kpi_definitions:read',
+  'kpi_definitions:create',
+  'kpi_definitions:update',
+  'kpi_applicability_rules:read',
+  'kpi_applicability_rules:create',
+  'kpi_templates:read',
+  'kpi_templates:create',
+  'performance_plans:read',
+  'performance_plans:create',
+  'performance_assignments:create',
+  'performance_reviews:approve',
+  'performance_reviews:moderate',
+  'performance_reviews:reopen',
+  'performance_reviews:appeal-review',
+  'performance_kpis:sync',
+  'performance_aggregates:read',
+  'performance_aggregates:calculate',
+  'performance_dashboards:read',
+  'performance_manager:read',
+  'performance_manager:review',
+  'performance_manager:validate',
+  'performance_pip:read',
+  'performance_pip:create',
+  'performance_pip:review',
+  'performance_pip:close',
 ];
 
 /** Read-only structural lookups needed by managers and HR */
@@ -501,6 +540,8 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'offboarding_documents:delete',
       'offboarding_documents:create',
       'offboarding_documents:read',
+      // Performance management (years, periods, plans, reviews)
+      ...PERFORMANCE_MANAGEMENT_PERMISSIONS,
       ...SELF_SERVICE_APPROVAL_PERMISSIONS,
       ...PROFILE_CHANGE_APPROVAL_PERMISSIONS,
     ],
@@ -730,6 +771,8 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'offboarding_documents:delete',
       'offboarding_documents:create',
       'offboarding_documents:read',
+      // Performance management (years, periods, plans, reviews)
+      ...PERFORMANCE_MANAGEMENT_PERMISSIONS,
       // Role permission management
       'roles:assign-permission',
       'roles:revoke-permission',
