@@ -309,8 +309,16 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
           .PayrollGroup,
       ),
       dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollGroupAssignment,
+      ),
+      dataSource.getRepository(
         require('../src/modules/hr/attendance/holidays/entities/holiday.entity')
           .AttendanceHoliday,
+      ),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollLeaveRule,
       ),
     );
     runService = new PayrollRunService(

@@ -479,6 +479,128 @@ describe('employee finance servicing lifecycle', () => {
   });
 });
 
+describe('EmployeeFinancePayrollInstructionService payroll recovery edges', () => {
+  it('carries forward unpaid installments due before the current payroll period ends', async () => {
+    const periodRepository = new MemoryRepository([
+      {
+        id: 88,
+        companyId: 10,
+        startDate: '2026-10-01',
+        endDate: '2026-10-31',
+      },
+    ]);
+    const accountRepository = new MemoryRepository([
+      {
+        id: 20,
+        companyId: 10,
+        employeeId: 501,
+        productType: EmployeeFinanceProductTypeEnum.STAFF_LOAN,
+        accountNo: 'EF-20',
+        status: EmployeeFinanceAccountStatusEnum.ACTIVE,
+      },
+    ]);
+    const installment = {
+      id: 30,
+      companyId: 10,
+      employeeId: 501,
+      accountId: 20,
+      dueDate: '2026-09-28',
+      installmentNumber: 1,
+      totalDue: '120.00',
+      paidAmount: '20.00',
+      status: EmployeeFinanceInstallmentStatusEnum.PARTIALLY_PAID,
+    };
+    const installmentRepository = new MemoryRepository([installment]);
+    const instructionRepository = new MemoryRepository();
+    const service = new EmployeeFinancePayrollInstructionService(
+      {} as any,
+      periodRepository as any,
+      accountRepository as any,
+      installmentRepository as any,
+      instructionRepository as any,
+    );
+
+    const instructions = await service.reserveForPayrollRun(10, 88, 9001, 501);
+
+    expect(instructions).toEqual([
+      expect.objectContaining({
+        payrollPeriodId: 88,
+        payrollRunId: 9001,
+        employeeId: 501,
+        installmentId: 30,
+        amount: '100.00',
+        reservedAmount: '100.00',
+        status: EmployeeFinancePayrollInstructionStatusEnum.RESERVED,
+      }),
+    ]);
+  });
+
+  it('does not increment an installment twice when a stale payroll instruction is posted again', async () => {
+    const periodRepository = new MemoryRepository();
+    const accountRepository = new MemoryRepository();
+    const installmentRepository = new MemoryRepository([
+      {
+        id: 30,
+        companyId: 10,
+        accountId: 20,
+        totalDue: '100.00',
+        paidAmount: '0.00',
+        feeDue: '0.00',
+        interestDue: '0.00',
+        status: EmployeeFinanceInstallmentStatusEnum.SCHEDULED,
+      },
+    ]);
+    const instructionRepository = new MemoryRepository([
+      {
+        id: 40,
+        companyId: 10,
+        employeeId: 501,
+        accountId: 20,
+        installmentId: 30,
+        payrollPeriodId: 88,
+        payrollRunId: 9001,
+        componentCode: 'STAFF_LOAN',
+        amount: '100.00',
+        reservedAmount: '100.00',
+        postedAmount: '0.00',
+        status: EmployeeFinancePayrollInstructionStatusEnum.RESERVED,
+      },
+    ]);
+    const ledgerService = {
+      post: jest.fn(async () => ({ id: 1 })),
+    };
+    const service = new EmployeeFinancePayrollInstructionService(
+      ledgerService as any,
+      periodRepository as any,
+      accountRepository as any,
+      installmentRepository as any,
+      instructionRepository as any,
+    );
+
+    await service.lockForPayrollRun(10, 9001);
+    await (service as any).postPayrollInstruction({
+      id: 40,
+      companyId: 10,
+      employeeId: 501,
+      accountId: 20,
+      installmentId: 30,
+      payrollPeriodId: 88,
+      payrollRunId: 9001,
+      componentCode: 'STAFF_LOAN',
+      amount: '100.00',
+      reservedAmount: '100.00',
+      postedAmount: '0.00',
+      status: EmployeeFinancePayrollInstructionStatusEnum.RESERVED,
+    });
+
+    expect(ledgerService.post).toHaveBeenCalledTimes(1);
+    expect(installmentRepository.rows[0].paidAmount).toBe('100.00');
+    expect(instructionRepository.rows[0].status).toBe(
+      EmployeeFinancePayrollInstructionStatusEnum.POSTED,
+    );
+  });
+});
+
 function sum(
   schedule: EmployeeFinanceScheduleItem[],
   field: keyof Pick<

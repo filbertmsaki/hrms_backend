@@ -2318,9 +2318,6 @@ export class EmployeeFinancePayrollInstructionService {
         'account.id = installment.accountId',
       )
       .where('installment.companyId = :companyId', { companyId })
-      .andWhere('installment.dueDate >= :startDate', {
-        startDate: period.startDate,
-      })
       .andWhere('installment.dueDate <= :endDate', { endDate: period.endDate })
       .andWhere('installment.status IN (:...statuses)', {
         statuses: [
@@ -2458,6 +2455,18 @@ export class EmployeeFinancePayrollInstructionService {
   private async postPayrollInstruction(
     instruction: EmployeeFinancePayrollInstruction,
   ) {
+    const currentInstruction = await this.instructionRepository.findOne({
+      where: {
+        id: instruction.id,
+        companyId: instruction.companyId,
+      },
+    });
+    if (
+      currentInstruction?.status ===
+      EmployeeFinancePayrollInstructionStatusEnum.POSTED
+    ) {
+      return currentInstruction;
+    }
     const installment = await this.installmentRepository.findOne({
       where: {
         id: instruction.installmentId,

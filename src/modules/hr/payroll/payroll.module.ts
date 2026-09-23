@@ -5,6 +5,7 @@ import { AttendanceHoliday } from '../attendance/holidays/entities/holiday.entit
 import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
 import { EmployeeFinanceModule } from '../employee-finance/employee-finance.module';
 import {
+  EmployeeFinanceAccount,
   EmployeeFinanceLedgerEntry,
   EmployeeFinancePayrollInstruction,
 } from '../employee-finance/entities/employee-finance-account.entities';
@@ -140,6 +141,7 @@ import {
       PerformanceAggregate,
       OffboardingRequest,
       OffboardingSettlementItem,
+      EmployeeFinanceAccount,
       EmployeeFinancePayrollInstruction,
       EmployeeFinanceLedgerEntry,
     ]),

@@ -31,10 +31,14 @@ import { EmployeeKpiStatusEnum } from '../../performance/enums/employee-kpi-stat
 import { KpiAchievementStatusEnum } from '../../performance/enums/kpi-achievement-status.enum';
 import { HrAccessService } from '../../shared/hr-access.service';
 import {
+  EmployeeFinanceAccount,
   EmployeeFinanceLedgerEntry,
   EmployeeFinancePayrollInstruction,
 } from '../../employee-finance/entities/employee-finance-account.entities';
-import { EmployeeFinancePayrollInstructionStatusEnum } from '../../employee-finance/employee-finance.enums';
+import {
+  EmployeeFinanceAccountStatusEnum,
+  EmployeeFinancePayrollInstructionStatusEnum,
+} from '../../employee-finance/employee-finance.enums';
 import { EmployeeFinancePayrollInstructionService } from '../../employee-finance/services/employee-finance-core.services';
 import { NotificationQueueService } from '../../../notifications/notification-queue.service';
 import { SmsNotificationManagementService } from '../../../sms/sms-notification-management.service';
@@ -4622,9 +4626,15 @@ export class PayrollAccountingService {
       where: { id: payrollRunId, companyId },
     });
     if (!run) throw new NotFoundException('Payroll run not found.');
-    if (run.status !== PayrollRunStatusEnum.LOCKED) {
+    if (
+      ![
+        PayrollRunStatusEnum.LOCKED,
+        PayrollRunStatusEnum.PAYMENT_FILE_GENERATED,
+        PayrollRunStatusEnum.PAID,
+      ].includes(run.status)
+    ) {
       throw new ConflictException(
-        'Journals can be generated only from locked payroll.',
+        'Journals can be generated only from locked or paid payroll.',
       );
     }
     const lines = await this.lineRepository.find({
@@ -4993,6 +5003,18 @@ export class PayrollReportsService {
     private readonly periodRepository: Repository<PayrollPeriod>,
     @InjectRepository(PayrollDeductionShortfall)
     private readonly shortfallRepository: Repository<PayrollDeductionShortfall>,
+    @InjectRepository(PayrollRunApproval)
+    private readonly approvalRepository: Repository<PayrollRunApproval>,
+    @InjectRepository(PayrollBankBatch)
+    private readonly bankBatchRepository: Repository<PayrollBankBatch>,
+    @InjectRepository(PayrollJournalBatch)
+    private readonly journalRepository: Repository<PayrollJournalBatch>,
+    @InjectRepository(PayrollPaymentReconciliation)
+    private readonly paymentReconciliationRepository: Repository<PayrollPaymentReconciliation>,
+    @InjectRepository(EmployeeFinancePayrollInstruction)
+    private readonly financeInstructionRepository: Repository<EmployeeFinancePayrollInstruction>,
+    @InjectRepository(EmployeeFinanceLedgerEntry)
+    private readonly financeLedgerRepository: Repository<EmployeeFinanceLedgerEntry>,
     @InjectRepository(PayrollVarianceResult)
     private readonly varianceRepository: Repository<PayrollVarianceResult>,
   ) {}
@@ -5083,6 +5105,7 @@ export class PayrollReportsService {
       ['overtime', 'time-earnings'],
       ['loan', 'liability-drilldown'],
       ['advance', 'liability-drilldown'],
+      ['payroll-run-reconciliation', 'approval-reconciliation'],
       ['employer-contributions', 'statutory'],
       ['tax', 'statutory'],
       ['pension', 'statutory'],
@@ -5333,6 +5356,9 @@ export class PayrollReportsService {
         })
       : [];
     const normalizedCode = code.trim().toLowerCase();
+    if (normalizedCode === 'payroll-run-reconciliation') {
+      return this.buildRunReconciliationDetail(companyId, runIds);
+    }
     if (normalizedCode === 'deduction-shortfalls') {
       const rows = await this.buildShortfallRows(companyId, results);
       return {
@@ -5579,6 +5605,286 @@ export class PayrollReportsService {
       deferred_amount: row.deferredAmount,
       status: row.status,
     }));
+  }
+
+  private async buildRunReconciliationDetail(
+    companyId: number,
+    runIds: number[],
+  ) {
+    const runId = runIds[0];
+    if (!runId) {
+      return {
+        code: 'payroll-run-reconciliation',
+        layout: this.reportLayout('payroll-run-reconciliation'),
+        run_ids: [],
+        row_count: 0,
+        summary: {
+          issue_count: 0,
+          unresolved_issue_count: 0,
+          shortfall_count: 0,
+          deduction_preview_count: 0,
+        },
+        rows: [],
+      };
+    }
+    const run = await this.runRepository.findOne({
+      where: { id: runId, companyId },
+    });
+    if (!run) throw new NotFoundException('Payroll run not found.');
+
+    const [results, lines, approvals, bankBatch, journalBatch, payments] =
+      await Promise.all([
+        this.resultRepository.find({
+          where: { companyId, payrollRunId: run.id },
+          order: { employeeId: 'ASC' },
+        }),
+        this.lineRepository.find({
+          where: { companyId, payrollRunId: run.id },
+          order: { employeeId: 'ASC', calculationOrder: 'ASC' },
+        }),
+        this.approvalRepository.find({
+          where: { companyId, payrollRunId: run.id },
+          order: { id: 'ASC' },
+        }),
+        this.bankBatchRepository.findOne({
+          where: { companyId, payrollRunId: run.id },
+        }),
+        this.journalRepository.findOne({
+          where: { companyId, payrollRunId: run.id },
+        }),
+        this.paymentReconciliationRepository.find({
+          where: { companyId, payrollRunId: run.id },
+          order: { id: 'DESC' },
+        }),
+      ]);
+
+    const resultMap = new Map(results.map((result) => [result.id, result]));
+    const shortfalls = results.length
+      ? await this.shortfallRepository.find({
+          where: {
+            companyId,
+            employeePayrollResultId: In(results.map((result) => result.id)),
+          },
+          order: { employeePayrollResultId: 'ASC', id: 'ASC' },
+        })
+      : [];
+    const instructions = await this.financeInstructionRepository.find({
+      where: { companyId, payrollRunId: run.id },
+      order: { employeeId: 'ASC', id: 'ASC' },
+    });
+    const ledgerEntries = instructions.length
+      ? await this.financeLedgerRepository.find({
+          where: {
+            companyId,
+            idempotencyKey: In(
+              instructions.map(
+                (instruction) => `payroll:${run.id}:${instruction.id}`,
+              ),
+            ),
+          },
+          order: { id: 'ASC' },
+        })
+      : [];
+
+    const financeLines = lines.filter(
+      (line) => line.sourceType === 'EMPLOYEE_FINANCE',
+    );
+    const financeLineByInstructionId = new Map(
+      financeLines.map((line) => [Number(line.sourceReference), line]),
+    );
+    const ledgerByInstructionId = new Map(
+      ledgerEntries.map((entry) => {
+        const parts = String(entry.idempotencyKey).split(':');
+        return [Number(parts[parts.length - 1]), entry] as const;
+      }),
+    );
+
+    const issues: Record<string, unknown>[] = [];
+    const resultsNet = results.reduce(
+      (sum, result) => PayrollMoney.add(sum, result.netPay),
+      '0.00',
+    );
+    if (
+      PayrollMoney.toCents(resultsNet) !== PayrollMoney.toCents(run.netPayTotal)
+    ) {
+      issues.push({
+        code: 'RUN_TOTAL_DIFFERS_FROM_EMPLOYEE_RESULTS',
+        severity: 'BLOCKER',
+        expected_amount: run.netPayTotal,
+        actual_amount: resultsNet,
+      });
+    }
+    if (
+      bankBatch &&
+      PayrollMoney.toCents(bankBatch.totalAmount) !==
+        PayrollMoney.toCents(run.netPayTotal)
+    ) {
+      issues.push({
+        code: 'BANK_BATCH_TOTAL_DIFFERS_FROM_LOCKED_PAYROLL',
+        severity: 'BLOCKER',
+        bank_batch_id: bankBatch.id,
+        expected_amount: run.netPayTotal,
+        actual_amount: bankBatch.totalAmount,
+      });
+    }
+    if (bankBatch && bankBatch.recordCount !== results.length) {
+      issues.push({
+        code: 'BANK_BATCH_RECORD_COUNT_DIFFERS_FROM_RESULTS',
+        severity: 'WARNING',
+        bank_batch_id: bankBatch.id,
+        expected_count: results.length,
+        actual_count: bankBatch.recordCount,
+      });
+    }
+    if (
+      journalBatch &&
+      PayrollMoney.toCents(journalBatch.debitTotal) !==
+        PayrollMoney.toCents(journalBatch.creditTotal)
+    ) {
+      issues.push({
+        code: 'PAYROLL_JOURNAL_UNBALANCED',
+        severity: 'BLOCKER',
+        journal_batch_id: journalBatch.id,
+        debit_total: journalBatch.debitTotal,
+        credit_total: journalBatch.creditTotal,
+      });
+    }
+    for (const payment of payments) {
+      if (payment.status !== 'MATCHED') {
+        issues.push({
+          code: 'PAYROLL_PAYMENT_RECONCILIATION_NOT_MATCHED',
+          severity: 'WARNING',
+          reconciliation_id: payment.id,
+          status: payment.status,
+          variance_amount: payment.varianceAmount,
+        });
+      }
+    }
+
+    const deductionPreview = instructions.map((instruction) => {
+      const line = financeLineByInstructionId.get(instruction.id);
+      const ledger = ledgerByInstructionId.get(instruction.id);
+      if (
+        line &&
+        PayrollMoney.toCents(line.amount) !==
+          PayrollMoney.toCents(instruction.reservedAmount)
+      ) {
+        issues.push({
+          code: 'EMPLOYEE_FINANCE_LINE_DIFFERS_FROM_RESERVED_AMOUNT',
+          severity: 'BLOCKER',
+          employee_id: instruction.employeeId,
+          instruction_id: instruction.id,
+          line_amount: line.amount,
+          reserved_amount: instruction.reservedAmount,
+        });
+      }
+      if (
+        this.isLockedForReconciliation(run.status) &&
+        PayrollMoney.toCents(instruction.reservedAmount) > 0n &&
+        !ledger
+      ) {
+        issues.push({
+          code: 'LOCKED_PAYROLL_FINANCE_LEDGER_ENTRY_MISSING',
+          severity: 'BLOCKER',
+          employee_id: instruction.employeeId,
+          instruction_id: instruction.id,
+        });
+      }
+      return {
+        instruction_id: instruction.id,
+        employee_id: instruction.employeeId,
+        account_id: instruction.accountId,
+        installment_id: instruction.installmentId,
+        component_code: instruction.componentCode,
+        requested_amount: instruction.amount,
+        reserved_amount: instruction.reservedAmount,
+        posted_amount: instruction.postedAmount,
+        deferred_amount: PayrollMoney.add(
+          instruction.amount,
+          PayrollMoney.fromCents(
+            -PayrollMoney.toCents(instruction.reservedAmount),
+          ),
+        ),
+        status: instruction.status,
+        payroll_line_id: line?.id ?? null,
+        ledger_entry_id: ledger?.id ?? null,
+      };
+    });
+
+    const shortfallRows = shortfalls.map((row) => {
+      const result = resultMap.get(row.employeePayrollResultId);
+      return {
+        id: row.id,
+        employee_id: result?.employeeId ?? null,
+        payroll_result_id: row.employeePayrollResultId,
+        component_code: row.componentCode,
+        requested_amount: row.requestedAmount,
+        applied_amount: row.appliedAmount,
+        deferred_amount: row.deferredAmount,
+        status: row.status,
+      };
+    });
+
+    const latestPayment = payments[0] ?? null;
+    const summary = {
+      payroll_run_id: run.id,
+      status: run.status,
+      employee_count: results.length,
+      gross_total: run.grossTotal,
+      deduction_total: run.deductionTotal,
+      net_pay_total: run.netPayTotal,
+      employee_result_net_total: resultsNet,
+      deduction_preview_count: deductionPreview.length,
+      deduction_requested_total: deductionPreview.reduce(
+        (sum, row) => PayrollMoney.add(sum, row.requested_amount),
+        '0.00',
+      ),
+      deduction_reserved_total: deductionPreview.reduce(
+        (sum, row) => PayrollMoney.add(sum, row.reserved_amount),
+        '0.00',
+      ),
+      shortfall_count: shortfallRows.length,
+      shortfall_total: shortfallRows.reduce(
+        (sum, row) => PayrollMoney.add(sum, row.deferred_amount),
+        '0.00',
+      ),
+      approval_count: approvals.length,
+      bank_batch_id: bankBatch?.id ?? null,
+      bank_batch_total: bankBatch?.totalAmount ?? null,
+      journal_batch_id: journalBatch?.id ?? null,
+      journal_debit_total: journalBatch?.debitTotal ?? null,
+      journal_credit_total: journalBatch?.creditTotal ?? null,
+      latest_payment_reconciliation_id: latestPayment?.id ?? null,
+      latest_payment_reconciliation_status: latestPayment?.status ?? null,
+      issue_count: issues.length,
+      unresolved_issue_count: issues.filter(
+        (issue) => issue.severity !== 'INFO',
+      ).length,
+    };
+
+    return {
+      code: 'payroll-run-reconciliation',
+      layout: this.reportLayout('payroll-run-reconciliation'),
+      run_ids: [run.id],
+      row_count: deductionPreview.length,
+      summary,
+      rows: deductionPreview,
+      approvals,
+      shortfalls: shortfallRows,
+      bank_batch: bankBatch,
+      journal_batch: journalBatch,
+      payment_reconciliations: payments,
+      issues,
+    };
+  }
+
+  private isLockedForReconciliation(status: PayrollRunStatusEnum) {
+    return [
+      PayrollRunStatusEnum.LOCKED,
+      PayrollRunStatusEnum.PAYMENT_FILE_GENERATED,
+      PayrollRunStatusEnum.PAID,
+      PayrollRunStatusEnum.CLOSED,
+    ].includes(status);
   }
 
   private async buildYtdRows(
@@ -5831,6 +6137,9 @@ export class PayrollReconciliationService {
           PayrollRunStatusEnum.PENDING_MANAGEMENT_APPROVAL,
           PayrollRunStatusEnum.APPROVED,
           PayrollRunStatusEnum.LOCKED,
+          PayrollRunStatusEnum.PAYMENT_FILE_GENERATED,
+          PayrollRunStatusEnum.PAID,
+          PayrollRunStatusEnum.CLOSED,
         ]),
       },
       order: { id: 'DESC' },
@@ -6058,6 +6367,8 @@ export class PayrollFinalSettlementService {
     private readonly offboardingRepository: Repository<OffboardingRequest>,
     @InjectRepository(OffboardingSettlementItem)
     private readonly settlementItemRepository: Repository<OffboardingSettlementItem>,
+    @InjectRepository(EmployeeFinanceAccount)
+    private readonly financeAccountRepository: Repository<EmployeeFinanceAccount>,
     @InjectRepository(PayrollFinalSettlement)
     private readonly repository: Repository<PayrollFinalSettlement>,
   ) {}
@@ -6067,7 +6378,6 @@ export class PayrollFinalSettlementService {
     const existing = await this.repository.findOne({
       where: { offboardingRequestId, companyId },
     });
-    if (existing) return existing;
     const offboarding = await this.offboardingRepository.findOne({
       where: { id: offboardingRequestId, company_id: companyId },
     });
@@ -6086,22 +6396,98 @@ export class PayrollFinalSettlementService {
     const items = await this.settlementItemRepository.find({
       where: { company_id: companyId, offboarding_request_id: offboarding.id },
     });
+    const recoveryTypes = [
+      OffboardingSettlementItemTypeEnum.LOAN_RECOVERY,
+      OffboardingSettlementItemTypeEnum.SALARY_ADVANCE_RECOVERY,
+    ];
     const gross = items
-      .filter((item) => PayrollMoney.toCents(item.amount ?? '0') > 0n)
-      .reduce((sum, item) => PayrollMoney.add(sum, item.amount), '0.00');
-    const deductions = items
-      .filter((item) => PayrollMoney.toCents(item.amount ?? '0') < 0n)
-      .reduce((sum, item) => PayrollMoney.add(sum, item.amount), '0.00');
-    const employeeFinanceRecoveryItemIds = items
-      .filter((item) =>
-        [
-          OffboardingSettlementItemTypeEnum.LOAN_RECOVERY,
-          OffboardingSettlementItemTypeEnum.SALARY_ADVANCE_RECOVERY,
-        ].includes(item.item_type),
+      .filter(
+        (item) =>
+          !recoveryTypes.includes(item.item_type) &&
+          PayrollMoney.toCents(item.amount ?? '0') > 0n,
       )
+      .reduce((sum, item) => PayrollMoney.add(sum, item.amount), '0.00');
+    const itemDeductions = items
+      .filter(
+        (item) =>
+          recoveryTypes.includes(item.item_type) ||
+          PayrollMoney.toCents(item.amount ?? '0') < 0n,
+      )
+      .reduce(
+        (sum, item) =>
+          PayrollMoney.add(
+            sum,
+            PayrollMoney.fromCents(
+              -this.absoluteCents(PayrollMoney.toCents(item.amount ?? '0')),
+            ),
+          ),
+        '0.00',
+      );
+    const employeeFinanceRecoveryItemIds = items
+      .filter((item) => recoveryTypes.includes(item.item_type))
       .map((item) => item.id);
+    const representedFinanceAccountRefs = new Set(
+      items
+        .filter((item) => recoveryTypes.includes(item.item_type))
+        .flatMap((item) => {
+          const snapshot =
+            item.calculation_snapshot &&
+            typeof item.calculation_snapshot === 'object' &&
+            !Array.isArray(item.calculation_snapshot)
+              ? item.calculation_snapshot
+              : {};
+          return [
+            item.source_reference,
+            typeof snapshot.account_id === 'number'
+              ? String(snapshot.account_id)
+              : null,
+            typeof snapshot.account_no === 'string'
+              ? snapshot.account_no
+              : null,
+          ].filter((value): value is string => Boolean(value));
+        }),
+    );
+    const outstandingFinanceAccounts = await this.financeAccountRepository.find(
+      {
+        where: {
+          companyId,
+          employeeId: offboarding.employee_id,
+          status: In([
+            EmployeeFinanceAccountStatusEnum.ACTIVE,
+            EmployeeFinanceAccountStatusEnum.DEFERRED,
+            EmployeeFinanceAccountStatusEnum.IN_ARREARS,
+            EmployeeFinanceAccountStatusEnum.RESTRUCTURED,
+            EmployeeFinanceAccountStatusEnum.PENDING_DISBURSEMENT,
+            EmployeeFinanceAccountStatusEnum.SETTLEMENT_PENDING,
+            EmployeeFinanceAccountStatusEnum.EXIT_RECOVERY,
+          ]),
+        },
+        order: { id: 'ASC' },
+      },
+    );
+    const unrecoveredFinanceAccounts = outstandingFinanceAccounts.filter(
+      (account) =>
+        PayrollMoney.toCents(account.outstandingTotal) > 0n &&
+        !representedFinanceAccountRefs.has(String(account.id)) &&
+        !representedFinanceAccountRefs.has(account.accountNo),
+    );
+    const unrecoveredFinanceTotal = unrecoveredFinanceAccounts.reduce(
+      (sum, account) =>
+        PayrollMoney.add(
+          sum,
+          PayrollMoney.fromCents(
+            -PayrollMoney.toCents(account.outstandingTotal),
+          ),
+        ),
+      '0.00',
+    );
+    const deductions = PayrollMoney.add(
+      itemDeductions,
+      unrecoveredFinanceTotal,
+    );
     return this.repository.save(
       this.repository.create({
+        ...(existing ?? {}),
         companyId,
         offboardingRequestId: offboarding.id,
         employeeId: offboarding.employee_id,
@@ -6113,8 +6499,23 @@ export class PayrollFinalSettlementService {
           last_working_date: offboarding.last_working_date,
           settlement_item_ids: items.map((item) => item.id),
           employee_finance_recovery_item_ids: employeeFinanceRecoveryItemIds,
+          employee_finance_recovery_item_total: itemDeductions,
+          unrecovered_employee_finance_accounts: unrecoveredFinanceAccounts.map(
+            (account) => ({
+              account_id: account.id,
+              account_no: account.accountNo,
+              product_type: account.productType,
+              status: account.status,
+              outstanding_total: account.outstandingTotal,
+            }),
+          ),
+          unrecovered_employee_finance_total: unrecoveredFinanceTotal,
         },
       }),
     );
+  }
+
+  private absoluteCents(value: bigint) {
+    return value < 0n ? -value : value;
   }
 }
