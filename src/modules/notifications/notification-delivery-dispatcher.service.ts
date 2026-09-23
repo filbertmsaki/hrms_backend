@@ -190,11 +190,21 @@ export class NotificationDeliveryDispatcherService {
           delivery.status = NotificationDeliveryStatusEnum.FAILED;
           delivery.lastError = 'Recipient has no email address';
         } else {
+          const emailSubject =
+            this.readNotificationMetadataString(
+              delivery.notification,
+              'email_subject',
+            ) ?? delivery.notification.title;
+          const emailBody =
+            this.readNotificationMetadataString(
+              delivery.notification,
+              'email_body',
+            ) ?? delivery.notification.message;
           const mailResult =
             await this.mailService.sendGenericNotificationEmail(
               recipientEmail,
-              delivery.notification.title,
-              delivery.notification.message,
+              emailSubject,
+              emailBody,
               delivery.notification.action_url,
             );
           delivery.status = NotificationDeliveryStatusEnum.DELIVERED;
@@ -351,5 +361,13 @@ export class NotificationDeliveryDispatcherService {
     }
 
     return delivery.recipientAddress ?? null;
+  }
+
+  private readNotificationMetadataString(
+    notification: AppNotification | null | undefined,
+    key: string,
+  ): string | null {
+    const value = notification?.metadata?.[key];
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
   }
 }

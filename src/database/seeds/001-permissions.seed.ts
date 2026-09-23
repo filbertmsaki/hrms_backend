@@ -46,6 +46,18 @@ const SHARED_PERMISSION_NAMES = new Set<string>([
 ]);
 
 const COMPANY_PERMISSION_NAMES = new Set<string>([
+  'reports.view',
+  'employee_reports.view',
+  'attendance_reports.view',
+  'leave_reports.view',
+  'field_reports.view',
+  'activity_reports.view',
+  'performance_reports.view',
+  'payroll_reports.view',
+  'loan_reports.view',
+  'reports.export',
+  'reports.custom.create',
+  'reports.custom.manage',
   'scheduled_reports:read',
   'scheduled_reports:create',
   'scheduled_reports:update',
@@ -2755,6 +2767,66 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     displayName: 'Run employee finance reconciliation',
     description:
       'Allow reconciling staff loan and salary advance ledgers and payroll instructions',
+  },
+  {
+    name: 'reports.view',
+    displayName: 'View reports and analytics',
+    description: 'Allow opening the central Reports & Analytics module',
+  },
+  {
+    name: 'employee_reports.view',
+    displayName: 'View employee reports',
+    description: 'Allow viewing employee lifecycle and master data reports',
+  },
+  {
+    name: 'attendance_reports.view',
+    displayName: 'View attendance reports',
+    description: 'Allow viewing attendance reports and exceptions',
+  },
+  {
+    name: 'leave_reports.view',
+    displayName: 'View leave reports',
+    description: 'Allow viewing leave balance, availed, and approval reports',
+  },
+  {
+    name: 'field_reports.view',
+    displayName: 'View field staff reports',
+    description: 'Allow viewing field visit, location, and productivity reports',
+  },
+  {
+    name: 'activity_reports.view',
+    displayName: 'View activity reports',
+    description: 'Allow viewing daily activity and review reports',
+  },
+  {
+    name: 'performance_reports.view',
+    displayName: 'View KPI and performance reports',
+    description: 'Allow viewing KPI and performance analytics reports',
+  },
+  {
+    name: 'payroll_reports.view',
+    displayName: 'View payroll reports',
+    description: 'Allow viewing confidential payroll reports',
+  },
+  {
+    name: 'loan_reports.view',
+    displayName: 'View staff loan reports',
+    description: 'Allow viewing staff loan and employee finance reports',
+  },
+  {
+    name: 'reports.export',
+    displayName: 'Export reports',
+    description: 'Allow exporting reports to CSV, Excel, PDF, and print views',
+  },
+  {
+    name: 'reports.custom.create',
+    displayName: 'Create custom reports',
+    description: 'Allow creating custom report configurations',
+  },
+  {
+    name: 'reports.custom.manage',
+    displayName: 'Manage custom reports',
+    description: 'Allow updating and archiving saved custom reports',
   },
   {
     name: 'analytics:sources:read',

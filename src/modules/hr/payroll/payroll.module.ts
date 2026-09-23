@@ -5,6 +5,7 @@ import { AttendanceHoliday } from '../attendance/holidays/entities/holiday.entit
 import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
 import { EmployeeFinanceModule } from '../employee-finance/employee-finance.module';
 import {
+  EmployeeFinanceAccount,
   EmployeeFinanceLedgerEntry,
   EmployeeFinancePayrollInstruction,
 } from '../employee-finance/entities/employee-finance-account.entities';
@@ -56,7 +57,12 @@ import {
   PayrollDeductionShortfall,
   PayrollFinalSettlement,
   PayrollInput,
+  PayrollIntegrationConnection,
+  PayrollIntegrationSyncJob,
+  PayrollIntegrationSyncLog,
   PayrollJournalBatch,
+  PayrollPaymentImport,
+  PayrollPaymentImportLine,
   PayrollPaymentReconciliation,
   PayrollResultAdjustment,
   PayrollRun,
@@ -107,6 +113,8 @@ import {
       StatutoryTaxBand,
       Payslip,
       PayrollBankBatch,
+      PayrollPaymentImport,
+      PayrollPaymentImportLine,
       PayrollAccountingMapping,
       PayrollGroup,
       PayrollGroupAssignment,
@@ -116,6 +124,9 @@ import {
       PayrollJournalBatch,
       PayrollPaymentReconciliation,
       PayrollSourceRecord,
+      PayrollIntegrationConnection,
+      PayrollIntegrationSyncJob,
+      PayrollIntegrationSyncLog,
       PayrollVarianceResult,
       PayrollFinalSettlement,
       PayrollAuditLog,
@@ -130,6 +141,7 @@ import {
       PerformanceAggregate,
       OffboardingRequest,
       OffboardingSettlementItem,
+      EmployeeFinanceAccount,
       EmployeeFinancePayrollInstruction,
       EmployeeFinanceLedgerEntry,
     ]),

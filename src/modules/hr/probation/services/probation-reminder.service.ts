@@ -4,6 +4,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { PostgresAdvisoryLockService } from '../../../../common/database/postgres-advisory-lock.service';
+import { NotificationsService } from '../../../notifications/notifications.service';
+import { NotificationCategoryEnum } from '../../../notifications/enums/notification-category.enum';
+import { NotificationChannelEnum } from '../../../notifications/enums/notification-channel.enum';
+import { NotificationPriorityEnum } from '../../../notifications/enums/notification-priority.enum';
+import { NotificationTypeEnum } from '../../../notifications/enums/notification-type.enum';
 import { Employee } from '../../employees/entities/employee.entity';
 import { EmployeeConfirmationStatusEnum } from '../../employees/enums/employee-confirmation-status.enum';
 import { ActionItemsService } from '../../action-inbox/action-items.service';
@@ -30,6 +35,7 @@ export class ProbationReminderService {
     private readonly configService: ConfigService,
     private readonly actionItemsService: ActionItemsService,
     private readonly advisoryLockService: PostgresAdvisoryLockService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   @Cron(CronExpression.EVERY_DAY_AT_7AM)
@@ -130,6 +136,34 @@ export class ProbationReminderService {
           actionUrl: '/me/probation',
           dueAt: new Date(`${probationCase.currentDueDate}T00:00:00Z`),
         });
+
+        await this.sendNotification({
+          company_id: probationCase.companyId,
+          receiver_company_user_id: probationCase.employee.company_user_id,
+          type: NotificationTypeEnum.PROBATION_CONFIRMATION_DUE,
+          category: NotificationCategoryEnum.HR,
+          priority:
+            daysRemaining <= 3
+              ? NotificationPriorityEnum.HIGH
+              : NotificationPriorityEnum.MEDIUM,
+          title: `Probation confirmation due in ${daysRemaining} day(s)`,
+          message: `Your probation confirmation is due on ${probationCase.currentDueDate}.`,
+          related_module: 'probation',
+          entity_type: 'PROBATION_CASE',
+          entity_id: probationCase.id,
+          action_url: '/me/probation',
+          channels: [
+            NotificationChannelEnum.IN_APP,
+            NotificationChannelEnum.EMAIL,
+          ],
+          dedupe_key: `probation:confirmation-due:notification:${probationCase.id}:${daysRemaining}:${probationCase.employee.company_user_id}`,
+          metadata: {
+            template_code: 'probation.confirmation_due',
+            days_remaining: daysRemaining,
+            due_date: probationCase.currentDueDate,
+            employee_name: this.employeeName(probationCase.employee),
+          },
+        });
       }
     }
   }
@@ -185,6 +219,31 @@ export class ProbationReminderService {
             title: 'Probation manager review required',
             actionUrl: `/probation/cases/${probationCase.id}`,
           });
+
+          await this.sendNotification({
+            company_id: probationCase.companyId,
+            receiver_company_user_id: probationCase.managerCompanyUserId,
+            type: NotificationTypeEnum.PROBATION_CONFIRMATION_OVERDUE,
+            category: NotificationCategoryEnum.HR,
+            priority: NotificationPriorityEnum.HIGH,
+            title: 'Probation manager review required',
+            message:
+              'A probation case has reached its confirmation date and needs your review.',
+            related_module: 'probation',
+            entity_type: 'PROBATION_CASE',
+            entity_id: probationCase.id,
+            action_url: `/probation/cases/${probationCase.id}`,
+            channels: [
+              NotificationChannelEnum.IN_APP,
+              NotificationChannelEnum.EMAIL,
+            ],
+            dedupe_key: `probation:manager-review:notification:${probationCase.id}:${cycle.id}:${probationCase.managerCompanyUserId}`,
+            metadata: {
+              template_code: 'probation.manager_review_required',
+              due_date: probationCase.currentDueDate,
+              employee_id: probationCase.employeeId,
+            },
+          });
         }
       }
 
@@ -198,5 +257,24 @@ export class ProbationReminderService {
     const fromDate = new Date(`${from}T00:00:00Z`).getTime();
     const toDate = new Date(`${to}T00:00:00Z`).getTime();
     return Math.round((toDate - fromDate) / (1000 * 60 * 60 * 24));
+  }
+
+  private employeeName(employee: Employee): string {
+    return [employee.first_name, employee.middle_name, employee.last_name]
+      .filter(Boolean)
+      .join(' ');
+  }
+
+  private async sendNotification(
+    input: Parameters<NotificationsService['createAndPush']>[0],
+  ): Promise<void> {
+    try {
+      await this.notificationsService.createAndPush(input);
+    } catch (error) {
+      this.logger.error(
+        'Failed to send probation notification',
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
   }
 }

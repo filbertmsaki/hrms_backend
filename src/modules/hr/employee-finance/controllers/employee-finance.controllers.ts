@@ -7,35 +7,47 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request as ExpressRequest } from 'express';
+import type { Response } from 'express';
 import { Permissions } from '../../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import {
   ApproveEmployeeFinanceApplicationDto,
+  CreateEmployeeFinanceApplicationDocumentDto,
   CreateEmployeeFinanceApplicationDto,
   CreateEmployeeFinanceDisbursementDto,
+  CreateEmployeeFinanceGuarantorDto,
   CreateEmployeeFinanceProductDto,
   CreateEmployeeFinanceRepaymentDto,
+  DecideEmployeeFinanceGuarantorDto,
   EmployeeFinanceQueryDto,
   EvaluateEmployeeFinanceEligibilityDto,
+  EvaluateMyEmployeeFinanceEligibilityDto,
+  ImportEmployeeFinancePaymentFileDto,
+  PostEmployeeFinanceAccountingDto,
   RequestEmployeeFinanceDefermentDto,
   RequestEmployeeFinanceRescheduleDto,
+  UploadEmployeeFinanceApplicationDocumentDto,
+  VerifyEmployeeFinanceApplicationDocumentDto,
 } from '../dto/employee-finance.dto';
 import { EmployeeFinanceApprovalStageEnum } from '../employee-finance.enums';
 import {
   EmployeeFinanceAccountService,
+  EmployeeFinanceAccountingPostingService,
   EmployeeFinanceApplicationService,
   EmployeeFinanceApprovalService,
   EmployeeFinanceDefermentService,
   EmployeeFinanceDisbursementService,
   EmployeeFinanceEligibilityService,
   EmployeeFinanceExitRecoveryService,
+  EmployeeFinancePaymentImportService,
   EmployeeFinanceProductService,
   EmployeeFinanceReconciliationService,
   EmployeeFinanceRepaymentService,
@@ -89,7 +101,17 @@ export class MyEmployeeFinanceController {
   constructor(
     private readonly applicationService: EmployeeFinanceApplicationService,
     private readonly accountService: EmployeeFinanceAccountService,
+    private readonly eligibilityService: EmployeeFinanceEligibilityService,
   ) {}
+
+  @Post('eligibility')
+  @Permissions('employee_finance:applications:self')
+  evaluateEligibility(
+    @Req() req: AuthedRequest,
+    @Body() dto: EvaluateMyEmployeeFinanceEligibilityDto,
+  ) {
+    return this.eligibilityService.evaluateMine(req.user, dto);
+  }
 
   @Post('applications')
   @Permissions('employee_finance:applications:self')
@@ -110,6 +132,91 @@ export class MyEmployeeFinanceController {
   @Permissions('employee_finance:applications:self')
   submit(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.applicationService.submitMine(req.user, id);
+  }
+
+  @Post('applications/:id/documents')
+  @Permissions('employee_finance:applications:self')
+  addDocument(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateEmployeeFinanceApplicationDocumentDto,
+  ) {
+    return this.applicationService.addDocument(req.user, id, dto);
+  }
+
+  @Post('applications/:id/documents/upload')
+  @Permissions('employee_finance:applications:self')
+  uploadDocument(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UploadEmployeeFinanceApplicationDocumentDto,
+  ) {
+    return this.applicationService.uploadDocument(req.user, id, dto);
+  }
+
+  @Get('applications/:id/documents')
+  @Permissions('employee_finance:applications:self')
+  listDocuments(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.applicationService.listDocuments(req.user, id);
+  }
+
+  @Get('applications/:id/documents/:documentId/download')
+  @Permissions('employee_finance:applications:self')
+  async downloadDocument(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('documentId', ParseIntPipe) documentId: number,
+    @Res() res: Response,
+  ) {
+    const file = await this.applicationService.downloadDocument(
+      req.user,
+      id,
+      documentId,
+    );
+    res.setHeader('Content-Type', file.mimeType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${file.fileName.replace(/"/g, '')}"`,
+    );
+    res.send(file.buffer);
+  }
+
+  @Post('applications/:id/guarantors')
+  @Permissions('employee_finance:applications:self')
+  addGuarantor(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateEmployeeFinanceGuarantorDto,
+  ) {
+    return this.applicationService.addGuarantor(req.user, id, dto);
+  }
+
+  @Get('applications/:id/guarantors')
+  @Permissions('employee_finance:applications:self')
+  listGuarantors(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.applicationService.listGuarantors(req.user, id);
+  }
+
+  @Get('guarantor-requests')
+  @Permissions('employee_finance:applications:self')
+  listGuarantorRequests(@Req() req: AuthedRequest) {
+    return this.applicationService.listMyGuarantorRequests(req.user);
+  }
+
+  @Post('guarantor-requests/:id/decide')
+  @Permissions('employee_finance:applications:self')
+  decideGuarantor(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: DecideEmployeeFinanceGuarantorDto,
+  ) {
+    return this.applicationService.decideGuarantor(req.user, id, dto);
   }
 
   @Post('applications/:id/accept')
@@ -148,6 +255,61 @@ export class EmployeeFinanceApplicationsController {
   @Permissions('employee_finance:applications:read')
   get(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.service.getApplication(req.user, id);
+  }
+
+  @Get(':id/documents')
+  @Permissions('employee_finance:applications:read')
+  listDocuments(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.service.listDocuments(req.user, id);
+  }
+
+  @Post(':id/documents/:documentId/verify')
+  @Permissions('employee_finance:applications:hr-approve')
+  verifyDocument(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('documentId', ParseIntPipe) documentId: number,
+    @Body() dto: VerifyEmployeeFinanceApplicationDocumentDto,
+  ) {
+    return this.service.verifyDocument(req.user, id, documentId, dto);
+  }
+
+  @Get(':id/documents/:documentId/download')
+  @Permissions('employee_finance:applications:read')
+  async downloadDocument(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('documentId', ParseIntPipe) documentId: number,
+    @Res() res: Response,
+  ) {
+    const file = await this.service.downloadDocument(req.user, id, documentId);
+    res.setHeader('Content-Type', file.mimeType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${file.fileName.replace(/"/g, '')}"`,
+    );
+    res.send(file.buffer);
+  }
+
+  @Get(':id/guarantors')
+  @Permissions('employee_finance:applications:read')
+  listGuarantors(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.service.listGuarantors(req.user, id);
+  }
+
+  @Get(':id/sanction-letter')
+  @Permissions('employee_finance:applications:read')
+  sanctionLetter(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.service.getSanctionLetter(req.user, id);
   }
 }
 
@@ -207,6 +369,8 @@ export class FinanceEmployeeFinanceController {
     private readonly rescheduleService: EmployeeFinanceRescheduleService,
     private readonly settlementService: EmployeeFinanceSettlementService,
     private readonly exitRecoveryService: EmployeeFinanceExitRecoveryService,
+    private readonly paymentImportService: EmployeeFinancePaymentImportService,
+    private readonly accountingPostingService: EmployeeFinanceAccountingPostingService,
   ) {}
 
   @Post('applications/:id/approve')
@@ -229,6 +393,12 @@ export class FinanceEmployeeFinanceController {
     @Query() query: EmployeeFinanceQueryDto,
   ) {
     return this.accountService.list(req.user, query);
+  }
+
+  @Get('accounts/:id/statement')
+  @Permissions('employee_finance:accounts:read')
+  statement(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.accountService.getStatement(req.user, id);
   }
 
   @Post('disbursements')
@@ -274,6 +444,24 @@ export class FinanceEmployeeFinanceController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.repaymentService.approve(req.user, id);
+  }
+
+  @Post('payments/import')
+  @Permissions('employee_finance:reconciliation')
+  importPayments(
+    @Req() req: AuthedRequest,
+    @Body() dto: ImportEmployeeFinancePaymentFileDto,
+  ) {
+    return this.paymentImportService.importFile(req.user, dto);
+  }
+
+  @Post('accounting/post')
+  @Permissions('employee_finance:reports')
+  postAccounting(
+    @Req() req: AuthedRequest,
+    @Body() dto: PostEmployeeFinanceAccountingDto,
+  ) {
+    return this.accountingPostingService.post(req.user, dto);
   }
 
   @Post('accounts/:id/deferments')
@@ -326,6 +514,40 @@ export class EmployeeFinanceReportsController {
   @Permissions('employee_finance:reports')
   dashboard(@Req() req: AuthedRequest) {
     return this.service.dashboard(req.user);
+  }
+
+  @Get('audit')
+  @Permissions('employee_finance:reports')
+  audit(@Req() req: AuthedRequest, @Query() query: EmployeeFinanceQueryDto) {
+    return this.service.auditTimeline(req.user, query);
+  }
+
+  @Get('catalog')
+  @Permissions('employee_finance:reports')
+  catalog() {
+    return this.service.catalog();
+  }
+
+  @Get('notifications/catalog')
+  @Permissions('employee_finance:reports')
+  notificationCatalog() {
+    return this.service.notificationCatalog();
+  }
+
+  @Get('readiness')
+  @Permissions('employee_finance:reports')
+  readiness() {
+    return this.service.deploymentReadiness();
+  }
+
+  @Get(':reportType')
+  @Permissions('employee_finance:reports')
+  report(
+    @Req() req: AuthedRequest,
+    @Param('reportType') reportType: string,
+    @Query() query: EmployeeFinanceQueryDto,
+  ) {
+    return this.service.report(req.user, reportType, query);
   }
 }
 

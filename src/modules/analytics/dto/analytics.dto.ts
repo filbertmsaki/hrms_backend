@@ -4,6 +4,7 @@ import {
   IsDateString,
   IsIn,
   IsInt,
+  IsObject,
   IsOptional,
   IsString,
   Max,
@@ -77,12 +78,158 @@ export class AnalyticsCustomReportDto extends AnalyticsQueryDto {
 
 export class AnalyticsExportDto extends AnalyticsCustomReportDto {
   @IsOptional()
-  @IsIn(['CSV', 'JSON'])
+  @IsIn(['CSV', 'XLSX', 'PDF', 'JSON'])
   output_format?: string;
 
   @IsOptional()
   @IsString()
   idempotency_key?: string;
+}
+
+export class SaveAnalyticsReportDto extends AnalyticsCustomReportDto {
+  @IsString()
+  name: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsObject()
+  sorting?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsObject()
+  grouping?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsIn(['PRIVATE', 'DEPARTMENT', 'SHARED', 'ADMIN_ONLY'])
+  visibility?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  department_scope_id?: number;
+}
+
+export class UpdateSavedAnalyticsReportDto {
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  dataset_code?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  dimensions?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  measures?: string[];
+
+  @IsOptional()
+  @IsObject()
+  filters?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsObject()
+  sorting?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsObject()
+  grouping?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsIn(['PRIVATE', 'DEPARTMENT', 'SHARED', 'ADMIN_ONLY'])
+  visibility?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  department_scope_id?: number | null;
+}
+
+export class QuerySavedAnalyticsReportsDto {
+  @IsOptional()
+  @IsString()
+  dataset_code?: string;
+
+  @IsOptional()
+  @IsIn(['PRIVATE', 'DEPARTMENT', 'SHARED', 'ADMIN_ONLY'])
+  visibility?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  department_scope_id?: number;
+}
+
+export class AnalyticsOperationalReportQueryDto extends AnalyticsQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(5000)
+  limit?: number;
+
+  @IsOptional()
+  @IsString()
+  month?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(4)
+  quarter?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1900)
+  year?: number;
+
+  @IsOptional()
+  @IsString()
+  status?: string;
+
+  @IsOptional()
+  @IsString()
+  employment_status?: string;
+
+  @IsOptional()
+  @IsString()
+  approval_status?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  payroll_period_id?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  payroll_run_id?: number;
+
+  @IsOptional()
+  @IsIn(['CSV', 'XLSX', 'PDF', 'JSON'])
+  output_format?: string;
 }
 
 export class StatutoryReportRunDto extends AnalyticsQueryDto {

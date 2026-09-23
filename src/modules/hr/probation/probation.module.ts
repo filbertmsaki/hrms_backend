@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Employee } from '../employees/entities/employee.entity';
 import { HrSharedModule } from '../shared/hr-shared.module';
 import { ActionInboxModule } from '../action-inbox/action-inbox.module';
+import { NotificationsModule } from '../../notifications/notifications.module';
 import { FilesModule } from '../../files/files.module';
 import { OffboardingModule } from '../offboarding/offboarding.module';
 import { Document } from '../documents/entities/document.entity';
@@ -40,6 +41,7 @@ import { ProbationReminderService } from './services/probation-reminder.service'
     ]),
     HrSharedModule,
     ActionInboxModule,
+    NotificationsModule,
     FilesModule,
     forwardRef(() => OffboardingModule),
   ],

@@ -156,6 +156,35 @@ const DEFAULT_SMS_NOTIFICATION_REGISTRY: readonly SmsRegistrySeed[] = [
     isEnabled: true,
   },
   {
+    code: 'employee_finance.application.submitted',
+    name: 'Employee finance submitted',
+    module: 'employee-finance',
+    description:
+      'Notify stakeholders that a loan or salary advance application was submitted.',
+    smsTemplate:
+      '{{app_name}}: Employee finance application {{application_no}} was submitted and is waiting for review.',
+    isEnabled: false,
+  },
+  {
+    code: 'employee_finance.application.recommended',
+    name: 'Employee finance recommended',
+    module: 'employee-finance',
+    description:
+      'Notify the employee that the manager recommended the application.',
+    smsTemplate:
+      '{{app_name}}: Your {{product_type}} application {{application_no}} was recommended by your manager.',
+    isEnabled: false,
+  },
+  {
+    code: 'employee_finance.application.hr_approved',
+    name: 'Employee finance HR approved',
+    module: 'employee-finance',
+    description: 'Notify the employee that HR approved the application.',
+    smsTemplate:
+      '{{app_name}}: Your {{product_type}} application {{application_no}} was approved by HR.',
+    isEnabled: false,
+  },
+  {
     code: 'employee_finance.application.approved',
     name: 'Employee finance approved',
     module: 'employee-finance',
@@ -166,6 +195,16 @@ const DEFAULT_SMS_NOTIFICATION_REGISTRY: readonly SmsRegistrySeed[] = [
     isEnabled: true,
   },
   {
+    code: 'employee_finance.application.guarantor_decided',
+    name: 'Employee finance guarantor decided',
+    module: 'employee-finance',
+    description:
+      'Notify the applicant when a guarantor approves or rejects the guarantee request.',
+    smsTemplate:
+      '{{app_name}}: Guarantor response for application {{application_no}} is {{decision}}.',
+    isEnabled: false,
+  },
+  {
     code: 'employee_finance.disbursement.confirmed',
     name: 'Employee finance disbursed',
     module: 'employee-finance',
@@ -173,6 +212,15 @@ const DEFAULT_SMS_NOTIFICATION_REGISTRY: readonly SmsRegistrySeed[] = [
     smsTemplate:
       'Your {{product_type}} disbursement for application {{application_no}} has been confirmed in {{app_name}}.',
     isEnabled: true,
+  },
+  {
+    code: 'employee_finance.repayment.posted',
+    name: 'Employee finance repayment posted',
+    module: 'employee-finance',
+    description: 'Notify the employee when a repayment is posted.',
+    smsTemplate:
+      '{{app_name}}: A repayment of {{amount}} was posted to your {{product_type}} account {{account_no}}.',
+    isEnabled: false,
   },
   {
     code: 'onboarding.employee.started',

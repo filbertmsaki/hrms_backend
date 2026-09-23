@@ -18,6 +18,8 @@ import { ManagerTeamQueryDto } from './dtos/manager-team-query.dto';
 import { ManagerDashboardQueryDto } from './dtos/manager-dashboard-query.dto';
 import { PerformanceInsightsService } from '../performance/services/performance-insights.service';
 import { WorkActivityInsightsService } from '../work-activities/services/work-activity-insights.service';
+import { ProbationCase } from '../probation/entities/probation-case.entity';
+import { ProbationCaseStatusEnum } from '../probation/enums/probation-case-status.enum';
 
 @Injectable()
 export class ManagerSelfServiceService {
@@ -31,6 +33,8 @@ export class ManagerSelfServiceService {
     private readonly correctionRequestRepository: Repository<AttendanceCorrectionRequest>,
     @InjectRepository(LeaveRequest)
     private readonly leaveRequestRepository: Repository<LeaveRequest>,
+    @InjectRepository(ProbationCase)
+    private readonly probationCaseRepository: Repository<ProbationCase>,
     private readonly actionItemsService: ActionItemsService,
     private readonly performanceInsightsService: PerformanceInsightsService,
     private readonly workActivityInsightsService: WorkActivityInsightsService,
@@ -263,6 +267,7 @@ export class ManagerSelfServiceService {
       pendingCorrections,
       performanceSummary,
       workActivitySummary,
+      pendingProbationRecommendations,
     ] = await Promise.all([
       this.actionItemsService.countOpen(companyId, actor.companyMembershipId!),
       this.getTeamAttendanceSummary(
@@ -279,6 +284,7 @@ export class ManagerSelfServiceService {
         dateFrom,
         dateTo,
       ),
+      this.countPendingProbationRecommendations(companyId, actor.employeeId!),
     ]);
 
     return {
@@ -307,11 +313,24 @@ export class ManagerSelfServiceService {
           published_team_reviews: performanceSummary.published_team_reviews,
         },
         probation_recommendation: {
-          available: false,
-          reason: 'Probation and confirmation workflow is not implemented.',
+          available: true,
+          pending_recommendations: pendingProbationRecommendations,
         },
       },
     };
+  }
+
+  private countPendingProbationRecommendations(
+    companyId: number,
+    managerEmployeeId: number,
+  ): Promise<number> {
+    return this.probationCaseRepository.count({
+      where: {
+        companyId,
+        managerEmployeeId,
+        status: ProbationCaseStatusEnum.MANAGER_REVIEW_PENDING,
+      },
+    });
   }
 
   private async getTeamAttendanceSummary(

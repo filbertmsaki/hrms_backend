@@ -167,8 +167,98 @@ export class EmployeeFinanceApplicationDocument {
   @Column({ name: 'uploaded_by_company_user_id', type: 'int', nullable: true })
   uploadedByCompanyUserId: number | null;
 
+  @Column({ type: 'varchar', length: 30, default: 'UPLOADED' })
+  status: string;
+
+  @Column({ name: 'verified_by_company_user_id', type: 'int', nullable: true })
+  verifiedByCompanyUserId: number | null;
+
+  @Column({ name: 'verified_at', type: 'timestamptz', nullable: true })
+  verifiedAt: Date | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  metadata: Record<string, unknown> | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
+}
+
+@Entity('employee_finance_application_guarantors')
+@Unique('UQ_employee_finance_guarantor_employee', [
+  'applicationId',
+  'guarantorEmployeeId',
+])
+export class EmployeeFinanceApplicationGuarantor {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ name: 'company_id' })
+  companyId: number;
+
+  @Column({ name: 'application_id' })
+  applicationId: number;
+
+  @Column({ name: 'employee_id' })
+  employeeId: number;
+
+  @Column({ name: 'guarantor_employee_id' })
+  guarantorEmployeeId: number;
+
+  @Column({ type: 'varchar', length: 30, default: 'PENDING' })
+  status: string;
+
+  @Column({ type: 'text', nullable: true })
+  comments: string | null;
+
+  @Column({
+    name: 'decided_by_company_user_id',
+    type: 'int',
+    nullable: true,
+  })
+  decidedByCompanyUserId: number | null;
+
+  @Column({ name: 'decided_at', type: 'timestamptz', nullable: true })
+  decidedAt: Date | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  snapshot: Record<string, unknown> | null;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+}
+
+@Entity('employee_finance_sanction_letters')
+@Unique('UQ_employee_finance_sanction_application', ['applicationId'])
+export class EmployeeFinanceSanctionLetter {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ name: 'company_id' })
+  companyId: number;
+
+  @Column({ name: 'application_id' })
+  applicationId: number;
+
+  @Column({ name: 'account_id', type: 'int', nullable: true })
+  accountId: number | null;
+
+  @Column({ name: 'letter_no', type: 'varchar', length: 80 })
+  letterNo: string;
+
+  @Column({ type: 'text' })
+  content: string;
+
+  @Column({ type: 'jsonb' })
+  snapshot: Record<string, unknown>;
+
+  @Column({ name: 'snapshot_hash', type: 'varchar', length: 128 })
+  snapshotHash: string;
+
+  @Column({ name: 'generated_by_company_user_id', type: 'int', nullable: true })
+  generatedByCompanyUserId: number | null;
+
+  @CreateDateColumn({ name: 'generated_at' })
+  generatedAt: Date;
 }
 
 @Entity('employee_finance_application_approvals')

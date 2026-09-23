@@ -188,6 +188,147 @@ export class NotificationsService {
     };
   }
 
+  async findUnread(
+    companyId: number,
+    receiverCompanyUserId: number,
+    query: NotificationQueryDto,
+  ) {
+    return this.findMine(companyId, receiverCompanyUserId, {
+      ...query,
+      status: NotificationStatusEnum.UNREAD,
+    });
+  }
+
+  async findOneMine(
+    companyId: number,
+    receiverCompanyUserId: number,
+    notificationId: number,
+  ) {
+    const notification = await this.notificationRepository.findOne({
+      where: {
+        id: notificationId,
+        company_id: companyId,
+        receiver_company_user_id: receiverCompanyUserId,
+      },
+      relations: {
+        sender_company_user: { user: true },
+        receiver_company_user: { user: true },
+      },
+    });
+
+    if (!notification) {
+      throw new NotFoundException('Notification not found');
+    }
+
+    return this.mapNotification(notification);
+  }
+
+  async getDashboardStats(companyId: number) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const [
+      totalNotifications,
+      unreadNotifications,
+      sentToday,
+      failedEmailDeliveries,
+      failedPushDeliveries,
+      pendingDeliveries,
+      byModule,
+      byType,
+      failedDeliveries,
+    ] = await Promise.all([
+      this.notificationRepository.count({ where: { company_id: companyId } }),
+      this.notificationRepository.count({
+        where: {
+          company_id: companyId,
+          status: NotificationStatusEnum.UNREAD,
+        },
+      }),
+      this.deliveryRepository
+        .createQueryBuilder('delivery')
+        .innerJoin('delivery.notification', 'notification')
+        .where('notification.company_id = :companyId', { companyId })
+        .andWhere('delivery.status = :status', {
+          status: NotificationDeliveryStatusEnum.DELIVERED,
+        })
+        .andWhere('delivery.deliveredAt >= :today', { today })
+        .getCount(),
+      this.deliveryRepository
+        .createQueryBuilder('delivery')
+        .innerJoin('delivery.notification', 'notification')
+        .where('notification.company_id = :companyId', { companyId })
+        .andWhere('delivery.channel = :channel', {
+          channel: NotificationChannelEnum.EMAIL,
+        })
+        .andWhere('delivery.status = :status', {
+          status: NotificationDeliveryStatusEnum.FAILED,
+        })
+        .getCount(),
+      this.deliveryRepository
+        .createQueryBuilder('delivery')
+        .innerJoin('delivery.notification', 'notification')
+        .where('notification.company_id = :companyId', { companyId })
+        .andWhere('delivery.channel = :channel', {
+          channel: NotificationChannelEnum.PUSH,
+        })
+        .andWhere('delivery.status = :status', {
+          status: NotificationDeliveryStatusEnum.FAILED,
+        })
+        .getCount(),
+      this.deliveryRepository
+        .createQueryBuilder('delivery')
+        .innerJoin('delivery.notification', 'notification')
+        .where('notification.company_id = :companyId', { companyId })
+        .andWhere('delivery.status = :status', {
+          status: NotificationDeliveryStatusEnum.PENDING,
+        })
+        .getCount(),
+      this.notificationRepository
+        .createQueryBuilder('notification')
+        .select("COALESCE(notification.related_module, 'general')", 'module')
+        .addSelect('COUNT(*)', 'count')
+        .where('notification.company_id = :companyId', { companyId })
+        .groupBy("COALESCE(notification.related_module, 'general')")
+        .orderBy('count', 'DESC')
+        .getRawMany<{ module: string; count: string }>(),
+      this.notificationRepository
+        .createQueryBuilder('notification')
+        .select('notification.type', 'type')
+        .addSelect('COUNT(*)', 'count')
+        .where('notification.company_id = :companyId', { companyId })
+        .groupBy('notification.type')
+        .orderBy('count', 'DESC')
+        .getRawMany<{ type: string; count: string }>(),
+      this.deliveryRepository
+        .createQueryBuilder('delivery')
+        .innerJoin('delivery.notification', 'notification')
+        .where('notification.company_id = :companyId', { companyId })
+        .andWhere('delivery.status = :status', {
+          status: NotificationDeliveryStatusEnum.FAILED,
+        })
+        .getCount(),
+    ]);
+
+    return {
+      total_notifications: totalNotifications,
+      unread_notifications: unreadNotifications,
+      sent_today: sentToday,
+      email_delivery_failures: failedEmailDeliveries,
+      push_notification_failures: failedPushDeliveries,
+      pending_queue: pendingDeliveries,
+      failed_jobs: failedDeliveries,
+      notifications_by_module: byModule.map((row) => ({
+        module: row.module,
+        count: Number(row.count),
+      })),
+      notifications_by_type: byType.map((row) => ({
+        type: row.type,
+        count: Number(row.count),
+      })),
+    };
+  }
+
   async listDeliveryLogs(
     companyId: number,
     query: NotificationDeliveryLogQueryDto,

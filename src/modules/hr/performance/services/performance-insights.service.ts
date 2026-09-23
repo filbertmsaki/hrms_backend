@@ -15,6 +15,7 @@ import { PerformanceReviewStatusEnum } from '../enums/performance-review-status.
 import { EmployeeKpi } from '../entities/employee-kpi.entity';
 import { EmployeeKpiStatusEnum } from '../enums/employee-kpi-status.enum';
 import { PerformanceFeedback360StatusEnum } from '../enums/performance-feedback-360-status.enum';
+import { Employee } from '../../employees/entities/employee.entity';
 
 @Injectable()
 export class PerformanceInsightsService {
@@ -295,5 +296,64 @@ export class PerformanceInsightsService {
       active_team_development_plans: activeTeamDevelopmentPlans,
       pending_team_feedback_360: pendingTeamFeedback360,
     };
+  }
+
+  async getTopPerformers(
+    actor: AuthenticatedUser,
+    employeeIds: number[],
+    limit = 5,
+  ) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    if (employeeIds.length === 0) {
+      return [];
+    }
+
+    const rows = await this.reviewRepository
+      .createQueryBuilder('review')
+      .innerJoin(
+        Employee,
+        'employee',
+        'employee.id = review.employee_id AND employee.company_id = review.company_id',
+      )
+      .select('review.employeeId', 'employee_id')
+      .addSelect('employee.employee_no', 'employee_no')
+      .addSelect(
+        `CONCAT_WS(' ', employee.first_name, NULLIF(employee.middle_name, ''), employee.last_name)`,
+        'full_name',
+      )
+      .addSelect('review.performancePeriodId', 'performance_period_id')
+      .addSelect('review.finalScore', 'final_score')
+      .addSelect('review.ratingCode', 'rating_code')
+      .addSelect('review.publishedAt', 'published_at')
+      .where('review.companyId = :companyId', { companyId })
+      .andWhere('review.employeeId IN (:...employeeIds)', { employeeIds })
+      .andWhere('review.status = :status', {
+        status: PerformanceReviewStatusEnum.PUBLISHED,
+      })
+      .andWhere('review.finalScore IS NOT NULL')
+      .orderBy('review.finalScore', 'DESC')
+      .addOrderBy('review.publishedAt', 'DESC')
+      .addOrderBy('review.id', 'DESC')
+      .limit(Math.max(1, Math.min(limit, 20)))
+      .getRawMany<{
+        employee_id: number | string;
+        employee_no: string | null;
+        full_name: string | null;
+        performance_period_id: number | string;
+        final_score: string | null;
+        rating_code: string | null;
+        published_at: Date | string | null;
+      }>();
+
+    return rows.map((row, index) => ({
+      rank: index + 1,
+      employee_id: Number(row.employee_id),
+      employee_no: row.employee_no,
+      full_name: row.full_name,
+      performance_period_id: Number(row.performance_period_id),
+      final_score: row.final_score === null ? null : Number(row.final_score),
+      rating_code: row.rating_code,
+      published_at: row.published_at,
+    }));
   }
 }
