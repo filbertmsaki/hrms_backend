@@ -53,8 +53,7 @@ const DEFAULT_NOTIFICATION_TEMPLATES = [
     code: 'attendance.manager_missing',
     title: 'Team Attendance Missing',
     subject: 'Team attendance missing for {{employee_name}}',
-    system:
-      '{{employee_name}} has missing attendance for {{attendance_date}}.',
+    system: '{{employee_name}} has missing attendance for {{attendance_date}}.',
     email:
       '{{employee_name}} has missing attendance for {{attendance_date}}. Please review the team attendance record.',
     mobile: '{{employee_name}} has missing attendance.',
@@ -138,12 +137,7 @@ const DEFAULT_NOTIFICATION_TEMPLATES = [
     email:
       'Your performance score has been published. Please sign in to view the review details.',
     mobile: 'Performance score published.',
-    variables: [
-      'employee_name',
-      'final_score',
-      'rating_code',
-      'published_at',
-    ],
+    variables: ['employee_name', 'final_score', 'rating_code', 'published_at'],
   },
   {
     code: 'payroll.processed',
@@ -172,12 +166,7 @@ const DEFAULT_NOTIFICATION_TEMPLATES = [
     email:
       'An employee finance installment was posted to payroll. Please sign in to view your finance details.',
     mobile: 'Finance installment posted.',
-    variables: [
-      'employee_name',
-      'payroll_run_no',
-      'component_code',
-      'amount',
-    ],
+    variables: ['employee_name', 'payroll_run_no', 'component_code', 'amount'],
   },
   {
     code: 'approval.overdue',
@@ -344,9 +333,7 @@ const DEFAULT_NOTIFICATION_RULES = [
   },
 ] as const;
 
-export class AddNotificationTemplatesAndRules1790300000000
-  implements MigrationInterface
-{
+export class AddNotificationTemplatesAndRules1790300000000 implements MigrationInterface {
   name = 'AddNotificationTemplatesAndRules1790300000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -442,7 +429,9 @@ export class AddNotificationTemplatesAndRules1790300000000
     await queryRunner.query(
       `ALTER TABLE "notification_templates" DROP CONSTRAINT "FK_notification_templates_company"`,
     );
-    await queryRunner.query(`DROP INDEX "public"."IDX_notification_rules_type_event"`);
+    await queryRunner.query(
+      `DROP INDEX "public"."IDX_notification_rules_type_event"`,
+    );
     await queryRunner.query(
       `DROP INDEX "public"."UQ_notification_rule_global_event_recipient"`,
     );
@@ -453,7 +442,9 @@ export class AddNotificationTemplatesAndRules1790300000000
     await queryRunner.query(
       `DROP INDEX "public"."UQ_notification_template_global_code"`,
     );
-    await queryRunner.query(`DROP INDEX "public"."IDX_notification_templates_code"`);
+    await queryRunner.query(
+      `DROP INDEX "public"."IDX_notification_templates_code"`,
+    );
     await queryRunner.query(
       `DROP INDEX "public"."IDX_notification_templates_company_status"`,
     );

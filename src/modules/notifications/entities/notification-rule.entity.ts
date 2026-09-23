@@ -39,7 +39,12 @@ export class NotificationRule {
   @Column({ name: 'trigger_event', type: 'varchar', length: 120 })
   triggerEvent: string;
 
-  @Column({ name: 'related_module', type: 'varchar', length: 80, nullable: true })
+  @Column({
+    name: 'related_module',
+    type: 'varchar',
+    length: 80,
+    nullable: true,
+  })
   relatedModule: string | null;
 
   @Column({ name: 'reminder_before_minutes', type: 'int', nullable: true })

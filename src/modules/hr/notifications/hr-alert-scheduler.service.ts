@@ -16,25 +16,18 @@ import { ActionItemTypeEnum } from '../action-inbox/enums/action-item-type.enum'
 import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
 import { AttendanceDailyStatusEnum } from '../attendance/processing/enums/attendance-daily-status.enum';
 import { Employee } from '../employees/entities/employee.entity';
-import {
-  EmployeeFinancePayrollInstruction,
-} from '../employee-finance/entities/employee-finance-account.entities';
+import { EmployeeFinancePayrollInstruction } from '../employee-finance/entities/employee-finance-account.entities';
 import { EmployeeFinancePayrollInstructionStatusEnum } from '../employee-finance/employee-finance.enums';
 import { EmployeeKpi } from '../performance/entities/employee-kpi.entity';
 import { PerformanceReview } from '../performance/entities/performance-review.entity';
 import { EmployeeKpiStatusEnum } from '../performance/enums/employee-kpi-status.enum';
 import { PerformanceReviewStatusEnum } from '../performance/enums/performance-review-status.enum';
-import {
-  PayrollRun,
-  Payslip,
-} from '../payroll/entities/payroll-run.entities';
+import { PayrollRun, Payslip } from '../payroll/entities/payroll-run.entities';
 import {
   PayrollOutputStatusEnum,
   PayrollRunStatusEnum,
 } from '../payroll/payroll.enums';
-import {
-  DailyActivityReport,
-} from '../work-activities/entities/daily-activity.entities';
+import { DailyActivityReport } from '../work-activities/entities/daily-activity.entities';
 import { FieldVisit } from '../work-activities/entities/field-visit.entities';
 import {
   DailyActivityReportStatusEnum,
@@ -115,7 +108,7 @@ export class HrAlertSchedulerService {
       if (!employee?.company_user_id) continue;
 
       const isAbsent =
-        summary.attendanceStatus === AttendanceDailyStatusEnum.ABSENT;
+        summary.attendanceStatus === String(AttendanceDailyStatusEnum.ABSENT);
       const type = isAbsent
         ? NotificationTypeEnum.ATTENDANCE_MISSING
         : NotificationTypeEnum.ATTENDANCE_LATE;
@@ -138,12 +131,13 @@ export class HrAlertSchedulerService {
         entity_type: 'ATTENDANCE_DAILY_SUMMARY',
         entity_id: summary.id,
         action_url: '/me/attendance',
-        channels: [NotificationChannelEnum.IN_APP, NotificationChannelEnum.EMAIL],
+        channels: [
+          NotificationChannelEnum.IN_APP,
+          NotificationChannelEnum.EMAIL,
+        ],
         dedupe_key: `attendance:${summary.attendanceStatus}:employee:${summary.id}:${employee.company_user_id}`,
         metadata: {
-          template_code: isAbsent
-            ? 'attendance.missing'
-            : 'attendance.late',
+          template_code: isAbsent ? 'attendance.missing' : 'attendance.late',
           attendance_date: attendanceDate,
           attendance_status: summary.attendanceStatus,
           late_minutes: summary.lateMinutes,
@@ -170,7 +164,10 @@ export class HrAlertSchedulerService {
         entity_type: 'ATTENDANCE_DAILY_SUMMARY',
         entity_id: summary.id,
         action_url: '/manager/attendance',
-        channels: [NotificationChannelEnum.IN_APP, NotificationChannelEnum.EMAIL],
+        channels: [
+          NotificationChannelEnum.IN_APP,
+          NotificationChannelEnum.EMAIL,
+        ],
         dedupe_key: `attendance:${summary.attendanceStatus}:manager:${summary.id}:${manager.company_user_id}`,
         metadata: {
           template_code: isAbsent
@@ -359,7 +356,9 @@ export class HrAlertSchedulerService {
       .take(200)
       .getMany();
 
-    const employees = await this.loadEmployees(kpis.map((kpi) => kpi.employeeId));
+    const employees = await this.loadEmployees(
+      kpis.map((kpi) => kpi.employeeId),
+    );
 
     for (const kpi of kpis) {
       const employee = employees.get(kpi.employeeId);
@@ -377,7 +376,10 @@ export class HrAlertSchedulerService {
         entity_type: 'EMPLOYEE_KPI',
         entity_id: kpi.id,
         action_url: '/me/performance/kpis',
-        channels: [NotificationChannelEnum.IN_APP, NotificationChannelEnum.EMAIL],
+        channels: [
+          NotificationChannelEnum.IN_APP,
+          NotificationChannelEnum.EMAIL,
+        ],
         dedupe_key: `performance:kpi-update-pending:${kpi.id}:${employee.company_user_id}:${kpi.dueDate}`,
         metadata: {
           template_code: 'performance.kpi_update_pending',
@@ -420,7 +422,10 @@ export class HrAlertSchedulerService {
         entity_type: 'PERFORMANCE_REVIEW',
         entity_id: review.id,
         action_url: '/me/performance/reviews',
-        channels: [NotificationChannelEnum.IN_APP, NotificationChannelEnum.EMAIL],
+        channels: [
+          NotificationChannelEnum.IN_APP,
+          NotificationChannelEnum.EMAIL,
+        ],
         dedupe_key: `performance:score-published:${review.id}:${employee.company_user_id}`,
         metadata: {
           template_code: 'performance.score_published',
@@ -469,7 +474,10 @@ export class HrAlertSchedulerService {
         branch_id: item.branchId,
         department_id: item.departmentId,
         action_url: item.actionUrl,
-        channels: [NotificationChannelEnum.IN_APP, NotificationChannelEnum.EMAIL],
+        channels: [
+          NotificationChannelEnum.IN_APP,
+          NotificationChannelEnum.EMAIL,
+        ],
         dedupe_key: `approval:overdue:${item.id}:${item.assigneeCompanyUserId}:${today}`,
         metadata: {
           template_code: 'approval.overdue',
@@ -518,7 +526,10 @@ export class HrAlertSchedulerService {
         entity_type: 'PAYROLL_RUN',
         entity_id: run.id,
         action_url: `/payroll/runs/${run.id}`,
-        channels: [NotificationChannelEnum.IN_APP, NotificationChannelEnum.EMAIL],
+        channels: [
+          NotificationChannelEnum.IN_APP,
+          NotificationChannelEnum.EMAIL,
+        ],
         dedupe_key: `payroll:processed:${run.id}:${run.status}:${run.createdByCompanyUserId}`,
         metadata: {
           template_code: 'payroll.processed',
@@ -561,7 +572,10 @@ export class HrAlertSchedulerService {
         entity_type: 'PAYSLIP',
         entity_id: payslip.id,
         action_url: '/me/payslips',
-        channels: [NotificationChannelEnum.IN_APP, NotificationChannelEnum.EMAIL],
+        channels: [
+          NotificationChannelEnum.IN_APP,
+          NotificationChannelEnum.EMAIL,
+        ],
         dedupe_key: `payroll:payslip-available:${payslip.id}:${employee.company_user_id}`,
         metadata: {
           template_code: 'payroll.payslip_available',
@@ -581,7 +595,9 @@ export class HrAlertSchedulerService {
       order: { id: 'DESC' },
       take: 200,
     });
-    const employeeIds = instructions.map((instruction) => instruction.employeeId);
+    const employeeIds = instructions.map(
+      (instruction) => instruction.employeeId,
+    );
     const employees = await this.loadEmployees(employeeIds);
     const payrollRunIds = [
       ...new Set(
@@ -614,7 +630,10 @@ export class HrAlertSchedulerService {
         entity_type: 'EMPLOYEE_FINANCE_PAYROLL_INSTRUCTION',
         entity_id: instruction.id,
         action_url: '/me/employee-finance',
-        channels: [NotificationChannelEnum.IN_APP, NotificationChannelEnum.EMAIL],
+        channels: [
+          NotificationChannelEnum.IN_APP,
+          NotificationChannelEnum.EMAIL,
+        ],
         dedupe_key: `employee-finance:installment-posted:${instruction.id}:${employee.company_user_id}`,
         metadata: {
           template_code: 'employee_finance.installment_posted',
@@ -628,7 +647,7 @@ export class HrAlertSchedulerService {
   }
 
   private async loadEmployees(employeeIds: Array<number | null | undefined>) {
-    const ids = [...new Set(employeeIds.filter(this.isNumber))];
+    const ids = [...new Set(employeeIds.filter((id) => this.isNumber(id)))];
     if (!ids.length) return new Map<number, Employee>();
 
     const employees = await this.employeeRepository.findBy({ id: In(ids) });

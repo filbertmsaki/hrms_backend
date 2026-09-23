@@ -5,7 +5,9 @@ import { NotificationChannelEnum } from './enums/notification-channel.enum';
 import { NotificationConfigurationService } from './notification-configuration.service';
 
 describe('NotificationConfigurationService', () => {
-  let templateRepository: Partial<jest.Mocked<Repository<NotificationTemplate>>>;
+  let templateRepository: Partial<
+    jest.Mocked<Repository<NotificationTemplate>>
+  >;
   let ruleRepository: Partial<jest.Mocked<Repository<NotificationRule>>>;
   let service: NotificationConfigurationService;
 
@@ -80,7 +82,10 @@ describe('NotificationConfigurationService', () => {
         notificationType: 'PROBATION_CONFIRMATION_DUE',
         triggerEvent: 'probation.due',
         recipientType: 'DIRECT_SUPERVISOR',
-        channels: [NotificationChannelEnum.IN_APP, NotificationChannelEnum.EMAIL],
+        channels: [
+          NotificationChannelEnum.IN_APP,
+          NotificationChannelEnum.EMAIL,
+        ],
       }),
     );
   });

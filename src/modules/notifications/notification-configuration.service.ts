@@ -29,15 +29,13 @@ export class NotificationConfigurationService {
   ) {}
 
   async listTemplates(companyId: number, query: NotificationTemplateQueryDto) {
-    const qb = this.templateRepository
-      .createQueryBuilder('template')
-      .where(
-        new Brackets((where) => {
-          where
-            .where('template.companyId = :companyId', { companyId })
-            .orWhere('template.companyId IS NULL');
-        }),
-      );
+    const qb = this.templateRepository.createQueryBuilder('template').where(
+      new Brackets((where) => {
+        where
+          .where('template.companyId = :companyId', { companyId })
+          .orWhere('template.companyId IS NULL');
+      }),
+    );
 
     if (query.status) {
       qb.andWhere('template.status = :status', { status: query.status });
@@ -171,15 +169,13 @@ export class NotificationConfigurationService {
   }
 
   async listRules(companyId: number, query: NotificationRuleQueryDto) {
-    const qb = this.ruleRepository
-      .createQueryBuilder('rule')
-      .where(
-        new Brackets((where) => {
-          where
-            .where('rule.companyId = :companyId', { companyId })
-            .orWhere('rule.companyId IS NULL');
-        }),
-      );
+    const qb = this.ruleRepository.createQueryBuilder('rule').where(
+      new Brackets((where) => {
+        where
+          .where('rule.companyId = :companyId', { companyId })
+          .orWhere('rule.companyId IS NULL');
+      }),
+    );
 
     if (query.notification_type?.trim()) {
       qb.andWhere('rule.notificationType = :notificationType', {
@@ -294,7 +290,11 @@ export class NotificationConfigurationService {
         ? { mobileMessage: this.trimOptional(dto.mobile_message) }
         : {}),
       ...(dto.available_variables !== undefined
-        ? { availableVariables: this.normalizeVariables(dto.available_variables) }
+        ? {
+            availableVariables: this.normalizeVariables(
+              dto.available_variables,
+            ),
+          }
         : {}),
       ...(dto.status !== undefined ? { status: dto.status } : {}),
     };
@@ -339,21 +339,47 @@ export class NotificationConfigurationService {
   private normalizeVariables(variables: string[] | undefined) {
     return Array.from(
       new Set(
-        (variables ?? [])
-          .map((variable) => variable.trim())
-          .filter(Boolean),
+        (variables ?? []).map((variable) => variable.trim()).filter(Boolean),
       ),
     );
   }
 
   private renderText(template: string, variables: TemplateVariables): string {
-    return template.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_, key) => {
-      const value = variables[key];
-      if (value === null || value === undefined) {
-        return '';
-      }
-      return String(value);
-    });
+    return template.replace(
+      /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g,
+      (_match: string, key: string) => {
+        const value: unknown = variables[key];
+        return this.renderValue(value);
+      },
+    );
+  }
+
+  private renderValue(value: unknown): string {
+    if (value === null || value === undefined) {
+      return '';
+    }
+
+    if (typeof value === 'string') {
+      return value;
+    }
+
+    if (
+      typeof value === 'number' ||
+      typeof value === 'boolean' ||
+      typeof value === 'bigint'
+    ) {
+      return value.toString();
+    }
+
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return '';
+    }
   }
 
   private trimOptional(value: string | null | undefined): string | null {

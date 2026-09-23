@@ -13,10 +13,7 @@ import { Company } from '../../companies/entities/company.entity';
 import { NotificationTemplateStatusEnum } from '../enums/notification-template-status.enum';
 
 @Entity('notification_templates')
-@Unique('UQ_notification_template_company_code', [
-  'companyId',
-  'templateCode',
-])
+@Unique('UQ_notification_template_company_code', ['companyId', 'templateCode'])
 @Index('IDX_notification_templates_company_status', ['companyId', 'status'])
 @Index('IDX_notification_templates_code', ['templateCode'])
 export class NotificationTemplate {
@@ -32,7 +29,12 @@ export class NotificationTemplate {
   @Column({ type: 'varchar', length: 180 })
   title: string;
 
-  @Column({ name: 'email_subject', type: 'varchar', length: 220, nullable: true })
+  @Column({
+    name: 'email_subject',
+    type: 'varchar',
+    length: 220,
+    nullable: true,
+  })
   emailSubject: string | null;
 
   @Column({ name: 'system_message', type: 'text' })
