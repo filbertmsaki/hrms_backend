@@ -9,7 +9,15 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { createHash } from 'crypto';
-import { DataSource, EntityManager, In, Repository } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  In,
+  IsNull,
+  LessThanOrEqual,
+  MoreThanOrEqual,
+  Repository,
+} from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { AttendanceRecalculationJob } from '../attendance/processing/entities/attendance-recalculation-job.entity';
 import { AttendanceProcessingJobStatusEnum } from '../attendance/processing/enums/attendance-processing-job-status.enum';
@@ -34,14 +42,27 @@ import { EmployeeGrade } from '../grades/entities/employee-grade.entity';
 import { CostCenter } from '../cost-centers/entities/cost-center.entity';
 import { Document } from '../documents/entities/document.entity';
 import { HrAccessService } from '../shared/hr-access.service';
-import { SalaryStructure } from '../payroll/entities/payroll-configuration.entities';
+import {
+  PayrollComponent,
+  SalaryStructure,
+  SalaryStructureComponent,
+} from '../payroll/entities/payroll-configuration.entities';
 import { SalaryStructureStatusEnum } from '../payroll/payroll.enums';
+import {
+  fitSalaryOverridesToStructure,
+  normalizeSalaryOverrideInputs,
+} from '../payroll/services/salary-structure-lines.util';
 import { PositionAvailabilityService } from '../shared/position-availability.service';
 import { addDaysToDateOnly, formatDateOnly } from '../shared/hr.utils';
 import {
   EmployeeCompensationVersion,
   EmployeeCompensationVersionStatusEnum,
+  SalaryComponentOverride,
 } from './entities/employee-compensation-version.entity';
+import {
+  MovementCompensationInputDto,
+  MovementSalaryComponentOverrideDto,
+} from './dtos/movement-compensation-input.dto';
 import { EmployeeMovement } from './entities/employee-movement.entity';
 import { EmployeeMovementChange } from './entities/employee-movement-change.entity';
 import { EmployeeMovementNumberSequence } from './entities/employee-movement-number-sequence.entity';
@@ -479,27 +500,101 @@ export class EmployeeMovementsService {
     return createHash('sha256').update(stableStringify(snapshot)).digest('hex');
   }
 
-  /** Accepts only codes of salary structures that have an active version. */
-  private async validateSalaryStructureCode(
+  /**
+   * The active version of a salary structure in effect on a date, with the
+   * component codes of its lines.
+   */
+  private async findEffectiveSalaryStructure(
     companyId: number,
-    code: string | undefined,
+    code: string,
+    onDate: string,
     manager: EntityManager,
-  ): Promise<string | undefined> {
-    const normalized = code?.trim().toUpperCase();
-    if (!normalized) return undefined;
-    const exists = await manager.getRepository(SalaryStructure).exists({
-      where: {
-        companyId,
-        code: normalized,
-        status: SalaryStructureStatusEnum.ACTIVE,
-      },
+  ): Promise<{
+    structure: SalaryStructure;
+    componentCodes: Set<string>;
+  } | null> {
+    const base = {
+      companyId,
+      code: code.trim().toUpperCase(),
+      status: SalaryStructureStatusEnum.ACTIVE,
+      effectiveFrom: LessThanOrEqual(onDate),
+    };
+    const structure = await manager.getRepository(SalaryStructure).findOne({
+      where: [
+        { ...base, effectiveTo: IsNull() },
+        { ...base, effectiveTo: MoreThanOrEqual(onDate) },
+      ],
+      order: { effectiveFrom: 'DESC', versionNumber: 'DESC' },
     });
-    if (!exists) {
+    if (!structure) return null;
+    const lines = await manager.getRepository(SalaryStructureComponent).find({
+      where: { companyId, salaryStructureId: structure.id },
+    });
+    const components = lines.length
+      ? await manager.getRepository(PayrollComponent).find({
+          where: { companyId, id: In(lines.map((line) => line.componentId)) },
+        })
+      : [];
+    return {
+      structure,
+      componentCodes: new Set(components.map((item) => item.code)),
+    };
+  }
+
+  /**
+   * Validates the salary part of a revision: the structure code must have an
+   * active version on the effective date, and explicit overrides must match
+   * that version's components. `componentOverrides` is undefined when the
+   * revision does not set overrides (they then carry over on apply).
+   */
+  private async resolveSalaryRevisionStructure(
+    movement: EmployeeMovement,
+    revision: MovementCompensationInputDto,
+    currentCompensation: EmployeeCompensationVersion | null,
+    manager: EntityManager,
+  ): Promise<{
+    salaryStructureCode: string | undefined;
+    componentOverrides:
+      | Record<string, SalaryComponentOverride>
+      | null
+      | undefined;
+  }> {
+    const requestedCode =
+      revision.salary_structure_code?.trim().toUpperCase() || undefined;
+    const targetCode =
+      requestedCode ?? currentCompensation?.salaryStructureCode ?? undefined;
+    const needsStructure =
+      Boolean(requestedCode) || revision.component_overrides !== undefined;
+    if (!needsStructure) {
+      return { salaryStructureCode: undefined, componentOverrides: undefined };
+    }
+    if (!targetCode) {
       throw new BadRequestException(
-        `Salary structure ${normalized} does not exist or has no active version.`,
+        'Component overrides need a salary structure. Choose one for this revision.',
       );
     }
-    return normalized;
+    const target = await this.findEffectiveSalaryStructure(
+      movement.companyId,
+      targetCode,
+      movement.effectiveDate,
+      manager,
+    );
+    if (!target) {
+      throw new BadRequestException(
+        `Salary structure ${targetCode} has no active version effective on ${movement.effectiveDate}.`,
+      );
+    }
+    return {
+      salaryStructureCode: requestedCode,
+      componentOverrides:
+        revision.component_overrides === undefined
+          ? undefined
+          : normalizeSalaryOverrideInputs(
+              revision.component_overrides,
+              target.componentCodes,
+              targetCode,
+            ),
+    };
   }
 
   private async createMovementChanges(
@@ -579,22 +674,34 @@ export class EmployeeMovementsService {
     }
 
     if (dto.salary_revision) {
-      const salaryStructureCode = await this.validateSalaryStructureCode(
+      const currentCompensation = await this.getCurrentCompensation(
         movement.companyId,
-        dto.salary_revision.salary_structure_code,
+        movement.employeeId,
         manager,
       );
+      const { salaryStructureCode, componentOverrides } =
+        await this.resolveSalaryRevisionStructure(
+          movement,
+          dto.salary_revision,
+          currentCompensation,
+          manager,
+        );
       changes.push({
         field: EmployeeMovementFieldEnum.BASE_SALARY,
         oldValue: {
           amount: current.base_salary,
           currency: current.salary_currency,
           salary_structure_code: current.salary_structure_code,
+          component_overrides: currentCompensation?.componentOverrides ?? null,
         },
         newValue: {
           amount: dto.salary_revision.base_salary,
           currency: dto.salary_revision.currency.toUpperCase(),
           salary_structure_code: salaryStructureCode,
+          // Present only when the revision sets overrides; null clears them.
+          ...(componentOverrides !== undefined
+            ? { component_overrides: componentOverrides }
+            : {}),
           revision_reference: dto.salary_revision.revision_reference,
           justification: dto.salary_revision.justification,
         },
@@ -662,6 +769,9 @@ export class EmployeeMovementsService {
               typeof change.newValue?.salary_structure_code === 'string'
                 ? change.newValue.salary_structure_code
                 : undefined,
+            component_overrides: this.overridesFromMovementValue(
+              change.newValue,
+            ),
             revision_reference:
               typeof change.newValue?.revision_reference === 'string'
                 ? change.newValue.revision_reference
@@ -675,6 +785,28 @@ export class EmployeeMovementsService {
     }
 
     return dto;
+  }
+
+  /** Stored override map -> DTO list, so edits re-validate what was saved. */
+  private overridesFromMovementValue(
+    value: Record<string, unknown> | null | undefined,
+  ): MovementSalaryComponentOverrideDto[] | undefined {
+    if (
+      !value ||
+      !Object.prototype.hasOwnProperty.call(value, 'component_overrides')
+    ) {
+      return undefined;
+    }
+    const raw = value.component_overrides;
+    if (!raw || typeof raw !== 'object') return [];
+    return Object.entries(raw as Record<string, SalaryComponentOverride>).map(
+      ([code, override]) => ({
+        component_code: code,
+        ...(override.amount ? { amount: override.amount } : {}),
+        ...(override.rate ? { rate: override.rate } : {}),
+        ...(override.excluded ? { excluded: true } : {}),
+      }),
+    );
   }
 
   private stringFromMovementValue(value: unknown): string {
@@ -1900,6 +2032,7 @@ export class EmployeeMovementsService {
       amount: string;
       currency: string;
       salary_structure_code?: string;
+      component_overrides?: Record<string, SalaryComponentOverride> | null;
       revision_reference?: string;
       justification: string;
     };
@@ -1926,16 +2059,33 @@ export class EmployeeMovementsService {
       await repository.save(current);
     }
 
-    // A revision without a structure code keeps the current structure, and
-    // employee overrides survive as long as the structure does not change.
+    // A revision without a structure code keeps the current structure.
     const salaryStructureCode =
       value.salary_structure_code?.trim().toUpperCase() ||
       current?.salaryStructureCode ||
       null;
-    const componentOverrides =
-      current && current.salaryStructureCode === salaryStructureCode
-        ? current.componentOverrides
-        : null;
+    // Overrides set on the revision win; otherwise the current ones carry
+    // over. Either way only components in the target structure are kept, so a
+    // structure switch preserves custom amounts for shared components.
+    const sourceOverrides = Object.prototype.hasOwnProperty.call(
+      value,
+      'component_overrides',
+    )
+      ? (value.component_overrides ?? null)
+      : (current?.componentOverrides ?? null);
+    let componentOverrides: Record<string, SalaryComponentOverride> | null =
+      null;
+    if (sourceOverrides && salaryStructureCode) {
+      const target = await this.findEffectiveSalaryStructure(
+        movement.companyId,
+        salaryStructureCode,
+        movement.effectiveDate,
+        manager,
+      );
+      componentOverrides = target
+        ? fitSalaryOverridesToStructure(sourceOverrides, target.componentCodes)
+        : sourceOverrides;
+    }
 
     await repository.save(
       repository.create({

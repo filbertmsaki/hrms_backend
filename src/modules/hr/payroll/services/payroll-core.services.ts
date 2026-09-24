@@ -139,6 +139,7 @@ import { PayrollMoney } from './payroll-money.util';
 import {
   BASE_SALARY_COMPONENT_CODE,
   buildSalaryStructureLines,
+  normalizeSalaryOverrideInputs,
   taxableAmountFor,
 } from './salary-structure-lines.util';
 
@@ -1759,38 +1760,11 @@ export function normalizeSalaryOverrides(
       .map((line) => resolved.componentsById.get(line.componentId)?.code)
       .filter(Boolean) as string[],
   );
-  const result: Record<string, SalaryComponentOverride> = {};
-  for (const item of overrides) {
-    const code = item.component_code.trim().toUpperCase();
-    if (code === BASE_SALARY_COMPONENT_CODE) {
-      throw new BadRequestException(
-        'BASIC cannot be overridden; change the base salary instead.',
-      );
-    }
-    if (!codes.has(code)) {
-      throw new BadRequestException(
-        `${code} is not part of salary structure ${resolved.structure.code}.`,
-      );
-    }
-    if (result[code]) {
-      throw new BadRequestException(`Duplicate override for ${code}.`);
-    }
-    if (
-      !item.excluded &&
-      item.amount === undefined &&
-      item.rate === undefined
-    ) {
-      throw new BadRequestException(
-        `Override for ${code} needs an amount, a rate, or excluded=true.`,
-      );
-    }
-    result[code] = {
-      amount: item.amount ?? null,
-      rate: item.rate ?? null,
-      excluded: item.excluded ?? false,
-    };
-  }
-  return result;
+  return normalizeSalaryOverrideInputs(
+    overrides,
+    codes,
+    resolved.structure.code,
+  );
 }
 
 @Injectable()
