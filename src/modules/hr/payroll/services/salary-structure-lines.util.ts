@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import type { SalaryComponentOverride } from '../../employee-movements/entities/employee-compensation-version.entity';
 import type {
   PayrollComponent,
@@ -58,6 +59,68 @@ export function taxableAmountFor(
 
 function hasValue(value: string | null | undefined): value is string {
   return value !== null && value !== undefined && String(value).trim() !== '';
+}
+
+export type SalaryOverrideInput = {
+  component_code: string;
+  amount?: string | null;
+  rate?: string | null;
+  excluded?: boolean;
+};
+
+/**
+ * Validates employee overrides against the component codes of a salary
+ * structure and returns them keyed by code, or null when there are none.
+ */
+export function normalizeSalaryOverrideInputs(
+  overrides: SalaryOverrideInput[],
+  structureComponentCodes: Set<string>,
+  structureCode: string,
+): Record<string, SalaryComponentOverride> | null {
+  const result: Record<string, SalaryComponentOverride> = {};
+  for (const item of overrides) {
+    const code = item.component_code.trim().toUpperCase();
+    if (code === BASE_SALARY_COMPONENT_CODE) {
+      throw new BadRequestException(
+        'BASIC cannot be overridden; change the base salary instead.',
+      );
+    }
+    if (!structureComponentCodes.has(code)) {
+      throw new BadRequestException(
+        `${code} is not part of salary structure ${structureCode}.`,
+      );
+    }
+    if (result[code]) {
+      throw new BadRequestException(`Duplicate override for ${code}.`);
+    }
+    if (!item.excluded && !hasValue(item.amount) && !hasValue(item.rate)) {
+      throw new BadRequestException(
+        `Override for ${code} needs an amount, a rate, or excluded=true.`,
+      );
+    }
+    result[code] = {
+      amount: hasValue(item.amount) ? item.amount : null,
+      rate: hasValue(item.rate) ? item.rate : null,
+      excluded: item.excluded ?? false,
+    };
+  }
+  return Object.keys(result).length ? result : null;
+}
+
+/**
+ * Keeps only the overrides whose component exists in the given structure, so
+ * custom amounts survive a move to a structure that shares those components.
+ */
+export function fitSalaryOverridesToStructure(
+  overrides: Record<string, SalaryComponentOverride> | null | undefined,
+  structureComponentCodes: Set<string>,
+): Record<string, SalaryComponentOverride> | null {
+  if (!overrides) return null;
+  const kept = Object.entries(overrides).filter(
+    ([code]) =>
+      code !== BASE_SALARY_COMPONENT_CODE && structureComponentCodes.has(code),
+  );
+  return kept.length ? Object.fromEntries(kept) : null;
 }
 
 /**

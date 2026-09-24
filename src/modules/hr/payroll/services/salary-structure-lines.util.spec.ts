@@ -10,7 +10,11 @@ import {
   PayrollTaxTreatmentEnum,
   SalaryStructureStatusEnum,
 } from '../payroll.enums';
-import { buildSalaryStructureLines } from './salary-structure-lines.util';
+import {
+  buildSalaryStructureLines,
+  fitSalaryOverridesToStructure,
+  normalizeSalaryOverrideInputs,
+} from './salary-structure-lines.util';
 
 function component(
   id: number,
@@ -184,5 +188,61 @@ describe('buildSalaryStructureLines', () => {
         { component_code: 'TRANSPORT', reason: 'NON_RECURRING_COMPONENT' },
       ]),
     );
+  });
+});
+
+describe('normalizeSalaryOverrideInputs', () => {
+  const codes = new Set(['BASIC', 'HOUSING', 'TRANSPORT']);
+
+  it('keys overrides by upper-case code and returns null when empty', () => {
+    expect(
+      normalizeSalaryOverrideInputs(
+        [{ component_code: 'housing', amount: '400000.00' }],
+        codes,
+        'STD-MONTHLY',
+      ),
+    ).toEqual({
+      HOUSING: { amount: '400000.00', rate: null, excluded: false },
+    });
+    expect(normalizeSalaryOverrideInputs([], codes, 'STD-MONTHLY')).toBeNull();
+  });
+
+  it('rejects BASIC, unknown codes, duplicates and empty overrides', () => {
+    const run = (overrides: Array<Record<string, unknown>>) => () =>
+      normalizeSalaryOverrideInputs(overrides as never, codes, 'STD-MONTHLY');
+    expect(run([{ component_code: 'BASIC', amount: '1' }])).toThrow('BASIC');
+    expect(run([{ component_code: 'CAR', amount: '1' }])).toThrow(
+      'not part of salary structure',
+    );
+    expect(
+      run([
+        { component_code: 'HOUSING', amount: '1' },
+        { component_code: 'housing', rate: '2' },
+      ]),
+    ).toThrow('Duplicate');
+    expect(run([{ component_code: 'HOUSING' }])).toThrow('needs an amount');
+  });
+});
+
+describe('fitSalaryOverridesToStructure', () => {
+  it('keeps only overrides for components in the structure', () => {
+    expect(
+      fitSalaryOverridesToStructure(
+        {
+          HOUSING: { amount: '400000.00' },
+          TRANSPORT: { excluded: true },
+        },
+        new Set(['BASIC', 'HOUSING', 'CAR']),
+      ),
+    ).toEqual({ HOUSING: { amount: '400000.00' } });
+    expect(
+      fitSalaryOverridesToStructure(
+        { TRANSPORT: { excluded: true } },
+        new Set(['HOUSING']),
+      ),
+    ).toBeNull();
+    expect(
+      fitSalaryOverridesToStructure(null, new Set(['HOUSING'])),
+    ).toBeNull();
   });
 });
