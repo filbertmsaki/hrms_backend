@@ -34,6 +34,8 @@ import { EmployeeGrade } from '../grades/entities/employee-grade.entity';
 import { CostCenter } from '../cost-centers/entities/cost-center.entity';
 import { Document } from '../documents/entities/document.entity';
 import { HrAccessService } from '../shared/hr-access.service';
+import { SalaryStructure } from '../payroll/entities/payroll-configuration.entities';
+import { SalaryStructureStatusEnum } from '../payroll/payroll.enums';
 import { PositionAvailabilityService } from '../shared/position-availability.service';
 import { addDaysToDateOnly, formatDateOnly } from '../shared/hr.utils';
 import {
@@ -477,6 +479,29 @@ export class EmployeeMovementsService {
     return createHash('sha256').update(stableStringify(snapshot)).digest('hex');
   }
 
+  /** Accepts only codes of salary structures that have an active version. */
+  private async validateSalaryStructureCode(
+    companyId: number,
+    code: string | undefined,
+    manager: EntityManager,
+  ): Promise<string | undefined> {
+    const normalized = code?.trim().toUpperCase();
+    if (!normalized) return undefined;
+    const exists = await manager.getRepository(SalaryStructure).exists({
+      where: {
+        companyId,
+        code: normalized,
+        status: SalaryStructureStatusEnum.ACTIVE,
+      },
+    });
+    if (!exists) {
+      throw new BadRequestException(
+        `Salary structure ${normalized} does not exist or has no active version.`,
+      );
+    }
+    return normalized;
+  }
+
   private async createMovementChanges(
     movement: EmployeeMovement,
     dto: CreateEmployeeMovementDto,
@@ -554,16 +579,22 @@ export class EmployeeMovementsService {
     }
 
     if (dto.salary_revision) {
+      const salaryStructureCode = await this.validateSalaryStructureCode(
+        movement.companyId,
+        dto.salary_revision.salary_structure_code,
+        manager,
+      );
       changes.push({
         field: EmployeeMovementFieldEnum.BASE_SALARY,
         oldValue: {
           amount: current.base_salary,
           currency: current.salary_currency,
+          salary_structure_code: current.salary_structure_code,
         },
         newValue: {
           amount: dto.salary_revision.base_salary,
           currency: dto.salary_revision.currency.toUpperCase(),
-          salary_structure_code: dto.salary_revision.salary_structure_code,
+          salary_structure_code: salaryStructureCode,
           revision_reference: dto.salary_revision.revision_reference,
           justification: dto.salary_revision.justification,
         },
@@ -1219,9 +1250,7 @@ export class EmployeeMovementsService {
   }
 
   private buildMovementDashboardUrl(movement: EmployeeMovement): string {
-    const appUrl =
-      this.configService.get<string>('APP_FRONTEND_URL') ??
-      'http://localhost:5173';
+    const appUrl = this.configService.get<string>('APP_FRONTEND_URL')!;
     return `${appUrl}/employee-movements/${movement.id}`;
   }
 
@@ -1897,6 +1926,17 @@ export class EmployeeMovementsService {
       await repository.save(current);
     }
 
+    // A revision without a structure code keeps the current structure, and
+    // employee overrides survive as long as the structure does not change.
+    const salaryStructureCode =
+      value.salary_structure_code?.trim().toUpperCase() ||
+      current?.salaryStructureCode ||
+      null;
+    const componentOverrides =
+      current && current.salaryStructureCode === salaryStructureCode
+        ? current.componentOverrides
+        : null;
+
     await repository.save(
       repository.create({
         companyId: movement.companyId,
@@ -1904,7 +1944,8 @@ export class EmployeeMovementsService {
         movementId: movement.id,
         baseSalary: value.amount,
         currency: value.currency.toUpperCase(),
-        salaryStructureCode: value.salary_structure_code ?? null,
+        salaryStructureCode,
+        componentOverrides,
         payFrequency: 'MONTHLY',
         effectiveFrom: movement.effectiveDate,
         effectiveTo: null,

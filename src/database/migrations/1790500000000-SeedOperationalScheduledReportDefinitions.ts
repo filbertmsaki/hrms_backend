@@ -26,9 +26,7 @@ const REPORT_CODES = [
   'ATTENDANCE_CORRECTIONS',
 ];
 
-export class SeedOperationalScheduledReportDefinitions1790500000000
-  implements MigrationInterface
-{
+export class SeedOperationalScheduledReportDefinitions1790500000000 implements MigrationInterface {
   name = 'SeedOperationalScheduledReportDefinitions1790500000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

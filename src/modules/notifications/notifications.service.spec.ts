@@ -9,6 +9,7 @@ import { NotificationOrchestratorService } from './notification-orchestrator.ser
 import { NotificationQueueService } from './notification-queue.service';
 import { NotificationsGateway } from './notifications.gateway';
 import { NotificationsService } from './notifications.service';
+import { NotificationChannelEnum } from './enums/notification-channel.enum';
 
 describe('NotificationsService', () => {
   let service: NotificationsService;
@@ -91,14 +92,14 @@ describe('NotificationsService', () => {
     expect(result).toEqual({ id: 12 });
   });
 
-  it('preserves explicitly requested delivery channels', async () => {
+  it('preserves explicitly requested notification channels', async () => {
     orchestrator.create.mockResolvedValue({ id: 13 });
 
     await service.createAndPush({
       company_id: 4,
       receiver_company_user_id: 8,
-      title: 'Approval required',
-      message: 'A profile update needs review',
+      title: 'Onboarding task assigned',
+      message: 'Prepare a laptop for the new employee.',
       channels: [
         NotificationChannelEnum.IN_APP,
         NotificationChannelEnum.EMAIL,

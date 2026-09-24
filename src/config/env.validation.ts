@@ -179,7 +179,7 @@ export function validateEnv(env: Env) {
     'APP_URL',
   );
   const APP_FRONTEND_URL = validateUrl(
-    optionalString(env, 'APP_FRONTEND_URL', APP_URL),
+    required(env, 'APP_FRONTEND_URL'),
     'APP_FRONTEND_URL',
   );
   const APP_ALLOWED_ORIGINS = optionalCsv(env, 'APP_ALLOWED_ORIGINS').map(
@@ -223,18 +223,17 @@ export function validateEnv(env: Env) {
     throw new Error('MAX_UPLOAD_FILE_SIZE_BYTES must be at least 1024 bytes.');
   }
 
+  if (APP_ENV === 'uat' || APP_ENV === 'production') {
+    if (isLocalTestingUrl(APP_URL)) {
+      throw new Error(`APP_URL cannot use a local URL in ${APP_ENV}.`);
+    }
+
+    if (isLocalTestingUrl(APP_FRONTEND_URL)) {
+      throw new Error(`APP_FRONTEND_URL cannot use a local URL in ${APP_ENV}.`);
+    }
+  }
+
   if (APP_ENV === 'production') {
-    if (APP_URL.includes('localhost') && !isLocalTestingUrl(APP_URL)) {
-      throw new Error('APP_URL cannot use localhost in production.');
-    }
-
-    if (
-      APP_FRONTEND_URL.includes('localhost') &&
-      !isLocalTestingUrl(APP_FRONTEND_URL)
-    ) {
-      throw new Error('APP_FRONTEND_URL cannot use localhost in production.');
-    }
-
     if (JWT_ACCESS_SECRET.length < 48) {
       throw new Error(
         'JWT_ACCESS_SECRET must be at least 48 characters in production.',

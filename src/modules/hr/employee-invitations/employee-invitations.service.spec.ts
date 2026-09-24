@@ -21,7 +21,10 @@ describe('EmployeeInvitationsService', () => {
     channels: [EmployeeInvitationChannel.EMAIL, EmployeeInvitationChannel.SMS],
   };
 
-  function createHarness(options?: { mailFailure?: Error }) {
+  function createHarness(options?: {
+    mailFailure?: Error;
+    frontendUrl?: string;
+  }) {
     const duplicateQuery = {
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
@@ -43,7 +46,16 @@ describe('EmployeeInvitationsService', () => {
     const companyRepository = {
       findOneBy: jest.fn().mockResolvedValue({ id: 1, name: 'Alliance' }),
     };
-    const companyUserRepository = { findOne: jest.fn() };
+    const companyUserRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 20,
+        company_id: 1,
+        user: { id: 10, email: 'hr@example.com' },
+        employee: null,
+        role_assignments: [],
+        permission_assignments: [],
+      }),
+    };
     const userRepository = { findOne: jest.fn().mockResolvedValue(null) };
     const branchRepository = {
       findOneBy: jest.fn().mockResolvedValue({ id: 2, company_id: 1 }),
@@ -67,8 +79,8 @@ describe('EmployeeInvitationsService', () => {
     const workflowRepository = {
       findOneBy: jest.fn().mockResolvedValue({ id: 3, company_id: 1 }),
     };
-    const reportSmtpService = {
-      sendCompanyEmail: options?.mailFailure
+    const mailService = {
+      sendGenericNotificationEmail: options?.mailFailure
         ? jest.fn().mockRejectedValue(options.mailFailure)
         : jest.fn().mockResolvedValue({ messageId: 'mail-123' }),
     };
@@ -77,9 +89,22 @@ describe('EmployeeInvitationsService', () => {
         .fn()
         .mockResolvedValue({ reference: 'sms-123' }),
     };
+    const employeesService = {
+      create: jest.fn().mockResolvedValue({ id: 91 }),
+    };
+    const usersService = {
+      findByEmail: jest.fn().mockResolvedValue({
+        id: 77,
+        email: dto.email,
+      }),
+      updatePassword: jest.fn().mockResolvedValue(undefined),
+      markEmailVerified: jest.fn().mockResolvedValue(undefined),
+    };
     const configService = {
       get: jest.fn((key: string, fallback?: unknown) => {
-        if (key === 'APP_FRONTEND_URL') return 'http://localhost:3000';
+        if (key === 'APP_FRONTEND_URL') {
+          return options?.frontendUrl ?? 'http://localhost:3000';
+        }
         if (key === 'EMPLOYEE_INVITATION_TTL_HOURS') return 72;
         return fallback;
       }),
@@ -95,10 +120,10 @@ describe('EmployeeInvitationsService', () => {
       positionRepository as never,
       employeeRepository as never,
       workflowRepository as never,
-      reportSmtpService as never,
+      mailService as never,
       smsService as never,
-      {} as never,
-      {} as never,
+      employeesService as never,
+      usersService as never,
       configService as never,
     );
 
@@ -106,8 +131,10 @@ describe('EmployeeInvitationsService', () => {
       service,
       invitationRepository,
       companyUserRepository,
-      reportSmtpService,
+      mailService,
       smsService,
+      employeesService,
+      usersService,
     };
   }
 
@@ -159,29 +186,26 @@ describe('EmployeeInvitationsService', () => {
   });
 
   it('sends through email and SMS without returning the token', async () => {
-    const { service, reportSmtpService, smsService } = createHarness();
+    const { service, mailService, smsService } = createHarness();
 
     const result = await service.create(1, dto, actor);
 
-    expect(reportSmtpService.sendCompanyEmail).toHaveBeenCalledTimes(1);
+    expect(mailService.sendGenericNotificationEmail).toHaveBeenCalledTimes(1);
     expect(smsService.sendGenericNotificationSms).toHaveBeenCalledTimes(1);
     expect(smsService.sendGenericNotificationSms).toHaveBeenCalledWith(
       dto.phone,
       'Employee invitation',
-      expect.stringContaining('Alliance has invited you'),
-      expect.stringMatching(
-        /^http:\/\/localhost:3000\/register\?token=[a-f0-9]{64}$/,
-      ),
+      'Amina Moshi, Alliance has invited you to complete your employee registration. Check your email for the registration link.',
     );
     expect(result.delivery).toEqual({
       email: {
         status: EmployeeInvitationDeliveryStatus.SENT,
         message_id: 'mail-123',
         last_error: null,
-        transport: 'company_smtp',
+        transport: 'system_smtp',
       },
       sms: {
-        status: EmployeeInvitationDeliveryStatus.SENT,
+        status: EmployeeInvitationDeliveryStatus.ACCEPTED,
         message_id: 'sms-123',
         last_error: null,
         transport: 'sms_gateway',
@@ -189,6 +213,67 @@ describe('EmployeeInvitationsService', () => {
     });
     expect(result).not.toHaveProperty('token');
     expect(result.status).toBe(EmployeeInvitationStatus.PENDING);
+  });
+
+  it('keeps the registration link out of SMS when public HTTPS is configured', async () => {
+    const { service, smsService } = createHarness({
+      frontendUrl: 'https://hrms.alliance.co.tz',
+    });
+
+    await service.create(1, dto, actor);
+
+    expect(smsService.sendGenericNotificationSms).toHaveBeenCalledWith(
+      dto.phone,
+      'Employee invitation',
+      'Amina Moshi, Alliance has invited you to complete your employee registration. Check your email for the registration link.',
+    );
+  });
+
+  it('marks the employee email verified when the invitation is accepted', async () => {
+    const { service, invitationRepository, employeesService, usersService } =
+      createHarness();
+    const invitation = {
+      id: 44,
+      companyId: 1,
+      status: EmployeeInvitationStatus.PENDING,
+      tokenHash: 'unused-in-test',
+      firstName: dto.first_name,
+      lastName: dto.last_name,
+      gender: dto.gender,
+      email: dto.email,
+      phone: dto.phone,
+      primaryBranchId: dto.primary_branch_id,
+      primaryDepartmentId: dto.primary_department_id,
+      primaryPositionId: dto.primary_position_id,
+      employmentType: dto.employment_type,
+      reportsTo: null,
+      hireDate: null,
+      onboardingWorkflowId: dto.onboarding_workflow_id,
+      createdByCompanyUserId: 20,
+      expiresAt: new Date(Date.now() + 60_000),
+      acceptedAt: null,
+      acceptedEmployeeId: null,
+    };
+    invitationRepository.findOneBy.mockResolvedValue(invitation);
+    invitationRepository.update.mockResolvedValue({ affected: 1 });
+
+    const result = await service.accept('valid-invitation-token', {
+      password: 'StrongPass#2026',
+    });
+
+    expect(employeesService.create).toHaveBeenCalledTimes(1);
+    expect(usersService.updatePassword).toHaveBeenCalledWith(
+      77,
+      expect.any(String),
+    );
+    expect(usersService.markEmailVerified).toHaveBeenCalledWith(77);
+    expect(invitation.status).toBe(EmployeeInvitationStatus.ACCEPTED);
+    expect(invitation.acceptedEmployeeId).toBe(91);
+    expect(result).toEqual({
+      status: EmployeeInvitationStatus.ACCEPTED,
+      employee_id: 91,
+      login_url: 'http://localhost:3000/login',
+    });
   });
 
   it('records a failed email while preserving successful SMS delivery', async () => {
@@ -202,9 +287,9 @@ describe('EmployeeInvitationsService', () => {
       EmployeeInvitationDeliveryStatus.FAILED,
     );
     expect(result.delivery.email.last_error).toBe('mail provider unavailable');
-    expect(result.delivery.email.transport).toBe('company_smtp');
+    expect(result.delivery.email.transport).toBe('system_smtp');
     expect(result.delivery.sms.status).toBe(
-      EmployeeInvitationDeliveryStatus.SENT,
+      EmployeeInvitationDeliveryStatus.ACCEPTED,
     );
   });
 

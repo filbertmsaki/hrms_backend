@@ -122,10 +122,9 @@ export class MailService {
             name: name || 'User',
             appName: this.configService.get<string>('APP_NAME') ?? 'Your App',
             year: new Date().getFullYear(),
-            loginUrl: `${
-              this.configService.get<string>('APP_FRONTEND_URL') ??
-              'http://localhost:5173'
-            }/login`,
+            loginUrl: `${this.configService.get<string>(
+              'APP_FRONTEND_URL',
+            )!}/login`,
             supportEmail:
               this.configService.get<string>('SUPPORT_EMAIL') ??
               'support@yourdomain.com',

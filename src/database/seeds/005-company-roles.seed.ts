@@ -56,6 +56,8 @@ const SELF_SERVICE_PERMISSIONS = [
   'attendance_mobile_punches:create',
   'shift_change_requests:read',
   'shift_change_requests:create',
+  'performance_self_service:read',
+  'performance_self_service:update',
   ...SELF_SERVICE_OFFBOARDING_REQUEST_PERMISSIONS,
   'performance_periods:read',
   'performance_kpis:self:read',
@@ -66,6 +68,43 @@ const SELF_SERVICE_PERMISSIONS = [
   'performance_self_service:update',
   'work_activities:self-service:read',
   'work_activities:self-service:update',
+];
+
+/** HR Performance management (`/dashboard/performance/*`). */
+const PERFORMANCE_MANAGEMENT_PERMISSIONS = [
+  'performance_financial_years:read',
+  'performance_financial_years:create',
+  'performance_periods:read',
+  'performance_periods:create',
+  'performance_rating_scales:read',
+  'performance_rating_scales:create',
+  'performance_competencies:read',
+  'performance_competencies:create',
+  'kpi_definitions:read',
+  'kpi_definitions:create',
+  'kpi_definitions:update',
+  'kpi_applicability_rules:read',
+  'kpi_applicability_rules:create',
+  'kpi_templates:read',
+  'kpi_templates:create',
+  'performance_plans:read',
+  'performance_plans:create',
+  'performance_assignments:create',
+  'performance_reviews:approve',
+  'performance_reviews:moderate',
+  'performance_reviews:reopen',
+  'performance_reviews:appeal-review',
+  'performance_kpis:sync',
+  'performance_aggregates:read',
+  'performance_aggregates:calculate',
+  'performance_dashboards:read',
+  'performance_manager:read',
+  'performance_manager:review',
+  'performance_manager:validate',
+  'performance_pip:read',
+  'performance_pip:create',
+  'performance_pip:review',
+  'performance_pip:close',
 ];
 
 /** Read-only structural lookups needed by managers and HR */
@@ -501,8 +540,208 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'offboarding_documents:delete',
       'offboarding_documents:create',
       'offboarding_documents:read',
+      // Performance management (years, periods, plans, reviews)
+      ...PERFORMANCE_MANAGEMENT_PERMISSIONS,
       ...SELF_SERVICE_APPROVAL_PERMISSIONS,
       ...PROFILE_CHANGE_APPROVAL_PERMISSIONS,
+      // Org structure reads
+      'cost_centers:read',
+      'employee_assignments:read',
+      'employee_compensation:read',
+      'employee_grades:read',
+      'employee_numbering:read',
+      'employee_positions:correct-history',
+      // Notifications (own inbox)
+      'notification_preferences:manage-own',
+      'notifications:delete',
+      'notifications:read',
+      'notifications:update',
+      // Shift change requests
+      'shift_change_requests:create',
+      'shift_change_requests:read',
+      // Offboarding (advanced)
+      'offboarding_access:emergency-terminate',
+      'offboarding_access:read',
+      'offboarding_access:retry',
+      'offboarding_approvals:delegate',
+      'offboarding_approvals:delegate-any',
+      'offboarding_assets:verify',
+      'offboarding_assets:waive',
+      'offboarding_letters:read',
+      'offboarding_requests:finalize',
+      'offboarding_settlements:verify',
+      'offboarding_settlements:waive',
+      // Dashboards & analytics
+      'analytics:audit:read',
+      'analytics:dashboards:hr',
+      'analytics:dashboards:management',
+      'analytics:dashboards:manager',
+      'analytics:dashboards:sales-field',
+      'analytics:datasets:read',
+      'analytics:exports',
+      'analytics:location',
+      'analytics:metrics:read',
+      'analytics:reconciliation',
+      'analytics:refresh',
+      'analytics:reports',
+      'analytics:sensitive',
+      'analytics:sources:read',
+      'analytics:statutory-reports',
+      'dashboard:employee',
+      'dashboard:hr',
+      'dashboard:management',
+      'dashboard:manager',
+      // Payroll
+      'payroll:accounting',
+      'payroll:banking',
+      'payroll:config',
+      'payroll:config:read',
+      'payroll:final-settlements',
+      'payroll:inputs',
+      'payroll:inputs:approve',
+      'payroll:inputs:read',
+      'payroll:payslips',
+      'payroll:payslips:read',
+      'payroll:payslips:self',
+      'payroll:periods',
+      'payroll:periods:read',
+      'payroll:profiles',
+      'payroll:profiles:read',
+      'payroll:reports',
+      'payroll:runs',
+      'payroll:runs:approve',
+      'payroll:runs:lock',
+      'payroll:runs:process',
+      'payroll:runs:read',
+      // Employee finance
+      'employee_finance:accounts:read',
+      'employee_finance:applications:finance-approve',
+      'employee_finance:applications:hr-approve',
+      'employee_finance:applications:manager-review',
+      'employee_finance:applications:read',
+      'employee_finance:applications:self',
+      'employee_finance:disbursements',
+      'employee_finance:disbursements:approve',
+      'employee_finance:payroll',
+      'employee_finance:products',
+      'employee_finance:products:read',
+      'employee_finance:reconciliation',
+      'employee_finance:repayments',
+      'employee_finance:repayments:approve',
+      'employee_finance:reports',
+      'employee_finance:settlements',
+      // Employee movements
+      'employee_movements:acknowledge-own',
+      'employee_movements:apply',
+      'employee_movements:approve',
+      'employee_movements:backdate',
+      'employee_movements:cancel',
+      'employee_movements:create',
+      'employee_movements:finance-approve',
+      'employee_movements:generate-letter',
+      'employee_movements:management-approve',
+      'employee_movements:read',
+      'employee_movements:read-own',
+      'employee_movements:retry',
+      'employee_movements:submit',
+      // Performance
+      'kpi_applicability_rules:create',
+      'kpi_applicability_rules:read',
+      'kpi_definitions:create',
+      'kpi_definitions:read',
+      'kpi_definitions:update',
+      'kpi_templates:create',
+      'kpi_templates:read',
+      'performance_aggregates:calculate',
+      'performance_aggregates:read',
+      'performance_assignments:create',
+      'performance_calibration:read',
+      'performance_competencies:create',
+      'performance_competencies:read',
+      'performance_dashboards:read',
+      'performance_development_plans:create',
+      'performance_development_plans:read',
+      'performance_development_plans:update',
+      'performance_feedback_360:invite',
+      'performance_feedback_360:read',
+      'performance_feedback_360:self:read',
+      'performance_feedback_360:self:submit',
+      'performance_financial_years:create',
+      'performance_financial_years:read',
+      'performance_kpis:all:read',
+      'performance_kpis:review',
+      'performance_kpis:self:create',
+      'performance_kpis:self:read',
+      'performance_kpis:self:submit',
+      'performance_kpis:self:update',
+      'performance_kpis:sync',
+      'performance_kpis:team:read',
+      'performance_manager:read',
+      'performance_manager:review',
+      'performance_manager:validate',
+      'performance_periods:activate',
+      'performance_periods:close',
+      'performance_periods:create',
+      'performance_periods:read',
+      'performance_periods:update',
+      'performance_pip:close',
+      'performance_pip:create',
+      'performance_pip:read',
+      'performance_pip:review',
+      'performance_plans:create',
+      'performance_plans:read',
+      'performance_rating_scales:create',
+      'performance_rating_scales:read',
+      'performance_reports:export',
+      'performance_reports:read',
+      'performance_reviews:appeal',
+      'performance_reviews:appeal-review',
+      'performance_reviews:approve',
+      'performance_reviews:moderate',
+      'performance_reviews:reopen',
+      'performance_reviews:self-review',
+      'performance_reviews:workflow-action',
+      'performance_reviews:workflow-read',
+      'performance_scorecards:create',
+      'performance_scorecards:read',
+      'performance_self_service:read',
+      'performance_self_service:update',
+      'performance_workflows:create',
+      'performance_workflows:read',
+      // Probation
+      'probation_cases:create',
+      'probation_cases:delete',
+      'probation_cases:read',
+      'probation_cases:read-team',
+      'probation_cases:update',
+      'probation_letters:generate',
+      'probation_policies:create',
+      'probation_policies:delete',
+      'probation_policies:read',
+      'probation_policies:update',
+      'probation_reviews:hr-decision',
+      'probation_reviews:manager-review',
+      'probation_reviews:manager-review-any',
+      'probation_reviews:self-assess',
+      // Field visits & locations
+      'field_locations:export',
+      'field_locations:read',
+      'field_visits:config',
+      'field_visits:hr:read',
+      'field_visits:manager:read',
+      'field_visits:manager:review',
+      'field_visits:self-service:read',
+      'field_visits:self-service:update',
+      // Work activities & manager self-service
+      'action_items:read-own',
+      'manager_self_service:read',
+      'manager_team:read',
+      'work_activities:config',
+      'work_activities:hr:read',
+      'work_activities:manager:read',
+      'work_activities:manager:review',
+      'work_activities:self-service:read',
+      'work_activities:self-service:update',
     ],
   },
 
@@ -730,6 +969,8 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'offboarding_documents:delete',
       'offboarding_documents:create',
       'offboarding_documents:read',
+      // Performance management (years, periods, plans, reviews)
+      ...PERFORMANCE_MANAGEMENT_PERMISSIONS,
       // Role permission management
       'roles:assign-permission',
       'roles:revoke-permission',
@@ -1118,6 +1359,7 @@ export default class CompanyRolesSeeder implements Seeder {
       const permissionMap = new Map(permissions.map((p) => [p.name, p]));
 
       let createdCount = 0;
+      let syncedPermissionCount = 0;
       for (const seed of COMPANY_ROLE_SEEDS) {
         const role = await roleRepo.findOne({
           where: { name: seed.name, company_id: company.id },
@@ -1137,6 +1379,22 @@ export default class CompanyRolesSeeder implements Seeder {
           });
           await roleRepo.save(newRole);
           createdCount += 1;
+        } else if (seed.name === 'COMPANY_ADMIN') {
+          // Additive sync: grant any seeded permission the existing role lacks,
+          // never revoke custom grants.
+          const have = new Set(
+            (role.permissions ?? []).map((permission) => permission.name),
+          );
+          const missing = Array.from(new Set(seed.permissionNames))
+            .map((name) => permissionMap.get(name))
+            .filter((permission): permission is Permission =>
+              Boolean(permission && !have.has(permission.name)),
+            );
+          if (missing.length > 0) {
+            role.permissions = [...(role.permissions ?? []), ...missing];
+            await roleRepo.save(role);
+            syncedPermissionCount += missing.length;
+          }
         } else if (seed.name === 'HR_MANAGER' || seed.name === 'HR_OFFICER') {
           const have = new Set(
             (role.permissions ?? []).map((permission) => permission.name),
@@ -1161,6 +1419,11 @@ export default class CompanyRolesSeeder implements Seeder {
       console.log(
         `[Seeder][CompanyRoles] Created ${createdCount} new roles (${COMPANY_ROLE_SEEDS.length - createdCount} already existed, left unchanged) for company "${company.name}"`,
       );
+      if (syncedPermissionCount > 0) {
+        console.log(
+          `[Seeder][CompanyRoles] Granted ${syncedPermissionCount} missing permissions to COMPANY_ADMIN`,
+        );
+      }
     } catch (error) {
       await qr.rollbackTransaction();
       console.error('[Seeder][CompanyRoles] Failed:', error);

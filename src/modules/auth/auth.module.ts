@@ -10,7 +10,7 @@ import { AuthSessionsModule } from './auth-sessions.module';
 
 import { CompaniesModule } from '../companies/companies.module';
 import { UsersModule } from '../users/users.module';
-import { TokenBlacklistService } from './token-blacklist.service';
+import { TokenBlacklistModule } from './token-blacklist.module';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 import { MailModule } from '../mail/mail.module';
@@ -24,6 +24,7 @@ import { TwoFaModule } from './2fa/2fa.module';
       session: false,
     }),
     AuthSessionsModule,
+    TokenBlacklistModule,
     CompaniesModule,
     UsersModule,
     MailModule,
@@ -41,7 +42,7 @@ import { TwoFaModule } from './2fa/2fa.module';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, TokenBlacklistService, JwtStrategy, LocalStrategy],
-  exports: [AuthService, TokenBlacklistService],
+  providers: [AuthService, JwtStrategy, LocalStrategy],
+  exports: [AuthService, TokenBlacklistModule],
 })
 export class AuthModule {}

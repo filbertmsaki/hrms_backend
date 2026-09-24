@@ -14,7 +14,7 @@ import { Repository } from 'typeorm';
 import { isOriginAllowed } from '../../common/utils/allowed-origin.util';
 import { CompanyUser } from '../companies/entities/company-user.entity';
 import { TokenBlacklistService } from '../auth/token-blacklist.service';
-import { UsersService } from '../users/users.service';
+import { User } from '../users/entities/user.entity';
 
 type NotificationSocketPayload = {
   sub: number;
@@ -77,7 +77,8 @@ export class NotificationsGateway
     @InjectRepository(CompanyUser)
     private readonly companyUserRepository: Repository<CompanyUser>,
     private readonly blacklistService: TokenBlacklistService,
-    private readonly usersService: UsersService,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
   ) {
     this.redisEnabled = this.getBooleanConfig('USE_REDIS', false);
     const appEnv =
@@ -197,8 +198,8 @@ export class NotificationsGateway
         return;
       }
 
-      const user = await this.usersService
-        .findById(payload.sub)
+      const user = await this.userRepository
+        .findOneBy({ id: payload.sub })
         .catch(() => null);
 
       if (!user || user.status !== 'active') {

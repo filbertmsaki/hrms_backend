@@ -5,7 +5,6 @@ import {
   LeaveApprovedEvent,
   OffboardingApprovedEvent,
   OffboardingAssetOverdueEvent,
-  OnboardingTaskAssignedEvent,
   OffboardingSettlementOverdueEvent,
   EmployeeMovementApprovalRequiredEvent,
   EmployeeMovementApprovedEvent,
@@ -68,31 +67,6 @@ describe('HrNotificationListener', () => {
       3,
       'sendOffboardingApprovedNotification',
       ['hr2@example.com', 'HR Two', event],
-    );
-  });
-
-  it('passes the task-assigned event directly to the mail service', async () => {
-    const event = new OnboardingTaskAssignedEvent(
-      'Neema Manager',
-      'neema@example.com',
-      'Amina John',
-      'Prepare laptop',
-      null,
-      null,
-      'http://localhost:5173/onboarding/15/tasks',
-      1,
-      15,
-      20,
-      30,
-      40,
-      'ONB-TASK-001',
-    );
-
-    await listener.onOnboardingTaskAssigned(event);
-
-    expect(notificationQueueService.enqueueMailMethod).toHaveBeenCalledWith(
-      'sendOnboardingTaskAssignedNotification',
-      ['neema@example.com', event],
     );
   });
 

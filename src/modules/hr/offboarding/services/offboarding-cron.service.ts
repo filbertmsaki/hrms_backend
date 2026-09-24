@@ -113,9 +113,7 @@ export class OffboardingCronService {
   }
 
   private async notifyOverdueTasks() {
-    const frontendUrl =
-      this.configService.get<string>('APP_FRONTEND_URL') ??
-      'http://localhost:5173';
+    const frontendUrl = this.configService.get<string>('APP_FRONTEND_URL')!;
     const reminderCutoff = this.reminderCutoff(
       this.configService.get<number>('OFFBOARDING_TASK_REMINDER_HOURS', 24),
     );
@@ -188,9 +186,7 @@ export class OffboardingCronService {
   }
 
   private async notifyOverdueClearances() {
-    const frontendUrl =
-      this.configService.get<string>('APP_FRONTEND_URL') ??
-      'http://localhost:5173';
+    const frontendUrl = this.configService.get<string>('APP_FRONTEND_URL')!;
     const reminderCutoff = this.reminderCutoff(
       this.configService.get<number>(
         'OFFBOARDING_CLEARANCE_REMINDER_HOURS',
@@ -273,9 +269,7 @@ export class OffboardingCronService {
     const reminderCutoff = this.reminderCutoff(
       this.configService.get<number>('OFFBOARDING_APPROVAL_REMINDER_HOURS', 24),
     );
-    const frontendUrl =
-      this.configService.get<string>('APP_FRONTEND_URL') ??
-      'http://localhost:5173';
+    const frontendUrl = this.configService.get<string>('APP_FRONTEND_URL')!;
 
     const staleApprovals = await this.approvalRepository
       .createQueryBuilder('approval')
@@ -342,9 +336,7 @@ export class OffboardingCronService {
   }
 
   private async notifyOverdueAssets() {
-    const frontendUrl =
-      this.configService.get<string>('APP_FRONTEND_URL') ??
-      'http://localhost:5173';
+    const frontendUrl = this.configService.get<string>('APP_FRONTEND_URL')!;
     const reminderCutoff = this.reminderCutoff(
       this.configService.get<number>('OFFBOARDING_ASSET_REMINDER_HOURS', 24),
     );
@@ -415,9 +407,7 @@ export class OffboardingCronService {
   }
 
   private async notifyOverdueSettlements() {
-    const frontendUrl =
-      this.configService.get<string>('APP_FRONTEND_URL') ??
-      'http://localhost:5173';
+    const frontendUrl = this.configService.get<string>('APP_FRONTEND_URL')!;
     const reminderCutoff = this.reminderCutoff(
       this.configService.get<number>(
         'OFFBOARDING_SETTLEMENT_REMINDER_HOURS',

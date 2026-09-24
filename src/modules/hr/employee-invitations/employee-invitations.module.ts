@@ -11,7 +11,7 @@ import { Employee } from '../employees/entities/employee.entity';
 import { EmployeesModule } from '../employees/employees.module';
 import { Position } from '../positions/entities/position.entity';
 import { OnboardingWorkflow } from '../onboarding/entities/onboarding-workflow.entity';
-import { ScheduledReportingModule } from '../../scheduled-reporting/scheduled-reporting.module';
+import { MailModule } from '../../mail/mail.module';
 import { EmployeeInvitationsController } from './employee-invitations.controller';
 import { EmployeeInvitationsService } from './employee-invitations.service';
 import { EmployeeInvitation } from './entities/employee-invitation.entity';
@@ -29,7 +29,7 @@ import { EmployeeInvitation } from './entities/employee-invitation.entity';
       Employee,
       OnboardingWorkflow,
     ]),
-    ScheduledReportingModule,
+    MailModule,
     SmsModule,
     EmployeesModule,
     UsersModule,

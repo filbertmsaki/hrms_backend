@@ -74,6 +74,7 @@ import {
 import {
   EmployeePayrollCalculationService,
   EmployeePayrollProfileService,
+  EmployeeSalaryService,
   PayrollAccountingService,
   PayrollAuditService,
   PayrollBankService,
@@ -88,6 +89,7 @@ import {
   PayrollSourceService,
   PayslipService,
   ProgressiveTaxService,
+  SalaryStructureResolver,
   StatutoryCalculationService,
 } from './services/payroll-core.services';
 
@@ -163,7 +165,9 @@ import {
   ],
   providers: [
     PayrollAuditService,
+    SalaryStructureResolver,
     EmployeePayrollProfileService,
+    EmployeeSalaryService,
     PayrollConfigurationService,
     PayrollInputService,
     PayrollSourceService,

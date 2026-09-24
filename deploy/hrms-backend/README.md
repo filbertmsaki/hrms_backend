@@ -47,7 +47,9 @@ Initial server setup:
 - Use an environment-specific non-sudo deploy user such as `hrms-uat` or
   `hrms-prod`, plus the appropriate `BASE_DIR`.
 - Populate each environment's `shared/.env` with its own secrets, `APP_ENV`,
-  `APP_HOST`, and `APP_PORT` before running the preflight workflow.
+  `APP_HOST`, `APP_PORT`, `APP_URL`, and `APP_FRONTEND_URL` before running the
+  preflight workflow. `APP_URL` and `APP_FRONTEND_URL` must be the public URLs
+  for that environment; all email and SMS action links use them dynamically.
 - Configure GitHub Environments named `hrms-backend-uat` and
   `hrms-backend-production`, each with secrets `DEPLOY_HOST`,
   `DEPLOY_SSH_KEY`, and `DEPLOY_KNOWN_HOSTS`.

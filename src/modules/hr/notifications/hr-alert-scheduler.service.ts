@@ -130,7 +130,7 @@ export class HrAlertSchedulerService {
         related_module: 'attendance',
         entity_type: 'ATTENDANCE_DAILY_SUMMARY',
         entity_id: summary.id,
-        action_url: '/me/attendance',
+        action_url: '/dashboard/attendance/today',
         channels: [
           NotificationChannelEnum.IN_APP,
           NotificationChannelEnum.EMAIL,

@@ -39,6 +39,7 @@ import { ShiftSchedulesService } from '../attendance/shift/shift-schedules/shift
 import { EmployeeTimetablesService } from '../attendance/timetable/employee-timetables/employee-timetables.service';
 import { EmployeeDeviceAssignmentsService } from '../../access-control/employee-device-assignments/service/employee-device-assignments.service';
 import { OnboardingAttendanceModeEnum } from './enums/onboarding-attendance-mode.enum';
+import { OnboardingStepTypeEnum } from './enums/onboarding-step-type.enum';
 import { FilesService } from '../../files/files.service';
 import { ProbationService } from '../probation/probation.service';
 
@@ -60,20 +61,25 @@ describe('OnboardingService', () => {
   let service: OnboardingService;
   let onboardingWorkflowRepository: MockRepo;
   let onboardingRequestRepository: MockRepo;
+  let onboardingTaskRepository: MockRepo;
+  let onboardingApprovalRepository: MockRepo;
   let employeeRepository: MockRepo;
   let documentRepository: MockRepo;
+  let companyUserRepository: MockRepo;
   let dataSource: { transaction: jest.Mock };
   let leaveBalanceService: {
     getFiscalYearFromDate: jest.Mock;
     ensureBalanceForEmployee: jest.Mock;
   };
   let hrAccessService: {
+    assertCompanyScopedActor: jest.Mock;
     assertCanAccessEmployee: jest.Mock;
     getAccessibleEmployeeIds: jest.Mock;
   };
   let onboardingAuditService: { log: jest.Mock };
   let onboardingWorkflowService: {
     resolveWorkflow: jest.Mock;
+    prepareApprovers: jest.Mock;
     initializeApprovalsForRequest: jest.Mock;
   };
   let filesService: { savePrivateBase64File: jest.Mock };
@@ -88,16 +94,15 @@ describe('OnboardingService', () => {
     const onboardingWorkflowStepRepository =
       createRepositoryMock<OnboardingWorkflowStep>();
     onboardingRequestRepository = createRepositoryMock<OnboardingRequest>();
-    const onboardingTaskRepository = createRepositoryMock<OnboardingTask>();
-    const onboardingApprovalRepository =
-      createRepositoryMock<OnboardingApproval>();
+    onboardingTaskRepository = createRepositoryMock<OnboardingTask>();
+    onboardingApprovalRepository = createRepositoryMock<OnboardingApproval>();
     const onboardingAuditLogRepository =
       createRepositoryMock<OnboardingAuditLog>();
     documentRepository = createRepositoryMock<Document>();
     employeeRepository = createRepositoryMock<Employee>();
     const departmentRepository = createRepositoryMock<Department>();
     const branchRepository = createRepositoryMock<Branch>();
-    const companyUserRepository = createRepositoryMock<CompanyUser>();
+    companyUserRepository = createRepositoryMock<CompanyUser>();
     const companyUserRoleRepository = createRepositoryMock<CompanyUserRole>();
     const branchAccessRepository =
       createRepositoryMock<CompanyUserBranchAccess>();
@@ -116,6 +121,7 @@ describe('OnboardingService', () => {
       ensureBalanceForEmployee: jest.fn(),
     };
     hrAccessService = {
+      assertCompanyScopedActor: jest.fn(),
       assertCanAccessEmployee: jest.fn(),
       getAccessibleEmployeeIds: jest.fn().mockResolvedValue(null),
     };
@@ -128,6 +134,7 @@ describe('OnboardingService', () => {
           id: workflowId ?? 91,
         }),
       ),
+      prepareApprovers: jest.fn(),
       initializeApprovalsForRequest: jest.fn(),
     };
     filesService = {
@@ -211,6 +218,403 @@ describe('OnboardingService', () => {
     expect(queryBuilder.andWhere).toHaveBeenCalledWith(
       'request.employee_id IN (:...accessibleEmployeeIds)',
       { accessibleEmployeeIds: [41, 42] },
+    );
+  });
+
+  it('accepts a workflow step assigned only to a department', () => {
+    const validateWorkflowStepRules = (
+      service as unknown as {
+        validateWorkflowStepRules: (step: {
+          name: string;
+          step_type: OnboardingStepTypeEnum;
+          assigned_department_id?: number;
+        }) => void;
+      }
+    ).validateWorkflowStepRules.bind(service);
+
+    expect(() =>
+      validateWorkflowStepRules({
+        name: 'Prepare equipment',
+        step_type: OnboardingStepTypeEnum.TASK,
+        assigned_department_id: 12,
+      }),
+    ).not.toThrow();
+  });
+
+  it('accepts a workflow checklist with separately trackable items', () => {
+    const validateWorkflowStepRules = (
+      service as unknown as {
+        validateWorkflowStepRules: (step: {
+          name: string;
+          step_type: OnboardingStepTypeEnum;
+          assigned_department_id: number;
+          metadata: {
+            checklist_items: Array<{ name: string; description: string }>;
+          };
+        }) => void;
+      }
+    ).validateWorkflowStepRules.bind(service);
+
+    expect(() =>
+      validateWorkflowStepRules({
+        name: 'Prepare workstation',
+        step_type: OnboardingStepTypeEnum.TASK,
+        assigned_department_id: 12,
+        metadata: {
+          checklist_items: [
+            {
+              name: 'Provide laptop',
+              description: 'Install the approved software image.',
+            },
+            {
+              name: 'Create email account',
+              description: '',
+            },
+          ],
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects empty workflow checklist items', () => {
+    const validateWorkflowStepRules = (
+      service as unknown as {
+        validateWorkflowStepRules: (step: {
+          name: string;
+          step_type: OnboardingStepTypeEnum;
+          assigned_department_id: number;
+          metadata: { checklist_items: string[] };
+        }) => void;
+      }
+    ).validateWorkflowStepRules.bind(service);
+
+    expect(() =>
+      validateWorkflowStepRules({
+        name: 'Prepare workstation',
+        step_type: OnboardingStepTypeEnum.TASK,
+        assigned_department_id: 12,
+        metadata: { checklist_items: ['Provide laptop', ''] },
+      }),
+    ).toThrow('checklist must contain 1 to 50 named items');
+  });
+
+  it('rejects a workflow step without a role, user, or department', () => {
+    const validateWorkflowStepRules = (
+      service as unknown as {
+        validateWorkflowStepRules: (step: {
+          name: string;
+          step_type: OnboardingStepTypeEnum;
+        }) => void;
+      }
+    ).validateWorkflowStepRules.bind(service);
+
+    expect(() =>
+      validateWorkflowStepRules({
+        name: 'Prepare equipment',
+        step_type: OnboardingStepTypeEnum.TASK,
+      }),
+    ).toThrow('assigned_role_id, assigned_user_id, or assigned_department_id');
+  });
+
+  it('rejects a specific sign-off assignee without approval permission', async () => {
+    companyUserRepository.find.mockResolvedValue([
+      {
+        id: 22,
+        company_id: 10,
+        user_id: 7,
+        status: 'active',
+        user: { first_name: 'Jane', last_name: 'Doe' },
+        role_assignments: [],
+        permission_assignments: [],
+      },
+    ]);
+    const validateWorkflowStepReferences = (
+      service as unknown as {
+        validateWorkflowStepReferences: (
+          companyId: number,
+          steps: Array<{
+            name: string;
+            step_type: OnboardingStepTypeEnum;
+            assigned_user_id: number;
+          }>,
+        ) => Promise<void>;
+      }
+    ).validateWorkflowStepReferences.bind(service);
+
+    await expect(
+      validateWorkflowStepReferences(10, [
+        {
+          name: 'Approve employee',
+          step_type: OnboardingStepTypeEnum.SIGN_OFF,
+          assigned_user_id: 22,
+        },
+      ]),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'ONBOARDING_ASSIGNEE_PERMISSION_REQUIRED',
+        assigned_user_id: 22,
+        required_permission: 'onboarding_requests:approve',
+      }),
+    });
+  });
+
+  it('accepts a specific task assignee with permission granted through a role', async () => {
+    companyUserRepository.find.mockResolvedValue([
+      {
+        id: 22,
+        company_id: 10,
+        user_id: 7,
+        status: 'active',
+        user: { first_name: 'Jane', last_name: 'Doe' },
+        role_assignments: [
+          {
+            role: {
+              permissions: [{ name: 'onboarding_tasks:complete' }],
+            },
+          },
+        ],
+        permission_assignments: [],
+      },
+    ]);
+    const validateWorkflowStepReferences = (
+      service as unknown as {
+        validateWorkflowStepReferences: (
+          companyId: number,
+          steps: Array<{
+            name: string;
+            step_type: OnboardingStepTypeEnum;
+            assigned_user_id: number;
+          }>,
+        ) => Promise<void>;
+      }
+    ).validateWorkflowStepReferences.bind(service);
+
+    await expect(
+      validateWorkflowStepReferences(10, [
+        {
+          name: 'Prepare laptop',
+          step_type: OnboardingStepTypeEnum.TASK,
+          assigned_user_id: 22,
+        },
+      ]),
+    ).resolves.toBeUndefined();
+  });
+
+  it('places uploaded documents in their related employee review sections', () => {
+    const buildEmployeeDetailReview = (
+      service as unknown as {
+        buildEmployeeDetailReview: (
+          request: OnboardingRequest,
+          documents: Document[],
+        ) => {
+          sections: Array<{
+            key: string;
+            attachments: Array<{ id: number; source: string }>;
+          }>;
+        };
+      }
+    ).buildEmployeeDetailReview.bind(service);
+
+    const review = buildEmployeeDetailReview(
+      {
+        id: 55,
+        metadata: {},
+        employee: {
+          id: 501,
+          documents: [
+            {
+              id: 81,
+              employee_id: 501,
+              type: 'other',
+              title: 'Profile photo',
+              metadata: { onboarding_section: 'personal' },
+              retention_until: null,
+            },
+          ],
+        },
+      } as unknown as OnboardingRequest,
+      [
+        {
+          id: 72,
+          document_type: 'academic_certificate',
+          title: 'Degree certificate',
+        } as Document,
+      ],
+    );
+
+    expect(
+      review.sections.find((section) => section.key === 'personal')
+        ?.attachments,
+    ).toEqual([
+      expect.objectContaining({ id: 81, source: 'employee_profile' }),
+    ]);
+    expect(
+      review.sections.find((section) => section.key === 'education')
+        ?.attachments,
+    ).toEqual([expect.objectContaining({ id: 72, source: 'onboarding' })]);
+  });
+
+  it('rejects a replacement approver without approval permission', async () => {
+    actor.permissions = ['onboarding_requests:update'];
+    onboardingRequestRepository.findOne.mockResolvedValue({
+      id: 55,
+      company_id: 10,
+      employee: { id: 501 },
+    });
+    onboardingApprovalRepository.findOneOrFail.mockResolvedValue({
+      id: 91,
+      onboarding_request_id: 55,
+      approver_company_user_id: 90,
+      status: 'pending',
+    });
+    companyUserRepository.findOne.mockResolvedValue({
+      id: 22,
+      company_id: 10,
+      user_id: 7,
+      status: 'active',
+      user: { first_name: 'Jane', last_name: 'Doe' },
+      role_assignments: [],
+      permission_assignments: [],
+    });
+    const manager = {
+      getRepository: jest.fn((entity: { name?: string }) => {
+        if (entity === OnboardingApproval) return onboardingApprovalRepository;
+        if (entity === CompanyUser) return companyUserRepository;
+        throw new Error(`Unexpected repository request: ${entity?.name}`);
+      }),
+    } as unknown as EntityManager;
+    dataSource.transaction.mockImplementation(
+      (callback: (transactionManager: EntityManager) => unknown) =>
+        callback(manager),
+    );
+
+    await expect(
+      service.delegateApproval(
+        10,
+        55,
+        91,
+        { delegate_company_user_id: 22, reason: 'Coverage change' },
+        actor,
+      ),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'ONBOARDING_ASSIGNEE_PERMISSION_REQUIRED',
+        assigned_user_id: 22,
+        required_permission: 'onboarding_requests:approve',
+      }),
+    });
+  });
+
+  it('prevents a normal approver from changing the assigned approver', async () => {
+    actor.permissions = ['onboarding_requests:approve'];
+
+    await expect(
+      service.delegateApproval(
+        10,
+        55,
+        91,
+        { delegate_company_user_id: 22, reason: 'Coverage change' },
+        actor,
+      ),
+    ).rejects.toThrow(
+      'You do not have permission to change onboarding approvers',
+    );
+    expect(onboardingRequestRepository.findOne).not.toHaveBeenCalled();
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+  });
+
+  it('restarts pending assignments when a submitted request changes workflow', async () => {
+    const employee = {
+      id: 501,
+      first_name: 'Jane',
+      last_name: 'Doe',
+      company_user: null,
+    };
+    onboardingRequestRepository.findOne.mockResolvedValue({
+      id: 55,
+      company_id: 10,
+      workflow_id: 1,
+      status: OnboardingRequestStatusEnum.SUBMITTED,
+      employee,
+    });
+    const current = {
+      id: 55,
+      company_id: 10,
+      workflow_id: 1,
+      status: OnboardingRequestStatusEnum.SUBMITTED,
+      current_approval_level: 1,
+      metadata: null,
+    };
+    const loaded = {
+      ...current,
+      workflow_id: 2,
+      employee,
+      workflow: { id: 2, name: 'Replacement workflow' },
+      tasks: [],
+      approvals: [],
+    };
+    const requestRepo = {
+      findOneOrFail: jest
+        .fn()
+        .mockResolvedValueOnce(current)
+        .mockResolvedValueOnce(loaded),
+      save: jest.fn((value: unknown) => Promise.resolve(value)),
+    };
+    const workflow = {
+      id: 2,
+      company_id: 10,
+      name: 'Replacement workflow',
+      version: 1,
+      is_locked: false,
+      steps: [],
+    };
+    const workflowRepo = {
+      findOne: jest.fn().mockResolvedValue(workflow),
+      save: jest.fn((value: unknown) => Promise.resolve(value)),
+    };
+    onboardingApprovalRepository.find.mockResolvedValue([]);
+    onboardingTaskRepository.find.mockResolvedValue([]);
+    onboardingWorkflowService.resolveWorkflow.mockResolvedValue(workflow);
+    onboardingWorkflowService.prepareApprovers.mockResolvedValue({
+      assignments: [{ step: { id: 8 }, membershipIds: [22] }],
+      failures: [],
+    });
+    onboardingWorkflowService.initializeApprovalsForRequest.mockResolvedValue({
+      workflow,
+      initialLevel: 1,
+      steps: [],
+    });
+    documentRepository.find.mockResolvedValue([]);
+    const manager = {
+      getRepository: jest.fn((entity: { name?: string }) => {
+        if (entity === OnboardingRequest) return requestRepo;
+        if (entity === OnboardingWorkflow) return workflowRepo;
+        if (entity === OnboardingApproval) return onboardingApprovalRepository;
+        if (entity === OnboardingTask) return onboardingTaskRepository;
+        throw new Error(`Unexpected repository request: ${entity?.name}`);
+      }),
+    } as unknown as EntityManager;
+    dataSource.transaction.mockImplementation(
+      (callback: (transactionManager: EntityManager) => unknown) =>
+        callback(manager),
+    );
+
+    await service.updateOnboardingRequest(10, 55, { workflow_id: 2 }, actor);
+
+    expect(onboardingApprovalRepository.delete).toHaveBeenCalledWith({
+      onboarding_request_id: 55,
+    });
+    expect(onboardingTaskRepository.delete).toHaveBeenCalledWith({
+      onboarding_request_id: 55,
+    });
+    expect(
+      onboardingWorkflowService.initializeApprovalsForRequest,
+    ).toHaveBeenCalledWith(
+      10,
+      expect.objectContaining({ id: 55, workflow_id: 2 }),
+      2,
+      manager,
+      expect.objectContaining({ failures: [] }),
     );
   });
 

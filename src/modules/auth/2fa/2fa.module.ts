@@ -5,7 +5,11 @@ import { ConfigModule } from '@nestjs/config';
 import { CompaniesModule } from '../../companies/companies.module';
 
 @Module({
-  imports: [ConfigModule, CompaniesModule, forwardRef(() => UsersModule)],
+  imports: [
+    ConfigModule,
+    forwardRef(() => CompaniesModule),
+    forwardRef(() => UsersModule),
+  ],
   providers: [TwoFaService],
   exports: [TwoFaService],
 })

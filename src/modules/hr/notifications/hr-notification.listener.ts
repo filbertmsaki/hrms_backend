@@ -13,7 +13,6 @@ import {
   OnboardingCompletedEvent,
   OnboardingRejectedEvent,
   OnboardingSubmittedEvent,
-  OnboardingTaskAssignedEvent,
   OffboardingApprovalRequiredEvent,
   OffboardingApprovalReminderEvent,
   OffboardingApprovedEvent,
@@ -221,18 +220,6 @@ export class HrNotificationListener {
       this.notificationQueueService.enqueueMailMethod(
         'sendOnboardingRejectedNotification',
         [event.employeeEmail, event],
-      ),
-    );
-  }
-
-  @OnEvent(OnboardingTaskAssignedEvent.EVENT)
-  async onOnboardingTaskAssigned(
-    event: OnboardingTaskAssignedEvent,
-  ): Promise<void> {
-    await this.send(() =>
-      this.notificationQueueService.enqueueMailMethod(
-        'sendOnboardingTaskAssignedNotification',
-        [event.assigneeEmail, event],
       ),
     );
   }

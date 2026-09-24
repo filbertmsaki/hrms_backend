@@ -1753,9 +1753,7 @@ export class AuthService {
   }
 
   private buildFrontendAuthUrl(path: string): string {
-    const baseUrl =
-      this.configService.get<string>('APP_FRONTEND_URL') ??
-      this.configService.getOrThrow<string>('APP_URL');
+    const baseUrl = this.configService.get<string>('APP_FRONTEND_URL')!;
 
     return `${baseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
   }

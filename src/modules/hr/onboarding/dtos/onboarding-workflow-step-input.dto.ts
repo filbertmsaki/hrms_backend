@@ -9,7 +9,6 @@ import {
   IsString,
   MaxLength,
   Min,
-  ValidateIf,
 } from 'class-validator';
 import { OnboardingStepTypeEnum } from '../enums/onboarding-step-type.enum';
 import { OnboardingTaskTypeEnum } from '../enums/onboarding-task-type.enum';
@@ -30,13 +29,11 @@ export class OnboardingWorkflowStepInputDto {
   @IsOptional()
   task_type?: OnboardingTaskTypeEnum;
 
-  @ValidateIf((o: OnboardingWorkflowStepInputDto) => !o.assigned_user_id)
   @Type(() => Number)
   @IsInt()
   @IsOptional()
   assigned_role_id?: number;
 
-  @ValidateIf((o: OnboardingWorkflowStepInputDto) => !o.assigned_role_id)
   @Type(() => Number)
   @IsInt()
   @IsOptional()

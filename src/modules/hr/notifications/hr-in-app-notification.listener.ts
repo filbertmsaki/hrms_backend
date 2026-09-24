@@ -8,6 +8,7 @@ import { ActionItemTypeEnum } from '../action-inbox/enums/action-item-type.enum'
 import { NotificationCategoryEnum } from '../../notifications/enums/notification-category.enum';
 import { NotificationPriorityEnum } from '../../notifications/enums/notification-priority.enum';
 import { NotificationTypeEnum } from '../../notifications/enums/notification-type.enum';
+import { NotificationChannelEnum } from '../../notifications/enums/notification-channel.enum';
 import {
   LeaveApprovalRequiredEvent,
   LeaveApprovedEvent,
@@ -19,9 +20,13 @@ import {
   OnboardingApprovalRequiredEvent,
   OnboardingApprovedEvent,
   OnboardingCompletedEvent,
+  OnboardingEmployeeDetailsReviewedEvent,
+  OnboardingEmployeeDetailsReturnedEvent,
+  OnboardingEmployeeDetailsSubmittedEvent,
   OnboardingRejectedEvent,
   OnboardingSubmittedEvent,
   OnboardingTaskAssignedEvent,
+  OnboardingTaskCompletedEvent,
   OnboardingTaskOverdueEvent,
   OffboardingApprovalReminderEvent,
   OffboardingApprovalRequiredEvent,
@@ -461,6 +466,115 @@ export class HrInAppNotificationListener {
     );
   }
 
+  @OnEvent(OnboardingEmployeeDetailsSubmittedEvent.EVENT)
+  async onOnboardingEmployeeDetailsSubmitted(
+    event: OnboardingEmployeeDetailsSubmittedEvent,
+  ): Promise<void> {
+    await this.sendOne({
+      company_id: event.companyId,
+      sender_company_user_id: event.employeeCompanyUserId,
+      receiver_company_user_id: event.reviewerCompanyUserId,
+      type: NotificationTypeEnum.ONBOARDING_SUBMITTED,
+      category: NotificationCategoryEnum.HR,
+      priority: NotificationPriorityEnum.HIGH,
+      title: 'Employee Details Ready for Review',
+      message: `${event.employeeName} has completed and submitted their onboarding details. Review each section before starting the workflow.`,
+      related_module: 'onboarding',
+      entity_type: 'ONBOARDING_REQUEST',
+      entity_id: event.onboardingRequestId,
+      action_url: event.reviewUrl,
+      dedupe_key: `onboarding:employee-details-submitted:${event.onboardingRequestId}:${event.reviewerCompanyUserId}:${Date.now()}`,
+      channels: [
+        NotificationChannelEnum.IN_APP,
+        NotificationChannelEnum.EMAIL,
+        NotificationChannelEnum.SMS,
+      ],
+      metadata: {
+        onboarding_no: event.onboardingNo,
+        employee_name: event.employeeName,
+        stage: 'employee_details_review',
+      },
+    });
+
+    await this.openApprovalActionItem({
+      companyId: event.companyId,
+      approverCompanyUserId: event.reviewerCompanyUserId,
+      sourceModule: 'onboarding',
+      sourceEntityType: 'ONBOARDING_REQUEST',
+      sourceEntityId: event.onboardingRequestId,
+      title: 'Review employee onboarding details',
+      description: `${event.employeeName} submitted onboarding details for HR review.`,
+      actionUrl: event.reviewUrl,
+      metadata: {
+        onboarding_no: event.onboardingNo,
+        employee_name: event.employeeName,
+        stage: 'employee_details_review',
+      },
+    });
+  }
+
+  @OnEvent(OnboardingEmployeeDetailsReturnedEvent.EVENT)
+  async onOnboardingEmployeeDetailsReturned(
+    event: OnboardingEmployeeDetailsReturnedEvent,
+  ): Promise<void> {
+    await this.sendOne({
+      company_id: event.companyId,
+      sender_company_user_id: event.reviewerCompanyUserId,
+      receiver_company_user_id: event.employeeCompanyUserId,
+      type: NotificationTypeEnum.ONBOARDING_REJECTED,
+      category: NotificationCategoryEnum.HR,
+      priority: NotificationPriorityEnum.HIGH,
+      title: 'Onboarding Details Need Changes',
+      message: `HR returned these sections for correction: ${event.sectionLabels.join(', ')}. Open your onboarding page to see the reasons.`,
+      related_module: 'onboarding',
+      entity_type: 'ONBOARDING_REQUEST',
+      entity_id: event.onboardingRequestId,
+      action_url: event.employeeUrl,
+      dedupe_key: `onboarding:employee-details-returned:${event.onboardingRequestId}:${event.employeeCompanyUserId}:${Date.now()}`,
+      channels: [
+        NotificationChannelEnum.IN_APP,
+        NotificationChannelEnum.EMAIL,
+        NotificationChannelEnum.SMS,
+      ],
+      metadata: {
+        onboarding_no: event.onboardingNo,
+        employee_name: event.employeeName,
+        returned_sections: event.sectionLabels,
+      },
+    });
+  }
+
+  @OnEvent(OnboardingEmployeeDetailsReviewedEvent.EVENT)
+  async onOnboardingEmployeeDetailsReviewed(
+    event: OnboardingEmployeeDetailsReviewedEvent,
+  ): Promise<void> {
+    await this.sendOne({
+      company_id: event.companyId,
+      sender_company_user_id: event.reviewerCompanyUserId,
+      receiver_company_user_id: event.employeeCompanyUserId,
+      type: NotificationTypeEnum.ONBOARDING_APPROVED,
+      category: NotificationCategoryEnum.HR,
+      priority: NotificationPriorityEnum.MEDIUM,
+      title: 'Onboarding Section Approved',
+      message: `HR approved: ${event.sectionLabels.join(', ')}. You can view the latest review status from your onboarding page.`,
+      related_module: 'onboarding',
+      entity_type: 'ONBOARDING_REQUEST',
+      entity_id: event.onboardingRequestId,
+      action_url: event.employeeUrl,
+      dedupe_key: `onboarding:employee-details-reviewed:${event.onboardingRequestId}:${event.employeeCompanyUserId}:${Date.now()}`,
+      channels: [
+        NotificationChannelEnum.IN_APP,
+        NotificationChannelEnum.EMAIL,
+        NotificationChannelEnum.SMS,
+      ],
+      metadata: {
+        onboarding_no: event.onboardingNo,
+        employee_name: event.employeeName,
+        approved_sections: event.sectionLabels,
+      },
+    });
+  }
+
   @OnEvent(OnboardingSubmittedEvent.EVENT)
   async onOnboardingSubmitted(event: OnboardingSubmittedEvent): Promise<void> {
     await this.sendMany(
@@ -522,7 +636,7 @@ export class HrInAppNotificationListener {
         related_module: 'onboarding',
         entity_type: 'ONBOARDING_REQUEST',
         entity_id: event.onboardingRequestId,
-        action_url: event.reviewUrl.replace('/review', ''),
+        action_url: event.employeeUrl,
         dedupe_key: `onboarding:submitted:employee:${event.onboardingRequestId}:${event.employeeCompanyUserId}`,
         metadata: {
           onboarding_no: event.onboardingNo,
@@ -716,12 +830,22 @@ export class HrInAppNotificationListener {
       category: NotificationCategoryEnum.HR,
       priority: NotificationPriorityEnum.HIGH,
       title: 'Onboarding Task Assigned',
-      message: `You have been assigned "${event.taskTitle}" for ${event.employeeName}.`,
+      message: [
+        `You have been assigned "${event.taskTitle}" for ${event.employeeName}.`,
+        event.taskDescription?.trim(),
+      ]
+        .filter(Boolean)
+        .join(' '),
       related_module: 'onboarding',
       entity_type: 'ONBOARDING_TASK',
       entity_id: event.taskId,
       action_url: event.taskUrl,
       dedupe_key: `onboarding:task-assigned:${event.taskId}:${event.assigneeCompanyUserId}`,
+      channels: [
+        NotificationChannelEnum.IN_APP,
+        NotificationChannelEnum.EMAIL,
+        NotificationChannelEnum.SMS,
+      ],
       metadata: {
         onboarding_request_id: event.onboardingRequestId,
         task_id: event.taskId,
@@ -730,6 +854,18 @@ export class HrInAppNotificationListener {
         due_date: event.dueDate,
       },
     });
+  }
+
+  @OnEvent(OnboardingTaskCompletedEvent.EVENT)
+  async onOnboardingTaskCompleted(
+    event: OnboardingTaskCompletedEvent,
+  ): Promise<void> {
+    await this.closeActionItems(
+      event.companyId,
+      'onboarding',
+      'ONBOARDING_TASK',
+      event.taskId,
+    );
   }
 
   @OnEvent(OnboardingTaskOverdueEvent.EVENT)
@@ -753,7 +889,7 @@ export class HrInAppNotificationListener {
       related_module: 'onboarding',
       entity_type: 'ONBOARDING_TASK',
       entity_id: event.taskId,
-      action_url: `/onboarding/${event.onboardingRequestId}/tasks`,
+      action_url: `/dashboard/me/requests/actions?request_id=${event.onboardingRequestId}`,
       dedupe_key: `onboarding:task-overdue:${event.taskId}:${event.assignedCompanyUserId}:${dayKey}`,
       metadata: {
         onboarding_request_id: event.onboardingRequestId,
@@ -781,7 +917,7 @@ export class HrInAppNotificationListener {
         related_module: 'onboarding',
         entity_type: 'ONBOARDING_APPROVAL',
         entity_id: event.approvalId,
-        action_url: `/onboarding/${event.onboardingRequestId}/review`,
+        action_url: `/dashboard/employees/onboarding?tab=requests&request_id=${event.onboardingRequestId}`,
         dedupe_key: `onboarding:approval-reminder:${event.approvalId}:${companyUserId}:${dayKey}`,
         metadata: {
           onboarding_request_id: event.onboardingRequestId,

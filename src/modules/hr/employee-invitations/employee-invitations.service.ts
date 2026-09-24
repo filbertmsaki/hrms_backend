@@ -10,7 +10,7 @@ import { createHash, randomBytes } from 'crypto';
 import { Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { hashPassword } from '../../../common/utils/hash.util';
-import { ReportSmtpService } from '../../scheduled-reporting/services/report-smtp.service';
+import { MailService } from '../../mail/mail.service';
 import { SmsService } from '../../sms/sms.service';
 import { Company } from '../../companies/entities/company.entity';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
@@ -54,7 +54,7 @@ export class EmployeeInvitationsService {
     private readonly employeeRepository: Repository<Employee>,
     @InjectRepository(OnboardingWorkflow)
     private readonly workflowRepository: Repository<OnboardingWorkflow>,
-    private readonly reportSmtpService: ReportSmtpService,
+    private readonly mailService: MailService,
     private readonly smsService: SmsService,
     private readonly employeesService: EmployeesService,
     private readonly usersService: UsersService,
@@ -74,7 +74,7 @@ export class EmployeeInvitationsService {
       throw new NotFoundException('Company not found');
     }
 
-    const rawToken = randomBytes(32).toString('hex');
+    const rawToken = this.createToken();
     const invitation = this.invitationRepository.create({
       companyId,
       tokenHash: this.hashToken(rawToken),
@@ -137,7 +137,7 @@ export class EmployeeInvitationsService {
       throw new NotFoundException('Company not found');
     }
 
-    const rawToken = randomBytes(32).toString('hex');
+    const rawToken = this.createToken();
     invitation.tokenHash = this.hashToken(rawToken);
     invitation.expiresAt = this.createExpiry();
     invitation.emailDeliveryStatus = EmployeeInvitationDeliveryStatus.QUEUED;
@@ -236,6 +236,7 @@ export class EmployeeInvitationsService {
         user.id,
         await hashPassword(dto.password),
       );
+      await this.usersService.markEmailVerified(user.id);
 
       invitation.status = EmployeeInvitationStatus.ACCEPTED;
       invitation.acceptedAt = new Date();
@@ -373,19 +374,14 @@ export class EmployeeInvitationsService {
   ): Promise<void> {
     const actionUrl = this.buildInvitationUrl(rawToken);
     const name = `${invitation.firstName} ${invitation.lastName}`.trim();
-    const message = `${this.escapeHtml(name)}, ${this.escapeHtml(companyName)} has invited you to complete your employee registration. This invitation expires on ${invitation.expiresAt.toISOString()}.`;
 
     if (channels.includes(EmployeeInvitationChannel.EMAIL)) {
       try {
-        const result = await this.reportSmtpService.sendCompanyEmail(
-          invitation.companyId,
-          {
-            to: invitation.email,
-            subject: `Employee invitation from ${companyName}`,
-            text: `${name}, ${companyName} has invited you to complete your employee registration. This invitation expires on ${invitation.expiresAt.toISOString()}.\n\n${actionUrl}`,
-            html: `<p>${message}</p><p><a href="${this.escapeHtml(actionUrl)}">Complete employee registration</a></p>`,
-            sourceModule: 'EmployeeInvitationsService.deliver',
-          },
+        const result = await this.mailService.sendGenericNotificationEmail(
+          invitation.email,
+          `Employee invitation from ${companyName}`,
+          `${name}, ${companyName} has invited you to complete your employee registration. This invitation expires on ${invitation.expiresAt.toISOString()}.`,
+          actionUrl,
         );
         invitation.emailDeliveryStatus = EmployeeInvitationDeliveryStatus.SENT;
         invitation.emailMessageId = result.messageId;
@@ -402,10 +398,10 @@ export class EmployeeInvitationsService {
         const result = await this.smsService.sendGenericNotificationSms(
           invitation.phone,
           'Employee invitation',
-          `${name}, ${companyName} has invited you to complete your employee registration.`,
-          actionUrl,
+          `${name}, ${companyName} has invited you to complete your employee registration. Check your email for the registration link.`,
         );
-        invitation.smsDeliveryStatus = EmployeeInvitationDeliveryStatus.SENT;
+        invitation.smsDeliveryStatus =
+          EmployeeInvitationDeliveryStatus.ACCEPTED;
         invitation.smsMessageId = result.reference;
         invitation.smsLastError = null;
       } catch (error) {
@@ -429,15 +425,18 @@ export class EmployeeInvitationsService {
     return new Date(Date.now() + hours * 60 * 60 * 1000);
   }
 
+  private createToken(): string {
+    return randomBytes(24).toString('base64url');
+  }
+
   private buildInvitationUrl(rawToken: string): string {
     return `${this.frontendBaseUrl()}/register?token=${encodeURIComponent(rawToken)}`;
   }
 
   private frontendBaseUrl(): string {
-    return (
-      this.configService.get<string>('APP_FRONTEND_URL') ??
-      'http://localhost:3000'
-    ).replace(/\/$/, '');
+    return this.configService
+      .get<string>('APP_FRONTEND_URL')!
+      .replace(/\/$/, '');
   }
 
   private hashToken(rawToken: string): string {
@@ -537,22 +536,26 @@ export class EmployeeInvitationsService {
   }
 
   private errorMessage(error: unknown): string {
-    return error instanceof Error
-      ? error.message.slice(0, 2000)
-      : String(error).slice(0, 2000);
-  }
+    const raw = error instanceof Error ? error.message : String(error);
+    const normalized = raw.trim();
+    const lower = normalized.toLowerCase();
 
-  private escapeHtml(value: string): string {
-    return value.replace(/[&<>"']/g, (character) => {
-      const replacements: Record<string, string> = {
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#039;',
-      };
-      return replacements[character];
-    });
+    if (
+      lower.includes('sendasdenied') ||
+      lower.includes('not allowed to send as')
+    ) {
+      return 'The SMTP account is not permitted to use the configured sender address. Set the sender address to the authenticated mailbox or grant Send As permission.';
+    }
+    if (lower.includes('authentication unsuccessful')) {
+      return 'SMTP authentication failed. Verify the configured username, password, and mailbox SMTP AUTH setting.';
+    }
+
+    const diagnosticStart = normalized.indexOf('[BeginDiagnosticData]');
+    const withoutDiagnostics =
+      diagnosticStart >= 0
+        ? normalized.slice(0, diagnosticStart).trim()
+        : normalized;
+    return withoutDiagnostics.slice(0, 500);
   }
 
   private toResponse(invitation: EmployeeInvitation) {
@@ -579,7 +582,7 @@ export class EmployeeInvitationsService {
           status: invitation.emailDeliveryStatus,
           message_id: invitation.emailMessageId,
           last_error: invitation.emailLastError,
-          transport: 'company_smtp',
+          transport: 'system_smtp',
         },
         sms: {
           status: invitation.smsDeliveryStatus,
