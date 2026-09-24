@@ -59,6 +59,7 @@ export default class CompanyAdminSeeder implements Seeder {
       if (!rawPassword?.trim()) {
         throw new Error('COMPANY_ADMIN_PASSWORD must be set before seeding.');
       }
+      const passwordHash = await hashPassword(rawPassword.trim());
 
       let user =
         (await userRepo.findOne({ where: { email }, relations: ['roles'] })) ??
@@ -71,12 +72,25 @@ export default class CompanyAdminSeeder implements Seeder {
           last_name: lastName,
           email,
           phone,
-          password: await hashPassword(rawPassword.trim()),
+          password: passwordHash,
           user_type: 'COMPANY_USER',
           status: 'active',
           is_email_verified: true,
+          must_set_password: false,
         });
         await userRepo.save(user);
+      } else {
+        await userRepo
+          .createQueryBuilder()
+          .update(User)
+          .set({
+            password: passwordHash,
+            must_set_password: false,
+            auth_token_invalid_before: new Date(),
+            auth_token_version: () => '"auth_token_version" + 1',
+          })
+          .where('id = :userId', { userId: user.id })
+          .execute();
       }
 
       let companyUser = await companyUserRepo.findOne({
@@ -109,7 +123,7 @@ export default class CompanyAdminSeeder implements Seeder {
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][CompanyAdmin] Ensured company admin: ${email} for company "${company.name}" (created if missing, left unchanged if already existed)`,
+        `[Seeder][CompanyAdmin] Ensured company admin: ${email} for company "${company.name}" (created if missing, password synced if already existed)`,
       );
     } catch (error) {
       await qr.rollbackTransaction();
