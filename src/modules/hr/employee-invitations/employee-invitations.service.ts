@@ -434,10 +434,9 @@ export class EmployeeInvitationsService {
   }
 
   private frontendBaseUrl(): string {
-    return (
-      this.configService.get<string>('APP_FRONTEND_URL') ??
-      'http://localhost:3000'
-    ).replace(/\/$/, '');
+    return this.configService
+      .get<string>('APP_FRONTEND_URL')!
+      .replace(/\/$/, '');
   }
 
   private hashToken(rawToken: string): string {

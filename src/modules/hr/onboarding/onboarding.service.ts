@@ -79,6 +79,8 @@ import { ConfigService } from '@nestjs/config';
 import {
   NotificationRecipient,
   OnboardingCompletedEvent,
+  OnboardingApprovalRequiredEvent,
+  OnboardingEmployeeDetailsReviewedEvent,
   OnboardingEmployeeDetailsReturnedEvent,
   OnboardingEmployeeDetailsSubmittedEvent,
   OnboardingSubmittedEvent,
@@ -1158,11 +1160,79 @@ export class OnboardingService {
       .filter((v): v is number => typeof v === 'number');
 
     if (userIds.length) {
-      const count = await this.getCompanyUserRepository(manager).count({
-        where: { id: In([...new Set(userIds)]), company_id: companyId },
+      const uniqueUserIds = [...new Set(userIds)];
+      const memberships = await this.getCompanyUserRepository(manager).find({
+        where: {
+          id: In(uniqueUserIds),
+          company_id: companyId,
+          status: 'active',
+        },
+        relations: {
+          user: true,
+          role_assignments: {
+            role: {
+              permissions: true,
+            },
+          },
+          permission_assignments: {
+            permission: true,
+          },
+        },
       });
-      if (count !== new Set(userIds).size) {
+      if (memberships.length !== uniqueUserIds.length) {
         throw new BadRequestException('One or more assigned users are invalid');
+      }
+
+      const membershipById = new Map(
+        memberships.map((membership) => [membership.id, membership]),
+      );
+
+      for (const step of steps) {
+        if (!step.assigned_user_id) {
+          continue;
+        }
+
+        const membership = membershipById.get(step.assigned_user_id);
+        if (!membership) {
+          continue;
+        }
+
+        const requiredPermission =
+          step.step_type === OnboardingStepTypeEnum.SIGN_OFF
+            ? 'onboarding_requests:approve'
+            : 'onboarding_tasks:complete';
+        const permissionNames = new Set<string>();
+
+        membership.permission_assignments?.forEach((assignment) => {
+          if (assignment.permission?.name) {
+            permissionNames.add(assignment.permission.name);
+          }
+        });
+        membership.role_assignments?.forEach((assignment) => {
+          assignment.role?.permissions?.forEach((permission) => {
+            if (permission?.name) {
+              permissionNames.add(permission.name);
+            }
+          });
+        });
+
+        if (!hasPermission(Array.from(permissionNames), requiredPermission)) {
+          const assigneeName = [
+            membership.user?.first_name,
+            membership.user?.last_name,
+          ]
+            .filter(Boolean)
+            .join(' ')
+            .trim();
+          throw new BadRequestException({
+            statusCode: 400,
+            code: 'ONBOARDING_ASSIGNEE_PERMISSION_REQUIRED',
+            message: `${assigneeName || `User #${membership.user_id}`} cannot be assigned to "${step.name}" because they do not have ${requiredPermission}.`,
+            assigned_user_id: membership.id,
+            required_permission: requiredPermission,
+            permission_fix_path: `/dashboard/companies?membership_id=${membership.id}&permission=${encodeURIComponent(requiredPermission)}`,
+          });
+        }
       }
     }
 
@@ -1502,7 +1572,58 @@ export class OnboardingService {
     return values.filter((value) => value.trim()).join('; ') || '-';
   }
 
-  private buildEmployeeDetailReview(entity: OnboardingRequest) {
+  private resolveEmployeeReviewDocumentSection(
+    documentType: string | null | undefined,
+    metadata?: Record<string, unknown> | null,
+  ): (typeof EMPLOYEE_DETAIL_SECTIONS)[number][0] | null {
+    const explicitSection =
+      typeof metadata?.onboarding_section === 'string'
+        ? metadata.onboarding_section.trim().toLowerCase()
+        : '';
+    if (EMPLOYEE_DETAIL_SECTIONS.some(([key]) => key === explicitSection)) {
+      return explicitSection as (typeof EMPLOYEE_DETAIL_SECTIONS)[number][0];
+    }
+
+    const normalizedType = (documentType ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, '_');
+    if (
+      ['id', 'identity', 'identity_document', 'passport'].includes(
+        normalizedType,
+      )
+    ) {
+      return 'identification';
+    }
+    if (
+      [
+        'certificate',
+        'academic_certificate',
+        'professional_certificate',
+      ].includes(normalizedType)
+    ) {
+      return 'education';
+    }
+    if (['cv', 'curriculum_vitae', 'resume'].includes(normalizedType)) {
+      return 'experience';
+    }
+    if (
+      ['offer_letter', 'contract', 'employment_contract'].includes(
+        normalizedType,
+      )
+    ) {
+      return 'assignment';
+    }
+    if (['bank_document', 'bank_statement'].includes(normalizedType)) {
+      return 'banking';
+    }
+    return null;
+  }
+
+  private buildEmployeeDetailReview(
+    entity: OnboardingRequest,
+    onboardingDocuments: Document[] = [],
+  ) {
     const employee = entity.employee;
     const metadata = recordValue(entity.metadata);
     const review = recordValue(metadata.employee_details_review);
@@ -1510,6 +1631,59 @@ export class OnboardingService {
     const field = (label: string, value: unknown) => ({
       label,
       value: this.reviewDisplayValue(value),
+    });
+    const attachmentsBySection: Record<
+      (typeof EMPLOYEE_DETAIL_SECTIONS)[number][0],
+      Array<Record<string, unknown>>
+    > = {
+      personal: [],
+      assignment: [],
+      contacts: [],
+      family: [],
+      identification: [],
+      banking: [],
+      education: [],
+      experience: [],
+    };
+
+    onboardingDocuments.forEach((document) => {
+      const section = this.resolveEmployeeReviewDocumentSection(
+        document.document_type,
+      );
+      if (!section) return;
+      attachmentsBySection[section].push({
+        id: document.id,
+        source: 'onboarding',
+        title: document.title,
+        original_file_name: document.original_file_name,
+        mime_type: document.mime_type,
+        file_size: document.file_size,
+        document_type: document.document_type,
+        download_url: `/api/onboarding/requests/${entity.id}/documents/${document.id}/download`,
+      });
+    });
+
+    employee?.documents?.forEach((document) => {
+      const metadata = recordValue(document.metadata);
+      if (metadata.archived === true) return;
+      if (document.retention_until && document.retention_until <= new Date()) {
+        return;
+      }
+      const section = this.resolveEmployeeReviewDocumentSection(
+        document.type,
+        metadata,
+      );
+      if (!section) return;
+      attachmentsBySection[section].push({
+        id: document.id,
+        source: 'employee_profile',
+        title: document.title,
+        original_file_name: document.original_file_name,
+        mime_type: document.mime_type,
+        file_size: document.file_size,
+        document_type: document.type,
+        download_url: `/api/employees/${employee.id}/documents/${document.id}/download`,
+      });
     });
     const fieldsBySection: Record<
       (typeof EMPLOYEE_DETAIL_SECTIONS)[number][0],
@@ -1705,6 +1879,7 @@ export class OnboardingService {
               ? decision.reviewed_at
               : null,
           fields: fieldsBySection[key],
+          attachments: attachmentsBySection[key],
         };
       }),
     };
@@ -1747,7 +1922,10 @@ export class OnboardingService {
       activation_worker_id: entity.activation_worker_id,
       metadata: entity.metadata,
       provisioning: this.readProvisioningMetadata(entity),
-      employee_details_review: this.buildEmployeeDetailReview(entity),
+      employee_details_review: this.buildEmployeeDetailReview(
+        entity,
+        documents,
+      ),
       version: entity.version,
       created_at: entity.created_at,
       updated_at: entity.updated_at,
@@ -1772,6 +1950,23 @@ export class OnboardingService {
               : null,
           }
         : null,
+      employee_documents:
+        entity.employee?.documents?.map((document) => ({
+          id: document.id,
+          employee_id: document.employee_id,
+          source: 'employee_profile',
+          type: document.type,
+          title: document.title,
+          original_file_name: document.original_file_name,
+          mime_type: document.mime_type,
+          file_size: document.file_size,
+          classification: document.classification,
+          notes: document.notes,
+          metadata: document.metadata,
+          retention_until: document.retention_until,
+          uploaded_at: document.uploaded_at,
+          download_url: `/api/employees/${document.employee_id}/documents/${document.id}/download`,
+        })) ?? [],
       workflow: entity.workflow
         ? {
             id: entity.workflow.id,
@@ -1996,9 +2191,7 @@ export class OnboardingService {
     onboardingRequestId: number;
     senderCompanyUserId: number | null;
   }): void {
-    const frontendUrl =
-      this.configService.get<string>('APP_FRONTEND_URL') ??
-      'http://localhost:5173';
+    const frontendUrl = this.configService.get<string>('APP_FRONTEND_URL')!;
     const taskUrl = `${frontendUrl.replace(/\/$/, '')}/dashboard/me/requests/actions`;
 
     for (const companyUser of input.recipients) {
@@ -2204,6 +2397,7 @@ export class OnboardingService {
           academic_qualifications: true,
           professional_qualifications: true,
           experience_details: true,
+          documents: true,
         },
         workflow: true,
         tasks: true,
@@ -3070,6 +3264,8 @@ export class OnboardingService {
       );
     }
 
+    let workflowRestarted = false;
+    let previousWorkflowId: number | null = null;
     const updated = await this.dataSource.transaction(async (manager) => {
       const repository = this.getOnboardingRequestRepository(manager);
       const taskRepository = this.getOnboardingTaskRepository(manager);
@@ -3102,10 +3298,40 @@ export class OnboardingService {
         dto.workflow_id !== undefined &&
         dto.workflow_id !== current.workflow_id;
       if (workflowChanged) {
-        if (current.status !== OnboardingRequestStatusEnum.DRAFT) {
+        if (
+          ![
+            OnboardingRequestStatusEnum.DRAFT,
+            OnboardingRequestStatusEnum.SUBMITTED,
+            OnboardingRequestStatusEnum.IN_REVIEW,
+          ].includes(current.status)
+        ) {
           throw new ConflictException(
-            'The workflow can only be changed before onboarding starts',
+            'The workflow cannot be changed after onboarding work has started',
           );
+        }
+        const wasStarted = current.status !== OnboardingRequestStatusEnum.DRAFT;
+        if (wasStarted) {
+          const [existingApprovals, existingTasks] = await Promise.all([
+            approvalRepository.find({
+              where: { onboarding_request_id: current.id },
+            }),
+            taskRepository.find({
+              where: { onboarding_request_id: current.id },
+            }),
+          ]);
+          const approvalHasProgress = existingApprovals.some(
+            (approval) =>
+              approval.status === OnboardingApprovalStatusEnum.APPROVED ||
+              approval.status === OnboardingApprovalStatusEnum.REJECTED,
+          );
+          const taskHasProgress = existingTasks.some(
+            (task) => task.status !== OnboardingTaskStatusEnum.PENDING,
+          );
+          if (approvalHasProgress || taskHasProgress) {
+            throw new ConflictException(
+              'The workflow cannot be changed after an approval or task has been actioned. Reassign a pending approver instead.',
+            );
+          }
         }
         const workflow = await this.findOnboardingWorkflowOrFail(
           companyId,
@@ -3118,12 +3344,55 @@ export class OnboardingService {
           ).id,
           manager,
         );
+        const approvers = wasStarted
+          ? await this.onboardingWorkflowService.prepareApprovers(
+              companyId,
+              workflow.steps,
+              manager,
+            )
+          : null;
+        if (approvers?.failures.length) {
+          throw new BadRequestException(
+            `Required workflow step at order ${approvers.failures[0].step_order} has no eligible assignee`,
+          );
+        }
+        if (
+          approvers &&
+          !approvers.assignments.some(
+            ({ membershipIds }) => membershipIds.length,
+          )
+        ) {
+          throw new BadRequestException('Workflow has no eligible assignees');
+        }
+
+        previousWorkflowId = current.workflow_id;
         current.workflow_id = workflow.id;
         current.workflow_version = workflow.version;
         current.workflow_snapshot = this.buildWorkflowSnapshot(workflow);
         await approvalRepository.delete({ onboarding_request_id: current.id });
         await taskRepository.delete({ onboarding_request_id: current.id });
         await this.lockWorkflowIfNeeded(workflow, manager);
+
+        if (wasStarted && approvers) {
+          current.employee = request.employee;
+          const initialized =
+            await this.onboardingWorkflowService.initializeApprovalsForRequest(
+              companyId,
+              current,
+              workflow.id,
+              manager,
+              approvers,
+            );
+          await this.createTasksFromWorkflowSteps(
+            current,
+            initialized.steps,
+            actor,
+            manager,
+          );
+          current.status = OnboardingRequestStatusEnum.SUBMITTED;
+          current.current_approval_level = initialized.initialLevel;
+          workflowRestarted = true;
+        }
       }
 
       await repository.save(current);
@@ -3153,8 +3422,15 @@ export class OnboardingService {
       actor,
       payload: {
         status: updated.status,
+        previous_workflow_id: previousWorkflowId,
+        workflow_id: updated.workflow_id,
+        workflow_restarted: workflowRestarted,
       },
     });
+
+    if (workflowRestarted) {
+      this.emitOnboardingSubmitted(companyId, updated, actor).catch(() => {});
+    }
 
     const documents = await this.loadOnboardingDocuments(companyId, updated.id);
 
@@ -3197,14 +3473,22 @@ export class OnboardingService {
     const sections = Object.fromEntries(
       EMPLOYEE_DETAIL_SECTIONS.map(([key]) => {
         const previous = recordValue(previousSections[key]);
+        const wasApproved = previous.status === 'approved';
         return [
           key,
           {
-            status: 'pending',
+            status: wasApproved ? 'approved' : 'pending',
             comment:
               typeof previous.comment === 'string' ? previous.comment : null,
-            reviewed_at: null,
-            reviewed_by_company_user_id: null,
+            reviewed_at:
+              wasApproved && typeof previous.reviewed_at === 'string'
+                ? previous.reviewed_at
+                : null,
+            reviewed_by_company_user_id:
+              wasApproved &&
+              typeof previous.reviewed_by_company_user_id === 'number'
+                ? previous.reviewed_by_company_user_id
+                : null,
           } satisfies EmployeeDetailReviewDecision,
         ];
       }),
@@ -3233,9 +3517,7 @@ export class OnboardingService {
       request.created_by_company_user_id &&
       request.employee.company_user_id
     ) {
-      const frontendUrl =
-        this.configService.get<string>('APP_FRONTEND_URL') ??
-        'http://localhost:5173';
+      const frontendUrl = this.configService.get<string>('APP_FRONTEND_URL')!;
       this.eventEmitter.emit(
         OnboardingEmployeeDetailsSubmittedEvent.EVENT,
         new OnboardingEmployeeDetailsSubmittedEvent(
@@ -3279,15 +3561,6 @@ export class OnboardingService {
     const validKeys = new Set(EMPLOYEE_DETAIL_SECTIONS.map(([key]) => key));
     const metadata = { ...(request.metadata ?? {}) };
     const previousReview = recordValue(metadata.employee_details_review);
-    if (
-      previousReview.status !== 'submitted' &&
-      previousReview.status !== 'in_review' &&
-      previousReview.status !== 'changes_requested'
-    ) {
-      throw new ConflictException(
-        'The employee has not submitted details for review',
-      );
-    }
     const previousSections = recordValue(previousReview.sections);
     const reviewedAt = new Date();
 
@@ -3351,26 +3624,57 @@ export class OnboardingService {
     });
 
     if (hasChangesRequested && request.employee.company_user_id) {
-      const returnedLabels = EMPLOYEE_DETAIL_SECTIONS.filter(([key]) => {
-        const decision = recordValue(previousSections[key]);
-        return decision.status === 'changes_requested';
-      }).map(([, label]) => label);
-      const frontendUrl =
-        this.configService.get<string>('APP_FRONTEND_URL') ??
-        'http://localhost:5173';
-      this.eventEmitter.emit(
-        OnboardingEmployeeDetailsReturnedEvent.EVENT,
-        new OnboardingEmployeeDetailsReturnedEvent(
-          companyId,
-          request.id,
-          request.onboarding_no,
-          `${request.employee.first_name} ${request.employee.last_name}`.trim(),
-          request.employee.company_user_id,
-          actor.companyMembershipId ?? null,
-          returnedLabels,
-          `${frontendUrl}/dashboard/me/onboarding`,
-        ),
+      const changedKeys = new Set(
+        dto.sections
+          .filter((section) => section.status === 'changes_requested')
+          .map((section) => section.section_key),
       );
+      const returnedLabels = EMPLOYEE_DETAIL_SECTIONS.filter(([key]) =>
+        changedKeys.has(key),
+      ).map(([, label]) => label);
+      const frontendUrl = this.configService.get<string>('APP_FRONTEND_URL')!;
+      if (returnedLabels.length > 0) {
+        this.eventEmitter.emit(
+          OnboardingEmployeeDetailsReturnedEvent.EVENT,
+          new OnboardingEmployeeDetailsReturnedEvent(
+            companyId,
+            request.id,
+            request.onboarding_no,
+            `${request.employee.first_name} ${request.employee.last_name}`.trim(),
+            request.employee.company_user_id,
+            actor.companyMembershipId ?? null,
+            returnedLabels,
+            `${frontendUrl}/dashboard/me/onboarding`,
+          ),
+        );
+      }
+    }
+
+    if (request.employee.company_user_id) {
+      const approvedKeys = new Set(
+        dto.sections
+          .filter((section) => section.status === 'approved')
+          .map((section) => section.section_key),
+      );
+      const approvedLabels = EMPLOYEE_DETAIL_SECTIONS.filter(([key]) =>
+        approvedKeys.has(key),
+      ).map(([, label]) => label);
+      if (approvedLabels.length > 0) {
+        const frontendUrl = this.configService.get<string>('APP_FRONTEND_URL')!;
+        this.eventEmitter.emit(
+          OnboardingEmployeeDetailsReviewedEvent.EVENT,
+          new OnboardingEmployeeDetailsReviewedEvent(
+            companyId,
+            request.id,
+            request.onboarding_no,
+            `${request.employee.first_name} ${request.employee.last_name}`.trim(),
+            request.employee.company_user_id,
+            actor.companyMembershipId ?? null,
+            approvedLabels,
+            `${frontendUrl}/dashboard/me/onboarding`,
+          ),
+        );
+      }
     }
 
     return this.findOneOnboardingRequest(companyId, request.id, actor);
@@ -4156,7 +4460,10 @@ export class OnboardingService {
     actor: AuthenticatedUser,
   ) {
     this.hrAccessService.assertCompanyScopedActor(actor);
-    const membershipId = actor.companyMembershipId!;
+    const membershipId = await this.resolveActiveCompanyMembershipId(
+      companyId,
+      actor,
+    );
 
     const request = await this.findOnboardingRequestOrFail(
       companyId,
@@ -4223,6 +4530,28 @@ export class OnboardingService {
     return this.mapRequest(updated, documents);
   }
 
+  private async resolveActiveCompanyMembershipId(
+    companyId: number,
+    actor: AuthenticatedUser,
+  ): Promise<number> {
+    const membership = await this.companyUserRepository.findOne({
+      where: {
+        company_id: companyId,
+        user_id: actor.id,
+        status: 'active',
+      },
+      select: ['id'],
+    });
+
+    if (!membership) {
+      throw new ForbiddenException(
+        'Your active company membership could not be verified',
+      );
+    }
+
+    return membership.id;
+  }
+
   async delegateApproval(
     companyId: number,
     onboardingRequestId: number,
@@ -4231,6 +4560,11 @@ export class OnboardingService {
     actor: AuthenticatedUser,
   ) {
     this.hrAccessService.assertCompanyScopedActor(actor);
+    if (!hasPermission(actor.permissions, 'onboarding_requests:update')) {
+      throw new ForbiddenException(
+        'You do not have permission to change onboarding approvers',
+      );
+    }
 
     const request = await this.findOnboardingRequestOrFail(
       companyId,
@@ -4255,20 +4589,22 @@ export class OnboardingService {
         );
       }
 
-      if (
-        approval.approver_company_user_id !== actor.companyMembershipId &&
-        !hasPermission(actor.permissions, 'onboarding_requests:approve')
-      ) {
-        throw new ForbiddenException(
-          'You are not allowed to delegate this approval',
-        );
-      }
-
       const delegate = await companyUserRepository.findOne({
         where: {
           id: dto.delegate_company_user_id,
           company_id: companyId,
           status: 'active',
+        },
+        relations: {
+          user: true,
+          role_assignments: {
+            role: {
+              permissions: true,
+            },
+          },
+          permission_assignments: {
+            permission: true,
+          },
         },
       });
 
@@ -4280,6 +4616,42 @@ export class OnboardingService {
         throw new BadRequestException(
           'The delegate must be different from the current approver',
         );
+      }
+
+      const delegatePermissions = new Set<string>();
+      delegate.permission_assignments?.forEach((assignment) => {
+        if (assignment.permission?.name) {
+          delegatePermissions.add(assignment.permission.name);
+        }
+      });
+      delegate.role_assignments?.forEach((assignment) => {
+        assignment.role?.permissions?.forEach((permission) => {
+          if (permission?.name) {
+            delegatePermissions.add(permission.name);
+          }
+        });
+      });
+      if (
+        !hasPermission(
+          Array.from(delegatePermissions),
+          'onboarding_requests:approve',
+        )
+      ) {
+        const delegateName = [
+          delegate.user?.first_name,
+          delegate.user?.last_name,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .trim();
+        throw new BadRequestException({
+          statusCode: 400,
+          code: 'ONBOARDING_ASSIGNEE_PERMISSION_REQUIRED',
+          message: `${delegateName || `User #${delegate.user_id}`} cannot be assigned as an approver because they do not have onboarding_requests:approve.`,
+          assigned_user_id: delegate.id,
+          required_permission: 'onboarding_requests:approve',
+          permission_fix_path: `/dashboard/companies?membership_id=${delegate.id}&permission=onboarding_requests%3Aapprove`,
+        });
       }
 
       approval.original_approver_company_user_id =
@@ -4307,6 +4679,37 @@ export class OnboardingService {
           delegated.delegated_from_company_user_id,
       },
     });
+
+    if (delegated.approval_level === request.current_approval_level) {
+      const delegate = await this.companyUserRepository.findOne({
+        where: {
+          id: delegated.approver_company_user_id ?? 0,
+          company_id: companyId,
+          status: 'active',
+        },
+        relations: { user: true },
+      });
+      const recipient = buildNotificationRecipient(delegate?.user, {
+        companyUserId: delegate?.id,
+      });
+      if (recipient) {
+        const frontendUrl = this.configService.get<string>('APP_FRONTEND_URL')!;
+        const employeeName =
+          `${request.employee.first_name} ${request.employee.last_name}`.trim();
+        this.eventEmitter.emit(
+          OnboardingApprovalRequiredEvent.EVENT,
+          new OnboardingApprovalRequiredEvent(
+            employeeName,
+            [recipient],
+            `${frontendUrl}/dashboard/employees/onboarding?tab=requests&request_id=${request.id}`,
+            request.id,
+            companyId,
+            actor.companyMembershipId ?? null,
+            request.onboarding_no,
+          ),
+        );
+      }
+    }
 
     return this.mapApproval(delegated);
   }
@@ -4850,9 +5253,7 @@ export class OnboardingService {
 
       const employeeName = `${loaded.employee.first_name} ${loaded.employee.last_name}`;
       const employeeEmail = loaded.employee.company_user.user.email;
-      const frontendUrl =
-        this.configService.get<string>('APP_FRONTEND_URL') ??
-        'http://localhost:5173';
+      const frontendUrl = this.configService.get<string>('APP_FRONTEND_URL')!;
 
       const firstLevel = Math.min(
         ...loaded.approvals.map((a) => a.approval_level).filter((l) => l > 0),
@@ -4876,7 +5277,8 @@ export class OnboardingService {
           employeeName,
           employeeEmail,
           approvers,
-          `${frontendUrl}/onboarding/${request.id}/review`,
+          `${frontendUrl}/dashboard/employees/onboarding?tab=requests&request_id=${request.id}`,
+          `${frontendUrl}/dashboard/me/onboarding?request_id=${request.id}`,
           loaded.id,
           actor.companyMembershipId ??
             loaded.created_by_company_user_id ??
@@ -4914,9 +5316,7 @@ export class OnboardingService {
       const managerName = employee.manager
         ? `${employee.manager.first_name} ${employee.manager.last_name}`
         : null;
-      const frontendUrl =
-        this.configService.get<string>('APP_FRONTEND_URL') ??
-        'http://localhost:5173';
+      const frontendUrl = this.configService.get<string>('APP_FRONTEND_URL')!;
 
       this.eventEmitter.emit(
         OnboardingCompletedEvent.EVENT,
@@ -4925,7 +5325,7 @@ export class OnboardingService {
           employeeEmail,
           managerEmail,
           managerName,
-          `${frontendUrl}/onboarding/${request.id}`,
+          `${frontendUrl}/dashboard/me/onboarding?request_id=${request.id}`,
           loaded.id,
           companyId,
           actor.companyMembershipId ??

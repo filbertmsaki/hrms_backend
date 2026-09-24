@@ -595,7 +595,7 @@ export class OnboardingController {
 
   @Post('requests/:id/approvals/:approvalId/delegate')
   @UseGuards(PermissionsGuard)
-  @Permissions('onboarding_requests:approve')
+  @Permissions('onboarding_requests:update')
   @ApiOperation({ summary: 'Delegate a pending onboarding approval' })
   delegateApproval(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },

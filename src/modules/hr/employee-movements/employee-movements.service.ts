@@ -1250,9 +1250,7 @@ export class EmployeeMovementsService {
   }
 
   private buildMovementDashboardUrl(movement: EmployeeMovement): string {
-    const appUrl =
-      this.configService.get<string>('APP_FRONTEND_URL') ??
-      'http://localhost:5173';
+    const appUrl = this.configService.get<string>('APP_FRONTEND_URL')!;
     return `${appUrl}/employee-movements/${movement.id}`;
   }
 

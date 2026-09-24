@@ -679,9 +679,7 @@ export class OffboardingWorkflowService {
     const employee = loaded.employee;
     const employeeName = `${employee.first_name} ${employee.last_name}`;
     const employeeEmail = employee.company_user!.user.email;
-    const frontendUrl =
-      this.configService.get<string>('APP_FRONTEND_URL') ??
-      'http://localhost:5173';
+    const frontendUrl = this.configService.get<string>('APP_FRONTEND_URL')!;
     const exitDate = loaded.last_working_date ?? null;
 
     if (loaded.status === OffboardingRequestStatusEnum.IN_PROGRESS) {

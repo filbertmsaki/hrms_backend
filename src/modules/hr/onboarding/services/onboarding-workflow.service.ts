@@ -542,10 +542,8 @@ export class OnboardingWorkflowService {
     const employee = loaded.employee;
     const employeeName = `${employee.first_name} ${employee.last_name}`;
     const employeeEmail = employee.company_user!.user.email;
-    const frontendUrl =
-      this.configService.get<string>('APP_FRONTEND_URL') ??
-      'http://localhost:5173';
-    const dashboardUrl = `${frontendUrl}/onboarding/${onboardingRequest.id}`;
+    const frontendUrl = this.configService.get<string>('APP_FRONTEND_URL')!;
+    const dashboardUrl = `${frontendUrl}/dashboard/me/onboarding?request_id=${onboardingRequest.id}`;
 
     if (loaded.status === OnboardingRequestStatusEnum.REJECTED) {
       this.eventEmitter.emit(
@@ -614,7 +612,7 @@ export class OnboardingWorkflowService {
           new OnboardingApprovalRequiredEvent(
             employeeName,
             approvers,
-            `${frontendUrl}/onboarding/${onboardingRequest.id}/review`,
+            `${frontendUrl}/dashboard/employees/onboarding?tab=requests&request_id=${onboardingRequest.id}`,
             loaded.id,
             loaded.company_id,
             senderCompanyUserId,

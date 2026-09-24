@@ -1588,6 +1588,7 @@ export class CompaniesService {
 
         return {
           id: membership.user.id,
+          company_user_id: membership.id,
           user_no: membership.user.user_no,
           first_name: membership.user.first_name,
           last_name: membership.user.last_name,
@@ -1604,6 +1605,25 @@ export class CompaniesService {
           last_login_ip: membership.user.last_login_ip,
           created_at: membership.user.created_at,
           updated_at: membership.user.updated_at,
+          roles:
+            membership.role_assignments?.map((assignment) => ({
+              id: assignment.role.id,
+              name: assignment.role.name,
+              display_name: assignment.role.display_name,
+              permissions:
+                assignment.role.permissions?.map((permission) => ({
+                  id: permission.id,
+                  name: permission.name,
+                  display_name: permission.display_name,
+                })) ?? [],
+            })) ?? [],
+          direct_permissions:
+            membership.permission_assignments?.map((assignment) => ({
+              id: assignment.permission.id,
+              name: assignment.permission.name,
+              display_name: assignment.permission.display_name,
+            })) ?? [],
+          permission_names: this.getMembershipPermissions(membership),
         };
       }),
     );

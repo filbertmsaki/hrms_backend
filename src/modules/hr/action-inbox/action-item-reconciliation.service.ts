@@ -96,7 +96,7 @@ export class ActionItemReconciliationService {
         sourceEntityId: approval.onboarding_request_id,
         sourceKey: `onboarding:approval:${approval.onboarding_request_id}:${approval.approver_company_user_id}`,
         title: 'Onboarding approval required',
-        actionUrl: `/onboarding/${approval.onboarding_request_id}/review`,
+        actionUrl: `/dashboard/employees/onboarding?tab=requests&request_id=${approval.onboarding_request_id}`,
       });
     }
   }
