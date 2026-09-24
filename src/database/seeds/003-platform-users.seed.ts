@@ -57,6 +57,7 @@ export default class PlatformUsersSeeder implements Seeder {
           'PLATFORM_ADMIN_PASSWORD or INITIAL_OWNER_PASSWORD must be set before seeding.',
         );
       }
+      const passwordHash = await hashPassword(rawPassword.trim());
 
       if (!user) {
         user = userRepo.create({
@@ -65,10 +66,11 @@ export default class PlatformUsersSeeder implements Seeder {
           last_name: lastName,
           email,
           phone,
-          password: await hashPassword(rawPassword.trim()),
+          password: passwordHash,
           user_type: 'OWNER',
           status: 'active',
           is_email_verified: true,
+          must_set_password: false,
         });
 
         if (ownerRole) {
@@ -76,12 +78,24 @@ export default class PlatformUsersSeeder implements Seeder {
         }
 
         await userRepo.save(user);
+      } else {
+        await userRepo
+          .createQueryBuilder()
+          .update(User)
+          .set({
+            password: passwordHash,
+            must_set_password: false,
+            auth_token_invalid_before: new Date(),
+            auth_token_version: () => '"auth_token_version" + 1',
+          })
+          .where('id = :userId', { userId: user.id })
+          .execute();
       }
 
       await qr.commitTransaction();
       console.log(
         alreadyExisted
-          ? `[Seeder][PlatformUsers] Platform user ${email} already existed; left unchanged`
+          ? `[Seeder][PlatformUsers] Platform user ${email} already existed; password synced from environment`
           : `[Seeder][PlatformUsers] Created platform user: ${email} with role SUPER_ADMIN`,
       );
     } catch (error) {
