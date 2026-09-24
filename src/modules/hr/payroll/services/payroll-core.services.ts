@@ -10,11 +10,15 @@ import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'crypto';
-import { In, IsNull, Repository } from 'typeorm';
+import { EntityManager, In, IsNull, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { AttendanceHoliday } from '../../attendance/holidays/entities/holiday.entity';
 import { AttendanceDailySummary } from '../../attendance/processing/entities/attendance-daily-summary.entity';
-import { EmployeeCompensationVersion } from '../../employee-movements/entities/employee-compensation-version.entity';
+import {
+  EmployeeCompensationVersion,
+  EmployeeCompensationVersionStatusEnum,
+  SalaryComponentOverride,
+} from '../../employee-movements/entities/employee-compensation-version.entity';
 import { EmployeeBankAccount } from '../../employees/entities/employee-bank-account.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { EmploymentStatusEnum } from '../../employees/enums/employment-status.enum';
@@ -63,7 +67,13 @@ import {
   CreatePayrollSourceRecordDto,
   DecidePayrollOvertimeDto,
   GeneratePayrollSourceRecordsDto,
+  AssignEmployeeSalaryDto,
   CreateSalaryStructureDto,
+  CreateSalaryStructureVersionDto,
+  SalaryComponentOverrideDto,
+  SalaryStructureComponentDto,
+  SalaryStructureQueryDto,
+  UpdateSalaryStructureDto,
   CreateStatutoryRuleDto,
   CreateStatutorySchemeDto,
   GeneratePayrollPeriodDto,
@@ -122,10 +132,15 @@ import {
   PayrollPeriodStatusEnum,
   PayrollRunStatusEnum,
   PayrollRunTypeEnum,
-  PayrollTaxTreatmentEnum,
+  SalaryStructureStatusEnum,
   StatutorySchemeTypeEnum,
 } from '../payroll.enums';
 import { PayrollMoney } from './payroll-money.util';
+import {
+  BASE_SALARY_COMPONENT_CODE,
+  buildSalaryStructureLines,
+  taxableAmountFor,
+} from './salary-structure-lines.util';
 
 type CalculatedPayrollEmployee = {
   employee: Employee;
@@ -228,6 +243,114 @@ function daysInclusive(from: string, to: string) {
   const start = new Date(`${from}T00:00:00.000Z`).getTime();
   const end = new Date(`${to}T00:00:00.000Z`).getTime();
   return Math.max(0, Math.floor((end - start) / 86400000) + 1);
+}
+
+function previousDay(date: string) {
+  const value = new Date(`${date}T00:00:00.000Z`);
+  value.setUTCDate(value.getUTCDate() - 1);
+  return dateString(value);
+}
+
+function normalizeStructureCode(code: string) {
+  const normalized = code.trim().toUpperCase();
+  if (!/^[A-Z0-9][A-Z0-9_.-]*$/.test(normalized)) {
+    throw new BadRequestException(
+      'Salary structure code may only contain letters, numbers, ".", "_" and "-".',
+    );
+  }
+  return normalized;
+}
+
+/** Statuses of a compensation version that payroll still pays from. */
+const PAYABLE_COMPENSATION_STATUSES = [
+  EmployeeCompensationVersionStatusEnum.ACTIVE,
+  EmployeeCompensationVersionStatusEnum.SCHEDULED,
+];
+
+export type ResolvedSalaryStructure = {
+  structure: SalaryStructure;
+  lines: SalaryStructureComponent[];
+  componentsById: Map<number, PayrollComponent>;
+};
+
+/**
+ * Finds the salary structure version that applies on a date. Structures are
+ * linked to employees by code, so a new version takes effect for everyone on
+ * that code without touching their compensation records.
+ */
+@Injectable()
+export class SalaryStructureResolver {
+  constructor(
+    @InjectRepository(SalaryStructure)
+    private readonly structureRepository: Repository<SalaryStructure>,
+    @InjectRepository(SalaryStructureComponent)
+    private readonly lineRepository: Repository<SalaryStructureComponent>,
+    @InjectRepository(PayrollComponent)
+    private readonly componentRepository: Repository<PayrollComponent>,
+  ) {}
+
+  async resolve(
+    companyId: number,
+    code: string,
+    onDate: string,
+    manager?: EntityManager,
+  ): Promise<ResolvedSalaryStructure | null> {
+    const structureRepository = manager
+      ? manager.getRepository(SalaryStructure)
+      : this.structureRepository;
+    const structure = await structureRepository
+      .createQueryBuilder('structure')
+      .where('structure.companyId = :companyId', { companyId })
+      .andWhere('structure.code = :code', { code: code.trim().toUpperCase() })
+      .andWhere('structure.status IN (:...statuses)', {
+        statuses: [
+          SalaryStructureStatusEnum.ACTIVE,
+          SalaryStructureStatusEnum.RETIRED,
+        ],
+      })
+      .andWhere('structure.effectiveFrom <= :onDate', { onDate })
+      .andWhere(
+        '(structure.effectiveTo IS NULL OR structure.effectiveTo >= :onDate)',
+        { onDate },
+      )
+      .orderBy('structure.effectiveFrom', 'DESC')
+      .addOrderBy('structure.versionNumber', 'DESC')
+      .getOne();
+    if (!structure) return null;
+    return this.load(structure, manager);
+  }
+
+  async load(
+    structure: SalaryStructure,
+    manager?: EntityManager,
+  ): Promise<ResolvedSalaryStructure> {
+    const lineRepository = manager
+      ? manager.getRepository(SalaryStructureComponent)
+      : this.lineRepository;
+    const componentRepository = manager
+      ? manager.getRepository(PayrollComponent)
+      : this.componentRepository;
+    const lines = await lineRepository.find({
+      where: {
+        salaryStructureId: structure.id,
+        companyId: structure.companyId,
+      },
+      order: { calculationOrder: 'ASC', id: 'ASC' },
+    });
+    const components = lines.length
+      ? await componentRepository.find({
+          where: {
+            companyId: structure.companyId,
+            id: In(lines.map((line) => line.componentId)),
+          },
+        })
+      : [];
+    return {
+      structure,
+      lines,
+      componentsById: new Map(components.map((item) => [item.id, item])),
+    };
+  }
 }
 
 @Injectable()
@@ -400,6 +523,8 @@ export class PayrollConfigurationService {
     private readonly bonusSchemeRepository: Repository<PayrollBonusScheme>,
     @InjectRepository(PayrollLeaveRule)
     private readonly leaveRuleRepository: Repository<PayrollLeaveRule>,
+    @InjectRepository(EmployeeCompensationVersion)
+    private readonly compensationRepository: Repository<EmployeeCompensationVersion>,
   ) {}
 
   async createComponent(
@@ -445,32 +570,557 @@ export class PayrollConfigurationService {
     });
   }
 
+  /**
+   * Creates a DRAFT structure. Reusing an existing code creates the next
+   * version of that structure.
+   */
   async createStructure(
     actor: AuthenticatedUser,
     dto: CreateSalaryStructureDto,
   ) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
-    const latest = await this.structureRepository.findOne({
-      where: { companyId, code: dto.code.trim().toUpperCase() },
+    const code = normalizeStructureCode(dto.code);
+    this.assertStructureDates(dto.effective_from, dto.effective_to ?? null);
+    await this.validateStructureLines(companyId, dto.components);
+
+    const structure = await this.structureRepository.manager.transaction(
+      async (manager) => {
+        const repository = manager.getRepository(SalaryStructure);
+        const latest = await repository.findOne({
+          where: { companyId, code },
+          order: { versionNumber: 'DESC' },
+        });
+        const saved = await repository.save(
+          repository.create({
+            companyId,
+            code,
+            name: dto.name.trim(),
+            description: clean(dto.description),
+            currency: (dto.currency ?? latest?.currency ?? 'TZS').toUpperCase(),
+            effectiveFrom: dto.effective_from,
+            effectiveTo: dto.effective_to ?? null,
+            versionNumber: (latest?.versionNumber ?? 0) + 1,
+            status: SalaryStructureStatusEnum.DRAFT,
+            metadata: dto.metadata ?? null,
+            createdByCompanyUserId: actor.companyMembershipId ?? null,
+          }),
+        );
+        await this.replaceStructureLines(
+          manager,
+          companyId,
+          saved.id,
+          dto.components,
+        );
+        return saved;
+      },
+    );
+    await this.auditService.log({
+      actor,
+      action: 'payroll.salary_structure.created',
+      entityType: 'SALARY_STRUCTURE',
+      entityId: structure.id,
+      summary: { code, version_number: structure.versionNumber },
+    });
+    return this.getStructure(actor, structure.id);
+  }
+
+  async updateStructure(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: UpdateSalaryStructureDto,
+  ) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const structure = await this.findStructure(companyId, id);
+    if (structure.isLocked) {
+      throw new ConflictException('Salary structure is locked.');
+    }
+    if (structure.status === SalaryStructureStatusEnum.RETIRED) {
+      throw new ConflictException(
+        'Retired salary structures cannot be edited.',
+      );
+    }
+    if (structure.status === SalaryStructureStatusEnum.ACTIVE) {
+      const blocked = (
+        ['currency', 'effective_from', 'components'] as const
+      ).filter((field) => dto[field] !== undefined);
+      if (blocked.length) {
+        throw new ConflictException(
+          `Active salary structures cannot change ${blocked.join(', ')}. Create a new version instead.`,
+        );
+      }
+    }
+
+    const effectiveFrom = dto.effective_from ?? structure.effectiveFrom;
+    const effectiveTo =
+      dto.effective_to !== undefined ? dto.effective_to : structure.effectiveTo;
+    this.assertStructureDates(effectiveFrom, effectiveTo);
+    if (dto.components) {
+      await this.validateStructureLines(companyId, dto.components);
+    }
+
+    await this.structureRepository.manager.transaction(async (manager) => {
+      if (dto.name !== undefined) structure.name = dto.name.trim();
+      if (dto.description !== undefined) {
+        structure.description = clean(dto.description);
+      }
+      if (dto.currency !== undefined) {
+        structure.currency = dto.currency.toUpperCase();
+      }
+      if (dto.metadata !== undefined) structure.metadata = dto.metadata;
+      structure.effectiveFrom = effectiveFrom;
+      structure.effectiveTo = effectiveTo;
+      await manager.getRepository(SalaryStructure).save(structure);
+      if (dto.components) {
+        await this.replaceStructureLines(
+          manager,
+          companyId,
+          structure.id,
+          dto.components,
+        );
+      }
+    });
+    await this.auditService.log({
+      actor,
+      action: 'payroll.salary_structure.updated',
+      entityType: 'SALARY_STRUCTURE',
+      entityId: structure.id,
+      summary: {
+        code: structure.code,
+        version_number: structure.versionNumber,
+        fields: Object.keys(dto),
+      },
+    });
+    return this.getStructure(actor, structure.id);
+  }
+
+  async deleteStructure(actor: AuthenticatedUser, id: number) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const structure = await this.findStructure(companyId, id);
+    if (structure.status !== SalaryStructureStatusEnum.DRAFT) {
+      throw new ConflictException(
+        'Only draft salary structures can be deleted. Retire active structures instead.',
+      );
+    }
+    await this.structureRepository.delete({ id: structure.id, companyId });
+    await this.auditService.log({
+      actor,
+      action: 'payroll.salary_structure.deleted',
+      entityType: 'SALARY_STRUCTURE',
+      entityId: structure.id,
+      summary: {
+        code: structure.code,
+        version_number: structure.versionNumber,
+      },
+    });
+    return { id: structure.id, deleted: true };
+  }
+
+  /**
+   * DRAFT -> ACTIVE. An older active version of the same code that is still
+   * open is closed the day before this version starts.
+   */
+  async activateStructure(actor: AuthenticatedUser, id: number) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const structure = await this.findStructure(companyId, id);
+    if (structure.status !== SalaryStructureStatusEnum.DRAFT) {
+      throw new ConflictException(
+        'Only draft salary structures can be activated.',
+      );
+    }
+    const lines = await this.structureComponentRepository.find({
+      where: { companyId, salaryStructureId: structure.id },
+    });
+    if (!lines.length) {
+      throw new BadRequestException(
+        'A salary structure needs at least one component line before activation.',
+      );
+    }
+    const components = await this.componentRepository.find({
+      where: { companyId, id: In(lines.map((line) => line.componentId)) },
+    });
+    const inactive = components.filter((item) => item.status !== 'ACTIVE');
+    if (inactive.length) {
+      throw new BadRequestException(
+        `Inactive payroll components: ${inactive.map((item) => item.code).join(', ')}.`,
+      );
+    }
+
+    const closed: Array<{ id: number; effective_to: string }> = [];
+    await this.structureRepository.manager.transaction(async (manager) => {
+      const repository = manager.getRepository(SalaryStructure);
+      const siblings = await repository
+        .createQueryBuilder('structure')
+        .setLock('pessimistic_write')
+        .where('structure.companyId = :companyId', { companyId })
+        .andWhere('structure.code = :code', { code: structure.code })
+        .andWhere('structure.id <> :id', { id: structure.id })
+        .andWhere('structure.status = :status', {
+          status: SalaryStructureStatusEnum.ACTIVE,
+        })
+        .getMany();
+      for (const sibling of siblings) {
+        const overlaps =
+          sibling.effectiveFrom <= (structure.effectiveTo ?? '9999-12-31') &&
+          (sibling.effectiveTo ?? '9999-12-31') >= structure.effectiveFrom;
+        if (!overlaps) continue;
+        if (sibling.effectiveFrom >= structure.effectiveFrom) {
+          throw new ConflictException(
+            `Version ${sibling.versionNumber} of ${structure.code} is already active from ${sibling.effectiveFrom}. Choose a later effective date.`,
+          );
+        }
+        sibling.effectiveTo = previousDay(structure.effectiveFrom);
+        await repository.save(sibling);
+        closed.push({ id: sibling.id, effective_to: sibling.effectiveTo });
+      }
+      structure.status = SalaryStructureStatusEnum.ACTIVE;
+      await repository.save(structure);
+    });
+    await this.auditService.log({
+      actor,
+      action: 'payroll.salary_structure.activated',
+      entityType: 'SALARY_STRUCTURE',
+      entityId: structure.id,
+      summary: {
+        code: structure.code,
+        version_number: structure.versionNumber,
+        closed_versions: closed,
+      },
+    });
+    return this.getStructure(actor, structure.id);
+  }
+
+  /**
+   * ACTIVE -> RETIRED. Refused while employees still depend on the code and no
+   * other active version would take over.
+   */
+  async retireStructure(actor: AuthenticatedUser, id: number) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const structure = await this.findStructure(companyId, id);
+    if (structure.status !== SalaryStructureStatusEnum.ACTIVE) {
+      throw new ConflictException(
+        'Only active salary structures can be retired.',
+      );
+    }
+    const otherActive = await this.structureRepository.count({
+      where: {
+        companyId,
+        code: structure.code,
+        status: SalaryStructureStatusEnum.ACTIVE,
+      },
+    });
+    const assigned = await this.countAssignedEmployees(
+      companyId,
+      structure.code,
+    );
+    if (assigned > 0 && otherActive <= 1) {
+      throw new ConflictException(
+        `${assigned} employee(s) are still paid on ${structure.code}. Move them to another structure first.`,
+      );
+    }
+    const today = dateString(new Date());
+    structure.status = SalaryStructureStatusEnum.RETIRED;
+    if (!structure.effectiveTo || structure.effectiveTo > today) {
+      structure.effectiveTo =
+        structure.effectiveFrom > today ? structure.effectiveFrom : today;
+    }
+    await this.structureRepository.save(structure);
+    await this.auditService.log({
+      actor,
+      action: 'payroll.salary_structure.retired',
+      entityType: 'SALARY_STRUCTURE',
+      entityId: structure.id,
+      summary: {
+        code: structure.code,
+        version_number: structure.versionNumber,
+      },
+    });
+    return this.getStructure(actor, structure.id);
+  }
+
+  /** Copies a version (and its lines) into a new DRAFT version. */
+  async createStructureVersion(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: CreateSalaryStructureVersionDto,
+  ) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const source = await this.findStructure(companyId, id);
+    const lines = await this.structureComponentRepository.find({
+      where: { companyId, salaryStructureId: source.id },
+      order: { calculationOrder: 'ASC', id: 'ASC' },
+    });
+    const created = await this.structureRepository.manager.transaction(
+      async (manager) => {
+        const repository = manager.getRepository(SalaryStructure);
+        const latest = await repository.findOne({
+          where: { companyId, code: source.code },
+          order: { versionNumber: 'DESC' },
+        });
+        const saved = await repository.save(
+          repository.create({
+            companyId,
+            code: source.code,
+            name: dto.name?.trim() || source.name,
+            description: source.description,
+            currency: source.currency,
+            effectiveFrom: dto.effective_from,
+            effectiveTo: null,
+            versionNumber: (latest?.versionNumber ?? 0) + 1,
+            status: SalaryStructureStatusEnum.DRAFT,
+            metadata: { ...(source.metadata ?? {}), copied_from_id: source.id },
+            createdByCompanyUserId: actor.companyMembershipId ?? null,
+          }),
+        );
+        const lineRepository = manager.getRepository(SalaryStructureComponent);
+        await lineRepository.save(
+          lines.map((line) =>
+            lineRepository.create({
+              companyId,
+              salaryStructureId: saved.id,
+              componentId: line.componentId,
+              defaultAmount: line.defaultAmount,
+              defaultRate: line.defaultRate,
+              calculationOrder: line.calculationOrder,
+              configuration: line.configuration,
+            }),
+          ),
+        );
+        return saved;
+      },
+    );
+    await this.auditService.log({
+      actor,
+      action: 'payroll.salary_structure.versioned',
+      entityType: 'SALARY_STRUCTURE',
+      entityId: created.id,
+      summary: {
+        code: created.code,
+        version_number: created.versionNumber,
+        source_id: source.id,
+      },
+    });
+    return this.getStructure(actor, created.id);
+  }
+
+  async getStructure(actor: AuthenticatedUser, id: number) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const structure = await this.findStructure(companyId, id);
+    const lines = await this.structureComponentRepository.find({
+      where: { salaryStructureId: id, companyId },
+      relations: { component: true },
+      order: { calculationOrder: 'ASC', id: 'ASC' },
+    });
+    const versions = await this.structureRepository.find({
+      where: { companyId, code: structure.code },
+      select: {
+        id: true,
+        versionNumber: true,
+        status: true,
+        effectiveFrom: true,
+        effectiveTo: true,
+      },
       order: { versionNumber: 'DESC' },
     });
-    const structure = await this.structureRepository.save(
-      this.structureRepository.create({
+    return {
+      ...structure,
+      components: lines.map(({ component, ...line }) => ({
+        ...line,
+        component_code: component?.code ?? null,
+        component_name: component?.name ?? null,
+        component_type: component?.componentType ?? null,
+        calculation_method: component?.calculationMethod ?? null,
+        subject_to_proration: component?.subjectToProration ?? null,
+      })),
+      versions,
+      assigned_employee_count: await this.countAssignedEmployees(
         companyId,
-        code: dto.code.trim().toUpperCase(),
-        name: dto.name.trim(),
-        currency: (dto.currency ?? 'TZS').toUpperCase(),
-        effectiveFrom: dto.effective_from,
-        effectiveTo: dto.effective_to ?? null,
-        versionNumber: (latest?.versionNumber ?? 0) + 1,
-        createdByCompanyUserId: actor.companyMembershipId ?? null,
-      }),
+        structure.code,
+      ),
+    };
+  }
+
+  async listStructures(
+    actor: AuthenticatedUser,
+    query: SalaryStructureQueryDto = {},
+  ) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const qb = this.structureRepository
+      .createQueryBuilder('structure')
+      .where('structure.companyId = :companyId', { companyId })
+      .orderBy('structure.code', 'ASC')
+      .addOrderBy('structure.versionNumber', 'DESC');
+    if (query.status) {
+      qb.andWhere('structure.status = :status', { status: query.status });
+    }
+    if (query.code) {
+      qb.andWhere('structure.code = :code', {
+        code: query.code.trim().toUpperCase(),
+      });
+    }
+    if (query.search?.trim()) {
+      qb.andWhere(
+        '(structure.code ILIKE :search OR structure.name ILIKE :search)',
+        { search: `%${query.search.trim()}%` },
+      );
+    }
+    const structures = await qb.getMany();
+    if (!structures.length) return [];
+
+    const lineCounts = await this.structureComponentRepository
+      .createQueryBuilder('line')
+      .select('line.salaryStructureId', 'structure_id')
+      .addSelect('COUNT(*)', 'count')
+      .where('line.companyId = :companyId', { companyId })
+      .andWhere('line.salaryStructureId IN (:...ids)', {
+        ids: structures.map((item) => item.id),
+      })
+      .groupBy('line.salaryStructureId')
+      .getRawMany<{ structure_id: number; count: string }>();
+    const employeeCounts = await this.compensationRepository
+      .createQueryBuilder('compensation')
+      .select('compensation.salaryStructureCode', 'code')
+      .addSelect('COUNT(DISTINCT compensation.employeeId)', 'count')
+      .where('compensation.companyId = :companyId', { companyId })
+      .andWhere('compensation.status IN (:...statuses)', {
+        statuses: PAYABLE_COMPENSATION_STATUSES,
+      })
+      .andWhere('compensation.salaryStructureCode IN (:...codes)', {
+        codes: [...new Set(structures.map((item) => item.code))],
+      })
+      .groupBy('compensation.salaryStructureCode')
+      .getRawMany<{ code: string; count: string }>();
+    const linesById = new Map(
+      lineCounts.map((row) => [Number(row.structure_id), Number(row.count)]),
     );
-    await this.structureComponentRepository.save(
-      dto.components.map((item) =>
-        this.structureComponentRepository.create({
+    const employeesByCode = new Map(
+      employeeCounts.map((row) => [row.code, Number(row.count)]),
+    );
+    return structures.map((structure) => ({
+      ...structure,
+      component_count: linesById.get(structure.id) ?? 0,
+      assigned_employee_count: employeesByCode.get(structure.code) ?? 0,
+    }));
+  }
+
+  /** Employees whose current compensation points at this structure's code. */
+  async listStructureEmployees(actor: AuthenticatedUser, id: number) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const structure = await this.findStructure(companyId, id);
+    const compensations = await this.compensationRepository.find({
+      where: {
+        companyId,
+        salaryStructureCode: structure.code,
+        status: In(PAYABLE_COMPENSATION_STATUSES),
+      },
+      relations: { employee: true },
+      order: { effectiveFrom: 'DESC' },
+    });
+    return compensations.map((item) => ({
+      compensation_id: item.id,
+      employee_id: item.employeeId,
+      employee_no: item.employee?.employee_no ?? null,
+      employee_name: item.employee
+        ? [item.employee.first_name, item.employee.last_name]
+            .filter(Boolean)
+            .join(' ')
+        : null,
+      employment_status: item.employee?.employment_status ?? null,
+      base_salary: item.baseSalary,
+      currency: item.currency,
+      effective_from: item.effectiveFrom,
+      effective_to: item.effectiveTo,
+      status: item.status,
+      has_overrides: Boolean(
+        item.componentOverrides &&
+        Object.keys(item.componentOverrides).length > 0,
+      ),
+    }));
+  }
+
+  private async findStructure(companyId: number, id: number) {
+    const structure = await this.structureRepository.findOne({
+      where: { id, companyId },
+    });
+    if (!structure) throw new NotFoundException('Salary structure not found.');
+    return structure;
+  }
+
+  private countAssignedEmployees(companyId: number, code: string) {
+    return this.compensationRepository
+      .createQueryBuilder('compensation')
+      .where('compensation.companyId = :companyId', { companyId })
+      .andWhere('compensation.salaryStructureCode = :code', { code })
+      .andWhere('compensation.status IN (:...statuses)', {
+        statuses: PAYABLE_COMPENSATION_STATUSES,
+      })
+      .select('COUNT(DISTINCT compensation.employeeId)', 'count')
+      .getRawOne<{ count: string }>()
+      .then((row) => Number(row?.count ?? 0));
+  }
+
+  private assertStructureDates(from: string, to: string | null) {
+    if (to && to < from) {
+      throw new BadRequestException(
+        'Effective to must be on or after effective from.',
+      );
+    }
+  }
+
+  private async validateStructureLines(
+    companyId: number,
+    lines: SalaryStructureComponentDto[],
+  ) {
+    const ids = lines.map((line) => line.component_id);
+    if (new Set(ids).size !== ids.length) {
+      throw new BadRequestException(
+        'Each payroll component can appear only once in a salary structure.',
+      );
+    }
+    const components = await this.componentRepository.find({
+      where: { companyId, id: In(ids) },
+    });
+    const found = new Map(components.map((item) => [item.id, item]));
+    const missing = ids.filter((componentId) => !found.has(componentId));
+    if (missing.length) {
+      throw new BadRequestException(
+        `Unknown payroll component id(s): ${missing.join(', ')}.`,
+      );
+    }
+    for (const line of lines) {
+      const component = found.get(line.component_id)!;
+      if (
+        line.default_amount !== undefined &&
+        PayrollMoney.toCents(line.default_amount) < 0n &&
+        !component.allowNegativeAmount
+      ) {
+        throw new BadRequestException(
+          `${component.code} does not allow negative amounts.`,
+        );
+      }
+      if (
+        line.default_rate !== undefined &&
+        (Number(line.default_rate) < 0 || Number(line.default_rate) > 1000)
+      ) {
+        throw new BadRequestException(
+          `${component.code} rate must be a percentage between 0 and 1000.`,
+        );
+      }
+    }
+  }
+
+  private async replaceStructureLines(
+    manager: EntityManager,
+    companyId: number,
+    salaryStructureId: number,
+    lines: SalaryStructureComponentDto[],
+  ) {
+    const repository = manager.getRepository(SalaryStructureComponent);
+    await repository.delete({ companyId, salaryStructureId });
+    await repository.save(
+      lines.map((item) =>
+        repository.create({
           companyId,
-          salaryStructureId: structure.id,
+          salaryStructureId,
           componentId: item.component_id,
           defaultAmount: item.default_amount ?? '0',
           defaultRate: item.default_rate ?? null,
@@ -479,27 +1129,6 @@ export class PayrollConfigurationService {
         }),
       ),
     );
-    return this.getStructure(actor, structure.id);
-  }
-
-  async getStructure(actor: AuthenticatedUser, id: number) {
-    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
-    const structure = await this.structureRepository.findOne({
-      where: { id, companyId },
-    });
-    if (!structure) throw new NotFoundException('Salary structure not found.');
-    const components = await this.structureComponentRepository.find({
-      where: { salaryStructureId: id, companyId },
-      order: { calculationOrder: 'ASC', id: 'ASC' },
-    });
-    return { ...structure, components };
-  }
-
-  listStructures(actor: AuthenticatedUser) {
-    return this.structureRepository.find({
-      where: { companyId: this.hrAccessService.ensureActorCompanyId(actor) },
-      order: { code: 'ASC', versionNumber: 'DESC' },
-    });
   }
 
   async createCalendar(
@@ -860,6 +1489,308 @@ export class PayrollConfigurationService {
       order: { leaveTypeCode: 'ASC', effectiveFrom: 'DESC' },
     });
   }
+}
+
+/**
+ * Employee <-> salary structure link. The link lives on the employee's
+ * effective-dated compensation version (salary_structure_code plus optional
+ * per-component overrides). First-time set-up happens here; later changes go
+ * through salary revision movements so they keep their approval trail.
+ */
+@Injectable()
+export class EmployeeSalaryService {
+  constructor(
+    private readonly hrAccessService: HrAccessService,
+    private readonly auditService: PayrollAuditService,
+    private readonly structureResolver: SalaryStructureResolver,
+    @InjectRepository(Employee)
+    private readonly employeeRepository: Repository<Employee>,
+    @InjectRepository(EmployeeCompensationVersion)
+    private readonly compensationRepository: Repository<EmployeeCompensationVersion>,
+  ) {}
+
+  async getEmployeeSalary(
+    actor: AuthenticatedUser,
+    employeeId: number,
+    asOf?: string,
+  ) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const employee = await this.findEmployee(companyId, employeeId);
+    const onDate = asOf ?? dateString(new Date());
+    const history = await this.compensationRepository.find({
+      where: { companyId, employeeId },
+      order: { effectiveFrom: 'DESC', id: 'DESC' },
+    });
+    const current =
+      history.find(
+        (item) =>
+          PAYABLE_COMPENSATION_STATUSES.includes(item.status) &&
+          item.effectiveFrom <= onDate &&
+          (!item.effectiveTo || item.effectiveTo >= onDate),
+      ) ??
+      history.find((item) =>
+        PAYABLE_COMPENSATION_STATUSES.includes(item.status),
+      ) ??
+      null;
+
+    const warnings: string[] = [];
+    let resolved: ResolvedSalaryStructure | null = null;
+    if (!current) {
+      warnings.push('NO_COMPENSATION');
+    } else if (!current.salaryStructureCode) {
+      warnings.push('NO_SALARY_STRUCTURE');
+    } else {
+      resolved = await this.structureResolver.resolve(
+        companyId,
+        current.salaryStructureCode,
+        current.effectiveFrom > onDate ? current.effectiveFrom : onDate,
+      );
+      if (!resolved) warnings.push('SALARY_STRUCTURE_NOT_EFFECTIVE');
+      else if (resolved.structure.currency !== current.currency) {
+        warnings.push('CURRENCY_MISMATCH');
+      }
+    }
+
+    return {
+      employee: {
+        id: employee.id,
+        employee_no: employee.employee_no,
+        name: [employee.first_name, employee.last_name]
+          .filter(Boolean)
+          .join(' '),
+        employment_status: employee.employment_status,
+        hire_date: employee.hire_date,
+      },
+      as_of: onDate,
+      compensation: current,
+      salary_structure: resolved
+        ? {
+            id: resolved.structure.id,
+            code: resolved.structure.code,
+            name: resolved.structure.name,
+            version_number: resolved.structure.versionNumber,
+            status: resolved.structure.status,
+            currency: resolved.structure.currency,
+            effective_from: resolved.structure.effectiveFrom,
+            effective_to: resolved.structure.effectiveTo,
+          }
+        : null,
+      breakdown: current ? this.buildBreakdown(current, resolved) : null,
+      warnings,
+      history,
+    };
+  }
+
+  async assignInitialSalary(
+    actor: AuthenticatedUser,
+    employeeId: number,
+    dto: AssignEmployeeSalaryDto,
+  ) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const employee = await this.findEmployee(companyId, employeeId);
+    if (PayrollMoney.toCents(dto.base_salary) <= 0n) {
+      throw new BadRequestException('Base salary must be greater than zero.');
+    }
+    const code = normalizeStructureCode(dto.salary_structure_code);
+
+    const saved = await this.compensationRepository.manager.transaction(
+      async (manager) => {
+        const repository = manager.getRepository(EmployeeCompensationVersion);
+        const existing = await repository
+          .createQueryBuilder('compensation')
+          .setLock('pessimistic_write')
+          .where('compensation.companyId = :companyId', { companyId })
+          .andWhere('compensation.employeeId = :employeeId', {
+            employeeId: employee.id,
+          })
+          .andWhere('compensation.status IN (:...statuses)', {
+            statuses: PAYABLE_COMPENSATION_STATUSES,
+          })
+          .getOne();
+        if (existing) {
+          throw new ConflictException(
+            'Employee already has an active compensation. Use a salary revision movement to change salary or structure.',
+          );
+        }
+        const resolved = await this.structureResolver.resolve(
+          companyId,
+          code,
+          dto.effective_from,
+          manager,
+        );
+        if (
+          !resolved ||
+          resolved.structure.status !== SalaryStructureStatusEnum.ACTIVE
+        ) {
+          throw new BadRequestException(
+            `No active version of salary structure ${code} is effective on ${dto.effective_from}.`,
+          );
+        }
+        const currency = (dto.currency ?? resolved.structure.currency)
+          .trim()
+          .toUpperCase();
+        if (currency !== resolved.structure.currency) {
+          throw new BadRequestException(
+            `Salary currency ${currency} does not match structure currency ${resolved.structure.currency}.`,
+          );
+        }
+        return repository.save(
+          repository.create({
+            companyId,
+            employeeId: employee.id,
+            movementId: null,
+            baseSalary: PayrollMoney.add(dto.base_salary),
+            currency,
+            salaryStructureCode: code,
+            componentOverrides: normalizeSalaryOverrides(
+              dto.component_overrides,
+              resolved,
+            ),
+            payFrequency: 'MONTHLY',
+            effectiveFrom: dto.effective_from,
+            effectiveTo: null,
+            status: EmployeeCompensationVersionStatusEnum.ACTIVE,
+            revisionReference: clean(dto.revision_reference),
+            justification:
+              clean(dto.justification) ?? 'Initial salary structure assignment',
+            approvedByCompanyUserId: actor.companyMembershipId ?? null,
+            createdByCompanyUserId: actor.companyMembershipId ?? null,
+            payrollSyncStatus: 'READY',
+          }),
+        );
+      },
+    );
+    await this.auditService.log({
+      actor,
+      action: 'payroll.employee_salary.assigned',
+      entityType: 'EMPLOYEE_COMPENSATION_VERSION',
+      entityId: saved.id,
+      summary: {
+        employee_id: employee.id,
+        salary_structure_code: code,
+        base_salary: saved.baseSalary,
+        effective_from: saved.effectiveFrom,
+      },
+    });
+    return this.getEmployeeSalary(actor, employee.id, saved.effectiveFrom);
+  }
+
+  private buildBreakdown(
+    compensation: EmployeeCompensationVersion,
+    resolved: ResolvedSalaryStructure | null,
+  ) {
+    const structureLines = resolved
+      ? buildSalaryStructureLines({
+          structure: resolved.structure,
+          structureComponents: resolved.lines,
+          componentsById: resolved.componentsById,
+          baseSalary: compensation.baseSalary,
+          overrides: compensation.componentOverrides,
+        })
+      : { lines: [], skipped: [] };
+    const basic = {
+      componentCode: BASE_SALARY_COMPONENT_CODE,
+      componentName: 'Basic salary',
+      componentType: PayrollComponentTypeEnum.EARNING,
+      amount: compensation.baseSalary,
+      taxableAmount: compensation.baseSalary,
+      employerAmount: '0.00',
+      calculationOrder: 1,
+      sourceType: 'COMPENSATION',
+    };
+    const lines = [basic, ...structureLines.lines];
+    const sum = (
+      types: PayrollComponentTypeEnum[],
+      field: 'amount' | 'employerAmount' = 'amount',
+    ) =>
+      PayrollMoney.add(
+        ...lines
+          .filter((line) => types.includes(line.componentType))
+          .map((line) => line[field]),
+      );
+    const gross = sum([
+      PayrollComponentTypeEnum.EARNING,
+      PayrollComponentTypeEnum.REIMBURSEMENT,
+      PayrollComponentTypeEnum.TAXABLE_BENEFIT,
+    ]);
+    const deductions = sum([PayrollComponentTypeEnum.DEDUCTION]);
+    const employerContributions = sum(
+      [
+        PayrollComponentTypeEnum.EMPLOYER_CONTRIBUTION,
+        PayrollComponentTypeEnum.EMPLOYER_LEVY,
+      ],
+      'employerAmount',
+    );
+    return {
+      note: 'Monthly amounts before proration, payroll inputs and statutory deductions.',
+      lines,
+      skipped: structureLines.skipped,
+      gross_pay: gross,
+      recurring_deductions: deductions,
+      net_before_statutory: PayrollMoney.add(
+        gross,
+        PayrollMoney.fromCents(-PayrollMoney.toCents(deductions)),
+      ),
+      employer_contributions: employerContributions,
+      employer_cost: PayrollMoney.add(gross, employerContributions),
+    };
+  }
+
+  private async findEmployee(companyId: number, employeeId: number) {
+    const employee = await this.employeeRepository.findOne({
+      where: { id: employeeId, company_id: companyId },
+    });
+    if (!employee) throw new NotFoundException('Employee not found.');
+    return employee;
+  }
+}
+
+/**
+ * Validates employee overrides against the structure's lines and returns them
+ * keyed by component code, or null when there are none.
+ */
+export function normalizeSalaryOverrides(
+  overrides: SalaryComponentOverrideDto[] | undefined | null,
+  resolved: ResolvedSalaryStructure,
+): Record<string, SalaryComponentOverride> | null {
+  if (!overrides?.length) return null;
+  const codes = new Set(
+    resolved.lines
+      .map((line) => resolved.componentsById.get(line.componentId)?.code)
+      .filter(Boolean) as string[],
+  );
+  const result: Record<string, SalaryComponentOverride> = {};
+  for (const item of overrides) {
+    const code = item.component_code.trim().toUpperCase();
+    if (code === BASE_SALARY_COMPONENT_CODE) {
+      throw new BadRequestException(
+        'BASIC cannot be overridden; change the base salary instead.',
+      );
+    }
+    if (!codes.has(code)) {
+      throw new BadRequestException(
+        `${code} is not part of salary structure ${resolved.structure.code}.`,
+      );
+    }
+    if (result[code]) {
+      throw new BadRequestException(`Duplicate override for ${code}.`);
+    }
+    if (
+      !item.excluded &&
+      item.amount === undefined &&
+      item.rate === undefined
+    ) {
+      throw new BadRequestException(
+        `Override for ${code} needs an amount, a rate, or excluded=true.`,
+      );
+    }
+    result[code] = {
+      amount: item.amount ?? null,
+      rate: item.rate ?? null,
+      excluded: item.excluded ?? false,
+    };
+  }
+  return result;
 }
 
 @Injectable()
@@ -2000,6 +2931,7 @@ export class EmployeePayrollCalculationService {
     private readonly holidayRepository: Repository<AttendanceHoliday>,
     @InjectRepository(PayrollLeaveRule)
     private readonly leaveRuleRepository: Repository<PayrollLeaveRule>,
+    private readonly structureResolver: SalaryStructureResolver,
   ) {}
 
   async calculateRun(
@@ -2047,6 +2979,10 @@ export class EmployeePayrollCalculationService {
       period.endDate,
     );
 
+    const structureCache = new Map<
+      string,
+      Promise<ResolvedSalaryStructure | null>
+    >();
     const outputs: CalculatedPayrollEmployee[] = [];
     for (const profile of profiles) {
       const employee = await this.employeeRepository.findOne({
@@ -2081,6 +3017,7 @@ export class EmployeePayrollCalculationService {
         components,
         componentMap,
         rules,
+        structureCache,
       });
       outputs.push(result);
     }
@@ -2148,6 +3085,7 @@ export class EmployeePayrollCalculationService {
       rule: StatutoryRuleVersion;
       bands: StatutoryTaxBand[];
     }>;
+    structureCache?: Map<string, Promise<ResolvedSalaryStructure | null>>;
   }) {
     const { companyId, period, employee, profile, compensation } = args;
     const prorationArgs = {
@@ -2233,6 +3171,68 @@ export class EmployeePayrollCalculationService {
         calculationSnapshot: { factor, base_salary: compensation.baseSalary },
       },
     ];
+
+    const structureWarnings: Array<Record<string, unknown>> = [];
+    let structureSnapshot: Record<string, unknown> | null = null;
+    if (compensation.salaryStructureCode) {
+      const structureDate = [
+        period.endDate,
+        compensation.effectiveTo,
+        employee.exit_date,
+      ]
+        .filter((value): value is string => Boolean(value))
+        .sort()[0];
+      const cacheKey = `${compensation.salaryStructureCode}|${structureDate}`;
+      let pending = args.structureCache?.get(cacheKey);
+      if (!pending) {
+        pending = this.structureResolver.resolve(
+          companyId,
+          compensation.salaryStructureCode,
+          structureDate,
+        );
+        args.structureCache?.set(cacheKey, pending);
+      }
+      const resolved = await pending;
+      if (!resolved) {
+        structureWarnings.push({
+          code: 'SALARY_STRUCTURE_NOT_EFFECTIVE',
+          salary_structure_code: compensation.salaryStructureCode,
+          on_date: structureDate,
+        });
+      } else {
+        const built = buildSalaryStructureLines({
+          structure: resolved.structure,
+          structureComponents: resolved.lines,
+          componentsById: resolved.componentsById,
+          baseSalary: compensation.baseSalary,
+          overrides: compensation.componentOverrides,
+          proration: prorationRatio,
+          // An approved input for the employee replaces the recurring amount
+          // for this period instead of being paid on top of it.
+          replacedComponentCodes: new Set(
+            inputs
+              .filter((input) => input.employeeId === employee.id)
+              .map((input) => input.componentCode),
+          ),
+        });
+        lineItems.push(...built.lines);
+        if (resolved.structure.currency !== compensation.currency) {
+          structureWarnings.push({
+            code: 'SALARY_STRUCTURE_CURRENCY_MISMATCH',
+            salary_structure_code: resolved.structure.code,
+            structure_currency: resolved.structure.currency,
+            compensation_currency: compensation.currency,
+          });
+        }
+        structureSnapshot = {
+          id: resolved.structure.id,
+          code: resolved.structure.code,
+          version_number: resolved.structure.versionNumber,
+          line_count: built.lines.length,
+          skipped: built.skipped,
+        };
+      }
+    }
 
     if (PayrollMoney.toCents(lwpDeduction) > 0n) {
       lineItems.push({
@@ -2565,6 +3565,7 @@ export class EmployeePayrollCalculationService {
       period,
       bank,
     );
+    warnings.push(...structureWarnings);
     for (const shortfall of financeAllocation.shortfalls) {
       warnings.push({
         code: 'EMPLOYEE_FINANCE_DEDUCTION_SHORTFALL',
@@ -2592,6 +3593,7 @@ export class EmployeePayrollCalculationService {
       statutory_rule_ids: args.rules.map((item) => item.rule.id),
       minimum_net_pay: financeAllocation.minimumNetPay,
       finance_deduction_capacity: financeAllocation.capacity,
+      salary_structure: structureSnapshot,
     };
     const inputSnapshot = {
       input_ids: inputs.map((item) => item.id),
@@ -3138,19 +4140,7 @@ export class EmployeePayrollCalculationService {
   }
 
   private taxableAmount(amount: string, component?: PayrollComponent) {
-    if (!component) return amount;
-    switch (component.taxTreatment) {
-      case PayrollTaxTreatmentEnum.NON_TAXABLE:
-      case PayrollTaxTreatmentEnum.TAX_EXEMPT:
-        return '0.00';
-      case PayrollTaxTreatmentEnum.PARTIALLY_TAXABLE:
-        return PayrollMoney.multiplyPercent(
-          amount,
-          component.taxablePercentage,
-        );
-      default:
-        return amount;
-    }
+    return taxableAmountFor(amount, component);
   }
 
   private sumLines(

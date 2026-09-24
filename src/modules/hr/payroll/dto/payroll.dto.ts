@@ -1,12 +1,19 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsDateString,
   IsEnum,
+  IsInt,
   IsNumber,
+  IsNumberString,
+  IsObject,
   IsOptional,
   IsString,
+  Length,
+  MaxLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { PaginationDto } from '../../../../common/dto/pagination.dto';
@@ -18,6 +25,7 @@ import {
   PayrollInputStatusEnum,
   PayrollRunTypeEnum,
   PayrollTaxTreatmentEnum,
+  SalaryStructureStatusEnum,
   StatutorySchemeTypeEnum,
 } from '../payroll.enums';
 
@@ -174,30 +182,40 @@ export class SalaryStructureComponentDto {
   component_id: number;
 
   @IsOptional()
-  @IsString()
+  @IsNumberString()
   default_amount?: string;
 
   @IsOptional()
-  @IsString()
+  @IsNumberString()
   default_rate?: string;
 
   @IsOptional()
   @Type(() => Number)
+  @IsInt()
   calculation_order?: number;
 
   @IsOptional()
+  @IsObject()
   configuration?: Record<string, unknown>;
 }
 
 export class CreateSalaryStructureDto {
   @IsString()
+  @MaxLength(100)
   code: string;
 
   @IsString()
+  @MaxLength(180)
   name: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(3, 3)
   currency?: string;
 
   @IsDateString()
@@ -207,10 +225,138 @@ export class CreateSalaryStructureDto {
   @IsDateString()
   effective_to?: string;
 
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
+
   @IsArray()
+  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => SalaryStructureComponentDto)
   components: SalaryStructureComponentDto[];
+}
+
+/**
+ * DRAFT versions accept every field. ACTIVE versions only accept name,
+ * description, effective_to and metadata; line changes need a new version.
+ */
+export class UpdateSalaryStructureDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @Length(3, 3)
+  currency?: string;
+
+  @IsOptional()
+  @IsDateString()
+  effective_from?: string;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsDateString()
+  effective_to?: string | null;
+
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => SalaryStructureComponentDto)
+  components?: SalaryStructureComponentDto[];
+}
+
+export class SalaryStructureQueryDto {
+  @IsOptional()
+  @IsEnum(SalaryStructureStatusEnum)
+  status?: SalaryStructureStatusEnum;
+
+  @IsOptional()
+  @IsString()
+  code?: string;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
+}
+
+export class CreateSalaryStructureVersionDto {
+  @IsDateString()
+  effective_from: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  name?: string;
+}
+
+export class SalaryComponentOverrideDto {
+  @IsString()
+  @MaxLength(80)
+  component_code: string;
+
+  @IsOptional()
+  @IsNumberString()
+  amount?: string;
+
+  @IsOptional()
+  @IsNumberString()
+  rate?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  excluded?: boolean;
+}
+
+/** Initial salary set-up for an employee who has no active compensation. */
+export class AssignEmployeeSalaryDto {
+  @IsString()
+  @MaxLength(100)
+  salary_structure_code: string;
+
+  @IsNumberString()
+  base_salary: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(3, 3)
+  currency?: string;
+
+  @IsDateString()
+  effective_from: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SalaryComponentOverrideDto)
+  component_overrides?: SalaryComponentOverrideDto[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  revision_reference?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  justification?: string;
+}
+
+export class EmployeeSalaryPreviewQueryDto {
+  @IsOptional()
+  @IsDateString()
+  as_of?: string;
 }
 
 export class CreatePayrollCalendarDto {

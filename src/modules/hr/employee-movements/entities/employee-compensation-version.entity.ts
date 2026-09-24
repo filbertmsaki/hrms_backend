@@ -19,11 +19,24 @@ export enum EmployeeCompensationVersionStatusEnum {
   CANCELLED = 'CANCELLED',
 }
 
+export type SalaryComponentOverride = {
+  /** Fixed amount replacing the structure default. */
+  amount?: string | null;
+  /** Percentage of base salary replacing the structure default rate. */
+  rate?: string | null;
+  /** Drop this structure line for the employee. */
+  excluded?: boolean;
+};
+
 @Entity('employee_compensation_versions')
 @Index('IDX_employee_compensation_employee_effective', [
   'companyId',
   'employeeId',
   'effectiveFrom',
+])
+@Index('IDX_employee_compensation_structure_code', [
+  'companyId',
+  'salaryStructureCode',
 ])
 export class EmployeeCompensationVersion {
   @PrimaryGeneratedColumn()
@@ -51,6 +64,13 @@ export class EmployeeCompensationVersion {
     nullable: true,
   })
   salaryStructureCode: string | null;
+
+  /**
+   * Employee-specific adjustments to the lines of the assigned salary
+   * structure, keyed by payroll component code.
+   */
+  @Column({ name: 'component_overrides', type: 'jsonb', nullable: true })
+  componentOverrides: Record<string, SalaryComponentOverride> | null;
 
   @Column({
     name: 'pay_frequency',
