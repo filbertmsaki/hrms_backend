@@ -42,15 +42,16 @@ export class MovementCompensationInputDto {
   salary_structure_code?: string;
 
   /**
-   * Replaces the employee's structure overrides when sent (an empty list
-   * clears them). When omitted, current overrides carry over for every
-   * component that also exists in the target structure.
+   * Replaces the employee's structure overrides when sent (an empty list or
+   * null clears them). When omitted, current overrides carry over for every
+   * component that also exists in the target structure; on a movement edit,
+   * omitting it keeps the overrides already saved on the movement.
    */
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => MovementSalaryComponentOverrideDto)
   @IsOptional()
-  component_overrides?: MovementSalaryComponentOverrideDto[];
+  component_overrides?: MovementSalaryComponentOverrideDto[] | null;
 
   @IsString()
   @MaxLength(100)

@@ -146,6 +146,23 @@ describe('buildSalaryStructureLines', () => {
     });
   });
 
+  it('honours a rate override on a fixed-amount line', () => {
+    const { lines: built } = buildSalaryStructureLines({
+      structure,
+      structureComponents: lines,
+      componentsById,
+      baseSalary: '2000000.00',
+      overrides: { TRANSPORT: { rate: '10' } },
+    });
+    const transport = built.find((item) => item.componentCode === 'TRANSPORT');
+
+    expect(transport?.amount).toBe('200000.00');
+    expect(transport?.calculationSnapshot).toMatchObject({
+      basis: 'RATE_OF_BASE',
+      rate: '10',
+    });
+  });
+
   it('prorates only proratable components and lets inputs replace lines', () => {
     const { lines: built, skipped } = buildSalaryStructureLines({
       structure,
@@ -192,7 +209,12 @@ describe('buildSalaryStructureLines', () => {
 });
 
 describe('normalizeSalaryOverrideInputs', () => {
-  const codes = new Set(['BASIC', 'HOUSING', 'TRANSPORT']);
+  const codes = new Map([
+    ['BASIC', { allowNegativeAmount: false }],
+    ['HOUSING', { allowNegativeAmount: false }],
+    ['TRANSPORT', { allowNegativeAmount: false }],
+    ['ADJUSTMENT', { allowNegativeAmount: true }],
+  ]);
 
   it('keys overrides by upper-case code and returns null when empty', () => {
     expect(
@@ -221,6 +243,22 @@ describe('normalizeSalaryOverrideInputs', () => {
       ]),
     ).toThrow('Duplicate');
     expect(run([{ component_code: 'HOUSING' }])).toThrow('needs an amount');
+  });
+
+  it('applies the structure line limits to amounts and rates', () => {
+    const run = (overrides: Array<Record<string, unknown>>) => () =>
+      normalizeSalaryOverrideInputs(overrides as never, codes, 'STD-MONTHLY');
+    expect(run([{ component_code: 'HOUSING', amount: '-5' }])).toThrow(
+      'does not allow negative amounts',
+    );
+    expect(run([{ component_code: 'ADJUSTMENT', amount: '-5' }])).not.toThrow();
+    expect(run([{ component_code: 'HOUSING', rate: '1001' }])).toThrow(
+      'between 0 and 1000',
+    );
+    expect(run([{ component_code: 'HOUSING', rate: '-1' }])).toThrow(
+      'between 0 and 1000',
+    );
+    expect(run([{ component_code: 'HOUSING', rate: '1000' }])).not.toThrow();
   });
 });
 
