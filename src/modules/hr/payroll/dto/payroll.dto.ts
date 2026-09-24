@@ -832,7 +832,7 @@ export class GeneratePayrollSourceRecordsDto {
   replace_existing?: boolean;
 }
 
-export class PayrollOvertimeApprovalQueryDto {
+export class PayrollOvertimeApprovalQueryDto extends PaginationDto {
   @IsOptional()
   @Type(() => Number)
   employee_id?: number;
