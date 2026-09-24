@@ -655,9 +655,7 @@ export class LeaveWorkflowService {
 
     const employeeName = `${full.employee.first_name} ${full.employee.last_name}`;
     const employeeEmail = full.employee.company_user?.user?.email ?? '';
-    const appUrl =
-      this.configService.get<string>('APP_FRONTEND_URL') ??
-      'http://localhost:5173';
+    const appUrl = this.configService.get<string>('APP_FRONTEND_URL')!;
     const dashboardUrl = `${appUrl}/leave/${full.id}`;
 
     if (full.status === LeaveStatusEnum.APPROVED) {

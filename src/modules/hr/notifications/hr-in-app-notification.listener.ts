@@ -20,6 +20,7 @@ import {
   OnboardingApprovalRequiredEvent,
   OnboardingApprovedEvent,
   OnboardingCompletedEvent,
+  OnboardingEmployeeDetailsReviewedEvent,
   OnboardingEmployeeDetailsReturnedEvent,
   OnboardingEmployeeDetailsSubmittedEvent,
   OnboardingRejectedEvent,
@@ -543,6 +544,37 @@ export class HrInAppNotificationListener {
     });
   }
 
+  @OnEvent(OnboardingEmployeeDetailsReviewedEvent.EVENT)
+  async onOnboardingEmployeeDetailsReviewed(
+    event: OnboardingEmployeeDetailsReviewedEvent,
+  ): Promise<void> {
+    await this.sendOne({
+      company_id: event.companyId,
+      sender_company_user_id: event.reviewerCompanyUserId,
+      receiver_company_user_id: event.employeeCompanyUserId,
+      type: NotificationTypeEnum.ONBOARDING_APPROVED,
+      category: NotificationCategoryEnum.HR,
+      priority: NotificationPriorityEnum.MEDIUM,
+      title: 'Onboarding Section Approved',
+      message: `HR approved: ${event.sectionLabels.join(', ')}. You can view the latest review status from your onboarding page.`,
+      related_module: 'onboarding',
+      entity_type: 'ONBOARDING_REQUEST',
+      entity_id: event.onboardingRequestId,
+      action_url: event.employeeUrl,
+      dedupe_key: `onboarding:employee-details-reviewed:${event.onboardingRequestId}:${event.employeeCompanyUserId}:${Date.now()}`,
+      channels: [
+        NotificationChannelEnum.IN_APP,
+        NotificationChannelEnum.EMAIL,
+        NotificationChannelEnum.SMS,
+      ],
+      metadata: {
+        onboarding_no: event.onboardingNo,
+        employee_name: event.employeeName,
+        approved_sections: event.sectionLabels,
+      },
+    });
+  }
+
   @OnEvent(OnboardingSubmittedEvent.EVENT)
   async onOnboardingSubmitted(event: OnboardingSubmittedEvent): Promise<void> {
     await this.sendMany(
@@ -604,7 +636,7 @@ export class HrInAppNotificationListener {
         related_module: 'onboarding',
         entity_type: 'ONBOARDING_REQUEST',
         entity_id: event.onboardingRequestId,
-        action_url: event.reviewUrl.replace('/review', ''),
+        action_url: event.employeeUrl,
         dedupe_key: `onboarding:submitted:employee:${event.onboardingRequestId}:${event.employeeCompanyUserId}`,
         metadata: {
           onboarding_no: event.onboardingNo,
@@ -857,7 +889,7 @@ export class HrInAppNotificationListener {
       related_module: 'onboarding',
       entity_type: 'ONBOARDING_TASK',
       entity_id: event.taskId,
-      action_url: `/onboarding/${event.onboardingRequestId}/tasks`,
+      action_url: `/dashboard/me/requests/actions?request_id=${event.onboardingRequestId}`,
       dedupe_key: `onboarding:task-overdue:${event.taskId}:${event.assignedCompanyUserId}:${dayKey}`,
       metadata: {
         onboarding_request_id: event.onboardingRequestId,
@@ -885,7 +917,7 @@ export class HrInAppNotificationListener {
         related_module: 'onboarding',
         entity_type: 'ONBOARDING_APPROVAL',
         entity_id: event.approvalId,
-        action_url: `/onboarding/${event.onboardingRequestId}/review`,
+        action_url: `/dashboard/employees/onboarding?tab=requests&request_id=${event.onboardingRequestId}`,
         dedupe_key: `onboarding:approval-reminder:${event.approvalId}:${companyUserId}:${dayKey}`,
         metadata: {
           onboarding_request_id: event.onboardingRequestId,

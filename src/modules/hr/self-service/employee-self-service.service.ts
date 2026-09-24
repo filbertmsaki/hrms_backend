@@ -236,7 +236,7 @@ export class EmployeeSelfServiceService {
         submitted_at: request.submittedAt,
         created_at: request.createdAt,
         updated_at: request.updatedAt,
-        action_url: `/me/attendance/correction-requests/${request.id}`,
+        action_url: `/dashboard/attendance/corrections?highlight=${request.id}`,
         summary: {
           attendance_date: request.attendanceDate,
           request_type: request.requestType,

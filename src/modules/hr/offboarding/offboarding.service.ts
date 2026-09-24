@@ -5178,10 +5178,9 @@ export class OffboardingService {
           created.description,
           created.due_date,
           request.last_working_date ?? null,
-          `${
-            this.configService.get<string>('APP_FRONTEND_URL') ??
-            'http://localhost:5173'
-          }/offboarding/${offboardingRequestId}/tasks`,
+          `${this.configService.get<string>(
+            'APP_FRONTEND_URL',
+          )!}/offboarding/${offboardingRequestId}/tasks`,
           companyId,
           offboardingRequestId,
           created.id,
@@ -5363,10 +5362,9 @@ export class OffboardingService {
           saved.description,
           saved.due_date,
           request.last_working_date ?? null,
-          `${
-            this.configService.get<string>('APP_FRONTEND_URL') ??
-            'http://localhost:5173'
-          }/offboarding/${offboardingRequestId}/tasks`,
+          `${this.configService.get<string>(
+            'APP_FRONTEND_URL',
+          )!}/offboarding/${offboardingRequestId}/tasks`,
           companyId,
           offboardingRequestId,
           saved.id,
@@ -5736,10 +5734,9 @@ export class OffboardingService {
             `${request.employee.first_name} ${request.employee.last_name}`.trim(),
             created.clearance_type,
             request.last_working_date ?? null,
-            `${
-              this.configService.get<string>('APP_FRONTEND_URL') ??
-              'http://localhost:5173'
-            }/offboarding/${offboardingRequestId}/clearances`,
+            `${this.configService.get<string>(
+              'APP_FRONTEND_URL',
+            )!}/offboarding/${offboardingRequestId}/clearances`,
             companyId,
             offboardingRequestId,
             created.id,
@@ -5911,10 +5908,9 @@ export class OffboardingService {
           `${request.employee.first_name} ${request.employee.last_name}`.trim(),
           saved.clearance_type,
           request.last_working_date ?? null,
-          `${
-            this.configService.get<string>('APP_FRONTEND_URL') ??
-            'http://localhost:5173'
-          }/offboarding/${offboardingRequestId}/clearances`,
+          `${this.configService.get<string>(
+            'APP_FRONTEND_URL',
+          )!}/offboarding/${offboardingRequestId}/clearances`,
           companyId,
           offboardingRequestId,
           saved.id,
@@ -6069,9 +6065,7 @@ export class OffboardingService {
       const employee = request.employee;
       const employeeName = `${employee.first_name} ${employee.last_name}`;
       const employeeEmail = employee.company_user!.user.email;
-      const frontendUrl =
-        this.configService.get<string>('APP_FRONTEND_URL') ??
-        'http://localhost:5173';
+      const frontendUrl = this.configService.get<string>('APP_FRONTEND_URL')!;
 
       const approvers: NotificationRecipient[] = request.approvals
         .filter(

@@ -4488,9 +4488,7 @@ export class LeaveService {
         .getRepository(LeaveType)
         .findOne({ where: { id: leaveRequest.leave_type_id } });
 
-      const frontendUrl =
-        this.configService.get<string>('APP_FRONTEND_URL') ??
-        'http://localhost:5173';
+      const frontendUrl = this.configService.get<string>('APP_FRONTEND_URL')!;
 
       this.eventEmitter.emit(
         LeaveSubmittedEvent.EVENT,

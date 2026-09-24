@@ -27,6 +27,20 @@ export class OnboardingEmployeeDetailsReturnedEvent {
   ) {}
 }
 
+export class OnboardingEmployeeDetailsReviewedEvent {
+  static readonly EVENT = 'hr.onboarding.employee_details_reviewed';
+  constructor(
+    public readonly companyId: number,
+    public readonly onboardingRequestId: number,
+    public readonly onboardingNo: string,
+    public readonly employeeName: string,
+    public readonly employeeCompanyUserId: number,
+    public readonly reviewerCompanyUserId: number | null,
+    public readonly sectionLabels: string[],
+    public readonly employeeUrl: string,
+  ) {}
+}
+
 export class OnboardingSubmittedEvent {
   static readonly EVENT = 'hr.onboarding.submitted';
   constructor(
@@ -35,6 +49,7 @@ export class OnboardingSubmittedEvent {
     public readonly employeeEmail: string,
     public readonly approvers: NotificationRecipient[],
     public readonly reviewUrl: string,
+    public readonly employeeUrl: string,
     public readonly onboardingRequestId: number,
     public readonly senderCompanyUserId: number | null,
     public readonly employeeCompanyUserId: number | null,
