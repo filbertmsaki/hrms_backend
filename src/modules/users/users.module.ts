@@ -17,7 +17,7 @@ import { AuthSessionsModule } from '../auth/auth-sessions.module';
     forwardRef(() => TwoFaModule),
     TypeOrmModule.forFeature([User, UserTwoFactorAuditLog, Employee]),
     AuthSessionsModule,
-    CompaniesModule,
+    forwardRef(() => CompaniesModule),
     DefaultAvatarsModule,
   ],
   controllers: [UsersController],
