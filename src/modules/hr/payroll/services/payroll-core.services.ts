@@ -5250,8 +5250,10 @@ export class PayrollReportsService {
       'PAYROLL_REQUIRE_MANAGEMENT_APPROVAL',
     ].filter(
       (key) =>
-        (this.configService.get<string>(key) ?? 'false').toLowerCase() ===
-        'true',
+        // Env validation coerces these flags to booleans.
+        String(
+          this.configService.get<boolean | string>(key) ?? false,
+        ).toLowerCase() === 'true',
     );
     const checks = [
       {
