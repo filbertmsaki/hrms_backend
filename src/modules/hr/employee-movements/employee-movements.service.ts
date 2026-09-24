@@ -502,21 +502,28 @@ export class EmployeeMovementsService {
 
   /**
    * The active version of a salary structure in effect on a date, with the
-   * component codes of its lines.
+   * components of its lines keyed by code. `includeRetired` matches the
+   * payroll resolver, which still pays from a retired version in its range.
    */
   private async findEffectiveSalaryStructure(
     companyId: number,
     code: string,
     onDate: string,
     manager: EntityManager,
+    includeRetired = false,
   ): Promise<{
     structure: SalaryStructure;
-    componentCodes: Set<string>;
+    components: Map<string, PayrollComponent>;
   } | null> {
     const base = {
       companyId,
       code: code.trim().toUpperCase(),
-      status: SalaryStructureStatusEnum.ACTIVE,
+      status: includeRetired
+        ? In([
+            SalaryStructureStatusEnum.ACTIVE,
+            SalaryStructureStatusEnum.RETIRED,
+          ])
+        : SalaryStructureStatusEnum.ACTIVE,
       effectiveFrom: LessThanOrEqual(onDate),
     };
     const structure = await manager.getRepository(SalaryStructure).findOne({
@@ -537,21 +544,25 @@ export class EmployeeMovementsService {
       : [];
     return {
       structure,
-      componentCodes: new Set(components.map((item) => item.code)),
+      components: new Map(components.map((item) => [item.code, item])),
     };
   }
 
   /**
-   * Validates the salary part of a revision: the structure code must have an
-   * active version on the effective date, and explicit overrides must match
-   * that version's components. `componentOverrides` is undefined when the
-   * revision does not set overrides (they then carry over on apply).
+   * Validates the salary part of a revision: the structure code must have a
+   * version in effect on the effective date (ACTIVE for a new code; ACTIVE or
+   * RETIRED when keeping the current one, as payroll does), and explicit
+   * overrides must match that version's components. `componentOverrides` is
+   * undefined when the revision does not set overrides (they then carry over
+   * on apply); null or [] clears them. Overrides kept from the saved movement
+   * on an edit are trimmed to the target structure instead of rejected.
    */
   private async resolveSalaryRevisionStructure(
     movement: EmployeeMovement,
     revision: MovementCompensationInputDto,
     currentCompensation: EmployeeCompensationVersion | null,
     manager: EntityManager,
+    savedOverridesKept = false,
   ): Promise<{
     salaryStructureCode: string | undefined;
     componentOverrides:
@@ -563,37 +574,54 @@ export class EmployeeMovementsService {
       revision.salary_structure_code?.trim().toUpperCase() || undefined;
     const targetCode =
       requestedCode ?? currentCompensation?.salaryStructureCode ?? undefined;
-    const needsStructure =
-      Boolean(requestedCode) || revision.component_overrides !== undefined;
+    const overrides =
+      revision.component_overrides === null ? [] : revision.component_overrides;
+    const needsStructure = Boolean(requestedCode) || overrides !== undefined;
     if (!needsStructure) {
       return { salaryStructureCode: undefined, componentOverrides: undefined };
     }
     if (!targetCode) {
+      if (!requestedCode && !overrides?.length) {
+        // Clearing overrides for an employee without a structure is a no-op.
+        return { salaryStructureCode: undefined, componentOverrides: null };
+      }
       throw new BadRequestException(
         'Component overrides need a salary structure. Choose one for this revision.',
       );
     }
+    const keepsCurrentCode =
+      !requestedCode ||
+      requestedCode === currentCompensation?.salaryStructureCode;
     const target = await this.findEffectiveSalaryStructure(
       movement.companyId,
       targetCode,
       movement.effectiveDate,
       manager,
+      keepsCurrentCode,
     );
     if (!target) {
       throw new BadRequestException(
-        `Salary structure ${targetCode} has no active version effective on ${movement.effectiveDate}.`,
+        `Salary structure ${targetCode} has no ${keepsCurrentCode ? '' : 'active '}version effective on ${movement.effectiveDate}.`,
       );
     }
+    if (overrides === undefined) {
+      return {
+        salaryStructureCode: requestedCode,
+        componentOverrides: undefined,
+      };
+    }
+    const inputs = savedOverridesKept
+      ? overrides.filter((item) =>
+          target.components.has(item.component_code.trim().toUpperCase()),
+        )
+      : overrides;
     return {
       salaryStructureCode: requestedCode,
-      componentOverrides:
-        revision.component_overrides === undefined
-          ? undefined
-          : normalizeSalaryOverrideInputs(
-              revision.component_overrides,
-              target.componentCodes,
-              targetCode,
-            ),
+      componentOverrides: normalizeSalaryOverrideInputs(
+        inputs,
+        target.components,
+        targetCode,
+      ),
     };
   }
 
@@ -602,6 +630,7 @@ export class EmployeeMovementsService {
     dto: CreateEmployeeMovementDto,
     current: Record<string, unknown>,
     manager: EntityManager,
+    savedOverridesKept = false,
   ): Promise<void> {
     const changes: Partial<EmployeeMovementChange>[] = [];
 
@@ -685,6 +714,7 @@ export class EmployeeMovementsService {
           dto.salary_revision,
           currentCompensation,
           manager,
+          savedOverridesKept,
         );
       changes.push({
         field: EmployeeMovementFieldEnum.BASE_SALARY,
@@ -821,14 +851,30 @@ export class EmployeeMovementsService {
     return '';
   }
 
+  /**
+   * Saved values fill in what the update leaves out. A salary_revision that
+   * omits component_overrides keeps the overrides saved on the movement, so
+   * an edit made without the overrides editor cannot silently drop them.
+   */
   private mergeUpdateDto(
     movement: EmployeeMovement,
     dto: UpdateEmployeeMovementDto,
-  ): CreateEmployeeMovementDto {
-    return {
-      ...this.dtoFromMovement(movement),
-      ...dto,
-    };
+  ): { mergedDto: CreateEmployeeMovementDto; savedOverridesKept: boolean } {
+    const saved = this.dtoFromMovement(movement);
+    const mergedDto: CreateEmployeeMovementDto = { ...saved, ...dto };
+    const savedOverrides = saved.salary_revision?.component_overrides;
+    if (
+      dto.salary_revision &&
+      dto.salary_revision.component_overrides === undefined &&
+      savedOverrides !== undefined
+    ) {
+      mergedDto.salary_revision = {
+        ...dto.salary_revision,
+        component_overrides: savedOverrides,
+      };
+      return { mergedDto, savedOverridesKept: true };
+    }
+    return { mergedDto, savedOverridesKept: false };
   }
 
   private assertMovementCanBeEdited(movement: EmployeeMovement): void {
@@ -1122,7 +1168,10 @@ export class EmployeeMovementsService {
       const movement = await this.lockMovement(companyId, movementId, manager);
       this.assertMovementCanBeEdited(movement);
 
-      const mergedDto = this.mergeUpdateDto(movement, dto);
+      const { mergedDto, savedOverridesKept } = this.mergeUpdateDto(
+        movement,
+        dto,
+      );
       this.validateFieldsForType(mergedDto);
 
       const employee = await manager
@@ -1222,6 +1271,7 @@ export class EmployeeMovementsService {
         mergedDto,
         currentSnapshot,
         manager,
+        savedOverridesKept,
       );
 
       return repository.findOneOrFail({
@@ -2081,9 +2131,10 @@ export class EmployeeMovementsService {
         salaryStructureCode,
         movement.effectiveDate,
         manager,
+        true,
       );
       componentOverrides = target
-        ? fitSalaryOverridesToStructure(sourceOverrides, target.componentCodes)
+        ? fitSalaryOverridesToStructure(sourceOverrides, target.components)
         : sourceOverrides;
     }
 

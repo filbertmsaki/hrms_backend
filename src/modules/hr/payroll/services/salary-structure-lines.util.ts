@@ -68,13 +68,24 @@ export type SalaryOverrideInput = {
   excluded?: boolean;
 };
 
+/** The component facts override validation needs, keyed by component code. */
+export type OverridableComponents = Map<
+  string,
+  Pick<PayrollComponent, 'allowNegativeAmount'>
+>;
+
+/** Same range structure lines accept for default_rate. */
+const MAX_OVERRIDE_RATE = 1000;
+
 /**
- * Validates employee overrides against the component codes of a salary
- * structure and returns them keyed by code, or null when there are none.
+ * Validates employee overrides against the components of a salary structure
+ * and returns them keyed by code, or null when there are none. Amounts and
+ * rates follow the same rules as structure lines: no negative amount unless
+ * the component allows it, and a rate between 0 and 1000 percent.
  */
 export function normalizeSalaryOverrideInputs(
   overrides: SalaryOverrideInput[],
-  structureComponentCodes: Set<string>,
+  structureComponents: OverridableComponents,
   structureCode: string,
 ): Record<string, SalaryComponentOverride> | null {
   const result: Record<string, SalaryComponentOverride> = {};
@@ -85,7 +96,8 @@ export function normalizeSalaryOverrideInputs(
         'BASIC cannot be overridden; change the base salary instead.',
       );
     }
-    if (!structureComponentCodes.has(code)) {
+    const component = structureComponents.get(code);
+    if (!component) {
       throw new BadRequestException(
         `${code} is not part of salary structure ${structureCode}.`,
       );
@@ -97,6 +109,25 @@ export function normalizeSalaryOverrideInputs(
       throw new BadRequestException(
         `Override for ${code} needs an amount, a rate, or excluded=true.`,
       );
+    }
+    if (hasValue(item.amount)) {
+      const amount = Number(item.amount);
+      if (!Number.isFinite(amount)) {
+        throw new BadRequestException(`${code} override amount is invalid.`);
+      }
+      if (amount < 0 && !component.allowNegativeAmount) {
+        throw new BadRequestException(
+          `${code} does not allow negative amounts.`,
+        );
+      }
+    }
+    if (hasValue(item.rate)) {
+      const rate = Number(item.rate);
+      if (!Number.isFinite(rate) || rate < 0 || rate > MAX_OVERRIDE_RATE) {
+        throw new BadRequestException(
+          `${code} override rate must be a percentage between 0 and ${MAX_OVERRIDE_RATE}.`,
+        );
+      }
     }
     result[code] = {
       amount: hasValue(item.amount) ? item.amount : null,
@@ -113,7 +144,7 @@ export function normalizeSalaryOverrideInputs(
  */
 export function fitSalaryOverridesToStructure(
   overrides: Record<string, SalaryComponentOverride> | null | undefined,
-  structureComponentCodes: Set<string>,
+  structureComponentCodes: { has(code: string): boolean },
 ): Record<string, SalaryComponentOverride> | null {
   if (!overrides) return null;
   const kept = Object.entries(overrides).filter(
@@ -128,9 +159,10 @@ export function fitSalaryOverridesToStructure(
  * one employee.
  *
  * - BASIC is skipped: base pay is taken from the compensation record.
- * - An override amount wins; otherwise a rate (override or default) is applied
- *   as a percentage of base salary when the component is PERCENTAGE_OF_BASE or
- *   the line has no fixed amount; otherwise the default amount is used.
+ * - An override amount wins, then an override rate (a percentage of base
+ *   salary on any line). Without overrides, the line's default rate applies
+ *   when the component is PERCENTAGE_OF_BASE or the line has no fixed amount;
+ *   otherwise the default amount is used.
  * - Components subject to proration use the same ratio as base pay.
  * - Components listed in `replacedComponentCodes` (approved employee inputs for
  *   the period) are skipped so the input replaces the recurring amount.
@@ -192,19 +224,24 @@ export function buildSalaryStructureLines(args: {
 
     const overrideAmount = override?.amount;
     const overrideRate = override?.rate;
-    const rate = hasValue(overrideRate) ? overrideRate : line.defaultRate;
+    let rate: string | null = null;
     let basis: 'OVERRIDE_AMOUNT' | 'RATE_OF_BASE' | 'DEFAULT_AMOUNT';
     let fullAmount: string;
     if (hasValue(overrideAmount)) {
       basis = 'OVERRIDE_AMOUNT';
       fullAmount = PayrollMoney.add(overrideAmount);
+    } else if (hasValue(overrideRate)) {
+      basis = 'RATE_OF_BASE';
+      rate = overrideRate;
+      fullAmount = PayrollMoney.multiplyPercent(args.baseSalary, overrideRate);
     } else if (
-      hasValue(rate) &&
+      hasValue(line.defaultRate) &&
       (component.calculationMethod ===
         PayrollCalculationMethodEnum.PERCENTAGE_OF_BASE ||
         PayrollMoney.toCents(line.defaultAmount) === 0n)
     ) {
       basis = 'RATE_OF_BASE';
+      rate = line.defaultRate;
       fullAmount = PayrollMoney.multiplyPercent(args.baseSalary, rate);
     } else {
       basis = 'DEFAULT_AMOUNT';

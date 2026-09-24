@@ -1756,14 +1756,14 @@ export function normalizeSalaryOverrides(
   resolved: ResolvedSalaryStructure,
 ): Record<string, SalaryComponentOverride> | null {
   if (!overrides?.length) return null;
-  const codes = new Set(
-    resolved.lines
-      .map((line) => resolved.componentsById.get(line.componentId)?.code)
-      .filter(Boolean) as string[],
-  );
+  const components = new Map<string, PayrollComponent>();
+  for (const line of resolved.lines) {
+    const component = resolved.componentsById.get(line.componentId);
+    if (component) components.set(component.code, component);
+  }
   return normalizeSalaryOverrideInputs(
     overrides,
-    codes,
+    components,
     resolved.structure.code,
   );
 }

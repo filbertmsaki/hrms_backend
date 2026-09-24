@@ -1053,6 +1053,91 @@ describe('EmployeeMovementsService', () => {
       ).rejects.toThrow('TRANSPORT is not part of salary structure');
     });
 
+    it('keeps overrides saved on the movement when an edit omits them', () => {
+      const merge = (
+        service as unknown as {
+          mergeUpdateDto: (
+            movement: unknown,
+            dto: unknown,
+          ) => {
+            mergedDto: { salary_revision?: Record<string, unknown> };
+            savedOverridesKept: boolean;
+          };
+        }
+      ).mergeUpdateDto.bind(service);
+      const savedMovement = {
+        ...salaryMovement,
+        movementType: EmployeeMovementTypeEnum.SALARY_REVISION,
+        title: 'Raise',
+        reason: 'Annual review',
+        changes: [
+          {
+            field: EmployeeMovementFieldEnum.BASE_SALARY,
+            newValue: {
+              amount: '2500000.00',
+              currency: 'TZS',
+              component_overrides: {
+                HOUSING: { amount: '500000.00', rate: null, excluded: false },
+              },
+              justification: 'Annual review',
+            },
+          },
+        ],
+      };
+
+      const kept = merge(savedMovement, {
+        salary_revision: {
+          base_salary: '2600000.00',
+          currency: 'TZS',
+          component_overrides: undefined,
+          justification: 'Fixed justification',
+        },
+      });
+      expect(kept.savedOverridesKept).toBe(true);
+      expect(kept.mergedDto.salary_revision).toMatchObject({
+        base_salary: '2600000.00',
+        component_overrides: [
+          { component_code: 'HOUSING', amount: '500000.00' },
+        ],
+      });
+
+      const replaced = merge(savedMovement, {
+        salary_revision: {
+          base_salary: '2600000.00',
+          currency: 'TZS',
+          component_overrides: [],
+          justification: 'Clear overrides',
+        },
+      });
+      expect(replaced.savedOverridesKept).toBe(false);
+      expect(replaced.mergedDto.salary_revision?.component_overrides).toEqual(
+        [],
+      );
+    });
+
+    it('treats component_overrides: null as a clear instead of crashing', async () => {
+      const { manager, changeRepo } = buildManager({ ...currentCompensation });
+
+      await internals().createMovementChanges(
+        salaryMovement,
+        {
+          salary_revision: {
+            base_salary: '2500000.00',
+            currency: 'TZS',
+            component_overrides: null,
+            justification: 'Reset allowances',
+          },
+        },
+        {},
+        manager,
+      );
+
+      const [[changes]] = changeRepo.save.mock.calls as Array<
+        [Array<{ newValue: Record<string, unknown> }>]
+      >;
+      expect(changes[0].newValue).toHaveProperty('component_overrides', null);
+    });
+
     it('rejects a structure with no active version on the effective date', async () => {
       const { manager } = buildManager({ ...currentCompensation });
 
