@@ -19,6 +19,7 @@ describe('EmployeeSelfServiceController', () => {
     getProfilePhoto: jest.Mock;
     getStatus: jest.Mock;
     selectProfileAvatar: jest.Mock;
+    uploadProfilePhoto: jest.Mock;
   };
   let profileChangeRequestsService: {
     createProfilePhotoRequest: jest.Mock;
@@ -57,6 +58,7 @@ describe('EmployeeSelfServiceController', () => {
       getProfilePhoto: jest.fn(),
       getStatus: jest.fn(),
       selectProfileAvatar: jest.fn(),
+      uploadProfilePhoto: jest.fn(),
     };
     profileChangeRequestsService = {
       createProfilePhotoRequest: jest.fn(),
@@ -322,6 +324,79 @@ describe('EmployeeSelfServiceController', () => {
       user,
       { default_avatar_id: 8 },
     );
+  });
+
+  it('applies HR profile photo uploads immediately without an approval request', async () => {
+    const hrUser = { ...user, roles: ['HR_MANAGER'] };
+    const file = {
+      originalname: 'hr-avatar.png',
+      mimetype: 'image/png',
+      size: 128,
+      buffer: Buffer.from('png'),
+    };
+    employeeSelfServiceService.uploadProfilePhoto.mockResolvedValue({
+      profile_photo_url:
+        '/uploads/profile-photos/company-7/employee-15-avatar.png',
+    });
+
+    await expect(
+      controller.uploadProfilePhoto(
+        {
+          user: hrUser,
+          headers: {},
+        } as unknown as ExpressRequest & { user: AuthenticatedUser },
+        file,
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        approval_required: false,
+        applied_immediately: true,
+      }),
+    );
+
+    expect(employeeSelfServiceService.uploadProfilePhoto).toHaveBeenCalledWith(
+      hrUser,
+      file,
+    );
+    expect(
+      profileChangeRequestsService.createProfilePhotoRequest,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('submits non-HR profile photo uploads for HR approval', async () => {
+    const file = {
+      originalname: 'staff-avatar.png',
+      mimetype: 'image/png',
+      size: 128,
+      buffer: Buffer.from('png'),
+    };
+    profileChangeRequestsService.createProfilePhotoRequest.mockResolvedValue({
+      id: 42,
+      status: 'SUBMITTED',
+    });
+
+    await expect(
+      controller.uploadProfilePhoto(
+        {
+          user,
+          headers: {},
+        } as unknown as ExpressRequest & { user: AuthenticatedUser },
+        file,
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: 42,
+        approval_required: true,
+        applied_immediately: false,
+      }),
+    );
+
+    expect(
+      profileChangeRequestsService.createProfilePhotoRequest,
+    ).toHaveBeenCalledWith(user, file, expect.any(Object));
+    expect(
+      employeeSelfServiceService.uploadProfilePhoto,
+    ).not.toHaveBeenCalled();
   });
 
   it('routes self-service movement list and detail through employee-scoped calls', async () => {

@@ -39,6 +39,15 @@ export class CompanyUser {
   @Column({ type: 'timestamp', nullable: true })
   last_accessed_at: Date | null;
 
+  @Column({ type: 'text', nullable: true })
+  profile_photo_url: string | null;
+
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  profile_image_source: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  default_avatar_id: number | null;
+
   @CreateDateColumn()
   created_at: Date;
 

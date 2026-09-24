@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Query,
   Req,
@@ -23,6 +24,7 @@ import {
   CreateManagerActivityTaskDto,
   CreateDailyActivityCommentDto,
   ReviewDailyActivityReportDto,
+  UpdateDailyActivityEntryDto,
 } from '../dto/activity.dto';
 import { WorkActivityQueryDto } from '../dto/queries.dto';
 import { ActivityPolicyService } from '../services/activity-policy.service';
@@ -118,6 +120,20 @@ export class ManagerActivitiesController {
     @Body() dto: CreateDailyActivityCommentDto,
   ) {
     return this.dailyActivityService.addManagerComment(req.user, entryId, dto);
+  }
+
+  @Patch('entries/:entryId/schedule')
+  @Permissions('work_activities:manager:review')
+  updateEntrySchedule(
+    @Req() req: AuthedRequest,
+    @Param('entryId', ParseIntPipe) entryId: number,
+    @Body() dto: UpdateDailyActivityEntryDto,
+  ) {
+    return this.dailyActivityService.updateManagerEntrySchedule(
+      req.user,
+      entryId,
+      dto,
+    );
   }
 
   @Get('reports/:id')

@@ -10,10 +10,13 @@ import {
   Post,
   Query,
   Req,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request as ExpressRequest } from 'express';
 
 import { CurrentAuditContext } from '../../common/decorators/audit-request-context.decorator';
@@ -84,6 +87,45 @@ export class UsersController {
     );
   }
 
+  @Post('me/profile-photo')
+  @ApiOperationSummary(
+    'Upload my account profile picture',
+    'Uploads a profile picture for a company account that is not linked to an employee record.',
+    'Users_uploadMyAccountProfilePhoto',
+  )
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file'],
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }),
+  )
+  @ApiAuthRequired()
+  @ApiSuccessResponse(201, 'Profile picture uploaded successfully')
+  uploadMyAccountProfilePhoto(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @UploadedFile()
+    file?: {
+      originalname: string;
+      mimetype: string;
+      size: number;
+      buffer: Buffer;
+    },
+  ) {
+    if (!file) {
+      throw new BadRequestException('Profile picture file is required.');
+    }
+    return this.usersService.uploadMyAccountProfilePhoto(
+      req.user.companyId!,
+      req.user.id,
+      file,
+    );
+  }
+
   @Get('me/available-avatars')
   @ApiOperationSummary(
     'List my available avatars',
@@ -131,12 +173,6 @@ export class UsersController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: SelectUserAvatarDto,
   ) {
-    if (req.user.employeeId) {
-      throw new BadRequestException(
-        'Employees must use /me/profile/avatar to manage their default avatar selection.',
-      );
-    }
-
     return this.usersService.updateMySelectedAvatar(
       req.user.companyId!,
       req.user.id,

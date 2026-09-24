@@ -28,6 +28,14 @@ import { User } from './entities/user.entity';
 import { DefaultAvatarsService } from '../hr/default-avatars/default-avatars.service';
 import { Employee } from '../hr/employees/entities/employee.entity';
 import { ProfileImageSourceEnum } from '../hr/employees/enums/profile-image-source.enum';
+import { FilesService } from '../files/files.service';
+
+type UploadedAccountProfilePhoto = {
+  originalname: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+};
 
 type EmployeeImportAccountResult = {
   user: User;
@@ -56,6 +64,7 @@ export class UsersService {
     private readonly defaultAvatarsService: DefaultAvatarsService,
     private readonly authSessionsService: AuthSessionsService,
     private readonly configService: ConfigService,
+    private readonly filesService?: FilesService,
   ) {}
 
   private extractRoleIds(
@@ -289,6 +298,27 @@ export class UsersService {
       membership,
       employee,
     };
+  }
+
+  private async findCompanyMembershipWithOptionalEmployee(
+    userId: number,
+    companyId: number,
+  ): Promise<{ membership: CompanyUser; employee: Employee | null }> {
+    try {
+      return await this.findCompanyEmployeeOrFail(userId, companyId);
+    } catch (error) {
+      if (!(error instanceof NotFoundException)) {
+        throw error;
+      }
+      const membership = await this.findActiveMembershipWithDetails(
+        userId,
+        companyId,
+      );
+      if (!membership) {
+        throw error;
+      }
+      return { membership, employee: membership.employee ?? null };
+    }
   }
 
   private readEmployeeImportAccountMetadata(
@@ -709,7 +739,17 @@ export class UsersService {
     const resolvedAvatar =
       await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
         companyId,
-        membership?.employee,
+        membership?.employee ??
+          (membership
+            ? {
+                id: membership.id,
+                profile_photo_url: membership.profile_photo_url,
+                profile_image_source:
+                  membership.profile_image_source as ProfileImageSourceEnum | null,
+                default_avatar_id: membership.default_avatar_id,
+                gender: null,
+              }
+            : null),
       );
 
     return new UserProfileDto({
@@ -796,7 +836,17 @@ export class UsersService {
     const resolvedAvatar =
       await this.defaultAvatarsService.resolveEmployeeProfileAvatar(
         companyId,
-        membership?.employee,
+        membership?.employee ??
+          (membership
+            ? {
+                id: membership.id,
+                profile_photo_url: membership.profile_photo_url,
+                profile_image_source:
+                  membership.profile_image_source as ProfileImageSourceEnum | null,
+                default_avatar_id: membership.default_avatar_id,
+                gender: null,
+              }
+            : null),
       );
 
     return new UserProfileDto({
@@ -862,14 +912,14 @@ export class UsersService {
   }
 
   async listMyAvailableAvatars(companyId: number, userId: number) {
-    const { employee } = await this.findCompanyEmployeeOrFail(
+    const { membership } = await this.findCompanyMembershipWithOptionalEmployee(
       userId,
       companyId,
     );
 
     return this.defaultAvatarsService.listAvailableForGender(
       companyId,
-      employee.gender,
+      membership.employee?.gender ?? null,
     );
   }
 
@@ -878,22 +928,27 @@ export class UsersService {
     userId: number,
     avatarId: number,
   ): Promise<UserProfileDto> {
-    const { employee } = await this.findCompanyEmployeeOrFail(
-      userId,
-      companyId,
-    );
+    const { membership, employee } =
+      await this.findCompanyMembershipWithOptionalEmployee(userId, companyId);
     const selectedAvatar =
       await this.defaultAvatarsService.assertAvatarAvailableForEmployee(
         companyId,
         avatarId,
-        employee.gender,
+        employee?.gender ?? null,
       );
 
-    employee.default_avatar_id = selectedAvatar.id;
-    employee.default_avatar = selectedAvatar;
-    employee.profile_image_source = ProfileImageSourceEnum.DEFAULT_AVATAR;
-
-    await this.employeeRepository.save(employee);
+    if (employee) {
+      employee.default_avatar_id = selectedAvatar.id;
+      employee.default_avatar = selectedAvatar;
+      employee.profile_image_source = ProfileImageSourceEnum.DEFAULT_AVATAR;
+      await this.employeeRepository.save(employee);
+    } else {
+      membership.default_avatar_id = selectedAvatar.id;
+      membership.profile_image_source = ProfileImageSourceEnum.DEFAULT_AVATAR;
+      await this.userRepository.manager
+        .getRepository(CompanyUser)
+        .save(membership);
+    }
 
     return this.findMyProfileById(userId, companyId);
   }
@@ -927,20 +982,76 @@ export class UsersService {
     companyId: number,
     userId: number,
   ): Promise<UserProfileDto> {
-    const { employee } = await this.findCompanyEmployeeOrFail(
+    const { membership, employee } =
+      await this.findCompanyMembershipWithOptionalEmployee(userId, companyId);
+
+    if (employee) {
+      employee.default_avatar_id = null;
+      employee.default_avatar = null;
+      employee.profile_image_source = employee.profile_photo_url
+        ? ProfileImageSourceEnum.UPLOADED
+        : null;
+      await this.employeeRepository.save(employee);
+    } else {
+      membership.default_avatar_id = null;
+      membership.profile_image_source = membership.profile_photo_url
+        ? ProfileImageSourceEnum.UPLOADED
+        : null;
+      await this.userRepository.manager
+        .getRepository(CompanyUser)
+        .save(membership);
+    }
+
+    return this.findMyProfileById(userId, companyId);
+  }
+
+  async uploadMyAccountProfilePhoto(
+    companyId: number,
+    userId: number,
+    file: UploadedAccountProfilePhoto,
+  ): Promise<UserProfileDto> {
+    const membership = await this.findActiveMembershipWithDetails(
       userId,
       companyId,
     );
+    if (!membership) {
+      throw new NotFoundException('Active company membership not found');
+    }
+    if (membership.employee) {
+      throw new BadRequestException(
+        'Employee accounts must use /me/profile/photo so the correct approval policy is applied.',
+      );
+    }
 
-    employee.default_avatar_id = null;
-    employee.default_avatar = null;
-    employee.profile_image_source = employee.profile_photo_url
-      ? ProfileImageSourceEnum.UPLOADED
-      : null;
+    if (!this.filesService) {
+      throw new Error('Profile photo storage is unavailable.');
+    }
 
-    await this.employeeRepository.save(employee);
+    const storedFile = await this.filesService.saveBufferFile({
+      buffer: file.buffer,
+      fileName: file.originalname,
+      fileSize: file.size,
+      mimeType: file.mimetype,
+      directorySegments: ['profile-photos', `company-${companyId}`],
+      fileNamePrefix: `user-${userId}`,
+      allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+      maxFileSizeBytes: 5 * 1024 * 1024,
+      validateFileSignature: true,
+    });
 
-    return this.findMyProfileById(userId, companyId);
+    const previousPath = membership.profile_photo_url;
+    try {
+      membership.profile_photo_url = storedFile.publicPath;
+      membership.profile_image_source = ProfileImageSourceEnum.UPLOADED;
+      await this.userRepository.manager
+        .getRepository(CompanyUser)
+        .save(membership);
+      await this.filesService.removeManagedFile(previousPath);
+      return this.findMyProfileById(userId, companyId);
+    } catch (error) {
+      await this.filesService.removeManagedFile(storedFile.publicPath);
+      throw error;
+    }
   }
 
   async clearUserSelectedAvatar(

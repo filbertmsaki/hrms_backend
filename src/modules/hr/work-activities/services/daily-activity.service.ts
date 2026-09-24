@@ -1178,6 +1178,70 @@ export class DailyActivityService {
     return this.getReportResponse(report);
   }
 
+  async updateManagerEntrySchedule(
+    actor: AuthenticatedUser,
+    entryId: number,
+    dto: UpdateDailyActivityEntryDto,
+  ) {
+    const entry = await this.entryRepository.findOne({
+      where: { id: entryId, companyId: this.getCompanyId(actor) },
+    });
+    if (!entry) {
+      throw new NotFoundException('Daily activity entry not found.');
+    }
+
+    const report = await this.getManagerAccessibleReport(
+      actor,
+      entry.dailyActivityReportId,
+    );
+    await this.ensureEditableReport(report);
+    if (
+      !this.isManagerAssignedTaskRow(
+        entry as unknown as Record<string, unknown>,
+      )
+    ) {
+      throw new ForbiddenException(
+        'Only manager-assigned work can be rescheduled here.',
+      );
+    }
+
+    const start = dto.planned_start_time
+      ? new Date(dto.planned_start_time)
+      : entry.plannedStartTime;
+    const end = dto.planned_end_time
+      ? new Date(dto.planned_end_time)
+      : entry.plannedEndTime;
+    if (
+      !start ||
+      !end ||
+      Number.isNaN(start.getTime()) ||
+      Number.isNaN(end.getTime())
+    ) {
+      throw new BadRequestException('Choose a valid start and end time.');
+    }
+    if (end.getTime() <= start.getTime()) {
+      throw new BadRequestException('End time must be later than start time.');
+    }
+
+    entry.plannedStartTime = start;
+    entry.plannedEndTime = end;
+    await this.entryRepository.save(entry);
+
+    await this.auditService.log({
+      action: 'DAILY_ACTIVITY_RESCHEDULED',
+      actor,
+      employeeId: report.employeeId,
+      entityType: 'DAILY_ACTIVITY_ENTRY',
+      entityId: entry.id,
+      afterValues: {
+        planned_start_time: start,
+        planned_end_time: end,
+      },
+    });
+
+    return this.getReportResponse(report);
+  }
+
   private async notifyManagerOfChecklistUpdate(
     actor: AuthenticatedUser,
     report: DailyActivityReport,

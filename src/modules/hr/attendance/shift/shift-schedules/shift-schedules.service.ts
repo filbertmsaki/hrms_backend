@@ -36,6 +36,39 @@ export class ShiftSchedulesService {
     private readonly holidayRepository: Repository<AttendanceHoliday>,
   ) {}
 
+  private currentDateOnly(): string {
+    const timezone =
+      process.env.APP_TIMEZONE ||
+      process.env.DEFAULT_TIMEZONE ||
+      process.env.TZ ||
+      'Africa/Dar_es_Salaam';
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+    const read = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find((part) => part.type === type)?.value ?? '';
+    return `${read('year')}-${read('month')}-${read('day')}`;
+  }
+
+  private ensureScheduleIsNotInPast(scheduleDate: string): void {
+    if (scheduleDate.slice(0, 10) < this.currentDateOnly()) {
+      throw new BadRequestException(
+        'Shift schedules cannot be created or changed for previous days',
+      );
+    }
+  }
+
+  private ensureScheduleCanBeRemoved(scheduleDate: string): void {
+    if (scheduleDate.slice(0, 10) <= this.currentDateOnly()) {
+      throw new BadRequestException(
+        'Only future shift schedules that have not started can be removed',
+      );
+    }
+  }
+
   private async ensureShift(
     companyId: number,
     shiftId?: number | null,
@@ -127,6 +160,7 @@ export class ShiftSchedulesService {
   async create(companyId: number, dto: CreateShiftScheduleDto) {
     const { effectiveFrom, effectiveTo } = this.resolveEffectiveRange(dto);
     const resolvedShiftId = dto.override_shift_id ?? dto.shift_id ?? null;
+    this.ensureScheduleIsNotInPast(dto.schedule_date ?? effectiveFrom);
 
     await this.ensureEmployee(companyId, dto.employee_id);
     await this.ensureShift(companyId, resolvedShiftId);
@@ -238,6 +272,7 @@ export class ShiftSchedulesService {
 
   async update(companyId: number, id: number, dto: UpdateShiftScheduleDto) {
     const item = await this.findOrFail(companyId, id);
+    this.ensureScheduleIsNotInPast(item.scheduleDate ?? item.effectiveFrom);
     const employeeId = dto.employee_id ?? item.employeeId;
     const { effectiveFrom, effectiveTo } = this.resolveEffectiveRange({
       schedule_date: dto.schedule_date ?? item.scheduleDate,
@@ -247,6 +282,7 @@ export class ShiftSchedulesService {
     });
     const scheduleDate =
       dto.schedule_date ?? item.scheduleDate ?? effectiveFrom;
+    this.ensureScheduleIsNotInPast(scheduleDate);
     const resolvedShiftId =
       dto.override_shift_id !== undefined
         ? (dto.override_shift_id ?? dto.shift_id ?? item.shiftId)
@@ -293,6 +329,7 @@ export class ShiftSchedulesService {
 
   async remove(companyId: number, id: number): Promise<{ message: string }> {
     const item = await this.findOrFail(companyId, id);
+    this.ensureScheduleCanBeRemoved(item.scheduleDate ?? item.effectiveFrom);
     await this.shiftScheduleRepository.remove(item);
     return { message: 'Shift schedule deleted successfully' };
   }

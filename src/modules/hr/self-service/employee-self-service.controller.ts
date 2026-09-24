@@ -188,7 +188,10 @@ export class EmployeeSelfServiceController {
   }
 
   @Post('profile/photo')
-  @ApiOperation({ summary: 'Submit my profile picture for approval' })
+  @ApiOperation({
+    summary:
+      'Upload my profile picture (HR uploads apply immediately; other uploads require HR approval)',
+  })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -209,7 +212,7 @@ export class EmployeeSelfServiceController {
       },
     }),
   )
-  uploadProfilePhoto(
+  async uploadProfilePhoto(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @UploadedFile()
     file?: {
@@ -233,11 +236,29 @@ export class EmployeeSelfServiceController {
       throw new BadRequestException('Uploaded profile picture is empty.');
     }
 
-    return this.profileChangeRequestsService.createProfilePhotoRequest(
-      req.user,
-      file,
-      this.buildRequestContext(req),
-    );
+    if (this.isHumanResourcesActor(req.user)) {
+      const result = await this.employeeSelfServiceService.uploadProfilePhoto(
+        req.user,
+        file,
+      );
+      return {
+        ...result,
+        approval_required: false,
+        applied_immediately: true,
+      };
+    }
+
+    const result =
+      await this.profileChangeRequestsService.createProfilePhotoRequest(
+        req.user,
+        file,
+        this.buildRequestContext(req),
+      );
+    return {
+      ...result,
+      approval_required: true,
+      applied_immediately: false,
+    };
   }
 
   @Get('profile/avatar-options')
@@ -700,6 +721,23 @@ export class EmployeeSelfServiceController {
     @Query() query: TeamAttendanceQueryDto,
   ) {
     return this.employeeSelfServiceService.getMyTeamAttendance(req.user, query);
+  }
+
+  private isHumanResourcesActor(actor: AuthenticatedUser): boolean {
+    return (actor.roles ?? []).some((role) => {
+      const normalized = role
+        .trim()
+        .toUpperCase()
+        .replace(/[\s-]+/g, '_');
+
+      return (
+        normalized === 'HR' ||
+        normalized.startsWith('HR_') ||
+        normalized.includes('HUMAN_RESOURCE') ||
+        normalized.includes('PEOPLE_OPERATIONS') ||
+        normalized.includes('PEOPLE_OPS')
+      );
+    });
   }
 
   private buildAbsoluteUrl(
