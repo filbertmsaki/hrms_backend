@@ -26,12 +26,14 @@ import {
   PayrollBankingController,
   PayrollConfigurationController,
   PayrollInputsController,
-  PayrollOvertimeApprovalsController,
   PayrollReportsController,
   PayrollRunsController,
   PayrollSourcesController,
   PayslipsController,
 } from './controllers/payroll.controllers';
+import { PayrollOvertimeRequestsController } from './controllers/payroll-overtime-requests.controller';
+import { PayrollOvertimeRequest } from './entities/payroll-overtime-request.entity';
+import { PayrollOvertimeRequestService } from './services/payroll-overtime-request.service';
 import { EmployeePayrollProfile } from './entities/employee-payroll-profile.entity';
 import {
   PayrollAccountingMapping,
@@ -74,13 +76,13 @@ import {
 import {
   EmployeePayrollCalculationService,
   EmployeePayrollProfileService,
+  EmployeeSalaryService,
   PayrollAccountingService,
   PayrollAuditService,
   PayrollBankService,
   PayrollConfigurationService,
   PayrollFinalSettlementService,
   PayrollInputService,
-  PayrollOvertimeApprovalService,
   PayrollProrationService,
   PayrollReconciliationService,
   PayrollReportsService,
@@ -88,6 +90,7 @@ import {
   PayrollSourceService,
   PayslipService,
   ProgressiveTaxService,
+  SalaryStructureResolver,
   StatutoryCalculationService,
 } from './services/payroll-core.services';
 
@@ -119,6 +122,7 @@ import {
       PayrollGroup,
       PayrollGroupAssignment,
       PayrollOvertimePolicy,
+      PayrollOvertimeRequest,
       PayrollBonusScheme,
       PayrollLeaveRule,
       PayrollJournalBatch,
@@ -153,7 +157,7 @@ import {
     EmployeePayrollController,
     PayrollInputsController,
     PayrollSourcesController,
-    PayrollOvertimeApprovalsController,
+    PayrollOvertimeRequestsController,
     PayrollRunsController,
     PayslipsController,
     MyPayslipsController,
@@ -163,11 +167,13 @@ import {
   ],
   providers: [
     PayrollAuditService,
+    SalaryStructureResolver,
     EmployeePayrollProfileService,
+    EmployeeSalaryService,
     PayrollConfigurationService,
     PayrollInputService,
     PayrollSourceService,
-    PayrollOvertimeApprovalService,
+    PayrollOvertimeRequestService,
     PayrollProrationService,
     ProgressiveTaxService,
     StatutoryCalculationService,

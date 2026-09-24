@@ -1,9 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Query,
   Req,
@@ -18,6 +20,11 @@ import { TenantGuard } from '../../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import {
   ApprovePayrollRunDto,
+  AssignEmployeeSalaryDto,
+  CreateSalaryStructureVersionDto,
+  EmployeeSalaryPreviewQueryDto,
+  SalaryStructureQueryDto,
+  UpdateSalaryStructureDto,
   CreatePayrollAccountingMappingDto,
   CreatePayrollAdjustmentDto,
   CreatePayrollBonusSchemeDto,
@@ -48,6 +55,7 @@ import {
 } from '../dto/payroll.dto';
 import {
   EmployeePayrollProfileService,
+  EmployeeSalaryService,
   PayrollAccountingService,
   PayrollBankService,
   PayrollConfigurationService,
@@ -96,8 +104,11 @@ export class PayrollConfigurationController {
 
   @Get('salary-structures')
   @Permissions('payroll:config:read')
-  listStructures(@Req() req: AuthedRequest) {
-    return this.service.listStructures(req.user);
+  listStructures(
+    @Req() req: AuthedRequest,
+    @Query() query: SalaryStructureQueryDto,
+  ) {
+    return this.service.listStructures(req.user, query);
   }
 
   @Get('salary-structures/:id')
@@ -107,6 +118,62 @@ export class PayrollConfigurationController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.service.getStructure(req.user, id);
+  }
+
+  @Patch('salary-structures/:id')
+  @Permissions('payroll:config')
+  updateStructure(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateSalaryStructureDto,
+  ) {
+    return this.service.updateStructure(req.user, id, dto);
+  }
+
+  @Delete('salary-structures/:id')
+  @Permissions('payroll:config')
+  deleteStructure(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.service.deleteStructure(req.user, id);
+  }
+
+  @Post('salary-structures/:id/activate')
+  @Permissions('payroll:config')
+  activateStructure(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.service.activateStructure(req.user, id);
+  }
+
+  @Post('salary-structures/:id/retire')
+  @Permissions('payroll:config')
+  retireStructure(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.service.retireStructure(req.user, id);
+  }
+
+  @Post('salary-structures/:id/versions')
+  @Permissions('payroll:config')
+  createStructureVersion(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateSalaryStructureVersionDto,
+  ) {
+    return this.service.createStructureVersion(req.user, id, dto);
+  }
+
+  @Get('salary-structures/:id/employees')
+  @Permissions('payroll:config:read')
+  listStructureEmployees(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.service.listStructureEmployees(req.user, id);
   }
 
   @Post('calendars')
@@ -259,7 +326,34 @@ export class PayrollConfigurationController {
 @Controller('payroll/employees')
 @UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
 export class EmployeePayrollController {
-  constructor(private readonly service: EmployeePayrollProfileService) {}
+  constructor(
+    private readonly service: EmployeePayrollProfileService,
+    private readonly salaryService: EmployeeSalaryService,
+  ) {}
+
+  @Get(':employeeId/salary')
+  @Permissions('payroll:profiles:read')
+  getSalary(
+    @Req() req: AuthedRequest,
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Query() query: EmployeeSalaryPreviewQueryDto,
+  ) {
+    return this.salaryService.getEmployeeSalary(
+      req.user,
+      employeeId,
+      query.as_of,
+    );
+  }
+
+  @Post(':employeeId/salary')
+  @Permissions('payroll:profiles')
+  assignSalary(
+    @Req() req: AuthedRequest,
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Body() dto: AssignEmployeeSalaryDto,
+  ) {
+    return this.salaryService.assignInitialSalary(req.user, employeeId, dto);
+  }
 
   @Post('profiles')
   @Permissions('payroll:profiles')

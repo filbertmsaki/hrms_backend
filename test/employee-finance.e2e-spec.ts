@@ -37,6 +37,7 @@ import {
   PayrollRunApproval,
 } from '../src/modules/hr/payroll/entities/payroll-run.entities';
 import { EmployeePayrollProfile } from '../src/modules/hr/payroll/entities/employee-payroll-profile.entity';
+import { PayrollOvertimeRequest } from '../src/modules/hr/payroll/entities/payroll-overtime-request.entity';
 import {
   EmployeePayrollProfileService,
   EmployeePayrollCalculationService,
@@ -47,6 +48,7 @@ import {
   PayrollRunService,
   ProgressiveTaxService,
   StatutoryCalculationService,
+  SalaryStructureResolver,
 } from '../src/modules/hr/payroll/services/payroll-core.services';
 import {
   PayrollApprovalStageEnum,
@@ -352,12 +354,21 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       ),
       dataSource.getRepository(
         require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollGroupAssignment,
+      ),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
           .PayrollOvertimePolicy,
       ),
       dataSource.getRepository(
         require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
           .PayrollBonusScheme,
       ),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollLeaveRule,
+      ),
+      dataSource.getRepository(EmployeeCompensationVersion),
     );
     new PayrollInputService(
       hrAccessService,
@@ -478,6 +489,7 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       ),
       payrollInputRepository,
       dataSource.getRepository(AttendanceDailySummary),
+      dataSource.getRepository(PayrollOvertimeRequest),
       dataSource.getRepository(LeaveRequest),
       dataSource.getRepository(
         require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
@@ -502,6 +514,20 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       dataSource.getRepository(
         require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
           .PayrollLeaveRule,
+      ),
+      new SalaryStructureResolver(
+        dataSource.getRepository(
+          require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+            .SalaryStructure,
+        ),
+        dataSource.getRepository(
+          require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+            .SalaryStructureComponent,
+        ),
+        dataSource.getRepository(
+          require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+            .PayrollComponent,
+        ),
       ),
     );
     runService = new PayrollRunService(
@@ -707,7 +733,9 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
           movementId: null,
           baseSalary: '1000000.00',
           currency: 'TZS',
-          salaryStructureCode: 'STD-MONTHLY',
+          // Structure lines are covered by salary-structure-lines.util.spec;
+          // this suite asserts totals built from payroll inputs only.
+          salaryStructureCode: null,
           payFrequency: 'MONTHLY',
           effectiveFrom: '2026-01-01',
           effectiveTo: null,

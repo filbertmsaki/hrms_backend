@@ -19,7 +19,7 @@ import { FilesModule } from '../files/files.module';
     TypeOrmModule.forFeature([User, UserTwoFactorAuditLog, Employee]),
     AuthSessionsModule,
     FilesModule,
-    CompaniesModule,
+    forwardRef(() => CompaniesModule),
     DefaultAvatarsModule,
   ],
   controllers: [UsersController],

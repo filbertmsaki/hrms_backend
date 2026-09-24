@@ -37,6 +37,7 @@ import {
   Payslip,
 } from '../src/modules/hr/payroll/entities/payroll-run.entities';
 import { EmployeePayrollProfile } from '../src/modules/hr/payroll/entities/employee-payroll-profile.entity';
+import { PayrollOvertimeRequest } from '../src/modules/hr/payroll/entities/payroll-overtime-request.entity';
 import {
   EmployeePayrollProfileService,
   EmployeePayrollCalculationService,
@@ -48,6 +49,7 @@ import {
   PayslipService,
   ProgressiveTaxService,
   StatutoryCalculationService,
+  SalaryStructureResolver,
 } from '../src/modules/hr/payroll/services/payroll-core.services';
 import {
   EmployeePayrollResultStatusEnum,
@@ -250,12 +252,21 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
       ),
       dataSource.getRepository(
         require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollGroupAssignment,
+      ),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
           .PayrollOvertimePolicy,
       ),
       dataSource.getRepository(
         require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
           .PayrollBonusScheme,
       ),
+      dataSource.getRepository(
+        require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+          .PayrollLeaveRule,
+      ),
+      dataSource.getRepository(EmployeeCompensationVersion),
     );
     inputService = new PayrollInputService(
       hrAccessService,
@@ -295,6 +306,7 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
       ),
       payrollInputRepository,
       dataSource.getRepository(AttendanceDailySummary),
+      dataSource.getRepository(PayrollOvertimeRequest),
       dataSource.getRepository(LeaveRequest),
       dataSource.getRepository(
         require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
@@ -319,6 +331,20 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
       dataSource.getRepository(
         require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
           .PayrollLeaveRule,
+      ),
+      new SalaryStructureResolver(
+        dataSource.getRepository(
+          require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+            .SalaryStructure,
+        ),
+        dataSource.getRepository(
+          require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+            .SalaryStructureComponent,
+        ),
+        dataSource.getRepository(
+          require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
+            .PayrollComponent,
+        ),
       ),
     );
     runService = new PayrollRunService(
@@ -473,7 +499,9 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
           movementId: null,
           baseSalary: '1000000.00',
           currency: 'TZS',
-          salaryStructureCode: 'STD-MONTHLY',
+          // Structure lines are covered by salary-structure-lines.util.spec;
+          // this suite asserts totals built from payroll inputs only.
+          salaryStructureCode: null,
           payFrequency: 'MONTHLY',
           effectiveFrom: '2026-01-01',
           effectiveTo: null,

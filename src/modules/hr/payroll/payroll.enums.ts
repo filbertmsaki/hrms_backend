@@ -8,6 +8,12 @@ export enum PayrollComponentTypeEnum {
   INFORMATIONAL = 'INFORMATIONAL',
 }
 
+export enum SalaryStructureStatusEnum {
+  DRAFT = 'DRAFT',
+  ACTIVE = 'ACTIVE',
+  RETIRED = 'RETIRED',
+}
+
 export enum PayrollComponentFrequencyEnum {
   RECURRING = 'RECURRING',
   ONE_TIME = 'ONE_TIME',

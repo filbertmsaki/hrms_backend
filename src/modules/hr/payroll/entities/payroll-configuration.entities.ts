@@ -16,6 +16,7 @@ import {
   PayrollComponentTypeEnum,
   PayrollPeriodStatusEnum,
   PayrollTaxTreatmentEnum,
+  SalaryStructureStatusEnum,
   StatutorySchemeTypeEnum,
 } from '../payroll.enums';
 
@@ -148,6 +149,11 @@ export class PayrollComponent {
   'code',
   'versionNumber',
 ])
+@Index('IDX_salary_structure_company_code_status', [
+  'companyId',
+  'code',
+  'status',
+])
 export class SalaryStructure {
   @PrimaryGeneratedColumn()
   id: number;
@@ -160,6 +166,9 @@ export class SalaryStructure {
 
   @Column({ type: 'varchar', length: 180 })
   name: string;
+
+  @Column({ type: 'text', nullable: true })
+  description: string | null;
 
   @Column({ name: 'version_number', type: 'int', default: 1 })
   versionNumber: number;
@@ -176,8 +185,12 @@ export class SalaryStructure {
   @Column({ name: 'is_locked', default: false })
   isLocked: boolean;
 
-  @Column({ type: 'varchar', length: 30, default: 'DRAFT' })
-  status: string;
+  @Column({
+    type: 'varchar',
+    length: 30,
+    default: SalaryStructureStatusEnum.DRAFT,
+  })
+  status: SalaryStructureStatusEnum;
 
   @Column({ type: 'jsonb', nullable: true })
   metadata: Record<string, unknown> | null;

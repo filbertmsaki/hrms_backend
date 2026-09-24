@@ -16,6 +16,7 @@ import {
   PayrollComponentFrequencyEnum,
   PayrollComponentTypeEnum,
   PayrollTaxTreatmentEnum,
+  SalaryStructureStatusEnum,
   StatutorySchemeTypeEnum,
 } from '../../modules/hr/payroll/payroll.enums';
 import {
@@ -561,7 +562,7 @@ export default class PayrollBaselineSeeder implements Seeder {
           effectiveFrom: BASELINE_EFFECTIVE_FROM,
           effectiveTo: null,
           isLocked: false,
-          status: 'ACTIVE',
+          status: SalaryStructureStatusEnum.ACTIVE,
           metadata: { seeded: true, source: '038-payroll-baseline' },
           createdByCompanyUserId: null,
         });

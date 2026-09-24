@@ -22,6 +22,11 @@ import { Branch } from '../branches/entities/branch.entity';
 import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
 import { EmploymentTypeEnum } from '../employees/enums/employment-type.enum';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import {
+  PayrollComponent,
+  SalaryStructure,
+  SalaryStructureComponent,
+} from '../payroll/entities/payroll-configuration.entities';
 
 type MockRepo = Record<string, jest.Mock>;
 
@@ -839,6 +844,318 @@ describe('EmployeeMovementsService', () => {
       const result = await service.apply(actor, 1);
 
       expect(result.status).toBe(EmployeeMovementStatusEnum.APPLIED);
+    });
+  });
+
+  describe('salary revision — structure overrides', () => {
+    // STD-MONTHLY: HOUSING + TRANSPORT. MGMT-MONTHLY: HOUSING + CAR.
+    const structures: Record<string, { id: number; code: string }> = {
+      'STD-MONTHLY': { id: 1, code: 'STD-MONTHLY' },
+      'MGMT-MONTHLY': { id: 2, code: 'MGMT-MONTHLY' },
+    };
+    const componentIdsByStructure: Record<number, number[]> = {
+      1: [11, 12, 13],
+      2: [11, 12, 14],
+    };
+    const codeByComponentId: Record<number, string> = {
+      11: 'BASIC',
+      12: 'HOUSING',
+      13: 'TRANSPORT',
+      14: 'CAR',
+    };
+
+    type SalaryRevisionInternals = {
+      applySalaryRevision: (...args: unknown[]) => Promise<void>;
+      createMovementChanges: (...args: unknown[]) => Promise<void>;
+    };
+    const internals = () => service as unknown as SalaryRevisionInternals;
+
+    const buildManager = (
+      current: Partial<EmployeeCompensationVersion> | null,
+    ) => {
+      const structureRepo = createRepositoryMock();
+      structureRepo.findOne.mockImplementation(
+        ({ where }: { where: Array<{ code: string }> }) =>
+          Promise.resolve(structures[where[0].code] ?? null),
+      );
+      const lineRepo = createRepositoryMock();
+      lineRepo.find.mockImplementation(
+        ({ where }: { where: { salaryStructureId: number } }) =>
+          Promise.resolve(
+            componentIdsByStructure[where.salaryStructureId].map(
+              (componentId) => ({ componentId }),
+            ),
+          ),
+      );
+      const componentRepo = createRepositoryMock();
+      componentRepo.find.mockImplementation(
+        ({ where }: { where: { id: { value: number[] } } }) =>
+          Promise.resolve(
+            where.id.value.map((id) => ({ id, code: codeByComponentId[id] })),
+          ),
+      );
+      const compensationRepo = createRepositoryMock();
+      compensationRepo.findOne.mockResolvedValue(current);
+      compensationRepo.createQueryBuilder.mockReturnValue(
+        createQueryBuilderMock({
+          getOne: jest.fn().mockResolvedValue(current),
+        }),
+      );
+      const changeRepo = createRepositoryMock();
+
+      const manager = {
+        getRepository: jest.fn((entity: unknown) => {
+          if (entity === SalaryStructure) return structureRepo;
+          if (entity === SalaryStructureComponent) return lineRepo;
+          if (entity === PayrollComponent) return componentRepo;
+          if (entity === EmployeeCompensationVersion) return compensationRepo;
+          if (entity === EmployeeMovementChange) return changeRepo;
+          throw new Error('Unexpected repository requested');
+        }),
+      };
+      return { manager, compensationRepo, changeRepo };
+    };
+
+    const currentCompensation = {
+      id: 7,
+      companyId: 10,
+      employeeId: 2,
+      salaryStructureCode: 'STD-MONTHLY',
+      componentOverrides: {
+        HOUSING: { amount: '400000.00', rate: null, excluded: false },
+        TRANSPORT: { amount: null, rate: null, excluded: true },
+      },
+      status: 'ACTIVE',
+    } as unknown as EmployeeCompensationVersion;
+
+    const salaryMovement = {
+      id: 1,
+      companyId: 10,
+      employeeId: 2,
+      effectiveDate: '2026-10-01',
+      approvedByCompanyUserId: 90,
+      requestedByCompanyUserId: 91,
+    } as EmployeeMovement;
+
+    const savedCompensation = (compensationRepo: MockRepo) =>
+      compensationRepo.save.mock.calls
+        .map(([value]) => value as Partial<EmployeeCompensationVersion>)
+        .find((value) => value.movementId === 1);
+
+    it('keeps overrides for shared components when switching structures', async () => {
+      const { manager, compensationRepo } = buildManager({
+        ...currentCompensation,
+      });
+
+      await internals().applySalaryRevision(
+        salaryMovement,
+        buildEmployee(),
+        {
+          newValue: {
+            amount: '2500000.00',
+            currency: 'TZS',
+            salary_structure_code: 'MGMT-MONTHLY',
+            justification: 'Promotion',
+          },
+        },
+        manager,
+      );
+
+      expect(savedCompensation(compensationRepo)).toMatchObject({
+        salaryStructureCode: 'MGMT-MONTHLY',
+        componentOverrides: {
+          HOUSING: { amount: '400000.00', rate: null, excluded: false },
+        },
+      });
+    });
+
+    it('uses overrides set on the revision, and null clears them', async () => {
+      const { manager, compensationRepo } = buildManager({
+        ...currentCompensation,
+      });
+
+      await internals().applySalaryRevision(
+        salaryMovement,
+        buildEmployee(),
+        {
+          newValue: {
+            amount: '2500000.00',
+            currency: 'TZS',
+            component_overrides: null,
+            justification: 'Reset allowances',
+          },
+        },
+        manager,
+      );
+
+      expect(savedCompensation(compensationRepo)).toMatchObject({
+        salaryStructureCode: 'STD-MONTHLY',
+        componentOverrides: null,
+      });
+    });
+
+    it('stores validated overrides on the movement change', async () => {
+      const { manager, changeRepo } = buildManager({ ...currentCompensation });
+
+      await internals().createMovementChanges(
+        salaryMovement,
+        {
+          salary_revision: {
+            base_salary: '2500000.00',
+            currency: 'tzs',
+            salary_structure_code: 'mgmt-monthly',
+            component_overrides: [
+              { component_code: 'car', amount: '300000.00' },
+              { component_code: 'HOUSING', rate: '15' },
+            ],
+            justification: 'Promotion',
+          },
+        },
+        { base_salary: '2000000.00', salary_currency: 'TZS' },
+        manager,
+      );
+
+      const [[changes]] = changeRepo.save.mock.calls as Array<
+        [Array<{ oldValue: unknown; newValue: unknown }>]
+      >;
+      expect(changes[0].newValue).toMatchObject({
+        salary_structure_code: 'MGMT-MONTHLY',
+        component_overrides: {
+          CAR: { amount: '300000.00', rate: null, excluded: false },
+          HOUSING: { amount: null, rate: '15', excluded: false },
+        },
+      });
+      expect(changes[0].oldValue).toMatchObject({
+        component_overrides: currentCompensation.componentOverrides,
+      });
+    });
+
+    it('rejects overrides for components missing from the target structure', async () => {
+      const { manager } = buildManager({ ...currentCompensation });
+
+      await expect(
+        internals().createMovementChanges(
+          salaryMovement,
+          {
+            salary_revision: {
+              base_salary: '2500000.00',
+              currency: 'TZS',
+              salary_structure_code: 'MGMT-MONTHLY',
+              component_overrides: [
+                { component_code: 'TRANSPORT', amount: '1.00' },
+              ],
+              justification: 'Promotion',
+            },
+          },
+          {},
+          manager,
+        ),
+      ).rejects.toThrow('TRANSPORT is not part of salary structure');
+    });
+
+    it('keeps overrides saved on the movement when an edit omits them', () => {
+      const merge = (
+        service as unknown as {
+          mergeUpdateDto: (
+            movement: unknown,
+            dto: unknown,
+          ) => {
+            mergedDto: { salary_revision?: Record<string, unknown> };
+            savedOverridesKept: boolean;
+          };
+        }
+      ).mergeUpdateDto.bind(service);
+      const savedMovement = {
+        ...salaryMovement,
+        movementType: EmployeeMovementTypeEnum.SALARY_REVISION,
+        title: 'Raise',
+        reason: 'Annual review',
+        changes: [
+          {
+            field: EmployeeMovementFieldEnum.BASE_SALARY,
+            newValue: {
+              amount: '2500000.00',
+              currency: 'TZS',
+              component_overrides: {
+                HOUSING: { amount: '500000.00', rate: null, excluded: false },
+              },
+              justification: 'Annual review',
+            },
+          },
+        ],
+      };
+
+      const kept = merge(savedMovement, {
+        salary_revision: {
+          base_salary: '2600000.00',
+          currency: 'TZS',
+          component_overrides: undefined,
+          justification: 'Fixed justification',
+        },
+      });
+      expect(kept.savedOverridesKept).toBe(true);
+      expect(kept.mergedDto.salary_revision).toMatchObject({
+        base_salary: '2600000.00',
+        component_overrides: [
+          { component_code: 'HOUSING', amount: '500000.00' },
+        ],
+      });
+
+      const replaced = merge(savedMovement, {
+        salary_revision: {
+          base_salary: '2600000.00',
+          currency: 'TZS',
+          component_overrides: [],
+          justification: 'Clear overrides',
+        },
+      });
+      expect(replaced.savedOverridesKept).toBe(false);
+      expect(replaced.mergedDto.salary_revision?.component_overrides).toEqual(
+        [],
+      );
+    });
+
+    it('treats component_overrides: null as a clear instead of crashing', async () => {
+      const { manager, changeRepo } = buildManager({ ...currentCompensation });
+
+      await internals().createMovementChanges(
+        salaryMovement,
+        {
+          salary_revision: {
+            base_salary: '2500000.00',
+            currency: 'TZS',
+            component_overrides: null,
+            justification: 'Reset allowances',
+          },
+        },
+        {},
+        manager,
+      );
+
+      const [[changes]] = changeRepo.save.mock.calls as Array<
+        [Array<{ newValue: Record<string, unknown> }>]
+      >;
+      expect(changes[0].newValue).toHaveProperty('component_overrides', null);
+    });
+
+    it('rejects a structure with no active version on the effective date', async () => {
+      const { manager } = buildManager({ ...currentCompensation });
+
+      await expect(
+        internals().createMovementChanges(
+          salaryMovement,
+          {
+            salary_revision: {
+              base_salary: '2500000.00',
+              currency: 'TZS',
+              salary_structure_code: 'UNKNOWN',
+              justification: 'Promotion',
+            },
+          },
+          {},
+          manager,
+        ),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 
