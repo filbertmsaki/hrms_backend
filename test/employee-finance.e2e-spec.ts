@@ -37,6 +37,7 @@ import {
   PayrollRunApproval,
 } from '../src/modules/hr/payroll/entities/payroll-run.entities';
 import { EmployeePayrollProfile } from '../src/modules/hr/payroll/entities/employee-payroll-profile.entity';
+import { PayrollOvertimeRequest } from '../src/modules/hr/payroll/entities/payroll-overtime-request.entity';
 import {
   EmployeePayrollProfileService,
   EmployeePayrollCalculationService,
@@ -488,6 +489,7 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       ),
       payrollInputRepository,
       dataSource.getRepository(AttendanceDailySummary),
+      dataSource.getRepository(PayrollOvertimeRequest),
       dataSource.getRepository(LeaveRequest),
       dataSource.getRepository(
         require('../src/modules/hr/payroll/entities/payroll-configuration.entities')

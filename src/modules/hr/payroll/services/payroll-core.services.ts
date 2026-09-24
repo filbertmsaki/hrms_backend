@@ -10,7 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'crypto';
-import { EntityManager, In, IsNull, Repository } from 'typeorm';
+import { Between, EntityManager, In, IsNull, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { AttendanceHoliday } from '../../attendance/holidays/entities/holiday.entity';
 import { AttendanceDailySummary } from '../../attendance/processing/entities/attendance-daily-summary.entity';
@@ -85,6 +85,7 @@ import {
   UpsertEmployeePayrollProfileDto,
 } from '../dto/payroll.dto';
 import { EmployeePayrollProfile } from '../entities/employee-payroll-profile.entity';
+import { PayrollOvertimeRequest } from '../entities/payroll-overtime-request.entity';
 import {
   PayrollAccountingMapping,
   PayrollBonusScheme,
@@ -2891,6 +2892,8 @@ export class EmployeePayrollCalculationService {
     private readonly inputRepository: Repository<PayrollInput>,
     @InjectRepository(AttendanceDailySummary)
     private readonly attendanceRepository: Repository<AttendanceDailySummary>,
+    @InjectRepository(PayrollOvertimeRequest)
+    private readonly overtimeRequestRepository: Repository<PayrollOvertimeRequest>,
     @InjectRepository(LeaveRequest)
     private readonly leaveRepository: Repository<LeaveRequest>,
     @InjectRepository(PayrollOvertimePolicy)
@@ -3229,29 +3232,16 @@ export class EmployeePayrollCalculationService {
     );
     if (
       overtimePolicy &&
-      (overtimePolicy.approvalRequired === false
-        ? attendanceSummary.overtimeMinutes
-        : attendanceSummary.payableOvertimeMinutes) >=
-        overtimePolicy.minimumMinutes
+      attendanceSummary.payableOvertimeMinutes > 0 &&
+      attendanceSummary.payableOvertimeMinutes >= overtimePolicy.minimumMinutes
     ) {
-      const payableOvertime =
-        overtimePolicy.approvalRequired === false
-          ? {
-              regular:
-                attendanceSummary.regularOvertimeMinutes +
-                attendanceSummary.pendingOvertimeApprovalMinutes,
-              weekend: attendanceSummary.weekendOvertimeMinutes,
-              holiday: attendanceSummary.holidayOvertimeMinutes,
-              total: attendanceSummary.overtimeMinutes,
-              pending: 0,
-            }
-          : {
-              regular: attendanceSummary.regularOvertimeMinutes,
-              weekend: attendanceSummary.weekendOvertimeMinutes,
-              holiday: attendanceSummary.holidayOvertimeMinutes,
-              total: attendanceSummary.payableOvertimeMinutes,
-              pending: attendanceSummary.pendingOvertimeApprovalMinutes,
-            };
+      const payableOvertime = {
+        regular: attendanceSummary.regularOvertimeMinutes,
+        weekend: attendanceSummary.weekendOvertimeMinutes,
+        holiday: attendanceSummary.holidayOvertimeMinutes,
+        total: attendanceSummary.payableOvertimeMinutes,
+        pending: attendanceSummary.pendingOvertimeApprovalMinutes,
+      };
       const configuredWorkDays = Number(
         overtimePolicy.configuration?.working_days_per_month ??
           this.configService.get<number>('PAYROLL_DEFAULT_WORKING_DAYS', 26),
@@ -4029,6 +4019,20 @@ export class EmployeePayrollCalculationService {
         periodEnd: period.endDate,
       })
       .getMany();
+    const approvedRequests = await this.overtimeRequestRepository.find({
+      where: {
+        companyId,
+        employeeId,
+        status: 'APPROVED',
+        workDate: Between(period.startDate, period.endDate),
+      },
+    });
+    const approvedMinutesByDate = new Map(
+      approvedRequests.map((request) => [
+        request.workDate,
+        request.requestedMinutes,
+      ]),
+    );
     const holidays = await this.holidayRepository
       .createQueryBuilder('holiday')
       .where('holiday.companyId = :companyId', { companyId })
@@ -4050,10 +4054,10 @@ export class EmployeePayrollCalculationService {
         ).getUTCDay();
         const isWeekend = day === 0 || day === 6 || Boolean(flags.isWeekend);
         const overtimeMinutes = summary.overtimeMinutes ?? 0;
-        const overtimeApproved =
-          flags.overtimeApproved === true ||
-          flags.otApproved === true ||
-          flags.payrollApproved === true;
+        const payableMinutes = Math.min(
+          overtimeMinutes,
+          approvedMinutesByDate.get(summary.attendanceDate) ?? 0,
+        );
         if (status.includes('ABSENT')) acc.absentDays += 1;
         if (
           summary.workMinutes > 0 ||
@@ -4067,17 +4071,16 @@ export class EmployeePayrollCalculationService {
         acc.earlyDepartureMinutes += summary.earlyDepartureMinutes ?? 0;
         acc.workMinutes += summary.workMinutes ?? 0;
         acc.overtimeMinutes += overtimeMinutes;
-        if (overtimeMinutes > 0 && !overtimeApproved) {
-          acc.pendingOvertimeApprovalMinutes += overtimeMinutes;
-        } else if (isHoliday) {
-          acc.holidayOvertimeMinutes += overtimeMinutes;
-          acc.payableOvertimeMinutes += overtimeMinutes;
+        acc.pendingOvertimeApprovalMinutes += overtimeMinutes - payableMinutes;
+        if (isHoliday) {
+          acc.holidayOvertimeMinutes += payableMinutes;
+          acc.payableOvertimeMinutes += payableMinutes;
         } else if (isWeekend) {
-          acc.weekendOvertimeMinutes += overtimeMinutes;
-          acc.payableOvertimeMinutes += overtimeMinutes;
+          acc.weekendOvertimeMinutes += payableMinutes;
+          acc.payableOvertimeMinutes += payableMinutes;
         } else {
-          acc.regularOvertimeMinutes += overtimeMinutes;
-          acc.payableOvertimeMinutes += overtimeMinutes;
+          acc.regularOvertimeMinutes += payableMinutes;
+          acc.payableOvertimeMinutes += payableMinutes;
         }
         if (!summary.finalizedAt) acc.unfinalizedCount += 1;
         return acc;

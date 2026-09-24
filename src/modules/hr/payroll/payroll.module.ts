@@ -26,12 +26,14 @@ import {
   PayrollBankingController,
   PayrollConfigurationController,
   PayrollInputsController,
-  PayrollOvertimeApprovalsController,
   PayrollReportsController,
   PayrollRunsController,
   PayrollSourcesController,
   PayslipsController,
 } from './controllers/payroll.controllers';
+import { PayrollOvertimeRequestsController } from './controllers/payroll-overtime-requests.controller';
+import { PayrollOvertimeRequest } from './entities/payroll-overtime-request.entity';
+import { PayrollOvertimeRequestService } from './services/payroll-overtime-request.service';
 import { EmployeePayrollProfile } from './entities/employee-payroll-profile.entity';
 import {
   PayrollAccountingMapping,
@@ -81,7 +83,6 @@ import {
   PayrollConfigurationService,
   PayrollFinalSettlementService,
   PayrollInputService,
-  PayrollOvertimeApprovalService,
   PayrollProrationService,
   PayrollReconciliationService,
   PayrollReportsService,
@@ -121,6 +122,7 @@ import {
       PayrollGroup,
       PayrollGroupAssignment,
       PayrollOvertimePolicy,
+      PayrollOvertimeRequest,
       PayrollBonusScheme,
       PayrollLeaveRule,
       PayrollJournalBatch,
@@ -155,7 +157,7 @@ import {
     EmployeePayrollController,
     PayrollInputsController,
     PayrollSourcesController,
-    PayrollOvertimeApprovalsController,
+    PayrollOvertimeRequestsController,
     PayrollRunsController,
     PayslipsController,
     MyPayslipsController,
@@ -171,7 +173,7 @@ import {
     PayrollConfigurationService,
     PayrollInputService,
     PayrollSourceService,
-    PayrollOvertimeApprovalService,
+    PayrollOvertimeRequestService,
     PayrollProrationService,
     ProgressiveTaxService,
     StatutoryCalculationService,
