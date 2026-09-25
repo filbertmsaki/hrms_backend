@@ -34,7 +34,7 @@ describe('PayrollInputService independent approval', () => {
       createdByCompanyUserId: 10,
       approvedByCompanyUserId: null,
     };
-    const service = Object.create(PayrollInputService.prototype) as any;
+    const service = Object.create(PayrollInputService.prototype);
     service.hrAccessService = { ensureActorCompanyId: () => 1 };
     service.repository = {
       findOne: jest.fn().mockResolvedValue(input),
@@ -53,8 +53,14 @@ describe('PayrollInputService independent approval', () => {
     expect(service.auditService.log).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'payroll.input.approved',
-        beforeValues: { status: PayrollInputStatusEnum.DRAFT, approved_by_company_user_id: null },
-        afterValues: { status: PayrollInputStatusEnum.APPROVED, approved_by_company_user_id: 11 },
+        beforeValues: {
+          status: PayrollInputStatusEnum.DRAFT,
+          approved_by_company_user_id: null,
+        },
+        afterValues: {
+          status: PayrollInputStatusEnum.APPROVED,
+          approved_by_company_user_id: 11,
+        },
       }),
     );
   });

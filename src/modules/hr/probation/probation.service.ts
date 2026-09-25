@@ -1397,7 +1397,8 @@ export class ProbationService {
 
     const probationCase = await this.dataSource.transaction(async (manager) => {
       const probationCase = await this.lockCase(companyId, caseId, manager);
-      const alreadyConfirmed = probationCase.status === ProbationCaseStatusEnum.CONFIRMED;
+      const alreadyConfirmed =
+        probationCase.status === ProbationCaseStatusEnum.CONFIRMED;
 
       if (probationCase.employeeId === actor.employeeId) {
         throw new ForbiddenException(
@@ -1430,33 +1431,39 @@ export class ProbationService {
         case ProbationFinalDecisionEnum.CONFIRMED:
           await this.confirmEmployee(probationCase, cycle, dto, actor, manager);
           if (!alreadyConfirmed) {
-            await this.employmentHistoryService.record({
-              companyId,
-              employeeId: probationCase.employeeId,
-              eventType: EmploymentEventTypeEnum.CONFIRMED,
-              title: 'Employment confirmed',
-              effectiveDate: probationCase.confirmationDate,
-              description: dto.comments.trim(),
-              sourceModule: 'probation',
-              sourceEntityType: 'PROBATION_CASE',
-              sourceEntityId: probationCase.id,
-              dedupeKey: `probation:confirmed:${probationCase.id}`,
-              actorCompanyUserId: actor.companyMembershipId ?? null,
-            }, manager);
+            await this.employmentHistoryService.record(
+              {
+                companyId,
+                employeeId: probationCase.employeeId,
+                eventType: EmploymentEventTypeEnum.CONFIRMED,
+                title: 'Employment confirmed',
+                effectiveDate: probationCase.confirmationDate,
+                description: dto.comments.trim(),
+                sourceModule: 'probation',
+                sourceEntityType: 'PROBATION_CASE',
+                sourceEntityId: probationCase.id,
+                dedupeKey: `probation:confirmed:${probationCase.id}`,
+                actorCompanyUserId: actor.companyMembershipId ?? null,
+              },
+              manager,
+            );
             if (probationCase.employee.company_user_id) {
               const notifications = manager.getRepository(AppNotification);
-              await notifications.save(notifications.create({
-                company_id: companyId,
-                sender_company_user_id: actor.companyMembershipId ?? null,
-                receiver_company_user_id: probationCase.employee.company_user_id,
-                title: 'Employment confirmed',
-                message: `Your employment was confirmed effective ${probationCase.confirmationDate}.`,
-                related_module: 'probation',
-                entity_type: 'PROBATION_CASE',
-                entity_id: String(probationCase.id),
-                action_url: '/me/probation',
-                dedupe_key: `probation:confirmed:${probationCase.id}:${probationCase.employee.company_user_id}`,
-              }));
+              await notifications.save(
+                notifications.create({
+                  company_id: companyId,
+                  sender_company_user_id: actor.companyMembershipId ?? null,
+                  receiver_company_user_id:
+                    probationCase.employee.company_user_id,
+                  title: 'Employment confirmed',
+                  message: `Your employment was confirmed effective ${probationCase.confirmationDate}.`,
+                  related_module: 'probation',
+                  entity_type: 'PROBATION_CASE',
+                  entity_id: String(probationCase.id),
+                  action_url: '/me/probation',
+                  dedupe_key: `probation:confirmed:${probationCase.id}:${probationCase.employee.company_user_id}`,
+                }),
+              );
             }
           }
           break;

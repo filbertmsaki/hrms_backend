@@ -847,7 +847,10 @@ export class EmployeesController {
     @Param('bankAccountId', ParseIntPipe) bankAccountId: number,
   ) {
     return this.employeesService.verifyBankAccount(
-      req.user.companyId!, employeeId, bankAccountId, req.user,
+      req.user.companyId!,
+      employeeId,
+      bankAccountId,
+      req.user,
     );
   }
 

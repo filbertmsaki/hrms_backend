@@ -77,7 +77,10 @@ export class EmployeeInvitationsController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) invitationId: number,
   ) {
-    return this.employeeInvitationsService.cancel(req.user.companyId!, invitationId);
+    return this.employeeInvitationsService.cancel(
+      req.user.companyId!,
+      invitationId,
+    );
   }
 
   @Get('accept/:token')

@@ -220,11 +220,13 @@ export class TwoFaService {
 
     const normalizedToken = this.normalizeCode(token);
 
-    const totpResult = await verify({
-      secret: decryptedSecret,
-      token: normalizedToken,
-    });
-    if (totpResult.valid) return true;
+    if (/^\d{6}$/.test(normalizedToken)) {
+      const totpResult = await verify({
+        secret: decryptedSecret,
+        token: normalizedToken,
+      });
+      if (totpResult.valid) return true;
+    }
 
     if (user.two_factor_backup_codes?.length) {
       const hashedToken = crypto

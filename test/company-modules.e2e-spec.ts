@@ -9,7 +9,9 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
+import { generate } from 'otplib';
 import { hashPassword } from '../src/common/utils/hash.util';
+import { TwoFaService } from '../src/modules/auth/2fa/2fa.service';
 import { Company } from '../src/modules/companies/entities/company.entity';
 import { Role } from '../src/modules/roles/entities/role.entity';
 import { User } from '../src/modules/users/entities/user.entity';
@@ -21,6 +23,7 @@ describe('Company role and permission modules (e2e)', () => {
 
   const createdCompanyIds: number[] = [];
   const createdUserIds: number[] = [];
+  const adminBackupCodes = new Map<string, string>();
   let loginIpCounter = 1;
 
   function nextLoginIp(): string {
@@ -73,6 +76,7 @@ describe('Company role and permission modules (e2e)', () => {
       await dataSource.query('DELETE FROM users WHERE id = $1', [userId]);
     }
     createdUserIds.length = 0;
+    adminBackupCodes.clear();
   });
 
   function nextSuffix() {
@@ -152,6 +156,17 @@ describe('Company role and permission modules (e2e)', () => {
     createdCompanyIds.push(companyId);
     createdUserIds.push(administratorId);
 
+    const twoFaService = app.get(TwoFaService);
+    const setup = await twoFaService.generate2FASetup(administratorId);
+    const activated = await twoFaService.verifyAndActivate2FA(
+      administratorId,
+      await generate({ secret: setup.secret }),
+    );
+    adminBackupCodes.set(
+      response.body.data.administrator.email as string,
+      activated.backupCodes[0],
+    );
+
     return {
       platformToken: platform.token,
       adminPassword,
@@ -162,13 +177,22 @@ describe('Company role and permission modules (e2e)', () => {
   }
 
   async function loginCompanyAdmin(email: string, password: string) {
+    const backupCode = adminBackupCodes.get(email);
+    if (!backupCode) throw new Error('Missing test admin 2FA backup code');
     const response = await request(app.getHttpServer() as App)
       .post('/api/auth/login')
       .set('X-Forwarded-For', nextLoginIp())
       .send({ email, password })
       .expect(201);
 
-    return response.body.access_token as string;
+    expect(response.body.requires2FA).toBe(true);
+    const completed = await request(app.getHttpServer() as App)
+      .post('/api/auth/2fa/complete-login')
+      .send({ tempToken: response.body.tempToken, code: backupCode })
+      .expect(201);
+
+    expect(completed.body.access_token).toEqual(expect.any(String));
+    return completed.body.access_token as string;
   }
 
   it('persists split modules on company create, list, get, and my', async () => {

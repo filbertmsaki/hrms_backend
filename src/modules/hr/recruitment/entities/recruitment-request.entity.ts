@@ -1,4 +1,11 @@
-import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 
 export enum RecruitmentRequestStatus {
   PENDING_MANAGER = 'PENDING_MANAGER',
@@ -46,13 +53,25 @@ export class RecruitmentRequest {
   @Column({ name: 'requested_by_company_user_id' })
   requestedByCompanyUserId: number;
 
-  @Column({ name: 'manager_approved_by_company_user_id', type: 'int', nullable: true })
+  @Column({
+    name: 'manager_approved_by_company_user_id',
+    type: 'int',
+    nullable: true,
+  })
   managerApprovedByCompanyUserId: number | null;
 
-  @Column({ name: 'hr_approved_by_company_user_id', type: 'int', nullable: true })
+  @Column({
+    name: 'hr_approved_by_company_user_id',
+    type: 'int',
+    nullable: true,
+  })
   hrApprovedByCompanyUserId: number | null;
 
-  @Column({ name: 'finance_approved_by_company_user_id', type: 'int', nullable: true })
+  @Column({
+    name: 'finance_approved_by_company_user_id',
+    type: 'int',
+    nullable: true,
+  })
   financeApprovedByCompanyUserId: number | null;
 
   @CreateDateColumn({ name: 'created_at' })

@@ -438,7 +438,10 @@ export class AuthService {
     );
     const userForcesTwoFactor = (user as User).force_two_factor;
 
-    if ((userForcesTwoFactor || twoFactorRecommended) && !currentTwoFactorStatus.fullyConfigured) {
+    if (
+      (userForcesTwoFactor || twoFactorRecommended) &&
+      !currentTwoFactorStatus.fullyConfigured
+    ) {
       await this.usersService.requireTwoFactorSetup(user.id);
       await this.logSecurityEvent(
         SecurityEventType.TWO_FACTOR_SETUP_REQUIRED,

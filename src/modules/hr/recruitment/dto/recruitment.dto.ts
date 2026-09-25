@@ -1,5 +1,17 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsDateString, IsEmail, IsIn, IsInt, IsNotEmpty, IsNumberString, IsOptional, IsString, Max, Min, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsDateString,
+  IsEmail,
+  IsIn,
+  IsInt,
+  IsNotEmpty,
+  IsNumberString,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 
 export class CreateRecruitmentRequestDto {
   @Type(() => Number) @IsInt() position_id: number;
@@ -31,7 +43,10 @@ export class RecruitmentScoreDto {
 }
 
 export class RecruitmentCheckDto {
-  @IsIn(['REFERENCE', 'CERTIFICATE', 'NIDA']) type: 'REFERENCE' | 'CERTIFICATE' | 'NIDA';
+  @IsIn(['REFERENCE', 'CERTIFICATE', 'NIDA']) type:
+    | 'REFERENCE'
+    | 'CERTIFICATE'
+    | 'NIDA';
   @IsIn(['PASS', 'FAIL']) result: 'PASS' | 'FAIL';
   @IsString() @IsNotEmpty() evidence_note: string;
 }

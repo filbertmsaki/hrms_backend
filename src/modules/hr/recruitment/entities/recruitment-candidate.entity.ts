@@ -1,4 +1,11 @@
-import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 
 export enum RecruitmentCandidateStatus {
   APPLIED = 'APPLIED',
@@ -47,7 +54,13 @@ export class RecruitmentCandidate {
   @Column({ name: 'checks', type: 'jsonb', nullable: true })
   checks: Record<string, unknown> | null;
 
-  @Column({ name: 'offer_salary', type: 'decimal', precision: 18, scale: 2, nullable: true })
+  @Column({
+    name: 'offer_salary',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
   offerSalary: string | null;
 
   @Column({ name: 'offer_start_date', type: 'date', nullable: true })
@@ -56,13 +69,26 @@ export class RecruitmentCandidate {
   @Column({ name: 'offer_document_id', type: 'int', nullable: true })
   offerDocumentId: number | null;
 
-  @Column({ name: 'offer_created_by_company_user_id', type: 'int', nullable: true })
+  @Column({
+    name: 'offer_created_by_company_user_id',
+    type: 'int',
+    nullable: true,
+  })
   offerCreatedByCompanyUserId: number | null;
 
-  @Column({ name: 'offer_approved_by_company_user_id', type: 'int', nullable: true })
+  @Column({
+    name: 'offer_approved_by_company_user_id',
+    type: 'int',
+    nullable: true,
+  })
   offerApprovedByCompanyUserId: number | null;
 
-  @Column({ name: 'offer_token_hash', type: 'varchar', length: 64, nullable: true })
+  @Column({
+    name: 'offer_token_hash',
+    type: 'varchar',
+    length: 64,
+    nullable: true,
+  })
   offerTokenHash: string | null;
 
   @Column({ name: 'offer_expires_at', type: 'timestamptz', nullable: true })

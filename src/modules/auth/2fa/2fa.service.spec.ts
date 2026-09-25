@@ -1,5 +1,7 @@
 import { ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createHash } from 'crypto';
+import { verify } from 'otplib';
 jest.mock('otplib', () => ({
   generateSecret: jest.fn(),
   generateURI: jest.fn(),
@@ -24,6 +26,7 @@ describe('TwoFaService', () => {
     adminEnableTwoFactor: jest.Mock;
     adminDisableTwoFactor: jest.Mock;
     hasAnotherProtectedTwoFactorAdmin: jest.Mock;
+    updateBackupCodes: jest.Mock;
   };
   let companiesService: {
     findCompanyUserContext: jest.Mock;
@@ -58,6 +61,7 @@ describe('TwoFaService', () => {
       adminEnableTwoFactor: jest.fn(),
       adminDisableTwoFactor: jest.fn(),
       hasAnotherProtectedTwoFactorAdmin: jest.fn(),
+      updateBackupCodes: jest.fn(),
     };
     companiesService = {
       findCompanyUserContext: jest.fn(),
@@ -236,5 +240,40 @@ describe('TwoFaService', () => {
     );
 
     expect(usersService.adminDisableTwoFactor).not.toHaveBeenCalled();
+  });
+
+  it('accepts a backup code once without passing it to TOTP verification', async () => {
+    const backupCode = 'ABCDE-F1234';
+    usersService.findByIdWithTwoFactor.mockResolvedValue({
+      is_two_factor_enabled: true,
+      two_factor_setup_required: false,
+      two_factor_secret: 'TESTSECRET',
+      two_factor_backup_codes: [
+        createHash('sha256').update('ABCDEF1234').digest('hex'),
+      ],
+    });
+
+    await expect(service.verify2FALogin(15, backupCode)).resolves.toBe(true);
+
+    expect(verify).not.toHaveBeenCalled();
+    expect(usersService.updateBackupCodes).toHaveBeenCalledWith(15, []);
+  });
+
+  it('rejects an invalid backup code without passing it to TOTP verification', async () => {
+    usersService.findByIdWithTwoFactor.mockResolvedValue({
+      is_two_factor_enabled: true,
+      two_factor_setup_required: false,
+      two_factor_secret: 'TESTSECRET',
+      two_factor_backup_codes: [
+        createHash('sha256').update('ABCDEF1234').digest('hex'),
+      ],
+    });
+
+    await expect(service.verify2FALogin(15, 'WRONG-CODE')).rejects.toThrow(
+      'Invalid 2FA code',
+    );
+
+    expect(verify).not.toHaveBeenCalled();
+    expect(usersService.updateBackupCodes).not.toHaveBeenCalled();
   });
 });

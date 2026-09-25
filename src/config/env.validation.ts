@@ -309,7 +309,9 @@ export function validateEnv(env: Env) {
     180,
   );
   if (RECRUITMENT_UNSUCCESSFUL_RETENTION_DAYS < 1) {
-    throw new Error('RECRUITMENT_UNSUCCESSFUL_RETENTION_DAYS must be positive.');
+    throw new Error(
+      'RECRUITMENT_UNSUCCESSFUL_RETENTION_DAYS must be positive.',
+    );
   }
 
   const mailSafetyConfig = resolveMailRecipientSafetyConfig({

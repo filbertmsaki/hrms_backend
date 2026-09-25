@@ -1,8 +1,17 @@
-import { Column, Entity, PrimaryGeneratedColumn, Unique, UpdateDateColumn } from 'typeorm';
+import {
+  Column,
+  Entity,
+  PrimaryGeneratedColumn,
+  Unique,
+  UpdateDateColumn,
+} from 'typeorm';
 import { ProbationLetterTypeEnum } from '../enums/probation-letter-type.enum';
 
 @Entity('probation_letter_templates')
-@Unique('UQ_probation_letter_template_company_type', ['companyId', 'letterType'])
+@Unique('UQ_probation_letter_template_company_type', [
+  'companyId',
+  'letterType',
+])
 export class ProbationLetterTemplate {
   @PrimaryGeneratedColumn()
   id: number;

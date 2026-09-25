@@ -165,6 +165,12 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     roles: [],
   });
 
+  const inputApprover = (): AuthenticatedUser => ({
+    ...employeeActor(),
+    roles: ['FINANCE_MANAGER'],
+    permissions: ['payroll:inputs:approve'],
+  });
+
   beforeAll(async () => {
     dataSource = AppDataSource.isInitialized
       ? AppDataSource
@@ -270,6 +276,7 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     );
     inputService = new PayrollInputService(
       hrAccessService,
+      auditService,
       payrollInputRepository,
       payrollPeriodRepository,
     );
@@ -479,7 +486,7 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     const profile = (await profileService.upsert(adminActor(), {
       employee_id: employeeId,
       payroll_number: `PAY-${suffix}`.slice(0, 60),
-      taxpayer_identification_number: `TIN-${suffix}`.slice(0, 60),
+      taxpayer_identification_number: suffix.replace(/\D/g, '').slice(-9),
       social_security_scheme_code: 'NSSF',
       social_security_number: `NSSF-${suffix}`.slice(0, 60),
       primary_bank_account_id: bankAccountId,
@@ -678,7 +685,7 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
       payload: { note: 'Housing allowance for payroll e2e' },
     });
     inputId = input.id;
-    await inputService.approve(adminActor(), input.id);
+    await inputService.approve(inputApprover(), input.id);
 
     const run = await runService.create(adminActor(), {
       payroll_period_id: period.id,

@@ -48,6 +48,7 @@ import { TenantGuard } from '../src/common/guards/tenant.guard';
 import { SecurityEventsService } from '../src/modules/security/security-events.service';
 import { ProbationController } from '../src/modules/hr/probation/probation.controller';
 import { ProbationService } from '../src/modules/hr/probation/probation.service';
+import { ProbationLetterService } from '../src/modules/hr/probation/services/probation-letter.service';
 
 describe('Probation endpoints (e2e)', () => {
   let app: INestApplication;
@@ -103,6 +104,7 @@ describe('Probation endpoints (e2e)', () => {
       controllers: [ProbationController],
       providers: [
         { provide: ProbationService, useValue: probationService },
+        { provide: ProbationLetterService, useValue: {} },
         { provide: SecurityEventsService, useValue: securityEventsService },
         PermissionsGuard,
         TenantGuard,

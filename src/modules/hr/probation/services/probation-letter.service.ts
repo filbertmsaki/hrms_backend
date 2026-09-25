@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import PDFDocument from 'pdfkit';
 import { EntityManager, Repository } from 'typeorm';
@@ -37,24 +41,37 @@ export class ProbationLetterService {
     private readonly filesService: FilesService,
   ) {}
 
-  async upsertTemplate(actor: AuthenticatedUser, dto: UpsertProbationLetterTemplateDto) {
-    if (!actor.companyId || !actor.companyMembershipId) throw new BadRequestException('Company membership required');
-    const existing = await this.templateRepository.findOneBy({ companyId: actor.companyId, letterType: dto.letter_type });
-    return this.templateRepository.save(this.templateRepository.create({
-      id: existing?.id,
+  async upsertTemplate(
+    actor: AuthenticatedUser,
+    dto: UpsertProbationLetterTemplateDto,
+  ) {
+    if (!actor.companyId || !actor.companyMembershipId)
+      throw new BadRequestException('Company membership required');
+    const existing = await this.templateRepository.findOneBy({
       companyId: actor.companyId,
       letterType: dto.letter_type,
-      letterhead: dto.letterhead.trim(),
-      body: dto.body.trim(),
-      signatoryName: dto.signatory_name.trim(),
-      signatoryTitle: dto.signatory_title.trim(),
-      updatedByCompanyUserId: actor.companyMembershipId,
-    }));
+    });
+    return this.templateRepository.save(
+      this.templateRepository.create({
+        id: existing?.id,
+        companyId: actor.companyId,
+        letterType: dto.letter_type,
+        letterhead: dto.letterhead.trim(),
+        body: dto.body.trim(),
+        signatoryName: dto.signatory_name.trim(),
+        signatoryTitle: dto.signatory_title.trim(),
+        updatedByCompanyUserId: actor.companyMembershipId,
+      }),
+    );
   }
 
   async listTemplates(actor: AuthenticatedUser) {
-    if (!actor.companyId) throw new BadRequestException('Company membership required');
-    return this.templateRepository.find({ where: { companyId: actor.companyId }, order: { letterType: 'ASC' } });
+    if (!actor.companyId)
+      throw new BadRequestException('Company membership required');
+    return this.templateRepository.find({
+      where: { companyId: actor.companyId },
+      order: { letterType: 'ASC' },
+    });
   }
 
   private getCaseRepository(
@@ -88,7 +105,10 @@ export class ProbationLetterService {
       document.on('end', () => resolve(Buffer.concat(chunks)));
     });
 
-    document.fontSize(16).font('Helvetica-Bold').text(input.template.letterhead);
+    document
+      .fontSize(16)
+      .font('Helvetica-Bold')
+      .text(input.template.letterhead);
     document
       .fontSize(12)
       .font('Helvetica')
@@ -109,7 +129,10 @@ export class ProbationLetterService {
       confirmation_date: input.confirmationDate,
       issue_date: input.issueDate,
     };
-    const body = input.template.body.replace(/\{\{([a-z_]+)\}\}/g, (match, key: string) => values[key] ?? match);
+    const body = input.template.body.replace(
+      /\{\{([a-z_]+)\}\}/g,
+      (match, key: string) => values[key] ?? match,
+    );
 
     document.fontSize(11).text(body, { align: 'left' });
     document.moveDown(2);
@@ -157,9 +180,13 @@ export class ProbationLetterService {
       throw new NotFoundException('Probation case not found');
     }
 
-    const template = await (manager?.getRepository(ProbationLetterTemplate) ?? this.templateRepository)
-      .findOneBy({ companyId, letterType });
-    if (!template) throw new BadRequestException('Configure the company letter template and named signatory first');
+    const template = await (
+      manager?.getRepository(ProbationLetterTemplate) ?? this.templateRepository
+    ).findOneBy({ companyId, letterType });
+    if (!template)
+      throw new BadRequestException(
+        'Configure the company letter template and named signatory first',
+      );
 
     const employee = probationCase.employee;
     const employeeName = `${employee.first_name} ${employee.last_name}`.trim();

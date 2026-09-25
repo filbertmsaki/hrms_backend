@@ -2037,8 +2037,7 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
   {
     name: 'probation_objectives:create',
     displayName: 'Create probation objectives',
-    description:
-      'Allow adding review objectives to an open probation case',
+    description: 'Allow adding review objectives to an open probation case',
   },
   {
     name: 'probation_reviews:self-assess',

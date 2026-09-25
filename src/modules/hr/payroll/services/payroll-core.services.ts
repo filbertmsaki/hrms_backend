@@ -429,22 +429,48 @@ export class EmployeePayrollProfileService {
       if (normalizedTin.length !== 9 || !/^[0-9\s-]+$/.test(tin)) {
         throw new BadRequestException('TIN must contain 9 digits');
       }
-      const duplicateProfile = await this.repository.createQueryBuilder('profile')
+      const duplicateProfile = await this.repository
+        .createQueryBuilder('profile')
         .where('profile.companyId = :companyId', { companyId })
-        .andWhere('profile.employeeId <> :employeeId', { employeeId: employee.id })
-        .andWhere("regexp_replace(profile.taxpayerIdentificationNumber, '[^0-9]', '', 'g') = :tin", { tin: normalizedTin })
+        .andWhere('profile.employeeId <> :employeeId', {
+          employeeId: employee.id,
+        })
+        .andWhere(
+          "regexp_replace(profile.taxpayerIdentificationNumber, '[^0-9]', '', 'g') = :tin",
+          { tin: normalizedTin },
+        )
         .getOne();
-      if (duplicateProfile) throw new ConflictException('TIN belongs to another employee in this company');
-      const duplicateId = await this.repository.manager.getRepository(EmployeeIdentification)
+      if (duplicateProfile)
+        throw new ConflictException(
+          'TIN belongs to another employee in this company',
+        );
+      const duplicateId = await this.repository.manager
+        .getRepository(EmployeeIdentification)
         .createQueryBuilder('identification')
-        .innerJoin(Employee, 'employee', 'employee.id = identification.employee_id')
+        .innerJoin(
+          Employee,
+          'employee',
+          'employee.id = identification.employee_id',
+        )
         .where('employee.company_id = :companyId', { companyId })
-        .andWhere('identification.employee_id <> :employeeId', { employeeId: employee.id })
-        .andWhere('identification.identification_type = :type', { type: IdentificationTypeEnum.TAX_ID })
-        .andWhere("identification.identification_number NOT LIKE '[ARCHIVED_IDENTIFICATION]%' ")
-        .andWhere("regexp_replace(identification.identification_number, '[^0-9]', '', 'g') = :tin", { tin: normalizedTin })
+        .andWhere('identification.employee_id <> :employeeId', {
+          employeeId: employee.id,
+        })
+        .andWhere('identification.identification_type = :type', {
+          type: IdentificationTypeEnum.TAX_ID,
+        })
+        .andWhere(
+          "identification.identification_number NOT LIKE '[ARCHIVED_IDENTIFICATION]%' ",
+        )
+        .andWhere(
+          "regexp_replace(identification.identification_number, '[^0-9]', '', 'g') = :tin",
+          { tin: normalizedTin },
+        )
         .getOne();
-      if (duplicateId) throw new ConflictException('TIN belongs to another employee in this company');
+      if (duplicateId)
+        throw new ConflictException(
+          'TIN belongs to another employee in this company',
+        );
     }
 
     if (dto.primary_bank_account_id) {
@@ -461,7 +487,9 @@ export class EmployeePayrollProfileService {
     const existing = await this.repository.findOne({
       where: { companyId, employeeId: dto.employee_id },
     });
-    const beforeValues = existing ? this.mask({ ...existing } as EmployeePayrollProfile) : null;
+    const beforeValues = existing
+      ? this.mask({ ...existing } as EmployeePayrollProfile)
+      : null;
     const profile =
       existing ??
       this.repository.create({
@@ -1283,67 +1311,103 @@ export class PayrollConfigurationService {
       where: { id: dto.scheme_id, companyId },
     });
     if (!scheme) throw new NotFoundException('Statutory scheme not found.');
-    const rule = await this.ruleRepository.manager.transaction(async (manager) => {
-      const ruleRepository = manager.getRepository(StatutoryRuleVersion);
-      const taxBandRepository = manager.getRepository(StatutoryTaxBand);
-      const saved = await ruleRepository.save(
-        ruleRepository.create({
-        companyId,
-        schemeId: scheme.id,
-        versionNumber: dto.version_number,
-        calculationMethod: dto.calculation_method,
-        employeeRate: dto.employee_rate ?? null,
-        employerRate: dto.employer_rate ?? null,
-        maximumBasis: dto.maximum_basis ?? null,
-        deductEmployeeBeforeTax: dto.deduct_employee_before_tax ?? false,
-        effectiveFrom: dto.effective_from,
-        effectiveTo: dto.effective_to ?? null,
-        configuration: dto.configuration ?? null,
-        status: 'DRAFT',
-        createdByCompanyUserId: actor.companyMembershipId ?? null,
-        approvedByCompanyUserId: null,
-        approvedAt: null,
-        }),
-      );
-      if (dto.bands?.length) {
-        await taxBandRepository.save(
-        dto.bands.map((band) =>
-          taxBandRepository.create({
-            ruleVersionId: saved.id,
-            lowerLimit: band.lower_limit,
-            upperLimit: band.upper_limit ?? null,
-            baseTax: band.base_tax ?? '0',
-            ratePercent: band.rate_percent,
-            sortOrder: band.sort_order ?? 1,
+    const rule = await this.ruleRepository.manager.transaction(
+      async (manager) => {
+        const ruleRepository = manager.getRepository(StatutoryRuleVersion);
+        const taxBandRepository = manager.getRepository(StatutoryTaxBand);
+        const saved = await ruleRepository.save(
+          ruleRepository.create({
+            companyId,
+            schemeId: scheme.id,
+            versionNumber: dto.version_number,
+            calculationMethod: dto.calculation_method,
+            employeeRate: dto.employee_rate ?? null,
+            employerRate: dto.employer_rate ?? null,
+            maximumBasis: dto.maximum_basis ?? null,
+            deductEmployeeBeforeTax: dto.deduct_employee_before_tax ?? false,
+            effectiveFrom: dto.effective_from,
+            effectiveTo: dto.effective_to ?? null,
+            configuration: dto.configuration ?? null,
+            status: 'DRAFT',
+            createdByCompanyUserId: actor.companyMembershipId ?? null,
+            approvedByCompanyUserId: null,
+            approvedAt: null,
           }),
-        ),
-      );
-      }
-      return saved;
+        );
+        if (dto.bands?.length) {
+          await taxBandRepository.save(
+            dto.bands.map((band) =>
+              taxBandRepository.create({
+                ruleVersionId: saved.id,
+                lowerLimit: band.lower_limit,
+                upperLimit: band.upper_limit ?? null,
+                baseTax: band.base_tax ?? '0',
+                ratePercent: band.rate_percent,
+                sortOrder: band.sort_order ?? 1,
+              }),
+            ),
+          );
+        }
+        return saved;
+      },
+    );
+    await this.auditService.log({
+      actor,
+      action: 'payroll.statutory_rule.created',
+      entityType: 'STATUTORY_RULE_VERSION',
+      entityId: rule.id,
+      afterValues: {
+        scheme_id: rule.schemeId,
+        version: rule.versionNumber,
+        employee_rate: rule.employeeRate,
+        employer_rate: rule.employerRate,
+        status: rule.status,
+      },
     });
-    await this.auditService.log({ actor, action: 'payroll.statutory_rule.created', entityType: 'STATUTORY_RULE_VERSION', entityId: rule.id,
-      afterValues: { scheme_id: rule.schemeId, version: rule.versionNumber, employee_rate: rule.employeeRate, employer_rate: rule.employerRate, status: rule.status } });
     return rule;
   }
 
   async approveRule(actor: AuthenticatedUser, id: number) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
-    const rule = await this.ruleRepository.manager.transaction(async (manager) => {
-      const repository = manager.getRepository(StatutoryRuleVersion);
-      const current = await repository.createQueryBuilder('rule').setLock('pessimistic_write')
-        .where('rule.id = :id AND rule.companyId = :companyId', { id, companyId }).getOne();
-      if (!current) throw new NotFoundException('Statutory rule not found.');
-      if (current.status !== 'DRAFT') throw new ConflictException('Only draft rules can be approved.');
-      if (!actor.companyMembershipId || current.createdByCompanyUserId === actor.companyMembershipId) {
-        throw new ForbiddenException('Statutory rule requires a different approver.');
-      }
-      current.status = 'APPROVED';
-      current.approvedByCompanyUserId = actor.companyMembershipId;
-      current.approvedAt = new Date();
-      return repository.save(current);
+    const rule = await this.ruleRepository.manager.transaction(
+      async (manager) => {
+        const repository = manager.getRepository(StatutoryRuleVersion);
+        const current = await repository
+          .createQueryBuilder('rule')
+          .setLock('pessimistic_write')
+          .where('rule.id = :id AND rule.companyId = :companyId', {
+            id,
+            companyId,
+          })
+          .getOne();
+        if (!current) throw new NotFoundException('Statutory rule not found.');
+        if (current.status !== 'DRAFT')
+          throw new ConflictException('Only draft rules can be approved.');
+        if (
+          !actor.companyMembershipId ||
+          current.createdByCompanyUserId === actor.companyMembershipId
+        ) {
+          throw new ForbiddenException(
+            'Statutory rule requires a different approver.',
+          );
+        }
+        current.status = 'APPROVED';
+        current.approvedByCompanyUserId = actor.companyMembershipId;
+        current.approvedAt = new Date();
+        return repository.save(current);
+      },
+    );
+    await this.auditService.log({
+      actor,
+      action: 'payroll.statutory_rule.approved',
+      entityType: 'STATUTORY_RULE_VERSION',
+      entityId: rule.id,
+      beforeValues: { status: 'DRAFT' },
+      afterValues: {
+        status: rule.status,
+        approved_by_company_user_id: rule.approvedByCompanyUserId,
+      },
     });
-    await this.auditService.log({ actor, action: 'payroll.statutory_rule.approved', entityType: 'STATUTORY_RULE_VERSION', entityId: rule.id,
-      beforeValues: { status: 'DRAFT' }, afterValues: { status: rule.status, approved_by_company_user_id: rule.approvedByCompanyUserId } });
     return rule;
   }
 
@@ -1679,7 +1743,10 @@ export class EmployeeSalaryService {
             employeeId: employee.id,
           })
           .andWhere('compensation.status IN (:...statuses)', {
-            statuses: [...PAYABLE_COMPENSATION_STATUSES, EmployeeCompensationVersionStatusEnum.PENDING_APPROVAL],
+            statuses: [
+              ...PAYABLE_COMPENSATION_STATUSES,
+              EmployeeCompensationVersionStatusEnum.PENDING_APPROVAL,
+            ],
           })
           .getOne();
         if (existing) {
@@ -1761,31 +1828,47 @@ export class EmployeeSalaryService {
   async approveInitialSalary(actor: AuthenticatedUser, employeeId: number) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     await this.findEmployee(companyId, employeeId);
-    const saved = await this.compensationRepository.manager.transaction(async (manager) => {
-      const repository = manager.getRepository(EmployeeCompensationVersion);
-      const pending = await repository.createQueryBuilder('compensation')
-        .setLock('pessimistic_write')
-        .where('compensation.companyId = :companyId', { companyId })
-        .andWhere('compensation.employeeId = :employeeId', { employeeId })
-        .andWhere('compensation.status = :status', { status: EmployeeCompensationVersionStatusEnum.PENDING_APPROVAL })
-        .getOne();
-      if (!pending) throw new NotFoundException('Pending starting salary not found.');
-      if (!actor.companyMembershipId || pending.createdByCompanyUserId === actor.companyMembershipId) {
-        throw new ForbiddenException('Starting salary requires a different approver.');
-      }
-      pending.status = EmployeeCompensationVersionStatusEnum.ACTIVE;
-      pending.approvedByCompanyUserId = actor.companyMembershipId;
-      pending.payrollSyncStatus = 'READY';
-      return repository.save(pending);
-    });
+    const saved = await this.compensationRepository.manager.transaction(
+      async (manager) => {
+        const repository = manager.getRepository(EmployeeCompensationVersion);
+        const pending = await repository
+          .createQueryBuilder('compensation')
+          .setLock('pessimistic_write')
+          .where('compensation.companyId = :companyId', { companyId })
+          .andWhere('compensation.employeeId = :employeeId', { employeeId })
+          .andWhere('compensation.status = :status', {
+            status: EmployeeCompensationVersionStatusEnum.PENDING_APPROVAL,
+          })
+          .getOne();
+        if (!pending)
+          throw new NotFoundException('Pending starting salary not found.');
+        if (
+          !actor.companyMembershipId ||
+          pending.createdByCompanyUserId === actor.companyMembershipId
+        ) {
+          throw new ForbiddenException(
+            'Starting salary requires a different approver.',
+          );
+        }
+        pending.status = EmployeeCompensationVersionStatusEnum.ACTIVE;
+        pending.approvedByCompanyUserId = actor.companyMembershipId;
+        pending.payrollSyncStatus = 'READY';
+        return repository.save(pending);
+      },
+    );
     await this.auditService.log({
       actor,
       action: 'payroll.employee_salary.approved',
       entityType: 'EMPLOYEE_COMPENSATION_VERSION',
       entityId: saved.id,
       summary: { employee_id: employeeId },
-      beforeValues: { status: EmployeeCompensationVersionStatusEnum.PENDING_APPROVAL },
-      afterValues: { status: saved.status, approved_by_company_user_id: saved.approvedByCompanyUserId },
+      beforeValues: {
+        status: EmployeeCompensationVersionStatusEnum.PENDING_APPROVAL,
+      },
+      afterValues: {
+        status: saved.status,
+        approved_by_company_user_id: saved.approvedByCompanyUserId,
+      },
     });
     return saved;
   }
@@ -1924,9 +2007,20 @@ export class PayrollInputService {
         createdByCompanyUserId: actor.companyMembershipId ?? null,
       }),
     );
-    await this.auditService.log({ actor, action: 'payroll.input.created', entityType: 'PAYROLL_INPUT', entityId: input.id,
+    await this.auditService.log({
+      actor,
+      action: 'payroll.input.created',
+      entityType: 'PAYROLL_INPUT',
+      entityId: input.id,
       beforeValues: null,
-      afterValues: { employee_id: input.employeeId, payroll_period_id: input.payrollPeriodId, component_code: input.componentCode, amount: input.amount, status: input.status } });
+      afterValues: {
+        employee_id: input.employeeId,
+        payroll_period_id: input.payrollPeriodId,
+        component_code: input.componentCode,
+        amount: input.amount,
+        status: input.status,
+      },
+    });
     return input;
   }
 
@@ -1945,15 +2039,34 @@ export class PayrollInputService {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const input = await this.repository.findOne({ where: { id, companyId } });
     if (!input) throw new NotFoundException('Payroll input not found.');
-    if (input.status !== PayrollInputStatusEnum.DRAFT) throw new ConflictException('Only draft inputs can be approved.');
-    if (!actor.companyMembershipId || input.createdByCompanyUserId === actor.companyMembershipId) throw new ForbiddenException('Payroll input requires an independent approver.');
-    const beforeValues = { status: input.status, approved_by_company_user_id: input.approvedByCompanyUserId };
+    if (input.status !== PayrollInputStatusEnum.DRAFT)
+      throw new ConflictException('Only draft inputs can be approved.');
+    if (
+      !actor.companyMembershipId ||
+      input.createdByCompanyUserId === actor.companyMembershipId
+    )
+      throw new ForbiddenException(
+        'Payroll input requires an independent approver.',
+      );
+    const beforeValues = {
+      status: input.status,
+      approved_by_company_user_id: input.approvedByCompanyUserId,
+    };
     input.status = PayrollInputStatusEnum.APPROVED;
     input.approvedByCompanyUserId = actor.companyMembershipId ?? null;
     input.approvedAt = new Date();
     const saved = await this.repository.save(input);
-    await this.auditService.log({ actor, action: 'payroll.input.approved', entityType: 'PAYROLL_INPUT', entityId: saved.id,
-      beforeValues, afterValues: { status: saved.status, approved_by_company_user_id: saved.approvedByCompanyUserId } });
+    await this.auditService.log({
+      actor,
+      action: 'payroll.input.approved',
+      entityType: 'PAYROLL_INPUT',
+      entityId: saved.id,
+      beforeValues,
+      afterValues: {
+        status: saved.status,
+        approved_by_company_user_id: saved.approvedByCompanyUserId,
+      },
+    });
     return saved;
   }
 
@@ -2058,7 +2171,10 @@ export class PayrollSourceService {
     if (!dto.records.length) {
       throw new BadRequestException('At least one source record is required.');
     }
-    if (dto.auto_approve) throw new BadRequestException('Source records require independent approval.');
+    if (dto.auto_approve)
+      throw new BadRequestException(
+        'Source records require independent approval.',
+      );
     const created: PayrollSourceRecord[] = [];
     for (const record of dto.records) {
       const source = await this.create(actor, record);
@@ -2071,7 +2187,10 @@ export class PayrollSourceService {
   }
 
   async importFile(actor: AuthenticatedUser, dto: ImportPayrollSourceFileDto) {
-    if (dto.auto_approve) throw new BadRequestException('Imported source records require independent approval.');
+    if (dto.auto_approve)
+      throw new BadRequestException(
+        'Imported source records require independent approval.',
+      );
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const period = await this.periodRepository.findOne({
       where: { id: dto.payroll_period_id, companyId },
@@ -2263,14 +2382,32 @@ export class PayrollSourceService {
         'Only draft or rejected source records can be approved.',
       );
     }
-    if (!actor.companyMembershipId || source.createdByCompanyUserId === actor.companyMembershipId) throw new ForbiddenException('Payroll source requires an independent approver.');
-    const beforeValues = { status: source.status, approved_by_company_user_id: source.approvedByCompanyUserId };
+    if (
+      !actor.companyMembershipId ||
+      source.createdByCompanyUserId === actor.companyMembershipId
+    )
+      throw new ForbiddenException(
+        'Payroll source requires an independent approver.',
+      );
+    const beforeValues = {
+      status: source.status,
+      approved_by_company_user_id: source.approvedByCompanyUserId,
+    };
     source.status = 'APPROVED';
     source.approvedByCompanyUserId = actor.companyMembershipId ?? null;
     source.approvedAt = new Date();
     const saved = await this.repository.save(source);
-    await this.auditService.log({ actor, action: 'payroll.source.approved', entityType: 'PAYROLL_SOURCE_RECORD', entityId: saved.id,
-      beforeValues, afterValues: { status: saved.status, approved_by_company_user_id: saved.approvedByCompanyUserId } });
+    await this.auditService.log({
+      actor,
+      action: 'payroll.source.approved',
+      entityType: 'PAYROLL_SOURCE_RECORD',
+      entityId: saved.id,
+      beforeValues,
+      afterValues: {
+        status: saved.status,
+        approved_by_company_user_id: saved.approvedByCompanyUserId,
+      },
+    });
     return saved;
   }
 

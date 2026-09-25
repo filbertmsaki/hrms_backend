@@ -31,9 +31,15 @@ export class TwoFactorPolicyService {
   }
 
   isRequired(roles: string[], permissions: string[] = []): boolean {
-    return roles.some((role) => ['HR_MANAGER', 'HR_OFFICER'].includes(role.toUpperCase())) ||
-      this.isRecommended(roles) || permissions.some((permission) =>
-      permission.startsWith('payroll:') && permission !== 'payroll:self',
+    return (
+      roles.some((role) =>
+        ['HR_MANAGER', 'HR_OFFICER'].includes(role.toUpperCase()),
+      ) ||
+      this.isRecommended(roles) ||
+      permissions.some(
+        (permission) =>
+          permission.startsWith('payroll:') && permission !== 'payroll:self',
+      )
     );
   }
 

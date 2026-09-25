@@ -44,7 +44,10 @@ type AuthedRequest = ExpressRequest & { user: AuthenticatedUser };
 @Controller('probation')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class ProbationController {
-  constructor(private readonly service: ProbationService, private readonly letters: ProbationLetterService) {}
+  constructor(
+    private readonly service: ProbationService,
+    private readonly letters: ProbationLetterService,
+  ) {}
 
   @Get('letter-templates')
   @UseGuards(PermissionsGuard)
@@ -56,7 +59,10 @@ export class ProbationController {
   @Post('letter-templates')
   @UseGuards(PermissionsGuard)
   @Permissions('probation_letters:generate')
-  upsertLetterTemplate(@Req() req: AuthedRequest, @Body() dto: UpsertProbationLetterTemplateDto) {
+  upsertLetterTemplate(
+    @Req() req: AuthedRequest,
+    @Body() dto: UpsertProbationLetterTemplateDto,
+  ) {
     return this.letters.upsertTemplate(req.user, dto);
   }
 

@@ -286,11 +286,20 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         payload.companyId,
       );
 
-      const twoFactorRequired = user.force_two_factor ||
-        this.twoFactorPolicyService.isRequired(companyContext.roles, companyContext.permissions);
+      const twoFactorRequired =
+        user.force_two_factor ||
+        this.twoFactorPolicyService.isRequired(
+          companyContext.roles,
+          companyContext.permissions,
+        );
+      const twoFactorUser = twoFactorRequired
+        ? await this.usersService.findByIdWithTwoFactor(user.id)
+        : null;
       const twoFactorIncomplete =
         twoFactorRequired &&
-        (!user.is_two_factor_enabled || user.two_factor_setup_required || !user.two_factor_secret);
+        (!twoFactorUser?.is_two_factor_enabled ||
+          twoFactorUser.two_factor_setup_required ||
+          !twoFactorUser.two_factor_secret);
 
       if (twoFactorIncomplete && !this.isTwoFactorSetupAllowedRoute(req)) {
         throw new UnauthorizedException(

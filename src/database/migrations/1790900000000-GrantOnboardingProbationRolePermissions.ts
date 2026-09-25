@@ -54,9 +54,7 @@ const GRANTS: Record<string, string[]> = {
   COMPANY_ADMIN: ['probation_objectives:create'],
 };
 
-export class GrantOnboardingProbationRolePermissions1790900000000
-  implements MigrationInterface
-{
+export class GrantOnboardingProbationRolePermissions1790900000000 implements MigrationInterface {
   name = 'GrantOnboardingProbationRolePermissions1790900000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
