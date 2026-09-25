@@ -23,7 +23,6 @@ describe('Company role and permission modules (e2e)', () => {
 
   const createdCompanyIds: number[] = [];
   const createdUserIds: number[] = [];
-  const adminBackupCodes = new Map<string, string>();
   let loginIpCounter = 1;
 
   function nextLoginIp(): string {
@@ -76,7 +75,6 @@ describe('Company role and permission modules (e2e)', () => {
       await dataSource.query('DELETE FROM users WHERE id = $1', [userId]);
     }
     createdUserIds.length = 0;
-    adminBackupCodes.clear();
   });
 
   function nextSuffix() {
@@ -158,13 +156,9 @@ describe('Company role and permission modules (e2e)', () => {
 
     const twoFaService = app.get(TwoFaService);
     const setup = await twoFaService.generate2FASetup(administratorId);
-    const activated = await twoFaService.verifyAndActivate2FA(
+    await twoFaService.verifyAndActivate2FA(
       administratorId,
       await generate({ secret: setup.secret }),
-    );
-    adminBackupCodes.set(
-      response.body.data.administrator.email as string,
-      activated.backupCodes[0],
     );
 
     return {
@@ -177,22 +171,15 @@ describe('Company role and permission modules (e2e)', () => {
   }
 
   async function loginCompanyAdmin(email: string, password: string) {
-    const backupCode = adminBackupCodes.get(email);
-    if (!backupCode) throw new Error('Missing test admin 2FA backup code');
     const response = await request(app.getHttpServer() as App)
       .post('/api/auth/login')
       .set('X-Forwarded-For', nextLoginIp())
       .send({ email, password })
       .expect(201);
 
-    expect(response.body.requires2FA).toBe(true);
-    const completed = await request(app.getHttpServer() as App)
-      .post('/api/auth/2fa/complete-login')
-      .send({ tempToken: response.body.tempToken, code: backupCode })
-      .expect(201);
-
-    expect(completed.body.access_token).toEqual(expect.any(String));
-    return completed.body.access_token as string;
+    expect(response.body.requires2FA).toBeUndefined();
+    expect(response.body.access_token).toEqual(expect.any(String));
+    return response.body.access_token as string;
   }
 
   it('persists split modules on company create, list, get, and my', async () => {

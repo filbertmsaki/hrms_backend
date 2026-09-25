@@ -254,41 +254,6 @@ export class AuthService {
         user.id,
       );
 
-      if (twoFactorStatus.fullyConfigured) {
-        const tempToken = this.jwtService.sign<TwoFactorTempTokenPayload>(
-          {
-            sub: user.id,
-            email: user.email,
-            scope: 'platform',
-            userType: 'OWNER',
-            temp: true,
-            type: '2fa-temp',
-          },
-          {
-            secret: this.getAccessTokenSecret(),
-            expiresIn: '5m' as StringValue,
-          },
-        );
-
-        await this.logSecurityEvent(
-          SecurityEventType.TWO_FACTOR_CHALLENGE_CREATED,
-          SecurityEventOutcome.SUCCESS,
-          {
-            authenticatedUser: user as User,
-            context,
-            metadata: {
-              scope: 'platform',
-            },
-          },
-        );
-
-        return {
-          requires2FA: true,
-          tempToken,
-          message: 'Password verified. Please provide your 2FA code.',
-        };
-      }
-
       await this.usersService.updateLastLogin(
         user.id,
         new Date(),
@@ -353,44 +318,6 @@ export class AuthService {
     const activeCompany = this.resolveActiveCompany(companies);
 
     const twoFactorStatus = await this.twoFaService.getTwoFactorStatus(user.id);
-    if (twoFactorStatus.fullyConfigured) {
-      const tempToken = this.jwtService.sign<TwoFactorTempTokenPayload>(
-        {
-          sub: user.id,
-          email: user.email,
-          scope: 'company',
-          userType: 'COMPANY_USER',
-          companyId: activeCompany.companyId,
-          temp: true,
-          type: '2fa-temp',
-        },
-        {
-          secret: this.getAccessTokenSecret(),
-          expiresIn: '5m' as StringValue,
-        },
-      );
-
-      await this.logSecurityEvent(
-        SecurityEventType.TWO_FACTOR_CHALLENGE_CREATED,
-        SecurityEventOutcome.SUCCESS,
-        {
-          authenticatedUser: user as User,
-          companyId: activeCompany.companyId,
-          context,
-          metadata: {
-            scope: 'company',
-          },
-        },
-      );
-
-      return {
-        requires2FA: true,
-        tempToken,
-        company: activeCompany,
-        companies,
-        message: 'Password verified. Please provide your 2FA code.',
-      };
-    }
 
     await this.usersService.updateLastLogin(
       user.id,
