@@ -34,21 +34,18 @@ function productionRequirements(
 }
 
 describe('validateEnv', () => {
-  it.each(['uat', 'production'])(
-    'allows a local APP_URL in %s',
-    (appEnv) => {
-      expect(() =>
-        validateEnv(
-          buildEnv({
-            NODE_ENV: appEnv,
-            APP_ENV: appEnv,
-            ...productionRequirements(appEnv),
-            APP_URL: 'http://127.0.0.1:8888',
-          }),
-        ),
-      ).not.toThrow();
-    },
-  );
+  it.each(['uat', 'production'])('allows a local APP_URL in %s', (appEnv) => {
+    expect(() =>
+      validateEnv(
+        buildEnv({
+          NODE_ENV: appEnv,
+          APP_ENV: appEnv,
+          ...productionRequirements(appEnv),
+          APP_URL: 'http://127.0.0.1:8888',
+        }),
+      ),
+    ).not.toThrow();
+  });
 
   it.each(['uat', 'production'])(
     'allows wildcard-port IP origins in %s',
@@ -58,8 +55,7 @@ describe('validateEnv', () => {
           NODE_ENV: appEnv,
           APP_ENV: appEnv,
           ...productionRequirements(appEnv),
-          APP_ALLOWED_ORIGINS:
-            'http://192.168.1.30:*,http://154.72.81.122:*,',
+          APP_ALLOWED_ORIGINS: 'http://192.168.1.30:*,http://154.72.81.122:*,',
         }),
       );
 
@@ -92,8 +88,7 @@ describe('validateEnv', () => {
         NODE_ENV: 'production',
         APP_ENV: 'production',
         FILE_MALWARE_SCAN_MODE: 'required',
-        APP_ALLOWED_ORIGINS:
-          'http://192.168.1.30:*,http://154.72.81.122:*,',
+        APP_ALLOWED_ORIGINS: 'http://192.168.1.30:*,http://154.72.81.122:*,',
       }),
     );
 
