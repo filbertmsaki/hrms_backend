@@ -836,6 +836,21 @@ export class EmployeesController {
     );
   }
 
+  @Post(':employeeId/bank-accounts/:bankAccountId/verify')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:update')
+  @ApiOperationSummary('Independently verify an employee bank account')
+  @ApiAuthRequired()
+  verifyBankAccount(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('bankAccountId', ParseIntPipe) bankAccountId: number,
+  ) {
+    return this.employeesService.verifyBankAccount(
+      req.user.companyId!, employeeId, bankAccountId, req.user,
+    );
+  }
+
   @Delete(':employeeId/bank-accounts/:bankAccountId')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')

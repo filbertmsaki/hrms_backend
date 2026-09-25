@@ -16,6 +16,10 @@ import { OnboardingAuditLog } from './entities/onboarding-audit-log.entity';
 import { OnboardingNumberSequence } from './entities/onboarding-number-sequence.entity';
 import { Document } from '../documents/entities/document.entity';
 import { Employee } from '../employees/entities/employee.entity';
+import { EmployeeBankAccount } from '../employees/entities/employee-bank-account.entity';
+import { EmployeePayrollProfile } from '../payroll/entities/employee-payroll-profile.entity';
+import { EmployeeCompensationVersion, EmployeeCompensationVersionStatusEnum } from '../employee-movements/entities/employee-compensation-version.entity';
+import { EmploymentContract, EmploymentContractStatus } from '../contracts/entities/employment-contract.entity';
 import { Department } from '../departments/entities/department.entity';
 import { Branch } from '../branches/entities/branch.entity';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
@@ -652,6 +656,7 @@ describe('OnboardingService', () => {
         id: 501,
         primary_department_id: 2,
         primary_position_id: 3,
+        reports_to: 20,
         employment_status: EmploymentStatusEnum.ONBOARDING,
         hire_date: null,
       }),
@@ -663,12 +668,33 @@ describe('OnboardingService', () => {
         { id: 8, status: LeaveRecordStatusEnum.ACTIVE },
       ]),
     };
+    const payrollProfileRepo = { findOne: jest.fn().mockResolvedValue({
+      payrollEnabled: true, payrollHold: false,
+      taxpayerIdentificationNumber: '123456789',
+      socialSecuritySchemeCode: 'NSSF', socialSecurityNumber: 'NSSF-123',
+      healthInsuranceSchemeCode: 'NHIF', healthInsuranceNumber: 'NHIF-123',
+      primaryBankAccountId: 6,
+    }) };
+    const salaryRepo = { findOne: jest.fn().mockResolvedValue({
+      status: EmployeeCompensationVersionStatusEnum.ACTIVE,
+      effectiveFrom: '2026-01-01', effectiveTo: null,
+      createdByCompanyUserId: 21, approvedByCompanyUserId: 22,
+    }) };
+    const contractRepo = { findOne: jest.fn().mockResolvedValue({
+      status: EmploymentContractStatus.SIGNED,
+      startDate: '2026-01-01', endDate: null,
+    }) };
+    const bankRepo = { findOne: jest.fn().mockResolvedValue({ verification_status: 'VERIFIED' }) };
 
     const manager = {
       getRepository: jest.fn((entity: { name?: string }) => {
         if (entity === OnboardingRequest) return requestRepo;
         if (entity === Employee) return employeeRepo;
         if (entity === LeaveType) return leaveTypeRepo;
+        if (entity === EmployeePayrollProfile) return payrollProfileRepo;
+        if (entity === EmployeeCompensationVersion) return salaryRepo;
+        if (entity === EmploymentContract) return contractRepo;
+        if (entity === EmployeeBankAccount) return bankRepo;
         throw new Error(`Unexpected repository request: ${entity?.name}`);
       }),
     } as unknown as EntityManager;
@@ -701,6 +727,29 @@ describe('OnboardingService', () => {
       '2026',
       manager,
     );
+  });
+
+  it('blocks completion when payroll and contract records are missing', async () => {
+    onboardingRequestRepository.findOne.mockResolvedValue({
+      id: 55, employee_id: 501, status: OnboardingRequestStatusEnum.IN_PROGRESS,
+      tasks: [{ status: OnboardingTaskStatusEnum.COMPLETED }], approvals: [],
+      employee: { id: 501, company_user: { id: 11 } },
+    });
+    const employeeRepo = { findOneOrFail: jest.fn().mockResolvedValue({
+      id: 501, primary_position_id: 3, reports_to: 20,
+      hire_date: '2026-06-12',
+    }), save: jest.fn() };
+    const requestRepo = { findOneOrFail: jest.fn().mockResolvedValue({ id: 55, employee_id: 501, status: OnboardingRequestStatusEnum.IN_PROGRESS }) };
+    const missingRepo = { findOne: jest.fn().mockResolvedValue(null) };
+    const manager = { getRepository: jest.fn((entity: unknown) => {
+      if (entity === OnboardingRequest) return requestRepo;
+      if (entity === Employee) return employeeRepo;
+      return missingRepo;
+    }) } as unknown as EntityManager;
+    dataSource.transaction.mockImplementation((callback: (manager: EntityManager) => unknown) => callback(manager));
+
+    await expect(service.completeOnboarding(10, 55, actor)).rejects.toThrow('payroll profile');
+    expect(employeeRepo.save).not.toHaveBeenCalled();
   });
 
   it('stores normalized provisioning metadata when onboarding starts', async () => {

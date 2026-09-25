@@ -106,6 +106,9 @@ export class EmployeeInvitation {
   @Column({ name: 'accepted_employee_id', type: 'int', nullable: true })
   acceptedEmployeeId: number | null;
 
+  @Column({ name: 'source_candidate_id', type: 'int', nullable: true })
+  sourceCandidateId: number | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

@@ -16,6 +16,9 @@ import {
 } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { Employee } from '../employees/entities/employee.entity';
+import { EmploymentHistoryService } from '../employment-history/employment-history.service';
+import { EmploymentEventTypeEnum } from '../employment-history/enums/employment-event-type.enum';
+import { AppNotification } from '../../notifications/entities/app-notification.entity';
 import { EmploymentTypeEnum } from '../employees/enums/employment-type.enum';
 import { EmployeeConfirmationStatusEnum } from '../employees/enums/employee-confirmation-status.enum';
 import { HrAccessService } from '../shared/hr-access.service';
@@ -47,6 +50,7 @@ import { ProbationLetterTypeEnum } from './enums/probation-letter-type.enum';
 import { ProbationAuditActionEnum } from './enums/probation-audit-action.enum';
 import { CreateProbationCaseDto } from './dtos/create-probation-case.dto';
 import { UpdateProbationCaseDto } from './dtos/update-probation-case.dto';
+import { CreateProbationObjectiveDto } from './dtos/create-probation-objective.dto';
 import { SubmitProbationSelfAssessmentDto } from './dtos/submit-probation-self-assessment.dto';
 import { SubmitProbationManagerReviewDto } from './dtos/submit-probation-manager-review.dto';
 import { SubmitProbationHrDecisionDto } from './dtos/submit-probation-hr-decision.dto';
@@ -55,6 +59,7 @@ import { OffboardingTypeEnum } from '../offboarding/enums/offboarding-type.enum'
 import { CreateOffboardingRequestDto } from '../offboarding/dtos/create-offboarding-request.dto';
 
 const PROBATION_EXCLUDED_EMPLOYMENT_TYPES: EmploymentTypeEnum[] = [];
+const DEFAULT_MAX_TOTAL_PROBATION_DAYS = 365;
 
 @Injectable()
 export class ProbationService {
@@ -67,6 +72,7 @@ export class ProbationService {
     private readonly auditService: ProbationAuditService,
     private readonly letterService: ProbationLetterService,
     private readonly offboardingService: OffboardingService,
+    private readonly employmentHistoryService: EmploymentHistoryService,
     @InjectRepository(ProbationCase)
     private readonly caseRepository: Repository<ProbationCase>,
     @InjectRepository(ProbationPolicy)
@@ -387,9 +393,15 @@ export class ProbationService {
       180;
 
     const dueDate = addDaysToDateOnly(startDate, periodDays);
+    this.assertWithinTotalProbationLimit(startDate, dueDate);
     const caseNo = await this.allocateCaseNo(companyId, manager);
 
     const objectivesRequired = policy?.objectivesRequired ?? true;
+    const managerCompanyUserId = await this.resolveManagerCompanyUserId(
+      companyId,
+      employee.reports_to,
+      manager,
+    );
 
     const probationCase = await caseRepository.save(
       caseRepository.create({
@@ -407,7 +419,7 @@ export class ProbationService {
         currentCycleNumber: 1,
         extensionCount: 0,
         managerEmployeeId: employee.reports_to,
-        managerCompanyUserId: null,
+        managerCompanyUserId,
         policySnapshot: policy
           ? this.buildPolicySnapshot(policy)
           : { default: true, probation_period_days: periodDays },
@@ -573,6 +585,11 @@ export class ProbationService {
         probationCase.currentDueDate = dto.current_due_date;
       }
 
+      this.assertWithinTotalProbationLimit(
+        probationCase.originalStartDate,
+        probationCase.currentDueDate,
+      );
+
       if (policyChanged && policy) {
         probationCase.policyId = policy.id;
         probationCase.policySnapshot = this.buildPolicySnapshot(policy);
@@ -705,6 +722,8 @@ export class ProbationService {
       periodEndDate: probationCase.currentDueDate,
       status: ProbationReviewCycleStatusEnum.ACTIVE,
       selfAssessmentRequired,
+      managerEmployeeId: probationCase.managerEmployeeId,
+      managerCompanyUserId: probationCase.managerCompanyUserId,
     });
 
     return manager.getRepository(ProbationReviewCycle).save(cycle);
@@ -792,6 +811,79 @@ export class ProbationService {
     });
 
     await this.caseRepository.remove(probationCase);
+  }
+
+  async createObjective(
+    actor: AuthenticatedUser,
+    caseId: number,
+    dto: CreateProbationObjectiveDto,
+  ): Promise<ProbationObjective> {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+
+    return this.dataSource.transaction(async (manager) => {
+      const probationCase = await this.lockCase(companyId, caseId, manager);
+
+      await this.hrAccessService.assertCanAccessEmployee(
+        actor,
+        probationCase.employee,
+      );
+
+      const editableStatuses = [
+        ProbationCaseStatusEnum.OBJECTIVES_PENDING,
+        ProbationCaseStatusEnum.ACTIVE,
+      ];
+
+      if (!editableStatuses.includes(probationCase.status)) {
+        throw new ConflictException(
+          `Objectives cannot be added while the case is ${probationCase.status}.`,
+        );
+      }
+
+      const cycle = await this.getCurrentCycle(probationCase, manager);
+      const objective = await manager.getRepository(ProbationObjective).save(
+        manager.getRepository(ProbationObjective).create({
+          companyId,
+          probationCaseId: probationCase.id,
+          reviewCycleId: cycle.id,
+          title: dto.title.trim(),
+          description: dto.description?.trim() || null,
+          expectedResult: dto.expected_result?.trim() || null,
+          weight: String(dto.weight ?? 0),
+          dueDate: dto.due_date ?? null,
+          status: ProbationObjectiveStatusEnum.NOT_STARTED,
+          employeeProgressComment: null,
+          employeeCompletionPercent: '0',
+          managerRating: null,
+          managerComment: null,
+          evidenceDocumentId: null,
+          createdByCompanyUserId: actor.companyMembershipId ?? null,
+        }),
+      );
+
+      if (probationCase.status === ProbationCaseStatusEnum.OBJECTIVES_PENDING) {
+        probationCase.status = ProbationCaseStatusEnum.ACTIVE;
+        await manager.getRepository(ProbationCase).save(probationCase);
+      }
+
+      await this.auditService.log(
+        {
+          action: ProbationAuditActionEnum.CASE_UPDATED,
+          probationCaseId: probationCase.id,
+          reviewCycleId: cycle.id,
+          actor,
+          description: `Objective "${objective.title}" added to ${probationCase.caseNo}`,
+          newValues: {
+            objective_id: objective.id,
+            title: objective.title,
+            due_date: objective.dueDate,
+            weight: objective.weight,
+          },
+        },
+        manager,
+      );
+
+      return objective;
+    });
   }
 
   async listCases(
@@ -1305,6 +1397,7 @@ export class ProbationService {
 
     const probationCase = await this.dataSource.transaction(async (manager) => {
       const probationCase = await this.lockCase(companyId, caseId, manager);
+      const alreadyConfirmed = probationCase.status === ProbationCaseStatusEnum.CONFIRMED;
 
       if (probationCase.employeeId === actor.employeeId) {
         throw new ForbiddenException(
@@ -1336,6 +1429,36 @@ export class ProbationService {
       switch (dto.decision) {
         case ProbationFinalDecisionEnum.CONFIRMED:
           await this.confirmEmployee(probationCase, cycle, dto, actor, manager);
+          if (!alreadyConfirmed) {
+            await this.employmentHistoryService.record({
+              companyId,
+              employeeId: probationCase.employeeId,
+              eventType: EmploymentEventTypeEnum.CONFIRMED,
+              title: 'Employment confirmed',
+              effectiveDate: probationCase.confirmationDate,
+              description: dto.comments.trim(),
+              sourceModule: 'probation',
+              sourceEntityType: 'PROBATION_CASE',
+              sourceEntityId: probationCase.id,
+              dedupeKey: `probation:confirmed:${probationCase.id}`,
+              actorCompanyUserId: actor.companyMembershipId ?? null,
+            }, manager);
+            if (probationCase.employee.company_user_id) {
+              const notifications = manager.getRepository(AppNotification);
+              await notifications.save(notifications.create({
+                company_id: companyId,
+                sender_company_user_id: actor.companyMembershipId ?? null,
+                receiver_company_user_id: probationCase.employee.company_user_id,
+                title: 'Employment confirmed',
+                message: `Your employment was confirmed effective ${probationCase.confirmationDate}.`,
+                related_module: 'probation',
+                entity_type: 'PROBATION_CASE',
+                entity_id: String(probationCase.id),
+                action_url: '/me/probation',
+                dedupe_key: `probation:confirmed:${probationCase.id}:${probationCase.employee.company_user_id}`,
+              }));
+            }
+          }
           break;
         case ProbationFinalDecisionEnum.EXTENDED:
           await this.extendProbation(probationCase, cycle, dto, actor, manager);
@@ -1522,7 +1645,7 @@ export class ProbationService {
   async generateLetter(
     actor: AuthenticatedUser,
     caseId: number,
-    letterType: ProbationLetterTypeEnum,
+    letterType?: ProbationLetterTypeEnum,
   ) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const probationCase = await this.caseRepository.findOne({
@@ -1534,6 +1657,9 @@ export class ProbationService {
       throw new NotFoundException('Probation case not found.');
     }
 
+    const resolvedLetterType =
+      letterType ?? this.resolveLetterTypeForCase(probationCase);
+
     await this.hrAccessService.assertCanAccessEmployee(
       actor,
       probationCase.employee,
@@ -1542,14 +1668,14 @@ export class ProbationService {
     const document = await this.letterService.generateAndStore(
       companyId,
       caseId,
-      letterType,
+      resolvedLetterType,
     );
 
     await this.auditService.log({
       action: ProbationAuditActionEnum.LETTER_GENERATED,
       probationCaseId: caseId,
       actor,
-      description: `${letterType} letter generated on request`,
+      description: `${resolvedLetterType} letter generated on request`,
     });
 
     return document;
@@ -1651,6 +1777,10 @@ export class ProbationService {
     const newEndDate =
       dto.extension_end_date ??
       addDaysToDateOnly(newStartDate, extensionDays - 1);
+    this.assertWithinTotalProbationLimit(
+      probationCase.originalStartDate,
+      newEndDate,
+    );
 
     currentCycle.hrDecision = ProbationFinalDecisionEnum.EXTENDED;
     currentCycle.hrComments = dto.comments.trim();
@@ -1714,6 +1844,59 @@ export class ProbationService {
       confirmation_due_date: newEndDate,
       confirmation_date: null,
     });
+  }
+
+  private async resolveManagerCompanyUserId(
+    companyId: number,
+    managerEmployeeId: number | null,
+    manager: EntityManager,
+  ): Promise<number | null> {
+    if (!managerEmployeeId) {
+      return null;
+    }
+
+    const managerEmployee = await manager.getRepository(Employee).findOne({
+      where: { id: managerEmployeeId, company_id: companyId },
+    });
+
+    return managerEmployee?.company_user_id ?? null;
+  }
+
+  private probationDurationDays(startDate: string, endDate: string): number {
+    const start = Date.parse(`${startDate}T00:00:00Z`);
+    const end = Date.parse(`${endDate}T00:00:00Z`);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+      throw new BadRequestException('Invalid probation date range.');
+    }
+    return Math.floor((end - start) / 86400000) + 1;
+  }
+
+  private assertWithinTotalProbationLimit(
+    startDate: string,
+    endDate: string,
+  ): void {
+    const maximumTotalDays =
+      this.configService.get<number>('PROBATION_MAX_TOTAL_DAYS') ??
+      DEFAULT_MAX_TOTAL_PROBATION_DAYS;
+    const totalDays = this.probationDurationDays(startDate, endDate);
+
+    if (totalDays > maximumTotalDays) {
+      throw new BadRequestException(
+        `Total probation period cannot exceed ${maximumTotalDays} days.`,
+      );
+    }
+  }
+
+  private resolveLetterTypeForCase(
+    probationCase: ProbationCase,
+  ): ProbationLetterTypeEnum {
+    if (probationCase.status === ProbationCaseStatusEnum.EXTENDED) {
+      return ProbationLetterTypeEnum.EXTENSION;
+    }
+    if (probationCase.status === ProbationCaseStatusEnum.NOT_CONFIRMED) {
+      return ProbationLetterTypeEnum.NOT_CONFIRMED;
+    }
+    return ProbationLetterTypeEnum.CONFIRMATION;
   }
 
   private async finalizeNonConfirmation(

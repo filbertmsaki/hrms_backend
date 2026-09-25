@@ -1,8 +1,11 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import { extname, isAbsolute, join, relative, resolve } from 'path';
+import { tmpdir } from 'os';
 import {
   Base64FileDto,
   FILE_NAME_PATTERN,
@@ -29,6 +32,7 @@ type SaveBase64FileOptions = Omit<
 
 @Injectable()
 export class FilesService {
+  private readonly logger = new Logger(FilesService.name);
   private readonly uploadsRoot: string;
   private readonly privateUploadsRoot: string;
   private readonly globalMaximumFileSize: number;
@@ -146,6 +150,7 @@ export class FilesService {
     if (options.validateFileSignature) {
       this.assertFileSignature(options.buffer, normalizedMimeType);
     }
+    await this.scanForMalware(options.buffer);
 
     const extension = this.resolveFileExtension(options.fileName);
     const targetDirectory = await this.ensureTargetDirectory(
@@ -176,6 +181,33 @@ export class FilesService {
         storedFileName,
       ]),
     };
+  }
+
+  private async scanForMalware(buffer: Buffer): Promise<void> {
+    const mode = this.configService.get<string>('FILE_MALWARE_SCAN_MODE') ?? 'optional';
+    if (mode === 'disabled') return;
+    const directory = await fs.mkdtemp(join(tmpdir(), 'hrms-upload-scan-'));
+    const path = join(directory, 'upload');
+    try {
+      await fs.writeFile(path, buffer, { mode: 0o600 });
+      await promisify(execFile)(
+        this.configService.get<string>('FILE_MALWARE_SCAN_COMMAND') ?? 'clamdscan',
+        [path],
+        { timeout: this.configService.get<number>('FILE_MALWARE_SCAN_TIMEOUT_MS') ?? 30000, windowsHide: true },
+      );
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (String(code) === '1') {
+        throw new BadRequestException('Upload failed malware scanning');
+      }
+      if (mode === 'optional' && code === 'ENOENT') {
+        this.logger.warn('Malware scanner is not installed; upload accepted in optional mode');
+        return;
+      }
+      throw new ServiceUnavailableException('Malware scanning is unavailable');
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
   }
 
   private decodeBase64FileString(value: string): Buffer {

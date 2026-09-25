@@ -30,9 +30,12 @@ import { ProbationPolicyQueryDto } from './dtos/probation-policy-query.dto';
 import { ProbationCaseQueryDto } from './dtos/probation-case-query.dto';
 import { CreateProbationCaseDto } from './dtos/create-probation-case.dto';
 import { UpdateProbationCaseDto } from './dtos/update-probation-case.dto';
+import { CreateProbationObjectiveDto } from './dtos/create-probation-objective.dto';
 import { SubmitProbationManagerReviewDto } from './dtos/submit-probation-manager-review.dto';
 import { SubmitProbationHrDecisionDto } from './dtos/submit-probation-hr-decision.dto';
 import { ProbationLetterTypeEnum } from './enums/probation-letter-type.enum';
+import { ProbationLetterService } from './services/probation-letter.service';
+import { UpsertProbationLetterTemplateDto } from './dtos/upsert-probation-letter-template.dto';
 
 type AuthedRequest = ExpressRequest & { user: AuthenticatedUser };
 
@@ -41,7 +44,21 @@ type AuthedRequest = ExpressRequest & { user: AuthenticatedUser };
 @Controller('probation')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class ProbationController {
-  constructor(private readonly service: ProbationService) {}
+  constructor(private readonly service: ProbationService, private readonly letters: ProbationLetterService) {}
+
+  @Get('letter-templates')
+  @UseGuards(PermissionsGuard)
+  @Permissions('probation_letters:generate')
+  listLetterTemplates(@Req() req: AuthedRequest) {
+    return this.letters.listTemplates(req.user);
+  }
+
+  @Post('letter-templates')
+  @UseGuards(PermissionsGuard)
+  @Permissions('probation_letters:generate')
+  upsertLetterTemplate(@Req() req: AuthedRequest, @Body() dto: UpsertProbationLetterTemplateDto) {
+    return this.letters.upsertTemplate(req.user, dto);
+  }
 
   @Post('policies')
   @UseGuards(PermissionsGuard)
@@ -166,6 +183,17 @@ export class ProbationController {
     return this.service.deleteCase(req.user, id);
   }
 
+  @Post('cases/:id/objectives')
+  @UseGuards(PermissionsGuard)
+  @PermissionsAny('probation_objectives:create', 'probation_cases:update')
+  createObjective(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateProbationObjectiveDto,
+  ) {
+    return this.service.createObjective(req.user, id, dto);
+  }
+
   @Post('cases/:id/manager-review')
   @UseGuards(PermissionsGuard)
   @PermissionsAny(
@@ -197,7 +225,7 @@ export class ProbationController {
   generateLetter(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
-    @Body('letter_type') letterType: ProbationLetterTypeEnum,
+    @Body('letter_type') letterType?: ProbationLetterTypeEnum,
   ) {
     return this.service.generateLetter(req.user, id, letterType);
   }

@@ -8,17 +8,57 @@ import {
 import {
   PayrollComponentTypeEnum,
   PayrollApprovalStageEnum,
+  PayrollInputStatusEnum,
   PayrollRunStatusEnum,
 } from '../payroll.enums';
 import {
   EmployeePayrollCalculationService,
   PayrollAccountingService,
   PayrollFinalSettlementService,
+  PayrollInputService,
   PayrollProrationService,
   PayrollReportsService,
   PayrollRunService,
   ProgressiveTaxService,
 } from './payroll-core.services';
+
+describe('PayrollInputService independent approval', () => {
+  const maker = { companyId: 1, companyMembershipId: 10 } as any;
+  const checker = { companyId: 1, companyMembershipId: 11 } as any;
+
+  it('rejects self-approval and audits a separate approver', async () => {
+    const input = {
+      id: 7,
+      companyId: 1,
+      status: PayrollInputStatusEnum.DRAFT,
+      createdByCompanyUserId: 10,
+      approvedByCompanyUserId: null,
+    };
+    const service = Object.create(PayrollInputService.prototype) as any;
+    service.hrAccessService = { ensureActorCompanyId: () => 1 };
+    service.repository = {
+      findOne: jest.fn().mockResolvedValue(input),
+      save: jest.fn(async (value) => ({ ...value })),
+    };
+    service.auditService = { log: jest.fn() };
+
+    await expect(service.approve(maker, input.id)).rejects.toThrow(
+      'Payroll input requires an independent approver.',
+    );
+    expect(service.repository.save).not.toHaveBeenCalled();
+
+    const approved = await service.approve(checker, input.id);
+    expect(approved.status).toBe(PayrollInputStatusEnum.APPROVED);
+    expect(approved.approvedByCompanyUserId).toBe(11);
+    expect(service.auditService.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'payroll.input.approved',
+        beforeValues: { status: PayrollInputStatusEnum.DRAFT, approved_by_company_user_id: null },
+        afterValues: { status: PayrollInputStatusEnum.APPROVED, approved_by_company_user_id: 11 },
+      }),
+    );
+  });
+});
 
 describe('ProgressiveTaxService', () => {
   const service = new ProgressiveTaxService();

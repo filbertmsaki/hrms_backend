@@ -9,9 +9,11 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { randomBytes } from 'crypto';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import { resolveAuditContext } from '../../../common/request-context/request-context';
 import type { AuditRequestContext } from '../../../common/interfaces/audit-request-context.interface';
 import { hashPassword } from '../../../common/utils/hash.util';
 import { hasPermission } from '../../../common/utils/permission.util';
@@ -87,6 +89,7 @@ import { EmploymentTypeEnum } from './enums/employment-type.enum';
 import { IdentificationTypeEnum } from './enums/identification-type.enum';
 import { EmployeeAddress } from './entities/employee-address.entity';
 import { EmployeeBankAccount } from './entities/employee-bank-account.entity';
+import { EmployeePayrollProfile } from '../payroll/entities/employee-payroll-profile.entity';
 import { EmployeeContact } from './entities/employee-contact.entity';
 import { EmployeeDepartment } from './entities/employee-department.entity';
 import { EmployeeDocument } from './entities/employee-document.entity';
@@ -1232,7 +1235,7 @@ export class EmployeesService {
           last_name: createEmployeeDto.last_name,
           phone,
           email,
-          password: await hashPassword('Employee123!'),
+          password: await hashPassword(randomBytes(32).toString('base64url')),
           status: 'active',
           user_type: 'COMPANY_USER',
           is_email_verified: false,
@@ -1600,10 +1603,7 @@ export class EmployeesService {
       mobile_money_provider:
         this.normalizeOptionalString(bankAccount.mobile_money_provider) ??
         undefined,
-      verification_status:
-        this.normalizeOptionalString(
-          bankAccount.verification_status,
-        )?.toUpperCase() ?? 'PENDING',
+      verification_status: 'PENDING',
       effective_from:
         this.normalizeOptionalString(bankAccount.effective_from) ?? undefined,
       effective_to:
@@ -1961,7 +1961,63 @@ export class EmployeesService {
       metadata: employee.metadata ?? null,
       default_avatar_id: employee.default_avatar_id ?? null,
       profile_image_source: employee.profile_image_source ?? null,
+      identifications: employee.identifications?.map((value) => ({
+        id: value.id,
+        type: value.identification_type,
+        number_masked: this.maskAuditNumber(value.identification_number),
+        verified: value.is_verified,
+      })) ?? null,
+      bank_accounts: employee.bank_accounts?.map((value) => this.bankAuditSnapshot(value)) ?? null,
     };
+  }
+
+  private maskAuditNumber(value: string | null | undefined): string | null {
+    return value ? `${'*'.repeat(Math.max(value.length - 4, 0))}${value.slice(-4)}` : null;
+  }
+
+  private bankAuditSnapshot(value: EmployeeBankAccount) {
+    return {
+      id: value.id,
+      bank_name: value.bank_name,
+      account_number_masked: this.maskAuditNumber(value.account_number),
+      verification_status: value.verification_status,
+      verified_by_company_user_id: value.verified_by_company_user_id,
+    };
+  }
+
+  private async assertIdentifierAvailable(
+    companyId: number,
+    employeeId: number,
+    type: IdentificationTypeEnum,
+    rawNumber: string,
+    manager?: EntityManager,
+  ): Promise<void> {
+    if (![IdentificationTypeEnum.NATIONAL_ID, IdentificationTypeEnum.TAX_ID].includes(type)) return;
+    const number = rawNumber.replace(/[^0-9]/g, '');
+    const length = type === IdentificationTypeEnum.NATIONAL_ID ? 20 : 9;
+    if (number.length !== length || !/^[0-9\s-]+$/.test(rawNumber)) {
+      throw new BadRequestException(`${type === IdentificationTypeEnum.NATIONAL_ID ? 'NIDA' : 'TIN'} must contain ${length} digits`);
+    }
+    const repository = this.getEmployeeIdentificationRepository(manager);
+    const duplicate = await repository.createQueryBuilder('identification')
+      .innerJoin(Employee, 'employee', 'employee.id = identification.employee_id')
+      .where('employee.company_id = :companyId', { companyId })
+      .andWhere('identification.employee_id <> :employeeId', { employeeId })
+      .andWhere('identification.identification_type = :type', { type })
+      .andWhere('identification.identification_number NOT LIKE :archived', { archived: `${ARCHIVED_IDENTIFICATION_PREFIX}%` })
+      .andWhere("regexp_replace(identification.identification_number, '[^0-9]', '', 'g') = :number", { number })
+      .getOne();
+    if (duplicate) throw new ConflictException('This identifier belongs to another employee in the company');
+    if (type === IdentificationTypeEnum.TAX_ID) {
+      const payrollDuplicate = await (manager ?? this.dataSource.manager)
+        .getRepository(EmployeePayrollProfile)
+        .createQueryBuilder('profile')
+        .where('profile.companyId = :companyId', { companyId })
+        .andWhere('profile.employeeId <> :employeeId', { employeeId })
+        .andWhere("regexp_replace(profile.taxpayerIdentificationNumber, '[^0-9]', '', 'g') = :number", { number })
+        .getOne();
+      if (payrollDuplicate) throw new ConflictException('This TIN belongs to another employee in the company');
+    }
   }
 
   private buildEmployeeEntityPayload(
@@ -2345,11 +2401,15 @@ export class EmployeesService {
   }
 
   private async saveEmployeeIdentifications(
+    companyId: number,
     employeeId: number,
     identifications: EmployeeIdentificationInputDto[],
     manager?: EntityManager,
   ): Promise<void> {
     const repository = this.getEmployeeIdentificationRepository(manager);
+    for (const identification of identifications) {
+      await this.assertIdentifierAvailable(companyId, employeeId, identification.identification_type, identification.identification_number, manager);
+    }
     await repository.delete({ employee_id: employeeId });
 
     if (!identifications.length) {
@@ -2379,6 +2439,7 @@ export class EmployeesService {
   private async saveEmployeeBankAccounts(
     employeeId: number,
     bankAccounts: EmployeeBankAccountInputDto[],
+    actor: AuthenticatedUser,
     manager?: EntityManager,
   ): Promise<void> {
     const repository = this.getEmployeeBankAccountRepository(manager);
@@ -2402,7 +2463,8 @@ export class EmployeesService {
           account_type: bankAccount.account_type ?? null,
           swift_code: bankAccount.swift_code ?? null,
           mobile_money_provider: bankAccount.mobile_money_provider ?? null,
-          verification_status: bankAccount.verification_status ?? 'PENDING',
+          verification_status: 'PENDING',
+          created_by_company_user_id: actor.companyMembershipId ?? null,
           effective_from: bankAccount.effective_from ?? null,
           effective_to: bankAccount.effective_to ?? null,
           is_primary: bankAccount.is_primary ?? false,
@@ -2787,6 +2849,7 @@ export class EmployeesService {
 
     if (normalizedIdentifications !== undefined) {
       await this.saveEmployeeIdentifications(
+        companyId,
         saved.id,
         normalizedIdentifications,
         manager,
@@ -2797,6 +2860,7 @@ export class EmployeesService {
       await this.saveEmployeeBankAccounts(
         saved.id,
         normalizedBankAccounts,
+        actor,
         manager,
       );
     }
@@ -2941,6 +3005,27 @@ export class EmployeesService {
     };
   }
 
+  async createInTransaction(
+    companyId: number,
+    createEmployeeDto: CreateEmployeeDto,
+    actor: AuthenticatedUser,
+    manager: EntityManager,
+  ) {
+    const membership = await this.resolveCompanyMembershipForEmployeeCreation(
+      companyId,
+      createEmployeeDto,
+      manager,
+    );
+    return this.createForCompanyUserMembership(
+      companyId,
+      membership,
+      createEmployeeDto,
+      actor,
+      EMPTY_AUDIT_CONTEXT,
+      manager,
+    );
+  }
+
   async createForCompanyUser(
     companyId: number,
     companyUserId: number,
@@ -3029,6 +3114,25 @@ export class EmployeesService {
           last_name: existingEmployee.last_name,
         },
       });
+    }
+
+    const positionId = createEmployeeDto.primary_position_id ?? createEmployeeDto.position_id;
+    if (positionId) {
+      const position = await this.getPositionRepository(manager)
+        .createQueryBuilder('position')
+        .setLock('pessimistic_write')
+        .where('position.id = :positionId AND position.company_id = :companyId', { positionId, companyId })
+        .getOne();
+      if (!position) throw new BadRequestException('Position is not available');
+      const occupied = await this.getEmployeeRepository(manager)
+        .createQueryBuilder('employee')
+        .where('employee.company_id = :companyId', { companyId })
+        .andWhere('employee.primary_position_id = :positionId', { positionId })
+        .andWhere('employee.employment_status IN (:...statuses)', {
+          statuses: [EmploymentStatusEnum.ONBOARDING, EmploymentStatusEnum.ACTIVE, EmploymentStatusEnum.SUSPENDED],
+        })
+        .getCount();
+      if (occupied >= position.headcount) throw new ConflictException('Position headcount is full');
     }
 
     const requestedEmployeeNo = this.normalizeOptionalEmployeeNumber(
@@ -4270,6 +4374,8 @@ export class EmployeesService {
     const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
+    await this.assertIdentifierAvailable(companyId, employee.id, dto.identification_type, dto.identification_number);
+
     const repository = this.getEmployeeIdentificationRepository();
     const identification = await repository.save(
       repository.create({
@@ -4288,6 +4394,15 @@ export class EmployeesService {
       }),
     );
 
+    await this.securityEventsService.log({
+      eventType: SecurityEventType.EMPLOYEE_UPDATED,
+      outcome: SecurityEventOutcome.SUCCESS,
+      actor, companyId, targetCompanyUserId: employee.company_user_id,
+      resourceType: 'employee_identification', resourceId: identification.id,
+      oldValues: null,
+      newValues: { type: identification.identification_type, number_masked: this.maskAuditNumber(identification.identification_number) },
+      context: resolveAuditContext(),
+    });
     return this.mapIdentification(identification);
   }
 
@@ -4314,6 +4429,16 @@ export class EmployeesService {
       throw new NotFoundException('Employee identification has been archived');
     }
 
+    const beforeIdentification = {
+      type: identification.identification_type,
+      number_masked: this.maskAuditNumber(identification.identification_number),
+    };
+    await this.assertIdentifierAvailable(
+      companyId, employee.id,
+      dto.identification_type ?? identification.identification_type,
+      dto.identification_number ?? identification.identification_number,
+    );
+
     if (dto.identification_type !== undefined)
       identification.identification_type = dto.identification_type;
     if (dto.identification_number !== undefined)
@@ -4338,6 +4463,15 @@ export class EmployeesService {
       identification.is_primary = dto.is_primary;
 
     const saved = await repository.save(identification);
+    await this.securityEventsService.log({
+      eventType: SecurityEventType.EMPLOYEE_UPDATED,
+      outcome: SecurityEventOutcome.SUCCESS,
+      actor, companyId, targetCompanyUserId: employee.company_user_id,
+      resourceType: 'employee_identification', resourceId: saved.id,
+      oldValues: beforeIdentification,
+      newValues: { type: saved.identification_type, number_masked: this.maskAuditNumber(saved.identification_number) },
+      context: resolveAuditContext(),
+    });
     return this.mapIdentification(saved);
   }
 
@@ -4415,15 +4549,22 @@ export class EmployeesService {
         mobile_money_provider: this.normalizeOptionalString(
           dto.mobile_money_provider,
         ),
-        verification_status:
-          this.normalizeOptionalString(
-            dto.verification_status,
-          )?.toUpperCase() ?? 'PENDING',
+        verification_status: 'PENDING',
+        created_by_company_user_id: actor.companyMembershipId ?? null,
         effective_from: this.normalizeOptionalString(dto.effective_from),
         effective_to: this.normalizeOptionalString(dto.effective_to),
         is_primary: dto.is_primary ?? false,
       }),
     );
+
+    await this.securityEventsService.log({
+      eventType: SecurityEventType.EMPLOYEE_UPDATED,
+      outcome: SecurityEventOutcome.SUCCESS,
+      actor, companyId, targetCompanyUserId: employee.company_user_id,
+      resourceType: 'employee_bank_account', resourceId: bankAccount.id,
+      oldValues: null, newValues: this.bankAuditSnapshot(bankAccount),
+      context: resolveAuditContext(),
+    });
 
     return this.mapBankAccount(bankAccount);
   }
@@ -4451,12 +4592,19 @@ export class EmployeesService {
       throw new NotFoundException('Employee bank account has been archived');
     }
 
+    const beforeBankAccount = this.bankAuditSnapshot(bankAccount);
+
     if (dto.bank_name !== undefined)
       bankAccount.bank_name = this.normalizeOptionalString(dto.bank_name);
     if (dto.account_name !== undefined)
       bankAccount.account_name = this.normalizeOptionalString(dto.account_name);
-    if (dto.account_number !== undefined)
+    if (dto.account_number !== undefined && dto.account_number.trim() !== bankAccount.account_number) {
       bankAccount.account_number = dto.account_number.trim();
+      bankAccount.verification_status = 'PENDING';
+      bankAccount.verified_at = null;
+      bankAccount.verified_by_company_user_id = null;
+      bankAccount.created_by_company_user_id = actor.companyMembershipId ?? null;
+    }
     if (dto.branch_name !== undefined)
       bankAccount.branch_name = this.normalizeOptionalString(dto.branch_name);
     if (dto.bank_code !== undefined)
@@ -4478,16 +4626,6 @@ export class EmployeesService {
       bankAccount.mobile_money_provider = this.normalizeOptionalString(
         dto.mobile_money_provider,
       );
-    if (dto.verification_status !== undefined) {
-      bankAccount.verification_status =
-        this.normalizeOptionalString(dto.verification_status)?.toUpperCase() ??
-        'PENDING';
-      if (bankAccount.verification_status === 'VERIFIED') {
-        bankAccount.verified_at = new Date();
-        bankAccount.verified_by_company_user_id =
-          actor.companyMembershipId ?? null;
-      }
-    }
     if (dto.effective_from !== undefined)
       bankAccount.effective_from = this.normalizeOptionalString(
         dto.effective_from,
@@ -4497,6 +4635,51 @@ export class EmployeesService {
     if (dto.is_primary !== undefined) bankAccount.is_primary = dto.is_primary;
 
     const saved = await repository.save(bankAccount);
+    await this.securityEventsService.log({
+      eventType: SecurityEventType.EMPLOYEE_UPDATED,
+      outcome: SecurityEventOutcome.SUCCESS,
+      actor, companyId, targetCompanyUserId: employee.company_user_id,
+      resourceType: 'employee_bank_account', resourceId: saved.id,
+      oldValues: beforeBankAccount, newValues: this.bankAuditSnapshot(saved),
+      context: resolveAuditContext(),
+    });
+    return this.mapBankAccount(saved);
+  }
+
+  async verifyBankAccount(
+    companyId: number,
+    employeeId: number,
+    bankAccountId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+    const repository = this.getEmployeeBankAccountRepository();
+    const account = await repository.findOne({
+      where: { id: bankAccountId, employee_id: employee.id },
+    });
+    if (!account || this.isArchivedBankAccount(account)) {
+      throw new NotFoundException('Employee bank account not found');
+    }
+    if (account.created_by_company_user_id === actor.companyMembershipId) {
+      throw new ForbiddenException('A different user must verify the bank account');
+    }
+    if (account.verification_status !== 'PENDING') {
+      throw new ConflictException('Only pending bank accounts can be verified');
+    }
+    const beforeBankAccount = this.bankAuditSnapshot(account);
+    account.verification_status = 'VERIFIED';
+    account.verified_at = new Date();
+    account.verified_by_company_user_id = actor.companyMembershipId ?? null;
+    const saved = await repository.save(account);
+    await this.securityEventsService.log({
+      eventType: SecurityEventType.EMPLOYEE_UPDATED,
+      outcome: SecurityEventOutcome.SUCCESS,
+      actor, companyId, targetCompanyUserId: employee.company_user_id,
+      resourceType: 'employee_bank_account', resourceId: saved.id,
+      oldValues: beforeBankAccount, newValues: this.bankAuditSnapshot(saved),
+      context: resolveAuditContext(),
+    });
     return this.mapBankAccount(saved);
   }
 

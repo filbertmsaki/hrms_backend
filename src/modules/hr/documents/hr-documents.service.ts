@@ -162,6 +162,17 @@ export class HrDocumentsService {
     return this.filesService.readManagedFile(document.file_path);
   }
 
+  async purgeForEntity(companyId: number, entityType: DocumentEntityTypeEnum, entityId: number): Promise<number> {
+    const documents = await this.documentRepository.find({
+      where: { company_id: companyId, entity_type: entityType, entity_id: entityId },
+    });
+    for (const document of documents) {
+      await this.filesService.removeManagedFile(document.file_path);
+      await this.documentRepository.delete(document.id);
+    }
+    return documents.length;
+  }
+
   assertCanAccessDocumentOrFail(
     actor: AuthenticatedUser,
     document: Document,

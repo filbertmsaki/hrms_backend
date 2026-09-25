@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import PDFDocument from 'pdfkit';
 import { EntityManager, Repository } from 'typeorm';
@@ -9,6 +9,9 @@ import { DocumentEntityTypeEnum } from '../../documents/enums/document-entity-ty
 import { DocumentModuleEnum } from '../../documents/enums/document-module.enum';
 import { ProbationCase } from '../entities/probation-case.entity';
 import { ProbationLetterTypeEnum } from '../enums/probation-letter-type.enum';
+import { ProbationLetterTemplate } from '../entities/probation-letter-template.entity';
+import { UpsertProbationLetterTemplateDto } from '../dtos/upsert-probation-letter-template.dto';
+import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 
 const LETTER_DOCUMENT_TYPES: Record<ProbationLetterTypeEnum, string> = {
   [ProbationLetterTypeEnum.CONFIRMATION]: 'CONFIRMATION_LETTER',
@@ -29,8 +32,30 @@ export class ProbationLetterService {
     private readonly caseRepository: Repository<ProbationCase>,
     @InjectRepository(Document)
     private readonly documentRepository: Repository<Document>,
+    @InjectRepository(ProbationLetterTemplate)
+    private readonly templateRepository: Repository<ProbationLetterTemplate>,
     private readonly filesService: FilesService,
   ) {}
+
+  async upsertTemplate(actor: AuthenticatedUser, dto: UpsertProbationLetterTemplateDto) {
+    if (!actor.companyId || !actor.companyMembershipId) throw new BadRequestException('Company membership required');
+    const existing = await this.templateRepository.findOneBy({ companyId: actor.companyId, letterType: dto.letter_type });
+    return this.templateRepository.save(this.templateRepository.create({
+      id: existing?.id,
+      companyId: actor.companyId,
+      letterType: dto.letter_type,
+      letterhead: dto.letterhead.trim(),
+      body: dto.body.trim(),
+      signatoryName: dto.signatory_name.trim(),
+      signatoryTitle: dto.signatory_title.trim(),
+      updatedByCompanyUserId: actor.companyMembershipId,
+    }));
+  }
+
+  async listTemplates(actor: AuthenticatedUser) {
+    if (!actor.companyId) throw new BadRequestException('Company membership required');
+    return this.templateRepository.find({ where: { companyId: actor.companyId }, order: { letterType: 'ASC' } });
+  }
 
   private getCaseRepository(
     manager?: EntityManager,
@@ -43,6 +68,7 @@ export class ProbationLetterService {
   }
 
   private renderPdf(input: {
+    template: ProbationLetterTemplate;
     companyName: string;
     letterType: ProbationLetterTypeEnum;
     employeeName: string;
@@ -62,7 +88,7 @@ export class ProbationLetterService {
       document.on('end', () => resolve(Buffer.concat(chunks)));
     });
 
-    document.fontSize(16).font('Helvetica-Bold').text(input.companyName);
+    document.fontSize(16).font('Helvetica-Bold').text(input.template.letterhead);
     document
       .fontSize(12)
       .font('Helvetica')
@@ -71,19 +97,24 @@ export class ProbationLetterService {
     document.fontSize(10).text(`Date: ${input.issueDate}`);
     document.moveDown(1);
 
-    let body: string;
-    if (input.letterType === ProbationLetterTypeEnum.CONFIRMATION) {
-      body = `We are pleased to confirm that ${input.employeeName} (Employee No: ${input.employeeNumber}), who joined as ${input.position} in the ${input.department} department on ${input.hireDate}, has successfully completed the probationary period and is confirmed as a permanent employee effective ${input.confirmationDate}.`;
-    } else if (input.letterType === ProbationLetterTypeEnum.EXTENSION) {
-      body = `This is to notify ${input.employeeName} (Employee No: ${input.employeeNumber}) that their probationary period has been extended. The revised probation end date is ${input.probationEndDate}.`;
-    } else {
-      body = `This letter records the outcome of the probationary review for ${input.employeeName} (Employee No: ${input.employeeNumber}), whose probation period ran from ${input.probationStartDate} to ${input.probationEndDate}.`;
-    }
+    const values: Record<string, string> = {
+      company_name: input.companyName,
+      employee_name: input.employeeName,
+      employee_number: input.employeeNumber,
+      position: input.position,
+      department: input.department,
+      hire_date: input.hireDate,
+      probation_start_date: input.probationStartDate,
+      probation_end_date: input.probationEndDate,
+      confirmation_date: input.confirmationDate,
+      issue_date: input.issueDate,
+    };
+    const body = input.template.body.replace(/\{\{([a-z_]+)\}\}/g, (match, key: string) => values[key] ?? match);
 
     document.fontSize(11).text(body, { align: 'left' });
     document.moveDown(2);
-    document.text('Authorized Signatory');
-    document.text(input.companyName);
+    document.text(input.template.signatoryName);
+    document.text(input.template.signatoryTitle);
 
     document.end();
     return finished;
@@ -126,11 +157,16 @@ export class ProbationLetterService {
       throw new NotFoundException('Probation case not found');
     }
 
+    const template = await (manager?.getRepository(ProbationLetterTemplate) ?? this.templateRepository)
+      .findOneBy({ companyId, letterType });
+    if (!template) throw new BadRequestException('Configure the company letter template and named signatory first');
+
     const employee = probationCase.employee;
     const employeeName = `${employee.first_name} ${employee.last_name}`.trim();
     const companyName = employee.company?.name ?? 'the company';
 
     const pdfBuffer = await this.renderPdf({
+      template,
       companyName,
       letterType,
       employeeName,

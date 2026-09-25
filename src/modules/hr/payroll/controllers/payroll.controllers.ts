@@ -57,6 +57,7 @@ import {
   EmployeePayrollProfileService,
   EmployeeSalaryService,
   PayrollAccountingService,
+  PayrollAuditService,
   PayrollBankService,
   PayrollConfigurationService,
   PayrollFinalSettlementService,
@@ -227,6 +228,12 @@ export class PayrollConfigurationController {
     return this.service.createRule(req.user, dto);
   }
 
+  @Post('statutory-rules/:id/approve')
+  @Permissions('payroll:config')
+  approveRule(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.service.approveRule(req.user, id);
+  }
+
   @Post('accounting-mappings')
   @Permissions('payroll:config')
   createAccountingMapping(
@@ -353,6 +360,12 @@ export class EmployeePayrollController {
     @Body() dto: AssignEmployeeSalaryDto,
   ) {
     return this.salaryService.assignInitialSalary(req.user, employeeId, dto);
+  }
+
+  @Post(':employeeId/salary/approve')
+  @Permissions('payroll:profiles')
+  approveSalary(@Req() req: AuthedRequest, @Param('employeeId', ParseIntPipe) employeeId: number) {
+    return this.salaryService.approveInitialSalary(req.user, employeeId);
   }
 
   @Post('profiles')
@@ -736,7 +749,14 @@ export class PayrollReportsController {
     private readonly reportsService: PayrollReportsService,
     private readonly reconciliationService: PayrollReconciliationService,
     private readonly finalSettlementService: PayrollFinalSettlementService,
+    private readonly auditService: PayrollAuditService,
   ) {}
+
+  @Get('audit')
+  @Permissions('payroll:reports')
+  audit(@Req() req: AuthedRequest, @Query('limit') limit?: string) {
+    return this.auditService.list(req.user, limit ? Number(limit) : 100);
+  }
 
   @Get('dashboard')
   @Permissions('payroll:reports')

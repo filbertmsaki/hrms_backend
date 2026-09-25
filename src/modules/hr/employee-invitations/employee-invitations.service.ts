@@ -7,7 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomBytes } from 'crypto';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { hashPassword } from '../../../common/utils/hash.util';
 import { MailService } from '../../mail/mail.service';
@@ -24,6 +24,7 @@ import { ContactTypeEnum } from '../employees/enums/contact-type.enum';
 import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
 import { Position } from '../positions/entities/position.entity';
 import { OnboardingWorkflow } from '../onboarding/entities/onboarding-workflow.entity';
+import { RecruitmentCandidate, RecruitmentCandidateStatus } from '../recruitment/entities/recruitment-candidate.entity';
 import { CreateEmployeeInvitationDto } from './dtos/create-employee-invitation.dto';
 import { AcceptEmployeeInvitationDto } from './dtos/accept-employee-invitation.dto';
 import { EmployeeInvitation } from './entities/employee-invitation.entity';
@@ -59,12 +60,14 @@ export class EmployeeInvitationsService {
     private readonly employeesService: EmployeesService,
     private readonly usersService: UsersService,
     private readonly configService: ConfigService,
+    private readonly dataSource: DataSource,
   ) {}
 
   async create(
     companyId: number,
     dto: CreateEmployeeInvitationDto,
     actor: AuthenticatedUser,
+    sourceCandidateId: number | null = null,
   ) {
     await this.validateAssignment(companyId, dto);
     await this.assertRecipientAvailable(companyId, dto.email, dto.phone);
@@ -101,6 +104,7 @@ export class EmployeeInvitationsService {
       expiresAt: this.createExpiry(),
       acceptedAt: null,
       acceptedEmployeeId: null,
+      sourceCandidateId,
     });
 
     const saved = await this.invitationRepository.save(invitation);
@@ -173,20 +177,18 @@ export class EmployeeInvitationsService {
 
   async accept(rawToken: string, dto: AcceptEmployeeInvitationDto) {
     const invitation = await this.findUsableInvitation(rawToken);
-    const claimed = await this.invitationRepository.update(
-      {
-        id: invitation.id,
-        status: EmployeeInvitationStatus.PENDING,
-      },
-      { status: EmployeeInvitationStatus.ACCEPTING },
-    );
-    if (claimed.affected !== 1) {
-      throw new ConflictException('This invitation is already being processed');
-    }
-
-    try {
-      const actor = await this.resolveInvitationActor(invitation);
-      const employee = await this.employeesService.create(
+    const actor = await this.resolveInvitationActor(invitation);
+    const passwordHash = await hashPassword(dto.password);
+    return this.dataSource.transaction(async (manager) => {
+      const current = await manager.getRepository(EmployeeInvitation)
+        .createQueryBuilder('invitation')
+        .setLock('pessimistic_write')
+        .where('invitation.id = :id', { id: invitation.id })
+        .getOneOrFail();
+      if (current.status !== EmployeeInvitationStatus.PENDING || current.expiresAt <= new Date() || current.tokenHash !== this.hashToken(rawToken.trim())) {
+        throw new ConflictException('This invitation is no longer available');
+      }
+      const created = await this.employeesService.createInTransaction(
         invitation.companyId,
         {
           first_name: invitation.firstName,
@@ -226,38 +228,51 @@ export class EmployeeInvitationsService {
             : undefined,
         },
         actor,
+        manager,
       );
-
-      const user = await this.usersService.findByEmail(invitation.email);
+      const user = await manager.getRepository(User).findOneBy({
+        email: invitation.email,
+      });
       if (!user) {
         throw new NotFoundException('Created employee account was not found');
       }
-      await this.usersService.updatePassword(
-        user.id,
-        await hashPassword(dto.password),
-      );
-      await this.usersService.markEmailVerified(user.id);
+      user.password = passwordHash;
+      user.is_email_verified = true;
+      await manager.getRepository(User).save(user);
 
-      invitation.status = EmployeeInvitationStatus.ACCEPTED;
-      invitation.acceptedAt = new Date();
-      invitation.acceptedEmployeeId = employee.id;
-      await this.invitationRepository.save(invitation);
+      current.status = EmployeeInvitationStatus.ACCEPTED;
+      current.acceptedAt = new Date();
+      current.acceptedEmployeeId = created.employeeId;
+      await manager.getRepository(EmployeeInvitation).save(current);
 
       return {
-        status: invitation.status,
-        employee_id: employee.id,
+        status: current.status,
+        employee_id: created.employeeId,
         login_url: `${this.frontendBaseUrl()}/login`,
       };
-    } catch (error) {
-      await this.invitationRepository.update(
-        {
-          id: invitation.id,
-          status: EmployeeInvitationStatus.ACCEPTING,
-        },
-        { status: EmployeeInvitationStatus.PENDING },
-      );
-      throw error;
-    }
+    });
+  }
+
+  async cancel(companyId: number, invitationId: number) {
+    return this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(EmployeeInvitation);
+      const invitation = await repository.createQueryBuilder('invitation').setLock('pessimistic_write')
+        .where('invitation.id = :invitationId AND invitation.companyId = :companyId', { invitationId, companyId }).getOne();
+      if (!invitation || invitation.status !== EmployeeInvitationStatus.PENDING) {
+        throw new ConflictException('Only a pending invitation can be cancelled');
+      }
+      const sourceCandidateId = invitation.sourceCandidateId;
+      invitation.status = EmployeeInvitationStatus.CANCELLED;
+      invitation.sourceCandidateId = null;
+      await repository.save(invitation);
+      if (sourceCandidateId) {
+        await manager.getRepository(RecruitmentCandidate).update(
+          { id: sourceCandidateId, companyId, status: RecruitmentCandidateStatus.INVITED, invitationId },
+          { status: RecruitmentCandidateStatus.OFFER_ACCEPTED, invitationId: null },
+        );
+      }
+      return { id: invitationId, status: invitation.status };
+    });
   }
 
   private async validateAssignment(

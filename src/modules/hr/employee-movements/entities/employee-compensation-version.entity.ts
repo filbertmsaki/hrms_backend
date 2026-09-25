@@ -13,6 +13,7 @@ import { Employee } from '../../employees/entities/employee.entity';
 import { EmployeeMovement } from './employee-movement.entity';
 
 export enum EmployeeCompensationVersionStatusEnum {
+  PENDING_APPROVAL = 'PENDING_APPROVAL',
   SCHEDULED = 'SCHEDULED',
   ACTIVE = 'ACTIVE',
   SUPERSEDED = 'SUPERSEDED',

@@ -253,6 +253,9 @@ export class PayrollInput {
   @Column({ type: 'jsonb', nullable: true })
   payload: Record<string, unknown> | null;
 
+  @Column({ name: 'created_by_company_user_id', type: 'int', nullable: true })
+  createdByCompanyUserId: number | null;
+
   @Column({ name: 'approved_by_company_user_id', type: 'int', nullable: true })
   approvedByCompanyUserId: number | null;
 
@@ -331,6 +334,9 @@ export class PayrollSourceRecord {
 
   @Column({ type: 'jsonb', nullable: true })
   payload: Record<string, unknown> | null;
+
+  @Column({ name: 'created_by_company_user_id', type: 'int', nullable: true })
+  createdByCompanyUserId: number | null;
 
   @Column({ name: 'generated_payroll_input_id', type: 'int', nullable: true })
   generatedPayrollInputId: number | null;
@@ -1225,6 +1231,15 @@ export class PayrollAuditLog {
 
   @Column({ type: 'jsonb', nullable: true })
   summary: Record<string, unknown> | null;
+
+  @Column({ name: 'before_values', type: 'jsonb', nullable: true })
+  beforeValues: Record<string, unknown> | null;
+
+  @Column({ name: 'after_values', type: 'jsonb', nullable: true })
+  afterValues: Record<string, unknown> | null;
+
+  @Column({ name: 'ip_address', type: 'varchar', length: 64, nullable: true })
+  ipAddress: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

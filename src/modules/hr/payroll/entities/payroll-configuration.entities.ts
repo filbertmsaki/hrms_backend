@@ -450,6 +450,9 @@ export class StatutoryRuleVersion {
   @Column({ type: 'varchar', length: 30, default: 'DRAFT' })
   status: string;
 
+  @Column({ name: 'created_by_company_user_id', type: 'int', nullable: true })
+  createdByCompanyUserId: number | null;
+
   @Column({ name: 'approved_by_company_user_id', type: 'int', nullable: true })
   approvedByCompanyUserId: number | null;
 
