@@ -310,6 +310,12 @@ done
 
 if [[ "$HEALTH_OK" != "1" ]]; then
   log "Health check failed."
+
+  # An explicit exit does not fire the ERR trap, so surface the crash
+  # output and restore the previous release here.
+  show_logs
+  rollback
+
   exit 1
 fi
 
