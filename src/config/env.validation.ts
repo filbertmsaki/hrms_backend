@@ -82,47 +82,6 @@ function validateOrigin(value: string): string {
   return normalizeAllowedOriginPattern(value, 'APP_ALLOWED_ORIGINS');
 }
 
-function isLocalTestingUrl(value: string): boolean {
-  try {
-    const hostname = new URL(value).hostname
-      .toLowerCase()
-      .replace(/^\[|\]$/g, '');
-
-    if (
-      hostname === 'localhost' ||
-      hostname === '0.0.0.0' ||
-      hostname === '::1' ||
-      hostname.endsWith('.localhost') ||
-      hostname.endsWith('.local')
-    ) {
-      return true;
-    }
-
-    const ipv4Match = hostname.match(
-      /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/,
-    );
-
-    if (!ipv4Match) {
-      return false;
-    }
-
-    const octets = ipv4Match.slice(1).map(Number);
-
-    if (octets.some((octet) => octet < 0 || octet > 255)) {
-      return false;
-    }
-
-    return (
-      octets[0] === 10 ||
-      octets[0] === 127 ||
-      (octets[0] === 192 && octets[1] === 168) ||
-      (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31)
-    );
-  } catch {
-    return false;
-  }
-}
-
 export function validateEnv(env: Env) {
   const DB_HOST = optionalString(env, 'DB_HOST', 'localhost');
   const DB_PORT = optionalInt(env, 'DB_PORT', 5432);
@@ -221,16 +180,6 @@ export function validateEnv(env: Env) {
 
   if (MAX_UPLOAD_FILE_SIZE_BYTES < 1024) {
     throw new Error('MAX_UPLOAD_FILE_SIZE_BYTES must be at least 1024 bytes.');
-  }
-
-  if (APP_ENV === 'uat' || APP_ENV === 'production') {
-    if (isLocalTestingUrl(APP_URL)) {
-      throw new Error(`APP_URL cannot use a local URL in ${APP_ENV}.`);
-    }
-
-    if (isLocalTestingUrl(APP_FRONTEND_URL)) {
-      throw new Error(`APP_FRONTEND_URL cannot use a local URL in ${APP_ENV}.`);
-    }
   }
 
   if (APP_ENV === 'production') {
