@@ -23,6 +23,9 @@ import { ProbationPolicyResolverService } from './services/probation-policy-reso
 import { ProbationAuditService } from './services/probation-audit.service';
 import { ProbationLetterService } from './services/probation-letter.service';
 import { ProbationReminderService } from './services/probation-reminder.service';
+import { EmploymentHistoryModule } from '../employment-history/employment-history.module';
+import { AppNotification } from '../../notifications/entities/app-notification.entity';
+import { ProbationLetterTemplate } from './entities/probation-letter-template.entity';
 
 @Module({
   imports: [
@@ -38,10 +41,13 @@ import { ProbationReminderService } from './services/probation-reminder.service'
       ProbationAuditLog,
       Employee,
       Document,
+      AppNotification,
+      ProbationLetterTemplate,
     ]),
     HrSharedModule,
     ActionInboxModule,
     NotificationsModule,
+    EmploymentHistoryModule,
     FilesModule,
     forwardRef(() => OffboardingModule),
   ],

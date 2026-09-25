@@ -27,6 +27,10 @@ import { DocumentModuleEnum } from '../documents/enums/document-module.enum';
 import { Department } from '../departments/entities/department.entity';
 import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
 import { Employee } from '../employees/entities/employee.entity';
+import { EmployeeBankAccount } from '../employees/entities/employee-bank-account.entity';
+import { EmployeePayrollProfile } from '../payroll/entities/employee-payroll-profile.entity';
+import { EmployeeCompensationVersion, EmployeeCompensationVersionStatusEnum } from '../employee-movements/entities/employee-compensation-version.entity';
+import { EmploymentContract, EmploymentContractStatus } from '../contracts/entities/employment-contract.entity';
 import { LeaveType } from '../leave/entities/leave-type.entity';
 import { LeaveRecordStatusEnum } from '../leave/enums/leave-record-status.enum';
 import { LeaveBalanceService } from '../leave/services/leave-balance.service';
@@ -3994,6 +3998,15 @@ export class OnboardingService {
         relations: { employee: { company_user: true } },
       });
 
+      const readiness = await this.getPayrollAndContractReadiness(
+        companyId,
+        current.employee_id,
+        manager,
+      );
+      if (readiness.length) {
+        throw new BadRequestException(`Employee is not ready for activation: ${readiness.join(', ')}`);
+      }
+
       await this.applyProvisioningSelections(
         companyId,
         current,
@@ -4058,6 +4071,51 @@ export class OnboardingService {
       message: 'Onboarding completed successfully',
       data: this.mapRequest(completed),
     };
+  }
+
+  private async getPayrollAndContractReadiness(
+    companyId: number,
+    employeeId: number,
+    manager: EntityManager,
+  ): Promise<string[]> {
+    const employee = await manager.getRepository(Employee).findOneOrFail({
+      where: { id: employeeId, company_id: companyId },
+    });
+    const [profile, salary, contract] = await Promise.all([
+      manager.getRepository(EmployeePayrollProfile).findOne({
+        where: { companyId, employeeId, payrollEnabled: true, payrollHold: false },
+      }),
+      manager.getRepository(EmployeeCompensationVersion).findOne({
+        where: { companyId, employeeId, status: EmployeeCompensationVersionStatusEnum.ACTIVE },
+        order: { effectiveFrom: 'DESC' },
+      }),
+      manager.getRepository(EmploymentContract).findOne({
+        where: { companyId, employeeId, status: EmploymentContractStatus.SIGNED },
+        order: { version: 'DESC' },
+      }),
+    ]);
+    const missing: string[] = [];
+    if (!employee.primary_position_id) missing.push('position');
+    if (!employee.reports_to) missing.push('reporting manager');
+    if (!profile) missing.push('payroll profile');
+    if (!profile?.taxpayerIdentificationNumber) missing.push('TIN');
+    if (!profile?.socialSecuritySchemeCode || !profile.socialSecurityNumber) missing.push('pension enrollment');
+    if (!profile?.healthInsuranceSchemeCode || !profile.healthInsuranceNumber) missing.push('health enrollment');
+    if (!profile?.primaryBankAccountId) {
+      missing.push('bank account');
+    } else {
+      const bank = await manager.getRepository(EmployeeBankAccount).findOne({
+        where: { id: profile.primaryBankAccountId, employee_id: employeeId },
+      });
+      if (!bank || bank.verification_status !== 'VERIFIED') missing.push('verified bank account');
+    }
+    const effectiveDate = employee.hire_date ?? new Date().toISOString().slice(0, 10);
+    if (!salary || salary.effectiveFrom > effectiveDate || (salary.effectiveTo && salary.effectiveTo < effectiveDate) ||
+      !salary.approvedByCompanyUserId || salary.approvedByCompanyUserId === salary.createdByCompanyUserId) {
+      missing.push('independently approved starting salary');
+    }
+    if (!contract || contract.startDate > effectiveDate || (contract.endDate && contract.endDate < effectiveDate)) missing.push('signed employment contract');
+    return missing;
   }
 
   async cancelOnboarding(

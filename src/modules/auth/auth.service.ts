@@ -429,15 +429,16 @@ export class AuthService {
         response,
       );
 
-    const twoFactorRecommended = this.twoFactorPolicyService.isRecommended(
+    const twoFactorRecommended = this.twoFactorPolicyService.isRequired(
       activeCompanyContext.roles,
+      activeCompanyContext.permissions,
     );
     const currentTwoFactorStatus = await this.twoFaService.getTwoFactorStatus(
       user.id,
     );
     const userForcesTwoFactor = (user as User).force_two_factor;
 
-    if (userForcesTwoFactor && !currentTwoFactorStatus.fullyConfigured) {
+    if ((userForcesTwoFactor || twoFactorRecommended) && !currentTwoFactorStatus.fullyConfigured) {
       await this.usersService.requireTwoFactorSetup(user.id);
       await this.logSecurityEvent(
         SecurityEventType.TWO_FACTOR_SETUP_REQUIRED,
@@ -447,7 +448,8 @@ export class AuthService {
           companyId: activeCompanyContext.companyId,
           context,
           metadata: {
-            force_two_factor: true,
+            force_two_factor: userForcesTwoFactor,
+            role_required: twoFactorRecommended,
           },
         },
       );

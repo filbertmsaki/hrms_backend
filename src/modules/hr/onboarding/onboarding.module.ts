@@ -32,6 +32,10 @@ import { OnboardingAuditService } from './services/onboarding-audit.service';
 import { OnboardingCronService } from './services/onboarding-cron.service';
 import { OnboardingWorkflowService } from './services/onboarding-workflow.service';
 import { ProbationModule } from '../probation/probation.module';
+import { EmployeePayrollProfile } from '../payroll/entities/employee-payroll-profile.entity';
+import { EmployeeCompensationVersion } from '../employee-movements/entities/employee-compensation-version.entity';
+import { EmployeeBankAccount } from '../employees/entities/employee-bank-account.entity';
+import { EmploymentContract } from '../contracts/entities/employment-contract.entity';
 
 @Module({
   imports: [
@@ -46,6 +50,10 @@ import { ProbationModule } from '../probation/probation.module';
       OnboardingProvisioningOperation,
       Document,
       Employee,
+      EmployeePayrollProfile,
+      EmployeeCompensationVersion,
+      EmployeeBankAccount,
+      EmploymentContract,
       Branch,
       Department,
       CompanyUser,

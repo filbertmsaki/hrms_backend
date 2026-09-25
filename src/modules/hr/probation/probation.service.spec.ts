@@ -149,6 +149,7 @@ describe('ProbationService', () => {
       auditService as never,
       letterService as never,
       offboardingService as never,
+      { record: jest.fn() } as never,
       caseRepository as never,
       policyRepository as never,
     );
@@ -471,6 +472,50 @@ describe('ProbationService', () => {
           comments: 'Needs more time',
         }),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects an extension that would make total probation exceed the configured 12-month cap', async () => {
+      const probationCase = {
+        id: 1,
+        companyId: 10,
+        employeeId: 2,
+        managerCompanyUserId: 90,
+        originalStartDate: '2026-01-01',
+        currentCycleNumber: 1,
+        currentDueDate: '2026-11-30',
+        extensionCount: 0,
+        status: ProbationCaseStatusEnum.HR_REVIEW_PENDING,
+        policySnapshot: { maximum_extensions: 2 },
+      } as unknown as ProbationCase;
+
+      const probationCaseRepo = createRepositoryMock();
+      probationCaseRepo.createQueryBuilder.mockReturnValue(
+        createQueryBuilderMock({
+          getOne: jest.fn().mockResolvedValue(probationCase),
+        }),
+      );
+
+      const reviewCycleRepo = createRepositoryMock();
+      reviewCycleRepo.findOne.mockResolvedValue({
+        id: 5,
+        managerRecommendation: ProbationManagerRecommendationEnum.EXTEND,
+      });
+
+      dataSource.transaction.mockImplementation(async (cb) =>
+        cb(
+          buildManagerFor({
+            probationCase: probationCaseRepo,
+            reviewCycle: reviewCycleRepo,
+          }),
+        ),
+      );
+
+      await expect(
+        service.submitHrDecision(actor, 1, {
+          decision: ProbationFinalDecisionEnum.EXTENDED,
+          comments: 'Needs more time',
+        }),
+      ).rejects.toThrow('Total probation period cannot exceed 365 days.');
     });
   });
 

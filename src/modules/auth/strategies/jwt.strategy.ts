@@ -18,6 +18,7 @@ import { TokenBlacklistService } from '../token-blacklist.service';
 import { Request } from 'express';
 import { User } from '../../users/entities/user.entity';
 import { AuthSessionsService } from '../auth-sessions.service';
+import { TwoFactorPolicyService } from '../../security/two-factor-policy.service';
 
 type JwtAccessPayload = {
   sub: number;
@@ -133,6 +134,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private readonly companiesService: CompaniesService,
     private readonly usersService: UsersService,
     private readonly authSessionsService: AuthSessionsService,
+    private readonly twoFactorPolicyService: TwoFactorPolicyService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -284,9 +286,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         payload.companyId,
       );
 
+      const twoFactorRequired = user.force_two_factor ||
+        this.twoFactorPolicyService.isRequired(companyContext.roles, companyContext.permissions);
       const twoFactorIncomplete =
-        user.force_two_factor &&
-        (!user.is_two_factor_enabled || user.two_factor_setup_required);
+        twoFactorRequired &&
+        (!user.is_two_factor_enabled || user.two_factor_setup_required || !user.two_factor_secret);
 
       if (twoFactorIncomplete && !this.isTwoFactorSetupAllowedRoute(req)) {
         throw new UnauthorizedException(
@@ -309,7 +313,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         employeeId: companyContext.employeeId ?? undefined,
         employeeNo: companyContext.employeeNo ?? undefined,
         requiresPasswordChange,
-        forceTwoFactor: user.force_two_factor,
+        forceTwoFactor: twoFactorRequired,
         roles: companyContext.roles,
         permissions: companyContext.permissions,
       };

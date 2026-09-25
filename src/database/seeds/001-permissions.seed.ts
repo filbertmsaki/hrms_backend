@@ -2035,6 +2035,12 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow managers to view probation cases for employees they are assigned to review',
   },
   {
+    name: 'probation_objectives:create',
+    displayName: 'Create probation objectives',
+    description:
+      'Allow adding review objectives to an open probation case',
+  },
+  {
     name: 'probation_reviews:self-assess',
     displayName: 'Submit own probation self-assessment',
     description:

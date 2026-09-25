@@ -303,6 +303,14 @@ export function validateEnv(env: Env) {
     'EMPLOYEE_INVITATION_TTL_HOURS',
     72,
   );
+  const RECRUITMENT_UNSUCCESSFUL_RETENTION_DAYS = optionalInt(
+    env,
+    'RECRUITMENT_UNSUCCESSFUL_RETENTION_DAYS',
+    180,
+  );
+  if (RECRUITMENT_UNSUCCESSFUL_RETENTION_DAYS < 1) {
+    throw new Error('RECRUITMENT_UNSUCCESSFUL_RETENTION_DAYS must be positive.');
+  }
 
   const mailSafetyConfig = resolveMailRecipientSafetyConfig({
     appEnv: APP_ENV,
@@ -397,7 +405,7 @@ export function validateEnv(env: Env) {
   const AUTH_REQUIRED_2FA_ROLES = optionalString(
     env,
     'AUTH_REQUIRED_2FA_ROLES',
-    'SUPER_ADMIN,PLATFORM_ADMINISTRATOR,COMPANY_ADMIN,HR_MANAGER,IT_ADMIN,AUDITOR',
+    'SUPER_ADMIN,PLATFORM_ADMINISTRATOR,COMPANY_ADMIN,HR_MANAGER,HR_OFFICER,IT_ADMIN,AUDITOR',
   );
   const EMPLOYEE_IMPORT_MAX_FILE_SIZE_BYTES = optionalInt(
     env,
@@ -774,6 +782,11 @@ export function validateEnv(env: Env) {
     'PROBATION_MAX_EXTENSIONS',
     2,
   );
+  const PROBATION_MAX_TOTAL_DAYS = optionalInt(
+    env,
+    'PROBATION_MAX_TOTAL_DAYS',
+    365,
+  );
   const PROBATION_SELF_ASSESSMENT_REQUIRED = optionalBool(
     env,
     'PROBATION_SELF_ASSESSMENT_REQUIRED',
@@ -831,6 +844,13 @@ export function validateEnv(env: Env) {
 
   if (PROBATION_DEFAULT_PERIOD_DAYS <= 0) {
     throw new Error('PROBATION_DEFAULT_PERIOD_DAYS must be greater than zero.');
+  }
+  if (APP_ENV === 'production' && FILE_MALWARE_SCAN_MODE !== 'required') {
+    throw new Error('FILE_MALWARE_SCAN_MODE must be required in production.');
+  }
+
+  if (PROBATION_MAX_TOTAL_DAYS <= 0) {
+    throw new Error('PROBATION_MAX_TOTAL_DAYS must be greater than zero.');
   }
 
   if (
@@ -1802,6 +1822,7 @@ export function validateEnv(env: Env) {
     SMS_GATEWAY_CHANNEL,
     SMS_GATEWAY_TIMEOUT_MS,
     EMPLOYEE_INVITATION_TTL_HOURS,
+    RECRUITMENT_UNSUCCESSFUL_RETENTION_DAYS,
     USE_REDIS,
     REDIS_URL,
     HEALTH_DISK_PATH,
@@ -1892,6 +1913,7 @@ export function validateEnv(env: Env) {
     PROBATION_DEFAULT_EXTENSION_DAYS,
     PROBATION_MAX_EXTENSION_DAYS,
     PROBATION_MAX_EXTENSIONS,
+    PROBATION_MAX_TOTAL_DAYS,
     PROBATION_SELF_ASSESSMENT_REQUIRED,
     PROBATION_OBJECTIVES_REQUIRED,
     PROBATION_MINIMUM_CONFIRMATION_SCORE,

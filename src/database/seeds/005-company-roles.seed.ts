@@ -37,6 +37,15 @@ const SELF_SERVICE_OFFBOARDING_REQUEST_PERMISSIONS = [
   'offboarding_requests:cancel',
 ];
 
+const SELF_SERVICE_ONBOARDING_PERMISSIONS = [
+  'onboarding_requests:read',
+  'onboarding_requests:update',
+  'onboarding_tasks:read',
+  'onboarding_tasks:complete',
+  'onboarding_documents:read',
+  'onboarding_documents:create',
+];
+
 const SELF_SERVICE_PERMISSIONS = [
   'view_company_data',
   'users:update', // own profile
@@ -58,6 +67,7 @@ const SELF_SERVICE_PERMISSIONS = [
   'shift_change_requests:create',
   'performance_self_service:read',
   'performance_self_service:update',
+  ...SELF_SERVICE_ONBOARDING_PERMISSIONS,
   ...SELF_SERVICE_OFFBOARDING_REQUEST_PERMISSIONS,
   'performance_periods:read',
   'performance_kpis:self:read',
@@ -134,6 +144,8 @@ const TEAM_APPROVAL_PERMISSIONS = [
   'performance_reviews:workflow-action',
   'performance_development_plans:read',
   'performance_development_plans:update',
+  'probation_cases:read-team',
+  'probation_reviews:manager-review',
   'performance_periods:create',
   'performance_periods:update',
   'performance_periods:activate',
@@ -540,6 +552,16 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'offboarding_documents:delete',
       'offboarding_documents:create',
       'offboarding_documents:read',
+      // Probation (case admin and HR decisions)
+      'probation_cases:create',
+      'probation_cases:read',
+      'probation_cases:update',
+      'probation_cases:read-team',
+      'probation_objectives:create',
+      'probation_letters:generate',
+      'probation_policies:read',
+      'probation_reviews:hr-decision',
+      'probation_reviews:manager-review-any',
       // Performance management (years, periods, plans, reviews)
       ...PERFORMANCE_MANAGEMENT_PERMISSIONS,
       ...SELF_SERVICE_APPROVAL_PERMISSIONS,
@@ -714,6 +736,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'probation_cases:read',
       'probation_cases:read-team',
       'probation_cases:update',
+      'probation_objectives:create',
       'probation_letters:generate',
       'probation_policies:create',
       'probation_policies:delete',
@@ -1058,6 +1081,16 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'offboarding_clearances:complete',
       'offboarding_documents:create',
       'offboarding_documents:read',
+      // Probation (case admin and HR decisions)
+      'probation_cases:create',
+      'probation_cases:read',
+      'probation_cases:update',
+      'probation_cases:read-team',
+      'probation_objectives:create',
+      'probation_letters:generate',
+      'probation_policies:read',
+      'probation_reviews:hr-decision',
+      'probation_reviews:manager-review-any',
     ],
   },
 
@@ -1403,6 +1436,15 @@ export default class CompanyRolesSeeder implements Seeder {
             'leave_requests:read',
             'leave_requests:update',
             'leave_requests:approve',
+            'probation_cases:create',
+            'probation_cases:read',
+            'probation_cases:update',
+            'probation_cases:read-team',
+            'probation_objectives:create',
+            'probation_letters:generate',
+            'probation_policies:read',
+            'probation_reviews:hr-decision',
+            'probation_reviews:manager-review-any',
           ]
             .map((name) => permissionMap.get(name))
             .filter((permission): permission is Permission =>

@@ -27,6 +27,9 @@ import { WorkActivitiesModule } from './work-activities/work-activities.module';
 import { PayrollModule } from './payroll/payroll.module';
 import { EmployeeFinanceModule } from './employee-finance/employee-finance.module';
 import { EmployeeInvitationsModule } from './employee-invitations/employee-invitations.module';
+import { EmploymentHistoryModule } from './employment-history/employment-history.module';
+import { EmploymentContractsModule } from './contracts/employment-contracts.module';
+import { RecruitmentModule } from './recruitment/recruitment.module';
 
 @Module({
   imports: [
@@ -40,6 +43,9 @@ import { EmployeeInvitationsModule } from './employee-invitations/employee-invit
     PositionsModule,
     DefaultAvatarsModule,
     EmployeesModule,
+    EmploymentHistoryModule,
+    EmploymentContractsModule,
+    RecruitmentModule,
     EmployeePositionsModule,
     LeaveModule,
     ActionInboxModule,

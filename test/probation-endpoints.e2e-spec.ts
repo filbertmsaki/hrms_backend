@@ -78,6 +78,7 @@ describe('Probation endpoints (e2e)', () => {
       listCases: jest.fn().mockResolvedValue([{ id: 18 }]),
       createCaseManually: jest.fn().mockResolvedValue({ id: 18 }),
       updateCaseManually: jest.fn().mockResolvedValue({ id: 18 }),
+      createObjective: jest.fn().mockResolvedValue({ id: 91 }),
       listMyTeamCases: jest.fn().mockResolvedValue([{ id: 18 }]),
       getCase: jest.fn().mockResolvedValue({ id: 18 }),
       deleteCase: jest.fn().mockResolvedValue(undefined),
@@ -172,17 +173,37 @@ describe('Probation endpoints (e2e)', () => {
     );
   });
 
-  it('routes manager review, HR decision, and letter generation through tenant-scoped service calls', async () => {
+  it('routes objective creation, manager review, HR decision, and letter generation through tenant-scoped service calls', async () => {
     currentUser = {
       ...currentUser,
       employeeId: null,
       roles: ['HR'],
       permissions: [
+        'probation_objectives:create',
         'probation_reviews:manager-review-any',
         'probation_reviews:hr-decision',
         'probation_letters:generate',
       ],
     };
+
+    await request(app.getHttpServer() as App)
+      .post('/probation/cases/18/objectives')
+      .send({
+        title: 'Complete onboarding goals',
+        expected_result: 'All core onboarding goals completed.',
+        weight: 50,
+        due_date: '2026-08-31',
+      })
+      .expect(201);
+
+    expect(probationService.createObjective).toHaveBeenCalledWith(
+      expect.objectContaining({ companyId: 10, companyMembershipId: 33 }),
+      18,
+      expect.objectContaining({
+        title: 'Complete onboarding goals',
+        weight: 50,
+      }),
+    );
 
     await request(app.getHttpServer() as App)
       .post('/probation/cases/18/manager-review')
@@ -243,6 +264,17 @@ describe('Probation endpoints (e2e)', () => {
       expect.objectContaining({ companyId: 10, companyMembershipId: 33 }),
       18,
       'CONFIRMATION',
+    );
+
+    await request(app.getHttpServer() as App)
+      .post('/probation/cases/18/generate-letter')
+      .send({})
+      .expect(201);
+
+    expect(probationService.generateLetter).toHaveBeenLastCalledWith(
+      expect.objectContaining({ companyId: 10, companyMembershipId: 33 }),
+      18,
+      undefined,
     );
   });
 });

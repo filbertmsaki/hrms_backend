@@ -52,6 +52,9 @@ export class EmployeeBankAccount {
   @Column({ type: 'varchar', length: 30, default: 'PENDING' })
   verification_status: string;
 
+  @Column({ type: 'int', nullable: true })
+  created_by_company_user_id: number | null;
+
   @Column({ type: 'timestamptz', nullable: true })
   verified_at: Date | null;
 
