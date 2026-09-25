@@ -94,40 +94,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     return false;
   }
 
-  private isTwoFactorSetupAllowedRoute(req: Request): boolean {
-    const method = req.method.toUpperCase();
-    const path = (
-      req.originalUrl.split('?')[0] ??
-      req.path ??
-      ''
-    ).toLowerCase();
-
-    const matches = (expected: string) =>
-      path === expected || path.endsWith(expected);
-
-    if (method === 'GET' && matches('/users/me')) {
-      return true;
-    }
-
-    if (method === 'POST' && matches('/users/2fa/setup')) {
-      return true;
-    }
-
-    if (method === 'POST' && matches('/users/2fa/verify')) {
-      return true;
-    }
-
-    if (method === 'POST' && matches('/auth/logout')) {
-      return true;
-    }
-
-    if (method === 'POST' && matches('/auth/refresh')) {
-      return true;
-    }
-
-    return false;
-  }
-
   constructor(
     private configService: ConfigService,
     private blacklistService: TokenBlacklistService,
@@ -286,26 +252,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         payload.companyId,
       );
 
-      const twoFactorRequired =
+      const twoFactorRecommended =
         user.force_two_factor ||
-        this.twoFactorPolicyService.isRequired(
-          companyContext.roles,
-          companyContext.permissions,
-        );
-      const twoFactorUser = twoFactorRequired
-        ? await this.usersService.findByIdWithTwoFactor(user.id)
-        : null;
-      const twoFactorIncomplete =
-        twoFactorRequired &&
-        (!twoFactorUser?.is_two_factor_enabled ||
-          twoFactorUser.two_factor_setup_required ||
-          !twoFactorUser.two_factor_secret);
-
-      if (twoFactorIncomplete && !this.isTwoFactorSetupAllowedRoute(req)) {
-        throw new UnauthorizedException(
-          'Two-factor authentication setup is required before continuing.',
-        );
-      }
+        this.twoFactorPolicyService.isRecommended(companyContext.roles);
 
       return {
         id: user.id,
@@ -322,7 +271,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         employeeId: companyContext.employeeId ?? undefined,
         employeeNo: companyContext.employeeNo ?? undefined,
         requiresPasswordChange,
-        forceTwoFactor: twoFactorRequired,
+        forceTwoFactor: twoFactorRecommended,
         roles: companyContext.roles,
         permissions: companyContext.permissions,
       };

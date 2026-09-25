@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
@@ -26,16 +26,9 @@ export class TwoFactorPolicyService {
     );
   }
 
-  isRecommended(roles: string[]): boolean {
-    return roles.some((role) => this.recommendedRoles.has(role.toUpperCase()));
-  }
-
-  isRequired(roles: string[], permissions: string[] = []): boolean {
+  isRecommended(roles: string[], permissions: string[] = []): boolean {
     return (
-      roles.some((role) =>
-        ['HR_MANAGER', 'HR_OFFICER'].includes(role.toUpperCase()),
-      ) ||
-      this.isRecommended(roles) ||
+      roles.some((role) => this.recommendedRoles.has(role.toUpperCase())) ||
       permissions.some(
         (permission) =>
           permission.startsWith('payroll:') && permission !== 'payroll:self',
@@ -43,11 +36,14 @@ export class TwoFactorPolicyService {
     );
   }
 
+  isRequired(roles: string[], permissions: string[] = []): boolean {
+    void roles;
+    void permissions;
+    return false;
+  }
+
   assertCanDisable(forceTwoFactor: boolean): void {
-    if (forceTwoFactor) {
-      throw new ForbiddenException(
-        'Two-factor authentication is mandatory for this account',
-      );
-    }
+    void forceTwoFactor;
+    return;
   }
 }

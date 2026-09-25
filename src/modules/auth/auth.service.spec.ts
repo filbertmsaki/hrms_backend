@@ -151,7 +151,7 @@ describe('AuthService', () => {
     );
   });
 
-  it('returns a setup-required login response when 2FA was enabled by an administrator', async () => {
+  it('returns a setup recommendation when 2FA was enabled by an administrator', async () => {
     jest.spyOn(service, 'validateUser').mockResolvedValue({
       id: 9,
       email: 'staff@example.com',
@@ -202,7 +202,7 @@ describe('AuthService', () => {
       { ipAddress: '197.250.10.22', userAgent: null, requestId: null },
     );
     const result = rawResult as {
-      requires2FASetup: boolean;
+      recommends2FA: boolean;
       message: string;
       access_token: string;
       refresh_token: string;
@@ -218,12 +218,12 @@ describe('AuthService', () => {
       expect.any(Date),
       '197.250.10.22',
     );
-    expect(result.requires2FASetup).toBe(true);
+    expect(result.recommends2FA).toBe(true);
     expect((result as { dashboard_type?: string }).dashboard_type).toBe(
       'employee',
     );
     expect(result.message).toBe(
-      'Two-factor authentication has been enabled for your account. Complete setup now before continuing.',
+      'Two-factor authentication setup is available for your account.',
     );
     expect(result.access_token).toBe('access-token');
     expect(result.refresh_token).toBe('refresh-token');

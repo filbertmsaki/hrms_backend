@@ -325,9 +325,9 @@ export class AuthService {
       if (twoFactorStatus.enabled && twoFactorStatus.setupRequired) {
         return {
           ...response,
-          requires2FASetup: true,
+          recommends2FA: true,
           message:
-            'Two-factor authentication has been enabled for your account. Complete setup now before continuing.',
+            'Two-factor authentication setup is available for your account.',
         };
       }
 
@@ -429,7 +429,7 @@ export class AuthService {
         response,
       );
 
-    const twoFactorRecommended = this.twoFactorPolicyService.isRequired(
+    const twoFactorRecommended = this.twoFactorPolicyService.isRecommended(
       activeCompanyContext.roles,
       activeCompanyContext.permissions,
     );
@@ -437,33 +437,6 @@ export class AuthService {
       user.id,
     );
     const userForcesTwoFactor = (user as User).force_two_factor;
-
-    if (
-      (userForcesTwoFactor || twoFactorRecommended) &&
-      !currentTwoFactorStatus.fullyConfigured
-    ) {
-      await this.usersService.requireTwoFactorSetup(user.id);
-      await this.logSecurityEvent(
-        SecurityEventType.TWO_FACTOR_SETUP_REQUIRED,
-        SecurityEventOutcome.SUCCESS,
-        {
-          authenticatedUser: user as User,
-          companyId: activeCompanyContext.companyId,
-          context,
-          metadata: {
-            force_two_factor: userForcesTwoFactor,
-            role_required: twoFactorRecommended,
-          },
-        },
-      );
-
-      return {
-        ...responseWithPasswordRequirement,
-        requires2FASetup: true,
-        message:
-          'Two-factor authentication is mandatory for your account. Complete setup before continuing.',
-      };
-    }
 
     await this.logSecurityEvent(
       SecurityEventType.LOGIN_SUCCEEDED,
@@ -482,14 +455,17 @@ export class AuthService {
     if (twoFactorStatus.enabled && twoFactorStatus.setupRequired) {
       return {
         ...responseWithPasswordRequirement,
-        requires2FASetup: true,
+        recommends2FA: true,
         message: responseWithPasswordRequirement.requiresPasswordChange
           ? 'You must change your temporary password before continuing.'
-          : 'Two-factor authentication has been enabled for your account. Complete setup now before continuing.',
+          : 'Two-factor authentication setup is available for your account.',
       };
     }
 
-    if (twoFactorRecommended && !currentTwoFactorStatus.fullyConfigured) {
+    if (
+      (userForcesTwoFactor || twoFactorRecommended) &&
+      !currentTwoFactorStatus.fullyConfigured
+    ) {
       return {
         ...responseWithPasswordRequirement,
         recommends2FA: true,
