@@ -713,7 +713,7 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     const profile = (await profileService.upsert(adminActor(), {
       employee_id: employeeId,
       payroll_number: `PAY-EF-${suffix}`.slice(0, 60),
-      taxpayer_identification_number: `TIN-EF-${suffix}`.slice(0, 60),
+      taxpayer_identification_number: suffix.replace(/\D/g, '').slice(-9),
       social_security_scheme_code: 'NSSF',
       social_security_number: `NSSF-EF-${suffix}`.slice(0, 60),
       primary_bank_account_id: bankAccountId,

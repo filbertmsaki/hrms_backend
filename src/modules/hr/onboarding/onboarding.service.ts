@@ -29,8 +29,14 @@ import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum'
 import { Employee } from '../employees/entities/employee.entity';
 import { EmployeeBankAccount } from '../employees/entities/employee-bank-account.entity';
 import { EmployeePayrollProfile } from '../payroll/entities/employee-payroll-profile.entity';
-import { EmployeeCompensationVersion, EmployeeCompensationVersionStatusEnum } from '../employee-movements/entities/employee-compensation-version.entity';
-import { EmploymentContract, EmploymentContractStatus } from '../contracts/entities/employment-contract.entity';
+import {
+  EmployeeCompensationVersion,
+  EmployeeCompensationVersionStatusEnum,
+} from '../employee-movements/entities/employee-compensation-version.entity';
+import {
+  EmploymentContract,
+  EmploymentContractStatus,
+} from '../contracts/entities/employment-contract.entity';
 import { LeaveType } from '../leave/entities/leave-type.entity';
 import { LeaveRecordStatusEnum } from '../leave/enums/leave-record-status.enum';
 import { LeaveBalanceService } from '../leave/services/leave-balance.service';
@@ -4004,7 +4010,9 @@ export class OnboardingService {
         manager,
       );
       if (readiness.length) {
-        throw new BadRequestException(`Employee is not ready for activation: ${readiness.join(', ')}`);
+        throw new BadRequestException(
+          `Employee is not ready for activation: ${readiness.join(', ')}`,
+        );
       }
 
       await this.applyProvisioningSelections(
@@ -4083,14 +4091,27 @@ export class OnboardingService {
     });
     const [profile, salary, contract] = await Promise.all([
       manager.getRepository(EmployeePayrollProfile).findOne({
-        where: { companyId, employeeId, payrollEnabled: true, payrollHold: false },
+        where: {
+          companyId,
+          employeeId,
+          payrollEnabled: true,
+          payrollHold: false,
+        },
       }),
       manager.getRepository(EmployeeCompensationVersion).findOne({
-        where: { companyId, employeeId, status: EmployeeCompensationVersionStatusEnum.ACTIVE },
+        where: {
+          companyId,
+          employeeId,
+          status: EmployeeCompensationVersionStatusEnum.ACTIVE,
+        },
         order: { effectiveFrom: 'DESC' },
       }),
       manager.getRepository(EmploymentContract).findOne({
-        where: { companyId, employeeId, status: EmploymentContractStatus.SIGNED },
+        where: {
+          companyId,
+          employeeId,
+          status: EmploymentContractStatus.SIGNED,
+        },
         order: { version: 'DESC' },
       }),
     ]);
@@ -4099,22 +4120,36 @@ export class OnboardingService {
     if (!employee.reports_to) missing.push('reporting manager');
     if (!profile) missing.push('payroll profile');
     if (!profile?.taxpayerIdentificationNumber) missing.push('TIN');
-    if (!profile?.socialSecuritySchemeCode || !profile.socialSecurityNumber) missing.push('pension enrollment');
-    if (!profile?.healthInsuranceSchemeCode || !profile.healthInsuranceNumber) missing.push('health enrollment');
+    if (!profile?.socialSecuritySchemeCode || !profile.socialSecurityNumber)
+      missing.push('pension enrollment');
+    if (!profile?.healthInsuranceSchemeCode || !profile.healthInsuranceNumber)
+      missing.push('health enrollment');
     if (!profile?.primaryBankAccountId) {
       missing.push('bank account');
     } else {
       const bank = await manager.getRepository(EmployeeBankAccount).findOne({
         where: { id: profile.primaryBankAccountId, employee_id: employeeId },
       });
-      if (!bank || bank.verification_status !== 'VERIFIED') missing.push('verified bank account');
+      if (!bank || bank.verification_status !== 'VERIFIED')
+        missing.push('verified bank account');
     }
-    const effectiveDate = employee.hire_date ?? new Date().toISOString().slice(0, 10);
-    if (!salary || salary.effectiveFrom > effectiveDate || (salary.effectiveTo && salary.effectiveTo < effectiveDate) ||
-      !salary.approvedByCompanyUserId || salary.approvedByCompanyUserId === salary.createdByCompanyUserId) {
+    const effectiveDate =
+      employee.hire_date ?? new Date().toISOString().slice(0, 10);
+    if (
+      !salary ||
+      salary.effectiveFrom > effectiveDate ||
+      (salary.effectiveTo && salary.effectiveTo < effectiveDate) ||
+      !salary.approvedByCompanyUserId ||
+      salary.approvedByCompanyUserId === salary.createdByCompanyUserId
+    ) {
       missing.push('independently approved starting salary');
     }
-    if (!contract || contract.startDate > effectiveDate || (contract.endDate && contract.endDate < effectiveDate)) missing.push('signed employment contract');
+    if (
+      !contract ||
+      contract.startDate > effectiveDate ||
+      (contract.endDate && contract.endDate < effectiveDate)
+    )
+      missing.push('signed employment contract');
     return missing;
   }
 

@@ -45,23 +45,25 @@ export class EmploymentHistoryService {
     const context = resolveAuditContext();
 
     try {
-      return await repository.save(repository.create({
-        company_id: input.companyId,
-        employee_id: input.employeeId,
-        event_type: input.eventType,
-        effective_date: input.effectiveDate ?? formatDateOnly(new Date()),
-        title: input.title.slice(0, 200),
-        description: input.description ?? null,
-        source_module: input.sourceModule ?? null,
-        source_entity_type: input.sourceEntityType ?? null,
-        source_entity_id: input.sourceEntityId ?? null,
-        old_values: input.oldValues ?? null,
-        new_values: input.newValues ?? null,
-        dedupe_key: input.dedupeKey ?? null,
-        created_by_company_user_id: input.actorCompanyUserId ?? null,
-        ip_address: context.ipAddress?.slice(0, 64) ?? null,
-        request_id: context.requestId,
-      }));
+      return await repository.save(
+        repository.create({
+          company_id: input.companyId,
+          employee_id: input.employeeId,
+          event_type: input.eventType,
+          effective_date: input.effectiveDate ?? formatDateOnly(new Date()),
+          title: input.title.slice(0, 200),
+          description: input.description ?? null,
+          source_module: input.sourceModule ?? null,
+          source_entity_type: input.sourceEntityType ?? null,
+          source_entity_id: input.sourceEntityId ?? null,
+          old_values: input.oldValues ?? null,
+          new_values: input.newValues ?? null,
+          dedupe_key: input.dedupeKey ?? null,
+          created_by_company_user_id: input.actorCompanyUserId ?? null,
+          ip_address: context.ipAddress?.slice(0, 64) ?? null,
+          request_id: context.requestId,
+        }),
+      );
     } catch (error) {
       if (input.dedupeKey && (error as { code?: string }).code === '23505') {
         return null;

@@ -112,7 +112,11 @@ describe('EmployeeInvitationsService', () => {
       }),
     };
     const transactionalUserRepository = {
-      findOneBy: jest.fn().mockResolvedValue({ id: 77, password: 'old', is_email_verified: false }),
+      findOneBy: jest.fn().mockResolvedValue({
+        id: 77,
+        password: 'old',
+        is_email_verified: false,
+      }),
       save: jest.fn(async (value) => value),
     };
     const lockedInvitationQuery = {
@@ -125,8 +129,11 @@ describe('EmployeeInvitationsService', () => {
       save: jest.fn(async (value) => value),
     };
     const manager = {
-      getRepository: jest.fn((entity) => entity.name === 'EmployeeInvitation'
-        ? transactionalInvitationRepository : transactionalUserRepository),
+      getRepository: jest.fn((entity) =>
+        entity.name === 'EmployeeInvitation'
+          ? transactionalInvitationRepository
+          : transactionalUserRepository,
+      ),
     };
     const dataSource = {
       transaction: jest.fn(async (work) => work(manager)),
@@ -256,13 +263,21 @@ describe('EmployeeInvitationsService', () => {
   });
 
   it('marks the employee email verified when the invitation is accepted', async () => {
-    const { service, invitationRepository, employeesService, lockedInvitationQuery, transactionalUserRepository, dataSource } =
-      createHarness();
+    const {
+      service,
+      invitationRepository,
+      employeesService,
+      lockedInvitationQuery,
+      transactionalUserRepository,
+      dataSource,
+    } = createHarness();
     const invitation = {
       id: 44,
       companyId: 1,
       status: EmployeeInvitationStatus.PENDING,
-      tokenHash: createHash('sha256').update('valid-invitation-token').digest('hex'),
+      tokenHash: createHash('sha256')
+        .update('valid-invitation-token')
+        .digest('hex'),
       firstName: dto.first_name,
       lastName: dto.last_name,
       gender: dto.gender,
@@ -290,7 +305,11 @@ describe('EmployeeInvitationsService', () => {
     expect(dataSource.transaction).toHaveBeenCalledTimes(1);
     expect(employeesService.createInTransaction).toHaveBeenCalledTimes(1);
     expect(transactionalUserRepository.save).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 77, is_email_verified: true, password: expect.any(String) }),
+      expect.objectContaining({
+        id: 77,
+        is_email_verified: true,
+        password: expect.any(String),
+      }),
     );
     expect(invitation.status).toBe(EmployeeInvitationStatus.ACCEPTED);
     expect(invitation.acceptedEmployeeId).toBe(91);
@@ -302,7 +321,12 @@ describe('EmployeeInvitationsService', () => {
   });
 
   it('rejects an acceptance token replaced by a resend before the row lock', async () => {
-    const { service, invitationRepository, lockedInvitationQuery, employeesService } = createHarness();
+    const {
+      service,
+      invitationRepository,
+      lockedInvitationQuery,
+      employeesService,
+    } = createHarness();
     const invitation = {
       id: 44,
       companyId: 1,
@@ -313,10 +337,14 @@ describe('EmployeeInvitationsService', () => {
       email: dto.email,
     };
     invitationRepository.findOneBy.mockResolvedValue(invitation);
-    lockedInvitationQuery.getOneOrFail.mockResolvedValue({ ...invitation, tokenHash: 'replacement' });
+    lockedInvitationQuery.getOneOrFail.mockResolvedValue({
+      ...invitation,
+      tokenHash: 'replacement',
+    });
 
-    await expect(service.accept('old-token', { password: 'StrongPass#2026' }))
-      .rejects.toThrow('This invitation is no longer available');
+    await expect(
+      service.accept('old-token', { password: 'StrongPass#2026' }),
+    ).rejects.toThrow('This invitation is no longer available');
     expect(employeesService.createInTransaction).not.toHaveBeenCalled();
   });
 

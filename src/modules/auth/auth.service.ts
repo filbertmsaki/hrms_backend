@@ -254,41 +254,6 @@ export class AuthService {
         user.id,
       );
 
-      if (twoFactorStatus.fullyConfigured) {
-        const tempToken = this.jwtService.sign<TwoFactorTempTokenPayload>(
-          {
-            sub: user.id,
-            email: user.email,
-            scope: 'platform',
-            userType: 'OWNER',
-            temp: true,
-            type: '2fa-temp',
-          },
-          {
-            secret: this.getAccessTokenSecret(),
-            expiresIn: '5m' as StringValue,
-          },
-        );
-
-        await this.logSecurityEvent(
-          SecurityEventType.TWO_FACTOR_CHALLENGE_CREATED,
-          SecurityEventOutcome.SUCCESS,
-          {
-            authenticatedUser: user as User,
-            context,
-            metadata: {
-              scope: 'platform',
-            },
-          },
-        );
-
-        return {
-          requires2FA: true,
-          tempToken,
-          message: 'Password verified. Please provide your 2FA code.',
-        };
-      }
-
       await this.usersService.updateLastLogin(
         user.id,
         new Date(),
@@ -325,9 +290,9 @@ export class AuthService {
       if (twoFactorStatus.enabled && twoFactorStatus.setupRequired) {
         return {
           ...response,
-          requires2FASetup: true,
+          recommends2FA: true,
           message:
-            'Two-factor authentication has been enabled for your account. Complete setup now before continuing.',
+            'Two-factor authentication setup is available for your account.',
         };
       }
 
@@ -353,44 +318,6 @@ export class AuthService {
     const activeCompany = this.resolveActiveCompany(companies);
 
     const twoFactorStatus = await this.twoFaService.getTwoFactorStatus(user.id);
-    if (twoFactorStatus.fullyConfigured) {
-      const tempToken = this.jwtService.sign<TwoFactorTempTokenPayload>(
-        {
-          sub: user.id,
-          email: user.email,
-          scope: 'company',
-          userType: 'COMPANY_USER',
-          companyId: activeCompany.companyId,
-          temp: true,
-          type: '2fa-temp',
-        },
-        {
-          secret: this.getAccessTokenSecret(),
-          expiresIn: '5m' as StringValue,
-        },
-      );
-
-      await this.logSecurityEvent(
-        SecurityEventType.TWO_FACTOR_CHALLENGE_CREATED,
-        SecurityEventOutcome.SUCCESS,
-        {
-          authenticatedUser: user as User,
-          companyId: activeCompany.companyId,
-          context,
-          metadata: {
-            scope: 'company',
-          },
-        },
-      );
-
-      return {
-        requires2FA: true,
-        tempToken,
-        company: activeCompany,
-        companies,
-        message: 'Password verified. Please provide your 2FA code.',
-      };
-    }
 
     await this.usersService.updateLastLogin(
       user.id,
@@ -429,7 +356,7 @@ export class AuthService {
         response,
       );
 
-    const twoFactorRecommended = this.twoFactorPolicyService.isRequired(
+    const twoFactorRecommended = this.twoFactorPolicyService.isRecommended(
       activeCompanyContext.roles,
       activeCompanyContext.permissions,
     );
@@ -437,30 +364,6 @@ export class AuthService {
       user.id,
     );
     const userForcesTwoFactor = (user as User).force_two_factor;
-
-    if ((userForcesTwoFactor || twoFactorRecommended) && !currentTwoFactorStatus.fullyConfigured) {
-      await this.usersService.requireTwoFactorSetup(user.id);
-      await this.logSecurityEvent(
-        SecurityEventType.TWO_FACTOR_SETUP_REQUIRED,
-        SecurityEventOutcome.SUCCESS,
-        {
-          authenticatedUser: user as User,
-          companyId: activeCompanyContext.companyId,
-          context,
-          metadata: {
-            force_two_factor: userForcesTwoFactor,
-            role_required: twoFactorRecommended,
-          },
-        },
-      );
-
-      return {
-        ...responseWithPasswordRequirement,
-        requires2FASetup: true,
-        message:
-          'Two-factor authentication is mandatory for your account. Complete setup before continuing.',
-      };
-    }
 
     await this.logSecurityEvent(
       SecurityEventType.LOGIN_SUCCEEDED,
@@ -479,14 +382,17 @@ export class AuthService {
     if (twoFactorStatus.enabled && twoFactorStatus.setupRequired) {
       return {
         ...responseWithPasswordRequirement,
-        requires2FASetup: true,
+        recommends2FA: true,
         message: responseWithPasswordRequirement.requiresPasswordChange
           ? 'You must change your temporary password before continuing.'
-          : 'Two-factor authentication has been enabled for your account. Complete setup now before continuing.',
+          : 'Two-factor authentication setup is available for your account.',
       };
     }
 
-    if (twoFactorRecommended && !currentTwoFactorStatus.fullyConfigured) {
+    if (
+      (userForcesTwoFactor || twoFactorRecommended) &&
+      !currentTwoFactorStatus.fullyConfigured
+    ) {
       return {
         ...responseWithPasswordRequirement,
         recommends2FA: true,

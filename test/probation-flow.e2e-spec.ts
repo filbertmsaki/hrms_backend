@@ -53,6 +53,7 @@ import { ProbationLetterService } from '../src/modules/hr/probation/services/pro
 import { HrAccessService } from '../src/modules/hr/shared/hr-access.service';
 import { ActionItemsService } from '../src/modules/hr/action-inbox/action-items.service';
 import { OffboardingService } from '../src/modules/hr/offboarding/offboarding.service';
+import { EmploymentHistoryService } from '../src/modules/hr/employment-history/employment-history.service';
 import { SecurityEventsService } from '../src/modules/security/security-events.service';
 
 type MockRepo = Record<string, jest.Mock>;
@@ -118,6 +119,10 @@ describe('Probation Flow (e2e)', () => {
         {
           provide: OffboardingService,
           useValue: { createRequest: jest.fn() },
+        },
+        {
+          provide: EmploymentHistoryService,
+          useValue: { record: jest.fn() },
         },
         {
           provide: SecurityEventsService,

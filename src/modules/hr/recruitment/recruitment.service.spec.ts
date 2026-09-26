@@ -13,13 +13,20 @@ describe('RecruitmentService', () => {
 
   function harness() {
     const candidate = {
-      id: 3, companyId: 7, requestId: 2,
-      firstName: 'Amina', lastName: 'Moshi', gender: 'female',
-      email: 'amina@example.com', phone: '+255712345678',
+      id: 3,
+      companyId: 7,
+      requestId: 2,
+      firstName: 'Amina',
+      lastName: 'Moshi',
+      gender: 'female',
+      email: 'amina@example.com',
+      phone: '+255712345678',
       status: RecruitmentCandidateStatus.SHORTLISTED,
-      cvDocumentId: 40, checks: { NIDA: { result: 'PASS' } },
+      cvDocumentId: 40,
+      checks: { NIDA: { result: 'PASS' } },
       interview: { scores: { 20: { score: 80 } } },
-      offerTokenHash: 'hash', offerSalary: '1000000',
+      offerTokenHash: 'hash',
+      offerSalary: '1000000',
     };
     const candidates = {
       findOneBy: jest.fn().mockResolvedValue(candidate),
@@ -39,13 +46,22 @@ describe('RecruitmentService', () => {
       save: jest.fn(async (value) => value),
     };
     const dataSource = {
-      transaction: jest.fn(async (work) => work({ getRepository: () => transactionalRepository })),
+      transaction: jest.fn(async (work) =>
+        work({ getRepository: () => transactionalRepository }),
+      ),
     };
     const service = new RecruitmentService(
-      dataSource as never, config as never, {} as never,
-      documents as never, {} as never, {} as never,
-      {} as never, candidates as never, {} as never,
-      {} as never, {} as never,
+      dataSource as never,
+      config as never,
+      {} as never,
+      documents as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      candidates as never,
+      {} as never,
+      {} as never,
+      {} as never,
     );
     return { service, candidate, candidates, documents, dataSource };
   }
@@ -75,7 +91,8 @@ describe('RecruitmentService', () => {
   it('accepts an approved offer once inside a transaction', async () => {
     const { service, candidate, dataSource } = harness();
     candidate.status = RecruitmentCandidateStatus.OFFER_APPROVED;
-    (candidate as typeof candidate & { offerExpiresAt: Date }).offerExpiresAt = new Date(Date.now() + 60000);
+    (candidate as typeof candidate & { offerExpiresAt: Date }).offerExpiresAt =
+      new Date(Date.now() + 60000);
     const result = await service.acceptOffer('token');
     expect(dataSource.transaction).toHaveBeenCalledTimes(1);
     expect(result.status).toBe(RecruitmentCandidateStatus.OFFER_ACCEPTED);

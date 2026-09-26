@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { execFile } from 'child_process';
@@ -184,16 +189,23 @@ export class FilesService {
   }
 
   private async scanForMalware(buffer: Buffer): Promise<void> {
-    const mode = this.configService.get<string>('FILE_MALWARE_SCAN_MODE') ?? 'optional';
+    const mode =
+      this.configService.get<string>('FILE_MALWARE_SCAN_MODE') ?? 'optional';
     if (mode === 'disabled') return;
     const directory = await fs.mkdtemp(join(tmpdir(), 'hrms-upload-scan-'));
     const path = join(directory, 'upload');
     try {
       await fs.writeFile(path, buffer, { mode: 0o600 });
       await promisify(execFile)(
-        this.configService.get<string>('FILE_MALWARE_SCAN_COMMAND') ?? 'clamdscan',
+        this.configService.get<string>('FILE_MALWARE_SCAN_COMMAND') ??
+          'clamdscan',
         [path],
-        { timeout: this.configService.get<number>('FILE_MALWARE_SCAN_TIMEOUT_MS') ?? 30000, windowsHide: true },
+        {
+          timeout:
+            this.configService.get<number>('FILE_MALWARE_SCAN_TIMEOUT_MS') ??
+            30000,
+          windowsHide: true,
+        },
       );
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
@@ -201,7 +213,9 @@ export class FilesService {
         throw new BadRequestException('Upload failed malware scanning');
       }
       if (mode === 'optional' && code === 'ENOENT') {
-        this.logger.warn('Malware scanner is not installed; upload accepted in optional mode');
+        this.logger.warn(
+          'Malware scanner is not installed; upload accepted in optional mode',
+        );
         return;
       }
       throw new ServiceUnavailableException('Malware scanning is unavailable');

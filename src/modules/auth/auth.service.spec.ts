@@ -151,7 +151,7 @@ describe('AuthService', () => {
     );
   });
 
-  it('returns a setup-required login response when 2FA was enabled by an administrator', async () => {
+  it('returns a setup recommendation when 2FA was enabled by an administrator', async () => {
     jest.spyOn(service, 'validateUser').mockResolvedValue({
       id: 9,
       email: 'staff@example.com',
@@ -202,7 +202,7 @@ describe('AuthService', () => {
       { ipAddress: '197.250.10.22', userAgent: null, requestId: null },
     );
     const result = rawResult as {
-      requires2FASetup: boolean;
+      recommends2FA: boolean;
       message: string;
       access_token: string;
       refresh_token: string;
@@ -218,12 +218,12 @@ describe('AuthService', () => {
       expect.any(Date),
       '197.250.10.22',
     );
-    expect(result.requires2FASetup).toBe(true);
+    expect(result.recommends2FA).toBe(true);
     expect((result as { dashboard_type?: string }).dashboard_type).toBe(
       'employee',
     );
     expect(result.message).toBe(
-      'Two-factor authentication has been enabled for your account. Complete setup now before continuing.',
+      'Two-factor authentication setup is available for your account.',
     );
     expect(result.access_token).toBe('access-token');
     expect(result.refresh_token).toBe('refresh-token');
@@ -394,7 +394,7 @@ describe('AuthService', () => {
     expect(result.user.dashboard_type).toBe('employee');
   });
 
-  it('returns a temporary token when the user has fully configured 2FA', async () => {
+  it('logs in normally when the user has fully configured 2FA', async () => {
     jest.spyOn(service, 'validateUser').mockResolvedValue({
       id: 9,
       email: 'staff@example.com',
@@ -421,80 +421,52 @@ describe('AuthService', () => {
         permissions: ['users:manage-2fa'],
       },
     ]);
+    companiesService.setActiveMembership.mockResolvedValue({
+      companyId: 12,
+      companyName: 'Acme HR',
+      companySlug: 'acme-hr',
+      membershipId: 44,
+      employeeId: 81,
+      employeeNo: 'EMP-0081',
+      isDefault: true,
+      modules: { roles: true, permissions: true },
+      roles: ['COMPANY_ADMIN'],
+      permissions: ['users:manage-2fa'],
+      status: 'active',
+    });
     twoFaService.getTwoFactorStatus.mockResolvedValue({
       enabled: true,
       setupRequired: false,
       fullyConfigured: true,
     });
-    jwtService.sign.mockReturnValue('temp-token');
 
     const rawResult: unknown = await service.login(
       { email: 'staff@example.com', password: 'P@ssw0rd#2026' },
       { ipAddress: '197.250.10.22', userAgent: null, requestId: null },
     );
     const result = rawResult as {
-      requires2FA: boolean;
-      tempToken: string;
-      company: {
-        companyId: number;
-        companyName: string;
-        companySlug: string;
-        membershipId: number;
-        employeeId: number;
-        employeeNo: string;
-        isDefault: boolean;
-        modules: { roles: boolean; permissions: boolean };
-        roles: string[];
-        permissions: string[];
+      access_token: string;
+      refresh_token: string;
+      requires2FA?: boolean;
+      tempToken?: string;
+      user: {
+        isTwoFactorEnabled: boolean;
+        twoFactorSetupRequired: boolean;
       };
-      companies: Array<{
-        companyId: number;
-        companyName: string;
-        companySlug: string;
-        membershipId: number;
-        employeeId: number;
-        employeeNo: string;
-        isDefault: boolean;
-        modules: { roles: boolean; permissions: boolean };
-        roles: string[];
-        permissions: string[];
-      }>;
-      message: string;
     };
 
-    expect(result).toEqual({
-      requires2FA: true,
-      tempToken: 'access-token',
-      company: {
-        companyId: 12,
-        companyName: 'Acme HR',
-        companySlug: 'acme-hr',
-        membershipId: 44,
-        employeeId: 81,
-        employeeNo: 'EMP-0081',
-        isDefault: true,
-        modules: { roles: true, permissions: true },
-        roles: ['COMPANY_ADMIN'],
-        permissions: ['users:manage-2fa'],
-      },
-      companies: [
-        {
-          companyId: 12,
-          companyName: 'Acme HR',
-          companySlug: 'acme-hr',
-          membershipId: 44,
-          employeeId: 81,
-          employeeNo: 'EMP-0081',
-          isDefault: true,
-          modules: { roles: true, permissions: true },
-          roles: ['COMPANY_ADMIN'],
-          permissions: ['users:manage-2fa'],
-        },
-      ],
-      message: 'Password verified. Please provide your 2FA code.',
-    });
-    expect(usersService.updateLastLogin).not.toHaveBeenCalled();
-    expect(companiesService.setActiveMembership).not.toHaveBeenCalled();
+    expect(result.requires2FA).toBeUndefined();
+    expect(result.tempToken).toBeUndefined();
+    expect(result.access_token).toBe('access-token');
+    expect(result.refresh_token).toBe('refresh-token');
+    expect(result.user.isTwoFactorEnabled).toBe(true);
+    expect(result.user.twoFactorSetupRequired).toBe(false);
+    expect(usersService.updateLastLogin).toHaveBeenCalledWith(
+      9,
+      expect.any(Date),
+      '197.250.10.22',
+    );
+    expect(companiesService.setActiveMembership).toHaveBeenCalledWith(9, 12);
   });
 
   it('allows a platform owner with company membership to switch into company scope', async () => {

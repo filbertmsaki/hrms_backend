@@ -676,6 +676,30 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     displayName: 'Carry forward leave balances',
     description: 'Allow recalculating carry-forward leave balances',
   },
+  {
+    name: 'leave-balances.export',
+    displayName: 'Export leave balances',
+    description:
+      'Allow downloading the leave balance template with current balances for accessible employees',
+  },
+  {
+    name: 'leave-balances.bulk-import',
+    displayName: 'Bulk import leave balances',
+    description:
+      'Allow uploading, validating and confirming leave balance bulk imports in strict mode',
+  },
+  {
+    name: 'leave-balances.bulk-import.partial',
+    displayName: 'Import valid leave balance rows only',
+    description:
+      'Allow confirming a leave balance bulk import that skips invalid rows',
+  },
+  {
+    name: 'leave-balances.import-history',
+    displayName: 'View leave balance import history',
+    description:
+      'Allow viewing leave balance import batches, their rows and error reports',
+  },
   // Leave requests
   {
     name: 'leave_requests:read',
@@ -2037,8 +2061,7 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
   {
     name: 'probation_objectives:create',
     displayName: 'Create probation objectives',
-    description:
-      'Allow adding review objectives to an open probation case',
+    description: 'Allow adding review objectives to an open probation case',
   },
   {
     name: 'probation_reviews:self-assess',

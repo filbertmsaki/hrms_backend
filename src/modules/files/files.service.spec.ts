@@ -23,6 +23,8 @@ describe('FilesService', () => {
             return 'private-uploads';
           case 'MAX_UPLOAD_FILE_SIZE_BYTES':
             return 10 * 1024 * 1024;
+          case 'FILE_MALWARE_SCAN_MODE':
+            return 'disabled';
           default:
             return undefined;
         }

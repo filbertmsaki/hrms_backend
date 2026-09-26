@@ -24,7 +24,10 @@ import { ContactTypeEnum } from '../employees/enums/contact-type.enum';
 import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
 import { Position } from '../positions/entities/position.entity';
 import { OnboardingWorkflow } from '../onboarding/entities/onboarding-workflow.entity';
-import { RecruitmentCandidate, RecruitmentCandidateStatus } from '../recruitment/entities/recruitment-candidate.entity';
+import {
+  RecruitmentCandidate,
+  RecruitmentCandidateStatus,
+} from '../recruitment/entities/recruitment-candidate.entity';
 import { CreateEmployeeInvitationDto } from './dtos/create-employee-invitation.dto';
 import { AcceptEmployeeInvitationDto } from './dtos/accept-employee-invitation.dto';
 import { EmployeeInvitation } from './entities/employee-invitation.entity';
@@ -180,12 +183,17 @@ export class EmployeeInvitationsService {
     const actor = await this.resolveInvitationActor(invitation);
     const passwordHash = await hashPassword(dto.password);
     return this.dataSource.transaction(async (manager) => {
-      const current = await manager.getRepository(EmployeeInvitation)
+      const current = await manager
+        .getRepository(EmployeeInvitation)
         .createQueryBuilder('invitation')
         .setLock('pessimistic_write')
         .where('invitation.id = :id', { id: invitation.id })
         .getOneOrFail();
-      if (current.status !== EmployeeInvitationStatus.PENDING || current.expiresAt <= new Date() || current.tokenHash !== this.hashToken(rawToken.trim())) {
+      if (
+        current.status !== EmployeeInvitationStatus.PENDING ||
+        current.expiresAt <= new Date() ||
+        current.tokenHash !== this.hashToken(rawToken.trim())
+      ) {
         throw new ConflictException('This invitation is no longer available');
       }
       const created = await this.employeesService.createInTransaction(
@@ -256,10 +264,21 @@ export class EmployeeInvitationsService {
   async cancel(companyId: number, invitationId: number) {
     return this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(EmployeeInvitation);
-      const invitation = await repository.createQueryBuilder('invitation').setLock('pessimistic_write')
-        .where('invitation.id = :invitationId AND invitation.companyId = :companyId', { invitationId, companyId }).getOne();
-      if (!invitation || invitation.status !== EmployeeInvitationStatus.PENDING) {
-        throw new ConflictException('Only a pending invitation can be cancelled');
+      const invitation = await repository
+        .createQueryBuilder('invitation')
+        .setLock('pessimistic_write')
+        .where(
+          'invitation.id = :invitationId AND invitation.companyId = :companyId',
+          { invitationId, companyId },
+        )
+        .getOne();
+      if (
+        !invitation ||
+        invitation.status !== EmployeeInvitationStatus.PENDING
+      ) {
+        throw new ConflictException(
+          'Only a pending invitation can be cancelled',
+        );
       }
       const sourceCandidateId = invitation.sourceCandidateId;
       invitation.status = EmployeeInvitationStatus.CANCELLED;
@@ -267,8 +286,16 @@ export class EmployeeInvitationsService {
       await repository.save(invitation);
       if (sourceCandidateId) {
         await manager.getRepository(RecruitmentCandidate).update(
-          { id: sourceCandidateId, companyId, status: RecruitmentCandidateStatus.INVITED, invitationId },
-          { status: RecruitmentCandidateStatus.OFFER_ACCEPTED, invitationId: null },
+          {
+            id: sourceCandidateId,
+            companyId,
+            status: RecruitmentCandidateStatus.INVITED,
+            invitationId,
+          },
+          {
+            status: RecruitmentCandidateStatus.OFFER_ACCEPTED,
+            invitationId: null,
+          },
         );
       }
       return { id: invitationId, status: invitation.status };

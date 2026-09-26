@@ -9,7 +9,9 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
+import { generate } from 'otplib';
 import { hashPassword } from '../src/common/utils/hash.util';
+import { TwoFaService } from '../src/modules/auth/2fa/2fa.service';
 import { Company } from '../src/modules/companies/entities/company.entity';
 import { Role } from '../src/modules/roles/entities/role.entity';
 import { User } from '../src/modules/users/entities/user.entity';
@@ -152,6 +154,13 @@ describe('Company role and permission modules (e2e)', () => {
     createdCompanyIds.push(companyId);
     createdUserIds.push(administratorId);
 
+    const twoFaService = app.get(TwoFaService);
+    const setup = await twoFaService.generate2FASetup(administratorId);
+    await twoFaService.verifyAndActivate2FA(
+      administratorId,
+      await generate({ secret: setup.secret }),
+    );
+
     return {
       platformToken: platform.token,
       adminPassword,
@@ -168,6 +177,8 @@ describe('Company role and permission modules (e2e)', () => {
       .send({ email, password })
       .expect(201);
 
+    expect(response.body.requires2FA).toBeUndefined();
+    expect(response.body.access_token).toEqual(expect.any(String));
     return response.body.access_token as string;
   }
 

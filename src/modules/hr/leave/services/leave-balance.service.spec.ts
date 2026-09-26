@@ -326,4 +326,66 @@ describe('LeaveBalanceService', () => {
 
     jest.useRealTimers();
   });
+
+  it('generates balances for employees without a login account, one locked transaction per employee', async () => {
+    const transactionManager = {
+      queryRunner: { isTransactionActive: true },
+      getRepository: jest.fn((entity: unknown) =>
+        entity === LeaveBalance
+          ? balanceRepository
+          : entity === LeaveType
+            ? leaveTypeRepository
+            : entity === LeavePolicy
+              ? leavePolicyRepository
+              : entity === LeaveRequest
+                ? leaveRequestRepository
+                : attendanceDailySummaryRepository,
+      ),
+    };
+    const transaction = jest.fn(
+      (work: (manager: typeof transactionManager) => Promise<unknown>) =>
+        work(transactionManager),
+    );
+    (balanceRepository as unknown as { manager: unknown }).manager = {
+      transaction,
+    };
+    // company_user is null: the employee has no login account.
+    employeeRepository.find.mockResolvedValue([
+      {
+        id: 501,
+        company_id: 10,
+        company_user: null,
+        primary_department_id: 2,
+        primary_position_id: 3,
+        primary_branch_id: 1,
+      },
+    ]);
+    leaveTypeRepository.find.mockResolvedValue([
+      { id: 7, company_id: 10, code: 'SICK', max_days_per_year: '10.00' },
+    ]);
+    leavePolicyRepository.find.mockResolvedValue([]);
+    balanceRepository.find.mockResolvedValue([]);
+    balanceRepository.findOne.mockResolvedValue(null);
+    leaveRequestRepository.find.mockResolvedValue([]);
+
+    const result = await service.generateBalancesForCompany(10, '2026');
+
+    expect(result).toMatchObject({
+      processed_employees: 1,
+      generated_balances: 1,
+    });
+    expect(employeeRepository.find).toHaveBeenCalledWith({
+      where: { company_id: 10, employment_status: 'active' },
+    });
+    expect(transaction).toHaveBeenCalledTimes(1);
+    // The employee's year balances are locked in id order before recalculation.
+    expect(balanceRepository.find).toHaveBeenCalledWith({
+      where: { employee_id: 501, fiscal_year: '2026' },
+      order: { id: 'ASC' },
+      lock: { mode: 'pessimistic_write' },
+    });
+    expect(balanceRepository.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
+    );
+  });
 });

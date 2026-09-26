@@ -649,7 +649,10 @@ export class UsersController {
   ) {
     this.twoFactorPolicyService.assertCanDisable(
       (req.user.forceTwoFactor ?? false) ||
-        this.twoFactorPolicyService.isRequired(req.user.roles ?? [], req.user.permissions ?? []),
+        this.twoFactorPolicyService.isRequired(
+          req.user.roles ?? [],
+          req.user.permissions ?? [],
+        ),
     );
     return this.twoFaService.disable2FA(req.user.id, dto.token, context);
   }

@@ -1961,18 +1961,23 @@ export class EmployeesService {
       metadata: employee.metadata ?? null,
       default_avatar_id: employee.default_avatar_id ?? null,
       profile_image_source: employee.profile_image_source ?? null,
-      identifications: employee.identifications?.map((value) => ({
-        id: value.id,
-        type: value.identification_type,
-        number_masked: this.maskAuditNumber(value.identification_number),
-        verified: value.is_verified,
-      })) ?? null,
-      bank_accounts: employee.bank_accounts?.map((value) => this.bankAuditSnapshot(value)) ?? null,
+      identifications:
+        employee.identifications?.map((value) => ({
+          id: value.id,
+          type: value.identification_type,
+          number_masked: this.maskAuditNumber(value.identification_number),
+          verified: value.is_verified,
+        })) ?? null,
+      bank_accounts:
+        employee.bank_accounts?.map((value) => this.bankAuditSnapshot(value)) ??
+        null,
     };
   }
 
   private maskAuditNumber(value: string | null | undefined): string | null {
-    return value ? `${'*'.repeat(Math.max(value.length - 4, 0))}${value.slice(-4)}` : null;
+    return value
+      ? `${'*'.repeat(Math.max(value.length - 4, 0))}${value.slice(-4)}`
+      : null;
   }
 
   private bankAuditSnapshot(value: EmployeeBankAccount) {
@@ -1992,31 +1997,58 @@ export class EmployeesService {
     rawNumber: string,
     manager?: EntityManager,
   ): Promise<void> {
-    if (![IdentificationTypeEnum.NATIONAL_ID, IdentificationTypeEnum.TAX_ID].includes(type)) return;
+    if (
+      ![
+        IdentificationTypeEnum.NATIONAL_ID,
+        IdentificationTypeEnum.TAX_ID,
+      ].includes(type)
+    )
+      return;
     const number = rawNumber.replace(/[^0-9]/g, '');
     const length = type === IdentificationTypeEnum.NATIONAL_ID ? 20 : 9;
     if (number.length !== length || !/^[0-9\s-]+$/.test(rawNumber)) {
-      throw new BadRequestException(`${type === IdentificationTypeEnum.NATIONAL_ID ? 'NIDA' : 'TIN'} must contain ${length} digits`);
+      throw new BadRequestException(
+        `${type === IdentificationTypeEnum.NATIONAL_ID ? 'NIDA' : 'TIN'} must contain ${length} digits`,
+      );
     }
     const repository = this.getEmployeeIdentificationRepository(manager);
-    const duplicate = await repository.createQueryBuilder('identification')
-      .innerJoin(Employee, 'employee', 'employee.id = identification.employee_id')
+    const duplicate = await repository
+      .createQueryBuilder('identification')
+      .innerJoin(
+        Employee,
+        'employee',
+        'employee.id = identification.employee_id',
+      )
       .where('employee.company_id = :companyId', { companyId })
       .andWhere('identification.employee_id <> :employeeId', { employeeId })
       .andWhere('identification.identification_type = :type', { type })
-      .andWhere('identification.identification_number NOT LIKE :archived', { archived: `${ARCHIVED_IDENTIFICATION_PREFIX}%` })
-      .andWhere("regexp_replace(identification.identification_number, '[^0-9]', '', 'g') = :number", { number })
+      .andWhere('identification.identification_number NOT LIKE :archived', {
+        archived: `${ARCHIVED_IDENTIFICATION_PREFIX}%`,
+      })
+      .andWhere(
+        "regexp_replace(identification.identification_number, '[^0-9]', '', 'g') = :number",
+        { number },
+      )
       .getOne();
-    if (duplicate) throw new ConflictException('This identifier belongs to another employee in the company');
+    if (duplicate)
+      throw new ConflictException(
+        'This identifier belongs to another employee in the company',
+      );
     if (type === IdentificationTypeEnum.TAX_ID) {
       const payrollDuplicate = await (manager ?? this.dataSource.manager)
         .getRepository(EmployeePayrollProfile)
         .createQueryBuilder('profile')
         .where('profile.companyId = :companyId', { companyId })
         .andWhere('profile.employeeId <> :employeeId', { employeeId })
-        .andWhere("regexp_replace(profile.taxpayerIdentificationNumber, '[^0-9]', '', 'g') = :number", { number })
+        .andWhere(
+          "regexp_replace(profile.taxpayerIdentificationNumber, '[^0-9]', '', 'g') = :number",
+          { number },
+        )
         .getOne();
-      if (payrollDuplicate) throw new ConflictException('This TIN belongs to another employee in the company');
+      if (payrollDuplicate)
+        throw new ConflictException(
+          'This TIN belongs to another employee in the company',
+        );
     }
   }
 
@@ -2408,7 +2440,13 @@ export class EmployeesService {
   ): Promise<void> {
     const repository = this.getEmployeeIdentificationRepository(manager);
     for (const identification of identifications) {
-      await this.assertIdentifierAvailable(companyId, employeeId, identification.identification_type, identification.identification_number, manager);
+      await this.assertIdentifierAvailable(
+        companyId,
+        employeeId,
+        identification.identification_type,
+        identification.identification_number,
+        manager,
+      );
     }
     await repository.delete({ employee_id: employeeId });
 
@@ -3116,12 +3154,16 @@ export class EmployeesService {
       });
     }
 
-    const positionId = createEmployeeDto.primary_position_id ?? createEmployeeDto.position_id;
+    const positionId =
+      createEmployeeDto.primary_position_id ?? createEmployeeDto.position_id;
     if (positionId) {
       const position = await this.getPositionRepository(manager)
         .createQueryBuilder('position')
         .setLock('pessimistic_write')
-        .where('position.id = :positionId AND position.company_id = :companyId', { positionId, companyId })
+        .where(
+          'position.id = :positionId AND position.company_id = :companyId',
+          { positionId, companyId },
+        )
         .getOne();
       if (!position) throw new BadRequestException('Position is not available');
       const occupied = await this.getEmployeeRepository(manager)
@@ -3129,10 +3171,15 @@ export class EmployeesService {
         .where('employee.company_id = :companyId', { companyId })
         .andWhere('employee.primary_position_id = :positionId', { positionId })
         .andWhere('employee.employment_status IN (:...statuses)', {
-          statuses: [EmploymentStatusEnum.ONBOARDING, EmploymentStatusEnum.ACTIVE, EmploymentStatusEnum.SUSPENDED],
+          statuses: [
+            EmploymentStatusEnum.ONBOARDING,
+            EmploymentStatusEnum.ACTIVE,
+            EmploymentStatusEnum.SUSPENDED,
+          ],
         })
         .getCount();
-      if (occupied >= position.headcount) throw new ConflictException('Position headcount is full');
+      if (occupied >= position.headcount)
+        throw new ConflictException('Position headcount is full');
     }
 
     const requestedEmployeeNo = this.normalizeOptionalEmployeeNumber(
@@ -4374,7 +4421,12 @@ export class EmployeesService {
     const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
-    await this.assertIdentifierAvailable(companyId, employee.id, dto.identification_type, dto.identification_number);
+    await this.assertIdentifierAvailable(
+      companyId,
+      employee.id,
+      dto.identification_type,
+      dto.identification_number,
+    );
 
     const repository = this.getEmployeeIdentificationRepository();
     const identification = await repository.save(
@@ -4397,10 +4449,18 @@ export class EmployeesService {
     await this.securityEventsService.log({
       eventType: SecurityEventType.EMPLOYEE_UPDATED,
       outcome: SecurityEventOutcome.SUCCESS,
-      actor, companyId, targetCompanyUserId: employee.company_user_id,
-      resourceType: 'employee_identification', resourceId: identification.id,
+      actor,
+      companyId,
+      targetCompanyUserId: employee.company_user_id,
+      resourceType: 'employee_identification',
+      resourceId: identification.id,
       oldValues: null,
-      newValues: { type: identification.identification_type, number_masked: this.maskAuditNumber(identification.identification_number) },
+      newValues: {
+        type: identification.identification_type,
+        number_masked: this.maskAuditNumber(
+          identification.identification_number,
+        ),
+      },
       context: resolveAuditContext(),
     });
     return this.mapIdentification(identification);
@@ -4434,7 +4494,8 @@ export class EmployeesService {
       number_masked: this.maskAuditNumber(identification.identification_number),
     };
     await this.assertIdentifierAvailable(
-      companyId, employee.id,
+      companyId,
+      employee.id,
       dto.identification_type ?? identification.identification_type,
       dto.identification_number ?? identification.identification_number,
     );
@@ -4466,10 +4527,16 @@ export class EmployeesService {
     await this.securityEventsService.log({
       eventType: SecurityEventType.EMPLOYEE_UPDATED,
       outcome: SecurityEventOutcome.SUCCESS,
-      actor, companyId, targetCompanyUserId: employee.company_user_id,
-      resourceType: 'employee_identification', resourceId: saved.id,
+      actor,
+      companyId,
+      targetCompanyUserId: employee.company_user_id,
+      resourceType: 'employee_identification',
+      resourceId: saved.id,
       oldValues: beforeIdentification,
-      newValues: { type: saved.identification_type, number_masked: this.maskAuditNumber(saved.identification_number) },
+      newValues: {
+        type: saved.identification_type,
+        number_masked: this.maskAuditNumber(saved.identification_number),
+      },
       context: resolveAuditContext(),
     });
     return this.mapIdentification(saved);
@@ -4560,9 +4627,13 @@ export class EmployeesService {
     await this.securityEventsService.log({
       eventType: SecurityEventType.EMPLOYEE_UPDATED,
       outcome: SecurityEventOutcome.SUCCESS,
-      actor, companyId, targetCompanyUserId: employee.company_user_id,
-      resourceType: 'employee_bank_account', resourceId: bankAccount.id,
-      oldValues: null, newValues: this.bankAuditSnapshot(bankAccount),
+      actor,
+      companyId,
+      targetCompanyUserId: employee.company_user_id,
+      resourceType: 'employee_bank_account',
+      resourceId: bankAccount.id,
+      oldValues: null,
+      newValues: this.bankAuditSnapshot(bankAccount),
       context: resolveAuditContext(),
     });
 
@@ -4598,12 +4669,16 @@ export class EmployeesService {
       bankAccount.bank_name = this.normalizeOptionalString(dto.bank_name);
     if (dto.account_name !== undefined)
       bankAccount.account_name = this.normalizeOptionalString(dto.account_name);
-    if (dto.account_number !== undefined && dto.account_number.trim() !== bankAccount.account_number) {
+    if (
+      dto.account_number !== undefined &&
+      dto.account_number.trim() !== bankAccount.account_number
+    ) {
       bankAccount.account_number = dto.account_number.trim();
       bankAccount.verification_status = 'PENDING';
       bankAccount.verified_at = null;
       bankAccount.verified_by_company_user_id = null;
-      bankAccount.created_by_company_user_id = actor.companyMembershipId ?? null;
+      bankAccount.created_by_company_user_id =
+        actor.companyMembershipId ?? null;
     }
     if (dto.branch_name !== undefined)
       bankAccount.branch_name = this.normalizeOptionalString(dto.branch_name);
@@ -4638,9 +4713,13 @@ export class EmployeesService {
     await this.securityEventsService.log({
       eventType: SecurityEventType.EMPLOYEE_UPDATED,
       outcome: SecurityEventOutcome.SUCCESS,
-      actor, companyId, targetCompanyUserId: employee.company_user_id,
-      resourceType: 'employee_bank_account', resourceId: saved.id,
-      oldValues: beforeBankAccount, newValues: this.bankAuditSnapshot(saved),
+      actor,
+      companyId,
+      targetCompanyUserId: employee.company_user_id,
+      resourceType: 'employee_bank_account',
+      resourceId: saved.id,
+      oldValues: beforeBankAccount,
+      newValues: this.bankAuditSnapshot(saved),
       context: resolveAuditContext(),
     });
     return this.mapBankAccount(saved);
@@ -4662,7 +4741,9 @@ export class EmployeesService {
       throw new NotFoundException('Employee bank account not found');
     }
     if (account.created_by_company_user_id === actor.companyMembershipId) {
-      throw new ForbiddenException('A different user must verify the bank account');
+      throw new ForbiddenException(
+        'A different user must verify the bank account',
+      );
     }
     if (account.verification_status !== 'PENDING') {
       throw new ConflictException('Only pending bank accounts can be verified');
@@ -4675,9 +4756,13 @@ export class EmployeesService {
     await this.securityEventsService.log({
       eventType: SecurityEventType.EMPLOYEE_UPDATED,
       outcome: SecurityEventOutcome.SUCCESS,
-      actor, companyId, targetCompanyUserId: employee.company_user_id,
-      resourceType: 'employee_bank_account', resourceId: saved.id,
-      oldValues: beforeBankAccount, newValues: this.bankAuditSnapshot(saved),
+      actor,
+      companyId,
+      targetCompanyUserId: employee.company_user_id,
+      resourceType: 'employee_bank_account',
+      resourceId: saved.id,
+      oldValues: beforeBankAccount,
+      newValues: this.bankAuditSnapshot(saved),
       context: resolveAuditContext(),
     });
     return this.mapBankAccount(saved);

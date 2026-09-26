@@ -73,6 +73,7 @@ import { LeaveBalanceLedgerService } from './services/leave-balance-ledger.servi
 import { LeaveDurationCalculatorService } from './services/leave-duration-calculator.service';
 import { LeavePdfService } from './services/leave-pdf.service';
 import { LeaveWorkflowService } from './services/leave-workflow.service';
+import { isEmployeeEligibleForLeaveType } from './utils/leave-balance-rules.util';
 import { Employee } from '../employees/entities/employee.entity';
 import { EmployeeConfirmationStatusEnum } from '../employees/enums/employee-confirmation-status.enum';
 import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
@@ -370,19 +371,12 @@ export class LeaveService {
     while (queue.length) {
       const currentManagerId = queue.shift()!;
       const directReports = await this.employeeRepository.find({
-        where: { reports_to: currentManagerId },
-        relations: { company_user: true },
-        select: {
-          id: true,
-          company_user: { company_id: true },
-        },
+        where: { reports_to: currentManagerId, company_id: companyId },
+        select: { id: true },
       });
 
       for (const employee of directReports) {
-        if (
-          employee.company_user?.company_id !== companyId ||
-          seen.has(employee.id)
-        ) {
+        if (seen.has(employee.id)) {
           continue;
         }
 
@@ -430,19 +424,16 @@ export class LeaveService {
 
       const normalizedBranchIds = Array.from(new Set(branchIds));
       if (normalizedBranchIds.length) {
+        // Scoped by employee.company_id so employees without a login
+        // account are included like everyone else.
         const branchEmployees = await this.employeeRepository.find({
-          where: { primary_branch_id: In(normalizedBranchIds) },
-          relations: { company_user: true },
-          select: {
-            id: true,
-            company_user: { company_id: true },
+          where: {
+            primary_branch_id: In(normalizedBranchIds),
+            company_id: companyId,
           },
+          select: { id: true },
         });
-        branchEmployees.forEach((item) => {
-          if (item.company_user?.company_id === companyId) {
-            scopedEmployeeIds.add(item.id);
-          }
-        });
+        branchEmployees.forEach((item) => scopedEmployeeIds.add(item.id));
       }
 
       const accessibleDepartmentIds =
@@ -452,8 +443,7 @@ export class LeaveService {
         const departmentEmployees = await this.employeeRepository
           .createQueryBuilder('employee')
           .leftJoin('employee.department_assignments', 'departmentAssignment')
-          .innerJoin('employee.company_user', 'companyUser')
-          .where('companyUser.company_id = :companyId', { companyId })
+          .where('employee.company_id = :companyId', { companyId })
           .andWhere(
             '(employee.primary_department_id IN (:...departmentIds) OR departmentAssignment.department_id IN (:...departmentIds))',
             {
@@ -1100,6 +1090,11 @@ export class LeaveService {
       adjustment_amount_days: entity.adjustment_amount_days,
       reason: entity.reason,
       source: entity.source,
+      adjustment_direction:
+        Number(entity.adjustment_amount_days) >= 0 ? 'INCREASE' : 'DECREASE',
+      leave_balance_transaction_id: entity.leave_balance_transaction_id ?? null,
+      import_batch_id: entity.import_batch?.batch_ref ?? null,
+      reference: entity.reference ?? null,
       adjusted_at: entity.adjusted_at,
       employee: entity.employee
         ? {
@@ -2782,8 +2777,7 @@ export class LeaveService {
       const qb = this.leaveBalanceRepository
         .createQueryBuilder('leaveBalance')
         .innerJoin('leaveBalance.employee', 'employee')
-        .innerJoin('employee.company_user', 'membership')
-        .where('membership.company_id = :companyId', { companyId });
+        .where('employee.company_id = :companyId', { companyId });
 
       if (scopedEmployeeIds && scopedEmployeeIds.length) {
         qb.andWhere('leaveBalance.employee_id IN (:...employeeIds)', {
@@ -3129,12 +3123,7 @@ export class LeaveService {
       'end_date cannot be before start_date',
     );
 
-    if (
-      leaveType.gender_restriction !== LeaveGenderRestrictionEnum.ANY &&
-      employee.gender &&
-      (employee.gender.toLowerCase() as LeaveGenderRestrictionEnum) !==
-        leaveType.gender_restriction
-    ) {
+    if (!isEmployeeEligibleForLeaveType(employee, leaveType)) {
       throw new BadRequestException(
         `Leave type is restricted to ${leaveType.gender_restriction}`,
       );
@@ -3357,12 +3346,7 @@ export class LeaveService {
       'end_date cannot be before start_date',
     );
 
-    if (
-      leaveType.gender_restriction !== LeaveGenderRestrictionEnum.ANY &&
-      leaveRequest.employee.gender &&
-      (leaveRequest.employee.gender.toLowerCase() as LeaveGenderRestrictionEnum) !==
-        leaveType.gender_restriction
-    ) {
+    if (!isEmployeeEligibleForLeaveType(leaveRequest.employee, leaveType)) {
       throw new BadRequestException(
         `Leave type is restricted to ${leaveType.gender_restriction}`,
       );

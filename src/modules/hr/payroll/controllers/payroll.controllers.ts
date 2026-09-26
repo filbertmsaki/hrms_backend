@@ -230,7 +230,10 @@ export class PayrollConfigurationController {
 
   @Post('statutory-rules/:id/approve')
   @Permissions('payroll:config')
-  approveRule(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+  approveRule(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
     return this.service.approveRule(req.user, id);
   }
 
@@ -364,7 +367,10 @@ export class EmployeePayrollController {
 
   @Post(':employeeId/salary/approve')
   @Permissions('payroll:profiles')
-  approveSalary(@Req() req: AuthedRequest, @Param('employeeId', ParseIntPipe) employeeId: number) {
+  approveSalary(
+    @Req() req: AuthedRequest,
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+  ) {
     return this.salaryService.approveInitialSalary(req.user, employeeId);
   }
 

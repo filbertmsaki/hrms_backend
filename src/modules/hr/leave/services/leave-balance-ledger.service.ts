@@ -7,6 +7,7 @@ import { LeaveBalanceTransactionTypeEnum } from '../enums/leave-balance-transact
 import { LeaveBalanceAdjustment } from '../entities/leave-balance-adjustment.entity';
 import { LeaveBalance } from '../entities/leave-balance.entity';
 import { LeaveBalanceTransaction } from '../entities/leave-balance-transaction.entity';
+import { calculateAvailableLeaveDays } from '../utils/leave-balance-rules.util';
 
 type LedgerMutationResult = {
   balance: LeaveBalance;
@@ -35,6 +36,7 @@ type TransactionCreateInput = {
   createdByCompanyUserId?: number | null;
   reversedTransactionId?: number | null;
   isReversal?: boolean;
+  previousBalanceDays?: number;
 };
 
 @Injectable()
@@ -166,7 +168,8 @@ export class LeaveBalanceLedgerService {
       };
     }
 
-    const previousBalanceDays = this.calculateAvailableDays(input.balance);
+    const previousBalanceDays =
+      input.previousBalanceDays ?? this.calculateAvailableDays(input.balance);
     const previousPendingDays = this.toNumber(input.balance.pending_days);
     const previousUsedDays = this.toNumber(input.balance.used_days);
 
@@ -441,6 +444,11 @@ export class LeaveBalanceLedgerService {
       reason: string;
       createdByCompanyUserId?: number | null;
       idempotencyKey: string;
+      source?: LeaveBalanceAdjustmentSourceEnum;
+      importBatchId?: number | null;
+      importRowId?: number | null;
+      reference?: string | null;
+      metadata?: Record<string, unknown> | null;
     },
     manager?: EntityManager,
   ): Promise<LedgerMutationResult> {
@@ -448,13 +456,16 @@ export class LeaveBalanceLedgerService {
       throw new BadRequestException('Adjustment amount cannot be negative');
     }
 
-    const previousAvailableDays = this.calculateAvailableDays(balance);
+    // Adjustments are expressed against the balance employees and HR see,
+    // so SET lands exactly on the requested figure for every accrual method.
+    const previousAvailableDays = calculateAvailableLeaveDays(balance);
     let delta = params.amount;
     if (params.mode === LeaveBalanceAdjustmentModeEnum.DEDUCT) {
       delta = -params.amount;
     } else if (params.mode === LeaveBalanceAdjustmentModeEnum.SET) {
       delta = params.amount - previousAvailableDays;
     }
+    const source = params.source ?? LeaveBalanceAdjustmentSourceEnum.MANUAL;
 
     const result = await this.createTransaction(
       {
@@ -467,10 +478,18 @@ export class LeaveBalanceLedgerService {
         transactionType: LeaveBalanceTransactionTypeEnum.ADJUSTMENT,
         idempotencyKey: params.idempotencyKey,
         amountDays: delta,
+        previousBalanceDays: previousAvailableDays,
         createdByCompanyUserId: params.createdByCompanyUserId ?? null,
         reason: params.reason,
         metadata: {
+          ...(params.metadata ?? {}),
           adjustment_mode: params.mode,
+          adjustment_source: source,
+          adjustment_direction: delta >= 0 ? 'INCREASE' : 'DECREASE',
+          ...(params.importBatchId
+            ? { import_batch_id: params.importBatchId }
+            : {}),
+          ...(params.reference ? { reference: params.reference } : {}),
         },
       },
       manager,
@@ -488,7 +507,7 @@ export class LeaveBalanceLedgerService {
       result.balance,
     );
 
-    const nextAvailableDays = this.calculateAvailableDays(result.balance);
+    const nextAvailableDays = calculateAvailableLeaveDays(result.balance);
     const adjustment = await this.getAdjustmentRepository(manager).save(
       this.getAdjustmentRepository(manager).create({
         company_id: params.companyId,
@@ -500,8 +519,12 @@ export class LeaveBalanceLedgerService {
         new_balance_days: this.toDecimal(nextAvailableDays),
         adjustment_amount_days: this.toDecimal(delta),
         reason: params.reason.trim(),
-        source: LeaveBalanceAdjustmentSourceEnum.MANUAL,
+        source,
         adjusted_by_company_user_id: params.createdByCompanyUserId ?? null,
+        leave_balance_transaction_id: result.transaction.id,
+        import_batch_id: params.importBatchId ?? null,
+        import_row_id: params.importRowId ?? null,
+        reference: params.reference ?? null,
       }),
     );
 

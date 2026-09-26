@@ -1,4 +1,10 @@
-import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  PrimaryGeneratedColumn,
+} from 'typeorm';
 
 export enum EmploymentContractType {
   UNSPECIFIED = 'UNSPECIFIED',
@@ -13,7 +19,11 @@ export enum EmploymentContractStatus {
 }
 
 @Entity('employment_contracts')
-@Index('UQ_employment_contract_version', ['companyId', 'employeeId', 'version'], { unique: true })
+@Index(
+  'UQ_employment_contract_version',
+  ['companyId', 'employeeId', 'version'],
+  { unique: true },
+)
 export class EmploymentContract {
   @PrimaryGeneratedColumn()
   id: number;
@@ -39,7 +49,11 @@ export class EmploymentContract {
   @Column({ type: 'jsonb' })
   particulars: Record<string, unknown>;
 
-  @Column({ type: 'varchar', length: 20, default: EmploymentContractStatus.ISSUED })
+  @Column({
+    type: 'varchar',
+    length: 20,
+    default: EmploymentContractStatus.ISSUED,
+  })
   status: EmploymentContractStatus;
 
   @Column({ name: 'document_id', type: 'int', nullable: true })
