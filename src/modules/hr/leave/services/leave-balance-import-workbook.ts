@@ -16,12 +16,9 @@ export const LEAVE_BALANCE_REASON_MAX_LENGTH = 500;
 
 export type LeaveBalanceTemplateColumnKey =
   | 'employee_no'
-  | 'first_name'
-  | 'middle_name'
-  | 'last_name'
+  | 'full_name'
   | 'branch'
   | 'department'
-  | 'position'
   | 'leave_year'
   | 'leave_type_code'
   | 'leave_type_name'
@@ -49,13 +46,9 @@ type TemplateColumn = {
  */
 export const LEAVE_BALANCE_TEMPLATE_COLUMNS: TemplateColumn[] = [
   { key: 'employee_no', header: 'Employee Number', width: 18 },
-  { key: 'first_name', header: 'First Name', width: 18 },
-  { key: 'middle_name', header: 'Middle Name', width: 16 },
-  { key: 'last_name', header: 'Last Name', width: 18 },
+  { key: 'full_name', header: 'Full Name', width: 30 },
   { key: 'branch', header: 'Branch', width: 20 },
   { key: 'department', header: 'Department', width: 22 },
-  { key: 'position', header: 'Position', width: 24 },
-  { key: 'leave_year', header: 'Leave Year', width: 11 },
   { key: 'leave_type_code', header: 'Leave Type Code', width: 17 },
   { key: 'leave_type_name', header: 'Leave Type Name', width: 24 },
   {
@@ -77,6 +70,7 @@ export const LEAVE_BALANCE_TEMPLATE_COLUMNS: TemplateColumn[] = [
     width: 42,
     editable: true,
   },
+  { key: 'leave_year', header: 'Leave Year', width: 11, hidden: true },
   { key: 'employee_ref', header: 'Employee Ref', width: 12, hidden: true },
   { key: 'leave_type_ref', header: 'Leave Type Ref', width: 12, hidden: true },
   {
@@ -90,12 +84,9 @@ export const LEAVE_BALANCE_TEMPLATE_COLUMNS: TemplateColumn[] = [
 const HEADER_ALIASES: Record<string, LeaveBalanceTemplateColumnKey> = {
   employee_number: 'employee_no',
   employee_no: 'employee_no',
-  first_name: 'first_name',
-  middle_name: 'middle_name',
-  last_name: 'last_name',
+  full_name: 'full_name',
   branch: 'branch',
   department: 'department',
-  position: 'position',
   leave_year: 'leave_year',
   leave_type_code: 'leave_type_code',
   leave_type_name: 'leave_type_name',
@@ -361,7 +352,7 @@ export async function buildLeaveBalanceTemplateWorkbook(params: {
   instructions.getColumn(2).alignment = { wrapText: true, vertical: 'top' };
 
   const sheet = workbook.addWorksheet(LEAVE_BALANCE_DATA_SHEET, {
-    views: [{ state: 'frozen', xSplit: 1, ySplit: 1 }],
+    views: [{ state: 'frozen', ySplit: 1 }],
   });
   sheet.columns = templateColumnDefinitions();
   styleHeaderRow(sheet.getRow(1));
@@ -511,7 +502,7 @@ export async function buildLeaveBalanceReportWorkbook(params: {
   );
 
   const sheet = workbook.addWorksheet(LEAVE_BALANCE_DATA_SHEET, {
-    views: [{ state: 'frozen', xSplit: 1, ySplit: 1 }],
+    views: [{ state: 'frozen', ySplit: 1 }],
   });
   sheet.columns = [
     ...templateColumnDefinitions(),
@@ -602,7 +593,7 @@ function styleHeaderRow(row: ExcelJS.Row): void {
     fgColor: { argb: HEADER_FILL },
   };
   row.height = 24;
-  row.alignment = { vertical: 'middle' };
+  row.alignment = { horizontal: 'center', vertical: 'middle' };
 }
 
 function templateColumnDefinitions(): Array<Partial<ExcelJS.Column>> {
@@ -623,9 +614,44 @@ function templateColumnDefinitions(): Array<Partial<ExcelJS.Column>> {
 }
 
 function applyDataGrid(sheet: ExcelJS.Worksheet, rowCount: number): void {
+  const totalColumns = LEAVE_BALANCE_TEMPLATE_COLUMNS.length;
   const newBalanceColumn = sheet.getColumn('new_balance').number;
   const reasonColumn = sheet.getColumn('reason').number;
+  const thinBorder: Partial<ExcelJS.Borders> = {
+    top: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+    left: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+    bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+    right: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+  };
+
+  sheet.getRow(1).eachCell({ includeEmpty: true }, (cell, columnNumber) => {
+    if (columnNumber > totalColumns) {
+      return;
+    }
+    cell.border = thinBorder;
+    cell.alignment = {
+      horizontal: 'center',
+      vertical: 'middle',
+      wrapText: true,
+    };
+  });
   for (let rowNumber = 2; rowNumber <= rowCount + 1; rowNumber += 1) {
+    const row = sheet.getRow(rowNumber);
+    row.height = 22;
+    for (
+      let columnNumber = 1;
+      columnNumber <= totalColumns;
+      columnNumber += 1
+    ) {
+      const column = LEAVE_BALANCE_TEMPLATE_COLUMNS[columnNumber - 1];
+      const cell = row.getCell(columnNumber);
+      cell.border = thinBorder;
+      cell.alignment = {
+        horizontal: column.numeric ? 'right' : 'left',
+        vertical: 'middle',
+        wrapText: column.key === 'reason',
+      };
+    }
     sheet.getCell(rowNumber, newBalanceColumn).dataValidation = {
       type: 'decimal',
       operator: 'between',
@@ -657,7 +683,7 @@ function applyDataGrid(sheet: ExcelJS.Worksheet, rowCount: number): void {
   sheet.getRow(1).getCell(reasonColumn).fill = editableHeaderFill;
   sheet.autoFilter = {
     from: { row: 1, column: 1 },
-    to: { row: 1, column: LEAVE_BALANCE_TEMPLATE_COLUMNS.length },
+    to: { row: 1, column: totalColumns },
   };
 }
 

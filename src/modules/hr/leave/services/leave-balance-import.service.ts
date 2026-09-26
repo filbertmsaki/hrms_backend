@@ -305,12 +305,13 @@ export class LeaveBalanceImportService implements OnApplicationShutdown {
         )!;
         return {
           employee_no: employee.employee_no,
-          first_name: employee.first_name,
-          middle_name: employee.middle_name ?? '',
-          last_name: employee.last_name,
+          full_name: this.joinName([
+            employee.first_name,
+            employee.middle_name,
+            employee.last_name,
+          ]),
           branch: employee.primary_branch?.name ?? '',
           department: employee.primary_department?.name ?? '',
-          position: employee.primary_position?.name ?? '',
           leave_year: fiscalYear,
           leave_type_code: leaveType.code,
           leave_type_name: leaveType.name,
@@ -1881,23 +1882,18 @@ export class LeaveBalanceImportService implements OnApplicationShutdown {
         `This row was generated for a different employee than ${employee.employee_no}. The Employee Number may have been edited.`,
       );
     }
-    const uploadedName = [raw.first_name, raw.middle_name, raw.last_name];
-    const actualName = [
+    const uploadedName = raw.full_name;
+    const actualName = this.joinName([
       employee.first_name,
       employee.middle_name,
       employee.last_name,
-    ];
-    if (
-      uploadedName.some(
-        (part, index) =>
-          this.normalizeText(part) !== this.normalizeText(actualName[index]),
-      )
-    ) {
+    ]);
+    if (this.normalizeText(uploadedName) !== this.normalizeText(actualName)) {
       add(
         IssueCode.EMPLOYEE_DATA_MISMATCH,
         'error',
-        'first_name',
-        `The name in the file ("${this.joinName(uploadedName)}") does not match employee ${employee.employee_no} ("${this.joinName(actualName)}").`,
+        'full_name',
+        `The name in the file ("${uploadedName || '(blank)'}") does not match employee ${employee.employee_no} ("${actualName}").`,
       );
     }
     const organisation: Array<[IssueCode, string, string, string | undefined]> =
@@ -1913,12 +1909,6 @@ export class LeaveBalanceImportService implements OnApplicationShutdown {
           'department',
           'department',
           employee.primary_department?.name,
-        ],
-        [
-          IssueCode.POSITION_MISMATCH,
-          'position',
-          'position',
-          employee.primary_position?.name,
         ],
       ];
     for (const [code, field, label, actual] of organisation) {
@@ -2046,11 +2036,7 @@ export class LeaveBalanceImportService implements OnApplicationShutdown {
               employee.middle_name,
               employee.last_name,
             ])
-          : this.joinName([
-              evaluation.raw.first_name,
-              evaluation.raw.middle_name,
-              evaluation.raw.last_name,
-            ]),
+          : evaluation.raw.full_name,
         255,
       ),
       leave_type_code: this.truncate(evaluation.leaveTypeCode, 50),
