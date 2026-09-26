@@ -22,13 +22,21 @@ import { AuthGuard } from '@nestjs/passport';
 import type { Response } from 'express';
 import type { Request as ExpressRequest } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { Permissions } from '../../../common/decorators/permissions.decorator';
+import {
+  Permissions,
+  PermissionsAny,
+} from '../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { AddLeaveDocumentDto } from './dtos/add-leave-document.dto';
 import { AdjustLeaveBalanceDto } from './dtos/adjust-leave-balance.dto';
 import { CancelLeaveRequestDto } from './dtos/cancel-leave-request.dto';
+import { ConfirmLeaveBalanceImportDto } from './dtos/confirm-leave-balance-import.dto';
+import { LeaveBalanceImportHistoryQueryDto } from './dtos/leave-balance-import-history-query.dto';
+import { LeaveBalanceImportRowsQueryDto } from './dtos/leave-balance-import-rows-query.dto';
+import { LeaveBalanceImportTemplateQueryDto } from './dtos/leave-balance-import-template-query.dto';
+import { UploadLeaveBalanceImportDto } from './dtos/upload-leave-balance-import.dto';
 import { CreateHolidayDto } from './dtos/create-holiday.dto';
 import { CreateLeavePolicyDto } from './dtos/create-leave-policy.dto';
 import { CreateLeaveRequestDto } from './dtos/create-leave-request.dto';
@@ -503,36 +511,53 @@ export class LeaveController {
     );
   }
 
+  // Static import routes are declared before the :batchId routes.
   @Get('balances/import/template')
   @UseGuards(PermissionsGuard)
-  @Permissions('leave-balances.adjust')
-  @ApiOperation({ summary: 'Download leave balance import template' })
+  @Permissions('leave-balances.export')
+  @ApiOperation({
+    summary:
+      'Download the leave balance template with current balances per employee and leave type',
+  })
   async downloadLeaveBalanceImportTemplate(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: LeaveBalanceImportTemplateQueryDto,
     @Res() res: Response,
   ): Promise<void> {
     const result = await this.getLeaveBalanceImportService().downloadTemplate(
       req.user.companyId!,
+      query,
+      req.user,
     );
-    res.setHeader(
-      'Content-Type',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    this.sendWorkbook(res, result);
+  }
+
+  @Get('balances/import/history')
+  @UseGuards(PermissionsGuard)
+  @PermissionsAny('leave-balances.import-history', 'leave-balances.bulk-import')
+  @ApiOperation({ summary: 'List leave balance import batches' })
+  listLeaveBalanceImportHistory(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: LeaveBalanceImportHistoryQueryDto,
+  ) {
+    return this.getLeaveBalanceImportService().listHistory(
+      req.user.companyId!,
+      query,
+      req.user,
     );
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename=${result.fileName}`,
-    );
-    res.send(result.buffer);
   }
 
   @Post('balances/import')
   @UseGuards(PermissionsGuard)
-  @Permissions('leave-balances.adjust')
+  @Permissions('leave-balances.bulk-import')
   @UseInterceptors(
     FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }),
   )
-  @ApiOperation({ summary: 'Bulk import leave balance adjustments from Excel' })
-  importLeaveBalances(
+  @ApiOperation({
+    summary:
+      'Upload a completed leave balance template and validate it. No balances change until the batch is confirmed.',
+  })
+  uploadLeaveBalanceImport(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @UploadedFile()
     file: {
@@ -541,12 +566,118 @@ export class LeaveController {
       size: number;
       buffer: Buffer;
     },
+    @Body() dto: UploadLeaveBalanceImportDto,
   ) {
-    return this.getLeaveBalanceImportService().import(
+    return this.getLeaveBalanceImportService().uploadAndValidate(
       req.user.companyId!,
       file,
+      dto,
       req.user,
     );
+  }
+
+  @Get('balances/import/:batchId')
+  @UseGuards(PermissionsGuard)
+  @PermissionsAny('leave-balances.import-history', 'leave-balances.bulk-import')
+  @ApiOperation({ summary: 'Get a leave balance import batch summary' })
+  getLeaveBalanceImport(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('batchId') batchId: string,
+  ) {
+    return this.getLeaveBalanceImportService().getBatch(
+      req.user.companyId!,
+      batchId,
+      req.user,
+    );
+  }
+
+  @Get('balances/import/:batchId/rows')
+  @UseGuards(PermissionsGuard)
+  @PermissionsAny('leave-balances.import-history', 'leave-balances.bulk-import')
+  @ApiOperation({
+    summary: 'List the Employee + Leave Type rows of an import batch',
+  })
+  listLeaveBalanceImportRows(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('batchId') batchId: string,
+    @Query() query: LeaveBalanceImportRowsQueryDto,
+  ) {
+    return this.getLeaveBalanceImportService().listRows(
+      req.user.companyId!,
+      batchId,
+      query,
+      req.user,
+    );
+  }
+
+  @Get('balances/import/:batchId/report')
+  @UseGuards(PermissionsGuard)
+  @PermissionsAny('leave-balances.import-history', 'leave-balances.bulk-import')
+  @ApiOperation({
+    summary: 'Download the validation/result report for an import batch',
+  })
+  async downloadLeaveBalanceImportReport(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('batchId') batchId: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const result = await this.getLeaveBalanceImportService().downloadReport(
+      req.user.companyId!,
+      batchId,
+      req.user,
+    );
+    this.sendWorkbook(res, result);
+  }
+
+  @Post('balances/import/:batchId/confirm')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave-balances.bulk-import')
+  @ApiOperation({
+    summary:
+      'Confirm a validated import. Every changed balance is re-checked and recorded as an adjustment.',
+  })
+  confirmLeaveBalanceImport(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('batchId') batchId: string,
+    @Body() dto: ConfirmLeaveBalanceImportDto,
+  ) {
+    return this.getLeaveBalanceImportService().confirmImport(
+      req.user.companyId!,
+      batchId,
+      dto,
+      req.user,
+    );
+  }
+
+  @Post('balances/import/:batchId/cancel')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave-balances.bulk-import')
+  @ApiOperation({ summary: 'Cancel a validated import that was not confirmed' })
+  cancelLeaveBalanceImport(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('batchId') batchId: string,
+  ) {
+    return this.getLeaveBalanceImportService().cancelImport(
+      req.user.companyId!,
+      batchId,
+      req.user,
+    );
+  }
+
+  private sendWorkbook(
+    res: Response,
+    result: { buffer: Buffer; fileName: string },
+  ): void {
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${result.fileName}"`,
+    );
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(result.buffer);
   }
 
   @Post('requests')

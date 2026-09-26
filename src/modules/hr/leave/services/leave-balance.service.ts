@@ -21,6 +21,7 @@ import { LeavePolicyType } from '../entities/leave-policy-type.entity';
 import { LeavePolicy } from '../entities/leave-policy.entity';
 import { LeaveRequest } from '../entities/leave-request.entity';
 import { LeaveType } from '../entities/leave-type.entity';
+import { calculateAvailableLeaveDays } from '../utils/leave-balance-rules.util';
 import { LeaveAuditService } from './leave-audit.service';
 
 type EmployeeScope = Pick<
@@ -34,7 +35,7 @@ type EmployeeScope = Pick<
     >
   >;
 
-type PolicyAssignment = {
+export type PolicyAssignment = {
   policy: LeavePolicy;
   policyType: LeavePolicyType;
   annualQuotaDays: number;
@@ -223,8 +224,15 @@ export class LeaveBalanceService {
     leaveTypeId: number,
     manager?: EntityManager,
   ): Promise<PolicyAssignment | null> {
-    const repository = this.getLeavePolicyRepository(manager);
-    const policies = await repository.find({
+    const policies = await this.findActivePolicies(companyId, manager);
+    return this.selectPolicyAssignment(policies, employee, leaveTypeId);
+  }
+
+  findActivePolicies(
+    companyId: number,
+    manager?: EntityManager,
+  ): Promise<LeavePolicy[]> {
+    return this.getLeavePolicyRepository(manager).find({
       where: {
         company_id: companyId,
         status: LeaveRecordStatusEnum.ACTIVE,
@@ -233,7 +241,17 @@ export class LeaveBalanceService {
         leave_types: true,
       },
     });
+  }
 
+  /**
+   * Picks the applicable policy from an already loaded policy list so bulk
+   * callers can resolve many employees without re-querying policies.
+   */
+  selectPolicyAssignment(
+    policies: LeavePolicy[],
+    employee: EmployeeScope,
+    leaveTypeId: number,
+  ): PolicyAssignment | null {
     let selected: {
       priority: number;
       policy: LeavePolicy;
@@ -569,12 +587,17 @@ export class LeaveBalanceService {
   ): Promise<LeaveBalance> {
     const normalizedFiscalYear = this.normalizeFiscalYear(fiscalYear);
     const balanceRepository = this.getBalanceRepository(manager);
+    // Inside a transaction the row is locked for the read-modify-write, so a
+    // recalculation cannot overwrite a concurrent adjustment with stale values.
     const existing = await balanceRepository.findOne({
       where: {
         employee_id: employee.id,
         leave_type_id: leaveTypeId,
         fiscal_year: normalizedFiscalYear,
       },
+      ...(manager?.queryRunner?.isTransactionActive
+        ? { lock: { mode: 'pessimistic_write' as const } }
+        : {}),
     });
 
     if (existing && !options?.forceRecalculate) {
@@ -637,6 +660,24 @@ export class LeaveBalanceService {
     return balances;
   }
 
+  /**
+   * Locks all of an employee's balances for the year up front, in primary-key
+   * order, before recalculating them one by one. Bulk imports lock in the same
+   * order, so the two writers queue behind each other instead of deadlocking
+   * or overwriting each other's changes.
+   */
+  private async lockEmployeeYearBalances(
+    employeeId: number,
+    fiscalYear: string,
+    manager: EntityManager,
+  ): Promise<void> {
+    await this.getBalanceRepository(manager).find({
+      where: { employee_id: employeeId, fiscal_year: fiscalYear },
+      order: { id: 'ASC' },
+      lock: { mode: 'pessimistic_write' },
+    });
+  }
+
   async generateBalancesForCompany(
     companyId: number,
     fiscalYear: string,
@@ -650,22 +691,19 @@ export class LeaveBalanceService {
     const normalizedFiscalYear = this.normalizeFiscalYear(fiscalYear);
     const employeeRepository = this.getEmployeeRepository(manager);
 
-    const employees =
+    // Scoped by employee.company_id, so employees without a login account
+    // get balances too.
+    const scopedEmployees =
       typeof options.employeeId === 'number'
         ? await employeeRepository.find({
-            where: { id: options.employeeId },
-            relations: { company_user: true },
+            where: { id: options.employeeId, company_id: companyId },
           })
         : await employeeRepository.find({
             where: {
+              company_id: companyId,
               employment_status: EmploymentStatusEnum.ACTIVE,
             },
-            relations: { company_user: true },
           });
-
-    const scopedEmployees = employees.filter(
-      (employee) => employee.company_user?.company_id === companyId,
-    );
 
     if (typeof options.employeeId === 'number' && !scopedEmployees.length) {
       throw new NotFoundException('Employee not found');
@@ -673,14 +711,32 @@ export class LeaveBalanceService {
 
     let generatedBalances = 0;
     for (const employee of scopedEmployees) {
-      const balances = await this.ensureBalancesForEmployeeYear(
-        companyId,
-        employee,
-        normalizedFiscalYear,
-        manager,
-        options.leaveTypeId,
-        options.forceRecalculate ?? false,
-      );
+      const balances = manager
+        ? await this.ensureBalancesForEmployeeYear(
+            companyId,
+            employee,
+            normalizedFiscalYear,
+            manager,
+            options.leaveTypeId,
+            options.forceRecalculate ?? false,
+          )
+        : await this.leaveBalanceRepository.manager.transaction(
+            async (employeeManager) => {
+              await this.lockEmployeeYearBalances(
+                employee.id,
+                normalizedFiscalYear,
+                employeeManager,
+              );
+              return this.ensureBalancesForEmployeeYear(
+                companyId,
+                employee,
+                normalizedFiscalYear,
+                employeeManager,
+                options.leaveTypeId,
+                options.forceRecalculate ?? false,
+              );
+            },
+          );
       generatedBalances += balances.length;
     }
 
@@ -692,24 +748,7 @@ export class LeaveBalanceService {
   }
 
   calculateAvailableDays(balance: LeaveBalance): number {
-    const openingBalance = this.toNumber(balance.opening_balance_days)
-      ? this.toNumber(balance.opening_balance_days)
-      : this.toNumber(balance.carried_forward_days);
-    const accruedDays = this.toNumber(balance.accrued_days)
-      ? this.toNumber(balance.accrued_days)
-      : this.toNumber(balance.entitlement_days) ||
-        this.toNumber(balance.allocated_days);
-
-    return (
-      openingBalance +
-      accruedDays +
-      this.toNumber(balance.adjusted_days) -
-      this.toNumber(balance.used_days) -
-      this.toNumber(balance.pending_days) -
-      this.toNumber(balance.approved_future_days) -
-      this.toNumber(balance.expired_days) -
-      this.toNumber(balance.attendance_deduction_days)
-    );
+    return calculateAvailableLeaveDays(balance);
   }
 
   async reserveDays(
@@ -849,6 +888,7 @@ export class LeaveBalanceService {
         'adjustedByMembership',
       )
       .leftJoinAndSelect('adjustedByMembership.user', 'adjustedByUser')
+      .leftJoinAndSelect('adjustment.import_batch', 'importBatch')
       .where('adjustment.company_id = :companyId', { companyId });
 
     if (employeeIds && employeeIds.length) {

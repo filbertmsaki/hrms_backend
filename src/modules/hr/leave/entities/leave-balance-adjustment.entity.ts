@@ -11,6 +11,9 @@ import { Company } from '../../../companies/entities/company.entity';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { LeaveBalanceAdjustmentSourceEnum } from '../enums/leave-balance-adjustment-source.enum';
+import { LeaveBalanceImportBatch } from './leave-balance-import-batch.entity';
+import { LeaveBalanceImportRow } from './leave-balance-import-row.entity';
+import { LeaveBalanceTransaction } from './leave-balance-transaction.entity';
 import { LeaveBalance } from './leave-balance.entity';
 import { LeaveType } from './leave-type.entity';
 
@@ -20,6 +23,7 @@ import { LeaveType } from './leave-type.entity';
 @Index('IDX_leave_balance_adjustment_leave_type', ['leave_type_id'])
 @Index('IDX_leave_balance_adjustment_fiscal_year', ['fiscal_year'])
 @Index('IDX_leave_balance_adjustment_leave_balance', ['leave_balance_id'])
+@Index('IDX_leave_balance_adjustment_import_batch', ['import_batch_id'])
 export class LeaveBalanceAdjustment {
   @PrimaryGeneratedColumn()
   id: number;
@@ -61,6 +65,18 @@ export class LeaveBalanceAdjustment {
   @Column({ type: 'int', nullable: true })
   adjusted_by_company_user_id: number | null;
 
+  @Column({ type: 'int', nullable: true })
+  leave_balance_transaction_id: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  import_batch_id: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  import_row_id: number | null;
+
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  reference: string | null;
+
   @CreateDateColumn()
   adjusted_at: Date;
 
@@ -83,4 +99,16 @@ export class LeaveBalanceAdjustment {
   @ManyToOne(() => CompanyUser, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'adjusted_by_company_user_id' })
   adjusted_by_company_user: CompanyUser | null;
+
+  @ManyToOne(() => LeaveBalanceTransaction, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'leave_balance_transaction_id' })
+  leave_balance_transaction: LeaveBalanceTransaction | null;
+
+  @ManyToOne(() => LeaveBalanceImportBatch, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'import_batch_id' })
+  import_batch: LeaveBalanceImportBatch | null;
+
+  @ManyToOne(() => LeaveBalanceImportRow, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'import_row_id' })
+  import_row: LeaveBalanceImportRow | null;
 }

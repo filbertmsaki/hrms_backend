@@ -23,6 +23,8 @@ import { LeaveApprovalWorkflowStep } from './entities/leave-approval-workflow-st
 import { LeaveApprovalWorkflow } from './entities/leave-approval-workflow.entity';
 import { LeaveAuditLog } from './entities/leave-audit-log.entity';
 import { LeaveBalanceAdjustment } from './entities/leave-balance-adjustment.entity';
+import { LeaveBalanceImportBatch } from './entities/leave-balance-import-batch.entity';
+import { LeaveBalanceImportRow } from './entities/leave-balance-import-row.entity';
 import { LeaveBalance } from './entities/leave-balance.entity';
 import { LeaveBalanceTransaction } from './entities/leave-balance-transaction.entity';
 import { LeaveDocument } from './entities/leave-document.entity';
@@ -42,6 +44,9 @@ import { LeavePdfService } from './services/leave-pdf.service';
 import { LeaveWorkflowService } from './services/leave-workflow.service';
 import { LeaveImportService } from './services/leave-import.service';
 import { LeaveBalanceImportService } from './services/leave-balance-import.service';
+import { LeaveBalanceImportProcessor } from './services/leave-balance-import.processor';
+import { LEAVE_BALANCE_IMPORT_QUEUE } from './services/leave-balance-import-job.constants';
+import { ConditionalBullModule } from '../../../infrastructure/queues/conditional-bull.module';
 
 @Module({
   imports: [
@@ -53,6 +58,8 @@ import { LeaveBalanceImportService } from './services/leave-balance-import.servi
       LeaveNumberSequence,
       LeaveBalance,
       LeaveBalanceAdjustment,
+      LeaveBalanceImportBatch,
+      LeaveBalanceImportRow,
       LeaveBalanceTransaction,
       LeaveRequest,
       LeaveApprovalWorkflow,
@@ -77,6 +84,7 @@ import { LeaveBalanceImportService } from './services/leave-balance-import.servi
     ]),
     FilesModule,
     HrSharedModule,
+    ConditionalBullModule.registerQueue(LEAVE_BALANCE_IMPORT_QUEUE),
     forwardRef(() => AttendanceProcessingModule),
   ],
   controllers: [LeaveController],
@@ -91,6 +99,7 @@ import { LeaveBalanceImportService } from './services/leave-balance-import.servi
     LeavePdfService,
     LeaveImportService,
     LeaveBalanceImportService,
+    LeaveBalanceImportProcessor,
   ],
   exports: [
     LeaveService,
