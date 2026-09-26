@@ -18,11 +18,10 @@ export class LeaveBalanceCronService implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
-    const appEnv =
-      this.configService.get<string>('APP_ENV') ??
-      this.configService.get<string>('NODE_ENV');
+    const appEnv = this.configService.get<string>('APP_ENV');
+    const nodeEnv = this.configService.get<string>('NODE_ENV');
 
-    if (appEnv === 'test') {
+    if (appEnv === 'test' || nodeEnv === 'test') {
       this.logger.log(
         'Skipping startup leave balance generation in test environment',
       );

@@ -73,4 +73,19 @@ describe('LeaveBalanceCronService', () => {
       leaveBalanceService.generateBalancesForCompany,
     ).not.toHaveBeenCalled();
   });
+
+  it('skips startup backfill when NODE_ENV is test', async () => {
+    configService.get.mockImplementation((key: string) => {
+      if (key === 'APP_ENV') return 'development';
+      if (key === 'NODE_ENV') return 'test';
+      return undefined;
+    });
+
+    await service.onModuleInit();
+
+    expect(companyRepository.find).not.toHaveBeenCalled();
+    expect(
+      leaveBalanceService.generateBalancesForCompany,
+    ).not.toHaveBeenCalled();
+  });
 });
