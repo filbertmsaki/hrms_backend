@@ -705,24 +705,22 @@ describe('LeaveBalanceImportService', () => {
         {},
         actorWith(),
       );
-      const { rows, headers } = await readTemplate(result.buffer);
+      const { rows, headers, sheet } = await readTemplate(result.buffer);
 
-      expect(headers).toEqual(
-        expect.arrayContaining([
-          'Employee Number',
-          'First Name',
-          'Middle Name',
-          'Last Name',
-          'Branch',
-          'Department',
-          'Position',
-          'Leave Type Code',
-          'Leave Type Name',
-          'Current Leave Balance',
-          'New Leave Balance',
-          'Adjustment Reason / Remarks',
-        ]),
+      const visibleHeaders = headers.filter(
+        (_header, index) => !sheet.getColumn(index + 1).hidden,
       );
+      expect(visibleHeaders).toEqual([
+        'Employee Number',
+        'Full Name',
+        'Branch',
+        'Department',
+        'Leave Type Code',
+        'Leave Type Name',
+        'Current Leave Balance',
+        'New Leave Balance',
+        'Adjustment Reason / Remarks',
+      ]);
       const keys = rows.map(
         (row) =>
           `${String(row['Employee Number'])}:${String(row['Leave Type Code'])}`,
@@ -754,16 +752,53 @@ describe('LeaveBalanceImportService', () => {
         ['SICK', 10],
       ]);
       expect(filbert[0]).toMatchObject({
-        'First Name': 'Filbert',
-        'Last Name': 'Msaki',
+        'Full Name': 'Filbert Msaki',
         Branch: 'Head Office',
         Department: 'IT',
-        Position: 'Software Engineer',
         'Leave Year': FISCAL_YEAR,
         'Employee Ref': '101',
         'Leave Type Ref': '1',
       });
       expect(result.rowCount).toBe(10);
+    });
+
+    it('formats the data sheet as a bordered, filtered table area', async () => {
+      const { sheet, headers } = await readTemplate(
+        (await harness.service.downloadTemplate(COMPANY_ID, {}, actorWith()))
+          .buffer,
+      );
+      const visibleColumnCount = headers.filter(
+        (_header, index) => !sheet.getColumn(index + 1).hidden,
+      ).length;
+
+      expect(sheet.views).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ state: 'frozen', ySplit: 1 }),
+        ]),
+      );
+      expect(sheet.autoFilter).toBe(
+        `A1:${sheet.getColumn(headers.length).letter}1`,
+      );
+      expect(sheet.getRow(1).font).toMatchObject({ bold: true });
+      expect(sheet.getRow(1).height).toBe(24);
+      expect(sheet.getRow(2).height).toBe(22);
+      expect(sheet.getColumn(2).width).toBe(30);
+      expect(sheet.getColumn(8).width).toBe(19);
+
+      for (let rowNumber = 1; rowNumber <= sheet.rowCount; rowNumber += 1) {
+        for (
+          let columnNumber = 1;
+          columnNumber <= visibleColumnCount;
+          columnNumber += 1
+        ) {
+          expect(sheet.getCell(rowNumber, columnNumber).border).toMatchObject({
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' },
+          });
+        }
+      }
     });
 
     it('initialises a missing balance with the standard generation rules instead of inventing a figure', async () => {
@@ -928,7 +963,7 @@ describe('LeaveBalanceImportService', () => {
           code: 'ANNUAL',
           newBalance: 30,
           reason: 'x',
-          set: { 'First Name': 'Philbert' },
+          set: { 'Full Name': 'Philbert Msaki' },
         },
         'EMPLOYEE_DATA_MISMATCH',
       ],
@@ -986,11 +1021,9 @@ describe('LeaveBalanceImportService', () => {
         defaultReason: 'Migration',
         append: {
           'Employee Number': 'AICL/003',
-          'First Name': 'Jane',
-          'Last Name': 'Roe',
+          'Full Name': 'Jane Roe',
           Branch: 'Head Office',
           Department: 'IT',
-          Position: 'Software Engineer',
           'Leave Year': FISCAL_YEAR,
           'Leave Type Code': 'ANNUAL',
           'Leave Type Name': 'Annual Leave',
@@ -1008,11 +1041,9 @@ describe('LeaveBalanceImportService', () => {
         defaultReason: 'Migration',
         append: {
           'Employee Number': 'AICL/001',
-          'First Name': 'Filbert',
-          'Last Name': 'Msaki',
+          'Full Name': 'Filbert Msaki',
           Branch: 'Head Office',
           Department: 'IT',
-          Position: 'Software Engineer',
           'Leave Year': FISCAL_YEAR,
           'Leave Type Code': 'MATERNITY',
           'Leave Type Name': 'Maternity Leave',
