@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { OPERATIONAL_REPORTS } from '../../analytics/services/analytics-core.services';
 import { ReportOutputFormatEnum } from '../enums/report-output-format.enum';
 import { ReportRunner } from '../interfaces/report-runner.interface';
 import { AttendanceSummaryReportRunner } from './runners/attendance-summary-report-runner.service';
@@ -153,102 +154,12 @@ export const REGISTERED_REPORT_DEFINITIONS: RegisteredReportDefinition[] = [
     backgroundGenerationSupported: false,
     generatorService: 'EndOfDayAttendanceReportRunner',
   },
-  operationalDefinition('EMPLOYEE_MASTER', 'Employee Master Report', [
-    'employee_reports.view',
-    'employees:read',
-  ]),
-  operationalDefinition('NEW_JOINERS', 'New Joiner Report', [
-    'employee_reports.view',
-    'employees:read',
-  ]),
-  operationalDefinition('CONFIRMATION_DUE', 'Confirmation Due Report', [
-    'employee_reports.view',
-    'probation_cases:read',
-  ]),
-  operationalDefinition('PROBATION', 'Probation Report', [
-    'employee_reports.view',
-    'probation_cases:read',
-  ]),
-  operationalDefinition('TRANSFERS', 'Transfer Report', [
-    'employee_reports.view',
-    'employee_movements:read',
-  ]),
-  operationalDefinition('PROMOTIONS', 'Promotion Report', [
-    'employee_reports.view',
-    'employee_movements:read',
-  ]),
-  operationalDefinition('RESIGNATIONS', 'Resignation Report', [
-    'employee_reports.view',
-    'offboarding:read',
-  ]),
-  operationalDefinition('EXITS', 'Exit Report', [
-    'employee_reports.view',
-    'offboarding:read',
-  ]),
-  operationalDefinition('EMPLOYEE_DOCUMENTS', 'Employee Document Report', [
-    'employee_reports.view',
-    'hr_documents:read',
-  ]),
-  operationalDefinition('LEAVE_BALANCE', 'Leave Balance Report', [
-    'leave_reports.view',
-    'leave-balances.view',
-  ]),
-  operationalDefinition(
-    'LEAVE_PENDING_APPROVAL',
-    'Leave Pending Approval Report',
-    ['leave_reports.view', 'leave_requests:read'],
-  ),
-  operationalDefinition('PAYROLL_REGISTER', 'Payroll Register', [
-    'payroll_reports.view',
-    'payroll:reports',
-  ]),
-  operationalDefinition('BANK_TRANSFER', 'Bank Transfer Report', [
-    'payroll_reports.view',
-    'payroll:banking',
-  ]),
-  operationalDefinition('LOAN_OUTSTANDING', 'Loan Outstanding Report', [
-    'loan_reports.view',
-    'employee_finance:reports',
-  ]),
-  operationalDefinition(
-    'FIELD_VISIT_MAP',
-    'Map-Based Movement / Visit Report',
-    ['field_reports.view', 'field_locations:read'],
-  ),
-  operationalDefinition('KPI_ASSIGNMENTS', 'Employee KPI Assignment Report', [
-    'performance_reports.view',
-    'performance_kpis:read',
-  ]),
-  operationalDefinition(
-    'KPI_TARGET_VS_ACHIEVEMENT',
-    'Monthly KPI Target vs Achievement',
-    ['performance_reports.view', 'performance_kpis:read'],
-  ),
-  operationalDefinition('MONTHLY_KPI_SCORE', 'Monthly KPI Score', [
-    'performance_reports.view',
-    'performance_reports:read',
-  ]),
-  operationalDefinition('QUARTERLY_KPI_AVERAGE', 'Quarterly KPI Average', [
-    'performance_reports.view',
-    'performance_aggregates:read',
-  ]),
-  operationalDefinition('ANNUAL_KPI_AVERAGE', 'Annual KPI Average', [
-    'performance_reports.view',
-    'performance_aggregates:read',
-  ]),
-  operationalDefinition('KPI_SCORE_HISTORY', 'KPI Score History', [
-    'performance_reports.view',
-    'performance_reports:read',
-  ]),
-  operationalDefinition(
-    'ATTENDANCE_EXCEPTIONS',
-    'Attendance Exception Report',
-    ['attendance_reports.view', 'attendance_summaries:read'],
-  ),
-  operationalDefinition(
-    'ATTENDANCE_CORRECTIONS',
-    'Attendance Correction Report',
-    ['attendance_reports.view', 'attendance_summaries:read'],
+  ...OPERATIONAL_REPORTS.map((definition) =>
+    operationalDefinition(
+      definition.code,
+      definition.name,
+      definition.permissions,
+    ),
   ),
 ];
 
