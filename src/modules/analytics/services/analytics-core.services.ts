@@ -3076,7 +3076,7 @@ export class AnalyticsSavedReportService {
   }
 }
 
-type OperationalReportDefinition = {
+export type OperationalReportDefinition = {
   code: string;
   name: string;
   category: string;
@@ -3475,7 +3475,7 @@ function buildLeavePending(args: OperationalReportQueryArgs) {
   const params: unknown[] = [args.companyId];
   const conditions = [
     'request.company_id = $1',
-    "request.status IN ('SUBMITTED','PENDING_APPROVAL','RETURNED')",
+    "request.status IN ('submitted','in_review','pending_department_manager','pending_hr','returned_for_correction')",
   ];
   appendScopedEmployeeFilters(conditions, params, args.scope, {
     employeeColumn: 'request.employee_id',
@@ -3883,7 +3883,698 @@ function buildAttendanceCorrections(args: OperationalReportQueryArgs) {
   };
 }
 
-const OPERATIONAL_REPORTS: OperationalReportDefinition[] = [
+function buildEmployeeHistory(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ['history.company_id = $1'];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'history.employee_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  appendDateRange(conditions, params, 'history.effective_from', args.query);
+  return {
+    params,
+    sql: compactSql(`
+      SELECT history.id AS assignment_history_id, ${employeeJoinSelect()},
+        department_history.name AS assigned_department,
+        history.is_primary, history.effective_from, history.effective_to,
+        history.status, history.assignment_reason
+      FROM employee_department_assignment_history history
+      JOIN employees e ON e.id = history.employee_id
+      ${employeeJoins()}
+      JOIN departments department_history ON department_history.id = history.department_id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY history.effective_from DESC, e.employee_no ASC
+    `),
+  };
+}
+
+function buildAttendanceSummary(kind: string) {
+  return (args: OperationalReportQueryArgs) => {
+    const params: unknown[] = [args.companyId];
+    const conditions = ['summary.company_id = $1'];
+    appendScopedEmployeeFilters(conditions, params, args.scope, {
+      employeeColumn: 'summary.employee_id',
+      branchColumn: 'summary.branch_id',
+      departmentColumn: 'e.primary_department_id',
+    });
+    appendDateRange(conditions, params, 'summary.attendance_date', args.query);
+    appendOptionalStringFilter(
+      conditions,
+      params,
+      'summary.attendance_status',
+      args.query.status,
+    );
+    if (kind === 'LATE_COMING') conditions.push('summary.late_minutes > 0');
+    if (kind === 'EARLY_GOING')
+      conditions.push('summary.early_departure_minutes > 0');
+    if (kind === 'ABSENTEEISM')
+      conditions.push("summary.attendance_status ILIKE 'ABSENT%'");
+    if (kind === 'MISSING_PUNCH')
+      conditions.push(
+        '(summary.check_in_at IS NULL OR summary.check_out_at IS NULL)',
+      );
+    if (kind === 'OVERTIME') conditions.push('summary.overtime_minutes > 0');
+    if (kind === 'OFFICE_ATTENDANCE')
+      conditions.push("summary.schedule_source <> 'FIELD'");
+
+    return {
+      params,
+      sql: compactSql(`
+        SELECT summary.attendance_date, ${employeeJoinSelect()},
+          summary.schedule_source, summary.attendance_status AS status,
+          summary.check_in_at, summary.check_out_at,
+          summary.work_minutes, summary.late_minutes,
+          summary.early_departure_minutes, summary.overtime_minutes,
+          summary.is_adjusted, summary.finalized_at
+        FROM attendance_daily_summaries summary
+        JOIN employees e ON e.id = summary.employee_id
+        ${employeeJoins()}
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY summary.attendance_date DESC, e.employee_no ASC
+      `),
+    };
+  };
+}
+
+function buildLeaveRequestReport(kind: string) {
+  return (args: OperationalReportQueryArgs) => {
+    const params: unknown[] = [args.companyId];
+    const conditions = ['request.company_id = $1'];
+    appendScopedEmployeeFilters(conditions, params, args.scope, {
+      employeeColumn: 'request.employee_id',
+      branchColumn: 'e.primary_branch_id',
+      departmentColumn: 'e.primary_department_id',
+    });
+    appendDateRange(conditions, params, 'request.start_date', args.query);
+    appendOptionalStringFilter(
+      conditions,
+      params,
+      'request.status',
+      args.query.status,
+    );
+    if (kind === 'LEAVE_AVAILED')
+      conditions.push("request.status = 'approved'");
+    if (kind === 'LEAVE_WITHOUT_PAY')
+      conditions.push(
+        "leave_type.code ILIKE '%LWP%' OR leave_type.name ILIKE '%without pay%'",
+      );
+
+    return {
+      params,
+      sql: compactSql(`
+        SELECT request.leave_no, ${employeeJoinSelect()}, leave_type.name AS leave_type,
+          request.start_date, request.end_date, request.total_days,
+          request.duration_type, request.status, request.reason,
+          request.current_approval_level, request.approved_at, request.cancelled_at
+        FROM leave_requests request
+        JOIN employees e ON e.id = request.employee_id
+        ${employeeJoins()}
+        JOIN leave_types leave_type ON leave_type.id = request.leave_type_id
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY request.start_date DESC, e.employee_no ASC
+      `),
+    };
+  };
+}
+
+function buildDepartmentLeave(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ['request.company_id = $1'];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'request.employee_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  appendDateRange(conditions, params, 'request.start_date', args.query);
+  return {
+    params,
+    sql: compactSql(`
+      SELECT department.name AS department, leave_type.name AS leave_type,
+        request.status, COUNT(*)::int AS request_count,
+        COALESCE(SUM(request.total_days::numeric), 0)::numeric(12,2) AS total_days
+      FROM leave_requests request
+      JOIN employees e ON e.id = request.employee_id
+      ${employeeJoins()}
+      JOIN leave_types leave_type ON leave_type.id = request.leave_type_id
+      WHERE ${conditions.join(' AND ')}
+      GROUP BY department.name, leave_type.name, request.status
+      ORDER BY department.name ASC, leave_type.name ASC
+    `),
+  };
+}
+
+function buildFieldVisitReport(kind: string) {
+  return (args: OperationalReportQueryArgs) => {
+    const params: unknown[] = [args.companyId];
+    const conditions = ['visit.company_id = $1'];
+    appendScopedEmployeeFilters(conditions, params, args.scope, {
+      employeeColumn: 'visit.employee_id',
+      branchColumn: 'e.primary_branch_id',
+      departmentColumn: 'e.primary_department_id',
+    });
+    appendDateRange(conditions, params, 'visit.visit_date', args.query);
+    appendOptionalStringFilter(
+      conditions,
+      params,
+      'visit.status',
+      args.query.status,
+    );
+    if (kind === 'CLIENT_VISIT') conditions.push('party.id IS NOT NULL');
+
+    return {
+      params,
+      sql: compactSql(`
+        SELECT visit.visit_no, visit.visit_date, ${employeeJoinSelect()},
+          party.name AS client_or_party, visit.visit_type, visit.status,
+          visit.is_unplanned, visit.purpose, visit.outcome,
+          visit.check_in_at, visit.check_out_at, visit.duration_minutes,
+          visit.manager_review_status, visit.manager_reviewed_at
+        FROM field_visits visit
+        JOIN employees e ON e.id = visit.employee_id
+        ${employeeJoins()}
+        LEFT JOIN field_parties party ON party.id = visit.field_party_id
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY visit.visit_date DESC, visit.visit_no DESC
+      `),
+    };
+  };
+}
+
+function buildFieldVisitPlan(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ['plan.company_id = $1'];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'plan.employee_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  appendDateRange(conditions, params, 'plan.visit_date', args.query);
+  appendOptionalStringFilter(
+    conditions,
+    params,
+    'plan.status',
+    args.query.status,
+  );
+  return {
+    params,
+    sql: compactSql(`
+      SELECT plan.id AS visit_plan_id, plan.visit_date, ${employeeJoinSelect()},
+        plan.status, plan.plan_summary, plan.submitted_at, plan.approved_at,
+        plan.completed_at, item.visit_type, item.purpose,
+        item.expected_outcome, item.planned_start_time, item.planned_end_time
+      FROM field_visit_plans plan
+      JOIN employees e ON e.id = plan.employee_id
+      ${employeeJoins()}
+      LEFT JOIN field_visit_plan_items item ON item.visit_plan_id = plan.id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY plan.visit_date DESC, e.employee_no ASC, item.display_order ASC
+    `),
+  };
+}
+
+function buildPlannedVsActualVisit(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ['plan.company_id = $1'];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'plan.employee_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  appendDateRange(conditions, params, 'plan.visit_date', args.query);
+  return {
+    params,
+    sql: compactSql(`
+      SELECT plan.visit_date, ${employeeJoinSelect()},
+        plan.status AS plan_status,
+        COUNT(item.id)::int AS planned_visits,
+        COUNT(visit.id)::int AS actual_visits,
+        COUNT(visit.id) FILTER (WHERE visit.status IN ('COMPLETED','REVIEWED'))::int AS completed_visits
+      FROM field_visit_plans plan
+      JOIN employees e ON e.id = plan.employee_id
+      ${employeeJoins()}
+      LEFT JOIN field_visit_plan_items item ON item.visit_plan_id = plan.id
+      LEFT JOIN field_visits visit ON visit.visit_plan_id = plan.id
+      WHERE ${conditions.join(' AND ')}
+      GROUP BY plan.visit_date, plan.status, e.id, branch.name, department.name, position.name, grade.name, manager.employee_no, manager.first_name, manager.middle_name, manager.last_name
+      ORDER BY plan.visit_date DESC, e.employee_no ASC
+    `),
+  };
+}
+
+function buildFieldProductivity(periodType: 'DAILY' | 'MONTHLY' = 'DAILY') {
+  return (args: OperationalReportQueryArgs) => {
+    const params: unknown[] = [args.companyId, periodType];
+    const conditions = ['summary.company_id = $1', 'summary.period_type = $2'];
+    appendScopedEmployeeFilters(conditions, params, args.scope, {
+      employeeColumn: 'summary.employee_id',
+      branchColumn: 'e.primary_branch_id',
+      departmentColumn: 'e.primary_department_id',
+    });
+    appendDateRange(conditions, params, 'summary.date_from', args.query);
+    return {
+      params,
+      sql: compactSql(`
+        SELECT summary.date_from, summary.date_to, ${employeeJoinSelect()},
+          summary.period_type, summary.activity_submission_days,
+          summary.completed_activity_count, summary.planned_visit_count,
+          summary.completed_visit_count, summary.unplanned_visit_count,
+          summary.lead_count, summary.quotation_count,
+          summary.business_closed_count, summary.reported_potential_value,
+          summary.validated_actual_value, summary.activity_completion_rate,
+          summary.visit_completion_rate, summary.submission_discipline_rate
+        FROM work_activity_period_summaries summary
+        JOIN employees e ON e.id = summary.employee_id
+        ${employeeJoins()}
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY summary.date_from DESC, e.employee_no ASC
+      `),
+    };
+  };
+}
+
+function buildActivityReport(kind: string) {
+  return (args: OperationalReportQueryArgs) => {
+    const params: unknown[] = [args.companyId];
+    const conditions = ['report.company_id = $1'];
+    appendScopedEmployeeFilters(conditions, params, args.scope, {
+      employeeColumn: 'report.employee_id',
+      branchColumn: 'e.primary_branch_id',
+      departmentColumn: 'e.primary_department_id',
+    });
+    appendDateRange(conditions, params, 'report.activity_date', args.query);
+    appendOptionalStringFilter(
+      conditions,
+      params,
+      'report.status',
+      args.query.status,
+    );
+    if (kind === 'PENDING_ACTIVITY') {
+      conditions.push("report.status NOT IN ('APPROVED','LOCKED','REVIEWED')");
+    }
+    return {
+      params,
+      sql: compactSql(`
+        SELECT report.activity_date, ${employeeJoinSelect()},
+          report.status AS report_status, report.submitted_at, report.reviewed_at,
+          report.manager_rating, report.submission_is_late,
+          entry.title AS activity_title, category.name AS activity_category,
+          entry.status AS activity_status, entry.priority,
+          entry.review_status, entry.completion_percentage,
+          entry.outcome, entry.linked_field_visit_id
+        FROM daily_activity_reports report
+        JOIN employees e ON e.id = report.employee_id
+        ${employeeJoins()}
+        LEFT JOIN daily_activity_entries entry ON entry.daily_activity_report_id = report.id
+        LEFT JOIN activity_categories category ON category.id = entry.activity_category_id
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY report.activity_date DESC, e.employee_no ASC, entry.id ASC
+      `),
+    };
+  };
+}
+
+function buildActivityVsKpi(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ['entry.company_id = $1'];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'report.employee_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  appendDateRange(conditions, params, 'report.activity_date', args.query);
+  return {
+    params,
+    sql: compactSql(`
+      SELECT report.activity_date, ${employeeJoinSelect()},
+        definition.code AS kpi_code, COALESCE(definition.name, employee_kpi.title) AS kpi_name,
+        entry.title AS activity_title, entry.status AS activity_status,
+        entry.completion_percentage, entry.outcome, entry.review_status
+      FROM daily_activity_entries entry
+      JOIN daily_activity_reports report ON report.id = entry.daily_activity_report_id
+      JOIN employees e ON e.id = report.employee_id
+      ${employeeJoins()}
+      LEFT JOIN employee_kpis employee_kpi ON employee_kpi.id = entry.employee_kpi_id
+      LEFT JOIN kpi_definitions definition ON definition.id = entry.kpi_definition_id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY report.activity_date DESC, e.employee_no ASC
+    `),
+  };
+}
+
+function buildPerformanceAggregateSummary(groupBy: 'department' | 'branch') {
+  return (args: OperationalReportQueryArgs) => {
+    const params: unknown[] = [args.companyId];
+    const conditions = ['aggregate.company_id = $1'];
+    appendScopedEmployeeFilters(conditions, params, args.scope, {
+      employeeColumn: 'aggregate.employee_id',
+      branchColumn: 'e.primary_branch_id',
+      departmentColumn: 'e.primary_department_id',
+    });
+    if (args.query.year) {
+      conditions.push(
+        `aggregate.financial_year_id = ${addParam(params, args.query.year)}`,
+      );
+    }
+    const labelColumn =
+      groupBy === 'department' ? 'department.name' : 'branch.name';
+    return {
+      params,
+      sql: compactSql(`
+        SELECT ${labelColumn} AS ${groupBy}, aggregate.period_type,
+          aggregate.name AS period_name, COUNT(*)::int AS employee_count,
+          AVG(aggregate.aggregate_score::numeric)::numeric(12,2) AS average_score,
+          MIN(aggregate.aggregate_score::numeric)::numeric(12,2) AS minimum_score,
+          MAX(aggregate.aggregate_score::numeric)::numeric(12,2) AS maximum_score
+        FROM performance_aggregates aggregate
+        JOIN employees e ON e.id = aggregate.employee_id
+        ${employeeJoins()}
+        WHERE ${conditions.join(' AND ')}
+        GROUP BY ${labelColumn}, aggregate.period_type, aggregate.name
+        ORDER BY aggregate.name DESC, ${labelColumn} ASC
+      `),
+    };
+  };
+}
+
+function buildPerformanceRanking(direction: 'top' | 'low') {
+  return (args: OperationalReportQueryArgs) => {
+    const params: unknown[] = [args.companyId];
+    const conditions = ['aggregate.company_id = $1'];
+    appendScopedEmployeeFilters(conditions, params, args.scope, {
+      employeeColumn: 'aggregate.employee_id',
+      branchColumn: 'e.primary_branch_id',
+      departmentColumn: 'e.primary_department_id',
+    });
+    if (args.query.year) {
+      conditions.push(
+        `aggregate.financial_year_id = ${addParam(params, args.query.year)}`,
+      );
+    }
+    return {
+      params,
+      sql: compactSql(`
+        SELECT ${employeeJoinSelect()}, aggregate.name AS period_name,
+          aggregate.period_type, aggregate.aggregate_score AS score,
+          aggregate.rating_code, aggregate.published_at, aggregate.locked_at
+        FROM performance_aggregates aggregate
+        JOIN employees e ON e.id = aggregate.employee_id
+        ${employeeJoins()}
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY aggregate.aggregate_score::numeric ${direction === 'top' ? 'DESC' : 'ASC'}, e.employee_no ASC
+      `),
+    };
+  };
+}
+
+function buildPayrollLineItems(kind: string) {
+  return (args: OperationalReportQueryArgs) => {
+    const params: unknown[] = [args.companyId];
+    const conditions = ['item.company_id = $1'];
+    appendScopedEmployeeFilters(conditions, params, args.scope, {
+      employeeColumn: 'item.employee_id',
+      branchColumn: 'e.primary_branch_id',
+      departmentColumn: 'e.primary_department_id',
+    });
+    if (kind === 'LOAN_DEDUCTION') {
+      conditions.push(
+        "(item.component_code ILIKE '%LOAN%' OR item.source_type ILIKE '%FINANCE%')",
+      );
+    }
+    if (kind === 'LWP_DEDUCTION') {
+      conditions.push(
+        "(item.component_code ILIKE '%LWP%' OR item.component_name ILIKE '%without pay%')",
+      );
+    }
+    if (kind === 'STATUTORY_DEDUCTION') {
+      conditions.push(
+        "item.component_type IN ('STATUTORY_DEDUCTION','DEDUCTION')",
+      );
+    }
+    return {
+      params,
+      sql: compactSql(`
+        SELECT run.run_no, item.payroll_run_id, ${employeeJoinSelect()},
+          item.component_code, item.component_name, item.component_type,
+          item.amount, item.taxable_amount, item.employer_amount,
+          item.source_type, item.source_reference
+        FROM employee_payroll_line_items item
+        JOIN payroll_runs run ON run.id = item.payroll_run_id
+        JOIN employees e ON e.id = item.employee_id
+        ${employeeJoins()}
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY item.payroll_run_id DESC, e.employee_no ASC, item.calculation_order ASC
+      `),
+    };
+  };
+}
+
+function buildPayslipReport(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ['payslip.company_id = $1'];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'payslip.employee_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  return {
+    params,
+    sql: compactSql(`
+      SELECT payslip.payslip_no, run.run_no, ${employeeJoinSelect()},
+        result.gross_pay, result.employee_deductions AS deductions,
+        result.net_pay, payslip.status, payslip.published_at
+      FROM payslips payslip
+      JOIN employee_payroll_results result ON result.id = payslip.employee_payroll_result_id
+      JOIN payroll_runs run ON run.id = payslip.payroll_run_id
+      JOIN employees e ON e.id = payslip.employee_id
+      ${employeeJoins()}
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY payslip.created_at DESC, e.employee_no ASC
+    `),
+  };
+}
+
+function buildPayrollVariance(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ['variance.company_id = $1'];
+  if (args.query.payroll_run_id) {
+    conditions.push(
+      `variance.payroll_run_id = ${addParam(params, args.query.payroll_run_id)}`,
+    );
+  }
+  return {
+    params,
+    sql: compactSql(`
+      SELECT variance.payroll_run_id, variance.comparison_run_id,
+        variance.variance_total, variance.unexplained_count,
+        variance.snapshot, variance.created_at
+      FROM payroll_variance_results variance
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY variance.created_at DESC
+    `),
+  };
+}
+
+function buildSalaryCost(groupBy: 'department' | 'branch') {
+  return (args: OperationalReportQueryArgs) => {
+    const params: unknown[] = [args.companyId];
+    const conditions = [
+      'result.company_id = $1',
+      "run.status IN ('LOCKED','PAID','CLOSED')",
+    ];
+    appendScopedEmployeeFilters(conditions, params, args.scope, {
+      employeeColumn: 'result.employee_id',
+      branchColumn: 'e.primary_branch_id',
+      departmentColumn: 'e.primary_department_id',
+    });
+    const labelColumn =
+      groupBy === 'department' ? 'department.name' : 'branch.name';
+    return {
+      params,
+      sql: compactSql(`
+        SELECT ${labelColumn} AS ${groupBy},
+          result.payroll_period_id, COUNT(*)::int AS employee_count,
+          SUM(result.gross_pay::numeric)::numeric(18,2) AS gross_pay,
+          SUM(result.employee_deductions::numeric)::numeric(18,2) AS deductions,
+          SUM(result.net_pay::numeric)::numeric(18,2) AS net_pay,
+          SUM(result.employer_cost::numeric)::numeric(18,2) AS employer_cost
+        FROM employee_payroll_results result
+        JOIN payroll_runs run ON run.id = result.payroll_run_id
+        JOIN employees e ON e.id = result.employee_id
+        ${employeeJoins()}
+        WHERE ${conditions.join(' AND ')}
+        GROUP BY ${labelColumn}, result.payroll_period_id
+        ORDER BY result.payroll_period_id DESC, ${labelColumn} ASC
+      `),
+    };
+  };
+}
+
+function buildFinalSettlementReport(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ['settlement.company_id = $1'];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'settlement.employee_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  appendOptionalStringFilter(
+    conditions,
+    params,
+    'settlement.status',
+    args.query.status,
+  );
+  return {
+    params,
+    sql: compactSql(`
+      SELECT settlement.id AS settlement_id, ${employeeJoinSelect()},
+        request.offboarding_code, settlement.gross_settlement,
+        settlement.deduction_total, settlement.net_settlement,
+        settlement.status, settlement.created_at
+      FROM payroll_final_settlements settlement
+      JOIN employees e ON e.id = settlement.employee_id
+      ${employeeJoins()}
+      LEFT JOIN offboarding_requests request ON request.id = settlement.offboarding_request_id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY settlement.created_at DESC
+    `),
+  };
+}
+
+function buildLoanApplicationReport(kind: string) {
+  return (args: OperationalReportQueryArgs) => {
+    const params: unknown[] = [args.companyId];
+    const conditions = ['application.company_id = $1'];
+    appendScopedEmployeeFilters(conditions, params, args.scope, {
+      employeeColumn: 'application.employee_id',
+      branchColumn: 'e.primary_branch_id',
+      departmentColumn: 'e.primary_department_id',
+    });
+    appendDateRange(
+      conditions,
+      params,
+      'application.created_at::date',
+      args.query,
+    );
+    appendOptionalStringFilter(
+      conditions,
+      params,
+      'application.status',
+      args.query.status,
+    );
+    if (kind === 'LOAN_APPROVAL') conditions.push('approval.id IS NOT NULL');
+    return {
+      params,
+      sql: compactSql(`
+        SELECT application.application_no, application.product_type,
+          ${employeeJoinSelect()}, application.requested_amount,
+          application.requested_term_months, application.approved_amount,
+          application.approved_term_months, application.status,
+          application.submitted_at, application.approved_at,
+          approval.stage AS approval_stage, approval.decision AS approval_decision,
+          approval.created_at AS approval_recorded_at
+        FROM employee_finance_applications application
+        JOIN employees e ON e.id = application.employee_id
+        ${employeeJoins()}
+        LEFT JOIN employee_finance_application_approvals approval
+          ON approval.application_id = application.id
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY application.created_at DESC, application.application_no DESC
+      `),
+    };
+  };
+}
+
+function buildActiveLoanReport(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = [
+    'account.company_id = $1',
+    "account.status IN ('ACTIVE','IN_ARREARS','PENDING_DISBURSEMENT')",
+  ];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'account.employee_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  return {
+    params,
+    sql: compactSql(`
+      SELECT account.account_no AS loan_reference, ${employeeJoinSelect()},
+        account.product_type, account.principal_amount,
+        account.total_payable, account.outstanding_total,
+        account.scheduled_monthly_installment, account.term_months,
+        account.disbursed_at, account.maturity_date, account.status
+      FROM employee_finance_accounts account
+      JOIN employees e ON e.id = account.employee_id
+      ${employeeJoins()}
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY account.maturity_date ASC, e.employee_no ASC
+    `),
+  };
+}
+
+function buildMonthlyLoanDeduction(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ['installment.company_id = $1'];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'installment.employee_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  appendDateRange(conditions, params, 'installment.due_date', args.query);
+  appendOptionalStringFilter(
+    conditions,
+    params,
+    'installment.status',
+    args.query.status,
+  );
+  return {
+    params,
+    sql: compactSql(`
+      SELECT account.account_no AS loan_reference, ${employeeJoinSelect()},
+        installment.installment_number, installment.due_date,
+        installment.principal_due, installment.interest_due,
+        installment.fee_due, installment.total_due,
+        installment.paid_amount, installment.status,
+        installment.payroll_period_id
+      FROM employee_finance_installments installment
+      JOIN employee_finance_accounts account ON account.id = installment.account_id
+      JOIN employees e ON e.id = installment.employee_id
+      ${employeeJoins()}
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY installment.due_date DESC, e.employee_no ASC
+    `),
+  };
+}
+
+function buildLoanSettlementReport(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = ['quote.company_id = $1'];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'account.employee_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  appendDateRange(conditions, params, 'quote.valid_until', args.query);
+  return {
+    params,
+    sql: compactSql(`
+      SELECT account.account_no AS loan_reference, ${employeeJoinSelect()},
+        quote.quote_no, quote.valid_until, quote.settlement_amount,
+        account.outstanding_principal, account.outstanding_interest,
+        account.outstanding_fees, account.outstanding_total,
+        quote.status, quote.snapshot
+      FROM employee_finance_settlement_quotes quote
+      JOIN employee_finance_accounts account ON account.id = quote.account_id
+      JOIN employees e ON e.id = account.employee_id
+      ${employeeJoins()}
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY quote.valid_until DESC, e.employee_no ASC
+    `),
+  };
+}
+
+export const OPERATIONAL_REPORTS: OperationalReportDefinition[] = [
   {
     code: 'EMPLOYEE_MASTER',
     name: 'Employee Master Report',
@@ -3973,6 +4664,90 @@ const OPERATIONAL_REPORTS: OperationalReportDefinition[] = [
     build: buildEmployeeDocuments,
   },
   {
+    code: 'EMPLOYEE_HISTORY',
+    name: 'Employee History Report',
+    category: 'Employee Reports',
+    permissions: [
+      'employee_reports.view',
+      'employee_assignments:read',
+      'reports.view',
+    ],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildEmployeeHistory,
+  },
+  {
+    code: 'DAILY_ATTENDANCE',
+    name: 'Daily Attendance',
+    category: 'Attendance Reports',
+    permissions: ['attendance_reports.view', 'attendance_summaries:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildAttendanceSummary('DAILY_ATTENDANCE'),
+  },
+  {
+    code: 'MONTHLY_ATTENDANCE',
+    name: 'Monthly Attendance',
+    category: 'Attendance Reports',
+    permissions: ['attendance_reports.view', 'attendance_summaries:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildAttendanceSummary('MONTHLY_ATTENDANCE'),
+  },
+  {
+    code: 'LATE_COMING',
+    name: 'Late Coming Report',
+    category: 'Attendance Reports',
+    permissions: ['attendance_reports.view', 'attendance_summaries:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildAttendanceSummary('LATE_COMING'),
+  },
+  {
+    code: 'EARLY_GOING',
+    name: 'Early Going Report',
+    category: 'Attendance Reports',
+    permissions: ['attendance_reports.view', 'attendance_summaries:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildAttendanceSummary('EARLY_GOING'),
+  },
+  {
+    code: 'ABSENTEEISM',
+    name: 'Absenteeism Report',
+    category: 'Attendance Reports',
+    permissions: ['attendance_reports.view', 'attendance_summaries:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildAttendanceSummary('ABSENTEEISM'),
+  },
+  {
+    code: 'MISSING_PUNCH',
+    name: 'Missing Punch Report',
+    category: 'Attendance Reports',
+    permissions: ['attendance_reports.view', 'attendance_summaries:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildAttendanceSummary('MISSING_PUNCH'),
+  },
+  {
+    code: 'OVERTIME',
+    name: 'Overtime Report',
+    category: 'Attendance Reports',
+    permissions: ['attendance_reports.view', 'attendance_summaries:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildAttendanceSummary('OVERTIME'),
+  },
+  {
+    code: 'OFFICE_ATTENDANCE',
+    name: 'Office Attendance Report',
+    category: 'Attendance Reports',
+    permissions: ['attendance_reports.view', 'attendance_summaries:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildAttendanceSummary('OFFICE_ATTENDANCE'),
+  },
+  {
+    code: 'FIELD_ATTENDANCE_GEOLOCATION',
+    name: 'Field Attendance with Geolocation',
+    category: 'Attendance Reports',
+    permissions: ['attendance_reports.view', 'field_locations:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildFieldVisitMap,
+  },
+  {
     code: 'LEAVE_BALANCE',
     name: 'Leave Balance Report',
     category: 'Leave Reports',
@@ -3991,6 +4766,38 @@ const OPERATIONAL_REPORTS: OperationalReportDefinition[] = [
     permissions: ['leave_reports.view', 'leave_requests:read'],
     sensitivity: AnalyticsSensitivityEnum.INTERNAL,
     build: buildLeavePending,
+  },
+  {
+    code: 'LEAVE_AVAILED',
+    name: 'Leave Availed Report',
+    category: 'Leave Reports',
+    permissions: ['leave_reports.view', 'leave_requests:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildLeaveRequestReport('LEAVE_AVAILED'),
+  },
+  {
+    code: 'LEAVE_WITHOUT_PAY',
+    name: 'Leave Without Pay Report',
+    category: 'Leave Reports',
+    permissions: ['leave_reports.view', 'leave_requests:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildLeaveRequestReport('LEAVE_WITHOUT_PAY'),
+  },
+  {
+    code: 'DEPARTMENT_LEAVE',
+    name: 'Department-wise Leave Report',
+    category: 'Leave Reports',
+    permissions: ['leave_reports.view', 'leave_requests:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildDepartmentLeave,
+  },
+  {
+    code: 'EMPLOYEE_LEAVE_HISTORY',
+    name: 'Employee-wise Leave History',
+    category: 'Leave Reports',
+    permissions: ['leave_reports.view', 'leave_requests:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildLeaveRequestReport('EMPLOYEE_LEAVE_HISTORY'),
   },
   {
     code: 'PAYROLL_REGISTER',
@@ -4017,12 +4824,180 @@ const OPERATIONAL_REPORTS: OperationalReportDefinition[] = [
     build: buildLoanOutstanding,
   },
   {
+    code: 'LOAN_APPLICATION',
+    name: 'Loan Application Report',
+    category: 'Staff Loan Reports',
+    permissions: ['loan_reports.view', 'employee_finance:applications:read'],
+    sensitivity: AnalyticsSensitivityEnum.HIGHLY_RESTRICTED,
+    build: buildLoanApplicationReport('LOAN_APPLICATION'),
+  },
+  {
+    code: 'LOAN_APPROVAL',
+    name: 'Loan Approval Report',
+    category: 'Staff Loan Reports',
+    permissions: ['loan_reports.view', 'employee_finance:applications:read'],
+    sensitivity: AnalyticsSensitivityEnum.HIGHLY_RESTRICTED,
+    build: buildLoanApplicationReport('LOAN_APPROVAL'),
+  },
+  {
+    code: 'ACTIVE_LOAN',
+    name: 'Active Loan Report',
+    category: 'Staff Loan Reports',
+    permissions: ['loan_reports.view', 'employee_finance:accounts:read'],
+    sensitivity: AnalyticsSensitivityEnum.HIGHLY_RESTRICTED,
+    build: buildActiveLoanReport,
+  },
+  {
+    code: 'MONTHLY_LOAN_DEDUCTION',
+    name: 'Monthly Deduction Report',
+    category: 'Staff Loan Reports',
+    permissions: ['loan_reports.view', 'employee_finance:reports'],
+    sensitivity: AnalyticsSensitivityEnum.HIGHLY_RESTRICTED,
+    build: buildMonthlyLoanDeduction,
+  },
+  {
+    code: 'LOAN_SETTLEMENT',
+    name: 'Loan Settlement Report',
+    category: 'Staff Loan Reports',
+    permissions: ['loan_reports.view', 'employee_finance:settlements'],
+    sensitivity: AnalyticsSensitivityEnum.HIGHLY_RESTRICTED,
+    build: buildLoanSettlementReport,
+  },
+  {
     code: 'FIELD_VISIT_MAP',
     name: 'Map-Based Movement / Visit Report',
     category: 'Field Staff Reports',
     permissions: ['field_reports.view', 'field_locations:read'],
     sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
     build: buildFieldVisitMap,
+  },
+  {
+    code: 'GEOLOCATION_ATTENDANCE',
+    name: 'Geolocation Attendance Report',
+    category: 'Field Staff Reports',
+    permissions: ['field_reports.view', 'field_locations:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildFieldVisitMap,
+  },
+  {
+    code: 'VISIT_PLAN',
+    name: 'Visit Plan Report',
+    category: 'Field Staff Reports',
+    permissions: ['field_reports.view', 'field_visits:hr:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildFieldVisitPlan,
+  },
+  {
+    code: 'ACTUAL_VISIT',
+    name: 'Actual Visit Report',
+    category: 'Field Staff Reports',
+    permissions: ['field_reports.view', 'field_visits:hr:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildFieldVisitReport('ACTUAL_VISIT'),
+  },
+  {
+    code: 'PLANNED_VS_ACTUAL_VISIT',
+    name: 'Planned vs Actual Visit Report',
+    category: 'Field Staff Reports',
+    permissions: ['field_reports.view', 'field_visits:hr:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildPlannedVsActualVisit,
+  },
+  {
+    code: 'CLIENT_VISIT',
+    name: 'Client Visit Report',
+    category: 'Field Staff Reports',
+    permissions: ['field_reports.view', 'field_visits:hr:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildFieldVisitReport('CLIENT_VISIT'),
+  },
+  {
+    code: 'FIELD_PRODUCTIVITY',
+    name: 'Field Productivity Report',
+    category: 'Field Staff Reports',
+    permissions: ['field_reports.view', 'field_visits:hr:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildFieldProductivity('DAILY'),
+  },
+  {
+    code: 'MAP_VISITS',
+    name: 'Map-Based Movement / Visit Report',
+    category: 'Field Staff Reports',
+    permissions: ['field_reports.view', 'field_locations:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildFieldVisitMap,
+  },
+  {
+    code: 'ATTENDANCE_WITHOUT_ACTIVITY',
+    name: 'Attendance Without Activity Exception Report',
+    category: 'Field Staff Reports',
+    permissions: ['field_reports.view', 'work_activities:hr:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildActivityReport('PENDING_ACTIVITY'),
+  },
+  {
+    code: 'FIELD_MONTHLY_PRODUCTIVITY',
+    name: 'Field Staff Monthly Productivity Report',
+    category: 'Field Staff Reports',
+    permissions: ['field_reports.view', 'field_visits:hr:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildFieldProductivity('MONTHLY'),
+  },
+  {
+    code: 'DAILY_ACTIVITY',
+    name: 'Daily Activity Report',
+    category: 'Activity Reports',
+    permissions: ['activity_reports.view', 'work_activities:hr:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildActivityReport('DAILY_ACTIVITY'),
+  },
+  {
+    code: 'WEEKLY_ACTIVITY',
+    name: 'Weekly Activity Report',
+    category: 'Activity Reports',
+    permissions: ['activity_reports.view', 'work_activities:hr:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildActivityReport('WEEKLY_ACTIVITY'),
+  },
+  {
+    code: 'MONTHLY_ACTIVITY',
+    name: 'Monthly Activity Report',
+    category: 'Activity Reports',
+    permissions: ['activity_reports.view', 'work_activities:hr:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildActivityReport('MONTHLY_ACTIVITY'),
+  },
+  {
+    code: 'QUARTERLY_ACTIVITY',
+    name: 'Quarterly Activity Report',
+    category: 'Activity Reports',
+    permissions: ['activity_reports.view', 'work_activities:hr:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildActivityReport('QUARTERLY_ACTIVITY'),
+  },
+  {
+    code: 'PENDING_ACTIVITY',
+    name: 'Pending Activity Report',
+    category: 'Activity Reports',
+    permissions: ['activity_reports.view', 'work_activities:manager:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildActivityReport('PENDING_ACTIVITY'),
+  },
+  {
+    code: 'MANAGER_REVIEW',
+    name: 'Manager Review Report',
+    category: 'Activity Reports',
+    permissions: ['activity_reports.view', 'work_activities:manager:review'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildActivityReport('MANAGER_REVIEW'),
+  },
+  {
+    code: 'ACTIVITY_VS_KPI',
+    name: 'Activity vs KPI Report',
+    category: 'Activity Reports',
+    permissions: ['activity_reports.view', 'performance_kpis:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildActivityVsKpi,
   },
   {
     code: 'KPI_ASSIGNMENTS',
@@ -4073,6 +5048,54 @@ const OPERATIONAL_REPORTS: OperationalReportDefinition[] = [
     build: buildKpiScoreHistory,
   },
   {
+    code: 'DEPARTMENT_PERFORMANCE',
+    name: 'Department-wise Performance',
+    category: 'KPI & Performance Reports',
+    permissions: ['performance_reports.view', 'performance_dashboards:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildPerformanceAggregateSummary('department'),
+  },
+  {
+    code: 'BRANCH_PERFORMANCE',
+    name: 'Branch-wise Performance',
+    category: 'KPI & Performance Reports',
+    permissions: ['performance_reports.view', 'performance_dashboards:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildPerformanceAggregateSummary('branch'),
+  },
+  {
+    code: 'TOP_PERFORMERS',
+    name: 'Top Performer Report',
+    category: 'KPI & Performance Reports',
+    permissions: ['performance_reports.view', 'performance_reports:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildPerformanceRanking('top'),
+  },
+  {
+    code: 'LOW_PERFORMERS',
+    name: 'Low Performer Report',
+    category: 'KPI & Performance Reports',
+    permissions: ['performance_reports.view', 'performance_reports:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildPerformanceRanking('low'),
+  },
+  {
+    code: 'PERFORMANCE_TREND',
+    name: 'Performance Trend Report',
+    category: 'KPI & Performance Reports',
+    permissions: ['performance_reports.view', 'performance_reports:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildKpiScoreHistory,
+  },
+  {
+    code: 'EMPLOYEE_PERFORMANCE_DASHBOARD',
+    name: 'Employee Performance Dashboard',
+    category: 'KPI & Performance Reports',
+    permissions: ['performance_reports.view', 'performance_self_service:read'],
+    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
+    build: buildKpiScoreHistory,
+  },
+  {
     code: 'ATTENDANCE_EXCEPTIONS',
     name: 'Attendance Exception Report',
     category: 'Attendance Reports',
@@ -4087,6 +5110,78 @@ const OPERATIONAL_REPORTS: OperationalReportDefinition[] = [
     permissions: ['attendance_reports.view', 'attendance_summaries:read'],
     sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
     build: buildAttendanceCorrections,
+  },
+  {
+    code: 'SALARY_SHEET',
+    name: 'Salary Sheet',
+    category: 'Payroll Reports',
+    permissions: ['payroll_reports.view', 'payroll:reports'],
+    sensitivity: AnalyticsSensitivityEnum.HIGHLY_RESTRICTED,
+    build: buildPayrollRegister,
+  },
+  {
+    code: 'PAYSLIP',
+    name: 'Payslip Report',
+    category: 'Payroll Reports',
+    permissions: ['payroll_reports.view', 'payroll:payslips:read'],
+    sensitivity: AnalyticsSensitivityEnum.HIGHLY_RESTRICTED,
+    build: buildPayslipReport,
+  },
+  {
+    code: 'PAYROLL_VARIANCE',
+    name: 'Payroll Variance Report',
+    category: 'Payroll Reports',
+    permissions: ['payroll_reports.view', 'payroll:reports'],
+    sensitivity: AnalyticsSensitivityEnum.HIGHLY_RESTRICTED,
+    build: buildPayrollVariance,
+  },
+  {
+    code: 'SALARY_COST_DEPARTMENT',
+    name: 'Salary Cost by Department',
+    category: 'Payroll Reports',
+    permissions: ['payroll_reports.view', 'payroll:reports'],
+    sensitivity: AnalyticsSensitivityEnum.HIGHLY_RESTRICTED,
+    build: buildSalaryCost('department'),
+  },
+  {
+    code: 'SALARY_COST_BRANCH',
+    name: 'Salary Cost by Branch',
+    category: 'Payroll Reports',
+    permissions: ['payroll_reports.view', 'payroll:reports'],
+    sensitivity: AnalyticsSensitivityEnum.HIGHLY_RESTRICTED,
+    build: buildSalaryCost('branch'),
+  },
+  {
+    code: 'LOAN_DEDUCTION',
+    name: 'Loan Deduction Report',
+    category: 'Payroll Reports',
+    permissions: ['payroll_reports.view', 'payroll:reports'],
+    sensitivity: AnalyticsSensitivityEnum.HIGHLY_RESTRICTED,
+    build: buildPayrollLineItems('LOAN_DEDUCTION'),
+  },
+  {
+    code: 'LWP_DEDUCTION',
+    name: 'Leave Without Pay Deduction Report',
+    category: 'Payroll Reports',
+    permissions: ['payroll_reports.view', 'payroll:reports'],
+    sensitivity: AnalyticsSensitivityEnum.HIGHLY_RESTRICTED,
+    build: buildPayrollLineItems('LWP_DEDUCTION'),
+  },
+  {
+    code: 'STATUTORY_DEDUCTION',
+    name: 'Statutory Deduction Report',
+    category: 'Payroll Reports',
+    permissions: ['payroll_reports.view', 'analytics:statutory-reports'],
+    sensitivity: AnalyticsSensitivityEnum.HIGHLY_RESTRICTED,
+    build: buildPayrollLineItems('STATUTORY_DEDUCTION'),
+  },
+  {
+    code: 'FINAL_SETTLEMENT',
+    name: 'Full and Final Settlement Report',
+    category: 'Payroll Reports',
+    permissions: ['payroll_reports.view', 'payroll:final-settlements'],
+    sensitivity: AnalyticsSensitivityEnum.HIGHLY_RESTRICTED,
+    build: buildFinalSettlementReport,
   },
 ];
 

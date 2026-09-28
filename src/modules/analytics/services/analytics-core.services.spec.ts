@@ -2,7 +2,9 @@ import {
   AnalyticsDashboardService,
   AnalyticsOperationalReportService,
   AnalyticsReconciliationService,
+  AnalyticsReportService,
   AnalyticsSnapshotService,
+  OPERATIONAL_REPORTS,
 } from './analytics-core.services';
 
 describe('AnalyticsReconciliationService', () => {
@@ -189,6 +191,39 @@ describe('AnalyticsOperationalReportService', () => {
         'ATTENDANCE_CORRECTIONS',
       ]),
     );
+  });
+
+  it('has a dedicated operational runner for every catalog report export', () => {
+    const catalog = new AnalyticsReportService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    ).reportCatalog();
+    const toolOnlyReportCodes = new Set([
+      'REPORTS_DASHBOARD',
+      'CUSTOM_REPORT_BUILDER',
+      'SAVED_REPORTS',
+    ]);
+    const executableReports = catalog.categories
+      .flatMap((category) => category.reports)
+      .filter((report) => !toolOnlyReportCodes.has(report.code));
+    const operationalCodes = new Set(
+      OPERATIONAL_REPORTS.map((definition) => definition.code),
+    );
+
+    expect(
+      executableReports
+        .map((report) => report.code)
+        .filter((code) => !operationalCodes.has(code)),
+    ).toEqual([]);
+    expect(
+      executableReports.every(
+        (report) =>
+          report.implementation_status === 'DEDICATED_OPERATIONAL_RUNNER',
+      ),
+    ).toBe(true);
   });
 
   it('recalculates KPI report rows with the performance scoring service', async () => {
