@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { OPERATIONAL_REPORTS } from '../../analytics/services/analytics-core.services';
 import { ReportOutputFormatEnum } from '../enums/report-output-format.enum';
 import { ReportRegistryService } from './report-registry.service';
 
@@ -87,5 +88,20 @@ describe('ReportRegistryService', () => {
 
     expect(service.requireRunner('MONTHLY_KPI_SCORE')).toBe(runner);
     expect(service.requireRunner('ATTENDANCE_CORRECTIONS')).toBe(runner);
+  });
+
+  it('registers every operational analytics report for scheduling', () => {
+    for (const definition of OPERATIONAL_REPORTS) {
+      expect(service.require(definition.code)).toMatchObject({
+        reportCode: definition.code,
+        name: definition.name,
+        generatorService: 'OperationalAnalyticsReportRunner',
+        supportedFormats: expect.arrayContaining([
+          ReportOutputFormatEnum.CSV,
+          ReportOutputFormatEnum.PDF,
+          ReportOutputFormatEnum.XLSX,
+        ]),
+      });
+    }
   });
 });
