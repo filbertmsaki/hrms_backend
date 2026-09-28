@@ -1856,6 +1856,16 @@ export class AnalyticsDashboardService {
     const row = result[0] ?? {};
     const headcount = numberFrom(row.period_end_headcount);
     const exits = numberFrom(row.exits);
+    if (headcount === 0 && numberFrom(row.joiners) === 0 && exits === 0) {
+      const fallback = await this.workforceFromSourceTables(scope, range);
+      if (
+        numberFrom(fallback.period_end_headcount) > 0 ||
+        numberFrom(fallback.joiners) > 0 ||
+        numberFrom(fallback.exits) > 0
+      ) {
+        return fallback;
+      }
+    }
     return {
       period_end_headcount: this.privacyService.suppressSmallCell(headcount),
       joiners: numberFrom(row.joiners),
@@ -1864,6 +1874,53 @@ export class AnalyticsDashboardService {
         headcount > 0 ? Number(((exits / headcount) * 100).toFixed(2)) : 0,
       metric_definitions: [
         'PERIOD_END_HEADCOUNT: distinct active employees on date_to using workforce snapshot',
+        'ATTRITION_RATE: exits / period-end headcount * 100',
+      ],
+    };
+  }
+
+  private async workforceFromSourceTables(
+    scope: AnalyticsResolvedScope,
+    range: { dateFrom: string; dateTo: string },
+  ) {
+    const params: unknown[] = [scope.companyId, range.dateFrom, range.dateTo];
+    const scopedWhere = scopeSql(scope, params, {
+      employeeColumn: 'employee.id',
+      branchColumn: 'employee.primary_branch_id',
+      departmentColumn: 'employee.primary_department_id',
+    });
+    const result = await queryRows<WorkforceSummaryRow>(
+      this.dataSource,
+      `SELECT
+        COUNT(*) FILTER (
+          WHERE lower(employee.employment_status::text) IN ('active', 'onboarding')
+            AND (employee.hire_date IS NULL OR employee.hire_date <= $3::date)
+            AND (employee.exit_date IS NULL OR employee.exit_date > $3::date)
+        ) AS period_end_headcount,
+        COUNT(*) FILTER (WHERE employee.hire_date BETWEEN $2::date AND $3::date) AS joiners,
+        COUNT(*) FILTER (
+          WHERE employee.exit_date BETWEEN $2::date AND $3::date
+             OR (
+               employee.exit_date IS NULL
+               AND lower(employee.employment_status::text) IN ('resigned', 'terminated')
+               AND employee.updated_at::date BETWEEN $2::date AND $3::date
+             )
+        ) AS exits
+       FROM employees employee
+       WHERE employee.company_id = $1${scopedWhere}`,
+      params,
+    );
+    const row = result[0] ?? {};
+    const headcount = numberFrom(row.period_end_headcount);
+    const exits = numberFrom(row.exits);
+    return {
+      period_end_headcount: this.privacyService.suppressSmallCell(headcount),
+      joiners: numberFrom(row.joiners),
+      exits,
+      attrition_rate:
+        headcount > 0 ? Number(((exits / headcount) * 100).toFixed(2)) : 0,
+      metric_definitions: [
+        'PERIOD_END_HEADCOUNT: distinct active/onboarding employees from employees table on date_to',
         'ATTRITION_RATE: exits / period-end headcount * 100',
       ],
     };
@@ -1885,6 +1942,54 @@ export class AnalyticsDashboardService {
         COUNT(*) FILTER (WHERE missing_punch_count > 0) AS missing_punch_days
        FROM analytics.fact_attendance_daily
        WHERE company_id = $1 AND attendance_date BETWEEN $2 AND $3${scopedWhere}`,
+      params,
+    );
+    const row = result[0] ?? {};
+    const days = numberFrom(row.days);
+    if (days === 0) {
+      const fallback = await this.attendanceFromSourceTables(scope, range);
+      if (numberFrom(fallback.finalized_days) > 0) {
+        return fallback;
+      }
+    }
+    return {
+      finalized_days: days,
+      work_minutes: numberFrom(row.work_minutes),
+      late_rate:
+        days > 0
+          ? Number(((numberFrom(row.late_days) / days) * 100).toFixed(2))
+          : 0,
+      missing_punch_days: numberFrom(row.missing_punch_days),
+    };
+  }
+
+  private async attendanceFromSourceTables(
+    scope: AnalyticsResolvedScope,
+    range: { dateFrom: string; dateTo: string },
+  ) {
+    const params: unknown[] = [scope.companyId, range.dateFrom, range.dateTo];
+    const scopedWhere = scopeSql(scope, params, {
+      employeeColumn: 'summary.employee_id',
+      branchColumn: 'summary.branch_id',
+    });
+    const result = await queryRows<AttendanceSummaryAggregateRow>(
+      this.dataSource,
+      `SELECT COUNT(*) AS days,
+        COALESCE(SUM(summary.work_minutes), 0) AS work_minutes,
+        COUNT(*) FILTER (WHERE COALESCE(summary.late_minutes, 0) > 0) AS late_days,
+        COUNT(*) FILTER (
+          WHERE lower(summary.attendance_status::text) IN (
+            'present',
+            'late',
+            'early_departure',
+            'late_and_early_departure',
+            'off_day_present'
+          )
+          AND (summary.check_in_at IS NULL OR summary.check_out_at IS NULL)
+        ) AS missing_punch_days
+       FROM attendance_daily_summaries summary
+       WHERE summary.company_id = $1
+         AND summary.attendance_date BETWEEN $2::date AND $3::date${scopedWhere}`,
       params,
     );
     const row = result[0] ?? {};
@@ -1935,6 +2040,48 @@ export class AnalyticsDashboardService {
        FROM analytics.fact_payroll_employee_period WHERE company_id = $1${scopedWhere}`,
       params,
     );
+    const summary = {
+      locked_runs: numberFrom(result[0]?.locked_runs),
+      gross_pay: result[0]?.gross_pay ?? '0',
+      net_pay: result[0]?.net_pay ?? '0',
+      employer_cost: result[0]?.employer_cost ?? '0',
+    };
+    if (
+      summary.locked_runs === 0 &&
+      EmployeeFinanceMoney.toCents(summary.gross_pay) === 0n &&
+      EmployeeFinanceMoney.toCents(summary.net_pay) === 0n &&
+      EmployeeFinanceMoney.toCents(summary.employer_cost) === 0n
+    ) {
+      const fallback = await this.payrollFromSourceTables(scope);
+      if (
+        fallback.locked_runs > 0 ||
+        EmployeeFinanceMoney.toCents(fallback.gross_pay) > 0n ||
+        EmployeeFinanceMoney.toCents(fallback.net_pay) > 0n ||
+        EmployeeFinanceMoney.toCents(fallback.employer_cost) > 0n
+      ) {
+        return fallback;
+      }
+    }
+    return summary;
+  }
+
+  private async payrollFromSourceTables(scope: AnalyticsResolvedScope) {
+    const params: unknown[] = [scope.companyId];
+    const scopedWhere = scopeSql(scope, params, {
+      employeeColumn: 'result.employee_id',
+    });
+    const result = await queryRows<PayrollAggregateRow>(
+      this.dataSource,
+      `SELECT COUNT(DISTINCT result.payroll_run_id) AS locked_runs,
+        COALESCE(SUM(result.gross_pay), 0) AS gross_pay,
+        COALESCE(SUM(result.net_pay), 0) AS net_pay,
+        COALESCE(SUM(result.employer_cost), 0) AS employer_cost
+       FROM employee_payroll_results result
+       INNER JOIN payroll_runs run ON run.id = result.payroll_run_id
+       WHERE result.company_id = $1
+         AND lower(run.status::text) IN ('approved', 'locked', 'paid', 'posted')${scopedWhere}`,
+      params,
+    );
     return {
       locked_runs: numberFrom(result[0]?.locked_runs),
       gross_pay: result[0]?.gross_pay ?? '0',
@@ -1969,7 +2116,7 @@ export class AnalyticsDashboardService {
       0n,
     );
 
-    return {
+    const summary = {
       by_product_type: result,
       total_outstanding: EmployeeFinanceMoney.fromCents(totalOutstandingCents),
       arrears_ratio:
@@ -1982,6 +2129,40 @@ export class AnalyticsDashboardService {
                 .toString(),
             )
           : 0,
+    };
+    if (totalOutstandingCents === 0n && arrearsCents === 0n) {
+      const fallback = await this.financeFromSourceTables(scope);
+      if (EmployeeFinanceMoney.toCents(fallback.total_outstanding) > 0n) {
+        return fallback;
+      }
+    }
+    return summary;
+  }
+
+  private async financeFromSourceTables(scope: AnalyticsResolvedScope) {
+    const params: unknown[] = [scope.companyId];
+    const scopedWhere = scopeSql(scope, params, {
+      employeeColumn: 'account.employee_id',
+    });
+    const result = await queryRows<FinanceAggregateRow>(
+      this.dataSource,
+      `SELECT account.product_type::text AS product_type,
+        COALESCE(SUM(account.outstanding_total), 0) AS closing_balance,
+        0 AS arrears
+       FROM employee_finance_accounts account
+       WHERE account.company_id = $1
+         AND lower(account.status::text) NOT IN ('closed', 'cancelled', 'rejected', 'written_off')${scopedWhere}
+       GROUP BY account.product_type::text`,
+      params,
+    );
+    const totalOutstandingCents = result.reduce(
+      (sum, row) => sum + EmployeeFinanceMoney.toCents(row.closing_balance),
+      0n,
+    );
+    return {
+      by_product_type: result,
+      total_outstanding: EmployeeFinanceMoney.fromCents(totalOutstandingCents),
+      arrears_ratio: 0,
     };
   }
 
