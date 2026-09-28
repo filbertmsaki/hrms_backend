@@ -7,6 +7,7 @@ import { Employee } from '../employees/entities/employee.entity';
 import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
 import { EmployeeConfirmationStatusEnum } from '../employees/enums/employee-confirmation-status.enum';
 import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
+import { AttendanceDailyStatusEnum } from '../attendance/processing/enums/attendance-daily-status.enum';
 import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { LeaveStatusEnum } from '../leave/enums/leave-status.enum';
 import { Document } from '../documents/entities/document.entity';
@@ -138,6 +139,7 @@ export class HrDashboardService {
         scopedIds,
         period.dateFrom,
         period.dateTo,
+        period.today,
       ),
       this.countEmployeesOnLeave(companyId, scopedIds, period.today),
       this.countPendingLeaveApprovals(companyId, scopedIds),
@@ -169,6 +171,7 @@ export class HrDashboardService {
       attendance,
       leave: {
         employees_currently_on_leave: employeesOnLeave,
+        today_on_leave: employeesOnLeave,
         pending_approvals: pendingLeaveApprovals,
       },
       pending_approvals: {
@@ -252,7 +255,19 @@ export class HrDashboardService {
     employeeIds: number[],
     dateFrom: string,
     dateTo: string,
+    today: string,
   ) {
+    const presentStatuses = [
+      AttendanceDailyStatusEnum.PRESENT,
+      AttendanceDailyStatusEnum.LATE,
+      AttendanceDailyStatusEnum.EARLY_DEPARTURE,
+      AttendanceDailyStatusEnum.LATE_AND_EARLY_DEPARTURE,
+      AttendanceDailyStatusEnum.OVERTIME,
+      AttendanceDailyStatusEnum.HALF_DAY,
+      AttendanceDailyStatusEnum.OFF_DAY_PRESENT,
+      AttendanceDailyStatusEnum.MANUAL_CORRECTION,
+    ];
+
     if (!employeeIds.length) {
       return {
         total_records: 0,
@@ -260,32 +275,54 @@ export class HrDashboardService {
         absent: 0,
         late: 0,
         early_departure: 0,
+        today_date: today,
+        today_total_records: 0,
+        today_present: 0,
+        today_absent: 0,
       };
     }
 
     const result = await this.attendanceDailySummaryRepository
       .createQueryBuilder('summary')
-      .select('COUNT(*)', 'total_records')
+      .select(
+        `COUNT(*) FILTER (WHERE summary.attendanceDate >= :dateFrom AND summary.attendanceDate <= :dateTo)`,
+        'total_records',
+      )
       .addSelect(
-        `SUM(CASE WHEN summary.attendanceStatus = 'PRESENT' THEN 1 ELSE 0 END)`,
+        `COUNT(*) FILTER (WHERE summary.attendanceDate >= :dateFrom AND summary.attendanceDate <= :dateTo AND summary.attendanceStatus = 'PRESENT')`,
         'present',
       )
       .addSelect(
-        `SUM(CASE WHEN summary.attendanceStatus = 'ABSENT' THEN 1 ELSE 0 END)`,
+        `COUNT(*) FILTER (WHERE summary.attendanceDate >= :dateFrom AND summary.attendanceDate <= :dateTo AND summary.attendanceStatus = 'ABSENT')`,
         'absent',
       )
       .addSelect(
-        `SUM(CASE WHEN summary.lateMinutes > 0 THEN 1 ELSE 0 END)`,
+        `COUNT(*) FILTER (WHERE summary.attendanceDate >= :dateFrom AND summary.attendanceDate <= :dateTo AND summary.lateMinutes > 0)`,
         'late',
       )
       .addSelect(
-        `SUM(CASE WHEN summary.earlyDepartureMinutes > 0 THEN 1 ELSE 0 END)`,
+        `COUNT(*) FILTER (WHERE summary.attendanceDate >= :dateFrom AND summary.attendanceDate <= :dateTo AND summary.earlyDepartureMinutes > 0)`,
         'early_departure',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (WHERE summary.attendanceDate = :today)`,
+        'today_total_records',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (WHERE summary.attendanceDate = :today AND summary.attendanceStatus IN (:...presentStatuses))`,
+        'today_present',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (WHERE summary.attendanceDate = :today AND summary.attendanceStatus = 'ABSENT')`,
+        'today_absent',
       )
       .where('summary.companyId = :companyId', { companyId })
       .andWhere('summary.employeeId IN (:...employeeIds)', { employeeIds })
-      .andWhere('summary.attendanceDate >= :dateFrom', { dateFrom })
-      .andWhere('summary.attendanceDate <= :dateTo', { dateTo })
+      .andWhere(
+        '(summary.attendanceDate BETWEEN :dateFrom AND :dateTo OR summary.attendanceDate = :today)',
+        { dateFrom, dateTo, today },
+      )
+      .setParameter('presentStatuses', presentStatuses)
       .getRawOne<Record<string, string>>();
 
     return {
@@ -294,6 +331,10 @@ export class HrDashboardService {
       absent: Number(result?.absent ?? 0),
       late: Number(result?.late ?? 0),
       early_departure: Number(result?.early_departure ?? 0),
+      today_date: today,
+      today_total_records: Number(result?.today_total_records ?? 0),
+      today_present: Number(result?.today_present ?? 0),
+      today_absent: Number(result?.today_absent ?? 0),
     };
   }
 
@@ -303,14 +344,40 @@ export class HrDashboardService {
     today: string,
   ): Promise<number> {
     if (!employeeIds.length) return 0;
-    return this.leaveRequestRepository
-      .createQueryBuilder('leave')
-      .where('leave.company_id = :companyId', { companyId })
-      .andWhere('leave.employee_id IN (:...employeeIds)', { employeeIds })
-      .andWhere('leave.status = :status', { status: LeaveStatusEnum.APPROVED })
-      .andWhere('leave.start_date <= :today', { today })
-      .andWhere('leave.end_date >= :today', { today })
-      .getCount();
+    const leaveStatuses = [
+      AttendanceDailyStatusEnum.LEAVE,
+      AttendanceDailyStatusEnum.SICK_LEAVE,
+      AttendanceDailyStatusEnum.ANNUAL_LEAVE,
+      AttendanceDailyStatusEnum.UNPAID_LEAVE,
+    ];
+    const [approvedLeaveRows, attendanceLeaveRows] = await Promise.all([
+      this.leaveRequestRepository
+        .createQueryBuilder('leave')
+        .select('leave.employee_id', 'employee_id')
+        .where('leave.company_id = :companyId', { companyId })
+        .andWhere('leave.employee_id IN (:...employeeIds)', { employeeIds })
+        .andWhere('leave.status = :status', {
+          status: LeaveStatusEnum.APPROVED,
+        })
+        .andWhere('leave.start_date <= :today', { today })
+        .andWhere('leave.end_date >= :today', { today })
+        .getRawMany<{ employee_id: number }>(),
+      this.attendanceDailySummaryRepository
+        .createQueryBuilder('summary')
+        .select('summary.employeeId', 'employee_id')
+        .where('summary.companyId = :companyId', { companyId })
+        .andWhere('summary.employeeId IN (:...employeeIds)', { employeeIds })
+        .andWhere('summary.attendanceDate = :today', { today })
+        .andWhere('summary.attendanceStatus IN (:...leaveStatuses)', {
+          leaveStatuses,
+        })
+        .getRawMany<{ employee_id: number }>(),
+    ]);
+    return new Set(
+      [...approvedLeaveRows, ...attendanceLeaveRows].map((row) =>
+        Number(row.employee_id),
+      ),
+    ).size;
   }
 
   private async countPendingLeaveApprovals(
