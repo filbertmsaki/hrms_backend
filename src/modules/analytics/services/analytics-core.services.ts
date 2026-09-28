@@ -200,9 +200,16 @@ type AttendanceSummaryAggregateRow = {
   missing_punch_days: unknown;
 };
 
+type TodayAttendanceSummaryRow = {
+  today_total_records: unknown;
+  today_present: unknown;
+  today_absent: unknown;
+};
+
 type LeaveSummaryRow = {
   approved_requests: unknown;
   approved_days: unknown;
+  employees_currently_on_leave?: unknown;
 };
 
 type PayrollAggregateRow = {
@@ -227,6 +234,10 @@ type CountRow = {
   approved_reports?: unknown;
   reviewed_visits?: unknown;
   pending_actions?: unknown;
+};
+
+type GenericCountRow = {
+  count?: unknown;
 };
 
 type PayrollReconciliationRow = {
@@ -278,7 +289,21 @@ function dateKey(date: string) {
 }
 
 function todayString() {
-  return new Date().toISOString().slice(0, 10);
+  const timezone =
+    process.env.ANALYTICS_DEFAULT_TIMEZONE ||
+    process.env.APP_TIMEZONE ||
+    process.env.DEFAULT_TIMEZONE ||
+    process.env.TZ ||
+    'Africa/Dar_es_Salaam';
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((item) => item.type === type)?.value ?? '';
+  return `${part('year')}-${part('month')}-${part('day')}`;
 }
 
 function monthStart(date: string) {
@@ -1935,21 +1960,24 @@ export class AnalyticsDashboardService {
       employeeColumn: 'employee_id',
       branchColumn: 'branch_id',
     });
-    const result = await queryRows<AttendanceSummaryAggregateRow>(
-      this.dataSource,
-      `SELECT COUNT(*) AS days, SUM(work_minutes) AS work_minutes, SUM(late_minutes) AS late_minutes,
+    const [result, today] = await Promise.all([
+      queryRows<AttendanceSummaryAggregateRow>(
+        this.dataSource,
+        `SELECT COUNT(*) AS days, SUM(work_minutes) AS work_minutes, SUM(late_minutes) AS late_minutes,
         COUNT(*) FILTER (WHERE late_minutes > 0) AS late_days,
         COUNT(*) FILTER (WHERE missing_punch_count > 0) AS missing_punch_days
        FROM analytics.fact_attendance_daily
        WHERE company_id = $1 AND attendance_date BETWEEN $2 AND $3${scopedWhere}`,
-      params,
-    );
+        params,
+      ),
+      this.todayAttendanceFromSourceTables(scope, todayString()),
+    ]);
     const row = result[0] ?? {};
     const days = numberFrom(row.days);
     if (days === 0) {
       const fallback = await this.attendanceFromSourceTables(scope, range);
       if (numberFrom(fallback.finalized_days) > 0) {
-        return fallback;
+        return { ...fallback, ...today };
       }
     }
     return {
@@ -1960,6 +1988,49 @@ export class AnalyticsDashboardService {
           ? Number(((numberFrom(row.late_days) / days) * 100).toFixed(2))
           : 0,
       missing_punch_days: numberFrom(row.missing_punch_days),
+      ...today,
+    };
+  }
+
+  private async todayAttendanceFromSourceTables(
+    scope: AnalyticsResolvedScope,
+    today: string,
+  ) {
+    const params: unknown[] = [scope.companyId, today];
+    const scopedWhere = scopeSql(scope, params, {
+      employeeColumn: 'employee.id',
+      branchColumn: 'employee.primary_branch_id',
+      departmentColumn: 'employee.primary_department_id',
+    });
+    const result = await queryRows<TodayAttendanceSummaryRow>(
+      this.dataSource,
+      `SELECT COUNT(*) AS today_total_records,
+        COUNT(*) FILTER (
+          WHERE lower(summary.attendance_status::text) IN (
+            'present',
+            'late',
+            'early_departure',
+            'late_and_early_departure',
+            'overtime',
+            'half_day',
+            'off_day_present',
+            'manual_correction'
+          )
+        ) AS today_present,
+        COUNT(*) FILTER (WHERE lower(summary.attendance_status::text) = 'absent') AS today_absent
+       FROM attendance_daily_summaries summary
+       INNER JOIN employees employee ON employee.id = summary.employee_id
+       WHERE summary.company_id = $1
+         AND employee.company_id = $1
+         AND summary.attendance_date = $2::date${scopedWhere}`,
+      params,
+    );
+    const row = result[0] ?? {};
+    return {
+      today_date: today,
+      today_total_records: numberFrom(row.today_total_records),
+      today_present: numberFrom(row.today_present),
+      today_absent: numberFrom(row.today_absent),
     };
   }
 
@@ -2013,17 +2084,66 @@ export class AnalyticsDashboardService {
     const scopedWhere = scopeSql(scope, params, {
       employeeColumn: 'request.employee_id',
     });
-    const result = await queryRows<LeaveSummaryRow>(
-      this.dataSource,
-      `SELECT COUNT(*) AS approved_requests, COALESCE(SUM(total_days), 0) AS approved_days
+    const [result, todayLeave] = await Promise.all([
+      queryRows<LeaveSummaryRow>(
+        this.dataSource,
+        `SELECT COUNT(*) AS approved_requests, COALESCE(SUM(total_days), 0) AS approved_days
        FROM leave_requests request
        WHERE request.company_id = $1 AND request.status = 'approved' AND request.start_date <= $3 AND request.end_date >= $2${scopedWhere}`,
-      params,
-    );
+        params,
+      ),
+      this.todayLeaveFromSourceTables(scope, todayString()),
+    ]);
     return {
       approved_requests: numberFrom(result[0]?.approved_requests),
       approved_days: Number(numberFrom(result[0]?.approved_days).toFixed(2)),
+      employees_currently_on_leave: todayLeave,
+      today_on_leave: todayLeave,
     };
+  }
+
+  private async todayLeaveFromSourceTables(
+    scope: AnalyticsResolvedScope,
+    today: string,
+  ) {
+    const params: unknown[] = [scope.companyId, today];
+    const scopedWhere = scopeSql(scope, params, {
+      employeeColumn: 'employee.id',
+      branchColumn: 'employee.primary_branch_id',
+      departmentColumn: 'employee.primary_department_id',
+    });
+    const result = await queryRows<GenericCountRow>(
+      this.dataSource,
+      `SELECT COUNT(DISTINCT employee.id) AS count
+       FROM employees employee
+       WHERE employee.company_id = $1${scopedWhere}
+         AND (
+           EXISTS (
+             SELECT 1
+             FROM leave_requests request
+             WHERE request.company_id = $1
+               AND request.employee_id = employee.id
+               AND lower(request.status::text) = 'approved'
+               AND request.start_date <= $2::date
+               AND request.end_date >= $2::date
+           )
+           OR EXISTS (
+             SELECT 1
+             FROM attendance_daily_summaries summary
+             WHERE summary.company_id = $1
+               AND summary.employee_id = employee.id
+               AND summary.attendance_date = $2::date
+               AND lower(summary.attendance_status::text) IN (
+                 'leave',
+                 'sick_leave',
+                 'annual_leave',
+                 'unpaid_leave'
+               )
+           )
+         )`,
+      params,
+    );
+    return numberFrom(result[0]?.count);
   }
 
   private async payroll(scope: AnalyticsResolvedScope) {
