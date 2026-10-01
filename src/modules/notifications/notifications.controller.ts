@@ -42,7 +42,9 @@ import { UpdateNotificationChannelRegistryDto } from './dto/update-notification-
 import { NotificationChannelEnum } from './enums/notification-channel.enum';
 import { NotificationChannelManagementService } from './notification-channel-management.service';
 import { NotificationConfigurationService } from './notification-configuration.service';
+import { NotificationPreferencesService } from './notification-preferences.service';
 import { NotificationsService } from './notifications.service';
+import { UpdateAttendanceAlertEmailPreferenceDto } from './dto/update-attendance-alert-email-preference.dto';
 
 @ApiTags('Notifications')
 @ApiBearerAuth('access-token')
@@ -53,7 +55,58 @@ export class NotificationsController {
     private readonly notificationsService: NotificationsService,
     private readonly notificationChannelManagementService: NotificationChannelManagementService,
     private readonly notificationConfigurationService: NotificationConfigurationService,
+    private readonly notificationPreferencesService: NotificationPreferencesService,
   ) {}
+
+  @Patch('users/attendance-alert-email')
+  @UseGuards(TenantGuard, PermissionsGuard)
+  @Permissions('notifications:settings:update')
+  updateAttendanceAlertEmailPreferenceForAll(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: UpdateAttendanceAlertEmailPreferenceDto,
+  ) {
+    const { companyId } = this.notificationsService.assertCompanyActor(
+      req.user,
+    );
+    return this.notificationPreferencesService.updateAttendanceAlertEmailPreferenceForCompany(
+      companyId,
+      dto,
+    );
+  }
+
+  @Get('users/:companyUserId/attendance-alert-email')
+  @UseGuards(TenantGuard, PermissionsGuard)
+  @Permissions('notifications:settings:read')
+  getAttendanceAlertEmailPreference(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('companyUserId', ParseIntPipe) companyUserId: number,
+  ) {
+    const { companyId } = this.notificationsService.assertCompanyActor(
+      req.user,
+    );
+    return this.notificationPreferencesService.getAttendanceAlertEmailPreference(
+      companyId,
+      companyUserId,
+    );
+  }
+
+  @Patch('users/:companyUserId/attendance-alert-email')
+  @UseGuards(TenantGuard, PermissionsGuard)
+  @Permissions('notifications:settings:update')
+  updateAttendanceAlertEmailPreference(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('companyUserId', ParseIntPipe) companyUserId: number,
+    @Body() dto: UpdateAttendanceAlertEmailPreferenceDto,
+  ) {
+    const { companyId } = this.notificationsService.assertCompanyActor(
+      req.user,
+    );
+    return this.notificationPreferencesService.updateAttendanceAlertEmailPreference(
+      companyId,
+      companyUserId,
+      dto,
+    );
+  }
 
   @Get()
   @UseGuards(TenantGuard)

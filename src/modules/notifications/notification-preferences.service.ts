@@ -1,6 +1,12 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { CompanyUser } from '../companies/entities/company-user.entity';
+import { UpdateAttendanceAlertEmailPreferenceDto } from './dto/update-attendance-alert-email-preference.dto';
 import { NotificationChannelEnum } from './enums/notification-channel.enum';
 import { NotificationTypeEnum } from './enums/notification-type.enum';
 import { NotificationPreference } from './entities/notification-preference.entity';
@@ -18,6 +24,8 @@ export class NotificationPreferencesService {
   constructor(
     @InjectRepository(NotificationPreference)
     private readonly preferenceRepository: Repository<NotificationPreference>,
+    @InjectRepository(CompanyUser)
+    private readonly companyUserRepository: Repository<CompanyUser>,
   ) {}
 
   async findMine(companyMembershipId: number) {
@@ -61,6 +69,120 @@ export class NotificationPreferencesService {
     }
 
     return this.preferenceRepository.save(preference);
+  }
+
+  async getAttendanceAlertEmailPreference(
+    companyId: number,
+    companyUserId: number,
+  ) {
+    await this.assertCompanyMember(companyId, companyUserId);
+
+    const preferences = await this.preferenceRepository.find({
+      where: [
+        {
+          companyMembershipId: companyUserId,
+          notificationType: NotificationTypeEnum.ATTENDANCE_LATE,
+          channel: NotificationChannelEnum.EMAIL,
+        },
+        {
+          companyMembershipId: companyUserId,
+          notificationType: NotificationTypeEnum.ATTENDANCE_MISSING,
+          channel: NotificationChannelEnum.EMAIL,
+        },
+      ],
+    });
+    const isEnabled = (type: NotificationTypeEnum) =>
+      preferences.find((preference) => preference.notificationType === type)
+        ?.isEnabled ?? true;
+
+    return {
+      company_user_id: companyUserId,
+      late: isEnabled(NotificationTypeEnum.ATTENDANCE_LATE),
+      absent: isEnabled(NotificationTypeEnum.ATTENDANCE_MISSING),
+    };
+  }
+
+  async updateAttendanceAlertEmailPreference(
+    companyId: number,
+    companyUserId: number,
+    dto: UpdateAttendanceAlertEmailPreferenceDto,
+  ) {
+    if (dto.late === undefined && dto.absent === undefined) {
+      throw new BadRequestException('Provide late and/or absent');
+    }
+
+    await this.assertCompanyMember(companyId, companyUserId);
+
+    if (dto.late !== undefined) {
+      await this.setPreference(
+        companyUserId,
+        NotificationTypeEnum.ATTENDANCE_LATE,
+        NotificationChannelEnum.EMAIL,
+        dto.late,
+      );
+    }
+    if (dto.absent !== undefined) {
+      await this.setPreference(
+        companyUserId,
+        NotificationTypeEnum.ATTENDANCE_MISSING,
+        NotificationChannelEnum.EMAIL,
+        dto.absent,
+      );
+    }
+
+    return this.getAttendanceAlertEmailPreference(companyId, companyUserId);
+  }
+
+  async updateAttendanceAlertEmailPreferenceForCompany(
+    companyId: number,
+    dto: UpdateAttendanceAlertEmailPreferenceDto,
+  ) {
+    if (dto.late === undefined && dto.absent === undefined) {
+      throw new BadRequestException('Provide late and/or absent');
+    }
+
+    const members = await this.companyUserRepository.find({
+      select: { id: true },
+      where: { company_id: companyId },
+    });
+    const updates: Array<[NotificationTypeEnum, boolean]> = [];
+    if (dto.late !== undefined) {
+      updates.push([NotificationTypeEnum.ATTENDANCE_LATE, dto.late]);
+    }
+    if (dto.absent !== undefined) {
+      updates.push([NotificationTypeEnum.ATTENDANCE_MISSING, dto.absent]);
+    }
+
+    const rows = members.flatMap((member) =>
+      updates.map(([notificationType, isEnabled]) => ({
+        companyMembershipId: member.id,
+        notificationType,
+        channel: NotificationChannelEnum.EMAIL,
+        isEnabled,
+      })),
+    );
+    if (rows.length) {
+      await this.preferenceRepository.upsert(rows, [
+        'companyMembershipId',
+        'notificationType',
+        'channel',
+      ]);
+    }
+
+    return {
+      updated_users: members.length,
+      ...(dto.late !== undefined ? { late: dto.late } : {}),
+      ...(dto.absent !== undefined ? { absent: dto.absent } : {}),
+    };
+  }
+
+  private async assertCompanyMember(companyId: number, companyUserId: number) {
+    const exists = await this.companyUserRepository.exists({
+      where: { id: companyUserId, company_id: companyId },
+    });
+    if (!exists) {
+      throw new NotFoundException('Company user not found.');
+    }
   }
 
   async filterEnabledChannels(

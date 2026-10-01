@@ -7,17 +7,21 @@ import { NotificationPreferencesService } from './notification-preferences.servi
 describe('NotificationPreferencesService', () => {
   let service: NotificationPreferencesService;
   let repository: Partial<jest.Mocked<Repository<NotificationPreference>>>;
+  let companyUsers: { exists: jest.Mock; find: jest.Mock };
 
   beforeEach(() => {
+    companyUsers = { exists: jest.fn(async () => true), find: jest.fn() };
     repository = {
       find: jest.fn(),
       findOne: jest.fn(),
       create: jest.fn((input) => input as NotificationPreference),
       save: jest.fn(async (entity) => entity as NotificationPreference),
+      upsert: jest.fn(),
     };
 
     service = new NotificationPreferencesService(
       repository as Repository<NotificationPreference>,
+      companyUsers as never,
     );
   });
 
@@ -64,5 +68,64 @@ describe('NotificationPreferencesService', () => {
       NotificationChannelEnum.SMS,
       NotificationChannelEnum.PUSH,
     ]);
+  });
+
+  it('rejects attendance alert email preferences for users outside the company', async () => {
+    companyUsers.exists.mockResolvedValue(false);
+
+    await expect(
+      service.updateAttendanceAlertEmailPreference(1, 99, { late: false }),
+    ).rejects.toThrow('Company user not found.');
+    expect(repository.save).not.toHaveBeenCalled();
+  });
+
+  it('defaults attendance alert emails to enabled and reflects stored opt-outs', async () => {
+    repository.find!.mockResolvedValue([
+      {
+        notificationType: NotificationTypeEnum.ATTENDANCE_LATE,
+        channel: NotificationChannelEnum.EMAIL,
+        isEnabled: false,
+      },
+    ] as NotificationPreference[]);
+
+    await expect(
+      service.getAttendanceAlertEmailPreference(1, 7),
+    ).resolves.toEqual({ company_user_id: 7, late: false, absent: true });
+  });
+
+  it('upserts attendance alert email preferences for every company user', async () => {
+    companyUsers.find.mockResolvedValue([{ id: 7 }, { id: 8 }]);
+
+    await expect(
+      service.updateAttendanceAlertEmailPreferenceForCompany(1, {
+        absent: false,
+      }),
+    ).resolves.toEqual({ updated_users: 2, absent: false });
+
+    expect(companyUsers.find).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { company_id: 1 } }),
+    );
+    expect(repository.upsert).toHaveBeenCalledWith(
+      [7, 8].map((companyMembershipId) => ({
+        companyMembershipId,
+        notificationType: NotificationTypeEnum.ATTENDANCE_MISSING,
+        channel: NotificationChannelEnum.EMAIL,
+        isEnabled: false,
+      })),
+      ['companyMembershipId', 'notificationType', 'channel'],
+    );
+  });
+
+  it('suppresses the email channel once an attendance alert is opted out', async () => {
+    repository.find!.mockResolvedValue([
+      { channel: NotificationChannelEnum.EMAIL, isEnabled: false },
+    ] as NotificationPreference[]);
+
+    await expect(
+      service.filterEnabledChannels(7, NotificationTypeEnum.ATTENDANCE_LATE, [
+        NotificationChannelEnum.IN_APP,
+        NotificationChannelEnum.EMAIL,
+      ]),
+    ).resolves.toEqual([NotificationChannelEnum.IN_APP]);
   });
 });
