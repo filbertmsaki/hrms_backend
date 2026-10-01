@@ -3048,6 +3048,7 @@ export class EmployeesService {
     createEmployeeDto: CreateEmployeeDto,
     actor: AuthenticatedUser,
     manager: EntityManager,
+    options: { allowPositionOverfill?: boolean } = {},
   ) {
     const membership = await this.resolveCompanyMembershipForEmployeeCreation(
       companyId,
@@ -3061,6 +3062,7 @@ export class EmployeesService {
       actor,
       EMPTY_AUDIT_CONTEXT,
       manager,
+      options,
     );
   }
 
@@ -3129,6 +3131,7 @@ export class EmployeesService {
     actor: AuthenticatedUser,
     context: AuditRequestContext,
     manager: EntityManager,
+    options: { allowPositionOverfill?: boolean } = {},
   ): Promise<{
     employeeId: number;
     onboardingRequestId: number | null;
@@ -3178,7 +3181,7 @@ export class EmployeesService {
           ],
         })
         .getCount();
-      if (occupied >= position.headcount)
+      if (occupied >= position.headcount && !options.allowPositionOverfill)
         throw new ConflictException('Position headcount is full');
     }
 

@@ -237,6 +237,7 @@ export class EmployeeInvitationsService {
         },
         actor,
         manager,
+        { allowPositionOverfill: true },
       );
       const user = await manager.getRepository(User).findOneBy({
         email: invitation.email,
