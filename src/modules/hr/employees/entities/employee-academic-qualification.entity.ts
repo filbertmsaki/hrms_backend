@@ -41,8 +41,8 @@ export class EmployeeAcademicQualification {
   @Column({ type: 'date' })
   end_date: string;
 
-  @Column({ type: 'text' })
-  academic_certificate_document_url: string;
+  @Column({ type: 'text', nullable: true })
+  academic_certificate_document_url: string | null;
 
   @Column({ type: 'int', nullable: true })
   uploaded_by_company_user_id: number | null;
