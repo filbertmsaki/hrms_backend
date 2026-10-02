@@ -3325,6 +3325,29 @@ export class EmployeesService {
     actor: AuthenticatedUser,
     context: AuditRequestContext = EMPTY_AUDIT_CONTEXT,
   ) {
+    const employeeId = await this.resolveMyOnboardingEmployeeId(
+      companyId,
+      userId,
+    );
+
+    return this.update(
+      companyId,
+      employeeId,
+      updateEmployeeDto,
+      actor,
+      context,
+    );
+  }
+
+  /**
+   * Resolves the caller's own employee record and ensures it is still in
+   * onboarding. Self-onboarding endpoints must use this instead of trusting
+   * an employee id from the URL.
+   */
+  private async resolveMyOnboardingEmployeeId(
+    companyId: number,
+    userId: number,
+  ): Promise<number> {
     const membership = await this.findMembershipByUserId(companyId, userId);
     if (!membership) {
       throw new NotFoundException('Active company membership not found');
@@ -3341,14 +3364,130 @@ export class EmployeesService {
         'Self-registration details can only be changed during onboarding',
       );
     }
+    return employee.id;
+  }
 
-    return this.update(
+  async addMyDocument(
+    companyId: number,
+    userId: number,
+    dto: AddEmployeeDocumentDto,
+    actor: AuthenticatedUser,
+    context: AuditRequestContext = EMPTY_AUDIT_CONTEXT,
+  ) {
+    const employeeId = await this.resolveMyOnboardingEmployeeId(
       companyId,
-      employee.id,
-      updateEmployeeDto,
-      actor,
-      context,
+      userId,
     );
+    return this.addDocument(companyId, employeeId, dto, actor, context);
+  }
+
+  async addMyContact(
+    companyId: number,
+    userId: number,
+    dto: CreateEmployeeContactDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employeeId = await this.resolveMyOnboardingEmployeeId(
+      companyId,
+      userId,
+    );
+    return this.addContact(companyId, employeeId, dto, actor);
+  }
+
+  async addMyAddress(
+    companyId: number,
+    userId: number,
+    dto: CreateEmployeeAddressDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employeeId = await this.resolveMyOnboardingEmployeeId(
+      companyId,
+      userId,
+    );
+    return this.addAddress(companyId, employeeId, dto, actor);
+  }
+
+  async addMyRelative(
+    companyId: number,
+    userId: number,
+    dto: CreateEmployeeRelativeDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employeeId = await this.resolveMyOnboardingEmployeeId(
+      companyId,
+      userId,
+    );
+    return this.addRelative(companyId, employeeId, dto, actor);
+  }
+
+  async addMyIdentification(
+    companyId: number,
+    userId: number,
+    dto: CreateEmployeeIdentificationDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employeeId = await this.resolveMyOnboardingEmployeeId(
+      companyId,
+      userId,
+    );
+    return this.addIdentification(companyId, employeeId, dto, actor);
+  }
+
+  async addMyBankAccount(
+    companyId: number,
+    userId: number,
+    dto: CreateEmployeeBankAccountDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employeeId = await this.resolveMyOnboardingEmployeeId(
+      companyId,
+      userId,
+    );
+    return this.addBankAccount(companyId, employeeId, dto, actor);
+  }
+
+  async addMyAcademicQualification(
+    companyId: number,
+    userId: number,
+    dto: CreateEmployeeAcademicQualificationDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employeeId = await this.resolveMyOnboardingEmployeeId(
+      companyId,
+      userId,
+    );
+    return this.addAcademicQualification(companyId, employeeId, dto, actor);
+  }
+
+  async addMyProfessionalQualification(
+    companyId: number,
+    userId: number,
+    dto: CreateEmployeeProfessionalQualificationDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employeeId = await this.resolveMyOnboardingEmployeeId(
+      companyId,
+      userId,
+    );
+    return this.addProfessionalQualification(
+      companyId,
+      employeeId,
+      dto,
+      actor,
+    );
+  }
+
+  async addMyExperienceDetail(
+    companyId: number,
+    userId: number,
+    dto: CreateEmployeeExperienceDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employeeId = await this.resolveMyOnboardingEmployeeId(
+      companyId,
+      userId,
+    );
+    return this.addExperienceDetail(companyId, employeeId, dto, actor);
   }
 
   async updateMyProfilePhoto(
