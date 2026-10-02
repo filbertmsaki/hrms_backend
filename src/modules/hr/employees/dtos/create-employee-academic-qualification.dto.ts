@@ -1,4 +1,10 @@
-import { IsDateString, IsNotEmpty, IsString, Matches } from 'class-validator';
+import {
+  IsDateString,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Matches,
+} from 'class-validator';
 
 export class CreateEmployeeAcademicQualificationDto {
   @IsString()
@@ -27,10 +33,12 @@ export class CreateEmployeeAcademicQualificationDto {
   @IsDateString()
   end_date: string;
 
+  // Optional verification link; the certificate itself is uploaded as a
+  // document.
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @Matches(/^https:\/\//i, {
     message: 'academic_certificate_document_url must be an HTTPS URL',
   })
-  academic_certificate_document_url: string;
+  academic_certificate_document_url?: string;
 }

@@ -4992,7 +4992,7 @@ export class EmployeesService {
         start_date: dto.start_date,
         end_date: dto.end_date,
         academic_certificate_document_url:
-          dto.academic_certificate_document_url.trim(),
+          dto.academic_certificate_document_url?.trim() || null,
         uploaded_by_company_user_id: actor.companyMembershipId ?? null,
       }),
     );
