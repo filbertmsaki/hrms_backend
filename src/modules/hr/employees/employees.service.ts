@@ -3469,12 +3469,7 @@ export class EmployeesService {
       companyId,
       userId,
     );
-    return this.addProfessionalQualification(
-      companyId,
-      employeeId,
-      dto,
-      actor,
-    );
+    return this.addProfessionalQualification(companyId, employeeId, dto, actor);
   }
 
   async addMyExperienceDetail(
