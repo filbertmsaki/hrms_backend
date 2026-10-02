@@ -307,6 +307,166 @@ export class EmployeesController {
     );
   }
 
+  // Self-onboarding: the employee is always resolved from the token and must
+  // still be in onboarding. Declared before the ':employeeId/...' routes.
+
+  @Post('me/documents')
+  @ApiOperationSummary('Attach a document to my onboarding profile')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(201, 'Document attached successfully')
+  addMyDocument(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: AddEmployeeDocumentDto,
+    @CurrentAuditContext() context: AuditRequestContext,
+  ) {
+    return this.employeesService.addMyDocument(
+      req.user.companyId!,
+      req.user.id,
+      dto,
+      req.user,
+      context,
+    );
+  }
+
+  @Post('me/contacts')
+  @ApiOperationSummary('Add a contact to my onboarding profile')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(201, 'Contact added successfully')
+  addMyContact(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: CreateEmployeeContactDto,
+  ) {
+    return this.employeesService.addMyContact(
+      req.user.companyId!,
+      req.user.id,
+      dto,
+      req.user,
+    );
+  }
+
+  @Post('me/addresses')
+  @ApiOperationSummary('Add an address to my onboarding profile')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(201, 'Address added successfully')
+  addMyAddress(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: CreateEmployeeAddressDto,
+  ) {
+    return this.employeesService.addMyAddress(
+      req.user.companyId!,
+      req.user.id,
+      dto,
+      req.user,
+    );
+  }
+
+  @Post('me/relatives')
+  @ApiOperationSummary('Add a relative to my onboarding profile')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(201, 'Relative added successfully')
+  addMyRelative(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: CreateEmployeeRelativeDto,
+  ) {
+    return this.employeesService.addMyRelative(
+      req.user.companyId!,
+      req.user.id,
+      dto,
+      req.user,
+    );
+  }
+
+  @Post('me/identifications')
+  @ApiOperationSummary('Add an identification to my onboarding profile')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(201, 'Identification added successfully')
+  addMyIdentification(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: CreateEmployeeIdentificationDto,
+  ) {
+    return this.employeesService.addMyIdentification(
+      req.user.companyId!,
+      req.user.id,
+      dto,
+      req.user,
+    );
+  }
+
+  @Post('me/bank-accounts')
+  @ApiOperationSummary('Add a bank account to my onboarding profile')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(201, 'Bank account added successfully')
+  addMyBankAccount(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: CreateEmployeeBankAccountDto,
+  ) {
+    return this.employeesService.addMyBankAccount(
+      req.user.companyId!,
+      req.user.id,
+      dto,
+      req.user,
+    );
+  }
+
+  @Post('me/academic-qualifications')
+  @ApiOperationSummary('Add an academic qualification to my onboarding profile')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(201, 'Academic qualification added successfully')
+  addMyAcademicQualification(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: CreateEmployeeAcademicQualificationDto,
+  ) {
+    return this.employeesService.addMyAcademicQualification(
+      req.user.companyId!,
+      req.user.id,
+      dto,
+      req.user,
+    );
+  }
+
+  @Post('me/professional-qualifications')
+  @ApiOperationSummary(
+    'Add a professional qualification to my onboarding profile',
+  )
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(201, 'Professional qualification added successfully')
+  addMyProfessionalQualification(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: CreateEmployeeProfessionalQualificationDto,
+  ) {
+    return this.employeesService.addMyProfessionalQualification(
+      req.user.companyId!,
+      req.user.id,
+      dto,
+      req.user,
+    );
+  }
+
+  @Post('me/experience-details')
+  @ApiOperationSummary('Add an experience record to my onboarding profile')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(201, 'Experience record added successfully')
+  addMyExperienceDetail(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: CreateEmployeeExperienceDto,
+  ) {
+    return this.employeesService.addMyExperienceDetail(
+      req.user.companyId!,
+      req.user.id,
+      dto,
+      req.user,
+    );
+  }
+
   @Get(':id')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:read')
