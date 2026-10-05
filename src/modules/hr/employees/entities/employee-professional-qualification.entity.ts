@@ -38,8 +38,8 @@ export class EmployeeProfessionalQualification {
   @Column({ type: 'date', nullable: true })
   expiry_date: string | null;
 
-  @Column({ type: 'text' })
-  professional_certificate_document_url: string;
+  @Column({ type: 'text', nullable: true })
+  professional_certificate_document_url: string | null;
 
   @Column({ type: 'int', nullable: true })
   uploaded_by_company_user_id: number | null;

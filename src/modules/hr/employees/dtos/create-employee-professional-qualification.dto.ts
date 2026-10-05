@@ -30,10 +30,12 @@ export class CreateEmployeeProfessionalQualificationDto {
   @IsOptional()
   expiry_date?: string;
 
+  // Optional verification link; the certificate itself is uploaded as a
+  // document.
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @Matches(/^https:\/\//i, {
     message: 'professional_certificate_document_url must be an HTTPS URL',
   })
-  professional_certificate_document_url: string;
+  professional_certificate_document_url?: string;
 }
