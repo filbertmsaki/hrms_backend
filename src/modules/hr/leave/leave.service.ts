@@ -294,6 +294,27 @@ export class LeaveService {
     return actorEmployeeId;
   }
 
+  private async findActorEmployeeGender(
+    companyId: number,
+    actor: AuthenticatedUser,
+  ): Promise<string | null> {
+    if (!actor.companyMembershipId) {
+      return null;
+    }
+    const employeeId = await this.findEmployeeIdByMembership(
+      companyId,
+      actor.companyMembershipId,
+    );
+    if (!employeeId) {
+      return null;
+    }
+    const employee = await this.employeeRepository.findOne({
+      where: { id: employeeId, company_id: companyId },
+      select: { id: true, gender: true },
+    });
+    return employee?.gender?.trim().toLowerCase() || null;
+  }
+
   private async resolveScopedEmployeeId(
     companyId: number,
     requestedEmployeeId: number | undefined,
@@ -1346,7 +1367,11 @@ export class LeaveService {
     return this.mapLeaveType(leaveType);
   }
 
-  async findAllLeaveTypes(companyId: number, query: LeaveTypeQueryDto) {
+  async findAllLeaveTypes(
+    companyId: number,
+    query: LeaveTypeQueryDto,
+    actor?: AuthenticatedUser,
+  ) {
     const {
       page = 1,
       limit = 20,
@@ -1366,6 +1391,18 @@ export class LeaveService {
       qb.andWhere('(leaveType.name LIKE :term OR leaveType.code LIKE :term)', {
         term: `%${search.trim()}%`,
       });
+    }
+    // Leave type managers see the full catalog; everyone else only sees types
+    // their gender is eligible for.
+    if (actor && !hasAnyPermission(actor.permissions, ['leave_types:update'])) {
+      const gender = await this.findActorEmployeeGender(companyId, actor);
+      // Mirrors isEmployeeEligibleForLeaveType: no recorded gender means no filter.
+      if (gender) {
+        qb.andWhere(
+          '(leaveType.gender_restriction IS NULL OR leaveType.gender_restriction IN (:...allowedGenders))',
+          { allowedGenders: [LeaveGenderRestrictionEnum.ANY, gender] },
+        );
+      }
     }
 
     const allowedSortFields = [

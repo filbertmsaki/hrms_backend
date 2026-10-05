@@ -108,7 +108,11 @@ export class LeaveController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: LeaveTypeQueryDto,
   ) {
-    return this.leaveService.findAllLeaveTypes(req.user.companyId!, query);
+    return this.leaveService.findAllLeaveTypes(
+      req.user.companyId!,
+      query,
+      req.user,
+    );
   }
 
   @Get('types/:id')
