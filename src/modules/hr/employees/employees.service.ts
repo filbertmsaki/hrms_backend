@@ -5167,7 +5167,7 @@ export class EmployeesService {
         issue_date: dto.issue_date,
         expiry_date: dto.expiry_date ?? null,
         professional_certificate_document_url:
-          dto.professional_certificate_document_url.trim(),
+          dto.professional_certificate_document_url?.trim() || null,
         uploaded_by_company_user_id: actor.companyMembershipId ?? null,
       }),
     );
