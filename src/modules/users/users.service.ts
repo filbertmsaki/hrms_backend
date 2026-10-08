@@ -380,6 +380,15 @@ export class UsersService {
     return query.getMany();
   }
 
+  resolveEmployeeInitialPassword(): string {
+    const defaultPassword = this.configService.get<string>(
+      'EMPLOYEE_IMPORT_DEFAULT_PASSWORD',
+    );
+    return defaultPassword && defaultPassword.length > 0
+      ? defaultPassword
+      : randomBytes(24).toString('base64url');
+  }
+
   async generateUserNo(manager?: EntityManager): Promise<string> {
     const repository = manager?.getRepository(User) ?? this.userRepository;
     const year = new Date().getFullYear();
@@ -459,14 +468,9 @@ export class UsersService {
     let action: EmployeeImportAccountResult['action'] = 'REUSED';
 
     if (!user) {
-      const defaultPassword = this.configService.get<string>(
-        'EMPLOYEE_IMPORT_DEFAULT_PASSWORD',
+      const hashedPassword = await hashPassword(
+        this.resolveEmployeeInitialPassword(),
       );
-      const rawPassword =
-        defaultPassword && defaultPassword.trim().length > 0
-          ? defaultPassword.trim()
-          : randomBytes(24).toString('base64url');
-      const hashedPassword = await hashPassword(rawPassword);
       user = await repository.save(
         repository.create({
           user_no: await this.generateUserNo(manager),

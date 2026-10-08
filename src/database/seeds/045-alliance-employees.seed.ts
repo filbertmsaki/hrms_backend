@@ -77,9 +77,9 @@ export default class AllianceEmployeesSeeder implements Seeder {
     factoryManager: SeederFactoryManager,
   ): Promise<void> {
     void factoryManager;
-    const rawPassword = process.env.ALLIANCE_EMPLOYEE_INITIAL_PASSWORD?.trim();
+    const rawPassword = process.env.EMPLOYEE_IMPORT_DEFAULT_PASSWORD;
     if (!rawPassword) {
-      throw new Error('Set ALLIANCE_EMPLOYEE_INITIAL_PASSWORD.');
+      throw new Error('Set EMPLOYEE_IMPORT_DEFAULT_PASSWORD.');
     }
 
     const qr = dataSource.createQueryRunner();

@@ -279,6 +279,7 @@ describe('EmployeesService employee account verification', () => {
         EmployeesService.prototype['getPrimaryContactValue'],
       usersService: {
         generateUserNo: jest.fn().mockResolvedValue('USR-000077'),
+        resolveEmployeeInitialPassword: jest.fn().mockReturnValue('pw'),
       },
       findMembershipByUserId: jest
         .fn()

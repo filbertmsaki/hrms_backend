@@ -9,7 +9,6 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { randomBytes } from 'crypto';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
@@ -1235,10 +1234,13 @@ export class EmployeesService {
           last_name: createEmployeeDto.last_name,
           phone,
           email,
-          password: await hashPassword(randomBytes(32).toString('base64url')),
+          password: await hashPassword(
+            this.usersService.resolveEmployeeInitialPassword(),
+          ),
           status: 'active',
           user_type: 'COMPANY_USER',
           is_email_verified: false,
+          must_set_password: true,
         }),
       ));
 

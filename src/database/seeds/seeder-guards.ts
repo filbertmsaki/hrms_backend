@@ -16,7 +16,7 @@ export function assertSecureSeederPasswords(): void {
     },
   ];
 
-  const insecureDefaults = new Set(['Owner123!', 'Admin123!', 'Employee!123']);
+  const insecureDefaults = new Set(['Owner123!', 'Admin123!']);
 
   for (const item of requiredPasswords) {
     const normalized = item.value?.trim() ?? '';

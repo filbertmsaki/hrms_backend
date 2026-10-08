@@ -4,7 +4,7 @@ This explicit seeder provisions four active employee profiles and login accounts
 
 ## Run
 
-Set `ALLIANCE_EMPLOYEE_INITIAL_PASSWORD` in the environment to the initial password, then run:
+Set `EMPLOYEE_IMPORT_DEFAULT_PASSWORD` in the environment to the initial password, then run:
 
 ```powershell
 npm run seed:alliance-employees
