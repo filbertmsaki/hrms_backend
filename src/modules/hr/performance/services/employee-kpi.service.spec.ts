@@ -4,6 +4,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { NotificationsService } from '../../../notifications/notifications.service';
@@ -72,7 +73,11 @@ type Harness = {
   periodRepository: { findOne: jest.Mock };
   employeeRepository: { findOne: jest.Mock };
   dataSource: { manager: EntityManager; transaction: jest.Mock };
-  hrAccess: { getAccessibleEmployeeIds: jest.Mock; hasCompanyScope: jest.Mock };
+  hrAccess: {
+    getAccessibleEmployeeIds: jest.Mock;
+    getReportingEmployeeIds: jest.Mock;
+    hasCompanyScope: jest.Mock;
+  };
 };
 
 function harness(): Harness {
@@ -93,16 +98,21 @@ function harness(): Harness {
       version: 1,
     })),
     findOne: jest.fn(),
+    find: jest.fn().mockResolvedValue([]),
     createQueryBuilder: jest.fn(),
   };
   const historyRepository = {
     create: jest.fn((value: EmployeeKpiReviewHistory) => value),
     save: jest.fn(async (value: EmployeeKpiReviewHistory) => value),
   };
+  const employeeRepository = { findOne: jest.fn().mockResolvedValue(employee) };
+  const periodRepository = { findOne: jest.fn().mockResolvedValue(openPeriod) };
   const manager = {
-    getRepository: jest.fn((entity: object) =>
-      entity === EmployeeKpiReviewHistory ? historyRepository : kpiRepository,
-    ),
+    getRepository: jest.fn((entity: object) => {
+      if (entity === EmployeeKpiReviewHistory) return historyRepository;
+      if (entity === PerformancePeriod) return periodRepository;
+      return kpiRepository;
+    }),
   } as unknown as EntityManager;
   const dataSource = {
     manager,
@@ -111,13 +121,13 @@ function harness(): Harness {
         callback(manager),
     ),
   };
-  const employeeRepository = { findOne: jest.fn().mockResolvedValue(employee) };
-  const periodRepository = { findOne: jest.fn().mockResolvedValue(openPeriod) };
   const hrAccess = {
     ensureActorCompanyId: jest.fn().mockReturnValue(1),
     getAccessibleEmployeeIds: jest.fn().mockResolvedValue([]),
+    getReportingEmployeeIds: jest.fn().mockResolvedValue([]),
     hasCompanyScope: jest.fn().mockReturnValue(false),
   };
+  const events = { emit: jest.fn() };
   const audit = { log: jest.fn().mockResolvedValue(undefined) };
   const progress = {
     calculate: jest.fn().mockResolvedValue({ achievementPercent: null }),
@@ -135,6 +145,7 @@ function harness(): Harness {
     audit as unknown as PerformanceAuditService,
     progress as unknown as EmployeeKpiProgressService,
     notifications as unknown as NotificationsService,
+    events as unknown as EventEmitter2,
     dataSource as unknown as DataSource,
     kpiRepository as unknown as Repository<EmployeeKpi>,
     employeeRepository as unknown as Repository<Employee>,
@@ -249,6 +260,10 @@ describe('EmployeeKpiService', () => {
     } as EmployeeKpi;
     const savedStatuses: EmployeeKpiStatusEnum[] = [];
     test.kpiRepository.findOne.mockResolvedValue(submitted);
+    test.kpiRepository.find.mockResolvedValue([submitted]);
+    test.hrAccess.getReportingEmployeeIds.mockResolvedValue([
+      submitted.employeeId,
+    ]);
     test.kpiRepository.save.mockImplementation(async (value: EmployeeKpi) => {
       savedStatuses.push(value.status);
       return { ...value, version: value.version + 1 };
