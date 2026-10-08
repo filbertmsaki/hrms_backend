@@ -78,10 +78,8 @@ export default class AllianceEmployeesSeeder implements Seeder {
   ): Promise<void> {
     void factoryManager;
     const rawPassword = process.env.ALLIANCE_EMPLOYEE_INITIAL_PASSWORD?.trim();
-    if (!rawPassword || rawPassword.length < 12) {
-      throw new Error(
-        'Set ALLIANCE_EMPLOYEE_INITIAL_PASSWORD to a value of at least 12 characters.',
-      );
+    if (!rawPassword) {
+      throw new Error('Set ALLIANCE_EMPLOYEE_INITIAL_PASSWORD.');
     }
 
     const qr = dataSource.createQueryRunner();
