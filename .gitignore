@@ -73,6 +73,7 @@ lerna-debug.log*
 /.tmp/
 
 # Runtime data
+/dump.rdb
 /pids/
 *.pid
 *.seed

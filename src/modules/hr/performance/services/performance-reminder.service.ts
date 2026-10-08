@@ -1,13 +1,19 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, LessThanOrEqual, Not, Repository } from 'typeorm';
+import { In, IsNull, LessThanOrEqual, Not, Repository } from 'typeorm';
+import { CompanyUser } from '../../../companies/entities/company-user.entity';
+import { CompanyUserRole } from '../../../companies/entities/company-user-role.entity';
+import { Role } from '../../../roles/entities/role.entity';
 import { NotificationCategoryEnum } from '../../../notifications/enums/notification-category.enum';
 import { NotificationPriorityEnum } from '../../../notifications/enums/notification-priority.enum';
 import { NotificationTypeEnum } from '../../../notifications/enums/notification-type.enum';
 import { NotificationsService } from '../../../notifications/notifications.service';
 import { Employee } from '../../employees/entities/employee.entity';
 import { EmployeeKpi } from '../entities/employee-kpi.entity';
+import { EmployeeKpiCycleReview } from '../entities/employee-kpi-cycle-review.entity';
+import { PerformancePeriod } from '../entities/performance-period.entity';
+import { kpiCycleToday } from '../utils/kpi-cycle-date';
 import { PerformanceDevelopmentGoal } from '../entities/performance-development-goal.entity';
 import { PerformanceImprovementMilestone } from '../entities/performance-improvement-milestone.entity';
 import { PerformancePeriodAssignment } from '../entities/performance-period-assignment.entity';
@@ -31,6 +37,15 @@ export class PerformanceReminderService {
     private readonly developmentGoalRepository: Repository<PerformanceDevelopmentGoal>,
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
+    @InjectRepository(PerformancePeriod)
+    private readonly periodRepository: Repository<PerformancePeriod>,
+    @InjectRepository(EmployeeKpiCycleReview)
+    private readonly cycleReviewRepository: Repository<EmployeeKpiCycleReview>,
+    @InjectRepository(Role) private readonly roleRepository: Repository<Role>,
+    @InjectRepository(CompanyUserRole)
+    private readonly companyUserRoleRepository: Repository<CompanyUserRole>,
+    @InjectRepository(CompanyUser)
+    private readonly companyUserRepository: Repository<CompanyUser>,
   ) {}
 
   @Cron(CronExpression.EVERY_DAY_AT_8AM)
@@ -43,9 +58,10 @@ export class PerformanceReminderService {
     }
   }
 
-  async sweep(today = new Date().toISOString().slice(0, 10)): Promise<number> {
+  async sweep(today = kpiCycleToday()): Promise<number> {
     const notifications = [
       ...(await this.kpiDeadlineReminders(today)),
+      ...(await this.kpiCycleReminders(today)),
       ...(await this.appraisalDeadlineReminders(today)),
       ...(await this.pipMilestoneReminders(today)),
       ...(await this.developmentGoalReminders(today)),
@@ -53,6 +69,162 @@ export class PerformanceReminderService {
     if (!notifications.length) return 0;
     await this.notificationsService.createAndPushMany(notifications);
     return notifications.length;
+  }
+
+  private async kpiCycleReminders(today: string) {
+    const periods = await this.periodRepository.find({
+      where: {
+        kpiPhase: In([
+          'GOAL_SETTING',
+          'IN_PROGRESS',
+          'MID_REVIEW',
+          'FINAL_REVIEW',
+        ]),
+      },
+    });
+    const reminders: Array<
+      Parameters<NotificationsService['createAndPushMany']>[0][number]
+    > = [];
+    for (const period of periods) {
+      const deadlines = [
+        { key: 'goal', date: period.goalSettingDeadline, kind: null },
+        { key: 'mid', date: period.midCycleReviewDate, kind: 'MID' },
+        { key: 'final', date: period.finalReviewDeadline, kind: 'FINAL' },
+      ];
+      const kpis = await this.employeeKpiRepository.find({
+        where: { companyId: period.companyId, performancePeriodId: period.id },
+      });
+      const cycleAssignments = await this.assignmentRepository.find({
+        where: { companyId: period.companyId, performancePeriodId: period.id },
+      });
+      const assignees = await this.employeeMap(
+        kpis.map((kpi) => kpi.employeeId),
+      );
+      const employees = await this.employeeMap([
+        ...kpis.map((kpi) => kpi.employeeId),
+        ...cycleAssignments.map((assignment) => assignment.employeeId),
+        ...[...assignees.values()].map((employee) => employee.reports_to ?? -1),
+      ]);
+      const reviews = await this.cycleReviewRepository.find({
+        where: { companyId: period.companyId, performancePeriodId: period.id },
+      });
+      const hrRecipients = await this.hrRecipients(period.companyId);
+      for (const deadline of deadlines) {
+        if (!deadline.date) continue;
+        const offset = Math.round(
+          (Date.parse(`${today}T00:00:00Z`) -
+            Date.parse(`${deadline.date}T00:00:00Z`)) /
+            86400000,
+        );
+        if (![-3, -1, 0, 1, 3, 7].includes(offset)) continue;
+        for (const kpi of kpis) {
+          if (kpi.status === EmployeeKpiStatusEnum.REJECTED) continue;
+          const review = reviews.find(
+            (row) => row.employeeKpiId === kpi.id && row.kind === deadline.kind,
+          );
+          const incomplete =
+            deadline.key === 'goal'
+              ? kpi.status !== EmployeeKpiStatusEnum.APPROVED
+              : review?.status !== 'FINALIZED' &&
+                (deadline.key !== 'mid' || review?.status !== 'ACKNOWLEDGED');
+          if (!incomplete) continue;
+          const employee = employees.get(kpi.employeeId);
+          const receiver =
+            offset >= 7
+              ? period.createdByCompanyUserId
+              : offset >= 1
+                ? (employees.get(employee?.reports_to ?? -1)?.company_user_id ??
+                  period.createdByCompanyUserId)
+                : employee?.company_user_id;
+          const receivers =
+            offset === 3 ? hrRecipients : receiver ? [receiver] : [];
+          for (const recipient of receivers)
+            reminders.push({
+              company_id: period.companyId,
+              receiver_company_user_id: recipient,
+              type: NotificationTypeEnum.PERFORMANCE_DEADLINE_REMINDER,
+              category: NotificationCategoryEnum.HR,
+              priority:
+                offset >= 0
+                  ? NotificationPriorityEnum.HIGH
+                  : NotificationPriorityEnum.MEDIUM,
+              title: `KPI ${deadline.key} deadline ${offset > 0 ? 'overdue' : 'reminder'}`,
+              message: `${kpi.title} requires ${deadline.key === 'goal' ? 'approval' : 'review'} in ${period.name}.`,
+              related_module: 'performance',
+              entity_type: 'employee_kpi',
+              entity_id: kpi.id,
+              action_url: '/dashboard/me/performance/kpis',
+              dedupe_key: `performance:cycle:${period.id}:${deadline.key}:${kpi.id}:${offset}:${recipient}`,
+            });
+        }
+        if (deadline.key === 'goal')
+          for (const assignment of cycleAssignments.filter(
+            (item) =>
+              !kpis.some(
+                (kpi) =>
+                  kpi.employeeId === item.employeeId &&
+                  kpi.status !== EmployeeKpiStatusEnum.REJECTED,
+              ),
+          )) {
+            const employee = employees.get(assignment.employeeId);
+            const receiver =
+              offset >= 7
+                ? period.createdByCompanyUserId
+                : offset >= 1
+                  ? (assignment.managerCompanyUserId ??
+                    period.createdByCompanyUserId)
+                  : employee?.company_user_id;
+            const receivers =
+              offset === 3 ? hrRecipients : receiver ? [receiver] : [];
+            for (const recipient of receivers)
+              reminders.push({
+                company_id: period.companyId,
+                receiver_company_user_id: recipient,
+                type: NotificationTypeEnum.PERFORMANCE_DEADLINE_REMINDER,
+                category: NotificationCategoryEnum.HR,
+                priority:
+                  offset >= 0
+                    ? NotificationPriorityEnum.HIGH
+                    : NotificationPriorityEnum.MEDIUM,
+                title: 'KPI goal-setting deadline',
+                message: `No KPIs have been submitted for ${period.name}.`,
+                related_module: 'performance',
+                entity_type: 'performance_period_assignment',
+                entity_id: assignment.id,
+                action_url: '/dashboard/me/performance/kpis',
+                dedupe_key: `performance:cycle:${period.id}:goal:missing:${assignment.id}:${offset}:${recipient}`,
+              });
+          }
+      }
+    }
+    return reminders;
+  }
+
+  private async hrRecipients(companyId: number): Promise<number[]> {
+    const roles = await this.roleRepository.find({
+      where: [{ company_id: companyId }, { company_id: IsNull() }],
+      relations: { permissions: true },
+    });
+    const roleIds = roles
+      .filter((role) =>
+        role.permissions.some(
+          (permission) => permission.name === 'performance_periods:reopen',
+        ),
+      )
+      .map((role) => role.id);
+    if (!roleIds.length) return [];
+    const assignments = await this.companyUserRoleRepository.find({
+      where: { role_id: In(roleIds) },
+    });
+    if (!assignments.length) return [];
+    const users = await this.companyUserRepository.find({
+      where: {
+        id: In(assignments.map((assignment) => assignment.company_user_id)),
+        company_id: companyId,
+        status: 'active',
+      },
+    });
+    return users.map((user) => user.id);
   }
 
   private async kpiDeadlineReminders(today: string) {

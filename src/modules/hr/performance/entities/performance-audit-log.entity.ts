@@ -22,6 +22,9 @@ export class PerformanceAuditLog {
   @Column({ name: 'actor_company_user_id', type: 'int', nullable: true })
   actorCompanyUserId: number | null;
 
+  @Column({ name: 'actor_roles', type: 'text', array: true, default: '{}' })
+  actorRoles: string[];
+
   @Column({ name: 'employee_id', type: 'int', nullable: true })
   employeeId: number | null;
 

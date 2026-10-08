@@ -45,7 +45,9 @@ import { MyScheduleQueryDto } from './dtos/my-schedule-query.dto';
 import { SelectDefaultAvatarDto } from '../default-avatars/dtos/select-default-avatar.dto';
 import { CreateAttendanceMobilePunchDto } from '../attendance/mobile-punches/dtos/create-attendance-mobile-punch.dto';
 import { Shift } from '../attendance/shift/shifts/entities/shift.entity';
+import { ShiftBreak } from '../attendance/shift/shift-breaks/entities/shift-break.entity';
 import { Timetable } from '../attendance/timetable/timetables/entities/timetable.entity';
+import { TimetableDay } from '../attendance/timetable/timetable-days/entities/timetable-day.entity';
 import { TimetableStatusEnum } from '../attendance/timetable/timetables/enums/timetable-status.enum';
 import { CreateMyAttendancePunchDto } from './dtos/create-my-attendance-punch.dto';
 import { MyAttendanceOverviewQueryDto } from './dtos/my-attendance-overview-query.dto';
@@ -161,6 +163,16 @@ export class EmployeeSelfServiceService {
           open_exceptions: 0,
         }),
     },
+    @Optional()
+    @InjectRepository(ShiftBreak)
+    private readonly shiftBreakRepository: Repository<ShiftBreak> = {
+      find: () => Promise.resolve([]),
+    } as unknown as Repository<ShiftBreak>,
+    @Optional()
+    @InjectRepository(TimetableDay)
+    private readonly timetableDayRepository: Repository<TimetableDay> = {
+      findOne: () => Promise.resolve(null),
+    } as unknown as Repository<TimetableDay>,
   ) {}
 
   async getMyActionItems(actor: AuthenticatedUser, query: ActionItemQueryDto) {
@@ -695,6 +707,32 @@ export class EmployeeSelfServiceService {
       this.findAttendancePunchesForDate(companyId, employeeId, today),
     ]);
 
+    const resolvedSchedule =
+      await this.attendanceScheduleResolverService.resolveForDate(
+        companyId,
+        employeeId,
+        today,
+      );
+    let scheduledBreakMinutes = 0;
+    if (resolvedSchedule?.shiftId) {
+      const shiftBreaks = await this.shiftBreakRepository.find({
+        where: { shiftId: resolvedSchedule.shiftId },
+      });
+      scheduledBreakMinutes = shiftBreaks.reduce(
+        (total, item) =>
+          item.isPaid ? total : total + Math.max(0, item.durationMinutes ?? 0),
+        0,
+      );
+    } else if (resolvedSchedule?.timetableId) {
+      const dayOfWeek = new Date(`${today}T00:00:00Z`).getUTCDay();
+      const timetableDay = await this.timetableDayRepository.findOne({
+        where: { timetableId: resolvedSchedule.timetableId, dayOfWeek },
+      });
+      if (timetableDay?.breakRequired) {
+        scheduledBreakMinutes = Math.max(0, timetableDay.breakMinutes ?? 0);
+      }
+    }
+
     const summary = summaryResponse.data[0] ?? null;
     const punchState = this.resolvePunchState(punches);
     const firstPunch = punches[0] ?? null;
@@ -711,6 +749,7 @@ export class EmployeeSelfServiceService {
             check_in_at: summary.checkInAt,
             check_out_at: summary.checkOutAt,
             work_minutes: summary.workMinutes,
+            break_minutes: summary.breakMinutes,
             late_minutes: summary.lateMinutes,
             early_departure_minutes: summary.earlyDepartureMinutes,
             overtime_minutes: summary.overtimeMinutes,
@@ -718,6 +757,7 @@ export class EmployeeSelfServiceService {
             flags: summary.flags ?? null,
           }
         : null,
+      scheduled_break_minutes: scheduledBreakMinutes,
       punches: punches.map((punch) => this.mapPunch(punch)),
       first_punch: firstPunch ? this.mapPunch(firstPunch) : null,
       last_punch: lastPunch ? this.mapPunch(lastPunch) : null,

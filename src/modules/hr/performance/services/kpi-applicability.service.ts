@@ -4,9 +4,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { Employee } from '../../employees/entities/employee.entity';
+import { Role } from '../../../roles/entities/role.entity';
 import { HrAccessService } from '../../shared/hr-access.service';
 import { CreateKpiApplicabilityRuleDto } from '../dto/create-kpi-applicability-rule.dto';
 import { CreateKpiTemplateDto } from '../dto/create-kpi-template.dto';
@@ -53,6 +54,8 @@ export class KpiApplicabilityService {
     private readonly versionRepository: Repository<KpiDefinitionVersion>,
     @InjectRepository(PerformanceFinancialYear)
     private readonly financialYearRepository: Repository<PerformanceFinancialYear>,
+    @InjectRepository(Role)
+    private readonly roleRepository: Repository<Role>,
   ) {}
 
   async createRule(
@@ -122,6 +125,22 @@ export class KpiApplicabilityService {
     dto: CreateKpiTemplateDto,
   ): Promise<KpiTemplate> {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const applicableRoleIds = Array.from(
+      new Set(dto.applicable_role_ids ?? []),
+    );
+    if (applicableRoleIds.length) {
+      const roles = await this.roleRepository.find({
+        where: [
+          { id: In(applicableRoleIds), company_id: companyId },
+          { id: In(applicableRoleIds), company_id: IsNull() },
+        ],
+      });
+      if (roles.length !== applicableRoleIds.length) {
+        throw new BadRequestException(
+          'One or more template roles are outside this company.',
+        );
+      }
+    }
     const versions = await this.versionRepository.find({
       where: {
         id: In(dto.items.map((item) => item.kpi_definition_version_id)),
@@ -150,6 +169,7 @@ export class KpiApplicabilityService {
         status: KpiTemplateStatusEnum.ACTIVE,
         reviewCycle: dto.review_cycle?.trim() ?? null,
         metadata: dto.metadata ?? null,
+        applicableRoleIds,
         items: dto.items.map((item) => ({
           kpiDefinitionVersionId: item.kpi_definition_version_id,
           weight: String(item.weight),

@@ -22,10 +22,16 @@ import { KpiAchievementService } from '../services/kpi-achievement.service';
 import { PerformanceInsightsService } from '../services/performance-insights.service';
 import { PerformanceReviewService } from '../services/performance-review.service';
 import {
+  CreateAssignedEmployeeKpiDto,
   EmployeeKpiQueryDto,
   ReviewEmployeeKpiDto,
 } from '../dto/employee-kpi.dto';
 import { EmployeeKpiService } from '../services/employee-kpi.service';
+import { EmployeeKpiCycleReviewService } from '../services/employee-kpi-cycle-review.service';
+import {
+  FinalizeKpiReviewDto,
+  SubmitKpiManagerReviewDto,
+} from '../dto/employee-kpi-cycle-review.dto';
 
 type AuthedRequest = ExpressRequest & { user: AuthenticatedUser };
 
@@ -39,13 +45,67 @@ export class PerformanceManagerController {
     private readonly achievementService: KpiAchievementService,
     private readonly reviewService: PerformanceReviewService,
     private readonly employeeKpiService: EmployeeKpiService,
+    private readonly cycleReviewService: EmployeeKpiCycleReviewService,
   ) {}
+
+  @Get('kpi-reviews')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpis:team:read')
+  listKpiReviews(
+    @Req() req: AuthedRequest,
+    @Query('period_id') periodId?: string,
+  ) {
+    return this.cycleReviewService.listTeam(
+      req.user,
+      periodId ? Number(periodId) : undefined,
+    );
+  }
+
+  @Post('kpis/:id/reviews/:kind/manager')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpis:review')
+  submitKpiManagerReview(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('kind') kind: 'MID' | 'FINAL',
+    @Body() dto: SubmitKpiManagerReviewDto,
+  ) {
+    return this.cycleReviewService.submitManager(req.user, id, kind, dto);
+  }
+
+  @Post('kpis/:id/reviews/final/finalize')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpis:review')
+  finalizeKpiReview(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: FinalizeKpiReviewDto,
+  ) {
+    return this.cycleReviewService.finalize(req.user, id, dto);
+  }
 
   @Get('kpis')
   @UseGuards(PermissionsGuard)
   @Permissions('performance_kpis:team:read')
   listTeamKpis(@Req() req: AuthedRequest, @Query() query: EmployeeKpiQueryDto) {
     return this.employeeKpiService.listTeam(req.user, query);
+  }
+
+  @Get('kpi-assignees')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpis:assign')
+  listKpiAssignees(@Req() req: AuthedRequest) {
+    return this.employeeKpiService.listAssignableEmployees(req.user);
+  }
+
+  @Post('kpis')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpis:assign')
+  assignKpi(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreateAssignedEmployeeKpiDto,
+  ) {
+    return this.employeeKpiService.assignToEmployee(req.user, dto);
   }
 
   @Get('kpis/:id')

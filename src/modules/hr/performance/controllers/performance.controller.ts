@@ -44,6 +44,7 @@ import { CreateKpiTemplateDto } from '../dto/create-kpi-template.dto';
 import { GeneratePerformancePlanFromRulesDto } from '../dto/generate-performance-plan-from-rules.dto';
 import { ModeratePerformanceReviewDto } from '../dto/moderate-performance-review.dto';
 import { ReopenPerformanceReviewDto } from '../dto/reopen-performance-review.dto';
+import { ReopenKpiReviewDto } from '../dto/employee-kpi-cycle-review.dto';
 import { ReviewPerformanceImprovementMilestoneDto } from '../dto/review-performance-improvement-milestone.dto';
 import { SyncSystemKpisDto } from '../dto/sync-system-kpis.dto';
 import { KpiApplicabilityService } from '../services/kpi-applicability.service';
@@ -65,9 +66,13 @@ import type { PerformanceReportFormat } from '../services/performance-report.ser
 import { PerformanceReviewService } from '../services/performance-review.service';
 import { PerformanceScorecardService } from '../services/performance-scorecard.service';
 import { PerformanceWorkflowService } from '../services/performance-workflow.service';
+import { EmployeeKpiCycleReviewService } from '../services/employee-kpi-cycle-review.service';
+import { EmployeeKpiTemplateAssignmentService } from '../services/employee-kpi-template-assignment.service';
+import { ApplyKpiTemplateDto } from '../dto/apply-kpi-template.dto';
 import {
   CreatePerformancePeriodDto,
   PerformancePeriodQueryDto,
+  ReopenPerformancePeriodDto,
   UpdatePerformancePeriodDto,
 } from '../dto/performance-period.dto';
 
@@ -97,7 +102,31 @@ export class PerformanceController {
     private readonly calibrationService: PerformanceCalibrationService,
     private readonly insightsService: PerformanceInsightsService,
     private readonly feedback360Service: PerformanceFeedback360Service,
+    private readonly cycleReviewService: EmployeeKpiCycleReviewService,
+    private readonly templateAssignmentService: EmployeeKpiTemplateAssignmentService,
   ) {}
+
+  @Post('periods/:id/apply-kpi-template')
+  @UseGuards(PermissionsGuard)
+  @Permissions('kpi_templates:create')
+  applyKpiTemplate(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ApplyKpiTemplateDto,
+  ) {
+    return this.templateAssignmentService.apply(req.user, id, dto);
+  }
+
+  @Post('employee-kpis/:id/reopen')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_periods:reopen')
+  reopenEmployeeKpi(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ReopenKpiReviewDto,
+  ) {
+    return this.cycleReviewService.reopenAssignment(req.user, id, dto);
+  }
 
   @Post('financial-years')
   @UseGuards(PermissionsGuard)
@@ -172,6 +201,17 @@ export class PerformanceController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.periodService.close(req.user, id);
+  }
+
+  @Post('periods/:id/reopen')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_periods:reopen')
+  reopenPeriod(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ReopenPerformancePeriodDto,
+  ) {
+    return this.periodService.reopen(req.user, id, dto);
   }
 
   @Post('financial-years/:id/generate-periods')
@@ -486,6 +526,13 @@ export class PerformanceController {
   @Permissions('performance_reports:read')
   listReportCatalog() {
     return this.reportService.catalog();
+  }
+
+  @Get('reports/:code/rows')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_reports:read')
+  reportRows(@Req() req: AuthedRequest, @Param('code') code: string) {
+    return this.reportService.rows(req.user, code);
   }
 
   @Get('reports/:code/export')

@@ -3,12 +3,14 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  Header,
   Param,
   ParseIntPipe,
   Patch,
   Post,
   Query,
   Req,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
@@ -138,6 +140,37 @@ export class AttendanceMobilePunchesController {
     }
 
     return punch;
+  }
+
+  @Get(':id/selfie')
+  @Header('Content-Type', 'image/jpeg')
+  @Header('Cache-Control', 'private, no-store')
+  async getSelfie(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  ) {
+    const punch = await this.mobilePunchesService.findOne(
+      req.user.companyId!,
+      id,
+    );
+
+    if (req.user.employeeId && punch.employeeId !== req.user.employeeId) {
+      throw new ForbiddenException(
+        'You can only access your own attendance selfies.',
+      );
+    }
+    if (
+      !req.user.employeeId &&
+      !req.user.permissions.includes('attendance_mobile_punches:read')
+    ) {
+      throw new ForbiddenException(
+        'You do not have permission to view attendance selfies.',
+      );
+    }
+
+    return new StreamableFile(
+      await this.mobilePunchesService.getSelfie(req.user.companyId!, id),
+    );
   }
 
   @Patch(':id/approve-override')

@@ -14,7 +14,9 @@ import { EmployeesModule } from '../employees/employees.module';
 import { LeaveModule } from '../leave/leave.module';
 import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { Shift } from '../attendance/shift/shifts/entities/shift.entity';
+import { ShiftBreak } from '../attendance/shift/shift-breaks/entities/shift-break.entity';
 import { Timetable } from '../attendance/timetable/timetables/entities/timetable.entity';
+import { TimetableDay } from '../attendance/timetable/timetable-days/entities/timetable-day.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { AttendanceCorrectionRequest } from './entities/attendance-correction-request.entity';
 import { EmployeeProfileUpdateRequest } from './entities/employee-profile-update-request.entity';
@@ -56,8 +58,10 @@ import { WorkActivitiesModule } from '../work-activities/work-activities.module'
       ShiftSchedule,
       ShiftAssignment,
       Shift,
+      ShiftBreak,
       EmployeeTimetable,
       Timetable,
+      TimetableDay,
       AttendanceCorrectionRequest,
       EmployeeProfileUpdateRequest,
       Employee,

@@ -15,6 +15,7 @@ import {
   Matches,
   ValidateNested,
 } from 'class-validator';
+import { AttendanceMobilePunchSelfieDto } from './attendance-mobile-punch-selfie.dto';
 
 class AttendanceMobilePunchDeviceInfoDto {
   @ApiPropertyOptional({ example: 'android' })
@@ -138,4 +139,11 @@ export class CreateAttendanceMobilePunchDto {
   @IsOptional()
   @IsString()
   overrideReason?: string;
+
+  @ApiPropertyOptional({ type: AttendanceMobilePunchSelfieDto })
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => AttendanceMobilePunchSelfieDto)
+  selfie?: AttendanceMobilePunchSelfieDto;
 }

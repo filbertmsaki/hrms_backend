@@ -4,6 +4,9 @@ import { ConfigModule } from '@nestjs/config';
 import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
 import { Department } from '../departments/entities/department.entity';
 import { Employee } from '../employees/entities/employee.entity';
+import { Role } from '../../roles/entities/role.entity';
+import { CompanyUser } from '../../companies/entities/company-user.entity';
+import { CompanyUserRole } from '../../companies/entities/company-user-role.entity';
 import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { HrSharedModule } from '../shared/hr-shared.module';
 import { WorkActivitiesModule } from '../work-activities/work-activities.module';
@@ -71,6 +74,10 @@ import {
 } from './entities/employee-kpi.entity';
 import { EmployeeKpiService } from './services/employee-kpi.service';
 import { EmployeeKpiProgressService } from './services/employee-kpi-progress.service';
+import { EmployeeKpiCycleReview } from './entities/employee-kpi-cycle-review.entity';
+import { EmployeeKpiCycleScore } from './entities/employee-kpi-cycle-score.entity';
+import { EmployeeKpiCycleReviewService } from './services/employee-kpi-cycle-review.service';
+import { EmployeeKpiTemplateAssignmentService } from './services/employee-kpi-template-assignment.service';
 import { NotificationsModule } from '../../notifications/notifications.module';
 
 @Module({
@@ -78,6 +85,9 @@ import { NotificationsModule } from '../../notifications/notifications.module';
     ConfigModule,
     TypeOrmModule.forFeature([
       Employee,
+      Role,
+      CompanyUser,
+      CompanyUserRole,
       Department,
       AttendanceDailySummary,
       LeaveRequest,
@@ -110,6 +120,8 @@ import { NotificationsModule } from '../../notifications/notifications.module';
       PerformanceAuditLog,
       EmployeeKpi,
       EmployeeKpiReviewHistory,
+      EmployeeKpiCycleReview,
+      EmployeeKpiCycleScore,
       PerformanceScorecardConfig,
       PerformanceWorkflowConfig,
       DailyActivityReport,
@@ -148,6 +160,8 @@ import { NotificationsModule } from '../../notifications/notifications.module';
     PerformanceWorkflowService,
     EmployeeKpiProgressService,
     EmployeeKpiService,
+    EmployeeKpiCycleReviewService,
+    EmployeeKpiTemplateAssignmentService,
     PerformanceFeedback360Service,
   ],
   exports: [

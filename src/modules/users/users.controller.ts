@@ -45,6 +45,7 @@ import { UpdateUserDto } from './dtos/update-user.dto';
 import { UsersService } from './users.service';
 import { AdminDisableUser2FADto } from './dtos/admin-disable-user-2fa.dto';
 import { SetForceTwoFactorDto } from './dtos/set-force-two-factor.dto';
+import { UpdateDashboardCardStyleDto } from './dtos/update-dashboard-card-style.dto';
 import { SelectUserAvatarDto } from './dtos/select-user-avatar.dto';
 import { TwoFactorPolicyService } from '../security/two-factor-policy.service';
 import { CompaniesService } from '../companies/companies.service';
@@ -85,6 +86,36 @@ export class UsersController {
       req.user.id,
       req.user.companyId!,
     );
+  }
+
+  @Get('me/dashboard-card-style')
+  @ApiOperationSummary(
+    'Get my dashboard card style',
+    'Returns the signed-in user’s shared dashboard card doodle and color preference.',
+    'Users_getMyDashboardCardStyle',
+  )
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'Dashboard card style retrieved successfully')
+  getMyDashboardCardStyle(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  ) {
+    return this.usersService.getMyDashboardCardStyle(req.user.id);
+  }
+
+  @Patch('me/dashboard-card-style')
+  @ApiOperationSummary(
+    'Update my dashboard card style',
+    'Updates the signed-in user’s shared dashboard card doodle and color preference.',
+    'Users_updateMyDashboardCardStyle',
+  )
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  @ApiSuccessResponse(200, 'Dashboard card style updated successfully')
+  updateMyDashboardCardStyle(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: UpdateDashboardCardStyleDto,
+  ) {
+    return this.usersService.updateMyDashboardCardStyle(req.user.id, dto);
   }
 
   @Post('me/profile-photo')

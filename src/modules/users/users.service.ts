@@ -23,6 +23,7 @@ import { encryptTwoFactorSecret } from '../auth/2fa/utils/two-factor-secret.util
 import { normalizeCompanyMetadata } from '../../common/utils/company-modules.util';
 import { CreateUserDto } from './dtos/create-user.dto';
 import { UpdateUserDto } from './dtos/update-user.dto';
+import { UpdateDashboardCardStyleDto } from './dtos/update-dashboard-card-style.dto';
 import { UserProfileDto } from './dtos/user-profile-dto';
 import { User } from './entities/user.entity';
 import { DefaultAvatarsService } from '../hr/default-avatars/default-avatars.service';
@@ -805,6 +806,37 @@ export class UsersService {
           }
         : null,
     });
+  }
+
+  async getMyDashboardCardStyle(
+    userId: number,
+  ): Promise<{ palette: string; artwork: string }> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      select: ['id', 'dashboard_card_style'],
+    });
+    if (!user) {
+      throw new NotFoundException(`User with ID ${userId} not found`);
+    }
+
+    return user.dashboard_card_style ?? { palette: 'ocean', artwork: 'waves' };
+  }
+
+  async updateMyDashboardCardStyle(
+    userId: number,
+    style: UpdateDashboardCardStyleDto,
+  ): Promise<{ palette: string; artwork: string }> {
+    const result = await this.userRepository.update(userId, {
+      dashboard_card_style: {
+        palette: style.palette,
+        artwork: style.artwork,
+      },
+    });
+    if (!result.affected) {
+      throw new NotFoundException(`User with ID ${userId} not found`);
+    }
+
+    return { palette: style.palette, artwork: style.artwork };
   }
 
   async findProfileInCompany(

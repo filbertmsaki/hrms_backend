@@ -50,6 +50,7 @@ import { AttendanceSchedulePreviewService } from './schedules/attendance-schedul
 import { AttendanceSetupController } from './setup/attendance-setup.controller';
 import { AttendanceSetupWizardService } from './setup/attendance-setup-wizard.service';
 import { AttendanceSetupCompletionService } from './setup/attendance-setup-completion.service';
+import { FilesModule } from '../../files/files.module';
 
 @Module({
   imports: [
@@ -76,6 +77,7 @@ import { AttendanceSetupCompletionService } from './setup/attendance-setup-compl
     ]),
     DeviceManagementHikvisionModule,
     AttendanceProcessingModule,
+    FilesModule,
   ],
   controllers: [
     AttendancePoliciesController,

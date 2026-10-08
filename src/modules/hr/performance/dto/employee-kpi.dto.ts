@@ -4,7 +4,9 @@ import {
   IsDateString,
   IsEnum,
   IsInt,
+  IsIn,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   Max,
@@ -59,6 +61,27 @@ export class CreateEmployeeKpiDto {
   @IsOptional()
   @IsEnum(EmployeeKpiProgressSourceEnum)
   progress_source?: EmployeeKpiProgressSourceEnum;
+
+  @IsOptional()
+  @IsIn(['NUMERIC_TARGET', 'RATING_SCALE', 'MILESTONE', 'MIXED'])
+  scoring_type?: 'NUMERIC_TARGET' | 'RATING_SCALE' | 'MILESTONE' | 'MIXED';
+
+  @IsOptional()
+  @IsIn(['HIGHER_IS_BETTER', 'LOWER_IS_BETTER', 'TARGET_MATCH'])
+  measurement_direction?:
+    | 'HIGHER_IS_BETTER'
+    | 'LOWER_IS_BETTER'
+    | 'TARGET_MATCH';
+
+  @IsOptional()
+  @IsObject()
+  formula_config?: Record<string, unknown>;
+}
+
+export class CreateAssignedEmployeeKpiDto extends CreateEmployeeKpiDto {
+  @Type(() => Number)
+  @IsInt()
+  employee_id: number;
 }
 
 export class UpdateEmployeeKpiDto extends PartialType(CreateEmployeeKpiDto) {}

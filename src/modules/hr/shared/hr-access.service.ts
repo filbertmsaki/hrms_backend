@@ -71,9 +71,7 @@ export class HrAccessService {
     return managedDepartments.map((department) => department.id);
   }
 
-  private async getReportingEmployeeIds(
-    actor: AuthenticatedUser,
-  ): Promise<number[]> {
+  async getReportingEmployeeIds(actor: AuthenticatedUser): Promise<number[]> {
     if (!actor.employeeId) {
       return [];
     }

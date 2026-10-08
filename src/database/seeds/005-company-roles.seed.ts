@@ -136,6 +136,7 @@ const TEAM_APPROVAL_PERMISSIONS = [
   'work_activities:manager:read',
   'work_activities:manager:review',
   'performance_kpis:team:read',
+  'performance_kpis:assign',
   'performance_kpis:review',
   'performance_manager:read',
   'performance_manager:review',
@@ -174,6 +175,7 @@ const PERFORMANCE_ADMIN_PERMISSIONS = [
   'performance_periods:update',
   'performance_periods:activate',
   'performance_periods:close',
+  'performance_periods:reopen',
   'performance_scorecards:read',
   'performance_scorecards:create',
   'performance_workflows:read',
@@ -188,6 +190,7 @@ const PERFORMANCE_ADMIN_PERMISSIONS = [
   'performance_calibration:read',
   'performance_kpis:all:read',
   'performance_kpis:team:read',
+  'performance_kpis:assign',
   'performance_kpis:review',
   'performance_dashboards:read',
 ];

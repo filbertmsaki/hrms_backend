@@ -3,6 +3,8 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -39,6 +41,8 @@ import { AttendanceProcessedEventDirectionEnum } from '../processing/enums/atten
 import { HikvisionAttendanceLog } from '../../../hikvision/entities/hikvision-attendance-log.entity';
 import { AttendanceCompanyConfigService } from '../shared/attendance-company-config.service';
 import { createAttendanceHash } from '../shared/attendance-hash.util';
+import { FilesService } from '../../../files/files.service';
+import type { StoredFile } from '../../../files/interfaces/stored-file.interface';
 
 @Injectable()
 export class AttendanceMobilePunchesService {
@@ -66,6 +70,8 @@ export class AttendanceMobilePunchesService {
     private readonly dailySummaryRepository: Repository<AttendanceDailySummary>,
     @InjectRepository(HikvisionAttendanceLog)
     private readonly rawLogRepository: Repository<HikvisionAttendanceLog>,
+    @Optional()
+    private readonly filesService?: FilesService,
   ) {}
 
   async checkIn(params: {
@@ -254,6 +260,30 @@ export class AttendanceMobilePunchesService {
       ? AttendancePunchValidationStatusEnum.APPROVED
       : AttendancePunchValidationStatusEnum.PENDING_OVERRIDE;
 
+    let storedSelfie: StoredFile | null = null;
+    if (params.dto.selfie) {
+      if (!this.filesService) {
+        throw new ServiceUnavailableException(
+          'Attendance selfie storage is unavailable.',
+        );
+      }
+
+      storedSelfie = await this.filesService.savePrivateBase64File(
+        params.dto.selfie,
+        {
+          directorySegments: [
+            'attendance-selfies',
+            `company-${params.companyId}`,
+            `employee-${employee.id}`,
+          ],
+          fileNamePrefix: `punch-${params.dto.clientRequestId}`,
+          allowedMimeTypes: ['image/jpeg'],
+          maxFileSizeBytes: 64 * 1024,
+          validateFileSignature: true,
+        },
+      );
+    }
+
     const rawPayload = {
       clientRequestId: params.dto.clientRequestId,
       clientCapturedAt: params.dto.clientCapturedAt ?? null,
@@ -266,6 +296,7 @@ export class AttendanceMobilePunchesService {
       deviceIdentifier: deviceIdentifier ?? null,
       deviceInfo: params.dto.deviceInfo ?? null,
       overrideReason: overrideReason ?? null,
+      selfiePath: storedSelfie?.publicPath ?? null,
     };
     const payloadHash = createAttendanceHash(rawPayload);
 
@@ -319,6 +350,11 @@ export class AttendanceMobilePunchesService {
     try {
       saved = await this.punchRepo.save(punch);
     } catch (error) {
+      if (storedSelfie) {
+        await this.filesService
+          ?.removeManagedFile(storedSelfie.publicPath)
+          .catch(() => undefined);
+      }
       if (this.isUniqueViolation(error)) {
         const duplicate = await this.punchRepo.findByClientRequest(
           params.companyId,
@@ -368,6 +404,25 @@ export class AttendanceMobilePunchesService {
     }
 
     return punch;
+  }
+
+  async getSelfie(companyId: number, id: number): Promise<Buffer> {
+    const punch = await this.findOne(companyId, id);
+    const selfiePath =
+      typeof punch.rawPayload?.selfiePath === 'string'
+        ? punch.rawPayload.selfiePath
+        : null;
+
+    if (!selfiePath || !this.filesService) {
+      throw new NotFoundException('Attendance selfie not found.');
+    }
+
+    const image = await this.filesService.readManagedFile(selfiePath);
+    if (!image) {
+      throw new NotFoundException('Attendance selfie not found.');
+    }
+
+    return image;
   }
 
   async approveOverride(params: {

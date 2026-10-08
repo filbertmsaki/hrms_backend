@@ -38,6 +38,12 @@ import {
   UpdateEmployeeKpiDto,
 } from '../dto/employee-kpi.dto';
 import { EmployeeKpiService } from '../services/employee-kpi.service';
+import { EmployeeKpiCycleReviewService } from '../services/employee-kpi-cycle-review.service';
+import { PerformanceReportService } from '../services/performance-report.service';
+import {
+  RespondToMidKpiReviewDto,
+  SubmitKpiSelfReviewDto,
+} from '../dto/employee-kpi-cycle-review.dto';
 
 type AuthedRequest = ExpressRequest & { user: AuthenticatedUser };
 
@@ -54,8 +60,60 @@ export class PerformanceSelfServiceController {
     private readonly improvementPlanService: PerformanceImprovementPlanService,
     private readonly developmentPlanService: PerformanceDevelopmentPlanService,
     private readonly employeeKpiService: EmployeeKpiService,
+    private readonly cycleReviewService: EmployeeKpiCycleReviewService,
+    private readonly performanceReportService: PerformanceReportService,
     private readonly feedback360Service: PerformanceFeedback360Service,
   ) {}
+
+  @Get('kpi-audit')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpis:self:read')
+  listMyKpiAudit(@Req() req: AuthedRequest) {
+    return this.performanceReportService.ownKpiAudit(req.user);
+  }
+
+  @Get('kpi-reviews')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpis:self:read')
+  listKpiReviews(
+    @Req() req: AuthedRequest,
+    @Query('period_id') periodId?: string,
+  ) {
+    return this.cycleReviewService.listOwn(
+      req.user,
+      periodId ? Number(periodId) : undefined,
+    );
+  }
+
+  @Get('kpi-scores')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpis:self:read')
+  listKpiScores(@Req() req: AuthedRequest) {
+    return this.cycleReviewService.listOwnScores(req.user);
+  }
+
+  @Post('kpis/:id/reviews/:kind/self')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpis:self:update')
+  submitKpiSelfReview(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('kind') kind: 'MID' | 'FINAL',
+    @Body() dto: SubmitKpiSelfReviewDto,
+  ) {
+    return this.cycleReviewService.submitSelf(req.user, id, kind, dto);
+  }
+
+  @Post('kpis/:id/reviews/mid/respond')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpis:self:update')
+  respondToMidReview(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: RespondToMidKpiReviewDto,
+  ) {
+    return this.cycleReviewService.respondMid(req.user, id, dto);
+  }
 
   @Get('kpis')
   @UseGuards(PermissionsGuard)

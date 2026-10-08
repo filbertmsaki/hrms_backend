@@ -123,6 +123,31 @@ export class EmployeeKpi {
   @Column({ name: 'review_comment', type: 'text', nullable: true })
   reviewComment: string | null;
 
+  @Column({
+    name: 'scoring_type',
+    type: 'varchar',
+    length: 24,
+    default: 'NUMERIC_TARGET',
+  })
+  scoringType: 'NUMERIC_TARGET' | 'RATING_SCALE' | 'MILESTONE' | 'MIXED';
+
+  @Column({
+    name: 'measurement_direction',
+    type: 'varchar',
+    length: 24,
+    default: 'HIGHER_IS_BETTER',
+  })
+  measurementDirection: 'HIGHER_IS_BETTER' | 'LOWER_IS_BETTER' | 'TARGET_MATCH';
+
+  @Column({ name: 'formula_config', type: 'jsonb', nullable: true })
+  formulaConfig: Record<string, unknown> | null;
+
+  @Column({ name: 'source_template_id', type: 'int', nullable: true })
+  sourceTemplateId: number | null;
+
+  @Column({ name: 'kpi_definition_version_id', type: 'int', nullable: true })
+  kpiDefinitionVersionId: number | null;
+
   @VersionColumn()
   version: number;
 

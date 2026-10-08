@@ -3,4 +3,5 @@ export enum PerformancePeriodTypeEnum {
   QUARTERLY = 'QUARTERLY',
   HALF_YEARLY = 'HALF_YEARLY',
   ANNUAL = 'ANNUAL',
+  CUSTOM = 'CUSTOM',
 }

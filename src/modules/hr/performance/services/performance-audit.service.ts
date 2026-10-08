@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
+import { getRequestAuditContext } from '../../../../common/request-context/request-context';
 import { PerformanceAuditLog } from '../entities/performance-audit-log.entity';
 
 type LogPerformanceAuditInput = {
@@ -26,18 +27,23 @@ export class PerformanceAuditService {
     if (!input.actor.companyId) {
       return;
     }
+    const context = getRequestAuditContext();
 
     await this.auditRepository.save(
       this.auditRepository.create({
         companyId: input.actor.companyId,
         action: input.action,
         actorCompanyUserId: input.actor.companyMembershipId ?? null,
+        actorRoles: input.actor.roles ?? [],
         employeeId: input.employeeId ?? null,
         performanceReviewId: input.performanceReviewId ?? null,
         kpiAchievementId: input.kpiAchievementId ?? null,
         beforeValues: input.beforeValues ?? null,
         afterValues: input.afterValues ?? null,
         reason: input.reason ?? null,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        requestId: context.requestId,
       }),
     );
   }

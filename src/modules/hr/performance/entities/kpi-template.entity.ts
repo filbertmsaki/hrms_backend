@@ -45,6 +45,14 @@ export class KpiTemplate {
   @Column({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata: Record<string, unknown> | null;
 
+  @Column({
+    name: 'applicable_role_ids',
+    type: 'integer',
+    array: true,
+    default: '{}',
+  })
+  applicableRoleIds: number[];
+
   @VersionColumn()
   version: number;
 

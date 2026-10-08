@@ -7,17 +7,20 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import Decimal from 'decimal.js';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { NotificationsService } from '../../../notifications/notifications.service';
 import { NotificationCategoryEnum } from '../../../notifications/enums/notification-category.enum';
 import { NotificationPriorityEnum } from '../../../notifications/enums/notification-priority.enum';
 import { Employee } from '../../employees/entities/employee.entity';
+import { EmploymentStatusEnum } from '../../employees/enums/employment-status.enum';
 import { HrAccessService } from '../../shared/hr-access.service';
 import {
   CreateEmployeeKpiDto,
+  CreateAssignedEmployeeKpiDto,
   EmployeeKpiQueryDto,
   ReviewEmployeeKpiDto,
   UpdateEmployeeKpiActualDto,
@@ -36,6 +39,11 @@ import { PerformanceAuditActionEnum } from '../enums/performance-audit-action.en
 import { PerformancePeriodStatusEnum } from '../enums/performance-period-status.enum';
 import { PerformanceAuditService } from './performance-audit.service';
 import { EmployeeKpiProgressService } from './employee-kpi-progress.service';
+import { kpiCycleToday } from '../utils/kpi-cycle-date';
+import {
+  KPI_DOMAIN_EVENTS,
+  type KpiAssignmentEvent,
+} from '../events/kpi-domain-events';
 
 const EDITABLE_STATUSES = [
   EmployeeKpiStatusEnum.DRAFT,
@@ -61,6 +69,7 @@ export class EmployeeKpiService {
     private readonly auditService: PerformanceAuditService,
     private readonly progressService: EmployeeKpiProgressService,
     private readonly notificationsService: NotificationsService,
+    private readonly events: EventEmitter2,
     @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(EmployeeKpi)
     private readonly kpiRepository: Repository<EmployeeKpi>,
@@ -79,34 +88,75 @@ export class EmployeeKpiService {
       dto.performance_period_id,
     );
     this.validateKpiDates(period, dto.start_date, dto.due_date);
-    this.validateMeasurement(dto.measurement_type, dto.target_value);
-
-    const kpi = await this.kpiRepository.save(
-      this.kpiRepository.create({
-        companyId,
-        performancePeriodId: period.id,
-        employeeId,
-        createdByCompanyUserId: actor.companyMembershipId ?? null,
-        title: dto.title.trim(),
-        description: dto.description.trim(),
-        measurementType: dto.measurement_type,
-        targetValue:
-          dto.target_value === undefined ? null : String(dto.target_value),
-        actualValue: null,
-        unit: dto.unit?.trim() ?? null,
-        weight: String(dto.weight),
-        startDate: dto.start_date ?? null,
-        dueDate: dto.due_date,
-        progressSource: dto.progress_source,
-        status: EmployeeKpiStatusEnum.DRAFT,
-        reviewerEmployeeId: employee.reports_to,
-        submittedAt: null,
-        reviewedByCompanyUserId: null,
-        reviewedAt: null,
-        reviewComment: null,
-      }),
+    this.validateMeasurement(
+      dto.measurement_type,
+      dto.target_value,
+      dto.scoring_type,
     );
-    await this.appendHistory(this.dataSource.manager, kpi, actor, null, null);
+
+    const kpi = await this.dataSource.transaction(async (manager) => {
+      const lockedPeriod = await manager
+        .getRepository(PerformancePeriod)
+        .findOne({
+          where: { id: period.id, companyId },
+          lock: { mode: 'pessimistic_write' },
+        });
+      if (!lockedPeriod)
+        throw new NotFoundException('Performance period not found.');
+      this.assertGoalSettingOpen(lockedPeriod);
+      const siblings = await manager.getRepository(EmployeeKpi).find({
+        where: { companyId, employeeId, performancePeriodId: period.id },
+      });
+      if (
+        siblings.some(
+          (item) =>
+            item.status !== EmployeeKpiStatusEnum.REJECTED &&
+            item.title.trim().toLocaleLowerCase() ===
+              dto.title.trim().toLocaleLowerCase(),
+        )
+      ) {
+        throw new ConflictException(
+          'This KPI already exists for the employee in this period.',
+        );
+      }
+      const totalWeight = siblings
+        .filter((item) => item.status !== EmployeeKpiStatusEnum.REJECTED)
+        .reduce((sum, item) => sum.plus(item.weight), new Decimal(0))
+        .plus(dto.weight);
+      if (totalWeight.gt(this.maximumWeight(lockedPeriod))) {
+        throw new BadRequestException('KPI weights exceed the cycle maximum.');
+      }
+      const created = await manager.getRepository(EmployeeKpi).save(
+        manager.getRepository(EmployeeKpi).create({
+          companyId,
+          performancePeriodId: period.id,
+          employeeId,
+          createdByCompanyUserId: actor.companyMembershipId ?? null,
+          title: dto.title.trim(),
+          description: dto.description.trim(),
+          measurementType: dto.measurement_type,
+          targetValue:
+            dto.target_value === undefined ? null : String(dto.target_value),
+          actualValue: null,
+          unit: dto.unit?.trim() ?? null,
+          weight: String(dto.weight),
+          startDate: dto.start_date ?? null,
+          dueDate: dto.due_date,
+          progressSource: dto.progress_source,
+          status: EmployeeKpiStatusEnum.DRAFT,
+          reviewerEmployeeId: employee.reports_to,
+          submittedAt: null,
+          reviewedByCompanyUserId: null,
+          reviewedAt: null,
+          reviewComment: null,
+          scoringType: dto.scoring_type ?? 'NUMERIC_TARGET',
+          measurementDirection: dto.measurement_direction ?? 'HIGHER_IS_BETTER',
+          formulaConfig: dto.formula_config ?? null,
+        }),
+      );
+      await this.appendHistory(manager, created, actor, null, null);
+      return created;
+    });
     await this.auditService.log({
       action: PerformanceAuditActionEnum.EMPLOYEE_KPI_CREATED,
       actor,
@@ -114,6 +164,124 @@ export class EmployeeKpiService {
       afterValues: this.snapshot(kpi),
     });
     return this.getOwn(actor, kpi.id);
+  }
+
+  async assignToEmployee(
+    actor: AuthenticatedUser,
+    dto: CreateAssignedEmployeeKpiDto,
+  ) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const employee = await this.getEmployee(companyId, dto.employee_id);
+    if (
+      actor.employeeId === employee.id &&
+      !this.hrAccessService.hasCompanyScope(actor)
+    ) {
+      throw new ForbiddenException(
+        'Managers may assign KPIs only to reportees.',
+      );
+    }
+    const allowedEmployees =
+      await this.hrAccessService.getReportingEmployeeIds(actor);
+    if (
+      !this.hrAccessService.hasCompanyScope(actor) &&
+      !allowedEmployees?.includes(employee.id)
+    ) {
+      throw new ForbiddenException(
+        'You may only assign KPIs within your reporting scope.',
+      );
+    }
+    const period = await this.getOpenPeriod(
+      companyId,
+      dto.performance_period_id,
+    );
+    this.validateKpiDates(period, dto.start_date, dto.due_date);
+    this.validateMeasurement(
+      dto.measurement_type,
+      dto.target_value,
+      dto.scoring_type,
+    );
+
+    const kpiId = await this.dataSource.transaction(async (manager) => {
+      const lockedPeriod = await manager
+        .getRepository(PerformancePeriod)
+        .findOne({
+          where: { id: period.id, companyId },
+          lock: { mode: 'pessimistic_write' },
+        });
+      if (!lockedPeriod)
+        throw new NotFoundException('Performance period not found.');
+      this.assertGoalSettingOpen(lockedPeriod);
+      const siblings = await manager.getRepository(EmployeeKpi).find({
+        where: {
+          companyId,
+          employeeId: employee.id,
+          performancePeriodId: period.id,
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+      const duplicate = siblings.some(
+        (item) =>
+          item.title.trim().toLocaleLowerCase() ===
+            dto.title.trim().toLocaleLowerCase() &&
+          item.status !== EmployeeKpiStatusEnum.REJECTED,
+      );
+      if (duplicate)
+        throw new ConflictException(
+          'This KPI already exists for the employee in this period.',
+        );
+      const assignedWeight = siblings
+        .filter((item) => item.status !== EmployeeKpiStatusEnum.REJECTED)
+        .reduce((sum, item) => sum.plus(item.weight), new Decimal(0));
+      const maxWeight = this.maximumWeight(lockedPeriod);
+      if (assignedWeight.plus(dto.weight).gt(maxWeight)) {
+        throw new BadRequestException(
+          `KPI weights cannot exceed ${maxWeight.toString()} for this period.`,
+        );
+      }
+
+      const created = await manager.getRepository(EmployeeKpi).save(
+        manager.getRepository(EmployeeKpi).create({
+          companyId,
+          performancePeriodId: period.id,
+          employeeId: employee.id,
+          createdByCompanyUserId: actor.companyMembershipId ?? null,
+          title: dto.title.trim(),
+          description: dto.description.trim(),
+          measurementType: dto.measurement_type,
+          targetValue:
+            dto.target_value === undefined ? null : String(dto.target_value),
+          actualValue: null,
+          unit: dto.unit?.trim() ?? null,
+          weight: String(dto.weight),
+          startDate: dto.start_date ?? null,
+          dueDate: dto.due_date,
+          progressSource: dto.progress_source,
+          status: EmployeeKpiStatusEnum.SUBMITTED,
+          reviewerEmployeeId: actor.employeeId ?? null,
+          submittedAt: new Date(),
+          reviewedByCompanyUserId: null,
+          reviewedAt: null,
+          reviewComment: null,
+          scoringType: dto.scoring_type ?? 'NUMERIC_TARGET',
+          measurementDirection: dto.measurement_direction ?? 'HIGHER_IS_BETTER',
+          formulaConfig: dto.formula_config ?? null,
+        }),
+      );
+      await this.appendHistory(manager, created, actor, null, null);
+      return created.id;
+    });
+    const kpi = await this.kpiRepository.findOneByOrFail({
+      id: kpiId,
+      companyId,
+    });
+    await this.auditService.log({
+      action: PerformanceAuditActionEnum.EMPLOYEE_KPI_ASSIGNED,
+      actor,
+      employeeId: employee.id,
+      afterValues: this.snapshot(kpi),
+    });
+    this.emitAssignment(KPI_DOMAIN_EVENTS.ASSIGNED, kpi);
+    return this.getTeamOne(actor, kpi.id);
   }
 
   async update(
@@ -131,14 +299,35 @@ export class EmployeeKpiService {
     if (!EDITABLE_STATUSES.includes(kpi.status)) {
       throw new ConflictException('Only draft or returned KPIs can be edited.');
     }
-    if (kpi.performancePeriod.status !== PerformancePeriodStatusEnum.OPEN) {
-      throw new ConflictException('The performance period is not open.');
-    }
+    this.assertGoalSettingOpen(kpi.performancePeriod);
     if (
       dto.performance_period_id !== undefined &&
       dto.performance_period_id !== kpi.performancePeriodId
     ) {
       throw new BadRequestException('A KPI cannot be moved to another period.');
+    }
+    if (dto.weight !== undefined) {
+      const siblings = await this.kpiRepository.find({
+        where: {
+          companyId,
+          employeeId,
+          performancePeriodId: kpi.performancePeriodId,
+        },
+      });
+      const maxWeight = this.maximumWeight(kpi.performancePeriod);
+      const proposedTotal = siblings
+        .filter(
+          (item) =>
+            item.id !== kpi.id &&
+            item.status !== EmployeeKpiStatusEnum.REJECTED,
+        )
+        .reduce((sum, item) => sum.plus(item.weight), new Decimal(0))
+        .plus(dto.weight);
+      if (proposedTotal.gt(maxWeight)) {
+        throw new BadRequestException(
+          `KPI weights cannot exceed ${maxWeight.toString()} for this period.`,
+        );
+      }
     }
     const startDate = dto.start_date ?? kpi.startDate ?? undefined;
     const dueDate = dto.due_date ?? kpi.dueDate;
@@ -147,6 +336,7 @@ export class EmployeeKpiService {
       dto.measurement_type ?? kpi.measurementType,
       dto.target_value ??
         (kpi.targetValue === null ? undefined : Number(kpi.targetValue)),
+      dto.scoring_type ?? kpi.scoringType,
     );
     const before = this.snapshot(kpi);
     kpi.title = dto.title?.trim() ?? kpi.title;
@@ -160,6 +350,11 @@ export class EmployeeKpiService {
     if (dto.due_date !== undefined) kpi.dueDate = dto.due_date;
     if (dto.progress_source !== undefined)
       kpi.progressSource = dto.progress_source;
+    if (dto.scoring_type !== undefined) kpi.scoringType = dto.scoring_type;
+    if (dto.measurement_direction !== undefined)
+      kpi.measurementDirection = dto.measurement_direction;
+    if (dto.formula_config !== undefined)
+      kpi.formulaConfig = dto.formula_config;
     const saved = await this.kpiRepository.save(kpi);
     await this.auditService.log({
       action: PerformanceAuditActionEnum.EMPLOYEE_KPI_UPDATED,
@@ -184,9 +379,7 @@ export class EmployeeKpiService {
         'Only draft or returned KPIs can be deleted.',
       );
     }
-    if (kpi.performancePeriod.status !== PerformancePeriodStatusEnum.OPEN) {
-      throw new ConflictException('The performance period is not open.');
-    }
+    this.assertGoalSettingOpen(kpi.performancePeriod);
 
     const snapshot = this.snapshot(kpi);
     await this.kpiRepository.remove(kpi);
@@ -209,9 +402,7 @@ export class EmployeeKpiService {
         lock: { mode: 'pessimistic_write' },
       });
       if (!period) throw new NotFoundException('Performance period not found.');
-      if (period.status !== PerformancePeriodStatusEnum.OPEN) {
-        throw new ConflictException('The performance period is not open.');
-      }
+      this.assertGoalSettingOpen(period);
       const kpis = await manager.getRepository(EmployeeKpi).find({
         where: { companyId, employeeId, performancePeriodId },
         order: { id: 'ASC' },
@@ -228,7 +419,7 @@ export class EmployeeKpiService {
       const included = kpis.filter(
         (kpi) => kpi.status !== EmployeeKpiStatusEnum.REJECTED,
       );
-      this.validateWeightTotal(included);
+      this.validateWeightTotal(included, period);
       const now = new Date();
       for (const kpi of candidates) {
         const fromStatus = kpi.status;
@@ -252,6 +443,14 @@ export class EmployeeKpiService {
         employee_kpi_ids: submittedIds,
       },
     });
+    for (const id of submittedIds)
+      this.events.emit(KPI_DOMAIN_EVENTS.PROPOSAL_SUBMITTED, {
+        companyId,
+        cycleId: performancePeriodId,
+        employeeId,
+        employeeKpiId: id,
+        occurredAt: new Date().toISOString(),
+      } satisfies KpiAssignmentEvent);
     const employee = await this.getEmployee(companyId, employeeId);
     void this.notifyManager(actor, employee, performancePeriodId, submittedIds);
     return this.listOwn(actor, { performance_period_id: performancePeriodId });
@@ -298,6 +497,26 @@ export class EmployeeKpiService {
           'A comment is required for return or rejection.',
         );
       }
+      if (dto.decision === EmployeeKpiReviewDecisionEnum.APPROVE) {
+        const periodKpis = await manager.getRepository(EmployeeKpi).find({
+          where: {
+            companyId: kpi.companyId,
+            employeeId: kpi.employeeId,
+            performancePeriodId: kpi.performancePeriodId,
+          },
+          order: { id: 'ASC' },
+          lock: { mode: 'pessimistic_write' },
+        });
+        const included = periodKpis.filter(
+          (item) =>
+            item.id === kpi.id ||
+            ![
+              EmployeeKpiStatusEnum.REJECTED,
+              EmployeeKpiStatusEnum.RETURNED,
+            ].includes(item.status),
+        );
+        this.validateWeightTotal(included, kpi.performancePeriod);
+      }
       let fromStatus = kpi.status;
       if (fromStatus !== EmployeeKpiStatusEnum.PENDING_REVIEW) {
         kpi.status = EmployeeKpiStatusEnum.PENDING_REVIEW;
@@ -331,7 +550,22 @@ export class EmployeeKpiService {
       reason: dto.comment?.trim() ?? null,
     });
     void this.notifyEmployee(actor, saved);
+    if (saved.status === EmployeeKpiStatusEnum.APPROVED) {
+      this.emitAssignment(KPI_DOMAIN_EVENTS.PROPOSAL_APPROVED, saved);
+      this.emitAssignment(KPI_DOMAIN_EVENTS.APPROVED, saved);
+      this.emitAssignment(KPI_DOMAIN_EVENTS.LOCKED, saved);
+    }
     return this.getTeamOne(actor, saved.id);
+  }
+
+  private emitAssignment(event: string, kpi: EmployeeKpi): void {
+    this.events.emit(event, {
+      companyId: kpi.companyId,
+      cycleId: kpi.performancePeriodId,
+      employeeId: kpi.employeeId,
+      employeeKpiId: kpi.id,
+      occurredAt: new Date().toISOString(),
+    } satisfies KpiAssignmentEvent);
   }
 
   async updateActual(
@@ -352,6 +586,9 @@ export class EmployeeKpiService {
     if (CLOSED_PERIOD_STATUSES.includes(kpi.performancePeriod.status)) {
       throw new ConflictException('The performance period is closed.');
     }
+    if (['LOCKED', 'CLOSED'].includes(kpi.performancePeriod.kpiPhase ?? '')) {
+      throw new ConflictException('The KPI cycle is locked.');
+    }
     const before = kpi.actualValue;
     kpi.actualValue = String(dto.actual_value);
     const saved = await this.kpiRepository.save(kpi);
@@ -371,6 +608,29 @@ export class EmployeeKpiService {
 
   async listTeam(actor: AuthenticatedUser, query: EmployeeKpiQueryDto) {
     return this.listScoped(actor, query, null);
+  }
+
+  async listAssignableEmployees(actor: AuthenticatedUser) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const reporteeIds = this.hrAccessService.hasCompanyScope(actor)
+      ? null
+      : await this.hrAccessService.getReportingEmployeeIds(actor);
+    if (reporteeIds !== null && !reporteeIds.length) return [];
+    const employees = await this.employeeRepository.find({
+      where: {
+        company_id: companyId,
+        employment_status: EmploymentStatusEnum.ACTIVE,
+        ...(reporteeIds === null ? {} : { id: In(reporteeIds) }),
+      },
+      order: { first_name: 'ASC', last_name: 'ASC' },
+    });
+    return employees.map((employee) => ({
+      id: employee.id,
+      full_name: [employee.first_name, employee.middle_name, employee.last_name]
+        .filter(Boolean)
+        .join(' '),
+      employee_no: employee.employee_no,
+    }));
   }
 
   async getOwn(actor: AuthenticatedUser, id: number) {
@@ -416,7 +676,7 @@ export class EmployeeKpiService {
       qb.andWhere('kpi.employeeId = :ownEmployeeId', { ownEmployeeId });
     } else if (!this.hrAccessService.hasCompanyScope(actor)) {
       const accessibleIds =
-        await this.hrAccessService.getAccessibleEmployeeIds(actor);
+        await this.hrAccessService.getReportingEmployeeIds(actor);
       if (!accessibleIds?.length) {
         return { data: [], meta: this.meta(page, limit, 0) };
       }
@@ -485,26 +745,42 @@ export class EmployeeKpiService {
 
   private async assertReviewer(actor: AuthenticatedUser, kpi: EmployeeKpi) {
     if (this.hrAccessService.hasCompanyScope(actor)) return;
-    if (actor.employeeId && actor.employeeId === kpi.reviewerEmployeeId) return;
     const accessible =
-      await this.hrAccessService.getAccessibleEmployeeIds(actor);
+      await this.hrAccessService.getReportingEmployeeIds(actor);
     if (accessible?.includes(kpi.employeeId)) return;
     throw new ForbiddenException(
       'You are not authorized to review this employee KPI.',
     );
   }
 
-  private validateWeightTotal(kpis: EmployeeKpi[]): void {
+  private maximumWeight(period: PerformancePeriod): Decimal {
+    return new Decimal(
+      period.kpiPhase
+        ? period.maxWeightage
+        : this.configService.get<number>(
+            'PERFORMANCE_MAXIMUM_WEIGHT_TOTAL',
+            100,
+          ),
+    );
+  }
+
+  private validateWeightTotal(
+    kpis: EmployeeKpi[],
+    period: PerformancePeriod,
+  ): void {
     const total = kpis.reduce(
       (sum, kpi) => sum.plus(kpi.weight),
       new Decimal(0),
     );
-    const minimum = new Decimal(
-      this.configService.get<number>('PERFORMANCE_MINIMUM_WEIGHT_TOTAL', 100),
-    );
-    const maximum = new Decimal(
-      this.configService.get<number>('PERFORMANCE_MAXIMUM_WEIGHT_TOTAL', 100),
-    );
+    const maximum = this.maximumWeight(period);
+    const minimum = period.kpiPhase
+      ? maximum
+      : new Decimal(
+          this.configService.get<number>(
+            'PERFORMANCE_MINIMUM_WEIGHT_TOTAL',
+            100,
+          ),
+        );
     if (total.lt(minimum) || total.gt(maximum)) {
       throw new BadRequestException(
         `KPI weights must total between ${minimum.toString()} and ${maximum.toString()} before submission. Current total: ${total.toString()}.`,
@@ -533,8 +809,16 @@ export class EmployeeKpiService {
     }
   }
 
-  private validateMeasurement(type: string, targetValue?: number) {
-    if (type !== 'MANUAL' && targetValue === undefined) {
+  private validateMeasurement(
+    type: string,
+    targetValue?: number,
+    scoringType?: string,
+  ) {
+    if (
+      type !== 'MANUAL' &&
+      scoringType !== 'RATING_SCALE' &&
+      targetValue === undefined
+    ) {
       throw new BadRequestException(
         'target_value is required for this measurement type.',
       );
@@ -546,12 +830,26 @@ export class EmployeeKpiService {
       where: { id, companyId },
     });
     if (!period) throw new NotFoundException('Performance period not found.');
+    this.assertGoalSettingOpen(period);
+    return period;
+  }
+
+  private assertGoalSettingOpen(period: PerformancePeriod): void {
     if (period.status !== PerformancePeriodStatusEnum.OPEN) {
       throw new ConflictException(
-        'KPIs can only be created in an open period.',
+        'KPIs can only be changed in an open period.',
       );
     }
-    return period;
+    if (!period.kpiPhase || period.kpiPhase === 'REOPENED') return;
+    const today = kpiCycleToday();
+    if (
+      period.kpiPhase !== 'GOAL_SETTING' ||
+      today < period.startDate ||
+      !period.goalSettingDeadline ||
+      today > period.goalSettingDeadline
+    ) {
+      throw new ConflictException('The KPI goal-setting window is closed.');
+    }
   }
 
   private async getEmployee(companyId: number, id: number) {

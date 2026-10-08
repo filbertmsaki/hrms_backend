@@ -58,6 +58,11 @@ export class CreateKpiTemplateDto {
   @IsObject()
   metadata?: Record<string, unknown>;
 
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  applicable_role_ids?: number[];
+
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })

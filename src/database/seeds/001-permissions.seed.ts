@@ -2210,6 +2210,11 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow locking performance periods against further changes',
   },
   {
+    name: 'performance_periods:reopen',
+    displayName: 'Reopen KPI cycles',
+    description: 'Allow reopening a locked KPI cycle with an audited reason',
+  },
+  {
     name: 'performance_rating_scales:read',
     displayName: 'Read performance rating scales',
     description: 'Allow viewing performance rating scales',
@@ -2413,6 +2418,12 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     displayName: 'Read team KPI proposals',
     description:
       'Allow managers to view KPI proposals in their reporting scope',
+  },
+  {
+    name: 'performance_kpis:assign',
+    displayName: 'Assign team KPIs',
+    description:
+      'Allow assigning KPIs to employees within the actor reporting scope',
   },
   {
     name: 'performance_kpis:all:read',

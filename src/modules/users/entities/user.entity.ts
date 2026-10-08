@@ -42,6 +42,9 @@ export class User {
   @Column({ default: 'active', length: 20 })
   status: string;
 
+  @Column({ type: 'jsonb', nullable: true })
+  dashboard_card_style: { palette: string; artwork: string } | null;
+
   @Column({ type: 'varchar', length: 20, default: 'COMPANY_USER' })
   user_type: string;
 

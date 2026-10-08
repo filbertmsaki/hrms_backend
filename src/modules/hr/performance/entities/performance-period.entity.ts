@@ -58,6 +58,48 @@ export class PerformancePeriod {
   @Column({ name: 'end_date', type: 'date' })
   endDate: string;
 
+  @Column({ name: 'kpi_phase', type: 'varchar', length: 32, nullable: true })
+  kpiPhase: string | null;
+
+  @Column({ name: 'goal_setting_deadline', type: 'date', nullable: true })
+  goalSettingDeadline: string | null;
+
+  @Column({ name: 'mid_cycle_review_date', type: 'date', nullable: true })
+  midCycleReviewDate: string | null;
+
+  @Column({ name: 'final_review_deadline', type: 'date', nullable: true })
+  finalReviewDeadline: string | null;
+
+  @Column({ name: 'allow_parallel', type: 'boolean', default: true })
+  allowParallel: boolean;
+
+  @Column({
+    name: 'max_weightage',
+    type: 'decimal',
+    precision: 7,
+    scale: 2,
+    default: 100,
+  })
+  maxWeightage: string;
+
+  @Column({
+    name: 'score_cap',
+    type: 'decimal',
+    precision: 7,
+    scale: 2,
+    default: 120,
+  })
+  scoreCap: string;
+
+  @Column({ name: 'cooling_period_days', type: 'integer', default: 0 })
+  coolingPeriodDays: number;
+
+  @Column({ name: 'kpi_reopen_reason', type: 'text', nullable: true })
+  kpiReopenReason: string | null;
+
+  @Column({ name: 'kpi_rating_bands', type: 'jsonb', nullable: true })
+  kpiRatingBands: Array<{ label: string; min: number }> | null;
+
   @Column({
     type: 'enum',
     enum: PerformancePeriodStatusEnum,

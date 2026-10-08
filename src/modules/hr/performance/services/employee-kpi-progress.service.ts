@@ -35,10 +35,12 @@ export class EmployeeKpiProgressService {
     }
 
     const achievement = this.calculateAchievement(kpi, actualValue);
-    const configuredCap = this.configService.get<string | number | null>(
-      'PERFORMANCE_DEFAULT_SCORE_CAP',
-      120,
-    );
+    const configuredCap = kpi.performancePeriod?.kpiPhase
+      ? kpi.performancePeriod.scoreCap
+      : this.configService.get<string | number | null>(
+          'PERFORMANCE_DEFAULT_SCORE_CAP',
+          120,
+        );
     const capped =
       configuredCap === null || String(configuredCap).toUpperCase() === 'NONE'
         ? achievement
