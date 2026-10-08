@@ -125,13 +125,13 @@ export default class AllianceEmployeesSeeder implements Seeder {
       const roleSeeds = [
         {
           name: 'IT_MANAGER',
-          displayName: 'IT Manager',
+          display_name: 'IT Manager',
           description:
             'Department-scoped manager permissions for Information Technology.',
         },
         {
           name: 'CLAIMS_MANAGER',
-          displayName: 'Claims Manager',
+          display_name: 'Claims Manager',
           description: 'Department-scoped manager permissions for Claims.',
         },
       ];
