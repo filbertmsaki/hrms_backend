@@ -53,7 +53,9 @@ import { KpiAchievementService } from '../src/modules/hr/performance/services/kp
 import { KpiApplicabilityService } from '../src/modules/hr/performance/services/kpi-applicability.service';
 import { KpiDataSourceRegistryService } from '../src/modules/hr/performance/services/kpi-data-source-registry.service';
 import { KpiDefinitionService } from '../src/modules/hr/performance/services/kpi-definition.service';
+import { EmployeeKpiCycleReviewService } from '../src/modules/hr/performance/services/employee-kpi-cycle-review.service';
 import { EmployeeKpiService } from '../src/modules/hr/performance/services/employee-kpi.service';
+import { EmployeeKpiTemplateAssignmentService } from '../src/modules/hr/performance/services/employee-kpi-template-assignment.service';
 import { PerformanceAggregationService } from '../src/modules/hr/performance/services/performance-aggregation.service';
 import { PerformanceCalibrationService } from '../src/modules/hr/performance/services/performance-calibration.service';
 import { PerformanceCompetencyService } from '../src/modules/hr/performance/services/performance-competency.service';
@@ -177,6 +179,11 @@ describe('Performance workflow endpoints (e2e)', () => {
         },
         { provide: KpiAchievementService, useValue: noopService },
         { provide: EmployeeKpiService, useValue: noopService },
+        { provide: EmployeeKpiCycleReviewService, useValue: noopService },
+        {
+          provide: EmployeeKpiTemplateAssignmentService,
+          useValue: noopService,
+        },
         { provide: SecurityEventsService, useValue: securityEventsService },
         PermissionsGuard,
         TenantGuard,
