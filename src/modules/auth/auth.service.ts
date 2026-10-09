@@ -30,13 +30,13 @@ import {
 import { MailService } from '../mail/mail.service';
 import { User } from '../users/entities/user.entity';
 import { UsersService } from '../users/users.service';
+import { TwoFaService } from './2fa/2fa.service';
 import { SecurityEventOutcome } from '../security/enums/security-event-outcome.enum';
 import { SecurityEventType } from '../security/enums/security-event-type.enum';
 import { SecurityEventsService } from '../security/security-events.service';
 import { SmsNotificationManagementService } from '../sms/sms-notification-management.service';
 import { NotificationQueueService } from '../notifications/notification-queue.service';
 import { TwoFactorPolicyService } from '../security/two-factor-policy.service';
-import { TwoFaService } from './2fa/2fa.service';
 import { ForgotPasswordDto } from './dtos/forgot-password.dto';
 import { LoginDto } from './dtos/login.dto';
 import { LogoutDto } from './dtos/logout.dto';
@@ -122,6 +122,7 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly tokenBlacklistService: TokenBlacklistService,
     private readonly mailService: MailService,
+    @Inject(forwardRef(() => TwoFaService))
     private readonly twoFaService: TwoFaService,
     private readonly companiesService: CompaniesService,
     private readonly securityEventsService: SecurityEventsService,

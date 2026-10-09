@@ -28,7 +28,7 @@ import { TwoFaModule } from './2fa/2fa.module';
     CompaniesModule,
     forwardRef(() => UsersModule),
     MailModule,
-    TwoFaModule,
+    forwardRef(() => TwoFaModule),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
