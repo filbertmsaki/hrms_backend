@@ -87,3 +87,4 @@ lint-report*.json
 
 # Deploy-script-generated rollback pointer (per-environment, written by scripts/deploy-*.sh)
 .previous-deploy-sha
+.eslintcache
