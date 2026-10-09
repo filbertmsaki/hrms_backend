@@ -1,5 +1,7 @@
 import {
   ConflictException,
+  forwardRef,
+  Inject,
   Injectable,
   BadRequestException,
   ForbiddenException,
@@ -32,6 +34,7 @@ export class TwoFaService {
   private readonly logger = new Logger(TwoFaService.name);
 
   constructor(
+    @Inject(forwardRef(() => UsersService))
     private usersService: UsersService,
     private configService: ConfigService,
     private companiesService: CompaniesService,
