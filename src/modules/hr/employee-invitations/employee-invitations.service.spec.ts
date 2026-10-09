@@ -1,5 +1,7 @@
 import { EmploymentTypeEnum } from '../employees/enums/employment-type.enum';
+import { BadRequestException } from '@nestjs/common';
 import { createHash } from 'crypto';
+import { hashPassword } from '../../../common/utils/hash.util';
 import { EmployeeInvitationsService } from './employee-invitations.service';
 import {
   EmployeeInvitationChannel,
@@ -57,7 +59,10 @@ describe('EmployeeInvitationsService', () => {
         permission_assignments: [],
       }),
     };
-    const userRepository = { findOne: jest.fn().mockResolvedValue(null) };
+    const userRepository = {
+      findOne: jest.fn().mockResolvedValue(null),
+      exists: jest.fn().mockResolvedValue(false),
+    };
     const branchRepository = {
       findOneBy: jest.fn().mockResolvedValue({ id: 2, company_id: 1 }),
     };
@@ -161,6 +166,7 @@ describe('EmployeeInvitationsService', () => {
       service,
       invitationRepository,
       companyUserRepository,
+      userRepository,
       mailService,
       smsService,
       employeesService,
@@ -297,6 +303,7 @@ describe('EmployeeInvitationsService', () => {
     };
     invitationRepository.findOneBy.mockResolvedValue(invitation);
     lockedInvitationQuery.getOneOrFail.mockResolvedValue(invitation);
+    transactionalUserRepository.findOneBy.mockResolvedValueOnce(null);
 
     const result = await service.accept('valid-invitation-token', {
       password: 'StrongPass#2026',
@@ -317,6 +324,141 @@ describe('EmployeeInvitationsService', () => {
       status: EmployeeInvitationStatus.ACCEPTED,
       employee_id: 91,
       login_url: 'http://localhost:3000/login',
+    });
+  });
+
+  describe('accepting when the invitee may already have an account', () => {
+    const token = 'existing-account-token';
+
+    function pendingInvitation() {
+      return {
+        id: 44,
+        companyId: 1,
+        status: EmployeeInvitationStatus.PENDING,
+        tokenHash: createHash('sha256').update(token).digest('hex'),
+        firstName: dto.first_name,
+        lastName: dto.last_name,
+        gender: dto.gender,
+        email: dto.email,
+        phone: dto.phone,
+        primaryBranchId: dto.primary_branch_id,
+        primaryDepartmentId: dto.primary_department_id,
+        primaryPositionId: dto.primary_position_id,
+        employmentType: dto.employment_type,
+        reportsTo: null,
+        hireDate: null,
+        onboardingWorkflowId: null,
+        createdByCompanyUserId: 20,
+        expiresAt: new Date(Date.now() + 60_000),
+        acceptedAt: null,
+        acceptedEmployeeId: null,
+      };
+    }
+
+    async function setup() {
+      const harness = createHarness();
+      const invitation = pendingInvitation();
+      harness.invitationRepository.findOneBy.mockResolvedValue(invitation);
+      harness.lockedInvitationQuery.getOneOrFail.mockResolvedValue(invitation);
+      const existingHash = await hashPassword('MyCurrent#Pass1');
+      const existingUser = {
+        id: 77,
+        email: dto.email,
+        password: existingHash,
+        is_email_verified: true,
+        must_set_password: false,
+      };
+      return { ...harness, invitation, existingUser, existingHash };
+    }
+
+    it('keeps the existing password when the invitee confirms it', async () => {
+      const {
+        service,
+        invitation,
+        existingUser,
+        existingHash,
+        employeesService,
+        transactionalUserRepository,
+      } = await setup();
+      transactionalUserRepository.findOneBy.mockResolvedValue(existingUser);
+
+      const result = await service.accept(token, {
+        password: 'MyCurrent#Pass1',
+      });
+
+      expect(employeesService.createInTransaction).toHaveBeenCalledTimes(1);
+      expect(transactionalUserRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 77,
+          password: existingHash,
+          must_set_password: false,
+        }),
+      );
+      expect(invitation.status).toBe(EmployeeInvitationStatus.ACCEPTED);
+      expect(result.employee_id).toBe(91);
+    });
+
+    it('accepts an existing account whose old password is not "strong"', async () => {
+      const { service, existingUser, transactionalUserRepository } =
+        await setup();
+      existingUser.password = await hashPassword('legacy123');
+      const legacyHash = existingUser.password;
+      transactionalUserRepository.findOneBy.mockResolvedValue(existingUser);
+
+      await service.accept(token, { password: 'legacy123' });
+
+      expect(transactionalUserRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ password: legacyHash }),
+      );
+    });
+
+    it('rejects a wrong password without creating the employee or touching the account', async () => {
+      const {
+        service,
+        invitation,
+        existingUser,
+        existingHash,
+        employeesService,
+        transactionalUserRepository,
+      } = await setup();
+      transactionalUserRepository.findOneBy.mockResolvedValue(existingUser);
+
+      await expect(
+        service.accept(token, { password: 'Attacker#Pass9' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(employeesService.createInTransaction).not.toHaveBeenCalled();
+      expect(transactionalUserRepository.save).not.toHaveBeenCalled();
+      expect(existingUser.password).toBe(existingHash);
+      expect(invitation.status).toBe(EmployeeInvitationStatus.PENDING);
+    });
+
+    it('rejects a weak password for a brand-new account', async () => {
+      const { service, employeesService, transactionalUserRepository } =
+        await setup();
+      transactionalUserRepository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.accept(token, { password: 'weak' })).rejects.toThrow(
+        /at least 8 characters/,
+      );
+      expect(employeesService.createInTransaction).not.toHaveBeenCalled();
+    });
+
+    it('tells the registration page whether an account already exists', async () => {
+      const { service, userRepository } = await setup();
+
+      userRepository.exists.mockResolvedValueOnce(true);
+      await expect(service.findPublic(token)).resolves.toEqual(
+        expect.objectContaining({ has_existing_account: true }),
+      );
+
+      userRepository.exists.mockResolvedValueOnce(false);
+      await expect(service.findPublic(token)).resolves.toEqual(
+        expect.objectContaining({ has_existing_account: false }),
+      );
+      expect(userRepository.exists).toHaveBeenCalledWith({
+        where: { email: dto.email },
+      });
     });
   });
 

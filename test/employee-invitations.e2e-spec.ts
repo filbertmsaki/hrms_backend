@@ -204,16 +204,23 @@ describe('Employee invitations endpoints (e2e)', () => {
     expect(invitationsService.resend).toHaveBeenCalledWith(10, 44);
   });
 
-  it('allows public invitation lookup and acceptance with strong password validation', async () => {
+  it('allows public invitation lookup and acceptance with password validation', async () => {
     await request(app.getHttpServer() as App)
       .get('/employee-invitations/accept/invite-token')
       .expect(200);
 
     expect(invitationsService.findPublic).toHaveBeenCalledWith('invite-token');
 
+    // Strength is enforced in the service (existing accounts confirm with
+    // their current password), so the DTO only rejects missing/oversized input.
     await request(app.getHttpServer() as App)
       .post('/employee-invitations/accept/invite-token')
-      .send({ password: 'weak' })
+      .send({ password: '' })
+      .expect(400);
+
+    await request(app.getHttpServer() as App)
+      .post('/employee-invitations/accept/invite-token')
+      .send({ password: 'x'.repeat(129) })
       .expect(400);
 
     expect(invitationsService.accept).not.toHaveBeenCalled();

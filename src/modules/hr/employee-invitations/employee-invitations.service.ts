@@ -9,7 +9,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomBytes } from 'crypto';
 import { DataSource, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
-import { hashPassword } from '../../../common/utils/hash.util';
+import { isStrongPassword } from 'class-validator';
+import {
+  comparePasswords,
+  hashPassword,
+} from '../../../common/utils/hash.util';
 import { MailService } from '../../mail/mail.service';
 import { SmsService } from '../../sms/sms.service';
 import { Company } from '../../companies/entities/company.entity';
@@ -175,13 +179,30 @@ export class EmployeeInvitationsService {
       phone: invitation.phone,
       company_name: company.name,
       expires_at: invitation.expiresAt.toISOString(),
+      has_existing_account: await this.userRepository.exists({
+        where: { email: invitation.email },
+      }),
     };
+  }
+
+  private assertStrongPassword(password: string): void {
+    const strong = isStrongPassword(password, {
+      minLength: 8,
+      minLowercase: 1,
+      minUppercase: 1,
+      minNumbers: 1,
+      minSymbols: 1,
+    });
+    if (!strong) {
+      throw new BadRequestException(
+        'Password must be at least 8 characters long and contain an uppercase letter, lowercase letter, number, and special character',
+      );
+    }
   }
 
   async accept(rawToken: string, dto: AcceptEmployeeInvitationDto) {
     const invitation = await this.findUsableInvitation(rawToken);
     const actor = await this.resolveInvitationActor(invitation);
-    const passwordHash = await hashPassword(dto.password);
     return this.dataSource.transaction(async (manager) => {
       const current = await manager
         .getRepository(EmployeeInvitation)
@@ -196,6 +217,26 @@ export class EmployeeInvitationsService {
       ) {
         throw new ConflictException('This invitation is no longer available');
       }
+
+      // An invitee who already has an account (e.g. in another company) must
+      // prove ownership with their current password; we never overwrite it.
+      const existingUser = await manager.getRepository(User).findOneBy({
+        email: invitation.email,
+      });
+      if (existingUser) {
+        const matches = await comparePasswords(
+          dto.password,
+          existingUser.password,
+        );
+        if (!matches) {
+          throw new BadRequestException(
+            'You already have an account. Enter your current password to accept this invitation.',
+          );
+        }
+      } else {
+        this.assertStrongPassword(dto.password);
+      }
+
       const created = await this.employeesService.createInTransaction(
         invitation.companyId,
         {
@@ -245,11 +286,13 @@ export class EmployeeInvitationsService {
       if (!user) {
         throw new NotFoundException('Created employee account was not found');
       }
-      user.password = passwordHash;
       user.is_email_verified = true;
-      // The invitee has chosen and verified their permanent password; do not
-      // route them through the admin reset temporary-password flow at login.
-      user.must_set_password = false;
+      if (!existingUser) {
+        user.password = await hashPassword(dto.password);
+        // The invitee has chosen and verified their permanent password; do not
+        // route them through the admin reset temporary-password flow at login.
+        user.must_set_password = false;
+      }
       await manager.getRepository(User).save(user);
 
       current.status = EmployeeInvitationStatus.ACCEPTED;

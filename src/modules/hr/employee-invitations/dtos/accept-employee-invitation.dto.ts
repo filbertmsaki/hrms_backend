@@ -1,22 +1,13 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, IsStrongPassword } from 'class-validator';
+import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
 export class AcceptEmployeeInvitationDto {
+  // New accounts must choose a strong password; invitees who already have an
+  // account confirm with their current password instead. The strength rule is
+  // therefore enforced in the service once we know which case applies.
   @ApiProperty({ example: 'StrongPass#2026' })
   @IsString()
   @IsNotEmpty()
-  @IsStrongPassword(
-    {
-      minLength: 8,
-      minLowercase: 1,
-      minUppercase: 1,
-      minNumbers: 1,
-      minSymbols: 1,
-    },
-    {
-      message:
-        'Password must be at least 8 characters long and contain an uppercase letter, lowercase letter, number, and special character',
-    },
-  )
+  @MaxLength(128)
   password: string;
 }
