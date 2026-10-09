@@ -186,7 +186,7 @@ describe('EmployeesService.unlinkCompanyUser', () => {
     expect(result.unlinked_company_user_id).toBe(66);
   });
 
-  it('refuses to unlink a current employee account', async () => {
+  it('allows HR to unlink a current employee account while preserving company access', async () => {
     const employee = {
       id: 31,
       company_user_id: 77,
@@ -195,18 +195,24 @@ describe('EmployeesService.unlinkCompanyUser', () => {
     };
     const service = buildService(employee);
 
-    await expect(
-      EmployeesService.prototype.unlinkCompanyUser.call(
-        service,
-        actor.companyId,
-        employee.id,
-        actor,
-        context,
-      ),
-    ).rejects.toThrow(
-      'Only inactive or historical employees can have their user account unlinked',
+    const result = await EmployeesService.prototype.unlinkCompanyUser.call(
+      service,
+      actor.companyId,
+      employee.id,
+      actor,
+      context,
     );
-    expect(service.employeeRepository.save).not.toHaveBeenCalled();
+    expect(employee.company_user_id).toBeNull();
+    expect(employee.company_user).toBeNull();
+    expect(service.employeeRepository.save).toHaveBeenCalledWith(employee);
+    expect(
+      service.companiesService.removeUserFromCompany,
+    ).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      message: 'User account unlinked from employee successfully',
+      unlinked_company_user_id: 77,
+      account_deactivated: false,
+    });
   });
 });
 

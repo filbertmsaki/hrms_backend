@@ -5572,12 +5572,6 @@ export class EmployeesService {
     const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
-    if (!HISTORICAL_EMPLOYMENT_STATUSES.has(employee.employment_status)) {
-      throw new BadRequestException(
-        'Only inactive or historical employees can have their user account unlinked',
-      );
-    }
-
     const membership = employee.company_user;
     const companyUserId = employee.company_user_id;
     if (!membership || companyUserId === null) {

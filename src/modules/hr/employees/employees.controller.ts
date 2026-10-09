@@ -574,7 +574,7 @@ export class EmployeesController {
   @Permissions('employees:update')
   @ApiOperationSummary(
     'Unlink an employee user account',
-    'Detaches the company-user login from an inactive or historical employee while preserving both records.',
+    'Detaches the company-user login from an employee while preserving both records and leaving company access active.',
   )
   @ApiAuthRequired()
   @ApiNotFoundResponse('Employee')
@@ -598,7 +598,7 @@ export class EmployeesController {
   @Permissions('users:delete')
   @ApiOperationSummary(
     'Remove an employee linked account',
-    'Detaches the login from an inactive or historical employee and deactivates that company membership while retaining audit history.',
+    'Detaches the login from an employee and deactivates that company membership while retaining audit history.',
   )
   @ApiAuthRequired()
   @ApiNotFoundResponse('Employee')
