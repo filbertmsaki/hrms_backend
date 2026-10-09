@@ -866,6 +866,49 @@ export class HrInAppNotificationListener {
       'ONBOARDING_TASK',
       event.taskId,
     );
+
+    const recipients = Array.from(
+      new Set(
+        [event.employeeCompanyUserId, event.hrCompanyUserId].filter(
+          (id): id is number => typeof id === 'number' && id > 0,
+        ),
+      ),
+    );
+    const taskTitle = event.taskTitle?.trim() || `Task #${event.taskId}`;
+    const employeeName = event.employeeName?.trim() || 'the employee';
+    const completedBy = event.completedByLabel?.trim() || 'A staff member';
+
+    await this.sendMany(
+      recipients.map((receiverCompanyUserId) => ({
+        company_id: event.companyId,
+        sender_company_user_id: event.completedByCompanyUserId,
+        receiver_company_user_id: receiverCompanyUserId,
+        type: NotificationTypeEnum.ONBOARDING_TASK_COMPLETED,
+        category: NotificationCategoryEnum.HR,
+        priority: NotificationPriorityEnum.MEDIUM,
+        title: 'Onboarding Step Completed',
+        message: `${completedBy} completed "${taskTitle}" for ${employeeName}.`,
+        related_module: 'onboarding',
+        entity_type: 'ONBOARDING_TASK',
+        entity_id: event.taskId,
+        action_url: event.actionUrl ?? undefined,
+        dedupe_key: `onboarding:task-completed:${event.taskId}:${receiverCompanyUserId}`,
+        channels: [
+          NotificationChannelEnum.IN_APP,
+          NotificationChannelEnum.EMAIL,
+          NotificationChannelEnum.SMS,
+          NotificationChannelEnum.PUSH,
+        ],
+        metadata: {
+          onboarding_request_id: event.onboardingRequestId,
+          onboarding_no: event.onboardingNo,
+          task_id: event.taskId,
+          task_no: event.taskNo,
+          employee_name: employeeName,
+          completed_by: completedBy,
+        },
+      })),
+    );
   }
 
   @OnEvent(OnboardingTaskOverdueEvent.EVENT)

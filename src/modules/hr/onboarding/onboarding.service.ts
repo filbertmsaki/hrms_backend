@@ -57,6 +57,7 @@ import { OnboardingProvisioningDto } from './dtos/onboarding-provisioning.dto';
 import { OnboardingApprovalActionDto } from './dtos/onboarding-approval-action.dto';
 import { OnboardingRequestQueryDto } from './dtos/onboarding-request-query.dto';
 import { ReviewOnboardingEmployeeDetailsDto } from './dtos/review-onboarding-employee-details.dto';
+import { SubmitOnboardingEmployeeDetailsDto } from './dtos/submit-onboarding-employee-details.dto';
 import { StartOnboardingWorkflowDto } from './dtos/start-onboarding-workflow.dto';
 import { OnboardingWorkflowQueryDto } from './dtos/onboarding-workflow-query.dto';
 import { OnboardingWorkflowStepInputDto } from './dtos/onboarding-workflow-step-input.dto';
@@ -1868,6 +1869,11 @@ export class OnboardingService {
     return {
       status:
         typeof review.status === 'string' ? review.status : 'not_submitted',
+      not_provided_items: Array.isArray(review.not_provided_items)
+        ? review.not_provided_items.filter(
+            (item): item is string => typeof item === 'string',
+          )
+        : [],
       submitted_at:
         typeof review.submitted_at === 'string' ? review.submitted_at : null,
       reviewed_at:
@@ -3451,6 +3457,7 @@ export class OnboardingService {
     companyId: number,
     onboardingRequestId: number,
     actor: AuthenticatedUser,
+    dto: SubmitOnboardingEmployeeDetailsDto = {},
   ) {
     const request = await this.findOnboardingRequestOrFail(
       companyId,
@@ -3479,6 +3486,13 @@ export class OnboardingService {
     const submittedAt = new Date();
     const metadata = { ...(request.metadata ?? {}) };
     const previousReview = recordValue(metadata.employee_details_review);
+    const notProvidedItems = Array.from(
+      new Set(
+        (dto.not_provided_items ?? []).filter((item) =>
+          ['professional_qualifications', 'experience_details'].includes(item),
+        ),
+      ),
+    );
     const previousSections = recordValue(previousReview.sections);
     const sections = Object.fromEntries(
       EMPLOYEE_DETAIL_SECTIONS.map(([key]) => {
@@ -3507,6 +3521,7 @@ export class OnboardingService {
       status: 'submitted',
       submitted_at: submittedAt.toISOString(),
       submitted_by_user_id: actor.id,
+      not_provided_items: notProvidedItems,
       reviewed_at: null,
       sections,
     };
@@ -3520,7 +3535,10 @@ export class OnboardingService {
       entity_name: 'onboarding_request',
       entity_id: request.id,
       actor,
-      payload: { submitted_at: submittedAt.toISOString() },
+      payload: {
+        submitted_at: submittedAt.toISOString(),
+        not_provided_items: notProvidedItems,
+      },
     });
 
     if (
@@ -4441,7 +4459,20 @@ export class OnboardingService {
 
     await this.eventEmitter.emitAsync(
       OnboardingTaskCompletedEvent.EVENT,
-      new OnboardingTaskCompletedEvent(companyId, request.id, updated.id),
+      new OnboardingTaskCompletedEvent(
+        companyId,
+        request.id,
+        updated.id,
+        updated.title,
+        `${request.employee.first_name} ${request.employee.last_name}`.trim(),
+        actor.companyMembershipId ?? null,
+        actor.employeeNo || actor.email,
+        request.employee.company_user_id ?? null,
+        request.created_by_company_user_id ?? null,
+        request.onboarding_no ?? null,
+        updated.task_no ?? null,
+        `${this.configService.get<string>('APP_FRONTEND_URL') ?? ''}/dashboard/employees/onboarding?tab=requests&request_id=${request.id}`,
+      ),
     );
 
     return this.mapTask(updated);

@@ -36,6 +36,7 @@ import { OnboardingWorkflowQueryDto } from './dtos/onboarding-workflow-query.dto
 import { ReassignOnboardingTaskDto } from './dtos/reassign-onboarding-task.dto';
 import { RejectOnboardingDto } from './dtos/reject-onboarding.dto';
 import { ReviewOnboardingEmployeeDetailsDto } from './dtos/review-onboarding-employee-details.dto';
+import { SubmitOnboardingEmployeeDetailsDto } from './dtos/submit-onboarding-employee-details.dto';
 import { StartOnboardingWorkflowDto } from './dtos/start-onboarding-workflow.dto';
 import { UpdateOnboardingRequestDto } from './dtos/update-onboarding-request.dto';
 import { UpdateOnboardingWorkflowStepDto } from './dtos/update-onboarding-workflow-step.dto';
@@ -218,11 +219,13 @@ export class OnboardingController {
   submitEmployeeDetails(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SubmitOnboardingEmployeeDetailsDto,
   ) {
     return this.onboardingService.submitEmployeeDetailsForReview(
       req.user.companyId!,
       id,
       req.user,
+      dto,
     );
   }
 

@@ -155,6 +155,15 @@ export class OnboardingTaskCompletedEvent {
     public readonly companyId: number,
     public readonly onboardingRequestId: number,
     public readonly taskId: number,
+    public readonly taskTitle: string | null = null,
+    public readonly employeeName: string | null = null,
+    public readonly completedByCompanyUserId: number | null = null,
+    public readonly completedByLabel: string | null = null,
+    public readonly employeeCompanyUserId: number | null = null,
+    public readonly hrCompanyUserId: number | null = null,
+    public readonly onboardingNo: string | null = null,
+    public readonly taskNo: string | null = null,
+    public readonly actionUrl: string | null = null,
   ) {}
 }
 

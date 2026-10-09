@@ -247,6 +247,9 @@ export class EmployeeInvitationsService {
       }
       user.password = passwordHash;
       user.is_email_verified = true;
+      // The invitee has chosen and verified their permanent password; do not
+      // route them through the admin reset temporary-password flow at login.
+      user.must_set_password = false;
       await manager.getRepository(User).save(user);
 
       current.status = EmployeeInvitationStatus.ACCEPTED;

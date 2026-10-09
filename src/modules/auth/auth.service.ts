@@ -128,6 +128,61 @@ export class AuthService {
     private readonly authSessionsService: AuthSessionsService,
   ) {}
 
+  async issuePasswordChangedTokens(userId: number) {
+    const user = await this.usersService.findById(userId);
+    if (this.isOwnerUser(user)) {
+      const sessionContext = this.buildSessionTokenContext();
+      const response = this.generatePlatformAuthResponse(
+        user,
+        this.buildPlatformAccessContext(user),
+        sessionContext,
+      );
+      await this.persistNewSession(
+        user,
+        sessionContext,
+        'platform',
+        'OWNER',
+        response.refresh_expires_at,
+      );
+      return {
+        accessToken: response.access_token,
+        refreshToken: response.refresh_token,
+      };
+    }
+
+    const companies = await this.companiesService.listUserCompanies(userId);
+    if (!companies.length) {
+      throw new ForbiddenException('No active company membership found.');
+    }
+    const activeCompany = this.resolveActiveCompany(companies);
+    const companyContext = await this.companiesService.setActiveMembership(
+      userId,
+      activeCompany.companyId,
+    );
+    const availableCompanies =
+      await this.companiesService.listUserCompanies(userId);
+    const sessionContext = this.buildSessionTokenContext();
+    const response = this.generateCompanyAuthResponse(
+      user,
+      companyContext,
+      availableCompanies,
+      sessionContext,
+    );
+    await this.persistNewSession(
+      user,
+      sessionContext,
+      'company',
+      this.resolveAuthUserType(user),
+      response.refresh_expires_at,
+      undefined,
+      companyContext.companyId,
+    );
+    return {
+      accessToken: response.access_token,
+      refreshToken: response.refresh_token,
+    };
+  }
+
   private buildFailureMetadata(context?: CompanySummary | null) {
     return context
       ? {

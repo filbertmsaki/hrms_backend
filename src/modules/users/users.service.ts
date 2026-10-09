@@ -17,6 +17,7 @@ import { normalizeTanzaniaOrUgandaPhone } from 'src/common/utils/tanzania-phone.
 import { CompaniesService } from '../companies/companies.service';
 import { CompanyUser } from '../companies/entities/company-user.entity';
 import { AuthSessionsService } from '../auth/auth-sessions.service';
+import { AuthService } from '../auth/auth.service';
 import { Permission } from '../permissions/entities/permission.entity';
 import { Role } from '../roles/entities/role.entity';
 import { encryptTwoFactorSecret } from '../auth/2fa/utils/two-factor-secret.util';
@@ -64,6 +65,7 @@ export class UsersService {
     private readonly companiesService: CompaniesService,
     private readonly defaultAvatarsService: DefaultAvatarsService,
     private readonly authSessionsService: AuthSessionsService,
+    private readonly authService: AuthService,
     private readonly configService: ConfigService,
     private readonly filesService?: FilesService,
   ) {}
@@ -1226,7 +1228,7 @@ export class UsersService {
     userId: number,
     oldPassword: string,
     newPassword: string,
-  ): Promise<{ message: string }> {
+  ): Promise<{ message: string; accessToken: string; refreshToken: string }> {
     const user = await this.userRepository.findOne({
       where: { id: userId },
       select: ['id', 'password'],
@@ -1250,9 +1252,12 @@ export class UsersService {
 
     const hashed = await hashPassword(newPassword);
     await this.updatePasswordAndRevokeSessions(userId, hashed);
+    const tokens = await this.authService.issuePasswordChangedTokens(userId);
 
     return {
-      message: 'Password changed successfully. Please log in again.',
+      message: 'Password changed successfully.',
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
     };
   }
 
