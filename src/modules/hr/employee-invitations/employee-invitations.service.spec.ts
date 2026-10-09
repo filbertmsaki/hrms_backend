@@ -2,6 +2,7 @@ import { EmploymentTypeEnum } from '../employees/enums/employment-type.enum';
 import { BadRequestException } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { hashPassword } from '../../../common/utils/hash.util';
+import { RecruitmentCandidateStatus } from '../recruitment/entities/recruitment-candidate.entity';
 import { EmployeeInvitationsService } from './employee-invitations.service';
 import {
   EmployeeInvitationChannel,
@@ -142,11 +143,16 @@ describe('EmployeeInvitationsService', () => {
       createQueryBuilder: jest.fn(() => lockedInvitationQuery),
       save: jest.fn(async (value) => value),
     };
+    const transactionalCandidateRepository = {
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
     const manager = {
       getRepository: jest.fn((entity) =>
         entity.name === 'EmployeeInvitation'
           ? transactionalInvitationRepository
-          : transactionalUserRepository,
+          : entity.name === 'RecruitmentCandidate'
+            ? transactionalCandidateRepository
+            : transactionalUserRepository,
       ),
     };
     const dataSource = {
@@ -184,6 +190,7 @@ describe('EmployeeInvitationsService', () => {
       dataSource,
       lockedInvitationQuery,
       transactionalUserRepository,
+      transactionalCandidateRepository,
     };
   }
 
@@ -538,6 +545,63 @@ describe('EmployeeInvitationsService', () => {
         /at least 8 characters/,
       );
       expect(employeesService.createInTransaction).not.toHaveBeenCalled();
+    });
+
+    it('marks the source recruitment candidate as hired on accept', async () => {
+      const {
+        service,
+        invitation,
+        transactionalUserRepository,
+        transactionalCandidateRepository,
+      } = await setup();
+      Object.assign(invitation, { sourceCandidateId: 12 });
+      transactionalUserRepository.findOneBy
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 77, email: dto.email });
+
+      await service.accept(token, { password: 'StrongPass#2026' });
+
+      expect(transactionalCandidateRepository.update).toHaveBeenCalledWith(
+        {
+          id: 12,
+          companyId: 1,
+          status: RecruitmentCandidateStatus.INVITED,
+          invitationId: 44,
+        },
+        { status: RecruitmentCandidateStatus.HIRED },
+      );
+    });
+
+    it('does not touch recruitment when the invitation was created directly', async () => {
+      const {
+        service,
+        transactionalUserRepository,
+        transactionalCandidateRepository,
+      } = await setup();
+      transactionalUserRepository.findOneBy
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 77, email: dto.email });
+
+      await service.accept(token, { password: 'StrongPass#2026' });
+
+      expect(transactionalCandidateRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('leaves the candidate untouched when the password is wrong', async () => {
+      const {
+        service,
+        invitation,
+        existingUser,
+        transactionalUserRepository,
+        transactionalCandidateRepository,
+      } = await setup();
+      Object.assign(invitation, { sourceCandidateId: 12 });
+      transactionalUserRepository.findOneBy.mockResolvedValue(existingUser);
+
+      await expect(
+        service.accept(token, { password: 'Wrong#Pass99' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(transactionalCandidateRepository.update).not.toHaveBeenCalled();
     });
 
     it('tells the registration page whether an account already exists', async () => {

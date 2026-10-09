@@ -452,6 +452,7 @@ export class RecruitmentService {
       [
         RecruitmentCandidateStatus.OFFER_ACCEPTED,
         RecruitmentCandidateStatus.INVITED,
+        RecruitmentCandidateStatus.HIRED,
       ].includes(candidate.status)
     )
       throw new ConflictException(

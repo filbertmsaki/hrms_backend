@@ -300,6 +300,20 @@ export class EmployeeInvitationsService {
       current.acceptedEmployeeId = created.employeeId;
       await manager.getRepository(EmployeeInvitation).save(current);
 
+      // Close the recruitment loop: the candidate behind this invitation is
+      // now an employee. Guarded so a candidate re-linked elsewhere is untouched.
+      if (current.sourceCandidateId) {
+        await manager.getRepository(RecruitmentCandidate).update(
+          {
+            id: current.sourceCandidateId,
+            companyId: current.companyId,
+            status: RecruitmentCandidateStatus.INVITED,
+            invitationId: current.id,
+          },
+          { status: RecruitmentCandidateStatus.HIRED },
+        );
+      }
+
       return {
         status: current.status,
         employee_id: created.employeeId,

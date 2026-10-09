@@ -15,6 +15,7 @@ export enum RecruitmentCandidateStatus {
   OFFER_APPROVED = 'OFFER_APPROVED',
   OFFER_ACCEPTED = 'OFFER_ACCEPTED',
   INVITED = 'INVITED',
+  HIRED = 'HIRED',
   PURGED = 'PURGED',
 }
 
