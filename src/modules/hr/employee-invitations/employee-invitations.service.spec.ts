@@ -81,7 +81,16 @@ describe('EmployeeInvitationsService', () => {
         department_id: 5,
       }),
     };
-    const employeeRepository = { findOneBy: jest.fn() };
+    const existingEmployeeQuery = {
+      innerJoin: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getOne: jest.fn().mockResolvedValue(null),
+    };
+    const employeeRepository = {
+      findOneBy: jest.fn(),
+      createQueryBuilder: jest.fn(() => existingEmployeeQuery),
+    };
     const workflowRepository = {
       findOneBy: jest.fn().mockResolvedValue({ id: 3, company_id: 1 }),
     };
@@ -167,6 +176,7 @@ describe('EmployeeInvitationsService', () => {
       invitationRepository,
       companyUserRepository,
       userRepository,
+      existingEmployeeQuery,
       mailService,
       smsService,
       employeesService,
@@ -222,6 +232,92 @@ describe('EmployeeInvitationsService', () => {
         phone: '+255712345678',
       }),
     ]);
+  });
+
+  describe('rejecting recipients whose account details conflict', () => {
+    type UserRow = { id: number; email: string; phone: string };
+
+    function withUsers(
+      harness: ReturnType<typeof createHarness>,
+      byEmail: UserRow | null,
+      byPhone: UserRow | null,
+    ) {
+      harness.userRepository.findOne.mockImplementation(
+        async ({ where }: { where: { email?: string; phone?: string } }) =>
+          where.email !== undefined ? byEmail : byPhone,
+      );
+    }
+
+    async function expectRejected(
+      harness: ReturnType<typeof createHarness>,
+      message: RegExp,
+    ) {
+      await expect(harness.service.create(1, dto, actor)).rejects.toThrow(
+        message,
+      );
+      expect(harness.invitationRepository.save).not.toHaveBeenCalled();
+      expect(
+        harness.mailService.sendGenericNotificationEmail,
+      ).not.toHaveBeenCalled();
+      expect(
+        harness.smsService.sendGenericNotificationSms,
+      ).not.toHaveBeenCalled();
+    }
+
+    it('rejects an email and phone that belong to two different accounts', async () => {
+      const harness = createHarness();
+      withUsers(
+        harness,
+        { id: 1, email: dto.email, phone: '+255700000001' },
+        { id: 2, email: 'other@example.com', phone: dto.phone },
+      );
+      await expectRejected(harness, /two different existing accounts/);
+    });
+
+    it('rejects an email whose account has a different phone', async () => {
+      const harness = createHarness();
+      withUsers(
+        harness,
+        { id: 1, email: dto.email, phone: '+255700000001' },
+        null,
+      );
+      await expectRejected(harness, /email address already has an account/);
+    });
+
+    it('rejects a phone whose account has a different email', async () => {
+      const harness = createHarness();
+      withUsers(harness, null, {
+        id: 2,
+        email: 'other@example.com',
+        phone: dto.phone,
+      });
+      await expectRejected(harness, /phone number already has an account/);
+    });
+
+    it('rejects a matching account that is already an employee of this company', async () => {
+      const harness = createHarness();
+      const user = { id: 3, email: dto.email, phone: dto.phone };
+      withUsers(harness, user, user);
+      harness.existingEmployeeQuery.getOne.mockResolvedValue({ id: 50 });
+      await expectRejected(harness, /already belongs to an employee/);
+      expect(harness.existingEmployeeQuery.andWhere).toHaveBeenCalledWith(
+        'membership.user_id = :userId',
+        { userId: 3 },
+      );
+    });
+
+    it('invites a matching account that works for another company', async () => {
+      const harness = createHarness();
+      const user = { id: 3, email: dto.email, phone: dto.phone };
+      withUsers(harness, user, user);
+
+      await harness.service.create(1, dto, actor);
+
+      expect(harness.invitationRepository.save).toHaveBeenCalled();
+      expect(
+        harness.mailService.sendGenericNotificationEmail,
+      ).toHaveBeenCalled();
+    });
   });
 
   it('sends through email and SMS without returning the token', async () => {

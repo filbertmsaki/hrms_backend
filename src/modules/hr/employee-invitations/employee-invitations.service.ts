@@ -437,9 +437,32 @@ export class EmployeeInvitationsService {
       );
     }
 
-    const existingUser = await this.userRepository.findOne({
-      where: [{ email }, { phone }],
-    });
+    // Mirror the account rules EmployeesService applies on accept, so HR is
+    // told now instead of the invitee hitting an unrecoverable error later.
+    const [existingByEmail, existingByPhone] = await Promise.all([
+      this.userRepository.findOne({ where: { email } }),
+      this.userRepository.findOne({ where: { phone } }),
+    ]);
+    if (
+      existingByEmail &&
+      existingByPhone &&
+      existingByEmail.id !== existingByPhone.id
+    ) {
+      throw new ConflictException(
+        'This email address and phone number belong to two different existing accounts',
+      );
+    }
+    if (existingByEmail && existingByEmail.phone !== phone) {
+      throw new ConflictException(
+        'This email address already has an account with a different phone number',
+      );
+    }
+    if (existingByPhone && existingByPhone.email !== email) {
+      throw new ConflictException(
+        'This phone number already has an account with a different email address',
+      );
+    }
+    const existingUser = existingByEmail ?? existingByPhone;
     if (!existingUser) return;
 
     const existingEmployee = await this.employeeRepository
