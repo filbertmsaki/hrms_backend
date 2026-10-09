@@ -18,10 +18,10 @@ export class User {
   @Column({ type: 'varchar', length: 20, unique: true, nullable: false })
   user_no: string;
 
-  @Column({ length: 50 })
+  @Column({ length: 100 })
   first_name: string;
 
-  @Column({ length: 50 })
+  @Column({ length: 100 })
   last_name: string;
 
   @Column({ unique: true, length: 20 })

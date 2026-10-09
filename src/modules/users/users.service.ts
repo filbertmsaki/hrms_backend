@@ -30,6 +30,13 @@ import { DefaultAvatarsService } from '../hr/default-avatars/default-avatars.ser
 import { Employee } from '../hr/employees/entities/employee.entity';
 import { ProfileImageSourceEnum } from '../hr/employees/enums/profile-image-source.enum';
 import { FilesService } from '../files/files.service';
+import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
+import { AuditRequestContext } from '../../common/interfaces/audit-request-context.interface';
+import {
+  IdentitySyncService,
+  IdentityValues,
+} from '../identity-sync/identity-sync.service';
+import { IdentityChangeSource } from '../identity-sync/entities/identity-change-audit.entity';
 
 type UploadedAccountProfilePhoto = {
   originalname: string;
@@ -65,6 +72,7 @@ export class UsersService {
     private readonly defaultAvatarsService: DefaultAvatarsService,
     private readonly authSessionsService: AuthSessionsService,
     private readonly configService: ConfigService,
+    private readonly identitySyncService: IdentitySyncService,
     private readonly filesService?: FilesService,
   ) {}
 
@@ -1196,33 +1204,78 @@ export class UsersService {
     await this.clearPendingImportedPasswordChange(userId);
   }
 
-  async update(id: number, updateUserDto: UpdateUserDto): Promise<User> {
-    const user = await this.findOrFail(id);
-    const { roles, ...safeUpdate } = updateUserDto as UpdateUserDto & {
-      roles?: unknown;
-    };
+  /**
+   * Updates a user. Shared identity fields (names, email, phone) are synced
+   * to every linked employee and audited in the same transaction.
+   */
+  async update(
+    id: number,
+    updateUserDto: UpdateUserDto,
+    audit: {
+      actor: AuthenticatedUser;
+      companyId?: number | null;
+      context?: AuditRequestContext | null;
+    } | null = null,
+  ): Promise<User> {
+    await this.findOrFail(id);
+    const { roles, first_name, last_name, email, phone, ...otherFields } =
+      updateUserDto as UpdateUserDto & { roles?: unknown };
     void roles;
-    if (typeof safeUpdate.phone === 'string') {
-      const normalizedPhone = normalizeTanzaniaOrUgandaPhone(safeUpdate.phone);
+    const identity: IdentityValues = { first_name, last_name, email, phone };
+    if (typeof phone === 'string') {
+      const normalizedPhone = normalizeTanzaniaOrUgandaPhone(phone);
       if (!normalizedPhone) {
         throw new BadRequestException(
           'Phone number must be a valid Tanzanian (+255) or Ugandan (+256) number',
         );
       }
 
-      safeUpdate.phone = normalizedPhone;
+      identity.phone = normalizedPhone;
     }
-    Object.assign(user, safeUpdate);
-    return this.userRepository.save(user);
+
+    await this.userRepository.manager.transaction(async (manager) => {
+      const repository = manager.getRepository(User);
+      if (Object.keys(otherFields).length) {
+        const user = await repository.findOneByOrFail({ id });
+        Object.assign(user, otherFields);
+        await repository.save(user);
+      }
+      if (Object.values(identity).some((value) => value !== undefined)) {
+        await this.identitySyncService.sync(manager, {
+          companyId:
+            audit?.companyId ?? (await this.resolveAuditCompanyId(manager, id)),
+          userId: id,
+          values: identity,
+          source: IdentityChangeSource.USER_UPDATE,
+          actor: audit?.actor ?? null,
+          context: audit?.context,
+        });
+      }
+    });
+    return this.findOrFail(id);
+  }
+
+  /** Fallback audit company for users acting outside a company context. */
+  private async resolveAuditCompanyId(
+    manager: EntityManager,
+    userId: number,
+  ): Promise<number> {
+    const membership = await manager.getRepository(CompanyUser).findOne({
+      where: { user_id: userId },
+      order: { id: 'ASC' },
+    });
+    return membership?.company_id ?? 0;
   }
 
   async updateInCompany(
     companyId: number,
     id: number,
     updateUserDto: UpdateUserDto,
+    actor: AuthenticatedUser,
+    context?: AuditRequestContext | null,
   ): Promise<UserProfileDto> {
     await this.companiesService.findCompanyUserContext(companyId, id);
-    await this.update(id, updateUserDto);
+    await this.update(id, updateUserDto, { actor, companyId, context });
     return this.findProfileInCompany(id, companyId);
   }
 

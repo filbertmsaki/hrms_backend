@@ -49,6 +49,11 @@ import { ProfileChangeRequestFile } from './entities/profile-change-request-file
 import { ProfileChangeRequestItem } from './entities/profile-change-request-item.entity';
 import { ProfileChangeRequest } from './entities/profile-change-request.entity';
 import {
+  IdentitySyncService,
+  IdentityValues,
+} from '../../identity-sync/identity-sync.service';
+import { IdentityChangeSource } from '../../identity-sync/entities/identity-change-audit.entity';
+import {
   ProfileChangeFieldPolicyService,
   ProfileFieldPolicy,
 } from './profile-change-field-policy.service';
@@ -145,6 +150,7 @@ export class ProfileChangeRequestsService {
     private readonly imageProcessingService: ImageProcessingService,
     private readonly defaultAvatarsService: DefaultAvatarsService,
     private readonly notificationsService: NotificationsService,
+    private readonly identitySyncService: IdentitySyncService,
   ) {}
 
   async getPendingSummary(companyId: number, employeeId: number) {
@@ -1056,7 +1062,13 @@ export class ProfileChangeRequestsService {
         });
       }
 
-      await this.applyValidatedChanges(manager, snapshot, validation.items);
+      await this.applyValidatedChanges(
+        manager,
+        snapshot,
+        validation.items,
+        actor,
+        context,
+      );
       await this.promoteApprovedPendingFiles(
         manager,
         snapshot,
@@ -1771,6 +1783,8 @@ export class ProfileChangeRequestsService {
     manager: DataSource['manager'],
     snapshot: ProfileSnapshot,
     items: ChangeItemDraft[],
+    actor: AuthenticatedUser,
+    context?: RequestActorContext,
   ) {
     const employee = snapshot.employee;
     const user = snapshot.user;
@@ -1778,21 +1792,22 @@ export class ProfileChangeRequestsService {
     let personalContact = snapshot.primaryPersonalContact;
     let primaryAddress = snapshot.primaryAddress;
     let primaryEmergencyContact = snapshot.primaryEmergencyContact;
+    // Shared identity fields are applied via IdentitySyncService after the
+    // other saves so they reach every linked record and are audited.
+    const identity: IdentityValues = {};
 
     for (const item of items) {
       switch (item.fieldName) {
         case 'first_name':
-          user.first_name =
-            this.readNullableString(item.parsedNewValue) ?? user.first_name;
-          employee.first_name = user.first_name;
+          identity.first_name =
+            this.readNullableString(item.parsedNewValue) ?? undefined;
           break;
         case 'middle_name':
           employee.middle_name = this.readNullableString(item.parsedNewValue);
           break;
         case 'last_name':
-          user.last_name =
-            this.readNullableString(item.parsedNewValue) ?? user.last_name;
-          employee.last_name = user.last_name;
+          identity.last_name =
+            this.readNullableString(item.parsedNewValue) ?? undefined;
           break;
         case 'preferred_name':
           employee.preferred_name = this.readNullableString(
@@ -1815,12 +1830,12 @@ export class ProfileChangeRequestsService {
           employee.nationality = this.readNullableString(item.parsedNewValue);
           break;
         case 'phone':
-          user.phone =
-            this.readNullableString(item.parsedNewValue) ?? user.phone;
+          identity.phone =
+            this.readNullableString(item.parsedNewValue) ?? undefined;
           break;
         case 'email':
-          user.email =
-            this.readNullableString(item.parsedNewValue) ?? user.email;
+          identity.email =
+            this.readNullableString(item.parsedNewValue) ?? undefined;
           break;
         case 'personal_phone_number':
         case 'personal_email':
@@ -1960,6 +1975,33 @@ export class ProfileChangeRequestsService {
       await manager
         .getRepository(EmployeeRelative)
         .save(primaryEmergencyContact);
+    }
+
+    if (Object.values(identity).some((value) => value !== undefined)) {
+      await this.identitySyncService.sync(manager, {
+        companyId: membership.company_id,
+        userId: user.id,
+        employeeId: employee.id,
+        values: identity,
+        source: IdentityChangeSource.EMPLOYEE_UPDATE,
+        actor,
+        context: context
+          ? {
+              ipAddress: context.ipAddress ?? null,
+              userAgent: context.userAgent ?? null,
+              requestId: context.requestIdHeader ?? null,
+            }
+          : null,
+        reason: 'Approved profile change request',
+      });
+      // Keep the in-memory snapshot current for any later saves.
+      const synced = await manager
+        .getRepository(User)
+        .findOneByOrFail({ id: user.id });
+      user.first_name = employee.first_name = synced.first_name;
+      user.last_name = employee.last_name = synced.last_name;
+      user.email = synced.email;
+      user.phone = synced.phone;
     }
   }
 

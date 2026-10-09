@@ -19,6 +19,11 @@ import { hasPermission } from '../../../common/utils/permission.util';
 import { normalizeTanzaniaOrUgandaPhone } from '../../../common/utils/tanzania-phone.util';
 import { CompaniesService } from '../../companies/companies.service';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
+import {
+  IdentitySyncService,
+  IdentityValues,
+} from '../../identity-sync/identity-sync.service';
+import { IdentityChangeSource } from '../../identity-sync/entities/identity-change-audit.entity';
 import { FilesService } from '../../files/files.service';
 import { Base64FileDto } from '../../files/dtos/base64-file.dto';
 import {
@@ -180,6 +185,7 @@ export class EmployeesService {
     private readonly employeeNumberService: EmployeeNumberService,
     private readonly employeeAssignmentService: EmployeeAssignmentService,
     private readonly employeeLifecycleService: EmployeeLifecycleService,
+    private readonly identitySyncService: IdentitySyncService,
   ) {}
 
   private getEmployeeRepository(manager?: EntityManager): Repository<Employee> {
@@ -3844,11 +3850,23 @@ export class EmployeesService {
 
         const wasActive =
           employee.employment_status === EmploymentStatusEnum.ACTIVE;
+        const identityBefore = this.identitySyncService.readEmployeeIdentity(
+          employee,
+          employee.contacts,
+        );
         const savedEmployee = await this.persistEmployee(
           companyId,
           employee,
           updateEmployeeDto,
           actor,
+          manager,
+        );
+        await this.syncEmployeeIdentity(
+          companyId,
+          savedEmployee,
+          identityBefore,
+          actor,
+          context,
           manager,
         );
 
@@ -3884,6 +3902,53 @@ export class EmployeesService {
     );
 
     return this.findOne(companyId, updatedEmployeeId, actor);
+  }
+
+  /**
+   * Pushes name/email/phone changes made on an employee to the linked user
+   * (and that user's employees in other companies), with an audit entry.
+   * Cleared email/phone values are not pushed: a user always needs both.
+   */
+  private async syncEmployeeIdentity(
+    companyId: number,
+    employee: Employee,
+    before: IdentityValues,
+    actor: AuthenticatedUser,
+    context: AuditRequestContext,
+    manager: EntityManager,
+  ) {
+    const contacts = await this.getEmployeeContactRepository(manager).find({
+      where: { employee_id: employee.id },
+    });
+    const after = this.identitySyncService.readEmployeeIdentity(
+      employee,
+      contacts,
+    );
+    const changes = this.identitySyncService.diff(before, after);
+    if (!Object.keys(changes).length) return;
+
+    const userId = employee.company_user_id
+      ? ((
+          await manager
+            .getRepository(CompanyUser)
+            .findOne({ where: { id: employee.company_user_id } })
+        )?.user_id ?? null)
+      : null;
+    if (userId) {
+      if (changes.email === null) delete changes.email;
+      if (changes.phone === null) delete changes.phone;
+    }
+
+    await this.identitySyncService.sync(manager, {
+      companyId,
+      userId,
+      employeeId: employee.id,
+      values: changes,
+      before: userId ? undefined : before,
+      source: IdentityChangeSource.EMPLOYEE_UPDATE,
+      actor,
+      context,
+    });
   }
 
   async changeStatus(

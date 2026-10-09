@@ -250,6 +250,8 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'update_company_data',
       'data_scope:company',
       'security_events:read',
+      'identity_audit:read',
+      'identity_audit:rollback',
       // Users & roles
       'manage_company_users',
       'create_company_user',
@@ -797,6 +799,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       ...ORG_STRUCTURE_READ_PERMISSIONS,
       // Users (read only — cannot delete/create system users)
       'users:read',
+      'identity_audit:read',
       // Employees (full lifecycle including status change)
       'employees:update',
       'employees:create',
@@ -1298,6 +1301,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'view_company_data',
       'data_scope:company',
       'security_events:read',
+      'identity_audit:read',
       ...ORG_STRUCTURE_READ_PERMISSIONS,
       'users:read',
       'employees:read',

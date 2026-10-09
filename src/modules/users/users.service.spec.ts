@@ -1,3 +1,4 @@
+import { IdentitySyncService } from '../identity-sync/identity-sync.service';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { CompanyUser } from '../companies/entities/company-user.entity';
@@ -51,6 +52,7 @@ describe('UsersService avatar management', () => {
       defaultAvatarsService as unknown as DefaultAvatarsService,
       {} as AuthSessionsService,
       {} as ConfigService,
+      {} as IdentitySyncService,
     );
   });
 
@@ -340,6 +342,7 @@ describe('UsersService employee import provisioning', () => {
       {} as DefaultAvatarsService,
       {} as AuthSessionsService,
       configService as unknown as ConfigService,
+      {} as IdentitySyncService,
     );
   });
 
@@ -453,6 +456,7 @@ describe('UsersService administrator password resets', () => {
       {} as DefaultAvatarsService,
       authSessionsService,
       {} as ConfigService,
+      {} as IdentitySyncService,
     );
 
     const result = await service.resetPasswordInCompany(

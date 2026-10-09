@@ -261,7 +261,10 @@ export class UsersController {
       );
     }
 
-    return this.usersService.update(req.user.id, updateUserDto);
+    return this.usersService.update(req.user.id, updateUserDto, {
+      actor: req.user,
+      companyId: req.user.companyId ?? null,
+    });
   }
 
   @Post('me/change-password')
@@ -384,11 +387,14 @@ export class UsersController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
     @Body() updateUserDto: UpdateUserDto,
+    @CurrentAuditContext() context: AuditRequestContext,
   ) {
     return this.usersService.updateInCompany(
       req.user.companyId!,
       id,
       updateUserDto,
+      req.user,
+      context,
     );
   }
 
