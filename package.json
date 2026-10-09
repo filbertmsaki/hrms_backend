@@ -33,6 +33,8 @@
     "migration:revert:built": "node ./node_modules/typeorm/cli.js -d dist/database/data-source.js migration:revert",
     "seed:run": "ts-node -r tsconfig-paths/register src/database/seeds/run-seed.ts",
     "seed:run:built": "node dist/database/seeds/run-seed.js",
+    "seed:alliance-employees": "ts-node -r tsconfig-paths/register src/database/seeds/run-alliance-employees.ts",
+    "seed:alliance-employees:built": "node dist/database/seeds/run-alliance-employees.js",
     "seed:avatars": "ts-node -r tsconfig-paths/register src/database/seeds/run-default-avatars.ts",
     "seed:avatars:built": "node dist/database/seeds/run-default-avatars.js",
     "db:schema:reset": "ts-node -r tsconfig-paths/register src/scripts/reset-database-schema.ts --yes",

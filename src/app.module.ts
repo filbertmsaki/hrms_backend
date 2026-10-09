@@ -9,6 +9,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AppService } from './app.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SecurityModule } from './modules/security/security.module';
+import { IdentitySyncModule } from './modules/identity-sync/identity-sync.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { RolesModule } from './modules/roles/roles.module';
@@ -62,6 +63,7 @@ import { ConditionalBullModule } from './infrastructure/queues/conditional-bull.
         createAppTypeOrmModuleOptions(configService),
     }),
     SecurityModule,
+    IdentitySyncModule,
     AuthModule,
     UsersModule,
     CompaniesModule,

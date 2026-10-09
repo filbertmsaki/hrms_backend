@@ -284,6 +284,18 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow viewing authentication, authorization and security audit events',
   },
   {
+    name: 'identity_audit:read',
+    displayName: 'Read identity change audit',
+    description:
+      'View and export the audit history of name, email and phone changes for users and employees',
+  },
+  {
+    name: 'identity_audit:rollback',
+    displayName: 'Roll back identity changes',
+    description:
+      'Roll back the latest name, email or phone change for a user/employee',
+  },
+  {
     name: 'permissions:create',
     displayName: 'Create permissions',
     description: 'Compatibility permission for permission creation endpoints',
