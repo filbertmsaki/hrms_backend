@@ -11,6 +11,7 @@ import { UserTwoFactorAuditLog } from './entities/user-two-factor-audit-log.enti
 import { UserTwoFactorAuditService } from './services/user-two-factor-audit.service';
 import { Employee } from '../hr/employees/entities/employee.entity';
 import { AuthSessionsModule } from '../auth/auth-sessions.module';
+import { AuthModule } from '../auth/auth.module';
 import { FilesModule } from '../files/files.module';
 
 @Module({
@@ -18,6 +19,7 @@ import { FilesModule } from '../files/files.module';
     forwardRef(() => TwoFaModule),
     TypeOrmModule.forFeature([User, UserTwoFactorAuditLog, Employee]),
     AuthSessionsModule,
+    forwardRef(() => AuthModule),
     FilesModule,
     forwardRef(() => CompaniesModule),
     DefaultAvatarsModule,

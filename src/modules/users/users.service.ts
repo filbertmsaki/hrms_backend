@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   ConflictException,
+  forwardRef,
+  Inject,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -72,6 +74,7 @@ export class UsersService {
     private readonly companiesService: CompaniesService,
     private readonly defaultAvatarsService: DefaultAvatarsService,
     private readonly authSessionsService: AuthSessionsService,
+    @Inject(forwardRef(() => AuthService))
     private readonly authService: AuthService,
     private readonly configService: ConfigService,
     private readonly identitySyncService: IdentitySyncService,
