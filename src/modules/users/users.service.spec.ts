@@ -9,6 +9,7 @@ import { ProfileImageSourceEnum } from '../hr/employees/enums/profile-image-sour
 import { Permission } from '../permissions/entities/permission.entity';
 import { Role } from '../roles/entities/role.entity';
 import { AuthSessionsService } from '../auth/auth-sessions.service';
+import { AuthService } from '../auth/auth.service';
 import { User } from './entities/user.entity';
 import { UsersService } from './users.service';
 
@@ -51,6 +52,7 @@ describe('UsersService avatar management', () => {
       {} as CompaniesService,
       defaultAvatarsService as unknown as DefaultAvatarsService,
       {} as AuthSessionsService,
+      {} as AuthService,
       {} as ConfigService,
       {} as IdentitySyncService,
     );
@@ -341,6 +343,7 @@ describe('UsersService employee import provisioning', () => {
       companiesService as unknown as CompaniesService,
       {} as DefaultAvatarsService,
       {} as AuthSessionsService,
+      {} as AuthService,
       configService as unknown as ConfigService,
       {} as IdentitySyncService,
     );
@@ -455,6 +458,7 @@ describe('UsersService administrator password resets', () => {
       companiesService,
       {} as DefaultAvatarsService,
       authSessionsService,
+      {} as AuthService,
       {} as ConfigService,
       {} as IdentitySyncService,
     );

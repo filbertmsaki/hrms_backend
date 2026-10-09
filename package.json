@@ -146,7 +146,7 @@
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "transformIgnorePatterns": [
-      "node_modules/(?!(digest-fetch|md5)/)"
+      "node_modules/(?!(digest-fetch|md5|otplib|@otplib|@scure|@noble)/)"
     ],
     "collectCoverageFrom": [
       "**/*.(t|j)s"
