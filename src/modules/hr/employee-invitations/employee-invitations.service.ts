@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -44,8 +45,15 @@ import {
   EmployeeInvitationStatus,
 } from './enums/employee-invitation.enum';
 
+/** Delivery rounds (first send + automatic retries) before giving up. */
+const MAX_DELIVERY_ATTEMPTS = 3;
+/** Wait this many minutes x attempts so far before the next retry. */
+const RETRY_BACKOFF_MINUTES = 15;
+
 @Injectable()
 export class EmployeeInvitationsService {
+  private readonly logger = new Logger(EmployeeInvitationsService.name);
+
   constructor(
     @InjectRepository(EmployeeInvitation)
     private readonly invitationRepository: Repository<EmployeeInvitation>,
@@ -117,6 +125,8 @@ export class EmployeeInvitationsService {
       acceptedAt: null,
       acceptedEmployeeId: null,
       sourceCandidateId,
+      deliveryAttempts: 0,
+      lastDeliveryAttemptAt: null,
     });
 
     // Expired-but-still-pending rows would otherwise trip the unique index.
@@ -251,6 +261,91 @@ export class EmployeeInvitationsService {
     return this.toResponse(invitation);
   }
 
+  /**
+   * Retries failed deliveries of pending invitations: up to
+   * MAX_DELIVERY_ATTEMPTS rounds in total, waiting RETRY_BACKOFF_MINUTES x
+   * attempts between rounds. Only failed channels are retried. A failed email
+   * gets a fresh token (only the hash is stored, and the old email never
+   * arrived); a failed SMS is re-sent as-is because it carries no link.
+   */
+  @Cron(CronExpression.EVERY_10_MINUTES, {
+    name: 'retry-employee-invitation-delivery',
+  })
+  async retryFailedDeliveries(): Promise<number> {
+    const claimed = await this.claimRetryableInvitations();
+    let retried = 0;
+    for (const id of claimed) {
+      const invitation = await this.invitationRepository.findOneBy({ id });
+      if (!invitation) continue;
+      const company = await this.companyRepository.findOneBy({
+        id: invitation.companyId,
+      });
+      if (!company) continue;
+
+      const channels: EmployeeInvitationChannel[] = [];
+      let rawToken: string | null = null;
+      if (
+        invitation.emailDeliveryStatus ===
+        EmployeeInvitationDeliveryStatus.FAILED
+      ) {
+        channels.push(EmployeeInvitationChannel.EMAIL);
+        rawToken = this.createToken();
+        invitation.tokenHash = this.hashToken(rawToken);
+      }
+      if (
+        invitation.smsDeliveryStatus === EmployeeInvitationDeliveryStatus.FAILED
+      ) {
+        channels.push(EmployeeInvitationChannel.SMS);
+      }
+      if (!channels.length) continue;
+
+      try {
+        await this.deliver(invitation, rawToken, company.name, channels);
+        retried += 1;
+      } catch (error) {
+        this.logger.warn(
+          `Retrying delivery of invitation ${id} failed: ${this.errorMessage(error)}`,
+        );
+      }
+    }
+    return retried;
+  }
+
+  /**
+   * Atomically picks due invitations and stamps them, so overlapping runs or
+   * extra app instances never retry the same invitation twice.
+   */
+  private async claimRetryableInvitations(): Promise<number[]> {
+    const rows: unknown = await this.dataSource.query(
+      `UPDATE "employee_invitations" AS "invitation"
+          SET "last_delivery_attempt_at" = now()
+        WHERE "invitation"."id" IN (
+          SELECT "id" FROM "employee_invitations"
+           WHERE "status" = $1
+             AND "expires_at" > now()
+             AND ("email_delivery_status" = $2 OR "sms_delivery_status" = $2)
+             AND "delivery_attempts" < $3
+             AND ("last_delivery_attempt_at" IS NULL OR
+                  "last_delivery_attempt_at" <= now() - make_interval(mins => $4 * GREATEST("delivery_attempts", 1)))
+           ORDER BY "last_delivery_attempt_at" NULLS FIRST
+           LIMIT 25
+           FOR UPDATE SKIP LOCKED
+        )
+        RETURNING "invitation"."id"`,
+      [
+        EmployeeInvitationStatus.PENDING,
+        EmployeeInvitationDeliveryStatus.FAILED,
+        MAX_DELIVERY_ATTEMPTS,
+        RETRY_BACKOFF_MINUTES,
+      ],
+    );
+    // node-postgres returns [rows, rowCount] for UPDATE ... RETURNING.
+    const list = Array.isArray(rows) && Array.isArray(rows[0]) ? rows[0] : rows;
+    return (Array.isArray(list) ? (list as Array<{ id: number }>) : []).map(
+      (row) => row.id,
+    );
+  }
+
   /** Marks pending invitations past their expiry as expired, every hour. */
   @Cron(CronExpression.EVERY_HOUR, { name: 'expire-employee-invitations' })
   async expireOverdueInvitations(): Promise<number> {
@@ -308,6 +403,8 @@ export class EmployeeInvitationsService {
     invitation.emailDeliveryStatus = EmployeeInvitationDeliveryStatus.QUEUED;
     invitation.emailLastError = null;
     invitation.smsLastError = null;
+    // A manual resend starts a fresh round of automatic retries.
+    invitation.deliveryAttempts = 0;
     // Whoever resends takes ownership, so an invitation whose original owner
     // left the company becomes acceptable again.
     if (actor.companyMembershipId) {
@@ -661,14 +758,20 @@ export class EmployeeInvitationsService {
 
   private async deliver(
     invitation: EmployeeInvitation,
-    rawToken: string,
+    // Null only for an SMS-only retry: the SMS never carries the link.
+    rawToken: string | null,
     companyName: string,
     channels: EmployeeInvitationChannel[],
   ): Promise<void> {
-    const actionUrl = this.buildInvitationUrl(rawToken);
     const name = `${invitation.firstName} ${invitation.lastName}`.trim();
+    invitation.deliveryAttempts = (invitation.deliveryAttempts ?? 0) + 1;
+    invitation.lastDeliveryAttemptAt = new Date();
 
     if (channels.includes(EmployeeInvitationChannel.EMAIL)) {
+      if (!rawToken) {
+        throw new Error('An email delivery needs a registration token');
+      }
+      const actionUrl = this.buildInvitationUrl(rawToken);
       try {
         const result = await this.mailService.sendGenericNotificationEmail(
           invitation.email,

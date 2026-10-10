@@ -104,6 +104,17 @@ export class EmployeeInvitation {
   @Column({ name: 'sms_last_error', type: 'text', nullable: true })
   smsLastError: string | null;
 
+  /** Delivery rounds since creation or the last manual resend. */
+  @Column({ name: 'delivery_attempts', type: 'int', default: 0 })
+  deliveryAttempts: number;
+
+  @Column({
+    name: 'last_delivery_attempt_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  lastDeliveryAttemptAt: Date | null;
+
   @Column({ name: 'created_by_company_user_id', type: 'int', nullable: true })
   createdByCompanyUserId: number | null;
 

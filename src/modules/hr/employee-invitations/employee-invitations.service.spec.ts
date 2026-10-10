@@ -169,6 +169,7 @@ describe('EmployeeInvitationsService', () => {
     };
     const dataSource = {
       transaction: jest.fn(async (work) => work(manager)),
+      query: jest.fn().mockResolvedValue([[], 0]),
     };
 
     const service = new EmployeeInvitationsService(
@@ -606,6 +607,154 @@ describe('EmployeeInvitationsService', () => {
       await expect(harness.service.findOne(2, 44)).rejects.toThrow(
         'Employee invitation not found',
       );
+    });
+  });
+
+  describe('automatic delivery retries', () => {
+    function failedInvitation(
+      email: EmployeeInvitationDeliveryStatus,
+      sms: EmployeeInvitationDeliveryStatus,
+    ) {
+      return {
+        id: 44,
+        companyId: 1,
+        status: EmployeeInvitationStatus.PENDING,
+        tokenHash: 'old-hash',
+        firstName: dto.first_name,
+        lastName: dto.last_name,
+        email: dto.email,
+        phone: dto.phone,
+        expiresAt: new Date(Date.now() + 60_000),
+        emailDeliveryStatus: email,
+        smsDeliveryStatus: sms,
+        emailLastError: 'boom',
+        smsLastError: null,
+        deliveryAttempts: 1,
+        lastDeliveryAttemptAt: new Date(Date.now() - 60 * 60_000),
+      };
+    }
+
+    function claim(harness: ReturnType<typeof createHarness>, ids: number[]) {
+      harness.dataSource.query.mockResolvedValueOnce([
+        ids.map((id) => ({ id })),
+        ids.length,
+      ]);
+    }
+
+    it('claims due invitations with the attempt limit, backoff and a skip-locked lock', async () => {
+      const harness = createHarness();
+      claim(harness, []);
+
+      await expect(harness.service.retryFailedDeliveries()).resolves.toBe(0);
+
+      const [sql, params] = harness.dataSource.query.mock.calls[0];
+      expect(sql).toContain('FOR UPDATE SKIP LOCKED');
+      expect(sql).toContain('"expires_at" > now()');
+      expect(sql).toContain(
+        'make_interval(mins => $4 * GREATEST("delivery_attempts", 1))',
+      );
+      expect(params).toEqual([
+        EmployeeInvitationStatus.PENDING,
+        EmployeeInvitationDeliveryStatus.FAILED,
+        3,
+        15,
+      ]);
+    });
+
+    it('re-sends a failed email with a fresh link and counts the attempt', async () => {
+      const harness = createHarness();
+      const invitation = failedInvitation(
+        EmployeeInvitationDeliveryStatus.FAILED,
+        EmployeeInvitationDeliveryStatus.SENT,
+      );
+      claim(harness, [44]);
+      harness.invitationRepository.findOneBy.mockResolvedValueOnce(invitation);
+
+      await expect(harness.service.retryFailedDeliveries()).resolves.toBe(1);
+
+      expect(invitation.tokenHash).not.toBe('old-hash');
+      expect(
+        harness.mailService.sendGenericNotificationEmail,
+      ).toHaveBeenCalledTimes(1);
+      const [, , , link] =
+        harness.mailService.sendGenericNotificationEmail.mock.calls[0];
+      const token = new URL(link as string).searchParams.get('token')!;
+      expect(createHash('sha256').update(token).digest('hex')).toBe(
+        invitation.tokenHash,
+      );
+      // The SMS already succeeded, so it is not sent again.
+      expect(
+        harness.smsService.sendGenericNotificationSms,
+      ).not.toHaveBeenCalled();
+      expect(invitation.emailDeliveryStatus).toBe(
+        EmployeeInvitationDeliveryStatus.SENT,
+      );
+      expect(invitation.deliveryAttempts).toBe(2);
+    });
+
+    it('re-sends only a failed SMS and keeps the existing link valid', async () => {
+      const harness = createHarness();
+      const invitation = failedInvitation(
+        EmployeeInvitationDeliveryStatus.SENT,
+        EmployeeInvitationDeliveryStatus.FAILED,
+      );
+      claim(harness, [44]);
+      harness.invitationRepository.findOneBy.mockResolvedValueOnce(invitation);
+
+      await harness.service.retryFailedDeliveries();
+
+      expect(invitation.tokenHash).toBe('old-hash');
+      expect(
+        harness.mailService.sendGenericNotificationEmail,
+      ).not.toHaveBeenCalled();
+      expect(
+        harness.smsService.sendGenericNotificationSms,
+      ).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps going when one invitation fails again', async () => {
+      const harness = createHarness();
+      const first = failedInvitation(
+        EmployeeInvitationDeliveryStatus.FAILED,
+        EmployeeInvitationDeliveryStatus.SKIPPED,
+      );
+      const second = { ...first, id: 45 };
+      claim(harness, [44, 45]);
+      harness.invitationRepository.findOneBy
+        .mockResolvedValueOnce(first)
+        .mockResolvedValueOnce(second);
+      harness.mailService.sendGenericNotificationEmail
+        .mockRejectedValueOnce(new Error('SMTP down'))
+        .mockResolvedValueOnce({ messageId: 'retry-ok' });
+
+      await expect(harness.service.retryFailedDeliveries()).resolves.toBe(2);
+
+      expect(first.emailDeliveryStatus).toBe(
+        EmployeeInvitationDeliveryStatus.FAILED,
+      );
+      expect(first.emailLastError).toBe('SMTP down');
+      expect(first.deliveryAttempts).toBe(2);
+      expect(second.emailDeliveryStatus).toBe(
+        EmployeeInvitationDeliveryStatus.SENT,
+      );
+    });
+
+    it('resets the attempt counter on a manual resend', async () => {
+      const harness = createHarness();
+      const invitation = {
+        ...failedInvitation(
+          EmployeeInvitationDeliveryStatus.FAILED,
+          EmployeeInvitationDeliveryStatus.SKIPPED,
+        ),
+        deliveryAttempts: 3,
+        createdByCompanyUserId: 20,
+      };
+      harness.invitationRepository.findOneBy.mockResolvedValue(invitation);
+
+      await harness.service.resend(1, 44, actor);
+
+      // Reset to 0, then the resend itself is attempt 1.
+      expect(invitation.deliveryAttempts).toBe(1);
     });
   });
 
