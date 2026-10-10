@@ -40,6 +40,11 @@ describe('EmployeeInvitationsService', () => {
       update: jest.fn().mockReturnThis(),
       set: jest.fn().mockReturnThis(),
       execute: jest.fn().mockResolvedValue({ affected: 0 }),
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
     };
     const invitationRepository = {
       create: jest.fn((value) => value),
@@ -483,6 +488,124 @@ describe('EmployeeInvitationsService', () => {
       expect(
         harness.employeesService.createInTransaction,
       ).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('history and lookup', () => {
+    it('pages results and reports pagination meta', async () => {
+      const harness = createHarness();
+      const row = {
+        id: 7,
+        status: EmployeeInvitationStatus.ACCEPTED,
+        firstName: 'A',
+        lastName: 'B',
+        email: 'a@example.com',
+        phone: '+255712345678',
+        expiresAt: new Date(Date.now() - 1_000),
+        acceptedAt: new Date('2026-10-01T10:00:00Z'),
+        acceptedEmployeeId: 91,
+        sourceCandidateId: null,
+      };
+      harness.duplicateQuery.getManyAndCount.mockResolvedValueOnce([[row], 41]);
+
+      const result = await harness.service.findHistory(1, {
+        status: 'all',
+        page: 3,
+        limit: 20,
+      });
+
+      expect(harness.duplicateQuery.skip).toHaveBeenCalledWith(40);
+      expect(harness.duplicateQuery.take).toHaveBeenCalledWith(20);
+      expect(result.meta).toEqual(
+        expect.objectContaining({
+          totalItems: 41,
+          currentPage: 3,
+          totalPages: 3,
+          hasNextPage: false,
+        }),
+      );
+      expect(result.data[0]).toEqual(
+        expect.objectContaining({
+          id: 7,
+          effective_status: EmployeeInvitationStatus.ACCEPTED,
+          accepted_at: '2026-10-01T10:00:00.000Z',
+          accepted_employee_id: 91,
+        }),
+      );
+    });
+
+    it('treats a pending invitation past its expiry as expired in responses', async () => {
+      const harness = createHarness();
+      harness.duplicateQuery.getManyAndCount.mockResolvedValueOnce([
+        [
+          {
+            id: 8,
+            status: EmployeeInvitationStatus.PENDING,
+            expiresAt: new Date(Date.now() - 1_000),
+          },
+        ],
+        1,
+      ]);
+
+      const result = await harness.service.findHistory(1, {});
+
+      expect(result.data[0].status).toBe(EmployeeInvitationStatus.PENDING);
+      expect(result.data[0].effective_status).toBe(
+        EmployeeInvitationStatus.EXPIRED,
+      );
+    });
+
+    it('filters "expired" by stored or effective expiry', async () => {
+      const harness = createHarness();
+
+      await harness.service.findHistory(1, {
+        status: EmployeeInvitationStatus.EXPIRED,
+      });
+
+      expect(harness.duplicateQuery.andWhere).toHaveBeenCalledWith(
+        expect.stringContaining('invitation.expires_at <= :now'),
+        expect.objectContaining({
+          expired: EmployeeInvitationStatus.EXPIRED,
+          pending: EmployeeInvitationStatus.PENDING,
+        }),
+      );
+    });
+
+    it('escapes LIKE wildcards in the search term', async () => {
+      const harness = createHarness();
+
+      await harness.service.findHistory(1, { search: '50%_off' });
+
+      expect(harness.duplicateQuery.andWhere).toHaveBeenCalledWith(
+        expect.stringContaining('ILIKE :term'),
+        { term: '%50\\%\\_off%' },
+      );
+    });
+
+    it('returns one invitation scoped to the company', async () => {
+      const harness = createHarness();
+      harness.invitationRepository.findOneBy.mockResolvedValueOnce({
+        id: 44,
+        status: EmployeeInvitationStatus.CANCELLED,
+        expiresAt: new Date(),
+      });
+
+      await expect(harness.service.findOne(1, 44)).resolves.toEqual(
+        expect.objectContaining({ id: 44, effective_status: 'cancelled' }),
+      );
+      expect(harness.invitationRepository.findOneBy).toHaveBeenCalledWith({
+        id: 44,
+        companyId: 1,
+      });
+    });
+
+    it('404s for an invitation in another company', async () => {
+      const harness = createHarness();
+      harness.invitationRepository.findOneBy.mockResolvedValueOnce(null);
+
+      await expect(harness.service.findOne(2, 44)).rejects.toThrow(
+        'Employee invitation not found',
+      );
     });
   });
 

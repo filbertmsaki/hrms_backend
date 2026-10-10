@@ -35,6 +35,8 @@ import {
 } from '../recruitment/entities/recruitment-candidate.entity';
 import { CreateEmployeeInvitationDto } from './dtos/create-employee-invitation.dto';
 import { AcceptEmployeeInvitationDto } from './dtos/accept-employee-invitation.dto';
+import { ListEmployeeInvitationsQueryDto } from './dtos/list-employee-invitations-query.dto';
+import { buildPaginationMeta } from '../shared/hr.utils';
 import { EmployeeInvitation } from './entities/employee-invitation.entity';
 import {
   EmployeeInvitationChannel,
@@ -181,6 +183,72 @@ export class EmployeeInvitationsService {
     });
 
     return invitations.map((invitation) => this.toResponse(invitation));
+  }
+
+  /** Every invitation for the company, filtered by effective status. */
+  async findHistory(companyId: number, query: ListEmployeeInvitationsQueryDto) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 25;
+    const now = new Date();
+    const qb = this.invitationRepository
+      .createQueryBuilder('invitation')
+      .where('invitation.company_id = :companyId', { companyId });
+
+    // "pending"/"expired" use the effective status, because the expiry sweep
+    // only runs hourly.
+    switch (query.status ?? 'all') {
+      case EmployeeInvitationStatus.PENDING:
+        qb.andWhere('invitation.status = :pending', {
+          pending: EmployeeInvitationStatus.PENDING,
+        }).andWhere('invitation.expires_at > :now', { now });
+        break;
+      case EmployeeInvitationStatus.EXPIRED:
+        qb.andWhere(
+          '(invitation.status = :expired OR (invitation.status = :pending AND invitation.expires_at <= :now))',
+          {
+            expired: EmployeeInvitationStatus.EXPIRED,
+            pending: EmployeeInvitationStatus.PENDING,
+            now,
+          },
+        );
+        break;
+      case EmployeeInvitationStatus.ACCEPTED:
+      case EmployeeInvitationStatus.CANCELLED:
+        qb.andWhere('invitation.status = :status', { status: query.status });
+        break;
+    }
+
+    if (query.search) {
+      qb.andWhere(
+        `(invitation.first_name ILIKE :term OR invitation.last_name ILIKE :term
+          OR (invitation.first_name || ' ' || invitation.last_name) ILIKE :term
+          OR invitation.email ILIKE :term OR invitation.phone ILIKE :term)`,
+        { term: `%${query.search.replace(/[\\%_]/g, '\\$&')}%` },
+      );
+    }
+
+    const [items, total] = await qb
+      .orderBy('invitation.created_at', 'DESC')
+      .addOrderBy('invitation.id', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    return {
+      data: items.map((invitation) => this.toResponse(invitation)),
+      meta: buildPaginationMeta(total, items.length, limit, page),
+    };
+  }
+
+  async findOne(companyId: number, invitationId: number) {
+    const invitation = await this.invitationRepository.findOneBy({
+      id: invitationId,
+      companyId,
+    });
+    if (!invitation) {
+      throw new NotFoundException('Employee invitation not found');
+    }
+    return this.toResponse(invitation);
   }
 
   /** Marks pending invitations past their expiry as expired, every hour. */
@@ -790,9 +858,19 @@ export class EmployeeInvitationsService {
   }
 
   private toResponse(invitation: EmployeeInvitation) {
+    const effectiveStatus =
+      invitation.status === EmployeeInvitationStatus.PENDING &&
+      invitation.expiresAt.getTime() <= Date.now()
+        ? EmployeeInvitationStatus.EXPIRED
+        : invitation.status;
     return {
       id: invitation.id,
       status: invitation.status,
+      /** Status as HR should see it: pending past expiry reads as expired. */
+      effective_status: effectiveStatus,
+      accepted_at: invitation.acceptedAt?.toISOString() ?? null,
+      accepted_employee_id: invitation.acceptedEmployeeId ?? null,
+      source_candidate_id: invitation.sourceCandidateId ?? null,
       first_name: invitation.firstName,
       last_name: invitation.lastName,
       email: invitation.email,

@@ -5,6 +5,7 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -22,6 +23,7 @@ import { TenantGuard } from '../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { CreateEmployeeInvitationDto } from './dtos/create-employee-invitation.dto';
 import { AcceptEmployeeInvitationDto } from './dtos/accept-employee-invitation.dto';
+import { ListEmployeeInvitationsQueryDto } from './dtos/list-employee-invitations-query.dto';
 import { EmployeeInvitationsService } from './employee-invitations.service';
 
 @ApiTags('Employee Invitations')
@@ -41,6 +43,41 @@ export class EmployeeInvitationsController {
   )
   findPending(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
     return this.employeeInvitationsService.findPending(req.user.companyId!);
+  }
+
+  // Declared before ':id' so "history" is not parsed as an id.
+  @Get('history')
+  @UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
+  @PermissionsAny(
+    'employees:create',
+    'onboarding_requests:read',
+    'onboarding_workflows:read',
+  )
+  findHistory(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: ListEmployeeInvitationsQueryDto,
+  ) {
+    return this.employeeInvitationsService.findHistory(
+      req.user.companyId!,
+      query,
+    );
+  }
+
+  @Get(':id')
+  @UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
+  @PermissionsAny(
+    'employees:create',
+    'onboarding_requests:read',
+    'onboarding_workflows:read',
+  )
+  findOne(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) invitationId: number,
+  ) {
+    return this.employeeInvitationsService.findOne(
+      req.user.companyId!,
+      invitationId,
+    );
   }
 
   @Post()
