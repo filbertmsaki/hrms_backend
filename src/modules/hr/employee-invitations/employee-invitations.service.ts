@@ -5,9 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomBytes } from 'crypto';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, MoreThan, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { isStrongPassword } from 'class-validator';
 import {
@@ -169,15 +170,30 @@ export class EmployeeInvitationsService {
   }
 
   async findPending(companyId: number) {
+    // Hide invitations that expired since the last sweep ran.
     const invitations = await this.invitationRepository.find({
       where: {
         companyId,
         status: EmployeeInvitationStatus.PENDING,
+        expiresAt: MoreThan(new Date()),
       },
       order: { createdAt: 'DESC' },
     });
 
     return invitations.map((invitation) => this.toResponse(invitation));
+  }
+
+  /** Marks pending invitations past their expiry as expired, every hour. */
+  @Cron(CronExpression.EVERY_HOUR, { name: 'expire-employee-invitations' })
+  async expireOverdueInvitations(): Promise<number> {
+    const result = await this.invitationRepository
+      .createQueryBuilder()
+      .update(EmployeeInvitation)
+      .set({ status: EmployeeInvitationStatus.EXPIRED })
+      .where('status = :status', { status: EmployeeInvitationStatus.PENDING })
+      .andWhere('expires_at <= :now', { now: new Date() })
+      .execute();
+    return result.affected ?? 0;
   }
 
   async resend(
@@ -192,8 +208,16 @@ export class EmployeeInvitationsService {
     if (!invitation) {
       throw new NotFoundException('Employee invitation not found');
     }
-    if (invitation.status !== EmployeeInvitationStatus.PENDING) {
-      throw new ConflictException('Only pending invitations can be resent');
+    // An expired invitation can be revived: resending issues a fresh token and
+    // expiry and makes it pending again.
+    const resendable = [
+      EmployeeInvitationStatus.PENDING,
+      EmployeeInvitationStatus.EXPIRED,
+    ];
+    if (!resendable.includes(invitation.status)) {
+      throw new ConflictException(
+        'Only pending or expired invitations can be resent',
+      );
     }
 
     const company = await this.companyRepository.findOneBy({ id: companyId });
@@ -221,7 +245,19 @@ export class EmployeeInvitationsService {
     if (actor.companyMembershipId) {
       invitation.createdByCompanyUserId = actor.companyMembershipId;
     }
-    await this.invitationRepository.save(invitation);
+    invitation.status = EmployeeInvitationStatus.PENDING;
+    try {
+      await this.invitationRepository.save(invitation);
+    } catch (error) {
+      // Reviving an expired invitation while a newer one is pending for the
+      // same person would break the one-pending-per-recipient rule.
+      if (this.isPendingDuplicate(error)) {
+        throw new ConflictException(
+          'A newer pending invitation already exists for this email address or phone number',
+        );
+      }
+      throw error;
+    }
     await this.deliver(invitation, rawToken, company.name, channels);
     return this.toResponse(invitation);
   }

@@ -236,9 +236,17 @@ describe('EmployeeInvitationsService', () => {
     const result = await service.findPending(1);
 
     expect(invitationRepository.find).toHaveBeenCalledWith({
-      where: { companyId: 1, status: EmployeeInvitationStatus.PENDING },
+      where: {
+        companyId: 1,
+        status: EmployeeInvitationStatus.PENDING,
+        expiresAt: expect.objectContaining({ _type: 'moreThan' }),
+      },
       order: { createdAt: 'DESC' },
     });
+    const { expiresAt } = invitationRepository.find.mock.calls[0][0].where;
+    expect(Math.abs(expiresAt.value.getTime() - Date.now())).toBeLessThan(
+      5_000,
+    );
     expect(result).toEqual([
       expect.objectContaining({
         id: 44,
@@ -474,6 +482,97 @@ describe('EmployeeInvitationsService', () => {
       );
       expect(
         harness.employeesService.createInTransaction,
+      ).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('expiry', () => {
+    function invitationWith(status: EmployeeInvitationStatus) {
+      return {
+        id: 44,
+        companyId: 1,
+        status,
+        tokenHash: 'old-hash',
+        firstName: dto.first_name,
+        lastName: dto.last_name,
+        email: dto.email,
+        phone: dto.phone,
+        createdByCompanyUserId: 20,
+        expiresAt: new Date(Date.now() - 60_000),
+        emailDeliveryStatus: EmployeeInvitationDeliveryStatus.SENT,
+        smsDeliveryStatus: EmployeeInvitationDeliveryStatus.SENT,
+        emailLastError: null,
+        smsLastError: null,
+      };
+    }
+
+    it('marks every overdue pending invitation as expired', async () => {
+      const harness = createHarness();
+      harness.duplicateQuery.execute.mockResolvedValueOnce({ affected: 3 });
+
+      await expect(harness.service.expireOverdueInvitations()).resolves.toBe(3);
+      expect(harness.duplicateQuery.set).toHaveBeenCalledWith({
+        status: EmployeeInvitationStatus.EXPIRED,
+      });
+      expect(harness.duplicateQuery.where).toHaveBeenCalledWith(
+        'status = :status',
+        { status: EmployeeInvitationStatus.PENDING },
+      );
+      expect(harness.duplicateQuery.andWhere).toHaveBeenCalledWith(
+        'expires_at <= :now',
+        { now: expect.any(Date) },
+      );
+    });
+
+    it('revives an expired invitation on resend with a fresh link and expiry', async () => {
+      const harness = createHarness();
+      const invitation = invitationWith(EmployeeInvitationStatus.EXPIRED);
+      harness.invitationRepository.findOneBy.mockResolvedValue(invitation);
+
+      const result = await harness.service.resend(1, 44, actor);
+
+      expect(result.status).toBe(EmployeeInvitationStatus.PENDING);
+      expect(invitation.tokenHash).not.toBe('old-hash');
+      expect(invitation.expiresAt.getTime()).toBeGreaterThan(Date.now());
+      expect(
+        harness.mailService.sendGenericNotificationEmail,
+      ).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      EmployeeInvitationStatus.ACCEPTED,
+      EmployeeInvitationStatus.CANCELLED,
+    ])('refuses to resend a %s invitation', async (status) => {
+      const harness = createHarness();
+      harness.invitationRepository.findOneBy.mockResolvedValue(
+        invitationWith(status),
+      );
+
+      await expect(harness.service.resend(1, 44, actor)).rejects.toThrow(
+        'Only pending or expired invitations can be resent',
+      );
+      expect(
+        harness.mailService.sendGenericNotificationEmail,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('refuses to revive an expired invitation when a newer one is pending', async () => {
+      const harness = createHarness();
+      harness.invitationRepository.findOneBy.mockResolvedValue(
+        invitationWith(EmployeeInvitationStatus.EXPIRED),
+      );
+      harness.invitationRepository.save.mockRejectedValueOnce(
+        Object.assign(new Error('duplicate key value'), {
+          code: '23505',
+          constraint: 'UQ_employee_invitation_pending_email',
+        }),
+      );
+
+      await expect(harness.service.resend(1, 44, actor)).rejects.toThrow(
+        'A newer pending invitation already exists',
+      );
+      expect(
+        harness.mailService.sendGenericNotificationEmail,
       ).not.toHaveBeenCalled();
     });
   });
