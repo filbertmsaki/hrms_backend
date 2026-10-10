@@ -114,9 +114,56 @@ export class EmployeeInvitationsService {
       sourceCandidateId,
     });
 
-    const saved = await this.invitationRepository.save(invitation);
+    // Expired-but-still-pending rows would otherwise trip the unique index.
+    await this.expireStalePending(companyId, dto.email, dto.phone);
+    let saved: EmployeeInvitation;
+    try {
+      saved = await this.invitationRepository.save(invitation);
+    } catch (error) {
+      // Two HR users inviting the same person at once: the partial unique
+      // index lets exactly one insert win.
+      if (this.isPendingDuplicate(error)) {
+        throw new ConflictException(
+          'A pending invitation already exists for this email address or phone number',
+        );
+      }
+      throw error;
+    }
     await this.deliver(saved, rawToken, company.name, dto.channels);
     return this.toResponse(saved);
+  }
+
+  private async expireStalePending(
+    companyId: number,
+    email: string,
+    phone: string,
+  ): Promise<void> {
+    await this.invitationRepository
+      .createQueryBuilder()
+      .update(EmployeeInvitation)
+      .set({ status: EmployeeInvitationStatus.EXPIRED })
+      .where('company_id = :companyId', { companyId })
+      .andWhere('status = :status', {
+        status: EmployeeInvitationStatus.PENDING,
+      })
+      .andWhere('expires_at <= :now', { now: new Date() })
+      .andWhere('(email = :email OR phone = :phone)', { email, phone })
+      .execute();
+  }
+
+  private isPendingDuplicate(error: unknown): boolean {
+    const driverError = error as {
+      code?: string;
+      constraint?: string;
+      driverError?: { code?: string; constraint?: string };
+    };
+    const code = driverError?.code ?? driverError?.driverError?.code;
+    const constraint =
+      driverError?.constraint ?? driverError?.driverError?.constraint ?? '';
+    return (
+      code === '23505' &&
+      constraint.startsWith('UQ_employee_invitation_pending_')
+    );
   }
 
   async findPending(companyId: number) {
@@ -131,7 +178,11 @@ export class EmployeeInvitationsService {
     return invitations.map((invitation) => this.toResponse(invitation));
   }
 
-  async resend(companyId: number, invitationId: number) {
+  async resend(
+    companyId: number,
+    invitationId: number,
+    actor: AuthenticatedUser,
+  ) {
     const invitation = await this.invitationRepository.findOneBy({
       id: invitationId,
       companyId,
@@ -155,6 +206,11 @@ export class EmployeeInvitationsService {
     invitation.smsDeliveryStatus = EmployeeInvitationDeliveryStatus.QUEUED;
     invitation.emailLastError = null;
     invitation.smsLastError = null;
+    // Whoever resends takes ownership, so an invitation whose original owner
+    // left the company becomes acceptable again.
+    if (actor.companyMembershipId) {
+      invitation.createdByCompanyUserId = actor.companyMembershipId;
+    }
     await this.invitationRepository.save(invitation);
     await this.deliver(invitation, rawToken, company.name, [
       EmployeeInvitationChannel.EMAIL,
@@ -604,13 +660,20 @@ export class EmployeeInvitationsService {
   private async resolveInvitationActor(
     invitation: EmployeeInvitation,
   ): Promise<AuthenticatedUser> {
+    // The employee is created with the invitation owner's permissions and data
+    // scope. Never borrow another member's: without an active owner, HR must
+    // resend (which makes the resender the owner).
+    if (!invitation.createdByCompanyUserId) {
+      throw new ConflictException(
+        'The invitation owner is no longer available. Ask HR to resend it.',
+      );
+    }
     const membership = await this.companyUserRepository.findOne({
-      where: invitation.createdByCompanyUserId
-        ? {
-            id: invitation.createdByCompanyUserId,
-            company_id: invitation.companyId,
-          }
-        : { company_id: invitation.companyId, status: 'active' },
+      where: {
+        id: invitation.createdByCompanyUserId,
+        company_id: invitation.companyId,
+        status: 'active',
+      },
       relations: {
         user: true,
         employee: true,
@@ -623,7 +686,6 @@ export class EmployeeInvitationsService {
           permission: true,
         },
       },
-      order: { id: 'ASC' },
     });
     if (!membership?.user) {
       throw new ConflictException(

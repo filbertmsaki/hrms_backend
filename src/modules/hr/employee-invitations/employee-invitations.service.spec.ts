@@ -33,6 +33,9 @@ describe('EmployeeInvitationsService', () => {
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       getOne: jest.fn().mockResolvedValue(null),
+      update: jest.fn().mockReturnThis(),
+      set: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockResolvedValue({ affected: 0 }),
     };
     const invitationRepository = {
       create: jest.fn((value) => value),
@@ -183,6 +186,7 @@ describe('EmployeeInvitationsService', () => {
       companyUserRepository,
       userRepository,
       existingEmployeeQuery,
+      duplicateQuery,
       mailService,
       smsService,
       employeesService,
@@ -324,6 +328,149 @@ describe('EmployeeInvitationsService', () => {
       expect(
         harness.mailService.sendGenericNotificationEmail,
       ).toHaveBeenCalled();
+    });
+  });
+
+  describe('concurrent invitations for the same recipient', () => {
+    function uniqueViolation(constraint: string) {
+      return Object.assign(new Error('duplicate key value'), {
+        code: '23505',
+        constraint,
+      });
+    }
+
+    it('expires stale pending invitations for the recipient before inserting', async () => {
+      const harness = createHarness();
+
+      await harness.service.create(1, dto, actor);
+
+      expect(harness.duplicateQuery.set).toHaveBeenCalledWith({
+        status: EmployeeInvitationStatus.EXPIRED,
+      });
+      expect(harness.duplicateQuery.andWhere).toHaveBeenCalledWith(
+        '(email = :email OR phone = :phone)',
+        { email: dto.email, phone: dto.phone },
+      );
+      expect(harness.duplicateQuery.execute).toHaveBeenCalled();
+      const expireOrder =
+        harness.duplicateQuery.execute.mock.invocationCallOrder[0];
+      const saveOrder =
+        harness.invitationRepository.save.mock.invocationCallOrder[0];
+      expect(expireOrder).toBeLessThan(saveOrder);
+    });
+
+    it.each([
+      'UQ_employee_invitation_pending_email',
+      'UQ_employee_invitation_pending_phone',
+    ])(
+      'turns a %s race into a 409 without sending anything',
+      async (constraint) => {
+        const harness = createHarness();
+        harness.invitationRepository.save.mockRejectedValueOnce(
+          uniqueViolation(constraint),
+        );
+
+        await expect(harness.service.create(1, dto, actor)).rejects.toThrow(
+          'A pending invitation already exists',
+        );
+        expect(
+          harness.mailService.sendGenericNotificationEmail,
+        ).not.toHaveBeenCalled();
+        expect(
+          harness.smsService.sendGenericNotificationSms,
+        ).not.toHaveBeenCalled();
+      },
+    );
+
+    it('rethrows unrelated database errors', async () => {
+      const harness = createHarness();
+      harness.invitationRepository.save.mockRejectedValueOnce(
+        uniqueViolation('UQ_some_other_constraint'),
+      );
+
+      await expect(harness.service.create(1, dto, actor)).rejects.toThrow(
+        'duplicate key value',
+      );
+    });
+  });
+
+  describe('invitation ownership', () => {
+    function ownedInvitation(ownerId: number | null) {
+      return {
+        id: 44,
+        companyId: 1,
+        status: EmployeeInvitationStatus.PENDING,
+        tokenHash: createHash('sha256').update('owner-token').digest('hex'),
+        firstName: dto.first_name,
+        lastName: dto.last_name,
+        gender: dto.gender,
+        email: dto.email,
+        phone: dto.phone,
+        primaryBranchId: dto.primary_branch_id,
+        primaryDepartmentId: dto.primary_department_id,
+        primaryPositionId: dto.primary_position_id,
+        employmentType: dto.employment_type,
+        reportsTo: null,
+        hireDate: null,
+        onboardingWorkflowId: null,
+        createdByCompanyUserId: ownerId,
+        expiresAt: new Date(Date.now() + 60_000),
+        emailDeliveryStatus: EmployeeInvitationDeliveryStatus.SENT,
+        smsDeliveryStatus: EmployeeInvitationDeliveryStatus.SENT,
+        emailLastError: null,
+        smsLastError: null,
+      };
+    }
+
+    it('makes the resender the owner of the invitation', async () => {
+      const harness = createHarness();
+      const invitation = ownedInvitation(5);
+      harness.invitationRepository.findOneBy.mockResolvedValue(invitation);
+
+      await harness.service.resend(1, 44, {
+        ...actor,
+        companyMembershipId: 33,
+      });
+
+      expect(invitation.createdByCompanyUserId).toBe(33);
+      expect(harness.invitationRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ createdByCompanyUserId: 33 }),
+      );
+    });
+
+    it('refuses to accept an invitation with no owner instead of borrowing another member', async () => {
+      const harness = createHarness();
+      harness.invitationRepository.findOneBy.mockResolvedValue(
+        ownedInvitation(null),
+      );
+
+      await expect(
+        harness.service.accept('owner-token', { password: 'StrongPass#2026' }),
+      ).rejects.toThrow('Ask HR to resend it');
+      expect(harness.companyUserRepository.findOne).not.toHaveBeenCalled();
+      expect(
+        harness.employeesService.createInTransaction,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('only accepts on behalf of an owner whose membership is still active', async () => {
+      const harness = createHarness();
+      harness.invitationRepository.findOneBy.mockResolvedValue(
+        ownedInvitation(20),
+      );
+      harness.companyUserRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        harness.service.accept('owner-token', { password: 'StrongPass#2026' }),
+      ).rejects.toThrow('Ask HR to resend it');
+      expect(harness.companyUserRepository.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 20, company_id: 1, status: 'active' },
+        }),
+      );
+      expect(
+        harness.employeesService.createInTransaction,
+      ).not.toHaveBeenCalled();
     });
   });
 

@@ -201,7 +201,11 @@ describe('Employee invitations endpoints (e2e)', () => {
       .post('/employee-invitations/44/resend')
       .expect(201);
 
-    expect(invitationsService.resend).toHaveBeenCalledWith(10, 44);
+    expect(invitationsService.resend).toHaveBeenCalledWith(
+      10,
+      44,
+      expect.objectContaining({ companyId: 10 }),
+    );
   });
 
   it('allows public invitation lookup and acceptance with password validation', async () => {

@@ -17,6 +17,16 @@ import {
 @Index('IDX_employee_invitation_company_email', ['companyId', 'email'])
 @Index('IDX_employee_invitation_company_phone', ['companyId', 'phone'])
 @Index('IDX_employee_invitation_expires_at', ['expiresAt'])
+// At most one pending invitation per recipient per company. Emails are stored
+// lower-cased and phones canonicalised, so plain column uniqueness is enough.
+@Index('UQ_employee_invitation_pending_email', ['companyId', 'email'], {
+  unique: true,
+  where: `"status" = 'pending'`,
+})
+@Index('UQ_employee_invitation_pending_phone', ['companyId', 'phone'], {
+  unique: true,
+  where: `"status" = 'pending'`,
+})
 export class EmployeeInvitation {
   @PrimaryGeneratedColumn()
   id: number;

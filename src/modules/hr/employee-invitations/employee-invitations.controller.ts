@@ -67,6 +67,7 @@ export class EmployeeInvitationsController {
     return this.employeeInvitationsService.resend(
       req.user.companyId!,
       invitationId,
+      req.user,
     );
   }
 
