@@ -102,7 +102,9 @@ export class EmployeeInvitationsService {
       onboardingWorkflowId: dto.onboarding_workflow_id ?? null,
       status: EmployeeInvitationStatus.PENDING,
       emailDeliveryStatus: EmployeeInvitationDeliveryStatus.QUEUED,
-      smsDeliveryStatus: EmployeeInvitationDeliveryStatus.QUEUED,
+      smsDeliveryStatus: dto.channels.includes(EmployeeInvitationChannel.SMS)
+        ? EmployeeInvitationDeliveryStatus.QUEUED
+        : EmployeeInvitationDeliveryStatus.SKIPPED,
       emailMessageId: null,
       smsMessageId: null,
       emailLastError: null,
@@ -202,8 +204,16 @@ export class EmployeeInvitationsService {
     const rawToken = this.createToken();
     invitation.tokenHash = this.hashToken(rawToken);
     invitation.expiresAt = this.createExpiry();
+    // Resend through the channels chosen at creation; a skipped SMS stays
+    // skipped. Rows created before SKIPPED existed resend through both.
+    const channels = [EmployeeInvitationChannel.EMAIL];
+    if (
+      invitation.smsDeliveryStatus !== EmployeeInvitationDeliveryStatus.SKIPPED
+    ) {
+      channels.push(EmployeeInvitationChannel.SMS);
+      invitation.smsDeliveryStatus = EmployeeInvitationDeliveryStatus.QUEUED;
+    }
     invitation.emailDeliveryStatus = EmployeeInvitationDeliveryStatus.QUEUED;
-    invitation.smsDeliveryStatus = EmployeeInvitationDeliveryStatus.QUEUED;
     invitation.emailLastError = null;
     invitation.smsLastError = null;
     // Whoever resends takes ownership, so an invitation whose original owner
@@ -212,10 +222,7 @@ export class EmployeeInvitationsService {
       invitation.createdByCompanyUserId = actor.companyMembershipId;
     }
     await this.invitationRepository.save(invitation);
-    await this.deliver(invitation, rawToken, company.name, [
-      EmployeeInvitationChannel.EMAIL,
-      EmployeeInvitationChannel.SMS,
-    ]);
+    await this.deliver(invitation, rawToken, company.name, channels);
     return this.toResponse(invitation);
   }
 

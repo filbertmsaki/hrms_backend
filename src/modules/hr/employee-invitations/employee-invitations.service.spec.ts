@@ -11,6 +11,10 @@ import {
 } from './enums/employee-invitation.enum';
 
 describe('EmployeeInvitationsService', () => {
+  // Accept tests hash and compare real bcrypt passwords, which can exceed the
+  // default 5s on a loaded machine or CI runner.
+  jest.setTimeout(30_000);
+
   const dto = {
     first_name: 'Amina',
     last_name: 'Moshi',
@@ -472,6 +476,91 @@ describe('EmployeeInvitationsService', () => {
         harness.employeesService.createInTransaction,
       ).not.toHaveBeenCalled();
     });
+  });
+
+  describe('delivery channels', () => {
+    function pendingFor(smsStatus: EmployeeInvitationDeliveryStatus) {
+      return {
+        id: 44,
+        companyId: 1,
+        status: EmployeeInvitationStatus.PENDING,
+        firstName: dto.first_name,
+        lastName: dto.last_name,
+        email: dto.email,
+        phone: dto.phone,
+        createdByCompanyUserId: 20,
+        expiresAt: new Date(Date.now() + 60_000),
+        emailDeliveryStatus: EmployeeInvitationDeliveryStatus.SENT,
+        smsDeliveryStatus: smsStatus,
+        emailLastError: null,
+        smsLastError: null,
+      };
+    }
+
+    it('sends email only and records SMS as skipped when SMS was not chosen', async () => {
+      const harness = createHarness();
+
+      const result = await harness.service.create(
+        1,
+        { ...dto, channels: [EmployeeInvitationChannel.EMAIL] },
+        actor,
+      );
+
+      expect(
+        harness.mailService.sendGenericNotificationEmail,
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        harness.smsService.sendGenericNotificationSms,
+      ).not.toHaveBeenCalled();
+      expect(result.delivery.sms.status).toBe(
+        EmployeeInvitationDeliveryStatus.SKIPPED,
+      );
+      expect(result.delivery.email.status).toBe(
+        EmployeeInvitationDeliveryStatus.SENT,
+      );
+    });
+
+    it('resends an email-only invitation by email only', async () => {
+      const harness = createHarness();
+      const invitation = pendingFor(EmployeeInvitationDeliveryStatus.SKIPPED);
+      harness.invitationRepository.findOneBy.mockResolvedValue(invitation);
+
+      await harness.service.resend(1, 44, actor);
+
+      expect(
+        harness.mailService.sendGenericNotificationEmail,
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        harness.smsService.sendGenericNotificationSms,
+      ).not.toHaveBeenCalled();
+      expect(invitation.smsDeliveryStatus).toBe(
+        EmployeeInvitationDeliveryStatus.SKIPPED,
+      );
+    });
+
+    it.each([
+      EmployeeInvitationDeliveryStatus.SENT,
+      EmployeeInvitationDeliveryStatus.ACCEPTED,
+      EmployeeInvitationDeliveryStatus.FAILED,
+      EmployeeInvitationDeliveryStatus.QUEUED,
+    ])(
+      'resends by email and SMS when SMS was chosen (previous SMS status %s)',
+      async (smsStatus) => {
+        const harness = createHarness();
+        harness.invitationRepository.findOneBy.mockResolvedValue(
+          pendingFor(smsStatus),
+        );
+
+        await harness.service.resend(1, 44, actor);
+
+        expect(
+          harness.mailService.sendGenericNotificationEmail,
+        ).toHaveBeenCalledTimes(1);
+        expect(
+          harness.smsService.sendGenericNotificationSms,
+        ).toHaveBeenCalledTimes(1);
+      },
+    );
   });
 
   it('sends through email and SMS without returning the token', async () => {
