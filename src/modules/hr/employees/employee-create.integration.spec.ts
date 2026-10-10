@@ -14,6 +14,7 @@ import { EmployeesController } from './employees.controller';
 import { EmployeesService } from './employees.service';
 import { EmployeeAssignmentService } from './employee-assignment.service';
 import { EmployeeImportService } from './import/employee-import.service';
+import { EmployeePermanentDeletionService } from './employee-permanent-deletion.service';
 import { Employee } from './entities/employee.entity';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { User } from '../../users/entities/user.entity';
@@ -182,6 +183,7 @@ describe('Employee and onboarding creation HTTP contract', () => {
         { provide: OnboardingService, useValue: onboarding },
         { provide: EmployeeAssignmentService, useValue: {} },
         { provide: EmployeeImportService, useValue: {} },
+        { provide: EmployeePermanentDeletionService, useValue: {} },
       ],
     })
       .overrideGuard(AuthGuard('jwt'))
