@@ -21,7 +21,7 @@ type ImportRowResult = {
   row: number;
   employee_no: string;
   leave_type_code: string;
-  status: 'created' | 'failed';
+  status: 'ready' | 'created' | 'failed';
   leave_request_id?: number | null;
   leave_no?: string | null;
   message?: string;
@@ -211,6 +211,7 @@ export class LeaveImportService {
     companyId: number,
     file: UploadedWorkbook | undefined,
     actor: AuthenticatedUser,
+    previewOnly = false,
   ) {
     if (!file?.buffer?.length) {
       throw new BadRequestException('Select an .xlsx leave import file.');
@@ -329,6 +330,17 @@ export class LeaveImportService {
         };
         if (!row.reason.trim()) throw new Error('reason is required.');
         if (
+          !/^\d{4}-\d{2}-\d{2}$/.test(row.start_date) ||
+          Number.isNaN(Date.parse(`${row.start_date}T00:00:00Z`)) ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(row.end_date) ||
+          Number.isNaN(Date.parse(`${row.end_date}T00:00:00Z`))
+        ) {
+          throw new Error('start_date and end_date must use YYYY-MM-DD.');
+        }
+        if (row.start_date > row.end_date) {
+          throw new Error('start_date cannot be after end_date.');
+        }
+        if (
           durationType === LeaveDurationTypeEnum.HALF_DAY &&
           !Object.values(LeaveHalfDaySessionEnum).includes(halfDaySession)
         ) {
@@ -344,6 +356,22 @@ export class LeaveImportService {
           throw new Error(
             'Short leave start_time and end_time must use HH:MM.',
           );
+        }
+        if (previewOnly && leaveType.requires_attachment && dto.submit) {
+          throw new Error(
+            'This leave type requires an attachment. Import it as a draft, then attach evidence before submitting.',
+          );
+        }
+        if (previewOnly) {
+          results.push({
+            row: rowNumber,
+            employee_no: row.employee_no,
+            leave_type_code: row.leave_type_code,
+            status: 'ready',
+            message:
+              'Workbook fields and company records are valid. Leave policy, overlap, and balance rules will be checked again at confirmation.',
+          });
+          continue;
         }
         const created = (await this.leaveService.createLeaveRequest(
           companyId,
@@ -379,7 +407,9 @@ export class LeaveImportService {
     return {
       total: results.length,
       created: results.filter((row) => row.status === 'created').length,
+      ready: results.filter((row) => row.status === 'ready').length,
       failed: results.filter((row) => row.status === 'failed').length,
+      preview: previewOnly,
       results,
     };
   }

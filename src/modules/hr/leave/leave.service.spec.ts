@@ -1,4 +1,4 @@
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ConfigService } from '@nestjs/config';
 import { LeaveService } from './leave.service';
@@ -365,6 +365,13 @@ describe('LeaveService', () => {
         if (entity === LeaveRequest) {
           return managerLeaveRequestRepository;
         }
+        if (entity === LeaveType) {
+          return {
+            findOne: jest
+              .fn()
+              .mockResolvedValue({ requires_attachment: false }),
+          };
+        }
         if (entity === AttendanceRecalculationJob) {
           return managerRecalculationRepository;
         }
@@ -428,6 +435,58 @@ describe('LeaveService', () => {
         action: 'leave_request.submitted',
         leave_request_id: 77,
       }),
+    );
+  });
+
+  it('blocks workflow submission when the leave type requires evidence and no document is attached', async () => {
+    const leaveRequest = {
+      id: 77,
+      leave_type_id: 7,
+      total_days: '1.00',
+      start_date: '2026-06-10',
+      approval_cycle: 1,
+    } as LeaveRequest;
+    const manager = {
+      getRepository: jest.fn((entity) => {
+        if (entity === LeaveRequest) return { save: jest.fn() };
+        if (entity === LeaveType) {
+          return {
+            findOne: jest.fn().mockResolvedValue({
+              id: 7,
+              company_id: 10,
+              requires_attachment: true,
+            }),
+          };
+        }
+        if (entity === LeaveDocument) {
+          return { findOne: jest.fn().mockResolvedValue(null) };
+        }
+        throw new Error('Unexpected repository request');
+      }),
+    } as unknown as EntityManager;
+
+    await expect(
+      (
+        service as unknown as {
+          submitLeaveRequestRecord: (...args: unknown[]) => Promise<void>;
+        }
+      ).submitLeaveRequestRecord(
+        10,
+        leaveRequest,
+        { id: 501 } as Employee,
+        {
+          policy: null,
+          allowNegativeBalance: false,
+          maxConsecutiveDays: null,
+          minServiceMonths: 0,
+          requiresApproval: true,
+          maxPerRequestDays: null,
+        },
+        actor,
+        manager,
+      ),
+    ).rejects.toThrow(
+      'A supporting attachment is required before this leave request can be submitted.',
     );
   });
 

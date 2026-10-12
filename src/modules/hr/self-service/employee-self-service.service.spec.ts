@@ -230,8 +230,10 @@ describe('EmployeeSelfServiceService', () => {
 
     await service.createLeaveRequest(actor, {
       leave_type_id: 4,
+      duration_type: 'HALF_DAY' as never,
       start_date: '2026-06-20',
       end_date: '2026-06-22',
+      half_day_session: 'SECOND_HALF' as never,
       reason: 'Family commitment',
       submit: true,
     });
@@ -241,8 +243,10 @@ describe('EmployeeSelfServiceService', () => {
       expect.objectContaining({
         employee_id: 15,
         leave_type_id: 4,
+        duration_type: 'HALF_DAY',
         start_date: '2026-06-20',
         end_date: '2026-06-22',
+        half_day_session: 'SECOND_HALF',
         reason: 'Family commitment',
         submit: true,
       }),

@@ -24,6 +24,7 @@ import { CancelLeaveRequestDto } from '../leave/dtos/cancel-leave-request.dto';
 import { LeaveBalanceQueryDto } from '../leave/dtos/leave-balance-query.dto';
 import { LeaveRequestQueryDto } from '../leave/dtos/leave-request-query.dto';
 import { CreateLeaveRequestDto } from '../leave/dtos/create-leave-request.dto';
+import { AddLeaveDocumentDto } from '../leave/dtos/add-leave-document.dto';
 import { LeaveStatusEnum } from '../leave/enums/leave-status.enum';
 import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { AttendanceDailySummaryService } from '../attendance/processing/attendance-daily-summary.service';
@@ -1053,13 +1054,32 @@ export class EmployeeSelfServiceService {
     const payload: CreateLeaveRequestDto = {
       employee_id: employeeId,
       leave_type_id: dto.leave_type_id,
+      duration_type: dto.duration_type,
       start_date: dto.start_date,
       end_date: dto.end_date,
+      half_day_session: dto.half_day_session,
+      start_time: dto.start_time,
+      end_time: dto.end_time,
       reason: dto.reason,
       submit: dto.submit,
     };
 
     return this.leaveService.createLeaveRequest(companyId, payload, actor);
+  }
+
+  async addMyLeaveRequestDocument(
+    actor: AuthenticatedUser,
+    leaveRequestId: number,
+    dto: AddLeaveDocumentDto,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    await this.ensureOwnLeaveRequest(companyId, actor, leaveRequestId);
+    return this.leaveService.addLeaveDocument(
+      companyId,
+      leaveRequestId,
+      dto,
+      actor,
+    );
   }
 
   async submitLeaveRequest(actor: AuthenticatedUser, leaveRequestId: number) {

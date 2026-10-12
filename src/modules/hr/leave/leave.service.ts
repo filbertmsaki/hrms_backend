@@ -794,6 +794,23 @@ export class LeaveService {
     manager: EntityManager,
   ): Promise<void> {
     const repository = manager.getRepository(LeaveRequest);
+    const leaveType = await manager.getRepository(LeaveType).findOne({
+      where: { id: leaveRequest.leave_type_id, company_id: companyId },
+    });
+    if (!leaveType) {
+      throw new NotFoundException('Leave type not found');
+    }
+    if (leaveType.requires_attachment) {
+      const evidence = await manager.getRepository(LeaveDocument).findOne({
+        where: { leave_request_id: leaveRequest.id },
+        select: ['id'],
+      });
+      if (!evidence) {
+        throw new BadRequestException(
+          'A supporting attachment is required before this leave request can be submitted.',
+        );
+      }
+    }
     const totalDays = this.leaveBalanceService.toNumber(
       leaveRequest.total_days,
     );

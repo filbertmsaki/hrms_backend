@@ -36,6 +36,7 @@ import { LeaveRequestQueryDto } from '../leave/dtos/leave-request-query.dto';
 import { CreateAttendanceCorrectionRequestDto } from './dtos/create-attendance-correction-request.dto';
 import { CreateMyAttendancePunchDto } from './dtos/create-my-attendance-punch.dto';
 import { CreateMyLeaveRequestDto } from './dtos/create-my-leave-request.dto';
+import { AddLeaveDocumentDto } from '../leave/dtos/add-leave-document.dto';
 import { CreateProfileUpdateRequestDto } from './dtos/create-profile-update-request.dto';
 import { MyAttendanceAssignmentQueryDto } from './dtos/my-attendance-assignment-query.dto';
 import { MyAttendanceOverviewQueryDto } from './dtos/my-attendance-overview-query.dto';
@@ -369,6 +370,20 @@ export class EmployeeSelfServiceController {
     @Body() dto: CreateMyLeaveRequestDto,
   ) {
     return this.employeeSelfServiceService.createLeaveRequest(req.user, dto);
+  }
+
+  @Post('leave/requests/:id/documents')
+  @ApiOperation({ summary: 'Attach a supporting document to my leave request' })
+  addLeaveRequestDocument(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AddLeaveDocumentDto,
+  ) {
+    return this.employeeSelfServiceService.addMyLeaveRequestDocument(
+      req.user,
+      id,
+      dto,
+    );
   }
 
   @Post('leave/requests/:id/submit')

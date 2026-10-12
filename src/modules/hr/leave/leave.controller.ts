@@ -727,8 +727,64 @@ export class LeaveController {
   @UseInterceptors(
     FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }),
   )
-  @ApiOperation({ summary: 'Bulk import leave requests from Excel' })
-  importLeaveRequests(
+  @ApiOperation({
+    summary: 'Preview leave request import without creating rows',
+  })
+  previewLeaveRequests(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @UploadedFile()
+    file: {
+      originalname: string;
+      mimetype: string;
+      size: number;
+      buffer: Buffer;
+    },
+  ) {
+    return this.leaveImportService.import(
+      req.user.companyId!,
+      file,
+      req.user,
+      true,
+    );
+  }
+
+  @Post('requests/import/preview')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_requests:create')
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }),
+  )
+  @ApiOperation({
+    summary: 'Validate leave request import without creating rows',
+  })
+  previewLeaveRequestsImport(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @UploadedFile()
+    file: {
+      originalname: string;
+      mimetype: string;
+      size: number;
+      buffer: Buffer;
+    },
+  ) {
+    return this.leaveImportService.import(
+      req.user.companyId!,
+      file,
+      req.user,
+      true,
+    );
+  }
+
+  @Post('requests/import/confirm')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_requests:create')
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }),
+  )
+  @ApiOperation({
+    summary: 'Confirm a previously reviewed leave import workbook',
+  })
+  confirmLeaveRequestsImport(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @UploadedFile()
     file: {

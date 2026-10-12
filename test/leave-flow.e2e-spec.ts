@@ -165,6 +165,10 @@ describe('Leave Flow (e2e)', () => {
   let filesService: {
     saveBase64File: jest.Mock;
   };
+  let leaveImportService: {
+    downloadTemplate: jest.Mock;
+    import: jest.Mock;
+  };
 
   beforeEach(async () => {
     dataSource = {
@@ -234,6 +238,10 @@ describe('Leave Flow (e2e)', () => {
     };
     filesService = {
       saveBase64File: jest.fn(),
+    };
+    leaveImportService = {
+      downloadTemplate: jest.fn(),
+      import: jest.fn(),
     };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
@@ -343,10 +351,7 @@ describe('Leave Flow (e2e)', () => {
         { provide: LeavePdfService, useValue: {} },
         {
           provide: LeaveImportService,
-          useValue: {
-            downloadTemplate: jest.fn(),
-            import: jest.fn(),
-          },
+          useValue: leaveImportService,
         },
         {
           provide: LeaveBalanceImportService,
@@ -450,11 +455,19 @@ describe('Leave Flow (e2e)', () => {
       create: jest.fn((value: unknown) => value),
       save: jest.fn((value: unknown) => value),
     };
+    const managerLeaveTypeRepository = {
+      findOne: jest.fn().mockResolvedValue({ requires_attachment: true }),
+    };
+    const managerLeaveDocumentRepository = {
+      findOne: jest.fn().mockResolvedValue(null),
+    };
     const manager = {
       getRepository: jest.fn((entity: unknown) => {
         if (entity === LeaveRequest) {
           return managerLeaveRequestRepository;
         }
+        if (entity === LeaveType) return managerLeaveTypeRepository;
+        if (entity === LeaveDocument) return managerLeaveDocumentRepository;
         if (entity === AttendanceRecalculationJob) {
           return managerRecalculationRepository;
         }
@@ -523,6 +536,17 @@ describe('Leave Flow (e2e)', () => {
       (callback: (manager: unknown) => unknown) => callback(manager),
     );
 
+    await request(app.getHttpServer() as App)
+      .post('/leave/requests/77/submit')
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.message).toContain('supporting attachment is required');
+      });
+    expect(managerLeaveDocumentRepository.findOne).toHaveBeenCalledTimes(1);
+
+    managerLeaveTypeRepository.findOne.mockResolvedValue({
+      requires_attachment: false,
+    });
     const response = await request(app.getHttpServer() as App)
       .post('/leave/requests/77/submit')
       .expect(201);
@@ -531,6 +555,70 @@ describe('Leave Flow (e2e)', () => {
     expect(body.status).toBe(LeaveStatusEnum.APPROVED);
     expect(body.leave_no).toBe('LV-2026-000001');
     expect(managerRecalculationRepository.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('previews a leave request import over HTTP without creating requests', async () => {
+    const preview = {
+      total: 1,
+      ready: 1,
+      created: 0,
+      failed: 0,
+      preview: true,
+      results: [
+        {
+          row: 2,
+          employee_no: 'EMP-501',
+          leave_type_code: 'EL',
+          status: 'ready',
+        },
+      ],
+    };
+    leaveImportService.import.mockResolvedValue(preview);
+
+    const response = await request(app.getHttpServer() as App)
+      .post('/leave/requests/import/preview')
+      .attach('file', Buffer.from('workbook'), 'leave-requests.xlsx')
+      .expect(201);
+
+    expect(response.body).toEqual(preview);
+    expect(leaveImportService.import).toHaveBeenCalledWith(
+      10,
+      expect.objectContaining({ originalname: 'leave-requests.xlsx' }),
+      e2eUser,
+      true,
+    );
+  });
+
+  it('confirms a leave request import over HTTP in write mode', async () => {
+    const imported = {
+      total: 1,
+      ready: 0,
+      created: 1,
+      failed: 0,
+      preview: false,
+      results: [
+        {
+          row: 2,
+          employee_no: 'EMP-501',
+          leave_type_code: 'EL',
+          status: 'created',
+        },
+      ],
+    };
+    leaveImportService.import.mockResolvedValue(imported);
+
+    const response = await request(app.getHttpServer() as App)
+      .post('/leave/requests/import/confirm')
+      .attach('file', Buffer.from('workbook'), 'leave-requests.xlsx')
+      .expect(201);
+
+    expect(response.body).toEqual(imported);
+    expect(leaveImportService.import).toHaveBeenCalledWith(
+      10,
+      expect.objectContaining({ originalname: 'leave-requests.xlsx' }),
+      e2eUser,
+    );
+    expect(leaveImportService.import.mock.calls[0]).toHaveLength(3);
   });
 
   it('queues attendance recalculation after approval through HTTP', async () => {
@@ -698,6 +786,13 @@ describe('Leave Flow (e2e)', () => {
       getRepository: jest.fn((entity: unknown) => {
         if (entity === LeaveRequest) {
           return managerLeaveRequestRepository;
+        }
+        if (entity === LeaveType) {
+          return {
+            findOne: jest
+              .fn()
+              .mockResolvedValue({ requires_attachment: false }),
+          };
         }
         throw new Error('Unexpected repository request');
       }),
