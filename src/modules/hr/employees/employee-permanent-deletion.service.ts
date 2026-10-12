@@ -78,8 +78,9 @@ const SUPERVISING_REFERENCES: Reference[] = [
   },
 ];
 
-// Real working history means the person is no longer just "onboarding";
-// those records must be kept, so the employee should be archived instead.
+// Employee-owned work records are removed for an onboarding employee along
+// with the employee. They must not block deleting a profile that never
+// completed onboarding.
 const OPERATIONAL_HISTORY: Reference[] = [
   { table: 'leave_requests', column: 'employee_id', label: 'leave requests' },
   {
@@ -185,6 +186,7 @@ const EXPLICIT_DELETES: Reference[] = [
     column: 'subject_employee_id',
     label: '',
   },
+  ...OPERATIONAL_HISTORY,
 ];
 
 export interface PermanentDeletionResult {
@@ -314,7 +316,6 @@ export class EmployeePermanentDeletionService {
   ): Promise<void> {
     const groups: Array<[string, Reference[]]> = [
       ['This employee is still referenced as', SUPERVISING_REFERENCES],
-      ['This employee already has', OPERATIONAL_HISTORY],
       ['Remove physical access first. This employee has', DEVICE_ACCESS],
     ];
     for (const [prefix, refs] of groups) {
