@@ -34,6 +34,18 @@ function productionRequirements(
 }
 
 describe('validateEnv', () => {
+  // Invitation, reset and verification links are built from APP_FRONTEND_URL,
+  // so the app must refuse to start without a valid one.
+  it.each([
+    ['missing', undefined],
+    ['empty', ''],
+    ['not a URL', 'hrms.example.com'],
+  ])('rejects an APP_FRONTEND_URL that is %s', (_label, value) => {
+    expect(() => validateEnv(buildEnv({ APP_FRONTEND_URL: value }))).toThrow(
+      /APP_FRONTEND_URL/,
+    );
+  });
+
   it.each(['uat', 'production'])('allows a local APP_URL in %s', (appEnv) => {
     expect(() =>
       validateEnv(

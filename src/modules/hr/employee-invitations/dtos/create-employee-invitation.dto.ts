@@ -92,13 +92,19 @@ export class CreateEmployeeInvitationDto {
   @IsOptional()
   onboarding_workflow_id?: number;
 
-  @ApiProperty({ enum: EmployeeInvitationChannel, isArray: true })
+  // The registration link is only ever sent by email; SMS is an optional
+  // link-free reminder, so EMAIL must always be included.
+  @ApiProperty({
+    enum: EmployeeInvitationChannel,
+    isArray: true,
+    example: [EmployeeInvitationChannel.EMAIL, EmployeeInvitationChannel.SMS],
+  })
   @IsArray()
   @ArrayNotEmpty()
-  @ArrayContains([
-    EmployeeInvitationChannel.EMAIL,
-    EmployeeInvitationChannel.SMS,
-  ])
+  @ArrayContains([EmployeeInvitationChannel.EMAIL], {
+    message:
+      'Email is required for invitations; SMS can only be added as a reminder',
+  })
   @ArrayMaxSize(2)
   @ArrayUnique()
   @IsEnum(EmployeeInvitationChannel, { each: true })

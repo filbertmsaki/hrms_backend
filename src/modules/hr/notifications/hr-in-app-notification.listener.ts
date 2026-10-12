@@ -10,6 +10,7 @@ import { NotificationPriorityEnum } from '../../notifications/enums/notification
 import { NotificationTypeEnum } from '../../notifications/enums/notification-type.enum';
 import { NotificationChannelEnum } from '../../notifications/enums/notification-channel.enum';
 import {
+  EmployeeInvitationAcceptedEvent,
   LeaveApprovalRequiredEvent,
   LeaveApprovedEvent,
   LeaveCancelledEvent,
@@ -969,6 +970,34 @@ export class HrInAppNotificationListener {
         },
       })),
     );
+  }
+
+  @OnEvent(EmployeeInvitationAcceptedEvent.EVENT)
+  async onEmployeeInvitationAccepted(
+    event: EmployeeInvitationAcceptedEvent,
+  ): Promise<void> {
+    if (!event.inviterCompanyUserId) return;
+    await this.sendOne({
+      company_id: event.companyId,
+      sender_company_user_id: null,
+      receiver_company_user_id: event.inviterCompanyUserId,
+      type: NotificationTypeEnum.EMPLOYEE_INVITATION_ACCEPTED,
+      category: NotificationCategoryEnum.HR,
+      priority: NotificationPriorityEnum.MEDIUM,
+      title: 'Invitation Accepted',
+      message: `${event.employeeName} accepted your invitation and has started onboarding.`,
+      related_module: 'onboarding',
+      entity_type: 'EMPLOYEE',
+      entity_id: event.employeeId,
+      action_url: event.profileUrl,
+      dedupe_key: `employee-invitation:accepted:${event.invitationId}:${event.inviterCompanyUserId}`,
+      channels: [NotificationChannelEnum.IN_APP, NotificationChannelEnum.EMAIL],
+      metadata: {
+        invitation_id: event.invitationId,
+        employee_no: event.employeeNo,
+        employee_name: event.employeeName,
+      },
+    });
   }
 
   @OnEvent(OnboardingCompletedEvent.EVENT)

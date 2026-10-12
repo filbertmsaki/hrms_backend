@@ -42,6 +42,7 @@ import { PermissionsGuard } from '../src/common/guards/permissions.guard';
 import { TenantGuard } from '../src/common/guards/tenant.guard';
 import { EmployeesController } from '../src/modules/hr/employees/employees.controller';
 import { EmployeeImportService } from '../src/modules/hr/employees/import/employee-import.service';
+import { EmployeePermanentDeletionService } from '../src/modules/hr/employees/employee-permanent-deletion.service';
 import { EmployeesService } from '../src/modules/hr/employees/employees.service';
 import { EmployeeAssignmentService } from '../src/modules/hr/employees/employee-assignment.service';
 import { SecurityEventsService } from '../src/modules/security/security-events.service';
@@ -141,6 +142,7 @@ describe('Employee Import Endpoints (e2e)', () => {
         { provide: EmployeesService, useValue: {} },
         { provide: EmployeeAssignmentService, useValue: {} },
         { provide: EmployeeImportService, useValue: employeeImportService },
+        { provide: EmployeePermanentDeletionService, useValue: {} },
         PermissionsGuard,
         TenantGuard,
         Reflector,

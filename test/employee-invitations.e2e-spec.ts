@@ -201,19 +201,30 @@ describe('Employee invitations endpoints (e2e)', () => {
       .post('/employee-invitations/44/resend')
       .expect(201);
 
-    expect(invitationsService.resend).toHaveBeenCalledWith(10, 44);
+    expect(invitationsService.resend).toHaveBeenCalledWith(
+      10,
+      44,
+      expect.objectContaining({ companyId: 10 }),
+    );
   });
 
-  it('allows public invitation lookup and acceptance with strong password validation', async () => {
+  it('allows public invitation lookup and acceptance with password validation', async () => {
     await request(app.getHttpServer() as App)
       .get('/employee-invitations/accept/invite-token')
       .expect(200);
 
     expect(invitationsService.findPublic).toHaveBeenCalledWith('invite-token');
 
+    // Strength is enforced in the service (existing accounts confirm with
+    // their current password), so the DTO only rejects missing/oversized input.
     await request(app.getHttpServer() as App)
       .post('/employee-invitations/accept/invite-token')
-      .send({ password: 'weak' })
+      .send({ password: '' })
+      .expect(400);
+
+    await request(app.getHttpServer() as App)
+      .post('/employee-invitations/accept/invite-token')
+      .send({ password: 'x'.repeat(129) })
       .expect(400);
 
     expect(invitationsService.accept).not.toHaveBeenCalled();
@@ -226,5 +237,48 @@ describe('Employee invitations endpoints (e2e)', () => {
     expect(invitationsService.accept).toHaveBeenCalledWith('invite-token', {
       password: 'StrongPass#2026',
     });
+  });
+
+  it('looks up and accepts with the token in the body, not the URL', async () => {
+    await request(app.getHttpServer() as App)
+      .post('/employee-invitations/lookup')
+      .send({ token: '  body-token  ' })
+      .expect(200);
+    expect(invitationsService.findPublic).toHaveBeenCalledWith('body-token');
+
+    await request(app.getHttpServer() as App)
+      .post('/employee-invitations/accept')
+      .send({ token: 'body-token', password: 'StrongPass#2026' })
+      .expect(201);
+    expect(invitationsService.accept).toHaveBeenCalledWith('body-token', {
+      password: 'StrongPass#2026',
+    });
+  });
+
+  it.each([
+    ['missing token', '/employee-invitations/lookup', {}],
+    ['empty token', '/employee-invitations/lookup', { token: '   ' }],
+    [
+      'oversized token',
+      '/employee-invitations/lookup',
+      { token: 'x'.repeat(201) },
+    ],
+    [
+      'missing token',
+      '/employee-invitations/accept',
+      { password: 'StrongPass#2026' },
+    ],
+    [
+      'missing password',
+      '/employee-invitations/accept',
+      { token: 'body-token' },
+    ],
+  ])('rejects %s on %s', async (_label, path, body) => {
+    await request(app.getHttpServer() as App)
+      .post(path)
+      .send(body)
+      .expect(400);
+    expect(invitationsService.findPublic).not.toHaveBeenCalled();
+    expect(invitationsService.accept).not.toHaveBeenCalled();
   });
 });

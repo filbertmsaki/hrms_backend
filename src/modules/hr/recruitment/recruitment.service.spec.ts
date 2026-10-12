@@ -75,6 +75,16 @@ describe('RecruitmentService', () => {
     expect(candidates.save).toHaveBeenCalledTimes(1);
   });
 
+  it('refuses to reject a candidate who has already been hired', async () => {
+    const { service, candidate, candidates } = harness();
+    candidate.status = RecruitmentCandidateStatus.HIRED;
+    await expect(service.rejectCandidate(actor, 3)).rejects.toThrow(
+      'Accepted candidates cannot be rejected here',
+    );
+    expect(candidate.status).toBe(RecruitmentCandidateStatus.HIRED);
+    expect(candidates.save).not.toHaveBeenCalled();
+  });
+
   it('purges candidate documents and personal data after retention', async () => {
     const { service, candidate, candidates, documents } = harness();
     candidate.status = RecruitmentCandidateStatus.REJECTED;
