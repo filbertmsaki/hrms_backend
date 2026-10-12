@@ -1,6 +1,5 @@
 export enum EmployeeInvitationStatus {
   PENDING = 'pending',
-  ACCEPTING = 'accepting',
   ACCEPTED = 'accepted',
   EXPIRED = 'expired',
   CANCELLED = 'cancelled',

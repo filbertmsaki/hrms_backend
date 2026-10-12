@@ -821,7 +821,7 @@ export class EmployeeInvitationsService {
         const result = await this.mailService.sendGenericNotificationEmail(
           invitation.email,
           `Employee invitation from ${companyName}`,
-          `${name}, ${companyName} has invited you to complete your employee registration. This invitation expires on ${invitation.expiresAt.toISOString()}.`,
+          `${name}, ${companyName} has invited you to complete your employee registration. This invitation expires on ${this.formatExpiry(invitation.expiresAt)}.`,
           actionUrl,
         );
         invitation.emailDeliveryStatus = EmployeeInvitationDeliveryStatus.SENT;
@@ -875,9 +875,43 @@ export class EmployeeInvitationsService {
   }
 
   private frontendBaseUrl(): string {
+    // Startup validation (config/env.validation.ts) already requires a valid
+    // APP_FRONTEND_URL; getOrThrow makes a misconfigured test module fail
+    // with a clear message instead of "cannot read properties of undefined".
     return this.configService
-      .get<string>('APP_FRONTEND_URL')!
+      .getOrThrow<string>('APP_FRONTEND_URL')
       .replace(/\/$/, '');
+  }
+
+  /** e.g. "12 October 2026 at 11:00 EAT" in the company's timezone. */
+  private formatExpiry(date: Date): string {
+    const timeZone = this.configService.get<string>(
+      'APP_TIMEZONE',
+      'Africa/Dar_es_Salaam',
+    );
+    const format = (zone: string) =>
+      new Intl.DateTimeFormat('en-GB', {
+        dateStyle: 'long',
+        timeStyle: 'short',
+        timeZone: zone,
+      }).format(date);
+    try {
+      return `${format(timeZone)} ${this.timeZoneLabel(date, timeZone)}`.trim();
+    } catch {
+      // An invalid zone must never stop the invitation from being sent.
+      return `${format('UTC')} UTC`;
+    }
+  }
+
+  private timeZoneLabel(date: Date, timeZone: string): string {
+    const part = new Intl.DateTimeFormat('en-GB', {
+      timeZone,
+      timeZoneName: 'short',
+    })
+      .formatToParts(date)
+      .find((p) => p.type === 'timeZoneName')?.value;
+    // en-GB renders East Africa Time as "GMT+3"; use the familiar label.
+    return timeZone === 'Africa/Dar_es_Salaam' ? 'EAT' : (part ?? timeZone);
   }
 
   private hashToken(rawToken: string): string {

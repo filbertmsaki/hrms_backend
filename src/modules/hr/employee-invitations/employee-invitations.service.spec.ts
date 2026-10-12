@@ -33,6 +33,7 @@ describe('EmployeeInvitationsService', () => {
   function createHarness(options?: {
     mailFailure?: Error;
     frontendUrl?: string;
+    timeZone?: string;
   }) {
     const duplicateQuery = {
       where: jest.fn().mockReturnThis(),
@@ -149,7 +150,15 @@ describe('EmployeeInvitationsService', () => {
           return options?.frontendUrl ?? 'http://localhost:3000';
         }
         if (key === 'EMPLOYEE_INVITATION_TTL_HOURS') return 72;
+        if (key === 'APP_TIMEZONE' && options?.timeZone) {
+          return options.timeZone;
+        }
         return fallback;
+      }),
+      getOrThrow: jest.fn((key: string) => {
+        const value = configService.get(key);
+        if (value === undefined) throw new Error(`Missing ${key}`);
+        return value;
       }),
     };
     const transactionalUserRepository = {
@@ -965,6 +974,52 @@ describe('EmployeeInvitationsService', () => {
         ).toHaveBeenCalledTimes(1);
       },
     );
+  });
+
+  describe('readable expiry in the invitation email', () => {
+    function emailBody(harness: ReturnType<typeof createHarness>) {
+      return harness.mailService.sendGenericNotificationEmail.mock
+        .calls[0][2] as string;
+    }
+
+    it('shows the expiry as a local date and time, not an ISO timestamp', async () => {
+      jest.useFakeTimers({ now: new Date('2026-10-12T08:00:00Z') });
+      try {
+        const harness = createHarness();
+        await harness.service.create(1, dto, actor);
+        // 72h after 08:00 UTC is 15 October, 11:00 in Dar es Salaam (UTC+3).
+        expect(emailBody(harness)).toContain(
+          'This invitation expires on 15 October 2026 at 11:00 EAT.',
+        );
+        expect(emailBody(harness)).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('honours a configured timezone', async () => {
+      jest.useFakeTimers({ now: new Date('2026-10-12T08:00:00Z') });
+      try {
+        const harness = createHarness({ timeZone: 'Africa/Kampala' });
+        await harness.service.create(1, dto, actor);
+        expect(emailBody(harness)).toContain('15 October 2026 at 11:00');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('falls back to UTC for an invalid timezone instead of failing the send', async () => {
+      jest.useFakeTimers({ now: new Date('2026-10-12T08:00:00Z') });
+      try {
+        const harness = createHarness({ timeZone: 'Not/AZone' });
+        await harness.service.create(1, dto, actor);
+        expect(emailBody(harness)).toContain(
+          'This invitation expires on 15 October 2026 at 08:00 UTC.',
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
   });
 
   it('sends through email and SMS without returning the token', async () => {
