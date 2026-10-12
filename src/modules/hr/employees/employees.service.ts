@@ -1201,9 +1201,12 @@ export class EmployeesService {
       );
     }
 
-    const existingByEmail = await userRepository.findOne({
-      where: { email },
-    });
+    // Emails are matched case-insensitively: not every path that creates
+    // users lower-cases them.
+    const existingByEmail = await userRepository
+      .createQueryBuilder('user')
+      .where('LOWER(user.email) = LOWER(:email)', { email: email.trim() })
+      .getOne();
     const existingByPhone = await userRepository.findOne({
       where: { phone },
     });
@@ -1224,7 +1227,10 @@ export class EmployeesService {
       );
     }
 
-    if (existingByPhone && existingByPhone.email !== email) {
+    if (
+      existingByPhone &&
+      existingByPhone.email.trim().toLowerCase() !== email.trim().toLowerCase()
+    ) {
       throw new ConflictException(
         'This phone number already exists with a different email address',
       );

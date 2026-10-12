@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { hashPassword } from '../../../common/utils/hash.util';
 import { RecruitmentCandidateStatus } from '../recruitment/entities/recruitment-candidate.entity';
+import { EmployeeInvitationAcceptedEvent } from '../notifications/events/employee-invitation.events';
 import { EmployeeInvitationsService } from './employee-invitations.service';
 import {
   EmployeeInvitationChannel,
@@ -75,6 +76,19 @@ describe('EmployeeInvitationsService', () => {
     const userRepository = {
       findOne: jest.fn().mockResolvedValue(null),
       exists: jest.fn().mockResolvedValue(false),
+      // Email lookups are case-insensitive query builders; route them to
+      // findOne({ where: { email } }) so tests stub one method.
+      createQueryBuilder: jest.fn(() => {
+        let email = '';
+        const qb = {
+          where: jest.fn((_sql: string, params: { email: string }) => {
+            email = params.email;
+            return qb;
+          }),
+          getOne: () => userRepository.findOne({ where: { email } }),
+        };
+        return qb;
+      }),
     };
     const branchRepository = {
       findOneBy: jest.fn().mockResolvedValue({ id: 2, company_id: 1 }),
@@ -158,13 +172,29 @@ describe('EmployeeInvitationsService', () => {
     const transactionalCandidateRepository = {
       update: jest.fn().mockResolvedValue({ affected: 1 }),
     };
+    // Case-insensitive user lookups go through a query builder; route them to
+    // findOneBy so tests can keep queueing users with mockResolvedValueOnce.
+    Object.assign(transactionalUserRepository, {
+      createQueryBuilder: jest.fn(() => {
+        const qb = {
+          where: jest.fn(() => qb),
+          getOne: () => transactionalUserRepository.findOneBy(),
+        };
+        return qb;
+      }),
+    });
+    const transactionalEmployeeRepository = {
+      findOne: jest.fn().mockResolvedValue({ id: 91, employee_no: 'AICL/091' }),
+    };
     const manager = {
       getRepository: jest.fn((entity) =>
         entity.name === 'EmployeeInvitation'
           ? transactionalInvitationRepository
           : entity.name === 'RecruitmentCandidate'
             ? transactionalCandidateRepository
-            : transactionalUserRepository,
+            : entity.name === 'Employee'
+              ? transactionalEmployeeRepository
+              : transactionalUserRepository,
       ),
     };
     const dataSource = {
@@ -172,6 +202,7 @@ describe('EmployeeInvitationsService', () => {
       query: jest.fn().mockResolvedValue([[], 0]),
     };
 
+    const eventEmitter = { emit: jest.fn() };
     const service = new EmployeeInvitationsService(
       invitationRepository as never,
       companyRepository as never,
@@ -188,6 +219,7 @@ describe('EmployeeInvitationsService', () => {
       usersService as never,
       configService as never,
       dataSource as never,
+      eventEmitter as never,
     );
 
     return {
@@ -202,6 +234,7 @@ describe('EmployeeInvitationsService', () => {
       employeesService,
       usersService,
       dataSource,
+      eventEmitter,
       lockedInvitationQuery,
       transactionalUserRepository,
       transactionalCandidateRepository,
@@ -1211,19 +1244,78 @@ describe('EmployeeInvitationsService', () => {
       expect(transactionalCandidateRepository.update).not.toHaveBeenCalled();
     });
 
+    it('tells the invitation owner once the acceptance has committed', async () => {
+      const { service, invitation, transactionalUserRepository, eventEmitter } =
+        await setup();
+      transactionalUserRepository.findOneBy
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 77, email: dto.email });
+
+      await service.accept(token, { password: 'StrongPass#2026' });
+
+      expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
+      const [name, event] = eventEmitter.emit.mock.calls[0];
+      expect(name).toBe(EmployeeInvitationAcceptedEvent.EVENT);
+      expect(event).toEqual(
+        expect.objectContaining({
+          companyId: 1,
+          invitationId: invitation.id,
+          employeeId: 91,
+          employeeNo: 'AICL/091',
+          employeeName: 'Amina Moshi',
+          inviterCompanyUserId: 20,
+          profileUrl:
+            'http://localhost:3000/dashboard/employees/profile/AICL%2F091',
+        }),
+      );
+    });
+
+    it('does not announce an acceptance that failed', async () => {
+      const {
+        service,
+        existingUser,
+        transactionalUserRepository,
+        eventEmitter,
+      } = await setup();
+      transactionalUserRepository.findOneBy.mockResolvedValue(existingUser);
+
+      await expect(
+        service.accept(token, { password: 'Wrong#Pass99' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it('matches the existing account by email regardless of letter case', async () => {
+      const { service, existingUser, transactionalUserRepository } =
+        await setup();
+      transactionalUserRepository.findOneBy.mockResolvedValue({
+        ...existingUser,
+        email: 'Amina@Example.com',
+      });
+
+      await service.accept(token, { password: 'MyCurrent#Pass1' });
+
+      const qb =
+        transactionalUserRepository.createQueryBuilder.mock.results[0].value;
+      expect(qb.where).toHaveBeenCalledWith(
+        'LOWER(user.email) = LOWER(:email)',
+        { email: dto.email },
+      );
+    });
+
     it('tells the registration page whether an account already exists', async () => {
       const { service, userRepository } = await setup();
 
-      userRepository.exists.mockResolvedValueOnce(true);
+      userRepository.findOne.mockResolvedValueOnce({ id: 5 });
       await expect(service.findPublic(token)).resolves.toEqual(
         expect.objectContaining({ has_existing_account: true }),
       );
 
-      userRepository.exists.mockResolvedValueOnce(false);
+      userRepository.findOne.mockResolvedValueOnce(null);
       await expect(service.findPublic(token)).resolves.toEqual(
         expect.objectContaining({ has_existing_account: false }),
       );
-      expect(userRepository.exists).toHaveBeenCalledWith({
+      expect(userRepository.findOne).toHaveBeenCalledWith({
         where: { email: dto.email },
       });
     });

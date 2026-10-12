@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomBytes } from 'crypto';
 import { DataSource, MoreThan, Repository } from 'typeorm';
@@ -38,6 +39,7 @@ import { CreateEmployeeInvitationDto } from './dtos/create-employee-invitation.d
 import { AcceptEmployeeInvitationDto } from './dtos/accept-employee-invitation.dto';
 import { ListEmployeeInvitationsQueryDto } from './dtos/list-employee-invitations-query.dto';
 import { buildPaginationMeta } from '../shared/hr.utils';
+import { EmployeeInvitationAcceptedEvent } from '../notifications/events/employee-invitation.events';
 import { EmployeeInvitation } from './entities/employee-invitation.entity';
 import {
   EmployeeInvitationChannel,
@@ -79,6 +81,7 @@ export class EmployeeInvitationsService {
     private readonly usersService: UsersService,
     private readonly configService: ConfigService,
     private readonly dataSource: DataSource,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async create(
@@ -443,9 +446,9 @@ export class EmployeeInvitationsService {
       phone: invitation.phone,
       company_name: company.name,
       expires_at: invitation.expiresAt.toISOString(),
-      has_existing_account: await this.userRepository.exists({
-        where: { email: invitation.email },
-      }),
+      has_existing_account: Boolean(
+        await this.findUserByEmail(this.userRepository, invitation.email),
+      ),
     };
   }
 
@@ -467,7 +470,7 @@ export class EmployeeInvitationsService {
   async accept(rawToken: string, dto: AcceptEmployeeInvitationDto) {
     const invitation = await this.findUsableInvitation(rawToken);
     const actor = await this.resolveInvitationActor(invitation);
-    return this.dataSource.transaction(async (manager) => {
+    const result = await this.dataSource.transaction(async (manager) => {
       const current = await manager
         .getRepository(EmployeeInvitation)
         .createQueryBuilder('invitation')
@@ -484,9 +487,10 @@ export class EmployeeInvitationsService {
 
       // An invitee who already has an account (e.g. in another company) must
       // prove ownership with their current password; we never overwrite it.
-      const existingUser = await manager.getRepository(User).findOneBy({
-        email: invitation.email,
-      });
+      const existingUser = await this.findUserByEmail(
+        manager.getRepository(User),
+        invitation.email,
+      );
       if (existingUser) {
         const matches = await comparePasswords(
           dto.password,
@@ -544,9 +548,10 @@ export class EmployeeInvitationsService {
         manager,
         { allowPositionOverfill: true },
       );
-      const user = await manager.getRepository(User).findOneBy({
-        email: invitation.email,
-      });
+      const user = await this.findUserByEmail(
+        manager.getRepository(User),
+        invitation.email,
+      );
       if (!user) {
         throw new NotFoundException('Created employee account was not found');
       }
@@ -578,12 +583,49 @@ export class EmployeeInvitationsService {
         );
       }
 
+      const employee = await manager.getRepository(Employee).findOne({
+        where: { id: created.employeeId },
+        select: { id: true, employee_no: true },
+      });
+
       return {
-        status: current.status,
-        employee_id: created.employeeId,
-        login_url: `${this.frontendBaseUrl()}/login`,
+        response: {
+          status: current.status,
+          employee_id: created.employeeId,
+          login_url: `${this.frontendBaseUrl()}/login`,
+        },
+        employeeNo: employee?.employee_no ?? null,
+        inviterCompanyUserId: current.createdByCompanyUserId,
       };
     });
+
+    // Emitted only after commit, so HR is never told about a rolled-back hire.
+    this.eventEmitter.emit(
+      EmployeeInvitationAcceptedEvent.EVENT,
+      new EmployeeInvitationAcceptedEvent(
+        invitation.companyId,
+        invitation.id,
+        result.response.employee_id,
+        result.employeeNo,
+        `${invitation.firstName} ${invitation.lastName}`.trim(),
+        result.inviterCompanyUserId,
+        result.employeeNo
+          ? `${this.frontendBaseUrl()}/dashboard/employees/profile/${encodeURIComponent(result.employeeNo)}`
+          : null,
+      ),
+    );
+    return result.response;
+  }
+
+  /** Emails are compared case-insensitively everywhere in this flow. */
+  private findUserByEmail(
+    repository: Repository<User>,
+    email: string,
+  ): Promise<User | null> {
+    return repository
+      .createQueryBuilder('user')
+      .where('LOWER(user.email) = LOWER(:email)', { email: email.trim() })
+      .getOne();
   }
 
   async cancel(companyId: number, invitationId: number) {
@@ -718,7 +760,7 @@ export class EmployeeInvitationsService {
     // Mirror the account rules EmployeesService applies on accept, so HR is
     // told now instead of the invitee hitting an unrecoverable error later.
     const [existingByEmail, existingByPhone] = await Promise.all([
-      this.userRepository.findOne({ where: { email } }),
+      this.findUserByEmail(this.userRepository, email),
       this.userRepository.findOne({ where: { phone } }),
     ]);
     if (
@@ -735,7 +777,10 @@ export class EmployeeInvitationsService {
         'This email address already has an account with a different phone number',
       );
     }
-    if (existingByPhone && existingByPhone.email !== email) {
+    if (
+      existingByPhone &&
+      existingByPhone.email.trim().toLowerCase() !== email.trim().toLowerCase()
+    ) {
       throw new ConflictException(
         'This phone number already has an account with a different email address',
       );
