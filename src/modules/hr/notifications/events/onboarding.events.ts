@@ -133,6 +133,10 @@ export class OnboardingCompletedEvent {
     public readonly employeeCompanyUserId: number | null,
     public readonly managerCompanyUserId: number | null,
     public readonly onboardingNo: string | null,
+    public readonly departmentHeadEmail: string | null = null,
+    public readonly departmentHeadName: string | null = null,
+    public readonly departmentHeadCompanyUserId: number | null = null,
+    public readonly departmentName: string | null = null,
   ) {}
 }
 

@@ -5428,6 +5428,9 @@ export class OnboardingService {
           employee: {
             company_user: { user: true },
             manager: { company_user: { user: true } },
+            primary_department: {
+              manager: { company_user: { user: true } },
+            },
           },
         },
       });
@@ -5439,6 +5442,12 @@ export class OnboardingService {
       const managerEmail = employee.manager?.company_user?.user?.email ?? null;
       const managerName = employee.manager
         ? `${employee.manager.first_name} ${employee.manager.last_name}`
+        : null;
+      const departmentHead = employee.primary_department?.manager ?? null;
+      const departmentHeadEmail =
+        departmentHead?.company_user?.user?.email ?? null;
+      const departmentHeadName = departmentHead
+        ? `${departmentHead.first_name} ${departmentHead.last_name}`
         : null;
       const frontendUrl = this.configService.get<string>('APP_FRONTEND_URL')!;
 
@@ -5458,6 +5467,10 @@ export class OnboardingService {
           employee.company_user!.id,
           employee.manager?.company_user?.id ?? null,
           loaded.onboarding_no,
+          departmentHeadEmail,
+          departmentHeadName,
+          departmentHead?.company_user?.id ?? null,
+          employee.primary_department?.name ?? null,
         ),
       );
     } catch {

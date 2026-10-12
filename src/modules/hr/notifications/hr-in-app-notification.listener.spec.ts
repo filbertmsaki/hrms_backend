@@ -3,6 +3,7 @@ import { NotificationQueueService } from '../../notifications/notification-queue
 import { SmsNotificationManagementService } from '../../sms/sms-notification-management.service';
 import { HrInAppNotificationListener } from './hr-in-app-notification.listener';
 import {
+  EmployeeInvitationAcceptedEvent,
   LeaveSubmittedEvent,
   OffboardingAssetOverdueEvent,
   OffboardingSettlementOverdueEvent,
@@ -218,5 +219,43 @@ describe('HrInAppNotificationListener', () => {
         channels: ['IN_APP', 'EMAIL', 'SMS'],
       }),
     );
+  });
+
+  it('notifies the invitation owner in-app and by email when an invitee accepts', async () => {
+    await listener.onEmployeeInvitationAccepted(
+      new EmployeeInvitationAcceptedEvent(
+        10,
+        44,
+        91,
+        'AICL/091',
+        'Amina Moshi',
+        20,
+        'https://hrms.example.com/dashboard/employees/profile/AICL%2F091',
+      ),
+    );
+
+    expect(notificationsService.createAndPush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        company_id: 10,
+        receiver_company_user_id: 20,
+        type: 'EMPLOYEE_INVITATION_ACCEPTED',
+        title: 'Invitation Accepted',
+        message:
+          'Amina Moshi accepted your invitation and has started onboarding.',
+        entity_type: 'EMPLOYEE',
+        entity_id: 91,
+        action_url:
+          'https://hrms.example.com/dashboard/employees/profile/AICL%2F091',
+        dedupe_key: 'employee-invitation:accepted:44:20',
+        channels: ['IN_APP', 'EMAIL'],
+      }),
+    );
+  });
+
+  it('skips the acceptance notification when the invitation has no owner', async () => {
+    await listener.onEmployeeInvitationAccepted(
+      new EmployeeInvitationAcceptedEvent(10, 44, 91, null, 'A B', null, null),
+    );
+    expect(notificationsService.createAndPush).not.toHaveBeenCalled();
   });
 });

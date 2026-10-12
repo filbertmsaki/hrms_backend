@@ -30,6 +30,7 @@ import { EmployeeAssignmentService } from './employee-assignment.service';
 import { EmployeeLifecycleService } from './employee-lifecycle.service';
 import { EmployeeNumberController } from './employee-number.controller';
 import { EmployeeNumberService } from './employee-number.service';
+import { EmployeePermanentDeletionService } from './employee-permanent-deletion.service';
 import { EmployeesService } from './employees.service';
 import { EmployeeAddress } from './entities/employee-address.entity';
 import { EmployeeBankAccount } from './entities/employee-bank-account.entity';
@@ -114,6 +115,7 @@ import { ConditionalBullModule } from '../../../infrastructure/queues/conditiona
   controllers: [EmployeesController, EmployeeNumberController],
   providers: [
     EmployeesService,
+    EmployeePermanentDeletionService,
     EmployeeImportService,
     EmployeeNumberService,
     EmployeeAssignmentService,

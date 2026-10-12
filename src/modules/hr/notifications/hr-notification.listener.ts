@@ -232,11 +232,21 @@ export class HrNotificationListener {
         [event.employeeEmail, event.employeeName, event],
       ),
     );
+    const emailRecipients = new Map<string, string>();
     if (event.managerEmail && event.managerName) {
+      emailRecipients.set(event.managerEmail.toLowerCase(), event.managerName);
+    }
+    if (event.departmentHeadEmail && event.departmentHeadName) {
+      emailRecipients.set(
+        event.departmentHeadEmail.toLowerCase(),
+        event.departmentHeadName,
+      );
+    }
+    for (const [email, name] of emailRecipients) {
       await this.send(() =>
         this.notificationQueueService.enqueueMailMethod(
           'sendOnboardingCompletedNotification',
-          [event.managerEmail!, event.managerName!, event],
+          [email, name, event],
         ),
       );
     }

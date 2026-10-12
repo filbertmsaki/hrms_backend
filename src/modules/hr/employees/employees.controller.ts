@@ -54,6 +54,7 @@ import { EmployeeImportHistoryQueryDto } from './import/dto/employee-import-hist
 import { EmployeeImportPreviewRequestDto } from './import/dto/employee-import-preview-request.dto';
 import { EmployeeAssignmentService } from './employee-assignment.service';
 import { EmployeeImportService } from './import/employee-import.service';
+import { EmployeePermanentDeletionService } from './employee-permanent-deletion.service';
 import { EmployeesService } from './employees.service';
 import { createDownloadStream } from '../../files/file-download.util';
 import {
@@ -79,6 +80,7 @@ export class EmployeesController {
     private readonly employeesService: EmployeesService,
     private readonly employeeAssignmentService: EmployeeAssignmentService,
     private readonly employeeImportService: EmployeeImportService,
+    private readonly permanentDeletionService: EmployeePermanentDeletionService,
   ) {}
 
   // ════════════════════════════════════════════
@@ -562,6 +564,28 @@ export class EmployeesController {
     @CurrentAuditContext() context: AuditRequestContext,
   ) {
     return this.employeesService.remove(
+      req.user.companyId!,
+      id,
+      req.user,
+      context,
+    );
+  }
+
+  @Delete(':id/permanent')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:delete')
+  @ApiOperationSummary(
+    'Permanently delete an onboarding employee',
+    'Removes an employee who is still in onboarding together with their records, documents, files and (when unused elsewhere) login. Refused once the employee has working history, supervises others, or has device access.',
+  )
+  @ApiAuthRequired()
+  @ApiNotFoundResponse('Employee')
+  removePermanently(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentAuditContext() context: AuditRequestContext,
+  ) {
+    return this.permanentDeletionService.deleteOnboardingEmployee(
       req.user.companyId!,
       id,
       req.user,

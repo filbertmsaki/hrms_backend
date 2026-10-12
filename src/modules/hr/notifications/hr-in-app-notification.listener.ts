@@ -10,6 +10,7 @@ import { NotificationPriorityEnum } from '../../notifications/enums/notification
 import { NotificationTypeEnum } from '../../notifications/enums/notification-type.enum';
 import { NotificationChannelEnum } from '../../notifications/enums/notification-channel.enum';
 import {
+  EmployeeInvitationAcceptedEvent,
   LeaveApprovalRequiredEvent,
   LeaveApprovedEvent,
   LeaveCancelledEvent,
@@ -971,6 +972,34 @@ export class HrInAppNotificationListener {
     );
   }
 
+  @OnEvent(EmployeeInvitationAcceptedEvent.EVENT)
+  async onEmployeeInvitationAccepted(
+    event: EmployeeInvitationAcceptedEvent,
+  ): Promise<void> {
+    if (!event.inviterCompanyUserId) return;
+    await this.sendOne({
+      company_id: event.companyId,
+      sender_company_user_id: null,
+      receiver_company_user_id: event.inviterCompanyUserId,
+      type: NotificationTypeEnum.EMPLOYEE_INVITATION_ACCEPTED,
+      category: NotificationCategoryEnum.HR,
+      priority: NotificationPriorityEnum.MEDIUM,
+      title: 'Invitation Accepted',
+      message: `${event.employeeName} accepted your invitation and has started onboarding.`,
+      related_module: 'onboarding',
+      entity_type: 'EMPLOYEE',
+      entity_id: event.employeeId,
+      action_url: event.profileUrl,
+      dedupe_key: `employee-invitation:accepted:${event.invitationId}:${event.inviterCompanyUserId}`,
+      channels: [NotificationChannelEnum.IN_APP, NotificationChannelEnum.EMAIL],
+      metadata: {
+        invitation_id: event.invitationId,
+        employee_no: event.employeeNo,
+        employee_name: event.employeeName,
+      },
+    });
+  }
+
   @OnEvent(OnboardingCompletedEvent.EVENT)
   async onOnboardingCompleted(event: OnboardingCompletedEvent): Promise<void> {
     if (event.employeeCompanyUserId) {
@@ -995,24 +1024,56 @@ export class HrInAppNotificationListener {
       });
     }
 
-    if (event.managerCompanyUserId) {
+    const departmentManagerIsDirectManager =
+      event.departmentHeadCompanyUserId != null &&
+      event.departmentHeadCompanyUserId === event.managerCompanyUserId;
+    const managerRecipients = [
+      ...(event.managerCompanyUserId
+        ? [
+            {
+              id: event.managerCompanyUserId,
+              title: 'Employee Onboarding Completed',
+              message: `${event.employeeName}'s onboarding has been completed.`,
+              key: 'manager',
+            },
+          ]
+        : []),
+      ...(event.departmentHeadCompanyUserId && !departmentManagerIsDirectManager
+        ? [
+            {
+              id: event.departmentHeadCompanyUserId,
+              title: 'New Employee in Your Department',
+              message: `${event.employeeName} is now active in your department${event.departmentName ? ` (${event.departmentName})` : ''}.`,
+              key: 'department-head',
+            },
+          ]
+        : []),
+    ];
+    for (const recipient of managerRecipients) {
       await this.sendOne({
         company_id: event.companyId,
         sender_company_user_id: event.senderCompanyUserId,
-        receiver_company_user_id: event.managerCompanyUserId,
+        receiver_company_user_id: recipient.id,
         type: NotificationTypeEnum.ONBOARDING_COMPLETED,
         category: NotificationCategoryEnum.HR,
         priority: NotificationPriorityEnum.MEDIUM,
-        title: 'Employee Onboarding Completed',
-        message: `${event.employeeName}'s onboarding has been completed.`,
+        title: recipient.title,
+        message: recipient.message,
         related_module: 'onboarding',
         entity_type: 'ONBOARDING_REQUEST',
         entity_id: event.onboardingRequestId,
         action_url: event.dashboardUrl,
-        dedupe_key: `onboarding:completed:manager:${event.onboardingRequestId}:${event.managerCompanyUserId}`,
+        dedupe_key: `onboarding:completed:${recipient.key}:${event.onboardingRequestId}:${recipient.id}`,
+        channels: [
+          NotificationChannelEnum.IN_APP,
+          NotificationChannelEnum.EMAIL,
+          NotificationChannelEnum.SMS,
+          NotificationChannelEnum.PUSH,
+        ],
         metadata: {
           onboarding_no: event.onboardingNo,
           employee_name: event.employeeName,
+          department_name: event.departmentName,
         },
       });
     }
