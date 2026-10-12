@@ -9,7 +9,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, Raw, Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { resolveAuditContext } from '../../../common/request-context/request-context';
@@ -1203,10 +1203,13 @@ export class EmployeesService {
 
     // Emails are matched case-insensitively: not every path that creates
     // users lower-cases them.
-    const existingByEmail = await userRepository
-      .createQueryBuilder('user')
-      .where('LOWER(user.email) = LOWER(:email)', { email: email.trim() })
-      .getOne();
+    const existingByEmail = await userRepository.findOne({
+      where: {
+        email: Raw((alias) => `LOWER(${alias}) = LOWER(:email)`, {
+          email: email.trim(),
+        }),
+      },
+    });
     const existingByPhone = await userRepository.findOne({
       where: { phone },
     });
