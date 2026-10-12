@@ -241,6 +241,34 @@ describe('Permanent delete of onboarding employees (e2e, real Postgres)', () => 
     ).toBe(1);
   });
 
+  it('removes attendance rows attached to an onboarding employee before deleting the employee', async () => {
+    const token = await login();
+    const employee = await createEmployee(token);
+    await dataSource.query(
+      `INSERT INTO attendance_daily_summaries
+        (company_id, employee_id, attendance_date, schedule_source, timezone, attendance_status)
+       VALUES ($1, $2, CURRENT_DATE, 'ONBOARDING_TEST', 'UTC', 'PRESENT')`,
+      [companyId, employee.id],
+    );
+    expect(
+      await count('attendance_daily_summaries WHERE employee_id = $1', [
+        employee.id,
+      ]),
+    ).toBe(1);
+
+    await request(app.getHttpServer() as App)
+      .delete(`/api/employees/${employee.id}/permanent`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    expect(
+      await count('attendance_daily_summaries WHERE employee_id = $1', [
+        employee.id,
+      ]),
+    ).toBe(0);
+    expect(await count('employees WHERE id = $1', [employee.id])).toBe(0);
+  });
+
   it('keeps the login when the person belongs to another company', async () => {
     const token = await login();
     const employee = await createEmployee(token);
