@@ -237,6 +237,7 @@ describe('EmployeeInvitationsService', () => {
       companyUserRepository,
       userRepository,
       existingEmployeeQuery,
+      positionRepository,
       duplicateQuery,
       mailService,
       smsService,
@@ -974,6 +975,55 @@ describe('EmployeeInvitationsService', () => {
         ).toHaveBeenCalledTimes(1);
       },
     );
+  });
+
+  describe('position capacity warning', () => {
+    it('returns capacity with the new invitation so HR is warned about overfilling', async () => {
+      const harness = createHarness();
+      harness.positionRepository.findOneBy.mockResolvedValue({
+        id: 9,
+        company_id: 1,
+        branch_id: 2,
+        department_id: 5,
+        headcount: 1,
+      });
+      Object.assign(harness.existingEmployeeQuery, {
+        getCount: jest.fn().mockResolvedValue(1),
+      });
+      Object.assign(harness.duplicateQuery, {
+        getCount: jest.fn().mockResolvedValue(0),
+      });
+
+      const result = await harness.service.create(1, dto, actor);
+
+      expect(result.capacity).toEqual({
+        position_id: 9,
+        headcount: 1,
+        filled: 1,
+        pending_invitations: 0,
+        available: 0,
+        will_overfill: true,
+      });
+      // The invitation itself is still created and sent.
+      expect(
+        harness.mailService.sendGenericNotificationEmail,
+      ).toHaveBeenCalled();
+    });
+
+    it('still returns the invitation when capacity cannot be computed', async () => {
+      const harness = createHarness();
+      Object.assign(harness.existingEmployeeQuery, {
+        getCount: jest.fn().mockRejectedValue(new Error('db hiccup')),
+      });
+      Object.assign(harness.duplicateQuery, {
+        getCount: jest.fn().mockResolvedValue(0),
+      });
+
+      const result = await harness.service.create(1, dto, actor);
+
+      expect(result.id).toBe(44);
+      expect(result.capacity).toBeNull();
+    });
   });
 
   describe('readable expiry in the invitation email', () => {

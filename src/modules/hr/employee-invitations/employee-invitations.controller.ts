@@ -69,6 +69,20 @@ export class EmployeeInvitationsController {
     );
   }
 
+  // Lets the invite form warn before HR overfills a position.
+  @Get('position-capacity/:positionId')
+  @UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
+  @Permissions('employees:create')
+  positionCapacity(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('positionId', ParseIntPipe) positionId: number,
+  ) {
+    return this.employeeInvitationsService.positionCapacity(
+      req.user.companyId!,
+      positionId,
+    );
+  }
+
   @Get(':id')
   @UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
   @PermissionsAny(

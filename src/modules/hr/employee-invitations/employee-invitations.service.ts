@@ -52,6 +52,15 @@ const MAX_DELIVERY_ATTEMPTS = 3;
 /** Wait this many minutes x attempts so far before the next retry. */
 const RETRY_BACKOFF_MINUTES = 15;
 
+export interface PositionCapacity {
+  position_id: number;
+  headcount: number;
+  filled: number;
+  pending_invitations: number;
+  available: number;
+  will_overfill: boolean;
+}
+
 @Injectable()
 export class EmployeeInvitationsService {
   private readonly logger = new Logger(EmployeeInvitationsService.name);
@@ -148,7 +157,7 @@ export class EmployeeInvitationsService {
       throw error;
     }
     await this.deliver(saved, rawToken, company.name, dto.channels);
-    return this.toResponse(saved);
+    return this.withCapacity(saved);
   }
 
   private async expireStalePending(
@@ -196,6 +205,63 @@ export class EmployeeInvitationsService {
     });
 
     return invitations.map((invitation) => this.toResponse(invitation));
+  }
+
+  /**
+   * How full a position is, counting both filled seats and pending
+   * invitations (each will take a seat on acceptance). Accepting never
+   * blocks on headcount, so this is how HR is warned before overfilling.
+   */
+  async positionCapacity(
+    companyId: number,
+    positionId: number,
+    excludeInvitationId: number | null = null,
+  ): Promise<PositionCapacity> {
+    const position = await this.positionRepository.findOneBy({
+      id: positionId,
+      company_id: companyId,
+    });
+    if (!position) {
+      throw new NotFoundException('Position not found');
+    }
+    const [filled, pendingInvitations] = await Promise.all([
+      this.employeeRepository
+        .createQueryBuilder('employee')
+        .where('employee.company_id = :companyId', { companyId })
+        .andWhere('employee.primary_position_id = :positionId', { positionId })
+        .andWhere('employee.employment_status IN (:...statuses)', {
+          statuses: [
+            EmploymentStatusEnum.ONBOARDING,
+            EmploymentStatusEnum.ACTIVE,
+            EmploymentStatusEnum.SUSPENDED,
+          ],
+        })
+        .getCount(),
+      this.invitationRepository
+        .createQueryBuilder('invitation')
+        .where('invitation.company_id = :companyId', { companyId })
+        .andWhere('invitation.primary_position_id = :positionId', {
+          positionId,
+        })
+        .andWhere('invitation.status = :pending', {
+          pending: EmployeeInvitationStatus.PENDING,
+        })
+        .andWhere('invitation.expires_at > :now', { now: new Date() })
+        .andWhere('invitation.id <> :excludeId', {
+          excludeId: excludeInvitationId ?? 0,
+        })
+        .getCount(),
+    ]);
+    const available = position.headcount - filled - pendingInvitations;
+    return {
+      position_id: position.id,
+      headcount: position.headcount,
+      filled,
+      pending_invitations: pendingInvitations,
+      available: Math.max(available, 0),
+      // True when one more acceptance would exceed the approved headcount.
+      will_overfill: available <= 0,
+    };
   }
 
   /** Every invitation for the company, filtered by effective status. */
@@ -427,7 +493,7 @@ export class EmployeeInvitationsService {
       throw error;
     }
     await this.deliver(invitation, rawToken, company.name, channels);
-    return this.toResponse(invitation);
+    return this.withCapacity(invitation);
   }
 
   async findPublic(rawToken: string) {
@@ -1037,6 +1103,26 @@ export class EmployeeInvitationsService {
         ? normalized.slice(0, diagnosticStart).trim()
         : normalized;
     return withoutDiagnostics.slice(0, 500);
+  }
+
+  /**
+   * Adds the position's capacity so HR sees an overfill warning. A failure
+   * here must never hide the fact that the invitation was sent.
+   */
+  private async withCapacity(invitation: EmployeeInvitation) {
+    let capacity: PositionCapacity | null = null;
+    try {
+      capacity = await this.positionCapacity(
+        invitation.companyId,
+        invitation.primaryPositionId,
+        invitation.id,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Could not compute capacity for invitation ${invitation.id}: ${this.errorMessage(error)}`,
+      );
+    }
+    return { ...this.toResponse(invitation), capacity };
   }
 
   private toResponse(invitation: EmployeeInvitation) {
