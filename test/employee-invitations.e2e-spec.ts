@@ -238,4 +238,47 @@ describe('Employee invitations endpoints (e2e)', () => {
       password: 'StrongPass#2026',
     });
   });
+
+  it('looks up and accepts with the token in the body, not the URL', async () => {
+    await request(app.getHttpServer() as App)
+      .post('/employee-invitations/lookup')
+      .send({ token: '  body-token  ' })
+      .expect(200);
+    expect(invitationsService.findPublic).toHaveBeenCalledWith('body-token');
+
+    await request(app.getHttpServer() as App)
+      .post('/employee-invitations/accept')
+      .send({ token: 'body-token', password: 'StrongPass#2026' })
+      .expect(201);
+    expect(invitationsService.accept).toHaveBeenCalledWith('body-token', {
+      password: 'StrongPass#2026',
+    });
+  });
+
+  it.each([
+    ['missing token', '/employee-invitations/lookup', {}],
+    ['empty token', '/employee-invitations/lookup', { token: '   ' }],
+    [
+      'oversized token',
+      '/employee-invitations/lookup',
+      { token: 'x'.repeat(201) },
+    ],
+    [
+      'missing token',
+      '/employee-invitations/accept',
+      { password: 'StrongPass#2026' },
+    ],
+    [
+      'missing password',
+      '/employee-invitations/accept',
+      { token: 'body-token' },
+    ],
+  ])('rejects %s on %s', async (_label, path, body) => {
+    await request(app.getHttpServer() as App)
+      .post(path)
+      .send(body)
+      .expect(400);
+    expect(invitationsService.findPublic).not.toHaveBeenCalled();
+    expect(invitationsService.accept).not.toHaveBeenCalled();
+  });
 });

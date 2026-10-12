@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseIntPipe,
   Post,
@@ -11,7 +13,7 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthGuard } from '@nestjs/passport';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request as ExpressRequest } from 'express';
 import {
   Permissions,
@@ -24,6 +26,10 @@ import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user
 import { CreateEmployeeInvitationDto } from './dtos/create-employee-invitation.dto';
 import { AcceptEmployeeInvitationDto } from './dtos/accept-employee-invitation.dto';
 import { ListEmployeeInvitationsQueryDto } from './dtos/list-employee-invitations-query.dto';
+import {
+  AcceptEmployeeInvitationWithTokenDto,
+  InvitationTokenDto,
+} from './dtos/invitation-token.dto';
 import { EmployeeInvitationsService } from './employee-invitations.service';
 
 @ApiTags('Employee Invitations')
@@ -121,15 +127,45 @@ export class EmployeeInvitationsController {
     );
   }
 
+  // Token in the body, never the URL: request paths end up in proxy and
+  // access logs. POST because GET bodies are not reliably supported.
+  @Post('lookup')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  lookup(@Body() dto: InvitationTokenDto) {
+    return this.employeeInvitationsService.findPublic(dto.token);
+  }
+
+  @Post('accept')
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  acceptWithBodyToken(@Body() dto: AcceptEmployeeInvitationWithTokenDto) {
+    return this.employeeInvitationsService.accept(dto.token, {
+      password: dto.password,
+    });
+  }
+
+  /**
+   * @deprecated Puts the token in the URL. Kept only so a frontend deployed
+   * before this backend keeps working; remove once all clients use
+   * POST /employee-invitations/lookup.
+   */
   @Get('accept/:token')
   @Public()
+  @ApiOperation({ deprecated: true, summary: 'Use POST /lookup instead' })
   @Throttle({ default: { limit: 30, ttl: 60000 } })
   findPublic(@Param('token') token: string) {
     return this.employeeInvitationsService.findPublic(token);
   }
 
+  /**
+   * @deprecated Puts the token in the URL. Kept only for frontends deployed
+   * before this backend; remove once all clients use POST /accept.
+   */
   @Post('accept/:token')
   @Public()
+  @ApiOperation({ deprecated: true, summary: 'Use POST /accept instead' })
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   accept(
     @Param('token') token: string,
